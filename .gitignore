@@ -1,0 +1,52 @@
+# Go
+/sfpanel
+*.exe
+*.test
+*.out
+vendor/
+
+# Frontend
+web/node_modules/
+web/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (실제 설정 파일은 커밋하지 않음)
+config.yaml
+*.db
+*.sqlite
+
+# Environment
+.env
+.env.local
+
+# E2E tests
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+
+# Screenshots (Playwright MCP, 개발 중 캡처)
+*.png
+*.jpg
+*.jpeg
+screenshots/
+.playwright-mcp/
+
+# Node (root-level, Playwright 등)
+/node_modules/
+/package.json
+/package-lock.json
+
+# Claude Code
+CLAUDE.md
+
+# Binary
+/sfpanel

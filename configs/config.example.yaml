@@ -1,0 +1,21 @@
+# SFPanel Configuration
+server:
+  host: "0.0.0.0"
+  port: 8443
+  # tls:
+  #   cert: "/etc/sfpanel/cert.pem"
+  #   key: "/etc/sfpanel/key.pem"
+
+database:
+  path: "/var/lib/sfpanel/sfpanel.db"
+
+auth:
+  jwt_secret: "CHANGE_ME_TO_RANDOM_SECRET"
+  token_expiry: "24h"
+
+docker:
+  socket: "unix:///var/run/docker.sock"
+
+log:
+  level: "info"  # debug, info, warn, error
+  file: "/var/log/sfpanel/sfpanel.log"

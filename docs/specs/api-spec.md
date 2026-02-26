@@ -1,0 +1,1866 @@
+# SFPanel API 스펙
+
+## 개요
+
+### 기본 URL
+```
+/api/v1
+```
+
+### 인증 방식
+- **JWT Bearer Token**: 보호된 엔드포인트는 HTTP 헤더에 `Authorization: Bearer <JWT>` 필요
+- **WebSocket 인증**: 쿼리 파라미터 `?token=<JWT>`로 인증
+- 토큰은 로그인 또는 초기 셋업 시 발급
+- 토큰 만료 시간은 서버 설정 `config.yaml`의 `auth.token_expiry`로 결정 (기본값: 24시간)
+
+### 응답 형식
+모든 REST API 응답은 통일된 JSON 형식을 따릅니다.
+
+**성공 응답:**
+```json
+{
+  "success": true,
+  "data": { ... }
+}
+```
+
+**실패 응답:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "사람이 읽을 수 있는 에러 메시지"
+  }
+}
+```
+
+### 공통 에러 코드
+| 코드 | HTTP 상태 | 설명 |
+|------|-----------|------|
+| `MISSING_TOKEN` | 401 | Authorization 헤더 누락 |
+| `INVALID_TOKEN` | 401 | 유효하지 않거나 만료된 JWT 토큰 |
+| `INVALID_REQUEST` | 400 | 잘못된 요청 본문 |
+| `MISSING_FIELDS` | 400 | 필수 필드 누락 |
+
+---
+
+## 인증 API (`/api/v1/auth`)
+
+### POST /api/v1/auth/login
+사용자 로그인 및 JWT 토큰 발급.
+
+- **인증 필요**: 아니오 (공개 엔드포인트)
+
+**Request Body:**
+```json
+{
+  "username": "string",
+  "password": "string",
+  "totp_code": "string"  // 선택 (2FA 활성화 시 필수)
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIs..."
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_FIELDS` | 400 | username 또는 password 누락 |
+| `INVALID_CREDENTIALS` | 401 | 잘못된 사용자명/비밀번호 |
+| `TOTP_REQUIRED` | 400 | 2FA가 활성화되어 있으나 totp_code 누락 |
+| `INVALID_TOTP` | 401 | 잘못된 2FA 코드 |
+
+---
+
+### GET /api/v1/auth/setup-status
+초기 셋업 필요 여부 확인 (관리자 계정 존재 여부).
+
+- **인증 필요**: 아니오 (공개 엔드포인트)
+
+**Query Parameters:** 없음
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "setup_required": true
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `setup_required` | boolean | `true`이면 관리자 계정이 없어 셋업 필요 |
+
+---
+
+### POST /api/v1/auth/setup
+초기 관리자 계정 생성. 관리자 계정이 이미 존재하면 실패.
+
+- **인증 필요**: 아니오 (공개 엔드포인트, 1회용)
+
+**Request Body:**
+```json
+{
+  "username": "string",
+  "password": "string"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIs..."
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_FIELDS` | 400 | username 또는 password 누락 |
+| `WEAK_PASSWORD` | 400 | 비밀번호 8자 미만 |
+| `ALREADY_SETUP` | 409 | 관리자 계정이 이미 존재 |
+
+---
+
+### POST /api/v1/auth/2fa/setup
+2FA(TOTP) 시크릿 생성. QR 코드 등록용 시크릿과 URL 반환.
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "secret": "JBSWY3DPEHPK3PXP",
+    "url": "otpauth://totp/SFPanel:admin?secret=JBSWY3DPEHPK3PXP&issuer=SFPanel"
+  }
+}
+```
+
+---
+
+### POST /api/v1/auth/2fa/verify
+2FA 활성화를 위한 코드 검증 및 시크릿 저장.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "secret": "string",
+  "code": "string"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "2FA enabled successfully"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_FIELDS` | 400 | secret 또는 code 누락 |
+| `INVALID_TOTP` | 400 | 잘못된 2FA 코드 |
+
+---
+
+### POST /api/v1/auth/change-password
+비밀번호 변경.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "current_password": "string",
+  "new_password": "string"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Password changed successfully"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_FIELDS` | 400 | 현재/새 비밀번호 누락 |
+| `WEAK_PASSWORD` | 400 | 새 비밀번호 8자 미만 |
+| `INVALID_PASSWORD` | 401 | 현재 비밀번호 불일치 |
+| `USER_NOT_FOUND` | 404 | 사용자를 찾을 수 없음 |
+
+---
+
+## 설정 API (`/api/v1/settings`)
+
+### GET /api/v1/settings
+전체 설정 조회. 기본값과 DB에 저장된 값을 병합하여 반환.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "terminal_timeout": "30"
+  }
+}
+```
+
+설정 기본값:
+| 키 | 기본값 | 설명 |
+|----|--------|------|
+| `terminal_timeout` | `"30"` | 터미널 세션 타임아웃 (분). `"0"`이면 무제한 |
+
+---
+
+### PUT /api/v1/settings
+설정 업데이트. 키-값 쌍으로 전달하며, 기존 키는 덮어쓰기.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "settings": {
+    "terminal_timeout": "60"
+  }
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Settings updated"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `EMPTY_SETTINGS` | 400 | settings 객체가 비어있음 |
+
+---
+
+## 시스템 API (`/api/v1/system`)
+
+### GET /api/v1/system/info
+시스템 호스트 정보와 현재 메트릭 조회.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "host": {
+      "hostname": "string",
+      "os": "string",
+      "platform": "string",
+      "kernel": "string",
+      "uptime": 123456,
+      "num_cpu": 4
+    },
+    "metrics": {
+      "cpu": 23.5,
+      "mem_total": 8388608000,
+      "mem_used": 4194304000,
+      "mem_percent": 50.0,
+      "swap_total": 2147483648,
+      "swap_used": 0,
+      "swap_percent": 0.0,
+      "disk_total": 107374182400,
+      "disk_used": 53687091200,
+      "disk_percent": 50.0,
+      "net_bytes_sent": 1234567,
+      "net_bytes_recv": 7654321,
+      "timestamp": 1740000000000
+    }
+  }
+}
+```
+
+**host 필드:**
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `hostname` | string | 호스트명 |
+| `os` | string | 운영체제 (예: "linux") |
+| `platform` | string | 플랫폼 (예: "ubuntu") |
+| `kernel` | string | 커널 버전 |
+| `uptime` | number | 가동 시간 (초) |
+| `num_cpu` | number | CPU 코어 수 |
+
+**metrics 필드:**
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `cpu` | number | CPU 사용률 (%) |
+| `mem_total` | number | 전체 메모리 (bytes) |
+| `mem_used` | number | 사용 중인 메모리 (bytes) |
+| `mem_percent` | number | 메모리 사용률 (%) |
+| `swap_total` | number | 전체 스왑 (bytes) |
+| `swap_used` | number | 사용 중인 스왑 (bytes) |
+| `swap_percent` | number | 스왑 사용률 (%) |
+| `disk_total` | number | 전체 디스크 (bytes, 루트 파티션) |
+| `disk_used` | number | 사용 중인 디스크 (bytes) |
+| `disk_percent` | number | 디스크 사용률 (%) |
+| `net_bytes_sent` | number | 누적 네트워크 송신 (bytes) |
+| `net_bytes_recv` | number | 누적 네트워크 수신 (bytes) |
+| `timestamp` | number | 수집 시각 (Unix ms) |
+
+---
+
+### GET /api/v1/system/metrics-history
+24시간 메트릭 히스토리 조회. 30초 간격으로 수집된 최대 2880개 데이터 포인트.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "time": 1740000000000,
+      "cpu": 23.5,
+      "mem_percent": 50.0
+    }
+  ]
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `time` | number | 수집 시각 (Unix ms) |
+| `cpu` | number | CPU 사용률 (%) |
+| `mem_percent` | number | 메모리 사용률 (%) |
+
+---
+
+## 프로세스 API (`/api/v1/system/processes`)
+
+### GET /api/v1/system/processes
+CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "pid": 1234,
+      "name": "node",
+      "cpu": 45.2,
+      "memory": 12.3,
+      "status": "S",
+      "user": "root",
+      "command": "/usr/bin/node server.js"
+    }
+  ]
+}
+```
+
+---
+
+### GET /api/v1/system/processes/list
+전체 프로세스 목록 조회 (검색/정렬 지원).
+
+- **인증 필요**: 예
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `q` | string | 아니오 | 검색어 (이름, 명령어, 사용자, PID 매칭) |
+| `sort` | string | 아니오 | 정렬 기준: `cpu` (기본값), `memory`, `pid`, `name` |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "processes": [
+      {
+        "pid": 1234,
+        "name": "node",
+        "cpu": 45.2,
+        "memory": 12.3,
+        "status": "S",
+        "user": "root",
+        "command": "/usr/bin/node server.js"
+      }
+    ],
+    "total": 150
+  }
+}
+```
+
+**프로세스 객체 필드:**
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `pid` | number | 프로세스 ID |
+| `name` | string | 프로세스 이름 |
+| `cpu` | number | CPU 사용률 (%) |
+| `memory` | number | 메모리 사용률 (%) |
+| `status` | string | 프로세스 상태 코드 (예: "S", "R", "Z") |
+| `user` | string | 소유 사용자 |
+| `command` | string | 전체 명령줄 |
+
+---
+
+### POST /api/v1/system/processes/:pid/kill
+프로세스에 시그널 전송.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `pid` | 대상 프로세스 ID |
+
+**Request Body:**
+```json
+{
+  "signal": "TERM"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `signal` | string | 아니오 | 시그널 이름/번호. 기본값 `"TERM"`. 허용: `TERM`/`15`, `KILL`/`9`, `HUP`/`1`, `INT`/`2` |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Signal TERM sent to process 1234",
+    "pid": 1234,
+    "signal": "TERM"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_PID` | 400 | 유효하지 않은 PID 형식 |
+| `INVALID_SIGNAL` | 400 | 지원하지 않는 시그널 |
+| `PROCESS_NOT_FOUND` | 404 | 프로세스를 찾을 수 없음 |
+| `KILL_FAILED` | 500 | 시그널 전송 실패 |
+
+---
+
+## 파일 관리 API (`/api/v1/files`)
+
+### GET /api/v1/files
+디렉토리 내용 목록 조회.
+
+- **인증 필요**: 예
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|----------|------|------|--------|------|
+| `path` | string | 아니오 | `"/"` | 대상 디렉토리의 절대 경로 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "name": "etc",
+      "path": "/etc",
+      "size": 4096,
+      "mode": "drwxr-xr-x",
+      "modTime": "2026-01-15T10:30:00Z",
+      "isDir": true
+    },
+    {
+      "name": "config.yaml",
+      "path": "/etc/config.yaml",
+      "size": 1024,
+      "mode": "-rw-r--r--",
+      "modTime": "2026-01-15T10:30:00Z",
+      "isDir": false
+    }
+  ]
+}
+```
+
+정렬 순서: 디렉토리 우선, 이름 알파벳순 (대소문자 무시).
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_PATH` | 400 | 절대 경로가 아니거나 `..` 포함 |
+| `NOT_FOUND` | 404 | 디렉토리 없음 |
+| `PERMISSION_DENIED` | 403 | 권한 부족 |
+
+---
+
+### GET /api/v1/files/read
+파일 텍스트 내용 읽기 (최대 5 MB).
+
+- **인증 필요**: 예
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `path` | string | 예 | 파일의 절대 경로 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "content": "파일 내용...",
+    "size": 1024
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_PATH` | 400 | 경로 유효성 검증 실패 |
+| `IS_DIRECTORY` | 400 | 경로가 디렉토리 |
+| `FILE_TOO_LARGE` | 400 | 파일 크기가 5 MB 초과 |
+| `NOT_FOUND` | 404 | 파일 없음 |
+| `PERMISSION_DENIED` | 403 | 권한 부족 |
+
+---
+
+### POST /api/v1/files/write
+파일 작성/덮어쓰기. 상위 디렉토리가 없으면 자동 생성.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "path": "/etc/example.conf",
+  "content": "파일 내용..."
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "file written",
+    "path": "/etc/example.conf"
+  }
+}
+```
+
+---
+
+### POST /api/v1/files/mkdir
+디렉토리 생성 (부모 디렉토리 포함 재귀 생성).
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "path": "/opt/myapp/data"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "directory created",
+    "path": "/opt/myapp/data"
+  }
+}
+```
+
+---
+
+### DELETE /api/v1/files
+파일 또는 디렉토리 삭제 (디렉토리는 재귀 삭제).
+
+- **인증 필요**: 예
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `path` | string | 예 | 삭제 대상 절대 경로 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "path deleted",
+    "path": "/tmp/old-file"
+  }
+}
+```
+
+**보호 경로 (삭제 불가):**
+`/`, `/etc`, `/usr`, `/bin`, `/sbin`, `/var`, `/boot`, `/proc`, `/sys`, `/dev`
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `CRITICAL_PATH` | 403 | 보호된 시스템 경로 |
+| `NOT_FOUND` | 404 | 경로 없음 |
+
+---
+
+### POST /api/v1/files/rename
+파일 또는 디렉토리 이름 변경/이동.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "old_path": "/tmp/old-name",
+  "new_path": "/tmp/new-name"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "path renamed",
+    "old_path": "/tmp/old-name",
+    "new_path": "/tmp/new-name"
+  }
+}
+```
+
+---
+
+### GET /api/v1/files/download
+파일 다운로드 (바이너리 첨부).
+
+- **인증 필요**: 예
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `path` | string | 예 | 파일의 절대 경로 |
+
+**Response:** 파일 바이너리 데이터 (`Content-Disposition: attachment`). 표준 JSON 응답이 아닌 파일 다운로드.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `IS_DIRECTORY` | 400 | 디렉토리는 다운로드 불가 |
+| `NOT_FOUND` | 404 | 파일 없음 |
+
+---
+
+### POST /api/v1/files/upload
+파일 업로드 (최대 100 MB). multipart/form-data 사용.
+
+- **인증 필요**: 예
+- **Content-Type**: `multipart/form-data`
+
+**Form Fields:**
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `file` | File | 예 | 업로드할 파일 |
+| `path` | string | 예 | 저장할 디렉토리의 절대 경로 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "file uploaded",
+    "path": "/opt/uploads/example.txt",
+    "filename": "example.txt",
+    "size": 2048
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_FILE` | 400 | 'file' 필드에 파일 없음 |
+| `INVALID_FILENAME` | 400 | 유효하지 않은 파일명 |
+
+---
+
+## Cron 작업 API (`/api/v1/cron`)
+
+### GET /api/v1/cron
+root 사용자의 crontab 전체 목록 조회.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 0,
+      "schedule": "0 * * * *",
+      "command": "/usr/bin/backup.sh",
+      "enabled": true,
+      "raw": "0 * * * * /usr/bin/backup.sh",
+      "type": "job"
+    },
+    {
+      "id": 1,
+      "schedule": "",
+      "command": "SHELL=/bin/bash",
+      "enabled": true,
+      "raw": "SHELL=/bin/bash",
+      "type": "env"
+    }
+  ]
+}
+```
+
+**CronJob 객체 필드:**
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `id` | number | 줄 번호 기반 인덱스 (0부터 시작) |
+| `schedule` | string | 크론 스케줄 표현식 (job 타입만) |
+| `command` | string | 실행 명령어 또는 줄 내용 |
+| `enabled` | boolean | 활성화 여부 (주석 처리 = 비활성) |
+| `raw` | string | 원본 줄 텍스트 |
+| `type` | string | `"job"` \| `"env"` \| `"comment"` |
+
+---
+
+### POST /api/v1/cron
+새 cron 작업 추가.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "schedule": "0 2 * * *",
+  "command": "/usr/bin/backup.sh"
+}
+```
+
+**Response (200):** 생성된 CronJob 객체
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_FIELDS` | 400 | schedule 또는 command 누락 |
+| `INVALID_SCHEDULE` | 400 | 유효하지 않은 크론 스케줄 형식 |
+
+지원하는 스케줄 형식:
+- 5필드 표준: `분 시 일 월 요일` (예: `0 2 * * *`)
+- 예약 키워드: `@reboot`, `@yearly`, `@annually`, `@monthly`, `@weekly`, `@daily`, `@midnight`, `@hourly`
+
+---
+
+### PUT /api/v1/cron/:id
+기존 cron 작업 수정.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `id` | 줄 번호 기반 인덱스 |
+
+**Request Body:**
+```json
+{
+  "schedule": "0 3 * * *",
+  "command": "/usr/bin/backup.sh --full",
+  "enabled": true
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `schedule` | string | 예 | 크론 스케줄 |
+| `command` | string | 예 | 실행 명령어 |
+| `enabled` | boolean | 아니오 | `false`이면 주석 처리하여 비활성화 (기본값: `true`) |
+
+**Response (200):** 수정된 CronJob 객체
+
+---
+
+### DELETE /api/v1/cron/:id
+cron 작업 삭제 (crontab에서 해당 줄 제거).
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `id` | 줄 번호 기반 인덱스 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "job deleted"
+  }
+}
+```
+
+---
+
+## 로그 뷰어 API (`/api/v1/logs`)
+
+### GET /api/v1/logs/sources
+사용 가능한 로그 소스 목록 조회.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "syslog",
+      "name": "System Log",
+      "path": "/var/log/syslog",
+      "size": 1048576,
+      "exists": true
+    }
+  ]
+}
+```
+
+**지원하는 로그 소스:**
+| ID | 이름 | 경로 |
+|----|------|------|
+| `syslog` | System Log | `/var/log/syslog` |
+| `auth` | Auth Log | `/var/log/auth.log` |
+| `kern` | Kernel Log | `/var/log/kern.log` |
+| `nginx-access` | Nginx Access | `/var/log/nginx/access.log` |
+| `nginx-error` | Nginx Error | `/var/log/nginx/error.log` |
+| `sfpanel` | SFPanel | `/var/log/sfpanel.log` |
+| `dpkg` | Package Manager | `/var/log/dpkg.log` |
+| `ufw` | Firewall (UFW) | `/var/log/ufw.log` |
+
+---
+
+### GET /api/v1/logs/read
+로그 파일의 마지막 N줄 읽기.
+
+- **인증 필요**: 예
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|----------|------|------|--------|------|
+| `source` | string | 예 | - | 로그 소스 ID (위 테이블 참조) |
+| `lines` | number | 아니오 | `100` | 읽을 줄 수 (최대 5000) |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "source": "syslog",
+    "lines": [
+      "Feb 25 10:00:00 server kernel: ...",
+      "Feb 25 10:00:01 server sshd: ..."
+    ],
+    "total_lines": 2
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_SOURCE` | 400 | source 파라미터 누락 |
+| `INVALID_SOURCE` | 400 | 알 수 없는 로그 소스 |
+| `INVALID_LINES` | 400 | lines가 양의 정수가 아님 |
+| `LOG_NOT_FOUND` | 404 | 로그 파일이 디스크에 존재하지 않음 |
+
+---
+
+## 패키지 관리 API (`/api/v1/packages`)
+
+### GET /api/v1/packages/updates
+업데이트 가능한 패키지 목록 조회 (`apt list --upgradable`).
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "updates": [
+      {
+        "name": "nginx",
+        "current_version": "1.24.0-1",
+        "new_version": "1.24.0-2",
+        "arch": "amd64"
+      }
+    ],
+    "total": 1,
+    "last_checked": "2026-02-26T10:00:00Z"
+  }
+}
+```
+
+---
+
+### POST /api/v1/packages/upgrade
+패키지 업그레이드 실행. 특정 패키지 지정 가능.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "packages": ["nginx", "curl"]
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `packages` | string[] | 아니오 | 업그레이드할 패키지 목록. 비어있으면 전체 업그레이드 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Packages upgraded successfully",
+    "update_output": "...",
+    "upgrade_output": "..."
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_PACKAGE_NAME` | 400 | 패키지 이름에 허용되지 않는 문자 포함 |
+| `APT_UPDATE_ERROR` | 500 | apt-get update 실패 |
+| `APT_UPGRADE_ERROR` | 500 | apt-get upgrade 실패 |
+
+---
+
+### POST /api/v1/packages/install
+단일 패키지 설치.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "name": "nginx"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Package nginx installed successfully",
+    "output": "..."
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_FIELDS` | 400 | 패키지 이름 누락 |
+| `INVALID_PACKAGE_NAME` | 400 | 허용 문자: `a-zA-Z0-9._+-` |
+| `APT_INSTALL_ERROR` | 500 | 설치 실패 |
+
+---
+
+### POST /api/v1/packages/remove
+단일 패키지 제거.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "name": "nginx"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Package nginx removed successfully",
+    "output": "..."
+  }
+}
+```
+
+---
+
+### GET /api/v1/packages/search
+패키지 검색 (`apt-cache search`). 최대 50개 결과 반환.
+
+- **인증 필요**: 예
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `q` | string | 예 | 검색어 (허용 문자: `a-zA-Z0-9._+-`) |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "packages": [
+      {
+        "name": "nginx-core",
+        "description": "nginx web/proxy server (standard version)"
+      }
+    ],
+    "total": 1,
+    "query": "nginx"
+  }
+}
+```
+
+---
+
+### GET /api/v1/packages/docker-status
+Docker 및 Docker Compose 설치/실행 상태 확인.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "installed": true,
+    "version": "Docker version 27.5.1, build abcdef",
+    "running": true,
+    "compose_available": true
+  }
+}
+```
+
+---
+
+### POST /api/v1/packages/install-docker
+Docker Engine 설치 (get.docker.com 스크립트 사용). SSE(Server-Sent Events)로 설치 진행 상황 실시간 스트리밍.
+
+- **인증 필요**: 예
+- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+
+**Response:** SSE 스트림
+```
+data: >>> Downloading Docker install script from https://get.docker.com ...
+
+data: >>> Running install script (this may take a few minutes) ...
+
+data: [설치 로그 줄...]
+
+data: >>> Docker installation completed successfully!
+
+data: [DONE]
+```
+
+마지막 줄 `[DONE]`이 설치 완료를 나타냅니다. 에러 발생 시 `ERROR:` 접두사가 붙은 메시지 후 `[DONE]`.
+
+---
+
+## Docker API (`/api/v1/docker`)
+
+> Docker 소켓에 연결할 수 없는 경우 이 그룹의 모든 라우트가 등록되지 않습니다.
+
+### 컨테이너
+
+#### GET /api/v1/docker/containers
+전체 컨테이너 목록 조회 (실행 중 + 중지된 것 모두).
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "Id": "abc123...",
+      "Names": ["/my-container"],
+      "Image": "nginx:latest",
+      "State": "running",
+      "Status": "Up 3 hours",
+      "Ports": [
+        {
+          "PrivatePort": 80,
+          "PublicPort": 8080,
+          "Type": "tcp"
+        }
+      ],
+      "Created": 1740000000
+    }
+  ]
+}
+```
+
+> 참고: Docker SDK의 원본 구조체를 반환하므로 필드명이 PascalCase입니다.
+
+---
+
+#### GET /api/v1/docker/containers/:id/inspect
+컨테이너 상세 정보 조회.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `id` | 컨테이너 ID 또는 이름 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "abc123def456...",
+    "name": "my-container",
+    "image": "nginx:latest",
+    "state": "running",
+    "started_at": "2026-02-25T10:00:00Z",
+    "finished_at": "0001-01-01T00:00:00Z",
+    "restart_count": 0,
+    "platform": "linux",
+    "cmd": "nginx -g daemon off;",
+    "entrypoint": "/docker-entrypoint.sh",
+    "working_dir": "/",
+    "hostname": "abc123",
+    "ports": [
+      {
+        "container_port": "80",
+        "protocol": "tcp",
+        "host_ip": "0.0.0.0",
+        "host_port": "8080"
+      }
+    ],
+    "env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "NGINX_VERSION=1.24.0"
+    ],
+    "mounts": [
+      {
+        "type": "bind",
+        "source": "/host/path",
+        "destination": "/container/path",
+        "mode": "rw",
+        "rw": "true"
+      }
+    ],
+    "networks": [
+      {
+        "name": "bridge",
+        "ip_address": "172.17.0.2",
+        "gateway": "172.17.0.1",
+        "mac_address": "02:42:ac:11:00:02"
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### GET /api/v1/docker/containers/:id/stats
+컨테이너 CPU/메모리 사용량 조회 (단일 스냅샷).
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `id` | 컨테이너 ID 또는 이름 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "cpu_percent": 2.5,
+    "mem_usage": 52428800,
+    "mem_limit": 8388608000,
+    "mem_percent": 0.625
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `cpu_percent` | number | CPU 사용률 (%) |
+| `mem_usage` | number | 메모리 사용량 (bytes) |
+| `mem_limit` | number | 메모리 제한 (bytes) |
+| `mem_percent` | number | 메모리 사용률 (%) |
+
+---
+
+#### POST /api/v1/docker/containers/:id/start
+컨테이너 시작.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "container started"
+  }
+}
+```
+
+---
+
+#### POST /api/v1/docker/containers/:id/stop
+컨테이너 중지.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "container stopped"
+  }
+}
+```
+
+---
+
+#### POST /api/v1/docker/containers/:id/restart
+컨테이너 재시작.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "container restarted"
+  }
+}
+```
+
+---
+
+#### DELETE /api/v1/docker/containers/:id
+컨테이너 삭제 (강제).
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "container removed"
+  }
+}
+```
+
+---
+
+### 이미지
+
+#### GET /api/v1/docker/images
+로컬 Docker 이미지 목록 조회.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "Id": "sha256:abc123...",
+      "RepoTags": ["nginx:latest"],
+      "Size": 142000000,
+      "Created": 1740000000
+    }
+  ]
+}
+```
+
+---
+
+#### POST /api/v1/docker/images/pull
+이미지 풀(pull). 동기식으로 완료될 때까지 대기.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "image": "nginx:latest"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "image pulled",
+    "image": "nginx:latest"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_FIELDS` | 400 | image 필드 누락 |
+
+---
+
+#### DELETE /api/v1/docker/images/:id
+이미지 삭제.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `id` | 이미지 ID 또는 태그 (URL 인코딩 필요) |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "image removed"
+  }
+}
+```
+
+---
+
+### 볼륨
+
+#### GET /api/v1/docker/volumes
+Docker 볼륨 목록 조회.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "Name": "my-volume",
+      "Driver": "local",
+      "Mountpoint": "/var/lib/docker/volumes/my-volume/_data",
+      "CreatedAt": "2026-02-25T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+#### POST /api/v1/docker/volumes
+볼륨 생성.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "name": "my-volume"
+}
+```
+
+**Response (200):** 생성된 볼륨 객체 (Docker SDK 형식)
+
+---
+
+#### DELETE /api/v1/docker/volumes/:name
+볼륨 삭제.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `name` | 볼륨 이름 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "volume removed"
+  }
+}
+```
+
+---
+
+### 네트워크
+
+#### GET /api/v1/docker/networks
+Docker 네트워크 목록 조회.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "Id": "abc123...",
+      "Name": "bridge",
+      "Driver": "bridge",
+      "Scope": "local"
+    }
+  ]
+}
+```
+
+---
+
+#### POST /api/v1/docker/networks
+네트워크 생성.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "name": "my-network",
+  "driver": "bridge"
+}
+```
+
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| `name` | string | 예 | - | 네트워크 이름 |
+| `driver` | string | 아니오 | `"bridge"` | 네트워크 드라이버 |
+
+**Response (200):** 생성된 네트워크 객체 (Docker SDK 형식)
+
+---
+
+#### DELETE /api/v1/docker/networks/:id
+네트워크 삭제.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `id` | 네트워크 ID 또는 이름 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "network removed"
+  }
+}
+```
+
+---
+
+### Docker Compose
+
+#### GET /api/v1/docker/compose
+전체 Compose 프로젝트 목록 조회.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "name": "my-project",
+      "yaml_path": "/var/lib/sfpanel/compose/my-project/docker-compose.yml",
+      "status": "running",
+      "created_at": "2026-02-25T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+#### POST /api/v1/docker/compose
+새 Compose 프로젝트 생성.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "name": "my-project",
+  "yaml": "version: '3'\nservices:\n  web:\n    image: nginx:latest\n    ports:\n      - '8080:80'"
+}
+```
+
+**Response (200):** 생성된 ComposeProject 객체
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_FIELDS` | 400 | name 또는 yaml 누락 |
+
+---
+
+#### GET /api/v1/docker/compose/:project
+특정 Compose 프로젝트 상세 정보 및 YAML 내용 조회.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `project` | 프로젝트 이름 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "project": {
+      "id": 1,
+      "name": "my-project",
+      "yaml_path": "/var/lib/sfpanel/compose/my-project/docker-compose.yml",
+      "status": "running",
+      "created_at": "2026-02-25T10:00:00Z"
+    },
+    "yaml": "version: '3'\nservices:\n  web:\n    image: nginx:latest"
+  }
+}
+```
+
+---
+
+#### PUT /api/v1/docker/compose/:project
+Compose 프로젝트 YAML 업데이트.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `project` | 프로젝트 이름 |
+
+**Request Body:**
+```json
+{
+  "yaml": "version: '3'\nservices:\n  web:\n    image: nginx:alpine"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "project updated"
+  }
+}
+```
+
+---
+
+#### DELETE /api/v1/docker/compose/:project
+Compose 프로젝트 삭제.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "project deleted"
+  }
+}
+```
+
+---
+
+#### POST /api/v1/docker/compose/:project/up
+Compose 프로젝트 시작 (`docker compose up -d`).
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "output": "Creating network... Creating container..."
+  }
+}
+```
+
+---
+
+#### POST /api/v1/docker/compose/:project/down
+Compose 프로젝트 중지 (`docker compose down`).
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "output": "Stopping container... Removing container..."
+  }
+}
+```
+
+---
+
+## 헬스체크 API
+
+### GET /api/v1/health
+서버 상태 확인.
+
+- **인증 필요**: 아니오 (공개 엔드포인트)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "status": "ok"
+  }
+}
+```
+
+---
+
+## WebSocket API
+
+모든 WebSocket 엔드포인트는 쿼리 파라미터 `?token=<JWT>`로 인증합니다.
+
+### WS /ws/metrics
+시스템 메트릭 실시간 스트리밍 (2초 간격).
+
+- **인증**: 쿼리 파라미터 `token`
+- **URL 예시**: `ws://host:8443/ws/metrics?token=<JWT>`
+
+**서버 -> 클라이언트 메시지 (JSON):**
+```json
+{
+  "cpu": 23.5,
+  "mem_total": 8388608000,
+  "mem_used": 4194304000,
+  "mem_percent": 50.0,
+  "swap_total": 2147483648,
+  "swap_used": 0,
+  "swap_percent": 0.0,
+  "disk_total": 107374182400,
+  "disk_used": 53687091200,
+  "disk_percent": 50.0,
+  "net_bytes_sent": 1234567,
+  "net_bytes_recv": 7654321,
+  "timestamp": 1740000000000
+}
+```
+
+---
+
+### WS /ws/docker/containers/:id/logs
+컨테이너 로그 실시간 스트리밍.
+
+- **인증**: 쿼리 파라미터 `token`
+- **URL 예시**: `ws://host:8443/ws/docker/containers/abc123/logs?token=<JWT>`
+- **Docker 사용 가능 시에만 등록**
+
+**서버 -> 클라이언트 메시지:** 텍스트 메시지 (각 줄이 개별 메시지, 개행 포함)
+
+---
+
+### WS /ws/docker/containers/:id/exec
+컨테이너 내부 인터랙티브 쉘 (`/bin/sh`).
+
+- **인증**: 쿼리 파라미터 `token`
+- **URL 예시**: `ws://host:8443/ws/docker/containers/abc123/exec?token=<JWT>`
+- **Docker 사용 가능 시에만 등록**
+
+**클라이언트 -> 서버:**
+- 일반 텍스트: 쉘 stdin으로 전달
+- JSON 리사이즈: `{"type": "resize", "cols": 80, "rows": 24}`
+
+**서버 -> 클라이언트:** 텍스트 메시지 (쉘 stdout/stderr)
+
+---
+
+### WS /ws/logs
+시스템 로그 실시간 스트리밍 (`tail -f`).
+
+- **인증**: 쿼리 파라미터 `token`
+- **URL 예시**: `ws://host:8443/ws/logs?token=<JWT>&source=syslog`
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `token` | string | 예 | JWT 토큰 |
+| `source` | string | 예 | 로그 소스 ID (`syslog`, `auth`, `kern` 등) |
+
+**서버 -> 클라이언트:** 텍스트 메시지 (새 로그 줄)
+
+---
+
+### WS /ws/terminal
+서버 호스트 터미널 (PTY) 세션. 재연결 시 스크롤백 버퍼(256 KB) 재생.
+
+- **인증**: 쿼리 파라미터 `token`
+- **URL 예시**: `ws://host:8443/ws/terminal?token=<JWT>&session_id=default`
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|----------|------|------|--------|------|
+| `token` | string | 예 | - | JWT 토큰 |
+| `session_id` | string | 아니오 | `"default"` | 세션 식별자 (같은 ID로 재연결 가능) |
+
+**클라이언트 -> 서버:**
+- 바이너리/텍스트: 쉘 stdin으로 전달
+- JSON 리사이즈 (TextMessage): `{"type": "resize", "cols": 80, "rows": 24}`
+
+**서버 -> 클라이언트:** 바이너리 메시지 (쉘 출력). 재연결 시 스크롤백 히스토리가 먼저 전송됨.
+
+**세션 관리:**
+- 세션은 `session_id`로 식별되며, 같은 ID로 재연결하면 기존 PTY 세션 유지
+- 유휴 세션은 `terminal_timeout` 설정값(기본 30분)에 따라 자동 정리
+- `terminal_timeout`이 `"0"`이면 자동 정리 비활성화
+
+---
+
+## 전체 엔드포인트 요약
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/health` | X | 헬스체크 |
+| POST | `/api/v1/auth/login` | X | 로그인 |
+| GET | `/api/v1/auth/setup-status` | X | 셋업 필요 여부 |
+| POST | `/api/v1/auth/setup` | X | 초기 관리자 생성 |
+| POST | `/api/v1/auth/2fa/setup` | O | 2FA 시크릿 생성 |
+| POST | `/api/v1/auth/2fa/verify` | O | 2FA 활성화 |
+| POST | `/api/v1/auth/change-password` | O | 비밀번호 변경 |
+| GET | `/api/v1/settings` | O | 설정 조회 |
+| PUT | `/api/v1/settings` | O | 설정 업데이트 |
+| GET | `/api/v1/system/info` | O | 시스템 정보 + 메트릭 |
+| GET | `/api/v1/system/metrics-history` | O | 24시간 메트릭 히스토리 |
+| GET | `/api/v1/system/processes` | O | 상위 10 프로세스 |
+| GET | `/api/v1/system/processes/list` | O | 전체 프로세스 목록 |
+| POST | `/api/v1/system/processes/:pid/kill` | O | 프로세스 시그널 전송 |
+| GET | `/api/v1/files` | O | 디렉토리 목록 |
+| GET | `/api/v1/files/read` | O | 파일 읽기 |
+| POST | `/api/v1/files/write` | O | 파일 쓰기 |
+| POST | `/api/v1/files/mkdir` | O | 디렉토리 생성 |
+| DELETE | `/api/v1/files` | O | 파일/디렉토리 삭제 |
+| POST | `/api/v1/files/rename` | O | 이름 변경/이동 |
+| GET | `/api/v1/files/download` | O | 파일 다운로드 |
+| POST | `/api/v1/files/upload` | O | 파일 업로드 |
+| GET | `/api/v1/cron` | O | cron 작업 목록 |
+| POST | `/api/v1/cron` | O | cron 작업 생성 |
+| PUT | `/api/v1/cron/:id` | O | cron 작업 수정 |
+| DELETE | `/api/v1/cron/:id` | O | cron 작업 삭제 |
+| GET | `/api/v1/logs/sources` | O | 로그 소스 목록 |
+| GET | `/api/v1/logs/read` | O | 로그 읽기 |
+| GET | `/api/v1/packages/updates` | O | 업데이트 확인 |
+| POST | `/api/v1/packages/upgrade` | O | 패키지 업그레이드 |
+| POST | `/api/v1/packages/install` | O | 패키지 설치 |
+| POST | `/api/v1/packages/remove` | O | 패키지 제거 |
+| GET | `/api/v1/packages/search` | O | 패키지 검색 |
+| GET | `/api/v1/packages/docker-status` | O | Docker 상태 확인 |
+| POST | `/api/v1/packages/install-docker` | O | Docker 설치 (SSE) |
+| GET | `/api/v1/docker/containers` | O | 컨테이너 목록 |
+| GET | `/api/v1/docker/containers/:id/inspect` | O | 컨테이너 상세 |
+| GET | `/api/v1/docker/containers/:id/stats` | O | 컨테이너 리소스 |
+| POST | `/api/v1/docker/containers/:id/start` | O | 컨테이너 시작 |
+| POST | `/api/v1/docker/containers/:id/stop` | O | 컨테이너 중지 |
+| POST | `/api/v1/docker/containers/:id/restart` | O | 컨테이너 재시작 |
+| DELETE | `/api/v1/docker/containers/:id` | O | 컨테이너 삭제 |
+| GET | `/api/v1/docker/images` | O | 이미지 목록 |
+| POST | `/api/v1/docker/images/pull` | O | 이미지 풀 |
+| DELETE | `/api/v1/docker/images/:id` | O | 이미지 삭제 |
+| GET | `/api/v1/docker/volumes` | O | 볼륨 목록 |
+| POST | `/api/v1/docker/volumes` | O | 볼륨 생성 |
+| DELETE | `/api/v1/docker/volumes/:name` | O | 볼륨 삭제 |
+| GET | `/api/v1/docker/networks` | O | 네트워크 목록 |
+| POST | `/api/v1/docker/networks` | O | 네트워크 생성 |
+| DELETE | `/api/v1/docker/networks/:id` | O | 네트워크 삭제 |
+| GET | `/api/v1/docker/compose` | O | Compose 목록 |
+| POST | `/api/v1/docker/compose` | O | Compose 생성 |
+| GET | `/api/v1/docker/compose/:project` | O | Compose 상세 |
+| PUT | `/api/v1/docker/compose/:project` | O | Compose YAML 수정 |
+| DELETE | `/api/v1/docker/compose/:project` | O | Compose 삭제 |
+| POST | `/api/v1/docker/compose/:project/up` | O | Compose 시작 |
+| POST | `/api/v1/docker/compose/:project/down` | O | Compose 중지 |
+| WS | `/ws/metrics` | O (query) | 실시간 메트릭 |
+| WS | `/ws/logs` | O (query) | 실시간 로그 |
+| WS | `/ws/terminal` | O (query) | 호스트 터미널 |
+| WS | `/ws/docker/containers/:id/logs` | O (query) | 컨테이너 로그 |
+| WS | `/ws/docker/containers/:id/exec` | O (query) | 컨테이너 쉘 |
