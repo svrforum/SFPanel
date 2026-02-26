@@ -29,6 +29,9 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      - name: Build frontend
+        run: cd web && npm ci && npm run build
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
