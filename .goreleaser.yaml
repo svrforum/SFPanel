@@ -1,0 +1,50 @@
+version: 2
+
+before:
+  hooks:
+    - cmd: bash -c "cd web && npm ci && npm run build"
+
+builds:
+  - id: sfpanel
+    main: ./cmd/sfpanel
+    binary: sfpanel
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: sfpanel
+    formats:
+      - tar.gz
+    name_template: "sfpanel_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - configs/config.example.yaml
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+release:
+  github:
+    owner: sfpanel
+    name: sfpanel
+  name_template: "v{{.Version}}"
+  draft: false
+  prerelease: auto
