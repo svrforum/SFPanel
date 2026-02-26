@@ -1,9 +1,5 @@
 version: 2
 
-before:
-  hooks:
-    - cmd: bash -c "cd web && npm ci && npm run build"
-
 builds:
   - id: sfpanel
     main: ./cmd/sfpanel
@@ -43,8 +39,8 @@ changelog:
 
 release:
   github:
-    owner: sfpanel
-    name: sfpanel
+    owner: svrforum
+    name: SFPanel
   name_template: "v{{.Version}}"
   draft: false
   prerelease: auto
