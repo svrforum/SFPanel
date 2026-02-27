@@ -33,6 +33,7 @@
 | `/logs` | Logs | O | Layout | 시스템 로그 뷰어 |
 | `/processes` | Processes | O | Layout | 프로세스 관리자 |
 | `/packages` | Packages | O | Layout | 시스템 패키지 관리 + Docker 설치 |
+| `/firewall` | Firewall | O | Layout | 방화벽 관리 (UFW + Fail2ban) |
 | `/terminal` | Terminal | O | Layout | 웹 터미널 (멀티 탭) |
 | `/settings` | Settings | O | Layout | 계정/시스템 설정 |
 
@@ -222,6 +223,25 @@
 - **사용 컴포넌트**: Table, Dialog, Button, Input (shadcn/ui)
 - **로컬 인터페이스**: PackageInfo, SearchResult, DockerStatus, LoadingState, OutputDialog
 
+### Firewall
+- **파일**: `web/src/pages/Firewall.tsx`
+- **기능**: 방화벽(UFW) 및 Fail2ban 침입 방지 시스템 관리
+  - 탭 구조: UFW Rules, Open Ports, Fail2ban
+  - **UFW Rules 탭** (`FirewallRules`): UFW 활성화/비활성화 토글, 규칙 목록 테이블 (번호/대상/동작/소스/코멘트/IPv6), 규칙 추가 다이얼로그 (action/port/protocol/from/to/comment), 규칙 삭제 확인 다이얼로그
+  - **Open Ports 탭** (`FirewallPorts`): 리스닝 TCP/UDP 포트 목록 테이블 (프로토콜/주소/포트/PID/프로세스), 선택한 포트로 UFW 규칙 직접 추가 기능
+  - **Fail2ban 탭** (`FirewallFail2ban`): Fail2ban 설치 상태 확인 및 원클릭 설치, jail 목록 테이블 (이름/활성/차단수/총차단수), jail 상세 (설정값, 차단 IP 목록), jail 활성화/비활성화, IP 차단 해제
+- **탭 구성**:
+  - rules (기본값) -> FirewallRules
+  - ports -> FirewallPorts
+  - fail2ban -> FirewallFail2ban
+- **사용 API**: `api.getFirewallStatus()`, `api.enableFirewall()`, `api.disableFirewall()`, `api.getFirewallRules()`, `api.addFirewallRule()`, `api.deleteFirewallRule()`, `api.getListeningPorts()`, `api.getFail2banStatus()`, `api.installFail2ban()`, `api.getFail2banJails()`, `api.getFail2banJailDetail()`, `api.enableFail2banJail()`, `api.disableFail2banJail()`, `api.unbanFail2banIP()`
+- **사용 컴포넌트**: Tabs, TabsList, TabsTrigger, TabsContent, Table, Dialog, Button, Input, Select (shadcn/ui)
+- **서브 컴포넌트 파일**:
+  - `web/src/pages/firewall/FirewallRules.tsx` — UFW 규칙 관리
+  - `web/src/pages/firewall/FirewallPorts.tsx` — 리스닝 포트 조회
+  - `web/src/pages/firewall/FirewallFail2ban.tsx` — Fail2ban 관리
+- **네비게이션**: Shield 아이콘, Disk와 Packages 사이에 배치
+
 ### Terminal
 - **파일**: `web/src/pages/Terminal.tsx`
 - **기능**: 웹 기반 서버 터미널 (멀티 탭)
@@ -258,7 +278,7 @@
 
 | 컴포넌트 | 파일 | 용도 |
 |----------|------|------|
-| Layout | `web/src/components/Layout.tsx` | 인증된 페이지의 공통 레이아웃. 좌측 사이드바(네비게이션 9항목 + 로그아웃) + 우측 메인 콘텐츠(Outlet). NavLink로 활성 상태 표시. |
+| Layout | `web/src/components/Layout.tsx` | 인증된 페이지의 공통 레이아웃. 좌측 사이드바(네비게이션 12항목 + 로그아웃) + 우측 메인 콘텐츠(Outlet). NavLink로 활성 상태 표시. |
 | MetricsCard | `web/src/components/MetricsCard.tsx` | 메트릭 표시 카드. 아이콘 + 제목 + 값 + 프로그레스 바(80% 초과 빨강, 60% 초과 노랑, 그 외 파랑). |
 | MetricsChart | `web/src/components/MetricsChart.tsx` | CPU/메모리 시계열 차트. Recharts LineChart 사용. CPU(파랑) + Memory(초록) 이중 라인. Y축 0-100%, 애니메이션 비활성화. |
 | ContainerShell | `web/src/components/ContainerShell.tsx` | Docker 컨테이너 셸 접속. xterm.js + WebSocket(`/ws/docker/containers/{id}/exec`). 키 입력 전송, 리사이즈 이벤트 전송. |
@@ -421,6 +441,28 @@ interface UseWebSocketOptions {
 | `getDockerStatus()` | GET | `/packages/docker-status` | `{ installed, version, running, compose_available }` | Docker 상태 |
 | `installDocker()` | POST | `/packages/install-docker` | - | Docker 설치 (SSE 스트리밍) |
 
+### 방화벽 (UFW)
+| 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
+|--------|------|------|-----------|------|
+| `getFirewallStatus()` | GET | `/firewall/status` | `{ active, default_incoming, default_outgoing }` | UFW 상태 조회 |
+| `enableFirewall()` | POST | `/firewall/enable` | `{ message }` | UFW 활성화 |
+| `disableFirewall()` | POST | `/firewall/disable` | `{ message }` | UFW 비활성화 |
+| `getFirewallRules()` | GET | `/firewall/rules` | `{ rules: UFWRule[], total }` | UFW 규칙 목록 |
+| `addFirewallRule(data)` | POST | `/firewall/rules` | `{ message, output }` | UFW 규칙 추가 |
+| `deleteFirewallRule(number)` | DELETE | `/firewall/rules/{number}` | `{ message }` | UFW 규칙 삭제 |
+| `getListeningPorts()` | GET | `/firewall/ports` | `{ ports: ListeningPort[], total }` | 리스닝 포트 목록 |
+
+### Fail2ban
+| 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
+|--------|------|------|-----------|------|
+| `getFail2banStatus()` | GET | `/fail2ban/status` | `{ installed, running, version }` | Fail2ban 상태 확인 |
+| `installFail2ban()` | POST | `/fail2ban/install` | `{ message }` | Fail2ban 설치 |
+| `getFail2banJails()` | GET | `/fail2ban/jails` | `{ jails: Fail2banJail[], total }` | jail 목록 |
+| `getFail2banJailDetail(name)` | GET | `/fail2ban/jails/{name}` | `Fail2banJail` | jail 상세 정보 |
+| `enableFail2banJail(name)` | POST | `/fail2ban/jails/{name}/enable` | `{ message }` | jail 활성화 |
+| `disableFail2banJail(name)` | POST | `/fail2ban/jails/{name}/disable` | `{ message }` | jail 비활성화 |
+| `unbanFail2banIP(jail, ip)` | POST | `/fail2ban/jails/{jail}/unban` | `{ message }` | IP 차단 해제 |
+
 ---
 
 ## 타입 정의
@@ -478,6 +520,37 @@ interface CronJob {
 }
 ```
 
+### 방화벽 (UFW)
+```typescript
+interface UFWStatus {
+  active: boolean; default_incoming: string; default_outgoing: string
+}
+interface UFWRule {
+  number: number; to: string; action: string;
+  from: string; comment: string; v6: boolean
+}
+interface AddRuleRequest {
+  action: string; port: string; protocol: string;
+  from: string; to: string; comment: string
+}
+interface ListeningPort {
+  protocol: string; address: string; port: number;
+  pid: number; process: string
+}
+```
+
+### Fail2ban
+```typescript
+interface Fail2banStatus {
+  installed: boolean; running: boolean; version: string
+}
+interface Fail2banJail {
+  name: string; enabled: boolean; filter: string;
+  banned_count: number; total_banned: number; banned_ips: string[];
+  max_retry: number; ban_time: string; find_time: string
+}
+```
+
 ---
 
 ## 유틸리티
@@ -522,6 +595,8 @@ interface CronJob {
 | `cron` | 크론 작업 | title, count, showAll, newJob, tableTitle, schedule, command, type, presets, presetEveryMinute/Hour/Daily/Weekly/Monthly, createTitle, editTitle, deleteTitle |
 | `logs` | 로그 뷰어 | title, subtitle, sources, lines, live, autoScroll, refresh, clear, search, searchPlaceholder, totalLines, linesShown, connected, disconnected, download |
 | `packages` | 패키지 관리 | title, subtitle, dockerStatus, dockerDescription, installDocker, systemUpdates, checkForUpdates, upgradeAll, searchAndInstall, search, install, remove, operationComplete, operationRunning |
+| `firewall` | 방화벽 관리 | title, tabs.rules/ports/fail2ban, status, enable, disable, rules, addRule, deleteRule, ports, action, port, protocol, from, to, comment, listeningPorts |
+| `firewall.fail2ban` | Fail2ban | status, install, jails, enable, disable, unban, bannedIPs, maxRetry, banTime, findTime |
 
 ---
 

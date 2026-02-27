@@ -1680,6 +1680,506 @@ Compose 프로젝트 중지 (`docker compose down`).
 
 ---
 
+## 방화벽 API — UFW (`/api/v1/firewall`)
+
+### GET /api/v1/firewall/status
+UFW 방화벽 현재 상태 조회 (활성 여부, 기본 정책).
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "active": true,
+    "default_income": "deny",
+    "default_out": "allow"
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `active` | boolean | UFW 활성화 상태 |
+| `default_income` | string | 기본 인바운드 정책 (예: "deny") |
+| `default_out` | string | 기본 아웃바운드 정책 (예: "allow") |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `UFW_ERROR` | 500 | UFW 상태 조회 실패 |
+
+---
+
+### POST /api/v1/firewall/enable
+UFW 방화벽 활성화 (`ufw --force enable`).
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "UFW enabled successfully",
+    "output": "Firewall is active and enabled on system startup"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `UFW_ENABLE_ERROR` | 500 | UFW 활성화 실패 |
+
+---
+
+### POST /api/v1/firewall/disable
+UFW 방화벽 비활성화 (`ufw disable`).
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "UFW disabled successfully",
+    "output": "Firewall stopped and disabled on system startup"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `UFW_DISABLE_ERROR` | 500 | UFW 비활성화 실패 |
+
+---
+
+### GET /api/v1/firewall/rules
+현재 UFW 규칙 목록 조회 (번호 포함).
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "rules": [
+      {
+        "number": 1,
+        "to": "22/tcp",
+        "action": "ALLOW IN",
+        "from": "Anywhere",
+        "comment": "SSH",
+        "v6": false
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+**UFWRule 객체 필드:**
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `number` | number | 규칙 번호 (삭제 시 사용) |
+| `to` | string | 대상 포트/주소 (예: "22/tcp", "80,443/tcp") |
+| `action` | string | 동작 (예: "ALLOW IN", "DENY IN") |
+| `from` | string | 소스 주소 (예: "Anywhere", "192.168.1.0/24") |
+| `comment` | string | 규칙 코멘트 (선택) |
+| `v6` | boolean | IPv6 규칙 여부 |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `UFW_ERROR` | 500 | 규칙 목록 조회 실패 |
+
+---
+
+### POST /api/v1/firewall/rules
+새 UFW 방화벽 규칙 추가.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "action": "allow",
+  "port": "22",
+  "protocol": "tcp",
+  "from": "any",
+  "to": "",
+  "comment": "SSH"
+}
+```
+
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+|------|------|------|--------|------|
+| `action` | string | 아니오 | `"allow"` | 동작: `allow`, `deny`, `reject`, `limit` |
+| `port` | string | 예 | - | 포트 번호, 범위(예: "8000:8080"), 서비스명 |
+| `protocol` | string | 아니오 | `"any"` | 프로토콜: `tcp`, `udp`, `any` |
+| `from` | string | 아니오 | `""` | 소스 IP/CIDR (빈 값 또는 "any" = 전체) |
+| `to` | string | 아니오 | `""` | 대상 IP/CIDR (빈 값 또는 "any" = 전체) |
+| `comment` | string | 아니오 | `""` | 규칙 설명 (영숫자, 공백, 기본 구두점만 허용) |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Rule added successfully",
+    "output": "Rule added"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 잘못된 요청 본문 |
+| `INVALID_ACTION` | 400 | 허용되지 않는 action 값 |
+| `MISSING_FIELDS` | 400 | port 누락 |
+| `INVALID_PORT` | 400 | 유효하지 않은 포트 형식 |
+| `INVALID_PROTOCOL` | 400 | 허용되지 않는 protocol 값 |
+| `INVALID_FROM_ADDRESS` | 400 | 유효하지 않은 소스 IP/CIDR |
+| `INVALID_TO_ADDRESS` | 400 | 유효하지 않은 대상 IP/CIDR |
+| `INVALID_COMMENT` | 400 | 코멘트에 허용되지 않는 문자 |
+| `UFW_ADD_RULE_ERROR` | 500 | 규칙 추가 실패 |
+
+---
+
+### DELETE /api/v1/firewall/rules/:number
+UFW 규칙을 번호로 삭제 (`ufw --force delete <number>`).
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `number` | 삭제할 규칙 번호 (양의 정수) |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Rule 1 deleted successfully",
+    "output": "Rule deleted"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_RULE_NUMBER` | 400 | 유효하지 않은 규칙 번호 (양의 정수가 아님) |
+| `UFW_DELETE_ERROR` | 500 | 규칙 삭제 실패 |
+
+---
+
+### GET /api/v1/firewall/ports
+시스템에서 리스닝 중인 TCP/UDP 포트 목록 조회 (`ss -tlnp` + `ss -ulnp`).
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "ports": [
+      {
+        "protocol": "tcp",
+        "address": "0.0.0.0",
+        "port": 22,
+        "pid": 1234,
+        "process": "sshd"
+      },
+      {
+        "protocol": "tcp",
+        "address": "::",
+        "port": 8443,
+        "pid": 5678,
+        "process": "sfpanel"
+      }
+    ],
+    "total": 2
+  }
+}
+```
+
+**ListeningPort 객체 필드:**
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `protocol` | string | 프로토콜 ("tcp" 또는 "udp") |
+| `address` | string | 바인딩 주소 (예: "0.0.0.0", "::", "127.0.0.1") |
+| `port` | number | 리스닝 포트 번호 |
+| `pid` | number | 프로세스 ID (0이면 권한 부족으로 감지 불가) |
+| `process` | string | 프로세스 이름 (빈 문자열이면 감지 불가) |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `SS_ERROR` | 500 | ss 명령어 실행 실패 |
+
+---
+
+## Fail2ban API (`/api/v1/fail2ban`)
+
+### GET /api/v1/fail2ban/status
+Fail2ban 설치 및 실행 상태 확인.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "installed": true,
+    "running": true,
+    "version": "0.11.2"
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `installed` | boolean | fail2ban-client 바이너리 존재 여부 |
+| `running` | boolean | fail2ban 서비스 실행 중 여부 (ping/pong 확인) |
+| `version` | string | fail2ban 버전 (미설치 시 빈 문자열) |
+
+---
+
+### POST /api/v1/fail2ban/install
+Fail2ban 패키지 설치 및 서비스 시작 (`apt-get install -y fail2ban` + `systemctl enable/start`).
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Fail2ban installed and started successfully",
+    "install_output": "...",
+    "start_output": "..."
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `APT_UPDATE_ERROR` | 500 | apt-get update 실패 |
+| `FAIL2BAN_INSTALL_ERROR` | 500 | fail2ban 설치 실패 |
+| `FAIL2BAN_START_ERROR` | 500 | 설치 성공했으나 서비스 시작 실패 |
+
+---
+
+### GET /api/v1/fail2ban/jails
+전체 Fail2ban jail 목록 및 상태 조회.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "jails": [
+      {
+        "name": "sshd",
+        "enabled": true,
+        "filter": "/var/log/auth.log",
+        "banned_count": 1,
+        "total_banned": 5,
+        "max_retry": 5,
+        "ban_time": "600",
+        "find_time": "600",
+        "banned_ips": ["192.168.1.100"]
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+**Fail2banJail 객체 필드:**
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `name` | string | jail 이름 (예: "sshd", "apache-auth") |
+| `enabled` | boolean | 활성화 상태 (jail 목록에 존재하면 true) |
+| `filter` | string | 모니터링 대상 로그 파일 경로 |
+| `banned_count` | number | 현재 차단된 IP 수 |
+| `total_banned` | number | 총 누적 차단 횟수 |
+| `max_retry` | number | 최대 재시도 횟수 (이 횟수 초과 시 차단) |
+| `ban_time` | string | 차단 시간 (초) |
+| `find_time` | string | 감시 윈도우 시간 (초) |
+| `banned_ips` | string[] | 현재 차단된 IP 주소 목록 |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `FAIL2BAN_ERROR` | 500 | fail2ban-client 실행 실패 |
+
+---
+
+### GET /api/v1/fail2ban/jails/:name
+특정 Fail2ban jail의 상세 정보 조회.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `name` | jail 이름 (허용 문자: `a-zA-Z0-9_-`) |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "name": "sshd",
+    "enabled": true,
+    "filter": "/var/log/auth.log",
+    "banned_count": 1,
+    "total_banned": 5,
+    "max_retry": 5,
+    "ban_time": "600",
+    "find_time": "600",
+    "banned_ips": ["192.168.1.100"]
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_JAIL_NAME` | 400 | jail 이름 누락 |
+| `INVALID_JAIL_NAME` | 400 | jail 이름에 허용되지 않는 문자 |
+| `FAIL2BAN_JAIL_ERROR` | 500 | jail 상태 조회 실패 |
+
+---
+
+### POST /api/v1/fail2ban/jails/:name/enable
+Fail2ban jail 시작 (활성화).
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `name` | jail 이름 (허용 문자: `a-zA-Z0-9_-`) |
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Jail sshd enabled successfully",
+    "output": "..."
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_JAIL_NAME` | 400 | jail 이름 누락 |
+| `INVALID_JAIL_NAME` | 400 | jail 이름에 허용되지 않는 문자 |
+| `FAIL2BAN_ENABLE_ERROR` | 500 | jail 활성화 실패 |
+
+---
+
+### POST /api/v1/fail2ban/jails/:name/disable
+Fail2ban jail 중지 (비활성화).
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `name` | jail 이름 (허용 문자: `a-zA-Z0-9_-`) |
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Jail sshd disabled successfully",
+    "output": "..."
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_JAIL_NAME` | 400 | jail 이름 누락 |
+| `INVALID_JAIL_NAME` | 400 | jail 이름에 허용되지 않는 문자 |
+| `FAIL2BAN_DISABLE_ERROR` | 500 | jail 비활성화 실패 |
+
+---
+
+### POST /api/v1/fail2ban/jails/:name/unban
+특정 jail에서 차단된 IP 해제.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `name` | jail 이름 (허용 문자: `a-zA-Z0-9_-`) |
+
+**Request Body:**
+```json
+{
+  "ip": "192.168.1.100"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `ip` | string | 예 | 차단 해제할 IPv4 또는 IPv6 주소 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "IP 192.168.1.100 unbanned from jail sshd",
+    "output": "..."
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_JAIL_NAME` | 400 | jail 이름 누락 |
+| `INVALID_JAIL_NAME` | 400 | jail 이름에 허용되지 않는 문자 |
+| `INVALID_REQUEST` | 400 | 잘못된 요청 본문 |
+| `MISSING_FIELDS` | 400 | IP 주소 누락 |
+| `INVALID_IP` | 400 | 유효하지 않은 IP 주소 형식 |
+| `FAIL2BAN_UNBAN_ERROR` | 500 | IP 차단 해제 실패 |
+
+---
+
 ## 헬스체크 API
 
 ### GET /api/v1/health
@@ -1836,6 +2336,20 @@ Compose 프로젝트 중지 (`docker compose down`).
 | GET | `/api/v1/packages/search` | O | 패키지 검색 |
 | GET | `/api/v1/packages/docker-status` | O | Docker 상태 확인 |
 | POST | `/api/v1/packages/install-docker` | O | Docker 설치 (SSE) |
+| GET | `/api/v1/firewall/status` | O | UFW 상태 조회 |
+| POST | `/api/v1/firewall/enable` | O | UFW 활성화 |
+| POST | `/api/v1/firewall/disable` | O | UFW 비활성화 |
+| GET | `/api/v1/firewall/rules` | O | UFW 규칙 목록 |
+| POST | `/api/v1/firewall/rules` | O | UFW 규칙 추가 |
+| DELETE | `/api/v1/firewall/rules/:number` | O | UFW 규칙 삭제 |
+| GET | `/api/v1/firewall/ports` | O | 리스닝 포트 목록 |
+| GET | `/api/v1/fail2ban/status` | O | Fail2ban 상태 확인 |
+| POST | `/api/v1/fail2ban/install` | O | Fail2ban 설치 |
+| GET | `/api/v1/fail2ban/jails` | O | Fail2ban jail 목록 |
+| GET | `/api/v1/fail2ban/jails/:name` | O | Fail2ban jail 상세 |
+| POST | `/api/v1/fail2ban/jails/:name/enable` | O | Fail2ban jail 활성화 |
+| POST | `/api/v1/fail2ban/jails/:name/disable` | O | Fail2ban jail 비활성화 |
+| POST | `/api/v1/fail2ban/jails/:name/unban` | O | Fail2ban IP 차단 해제 |
 | GET | `/api/v1/docker/containers` | O | 컨테이너 목록 |
 | GET | `/api/v1/docker/containers/:id/inspect` | O | 컨테이너 상세 |
 | GET | `/api/v1/docker/containers/:id/stats` | O | 컨테이너 리소스 |
