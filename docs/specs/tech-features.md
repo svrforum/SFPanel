@@ -181,7 +181,17 @@
   - 작업 출력 실시간 표시 다이얼로그
 - **관련 기술**: apt/apt-get/apt-cache CLI, SSE 스트리밍, 5분 명령 타임아웃
 
-### 9. 설정
+### 10. 방화벽 관리
+
+- **설명**: UFW 방화벽 및 Fail2ban 침입 방지 시스템을 웹 UI에서 관리
+- **주요 기능**:
+  - **UFW 방화벽**: 활성화/비활성화 토글, 규칙 목록 조회 (번호/대상/동작/소스/코멘트/IPv6 구분), 규칙 추가 (action/port/protocol/from/to/comment), 규칙 삭제
+  - **리스닝 포트**: `ss` 명령어로 TCP/UDP 리스닝 포트 조회 (프로토콜/주소/포트/PID/프로세스), 포트에서 직접 UFW 규칙 추가 지원
+  - **Fail2ban**: 설치 상태 확인 및 원클릭 설치 (`apt-get install -y fail2ban`), jail 목록 및 상태 조회, jail 활성화/비활성화, 차단 IP 해제 (unban), jail 설정 확인 (maxretry, bantime, findtime)
+  - 입력값 검증: 포트 번호/범위, IP/CIDR 주소, 프로토콜, action, jail 이름 등 서버 측 정규식 검증
+- **관련 기술**: UFW CLI (`ufw`), Fail2ban CLI (`fail2ban-client`), ss 명령어
+
+### 11. 설정
 
 - **설명**: 패널 설정 및 사용자 계정 관리
 - **주요 기능**:
@@ -305,6 +315,20 @@ SQLite (WAL 모드, 5초 busy timeout) — 자동 마이그레이션 5개 테이
 | GET | `/api/v1/packages/search` | 패키지 검색 |
 | GET | `/api/v1/packages/docker-status` | Docker 설치 상태 확인 |
 | POST | `/api/v1/packages/install-docker` | Docker 설치 (SSE 스트리밍) |
+| GET | `/api/v1/firewall/status` | UFW 상태 조회 |
+| POST | `/api/v1/firewall/enable` | UFW 활성화 |
+| POST | `/api/v1/firewall/disable` | UFW 비활성화 |
+| GET | `/api/v1/firewall/rules` | UFW 규칙 목록 |
+| POST | `/api/v1/firewall/rules` | UFW 규칙 추가 |
+| DELETE | `/api/v1/firewall/rules/:number` | UFW 규칙 삭제 |
+| GET | `/api/v1/firewall/ports` | 리스닝 포트 목록 (ss) |
+| GET | `/api/v1/fail2ban/status` | Fail2ban 설치/실행 상태 |
+| POST | `/api/v1/fail2ban/install` | Fail2ban 설치 |
+| GET | `/api/v1/fail2ban/jails` | Fail2ban jail 목록 |
+| GET | `/api/v1/fail2ban/jails/:name` | Fail2ban jail 상세 |
+| POST | `/api/v1/fail2ban/jails/:name/enable` | Fail2ban jail 활성화 |
+| POST | `/api/v1/fail2ban/jails/:name/disable` | Fail2ban jail 비활성화 |
+| POST | `/api/v1/fail2ban/jails/:name/unban` | Fail2ban IP 차단 해제 |
 
 ### Docker 전용 (Docker 사용 가능 시에만 등록)
 
@@ -377,6 +401,7 @@ SQLite (WAL 모드, 5초 busy timeout) — 자동 마이그레이션 5개 테이
 | CronJobs | `web/src/pages/CronJobs.tsx` | Cron 작업 관리 |
 | Processes | `web/src/pages/Processes.tsx` | 프로세스 관리 |
 | Packages | `web/src/pages/Packages.tsx` | 패키지 관리 + Docker 설치 |
+| Firewall | `web/src/pages/Firewall.tsx` | 방화벽 관리 (탭: UFW Rules, Open Ports, Fail2ban) |
 | Settings | `web/src/pages/Settings.tsx` | 설정 (언어, 터미널, 비밀번호, 2FA, 시스템 정보) |
 
 ### 다국어 지원
@@ -464,3 +489,24 @@ curl -fsSL https://raw.githubusercontent.com/sfpanel/sfpanel/main/scripts/instal
 - **세션 정리**: 1분 간격 유휴 터미널 세션 자동 정리
 - **SPA 라우팅**: 모든 경로에 대해 `index.html` 폴백 제공 (API/WS 경로 제외)
 - **CORS**: 개발 모드용 localhost:5173 허용
+
+---
+
+## CLI 커맨드
+
+SFPanel 바이너리는 서버 실행 외에도 관리 명령을 지원합니다.
+
+| 커맨드 | 설명 |
+|--------|------|
+| `sfpanel [config.yaml]` | 패널 서버 시작 (기본 설정: `config.yaml`) |
+| `sfpanel version` | 버전 정보 출력 (버전, 커밋 해시, 빌드 날짜) |
+| `sfpanel update` | GitHub Releases에서 최신 버전 다운로드 및 자동 업데이트. 현재 아키텍처(amd64/arm64) 자동 감지. systemd 서비스 실행 중이면 자동 재시작. |
+| `sfpanel reset` | 데이터베이스 삭제 및 초기화 (셋업 위저드로 복귀). 확인 프롬프트(y/N) 표시. |
+| `sfpanel help` | 사용법 도움말 출력 |
+
+**update 동작 과정:**
+1. GitHub API에서 최신 릴리즈 버전 조회
+2. 현재 버전과 비교 (동일하면 "Already up to date" 출력)
+3. 사용자 확인(y/N) 후 바이너리 다운로드 (tar.gz)
+4. 현재 바이너리 경로에 atomic replace (`.new` 임시 파일 → rename)
+5. systemd 서비스 활성 상태이면 `systemctl restart sfpanel` 자동 실행
