@@ -34,6 +34,7 @@
       "network": "Network",
       "disk": "Disks",
       "packages": "Packages",
+      "firewall": "Firewall",
       "sites": "Sites",
       "terminal": "Terminal",
       "settings": "Settings"
@@ -945,6 +946,84 @@
       "removeConfirm": "Are you sure you want to remove swap <strong>{{name}}</strong>?",
       "empty": "No swap configured",
       "fetchFailed": "Failed to load swap info"
+    }
+  },
+  "firewall": {
+    "title": "Firewall",
+    "tabs": {
+      "rules": "UFW Rules",
+      "ports": "Open Ports",
+      "fail2ban": "Fail2ban"
+    },
+    "status": {
+      "title": "Firewall Status",
+      "active": "Active",
+      "inactive": "Inactive",
+      "defaultIncoming": "Default Incoming",
+      "defaultOutgoing": "Default Outgoing",
+      "enable": "Enable",
+      "disable": "Disable",
+      "enableConfirm": "Are you sure you want to enable the firewall?",
+      "disableConfirm": "Are you sure you want to disable the firewall? Your server will be unprotected."
+    },
+    "rules": {
+      "title": "Firewall Rules",
+      "count": "{{count}} rules",
+      "number": "#",
+      "to": "To",
+      "action": "Action",
+      "from": "From",
+      "comment": "Comment",
+      "addRule": "Add Rule",
+      "deleteRule": "Delete Rule",
+      "deleteConfirm": "Are you sure you want to delete rule #{{number}}?",
+      "noRules": "No firewall rules",
+      "allow": "Allow",
+      "deny": "Deny",
+      "reject": "Reject",
+      "limit": "Limit",
+      "port": "Port",
+      "protocol": "Protocol",
+      "fromIP": "Source IP",
+      "any": "Any",
+      "tcp": "TCP",
+      "udp": "UDP",
+      "both": "TCP/UDP"
+    },
+    "ports": {
+      "title": "Open Ports",
+      "count": "{{count}} ports",
+      "protocol": "Protocol",
+      "address": "Address",
+      "port": "Port",
+      "process": "Process",
+      "pid": "PID",
+      "addToUFW": "Add UFW Rule",
+      "noPorts": "No open ports"
+    },
+    "fail2ban": {
+      "title": "Fail2ban",
+      "notInstalled": "Fail2ban is not installed",
+      "install": "Install",
+      "installing": "Installing...",
+      "running": "Running",
+      "stopped": "Stopped",
+      "version": "Version",
+      "jails": "Jails",
+      "jailCount": "{{count}} Jails",
+      "name": "Name",
+      "status": "Status",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "bannedCount": "Banned IPs",
+      "totalBanned": "Total Banned",
+      "bannedIPs": "Banned IP List",
+      "unban": "Unban",
+      "unbanConfirm": "Are you sure you want to unban {{ip}}?",
+      "noJails": "No jails",
+      "noBannedIPs": "No banned IPs",
+      "enable": "Enable",
+      "disable": "Disable"
     }
   }
 }

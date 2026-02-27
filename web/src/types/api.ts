@@ -288,3 +288,55 @@ export interface DiskUsageEntry {
   children?: DiskUsageEntry[]
 }
 
+// Firewall (UFW)
+export interface UFWStatus {
+  active: boolean
+  default_incoming: string
+  default_outgoing: string
+}
+
+export interface UFWRule {
+  number: number
+  to: string
+  action: string
+  from: string
+  comment: string
+  v6: boolean
+}
+
+export interface AddRuleRequest {
+  action: string
+  port: string
+  protocol: string
+  from: string
+  to: string
+  comment: string
+}
+
+export interface ListeningPort {
+  protocol: string
+  address: string
+  port: number
+  pid: number
+  process: string
+}
+
+// Fail2ban
+export interface Fail2banStatus {
+  installed: boolean
+  running: boolean
+  version: string
+}
+
+export interface Fail2banJail {
+  name: string
+  enabled: boolean
+  filter: string
+  banned_count: number
+  total_banned: number
+  banned_ips: string[]
+  max_retry: number
+  ban_time: string
+  find_time: string
+}
+

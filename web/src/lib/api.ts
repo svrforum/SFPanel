@@ -664,6 +664,70 @@ class ApiClient {
       body: JSON.stringify(data),
     })
   }
+
+  // Firewall (UFW)
+  getFirewallStatus() {
+    return this.request<{ active: boolean; default_incoming: string; default_outgoing: string }>('/firewall/status')
+  }
+
+  enableFirewall() {
+    return this.request<{ message: string }>('/firewall/enable', { method: 'POST' })
+  }
+
+  disableFirewall() {
+    return this.request<{ message: string }>('/firewall/disable', { method: 'POST' })
+  }
+
+  getFirewallRules() {
+    return this.request<{ rules: Array<{ number: number; to: string; action: string; from: string; comment: string; v6: boolean }>; total: number }>('/firewall/rules')
+  }
+
+  addFirewallRule(data: { action: string; port: string; protocol: string; from: string; to: string; comment: string }) {
+    return this.request<{ message: string; output: string }>('/firewall/rules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  deleteFirewallRule(number: number) {
+    return this.request<{ message: string }>(`/firewall/rules/${number}`, { method: 'DELETE' })
+  }
+
+  getListeningPorts() {
+    return this.request<{ ports: Array<{ protocol: string; address: string; port: number; pid: number; process: string }>; total: number }>('/firewall/ports')
+  }
+
+  // Fail2ban
+  getFail2banStatus() {
+    return this.request<{ installed: boolean; running: boolean; version: string }>('/fail2ban/status')
+  }
+
+  installFail2ban() {
+    return this.request<{ message: string }>('/fail2ban/install', { method: 'POST' })
+  }
+
+  getFail2banJails() {
+    return this.request<{ jails: Array<{ name: string; enabled: boolean; banned_count: number; total_banned: number; banned_ips: string[] }>; total: number }>('/fail2ban/jails')
+  }
+
+  getFail2banJailDetail(name: string) {
+    return this.request<{ name: string; enabled: boolean; banned_count: number; total_banned: number; banned_ips: string[] }>(`/fail2ban/jails/${encodeURIComponent(name)}`)
+  }
+
+  enableFail2banJail(name: string) {
+    return this.request<{ message: string }>(`/fail2ban/jails/${encodeURIComponent(name)}/enable`, { method: 'POST' })
+  }
+
+  disableFail2banJail(name: string) {
+    return this.request<{ message: string }>(`/fail2ban/jails/${encodeURIComponent(name)}/disable`, { method: 'POST' })
+  }
+
+  unbanFail2banIP(jail: string, ip: string) {
+    return this.request<{ message: string }>(`/fail2ban/jails/${encodeURIComponent(jail)}/unban`, {
+      method: 'POST',
+      body: JSON.stringify({ ip }),
+    })
+  }
 }
 
 export const api = new ApiClient()

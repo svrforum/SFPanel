@@ -13,6 +13,7 @@ import Logs from '@/pages/Logs'
 import Processes from '@/pages/Processes'
 import Network from '@/pages/Network'
 import Disk from '@/pages/Disk'
+import Firewall from '@/pages/Firewall'
 import Packages from '@/pages/Packages'
 import Settings from '@/pages/Settings'
 import Terminal from '@/pages/Terminal'
@@ -84,6 +85,7 @@ export default function App() {
             <Route path="processes" element={<Processes />} />
             <Route path="network" element={<Network />} />
             <Route path="disk" element={<Disk />} />
+            <Route path="firewall" element={<Firewall />} />
             <Route path="packages" element={<Packages />} />
             <Route path="terminal" element={<Terminal />} />
             <Route path="settings" element={<Settings />} />
