@@ -165,3 +165,126 @@ export interface CronJob {
   type: 'job' | 'env' | 'comment'
 }
 
+// Disk Management
+export interface BlockDevice {
+  name: string
+  size: number
+  type: string
+  fstype: string
+  mountpoint: string
+  model: string
+  serial: string
+  rotational: boolean
+  readonly: boolean
+  transport: string
+  state: string
+  vendor: string
+  children?: BlockDevice[]
+}
+
+export interface SmartInfo {
+  device_path: string
+  model_name: string
+  serial_number: string
+  firmware_version: string
+  healthy: boolean
+  temperature: number
+  power_on_hours: number
+  attributes: SmartAttr[]
+}
+
+export interface SmartAttr {
+  id: number
+  name: string
+  value: number
+  worst: number
+  threshold: number
+  raw_value: string
+}
+
+export interface Filesystem {
+  source: string
+  fstype: string
+  size: number
+  used: number
+  available: number
+  use_percent: number
+  mount_point: string
+}
+
+export interface PhysicalVolume {
+  name: string
+  vg_name: string
+  size: string
+  free: string
+  attr: string
+}
+
+export interface VolumeGroup {
+  name: string
+  size: string
+  free: string
+  pv_count: number
+  lv_count: number
+  attr: string
+}
+
+export interface LogicalVolume {
+  name: string
+  vg_name: string
+  size: string
+  attr: string
+  path: string
+  pool_lv: string
+  data_percent: string
+}
+
+export interface RAIDArray {
+  name: string
+  level: string
+  state: string
+  size: number
+  devices: RAIDDisk[]
+  active: number
+  total: number
+  failed: number
+  spare: number
+}
+
+export interface RAIDDisk {
+  device: string
+  state: string
+  index: number
+}
+
+export interface SwapEntry {
+  name: string
+  type: string
+  size: number
+  used: number
+  priority: number
+}
+
+export interface SwapInfo {
+  total: number
+  used: number
+  free: number
+  swappiness: number
+  entries: SwapEntry[]
+}
+
+export interface IOStat {
+  device: string
+  read_ops: number
+  write_ops: number
+  read_bytes: number
+  write_bytes: number
+  io_time: number
+}
+
+export interface DiskUsageEntry {
+  path: string
+  size: number
+  children?: DiskUsageEntry[]
+}
+

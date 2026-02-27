@@ -447,6 +447,223 @@ class ApiClient {
   installDocker() {
     return this.request('/packages/install-docker', { method: 'POST' })
   }
+
+  // Disk Management - Tool Status
+  checkSmartmontools() {
+    return this.request<{ installed: boolean }>('/disks/smartmontools-status')
+  }
+
+  installSmartmontools() {
+    return this.request<{ message: string; output: string }>('/disks/install-smartmontools', {
+      method: 'POST',
+    })
+  }
+
+  // Disk Management - Overview
+  getDiskOverview() {
+    return this.request<any>('/disks/overview')
+  }
+
+  getDiskSmart(device: string) {
+    return this.request<any>(`/disks/${encodeURIComponent(device)}/smart`)
+  }
+
+  getDiskIOStats() {
+    return this.request<any[]>('/disks/iostat')
+  }
+
+  getDiskUsage(path: string, depth: number = 1) {
+    return this.request<any>('/disks/usage', {
+      method: 'POST',
+      body: JSON.stringify({ path, depth }),
+    })
+  }
+
+  // Disk Management - Partitions
+  getPartitions(device: string) {
+    return this.request<any>(`/disks/${encodeURIComponent(device)}/partitions`)
+  }
+
+  createPartition(device: string, data: { start: string; end: string; fs_type: string }) {
+    return this.request(`/disks/${encodeURIComponent(device)}/partitions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  deletePartition(device: string, partition: string) {
+    return this.request(`/disks/${encodeURIComponent(device)}/partitions/${encodeURIComponent(partition)}`, {
+      method: 'DELETE',
+    })
+  }
+
+  // Disk Management - Filesystems
+  getFilesystems() {
+    return this.request<any[]>('/filesystems')
+  }
+
+  formatPartition(data: { device: string; fs_type: string; label?: string }) {
+    return this.request('/filesystems/format', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  mountFilesystem(data: { device: string; mount_point: string; fs_type?: string; options?: string }) {
+    return this.request('/filesystems/mount', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  unmountFilesystem(mountPoint: string) {
+    return this.request('/filesystems/unmount', {
+      method: 'POST',
+      body: JSON.stringify({ mount_point: mountPoint }),
+    })
+  }
+
+  resizeFilesystem(data: { device: string; size?: string }) {
+    return this.request('/filesystems/resize', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  // Disk Management - LVM
+  getLVMPVs() {
+    return this.request<any>('/lvm/pvs')
+  }
+
+  getLVMVGs() {
+    return this.request<any>('/lvm/vgs')
+  }
+
+  getLVMLVs() {
+    return this.request<any>('/lvm/lvs')
+  }
+
+  createPV(device: string) {
+    return this.request('/lvm/pvs', {
+      method: 'POST',
+      body: JSON.stringify({ device }),
+    })
+  }
+
+  createVG(name: string, pvs: string[]) {
+    return this.request('/lvm/vgs', {
+      method: 'POST',
+      body: JSON.stringify({ name, pvs }),
+    })
+  }
+
+  createLV(name: string, vg: string, size: string) {
+    return this.request('/lvm/lvs', {
+      method: 'POST',
+      body: JSON.stringify({ name, vg, size }),
+    })
+  }
+
+  removePV(name: string) {
+    return this.request(`/lvm/pvs/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
+  removeVG(name: string) {
+    return this.request(`/lvm/vgs/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
+  removeLV(vg: string, name: string) {
+    return this.request(`/lvm/lvs/${encodeURIComponent(vg)}/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
+  resizeLV(data: { vg: string; name: string; size: string }) {
+    return this.request('/lvm/lvs/resize', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  // Disk Management - RAID
+  getRAIDArrays() {
+    return this.request<any[]>('/raid')
+  }
+
+  getRAIDDetail(name: string) {
+    return this.request<any>(`/raid/${encodeURIComponent(name)}`)
+  }
+
+  createRAID(data: { name: string; level: string; devices: string[] }) {
+    return this.request('/raid', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  deleteRAID(name: string) {
+    return this.request(`/raid/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
+  addRAIDDisk(name: string, device: string) {
+    return this.request(`/raid/${encodeURIComponent(name)}/add`, {
+      method: 'POST',
+      body: JSON.stringify({ device }),
+    })
+  }
+
+  removeRAIDDisk(name: string, device: string) {
+    return this.request(`/raid/${encodeURIComponent(name)}/remove`, {
+      method: 'POST',
+      body: JSON.stringify({ device }),
+    })
+  }
+
+  // Disk Management - Swap
+  getSwapInfo() {
+    return this.request<any>('/swap')
+  }
+
+  createSwap(data: { type: string; path?: string; size_mb?: number; device?: string }) {
+    return this.request('/swap', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  removeSwap(path: string) {
+    return this.request('/swap', {
+      method: 'DELETE',
+      body: JSON.stringify({ path }),
+    })
+  }
+
+  setSwappiness(value: number) {
+    return this.request('/swap/swappiness', {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    })
+  }
+
+  checkSwapResize(path: string) {
+    return this.request<{
+      current_size_mb: number
+      disk_free_mb: number
+      max_size_mb: number
+      swap_used_mb: number
+      ram_free_mb: number
+      swapoff_safe: boolean
+    }>(`/swap/resize-check?path=${encodeURIComponent(path)}`)
+  }
+
+  resizeSwap(data: { path: string; new_size_mb: number }) {
+    return this.request<{
+      success: boolean
+      steps: Array<{ name: string; status: string; output: string }>
+      message?: string
+    }>('/swap/resize', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  }
 }
 
 export const api = new ApiClient()

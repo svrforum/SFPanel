@@ -115,6 +115,58 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo 
 	net.POST("/bonds", networkHandler.CreateBond)
 	net.DELETE("/bonds/:name", networkHandler.DeleteBond)
 
+	// Disk management
+	diskHandler := &handlers.DiskHandler{}
+	disks := authorized.Group("/disks")
+	disks.GET("/overview", diskHandler.ListDisks)
+	disks.GET("/iostat", diskHandler.GetIOStats)
+	disks.POST("/usage", diskHandler.GetDiskUsage)
+	disks.GET("/smartmontools-status", diskHandler.CheckSmartmontools)
+	disks.POST("/install-smartmontools", diskHandler.InstallSmartmontools)
+	disks.GET("/:device/smart", diskHandler.GetSmartInfo)
+	disks.GET("/:device/partitions", diskHandler.ListPartitions)
+	disks.POST("/:device/partitions", diskHandler.CreatePartition)
+	disks.DELETE("/:device/partitions/:number", diskHandler.DeletePartition)
+
+	// Filesystems
+	fsGroup := authorized.Group("/filesystems")
+	fsGroup.GET("", diskHandler.ListFilesystems)
+	fsGroup.POST("/format", diskHandler.FormatPartition)
+	fsGroup.POST("/mount", diskHandler.MountFilesystem)
+	fsGroup.POST("/unmount", diskHandler.UnmountFilesystem)
+	fsGroup.POST("/resize", diskHandler.ResizeFilesystem)
+
+	// LVM
+	lvm := authorized.Group("/lvm")
+	lvm.GET("/pvs", diskHandler.ListPVs)
+	lvm.GET("/vgs", diskHandler.ListVGs)
+	lvm.GET("/lvs", diskHandler.ListLVs)
+	lvm.POST("/pvs", diskHandler.CreatePV)
+	lvm.POST("/vgs", diskHandler.CreateVG)
+	lvm.POST("/lvs", diskHandler.CreateLV)
+	lvm.DELETE("/pvs/:name", diskHandler.RemovePV)
+	lvm.DELETE("/vgs/:name", diskHandler.RemoveVG)
+	lvm.DELETE("/lvs/:vg/:name", diskHandler.RemoveLV)
+	lvm.POST("/lvs/resize", diskHandler.ResizeLV)
+
+	// RAID
+	raid := authorized.Group("/raid")
+	raid.GET("", diskHandler.ListRAID)
+	raid.GET("/:name", diskHandler.GetRAIDDetail)
+	raid.POST("", diskHandler.CreateRAID)
+	raid.DELETE("/:name", diskHandler.DeleteRAID)
+	raid.POST("/:name/add", diskHandler.AddRAIDDisk)
+	raid.POST("/:name/remove", diskHandler.RemoveRAIDDisk)
+
+	// Swap
+	swap := authorized.Group("/swap")
+	swap.GET("", diskHandler.GetSwapInfo)
+	swap.POST("", diskHandler.CreateSwap)
+	swap.DELETE("", diskHandler.RemoveSwap)
+	swap.PUT("/swappiness", diskHandler.SetSwappiness)
+	swap.GET("/resize-check", diskHandler.CheckSwapResize)
+	swap.PUT("/resize", diskHandler.ResizeSwap)
+
 	// Package management routes
 	packagesHandler := &handlers.PackagesHandler{}
 	packages := authorized.Group("/packages")

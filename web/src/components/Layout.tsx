@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Container, FolderOpen, Clock, FileText, Package, Settings, LogOut, Activity, Terminal, Network } from 'lucide-react'
+import { LayoutDashboard, Container, FolderOpen, Clock, FileText, Package, Settings, LogOut, Activity, Terminal, Network, HardDrive } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -12,6 +12,7 @@ const navItems = [
   { to: '/logs', labelKey: 'layout.nav.logs', icon: FileText },
   { to: '/processes', labelKey: 'layout.nav.processes', icon: Activity },
   { to: '/network', labelKey: 'layout.nav.network', icon: Network },
+  { to: '/disk', labelKey: 'layout.nav.disk', icon: HardDrive },
   { to: '/packages', labelKey: 'layout.nav.packages', icon: Package },
   { to: '/terminal', labelKey: 'layout.nav.terminal', icon: Terminal },
   { to: '/settings', labelKey: 'layout.nav.settings', icon: Settings },
