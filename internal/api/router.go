@@ -167,6 +167,27 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo 
 	swap.GET("/resize-check", diskHandler.CheckSwapResize)
 	swap.PUT("/resize", diskHandler.ResizeSwap)
 
+	// Firewall management (UFW)
+	firewallHandler := &handlers.FirewallHandler{}
+	fw := authorized.Group("/firewall")
+	fw.GET("/status", firewallHandler.GetUFWStatus)
+	fw.POST("/enable", firewallHandler.EnableUFW)
+	fw.POST("/disable", firewallHandler.DisableUFW)
+	fw.GET("/rules", firewallHandler.ListRules)
+	fw.POST("/rules", firewallHandler.AddRule)
+	fw.DELETE("/rules/:number", firewallHandler.DeleteRule)
+	fw.GET("/ports", firewallHandler.ListPorts)
+
+	// Fail2ban
+	f2b := authorized.Group("/fail2ban")
+	f2b.GET("/status", firewallHandler.GetFail2banStatus)
+	f2b.POST("/install", firewallHandler.InstallFail2ban)
+	f2b.GET("/jails", firewallHandler.ListJails)
+	f2b.GET("/jails/:name", firewallHandler.GetJailDetail)
+	f2b.POST("/jails/:name/enable", firewallHandler.EnableJail)
+	f2b.POST("/jails/:name/disable", firewallHandler.DisableJail)
+	f2b.POST("/jails/:name/unban", firewallHandler.UnbanIP)
+
 	// Package management routes
 	packagesHandler := &handlers.PackagesHandler{}
 	packages := authorized.Group("/packages")

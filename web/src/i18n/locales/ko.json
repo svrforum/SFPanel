@@ -34,6 +34,7 @@
       "network": "네트워크",
       "disk": "디스크",
       "packages": "패키지",
+      "firewall": "방화벽",
       "sites": "사이트",
       "terminal": "터미널",
       "settings": "설정"
@@ -945,6 +946,84 @@
       "removeConfirm": "<strong>{{name}}</strong> 스왑을 제거하시겠습니까?",
       "empty": "스왑이 설정되지 않았습니다",
       "fetchFailed": "스왑 정보를 불러올 수 없습니다"
+    }
+  },
+  "firewall": {
+    "title": "방화벽",
+    "tabs": {
+      "rules": "UFW 규칙",
+      "ports": "열린 포트",
+      "fail2ban": "Fail2ban"
+    },
+    "status": {
+      "title": "방화벽 상태",
+      "active": "활성",
+      "inactive": "비활성",
+      "defaultIncoming": "기본 수신 정책",
+      "defaultOutgoing": "기본 발신 정책",
+      "enable": "활성화",
+      "disable": "비활성화",
+      "enableConfirm": "방화벽을 활성화하시겠습니까?",
+      "disableConfirm": "방화벽을 비활성화하시겠습니까? 서버가 보호되지 않습니다."
+    },
+    "rules": {
+      "title": "방화벽 규칙",
+      "count": "{{count}}개 규칙",
+      "number": "번호",
+      "to": "대상",
+      "action": "동작",
+      "from": "출발지",
+      "comment": "설명",
+      "addRule": "규칙 추가",
+      "deleteRule": "규칙 삭제",
+      "deleteConfirm": "규칙 #{{number}}을(를) 삭제하시겠습니까?",
+      "noRules": "방화벽 규칙이 없습니다",
+      "allow": "허용",
+      "deny": "차단",
+      "reject": "거부",
+      "limit": "제한",
+      "port": "포트",
+      "protocol": "프로토콜",
+      "fromIP": "출발지 IP",
+      "any": "전체",
+      "tcp": "TCP",
+      "udp": "UDP",
+      "both": "TCP/UDP"
+    },
+    "ports": {
+      "title": "열린 포트",
+      "count": "{{count}}개 포트",
+      "protocol": "프로토콜",
+      "address": "주소",
+      "port": "포트",
+      "process": "프로세스",
+      "pid": "PID",
+      "addToUFW": "UFW 규칙 추가",
+      "noPorts": "열린 포트가 없습니다"
+    },
+    "fail2ban": {
+      "title": "Fail2ban",
+      "notInstalled": "Fail2ban이 설치되지 않았습니다",
+      "install": "설치",
+      "installing": "설치 중...",
+      "running": "실행 중",
+      "stopped": "중지됨",
+      "version": "버전",
+      "jails": "Jail 목록",
+      "jailCount": "{{count}}개 Jail",
+      "name": "이름",
+      "status": "상태",
+      "enabled": "활성",
+      "disabled": "비활성",
+      "bannedCount": "차단 IP",
+      "totalBanned": "누적 차단",
+      "bannedIPs": "차단된 IP 목록",
+      "unban": "차단 해제",
+      "unbanConfirm": "{{ip}}의 차단을 해제하시겠습니까?",
+      "noJails": "Jail이 없습니다",
+      "noBannedIPs": "차단된 IP가 없습니다",
+      "enable": "활성화",
+      "disable": "비활성화"
     }
   }
 }
