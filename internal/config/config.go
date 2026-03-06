@@ -1,6 +1,10 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"log"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -47,10 +51,24 @@ func Load(path string) (*Config, error) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return cfg, nil // use defaults if no config file
+		cfg.Auth.JWTSecret = generateRandomSecret()
+		log.Println("[WARN] No config file found — using defaults with random JWT secret")
+		return cfg, nil
 	}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, err
 	}
+	if cfg.Auth.JWTSecret == "" {
+		cfg.Auth.JWTSecret = generateRandomSecret()
+		log.Println("[WARN] jwt_secret not set in config — generated random secret (tokens will invalidate on restart)")
+	}
 	return cfg, nil
+}
+
+func generateRandomSecret() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("failed to generate random secret: %v", err))
+	}
+	return hex.EncodeToString(b)
 }

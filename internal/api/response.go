@@ -2,7 +2,7 @@ package api
 
 import (
 	"github.com/labstack/echo/v4"
-	"github.com/sfpanel/sfpanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
 // Re-export types and functions from the response package

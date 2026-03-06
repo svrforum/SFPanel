@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/sfpanel/sfpanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
 // PackageInfo represents a system package with version and architecture details.

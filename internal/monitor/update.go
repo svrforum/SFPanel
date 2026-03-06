@@ -30,7 +30,7 @@ func StartUpdateChecker(currentVersion string) {
 
 func checkUpdate(currentVersion string) {
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get("https://api.github.com/repos/sfpanel/sfpanel/releases/latest")
+	resp, err := client.Get("https://api.github.com/repos/svrforum/SFPanel/releases/latest")
 	if err != nil {
 		return
 	}

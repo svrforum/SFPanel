@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { Trash2, RefreshCw, Plus } from 'lucide-react'
+import { Trash2, RefreshCw, Plus, Sparkles, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { DockerNetwork } from '@/types/api'
@@ -41,6 +41,7 @@ export default function DockerNetworks() {
   const [creating, setCreating] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DockerNetwork | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
+  const [pruning, setPruning] = useState(false)
 
   const fetchNetworks = useCallback(async () => {
     try {
@@ -98,12 +99,24 @@ export default function DockerNetworks() {
   }
 
   return (
-    <div className="space-y-4 mt-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
           {t('docker.networks.count', { count: networks.length })}
         </span>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={async () => {
+            setPruning(true)
+            try {
+              const r = await api.pruneNetworks()
+              toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
+              fetchNetworks()
+            } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Prune failed') }
+            finally { setPruning(false) }
+          }} disabled={pruning}>
+            <Sparkles className={pruning ? 'animate-spin' : ''} />
+            {t('docker.sidebar.prune')}
+          </Button>
           <Button variant="outline" size="sm" onClick={fetchNetworks} disabled={loading}>
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             {t('common.refresh')}
@@ -121,6 +134,7 @@ export default function DockerNetworks() {
           <TableRow>
             <TableHead>{t('common.name')}</TableHead>
             <TableHead>{t('docker.networks.id')}</TableHead>
+            <TableHead>{t('common.status')}</TableHead>
             <TableHead>{t('docker.networks.driver')}</TableHead>
             <TableHead>{t('docker.networks.scope')}</TableHead>
             <TableHead className="text-right">{t('common.actions')}</TableHead>
@@ -129,16 +143,32 @@ export default function DockerNetworks() {
         <TableBody>
           {networks.length === 0 && !loading && (
             <TableRow>
-              <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+              <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                 {t('docker.networks.empty')}
               </TableCell>
             </TableRow>
           )}
-          {networks.map((n) => (
+          {[...networks].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1)).map((n) => (
             <TableRow key={n.Id}>
-              <TableCell className="font-medium">{n.Name}</TableCell>
+              <TableCell className="font-medium">
+                <div className="flex items-center gap-1.5">
+                  {n.in_use && <Check className="h-3.5 w-3.5 text-[#00c471] shrink-0" />}
+                  {n.Name}
+                </div>
+              </TableCell>
               <TableCell className="text-muted-foreground font-mono text-xs">
                 {shortId(n.Id)}
+              </TableCell>
+              <TableCell>
+                {n.in_use ? (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]" title={n.used_by.join(', ')}>
+                    {t('docker.networks.inUse')}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
+                    {t('docker.networks.unused')}
+                  </span>
+                )}
               </TableCell>
               <TableCell className="text-muted-foreground">{n.Driver}</TableCell>
               <TableCell className="text-muted-foreground">{n.Scope}</TableCell>

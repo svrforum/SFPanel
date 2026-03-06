@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Shield, Plus, Trash2, Loader2, Power } from 'lucide-react'
+import { Shield, Plus, Trash2, Loader2, Power, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -82,6 +82,11 @@ export default function FirewallRules() {
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<FirewallRule | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  // Edit rule (delete + re-add)
+  const [editTarget, setEditTarget] = useState<FirewallRule | null>(null)
+  const [editForm, setEditForm] = useState<NewRuleForm>(initialRuleForm)
+  const [editing, setEditing] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -173,21 +178,76 @@ export default function FirewallRules() {
     }
   }
 
+  const parseRuleTo = (to: string): { port: string; protocol: string } => {
+    // e.g. "80/tcp", "443/tcp", "8000:8080/tcp", "53/udp", "Anywhere"
+    const match = to.match(/^(.+)\/(tcp|udp)$/i)
+    if (match) return { port: match[1], protocol: match[2].toLowerCase() }
+    return { port: to, protocol: 'tcp' }
+  }
+
+  const parseRuleAction = (action: string): string => {
+    const normalized = action.toUpperCase()
+    if (normalized.startsWith('ALLOW')) return 'allow'
+    if (normalized.startsWith('DENY')) return 'deny'
+    if (normalized.startsWith('REJECT')) return 'reject'
+    if (normalized.startsWith('LIMIT')) return 'limit'
+    return 'allow'
+  }
+
+  const handleOpenEdit = (rule: FirewallRule) => {
+    const { port, protocol } = parseRuleTo(rule.to)
+    setEditForm({
+      action: parseRuleAction(rule.action),
+      port,
+      protocol,
+      from: rule.from === 'Anywhere' ? '' : rule.from,
+      comment: rule.comment || '',
+    })
+    setEditTarget(rule)
+  }
+
+  const handleEditRule = async () => {
+    if (!editTarget || !editForm.port.trim()) return
+    setEditing(true)
+    try {
+      // Step 1: Delete old rule
+      await api.deleteFirewallRule(editTarget.number)
+      // Step 2: Add new rule
+      await api.addFirewallRule({
+        action: editForm.action,
+        port: editForm.port.trim(),
+        protocol: editForm.protocol,
+        from: editForm.from.trim() || 'any',
+        to: '',
+        comment: editForm.comment.trim(),
+      })
+      setEditTarget(null)
+      await fetchRules()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('common.error')
+      toast.error(message)
+      // Refresh rules in case delete succeeded but add failed
+      await fetchRules()
+    } finally {
+      setEditing(false)
+    }
+  }
+
   const getActionStyle = (action: string) => {
     const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
     const normalized = action.toUpperCase()
-    if (normalized === 'ALLOW') return `${base} bg-[#00c471]/10 text-[#00c471]`
-    if (normalized === 'DENY' || normalized === 'REJECT') return `${base} bg-[#f04452]/10 text-[#f04452]`
-    if (normalized === 'LIMIT') return `${base} bg-[#f59e0b]/10 text-[#f59e0b]`
+    if (normalized.startsWith('ALLOW')) return `${base} bg-[#00c471]/10 text-[#00c471]`
+    if (normalized.startsWith('DENY') || normalized.startsWith('REJECT')) return `${base} bg-[#f04452]/10 text-[#f04452]`
+    if (normalized.startsWith('LIMIT')) return `${base} bg-[#f59e0b]/10 text-[#f59e0b]`
     return `${base} bg-secondary text-muted-foreground`
   }
 
   const getActionLabel = (action: string) => {
     const normalized = action.toUpperCase()
-    if (normalized === 'ALLOW') return t('firewall.rules.allow')
-    if (normalized === 'DENY') return t('firewall.rules.deny')
-    if (normalized === 'REJECT') return t('firewall.rules.reject')
-    if (normalized === 'LIMIT') return t('firewall.rules.limit')
+    if (normalized.startsWith('ALLOW')) return t('firewall.rules.allow')
+    if (normalized.startsWith('DENY')) return t('firewall.rules.deny')
+    if (normalized.startsWith('REJECT')) return t('firewall.rules.reject')
+    if (normalized.startsWith('LIMIT')) return t('firewall.rules.limit')
     return action
   }
 
@@ -276,7 +336,7 @@ export default function FirewallRules() {
                 <TableHead className="text-[11px]">{t('firewall.rules.action')}</TableHead>
                 <TableHead className="text-[11px]">{t('firewall.rules.from')}</TableHead>
                 <TableHead className="text-[11px]">{t('firewall.rules.comment')}</TableHead>
-                <TableHead className="text-right w-20 text-[11px]">{t('common.actions')}</TableHead>
+                <TableHead className="text-right w-24 text-[11px]">{t('common.actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -292,15 +352,26 @@ export default function FirewallRules() {
                   <TableCell className="text-[13px] font-mono">{rule.from}</TableCell>
                   <TableCell className="text-[13px] text-muted-foreground">{rule.comment || '-'}</TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-600"
-                      title={t('firewall.rules.deleteRule')}
-                      onClick={() => setDeleteTarget(rule)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        title={t('firewall.rules.editRule')}
+                        onClick={() => handleOpenEdit(rule)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-600"
+                        title={t('firewall.rules.deleteRule')}
+                        onClick={() => setDeleteTarget(rule)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -363,6 +434,97 @@ export default function FirewallRules() {
         </DialogContent>
       </Dialog>
 
+      {/* Edit Rule Dialog */}
+      <Dialog open={!!editTarget} onOpenChange={(open) => { if (!editing && !open) setEditTarget(null) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('firewall.rules.editRule')}</DialogTitle>
+            <DialogDescription>
+              {t('firewall.rules.editDescription', { number: editTarget?.number })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Action */}
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{t('firewall.rules.action')}</label>
+              <Select value={editForm.action} onValueChange={(v) => setEditForm({ ...editForm, action: v })}>
+                <SelectTrigger className="w-full rounded-xl">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="allow">{t('firewall.rules.allow')}</SelectItem>
+                  <SelectItem value="deny">{t('firewall.rules.deny')}</SelectItem>
+                  <SelectItem value="reject">{t('firewall.rules.reject')}</SelectItem>
+                  <SelectItem value="limit">{t('firewall.rules.limit')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Port */}
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{t('firewall.rules.port')}</label>
+              <Input
+                value={editForm.port}
+                onChange={(e) => setEditForm({ ...editForm, port: e.target.value })}
+                placeholder="80, 443, 8000:8080"
+                className="rounded-xl text-[13px]"
+              />
+            </div>
+
+            {/* Protocol */}
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{t('firewall.rules.protocol')}</label>
+              <Select value={editForm.protocol} onValueChange={(v) => setEditForm({ ...editForm, protocol: v })}>
+                <SelectTrigger className="w-full rounded-xl">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="tcp">{t('firewall.rules.tcp')}</SelectItem>
+                  <SelectItem value="udp">{t('firewall.rules.udp')}</SelectItem>
+                  <SelectItem value="any">{t('firewall.rules.both')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Source IP */}
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{t('firewall.rules.fromIP')}</label>
+              <Input
+                value={editForm.from}
+                onChange={(e) => setEditForm({ ...editForm, from: e.target.value })}
+                placeholder={t('firewall.rules.any')}
+                className="rounded-xl text-[13px]"
+              />
+              <p className="text-[11px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
+            </div>
+
+            {/* Comment */}
+            <div className="space-y-1.5">
+              <label className="text-[13px] font-medium">{t('firewall.rules.comment')}</label>
+              <Input
+                value={editForm.comment}
+                onChange={(e) => setEditForm({ ...editForm, comment: e.target.value })}
+                placeholder=""
+                className="rounded-xl text-[13px]"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEditTarget(null)} disabled={editing} className="rounded-xl">
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={handleEditRule}
+              disabled={editing || !editForm.port.trim()}
+              className="rounded-xl"
+            >
+              {editing && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Add Rule Dialog */}
       <Dialog open={addOpen} onOpenChange={(open) => { if (!adding) setAddOpen(open) }}>
         <DialogContent className="sm:max-w-md">
@@ -408,7 +570,7 @@ export default function FirewallRules() {
                 <SelectContent>
                   <SelectItem value="tcp">{t('firewall.rules.tcp')}</SelectItem>
                   <SelectItem value="udp">{t('firewall.rules.udp')}</SelectItem>
-                  <SelectItem value="both">{t('firewall.rules.both')}</SelectItem>
+                  <SelectItem value="any">{t('firewall.rules.both')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -422,6 +584,7 @@ export default function FirewallRules() {
                 placeholder={t('firewall.rules.any')}
                 className="rounded-xl text-[13px]"
               />
+              <p className="text-[11px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
             </div>
 
             {/* Comment */}

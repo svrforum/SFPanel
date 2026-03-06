@@ -11,10 +11,10 @@ import (
 
 	"github.com/labstack/echo/v4"
 	echoMw "github.com/labstack/echo/v4/middleware"
-	"github.com/sfpanel/sfpanel/internal/api/handlers"
-	mw "github.com/sfpanel/sfpanel/internal/api/middleware"
-	"github.com/sfpanel/sfpanel/internal/config"
-	"github.com/sfpanel/sfpanel/internal/docker"
+	"github.com/svrforum/SFPanel/internal/api/handlers"
+	mw "github.com/svrforum/SFPanel/internal/api/middleware"
+	"github.com/svrforum/SFPanel/internal/config"
+	"github.com/svrforum/SFPanel/internal/docker"
 )
 
 func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version string, extra ...string) *echo.Echo {
@@ -37,9 +37,10 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		cfgPath = extra[0]
 	}
 	systemHandler := &handlers.SystemHandler{
-		Version:    version,
-		DBPath:     cfg.Database.Path,
-		ConfigPath: cfgPath,
+		Version:     version,
+		DBPath:      cfg.Database.Path,
+		ConfigPath:  cfgPath,
+		ComposePath: "/opt/stacks",
 	}
 
 	// Initialize Docker client

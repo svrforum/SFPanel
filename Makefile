@@ -3,7 +3,7 @@
 # 프론트엔드 빌드 후 Go 바이너리 빌드
 build:
 	cd web && npm install && npm run build
-	go build -o sfpanel ./cmd/sfpanel
+	go build -ldflags="-s -w" -trimpath -o sfpanel ./cmd/sfpanel
 
 # 개발 모드 - API 서버
 dev-api:

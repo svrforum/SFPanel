@@ -38,12 +38,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-interface PackageInfo {
-  name: string
-  current_version: string
-  new_version: string
-  arch: string
-}
+import type { PackageUpdate as PackageInfo } from '@/types/api'
 
 interface SearchResult {
   name: string

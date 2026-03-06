@@ -9,18 +9,20 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/sfpanel/sfpanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
 type SystemHandler struct {
-	Version    string
-	DBPath     string
-	ConfigPath string
+	Version     string
+	DBPath      string
+	ConfigPath  string
+	ComposePath string
 }
 
 type GitHubRelease struct {
@@ -40,7 +42,7 @@ type UpdateCheckResponse struct {
 // CheckUpdate queries GitHub releases API and returns version comparison.
 func (h *SystemHandler) CheckUpdate(c echo.Context) error {
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get("https://api.github.com/repos/sfpanel/sfpanel/releases/latest")
+	resp, err := client.Get("https://api.github.com/repos/svrforum/SFPanel/releases/latest")
 	if err != nil {
 		return response.Fail(c, http.StatusBadGateway, response.ErrUpdateCheckFailed, "Failed to check for updates")
 	}
@@ -69,7 +71,7 @@ func (h *SystemHandler) CheckUpdate(c echo.Context) error {
 // RunUpdate downloads the latest release and replaces the current binary, streaming progress via SSE.
 func (h *SystemHandler) RunUpdate(c echo.Context) error {
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get("https://api.github.com/repos/sfpanel/sfpanel/releases/latest")
+	resp, err := client.Get("https://api.github.com/repos/svrforum/SFPanel/releases/latest")
 	if err != nil {
 		return response.Fail(c, http.StatusBadGateway, response.ErrUpdateFailed, "Failed to check for updates")
 	}
@@ -103,7 +105,7 @@ func (h *SystemHandler) RunUpdate(c echo.Context) error {
 
 	// Download
 	arch := runtime.GOARCH
-	url := fmt.Sprintf("https://github.com/sfpanel/sfpanel/releases/download/v%s/sfpanel_%s_linux_%s.tar.gz", latest, latest, arch)
+	url := fmt.Sprintf("https://github.com/svrforum/SFPanel/releases/download/v%s/sfpanel_%s_linux_%s.tar.gz", latest, latest, arch)
 	sendEvent("downloading", fmt.Sprintf("Downloading v%s (%s)...", latest, arch))
 
 	dlClient := &http.Client{Timeout: 5 * time.Minute}
@@ -215,6 +217,26 @@ func (h *SystemHandler) CreateBackup(c echo.Context) error {
 		return err
 	}
 
+	// Include Docker Compose project files from /opt/stacks/
+	if h.ComposePath != "" {
+		entries, err := os.ReadDir(h.ComposePath)
+		if err == nil {
+			composeFiles := []string{"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", ".env"}
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+				for _, cf := range composeFiles {
+					filePath := filepath.Join(h.ComposePath, entry.Name(), cf)
+					if _, statErr := os.Stat(filePath); statErr == nil {
+						archiveName := filepath.Join("compose", entry.Name(), cf)
+						_ = addFileToTar(tw, filePath, archiveName)
+					}
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -271,7 +293,10 @@ func (h *SystemHandler) RestoreBackup(c echo.Context) error {
 		if err != nil {
 			return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed, "Invalid tar archive")
 		}
-		if hdr.Name == "sfpanel.db" || hdr.Name == "config.yaml" {
+		if hdr.Typeflag == tar.TypeDir {
+			continue
+		}
+		if hdr.Name == "sfpanel.db" || hdr.Name == "config.yaml" || strings.HasPrefix(hdr.Name, "compose/") {
 			data, readErr := io.ReadAll(tr)
 			if readErr != nil {
 				return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to read archive entry")
@@ -301,6 +326,23 @@ func (h *SystemHandler) RestoreBackup(c echo.Context) error {
 	if cfgData, ok := files["config.yaml"]; ok {
 		if err := os.WriteFile(h.ConfigPath, cfgData, 0644); err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to restore config")
+		}
+	}
+
+	// Restore compose files
+	if h.ComposePath != "" {
+		for name, data := range files {
+			if !strings.HasPrefix(name, "compose/") {
+				continue
+			}
+			// name format: compose/<project>/<filename>
+			relPath := strings.TrimPrefix(name, "compose/")
+			destPath := filepath.Join(h.ComposePath, relPath)
+			destDir := filepath.Dir(destPath)
+			if err := os.MkdirAll(destDir, 0755); err != nil {
+				continue
+			}
+			_ = os.WriteFile(destPath, data, 0644)
 		}
 	}
 

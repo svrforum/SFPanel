@@ -1,4 +1,4 @@
-module github.com/sfpanel/sfpanel
+module github.com/svrforum/SFPanel
 
 go 1.24.0
 

@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # SFPanel Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/sfpanel/sfpanel/main/scripts/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | bash
 
-REPO="sfpanel/sfpanel"
+REPO="svrforum/SFPanel"
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/sfpanel"
 DATA_DIR="/var/lib/sfpanel"
@@ -57,13 +57,21 @@ check_commands() {
   done
 }
 
+get_current_version() {
+  if [ -x "${INSTALL_DIR}/sfpanel" ]; then
+    "${INSTALL_DIR}/sfpanel" version 2>/dev/null | grep -oP 'v\K[0-9]+\.[0-9]+\.[0-9]+' || echo ""
+  else
+    echo ""
+  fi
+}
+
 # --- Core functions ---
 
 get_latest_version() {
   local version
   version=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
   if [ -z "$version" ]; then
-    log_error "Failed to fetch latest version"
+    log_error "Failed to fetch latest version. Check https://github.com/${REPO}/releases"
     exit 1
   fi
   echo "$version"
@@ -76,16 +84,22 @@ download_binary() {
   local tmp_dir
 
   tmp_dir=$(mktemp -d)
-  trap 'rm -rf "$tmp_dir"' EXIT
 
   log_info "Downloading SFPanel v${version} (linux/${arch})..."
   if ! curl -fsSL "$url" -o "${tmp_dir}/sfpanel.tar.gz"; then
+    rm -rf "$tmp_dir"
     log_error "Download failed: $url"
     exit 1
   fi
 
   log_info "Extracting..."
   tar -xzf "${tmp_dir}/sfpanel.tar.gz" -C "$tmp_dir"
+
+  if [ ! -f "${tmp_dir}/sfpanel" ]; then
+    rm -rf "$tmp_dir"
+    log_error "Binary not found in archive"
+    exit 1
+  fi
 
   # Stop service if running (upgrade case)
   if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
@@ -94,6 +108,7 @@ download_binary() {
   fi
 
   install -m 755 "${tmp_dir}/sfpanel" "${INSTALL_DIR}/sfpanel"
+  rm -rf "$tmp_dir"
   log_info "Binary installed to ${INSTALL_DIR}/sfpanel"
 }
 
@@ -149,10 +164,9 @@ Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
 
-# Security hardening
+# SFPanel needs full system access for firewall (ufw), packages (apt),
+# disk management, and other system administration tasks.
 NoNewPrivileges=false
-ProtectSystem=full
-ReadWritePaths=${DATA_DIR} ${LOG_DIR}
 
 [Install]
 WantedBy=multi-user.target
@@ -165,14 +179,21 @@ EOF
 }
 
 print_success() {
+  local version="$1"
+  local mode="$2"
   local port
   port=$(grep -oP 'port:\s*\K[0-9]+' "${CONFIG_DIR}/config.yaml" 2>/dev/null || echo "8443")
 
   echo ""
   echo -e "${CYAN}============================================${NC}"
-  echo -e "${CYAN}   SFPanel installed successfully!${NC}"
+  if [ "$mode" = "upgrade" ]; then
+    echo -e "${CYAN}   SFPanel upgraded to v${version}!${NC}"
+  else
+    echo -e "${CYAN}   SFPanel installed successfully!${NC}"
+  fi
   echo -e "${CYAN}============================================${NC}"
   echo ""
+  echo -e "  Version:   ${GREEN}v${version}${NC}"
   echo -e "  Access:    ${GREEN}http://<server-ip>:${port}${NC}"
   echo -e "  Config:    ${CONFIG_DIR}/config.yaml"
   echo -e "  Data:      ${DATA_DIR}/"
@@ -183,8 +204,10 @@ print_success() {
   echo -e "    systemctl restart ${SERVICE_NAME}"
   echo -e "    systemctl stop ${SERVICE_NAME}"
   echo ""
-  echo -e "  ${YELLOW}First visit: Set up admin account in the browser${NC}"
-  echo ""
+  if [ "$mode" = "install" ]; then
+    echo -e "  ${YELLOW}First visit: Set up admin account in the browser${NC}"
+    echo ""
+  fi
 }
 
 # --- Uninstall ---
@@ -222,15 +245,28 @@ main() {
   check_os
   check_commands
 
-  local arch version
+  local arch version current_version mode
   arch=$(detect_arch)
+  current_version=$(get_current_version)
   version=$(get_latest_version)
+
+  if [ -n "$current_version" ]; then
+    if [ "$current_version" = "$version" ]; then
+      log_info "SFPanel v${version} is already installed and up to date"
+      exit 0
+    fi
+    log_info "Upgrading SFPanel: v${current_version} → v${version}"
+    mode="upgrade"
+  else
+    log_info "Installing SFPanel v${version}..."
+    mode="install"
+  fi
 
   download_binary "$version" "$arch"
   setup_dirs
   generate_config
   setup_systemd
-  print_success
+  print_success "$version" "$mode"
 }
 
 main "$@"

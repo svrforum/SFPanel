@@ -3,6 +3,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { Plus, Trash2, RefreshCw, Shield, HardDrive, PlusCircle, MinusCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { formatBytes } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,38 +16,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
-interface RAIDMember {
-  device: string
-  state: string
-  role: string
-}
-
-interface RAIDArray {
-  name: string
-  level: string
-  state: string
-  size: number
-  device_count: number
-  active_devices: number
-  failed_devices: number
-  spare_devices: number
-  members: RAIDMember[]
-  uuid: string
-}
+import type { RAIDArray } from '@/types/api'
 
 const RAID_LEVELS = ['raid0', 'raid1', 'raid5', 'raid6', 'raid10']
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
 
 function memberStateColor(state: string): string {
   switch (state.toLowerCase()) {
@@ -297,32 +269,32 @@ export default function DiskRAID() {
                 <div className="mt-3 grid grid-cols-4 gap-3">
                   <div className="bg-secondary/30 rounded-lg px-3 py-2 text-center">
                     <div className="text-[11px] text-muted-foreground">{t('disk.raid.totalDevices')}</div>
-                    <div className="text-lg font-bold">{arr.device_count}</div>
+                    <div className="text-lg font-bold">{arr.total}</div>
                   </div>
                   <div className="bg-[#00c471]/5 rounded-lg px-3 py-2 text-center">
                     <div className="text-[11px] text-[#00c471]">{t('disk.raid.activeDevices')}</div>
-                    <div className="text-lg font-bold text-[#00c471]">{arr.active_devices}</div>
+                    <div className="text-lg font-bold text-[#00c471]">{arr.active}</div>
                   </div>
                   <div className="bg-[#f04452]/5 rounded-lg px-3 py-2 text-center">
                     <div className="text-[11px] text-[#f04452]">{t('disk.raid.failedDevices')}</div>
-                    <div className="text-lg font-bold text-[#f04452]">{arr.failed_devices}</div>
+                    <div className="text-lg font-bold text-[#f04452]">{arr.failed}</div>
                   </div>
                   <div className="bg-[#f59e0b]/5 rounded-lg px-3 py-2 text-center">
                     <div className="text-[11px] text-[#f59e0b]">{t('disk.raid.spareDevices')}</div>
-                    <div className="text-lg font-bold text-[#f59e0b]">{arr.spare_devices}</div>
+                    <div className="text-lg font-bold text-[#f59e0b]">{arr.spare}</div>
                   </div>
                 </div>
               </div>
 
               {/* Member Disks */}
-              {arr.members && arr.members.length > 0 && (
+              {arr.devices && arr.devices.length > 0 && (
                 <div className="px-5 py-3">
                   <div className="text-[12px] font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
                     <HardDrive className="h-3 w-3" />
-                    {t('disk.raid.memberDisks')} ({arr.members.length})
+                    {t('disk.raid.memberDisks')} ({arr.devices.length})
                   </div>
                   <div className="space-y-1">
-                    {arr.members.map((member) => (
+                    {arr.devices.map((member) => (
                       <div
                         key={member.device}
                         className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2 text-[13px]"

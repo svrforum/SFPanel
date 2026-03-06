@@ -1,10 +1,13 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
+import { formatBytes } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { FileText, RefreshCw, Radio, ArrowDown, Trash2, Eye, Search, ChevronUp, ChevronDown, X, Download } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { FileText, RefreshCw, Radio, ArrowDown, Trash2, Eye, Search, ChevronUp, ChevronDown, X, Download, Plus } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { hasParsedView, getParser, parseLogLines, type LogEntry, type ParsedLogEntry, type ColumnDef } from '@/lib/logParsers'
 
 interface LogSource {
   id: string
@@ -12,6 +15,8 @@ interface LogSource {
   path: string
   size: number
   exists: boolean
+  custom: boolean
+  custom_id?: number
 }
 
 interface LogResponse {
@@ -24,17 +29,6 @@ type LineCount = 100 | 500 | 1000 | 5000
 
 const LINE_COUNT_OPTIONS: LineCount[] = [100, 500, 1000, 5000]
 
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(1)} ${units[i]}`
-}
 
 function highlightText(text: string, query: string) {
   if (!query) return text
@@ -68,7 +62,9 @@ function highlightText(text: string, query: string) {
 }
 
 function getLogLevel(line: string): 'error' | 'warn' | 'info' | 'debug' | null {
-  const upper = line.toUpperCase()
+  // Skip empty JSON fields like "error":"" that cause false positives
+  const cleaned = line.replace(/"error":""/g, '')
+  const upper = cleaned.toUpperCase()
   // Common patterns: [ERROR], ERROR:, level=error, "level":"error", FATAL, CRITICAL, PANIC
   if (/\b(ERROR|FATAL|CRITICAL|PANIC|EMERG)\b/.test(upper)) return 'error'
   if (/\b(WARN|WARNING)\b/.test(upper)) return 'warn'
@@ -107,11 +103,20 @@ export default function Logs() {
   const [logLoading, setLogLoading] = useState(false)
   const [totalLines, setTotalLines] = useState(0)
 
+  // View mode
+  const [viewMode, setViewMode] = useState<'raw' | 'parsed'>('parsed')
+
   // Search state
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [currentMatch, setCurrentMatch] = useState(0)
   const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Custom source dialog
+  const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [newSourceName, setNewSourceName] = useState('')
+  const [newSourcePath, setNewSourcePath] = useState('')
+  const [addingSource, setAddingSource] = useState(false)
 
   // WebSocket state
   const [wsConnected, setWsConnected] = useState(false)
@@ -274,6 +279,7 @@ export default function Logs() {
     const source = sources.find((s) => s.id === sourceId)
     if (source && !source.exists) return
     setSelectedSource(sourceId)
+    setViewMode(hasParsedView(sourceId) ? 'parsed' : 'raw')
   }
 
   function handleRefresh() {
@@ -285,6 +291,45 @@ export default function Logs() {
   function handleClear() {
     setLogLines([])
     setTotalLines(0)
+  }
+
+  async function handleAddSource() {
+    const name = newSourceName.trim()
+    const path = newSourcePath.trim()
+    if (!name || !path) return
+    if (!path.startsWith('/')) {
+      toast.error(t('logs.pathInvalid'))
+      return
+    }
+    setAddingSource(true)
+    try {
+      await api.addCustomLogSource(name, path)
+      toast.success(t('logs.sourceAdded'))
+      setAddDialogOpen(false)
+      setNewSourceName('')
+      setNewSourcePath('')
+      loadSources()
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setAddingSource(false)
+    }
+  }
+
+  async function handleDeleteSource(source: LogSource) {
+    if (!source.custom || !source.custom_id) return
+    if (!confirm(t('logs.deleteSourceConfirm'))) return
+    try {
+      await api.deleteCustomLogSource(source.custom_id)
+      toast.success(t('logs.sourceDeleted'))
+      if (selectedSource === source.id) {
+        setSelectedSource(null)
+        setLogLines([])
+      }
+      loadSources()
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   // Search: find matching line indices
@@ -349,6 +394,14 @@ export default function Logs() {
 
   const selectedSourceData = sources.find((s) => s.id === selectedSource)
 
+  // Parsed log entries (memoized)
+  const parsedEntries = useMemo<LogEntry[]>(() => {
+    if (!selectedSource || viewMode !== 'parsed' || !hasParsedView(selectedSource)) return []
+    return parseLogLines(selectedSource, logLines)
+  }, [selectedSource, viewMode, logLines])
+
+  const activeParser = selectedSource ? getParser(selectedSource) : null
+
   // Download logs
   const handleDownload = useCallback(() => {
     if (logLines.length === 0) return
@@ -373,9 +426,20 @@ export default function Logs() {
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Left sidebar: log sources */}
         <div className="w-full lg:w-72 shrink-0 space-y-2">
-          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-            {t('logs.sources')}
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+              {t('logs.sources')}
+            </h2>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setAddDialogOpen(true)}
+              title={t('logs.addSource')}
+              className="h-6 w-6"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          </div>
           {sourcesLoading ? (
             <div className="space-y-2">
               {[1, 2, 3].map((i) => (
@@ -388,45 +452,60 @@ export default function Logs() {
             </div>
           ) : (
             sources.map((source) => (
-              <button
-                key={source.id}
-                onClick={() => handleSourceSelect(source.id)}
-                disabled={!source.exists}
-                className={`w-full text-left rounded-xl p-3 transition-all duration-200 ${
-                  selectedSource === source.id
-                    ? 'bg-primary/10 ring-1 ring-primary/20'
-                    : source.exists
-                      ? 'bg-card card-shadow hover:card-shadow-hover'
-                      : 'bg-secondary/50 opacity-50 cursor-not-allowed'
-                }`}
-              >
-                <div className="flex items-start gap-2">
-                  <FileText className={`h-4 w-4 mt-0.5 shrink-0 ${
+              <div key={source.id} className="relative group">
+                <button
+                  onClick={() => handleSourceSelect(source.id)}
+                  disabled={!source.exists}
+                  className={`w-full text-left rounded-xl p-3 transition-all duration-200 ${
                     selectedSource === source.id
-                      ? 'text-primary'
+                      ? 'bg-primary/10 ring-1 ring-primary/20'
                       : source.exists
-                        ? 'text-muted-foreground'
-                        : 'text-muted-foreground/50'
-                  }`} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-medium truncate">{source.name}</p>
-                    <p className="text-[11px] text-muted-foreground truncate mt-0.5" title={source.path}>
-                      {source.path}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1.5">
-                      {source.exists ? (
-                        <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-secondary text-muted-foreground">
-                          {formatFileSize(source.size)}
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-secondary/50 text-muted-foreground">
-                          {t('logs.notFound')}
-                        </span>
-                      )}
+                        ? 'bg-card card-shadow hover:card-shadow-hover'
+                        : 'bg-secondary/50 opacity-50 cursor-not-allowed'
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <FileText className={`h-4 w-4 mt-0.5 shrink-0 ${
+                      selectedSource === source.id
+                        ? 'text-primary'
+                        : source.exists
+                          ? 'text-muted-foreground'
+                          : 'text-muted-foreground/50'
+                    }`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-medium truncate">{source.name}</p>
+                      <p className="text-[11px] text-muted-foreground truncate mt-0.5" title={source.path}>
+                        {source.path}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        {source.exists ? (
+                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-secondary text-muted-foreground">
+                            {formatBytes(source.size)}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-secondary/50 text-muted-foreground">
+                            {t('logs.notFound')}
+                          </span>
+                        )}
+                        {source.custom && (
+                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                            {t('logs.customSource')}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </button>
+                </button>
+                {source.custom && source.custom_id && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteSource(source) }}
+                    className="absolute top-2 right-2 h-5 w-5 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-destructive/10 hover:bg-destructive/20 text-destructive"
+                    title={t('logs.deleteSource')}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
             ))
           )}
         </div>
@@ -449,6 +528,32 @@ export default function Logs() {
                 </Button>
               ))}
             </div>
+
+            {/* Raw / Parsed toggle */}
+            {hasParsedView(selectedSource) && (
+              <div className="flex items-center bg-secondary/50 rounded-xl p-0.5">
+                <button
+                  onClick={() => setViewMode('raw')}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                    viewMode === 'raw'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {t('logs.viewRaw')}
+                </button>
+                <button
+                  onClick={() => setViewMode('parsed')}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                    viewMode === 'parsed'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {t('logs.viewParsed')}
+                </button>
+              </div>
+            )}
 
             <div className="flex-1" />
 
@@ -638,6 +743,108 @@ export default function Logs() {
                   <p>{t('logs.empty')}</p>
                 </div>
               </div>
+            ) : viewMode === 'parsed' && activeParser && parsedEntries.length > 0 ? (
+              <table className="border-collapse" style={{ tableLayout: 'fixed' }}>
+                <colgroup>
+                  <col style={{ width: '3.5rem' }} />
+                  {(activeParser.columns as ColumnDef<ParsedLogEntry>[]).map((col) => (
+                    <col key={col.key} style={{ width: col.width }} />
+                  ))}
+                </colgroup>
+                <thead className="sticky top-0 z-10" style={{ backgroundColor: '#2d2d2d' }}>
+                  <tr>
+                    <th
+                      className="select-none text-right px-3 py-1.5 text-gray-500 border-r border-gray-700/50 border-b border-b-gray-700/50 whitespace-nowrap"
+                      style={{ fontSize: '11px' }}
+                    >
+                      #
+                    </th>
+                    {(activeParser.columns as ColumnDef<ParsedLogEntry>[]).map((col) => (
+                      <th
+                        key={col.key}
+                        className="text-left px-3 py-1.5 text-gray-400 border-b border-b-gray-700/50 whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider"
+                      >
+                        {t(col.i18nKey)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsedEntries.map((entry, index) => {
+                    const isMatch = searchQuery && matchingLines.includes(index)
+                    const isCurrentMatch = isMatch && matchingLines[currentMatch] === index
+
+                    if (!entry.parsed) {
+                      // Fallback: show raw line spanning all columns
+                      return (
+                        <tr
+                          key={index}
+                          data-line={index}
+                          className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''}`}
+                        >
+                          <td
+                            className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 align-top whitespace-nowrap"
+                            style={{ minWidth: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
+                          >
+                            {index + 1}
+                          </td>
+                          <td
+                            colSpan={activeParser.columns.length}
+                            className="px-3 py-0 whitespace-pre-wrap break-all text-gray-400"
+                            style={{ fontSize: '12px', lineHeight: '20px' }}
+                          >
+                            {searchQuery && isMatch ? highlightText(entry.rawLine, searchQuery) : entry.rawLine}
+                          </td>
+                        </tr>
+                      )
+                    }
+
+                    return (
+                      <tr
+                        key={index}
+                        data-line={index}
+                        className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''}`}
+                      >
+                        <td
+                          className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 align-top whitespace-nowrap"
+                          style={{ minWidth: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
+                        >
+                          {index + 1}
+                        </td>
+                        {(activeParser.columns as ColumnDef<ParsedLogEntry>[]).map((col) => {
+                          const rendered = col.render(entry as ParsedLogEntry)
+                          return (
+                            <td
+                              key={col.key}
+                              className={`px-3 py-0 text-left text-gray-200 ${col.key === 'details' ? 'truncate' : 'whitespace-nowrap overflow-hidden'}`}
+                              style={{ fontSize: '12px', lineHeight: '20px' }}
+                              title={col.key === 'details' ? rendered.text : undefined}
+                            >
+                              {rendered.pill && rendered.color ? (
+                                <span
+                                  className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium"
+                                  style={{
+                                    backgroundColor: `${rendered.color}20`,
+                                    color: rendered.color,
+                                  }}
+                                >
+                                  {rendered.text}
+                                </span>
+                              ) : col.key === 'details' ? (
+                                <span className="text-gray-300">
+                                  {searchQuery && isMatch ? highlightText(rendered.text, searchQuery) : rendered.text}
+                                </span>
+                              ) : (
+                                <span>{rendered.text}</span>
+                              )}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             ) : (
               <table className="w-full border-collapse">
                 <tbody>
@@ -674,6 +881,47 @@ export default function Logs() {
           </div>
         </div>
       </div>
+
+      {/* Add Custom Source Dialog */}
+      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('logs.addSourceTitle')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <label className="text-[13px] font-medium">{t('logs.sourceName')}</label>
+              <Input
+                value={newSourceName}
+                onChange={(e) => setNewSourceName(e.target.value)}
+                placeholder={t('logs.sourceNamePlaceholder')}
+                className="h-9 rounded-xl text-[13px]"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[13px] font-medium">{t('logs.sourcePath')}</label>
+              <Input
+                value={newSourcePath}
+                onChange={(e) => setNewSourcePath(e.target.value)}
+                placeholder={t('logs.sourcePathPlaceholder')}
+                className="h-9 rounded-xl text-[13px] font-mono"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setAddDialogOpen(false)} className="rounded-xl">
+                {t('common.cancel')}
+              </Button>
+              <Button
+                onClick={handleAddSource}
+                disabled={addingSource || !newSourceName.trim() || !newSourcePath.trim()}
+                className="rounded-xl"
+              >
+                {addingSource ? t('common.saving') : t('logs.addSource')}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

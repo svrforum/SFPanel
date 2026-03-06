@@ -231,7 +231,7 @@ export default function Dashboard() {
             {[
               { label: t('dashboard.hostname'), value: hostInfo.hostname },
               { label: t('dashboard.os'), value: hostInfo.os },
-              { label: t('dashboard.platform'), value: hostInfo.platform },
+              { label: t('dashboard.platform'), value: hostInfo.platform_version ? `${hostInfo.platform} ${hostInfo.platform_version}` : hostInfo.platform },
               { label: t('dashboard.kernel'), value: hostInfo.kernel },
               { label: t('dashboard.uptime'), value: formatUptime(hostInfo.uptime) },
               { label: t('dashboard.cpuCores'), value: hostInfo.num_cpu },

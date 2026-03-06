@@ -24,6 +24,7 @@ export interface HostInfo {
   hostname: string
   os: string
   platform: string
+  platform_version: string
   kernel: string
   uptime: number
   num_cpu: number

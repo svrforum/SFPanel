@@ -18,7 +18,9 @@
 
 ## 테이블
 
-총 5개 테이블 + SQLite 내부 테이블 1개 (sqlite_sequence)
+총 6개 테이블 + SQLite 내부 테이블 1개 (sqlite_sequence)
+
+> **참고**: `sites` 테이블은 v0.3에서 제거됨 (Nginx 가상호스트 기능 폐기). `metrics_history` 테이블이 v0.2에서 추가됨.
 
 ### admin
 
@@ -55,29 +57,6 @@ JWT 토큰 세션 관리 테이블. 스키마는 정의되어 있으나, 현재 
 
 **사용처:**
 - 현재 미사용 (스키마만 존재). 향후 토큰 무효화(revocation) 또는 리프레시 토큰 구현 시 활용 예정.
-
----
-
-### sites
-
-웹사이트(Nginx 가상호스트) 관리 정보. Nginx 설정 파일 생성/삭제, SSL 인증서 관리와 연동.
-
-| 컬럼 | 타입 | NOT NULL | 기본값 | 제약조건 | 설명 |
-|------|------|----------|--------|----------|------|
-| id | INTEGER | - | 자동 | PK, AUTOINCREMENT | 사이트 고유 ID |
-| domain | TEXT | O | - | UNIQUE | 도메인명 (예: `example.com`) |
-| doc_root | TEXT | O | - | - | 웹 문서 루트 디렉토리 경로 (예: `/var/www/example.com`) |
-| php_enabled | BOOLEAN | - | 0 | - | PHP-FPM 프록시 활성화 여부 (0=비활성, 1=활성) |
-| ssl_enabled | BOOLEAN | - | 0 | - | SSL/TLS (HTTPS) 활성화 여부 (0=비활성, 1=활성) |
-| ssl_expiry | DATETIME | - | NULL | - | SSL 인증서 만료일 (NULL이면 SSL 미설정) |
-| status | TEXT | - | 'active' | - | 사이트 상태 (`active`, `disabled` 등) |
-| created_at | DATETIME | - | CURRENT_TIMESTAMP | - | 사이트 등록 시각 (UTC) |
-
-**자동 인덱스:**
-- `sqlite_autoindex_sites_1` — `domain` UNIQUE 인덱스
-
-**사용처:**
-- 현재 핸들러 코드 미구현 (`handlers/sites.go` 없음). 마이그레이션으로 테이블만 생성된 상태. Nginx 가상호스트 관리 기능 구현 시 활용 예정.
 
 ---
 
@@ -124,6 +103,42 @@ Docker Compose 프로젝트 메타데이터. YAML 파일은 디스크(`/var/lib/
 
 ---
 
+### custom_log_sources
+
+사용자 정의 로그 소스 관리 테이블. 기본 제공 시스템 로그 소스 외에 사용자가 직접 추가한 커스텀 로그 파일 경로를 저장.
+
+| 컬럼 | 타입 | NOT NULL | 기본값 | 제약조건 | 설명 |
+|------|------|----------|--------|----------|------|
+| id | INTEGER | - | 자동 | PK, AUTOINCREMENT | 로그 소스 고유 ID |
+| source_id | TEXT | O | - | UNIQUE | 로그 소스 식별자 (내부 키, 예: `custom_myapp`) |
+| name | TEXT | O | - | - | 로그 소스 표시명 (예: `My App Log`) |
+| path | TEXT | O | - | - | 로그 파일 절대 경로 (예: `/var/log/myapp/app.log`) |
+| created_at | DATETIME | - | CURRENT_TIMESTAMP | - | 로그 소스 등록 시각 (UTC) |
+
+**자동 인덱스:**
+- `sqlite_autoindex_custom_log_sources_1` — `source_id` UNIQUE 인덱스
+
+**사용처:**
+- `handlers/logs.go` — 커스텀 로그 소스 목록 조회 (`SELECT source_id, name, path`), 로그 소스 추가 (`INSERT INTO custom_log_sources`), 로그 소스 삭제 (`DELETE FROM custom_log_sources WHERE id = ?`), 기본 시스템 로그 소스와 병합하여 전체 소스 목록 제공
+
+---
+
+### metrics_history
+
+시스템 메트릭 히스토리. 30초 간격으로 CPU/메모리 사용률을 기록하여 24시간 시계열 차트에 활용. `monitor/history.go`에서 관리.
+
+| 컬럼 | 타입 | NOT NULL | 기본값 | 제약조건 | 설명 |
+|------|------|----------|--------|----------|------|
+| time | INTEGER | - | - | PK | Unix timestamp (초 단위) |
+| cpu | REAL | O | - | - | CPU 사용률 (0.0~100.0) |
+| mem_percent | REAL | O | - | - | 메모리 사용률 (0.0~100.0) |
+
+**사용처:**
+- `monitor/history.go` — 30초 간격 메트릭 기록 (`INSERT`), 24시간 이전 데이터 자동 삭제, 히스토리 조회 (`SELECT ... ORDER BY time`)
+- `handlers/dashboard.go` — `/api/v1/system/metrics-history` 응답 데이터
+
+---
+
 ### sqlite_sequence (SQLite 내부)
 
 SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `AUTOINCREMENT`를 사용하는 테이블마다 자동 생성됨.
@@ -141,13 +156,14 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 
 ### v1: 초기 스키마
 
-단일 마이그레이션 배치로 5개 테이블 생성:
+단일 마이그레이션 배치로 6개 테이블 생성:
 
 1. **admin** — 관리자 계정 (단일 사용자)
-2. **sites** — 웹사이트/가상호스트 관리
-3. **compose_projects** — Docker Compose 프로젝트 메타데이터
-4. **sessions** — JWT 세션 관리 (예약)
-5. **settings** — 키-값 설정 저장소
+2. **compose_projects** — Docker Compose 프로젝트 메타데이터
+3. **sessions** — JWT 세션 관리 (예약)
+4. **settings** — 키-값 설정 저장소
+5. **custom_log_sources** — 사용자 정의 로그 소스
+6. **metrics_history** — 시스템 메트릭 24시간 히스토리
 
 ---
 
@@ -172,19 +188,6 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 │ expires_at       │
 └─────────────────┘
 
-┌─────────────────┐
-│      sites       │
-├─────────────────┤
-│ id (PK, AUTO)   │
-│ domain (UQ)      │
-│ doc_root         │
-│ php_enabled      │
-│ ssl_enabled      │
-│ ssl_expiry       │
-│ status           │
-│ created_at       │
-└─────────────────┘
-
 ┌─────────────────────┐
 │  compose_projects    │
 ├─────────────────────┤
@@ -201,6 +204,24 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 │ key (PK)         │
 │ value            │
 └─────────────────┘
+
+┌─────────────────────┐
+│ custom_log_sources   │
+├─────────────────────┤
+│ id (PK, AUTO)       │
+│ source_id (UQ)       │
+│ name                 │
+│ path                 │
+│ created_at           │
+└─────────────────────┘
+
+┌─────────────────────┐
+│  metrics_history     │
+├─────────────────────┤
+│ time (PK)            │
+│ cpu (REAL)           │
+│ mem_percent (REAL)   │
+└─────────────────────┘
 ```
 
 > 참고: 현재 테이블 간 외래 키(FK) 관계는 없음. 모든 테이블이 독립적으로 운영됨.

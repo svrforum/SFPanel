@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
-	"github.com/sfpanel/sfpanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
 // ---------- 7. Swap ----------

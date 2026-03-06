@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { HardDrive, Activity, ThermometerSun, RefreshCw, ChevronRight, Info, AlertTriangle, Download, Terminal, CheckCircle2, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { formatBytes } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   Table,
@@ -20,65 +21,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
-interface DiskPartitionChild {
-  name: string
-  size: number
-  type: string
-  fs_type: string
-  mount_point: string
-  uuid: string
-}
+import type { BlockDevice, SmartInfo, IOStat } from '@/types/api'
 
-interface PhysicalDisk {
-  name: string
-  model: string
-  serial: string
-  size: number
-  type: string
-  transport: string
-  rotational: boolean
-  children: DiskPartitionChild[]
-}
-
-interface IOStat {
-  device: string
-  read_ops: number
-  write_ops: number
-  read_bytes: number
-  write_bytes: number
-  io_time: number
-}
-
-interface SmartData {
-  healthy: boolean | null
-  smart_supported: boolean
-  temperature: number
-  power_on_hours: number
-  reallocated_sectors: number
-  attributes: SmartAttribute[]
-}
-
-interface SmartAttribute {
-  id: number
-  name: string
-  value: number
-  worst: number
-  threshold: number
-  raw: string
-  status: string
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
+type PhysicalDisk = BlockDevice
 
 function diskTypeBadge(type: string, rotational: boolean) {
   const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
@@ -95,7 +40,7 @@ export default function DiskOverview() {
   const [loading, setLoading] = useState(true)
   const [smartOpen, setSmartOpen] = useState(false)
   const [smartLoading, setSmartLoading] = useState(false)
-  const [smartData, setSmartData] = useState<SmartData | null>(null)
+  const [smartData, setSmartInfo] = useState<SmartInfo | null>(null)
   const [smartDiskName, setSmartDiskName] = useState('')
 
   // Smartmontools status
@@ -153,11 +98,11 @@ export default function DiskOverview() {
     setSmartLoading(true)
     try {
       const data = await api.getDiskSmart(diskName)
-      setSmartData(data)
+      setSmartInfo(data)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('disk.smart.fetchFailed')
       toast.error(message)
-      setSmartData(null)
+      setSmartInfo(null)
     } finally {
       setSmartLoading(false)
     }
@@ -279,14 +224,14 @@ export default function DiskOverview() {
                           <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
                           <span className="font-mono font-medium w-28 shrink-0">{child.name}</span>
                           <span className="text-muted-foreground w-20 shrink-0">{formatBytes(child.size)}</span>
-                          {child.fs_type && (
+                          {child.fstype && (
                             <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border shrink-0">
-                              {child.fs_type}
+                              {child.fstype}
                             </span>
                           )}
-                          {child.mount_point && (
-                            <span className="text-muted-foreground font-mono text-xs truncate" title={child.mount_point}>
-                              {child.mount_point}
+                          {child.mountpoint && (
+                            <span className="text-muted-foreground font-mono text-xs truncate" title={child.mountpoint}>
+                              {child.mountpoint}
                             </span>
                           )}
                         </div>
@@ -453,7 +398,7 @@ export default function DiskOverview() {
                             <TableCell className="font-mono text-xs">{attr.value}</TableCell>
                             <TableCell className="font-mono text-xs">{attr.worst}</TableCell>
                             <TableCell className="font-mono text-xs">{attr.threshold}</TableCell>
-                            <TableCell className="font-mono text-xs">{attr.raw}</TableCell>
+                            <TableCell className="font-mono text-xs">{attr.raw_value}</TableCell>
                             <TableCell>
                               <span className={`inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium ${
                                 attr.status === 'ok' || attr.status === 'passed'

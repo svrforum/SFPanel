@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { RefreshCw, HardDrive, FolderUp, FolderDown, Maximize2 } from 'lucide-react'
+import { RefreshCw, HardDrive, FolderUp, FolderDown, ArrowUpFromLine, ChevronRight, Loader2, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { formatBytes } from '@/lib/utils'
+import type { Filesystem, ExpandCandidate } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -23,29 +25,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
-interface Filesystem {
-  source: string
-  fstype: string
-  size: number
-  used: number
-  available: number
-  use_percent: number
-  mount_point: string
-}
-
 const FORMAT_FS_TYPES = ['ext4', 'xfs', 'btrfs']
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
 
 function usageBarColor(percent: number): string {
   if (percent >= 85) return '#f04452'
@@ -77,11 +57,12 @@ export default function DiskFilesystems() {
   const [unmountTarget, setUnmountTarget] = useState<Filesystem | null>(null)
   const [unmounting, setUnmounting] = useState(false)
 
-  // Resize dialog
-  const [resizeOpen, setResizeOpen] = useState(false)
-  const [resizeTarget, setResizeTarget] = useState<Filesystem | null>(null)
-  const [resizeNewSize, setResizeNewSize] = useState('')
-  const [resizing, setResizing] = useState(false)
+  // Expand dialog
+  const [expandOpen, setExpandOpen] = useState(false)
+  const [expandCandidates, setExpandCandidates] = useState<ExpandCandidate[]>([])
+  const [expandChecking, setExpandChecking] = useState(false)
+  const [expandTarget, setExpandTarget] = useState<ExpandCandidate | null>(null)
+  const [expanding, setExpanding] = useState(false)
 
   const fetchFilesystems = useCallback(async () => {
     try {
@@ -159,31 +140,38 @@ export default function DiskFilesystems() {
     }
   }
 
-  const handleResize = async () => {
-    if (!resizeTarget || !resizeNewSize.trim()) return
-    setResizing(true)
+  const handleExpandCheck = async () => {
+    setExpandOpen(true)
+    setExpandChecking(true)
+    setExpandTarget(null)
+    setExpandCandidates([])
     try {
-      await api.resizeFilesystem({
-        device: resizeTarget.source,
-        size: resizeNewSize.trim(),
-      })
-      toast.success(t('disk.filesystems.resizeSuccess'))
-      setResizeOpen(false)
-      setResizeTarget(null)
-      setResizeNewSize('')
-      await fetchFilesystems()
+      const data = await api.checkFilesystemExpand()
+      setExpandCandidates(data || [])
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('disk.filesystems.resizeFailed')
+      const message = err instanceof Error ? err.message : t('disk.filesystems.expandFailed')
       toast.error(message)
     } finally {
-      setResizing(false)
+      setExpandChecking(false)
     }
   }
 
-  const openResize = (fs: Filesystem) => {
-    setResizeTarget(fs)
-    setResizeNewSize('')
-    setResizeOpen(true)
+  const handleExpand = async () => {
+    if (!expandTarget) return
+    setExpanding(true)
+    try {
+      await api.expandFilesystem(expandTarget.source)
+      toast.success(t('disk.filesystems.expandSuccess'))
+      setExpandOpen(false)
+      setExpandTarget(null)
+      setExpandCandidates([])
+      await fetchFilesystems()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('disk.filesystems.expandFailed')
+      toast.error(message)
+    } finally {
+      setExpanding(false)
+    }
   }
 
   const resetFormatForm = () => {
@@ -212,7 +200,7 @@ export default function DiskFilesystems() {
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
-          {t('disk.filesystems.count', { count: filesystems.length })}
+          {filesystems.length}
         </span>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchFilesystems} disabled={loading} className="rounded-xl">
@@ -222,6 +210,10 @@ export default function DiskFilesystems() {
           <Button variant="outline" size="sm" onClick={() => setMountOpen(true)} className="rounded-xl">
             <FolderUp className="h-3.5 w-3.5" />
             {t('disk.filesystems.mount')}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExpandCheck} className="rounded-xl">
+            <ArrowUpFromLine className="h-3.5 w-3.5" />
+            {t('disk.filesystems.expand')}
           </Button>
           <Button size="sm" onClick={() => setFormatOpen(true)} className="rounded-xl">
             <HardDrive className="h-3.5 w-3.5" />
@@ -289,14 +281,6 @@ export default function DiskFilesystems() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      title={t('disk.filesystems.resize')}
-                      onClick={() => openResize(fs)}
-                    >
-                      <Maximize2 />
-                    </Button>
                     {fs.mount_point && (
                       <Button
                         variant="ghost"
@@ -435,6 +419,29 @@ export default function DiskFilesystems() {
               />
             </DialogDescription>
           </DialogHeader>
+
+          <div className="space-y-3">
+            {/* General warning */}
+            <div className="flex gap-3 rounded-xl bg-[#f59e0b]/10 p-3">
+              <TriangleAlert className="h-4 w-4 text-[#f59e0b] flex-shrink-0 mt-0.5" />
+              <p className="text-[12px] text-[#f59e0b]/90 leading-relaxed">
+                {t('disk.filesystems.unmountWarning')}
+              </p>
+            </div>
+
+            {/* Root / system mount warning */}
+            {unmountTarget && ['/', '/boot', '/home', '/var', '/tmp', '/usr', '/etc'].some(
+              p => unmountTarget.mount_point === p || unmountTarget.mount_point.startsWith('/run')
+            ) && (
+              <div className="flex gap-3 rounded-xl bg-[#f04452]/10 p-3">
+                <TriangleAlert className="h-4 w-4 text-[#f04452] flex-shrink-0 mt-0.5" />
+                <p className="text-[12px] text-[#f04452]/90 leading-relaxed font-medium">
+                  {t('disk.filesystems.unmountRootWarning')}
+                </p>
+              </div>
+            )}
+          </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setUnmountTarget(null)}>
               {t('common.cancel')}
@@ -446,44 +453,133 @@ export default function DiskFilesystems() {
         </DialogContent>
       </Dialog>
 
-      {/* Resize Dialog */}
-      <Dialog open={resizeOpen} onOpenChange={(open) => { setResizeOpen(open); if (!open) { setResizeTarget(null); setResizeNewSize('') } }}>
-        <DialogContent>
+      {/* Expand Dialog */}
+      <Dialog open={expandOpen} onOpenChange={(open) => {
+        setExpandOpen(open)
+        if (!open) {
+          setExpandTarget(null)
+          setExpandCandidates([])
+        }
+      }}>
+        <DialogContent className="sm:max-w-[520px]">
           <DialogHeader>
-            <DialogTitle>{t('disk.filesystems.resizeTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('disk.filesystems.resizeDescription', { device: resizeTarget?.source ?? '' })}
-            </DialogDescription>
+            <DialogTitle>{t('disk.filesystems.expandTitle')}</DialogTitle>
+            <DialogDescription>{t('disk.filesystems.expandDescription')}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            {resizeTarget && (
-              <div className="bg-muted/30 rounded-lg p-3 text-sm">
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                  <span className="text-muted-foreground">{t('disk.filesystems.currentSize')}</span>
-                  <span className="font-mono">{formatBytes(resizeTarget.size)}</span>
-                  <span className="text-muted-foreground">{t('disk.filesystems.used')}</span>
-                  <span className="font-mono">{formatBytes(resizeTarget.used)}</span>
+
+          {expandChecking ? (
+            <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-[13px]">{t('disk.filesystems.expandChecking')}</span>
+            </div>
+          ) : expandTarget ? (
+            /* Selected target: show steps and confirm */
+            <div className="space-y-4">
+              <div className="bg-muted/30 rounded-xl p-4 text-[13px]">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                  <span className="text-muted-foreground">{t('disk.filesystems.source')}</span>
+                  <span className="font-mono font-medium truncate" title={expandTarget.source}>{expandTarget.source}</span>
+                  <span className="text-muted-foreground">{t('disk.filesystems.fsType')}</span>
+                  <span className="font-mono">{expandTarget.fstype}{expandTarget.is_lvm && (
+                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                      {t('disk.filesystems.expandLVM')}
+                    </span>
+                  )}</span>
+                  <span className="text-muted-foreground">{t('disk.filesystems.expandCurrentSize')}</span>
+                  <span className="font-mono">{formatBytes(expandTarget.current_size)}</span>
+                  <span className="text-muted-foreground">{t('disk.filesystems.expandFreeSpace')}</span>
+                  <span className="font-mono font-semibold text-[#00c471]">+{formatBytes(expandTarget.free_space)}</span>
                 </div>
               </div>
-            )}
-            <div className="space-y-2">
-              <Label htmlFor="resize-size">{t('disk.filesystems.newSize')}</Label>
-              <Input
-                id="resize-size"
-                placeholder="e.g., 50G, 100%FREE"
-                value={resizeNewSize}
-                onChange={(e) => setResizeNewSize(e.target.value)}
-              />
-              <p className="text-[11px] text-muted-foreground">{t('disk.filesystems.resizeHint')}</p>
+
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">
+                  {t('disk.filesystems.expandSteps')}
+                </p>
+                <div className="space-y-1.5">
+                  {expandTarget.steps.map((step, i) => (
+                    <div key={i} className="flex items-start gap-2 bg-muted/20 rounded-lg px-3 py-2">
+                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold flex items-center justify-center mt-0.5">
+                        {i + 1}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-medium font-mono">{step.command}</p>
+                        <p className="text-[11px] text-muted-foreground">{step.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <p className="text-[12px] text-muted-foreground">{t('disk.filesystems.expandConfirm')}</p>
             </div>
-          </div>
+          ) : expandCandidates.length === 0 ? (
+            /* No candidates */
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <ArrowUpFromLine className="h-8 w-8 text-muted-foreground/40 mb-3" />
+              <p className="text-[13px] font-medium text-muted-foreground">{t('disk.filesystems.expandNoTarget')}</p>
+              <p className="text-[11px] text-muted-foreground/70 mt-1 max-w-[300px]">{t('disk.filesystems.expandNoTargetDesc')}</p>
+            </div>
+          ) : (
+            /* Candidate list */
+            <div className="space-y-2">
+              {expandCandidates.map((c) => (
+                <button
+                  key={c.source}
+                  type="button"
+                  className="w-full text-left bg-muted/20 hover:bg-muted/40 rounded-xl p-4 transition-colors group"
+                  onClick={() => setExpandTarget(c)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium font-mono truncate" title={c.source}>{c.source}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border">
+                          {c.fstype}
+                        </span>
+                        {c.is_lvm && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                            {t('disk.filesystems.expandLVM')}
+                          </span>
+                        )}
+                        <span className="text-[11px] text-muted-foreground">
+                          {formatBytes(c.current_size)}
+                        </span>
+                        <span className="text-[11px] font-semibold text-[#00c471]">
+                          +{formatBytes(c.free_space)}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        {c.steps.length} {t('disk.filesystems.expandSteps').toLowerCase()}
+                      </p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors flex-shrink-0" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setResizeOpen(false); setResizeTarget(null); setResizeNewSize('') }}>
-              {t('common.cancel')}
-            </Button>
-            <Button onClick={handleResize} disabled={resizing || !resizeNewSize.trim()}>
-              {resizing ? t('disk.filesystems.resizing') : t('disk.filesystems.resize')}
-            </Button>
+            {expandTarget ? (
+              <>
+                <Button variant="outline" onClick={() => setExpandTarget(null)}>
+                  {t('common.back')}
+                </Button>
+                <Button onClick={handleExpand} disabled={expanding}>
+                  {expanding ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      {t('disk.filesystems.expanding')}
+                    </>
+                  ) : t('disk.filesystems.expand')}
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline" onClick={() => setExpandOpen(false)}>
+                {t('common.close')}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

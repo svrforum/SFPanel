@@ -43,7 +43,6 @@
 | i18next-browser-languagedetector | ^8.2.1 | 브라우저 언어 자동 감지 |
 | Lucide React | ^0.575.0 | 아이콘 라이브러리 |
 | Sonner | ^2.0.7 | 토스트 알림 |
-| next-themes | ^0.4.6 | 다크/라이트 테마 전환 |
 | class-variance-authority | ^0.7.1 | 컴포넌트 변형(variant) 관리 |
 | clsx / tailwind-merge | ^2.1.1 / ^3.5.0 | 조건부 클래스명 결합 |
 
@@ -56,6 +55,15 @@
 | GitHub Actions | CI/CD — 태그 푸시 시 자동 릴리즈 워크플로우 |
 | systemd | 프로덕션 서비스 관리 (자동 시작, 재시작, 보안 하드닝) |
 | Bash 설치 스크립트 | 원클릭 설치/업그레이드/삭제 (`scripts/install.sh`) |
+
+### 프론트엔드 최적화
+
+| 기법 | 구현 |
+|------|------|
+| **코드 스플리팅** | `React.lazy()` + `Suspense` — 모든 페이지 컴포넌트(35개)를 지연 로딩. 초기 번들 크기 감소 및 라우트별 온디맨드 로딩 |
+| **공유 유틸리티** | `formatBytes()` 함수를 `web/src/lib/utils.ts`에 추출하여 Dashboard, Docker, Files, Network 등에서 재사용 |
+| **SetupGuard 캐싱** | 초기 설정 상태 확인 API(`/auth/setup-status`)를 모듈 레벨 변수로 캐싱 — 매 라우트 전환마다 API 호출하지 않고 한 번만 확인 |
+| **버전 정보 서버 제공** | `DashboardHandler.Version` 필드로 빌드 시 주입된 버전을 `/api/v1/system/info` 응답에 포함 (`version` 키) |
 
 ---
 
@@ -81,11 +89,12 @@
 
 - **설명**: Docker 리소스의 전체 생명주기를 웹 UI에서 관리
 - **주요 기능**:
-  - **컨테이너**: 목록 조회 (전체/실행 중/중지), 상세 검사 (포트/환경변수/마운트/네트워크), 시작/중지/재시작/삭제, CPU/메모리 통계, 실시간 로그 스트리밍 (WebSocket), 컨테이너 내부 셸 접속 (WebSocket + exec, TTY 리사이즈 지원)
-  - **이미지**: 로컬 이미지 목록, 이미지 풀 (레지스트리에서 다운로드), 이미지 삭제 (강제)
+  - **컨테이너**: 목록 조회 (전체/실행 중/중지), 상세 검사 (포트/환경변수/마운트/네트워크), 시작/중지/재시작/삭제, CPU/메모리 통계, 실시간 로그 스트리밍 (WebSocket), 컨테이너 내부 셸 접속 (WebSocket + exec, TTY 리사이즈 지원), **컨테이너 생성** (이미지/이름/포트/볼륨/환경변수/네트워크/명령어/재시작 정책 설정)
+  - **이미지**: 로컬 이미지 목록, 이미지 풀 (레지스트리에서 다운로드), 이미지 삭제 (강제), **Docker Hub 검색** (이미지 이름으로 검색, 설명/스타/공식 여부 표시)
   - **볼륨**: 볼륨 목록, 생성, 삭제 (강제)
   - **네트워크**: 네트워크 목록, 생성 (드라이버 선택: bridge 기본), 삭제
-  - **Docker Compose**: 프로젝트 CRUD (YAML 파일 디스크 저장 + DB 추적), Monaco 에디터로 YAML 편집, `docker compose up -d` / `docker compose down` 실행, 프로젝트 상태 관리 (running/stopped)
+  - **Docker Compose (Stacks)**: `/opt/stacks` 디렉토리 기반 프로젝트 관리 (디스크 스캔), Monaco 에디터로 YAML 편집, `.env` 파일 편집, `docker compose up -d` / `docker compose down` 실행, 프로젝트 상태 관리, **서비스별 제어** (시작/중지/재시작), 서비스별 로그 조회
+  - **리소스 정리 (Prune)**: 컨테이너/이미지/볼륨/네트워크 개별 정리 및 전체 일괄 정리
 - **관련 기술**: Docker Go SDK v27.5.1, gorilla/websocket, xterm.js, Monaco Editor
 
 ### 3. 웹 터미널
@@ -127,6 +136,7 @@
 - **설명**: 시스템 및 애플리케이션 로그를 웹에서 조회하고 실시간 스트리밍하는 뷰어
 - **주요 기능**:
   - 8개 사전 정의 로그 소스: System Log, Auth Log, Kernel Log, Nginx Access/Error, SFPanel, Package Manager (dpkg), Firewall (UFW)
+  - **커스텀 로그 소스 추가/삭제** (이름 + 파일 경로 지정, SQLite `custom_log_sources` 테이블에 저장)
   - 로그 소스별 파일 존재 여부 및 크기 표시
   - 줄 수 선택 (100, 500, 1000, 5000줄)
   - 실시간 스트리밍 모드 (WebSocket + `tail -f`, Live 토글)
@@ -135,7 +145,7 @@
   - 자동 스크롤 토글
   - 로그 파일 다운로드 (.log 파일)
   - 줄 번호 표시
-  - 허용 목록 기반 접근 제어 (임의 파일 접근 차단)
+  - 허용 목록 기반 접근 제어 (사전 정의 소스 + 커스텀 소스만 접근 가능)
 - **관련 기술**: tail 명령어, gorilla/websocket, WebSocket 기반 실시간 스트리밍
 
 ### 6. 프로세스 관리
@@ -181,17 +191,55 @@
   - 작업 출력 실시간 표시 다이얼로그
 - **관련 기술**: apt/apt-get/apt-cache CLI, SSE 스트리밍, 5분 명령 타임아웃
 
-### 10. 방화벽 관리
+### 9. 네트워크 / VPN 관리
 
-- **설명**: UFW 방화벽 및 Fail2ban 침입 방지 시스템을 웹 UI에서 관리
+- **설명**: 서버 네트워크 인터페이스, DNS, 라우팅, 본딩 및 VPN 클라이언트(WireGuard, Tailscale)를 웹 UI에서 관리
+- **주요 기능**:
+  - **인터페이스**: 네트워크 인터페이스 목록 (이름/상태/IP/MAC/속도/MTU), 인터페이스 상세 정보, DHCP/Static 설정 변경, **물리/가상/Docker 인터페이스 분류** (물리적 인터페이스 우선 표시, Docker 네트워크 접이식 분리)
+  - **DNS**: DNS 서버 및 검색 도메인 조회
+  - **라우팅**: 시스템 라우팅 테이블 조회
+  - **본딩**: 네트워크 본드 목록, 생성 (모드/슬레이브/프라이머리 설정), 삭제
+  - **Netplan**: 네트워크 설정 적용 (`netplan apply`)
+  - **WireGuard VPN**: 설치 상태 확인 및 원클릭 설치, 인터페이스 목록/상세 (피어 정보 포함), 인터페이스 활성화/비활성화 (`wg-quick up/down`), 설정 파일 CRUD (생성/조회/수정/삭제), `.conf` 파일 업로드 지원, PrivateKey 마스킹
+  - **Tailscale VPN**: 설치 상태 확인 및 원클릭 설치 (공식 install.sh), 연결/해제/로그아웃, Auth Key 입력 또는 브라우저 인증 URL, 자기 노드 정보 (Hostname/IP/Tailnet/MagicDNS), 피어 목록 (호스트명/IP/OS/온라인 상태/트래픽), Exit Node 선택/해제
+- **관련 기술**: Netplan CLI, ip/networkctl, wg/wg-quick, tailscale CLI
+
+### 10. 디스크 관리
+
+- **설명**: 서버 디스크, 파티션, 파일시스템, LVM, RAID, Swap을 웹 UI에서 관리
+- **주요 기능**:
+  - **디스크 개요**: 디스크 목록 (이름/크기/모델/시리얼), I/O 통계, 디스크 사용량 분석 (경로/깊이별)
+  - **SMART 모니터링**: smartmontools 설치 상태 확인 및 원클릭 설치, 디스크별 SMART 정보 조회
+  - **파티션**: 디스크별 파티션 목록, 파티션 생성 (시작/끝/파일시스템 타입), 파티션 삭제
+  - **파일시스템**: 마운트된 파일시스템 목록, 파티션 포맷 (ext4/xfs/btrfs 등), 마운트/언마운트, 파일시스템 리사이즈
+  - **LVM**: PV/VG/LV 목록 및 생성/삭제, LV 리사이즈
+  - **RAID**: mdadm RAID 배열 목록 및 상세 정보, RAID 생성 (레벨/디바이스 선택), RAID 삭제, 디스크 추가/제거
+  - **Swap**: 스왑 정보 조회, 스왑 파일/파티션 생성/삭제, swappiness 설정, 스왑 리사이즈 (안전성 사전 검사)
+- **관련 기술**: lsblk, parted, mkfs, mount, lvm2, mdadm, smartmontools CLI
+
+### 11. 방화벽 관리
+
+- **설명**: UFW 방화벽, Fail2ban 침입 방지 시스템, Docker 방화벽을 웹 UI에서 관리
 - **주요 기능**:
   - **UFW 방화벽**: 활성화/비활성화 토글, 규칙 목록 조회 (번호/대상/동작/소스/코멘트/IPv6 구분), 규칙 추가 (action/port/protocol/from/to/comment), 규칙 삭제
   - **리스닝 포트**: `ss` 명령어로 TCP/UDP 리스닝 포트 조회 (프로토콜/주소/포트/PID/프로세스), 포트에서 직접 UFW 규칙 추가 지원
-  - **Fail2ban**: 설치 상태 확인 및 원클릭 설치 (`apt-get install -y fail2ban`), jail 목록 및 상태 조회, jail 활성화/비활성화, 차단 IP 해제 (unban), jail 설정 확인 (maxretry, bantime, findtime)
+  - **Fail2ban**: 설치 상태 확인 및 원클릭 설치 (`apt-get install -y fail2ban`), **jail 템플릿** (사전 정의된 보호 규칙 — SSH, Nginx 등), jail 생성/삭제, jail 목록 및 상태 조회, jail 활성화/비활성화, jail 설정 변경 (maxretry/bantime/findtime), 차단 IP 해제 (unban)
+  - **Docker 방화벽**: DOCKER-USER 체인 규칙 관리 (iptables), Docker 네트워크 트래픽 제어
+  - **방화벽 로그**: UFW + Docker-USER 패킷 로그 뷰어
   - 입력값 검증: 포트 번호/범위, IP/CIDR 주소, 프로토콜, action, jail 이름 등 서버 측 정규식 검증
-- **관련 기술**: UFW CLI (`ufw`), Fail2ban CLI (`fail2ban-client`), ss 명령어
+- **관련 기술**: UFW CLI (`ufw`), Fail2ban CLI (`fail2ban-client`), iptables, ss 명령어
 
-### 11. 설정
+### 12. Systemd 서비스 관리
+
+- **설명**: 시스템 서비스(systemd unit)를 웹 UI에서 모니터링하고 제어
+- **주요 기능**:
+  - 서비스 목록 조회 (이름, 상태, 활성화 여부, 설명)
+  - 서비스 시작/중지/재시작
+  - 서비스 활성화/비활성화 (부팅 시 자동 시작)
+  - 서비스 로그 조회 (journalctl)
+- **관련 기술**: systemctl CLI, journalctl
+
+### 13. 설정
 
 - **설명**: 패널 설정 및 사용자 계정 관리
 - **주요 기능**:
@@ -199,7 +247,7 @@
   - **터미널 타임아웃**: 유휴 터미널 세션 자동 종료 시간 (분 단위, 0=무제한)
   - **비밀번호 변경**: 현재 비밀번호 검증 후 변경 (최소 8자)
   - **2단계 인증(2FA)**: TOTP 설정/활성화 (QR 코드 표시, 시크릿 키 표시, 6자리 코드 검증)
-  - **시스템 정보**: 버전, 호스트명, OS, 커널, 업타임 표시
+  - **시스템 정보**: 버전 (API에서 제공), 호스트명, OS, 커널, 업타임 표시
   - 키-값 설정 저장 (SQLite `settings` 테이블, UPSERT 패턴)
 - **관련 기술**: i18next, bcrypt, TOTP (pquerna/otp), SQLite
 
@@ -220,7 +268,7 @@
 | **비밀번호 정책** | 최소 8자 이상 필수 |
 | **파일 시스템 보호** | 절대 경로 필수, `..` 트래버설 차단, 시스템 핵심 경로 삭제 금지 |
 | **패키지 이름 검증** | 정규식으로 안전한 문자만 허용 (`a-zA-Z0-9._+-`) |
-| **로그 접근 제어** | 허용 목록(allowlist) 기반 — 사전 정의된 로그 소스만 읽기 가능 |
+| **로그 접근 제어** | 허용 목록(allowlist) 기반 — 사전 정의된 로그 소스 및 커스텀 소스만 읽기 가능 |
 | **서비스 하드닝** | systemd: `ProtectSystem=full`, `NoNewPrivileges`, `LimitNOFILE=65536` |
 | **설정 파일 보안** | 설치 시 `chmod 600` 적용 (config.yaml) |
 
@@ -257,15 +305,16 @@
 
 ## 데이터베이스 스키마
 
-SQLite (WAL 모드, 5초 busy timeout) — 자동 마이그레이션 5개 테이블:
+SQLite (WAL 모드, 5초 busy timeout, MaxOpenConns=1) — 자동 마이그레이션 6개 테이블:
 
 | 테이블 | 용도 |
 |--------|------|
 | `admin` | 관리자 계정 (username, password hash, TOTP secret) |
-| `sites` | 웹사이트 관리 (domain, doc_root, PHP/SSL 설정) — 미래 확장용 |
 | `compose_projects` | Docker Compose 프로젝트 (name, yaml_path, status) |
 | `sessions` | 세션 토큰 해시 (미래 확장용) |
 | `settings` | 키-값 설정 저장소 |
+| `custom_log_sources` | 커스텀 로그 소스 (source_id, name, path) |
+| `metrics_history` | 시스템 메트릭 24시간 히스토리 (time, cpu, mem_percent) |
 
 ---
 
@@ -289,11 +338,18 @@ SQLite (WAL 모드, 5초 busy timeout) — 자동 마이그레이션 5개 테이
 | POST | `/api/v1/auth/change-password` | 비밀번호 변경 |
 | GET | `/api/v1/settings` | 설정 조회 |
 | PUT | `/api/v1/settings` | 설정 업데이트 |
-| GET | `/api/v1/system/info` | 시스템 정보 + 현재 메트릭 |
+| GET | `/api/v1/system/info` | 시스템 정보 + 현재 메트릭 + 버전 |
 | GET | `/api/v1/system/metrics-history` | 24시간 메트릭 히스토리 |
 | GET | `/api/v1/system/processes` | Top 10 프로세스 |
 | GET | `/api/v1/system/processes/list` | 전체 프로세스 목록 (검색/정렬) |
 | POST | `/api/v1/system/processes/:pid/kill` | 프로세스 시그널 전송 |
+| GET | `/api/v1/system/services` | Systemd 서비스 목록 |
+| GET | `/api/v1/system/services/:name/logs` | 서비스 로그 조회 |
+| POST | `/api/v1/system/services/:name/start` | 서비스 시작 |
+| POST | `/api/v1/system/services/:name/stop` | 서비스 중지 |
+| POST | `/api/v1/system/services/:name/restart` | 서비스 재시작 |
+| POST | `/api/v1/system/services/:name/enable` | 서비스 활성화 |
+| POST | `/api/v1/system/services/:name/disable` | 서비스 비활성화 |
 | GET | `/api/v1/files` | 디렉토리 목록 |
 | GET | `/api/v1/files/read` | 파일 읽기 |
 | POST | `/api/v1/files/write` | 파일 쓰기 |
@@ -308,6 +364,56 @@ SQLite (WAL 모드, 5초 busy timeout) — 자동 마이그레이션 5개 테이
 | DELETE | `/api/v1/cron/:id` | Cron 작업 삭제 |
 | GET | `/api/v1/logs/sources` | 로그 소스 목록 |
 | GET | `/api/v1/logs/read` | 로그 읽기 (tail) |
+| POST | `/api/v1/logs/custom-sources` | 커스텀 로그 소스 추가 |
+| DELETE | `/api/v1/logs/custom-sources/:id` | 커스텀 로그 소스 삭제 |
+| GET | `/api/v1/network/interfaces` | 네트워크 인터페이스 목록 |
+| GET | `/api/v1/network/interfaces/:name` | 네트워크 인터페이스 상세 |
+| PUT | `/api/v1/network/interfaces/:name` | 네트워크 인터페이스 설정 변경 |
+| POST | `/api/v1/network/apply` | Netplan 설정 적용 |
+| GET | `/api/v1/network/dns` | DNS 설정 조회 |
+| GET | `/api/v1/network/routes` | 라우팅 테이블 조회 |
+| GET | `/api/v1/network/bonds` | 본드 목록 |
+| POST | `/api/v1/network/bonds` | 본드 생성 |
+| DELETE | `/api/v1/network/bonds/:name` | 본드 삭제 |
+| GET | `/api/v1/disks/overview` | 디스크 목록 및 개요 |
+| GET | `/api/v1/disks/iostat` | 디스크 I/O 통계 |
+| POST | `/api/v1/disks/usage` | 디스크 사용량 분석 |
+| GET | `/api/v1/disks/smartmontools-status` | smartmontools 설치 상태 |
+| POST | `/api/v1/disks/install-smartmontools` | smartmontools 설치 |
+| GET | `/api/v1/disks/:device/smart` | 디스크 SMART 정보 |
+| GET | `/api/v1/disks/:device/partitions` | 파티션 목록 |
+| POST | `/api/v1/disks/:device/partitions` | 파티션 생성 |
+| DELETE | `/api/v1/disks/:device/partitions/:number` | 파티션 삭제 |
+| GET | `/api/v1/filesystems` | 파일시스템 목록 |
+| POST | `/api/v1/filesystems/format` | 파티션 포맷 |
+| POST | `/api/v1/filesystems/mount` | 파일시스템 마운트 |
+| POST | `/api/v1/filesystems/unmount` | 파일시스템 언마운트 |
+| POST | `/api/v1/filesystems/resize` | 파일시스템 리사이즈 |
+| GET | `/api/v1/filesystems/expand-check` | 파일시스템 확장 가능 여부 확인 |
+| POST | `/api/v1/filesystems/expand` | 파일시스템 확장 |
+| GET | `/api/v1/lvm/pvs` | LVM PV 목록 |
+| GET | `/api/v1/lvm/vgs` | LVM VG 목록 |
+| GET | `/api/v1/lvm/lvs` | LVM LV 목록 |
+| POST | `/api/v1/lvm/pvs` | PV 생성 |
+| POST | `/api/v1/lvm/vgs` | VG 생성 |
+| POST | `/api/v1/lvm/lvs` | LV 생성 |
+| DELETE | `/api/v1/lvm/pvs/:name` | PV 삭제 |
+| DELETE | `/api/v1/lvm/vgs/:name` | VG 삭제 |
+| DELETE | `/api/v1/lvm/lvs/:vg/:name` | LV 삭제 |
+| POST | `/api/v1/lvm/lvs/resize` | LV 리사이즈 |
+| GET | `/api/v1/raid` | RAID 배열 목록 |
+| GET | `/api/v1/raid/:name` | RAID 배열 상세 |
+| POST | `/api/v1/raid` | RAID 생성 |
+| DELETE | `/api/v1/raid/:name` | RAID 삭제 |
+| POST | `/api/v1/raid/:name/add` | RAID 디스크 추가 |
+| POST | `/api/v1/raid/:name/remove` | RAID 디스크 제거 |
+| GET | `/api/v1/swap` | 스왑 정보 |
+| POST | `/api/v1/swap` | 스왑 생성 |
+| DELETE | `/api/v1/swap` | 스왑 삭제 |
+| PUT | `/api/v1/swap/swappiness` | swappiness 설정 |
+| GET | `/api/v1/swap/resize-check` | 스왑 리사이즈 안전성 확인 |
+| GET | `/api/v1/swap/resize-check` | 스왑 리사이즈 안전성 확인 |
+| PUT | `/api/v1/swap/resize` | 스왑 리사이즈 |
 | GET | `/api/v1/packages/updates` | 업데이트 가능 패키지 조회 |
 | POST | `/api/v1/packages/upgrade` | 패키지 업그레이드 |
 | POST | `/api/v1/packages/install` | 패키지 설치 |
@@ -322,12 +428,19 @@ SQLite (WAL 모드, 5초 busy timeout) — 자동 마이그레이션 5개 테이
 | POST | `/api/v1/firewall/rules` | UFW 규칙 추가 |
 | DELETE | `/api/v1/firewall/rules/:number` | UFW 규칙 삭제 |
 | GET | `/api/v1/firewall/ports` | 리스닝 포트 목록 (ss) |
+| GET | `/api/v1/firewall/docker` | Docker 방화벽 규칙 목록 |
+| POST | `/api/v1/firewall/docker/rules` | Docker 방화벽 규칙 추가 |
+| DELETE | `/api/v1/firewall/docker/rules/:number` | Docker 방화벽 규칙 삭제 |
 | GET | `/api/v1/fail2ban/status` | Fail2ban 설치/실행 상태 |
 | POST | `/api/v1/fail2ban/install` | Fail2ban 설치 |
+| GET | `/api/v1/fail2ban/templates` | Fail2ban jail 템플릿 목록 |
 | GET | `/api/v1/fail2ban/jails` | Fail2ban jail 목록 |
+| POST | `/api/v1/fail2ban/jails` | Fail2ban jail 생성 |
+| DELETE | `/api/v1/fail2ban/jails/:name` | Fail2ban jail 삭제 |
 | GET | `/api/v1/fail2ban/jails/:name` | Fail2ban jail 상세 |
 | POST | `/api/v1/fail2ban/jails/:name/enable` | Fail2ban jail 활성화 |
 | POST | `/api/v1/fail2ban/jails/:name/disable` | Fail2ban jail 비활성화 |
+| PUT | `/api/v1/fail2ban/jails/:name/config` | Fail2ban jail 설정 변경 |
 | POST | `/api/v1/fail2ban/jails/:name/unban` | Fail2ban IP 차단 해제 |
 
 ### Docker 전용 (Docker 사용 가능 시에만 등록)
@@ -335,6 +448,7 @@ SQLite (WAL 모드, 5초 busy timeout) — 자동 마이그레이션 5개 테이
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
 | GET | `/api/v1/docker/containers` | 컨테이너 목록 |
+| POST | `/api/v1/docker/containers` | 컨테이너 생성 |
 | GET | `/api/v1/docker/containers/:id/inspect` | 컨테이너 상세 정보 |
 | GET | `/api/v1/docker/containers/:id/stats` | 컨테이너 CPU/메모리 통계 |
 | POST | `/api/v1/docker/containers/:id/start` | 컨테이너 시작 |
@@ -342,6 +456,7 @@ SQLite (WAL 모드, 5초 busy timeout) — 자동 마이그레이션 5개 테이
 | POST | `/api/v1/docker/containers/:id/restart` | 컨테이너 재시작 |
 | DELETE | `/api/v1/docker/containers/:id` | 컨테이너 삭제 |
 | GET | `/api/v1/docker/images` | 이미지 목록 |
+| GET | `/api/v1/docker/images/search` | Docker Hub 이미지 검색 |
 | POST | `/api/v1/docker/images/pull` | 이미지 풀 |
 | DELETE | `/api/v1/docker/images/:id` | 이미지 삭제 |
 | GET | `/api/v1/docker/volumes` | 볼륨 목록 |
@@ -350,13 +465,25 @@ SQLite (WAL 모드, 5초 busy timeout) — 자동 마이그레이션 5개 테이
 | GET | `/api/v1/docker/networks` | 네트워크 목록 |
 | POST | `/api/v1/docker/networks` | 네트워크 생성 |
 | DELETE | `/api/v1/docker/networks/:id` | 네트워크 삭제 |
-| GET | `/api/v1/docker/compose` | Compose 프로젝트 목록 |
+| POST | `/api/v1/docker/prune/containers` | 중지된 컨테이너 정리 |
+| POST | `/api/v1/docker/prune/images` | 미사용 이미지 정리 |
+| POST | `/api/v1/docker/prune/volumes` | 미사용 볼륨 정리 |
+| POST | `/api/v1/docker/prune/networks` | 미사용 네트워크 정리 |
+| POST | `/api/v1/docker/prune/all` | 전체 리소스 일괄 정리 |
+| GET | `/api/v1/docker/compose` | Compose 프로젝트 목록 (상태 포함) |
 | POST | `/api/v1/docker/compose` | Compose 프로젝트 생성 |
 | GET | `/api/v1/docker/compose/:project` | Compose 프로젝트 조회 (YAML 포함) |
 | PUT | `/api/v1/docker/compose/:project` | Compose YAML 업데이트 |
 | DELETE | `/api/v1/docker/compose/:project` | Compose 프로젝트 삭제 |
 | POST | `/api/v1/docker/compose/:project/up` | Compose Up (detached) |
 | POST | `/api/v1/docker/compose/:project/down` | Compose Down |
+| GET | `/api/v1/docker/compose/:project/env` | Compose 환경변수(.env) 조회 |
+| PUT | `/api/v1/docker/compose/:project/env` | Compose 환경변수(.env) 업데이트 |
+| GET | `/api/v1/docker/compose/:project/services` | Compose 서비스 목록 |
+| POST | `/api/v1/docker/compose/:project/services/:service/restart` | Compose 서비스 재시작 |
+| POST | `/api/v1/docker/compose/:project/services/:service/stop` | Compose 서비스 중지 |
+| POST | `/api/v1/docker/compose/:project/services/:service/start` | Compose 서비스 시작 |
+| GET | `/api/v1/docker/compose/:project/services/:service/logs` | Compose 서비스 로그 |
 
 ### WebSocket 엔드포인트 (쿼리 파라미터 토큰 인증)
 
@@ -384,24 +511,30 @@ SQLite (WAL 모드, 5초 busy timeout) — 자동 마이그레이션 5개 테이
 
 ## 프론트엔드 페이지
 
+모든 페이지 컴포넌트는 `React.lazy()`로 지연 로딩되며, `<Suspense>` 폴백으로 스피너를 표시합니다.
+
 | 페이지 | 파일 | 설명 |
 |--------|------|------|
 | Login | `web/src/pages/Login.tsx` | 로그인 (username + password + TOTP) |
 | Setup | `web/src/pages/Setup.tsx` | 최초 관리자 계정 생성 위저드 |
 | Dashboard | `web/src/pages/Dashboard.tsx` | 시스템 대시보드 |
-| Docker | `web/src/pages/Docker.tsx` | Docker 관리 (탭: Containers, Images, Volumes, Networks, Compose) |
+| Docker | `web/src/pages/Docker.tsx` | Docker 관리 (탭: Stacks, Containers, Images, Volumes, Networks) |
+| DockerStacks | `web/src/pages/docker/DockerStacks.tsx` | Docker Compose 스택 관리 |
 | DockerContainers | `web/src/pages/docker/DockerContainers.tsx` | 컨테이너 관리 |
+| DockerContainerCreate | `web/src/pages/docker/DockerContainerCreate.tsx` | 컨테이너 생성 폼 |
 | DockerImages | `web/src/pages/docker/DockerImages.tsx` | 이미지 관리 |
 | DockerVolumes | `web/src/pages/docker/DockerVolumes.tsx` | 볼륨 관리 |
 | DockerNetworks | `web/src/pages/docker/DockerNetworks.tsx` | 네트워크 관리 |
-| DockerCompose | `web/src/pages/docker/DockerCompose.tsx` | Compose 프로젝트 관리 |
 | Terminal | `web/src/pages/Terminal.tsx` | 웹 터미널 (다중 탭) |
 | Files | `web/src/pages/Files.tsx` | 파일 관리자 |
 | Logs | `web/src/pages/Logs.tsx` | 로그 뷰어 |
 | CronJobs | `web/src/pages/CronJobs.tsx` | Cron 작업 관리 |
 | Processes | `web/src/pages/Processes.tsx` | 프로세스 관리 |
+| Network | `web/src/pages/Network.tsx` | 네트워크 관리 |
+| Disk | `web/src/pages/Disk.tsx` | 디스크 관리 (탭: Overview, Partitions, Filesystems, LVM, RAID, Swap) |
+| Services | `web/src/pages/Services.tsx` | Systemd 서비스 관리 |
+| Firewall | `web/src/pages/Firewall.tsx` | 방화벽 관리 (탭: Rules, Ports, Fail2ban, Docker, Logs) |
 | Packages | `web/src/pages/Packages.tsx` | 패키지 관리 + Docker 설치 |
-| Firewall | `web/src/pages/Firewall.tsx` | 방화벽 관리 (탭: UFW Rules, Open Ports, Fail2ban) |
 | Settings | `web/src/pages/Settings.tsx` | 설정 (언어, 터미널, 비밀번호, 2FA, 시스템 정보) |
 
 ### 다국어 지원
@@ -420,7 +553,7 @@ SQLite (WAL 모드, 5초 busy timeout) — 자동 마이그레이션 5개 테이
 # 전체 빌드 (Makefile)
 make build
 # 1. cd web && npm install && npm run build  → web/dist/ 생성
-# 2. go build -o sfpanel ./cmd/sfpanel      → 바이너리 생성 (~25MB)
+# 2. go build -ldflags="-s -w" -trimpath -o sfpanel ./cmd/sfpanel  → 바이너리 생성 (~16MB)
 
 # 개발 모드
 make dev-api   # Go 백엔드 (:8443)
@@ -432,7 +565,7 @@ make lint      # golangci-lint + eslint
 
 ### CI/CD 파이프라인
 
-- **트리거**: `v*` 태그 푸시 (예: `v0.1.0`)
+- **트리거**: `v*` 태그 푸시 (예: `v0.3.0`)
 - **워크플로우**: `.github/workflows/release.yml`
   1. Checkout (full history)
   2. Go 설정 (go.mod에서 버전 자동 감지)
@@ -484,11 +617,15 @@ curl -fsSL https://raw.githubusercontent.com/sfpanel/sfpanel/main/scripts/instal
 ## 아키텍처 특징
 
 - **Docker 비의존**: Docker가 없어도 패널 자체는 정상 동작 (Docker 기능만 비활성화)
-- **자동 마이그레이션**: 첫 실행 시 SQLite 스키마 자동 생성 (5개 테이블)
-- **백그라운드 수집**: 30초 간격 메트릭 히스토리 수집 (인메모리, 24시간 보관)
+- **자동 마이그레이션**: 첫 실행 시 SQLite 스키마 자동 생성 (6개 테이블)
+- **백그라운드 수집**: 30초 간격 메트릭 히스토리 수집 (SQLite 저장, 24시간 보관)
 - **세션 정리**: 1분 간격 유휴 터미널 세션 자동 정리
 - **SPA 라우팅**: 모든 경로에 대해 `index.html` 폴백 제공 (API/WS 경로 제외)
 - **CORS**: 개발 모드용 localhost:5173 허용
+- **코드 스플리팅**: 모든 페이지 컴포넌트를 `React.lazy()`로 지연 로딩하여 초기 번들 크기 최소화
+- **SetupGuard 캐싱**: 초기 설정 확인 API를 모듈 레벨 변수로 캐싱하여 불필요한 반복 호출 방지
+- **버전 API 제공**: 서버 빌드 시 주입된 버전 정보를 `/api/v1/system/info` 응답에 포함 (`DashboardHandler.Version`)
+- **Compose 디렉토리 스캔**: `/opt/stacks` 디렉토리를 스캔하여 기존 Compose 프로젝트 자동 발견
 
 ---
 

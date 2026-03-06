@@ -24,43 +24,7 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-interface PhysicalVolume {
-  name: string
-  vg_name: string
-  size: number
-  free: number
-  attr: string
-  fmt: string
-}
-
-interface VolumeGroup {
-  name: string
-  size: number
-  free: number
-  pv_count: number
-  lv_count: number
-  attr: string
-}
-
-interface LogicalVolume {
-  name: string
-  vg_name: string
-  size: number
-  attr: string
-  path: string
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
+import type { PhysicalVolume, VolumeGroup, LogicalVolume } from '@/types/api'
 
 export default function DiskLVM() {
   const { t } = useTranslation()
@@ -314,8 +278,8 @@ export default function DiskLVM() {
                     <TableRow key={pv.name}>
                       <TableCell className="font-medium font-mono text-sm">{pv.name}</TableCell>
                       <TableCell className="text-muted-foreground">{pv.vg_name || '-'}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatBytes(pv.size)}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatBytes(pv.free)}</TableCell>
+                      <TableCell className="text-muted-foreground">{pv.size}</TableCell>
+                      <TableCell className="text-muted-foreground">{pv.free}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">{pv.attr}</TableCell>
                       <TableCell className="text-right">
                         <Button
@@ -368,8 +332,8 @@ export default function DiskLVM() {
                   {vgs.map((vg) => (
                     <TableRow key={vg.name}>
                       <TableCell className="font-medium">{vg.name}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatBytes(vg.size)}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatBytes(vg.free)}</TableCell>
+                      <TableCell className="text-muted-foreground">{vg.size}</TableCell>
+                      <TableCell className="text-muted-foreground">{vg.free}</TableCell>
                       <TableCell className="text-muted-foreground">{vg.pv_count}</TableCell>
                       <TableCell className="text-muted-foreground">{vg.lv_count}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">{vg.attr}</TableCell>
@@ -414,7 +378,7 @@ export default function DiskLVM() {
                     <TableRow key={lv.path}>
                       <TableCell className="font-medium">{lv.name}</TableCell>
                       <TableCell className="text-muted-foreground">{lv.vg_name}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatBytes(lv.size)}</TableCell>
+                      <TableCell className="text-muted-foreground">{lv.size}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">{lv.attr}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground max-w-[200px] truncate" title={lv.path}>
                         {lv.path}
@@ -539,7 +503,7 @@ export default function DiskLVM() {
                         className="rounded"
                       />
                       <span className="font-mono text-sm">{pv.name}</span>
-                      <span className="text-xs text-muted-foreground ml-auto">{formatBytes(pv.size)}</span>
+                      <span className="text-xs text-muted-foreground ml-auto">{pv.size}</span>
                     </label>
                   ))}
                 </div>
@@ -584,7 +548,7 @@ export default function DiskLVM() {
               >
                 {vgs.map((vg) => (
                   <option key={vg.name} value={vg.name}>
-                    {vg.name} ({t('disk.lvm.free')}: {formatBytes(vg.free)})
+                    {vg.name} ({t('disk.lvm.free')}: {vg.free})
                   </option>
                 ))}
               </select>
@@ -649,7 +613,7 @@ export default function DiskLVM() {
               <div className="bg-muted/30 rounded-lg p-3 text-sm">
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                   <span className="text-muted-foreground">{t('disk.lvm.lv.currentSize')}</span>
-                  <span className="font-mono">{formatBytes(lvResizeTarget.size)}</span>
+                  <span className="font-mono">{lvResizeTarget.size}</span>
                   <span className="text-muted-foreground">{t('disk.lvm.lv.vgName')}</span>
                   <span className="font-mono">{lvResizeTarget.vg_name}</span>
                 </div>

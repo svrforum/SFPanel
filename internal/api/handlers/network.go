@@ -15,7 +15,7 @@ import (
 	"sync"
 
 	"github.com/labstack/echo/v4"
-	"github.com/sfpanel/sfpanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"gopkg.in/yaml.v3"
 )
 
