@@ -550,6 +550,22 @@ export interface ServiceDeps {
   wanted_by?: string[]
 }
 
+// Audit Log
+export interface AuditLogEntry {
+  id: number
+  username: string
+  method: string
+  path: string
+  status: number
+  ip: string
+  created_at: string
+}
+
+export interface AuditLogsResponse {
+  logs: AuditLogEntry[]
+  total: number
+}
+
 // Docker - Hub Search Result
 export interface DockerHubSearchResult {
   name: string

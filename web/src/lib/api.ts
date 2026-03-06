@@ -29,6 +29,7 @@ import type {
   DashboardOverview,
   NetworkStatus,
   UpdateCheckResult,
+  AuditLogsResponse,
 } from '@/types/api'
 
 const API_BASE = '/api/v1'
@@ -129,6 +130,15 @@ class ApiClient {
       method: 'PUT',
       body: JSON.stringify({ settings }),
     })
+  }
+
+  // Audit Logs
+  getAuditLogs(page = 1, limit = 50) {
+    return this.request<AuditLogsResponse>(`/audit/logs?page=${page}&limit=${limit}`)
+  }
+
+  clearAuditLogs() {
+    return this.request('/audit/logs', { method: 'DELETE' })
   }
 
   // System

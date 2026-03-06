@@ -71,6 +71,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	// Protected routes
 	authorized := v1.Group("")
 	authorized.Use(mw.JWTMiddleware(cfg.Auth.JWTSecret))
+	authorized.Use(mw.AuditMiddleware(database))
 	// Settings
 	settingsHandler := &handlers.SettingsHandler{DB: database}
 	authorized.GET("/settings", settingsHandler.GetSettings)
@@ -88,6 +89,11 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.POST("/system/update", systemHandler.RunUpdate)
 	authorized.POST("/system/backup", systemHandler.CreateBackup)
 	authorized.POST("/system/restore", systemHandler.RestoreBackup)
+
+	// Audit logs
+	auditHandler := &handlers.AuditHandler{DB: database}
+	authorized.GET("/audit/logs", auditHandler.ListAuditLogs)
+	authorized.DELETE("/audit/logs", auditHandler.ClearAuditLogs)
 
 	// Processes
 	processesHandler := &handlers.ProcessesHandler{}

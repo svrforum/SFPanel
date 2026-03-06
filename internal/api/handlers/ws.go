@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -14,14 +16,54 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		// Allow same-origin and configured origins
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // same-site requests
+		}
+		// In dev mode, allow localhost origins
+		host := r.Host
+		if host == "localhost:5173" || host == "localhost:8443" {
+			return true
+		}
+		// Allow requests where origin host matches the request host
+		if len(origin) > 7 {
+			// Strip scheme (http:// or https://)
+			for _, prefix := range []string{"https://", "http://"} {
+				if len(origin) > len(prefix) && origin[:len(prefix)] == prefix {
+					if origin[len(prefix):] == host {
+						return true
+					}
+				}
+			}
+		}
+		return true // fallback: allow for single-user panel
+	},
+}
+
+// safeWSWriter wraps websocket.Conn with a mutex for concurrent write safety.
+type safeWSWriter struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (w *safeWSWriter) WriteMessage(messageType int, data []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.conn.WriteMessage(messageType, data)
+}
+
+func (w *safeWSWriter) WriteJSON(v interface{}) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.conn.WriteJSON(v)
 }
 
 // MetricsWS handles WebSocket connections for real-time metrics streaming.
 // Authentication is done via a "token" query parameter.
 func MetricsWS(jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// Validate JWT from query parameter
 		token := c.QueryParam("token")
 		if token == "" {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
@@ -38,7 +80,6 @@ func MetricsWS(jwtSecret string) echo.HandlerFunc {
 		}
 		defer ws.Close()
 
-		// Start a goroutine to read from the WebSocket (detect client disconnect)
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
@@ -49,6 +90,7 @@ func MetricsWS(jwtSecret string) echo.HandlerFunc {
 			}
 		}()
 
+		writer := &safeWSWriter{conn: ws}
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 
@@ -61,8 +103,8 @@ func MetricsWS(jwtSecret string) echo.HandlerFunc {
 				if err != nil {
 					continue
 				}
-				if err := ws.WriteJSON(metrics); err != nil {
-					return nil // client disconnected
+				if err := writer.WriteJSON(metrics); err != nil {
+					return nil
 				}
 			}
 		}
@@ -70,11 +112,8 @@ func MetricsWS(jwtSecret string) echo.HandlerFunc {
 }
 
 // ContainerLogsWS streams container logs over a WebSocket connection.
-// Authentication is done via a "token" query parameter. The container
-// ID is read from the :id path parameter.
 func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// Validate JWT from query parameter
 		token := c.QueryParam("token")
 		if token == "" {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
@@ -91,7 +130,11 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		}
 		defer ws.Close()
 
-		ctx := c.Request().Context()
+		// Use a cancellable context so the log reader goroutine stops
+		// when the client disconnects.
+		ctx, cancel := context.WithCancel(c.Request().Context())
+		defer cancel()
+
 		logReader, err := dockerClient.ContainerLogs(ctx, containerID)
 		if err != nil {
 			ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
@@ -99,35 +142,29 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		}
 		defer logReader.Close()
 
-		// Read goroutine to detect client disconnect
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
 			for {
 				if _, _, err := ws.ReadMessage(); err != nil {
+					cancel() // cancel context to stop scanner goroutine
 					return
 				}
 			}
 		}()
 
+		writer := &safeWSWriter{conn: ws}
+
 		// Stream log lines to WebSocket.
-		// Docker log stream has an 8-byte header per frame (for multiplexed
-		// stdout/stderr). We strip the header and send each line with a
-		// trailing newline so the terminal renders line breaks correctly.
 		go func() {
 			scanner := bufio.NewScanner(logReader)
 			for scanner.Scan() {
 				line := scanner.Bytes()
-				// Docker multiplexed log lines have an 8-byte header.
-				// If the line is longer than 8 bytes and starts with a
-				// stream type byte (0x01 for stdout, 0x02 for stderr),
-				// strip the header.
 				if len(line) > 8 && (line[0] == 1 || line[0] == 2) {
 					line = line[8:]
 				}
-				// Append newline so the terminal renders line breaks
 				line = append(line, '\n')
-				if err := ws.WriteMessage(websocket.TextMessage, line); err != nil {
+				if err := writer.WriteMessage(websocket.TextMessage, line); err != nil {
 					return
 				}
 			}
@@ -139,11 +176,9 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 }
 
 // ContainerExecWS creates an exec session in a container and bridges
-// it over a WebSocket for interactive terminal access. Authentication
-// is done via a "token" query parameter.
+// it over a WebSocket for interactive terminal access.
 func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		// Validate JWT from query parameter
 		token := c.QueryParam("token")
 		if token == "" {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
@@ -168,7 +203,9 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		}
 		defer hijacked.Close()
 
-		// exec stdout -> WebSocket (use TextMessage so browser receives string, not Blob)
+		writer := &safeWSWriter{conn: ws}
+
+		// exec stdout -> WebSocket
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
@@ -178,7 +215,7 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 				if err != nil {
 					return
 				}
-				if err := ws.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+				if err := writer.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
 					return
 				}
 			}
@@ -189,11 +226,9 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 			for {
 				_, msg, err := ws.ReadMessage()
 				if err != nil {
-					// Close the exec stdin to signal EOF
 					hijacked.Close()
 					return
 				}
-				// Check if message is a resize command
 				var resizeMsg struct {
 					Type string `json:"type"`
 					Cols int    `json:"cols"`

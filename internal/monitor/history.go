@@ -129,10 +129,66 @@ func FlushPending() {}
 
 // GetHistory returns a copy of the collected metrics history.
 func GetHistory() []MetricsPoint {
+	return GetHistoryRange("")
+}
+
+// GetHistoryRange returns metrics history for the given time range.
+// Supported ranges: "1h", "4h", "12h", "24h" (default).
+// Longer ranges are downsampled to ~120 points for consistent client performance.
+func GetHistoryRange(rangeStr string) []MetricsPoint {
 	historyMu.RLock()
 	defer historyMu.RUnlock()
 
-	result := make([]MetricsPoint, len(historyPoints))
-	copy(result, historyPoints)
+	if len(historyPoints) == 0 {
+		return []MetricsPoint{}
+	}
+
+	// Determine cutoff time
+	now := time.Now().UnixMilli()
+	var cutoff int64
+	switch rangeStr {
+	case "1h":
+		cutoff = now - 1*60*60*1000
+	case "4h":
+		cutoff = now - 4*60*60*1000
+	case "12h":
+		cutoff = now - 12*60*60*1000
+	default:
+		cutoff = now - 24*60*60*1000
+	}
+
+	// Filter by time range
+	var filtered []MetricsPoint
+	for _, pt := range historyPoints {
+		if pt.Time >= cutoff {
+			filtered = append(filtered, pt)
+		}
+	}
+
+	if len(filtered) == 0 {
+		return []MetricsPoint{}
+	}
+
+	// Downsample to ~120 points if needed
+	const maxPoints = 120
+	if len(filtered) <= maxPoints {
+		result := make([]MetricsPoint, len(filtered))
+		copy(result, filtered)
+		return result
+	}
+
+	step := len(filtered) / maxPoints
+	if step < 1 {
+		step = 1
+	}
+
+	result := make([]MetricsPoint, 0, maxPoints+1)
+	for i := 0; i < len(filtered); i += step {
+		result = append(result, filtered[i])
+	}
+	// Always include the last point
+	if result[len(result)-1].Time != filtered[len(filtered)-1].Time {
+		result = append(result, filtered[len(filtered)-1])
+	}
 	return result
 }

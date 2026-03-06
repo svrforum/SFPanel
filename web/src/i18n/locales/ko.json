@@ -564,7 +564,22 @@
     "restoreSuccess": "백업이 복원되었습니다. 서비스를 재시작합니다...",
     "backupFailed": "백업 다운로드 실패",
     "restoreFailed": "복원 실패",
-    "updateConfirm": "패널이 업데이트되고 서비스가 재시작됩니다. 계속하시겠습니까?"
+    "updateConfirm": "패널이 업데이트되고 서비스가 재시작됩니다. 계속하시겠습니까?",
+    "auditLog": "감사 로그",
+    "auditLogDescription": "시스템 변경 작업 기록을 확인합니다",
+    "auditLogEmpty": "기록된 감사 로그가 없습니다",
+    "auditClear": "로그 삭제",
+    "auditClearConfirm": "모든 감사 로그를 삭제하시겠습니까?",
+    "auditCleared": "감사 로그가 삭제되었습니다",
+    "auditTime": "시간",
+    "auditUser": "사용자",
+    "auditMethod": "방식",
+    "auditPath": "경로",
+    "auditStatus": "상태",
+    "auditIP": "IP",
+    "auditPrev": "이전",
+    "auditNext": "다음",
+    "auditPage": "{{page}} / {{total}} 페이지"
   },
   "siteConfig": {
     "loadingConfig": "설정을 불러오는 중...",
