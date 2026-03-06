@@ -538,6 +538,22 @@ export default function Settings() {
         <h3 className="text-[15px] font-semibold">{t('settings.backup')}</h3>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.backupDescription')}</p>
 
+        <div className="bg-secondary/40 rounded-xl p-3 mb-4">
+          <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">{t('settings.backupIncludes')}</p>
+          <div className="flex flex-wrap gap-x-6 gap-y-1">
+            <div className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#3182f6]" />
+              <span className="text-[12px] text-foreground/80">sfpanel.db</span>
+              <span className="text-[11px] text-muted-foreground">— {t('settings.backupItemDB')}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#3182f6]" />
+              <span className="text-[12px] text-foreground/80">config.yaml</span>
+              <span className="text-[11px] text-muted-foreground">— {t('settings.backupItemConfig')}</span>
+            </div>
+          </div>
+        </div>
+
         <div className="flex flex-wrap gap-3">
           <Button onClick={handleDownloadBackup} disabled={backupLoading} variant="outline" className="rounded-xl">
             <Download className="h-4 w-4 mr-2" />

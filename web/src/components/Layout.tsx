@@ -30,12 +30,18 @@ export default function Layout() {
     return localStorage.getItem(SIDEBAR_KEY) === 'true'
   })
   const [updateAvailable, setUpdateAvailable] = useState(false)
+  const [panelVersion, setPanelVersion] = useState('')
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, String(collapsed))
   }, [collapsed])
 
   useEffect(() => {
+    api.getSystemInfo()
+      .then((data) => {
+        if (data.version) setPanelVersion(data.version)
+      })
+      .catch(() => {})
     api.checkUpdate()
       .then((data) => setUpdateAvailable(data.update_available))
       .catch(() => {})
@@ -81,15 +87,50 @@ export default function Layout() {
             >
               <item.icon className="h-[18px] w-[18px] shrink-0" />
               {!collapsed && t(item.labelKey)}
-              {item.to === '/settings' && updateAvailable && !collapsed && (
-                <span className="ml-auto h-2 w-2 rounded-full bg-[#3182f6] shrink-0" />
-              )}
-              {item.to === '/settings' && updateAvailable && collapsed && (
-                <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-[#3182f6]" />
-              )}
             </NavLink>
           ))}
         </nav>
+
+        {/* Version info */}
+        <div className={cn('border-t border-border', collapsed ? 'px-2 py-2' : 'px-4 py-3')}>
+          {collapsed ? (
+            <button
+              onClick={() => navigate('/settings')}
+              title={panelVersion ? `v${panelVersion}` : 'SFPanel'}
+              className="flex flex-col items-center gap-1 w-full"
+            >
+              <span className="text-[10px] font-medium text-muted-foreground">
+                {panelVersion ? `v${panelVersion.split('.').slice(0, 2).join('.')}` : '...'}
+              </span>
+              {updateAvailable ? (
+                <span className="h-1.5 w-1.5 rounded-full bg-[#3182f6]" />
+              ) : panelVersion ? (
+                <span className="h-1.5 w-1.5 rounded-full bg-[#00c471]" />
+              ) : null}
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/settings')}
+              className="flex items-center justify-between w-full group"
+            >
+              <div>
+                <p className="text-[11px] font-medium text-muted-foreground">SFPanel</p>
+                <p className="text-[12px] font-semibold text-foreground/80">
+                  {panelVersion ? `v${panelVersion}` : '...'}
+                </p>
+              </div>
+              {updateAvailable ? (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#3182f6]/10 text-[#3182f6]">
+                  {t('layout.updateAvailable')}
+                </span>
+              ) : panelVersion ? (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#00c471]/10 text-[#00c471]">
+                  {t('layout.upToDate')}
+                </span>
+              ) : null}
+            </button>
+          )}
+        </div>
 
         <div className={cn('pb-4 pt-2 border-t border-border', collapsed ? 'px-2' : 'px-3')}>
           <button

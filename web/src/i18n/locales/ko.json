@@ -44,7 +44,9 @@
     },
     "logout": "로그아웃",
     "collapse": "사이드바 접기",
-    "expand": "사이드바 펼치기"
+    "expand": "사이드바 펼치기",
+    "updateAvailable": "업데이트",
+    "upToDate": "최신"
   },
   "login": {
     "title": "SFPanel",
@@ -547,6 +549,9 @@
     "releaseNotes": "릴리즈 노트",
     "backup": "설정 백업",
     "backupDescription": "데이터베이스와 설정 파일을 백업으로 다운로드합니다",
+    "backupIncludes": "백업 항목",
+    "backupItemDB": "관리자 계정, 세션, 설정, Compose 프로젝트, 커스텀 로그 소스",
+    "backupItemConfig": "서버 포트, JWT 시크릿, DB 경로, Docker 소켓, 로그 설정",
     "downloadBackup": "백업 다운로드",
     "downloadingBackup": "다운로드 중...",
     "restore": "백업에서 복원",
