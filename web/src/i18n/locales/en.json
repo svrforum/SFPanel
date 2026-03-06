@@ -44,7 +44,9 @@
     },
     "logout": "Logout",
     "collapse": "Collapse sidebar",
-    "expand": "Expand sidebar"
+    "expand": "Expand sidebar",
+    "updateAvailable": "Update",
+    "upToDate": "Latest"
   },
   "login": {
     "title": "SFPanel",
@@ -547,6 +549,9 @@
     "releaseNotes": "Release Notes",
     "backup": "Settings Backup",
     "backupDescription": "Download a backup of your database and configuration",
+    "backupIncludes": "Backup includes",
+    "backupItemDB": "Admin account, sessions, settings, compose projects, custom log sources",
+    "backupItemConfig": "Server port, JWT secret, DB path, Docker socket, log settings",
     "downloadBackup": "Download Backup",
     "downloadingBackup": "Downloading...",
     "restore": "Restore from Backup",
