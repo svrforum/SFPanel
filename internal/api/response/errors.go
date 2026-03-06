@@ -198,3 +198,11 @@ const (
 const (
 	ErrEmptySettings = "EMPTY_SETTINGS"
 )
+
+// System update error codes
+const (
+	ErrUpdateCheckFailed = "UPDATE_CHECK_FAILED"
+	ErrUpdateFailed      = "UPDATE_FAILED"
+	ErrBackupFailed      = "BACKUP_FAILED"
+	ErrRestoreFailed     = "RESTORE_FAILED"
+)

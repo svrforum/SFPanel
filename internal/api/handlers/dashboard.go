@@ -43,6 +43,7 @@ type DashboardOverview struct {
 	Metrics        *monitor.Metrics       `json:"metrics"`
 	Version        string                 `json:"version"`
 	MetricsHistory []monitor.MetricsPoint `json:"metrics_history"`
+	UpdateInfo     *monitor.UpdateInfo    `json:"update_info,omitempty"`
 }
 
 // GetOverview returns combined system info and metrics history in a single call
@@ -81,10 +82,13 @@ func (h *DashboardHandler) GetOverview(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrMetricsError, "Failed to get system metrics")
 	}
 
+	updateInfo := monitor.GetUpdateInfo(h.Version)
+
 	return response.OK(c, DashboardOverview{
 		Host:           hostInfo,
 		Metrics:        metrics,
 		Version:        h.Version,
 		MetricsHistory: metricsHistory,
+		UpdateInfo:     &updateInfo,
 	})
 }

@@ -127,7 +127,9 @@
     "received": "Received",
     "totalSent": "Total Sent",
     "totalReceived": "Total Received",
-    "diskChart": "Disk Usage"
+    "diskChart": "Disk Usage",
+    "updateBanner": "A new version (v{{version}}) is available.",
+    "updateBannerAction": "Go to Settings"
   },
   "processes": {
     "title": "Process Manager",
@@ -523,7 +525,39 @@
     "maxUploadSizeHint": "Maximum allowed size for file uploads. Default is 1024 MB (1 GB).",
     "invalidMaxUploadSize": "Please enter a number greater than 0",
     "settingsSaved": "Settings saved",
-    "settingsSaveFailed": "Failed to save settings"
+    "settingsSaveFailed": "Failed to save settings",
+    "update": "Panel Update",
+    "updateDescription": "Check for updates and install the latest version",
+    "currentVersion": "Current Version",
+    "latestVersion": "Latest Version",
+    "checkForUpdates": "Check for Updates",
+    "checking": "Checking...",
+    "upToDate": "You're running the latest version",
+    "updateAvailable": "Update available: v{{version}}",
+    "updateNow": "Update Now",
+    "updating": "Updating...",
+    "updateStep": {
+      "downloading": "Downloading...",
+      "extracting": "Extracting...",
+      "replacing": "Replacing binary...",
+      "restarting": "Restarting service...",
+      "complete": "Update complete!",
+      "error": "Update failed"
+    },
+    "releaseNotes": "Release Notes",
+    "backup": "Settings Backup",
+    "backupDescription": "Download a backup of your database and configuration",
+    "downloadBackup": "Download Backup",
+    "downloadingBackup": "Downloading...",
+    "restore": "Restore from Backup",
+    "restoreDescription": "Upload a backup file to restore database and configuration",
+    "restoreUpload": "Select Backup File",
+    "restoring": "Restoring...",
+    "restoreConfirm": "This will replace your current database and configuration. The service will restart. Continue?",
+    "restoreSuccess": "Backup restored. Service is restarting...",
+    "backupFailed": "Backup download failed",
+    "restoreFailed": "Restore failed",
+    "updateConfirm": "The panel will be updated and the service will restart. Continue?"
   },
   "siteConfig": {
     "loadingConfig": "Loading configuration...",

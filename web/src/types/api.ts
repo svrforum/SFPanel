@@ -56,11 +56,25 @@ export interface MetricsPoint {
   mem_percent: number
 }
 
+export interface UpdateInfo {
+  update_available: boolean
+  latest_version?: string
+}
+
+export interface UpdateCheckResult {
+  current_version: string
+  latest_version: string
+  update_available: boolean
+  release_notes: string
+  published_at: string
+}
+
 export interface DashboardOverview {
   host: HostInfo
   metrics: Metrics
   version: string
   metrics_history: MetricsPoint[]
+  update_info?: UpdateInfo
 }
 
 // Docker
