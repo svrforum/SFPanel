@@ -564,7 +564,22 @@
     "restoreSuccess": "Backup restored. Service is restarting...",
     "backupFailed": "Backup download failed",
     "restoreFailed": "Restore failed",
-    "updateConfirm": "The panel will be updated and the service will restart. Continue?"
+    "updateConfirm": "The panel will be updated and the service will restart. Continue?",
+    "auditLog": "Audit Log",
+    "auditLogDescription": "View system change activity logs",
+    "auditLogEmpty": "No audit logs recorded",
+    "auditClear": "Clear Logs",
+    "auditClearConfirm": "Delete all audit logs?",
+    "auditCleared": "Audit logs cleared",
+    "auditTime": "Time",
+    "auditUser": "User",
+    "auditMethod": "Method",
+    "auditPath": "Path",
+    "auditStatus": "Status",
+    "auditIP": "IP",
+    "auditPrev": "Previous",
+    "auditNext": "Next",
+    "auditPage": "Page {{page}} / {{total}}"
   },
   "siteConfig": {
     "loadingConfig": "Loading configuration...",

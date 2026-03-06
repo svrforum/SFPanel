@@ -38,6 +38,16 @@ var migrations = []string{
 		cpu         REAL NOT NULL,
 		mem_percent REAL NOT NULL
 	)`,
+	`CREATE TABLE IF NOT EXISTS audit_logs (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		username   TEXT NOT NULL DEFAULT '',
+		method     TEXT NOT NULL,
+		path       TEXT NOT NULL,
+		status     INTEGER NOT NULL DEFAULT 0,
+		ip         TEXT NOT NULL DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)`,
 }
 
 func RunMigrations(db *sql.DB) error {

@@ -31,9 +31,11 @@ func (h *DashboardHandler) GetSystemInfo(c echo.Context) error {
 	})
 }
 
-// GetMetricsHistory returns the 24-hour metrics history collected in memory.
+// GetMetricsHistory returns the metrics history collected in memory.
+// Optional query param: range=1h|4h|12h|24h (default 24h)
 func (h *DashboardHandler) GetMetricsHistory(c echo.Context) error {
-	history := monitor.GetHistory()
+	rangeStr := c.QueryParam("range")
+	history := monitor.GetHistoryRange(rangeStr)
 	return response.OK(c, history)
 }
 
@@ -68,9 +70,10 @@ func (h *DashboardHandler) GetOverview(c echo.Context) error {
 		}
 	}()
 
+	rangeStr := c.QueryParam("range")
 	go func() {
 		defer wg.Done()
-		metricsHistory = monitor.GetHistory()
+		metricsHistory = monitor.GetHistoryRange(rangeStr)
 	}()
 
 	wg.Wait()
