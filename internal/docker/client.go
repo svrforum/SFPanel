@@ -136,6 +136,57 @@ func (c *Client) ContainerStats(ctx context.Context, id string) (*container.Stat
 	return &stats, nil
 }
 
+// ContainerStatsResult holds calculated CPU/memory stats for a single container.
+type ContainerStatsResult struct {
+	ID         string  `json:"id"`
+	CPUPercent float64 `json:"cpu_percent"`
+	MemPercent float64 `json:"mem_percent"`
+	MemUsage   uint64  `json:"mem_usage"`
+	MemLimit   uint64  `json:"mem_limit"`
+}
+
+// ContainerStatsBatch returns CPU/memory stats for all running containers in a single call.
+func (c *Client) ContainerStatsBatch(ctx context.Context) ([]ContainerStatsResult, error) {
+	containers, err := c.ListContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []ContainerStatsResult
+	for _, ct := range containers {
+		if ct.State != "running" {
+			continue
+		}
+		stats, err := c.ContainerStats(ctx, ct.ID)
+		if err != nil {
+			continue
+		}
+
+		cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
+		systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
+		cpuPercent := 0.0
+		if systemDelta > 0 && cpuDelta > 0 {
+			cpuPercent = (cpuDelta / systemDelta) * float64(stats.CPUStats.OnlineCPUs) * 100.0
+		}
+
+		memUsage := stats.MemoryStats.Usage
+		memLimit := stats.MemoryStats.Limit
+		memPercent := 0.0
+		if memLimit > 0 {
+			memPercent = float64(memUsage) / float64(memLimit) * 100.0
+		}
+
+		results = append(results, ContainerStatsResult{
+			ID:         ct.ID,
+			CPUPercent: cpuPercent,
+			MemPercent: memPercent,
+			MemUsage:   memUsage,
+			MemLimit:   memLimit,
+		})
+	}
+	return results, nil
+}
+
 // ---------- Images ----------
 
 // ListImages returns all local images.

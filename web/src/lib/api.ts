@@ -1,3 +1,32 @@
+import type {
+  HostInfo,
+  Metrics,
+  Container,
+  DockerImage,
+  DockerVolume,
+  DockerNetwork,
+  FileEntry,
+  CronJob,
+  NetworkInterfaceInfo,
+  InterfaceDetail,
+  InterfaceConfig,
+  NetworkRoute,
+  PackageUpdate,
+  PackageSearchResult,
+  BlockDevice,
+  SmartInfo,
+  IOStat,
+  DiskUsageEntry,
+  Filesystem,
+  ExpandCandidate,
+  PhysicalVolume,
+  VolumeGroup,
+  LogicalVolume,
+  RAIDArray,
+  SwapInfo,
+  ServiceInfo,
+} from '@/types/api'
+
 const API_BASE = '/api/v1'
 
 class ApiClient {
@@ -100,7 +129,7 @@ class ApiClient {
 
   // System
   getSystemInfo() {
-    return this.request<{ host: any; metrics: any }>('/system/info')
+    return this.request<{ host: HostInfo; metrics: Metrics; version?: string }>('/system/info')
   }
 
   getTopProcesses() {
@@ -129,7 +158,7 @@ class ApiClient {
 
   // Docker Containers
   getContainers() {
-    return this.request<any[]>('/docker/containers')
+    return this.request<Container[]>('/docker/containers')
   }
 
   startContainer(id: string) {
@@ -174,13 +203,17 @@ class ApiClient {
     }>(`/docker/containers/${id}/stats`)
   }
 
+  containerStatsBatch() {
+    return this.request<import('@/types/api').ContainerStatsResult[]>('/docker/containers/stats/batch')
+  }
+
   removeContainer(id: string) {
     return this.request(`/docker/containers/${id}`, { method: 'DELETE' })
   }
 
   // Docker Images
   getImages() {
-    return this.request<any[]>('/docker/images')
+    return this.request<DockerImage[]>('/docker/images')
   }
 
   pullImage(image: string) {
@@ -196,7 +229,7 @@ class ApiClient {
 
   // Docker Volumes
   getVolumes() {
-    return this.request<any[]>('/docker/volumes')
+    return this.request<DockerVolume[]>('/docker/volumes')
   }
 
   createVolume(name: string) {
@@ -212,7 +245,7 @@ class ApiClient {
 
   // Docker Networks
   getNetworks() {
-    return this.request<any[]>('/docker/networks')
+    return this.request<DockerNetwork[]>('/docker/networks')
   }
 
   createNetwork(name: string, driver: string = 'bridge') {
@@ -226,9 +259,45 @@ class ApiClient {
     return this.request(`/docker/networks/${id}`, { method: 'DELETE' })
   }
 
+  // Docker - Container Creation
+  createContainer(config: import('@/types/api').ContainerCreateConfig) {
+    return this.request<{ id: string; message: string }>('/docker/containers', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    })
+  }
+
+  // Docker - Prune
+  pruneContainers() {
+    return this.request<import('@/types/api').PruneReport>('/docker/prune/containers', { method: 'POST' })
+  }
+
+  pruneImages() {
+    return this.request<import('@/types/api').PruneReport>('/docker/prune/images', { method: 'POST' })
+  }
+
+  pruneVolumes() {
+    return this.request<import('@/types/api').PruneReport>('/docker/prune/volumes', { method: 'POST' })
+  }
+
+  pruneNetworks() {
+    return this.request<import('@/types/api').PruneReport>('/docker/prune/networks', { method: 'POST' })
+  }
+
+  pruneAll() {
+    return this.request<import('@/types/api').PruneAllReport>('/docker/prune/all', { method: 'POST' })
+  }
+
+  // Docker - Hub Search
+  searchDockerHub(query: string, limit: number = 25) {
+    return this.request<import('@/types/api').DockerHubSearchResult[]>(
+      `/docker/images/search?q=${encodeURIComponent(query)}&limit=${limit}`
+    )
+  }
+
   // Docker Compose
   getComposeProjects() {
-    return this.request<any[]>('/docker/compose')
+    return this.request<import('@/types/api').ComposeProjectWithStatus[]>('/docker/compose')
   }
 
   createComposeProject(name: string, yaml: string) {
@@ -239,7 +308,7 @@ class ApiClient {
   }
 
   getComposeProject(project: string) {
-    return this.request<{ project: any; yaml: string }>(`/docker/compose/${project}`)
+    return this.request<{ project: import('@/types/api').ComposeProject; yaml: string }>(`/docker/compose/${project}`)
   }
 
   updateComposeProject(project: string, yaml: string) {
@@ -261,9 +330,40 @@ class ApiClient {
     return this.request(`/docker/compose/${project}/down`, { method: 'POST' })
   }
 
+  getComposeServices(project: string) {
+    return this.request<import('@/types/api').ComposeService[]>(`/docker/compose/${project}/services`)
+  }
+
+  restartComposeService(project: string, service: string) {
+    return this.request(`/docker/compose/${project}/services/${service}/restart`, { method: 'POST' })
+  }
+
+  stopComposeService(project: string, service: string) {
+    return this.request(`/docker/compose/${project}/services/${service}/stop`, { method: 'POST' })
+  }
+
+  startComposeService(project: string, service: string) {
+    return this.request(`/docker/compose/${project}/services/${service}/start`, { method: 'POST' })
+  }
+
+  getComposeServiceLogs(project: string, service: string, tail: number = 100) {
+    return this.request<{ logs: string }>(`/docker/compose/${project}/services/${service}/logs?tail=${tail}`)
+  }
+
+  getComposeEnv(project: string) {
+    return this.request<{ content: string }>(`/docker/compose/${project}/env`)
+  }
+
+  updateComposeEnv(project: string, content: string) {
+    return this.request(`/docker/compose/${project}/env`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    })
+  }
+
   // File Manager
   listFiles(path: string) {
-    return this.request<any[]>(`/files?path=${encodeURIComponent(path)}`)
+    return this.request<FileEntry[]>(`/files?path=${encodeURIComponent(path)}`)
   }
 
   readFile(path: string) {
@@ -295,32 +395,61 @@ class ApiClient {
     })
   }
 
-  async uploadFile(destPath: string, file: File) {
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('path', destPath)
+  uploadFile(destPath: string, file: File, onProgress?: (percent: number) => void): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `${API_BASE}/files/upload`)
 
+      if (this.token) {
+        xhr.setRequestHeader('Authorization', `Bearer ${this.token}`)
+      }
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100))
+        }
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve()
+        } else {
+          try {
+            const json = JSON.parse(xhr.responseText)
+            reject(new Error(json.error?.message || 'Upload failed'))
+          } catch {
+            reject(new Error(`Upload failed (${xhr.status})`))
+          }
+        }
+      }
+
+      xhr.onerror = () => reject(new Error('Network error'))
+
+      const formData = new FormData()
+      formData.append('path', destPath)
+      formData.append('file', file)
+      xhr.send(formData)
+    })
+  }
+
+  async downloadFile(path: string): Promise<Blob> {
     const headers: Record<string, string> = {}
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const res = await fetch(`${API_BASE}/files/upload`, {
-      method: 'POST',
-      headers,
-      body: formData,
-    })
+    const res = await fetch(`${API_BASE}/files/download?path=${encodeURIComponent(path)}`, { headers })
 
-    const json = await res.json()
-    if (!json.success) {
-      throw new Error(json.error?.message || 'Upload failed')
+    if (!res.ok) {
+      throw new Error(`Download failed (${res.status})`)
     }
-    return json.data
+
+    return res.blob()
   }
 
   // Logs
   getLogSources() {
-    return this.request<any[]>('/logs/sources')
+    return this.request<Array<{ id: string; name: string; path: string; size: number; exists: boolean; custom: boolean; custom_id?: number }>>('/logs/sources')
   }
 
   readLog(source: string, lines: number = 100) {
@@ -329,9 +458,20 @@ class ApiClient {
     )
   }
 
+  addCustomLogSource(name: string, path: string) {
+    return this.request<{ id: number; source: { id: string; name: string; path: string; size: number; exists: boolean; custom: boolean; custom_id: number } }>('/logs/custom-sources', {
+      method: 'POST',
+      body: JSON.stringify({ name, path }),
+    })
+  }
+
+  deleteCustomLogSource(id: number) {
+    return this.request<{ message: string }>(`/logs/custom-sources/${id}`, { method: 'DELETE' })
+  }
+
   // Cron Jobs
   getCronJobs() {
-    return this.request<any[]>('/cron')
+    return this.request<CronJob[]>('/cron')
   }
 
   createCronJob(schedule: string, command: string) {
@@ -354,14 +494,14 @@ class ApiClient {
 
   // Network
   getNetworkInterfaces() {
-    return this.request<any[]>('/network/interfaces')
+    return this.request<NetworkInterfaceInfo[]>('/network/interfaces')
   }
 
   getNetworkInterface(name: string) {
-    return this.request<any>(`/network/interfaces/${encodeURIComponent(name)}`)
+    return this.request<InterfaceDetail>(`/network/interfaces/${encodeURIComponent(name)}`)
   }
 
-  configureInterface(name: string, config: any) {
+  configureInterface(name: string, config: InterfaceConfig) {
     return this.request(`/network/interfaces/${encodeURIComponent(name)}`, {
       method: 'PUT',
       body: JSON.stringify(config),
@@ -386,11 +526,11 @@ class ApiClient {
   }
 
   getRoutes() {
-    return this.request<any[]>('/network/routes')
+    return this.request<NetworkRoute[]>('/network/routes')
   }
 
   getBonds() {
-    return this.request<any[]>('/network/bonds')
+    return this.request<NetworkInterfaceInfo[]>('/network/bonds')
   }
 
   createBond(data: { name: string; mode: string; slaves: string[]; primary?: string }) {
@@ -408,7 +548,7 @@ class ApiClient {
 
   // Packages
   checkUpdates() {
-    return this.request<{ updates: any[]; total: number; last_checked: string }>('/packages/updates')
+    return this.request<{ updates: PackageUpdate[]; total: number; last_checked: string }>('/packages/updates')
   }
 
   upgradePackages(packages?: string[]) {
@@ -433,7 +573,7 @@ class ApiClient {
   }
 
   searchPackages(query: string) {
-    return this.request<{ packages: any[]; total: number; query: string }>(
+    return this.request<{ packages: PackageSearchResult[]; total: number; query: string }>(
       `/packages/search?q=${encodeURIComponent(query)}`,
     )
   }
@@ -461,19 +601,19 @@ class ApiClient {
 
   // Disk Management - Overview
   getDiskOverview() {
-    return this.request<any>('/disks/overview')
+    return this.request<BlockDevice[]>('/disks/overview')
   }
 
   getDiskSmart(device: string) {
-    return this.request<any>(`/disks/${encodeURIComponent(device)}/smart`)
+    return this.request<SmartInfo>(`/disks/${encodeURIComponent(device)}/smart`)
   }
 
   getDiskIOStats() {
-    return this.request<any[]>('/disks/iostat')
+    return this.request<IOStat[]>('/disks/iostat')
   }
 
   getDiskUsage(path: string, depth: number = 1) {
-    return this.request<any>('/disks/usage', {
+    return this.request<DiskUsageEntry>('/disks/usage', {
       method: 'POST',
       body: JSON.stringify({ path, depth }),
     })
@@ -481,7 +621,7 @@ class ApiClient {
 
   // Disk Management - Partitions
   getPartitions(device: string) {
-    return this.request<any>(`/disks/${encodeURIComponent(device)}/partitions`)
+    return this.request<{ device: string; partitions: Array<{ number: number; start: string; end: string; size: string; type: string; filesystem: string; flags: string[] }> }>(`/disks/${encodeURIComponent(device)}/partitions`)
   }
 
   createPartition(device: string, data: { start: string; end: string; fs_type: string }) {
@@ -499,7 +639,7 @@ class ApiClient {
 
   // Disk Management - Filesystems
   getFilesystems() {
-    return this.request<any[]>('/filesystems')
+    return this.request<Filesystem[]>('/filesystems')
   }
 
   formatPartition(data: { device: string; fs_type: string; label?: string }) {
@@ -523,24 +663,35 @@ class ApiClient {
     })
   }
 
-  resizeFilesystem(data: { device: string; size?: string }) {
+  resizeFilesystem(data: { device: string }) {
     return this.request('/filesystems/resize', {
       method: 'POST',
       body: JSON.stringify(data),
     })
   }
 
+  checkFilesystemExpand() {
+    return this.request<ExpandCandidate[]>('/filesystems/expand-check')
+  }
+
+  expandFilesystem(source: string) {
+    return this.request<{ message: string; steps: string[] }>('/filesystems/expand', {
+      method: 'POST',
+      body: JSON.stringify({ source }),
+    })
+  }
+
   // Disk Management - LVM
   getLVMPVs() {
-    return this.request<any>('/lvm/pvs')
+    return this.request<PhysicalVolume[]>('/lvm/pvs')
   }
 
   getLVMVGs() {
-    return this.request<any>('/lvm/vgs')
+    return this.request<VolumeGroup[]>('/lvm/vgs')
   }
 
   getLVMLVs() {
-    return this.request<any>('/lvm/lvs')
+    return this.request<LogicalVolume[]>('/lvm/lvs')
   }
 
   createPV(device: string) {
@@ -585,11 +736,11 @@ class ApiClient {
 
   // Disk Management - RAID
   getRAIDArrays() {
-    return this.request<any[]>('/raid')
+    return this.request<RAIDArray[]>('/raid')
   }
 
   getRAIDDetail(name: string) {
-    return this.request<any>(`/raid/${encodeURIComponent(name)}`)
+    return this.request<RAIDArray>(`/raid/${encodeURIComponent(name)}`)
   }
 
   createRAID(data: { name: string; level: string; devices: string[] }) {
@@ -619,7 +770,7 @@ class ApiClient {
 
   // Disk Management - Swap
   getSwapInfo() {
-    return this.request<any>('/swap')
+    return this.request<SwapInfo>('/swap')
   }
 
   createSwap(data: { type: string; path?: string; size_mb?: number; device?: string }) {
@@ -665,6 +816,90 @@ class ApiClient {
     })
   }
 
+  // WireGuard VPN
+  getWireGuardStatus() {
+    return this.request<import('@/types/api').WireGuardStatus>('/network/wireguard/status')
+  }
+
+  installWireGuard() {
+    return this.request<{ message: string }>('/network/wireguard/install', { method: 'POST' })
+  }
+
+  getWireGuardInterfaces() {
+    return this.request<import('@/types/api').WireGuardInterface[]>('/network/wireguard/interfaces')
+  }
+
+  getWireGuardInterface(name: string) {
+    return this.request<import('@/types/api').WireGuardInterface>(`/network/wireguard/interfaces/${encodeURIComponent(name)}`)
+  }
+
+  wireGuardInterfaceUp(name: string) {
+    return this.request<{ message: string }>(`/network/wireguard/interfaces/${encodeURIComponent(name)}/up`, { method: 'POST' })
+  }
+
+  wireGuardInterfaceDown(name: string) {
+    return this.request<{ message: string }>(`/network/wireguard/interfaces/${encodeURIComponent(name)}/down`, { method: 'POST' })
+  }
+
+  createWireGuardConfig(name: string, content: string) {
+    return this.request<{ message: string }>('/network/wireguard/configs', {
+      method: 'POST',
+      body: JSON.stringify({ name, content }),
+    })
+  }
+
+  getWireGuardConfig(name: string) {
+    return this.request<{ name: string; content: string }>(`/network/wireguard/configs/${encodeURIComponent(name)}`)
+  }
+
+  updateWireGuardConfig(name: string, content: string) {
+    return this.request<{ message: string }>(`/network/wireguard/configs/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    })
+  }
+
+  deleteWireGuardConfig(name: string) {
+    return this.request<{ message: string }>(`/network/wireguard/configs/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
+  // Tailscale VPN
+  getTailscaleStatus() {
+    return this.request<import('@/types/api').TailscaleStatus>('/network/tailscale/status')
+  }
+
+  // installTailscale uses SSE streaming — call via fetch directly in component
+
+  checkTailscaleUpdate() {
+    return this.request<{ current_version: string; update_available: boolean; new_version: string; apt_output: string }>('/network/tailscale/update-check')
+  }
+
+  tailscaleUp(authKey?: string, exitNode?: string) {
+    return this.request<{ message: string } | { needs_auth: boolean; auth_url: string }>('/network/tailscale/up', {
+      method: 'POST',
+      body: JSON.stringify({ auth_key: authKey, exit_node: exitNode }),
+    })
+  }
+
+  tailscaleDown() {
+    return this.request<{ message: string }>('/network/tailscale/down', { method: 'POST' })
+  }
+
+  tailscaleLogout() {
+    return this.request<{ message: string }>('/network/tailscale/logout', { method: 'POST' })
+  }
+
+  getTailscalePeers() {
+    return this.request<import('@/types/api').TailscalePeer[]>('/network/tailscale/peers')
+  }
+
+  setTailscalePreferences(options: { exit_node?: string; accept_routes?: boolean; advertise_exit_node?: boolean }) {
+    return this.request<{ message: string }>('/network/tailscale/preferences', {
+      method: 'PUT',
+      body: JSON.stringify(options),
+    })
+  }
+
   // Firewall (UFW)
   getFirewallStatus() {
     return this.request<{ active: boolean; default_incoming: string; default_outgoing: string }>('/firewall/status')
@@ -706,12 +941,34 @@ class ApiClient {
     return this.request<{ message: string }>('/fail2ban/install', { method: 'POST' })
   }
 
+  getFail2banTemplates() {
+    return this.request<{ templates: Array<{ id: string; name: string; description: string; filter: string; log_path: string; max_retry: number; ban_time: number; find_time: number; available: boolean }> }>('/fail2ban/templates')
+  }
+
+  createFail2banJail(data: { id: string; max_retry: number; ban_time: number; find_time: number; log_path?: string; name?: string; filter?: string }) {
+    return this.request<{ message: string }>('/fail2ban/jails', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  deleteFail2banJail(name: string) {
+    return this.request<{ message: string }>(`/fail2ban/jails/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
   getFail2banJails() {
-    return this.request<{ jails: Array<{ name: string; enabled: boolean; banned_count: number; total_banned: number; banned_ips: string[] }>; total: number }>('/fail2ban/jails')
+    return this.request<{ jails: Array<{ name: string; enabled: boolean; filter: string; banned_count: number; total_banned: number; banned_ips: string[]; max_retry: number; ban_time: string; find_time: string }>; total: number }>('/fail2ban/jails')
   }
 
   getFail2banJailDetail(name: string) {
-    return this.request<{ name: string; enabled: boolean; banned_count: number; total_banned: number; banned_ips: string[] }>(`/fail2ban/jails/${encodeURIComponent(name)}`)
+    return this.request<{ name: string; enabled: boolean; filter: string; banned_count: number; total_banned: number; banned_ips: string[]; max_retry: number; ban_time: string; find_time: string }>(`/fail2ban/jails/${encodeURIComponent(name)}`)
+  }
+
+  updateFail2banJailConfig(name: string, config: { max_retry?: number; ban_time?: string; find_time?: string }) {
+    return this.request<{ message: string }>(`/fail2ban/jails/${encodeURIComponent(name)}/config`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    })
   }
 
   enableFail2banJail(name: string) {
@@ -727,6 +984,73 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ ip }),
     })
+  }
+
+  // Docker Firewall (DOCKER-USER chain)
+  getDockerFirewall() {
+    return this.request<{
+      ports: Array<{
+        container_name: string
+        container_ip: string
+        host_port: number
+        container_port: number
+        protocol: string
+        host_ip: string
+      }>
+      rules: Array<{
+        number: number
+        port: number
+        protocol: string
+        source: string
+        action: string
+      }>
+    }>('/firewall/docker')
+  }
+
+  addDockerUserRule(data: { port: number; protocol: string; source: string; action: string }) {
+    return this.request<{ message: string }>('/firewall/docker/rules', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  deleteDockerUserRule(number: number) {
+    return this.request<{ message: string }>(`/firewall/docker/rules/${number}`, { method: 'DELETE' })
+  }
+
+  // Systemd Services
+  listServices(params?: { q?: string; sort?: string; type?: string }) {
+    const query = new URLSearchParams()
+    if (params?.q) query.set('q', params.q)
+    if (params?.sort) query.set('sort', params.sort)
+    if (params?.type) query.set('type', params.type)
+    const qs = query.toString()
+    return this.request<{ services: ServiceInfo[]; total: number }>(`/system/services${qs ? `?${qs}` : ''}`)
+  }
+
+  startService(name: string) {
+    return this.request<{ message: string }>(`/system/services/${name}/start`, { method: 'POST' })
+  }
+
+  stopService(name: string) {
+    return this.request<{ message: string }>(`/system/services/${name}/stop`, { method: 'POST' })
+  }
+
+  restartService(name: string) {
+    return this.request<{ message: string }>(`/system/services/${name}/restart`, { method: 'POST' })
+  }
+
+  enableService(name: string) {
+    return this.request<{ message: string }>(`/system/services/${name}/enable`, { method: 'POST' })
+  }
+
+  disableService(name: string) {
+    return this.request<{ message: string }>(`/system/services/${name}/disable`, { method: 'POST' })
+  }
+
+  getServiceLogs(name: string, lines?: number) {
+    const qs = lines ? `?lines=${lines}` : ''
+    return this.request<{ logs: string }>(`/system/services/${name}/logs${qs}`)
   }
 }
 

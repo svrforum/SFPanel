@@ -17,7 +17,7 @@ import (
 	"github.com/sfpanel/sfpanel/internal/docker"
 )
 
-func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo {
+func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version ...string) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -26,10 +26,15 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo 
 	e.Use(echoMw.CORSWithConfig(echoMw.CORSConfig{
 		AllowOrigins: []string{"http://localhost:5173"},
 		AllowMethods: []string{"GET", "POST", "PUT", "DELETE"},
+		AllowHeaders: []string{"Authorization", "Content-Type"},
 	}))
 
 	authHandler := &handlers.AuthHandler{DB: database, Config: cfg}
-	dashboardHandler := &handlers.DashboardHandler{}
+	ver := ""
+	if len(version) > 0 {
+		ver = version[0]
+	}
+	dashboardHandler := &handlers.DashboardHandler{Version: ver}
 
 	// Initialize Docker client
 	dockerClient, err := docker.NewClient(cfg.Docker.Socket)
@@ -42,8 +47,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo 
 		dockerHandler = &handlers.DockerHandler{Docker: dockerClient}
 	}
 
-	// Initialize Compose manager (always available, does not require Docker SDK client)
-	composeManager := docker.NewComposeManager(database, "/var/lib/sfpanel/compose")
+	// Initialize Compose manager — scans /opt/stacks for compose projects
+	composeManager := docker.NewComposeManager("/opt/stacks", dockerClient)
 	composeHandler := &handlers.ComposeHandler{Compose: composeManager}
 
 	v1 := e.Group("/api/v1")
@@ -76,8 +81,18 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo 
 	authorized.GET("/system/processes/list", processesHandler.ListProcesses)
 	authorized.POST("/system/processes/:pid/kill", processesHandler.KillProcess)
 
+	// Systemd services
+	servicesHandler := &handlers.ServicesHandler{}
+	authorized.GET("/system/services", servicesHandler.ListServices)
+	authorized.POST("/system/services/:name/start", servicesHandler.StartService)
+	authorized.POST("/system/services/:name/stop", servicesHandler.StopService)
+	authorized.POST("/system/services/:name/restart", servicesHandler.RestartService)
+	authorized.POST("/system/services/:name/enable", servicesHandler.EnableService)
+	authorized.POST("/system/services/:name/disable", servicesHandler.DisableService)
+	authorized.GET("/system/services/:name/logs", servicesHandler.ServiceLogs)
+
 	// File manager routes
-	filesHandler := &handlers.FilesHandler{}
+	filesHandler := &handlers.FilesHandler{DB: database}
 	files := authorized.Group("/files")
 	files.GET("", filesHandler.ListDir)
 	files.GET("/read", filesHandler.ReadFile)
@@ -97,10 +112,12 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo 
 	cron.DELETE("/:id", cronHandler.DeleteJob)
 
 	// Log viewer routes
-	logsHandler := &handlers.LogsHandler{}
+	logsHandler := &handlers.LogsHandler{DB: database}
 	logs := authorized.Group("/logs")
 	logs.GET("/sources", logsHandler.ListSources)
 	logs.GET("/read", logsHandler.ReadLog)
+	logs.POST("/custom-sources", logsHandler.AddCustomSource)
+	logs.DELETE("/custom-sources/:id", logsHandler.DeleteCustomSource)
 
 	// Network
 	networkHandler := &handlers.NetworkHandler{}
@@ -114,6 +131,32 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo 
 	net.GET("/bonds", networkHandler.ListBonds)
 	net.POST("/bonds", networkHandler.CreateBond)
 	net.DELETE("/bonds/:name", networkHandler.DeleteBond)
+
+	// WireGuard VPN
+	wireguardHandler := &handlers.WireGuardHandler{}
+	wg := authorized.Group("/network/wireguard")
+	wg.GET("/status", wireguardHandler.GetStatus)
+	wg.POST("/install", wireguardHandler.Install)
+	wg.GET("/interfaces", wireguardHandler.ListInterfaces)
+	wg.GET("/interfaces/:name", wireguardHandler.GetInterface)
+	wg.POST("/interfaces/:name/up", wireguardHandler.InterfaceUp)
+	wg.POST("/interfaces/:name/down", wireguardHandler.InterfaceDown)
+	wg.POST("/configs", wireguardHandler.CreateConfig)
+	wg.GET("/configs/:name", wireguardHandler.GetConfig)
+	wg.PUT("/configs/:name", wireguardHandler.UpdateConfig)
+	wg.DELETE("/configs/:name", wireguardHandler.DeleteConfig)
+
+	// Tailscale VPN
+	tailscaleHandler := &handlers.TailscaleHandler{}
+	ts := authorized.Group("/network/tailscale")
+	ts.GET("/status", tailscaleHandler.GetStatus)
+	ts.POST("/install", tailscaleHandler.Install)
+	ts.POST("/up", tailscaleHandler.Up)
+	ts.POST("/down", tailscaleHandler.Down)
+	ts.POST("/logout", tailscaleHandler.Logout)
+	ts.GET("/peers", tailscaleHandler.ListPeers)
+	ts.PUT("/preferences", tailscaleHandler.SetPreferences)
+	ts.GET("/update-check", tailscaleHandler.CheckUpdate)
 
 	// Disk management
 	diskHandler := &handlers.DiskHandler{}
@@ -135,6 +178,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo 
 	fsGroup.POST("/mount", diskHandler.MountFilesystem)
 	fsGroup.POST("/unmount", diskHandler.UnmountFilesystem)
 	fsGroup.POST("/resize", diskHandler.ResizeFilesystem)
+	fsGroup.GET("/expand-check", diskHandler.CheckExpandable)
+	fsGroup.POST("/expand", diskHandler.ExpandFilesystem)
 
 	// LVM
 	lvm := authorized.Group("/lvm")
@@ -177,15 +222,22 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo 
 	fw.POST("/rules", firewallHandler.AddRule)
 	fw.DELETE("/rules/:number", firewallHandler.DeleteRule)
 	fw.GET("/ports", firewallHandler.ListPorts)
+	fw.GET("/docker", firewallHandler.GetDockerFirewall)
+	fw.POST("/docker/rules", firewallHandler.AddDockerUserRule)
+	fw.DELETE("/docker/rules/:number", firewallHandler.DeleteDockerUserRule)
 
 	// Fail2ban
 	f2b := authorized.Group("/fail2ban")
 	f2b.GET("/status", firewallHandler.GetFail2banStatus)
 	f2b.POST("/install", firewallHandler.InstallFail2ban)
+	f2b.GET("/templates", firewallHandler.GetJailTemplates)
 	f2b.GET("/jails", firewallHandler.ListJails)
+	f2b.POST("/jails", firewallHandler.CreateJail)
+	f2b.DELETE("/jails/:name", firewallHandler.DeleteJail)
 	f2b.GET("/jails/:name", firewallHandler.GetJailDetail)
 	f2b.POST("/jails/:name/enable", firewallHandler.EnableJail)
 	f2b.POST("/jails/:name/disable", firewallHandler.DisableJail)
+	f2b.PUT("/jails/:name/config", firewallHandler.UpdateJailConfig)
 	f2b.POST("/jails/:name/unban", firewallHandler.UnbanIP)
 
 	// Package management routes
@@ -210,6 +262,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo 
 		dk.POST("/containers/:id/start", dockerHandler.StartContainer)
 		dk.POST("/containers/:id/stop", dockerHandler.StopContainer)
 		dk.POST("/containers/:id/restart", dockerHandler.RestartContainer)
+		dk.GET("/containers/stats/batch", dockerHandler.ContainerStatsBatch)
 		dk.DELETE("/containers/:id", dockerHandler.RemoveContainer)
 
 		// Images
@@ -227,15 +280,35 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo 
 		dk.POST("/networks", dockerHandler.CreateNetwork)
 		dk.DELETE("/networks/:id", dockerHandler.RemoveNetwork)
 
+		// Container creation
+		dk.POST("/containers", dockerHandler.CreateContainer)
+
+		// Prune
+		dk.POST("/prune/containers", dockerHandler.PruneContainers)
+		dk.POST("/prune/images", dockerHandler.PruneImages)
+		dk.POST("/prune/volumes", dockerHandler.PruneVolumes)
+		dk.POST("/prune/networks", dockerHandler.PruneNetworks)
+		dk.POST("/prune/all", dockerHandler.PruneAll)
+
+		// Docker Hub search
+		dk.GET("/images/search", dockerHandler.SearchImages)
+
 		// Docker Compose
 		compose := dk.Group("/compose")
-		compose.GET("", composeHandler.ListProjects)
+		compose.GET("", composeHandler.ListProjectsWithStatus)
 		compose.POST("", composeHandler.CreateProject)
 		compose.GET("/:project", composeHandler.GetProject)
 		compose.PUT("/:project", composeHandler.UpdateProject)
 		compose.DELETE("/:project", composeHandler.DeleteProject)
 		compose.POST("/:project/up", composeHandler.ProjectUp)
 		compose.POST("/:project/down", composeHandler.ProjectDown)
+		compose.GET("/:project/env", composeHandler.GetEnv)
+		compose.PUT("/:project/env", composeHandler.UpdateEnv)
+		compose.GET("/:project/services", composeHandler.GetProjectServices)
+		compose.POST("/:project/services/:service/restart", composeHandler.RestartService)
+		compose.POST("/:project/services/:service/stop", composeHandler.StopService)
+		compose.POST("/:project/services/:service/start", composeHandler.StartService)
+		compose.GET("/:project/services/:service/logs", composeHandler.ServiceLogs)
 
 		// Docker WebSocket routes (auth via query param token)
 		e.GET("/ws/docker/containers/:id/logs", handlers.ContainerLogsWS(dockerClient, cfg.Auth.JWTSecret))
@@ -244,7 +317,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS) *echo.Echo 
 
 	// WebSocket routes (auth via query param token)
 	e.GET("/ws/metrics", handlers.MetricsWS(cfg.Auth.JWTSecret))
-	e.GET("/ws/logs", handlers.LogStreamWS(cfg.Auth.JWTSecret))
+	e.GET("/ws/logs", handlers.LogStreamWS(cfg.Auth.JWTSecret, database))
 	e.GET("/ws/terminal", handlers.TerminalWS(cfg.Auth.JWTSecret))
 
 	// SPA static file serving — catch-all AFTER all API and WS routes
