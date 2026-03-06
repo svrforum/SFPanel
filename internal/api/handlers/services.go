@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/sfpanel/sfpanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
 var validServiceName = regexp.MustCompile(`^[a-zA-Z0-9@._:-]+\.service$`)

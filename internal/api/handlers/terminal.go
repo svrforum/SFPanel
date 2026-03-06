@@ -13,7 +13,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	"github.com/sfpanel/sfpanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/auth"
 )
 
 const scrollbackBufSize = 256 * 1024 // 256 KB ring buffer per session

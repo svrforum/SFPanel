@@ -10,16 +10,6 @@ var migrations = []string{
 		totp_secret TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`,
-	`CREATE TABLE IF NOT EXISTS sites (
-		id          INTEGER PRIMARY KEY AUTOINCREMENT,
-		domain      TEXT NOT NULL UNIQUE,
-		doc_root    TEXT NOT NULL,
-		php_enabled BOOLEAN DEFAULT 0,
-		ssl_enabled BOOLEAN DEFAULT 0,
-		ssl_expiry  DATETIME,
-		status      TEXT DEFAULT 'active',
-		created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-	)`,
 	`CREATE TABLE IF NOT EXISTS compose_projects (
 		id         INTEGER PRIMARY KEY AUTOINCREMENT,
 		name       TEXT NOT NULL UNIQUE,
@@ -35,6 +25,18 @@ var migrations = []string{
 	`CREATE TABLE IF NOT EXISTS settings (
 		key   TEXT PRIMARY KEY,
 		value TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS custom_log_sources (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		source_id  TEXT NOT NULL UNIQUE,
+		name       TEXT NOT NULL,
+		path       TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`,
+	`CREATE TABLE IF NOT EXISTS metrics_history (
+		time        INTEGER PRIMARY KEY,
+		cpu         REAL NOT NULL,
+		mem_percent REAL NOT NULL
 	)`,
 }
 

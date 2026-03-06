@@ -5,8 +5,8 @@ import (
 	"strconv"
 
 	"github.com/labstack/echo/v4"
-	"github.com/sfpanel/sfpanel/internal/api/response"
-	"github.com/sfpanel/sfpanel/internal/docker"
+	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/docker"
 )
 
 // ComposeHandler exposes REST handlers for Docker Compose project management.

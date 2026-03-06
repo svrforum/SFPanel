@@ -3,6 +3,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { Plus, Trash2, RefreshCw, HardDrive } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { formatBytes } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -23,39 +24,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
-interface DiskPartitionChild {
-  name: string
-  size: number
-  type: string
-  fs_type: string
-  mount_point: string
-  uuid: string
-}
+import type { BlockDevice } from '@/types/api'
 
-interface PhysicalDisk {
-  name: string
-  model: string
-  serial: string
-  size: number
-  type: string
-  transport: string
-  rotational: boolean
-  children: DiskPartitionChild[]
-}
+type PhysicalDisk = BlockDevice
+type DiskPartitionChild = NonNullable<BlockDevice['children']>[number]
 
 const FS_TYPES = ['ext4', 'xfs', 'btrfs', 'swap']
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
 
 export default function DiskPartitions() {
   const { t } = useTranslation()
@@ -207,16 +181,16 @@ export default function DiskPartitions() {
                 <TableCell className="text-muted-foreground">{formatBytes(p.size)}</TableCell>
                 <TableCell className="text-muted-foreground">{p.type || '-'}</TableCell>
                 <TableCell>
-                  {p.fs_type ? (
+                  {p.fstype ? (
                     <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border">
-                      {p.fs_type}
+                      {p.fstype}
                     </span>
                   ) : (
                     <span className="text-muted-foreground">-</span>
                   )}
                 </TableCell>
                 <TableCell className="text-muted-foreground font-mono text-xs">
-                  {p.mount_point || '-'}
+                  {p.mountpoint || '-'}
                 </TableCell>
                 <TableCell className="text-right">
                   <Button
@@ -224,7 +198,7 @@ export default function DiskPartitions() {
                     size="icon-xs"
                     title={t('common.delete')}
                     onClick={() => setDeleteTarget(p)}
-                    disabled={!!p.mount_point}
+                    disabled={!!p.mountpoint}
                   >
                     <Trash2 />
                   </Button>

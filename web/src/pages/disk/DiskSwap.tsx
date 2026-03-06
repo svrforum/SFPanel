@@ -3,6 +3,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { Plus, Trash2, RefreshCw, MemoryStick, Save, Maximize2, ArrowRight, CheckCircle2, XCircle, Loader2, AlertTriangle, HardDrive, Cpu } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { formatBytes } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -36,18 +37,6 @@ interface SwapEntry {
   size: number
   used: number
   priority: number
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
 }
 
 export default function DiskSwap() {

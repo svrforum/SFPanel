@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/sfpanel/sfpanel/internal/api/response"
-	"github.com/sfpanel/sfpanel/internal/auth"
-	"github.com/sfpanel/sfpanel/internal/config"
+	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/config"
 )
 
 type AuthHandler struct {

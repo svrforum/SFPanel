@@ -5,8 +5,8 @@ import (
 	"sync"
 
 	"github.com/labstack/echo/v4"
-	"github.com/sfpanel/sfpanel/internal/api/response"
-	"github.com/sfpanel/sfpanel/internal/monitor"
+	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
 type DashboardHandler struct {

@@ -11,6 +11,11 @@ import (
 	"github.com/shirou/gopsutil/v4/net"
 )
 
+func init() {
+	// Establish baseline for non-blocking cpu.Percent(0) calls
+	cpu.Percent(0, false)
+}
+
 type Metrics struct {
 	CPU          float64 `json:"cpu"`
 	MemTotal     uint64  `json:"mem_total"`
@@ -28,17 +33,18 @@ type Metrics struct {
 }
 
 type HostInfo struct {
-	Hostname string `json:"hostname"`
-	OS       string `json:"os"`
-	Platform string `json:"platform"`
-	Kernel   string `json:"kernel"`
-	Uptime   uint64 `json:"uptime"`
-	NumCPU   int    `json:"num_cpu"`
+	Hostname        string `json:"hostname"`
+	OS              string `json:"os"`
+	Platform        string `json:"platform"`
+	PlatformVersion string `json:"platform_version"`
+	Kernel          string `json:"kernel"`
+	Uptime          uint64 `json:"uptime"`
+	NumCPU          int    `json:"num_cpu"`
 }
 
 // GetMetrics collects a current snapshot of system metrics.
 func GetMetrics() (*Metrics, error) {
-	cpuPercent, err := cpu.Percent(1*time.Second, false)
+	cpuPercent, err := cpu.Percent(0, false)
 	if err != nil {
 		return nil, err
 	}
@@ -99,11 +105,12 @@ func GetHostInfo() (*HostInfo, error) {
 	}
 
 	return &HostInfo{
-		Hostname: info.Hostname,
-		OS:       info.OS,
-		Platform: info.Platform,
-		Kernel:   info.KernelVersion,
-		Uptime:   info.Uptime,
-		NumCPU:   runtime.NumCPU(),
+		Hostname:        info.Hostname,
+		OS:              info.OS,
+		Platform:        info.Platform,
+		PlatformVersion: info.PlatformVersion,
+		Kernel:          info.KernelVersion,
+		Uptime:          info.Uptime,
+		NumCPU:          runtime.NumCPU(),
 	}, nil
 }

@@ -540,7 +540,7 @@ export default function Settings() {
 
         <div className="bg-secondary/40 rounded-xl p-3 mb-4">
           <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">{t('settings.backupIncludes')}</p>
-          <div className="flex flex-wrap gap-x-6 gap-y-1">
+          <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-[#3182f6]" />
               <span className="text-[12px] text-foreground/80">sfpanel.db</span>
@@ -551,7 +551,16 @@ export default function Settings() {
               <span className="text-[12px] text-foreground/80">config.yaml</span>
               <span className="text-[11px] text-muted-foreground">— {t('settings.backupItemConfig')}</span>
             </div>
+            <div className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#3182f6]" />
+              <span className="text-[12px] text-foreground/80">compose/*</span>
+              <span className="text-[11px] text-muted-foreground">— {t('settings.backupItemCompose')}</span>
+            </div>
           </div>
+          <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1">
+            <AlertCircle className="h-3 w-3 shrink-0" />
+            {t('settings.backupDockerDataNote')}
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-3">
@@ -560,21 +569,23 @@ export default function Settings() {
             {backupLoading ? t('settings.downloadingBackup') : t('settings.downloadBackup')}
           </Button>
 
-          <label className="inline-flex">
-            <Button asChild variant="outline" className="rounded-xl cursor-pointer" disabled={restoreLoading}>
-              <span>
-                <Upload className="h-4 w-4 mr-2" />
-                {restoreLoading ? t('settings.restoring') : t('settings.restoreUpload')}
-              </span>
-            </Button>
-            <input
-              type="file"
-              accept=".tar.gz,.tgz"
-              onChange={handleRestoreBackup}
-              className="hidden"
-              disabled={restoreLoading}
-            />
-          </label>
+          <Button
+            variant="outline"
+            className="rounded-xl"
+            disabled={restoreLoading}
+            onClick={() => document.getElementById('restore-file-input')?.click()}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            {restoreLoading ? t('settings.restoring') : t('settings.restoreUpload')}
+          </Button>
+          <input
+            id="restore-file-input"
+            type="file"
+            accept=".tar.gz,.tgz"
+            onChange={handleRestoreBackup}
+            className="hidden"
+            disabled={restoreLoading}
+          />
         </div>
       </div>
 
@@ -595,11 +606,14 @@ export default function Settings() {
               </div>
               <div className="space-y-1">
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.operatingSystem')}</p>
-                <p className="text-[13px] font-medium">{systemInfo.host.os || 'N/A'} {systemInfo.host.platform || ''}</p>
+                <p className="text-[13px] font-medium">
+                  {systemInfo.host.platform || systemInfo.host.os || 'N/A'}
+                  {systemInfo.host.platform_version ? ` ${systemInfo.host.platform_version}` : ''}
+                </p>
               </div>
               <div className="space-y-1">
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('dashboard.kernel')}</p>
-                <p className="text-[13px] font-medium">{systemInfo.host.kernel_version || 'N/A'}</p>
+                <p className="text-[13px] font-medium">{systemInfo.host.kernel || 'N/A'}</p>
               </div>
               <div className="space-y-1">
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('dashboard.uptime')}</p>

@@ -19,6 +19,7 @@ import {
 import { toast } from 'sonner'
 import Editor from '@monaco-editor/react'
 import { api } from '@/lib/api'
+import { formatBytes, formatDate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -38,39 +39,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from '@/components/ui/context-menu'
 
-interface FileEntry {
-  name: string
-  path: string
-  isDir: boolean
-  size: number
-  modTime: string
-  mode: string
-}
+import type { FileEntry } from '@/types/api'
 
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
-
-function formatDate(dateStr: string): string {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return date.toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
 
 function getLanguageFromFilename(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() || ''
@@ -163,6 +141,7 @@ export default function Files() {
 
   // Upload state
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{ fileName: string; percent: number } | null>(null)
 
   const fetchFiles = useCallback(async () => {
     try {
@@ -244,20 +223,22 @@ export default function Files() {
   }
 
   // Download file
-  const handleDownload = (entry: FileEntry) => {
+  const handleDownload = async (entry: FileEntry) => {
     const filePath = joinPath(currentPath, entry.name)
-    const downloadUrl = `/api/v1/files/read?path=${encodeURIComponent(filePath)}`
-    const link = document.createElement('a')
-    link.href = downloadUrl
-    link.download = entry.name
-    // Attach auth token via a temporary approach
-    const token = localStorage.getItem('token')
-    if (token) {
-      link.href = `${downloadUrl}&token=${encodeURIComponent(token)}`
+    try {
+      const blob = await api.downloadFile(filePath)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = entry.name
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('files.downloadFailed')
+      toast.error(message)
     }
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
   }
 
   // New file
@@ -307,16 +288,20 @@ export default function Files() {
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(true)
+    setUploadProgress({ fileName: file.name, percent: 0 })
     try {
-      await api.uploadFile(currentPath, file)
+      await api.uploadFile(currentPath, file, (percent) => {
+        setUploadProgress({ fileName: file.name, percent })
+      })
+      setUploadProgress(null)
       toast.success(t('files.uploadSuccess', { name: file.name }))
       await fetchFiles()
     } catch (err: unknown) {
+      setUploadProgress(null)
       const message = err instanceof Error ? err.message : t('files.uploadFailed')
       toast.error(message)
     } finally {
       setUploading(false)
-      // Reset input so the same file can be re-uploaded
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
@@ -502,6 +487,8 @@ export default function Files() {
       </div>
 
       {/* File listing table */}
+      <ContextMenu>
+      <ContextMenuTrigger asChild>
       <div className="bg-card rounded-2xl card-shadow overflow-hidden">
       <Table>
         <TableHeader>
@@ -532,10 +519,84 @@ export default function Files() {
             </TableRow>
           )}
           {sortedFiles.map((entry) => (
-            <TableRow key={entry.name}>
-              <TableCell>
-                <button
-                  className="flex items-center gap-2 hover:text-primary transition-colors text-left"
+            <ContextMenu key={entry.name}>
+              <ContextMenuTrigger asChild>
+                <TableRow
+                  className="cursor-pointer hover:bg-secondary/50"
+                  onClick={() =>
+                    entry.isDir
+                      ? handleDirectoryClick(entry)
+                      : handleFileClick(entry)
+                  }
+                >
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      {entry.isDir ? (
+                        <Folder className="h-4 w-4 text-blue-500 shrink-0" />
+                      ) : entry.name.match(/\.(txt|md|log|conf|cfg|ini|json|xml|yaml|yml|toml|sh|bash|py|js|ts|jsx|tsx|html|css|scss|less|go|rs|rb|php|java|c|cpp|h|hpp|sql|lua|r|swift|kt|vue|svelte)$/i) ? (
+                        <FileText className="h-4 w-4 text-amber-500 shrink-0" />
+                      ) : (
+                        <File className="h-4 w-4 text-muted-foreground shrink-0" />
+                      )}
+                      <span className="truncate">{entry.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {entry.isDir ? '-' : formatBytes(entry.size)}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-sm">
+                    {formatDate(entry.modTime)}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground text-xs font-mono">
+                    {entry.mode || '-'}
+                  </TableCell>
+                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-end gap-1">
+                      {!entry.isDir && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          title={t('files.edit')}
+                          onClick={() => handleEditFile(entry)}
+                        >
+                          <Pencil />
+                        </Button>
+                      )}
+                      {!entry.isDir && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          title={t('files.download')}
+                          onClick={() => handleDownload(entry)}
+                        >
+                          <Download />
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        title={t('files.rename')}
+                        onClick={() => {
+                          setRenameTarget(entry)
+                          setRenameNewName(entry.name)
+                        }}
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        title={t('common.delete')}
+                        onClick={() => setDeleteTarget(entry)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem
                   onClick={() =>
                     entry.isDir
                       ? handleDirectoryClick(entry)
@@ -543,72 +604,71 @@ export default function Files() {
                   }
                 >
                   {entry.isDir ? (
-                    <Folder className="h-4 w-4 text-blue-500 shrink-0" />
-                  ) : entry.name.match(/\.(txt|md|log|conf|cfg|ini|json|xml|yaml|yml|toml|sh|bash|py|js|ts|jsx|tsx|html|css|scss|less|go|rs|rb|php|java|c|cpp|h|hpp|sql|lua|r|swift|kt|vue|svelte)$/i) ? (
-                    <FileText className="h-4 w-4 text-amber-500 shrink-0" />
+                    <Folder className="h-4 w-4" />
                   ) : (
-                    <File className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <FileText className="h-4 w-4" />
                   )}
-                  <span className="truncate">{entry.name}</span>
-                </button>
-              </TableCell>
-              <TableCell className="text-muted-foreground text-sm">
-                {entry.isDir ? '-' : formatFileSize(entry.size)}
-              </TableCell>
-              <TableCell className="text-muted-foreground text-sm">
-                {formatDate(entry.modTime)}
-              </TableCell>
-              <TableCell className="text-muted-foreground text-xs font-mono">
-                {entry.mode || '-'}
-              </TableCell>
-              <TableCell className="text-right">
-                <div className="flex items-center justify-end gap-1">
-                  {!entry.isDir && (
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      title={t('files.edit')}
-                      onClick={() => handleEditFile(entry)}
-                    >
-                      <Pencil />
-                    </Button>
-                  )}
-                  {!entry.isDir && (
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      title={t('files.download')}
-                      onClick={() => handleDownload(entry)}
-                    >
-                      <Download />
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    title={t('files.rename')}
-                    onClick={() => {
-                      setRenameTarget(entry)
-                      setRenameNewName(entry.name)
-                    }}
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    title={t('common.delete')}
-                    onClick={() => setDeleteTarget(entry)}
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
+                  {entry.isDir
+                    ? t('files.contextMenu.open')
+                    : t('files.contextMenu.edit')}
+                </ContextMenuItem>
+                {!entry.isDir && (
+                  <ContextMenuItem onClick={() => handleDownload(entry)}>
+                    <Download className="h-4 w-4" />
+                    {t('files.contextMenu.download')}
+                  </ContextMenuItem>
+                )}
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  onClick={() => {
+                    setRenameTarget(entry)
+                    setRenameNewName(entry.name)
+                  }}
+                >
+                  <Pencil className="h-4 w-4" />
+                  {t('files.contextMenu.rename')}
+                </ContextMenuItem>
+                <ContextMenuItem
+                  variant="destructive"
+                  onClick={() => setDeleteTarget(entry)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {t('files.contextMenu.delete')}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           ))}
         </TableBody>
       </Table>
       </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={handleUploadClick}>
+          <Upload className="h-4 w-4" />
+          {t('files.upload')}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => {
+          setNewFileName('')
+          setNewFileOpen(true)
+        }}>
+          <FilePlus2 className="h-4 w-4" />
+          {t('files.newFile')}
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => {
+          setNewFolderName('')
+          setNewFolderOpen(true)
+        }}>
+          <FolderPlus className="h-4 w-4" />
+          {t('files.newFolder')}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={fetchFiles}>
+          <RefreshCw className="h-4 w-4" />
+          {t('common.refresh')}
+        </ContextMenuItem>
+      </ContextMenuContent>
+      </ContextMenu>
 
       {/* Edit file dialog */}
       <Dialog open={editOpen} onOpenChange={(open) => !open && setEditOpen(false)}>
@@ -827,6 +887,32 @@ export default function Files() {
               )}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload progress dialog */}
+      <Dialog open={!!uploadProgress} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>{t('files.uploading')}</DialogTitle>
+            <DialogDescription className="truncate">
+              {uploadProgress?.fileName}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-300"
+                style={{
+                  width: `${uploadProgress?.percent ?? 0}%`,
+                  backgroundColor: '#3182f6',
+                }}
+              />
+            </div>
+            <p className="text-center text-[13px] text-muted-foreground">
+              {uploadProgress?.percent ?? 0}%
+            </p>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

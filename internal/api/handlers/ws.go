@@ -8,9 +8,9 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	"github.com/sfpanel/sfpanel/internal/auth"
-	"github.com/sfpanel/sfpanel/internal/docker"
-	"github.com/sfpanel/sfpanel/internal/monitor"
+	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/docker"
+	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
 var upgrader = websocket.Upgrader{

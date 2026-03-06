@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
-	"github.com/sfpanel/sfpanel/internal/api/response"
-	"github.com/sfpanel/sfpanel/internal/docker"
+	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/docker"
 )
 
 // DockerHandler holds a Docker client and exposes REST handlers for

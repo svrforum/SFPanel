@@ -3,13 +3,14 @@ import Editor from '@monaco-editor/react'
 interface ComposeEditorProps {
   value: string
   onChange: (value: string) => void
+  language?: string
 }
 
-export default function ComposeEditor({ value, onChange }: ComposeEditorProps) {
+export default function ComposeEditor({ value, onChange, language = 'yaml' }: ComposeEditorProps) {
   return (
     <Editor
       height="400px"
-      language="yaml"
+      language={language}
       theme="vs-dark"
       value={value}
       onChange={(val) => onChange(val || '')}

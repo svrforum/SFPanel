@@ -19,16 +19,16 @@ import (
 	"syscall"
 	"time"
 
-	sfpanel "github.com/sfpanel/sfpanel"
-	"github.com/sfpanel/sfpanel/internal/api"
-	"github.com/sfpanel/sfpanel/internal/api/handlers"
-	"github.com/sfpanel/sfpanel/internal/config"
-	"github.com/sfpanel/sfpanel/internal/db"
-	"github.com/sfpanel/sfpanel/internal/monitor"
+	sfpanel "github.com/svrforum/SFPanel"
+	"github.com/svrforum/SFPanel/internal/api"
+	"github.com/svrforum/SFPanel/internal/api/handlers"
+	"github.com/svrforum/SFPanel/internal/config"
+	"github.com/svrforum/SFPanel/internal/db"
+	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
 var (
-	version = "0.4.0"
+	version = "0.5.0"
 	commit  = "none"
 	date    = "unknown"
 )
@@ -182,7 +182,7 @@ func updatePanel() {
 
 	fmt.Println("Checking for latest version...")
 
-	resp, err := http.Get("https://api.github.com/repos/sfpanel/sfpanel/releases/latest")
+	resp, err := http.Get("https://api.github.com/repos/svrforum/SFPanel/releases/latest")
 	if err != nil {
 		log.Fatalf("Failed to check for updates: %v", err)
 	}
@@ -217,7 +217,7 @@ func updatePanel() {
 	}
 
 	arch := runtime.GOARCH
-	url := fmt.Sprintf("https://github.com/sfpanel/sfpanel/releases/download/v%s/sfpanel_%s_linux_%s.tar.gz", latest, latest, arch)
+	url := fmt.Sprintf("https://github.com/svrforum/SFPanel/releases/download/v%s/sfpanel_%s_linux_%s.tar.gz", latest, latest, arch)
 	fmt.Printf("Downloading SFPanel v%s (%s)...\n", latest, arch)
 
 	dlResp, err := http.Get(url)

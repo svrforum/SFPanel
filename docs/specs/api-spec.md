@@ -278,7 +278,7 @@
 ## 시스템 API (`/api/v1/system`)
 
 ### GET /api/v1/system/info
-시스템 호스트 정보와 현재 메트릭 조회.
+시스템 호스트 정보, 현재 메트릭, 패널 버전 조회.
 
 - **인증 필요**: 예
 
@@ -309,10 +309,18 @@
       "net_bytes_sent": 1234567,
       "net_bytes_recv": 7654321,
       "timestamp": 1740000000000
-    }
+    },
+    "version": "0.3.0"
   }
 }
 ```
+
+**최상위 필드:**
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `host` | object | 호스트 시스템 정보 |
+| `metrics` | object | 현재 시스템 메트릭 |
+| `version` | string | SFPanel 버전 (예: "0.3.0"). `DashboardHandler.Version` 필드에서 제공 |
 
 **host 필드:**
 | 필드 | 타입 | 설명 |
@@ -2299,6 +2307,10 @@ Fail2ban jail 중지 (비활성화).
 
 ## 전체 엔드포인트 요약
 
+REST API 168개 + WebSocket 5개 = 총 173개 엔드포인트.
+
+### 인증/설정 (9개)
+
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/health` | X | 헬스체크 |
@@ -2310,11 +2322,28 @@ Fail2ban jail 중지 (비활성화).
 | POST | `/api/v1/auth/change-password` | O | 비밀번호 변경 |
 | GET | `/api/v1/settings` | O | 설정 조회 |
 | PUT | `/api/v1/settings` | O | 설정 업데이트 |
-| GET | `/api/v1/system/info` | O | 시스템 정보 + 메트릭 |
+
+### 시스템 (12개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/system/info` | O | 시스템 정보 + 메트릭 + 버전 |
 | GET | `/api/v1/system/metrics-history` | O | 24시간 메트릭 히스토리 |
 | GET | `/api/v1/system/processes` | O | 상위 10 프로세스 |
 | GET | `/api/v1/system/processes/list` | O | 전체 프로세스 목록 |
 | POST | `/api/v1/system/processes/:pid/kill` | O | 프로세스 시그널 전송 |
+| GET | `/api/v1/system/services` | O | Systemd 서비스 목록 |
+| GET | `/api/v1/system/services/:name/logs` | O | 서비스 로그 조회 |
+| POST | `/api/v1/system/services/:name/start` | O | 서비스 시작 |
+| POST | `/api/v1/system/services/:name/stop` | O | 서비스 중지 |
+| POST | `/api/v1/system/services/:name/restart` | O | 서비스 재시작 |
+| POST | `/api/v1/system/services/:name/enable` | O | 서비스 활성화 |
+| POST | `/api/v1/system/services/:name/disable` | O | 서비스 비활성화 |
+
+### 파일 관리 (8개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
 | GET | `/api/v1/files` | O | 디렉토리 목록 |
 | GET | `/api/v1/files/read` | O | 파일 읽기 |
 | POST | `/api/v1/files/write` | O | 파일 쓰기 |
@@ -2323,19 +2352,134 @@ Fail2ban jail 중지 (비활성화).
 | POST | `/api/v1/files/rename` | O | 이름 변경/이동 |
 | GET | `/api/v1/files/download` | O | 파일 다운로드 |
 | POST | `/api/v1/files/upload` | O | 파일 업로드 |
+
+### Cron (4개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
 | GET | `/api/v1/cron` | O | cron 작업 목록 |
 | POST | `/api/v1/cron` | O | cron 작업 생성 |
 | PUT | `/api/v1/cron/:id` | O | cron 작업 수정 |
 | DELETE | `/api/v1/cron/:id` | O | cron 작업 삭제 |
+
+### 로그 (4개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
 | GET | `/api/v1/logs/sources` | O | 로그 소스 목록 |
 | GET | `/api/v1/logs/read` | O | 로그 읽기 |
-| GET | `/api/v1/packages/updates` | O | 업데이트 확인 |
-| POST | `/api/v1/packages/upgrade` | O | 패키지 업그레이드 |
-| POST | `/api/v1/packages/install` | O | 패키지 설치 |
-| POST | `/api/v1/packages/remove` | O | 패키지 제거 |
-| GET | `/api/v1/packages/search` | O | 패키지 검색 |
-| GET | `/api/v1/packages/docker-status` | O | Docker 상태 확인 |
-| POST | `/api/v1/packages/install-docker` | O | Docker 설치 (SSE) |
+| POST | `/api/v1/logs/custom-sources` | O | 커스텀 로그 소스 추가 |
+| DELETE | `/api/v1/logs/custom-sources/:id` | O | 커스텀 로그 소스 삭제 |
+
+### 네트워크 (9개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/network/interfaces` | O | 네트워크 인터페이스 목록 |
+| GET | `/api/v1/network/interfaces/:name` | O | 인터페이스 상세 |
+| PUT | `/api/v1/network/interfaces/:name` | O | 인터페이스 설정 변경 |
+| POST | `/api/v1/network/apply` | O | Netplan 적용 |
+| GET | `/api/v1/network/dns` | O | DNS 설정 조회 |
+| GET | `/api/v1/network/routes` | O | 라우팅 테이블 조회 |
+| GET | `/api/v1/network/bonds` | O | 본딩 목록 |
+| POST | `/api/v1/network/bonds` | O | 본딩 생성 |
+| DELETE | `/api/v1/network/bonds/:name` | O | 본딩 삭제 |
+
+### WireGuard VPN (10개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/network/wireguard/status` | O | WireGuard 설치 상태 확인 |
+| POST | `/api/v1/network/wireguard/install` | O | WireGuard 설치 |
+| GET | `/api/v1/network/wireguard/interfaces` | O | WireGuard 인터페이스 목록 |
+| GET | `/api/v1/network/wireguard/interfaces/:name` | O | WireGuard 인터페이스 상세 |
+| POST | `/api/v1/network/wireguard/interfaces/:name/up` | O | WireGuard 인터페이스 활성화 |
+| POST | `/api/v1/network/wireguard/interfaces/:name/down` | O | WireGuard 인터페이스 비활성화 |
+| POST | `/api/v1/network/wireguard/configs` | O | WireGuard 설정 파일 생성 |
+| GET | `/api/v1/network/wireguard/configs/:name` | O | WireGuard 설정 파일 조회 |
+| PUT | `/api/v1/network/wireguard/configs/:name` | O | WireGuard 설정 파일 수정 |
+| DELETE | `/api/v1/network/wireguard/configs/:name` | O | WireGuard 설정 파일 삭제 |
+
+### Tailscale VPN (8개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/network/tailscale/status` | O | Tailscale 상태 확인 |
+| POST | `/api/v1/network/tailscale/install` | O | Tailscale 설치 |
+| POST | `/api/v1/network/tailscale/up` | O | Tailscale 연결 |
+| POST | `/api/v1/network/tailscale/down` | O | Tailscale 연결 해제 |
+| POST | `/api/v1/network/tailscale/logout` | O | Tailscale 로그아웃 |
+| GET | `/api/v1/network/tailscale/peers` | O | Tailscale 피어 목록 |
+| GET | `/api/v1/network/tailscale/update-check` | O | Tailscale 업데이트 확인 |
+| PUT | `/api/v1/network/tailscale/preferences` | O | Tailscale 설정 변경 |
+
+### 디스크 (9개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/disks/overview` | O | 디스크 목록 |
+| GET | `/api/v1/disks/iostat` | O | I/O 통계 |
+| POST | `/api/v1/disks/usage` | O | 디스크 사용량 |
+| GET | `/api/v1/disks/smartmontools-status` | O | smartmontools 설치 상태 |
+| POST | `/api/v1/disks/install-smartmontools` | O | smartmontools 설치 |
+| GET | `/api/v1/disks/:device/smart` | O | SMART 정보 |
+| GET | `/api/v1/disks/:device/partitions` | O | 파티션 목록 |
+| POST | `/api/v1/disks/:device/partitions` | O | 파티션 생성 |
+| DELETE | `/api/v1/disks/:device/partitions/:number` | O | 파티션 삭제 |
+
+### 파일시스템 (7개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/filesystems` | O | 파일시스템 목록 |
+| POST | `/api/v1/filesystems/format` | O | 파티션 포맷 |
+| POST | `/api/v1/filesystems/mount` | O | 마운트 |
+| POST | `/api/v1/filesystems/unmount` | O | 언마운트 |
+| POST | `/api/v1/filesystems/resize` | O | 파일시스템 리사이즈 |
+| GET | `/api/v1/filesystems/expand-check` | O | 파일시스템 확장 가능 여부 |
+| POST | `/api/v1/filesystems/expand` | O | 파일시스템 확장 |
+
+### LVM (10개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/lvm/pvs` | O | PV 목록 |
+| GET | `/api/v1/lvm/vgs` | O | VG 목록 |
+| GET | `/api/v1/lvm/lvs` | O | LV 목록 |
+| POST | `/api/v1/lvm/pvs` | O | PV 생성 |
+| POST | `/api/v1/lvm/vgs` | O | VG 생성 |
+| POST | `/api/v1/lvm/lvs` | O | LV 생성 |
+| DELETE | `/api/v1/lvm/pvs/:name` | O | PV 제거 |
+| DELETE | `/api/v1/lvm/vgs/:name` | O | VG 제거 |
+| DELETE | `/api/v1/lvm/lvs/:vg/:name` | O | LV 제거 |
+| POST | `/api/v1/lvm/lvs/resize` | O | LV 리사이즈 |
+
+### RAID (6개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/raid` | O | RAID 어레이 목록 |
+| GET | `/api/v1/raid/:name` | O | RAID 어레이 상세 |
+| POST | `/api/v1/raid` | O | RAID 어레이 생성 |
+| DELETE | `/api/v1/raid/:name` | O | RAID 어레이 삭제 |
+| POST | `/api/v1/raid/:name/add` | O | RAID 디스크 추가 |
+| POST | `/api/v1/raid/:name/remove` | O | RAID 디스크 제거 |
+
+### Swap (6개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/swap` | O | 스왑 정보 조회 |
+| POST | `/api/v1/swap` | O | 스왑 생성 |
+| DELETE | `/api/v1/swap` | O | 스왑 제거 |
+| PUT | `/api/v1/swap/swappiness` | O | swappiness 설정 |
+| GET | `/api/v1/swap/resize-check` | O | 스왑 리사이즈 가능 여부 |
+| PUT | `/api/v1/swap/resize` | O | 스왑 리사이즈 |
+
+### 방화벽 - UFW (10개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
 | GET | `/api/v1/firewall/status` | O | UFW 상태 조회 |
 | POST | `/api/v1/firewall/enable` | O | UFW 활성화 |
 | POST | `/api/v1/firewall/disable` | O | UFW 비활성화 |
@@ -2343,36 +2487,109 @@ Fail2ban jail 중지 (비활성화).
 | POST | `/api/v1/firewall/rules` | O | UFW 규칙 추가 |
 | DELETE | `/api/v1/firewall/rules/:number` | O | UFW 규칙 삭제 |
 | GET | `/api/v1/firewall/ports` | O | 리스닝 포트 목록 |
+| GET | `/api/v1/firewall/docker` | O | Docker 방화벽 규칙 목록 |
+| POST | `/api/v1/firewall/docker/rules` | O | Docker 방화벽 규칙 추가 |
+| DELETE | `/api/v1/firewall/docker/rules/:number` | O | Docker 방화벽 규칙 삭제 |
+
+### 방화벽 - Fail2ban (11개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
 | GET | `/api/v1/fail2ban/status` | O | Fail2ban 상태 확인 |
 | POST | `/api/v1/fail2ban/install` | O | Fail2ban 설치 |
-| GET | `/api/v1/fail2ban/jails` | O | Fail2ban jail 목록 |
-| GET | `/api/v1/fail2ban/jails/:name` | O | Fail2ban jail 상세 |
-| POST | `/api/v1/fail2ban/jails/:name/enable` | O | Fail2ban jail 활성화 |
-| POST | `/api/v1/fail2ban/jails/:name/disable` | O | Fail2ban jail 비활성화 |
-| POST | `/api/v1/fail2ban/jails/:name/unban` | O | Fail2ban IP 차단 해제 |
+| GET | `/api/v1/fail2ban/templates` | O | Jail 템플릿 목록 |
+| GET | `/api/v1/fail2ban/jails` | O | Jail 목록 |
+| POST | `/api/v1/fail2ban/jails` | O | Jail 생성 |
+| DELETE | `/api/v1/fail2ban/jails/:name` | O | Jail 삭제 |
+| GET | `/api/v1/fail2ban/jails/:name` | O | Jail 상세 |
+| POST | `/api/v1/fail2ban/jails/:name/enable` | O | Jail 활성화 |
+| POST | `/api/v1/fail2ban/jails/:name/disable` | O | Jail 비활성화 |
+| PUT | `/api/v1/fail2ban/jails/:name/config` | O | Jail 설정 변경 |
+| POST | `/api/v1/fail2ban/jails/:name/unban` | O | IP 차단 해제 |
+
+### 패키지 관리 (7개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/packages/updates` | O | 업데이트 확인 |
+| POST | `/api/v1/packages/upgrade` | O | 패키지 업그레이드 |
+| POST | `/api/v1/packages/install` | O | 패키지 설치 |
+| POST | `/api/v1/packages/remove` | O | 패키지 제거 |
+| GET | `/api/v1/packages/search` | O | 패키지 검색 |
+| GET | `/api/v1/packages/docker-status` | O | Docker 상태 확인 |
+| POST | `/api/v1/packages/install-docker` | O | Docker 설치 (SSE) |
+
+### Docker - 컨테이너 (8개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
 | GET | `/api/v1/docker/containers` | O | 컨테이너 목록 |
+| POST | `/api/v1/docker/containers` | O | 컨테이너 생성 |
 | GET | `/api/v1/docker/containers/:id/inspect` | O | 컨테이너 상세 |
 | GET | `/api/v1/docker/containers/:id/stats` | O | 컨테이너 리소스 |
 | POST | `/api/v1/docker/containers/:id/start` | O | 컨테이너 시작 |
 | POST | `/api/v1/docker/containers/:id/stop` | O | 컨테이너 중지 |
 | POST | `/api/v1/docker/containers/:id/restart` | O | 컨테이너 재시작 |
 | DELETE | `/api/v1/docker/containers/:id` | O | 컨테이너 삭제 |
+
+### Docker - 이미지 (4개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
 | GET | `/api/v1/docker/images` | O | 이미지 목록 |
+| GET | `/api/v1/docker/images/search` | O | Docker Hub 이미지 검색 |
 | POST | `/api/v1/docker/images/pull` | O | 이미지 풀 |
 | DELETE | `/api/v1/docker/images/:id` | O | 이미지 삭제 |
+
+### Docker - 볼륨 (3개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
 | GET | `/api/v1/docker/volumes` | O | 볼륨 목록 |
 | POST | `/api/v1/docker/volumes` | O | 볼륨 생성 |
 | DELETE | `/api/v1/docker/volumes/:name` | O | 볼륨 삭제 |
+
+### Docker - 네트워크 (3개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
 | GET | `/api/v1/docker/networks` | O | 네트워크 목록 |
 | POST | `/api/v1/docker/networks` | O | 네트워크 생성 |
 | DELETE | `/api/v1/docker/networks/:id` | O | 네트워크 삭제 |
-| GET | `/api/v1/docker/compose` | O | Compose 목록 |
-| POST | `/api/v1/docker/compose` | O | Compose 생성 |
-| GET | `/api/v1/docker/compose/:project` | O | Compose 상세 |
+
+### Docker - Prune (5개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| POST | `/api/v1/docker/prune/containers` | O | 중지된 컨테이너 정리 |
+| POST | `/api/v1/docker/prune/images` | O | 미사용 이미지 정리 |
+| POST | `/api/v1/docker/prune/volumes` | O | 미사용 볼륨 정리 |
+| POST | `/api/v1/docker/prune/networks` | O | 미사용 네트워크 정리 |
+| POST | `/api/v1/docker/prune/all` | O | 전체 정리 |
+
+### Docker - Compose (14개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/docker/compose` | O | Compose 프로젝트 목록 |
+| POST | `/api/v1/docker/compose` | O | Compose 프로젝트 생성 |
+| GET | `/api/v1/docker/compose/:project` | O | Compose 프로젝트 상세 |
 | PUT | `/api/v1/docker/compose/:project` | O | Compose YAML 수정 |
-| DELETE | `/api/v1/docker/compose/:project` | O | Compose 삭제 |
+| DELETE | `/api/v1/docker/compose/:project` | O | Compose 프로젝트 삭제 |
 | POST | `/api/v1/docker/compose/:project/up` | O | Compose 시작 |
 | POST | `/api/v1/docker/compose/:project/down` | O | Compose 중지 |
+| GET | `/api/v1/docker/compose/:project/env` | O | 환경변수 파일 조회 |
+| PUT | `/api/v1/docker/compose/:project/env` | O | 환경변수 파일 수정 |
+| GET | `/api/v1/docker/compose/:project/services` | O | 서비스 목록 |
+| POST | `/api/v1/docker/compose/:project/services/:service/restart` | O | 서비스 재시작 |
+| POST | `/api/v1/docker/compose/:project/services/:service/stop` | O | 서비스 중지 |
+| POST | `/api/v1/docker/compose/:project/services/:service/start` | O | 서비스 시작 |
+| GET | `/api/v1/docker/compose/:project/services/:service/logs` | O | 서비스 로그 |
+
+### WebSocket (5개)
+
+| 프로토콜 | 경로 | 인증 | 설명 |
+|----------|------|------|------|
 | WS | `/ws/metrics` | O (query) | 실시간 메트릭 |
 | WS | `/ws/logs` | O (query) | 실시간 로그 |
 | WS | `/ws/terminal` | O (query) | 호스트 터미널 |

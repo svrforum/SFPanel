@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { formatBytes } from '@/lib/utils'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,17 +46,6 @@ interface ProcessInfo {
 }
 
 type SortField = 'cpu' | 'memory' | 'pid' | 'name'
-
-function formatBytes(bytes: number): string {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(1)} ${units[i]}`
-}
 
 export default function Processes() {
   const { t } = useTranslation()
