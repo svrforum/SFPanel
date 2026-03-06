@@ -90,6 +90,7 @@ export default function Dashboard() {
   const [recentLogs, setRecentLogs] = useState<string[]>([])
   const [logTab, setLogTab] = useState<'firewall' | 'syslog'>('firewall')
   const [firewallLogs, setFirewallLogs] = useState<FirewallLogEntry[]>([])
+  const [updateAvailable, setUpdateAvailable] = useState<string | null>(null)
 
   // Fetch primary IP address
   useEffect(() => {
@@ -116,6 +117,9 @@ export default function Dashboard() {
           memory: pt.mem_percent,
         }))
         setChartData(points)
+      }
+      if (data.update_info?.update_available) {
+        setUpdateAvailable(data.update_info.latest_version || null)
       }
     }).catch(() => {})
   }, [])
@@ -199,6 +203,22 @@ export default function Dashboard() {
           </span>
         </div>
       </div>
+
+      {/* Update banner */}
+      {updateAvailable && (
+        <div className="bg-[#3182f6]/10 border border-[#3182f6]/20 rounded-2xl px-5 py-3 flex items-center justify-between">
+          <span className="text-[13px] font-medium text-[#3182f6]">
+            {t('dashboard.updateBanner', { version: updateAvailable })}
+          </span>
+          <button
+            onClick={() => navigate('/settings')}
+            className="text-[13px] font-medium text-[#3182f6] hover:underline flex items-center gap-1"
+          >
+            {t('dashboard.updateBannerAction')}
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Host info section */}
       {hostInfo && (

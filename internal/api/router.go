@@ -17,7 +17,7 @@ import (
 	"github.com/sfpanel/sfpanel/internal/docker"
 )
 
-func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version ...string) *echo.Echo {
+func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version string, extra ...string) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -30,11 +30,17 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version ...
 	}))
 
 	authHandler := &handlers.AuthHandler{DB: database, Config: cfg}
-	ver := ""
-	if len(version) > 0 {
-		ver = version[0]
+	dashboardHandler := &handlers.DashboardHandler{Version: version}
+
+	cfgPath := ""
+	if len(extra) > 0 {
+		cfgPath = extra[0]
 	}
-	dashboardHandler := &handlers.DashboardHandler{Version: ver}
+	systemHandler := &handlers.SystemHandler{
+		Version:    version,
+		DBPath:     cfg.Database.Path,
+		ConfigPath: cfgPath,
+	}
 
 	// Initialize Docker client
 	dockerClient, err := docker.NewClient(cfg.Docker.Socket)
@@ -75,6 +81,12 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version ...
 	authorized.GET("/system/info", dashboardHandler.GetSystemInfo)
 	authorized.GET("/system/metrics-history", dashboardHandler.GetMetricsHistory)
 	authorized.GET("/system/overview", dashboardHandler.GetOverview)
+
+	// System management (update, backup, restore)
+	authorized.GET("/system/update-check", systemHandler.CheckUpdate)
+	authorized.POST("/system/update", systemHandler.RunUpdate)
+	authorized.POST("/system/backup", systemHandler.CreateBackup)
+	authorized.POST("/system/restore", systemHandler.RestoreBackup)
 
 	// Processes
 	processesHandler := &handlers.ProcessesHandler{}

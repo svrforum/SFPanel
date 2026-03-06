@@ -28,6 +28,7 @@ import type {
   ServiceDeps,
   DashboardOverview,
   NetworkStatus,
+  UpdateCheckResult,
 } from '@/types/api'
 
 const API_BASE = '/api/v1'
@@ -145,6 +146,74 @@ class ApiClient {
 
   getDashboardOverview() {
     return this.request<DashboardOverview>('/system/overview')
+  }
+
+  // System update
+  checkUpdate() {
+    return this.request<UpdateCheckResult>('/system/update-check')
+  }
+
+  async runUpdateStream(
+    onProgress: (event: { step: string; message: string }) => void
+  ): Promise<void> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+
+    const res = await fetch(`${API_BASE}/system/update`, {
+      method: 'POST',
+      headers,
+    })
+    if (!res.ok) throw new Error('Update failed')
+    const reader = res.body?.getReader()
+    if (!reader) throw new Error('No stream')
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try { onProgress(JSON.parse(line.slice(6))) } catch { /* skip */ }
+        }
+      }
+    }
+  }
+
+  // System backup/restore
+  async downloadBackup(): Promise<Blob> {
+    const headers: Record<string, string> = {}
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+    const res = await fetch(`${API_BASE}/system/backup`, {
+      method: 'POST',
+      headers,
+    })
+    if (!res.ok) throw new Error(`Backup failed (${res.status})`)
+    return res.blob()
+  }
+
+  async restoreBackup(file: File): Promise<void> {
+    const headers: Record<string, string> = {}
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+    const formData = new FormData()
+    formData.append('backup', file)
+    const res = await fetch(`${API_BASE}/system/restore`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    })
+    const json = await res.json()
+    if (!json.success) throw new Error(json.error?.message || 'Restore failed')
   }
 
   listProcesses(query?: string, sort?: string) {

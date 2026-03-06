@@ -107,7 +107,10 @@ func main() {
 	// Restore DOCKER-USER firewall rules if previously saved
 	handlers.RestoreDockerUserRules()
 
-	e := api.NewRouter(database, cfg, sfpanel.WebDistFS, version)
+	// Start background update checker (polls GitHub every hour)
+	monitor.StartUpdateChecker(version)
+
+	e := api.NewRouter(database, cfg, sfpanel.WebDistFS, version, cfgPath)
 	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
