@@ -91,6 +91,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version ...
 	authorized.POST("/system/services/:name/enable", servicesHandler.EnableService)
 	authorized.POST("/system/services/:name/disable", servicesHandler.DisableService)
 	authorized.GET("/system/services/:name/logs", servicesHandler.ServiceLogs)
+	authorized.GET("/system/services/:name/deps", servicesHandler.GetServiceDeps)
 
 	// File manager routes
 	filesHandler := &handlers.FilesHandler{DB: database}
