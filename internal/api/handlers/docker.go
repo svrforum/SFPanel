@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -190,12 +191,22 @@ func (h *DockerHandler) ContainerStats(c echo.Context) error {
 	return response.OK(c, result)
 }
 
+// ContainerStatsBatch returns CPU and memory stats for all running containers.
+func (h *DockerHandler) ContainerStatsBatch(c echo.Context) error {
+	ctx := c.Request().Context()
+	stats, err := h.Docker.ContainerStatsBatch(ctx)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+	}
+	return response.OK(c, stats)
+}
+
 // ---------- Images ----------
 
-// ListImages returns all local Docker images.
+// ListImages returns all local Docker images with usage information.
 func (h *DockerHandler) ListImages(c echo.Context) error {
 	ctx := c.Request().Context()
-	images, err := h.Docker.ListImages(ctx)
+	images, err := h.Docker.ListImagesWithUsage(ctx)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
 	}
@@ -241,10 +252,10 @@ func (h *DockerHandler) RemoveImage(c echo.Context) error {
 
 // ---------- Volumes ----------
 
-// ListVolumes returns all Docker volumes.
+// ListVolumes returns all Docker volumes with usage information.
 func (h *DockerHandler) ListVolumes(c echo.Context) error {
 	ctx := c.Request().Context()
-	volumes, err := h.Docker.ListVolumes(ctx)
+	volumes, err := h.Docker.ListVolumesWithUsage(ctx)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
 	}
@@ -283,10 +294,10 @@ func (h *DockerHandler) RemoveVolume(c echo.Context) error {
 
 // ---------- Networks ----------
 
-// ListNetworks returns all Docker networks.
+// ListNetworks returns all Docker networks with usage information.
 func (h *DockerHandler) ListNetworks(c echo.Context) error {
 	ctx := c.Request().Context()
-	networks, err := h.Docker.ListNetworks(ctx)
+	networks, err := h.Docker.ListNetworksWithUsage(ctx)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
 	}
@@ -325,4 +336,146 @@ func (h *DockerHandler) RemoveNetwork(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
 	}
 	return response.OK(c, map[string]string{"message": "network removed"})
+}
+
+// ---------- Container Creation ----------
+
+// CreateContainer creates a new container. Accepts JSON body matching ContainerCreateConfig.
+func (h *DockerHandler) CreateContainer(c echo.Context) error {
+	var cfg docker.ContainerCreateConfig
+	if err := c.Bind(&cfg); err != nil {
+		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+	}
+	if cfg.Image == "" {
+		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Image is required")
+	}
+
+	ctx := c.Request().Context()
+	id, err := h.Docker.CreateContainer(ctx, cfg)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+	}
+
+	msg := "container created"
+	if cfg.AutoStart {
+		msg = "container created and started"
+	}
+	return response.OK(c, map[string]string{"id": id, "message": msg})
+}
+
+// ---------- Prune ----------
+
+// PruneContainers removes all stopped containers.
+func (h *DockerHandler) PruneContainers(c echo.Context) error {
+	ctx := c.Request().Context()
+	report, err := h.Docker.PruneContainers(ctx)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+	}
+	return response.OK(c, map[string]interface{}{
+		"deleted":         len(report.ContainersDeleted),
+		"space_reclaimed": report.SpaceReclaimed,
+	})
+}
+
+// PruneImages removes dangling images.
+func (h *DockerHandler) PruneImages(c echo.Context) error {
+	ctx := c.Request().Context()
+	report, err := h.Docker.PruneImages(ctx)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+	}
+	return response.OK(c, map[string]interface{}{
+		"deleted":         len(report.ImagesDeleted),
+		"space_reclaimed": report.SpaceReclaimed,
+	})
+}
+
+// PruneVolumes removes unused volumes.
+func (h *DockerHandler) PruneVolumes(c echo.Context) error {
+	ctx := c.Request().Context()
+	report, err := h.Docker.PruneVolumes(ctx)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+	}
+	return response.OK(c, map[string]interface{}{
+		"deleted":         len(report.VolumesDeleted),
+		"space_reclaimed": report.SpaceReclaimed,
+	})
+}
+
+// PruneNetworks removes unused networks.
+func (h *DockerHandler) PruneNetworks(c echo.Context) error {
+	ctx := c.Request().Context()
+	report, err := h.Docker.PruneNetworks(ctx)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+	}
+	return response.OK(c, map[string]interface{}{
+		"deleted": len(report.NetworksDeleted),
+	})
+}
+
+// PruneAll removes all unused Docker resources.
+func (h *DockerHandler) PruneAll(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	containerReport, _ := h.Docker.PruneContainers(ctx)
+	imageReport, _ := h.Docker.PruneImages(ctx)
+	volumeReport, _ := h.Docker.PruneVolumes(ctx)
+	networkReport, _ := h.Docker.PruneNetworks(ctx)
+
+	return response.OK(c, map[string]interface{}{
+		"containers": map[string]interface{}{
+			"deleted":         len(containerReport.ContainersDeleted),
+			"space_reclaimed": containerReport.SpaceReclaimed,
+		},
+		"images": map[string]interface{}{
+			"deleted":         len(imageReport.ImagesDeleted),
+			"space_reclaimed": imageReport.SpaceReclaimed,
+		},
+		"volumes": map[string]interface{}{
+			"deleted":         len(volumeReport.VolumesDeleted),
+			"space_reclaimed": volumeReport.SpaceReclaimed,
+		},
+		"networks": map[string]interface{}{
+			"deleted": len(networkReport.NetworksDeleted),
+		},
+	})
+}
+
+// ---------- Docker Hub Search ----------
+
+// SearchImages searches Docker Hub for images.
+func (h *DockerHandler) SearchImages(c echo.Context) error {
+	q := c.QueryParam("q")
+	if q == "" {
+		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Search query (q) is required")
+	}
+
+	limit := 25
+	if l := c.QueryParam("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	ctx := c.Request().Context()
+	results, err := h.Docker.SearchImages(ctx, q, limit)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+	}
+
+	// Transform to cleaner response format
+	items := make([]map[string]interface{}, 0, len(results))
+	for _, r := range results {
+		items = append(items, map[string]interface{}{
+			"name":        r.Name,
+			"description": r.Description,
+			"star_count":  r.StarCount,
+			"is_official": r.IsOfficial,
+		})
+	}
+
+	return response.OK(c, items)
 }

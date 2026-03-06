@@ -59,6 +59,7 @@ export interface Container {
   Status: string
   Ports: ContainerPort[]
   Created: number
+  Labels: Record<string, string>
 }
 
 export interface ContainerPort {
@@ -72,6 +73,8 @@ export interface DockerImage {
   RepoTags: string[]
   Size: number
   Created: number
+  in_use: boolean
+  used_by: string[]
 }
 
 export interface DockerVolume {
@@ -79,6 +82,8 @@ export interface DockerVolume {
   Driver: string
   Mountpoint: string
   CreatedAt: string
+  in_use: boolean
+  used_by: string[]
 }
 
 export interface DockerNetwork {
@@ -86,14 +91,15 @@ export interface DockerNetwork {
   Name: string
   Driver: string
   Scope: string
+  in_use: boolean
+  used_by: string[]
 }
 
 export interface ComposeProject {
-  id: number
   name: string
-  yaml_path: string
-  status: string
-  created_at: string
+  compose_file: string
+  has_env: boolean
+  path: string
 }
 
 // Network
@@ -135,6 +141,7 @@ export interface InterfaceConfig {
   gateway4: string
   gateway6: string
   dns: string[]
+  mtu?: number
 }
 
 export interface InterfaceDetail extends NetworkInterfaceInfo {
@@ -187,7 +194,8 @@ export interface SmartInfo {
   model_name: string
   serial_number: string
   firmware_version: string
-  healthy: boolean
+  healthy: boolean | null
+  smart_supported: boolean
   temperature: number
   power_on_hours: number
   attributes: SmartAttr[]
@@ -200,6 +208,7 @@ export interface SmartAttr {
   worst: number
   threshold: number
   raw_value: string
+  status?: string
 }
 
 export interface Filesystem {
@@ -210,6 +219,22 @@ export interface Filesystem {
   available: number
   use_percent: number
   mount_point: string
+}
+
+export interface ExpandStep {
+  command: string
+  description: string
+  device: string
+}
+
+export interface ExpandCandidate {
+  source: string
+  fstype: string
+  mount_point: string
+  current_size: number
+  free_space: number
+  is_lvm: boolean
+  steps: ExpandStep[]
 }
 
 export interface PhysicalVolume {
@@ -249,12 +274,13 @@ export interface RAIDArray {
   total: number
   failed: number
   spare: number
+  uuid?: string
 }
 
 export interface RAIDDisk {
   device: string
   state: string
-  index: number
+  role?: string
 }
 
 export interface SwapEntry {
@@ -338,5 +364,167 @@ export interface Fail2banJail {
   max_retry: number
   ban_time: string
   find_time: string
+}
+
+// WireGuard VPN
+export interface WireGuardStatus {
+  installed: boolean
+  version: string
+}
+
+export interface WireGuardInterface {
+  name: string
+  active: boolean
+  public_key: string
+  listen_port: number
+  address: string
+  dns: string
+  peers: WireGuardPeer[]
+}
+
+export interface WireGuardPeer {
+  public_key: string
+  endpoint: string
+  allowed_ips: string[]
+  latest_handshake: number
+  transfer_rx: number
+  transfer_tx: number
+}
+
+// Tailscale VPN
+export interface TailscaleStatus {
+  installed: boolean
+  daemon_running: boolean
+  version: string
+  backend_state: string
+  self: TailscaleSelf | null
+  tailnet_name: string
+  magic_dns_suffix: string
+  auth_url: string
+  accept_routes: boolean
+  advertise_exit_node: boolean
+  current_exit_node: string
+}
+
+export interface TailscaleSelf {
+  hostname: string
+  tailscale_ip: string
+  tailscale_ipv6: string
+  online: boolean
+  os: string
+  exit_node_option: boolean
+}
+
+export interface TailscalePeer {
+  hostname: string
+  dns_name: string
+  tailscale_ip: string
+  os: string
+  online: boolean
+  last_seen: string
+  exit_node: boolean
+  exit_node_option: boolean
+  rx_bytes: number
+  tx_bytes: number
+}
+
+// File Manager
+export interface FileEntry {
+  name: string
+  path: string
+  isDir: boolean
+  size: number
+  modTime: string
+  mode: string
+}
+
+// Packages
+export interface PackageUpdate {
+  name: string
+  current_version: string
+  new_version: string
+  arch: string
+  description?: string
+}
+
+export interface PackageSearchResult {
+  name: string
+  version: string
+  description: string
+  installed: boolean
+}
+
+// Docker - Container Stats Batch
+export interface ContainerStatsResult {
+  id: string
+  cpu_percent: number
+  mem_percent: number
+  mem_usage: number
+  mem_limit: number
+}
+
+// Docker - Container Creation
+export interface ContainerCreateConfig {
+  name: string
+  image: string
+  cmd?: string[]
+  env?: string[]
+  ports?: Record<string, string>
+  volumes?: Record<string, string>
+  restart_policy?: string
+  memory_limit?: number
+  cpu_quota?: number
+  network_mode?: string
+  hostname?: string
+  labels?: Record<string, string>
+  auto_start?: boolean
+}
+
+// Docker - Compose with Status
+export interface ComposeProjectWithStatus extends ComposeProject {
+  service_count: number
+  running_count: number
+  real_status: string
+}
+
+// Docker - Compose Service
+export interface ComposeService {
+  name: string
+  container_id: string
+  image: string
+  state: string
+  status: string
+  ports: string
+}
+
+// Systemd Services
+export interface ServiceInfo {
+  name: string
+  description: string
+  load_state: string
+  active_state: string
+  sub_state: string
+  enabled: string
+}
+
+// Docker - Hub Search Result
+export interface DockerHubSearchResult {
+  name: string
+  description: string
+  star_count: number
+  is_official: boolean
+}
+
+// Docker - Prune Report
+export interface PruneReport {
+  deleted: number
+  space_reclaimed?: number
+}
+
+export interface PruneAllReport {
+  containers: PruneReport
+  images: PruneReport
+  volumes: PruneReport
+  networks: PruneReport
 }
 
