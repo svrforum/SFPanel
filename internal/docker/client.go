@@ -3,14 +3,19 @@ package docker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"strings"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 )
 
 // Client wraps the Docker SDK client with convenience methods for
@@ -194,4 +199,289 @@ func (c *Client) CreateNetwork(ctx context.Context, name, driver string) (*netwo
 // RemoveNetwork removes a network by ID.
 func (c *Client) RemoveNetwork(ctx context.Context, id string) error {
 	return c.cli.NetworkRemove(ctx, id)
+}
+
+// ---------- Container Creation ----------
+
+// ContainerCreateConfig holds all options for creating a new container.
+type ContainerCreateConfig struct {
+	Name          string            `json:"name"`
+	Image         string            `json:"image"`
+	Cmd           []string          `json:"cmd"`
+	Env           []string          `json:"env"`
+	Ports         map[string]string `json:"ports"`         // "80/tcp" -> "8080"
+	Volumes       map[string]string `json:"volumes"`       // "/host" -> "/container"
+	RestartPolicy string            `json:"restart_policy"` // no, always, unless-stopped, on-failure
+	MemoryLimit   int64             `json:"memory_limit"`
+	CPUQuota      int64             `json:"cpu_quota"`
+	NetworkMode   string            `json:"network_mode"`
+	Hostname      string            `json:"hostname"`
+	Labels        map[string]string `json:"labels"`
+	AutoStart     bool              `json:"auto_start"`
+}
+
+// CreateContainer creates and optionally starts a new container.
+func (c *Client) CreateContainer(ctx context.Context, cfg ContainerCreateConfig) (string, error) {
+	// Port bindings
+	exposedPorts := nat.PortSet{}
+	portBindings := nat.PortMap{}
+	for containerPort, hostPort := range cfg.Ports {
+		cp := nat.Port(containerPort)
+		exposedPorts[cp] = struct{}{}
+		portBindings[cp] = []nat.PortBinding{{HostPort: hostPort}}
+	}
+
+	// Volume binds
+	var binds []string
+	for hostPath, containerPath := range cfg.Volumes {
+		binds = append(binds, fmt.Sprintf("%s:%s", hostPath, containerPath))
+	}
+
+	// Restart policy
+	restartPolicy := container.RestartPolicy{Name: container.RestartPolicyMode(cfg.RestartPolicy)}
+
+	containerCfg := &container.Config{
+		Image:        cfg.Image,
+		Cmd:          cfg.Cmd,
+		Env:          cfg.Env,
+		ExposedPorts: exposedPorts,
+		Hostname:     cfg.Hostname,
+		Labels:       cfg.Labels,
+	}
+
+	hostCfg := &container.HostConfig{
+		PortBindings:  portBindings,
+		Binds:         binds,
+		RestartPolicy: restartPolicy,
+		NetworkMode:   container.NetworkMode(cfg.NetworkMode),
+	}
+	if cfg.MemoryLimit > 0 {
+		hostCfg.Resources.Memory = cfg.MemoryLimit
+	}
+	if cfg.CPUQuota > 0 {
+		hostCfg.Resources.CPUQuota = cfg.CPUQuota
+	}
+
+	resp, err := c.cli.ContainerCreate(ctx, containerCfg, hostCfg, nil, nil, cfg.Name)
+	if err != nil {
+		return "", fmt.Errorf("create container: %w", err)
+	}
+
+	if cfg.AutoStart {
+		if err := c.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+			return resp.ID, fmt.Errorf("start container: %w", err)
+		}
+	}
+
+	return resp.ID, nil
+}
+
+// ---------- Prune ----------
+
+// PruneContainers removes all stopped containers.
+func (c *Client) PruneContainers(ctx context.Context) (container.PruneReport, error) {
+	return c.cli.ContainersPrune(ctx, filters.Args{})
+}
+
+// PruneImages removes dangling images.
+func (c *Client) PruneImages(ctx context.Context) (image.PruneReport, error) {
+	return c.cli.ImagesPrune(ctx, filters.Args{})
+}
+
+// PruneVolumes removes unused volumes.
+func (c *Client) PruneVolumes(ctx context.Context) (volume.PruneReport, error) {
+	return c.cli.VolumesPrune(ctx, filters.Args{})
+}
+
+// PruneNetworks removes unused networks.
+func (c *Client) PruneNetworks(ctx context.Context) (network.PruneReport, error) {
+	return c.cli.NetworksPrune(ctx, filters.Args{})
+}
+
+// ---------- Docker Hub Search ----------
+
+// SearchImages searches Docker Hub for images matching the given term.
+func (c *Client) SearchImages(ctx context.Context, term string, limit int) ([]registry.SearchResult, error) {
+	if limit <= 0 {
+		limit = 25
+	}
+	results, err := c.cli.ImageSearch(ctx, term, registry.SearchOptions{Limit: limit})
+	if err != nil {
+		return nil, fmt.Errorf("search images: %w", err)
+	}
+	return results, nil
+}
+
+// ---------- Enriched List with Usage Info ----------
+
+// ImageWithUsage wraps image data with container usage information.
+type ImageWithUsage struct {
+	image.Summary
+	InUse  bool     `json:"in_use"`
+	UsedBy []string `json:"used_by"`
+}
+
+// ListImagesWithUsage returns all images with container usage information.
+func (c *Client) ListImagesWithUsage(ctx context.Context) ([]ImageWithUsage, error) {
+	containers, err := c.ListContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return c.listImagesWithContainers(ctx, containers)
+}
+
+// listImagesWithContainers returns all images with usage info derived from the provided containers.
+func (c *Client) listImagesWithContainers(ctx context.Context, containers []types.Container) ([]ImageWithUsage, error) {
+	images, err := c.ListImages(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	usageMap := make(map[string][]string)
+	for _, ctr := range containers {
+		name := ""
+		if len(ctr.Names) > 0 {
+			name = strings.TrimPrefix(ctr.Names[0], "/")
+		}
+		usageMap[ctr.ImageID] = append(usageMap[ctr.ImageID], name)
+	}
+
+	result := make([]ImageWithUsage, len(images))
+	for i, img := range images {
+		usedBy := usageMap[img.ID]
+		if usedBy == nil {
+			usedBy = []string{}
+		}
+		result[i] = ImageWithUsage{
+			Summary: img,
+			InUse:   len(usedBy) > 0,
+			UsedBy:  usedBy,
+		}
+	}
+	return result, nil
+}
+
+// VolumeWithUsage wraps volume data with container usage information.
+type VolumeWithUsage struct {
+	Name       string   `json:"Name"`
+	Driver     string   `json:"Driver"`
+	Mountpoint string   `json:"Mountpoint"`
+	CreatedAt  string   `json:"CreatedAt"`
+	InUse      bool     `json:"in_use"`
+	UsedBy     []string `json:"used_by"`
+}
+
+// ListVolumesWithUsage returns all volumes with container usage information.
+func (c *Client) ListVolumesWithUsage(ctx context.Context) ([]VolumeWithUsage, error) {
+	containers, err := c.ListContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return c.listVolumesWithContainers(ctx, containers)
+}
+
+// listVolumesWithContainers returns all volumes with usage info derived from the provided containers.
+func (c *Client) listVolumesWithContainers(ctx context.Context, containers []types.Container) ([]VolumeWithUsage, error) {
+	volumes, err := c.ListVolumes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	usageMap := make(map[string][]string)
+	for _, ctr := range containers {
+		name := ""
+		if len(ctr.Names) > 0 {
+			name = strings.TrimPrefix(ctr.Names[0], "/")
+		}
+		for _, m := range ctr.Mounts {
+			if m.Type == "volume" {
+				usageMap[m.Name] = append(usageMap[m.Name], name)
+			}
+		}
+	}
+
+	result := make([]VolumeWithUsage, len(volumes))
+	for i, vol := range volumes {
+		usedBy := usageMap[vol.Name]
+		if usedBy == nil {
+			usedBy = []string{}
+		}
+		result[i] = VolumeWithUsage{
+			Name:       vol.Name,
+			Driver:     vol.Driver,
+			Mountpoint: vol.Mountpoint,
+			CreatedAt:  vol.CreatedAt,
+			InUse:      len(usedBy) > 0,
+			UsedBy:     usedBy,
+		}
+	}
+	return result, nil
+}
+
+// NetworkWithUsage wraps network data with container usage information.
+type NetworkWithUsage struct {
+	Id     string   `json:"Id"`
+	Name   string   `json:"Name"`
+	Driver string   `json:"Driver"`
+	Scope  string   `json:"Scope"`
+	InUse  bool     `json:"in_use"`
+	UsedBy []string `json:"used_by"`
+}
+
+// ListNetworksWithUsage returns all networks with container usage information.
+func (c *Client) ListNetworksWithUsage(ctx context.Context) ([]NetworkWithUsage, error) {
+	containers, err := c.ListContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return c.listNetworksWithContainers(ctx, containers)
+}
+
+// listNetworksWithContainers returns all networks with usage info derived from the provided containers.
+func (c *Client) listNetworksWithContainers(ctx context.Context, containers []types.Container) ([]NetworkWithUsage, error) {
+	networks, err := c.ListNetworks(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	usageMap := make(map[string][]string)
+	for _, ctr := range containers {
+		name := ""
+		if len(ctr.Names) > 0 {
+			name = strings.TrimPrefix(ctr.Names[0], "/")
+		}
+		if ctr.NetworkSettings != nil {
+			for _, net := range ctr.NetworkSettings.Networks {
+				if net != nil {
+					usageMap[net.NetworkID] = append(usageMap[net.NetworkID], name)
+				}
+			}
+		}
+	}
+
+	result := make([]NetworkWithUsage, len(networks))
+	for i, net := range networks {
+		usedBy := usageMap[net.ID]
+		if usedBy == nil {
+			usedBy = []string{}
+		}
+		result[i] = NetworkWithUsage{
+			Id:     net.ID,
+			Name:   net.Name,
+			Driver: net.Driver,
+			Scope:  net.Scope,
+			InUse:  len(usedBy) > 0,
+			UsedBy: usedBy,
+		}
+	}
+	return result, nil
+}
+
+// ---------- Compose Project Containers ----------
+
+// ListContainersByComposeProject returns containers belonging to a specific compose project.
+func (c *Client) ListContainersByComposeProject(ctx context.Context, project string) ([]types.Container, error) {
+	f := filters.NewArgs()
+	f.Add("label", fmt.Sprintf("com.docker.compose.project=%s", project))
+	return c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
 }
