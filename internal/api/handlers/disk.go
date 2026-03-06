@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
 )
@@ -377,8 +376,3 @@ func validateRAIDLevel(level string) error {
 	return nil
 }
 
-// commandExists checks if a command is available in PATH.
-func commandExists(name string) bool {
-	_, err := exec.LookPath(name)
-	return err == nil
-}
