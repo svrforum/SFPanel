@@ -25,6 +25,7 @@ import type {
   RAIDArray,
   SwapInfo,
   ServiceInfo,
+  ServiceDeps,
   DashboardOverview,
   NetworkStatus,
 } from '@/types/api'
@@ -1096,6 +1097,10 @@ class ApiClient {
   getServiceLogs(name: string, lines?: number) {
     const qs = lines ? `?lines=${lines}` : ''
     return this.request<{ logs: string }>(`/system/services/${name}/logs${qs}`)
+  }
+
+  getServiceDeps(name: string) {
+    return this.request<ServiceDeps>(`/system/services/${name}/deps`)
   }
 }
 

@@ -28,6 +28,12 @@ type ServiceInfo struct {
 	Enabled     string `json:"enabled"`
 }
 
+type ServiceDeps struct {
+	Requires   []string `json:"requires,omitempty"`
+	RequiredBy []string `json:"required_by,omitempty"`
+	WantedBy   []string `json:"wanted_by,omitempty"`
+}
+
 // serviceCache caches the full service list to avoid spawning systemctl
 // processes on every request. TTL is 3 seconds — enough to absorb rapid
 // polling while still reflecting state changes promptly.
@@ -220,6 +226,64 @@ func (h *ServicesHandler) ServiceLogs(c echo.Context) error {
 	}
 
 	return response.OK(c, map[string]string{"logs": string(out)})
+}
+
+// GetServiceDeps returns dependency information for a systemd service.
+// GET /system/services/:name/deps
+func (h *ServicesHandler) GetServiceDeps(c echo.Context) error {
+	name := c.Param("name")
+	if !validServiceName.MatchString(name) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
+	}
+
+	out, err := exec.Command("systemctl", "show", name, "--property=Requires,RequiredBy,WantedBy").Output()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrServiceError,
+			fmt.Sprintf("Failed to get dependencies for %s", name))
+	}
+
+	deps := ServiceDeps{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		if val == "" {
+			continue
+		}
+		items := filterDeps(strings.Fields(val))
+		if len(items) == 0 {
+			continue
+		}
+		switch key {
+		case "Requires":
+			deps.Requires = items
+		case "RequiredBy":
+			deps.RequiredBy = items
+		case "WantedBy":
+			deps.WantedBy = items
+		}
+	}
+
+	return response.OK(c, deps)
+}
+
+// filterDeps removes common base targets that add noise.
+func filterDeps(items []string) []string {
+	noise := map[string]bool{
+		"-.mount":    true,
+		"init.scope": true,
+		"system.slice": true,
+	}
+	var result []string
+	for _, item := range items {
+		if item != "" && !noise[item] {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 // getCachedServices returns the cached service list, refreshing if stale.

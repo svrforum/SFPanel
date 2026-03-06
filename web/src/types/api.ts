@@ -528,6 +528,12 @@ export interface ServiceInfo {
   enabled: string
 }
 
+export interface ServiceDeps {
+  requires?: string[]
+  required_by?: string[]
+  wanted_by?: string[]
+}
+
 // Docker - Hub Search Result
 export interface DockerHubSearchResult {
   name: string
