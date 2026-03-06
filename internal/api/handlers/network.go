@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 	"github.com/sfpanel/sfpanel/internal/api/response"
@@ -133,6 +134,72 @@ func (h *NetworkHandler) ListInterfaces(c echo.Context) error {
 	})
 
 	return response.OK(c, ifaces)
+}
+
+// GetNetworkStatus returns a combined snapshot of interfaces, routes, DNS and bonds
+// in a single API call to reduce frontend round-trips.
+func (h *NetworkHandler) GetNetworkStatus(c echo.Context) error {
+	type result struct {
+		interfaces []NetworkInterface
+		routes     []Route
+		dns        DNSConfig
+		ifaceErr   error
+		routeErr   error
+	}
+
+	var r result
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Gather interfaces (bonds are derived from interfaces)
+	go func() {
+		defer wg.Done()
+		r.interfaces, r.ifaceErr = gatherInterfaces()
+	}()
+
+	// Parse routes
+	go func() {
+		defer wg.Done()
+		r.routes, r.routeErr = parseRoutes()
+	}()
+
+	// DNS is fast (no subprocess most of the time), run inline
+	r.dns = readDNSConfig()
+
+	wg.Wait()
+
+	if r.ifaceErr != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list interfaces: %v", r.ifaceErr))
+	}
+	if r.routeErr != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to read routes: %v", r.routeErr))
+	}
+
+	// Sort interfaces: loopback last, then alphabetical
+	sort.Slice(r.interfaces, func(i, j int) bool {
+		if r.interfaces[i].Type == "loopback" && r.interfaces[j].Type != "loopback" {
+			return false
+		}
+		if r.interfaces[i].Type != "loopback" && r.interfaces[j].Type == "loopback" {
+			return true
+		}
+		return r.interfaces[i].Name < r.interfaces[j].Name
+	})
+
+	// Extract bonds from interfaces
+	bonds := []NetworkInterface{}
+	for _, iface := range r.interfaces {
+		if iface.Type == "bond" {
+			bonds = append(bonds, iface)
+		}
+	}
+
+	return response.OK(c, map[string]interface{}{
+		"interfaces": r.interfaces,
+		"routes":     r.routes,
+		"dns":        r.dns,
+		"bonds":      bonds,
+	})
 }
 
 // GetInterface returns detailed information for a single interface including netplan config.

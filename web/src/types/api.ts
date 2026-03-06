@@ -175,6 +175,14 @@ export interface NetworkRoute {
   scope: string
 }
 
+// Network Status (combined endpoint)
+export interface NetworkStatus {
+  interfaces: NetworkInterfaceInfo[]
+  routes: NetworkRoute[]
+  dns: DNSConfig
+  bonds: NetworkInterfaceInfo[]
+}
+
 // Cron Jobs
 export interface CronJob {
   id: number
