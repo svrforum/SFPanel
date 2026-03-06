@@ -110,13 +110,13 @@ func parseSwapFromMeminfo(data string) (total, used, free int64) {
 func (h *DiskHandler) CreateSwap(c echo.Context) error {
 	var req CreateSwapRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if req.Device != "" {
 		// Partition-based swap
 		if err := validateDeviceName(req.Device); err != nil {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 		}
 
 		devPath := "/dev/" + req.Device
@@ -124,14 +124,14 @@ func (h *DiskHandler) CreateSwap(c echo.Context) error {
 		// Create swap signature
 		mkswapOut, err := exec.Command("mkswap", devPath).CombinedOutput()
 		if err != nil {
-			return response.Fail(c, http.StatusInternalServerError, "SWAP_ERROR",
+			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 				fmt.Sprintf("mkswap failed: %s", strings.TrimSpace(string(mkswapOut))))
 		}
 
 		// Enable the swap
 		swaponOut, err := exec.Command("swapon", devPath).CombinedOutput()
 		if err != nil {
-			return response.Fail(c, http.StatusInternalServerError, "SWAP_ERROR",
+			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 				fmt.Sprintf("swapon failed: %s", strings.TrimSpace(string(swaponOut))))
 		}
 
@@ -143,10 +143,10 @@ func (h *DiskHandler) CreateSwap(c echo.Context) error {
 	if req.Path != "" {
 		// File-based swap
 		if err := validateDiskPath(req.Path); err != nil {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 		}
 		if req.SizeMB <= 0 {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_SIZE",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSize,
 				"Size in MB is required for file-based swap")
 		}
 
@@ -156,27 +156,27 @@ func (h *DiskHandler) CreateSwap(c echo.Context) error {
 		ddOut, err := exec.Command("dd", "if=/dev/zero", "of="+req.Path,
 			"bs=1M", "count="+sizeMB).CombinedOutput()
 		if err != nil {
-			return response.Fail(c, http.StatusInternalServerError, "SWAP_ERROR",
+			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 				fmt.Sprintf("dd failed: %s", strings.TrimSpace(string(ddOut))))
 		}
 
 		// Set permissions
 		if err := os.Chmod(req.Path, 0600); err != nil {
-			return response.Fail(c, http.StatusInternalServerError, "SWAP_ERROR",
+			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 				fmt.Sprintf("chmod failed: %v", err))
 		}
 
 		// Create swap signature
 		mkswapOut, err := exec.Command("mkswap", req.Path).CombinedOutput()
 		if err != nil {
-			return response.Fail(c, http.StatusInternalServerError, "SWAP_ERROR",
+			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 				fmt.Sprintf("mkswap failed: %s", strings.TrimSpace(string(mkswapOut))))
 		}
 
 		// Enable the swap
 		swaponOut, err := exec.Command("swapon", req.Path).CombinedOutput()
 		if err != nil {
-			return response.Fail(c, http.StatusInternalServerError, "SWAP_ERROR",
+			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 				fmt.Sprintf("swapon failed: %s", strings.TrimSpace(string(swaponOut))))
 		}
 
@@ -185,7 +185,7 @@ func (h *DiskHandler) CreateSwap(c echo.Context) error {
 		})
 	}
 
-	return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS",
+	return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields,
 		"Either device or path must be specified")
 }
 
@@ -193,16 +193,16 @@ func (h *DiskHandler) CreateSwap(c echo.Context) error {
 func (h *DiskHandler) RemoveSwap(c echo.Context) error {
 	var req RemoveSwapRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateDiskPath(req.Path); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
 	out, err := exec.Command("swapoff", req.Path).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "SWAP_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 			fmt.Sprintf("swapoff failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -215,18 +215,18 @@ func (h *DiskHandler) RemoveSwap(c echo.Context) error {
 func (h *DiskHandler) SetSwappiness(c echo.Context) error {
 	var req SetSwappinessRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if req.Value < 0 || req.Value > 200 {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_VALUE",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
 			"Swappiness value must be between 0 and 200")
 	}
 
 	valStr := fmt.Sprintf("vm.swappiness=%d", req.Value)
 	out, err := exec.Command("sysctl", valStr).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "SWAP_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 			fmt.Sprintf("sysctl failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -240,15 +240,15 @@ func (h *DiskHandler) SetSwappiness(c echo.Context) error {
 func (h *DiskHandler) CheckSwapResize(c echo.Context) error {
 	path := c.QueryParam("path")
 	if path == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_PATH", "path query param required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingPath, "path query param required")
 	}
 	if err := validateDiskPath(path); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
 	info, err := os.Stat(path)
 	if err != nil {
-		return response.Fail(c, http.StatusBadRequest, "FILE_NOT_FOUND", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrFileNotFound, err.Error())
 	}
 	currentSizeMB := info.Size() / 1024 / 1024
 
@@ -310,25 +310,25 @@ func (h *DiskHandler) CheckSwapResize(c echo.Context) error {
 func (h *DiskHandler) ResizeSwap(c echo.Context) error {
 	var req ResizeSwapRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateDiskPath(req.Path); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 	if req.NewSizeMB <= 0 {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_SIZE",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSize,
 			"New size in MB must be positive")
 	}
 
 	// Verify it's a regular file (not a partition)
 	info, err := os.Stat(req.Path)
 	if err != nil {
-		return response.Fail(c, http.StatusBadRequest, "FILE_NOT_FOUND",
+		return response.Fail(c, http.StatusBadRequest, response.ErrFileNotFound,
 			fmt.Sprintf("swap file not found: %v", err))
 	}
 	if !info.Mode().IsRegular() {
-		return response.Fail(c, http.StatusBadRequest, "NOT_A_FILE",
+		return response.Fail(c, http.StatusBadRequest, response.ErrNotAFile,
 			"Resize is only supported for file-based swap, not partitions")
 	}
 
@@ -397,13 +397,13 @@ func (h *DiskHandler) ResizeSwap(c echo.Context) error {
 func (h *DiskHandler) GetIOStats(c echo.Context) error {
 	data, err := os.ReadFile("/proc/diskstats")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "IO_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrIOError,
 			fmt.Sprintf("failed to read /proc/diskstats: %v", err))
 	}
 
 	stats, err := parseDiskStats(string(data))
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "IO_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrIOError,
 			fmt.Sprintf("failed to parse /proc/diskstats: %v", err))
 	}
 
@@ -485,21 +485,21 @@ func parseDiskStats(data string) ([]IOStat, error) {
 func (h *DiskHandler) GetDiskUsage(c echo.Context) error {
 	var req DiskUsageRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateDiskPath(req.Path); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
 	// Ensure path exists
 	info, err := os.Stat(req.Path)
 	if err != nil {
-		return response.Fail(c, http.StatusNotFound, "NOT_FOUND",
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound,
 			fmt.Sprintf("path does not exist: %s", req.Path))
 	}
 	if !info.IsDir() {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath,
 			fmt.Sprintf("path is not a directory: %s", req.Path))
 	}
 
@@ -517,7 +517,7 @@ func (h *DiskHandler) GetDiskUsage(c echo.Context) error {
 	if err != nil {
 		// du may return non-zero on permission errors but still produce useful output
 		if len(out) == 0 {
-			return response.Fail(c, http.StatusInternalServerError, "USAGE_ERROR",
+			return response.Fail(c, http.StatusInternalServerError, response.ErrUsageError,
 				fmt.Sprintf("du failed: %v", err))
 		}
 	}

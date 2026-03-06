@@ -18,7 +18,7 @@ import (
 func (h *DiskHandler) ListPartitions(c echo.Context) error {
 	device := c.Param("device")
 	if err := validateDeviceName(device); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	devPath := "/dev/" + device
@@ -26,7 +26,7 @@ func (h *DiskHandler) ListPartitions(c echo.Context) error {
 		"NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,PARTLABEL,PARTUUID",
 		devPath).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DISK_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
 			fmt.Sprintf("lsblk failed for %s: %s", device, strings.TrimSpace(string(out))))
 	}
 
@@ -34,7 +34,7 @@ func (h *DiskHandler) ListPartitions(c echo.Context) error {
 		BlockDevices []json.RawMessage `json:"blockdevices"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DISK_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
 			fmt.Sprintf("failed to parse lsblk output: %v", err))
 	}
 
@@ -45,24 +45,24 @@ func (h *DiskHandler) ListPartitions(c echo.Context) error {
 func (h *DiskHandler) CreatePartition(c echo.Context) error {
 	device := c.Param("device")
 	if err := validateDeviceName(device); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	if !commandExists("parted") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"parted is not installed. Install it: apt install parted")
 	}
 
 	var req CreatePartitionRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validatePartitionSize(req.Start); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_START", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidStart, err.Error())
 	}
 	if err := validatePartitionSize(req.End); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_END", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidEnd, err.Error())
 	}
 
 	fsType := "ext4"
@@ -71,7 +71,7 @@ func (h *DiskHandler) CreatePartition(c echo.Context) error {
 			fsType = "linux-swap"
 		} else {
 			if err := validateFsType(req.FsType); err != nil {
-				return response.Fail(c, http.StatusBadRequest, "INVALID_FSTYPE", err.Error())
+				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFSType, err.Error())
 			}
 			fsType = req.FsType
 		}
@@ -81,7 +81,7 @@ func (h *DiskHandler) CreatePartition(c echo.Context) error {
 	out, err := exec.Command("parted", "-s", devPath,
 		"mkpart", "primary", fsType, req.Start, req.End).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "PARTITION_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionError,
 			fmt.Sprintf("parted mkpart failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -94,24 +94,24 @@ func (h *DiskHandler) CreatePartition(c echo.Context) error {
 func (h *DiskHandler) DeletePartition(c echo.Context) error {
 	device := c.Param("device")
 	if err := validateDeviceName(device); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	number := c.Param("number")
 	partNum, err := strconv.Atoi(number)
 	if err != nil || partNum < 1 {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PARTITION", "Invalid partition number")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPartition, "Invalid partition number")
 	}
 
 	if !commandExists("parted") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"parted is not installed. Install it: apt install parted")
 	}
 
 	devPath := "/dev/" + device
 	out, err := exec.Command("parted", "-s", devPath, "rm", number).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "PARTITION_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionError,
 			fmt.Sprintf("parted rm failed: %s", strings.TrimSpace(string(out))))
 	}
 

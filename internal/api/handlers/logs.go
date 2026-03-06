@@ -152,13 +152,13 @@ func (h *LogsHandler) allSources() map[string]logSourceInfo {
 func (h *LogsHandler) ReadLog(c echo.Context) error {
 	sourceKey := c.QueryParam("source")
 	if sourceKey == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_SOURCE", "Query parameter 'source' is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingSource, "Query parameter 'source' is required")
 	}
 
 	all := h.allSources()
 	info, ok := all[sourceKey]
 	if !ok {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_SOURCE", fmt.Sprintf("Unknown log source: %s", sourceKey))
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSource, fmt.Sprintf("Unknown log source: %s", sourceKey))
 	}
 
 	// Parse requested line count with sensible defaults.
@@ -166,7 +166,7 @@ func (h *LogsHandler) ReadLog(c echo.Context) error {
 	if raw := c.QueryParam("lines"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_LINES", "Parameter 'lines' must be a positive integer")
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidLines, "Parameter 'lines' must be a positive integer")
 		}
 		if n > 5000 {
 			n = 5000
@@ -176,7 +176,7 @@ func (h *LogsHandler) ReadLog(c echo.Context) error {
 
 	// Ensure the file exists before attempting to read.
 	if _, err := os.Stat(info.Path); os.IsNotExist(err) {
-		return response.Fail(c, http.StatusNotFound, "LOG_NOT_FOUND", fmt.Sprintf("Log file does not exist: %s", info.Path))
+		return response.Fail(c, http.StatusNotFound, response.ErrLogNotFound, fmt.Sprintf("Log file does not exist: %s", info.Path))
 	}
 
 	// Use tail (optionally piped through grep) to read the last N lines.
@@ -197,7 +197,7 @@ func (h *LogsHandler) ReadLog(c echo.Context) error {
 		var err2 error
 		output, err2 = cmd.Output()
 		if err2 != nil {
-			return response.Fail(c, http.StatusInternalServerError, "READ_ERROR", fmt.Sprintf("Failed to read log: %v", err2))
+			return response.Fail(c, http.StatusInternalServerError, response.ErrReadError, fmt.Sprintf("Failed to read log: %v", err2))
 		}
 	}
 
@@ -355,36 +355,36 @@ func (h *LogsHandler) AddCustomSource(c echo.Context) error {
 		Path string `json:"path"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_BODY", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "Invalid request body")
 	}
 
 	req.Name = strings.TrimSpace(req.Name)
 	req.Path = strings.TrimSpace(req.Path)
 
 	if req.Name == "" || req.Path == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Both 'name' and 'path' are required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Both 'name' and 'path' are required")
 	}
 
 	// Security: absolute path required, no path traversal
 	if !filepath.IsAbs(req.Path) {
-		return response.Fail(c, http.StatusBadRequest, "PATH_INVALID", "Path must be absolute")
+		return response.Fail(c, http.StatusBadRequest, response.ErrPathInvalid, "Path must be absolute")
 	}
 	if strings.Contains(req.Path, "..") {
-		return response.Fail(c, http.StatusBadRequest, "PATH_INVALID", "Path must not contain '..'")
+		return response.Fail(c, http.StatusBadRequest, response.ErrPathInvalid, "Path must not contain '..'")
 	}
 
 	// Generate source_id from name: lowercase, replace spaces with hyphens
 	sourceID := strings.ToLower(strings.ReplaceAll(req.Name, " ", "-"))
 	sourceID = regexp.MustCompile(`[^a-z0-9_-]`).ReplaceAllString(sourceID, "")
 	if sourceID == "" {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_NAME", "Name must contain alphanumeric characters")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Name must contain alphanumeric characters")
 	}
 	// Prefix custom- to avoid collision with built-in sources
 	sourceID = "custom-" + sourceID
 
 	// Check for collision with built-in sources
 	if _, ok := defaultLogSources[sourceID]; ok {
-		return response.Fail(c, http.StatusConflict, "SOURCE_EXISTS", "A built-in source with this ID already exists")
+		return response.Fail(c, http.StatusConflict, response.ErrSourceExists, "A built-in source with this ID already exists")
 	}
 
 	res, err := h.DB.Exec(
@@ -393,9 +393,9 @@ func (h *LogsHandler) AddCustomSource(c echo.Context) error {
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
-			return response.Fail(c, http.StatusConflict, "SOURCE_EXISTS", "A custom source with this name already exists")
+			return response.Fail(c, http.StatusConflict, response.ErrSourceExists, "A custom source with this name already exists")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "DB_ERROR", fmt.Sprintf("Failed to add source: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, fmt.Sprintf("Failed to add source: %v", err))
 	}
 
 	id, _ := res.LastInsertId()
@@ -424,17 +424,17 @@ func (h *LogsHandler) DeleteCustomSource(c echo.Context) error {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_ID", "Invalid source ID")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid source ID")
 	}
 
 	res, err := h.DB.Exec("DELETE FROM custom_log_sources WHERE id = ?", id)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DB_ERROR", fmt.Sprintf("Failed to delete source: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, fmt.Sprintf("Failed to delete source: %v", err))
 	}
 
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
-		return response.Fail(c, http.StatusNotFound, "NOT_FOUND", "Custom source not found")
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Custom source not found")
 	}
 
 	return response.OK(c, map[string]string{"message": "Custom source deleted"})

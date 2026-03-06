@@ -18,6 +18,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// validInterfaceName matches safe Linux network interface names.
+var validInterfaceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,14}$`)
+
 // NetworkHandler exposes REST handlers for host network management
 // (interfaces, DNS, routes, bonding, netplan configuration).
 type NetworkHandler struct{}
@@ -115,7 +118,7 @@ type CreateBondRequest struct {
 func (h *NetworkHandler) ListInterfaces(c echo.Context) error {
 	ifaces, err := gatherInterfaces()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "NETWORK_ERROR", fmt.Sprintf("failed to list interfaces: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list interfaces: %v", err))
 	}
 
 	// Sort: loopback last, then alphabetical
@@ -135,13 +138,13 @@ func (h *NetworkHandler) ListInterfaces(c echo.Context) error {
 // GetInterface returns detailed information for a single interface including netplan config.
 func (h *NetworkHandler) GetInterface(c echo.Context) error {
 	name := c.Param("name")
-	if name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Interface name is required")
+	if !validInterfaceName.MatchString(name) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid interface name")
 	}
 
 	ifaces, err := gatherInterfaces()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "NETWORK_ERROR", fmt.Sprintf("failed to get interfaces: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to get interfaces: %v", err))
 	}
 
 	var found *NetworkInterface
@@ -152,7 +155,7 @@ func (h *NetworkHandler) GetInterface(c echo.Context) error {
 		}
 	}
 	if found == nil {
-		return response.Fail(c, http.StatusNotFound, "NOT_FOUND", fmt.Sprintf("interface %s not found", name))
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, fmt.Sprintf("interface %s not found", name))
 	}
 
 	cfg := readNetplanConfigForInterface(name)
@@ -167,17 +170,17 @@ func (h *NetworkHandler) GetInterface(c echo.Context) error {
 // ConfigureInterface modifies the netplan configuration for a given interface.
 func (h *NetworkHandler) ConfigureInterface(c echo.Context) error {
 	name := c.Param("name")
-	if name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Interface name is required")
+	if !validInterfaceName.MatchString(name) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid interface name")
 	}
 
 	var req ConfigureInterfaceRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := updateNetplanInterface(name, &req); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "NETPLAN_ERROR", fmt.Sprintf("failed to update netplan config: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("failed to update netplan config: %v", err))
 	}
 
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("interface %s configuration updated", name)})
@@ -187,7 +190,7 @@ func (h *NetworkHandler) ConfigureInterface(c echo.Context) error {
 func (h *NetworkHandler) ApplyNetplan(c echo.Context) error {
 	out, err := exec.Command("netplan", "apply").CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "NETPLAN_ERROR", fmt.Sprintf("netplan apply failed: %s", strings.TrimSpace(string(out))))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("netplan apply failed: %s", strings.TrimSpace(string(out))))
 	}
 	return response.OK(c, map[string]string{"message": "netplan applied successfully"})
 }
@@ -202,7 +205,7 @@ func (h *NetworkHandler) GetDNS(c echo.Context) error {
 func (h *NetworkHandler) GetRoutes(c echo.Context) error {
 	routes, err := parseRoutes()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "NETWORK_ERROR", fmt.Sprintf("failed to read routes: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to read routes: %v", err))
 	}
 	return response.OK(c, routes)
 }
@@ -211,7 +214,7 @@ func (h *NetworkHandler) GetRoutes(c echo.Context) error {
 func (h *NetworkHandler) ListBonds(c echo.Context) error {
 	ifaces, err := gatherInterfaces()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "NETWORK_ERROR", fmt.Sprintf("failed to list interfaces: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list interfaces: %v", err))
 	}
 
 	bonds := []NetworkInterface{}
@@ -227,20 +230,20 @@ func (h *NetworkHandler) ListBonds(c echo.Context) error {
 func (h *NetworkHandler) CreateBond(c echo.Context) error {
 	var req CreateBondRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	if req.Name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Bond name is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Bond name is required")
 	}
 	if len(req.Slaves) == 0 {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "At least one slave interface is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "At least one slave interface is required")
 	}
 	if req.Mode == "" {
 		req.Mode = "active-backup"
 	}
 
 	if err := createNetplanBond(&req); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "NETPLAN_ERROR", fmt.Sprintf("failed to create bond: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("failed to create bond: %v", err))
 	}
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("bond %s created in netplan config", req.Name)})
 }
@@ -248,12 +251,12 @@ func (h *NetworkHandler) CreateBond(c echo.Context) error {
 // DeleteBond removes a bond from the netplan configuration.
 func (h *NetworkHandler) DeleteBond(c echo.Context) error {
 	name := c.Param("name")
-	if name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Bond name is required")
+	if !validInterfaceName.MatchString(name) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid bond name")
 	}
 
 	if err := deleteNetplanBond(name); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "NETPLAN_ERROR", fmt.Sprintf("failed to delete bond: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("failed to delete bond: %v", err))
 	}
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("bond %s removed from netplan config", name)})
 }

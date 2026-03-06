@@ -47,7 +47,7 @@ func (h *PackagesHandler) CheckUpdates(c echo.Context) error {
 		// apt list --upgradable may return exit code 0 even with warnings;
 		// only fail if output is completely empty.
 		if strings.TrimSpace(output) == "" {
-			return response.Fail(c, http.StatusInternalServerError, "APT_ERROR", "Failed to check updates: "+err.Error())
+			return response.Fail(c, http.StatusInternalServerError, response.ErrAPTError, "Failed to check updates: "+err.Error())
 		}
 	}
 
@@ -143,13 +143,13 @@ func (h *PackagesHandler) UpgradePackages(c echo.Context) error {
 		Packages []string `json:"packages"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	// Validate all package names if specific packages were requested.
 	for _, pkg := range req.Packages {
 		if !validatePackageName(pkg) {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_PACKAGE_NAME",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPackageName,
 				fmt.Sprintf("Invalid package name: %s", pkg))
 		}
 	}
@@ -159,7 +159,7 @@ func (h *PackagesHandler) UpgradePackages(c echo.Context) error {
 	// Step 1: apt-get update
 	updateOutput, err := runCommandEnv(env, "apt-get", "update")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "APT_UPDATE_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
 			"Failed to update package lists: "+err.Error())
 	}
 
@@ -174,7 +174,7 @@ func (h *PackagesHandler) UpgradePackages(c echo.Context) error {
 
 	upgradeOutput, err := runCommandEnv(env, "apt-get", upgradeArgs...)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "APT_UPGRADE_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpgradeError,
 			"Failed to upgrade packages: "+err.Error())
 	}
 
@@ -195,19 +195,19 @@ func (h *PackagesHandler) InstallPackage(c echo.Context) error {
 		Name string `json:"name"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	if req.Name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Package name is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Package name is required")
 	}
 	if !validatePackageName(req.Name) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PACKAGE_NAME",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPackageName,
 			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
 
 	output, err := runCommandEnv(aptEnv(), "apt-get", "install", "-y", req.Name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "APT_INSTALL_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTInstallError,
 			"Failed to install package: "+err.Error())
 	}
 
@@ -227,19 +227,19 @@ func (h *PackagesHandler) RemovePackage(c echo.Context) error {
 		Name string `json:"name"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	if req.Name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Package name is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Package name is required")
 	}
 	if !validatePackageName(req.Name) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PACKAGE_NAME",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPackageName,
 			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
 
 	output, err := runCommandEnv(aptEnv(), "apt-get", "remove", "-y", req.Name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "APT_REMOVE_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTRemoveError,
 			"Failed to remove package: "+err.Error())
 	}
 
@@ -256,16 +256,16 @@ func (h *PackagesHandler) RemovePackage(c echo.Context) error {
 func (h *PackagesHandler) SearchPackages(c echo.Context) error {
 	query := strings.TrimSpace(c.QueryParam("q"))
 	if query == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_QUERY", "Query parameter 'q' is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingQuery, "Query parameter 'q' is required")
 	}
 	if !validatePackageName(query) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_QUERY",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidQuery,
 			"Search query contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
 
 	output, err := runCommand("apt-cache", "search", query)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "APT_SEARCH_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTSearchError,
 			"Failed to search packages: "+err.Error())
 	}
 
@@ -369,7 +369,7 @@ func (h *PackagesHandler) InstallDocker(c echo.Context) error {
 
 	flusher, ok := c.Response().Writer.(http.Flusher)
 	if !ok {
-		return response.Fail(c, http.StatusInternalServerError, "SSE_ERROR", "Streaming not supported")
+		return response.Fail(c, http.StatusInternalServerError, response.ErrSSEError, "Streaming not supported")
 	}
 
 	sendLine := func(line string) {

@@ -19,13 +19,13 @@ import (
 // ListRAID returns all RAID arrays from /proc/mdstat and mdadm --detail --scan.
 func (h *DiskHandler) ListRAID(c echo.Context) error {
 	if !commandExists("mdadm") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
 
 	arrays, err := parseAllRAIDArrays()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "RAID_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
 			fmt.Sprintf("failed to list RAID arrays: %v", err))
 	}
 
@@ -203,18 +203,18 @@ func getMdadmDetail(name string) (*RAIDArray, error) {
 // GetRAIDDetail returns detailed information about a specific RAID array.
 func (h *DiskHandler) GetRAIDDetail(c echo.Context) error {
 	if !commandExists("mdadm") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
 
 	name := c.Param("name")
 	if err := validateDeviceName(name); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	detail, err := getMdadmDetail(name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "RAID_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
 			fmt.Sprintf("failed to get RAID detail: %v", err))
 	}
 
@@ -224,23 +224,23 @@ func (h *DiskHandler) GetRAIDDetail(c echo.Context) error {
 // CreateRAID creates a new RAID array using mdadm.
 func (h *DiskHandler) CreateRAID(c echo.Context) error {
 	if !commandExists("mdadm") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
 
 	var req CreateRAIDRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateDeviceName(req.Name); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_NAME", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, err.Error())
 	}
 	if err := validateRAIDLevel(req.Level); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_LEVEL", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidLevel, err.Error())
 	}
 	if len(req.Devices) < 2 {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS",
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields,
 			"At least two devices are required for RAID")
 	}
 
@@ -248,7 +248,7 @@ func (h *DiskHandler) CreateRAID(c echo.Context) error {
 	devPaths := make([]string, 0, len(req.Devices))
 	for _, dev := range req.Devices {
 		if err := validateDeviceName(dev); err != nil {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
 				fmt.Sprintf("invalid device: %s", err.Error()))
 		}
 		devPath := dev
@@ -270,7 +270,7 @@ func (h *DiskHandler) CreateRAID(c echo.Context) error {
 
 	out, err := exec.Command("mdadm", args...).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "RAID_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
 			fmt.Sprintf("mdadm --create failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -282,13 +282,13 @@ func (h *DiskHandler) CreateRAID(c echo.Context) error {
 // DeleteRAID stops and removes a RAID array.
 func (h *DiskHandler) DeleteRAID(c echo.Context) error {
 	if !commandExists("mdadm") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
 
 	name := c.Param("name")
 	if err := validateDeviceName(name); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	devPath := "/dev/" + name
@@ -296,7 +296,7 @@ func (h *DiskHandler) DeleteRAID(c echo.Context) error {
 	// Stop the array
 	stopOut, err := exec.Command("mdadm", "--stop", devPath).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "RAID_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
 			fmt.Sprintf("mdadm --stop failed: %s", strings.TrimSpace(string(stopOut))))
 	}
 
@@ -315,22 +315,22 @@ func (h *DiskHandler) DeleteRAID(c echo.Context) error {
 // AddRAIDDisk adds a disk to an existing RAID array (as spare or for rebuild).
 func (h *DiskHandler) AddRAIDDisk(c echo.Context) error {
 	if !commandExists("mdadm") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
 
 	name := c.Param("name")
 	if err := validateDeviceName(name); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	var req RAIDDiskRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateDeviceName(req.Device); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	raidDev := "/dev/" + name
@@ -338,7 +338,7 @@ func (h *DiskHandler) AddRAIDDisk(c echo.Context) error {
 
 	out, err := exec.Command("mdadm", "--add", raidDev, diskDev).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "RAID_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
 			fmt.Sprintf("mdadm --add failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -350,22 +350,22 @@ func (h *DiskHandler) AddRAIDDisk(c echo.Context) error {
 // RemoveRAIDDisk marks a disk as faulty and removes it from a RAID array.
 func (h *DiskHandler) RemoveRAIDDisk(c echo.Context) error {
 	if !commandExists("mdadm") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
 
 	name := c.Param("name")
 	if err := validateDeviceName(name); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	var req RAIDDiskRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateDeviceName(req.Device); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	raidDev := "/dev/" + name
@@ -374,14 +374,14 @@ func (h *DiskHandler) RemoveRAIDDisk(c echo.Context) error {
 	// First mark the device as faulty
 	failOut, err := exec.Command("mdadm", "--fail", raidDev, diskDev).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "RAID_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
 			fmt.Sprintf("mdadm --fail failed: %s", strings.TrimSpace(string(failOut))))
 	}
 
 	// Then remove it
 	removeOut, err := exec.Command("mdadm", "--remove", raidDev, diskDev).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "RAID_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
 			fmt.Sprintf("mdadm --remove failed: %s", strings.TrimSpace(string(removeOut))))
 	}
 

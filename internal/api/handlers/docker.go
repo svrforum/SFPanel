@@ -25,7 +25,7 @@ func (h *DockerHandler) ListContainers(c echo.Context) error {
 	ctx := c.Request().Context()
 	containers, err := h.Docker.ListContainers(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, containers)
 }
@@ -35,7 +35,7 @@ func (h *DockerHandler) StartContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.StartContainer(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, map[string]string{"message": "container started"})
 }
@@ -45,7 +45,7 @@ func (h *DockerHandler) StopContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.StopContainer(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, map[string]string{"message": "container stopped"})
 }
@@ -55,7 +55,7 @@ func (h *DockerHandler) RestartContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.RestartContainer(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, map[string]string{"message": "container restarted"})
 }
@@ -65,7 +65,7 @@ func (h *DockerHandler) RemoveContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.RemoveContainer(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, map[string]string{"message": "container removed"})
 }
@@ -76,7 +76,7 @@ func (h *DockerHandler) InspectContainer(c echo.Context) error {
 	id := c.Param("id")
 	data, err := h.Docker.GetContainer(ctx, id)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 
 	// Build a clean response with the most useful fields
@@ -163,7 +163,7 @@ func (h *DockerHandler) ContainerStats(c echo.Context) error {
 	id := c.Param("id")
 	stats, err := h.Docker.ContainerStats(ctx, id)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 
 	// Calculate CPU percentage
@@ -196,7 +196,7 @@ func (h *DockerHandler) ContainerStatsBatch(c echo.Context) error {
 	ctx := c.Request().Context()
 	stats, err := h.Docker.ContainerStatsBatch(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, stats)
 }
@@ -208,7 +208,7 @@ func (h *DockerHandler) ListImages(c echo.Context) error {
 	ctx := c.Request().Context()
 	images, err := h.Docker.ListImagesWithUsage(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, images)
 }
@@ -220,16 +220,16 @@ func (h *DockerHandler) PullImage(c echo.Context) error {
 		Image string `json:"image"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	if req.Image == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Image reference is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Image reference is required")
 	}
 
 	ctx := c.Request().Context()
 	reader, err := h.Docker.PullImage(ctx, req.Image)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	defer reader.Close()
 
@@ -261,7 +261,7 @@ func (h *DockerHandler) RemoveImage(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.RemoveImage(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, map[string]string{"message": "image removed"})
 }
@@ -273,7 +273,7 @@ func (h *DockerHandler) ListVolumes(c echo.Context) error {
 	ctx := c.Request().Context()
 	volumes, err := h.Docker.ListVolumesWithUsage(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, volumes)
 }
@@ -284,16 +284,16 @@ func (h *DockerHandler) CreateVolume(c echo.Context) error {
 		Name string `json:"name"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	if req.Name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Volume name is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Volume name is required")
 	}
 
 	ctx := c.Request().Context()
 	vol, err := h.Docker.CreateVolume(ctx, req.Name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, vol)
 }
@@ -303,7 +303,7 @@ func (h *DockerHandler) RemoveVolume(c echo.Context) error {
 	ctx := c.Request().Context()
 	name := c.Param("name")
 	if err := h.Docker.RemoveVolume(ctx, name); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, map[string]string{"message": "volume removed"})
 }
@@ -315,7 +315,7 @@ func (h *DockerHandler) ListNetworks(c echo.Context) error {
 	ctx := c.Request().Context()
 	networks, err := h.Docker.ListNetworksWithUsage(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, networks)
 }
@@ -327,10 +327,10 @@ func (h *DockerHandler) CreateNetwork(c echo.Context) error {
 		Driver string `json:"driver"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	if req.Name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Network name is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Network name is required")
 	}
 	if req.Driver == "" {
 		req.Driver = "bridge"
@@ -339,7 +339,7 @@ func (h *DockerHandler) CreateNetwork(c echo.Context) error {
 	ctx := c.Request().Context()
 	net, err := h.Docker.CreateNetwork(ctx, req.Name, req.Driver)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, net)
 }
@@ -349,7 +349,7 @@ func (h *DockerHandler) RemoveNetwork(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.RemoveNetwork(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, map[string]string{"message": "network removed"})
 }
@@ -360,16 +360,16 @@ func (h *DockerHandler) RemoveNetwork(c echo.Context) error {
 func (h *DockerHandler) CreateContainer(c echo.Context) error {
 	var cfg docker.ContainerCreateConfig
 	if err := c.Bind(&cfg); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	if cfg.Image == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Image is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Image is required")
 	}
 
 	ctx := c.Request().Context()
 	id, err := h.Docker.CreateContainer(ctx, cfg)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 
 	msg := "container created"
@@ -386,7 +386,7 @@ func (h *DockerHandler) PruneContainers(c echo.Context) error {
 	ctx := c.Request().Context()
 	report, err := h.Docker.PruneContainers(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, map[string]interface{}{
 		"deleted":         len(report.ContainersDeleted),
@@ -399,7 +399,7 @@ func (h *DockerHandler) PruneImages(c echo.Context) error {
 	ctx := c.Request().Context()
 	report, err := h.Docker.PruneImages(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, map[string]interface{}{
 		"deleted":         len(report.ImagesDeleted),
@@ -412,7 +412,7 @@ func (h *DockerHandler) PruneVolumes(c echo.Context) error {
 	ctx := c.Request().Context()
 	report, err := h.Docker.PruneVolumes(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, map[string]interface{}{
 		"deleted":         len(report.VolumesDeleted),
@@ -425,7 +425,7 @@ func (h *DockerHandler) PruneNetworks(c echo.Context) error {
 	ctx := c.Request().Context()
 	report, err := h.Docker.PruneNetworks(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, map[string]interface{}{
 		"deleted": len(report.NetworksDeleted),
@@ -466,7 +466,7 @@ func (h *DockerHandler) PruneAll(c echo.Context) error {
 func (h *DockerHandler) SearchImages(c echo.Context) error {
 	q := c.QueryParam("q")
 	if q == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Search query (q) is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Search query (q) is required")
 	}
 
 	limit := 25
@@ -479,7 +479,7 @@ func (h *DockerHandler) SearchImages(c echo.Context) error {
 	ctx := c.Request().Context()
 	results, err := h.Docker.SearchImages(ctx, q, limit)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 
 	// Transform to cleaner response format

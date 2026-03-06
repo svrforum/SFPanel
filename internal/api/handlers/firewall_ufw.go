@@ -18,7 +18,7 @@ import (
 func (h *FirewallHandler) GetUFWStatus(c echo.Context) error {
 	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "status", "verbose")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "UFW_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWError,
 			"Failed to get UFW status: "+err.Error())
 	}
 
@@ -70,7 +70,7 @@ func parseUFWStatus(output string) UFWStatus {
 func (h *FirewallHandler) EnableUFW(c echo.Context) error {
 	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "--force", "enable")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "UFW_ENABLE_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWEnableError,
 			"Failed to enable UFW: "+err.Error())
 	}
 
@@ -85,7 +85,7 @@ func (h *FirewallHandler) EnableUFW(c echo.Context) error {
 func (h *FirewallHandler) DisableUFW(c echo.Context) error {
 	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "disable")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "UFW_DISABLE_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWDisableError,
 			"Failed to disable UFW: "+err.Error())
 	}
 
@@ -100,7 +100,7 @@ func (h *FirewallHandler) DisableUFW(c echo.Context) error {
 func (h *FirewallHandler) ListRules(c echo.Context) error {
 	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "status", "numbered")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "UFW_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWError,
 			"Failed to list UFW rules: "+err.Error())
 	}
 
@@ -194,7 +194,7 @@ func parseUFWRules(output string) []UFWRule {
 func (h *FirewallHandler) AddRule(c echo.Context) error {
 	var req AddRuleRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	// Validate action
@@ -203,16 +203,16 @@ func (h *FirewallHandler) AddRule(c echo.Context) error {
 	}
 	req.Action = strings.ToLower(req.Action)
 	if !validAction.MatchString(req.Action) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_ACTION",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidAction,
 			"Action must be one of: allow, deny, reject, limit")
 	}
 
 	// Validate port (required)
 	if req.Port == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Port is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Port is required")
 	}
 	if !validPort.MatchString(req.Port) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PORT",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPort,
 			"Port must be a number, range (e.g., 8000:8080), or service name")
 	}
 
@@ -222,14 +222,14 @@ func (h *FirewallHandler) AddRule(c echo.Context) error {
 	}
 	req.Protocol = strings.ToLower(req.Protocol)
 	if !validProtocol.MatchString(req.Protocol) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PROTOCOL",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidProtocol,
 			"Protocol must be one of: tcp, udp, any")
 	}
 
 	// Validate from address if provided
 	if req.From != "" && req.From != "any" {
 		if !validIP.MatchString(req.From) {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_FROM_ADDRESS",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFromAddress,
 				"From address must be a valid IP or CIDR notation")
 		}
 	}
@@ -237,14 +237,14 @@ func (h *FirewallHandler) AddRule(c echo.Context) error {
 	// Validate to address if provided
 	if req.To != "" && req.To != "any" {
 		if !validIP.MatchString(req.To) {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_TO_ADDRESS",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidToAddress,
 				"To address must be a valid IP or CIDR notation")
 		}
 	}
 
 	// Validate comment if provided
 	if req.Comment != "" && !validComment.MatchString(req.Comment) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_COMMENT",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidComment,
 			"Comment contains invalid characters")
 	}
 
@@ -253,7 +253,7 @@ func (h *FirewallHandler) AddRule(c echo.Context) error {
 
 	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", args...)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "UFW_ADD_RULE_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWAddRuleError,
 			"Failed to add rule: "+err.Error())
 	}
 
@@ -308,13 +308,13 @@ func (h *FirewallHandler) DeleteRule(c echo.Context) error {
 	numberStr := c.Param("number")
 	number, err := strconv.Atoi(numberStr)
 	if err != nil || number < 1 {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_RULE_NUMBER",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRuleNumber,
 			"Rule number must be a positive integer")
 	}
 
 	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "--force", "delete", strconv.Itoa(number))
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "UFW_DELETE_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWDeleteError,
 			"Failed to delete rule: "+err.Error())
 	}
 
@@ -332,14 +332,14 @@ func (h *FirewallHandler) ListPorts(c echo.Context) error {
 	// Get TCP listening ports
 	tcpOutput, err := runCommand("ss", "-tlnp")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "SS_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrSSError,
 			"Failed to list TCP ports: "+err.Error())
 	}
 
 	// Get UDP listening ports
 	udpOutput, err := runCommand("ss", "-ulnp")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "SS_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrSSError,
 			"Failed to list UDP ports: "+err.Error())
 	}
 

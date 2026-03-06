@@ -82,7 +82,7 @@ func (h *FilesHandler) ListDir(c echo.Context) error {
 	}
 
 	if err := validatePath(dirPath); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
 	dirPath = filepath.Clean(dirPath)
@@ -90,12 +90,12 @@ func (h *FilesHandler) ListDir(c echo.Context) error {
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return response.Fail(c, http.StatusNotFound, "NOT_FOUND", "Directory not found")
+			return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Directory not found")
 		}
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	files := make([]FileEntry, 0, len(entries))
@@ -135,7 +135,7 @@ func (h *FilesHandler) ReadFile(c echo.Context) error {
 	filePath := c.QueryParam("path")
 
 	if err := validatePath(filePath); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
 	filePath = filepath.Clean(filePath)
@@ -143,29 +143,29 @@ func (h *FilesHandler) ReadFile(c echo.Context) error {
 	info, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return response.Fail(c, http.StatusNotFound, "NOT_FOUND", "File not found")
+			return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "File not found")
 		}
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	if info.IsDir() {
-		return response.Fail(c, http.StatusBadRequest, "IS_DIRECTORY", "Path is a directory, not a file")
+		return response.Fail(c, http.StatusBadRequest, response.ErrIsDirectory, "Path is a directory, not a file")
 	}
 
 	if info.Size() > maxReadSize {
-		return response.Fail(c, http.StatusBadRequest, "FILE_TOO_LARGE",
+		return response.Fail(c, http.StatusBadRequest, response.ErrFileTooLarge,
 			fmt.Sprintf("File size %d bytes exceeds the maximum of %d bytes", info.Size(), maxReadSize))
 	}
 
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -184,11 +184,11 @@ func (h *FilesHandler) WriteFile(c echo.Context) error {
 		Content string `json:"content"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validatePath(req.Path); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
 	req.Path = filepath.Clean(req.Path)
@@ -197,9 +197,9 @@ func (h *FilesHandler) WriteFile(c echo.Context) error {
 	dir := filepath.Dir(req.Path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	// Determine file mode: preserve existing permissions or default to 0644.
@@ -223,16 +223,16 @@ func (h *FilesHandler) WriteFile(c echo.Context) error {
 	tmpPath := req.Path + ".sfpanel.tmp"
 	if err := os.WriteFile(tmpPath, []byte(req.Content), fileMode); err != nil {
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 	if err := os.Rename(tmpPath, req.Path); err != nil {
 		os.Remove(tmpPath)
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	return response.OK(c, map[string]string{"message": "file written", "path": req.Path})
@@ -247,20 +247,20 @@ func (h *FilesHandler) MkDir(c echo.Context) error {
 		Path string `json:"path"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validatePath(req.Path); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
 	req.Path = filepath.Clean(req.Path)
 
 	if err := os.MkdirAll(req.Path, 0755); err != nil {
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	return response.OK(c, map[string]string{"message": "directory created", "path": req.Path})
@@ -274,31 +274,31 @@ func (h *FilesHandler) DeletePath(c echo.Context) error {
 	targetPath := c.QueryParam("path")
 
 	if err := validatePath(targetPath); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
 	targetPath = filepath.Clean(targetPath)
 
 	if isCriticalPath(targetPath) {
-		return response.Fail(c, http.StatusForbidden, "CRITICAL_PATH",
+		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath,
 			fmt.Sprintf("Deleting '%s' is not allowed: critical system path", targetPath))
 	}
 
 	if _, err := os.Stat(targetPath); err != nil {
 		if os.IsNotExist(err) {
-			return response.Fail(c, http.StatusNotFound, "NOT_FOUND", "Path not found")
+			return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Path not found")
 		}
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	if err := os.RemoveAll(targetPath); err != nil {
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	return response.OK(c, map[string]string{"message": "path deleted", "path": targetPath})
@@ -314,14 +314,14 @@ func (h *FilesHandler) RenamePath(c echo.Context) error {
 		NewPath string `json:"new_path"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validatePath(req.OldPath); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", fmt.Sprintf("old_path: %s", err.Error()))
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, fmt.Sprintf("old_path: %s", err.Error()))
 	}
 	if err := validatePath(req.NewPath); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", fmt.Sprintf("new_path: %s", err.Error()))
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, fmt.Sprintf("new_path: %s", err.Error()))
 	}
 
 	req.OldPath = filepath.Clean(req.OldPath)
@@ -329,28 +329,28 @@ func (h *FilesHandler) RenamePath(c echo.Context) error {
 
 	if _, err := os.Stat(req.OldPath); err != nil {
 		if os.IsNotExist(err) {
-			return response.Fail(c, http.StatusNotFound, "NOT_FOUND", "Source path not found")
+			return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Source path not found")
 		}
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	// Ensure the parent directory of the new path exists.
 	newDir := filepath.Dir(req.NewPath)
 	if err := os.MkdirAll(newDir, 0755); err != nil {
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	if err := os.Rename(req.OldPath, req.NewPath); err != nil {
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	return response.OK(c, map[string]string{
@@ -368,7 +368,7 @@ func (h *FilesHandler) DownloadFile(c echo.Context) error {
 	filePath := c.QueryParam("path")
 
 	if err := validatePath(filePath); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
 	filePath = filepath.Clean(filePath)
@@ -376,16 +376,16 @@ func (h *FilesHandler) DownloadFile(c echo.Context) error {
 	info, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return response.Fail(c, http.StatusNotFound, "NOT_FOUND", "File not found")
+			return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "File not found")
 		}
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	if info.IsDir() {
-		return response.Fail(c, http.StatusBadRequest, "IS_DIRECTORY", "Cannot download a directory")
+		return response.Fail(c, http.StatusBadRequest, response.ErrIsDirectory, "Cannot download a directory")
 	}
 
 	c.Response().Header().Set("Content-Disposition",
@@ -408,7 +408,7 @@ func (h *FilesHandler) UploadFile(c echo.Context) error {
 
 	destDir := c.FormValue("path")
 	if err := validatePath(destDir); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
 	destDir = filepath.Clean(destDir)
@@ -416,19 +416,19 @@ func (h *FilesHandler) UploadFile(c echo.Context) error {
 	// Ensure the destination directory exists.
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FILE", "No file provided in the 'file' field")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFile, "No file provided in the 'file' field")
 	}
 
 	src, err := fileHeader.Open()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 	defer src.Close()
 
@@ -436,7 +436,7 @@ func (h *FilesHandler) UploadFile(c echo.Context) error {
 	// embedded in the uploaded filename.
 	filename := filepath.Base(fileHeader.Filename)
 	if filename == "." || filename == "/" {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_FILENAME", "Invalid file name")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFilename, "Invalid file name")
 	}
 
 	destPath := filepath.Join(destDir, filename)
@@ -453,25 +453,25 @@ func (h *FilesHandler) UploadFile(c echo.Context) error {
 	dst, err := os.Create(tmpPath)
 	if err != nil {
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	written, err := io.Copy(dst, src)
 	dst.Close()
 	if err != nil {
 		os.Remove(tmpPath)
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	// Rename temp file to final destination (atomic on same filesystem).
 	if err := os.Rename(tmpPath, destPath); err != nil {
 		os.Remove(tmpPath)
 		if os.IsPermission(err) {
-			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
 	return response.OK(c, map[string]interface{}{

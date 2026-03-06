@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"net/http"
-	"os"
+	"strconv"
 
 	"github.com/labstack/echo/v4"
 	"github.com/sfpanel/sfpanel/internal/api/response"
@@ -14,15 +14,15 @@ type ComposeHandler struct {
 	Compose *docker.ComposeManager
 }
 
-// ListProjects returns all compose projects.
-func (h *ComposeHandler) ListProjects(c echo.Context) error {
+// ListProjectsWithStatus returns all compose projects with real-time service status.
+func (h *ComposeHandler) ListProjectsWithStatus(c echo.Context) error {
 	ctx := c.Request().Context()
-	projects, err := h.Compose.ListProjects(ctx)
+	projects, err := h.Compose.ListProjectsWithStatus(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "COMPOSE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
 	}
 	if projects == nil {
-		projects = []docker.ComposeProject{}
+		projects = []docker.ComposeProjectWithStatus{}
 	}
 	return response.OK(c, projects)
 }
@@ -35,39 +35,38 @@ func (h *ComposeHandler) CreateProject(c echo.Context) error {
 		YAML string `json:"yaml"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	if req.Name == "" || req.YAML == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Name and yaml are required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Name and yaml are required")
 	}
 
 	ctx := c.Request().Context()
 	project, err := h.Compose.CreateProject(ctx, req.Name, req.YAML)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "COMPOSE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
 	}
 	return response.OK(c, project)
 }
 
-// GetProject returns a single compose project by name, including the YAML content read from disk.
+// GetProject returns a single compose project by name, including the YAML content.
 func (h *ComposeHandler) GetProject(c echo.Context) error {
 	name := c.Param("project")
 	ctx := c.Request().Context()
 
 	project, err := h.Compose.GetProject(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusNotFound, "NOT_FOUND", err.Error())
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, err.Error())
 	}
 
-	// Read YAML content from disk
-	yamlContent, err := os.ReadFile(project.YAMLPath)
+	yaml, _, err := h.Compose.GetProjectYAML(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "COMPOSE_ERROR", "Failed to read YAML file: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
 	}
 
 	return response.OK(c, map[string]interface{}{
 		"project": project,
-		"yaml":    string(yamlContent),
+		"yaml":    yaml,
 	})
 }
 
@@ -79,15 +78,15 @@ func (h *ComposeHandler) UpdateProject(c echo.Context) error {
 		YAML string `json:"yaml"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	if req.YAML == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "YAML content is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "YAML content is required")
 	}
 
 	ctx := c.Request().Context()
 	if err := h.Compose.UpdateProject(ctx, name, req.YAML); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "COMPOSE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
 	}
 	return response.OK(c, map[string]string{"message": "project updated"})
 }
@@ -98,7 +97,7 @@ func (h *ComposeHandler) DeleteProject(c echo.Context) error {
 	ctx := c.Request().Context()
 
 	if err := h.Compose.DeleteProject(ctx, name); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "COMPOSE_ERROR", err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
 	}
 	return response.OK(c, map[string]string{"message": "project deleted"})
 }
@@ -110,7 +109,7 @@ func (h *ComposeHandler) ProjectUp(c echo.Context) error {
 
 	output, err := h.Compose.Up(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "COMPOSE_ERROR", output)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
 	}
 	return response.OK(c, map[string]string{"output": output})
 }
@@ -122,7 +121,111 @@ func (h *ComposeHandler) ProjectDown(c echo.Context) error {
 
 	output, err := h.Compose.Down(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "COMPOSE_ERROR", output)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
 	}
 	return response.OK(c, map[string]string{"output": output})
+}
+
+// GetProjectServices returns the runtime state of each service in a compose project.
+func (h *ComposeHandler) GetProjectServices(c echo.Context) error {
+	name := c.Param("project")
+	ctx := c.Request().Context()
+
+	services, err := h.Compose.GetProjectServices(ctx, name)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+	}
+	if services == nil {
+		services = []docker.ComposeService{}
+	}
+	return response.OK(c, services)
+}
+
+// GetEnv returns the .env file content for a compose project.
+func (h *ComposeHandler) GetEnv(c echo.Context) error {
+	name := c.Param("project")
+	ctx := c.Request().Context()
+
+	content, err := h.Compose.GetProjectEnv(ctx, name)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+	}
+	return response.OK(c, map[string]string{"content": content})
+}
+
+// UpdateEnv updates the .env file content for a compose project.
+// Accepts JSON body: {"content": "..."}.
+func (h *ComposeHandler) UpdateEnv(c echo.Context) error {
+	name := c.Param("project")
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+
+	ctx := c.Request().Context()
+	if err := h.Compose.UpdateProjectEnv(ctx, name, req.Content); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+	}
+	return response.OK(c, map[string]string{"message": "env updated"})
+}
+
+// RestartService restarts a single service in a compose project.
+func (h *ComposeHandler) RestartService(c echo.Context) error {
+	project := c.Param("project")
+	service := c.Param("service")
+	ctx := c.Request().Context()
+
+	output, err := h.Compose.RestartService(ctx, project, service)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+	}
+	return response.OK(c, map[string]string{"output": output})
+}
+
+// StopService stops a single service in a compose project.
+func (h *ComposeHandler) StopService(c echo.Context) error {
+	project := c.Param("project")
+	service := c.Param("service")
+	ctx := c.Request().Context()
+
+	output, err := h.Compose.StopService(ctx, project, service)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+	}
+	return response.OK(c, map[string]string{"output": output})
+}
+
+// StartService starts a single service in a compose project.
+func (h *ComposeHandler) StartService(c echo.Context) error {
+	project := c.Param("project")
+	service := c.Param("service")
+	ctx := c.Request().Context()
+
+	output, err := h.Compose.StartService(ctx, project, service)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+	}
+	return response.OK(c, map[string]string{"output": output})
+}
+
+// ServiceLogs returns the last N lines of logs for a service.
+func (h *ComposeHandler) ServiceLogs(c echo.Context) error {
+	project := c.Param("project")
+	service := c.Param("service")
+
+	tail := 100
+	if t := c.QueryParam("tail"); t != "" {
+		if parsed, err := strconv.Atoi(t); err == nil && parsed > 0 {
+			tail = parsed
+		}
+	}
+
+	ctx := c.Request().Context()
+	output, err := h.Compose.ServiceLogs(ctx, project, service, tail)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+	}
+	return response.OK(c, map[string]string{"logs": output})
 }
