@@ -50,6 +50,19 @@ export interface SystemInfo {
   metrics: Metrics
 }
 
+export interface MetricsPoint {
+  time: number
+  cpu: number
+  mem_percent: number
+}
+
+export interface DashboardOverview {
+  host: HostInfo
+  metrics: Metrics
+  version: string
+  metrics_history: MetricsPoint[]
+}
+
 // Docker
 export interface Container {
   Id: string

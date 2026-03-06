@@ -74,6 +74,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version ...
 	authorized.POST("/auth/change-password", authHandler.ChangePassword)
 	authorized.GET("/system/info", dashboardHandler.GetSystemInfo)
 	authorized.GET("/system/metrics-history", dashboardHandler.GetMetricsHistory)
+	authorized.GET("/system/overview", dashboardHandler.GetOverview)
 
 	// Processes
 	processesHandler := &handlers.ProcessesHandler{}
@@ -122,6 +123,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version ...
 	// Network
 	networkHandler := &handlers.NetworkHandler{}
 	net := authorized.Group("/network")
+	net.GET("/status", networkHandler.GetNetworkStatus)
 	net.GET("/interfaces", networkHandler.ListInterfaces)
 	net.GET("/interfaces/:name", networkHandler.GetInterface)
 	net.PUT("/interfaces/:name", networkHandler.ConfigureInterface)

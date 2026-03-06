@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -15,6 +15,7 @@ import {
   Activity,
   ArrowUpRight,
   ArrowDownLeft,
+  Shield,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -28,10 +29,27 @@ import {
 } from '@/components/ui/table'
 import MetricsCard from '@/components/MetricsCard'
 import MetricsChart from '@/components/MetricsChart'
+import { formatBytes, formatUptime } from '@/lib/utils'
+import { parseFirewallLine } from '@/lib/logParsers'
+import type { FirewallLogEntry } from '@/lib/logParsers'
 import type { HostInfo, Metrics } from '@/types/api'
 
 // 24h at 30s intervals = 2880 points; cap to keep chart readable
 const MAX_CHART_POINTS = 2880
+
+type ChartRange = '1h' | '4h' | '12h' | '24h'
+const CHART_RANGE_MS: Record<ChartRange, number> = {
+  '1h': 60 * 60 * 1000,
+  '4h': 4 * 60 * 60 * 1000,
+  '12h': 12 * 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+}
+
+const FIREWALL_ACTION_COLORS: Record<string, string> = {
+  BLOCK: '#f04452', DROP: '#f04452',
+  ALLOW: '#00c471', ACCEPT: '#00c471',
+  AUDIT: '#3182f6', LIMIT: '#f59e0b',
+}
 
 interface ProcessInfo {
   pid: number
@@ -47,24 +65,6 @@ interface ContainerSummary {
   Image: string
   State: string
   Status: string
-}
-
-function formatUptime(seconds: number): string {
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
-  const mins = Math.floor((seconds % 3600) / 60)
-  return `${days}d ${hours}h ${mins}m`
-}
-
-function formatBytes(bytes: number): string {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let i = 0
-  let size = bytes
-  while (size >= 1024 && i < units.length - 1) {
-    size /= 1024
-    i++
-  }
-  return `${size.toFixed(1)} ${units[i]}`
 }
 
 const quickActions = [
@@ -83,10 +83,13 @@ export default function Dashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [netRate, setNetRate] = useState<{ sent: number; recv: number }>({ sent: 0, recv: 0 })
   const [, setPrevNet] = useState<{ sent: number; recv: number; ts: number } | null>(null)
-  const [chartData, setChartData] = useState<Array<{ time: string; cpu: number; memory: number }>>([])
+  const [chartData, setChartData] = useState<Array<{ ts: number; cpu: number; memory: number }>>([])
+  const [chartRange, setChartRange] = useState<ChartRange>('1h')
   const [processes, setProcesses] = useState<ProcessInfo[]>([])
   const [containers, setContainers] = useState<ContainerSummary[]>([])
   const [recentLogs, setRecentLogs] = useState<string[]>([])
+  const [logTab, setLogTab] = useState<'firewall' | 'syslog'>('firewall')
+  const [firewallLogs, setFirewallLogs] = useState<FirewallLogEntry[]>([])
 
   // Fetch primary IP address
   useEffect(() => {
@@ -99,26 +102,21 @@ export default function Dashboard() {
     }).catch(() => {})
   }, [])
 
-  // Fetch host info and history on mount
+  // Fetch host info, metrics, and history in a single call on mount
   useEffect(() => {
-    api.getSystemInfo().then((data) => {
+    api.getDashboardOverview().then((data) => {
       setHostInfo(data.host)
       if (data.metrics) {
         setMetrics(data.metrics)
       }
-    }).catch(() => {})
-
-    // Load 24h history for the chart
-    api.getMetricsHistory().then((history) => {
-      const points = history.map((pt) => {
-        const d = new Date(pt.time)
-        return {
-          time: d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+      if (data.metrics_history) {
+        const points = data.metrics_history.map((pt) => ({
+          ts: pt.time,
           cpu: pt.cpu,
           memory: pt.mem_percent,
-        }
-      })
-      setChartData(points)
+        }))
+        setChartData(points)
+      }
     }).catch(() => {})
   }, [])
 
@@ -127,6 +125,13 @@ export default function Dashboard() {
     api.getTopProcesses().then(setProcesses).catch(() => {})
     api.getContainers().then((data) => setContainers(data || [])).catch(() => setContainers([]))
     api.readLog('syslog', 8).then((data) => setRecentLogs(data.lines.slice(-8))).catch(() => {})
+    api.readLog('firewall', 50).then((data) => {
+      const parsed = data.lines.slice(-50)
+        .map(parseFirewallLine)
+        .filter((e): e is FirewallLogEntry => e.parsed)
+        .slice(-15)
+      setFirewallLogs(parsed)
+    }).catch(() => {})
   }, [])
 
   // Refresh processes every 10 seconds
@@ -152,15 +157,8 @@ export default function Dashboard() {
       }
       return { sent: data.net_bytes_sent, recv: data.net_bytes_recv, ts: data.timestamp }
     })
-    const now = new Date()
-    const timeLabel = now.toLocaleTimeString('en-US', {
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
     setChartData((prev) => {
-      const next = [...prev, { time: timeLabel, cpu: data.cpu, memory: data.mem_percent }]
+      const next = [...prev, { ts: Date.now(), cpu: data.cpu, memory: data.mem_percent }]
       if (next.length > MAX_CHART_POINTS) {
         return next.slice(next.length - MAX_CHART_POINTS)
       }
@@ -172,6 +170,16 @@ export default function Dashboard() {
     url: '/ws/metrics',
     onMessage,
   })
+
+  const filteredChartData = useMemo(() => {
+    const now = Date.now()
+    const cutoff = now - CHART_RANGE_MS[chartRange]
+    return chartData.filter((pt) => pt.ts >= cutoff)
+  }, [chartData, chartRange])
+
+  const chartXDomain = useMemo<[number, number]>(() => {
+    return [Date.now() - CHART_RANGE_MS[chartRange], Date.now()]
+  }, [chartRange])
 
   const runningContainers = containers.filter((c) => c.State === 'running').length
   const stoppedContainers = containers.length - runningContainers
@@ -235,6 +243,15 @@ export default function Dashboard() {
           }
           percent={metrics?.mem_percent ?? 0}
           icon={<MemoryStick className="h-5 w-5" />}
+          subLabel={t('dashboard.swap')}
+          subValue={
+            metrics
+              ? metrics.swap_total > 0
+                ? `${formatBytes(metrics.swap_used)} / ${formatBytes(metrics.swap_total)}`
+                : t('dashboard.swapDisabled')
+              : '--'
+          }
+          subPercent={metrics?.swap_percent}
         />
         <MetricsCard
           title={t('dashboard.disk')}
@@ -262,7 +279,28 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* CPU & Memory Chart — spans 2 columns */}
         <div className="lg:col-span-2">
-          <MetricsChart data={chartData} title={t('dashboard.chartTitle')} />
+          <MetricsChart
+            data={filteredChartData}
+            title={t('dashboard.chartTitle')}
+            xDomain={chartXDomain}
+            headerAction={
+              <div className="flex items-center gap-1 bg-secondary/60 rounded-lg p-0.5">
+                {(['1h', '4h', '12h', '24h'] as ChartRange[]).map((range) => (
+                  <button
+                    key={range}
+                    onClick={() => setChartRange(range)}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                      chartRange === range
+                        ? 'bg-card text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {t(`dashboard.chartRange${range.toUpperCase() as '1H' | '4H' | '12H' | '24H'}`)}
+                  </button>
+                ))}
+              </div>
+            }
+          />
         </div>
 
         {/* Docker Summary + Network */}
@@ -387,28 +425,114 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Recent System Logs */}
+        {/* Recent Logs (Firewall / System tabs) */}
         <div className="bg-card rounded-2xl p-5 card-shadow">
           <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[13px] font-semibold">{t('dashboard.recentLogs')}</span>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Shield className="h-4 w-4 text-muted-foreground" />
+                <span className="text-[13px] font-semibold">{t('dashboard.recentLogs')}</span>
+              </div>
+              <div className="flex items-center gap-1 bg-secondary/60 rounded-lg p-0.5">
+                <button
+                  onClick={() => setLogTab('firewall')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    logTab === 'firewall'
+                      ? 'bg-card text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {t('dashboard.logTabFirewall')}
+                </button>
+                <button
+                  onClick={() => setLogTab('syslog')}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    logTab === 'syslog'
+                      ? 'bg-card text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {t('dashboard.logTabSystem')}
+                </button>
+              </div>
             </div>
-            <button onClick={() => navigate('/logs')} className="text-xs text-primary font-medium hover:underline">
+            <button
+              onClick={() => navigate(logTab === 'firewall' ? '/firewall/logs' : '/logs')}
+              className="text-xs text-primary font-medium hover:underline"
+            >
               {t('dashboard.viewAll')}
             </button>
           </div>
           <p className="text-[11px] text-muted-foreground mb-4">{t('dashboard.recentLogsDesc')}</p>
-          {recentLogs.length === 0 ? (
-            <p className="text-[13px] text-muted-foreground">{t('dashboard.noLogs')}</p>
+
+          {logTab === 'firewall' ? (
+            firewallLogs.length === 0 ? (
+              <p className="text-[13px] text-muted-foreground">{t('dashboard.noFirewallLogs')}</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px]">
+                  <thead>
+                    <tr className="text-left text-muted-foreground border-b border-border">
+                      <th className="pb-2 pr-3 font-medium">{t('logs.col.timestamp')}</th>
+                      <th className="pb-2 pr-3 font-medium">{t('logs.col.source')}</th>
+                      <th className="pb-2 pr-3 font-medium">{t('logs.col.action')}</th>
+                      <th className="pb-2 pr-3 font-medium">{t('logs.col.sourceIP')}</th>
+                      <th className="pb-2 pr-3 font-medium">{t('logs.col.destPort')}</th>
+                      <th className="pb-2 font-medium">{t('logs.col.protocol')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {firewallLogs.map((entry, i) => {
+                      const ts = entry.timestamp.includes('T')
+                        ? entry.timestamp.replace(/\d{4}-(\d{2}-\d{2})T(\d{2}:\d{2}:\d{2}).*/, '$1 $2')
+                        : entry.timestamp
+                      return (
+                        <tr key={i} className="border-b border-border/50 hover:bg-secondary/30">
+                          <td className="py-1.5 pr-3 font-mono text-muted-foreground whitespace-nowrap">{ts}</td>
+                          <td className="py-1.5 pr-3">
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium"
+                              style={{
+                                backgroundColor: (entry.source === 'UFW' ? '#3182f6' : '#f59e0b') + '15',
+                                color: entry.source === 'UFW' ? '#3182f6' : '#f59e0b',
+                              }}
+                            >
+                              {entry.source}
+                            </span>
+                          </td>
+                          <td className="py-1.5 pr-3">
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium"
+                              style={{
+                                backgroundColor: (FIREWALL_ACTION_COLORS[entry.action] ?? '#6b7280') + '15',
+                                color: FIREWALL_ACTION_COLORS[entry.action] ?? '#6b7280',
+                              }}
+                            >
+                              {entry.action}
+                            </span>
+                          </td>
+                          <td className="py-1.5 pr-3 font-mono">{entry.sourceIP}</td>
+                          <td className="py-1.5 pr-3 font-mono">{entry.destPort}</td>
+                          <td className="py-1.5 font-mono">{entry.protocol}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
           ) : (
-            <div className="bg-[#191f28] rounded-xl p-3 font-mono text-[11px] text-[#8b95a1] space-y-0.5 overflow-x-auto max-h-[320px]">
-              {recentLogs.map((line, i) => (
-                <div key={i} className="whitespace-pre leading-5 hover:bg-white/5 px-1.5 rounded-lg">
-                  {line}
-                </div>
-              ))}
-            </div>
+            recentLogs.length === 0 ? (
+              <p className="text-[13px] text-muted-foreground">{t('dashboard.noLogs')}</p>
+            ) : (
+              <div className="bg-[#191f28] rounded-xl p-3 font-mono text-[11px] text-[#8b95a1] space-y-0.5 overflow-x-auto max-h-[320px]">
+                {recentLogs.map((line, i) => (
+                  <div key={i} className="whitespace-pre leading-5 hover:bg-white/5 px-1.5 rounded-lg">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )
           )}
         </div>
       </div>

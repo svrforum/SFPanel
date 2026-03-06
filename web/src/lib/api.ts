@@ -25,6 +25,7 @@ import type {
   RAIDArray,
   SwapInfo,
   ServiceInfo,
+  DashboardOverview,
 } from '@/types/api'
 
 const API_BASE = '/api/v1'
@@ -138,6 +139,10 @@ class ApiClient {
 
   getMetricsHistory() {
     return this.request<Array<{ time: number; cpu: number; mem_percent: number }>>('/system/metrics-history')
+  }
+
+  getDashboardOverview() {
+    return this.request<DashboardOverview>('/system/overview')
   }
 
   listProcesses(query?: string, sort?: string) {
