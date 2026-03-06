@@ -62,6 +62,7 @@ type Fail2banJail struct {
 	MaxRetry     int      `json:"max_retry"`
 	BanTime      string   `json:"ban_time"`
 	FindTime     string   `json:"find_time"`
+	IgnoreIP     string   `json:"ignoreip"`
 	BannedIPs    []string `json:"banned_ips"`
 }
 

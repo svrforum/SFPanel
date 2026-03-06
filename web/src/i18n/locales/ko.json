@@ -1416,7 +1416,9 @@
       "deleteJail": "Jail 삭제",
       "deleteJailConfirm": "Jail \"{{name}}\"을(를) 삭제하시겠습니까? 차단 목록과 설정이 모두 제거됩니다.",
       "jailDeleted": "Jail이 삭제되었습니다",
-      "jailDeleteFailed": "Jail 삭제 실패"
+      "jailDeleteFailed": "Jail 삭제 실패",
+      "ignoreIp": "화이트리스트 IP",
+      "ignoreIpHelp": "차단에서 제외할 IP (공백으로 구분)"
     },
     "docker": {
       "title": "Docker 포트 방화벽",

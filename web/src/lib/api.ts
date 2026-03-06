@@ -991,7 +991,7 @@ class ApiClient {
     return this.request<{ templates: Array<{ id: string; name: string; description: string; filter: string; log_path: string; max_retry: number; ban_time: number; find_time: number; available: boolean }> }>('/fail2ban/templates')
   }
 
-  createFail2banJail(data: { id: string; max_retry: number; ban_time: number; find_time: number; log_path?: string; name?: string; filter?: string }) {
+  createFail2banJail(data: { id: string; max_retry: number; ban_time: number; find_time: number; log_path?: string; name?: string; filter?: string; ignoreip?: string }) {
     return this.request<{ message: string }>('/fail2ban/jails', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -1003,14 +1003,14 @@ class ApiClient {
   }
 
   getFail2banJails() {
-    return this.request<{ jails: Array<{ name: string; enabled: boolean; filter: string; banned_count: number; total_banned: number; banned_ips: string[]; max_retry: number; ban_time: string; find_time: string }>; total: number }>('/fail2ban/jails')
+    return this.request<{ jails: Array<{ name: string; enabled: boolean; filter: string; banned_count: number; total_banned: number; banned_ips: string[]; max_retry: number; ban_time: string; find_time: string; ignoreip: string }>; total: number }>('/fail2ban/jails')
   }
 
   getFail2banJailDetail(name: string) {
-    return this.request<{ name: string; enabled: boolean; filter: string; banned_count: number; total_banned: number; banned_ips: string[]; max_retry: number; ban_time: string; find_time: string }>(`/fail2ban/jails/${encodeURIComponent(name)}`)
+    return this.request<{ name: string; enabled: boolean; filter: string; banned_count: number; total_banned: number; banned_ips: string[]; max_retry: number; ban_time: string; find_time: string; ignoreip: string }>(`/fail2ban/jails/${encodeURIComponent(name)}`)
   }
 
-  updateFail2banJailConfig(name: string, config: { max_retry?: number; ban_time?: string; find_time?: string }) {
+  updateFail2banJailConfig(name: string, config: { max_retry?: number; ban_time?: string; find_time?: string; ignoreip?: string }) {
     return this.request<{ message: string }>(`/fail2ban/jails/${encodeURIComponent(name)}/config`, {
       method: 'PUT',
       body: JSON.stringify(config),

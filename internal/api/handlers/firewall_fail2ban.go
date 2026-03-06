@@ -207,6 +207,7 @@ func parseFail2banJailStatus(output string, jail Fail2banJail) Fail2banJail {
 	}
 	jail.BanTime = getConfVal(jail.Name, "bantime")
 	jail.FindTime = getConfVal(jail.Name, "findtime")
+	jail.IgnoreIP = getConfVal(jail.Name, "ignoreip")
 
 	return jail
 }
@@ -304,6 +305,7 @@ func (h *FirewallHandler) UpdateJailConfig(c echo.Context) error {
 		MaxRetry *int    `json:"max_retry"`
 		BanTime  *string `json:"ban_time"`
 		FindTime *string `json:"find_time"`
+		IgnoreIP *string `json:"ignoreip"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -345,6 +347,19 @@ func (h *FirewallHandler) UpdateJailConfig(c echo.Context) error {
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_CONFIG_ERROR",
 				"Failed to set findtime: "+err.Error())
+		}
+	}
+
+	// Validate and apply ignoreip
+	if req.IgnoreIP != nil {
+		if *req.IgnoreIP != "" && !validIgnoreIP.MatchString(*req.IgnoreIP) {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidIP,
+				"ignoreip contains invalid characters (allowed: IPs, CIDRs, space-separated)")
+		}
+		_, err := runCommand("fail2ban-client", "set", name, "addignoreip", *req.IgnoreIP)
+		if err != nil {
+			return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_CONFIG_ERROR",
+				"Failed to set ignoreip: "+err.Error())
 		}
 	}
 
@@ -498,6 +513,7 @@ type CreateJailRequest struct {
 	BanTime  int    `json:"ban_time"`
 	FindTime int    `json:"find_time"`
 	LogPath  string `json:"log_path"`
+	IgnoreIP string `json:"ignoreip"`
 	// Custom jail fields (used when id == "custom")
 	Name   string `json:"name,omitempty"`
 	Filter string `json:"filter,omitempty"`
@@ -505,6 +521,9 @@ type CreateJailRequest struct {
 
 // validLogPath matches safe file paths for log files.
 var validLogPath = regexp.MustCompile(`^[a-zA-Z0-9/_\-.*]+\.log[a-zA-Z0-9/_\-.*]*$`)
+
+// validIgnoreIP matches space-separated IPs, CIDRs, and common fail2ban ignoreip values.
+var validIgnoreIP = regexp.MustCompile(`^[a-fA-F0-9.:/ ]+$`)
 
 // CreateJail creates a new fail2ban jail from a template or custom config.
 // POST /fail2ban/jails
@@ -616,6 +635,15 @@ maxretry = %d
 bantime = %d
 findtime = %d
 `, jailName, filterName, logPath, maxRetry, banTime, findTime)
+
+	// Add ignoreip if provided
+	if req.IgnoreIP != "" {
+		if !validIgnoreIP.MatchString(req.IgnoreIP) {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidIP,
+				"ignoreip contains invalid characters (allowed: IPs, CIDRs, space-separated)")
+		}
+		configContent += fmt.Sprintf("ignoreip = %s\n", req.IgnoreIP)
+	}
 
 	configPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.local", jailName)
 	if err := writeFile(configPath, configContent); err != nil {

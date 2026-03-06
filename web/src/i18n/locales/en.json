@@ -1416,7 +1416,9 @@
       "deleteJail": "Delete Jail",
       "deleteJailConfirm": "Are you sure you want to delete jail \"{{name}}\"? All bans and configuration will be removed.",
       "jailDeleted": "Jail deleted successfully",
-      "jailDeleteFailed": "Failed to delete jail"
+      "jailDeleteFailed": "Failed to delete jail",
+      "ignoreIp": "Whitelist IPs",
+      "ignoreIpHelp": "IPs to exclude from banning (space-separated)"
     },
     "docker": {
       "title": "Docker Port Firewall",
