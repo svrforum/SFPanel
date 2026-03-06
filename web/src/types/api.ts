@@ -385,6 +385,7 @@ export interface Fail2banJail {
   max_retry: number
   ban_time: string
   find_time: string
+  ignoreip: string
 }
 
 // WireGuard VPN
