@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"bufio"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -17,31 +20,39 @@ import (
 
 // logSourceInfo holds metadata about a known log source.
 type logSourceInfo struct {
-	Name string
-	Path string
+	Name   string
+	Path   string
+	Filter string // optional grep filter pattern applied when reading
 }
 
-// logSources defines the allowed log sources and their filesystem paths.
-// Only files present in this map can be read; arbitrary file access is
-// prevented by validating the requested source key against this map.
-var logSources = map[string]logSourceInfo{
-	"syslog":       {Name: "System Log", Path: "/var/log/syslog"},
-	"auth":         {Name: "Auth Log", Path: "/var/log/auth.log"},
-	"kern":         {Name: "Kernel Log", Path: "/var/log/kern.log"},
-	"nginx-access": {Name: "Nginx Access", Path: "/var/log/nginx/access.log"},
-	"nginx-error":  {Name: "Nginx Error", Path: "/var/log/nginx/error.log"},
-	"sfpanel":      {Name: "SFPanel", Path: "/var/log/sfpanel.log"},
-	"dpkg":         {Name: "Package Manager", Path: "/var/log/dpkg.log"},
-	"ufw":          {Name: "Firewall (UFW)", Path: "/var/log/ufw.log"},
+// defaultLogSources defines the built-in log sources with their filesystem paths.
+// The sfpanel source path is set dynamically from config via SetSFPanelLogPath.
+var defaultLogSources = map[string]logSourceInfo{
+	"syslog":  {Name: "System Log", Path: "/var/log/syslog"},
+	"auth":    {Name: "Auth Log", Path: "/var/log/auth.log"},
+	"kern":    {Name: "Kernel Log", Path: "/var/log/kern.log"},
+	"sfpanel": {Name: "SFPanel", Path: "/var/log/sfpanel/sfpanel.log"},
+	"dpkg":    {Name: "Package Manager", Path: "/var/log/dpkg.log"},
+	"firewall":  {Name: "Firewall", Path: "/var/log/kern.log", Filter: "UFW|DOCKER-USER"},
+	"fail2ban":  {Name: "Fail2ban", Path: "/var/log/fail2ban.log"},
+}
+
+// SetSFPanelLogPath updates the sfpanel log source path from config.
+func SetSFPanelLogPath(path string) {
+	if path != "" {
+		defaultLogSources["sfpanel"] = logSourceInfo{Name: "SFPanel", Path: path}
+	}
 }
 
 // LogSource represents a single log source returned by ListSources.
 type LogSource struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Size   int64  `json:"size"`
-	Exists bool   `json:"exists"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Size     int64  `json:"size"`
+	Exists   bool   `json:"exists"`
+	Custom   bool   `json:"custom"`
+	CustomID int64  `json:"custom_id,omitempty"`
 }
 
 // LogOutput represents the response payload from ReadLog.
@@ -52,14 +63,20 @@ type LogOutput struct {
 }
 
 // LogsHandler exposes REST handlers for viewing system and application logs.
-type LogsHandler struct{}
+type LogsHandler struct {
+	DB *sql.DB
+}
+
+// validSourceID matches alphanumeric, hyphens, and underscores only.
+var validSourceID = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // ListSources returns the list of known log sources along with their
-// availability and file size on disk.
+// availability and file size on disk. Custom sources from the database
+// are merged with the built-in system sources.
 func (h *LogsHandler) ListSources(c echo.Context) error {
-	sources := make([]LogSource, 0, len(logSources))
+	sources := make([]LogSource, 0, len(defaultLogSources))
 
-	for id, info := range logSources {
+	for id, info := range defaultLogSources {
 		src := LogSource{
 			ID:   id,
 			Name: info.Name,
@@ -75,12 +92,62 @@ func (h *LogsHandler) ListSources(c echo.Context) error {
 		sources = append(sources, src)
 	}
 
+	// Merge custom sources from DB
+	if h.DB != nil {
+		rows, err := h.DB.Query("SELECT id, source_id, name, path FROM custom_log_sources ORDER BY created_at ASC")
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var dbID int64
+				var sourceID, name, path string
+				if err := rows.Scan(&dbID, &sourceID, &name, &path); err != nil {
+					continue
+				}
+				src := LogSource{
+					ID:       sourceID,
+					Name:     name,
+					Path:     path,
+					Custom:   true,
+					CustomID: dbID,
+				}
+				fi, err := os.Stat(path)
+				if err == nil {
+					src.Exists = true
+					src.Size = fi.Size()
+				}
+				sources = append(sources, src)
+			}
+		}
+	}
+
 	return response.OK(c, sources)
+}
+
+// allSources returns a merged map of built-in and custom sources.
+func (h *LogsHandler) allSources() map[string]logSourceInfo {
+	merged := make(map[string]logSourceInfo, len(defaultLogSources))
+	for k, v := range defaultLogSources {
+		merged[k] = v
+	}
+	if h.DB != nil {
+		rows, err := h.DB.Query("SELECT source_id, name, path FROM custom_log_sources")
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var id, name, path string
+				if err := rows.Scan(&id, &name, &path); err != nil {
+					continue
+				}
+				merged[id] = logSourceInfo{Name: name, Path: path}
+			}
+		}
+	}
+	return merged
 }
 
 // ReadLog reads the last N lines from the requested log source.
 // Query parameters:
-//   - source (required): one of the keys in logSources
+//   - source (required): one of the keys in logSources or a custom source
 //   - lines  (optional): number of lines to return (default 100, max 5000)
 func (h *LogsHandler) ReadLog(c echo.Context) error {
 	sourceKey := c.QueryParam("source")
@@ -88,7 +155,8 @@ func (h *LogsHandler) ReadLog(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, "MISSING_SOURCE", "Query parameter 'source' is required")
 	}
 
-	info, ok := logSources[sourceKey]
+	all := h.allSources()
+	info, ok := all[sourceKey]
 	if !ok {
 		return response.Fail(c, http.StatusBadRequest, "INVALID_SOURCE", fmt.Sprintf("Unknown log source: %s", sourceKey))
 	}
@@ -111,12 +179,26 @@ func (h *LogsHandler) ReadLog(c echo.Context) error {
 		return response.Fail(c, http.StatusNotFound, "LOG_NOT_FOUND", fmt.Sprintf("Log file does not exist: %s", info.Path))
 	}
 
-	// Use tail to efficiently read the last N lines.
+	// Use tail (optionally piped through grep) to read the last N lines.
 	// #nosec G204 — info.Path is validated against the allowlist above.
-	cmd := exec.CommandContext(c.Request().Context(), "tail", "-n", strconv.Itoa(lines), info.Path)
-	output, err := cmd.Output()
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "READ_ERROR", fmt.Sprintf("Failed to read log: %v", err))
+	var output []byte
+	if info.Filter != "" {
+		// grep filter + tail: grep first to filter, then tail for line count
+		// #nosec G204 — info.Filter is from the hardcoded allowlist, not user input.
+		cmd := exec.CommandContext(c.Request().Context(), "grep", "-E", info.Filter, info.Path)
+		filtered, _ := cmd.Output() // grep returns exit 1 if no matches — that's fine
+		if len(filtered) > 0 {
+			tailCmd := exec.CommandContext(c.Request().Context(), "tail", "-n", strconv.Itoa(lines))
+			tailCmd.Stdin = strings.NewReader(string(filtered))
+			output, _ = tailCmd.Output()
+		}
+	} else {
+		cmd := exec.CommandContext(c.Request().Context(), "tail", "-n", strconv.Itoa(lines), info.Path)
+		var err2 error
+		output, err2 = cmd.Output()
+		if err2 != nil {
+			return response.Fail(c, http.StatusInternalServerError, "READ_ERROR", fmt.Sprintf("Failed to read log: %v", err2))
+		}
 	}
 
 	// Split output into individual lines, trimming the trailing empty entry
@@ -137,13 +219,14 @@ func (h *LogsHandler) ReadLog(c echo.Context) error {
 }
 
 // LogStreamWS returns an echo.HandlerFunc that upgrades the connection to a
-// WebSocket and streams new log lines in real-time using tail -f.
+// WebSocket and streams new log lines in real-time using tail -F.
 // Authentication is performed via a "token" query parameter containing a JWT.
 //
 // Query parameters:
-//   - source (required): one of the keys in logSources
+//   - source (required): one of the keys in logSources or a custom source
 //   - token  (required): valid JWT
-func LogStreamWS(jwtSecret string) echo.HandlerFunc {
+func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
+	helper := &LogsHandler{DB: database}
 	return func(c echo.Context) error {
 		// Validate JWT from query parameter.
 		token := c.QueryParam("token")
@@ -159,7 +242,8 @@ func LogStreamWS(jwtSecret string) echo.HandlerFunc {
 		if sourceKey == "" {
 			return c.String(http.StatusBadRequest, "missing source parameter")
 		}
-		info, ok := logSources[sourceKey]
+		all := helper.allSources()
+		info, ok := all[sourceKey]
 		if !ok {
 			return c.String(http.StatusBadRequest, fmt.Sprintf("unknown log source: %s", sourceKey))
 		}
@@ -174,21 +258,63 @@ func LogStreamWS(jwtSecret string) echo.HandlerFunc {
 		}
 		defer ws.Close()
 
-		// Start tail -f to follow the log file.
-		// #nosec G204 — info.Path is validated against the allowlist above.
-		cmd := exec.Command("tail", "-f", info.Path)
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
-			return nil
+		// Start tail -F to follow the log file, optionally piped through grep.
+		// -F (uppercase) follows the filename, so logrotate is handled automatically.
+		// #nosec G204 — info.Path and info.Filter are from the hardcoded allowlist.
+		tailCmd := exec.Command("tail", "-F", info.Path)
+
+		var cmd *exec.Cmd
+		var stdout *bufio.Reader
+
+		if info.Filter != "" {
+			// Pipe tail -F through grep --line-buffered for filtered streaming
+			grepCmd := exec.Command("grep", "-E", "--line-buffered", info.Filter)
+			tailOut, err := tailCmd.StdoutPipe()
+			if err != nil {
+				ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
+				return nil
+			}
+			grepCmd.Stdin = tailOut
+
+			grepOut, err := grepCmd.StdoutPipe()
+			if err != nil {
+				ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
+				return nil
+			}
+
+			if err := tailCmd.Start(); err != nil {
+				ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
+				return nil
+			}
+			if err := grepCmd.Start(); err != nil {
+				_ = tailCmd.Process.Kill()
+				_ = tailCmd.Wait()
+				ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
+				return nil
+			}
+
+			stdout = bufio.NewReader(grepOut)
+			cmd = grepCmd
+
+			defer func() {
+				_ = tailCmd.Process.Kill()
+				_ = tailCmd.Wait()
+			}()
+		} else {
+			pipeOut, err := tailCmd.StdoutPipe()
+			if err != nil {
+				ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
+				return nil
+			}
+			if err := tailCmd.Start(); err != nil {
+				ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
+				return nil
+			}
+			stdout = bufio.NewReader(pipeOut)
+			cmd = tailCmd
 		}
 
-		if err := cmd.Start(); err != nil {
-			ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
-			return nil
-		}
-
-		// Ensure the tail process is killed when the handler exits.
+		// Ensure the process is killed when the handler exits.
 		defer func() {
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
@@ -209,7 +335,7 @@ func LogStreamWS(jwtSecret string) echo.HandlerFunc {
 		go func() {
 			scanner := bufio.NewScanner(stdout)
 			for scanner.Scan() {
-				if err := ws.WriteMessage(websocket.TextMessage, scanner.Bytes()); err != nil {
+				if wsErr := ws.WriteMessage(websocket.TextMessage, scanner.Bytes()); wsErr != nil {
 					return
 				}
 			}
@@ -219,4 +345,97 @@ func LogStreamWS(jwtSecret string) echo.HandlerFunc {
 		<-done
 		return nil
 	}
+}
+
+// AddCustomSource adds a new custom log source.
+// POST /api/v1/logs/custom-sources
+func (h *LogsHandler) AddCustomSource(c echo.Context) error {
+	var req struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, "INVALID_BODY", "Invalid request body")
+	}
+
+	req.Name = strings.TrimSpace(req.Name)
+	req.Path = strings.TrimSpace(req.Path)
+
+	if req.Name == "" || req.Path == "" {
+		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Both 'name' and 'path' are required")
+	}
+
+	// Security: absolute path required, no path traversal
+	if !filepath.IsAbs(req.Path) {
+		return response.Fail(c, http.StatusBadRequest, "PATH_INVALID", "Path must be absolute")
+	}
+	if strings.Contains(req.Path, "..") {
+		return response.Fail(c, http.StatusBadRequest, "PATH_INVALID", "Path must not contain '..'")
+	}
+
+	// Generate source_id from name: lowercase, replace spaces with hyphens
+	sourceID := strings.ToLower(strings.ReplaceAll(req.Name, " ", "-"))
+	sourceID = regexp.MustCompile(`[^a-z0-9_-]`).ReplaceAllString(sourceID, "")
+	if sourceID == "" {
+		return response.Fail(c, http.StatusBadRequest, "INVALID_NAME", "Name must contain alphanumeric characters")
+	}
+	// Prefix custom- to avoid collision with built-in sources
+	sourceID = "custom-" + sourceID
+
+	// Check for collision with built-in sources
+	if _, ok := defaultLogSources[sourceID]; ok {
+		return response.Fail(c, http.StatusConflict, "SOURCE_EXISTS", "A built-in source with this ID already exists")
+	}
+
+	res, err := h.DB.Exec(
+		"INSERT INTO custom_log_sources (source_id, name, path) VALUES (?, ?, ?)",
+		sourceID, req.Name, req.Path,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			return response.Fail(c, http.StatusConflict, "SOURCE_EXISTS", "A custom source with this name already exists")
+		}
+		return response.Fail(c, http.StatusInternalServerError, "DB_ERROR", fmt.Sprintf("Failed to add source: %v", err))
+	}
+
+	id, _ := res.LastInsertId()
+
+	src := LogSource{
+		ID:     sourceID,
+		Name:   req.Name,
+		Path:   req.Path,
+		Custom: true,
+	}
+	fi, statErr := os.Stat(req.Path)
+	if statErr == nil {
+		src.Exists = true
+		src.Size = fi.Size()
+	}
+
+	return response.OK(c, map[string]interface{}{
+		"id":     id,
+		"source": src,
+	})
+}
+
+// DeleteCustomSource deletes a custom log source by its database ID.
+// DELETE /api/v1/logs/custom-sources/:id
+func (h *LogsHandler) DeleteCustomSource(c echo.Context) error {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, "INVALID_ID", "Invalid source ID")
+	}
+
+	res, err := h.DB.Exec("DELETE FROM custom_log_sources WHERE id = ?", id)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, "DB_ERROR", fmt.Sprintf("Failed to delete source: %v", err))
+	}
+
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return response.Fail(c, http.StatusNotFound, "NOT_FOUND", "Custom source not found")
+	}
+
+	return response.OK(c, map[string]string{"message": "Custom source deleted"})
 }
