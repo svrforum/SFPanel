@@ -14,7 +14,8 @@ type SettingsHandler struct {
 
 // defaults for settings that haven't been saved yet.
 var settingDefaults = map[string]string{
-	"terminal_timeout": "30",
+	"terminal_timeout":  "30",
+	"max_upload_size": "1024",
 }
 
 func (h *SettingsHandler) GetSettings(c echo.Context) error {
@@ -28,7 +29,7 @@ func (h *SettingsHandler) GetSettings(c echo.Context) error {
 	// Override with DB values
 	rows, err := h.DB.Query("SELECT key, value FROM settings")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DB_ERROR", "Failed to read settings")
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to read settings")
 	}
 	defer rows.Close()
 
@@ -50,11 +51,11 @@ type updateSettingsRequest struct {
 func (h *SettingsHandler) UpdateSettings(c echo.Context) error {
 	var req updateSettingsRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if len(req.Settings) == 0 {
-		return response.Fail(c, http.StatusBadRequest, "EMPTY_SETTINGS", "No settings provided")
+		return response.Fail(c, http.StatusBadRequest, response.ErrEmptySettings, "No settings provided")
 	}
 
 	for key, value := range req.Settings {
@@ -63,7 +64,7 @@ func (h *SettingsHandler) UpdateSettings(c echo.Context) error {
 			key, value,
 		)
 		if err != nil {
-			return response.Fail(c, http.StatusInternalServerError, "DB_ERROR", "Failed to save settings")
+			return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to save settings")
 		}
 	}
 

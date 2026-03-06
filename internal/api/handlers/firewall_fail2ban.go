@@ -48,7 +48,7 @@ func (h *FirewallHandler) InstallFail2ban(c echo.Context) error {
 	// Step 1: apt-get update
 	_, err := runCommandEnv(aptEnv(), "apt-get", "update")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "APT_UPDATE_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
 			"Failed to update package lists: "+err.Error())
 	}
 
@@ -79,7 +79,7 @@ func (h *FirewallHandler) InstallFail2ban(c echo.Context) error {
 func (h *FirewallHandler) ListJails(c echo.Context) error {
 	output, err := runCommand("fail2ban-client", "status")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFail2banError,
 			"Failed to get fail2ban status: "+err.Error())
 	}
 
@@ -216,10 +216,10 @@ func parseFail2banJailStatus(output string, jail Fail2banJail) Fail2banJail {
 func (h *FirewallHandler) GetJailDetail(c echo.Context) error {
 	name := c.Param("name")
 	if name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_JAIL_NAME", "Jail name is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
 	}
 	if !validJailName.MatchString(name) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_JAIL_NAME",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidJailName,
 			"Jail name contains invalid characters (allowed: a-zA-Z0-9_-)")
 	}
 
@@ -244,10 +244,10 @@ func (h *FirewallHandler) GetJailDetail(c echo.Context) error {
 func (h *FirewallHandler) EnableJail(c echo.Context) error {
 	name := c.Param("name")
 	if name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_JAIL_NAME", "Jail name is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
 	}
 	if !validJailName.MatchString(name) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_JAIL_NAME",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidJailName,
 			"Jail name contains invalid characters (allowed: a-zA-Z0-9_-)")
 	}
 
@@ -268,10 +268,10 @@ func (h *FirewallHandler) EnableJail(c echo.Context) error {
 func (h *FirewallHandler) DisableJail(c echo.Context) error {
 	name := c.Param("name")
 	if name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_JAIL_NAME", "Jail name is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
 	}
 	if !validJailName.MatchString(name) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_JAIL_NAME",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidJailName,
 			"Jail name contains invalid characters (allowed: a-zA-Z0-9_-)")
 	}
 
@@ -293,10 +293,10 @@ func (h *FirewallHandler) DisableJail(c echo.Context) error {
 func (h *FirewallHandler) UpdateJailConfig(c echo.Context) error {
 	name := c.Param("name")
 	if name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_JAIL_NAME", "Jail name is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
 	}
 	if !validJailName.MatchString(name) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_JAIL_NAME",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidJailName,
 			"Jail name contains invalid characters (allowed: a-zA-Z0-9_-)")
 	}
 
@@ -306,13 +306,13 @@ func (h *FirewallHandler) UpdateJailConfig(c echo.Context) error {
 		FindTime *string `json:"find_time"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	// Validate and apply maxretry
 	if req.MaxRetry != nil {
 		if *req.MaxRetry < 1 || *req.MaxRetry > 100 {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_MAX_RETRY",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidMaxRetry,
 				"max_retry must be between 1 and 100")
 		}
 		_, err := runCommand("fail2ban-client", "set", name, "maxretry", strconv.Itoa(*req.MaxRetry))
@@ -325,7 +325,7 @@ func (h *FirewallHandler) UpdateJailConfig(c echo.Context) error {
 	// Validate and apply bantime
 	if req.BanTime != nil {
 		if !validBanTime.MatchString(*req.BanTime) {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_BAN_TIME",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBanTime,
 				"ban_time must be a number (seconds) or a time expression like 10m, 1h, 1d")
 		}
 		_, err := runCommand("fail2ban-client", "set", name, "bantime", *req.BanTime)
@@ -338,7 +338,7 @@ func (h *FirewallHandler) UpdateJailConfig(c echo.Context) error {
 	// Validate and apply findtime
 	if req.FindTime != nil {
 		if !validBanTime.MatchString(*req.FindTime) {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_FIND_TIME",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFindTime,
 				"find_time must be a number (seconds) or a time expression like 10m, 1h, 1d")
 		}
 		_, err := runCommand("fail2ban-client", "set", name, "findtime", *req.FindTime)
@@ -359,10 +359,10 @@ func (h *FirewallHandler) UpdateJailConfig(c echo.Context) error {
 func (h *FirewallHandler) UnbanIP(c echo.Context) error {
 	name := c.Param("name")
 	if name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_JAIL_NAME", "Jail name is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
 	}
 	if !validJailName.MatchString(name) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_JAIL_NAME",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidJailName,
 			"Jail name contains invalid characters (allowed: a-zA-Z0-9_-)")
 	}
 
@@ -370,13 +370,13 @@ func (h *FirewallHandler) UnbanIP(c echo.Context) error {
 		IP string `json:"ip"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	if req.IP == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "IP address is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "IP address is required")
 	}
 	if !validIP.MatchString(req.IP) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_IP",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidIP,
 			"IP address must be a valid IPv4 or IPv6 address")
 	}
 
@@ -511,11 +511,11 @@ var validLogPath = regexp.MustCompile(`^[a-zA-Z0-9/_\-.*]+\.log[a-zA-Z0-9/_\-.*]
 func (h *FirewallHandler) CreateJail(c echo.Context) error {
 	var req CreateJailRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if req.ID == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Template ID is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Template ID is required")
 	}
 
 	var jailName, filterName, logPath string
@@ -524,19 +524,19 @@ func (h *FirewallHandler) CreateJail(c echo.Context) error {
 	if req.ID == "custom" {
 		// Custom jail creation
 		if req.Name == "" || req.Filter == "" || req.LogPath == "" {
-			return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS",
+			return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields,
 				"Custom jail requires name, filter, and log_path")
 		}
 		if !validJailName.MatchString(req.Name) {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_JAIL_NAME",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidJailName,
 				"Jail name contains invalid characters (use letters, numbers, hyphens, underscores)")
 		}
 		if !validJailName.MatchString(req.Filter) {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_FILTER_NAME",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFilterName,
 				"Filter name contains invalid characters")
 		}
 		if !validLogPath.MatchString(req.LogPath) {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_LOG_PATH",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidLogPath,
 				"Log path contains invalid characters")
 		}
 		jailName = req.Name
@@ -557,7 +557,7 @@ func (h *FirewallHandler) CreateJail(c echo.Context) error {
 	} else {
 		// Template-based jail creation
 		if !validJailName.MatchString(req.ID) {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_JAIL_NAME",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidJailName,
 				"Jail name contains invalid characters")
 		}
 
@@ -569,7 +569,7 @@ func (h *FirewallHandler) CreateJail(c echo.Context) error {
 			}
 		}
 		if tmpl == nil {
-			return response.Fail(c, http.StatusBadRequest, "UNKNOWN_TEMPLATE",
+			return response.Fail(c, http.StatusBadRequest, response.ErrUnknownTemplate,
 				"Unknown jail template: "+req.ID)
 		}
 
@@ -591,7 +591,7 @@ func (h *FirewallHandler) CreateJail(c echo.Context) error {
 		}
 		if req.LogPath != "" {
 			if !validLogPath.MatchString(req.LogPath) {
-				return response.Fail(c, http.StatusBadRequest, "INVALID_LOG_PATH",
+				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidLogPath,
 					"Log path contains invalid characters")
 			}
 			logPath = req.LogPath
@@ -602,7 +602,7 @@ func (h *FirewallHandler) CreateJail(c echo.Context) error {
 	existingOutput, _ := runCommand("fail2ban-client", "status")
 	for _, name := range parseFail2banJailList(existingOutput) {
 		if name == jailName {
-			return response.Fail(c, http.StatusConflict, "JAIL_EXISTS",
+			return response.Fail(c, http.StatusConflict, response.ErrJailExists,
 				fmt.Sprintf("Jail %s already exists", jailName))
 		}
 	}
@@ -619,7 +619,7 @@ findtime = %d
 
 	configPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.local", jailName)
 	if err := writeFile(configPath, configContent); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "FILE_WRITE_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileWriteError,
 			"Failed to write jail config: "+err.Error())
 	}
 
@@ -640,10 +640,10 @@ findtime = %d
 func (h *FirewallHandler) DeleteJail(c echo.Context) error {
 	name := c.Param("name")
 	if name == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_JAIL_NAME", "Jail name is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
 	}
 	if !validJailName.MatchString(name) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_JAIL_NAME",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidJailName,
 			"Jail name contains invalid characters (allowed: a-zA-Z0-9_-)")
 	}
 
@@ -656,13 +656,13 @@ func (h *FirewallHandler) DeleteJail(c echo.Context) error {
 enabled = false
 `, name)
 		if writeErr := writeFile(configPath, configContent); writeErr != nil {
-			return response.Fail(c, http.StatusInternalServerError, "FILE_WRITE_ERROR",
+			return response.Fail(c, http.StatusInternalServerError, response.ErrFileWriteError,
 				"Failed to disable jail: "+writeErr.Error())
 		}
 	} else {
 		// Remove the .local file
 		if _, err := runCommand("rm", configPath); err != nil {
-			return response.Fail(c, http.StatusInternalServerError, "FILE_DELETE_ERROR",
+			return response.Fail(c, http.StatusInternalServerError, response.ErrFileDeleteError,
 				"Failed to remove jail config: "+err.Error())
 		}
 	}

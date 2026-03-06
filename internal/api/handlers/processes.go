@@ -29,7 +29,7 @@ type ProcessesHandler struct{}
 func (h *ProcessesHandler) TopProcesses(c echo.Context) error {
 	infos, err := collectProcesses()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "PROCESS_ERROR", "Failed to list processes")
+		return response.Fail(c, http.StatusInternalServerError, response.ErrProcessError, "Failed to list processes")
 	}
 
 	sort.Slice(infos, func(i, j int) bool {
@@ -48,7 +48,7 @@ func (h *ProcessesHandler) TopProcesses(c echo.Context) error {
 func (h *ProcessesHandler) ListProcesses(c echo.Context) error {
 	infos, err := collectProcesses()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "PROCESS_ERROR", "Failed to list processes")
+		return response.Fail(c, http.StatusInternalServerError, response.ErrProcessError, "Failed to list processes")
 	}
 
 	// Filter by search query
@@ -93,7 +93,7 @@ func (h *ProcessesHandler) KillProcess(c echo.Context) error {
 	pidStr := c.Param("pid")
 	pid, err := strconv.ParseInt(pidStr, 10, 32)
 	if err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PID", "Invalid PID")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPID, "Invalid PID")
 	}
 
 	var req struct {
@@ -118,18 +118,18 @@ func (h *ProcessesHandler) KillProcess(c echo.Context) error {
 	case "INT", "2":
 		sig = syscall.SIGINT
 	default:
-		return response.Fail(c, http.StatusBadRequest, "INVALID_SIGNAL",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSignal,
 			"Supported signals: TERM, KILL, HUP, INT")
 	}
 
 	p, err := process.NewProcess(int32(pid))
 	if err != nil {
-		return response.Fail(c, http.StatusNotFound, "PROCESS_NOT_FOUND",
+		return response.Fail(c, http.StatusNotFound, response.ErrProcessNotFound,
 			fmt.Sprintf("Process %d not found", pid))
 	}
 
 	if err := p.SendSignal(sig); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "KILL_FAILED",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrKillFailed,
 			fmt.Sprintf("Failed to send signal %s to process %d: %s", req.Signal, pid, err.Error()))
 	}
 

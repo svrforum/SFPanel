@@ -25,7 +25,7 @@ func (h *DiskHandler) InstallSmartmontools(c echo.Context) error {
 	out, err := exec.Command("apt-get", "install", "-y", "smartmontools").CombinedOutput()
 	output := strings.TrimSpace(string(out))
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "INSTALL_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInstallError,
 			fmt.Sprintf("apt install failed: %s", output))
 	}
 	return response.OK(c, map[string]interface{}{
@@ -41,13 +41,13 @@ func (h *DiskHandler) ListDisks(c echo.Context) error {
 	out, err := exec.Command("lsblk", "-J", "-b", "-o",
 		"NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR").CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DISK_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
 			fmt.Sprintf("lsblk failed: %s", strings.TrimSpace(string(out))))
 	}
 
 	devices, err := parseLsblkJSON(out)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DISK_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
 			fmt.Sprintf("failed to parse lsblk output: %v", err))
 	}
 
@@ -174,11 +174,11 @@ func convertLsblkDevice(d lsblkDevice) BlockDevice {
 func (h *DiskHandler) GetSmartInfo(c echo.Context) error {
 	device := c.Param("device")
 	if err := validateDeviceName(device); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	if !commandExists("smartctl") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"smartctl is not installed. Install smartmontools: apt install smartmontools")
 	}
 
@@ -188,14 +188,14 @@ func (h *DiskHandler) GetSmartInfo(c echo.Context) error {
 		// smartctl returns non-zero exit codes for various SMART statuses;
 		// we still try to parse the JSON output.
 		if len(out) == 0 {
-			return response.Fail(c, http.StatusInternalServerError, "SMART_ERROR",
+			return response.Fail(c, http.StatusInternalServerError, response.ErrSMARTError,
 				fmt.Sprintf("smartctl failed: %v", err))
 		}
 	}
 
 	info, err := parseSmartctlJSON(devPath, out)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "SMART_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrSMARTError,
 			fmt.Sprintf("failed to parse smartctl output: %v", err))
 	}
 

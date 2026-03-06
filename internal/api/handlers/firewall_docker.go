@@ -55,7 +55,7 @@ func (h *FirewallHandler) GetDockerFirewall(c echo.Context) error {
 	rules, rulesErr := getDockerUserRules()
 
 	if portsErr != nil && rulesErr != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_FIREWALL_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerFirewallError,
 			"Failed to get Docker firewall info: "+portsErr.Error())
 	}
 
@@ -291,12 +291,12 @@ func getDockerUserRules() ([]DockerUserRule, error) {
 func (h *FirewallHandler) AddDockerUserRule(c echo.Context) error {
 	var req AddDockerRuleRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	// Validate port
 	if req.Port < 1 || req.Port > 65535 {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PORT",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPort,
 			"Port must be between 1 and 65535")
 	}
 
@@ -306,7 +306,7 @@ func (h *FirewallHandler) AddDockerUserRule(c echo.Context) error {
 	}
 	req.Protocol = strings.ToLower(req.Protocol)
 	if req.Protocol != "tcp" && req.Protocol != "udp" {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_PROTOCOL",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidProtocol,
 			"Protocol must be tcp or udp")
 	}
 
@@ -316,14 +316,14 @@ func (h *FirewallHandler) AddDockerUserRule(c echo.Context) error {
 	}
 	req.Action = strings.ToLower(req.Action)
 	if !validDockerAction.MatchString(req.Action) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_ACTION",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidAction,
 			"Action must be drop or accept")
 	}
 
 	// Validate source IP if provided
 	if req.Source != "" {
 		if !validIP.MatchString(req.Source) {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_SOURCE",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSource,
 				"Source must be a valid IP or CIDR notation")
 		}
 	}
@@ -349,7 +349,7 @@ func (h *FirewallHandler) AddDockerUserRule(c echo.Context) error {
 
 	_, err := runCommand("iptables", args...)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "IPTABLES_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrIPTablesError,
 			"Failed to add DOCKER-USER rule: "+err.Error())
 	}
 
@@ -386,7 +386,7 @@ func (h *FirewallHandler) DeleteDockerUserRule(c echo.Context) error {
 	numberStr := c.Param("number")
 	number, err := strconv.Atoi(numberStr)
 	if err != nil || number < 1 {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_RULE_NUMBER",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRuleNumber,
 			"Rule number must be a positive integer")
 	}
 
@@ -409,7 +409,7 @@ func (h *FirewallHandler) DeleteDockerUserRule(c echo.Context) error {
 
 	_, err = runCommand("iptables", "-D", "DOCKER-USER", strconv.Itoa(number))
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "IPTABLES_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrIPTablesError,
 			"Failed to delete DOCKER-USER rule: "+err.Error())
 	}
 

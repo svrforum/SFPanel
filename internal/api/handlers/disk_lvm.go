@@ -17,20 +17,20 @@ import (
 // ListPVs returns all LVM physical volumes.
 func (h *DiskHandler) ListPVs(c echo.Context) error {
 	if !commandExists("pvs") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
 	out, err := exec.Command("pvs", "--reportformat", "json",
 		"-o", "pv_name,vg_name,pv_size,pv_free,pv_attr").CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("pvs failed: %s", strings.TrimSpace(string(out))))
 	}
 
 	pvs, err := parsePVsJSON(out)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("failed to parse pvs output: %v", err))
 	}
 
@@ -72,20 +72,20 @@ func parsePVsJSON(data []byte) ([]PhysicalVolume, error) {
 // ListVGs returns all LVM volume groups.
 func (h *DiskHandler) ListVGs(c echo.Context) error {
 	if !commandExists("vgs") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
 	out, err := exec.Command("vgs", "--reportformat", "json",
 		"-o", "vg_name,vg_size,vg_free,pv_count,lv_count,vg_attr").CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("vgs failed: %s", strings.TrimSpace(string(out))))
 	}
 
 	vgs, err := parseVGsJSON(out)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("failed to parse vgs output: %v", err))
 	}
 
@@ -131,20 +131,20 @@ func parseVGsJSON(data []byte) ([]VolumeGroup, error) {
 // ListLVs returns all LVM logical volumes.
 func (h *DiskHandler) ListLVs(c echo.Context) error {
 	if !commandExists("lvs") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
 	out, err := exec.Command("lvs", "--reportformat", "json",
 		"-o", "lv_name,vg_name,lv_size,lv_attr,lv_path,pool_lv,data_percent").CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("lvs failed: %s", strings.TrimSpace(string(out))))
 	}
 
 	lvs, err := parseLVsJSON(out)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("failed to parse lvs output: %v", err))
 	}
 
@@ -190,23 +190,23 @@ func parseLVsJSON(data []byte) ([]LogicalVolume, error) {
 // CreatePV creates a new LVM physical volume on a device.
 func (h *DiskHandler) CreatePV(c echo.Context) error {
 	if !commandExists("pvcreate") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
 	var req CreatePVRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateDeviceName(req.Device); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	devPath := "/dev/" + req.Device
 	out, err := exec.Command("pvcreate", devPath).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("pvcreate failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -218,20 +218,20 @@ func (h *DiskHandler) CreatePV(c echo.Context) error {
 // CreateVG creates a new LVM volume group.
 func (h *DiskHandler) CreateVG(c echo.Context) error {
 	if !commandExists("vgcreate") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
 	var req CreateVGRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateLVMName(req.Name); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_NAME", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, err.Error())
 	}
 	if len(req.PVs) == 0 {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS",
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields,
 			"At least one physical volume is required")
 	}
 
@@ -242,7 +242,7 @@ func (h *DiskHandler) CreateVG(c echo.Context) error {
 		pvPath := pv
 		if !strings.HasPrefix(pv, "/dev/") {
 			if err := validateDeviceName(pv); err != nil {
-				return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE",
+				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
 					fmt.Sprintf("invalid PV device: %s", err.Error()))
 			}
 			pvPath = "/dev/" + pv
@@ -250,7 +250,7 @@ func (h *DiskHandler) CreateVG(c echo.Context) error {
 			// Validate the part after /dev/
 			devName := strings.TrimPrefix(pv, "/dev/")
 			if err := validateDeviceName(devName); err != nil {
-				return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE",
+				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
 					fmt.Sprintf("invalid PV device: %s", err.Error()))
 			}
 		}
@@ -260,7 +260,7 @@ func (h *DiskHandler) CreateVG(c echo.Context) error {
 	args := append([]string{req.Name}, pvPaths...)
 	out, err := exec.Command("vgcreate", args...).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("vgcreate failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -272,28 +272,28 @@ func (h *DiskHandler) CreateVG(c echo.Context) error {
 // CreateLV creates a new LVM logical volume.
 func (h *DiskHandler) CreateLV(c echo.Context) error {
 	if !commandExists("lvcreate") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
 	var req CreateLVRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateLVMName(req.Name); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_NAME", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, err.Error())
 	}
 	if err := validateLVMName(req.VG); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_VG", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidVG, err.Error())
 	}
 	if err := validateLVSize(req.Size); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_SIZE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSize, err.Error())
 	}
 
 	out, err := exec.Command("lvcreate", "-L", req.Size, "-n", req.Name, req.VG).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("lvcreate failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -305,19 +305,19 @@ func (h *DiskHandler) CreateLV(c echo.Context) error {
 // RemovePV removes an LVM physical volume.
 func (h *DiskHandler) RemovePV(c echo.Context) error {
 	if !commandExists("pvremove") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
 	name := c.Param("name")
 	if err := validateDeviceName(name); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	devPath := "/dev/" + name
 	out, err := exec.Command("pvremove", devPath).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("pvremove failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -329,18 +329,18 @@ func (h *DiskHandler) RemovePV(c echo.Context) error {
 // RemoveVG removes an LVM volume group.
 func (h *DiskHandler) RemoveVG(c echo.Context) error {
 	if !commandExists("vgremove") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
 	name := c.Param("name")
 	if err := validateLVMName(name); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_NAME", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, err.Error())
 	}
 
 	out, err := exec.Command("vgremove", name).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("vgremove failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -352,23 +352,23 @@ func (h *DiskHandler) RemoveVG(c echo.Context) error {
 // RemoveLV removes an LVM logical volume.
 func (h *DiskHandler) RemoveLV(c echo.Context) error {
 	if !commandExists("lvremove") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
 	vg := c.Param("vg")
 	name := c.Param("name")
 	if err := validateLVMName(vg); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_VG", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidVG, err.Error())
 	}
 	if err := validateLVMName(name); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_NAME", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, err.Error())
 	}
 
 	lvPath := vg + "/" + name
 	out, err := exec.Command("lvremove", "-f", lvPath).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("lvremove failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -380,29 +380,29 @@ func (h *DiskHandler) RemoveLV(c echo.Context) error {
 // ResizeLV resizes an LVM logical volume.
 func (h *DiskHandler) ResizeLV(c echo.Context) error {
 	if !commandExists("lvresize") {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
 	var req ResizeLVRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateLVMName(req.VG); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_VG", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidVG, err.Error())
 	}
 	if err := validateLVMName(req.Name); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_NAME", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, err.Error())
 	}
 	if err := validateLVSize(req.Size); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_SIZE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSize, err.Error())
 	}
 
 	lvPath := "/dev/" + req.VG + "/" + req.Name
 	out, err := exec.Command("lvresize", "-L", req.Size, lvPath).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "LVM_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("lvresize failed: %s", strings.TrimSpace(string(out))))
 	}
 

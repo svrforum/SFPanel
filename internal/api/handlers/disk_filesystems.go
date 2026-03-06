@@ -21,13 +21,13 @@ import (
 func (h *DiskHandler) ListFilesystems(c echo.Context) error {
 	out, err := exec.Command("df", "-B1", "--output=source,fstype,size,used,avail,pcent,target").CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "FS_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
 			fmt.Sprintf("df failed: %s", strings.TrimSpace(string(out))))
 	}
 
 	filesystems, err := parseDfOutput(out)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "FS_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
 			fmt.Sprintf("failed to parse df output: %v", err))
 	}
 
@@ -40,12 +40,12 @@ func (h *DiskHandler) CheckExpandable(c echo.Context) error {
 	// Get current filesystems
 	out, err := exec.Command("df", "-B1", "--output=source,fstype,size,used,avail,pcent,target").CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "FS_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
 			fmt.Sprintf("df failed: %s", strings.TrimSpace(string(out))))
 	}
 	filesystems, err := parseDfOutput(out)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "FS_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
 			fmt.Sprintf("failed to parse df output: %v", err))
 	}
 
@@ -184,27 +184,27 @@ func (h *DiskHandler) ExpandFilesystem(c echo.Context) error {
 		Source string `json:"source"` // full path like /dev/mapper/ubuntu--vg-ubuntu--lv or /dev/sda2
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if req.Source == "" {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "source is required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "source is required")
 	}
 
 	// Validate the source path
 	if !strings.HasPrefix(req.Source, "/dev/") {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", "source must start with /dev/")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, "source must start with /dev/")
 	}
 	// Strip /dev/ for validation, then add back
 	devName := strings.TrimPrefix(req.Source, "/dev/")
 	if err := validateDeviceName(devName); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	// Detect filesystem type
 	blkOut, err := exec.Command("blkid", "-o", "value", "-s", "TYPE", req.Source).Output()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "EXPAND_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
 			"failed to detect filesystem type")
 	}
 	fsType := strings.TrimSpace(string(blkOut))
@@ -214,7 +214,7 @@ func (h *DiskHandler) ExpandFilesystem(c echo.Context) error {
 		"xfs": true, "btrfs": true,
 	}
 	if !resizableTypes[fsType] {
-		return response.Fail(c, http.StatusBadRequest, "EXPAND_ERROR",
+		return response.Fail(c, http.StatusBadRequest, response.ErrExpandError,
 			fmt.Sprintf("filesystem type %s does not support expansion", fsType))
 	}
 
@@ -224,7 +224,7 @@ func (h *DiskHandler) ExpandFilesystem(c echo.Context) error {
 	if isLVM && commandExists("lvs") {
 		vgName, _ := getVGInfoForLV(req.Source)
 		if vgName == "" {
-			return response.Fail(c, http.StatusBadRequest, "EXPAND_ERROR", "not an LVM logical volume")
+			return response.Fail(c, http.StatusBadRequest, response.ErrExpandError, "not an LVM logical volume")
 		}
 
 		pvDevice := getPVDeviceForVG(vgName)
@@ -238,7 +238,7 @@ func (h *DiskHandler) ExpandFilesystem(c echo.Context) error {
 						gpOut, err := exec.Command("growpart", parentDisk, partNum).CombinedOutput()
 						gpMsg := strings.TrimSpace(string(gpOut))
 						if err != nil && !strings.Contains(gpMsg, "NOCHANGE") {
-							return response.Fail(c, http.StatusInternalServerError, "EXPAND_ERROR",
+							return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
 								fmt.Sprintf("growpart failed: %s", gpMsg))
 						}
 						executedSteps = append(executedSteps, "growpart "+parentDisk+" "+partNum)
@@ -248,7 +248,7 @@ func (h *DiskHandler) ExpandFilesystem(c echo.Context) error {
 					if commandExists("pvresize") {
 						pvOut, err := exec.Command("pvresize", pvDevice).CombinedOutput()
 						if err != nil {
-							return response.Fail(c, http.StatusInternalServerError, "EXPAND_ERROR",
+							return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
 								fmt.Sprintf("pvresize failed: %s", strings.TrimSpace(string(pvOut))))
 						}
 						executedSteps = append(executedSteps, "pvresize "+pvDevice)
@@ -265,7 +265,7 @@ func (h *DiskHandler) ExpandFilesystem(c echo.Context) error {
 				if !strings.Contains(strings.ToLower(errMsg), "insufficient") &&
 					!strings.Contains(strings.ToLower(errMsg), "unchanged") &&
 					!strings.Contains(strings.ToLower(errMsg), "no free") {
-					return response.Fail(c, http.StatusInternalServerError, "EXPAND_ERROR",
+					return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
 						fmt.Sprintf("lvextend failed: %s", errMsg))
 				}
 			} else {
@@ -281,7 +281,7 @@ func (h *DiskHandler) ExpandFilesystem(c echo.Context) error {
 				gpOut, err := exec.Command("growpart", parentDisk, partNum).CombinedOutput()
 				gpMsg := strings.TrimSpace(string(gpOut))
 				if err != nil && !strings.Contains(gpMsg, "NOCHANGE") {
-					return response.Fail(c, http.StatusInternalServerError, "EXPAND_ERROR",
+					return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
 						fmt.Sprintf("growpart failed: %s", gpMsg))
 				}
 				executedSteps = append(executedSteps, "growpart "+parentDisk+" "+partNum)
@@ -292,7 +292,7 @@ func (h *DiskHandler) ExpandFilesystem(c echo.Context) error {
 	// Final step: resize filesystem
 	resizeCmd := getResizeCommand(fsType)
 	if resizeCmd == "" || !commandExists(resizeCmd) {
-		return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			fmt.Sprintf("%s is not installed", resizeCmd))
 	}
 
@@ -303,20 +303,20 @@ func (h *DiskHandler) ExpandFilesystem(c echo.Context) error {
 	case "xfs":
 		mp, err := findMountPoint(req.Source)
 		if err != nil || mp == "" {
-			return response.Fail(c, http.StatusBadRequest, "EXPAND_ERROR", "XFS must be mounted")
+			return response.Fail(c, http.StatusBadRequest, response.ErrExpandError, "XFS must be mounted")
 		}
 		cmd = exec.Command("xfs_growfs", mp)
 	case "btrfs":
 		mp, err := findMountPoint(req.Source)
 		if err != nil || mp == "" {
-			return response.Fail(c, http.StatusBadRequest, "EXPAND_ERROR", "Btrfs must be mounted")
+			return response.Fail(c, http.StatusBadRequest, response.ErrExpandError, "Btrfs must be mounted")
 		}
 		cmd = exec.Command("btrfs", "filesystem", "resize", "max", mp)
 	}
 
 	resOut, err := cmd.CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "EXPAND_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
 			fmt.Sprintf("filesystem resize failed: %s", strings.TrimSpace(string(resOut))))
 	}
 	executedSteps = append(executedSteps, resizeCmd+" "+req.Source)
@@ -500,14 +500,14 @@ func parseDfOutput(data []byte) ([]Filesystem, error) {
 func (h *DiskHandler) FormatPartition(c echo.Context) error {
 	var req FormatPartitionRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateDeviceName(req.Device); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 	if err := validateFsType(req.FsType); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_FSTYPE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFSType, err.Error())
 	}
 
 	devPath := "/dev/" + req.Device
@@ -518,7 +518,7 @@ func (h *DiskHandler) FormatPartition(c echo.Context) error {
 	case "ext2", "ext3", "ext4":
 		mkfsCmd := "mkfs." + req.FsType
 		if !commandExists(mkfsCmd) {
-			return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 				fmt.Sprintf("%s is not installed", mkfsCmd))
 		}
 		args := []string{"-F"}
@@ -530,7 +530,7 @@ func (h *DiskHandler) FormatPartition(c echo.Context) error {
 
 	case "xfs":
 		if !commandExists("mkfs.xfs") {
-			return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 				"mkfs.xfs is not installed. Install xfsprogs: apt install xfsprogs")
 		}
 		args := []string{"-f"}
@@ -542,7 +542,7 @@ func (h *DiskHandler) FormatPartition(c echo.Context) error {
 
 	case "btrfs":
 		if !commandExists("mkfs.btrfs") {
-			return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 				"mkfs.btrfs is not installed. Install btrfs-progs: apt install btrfs-progs")
 		}
 		args := []string{"-f"}
@@ -554,7 +554,7 @@ func (h *DiskHandler) FormatPartition(c echo.Context) error {
 
 	case "vfat", "fat32":
 		if !commandExists("mkfs.vfat") {
-			return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 				"mkfs.vfat is not installed. Install dosfstools: apt install dosfstools")
 		}
 		args := []string{}
@@ -566,7 +566,7 @@ func (h *DiskHandler) FormatPartition(c echo.Context) error {
 
 	case "ntfs":
 		if !commandExists("mkfs.ntfs") {
-			return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 				"mkfs.ntfs is not installed. Install ntfs-3g: apt install ntfs-3g")
 		}
 		args := []string{"-F"}
@@ -577,13 +577,13 @@ func (h *DiskHandler) FormatPartition(c echo.Context) error {
 		cmd = exec.Command("mkfs.ntfs", args...)
 
 	default:
-		return response.Fail(c, http.StatusBadRequest, "INVALID_FSTYPE",
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFSType,
 			fmt.Sprintf("unsupported filesystem type: %s", req.FsType))
 	}
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "FORMAT_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFormatError,
 			fmt.Sprintf("format failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -596,35 +596,35 @@ func (h *DiskHandler) FormatPartition(c echo.Context) error {
 func (h *DiskHandler) MountFilesystem(c echo.Context) error {
 	var req MountFilesystemRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateDeviceName(req.Device); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 	if err := validateDiskPath(req.MountPoint); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_MOUNTPOINT", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidMountpoint, err.Error())
 	}
 
 	devPath := "/dev/" + req.Device
 
 	// Ensure mount point directory exists
 	if err := os.MkdirAll(req.MountPoint, 0755); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "MOUNT_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrMountError,
 			fmt.Sprintf("failed to create mount point directory: %v", err))
 	}
 
 	args := []string{}
 	if req.FsType != "" {
 		if err := validateFsType(req.FsType); err != nil {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_FSTYPE", err.Error())
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFSType, err.Error())
 		}
 		args = append(args, "-t", req.FsType)
 	}
 	if req.Options != "" {
 		// Validate options: only allow safe characters
 		if !validDiskPath.MatchString(req.Options) && !regexp.MustCompile(`^[a-zA-Z0-9,=_-]+$`).MatchString(req.Options) {
-			return response.Fail(c, http.StatusBadRequest, "INVALID_OPTIONS",
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidOptions,
 				"mount options contain invalid characters")
 		}
 		args = append(args, "-o", req.Options)
@@ -633,7 +633,7 @@ func (h *DiskHandler) MountFilesystem(c echo.Context) error {
 
 	out, err := exec.Command("mount", args...).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "MOUNT_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrMountError,
 			fmt.Sprintf("mount failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -646,16 +646,16 @@ func (h *DiskHandler) MountFilesystem(c echo.Context) error {
 func (h *DiskHandler) UnmountFilesystem(c echo.Context) error {
 	var req UnmountFilesystemRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateDiskPath(req.MountPoint); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_MOUNTPOINT", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidMountpoint, err.Error())
 	}
 
 	out, err := exec.Command("umount", req.MountPoint).CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "UNMOUNT_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrUnmountError,
 			fmt.Sprintf("umount failed: %s", strings.TrimSpace(string(out))))
 	}
 
@@ -668,11 +668,11 @@ func (h *DiskHandler) UnmountFilesystem(c echo.Context) error {
 func (h *DiskHandler) ResizeFilesystem(c echo.Context) error {
 	var req ResizeFilesystemRequest
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
 	if err := validateDeviceName(req.Device); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_DEVICE", err.Error())
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
 	devPath := "/dev/" + req.Device
@@ -688,7 +688,7 @@ func (h *DiskHandler) ResizeFilesystem(c echo.Context) error {
 				if !strings.Contains(strings.ToLower(errMsg), "insufficient") &&
 					!strings.Contains(strings.ToLower(errMsg), "unchanged") &&
 					!strings.Contains(strings.ToLower(errMsg), "no free") {
-					return response.Fail(c, http.StatusInternalServerError, "RESIZE_ERROR",
+					return response.Fail(c, http.StatusInternalServerError, response.ErrResizeError,
 						fmt.Sprintf("lvextend failed: %s", errMsg))
 				}
 			}
@@ -701,7 +701,7 @@ func (h *DiskHandler) ResizeFilesystem(c echo.Context) error {
 		// Auto-detect using blkid
 		blkOut, err := exec.Command("blkid", "-o", "value", "-s", "TYPE", devPath).Output()
 		if err != nil {
-			return response.Fail(c, http.StatusInternalServerError, "RESIZE_ERROR",
+			return response.Fail(c, http.StatusInternalServerError, response.ErrResizeError,
 				"failed to detect filesystem type; please specify fs_type")
 		}
 		fsType = strings.TrimSpace(string(blkOut))
@@ -711,44 +711,44 @@ func (h *DiskHandler) ResizeFilesystem(c echo.Context) error {
 	switch fsType {
 	case "ext2", "ext3", "ext4":
 		if !commandExists("resize2fs") {
-			return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 				"resize2fs is not installed. Install e2fsprogs: apt install e2fsprogs")
 		}
 		cmd = exec.Command("resize2fs", devPath)
 
 	case "xfs":
 		if !commandExists("xfs_growfs") {
-			return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 				"xfs_growfs is not installed. Install xfsprogs: apt install xfsprogs")
 		}
 		// xfs_growfs requires the mount point, not the device
 		mountPoint, err := findMountPoint(devPath)
 		if err != nil || mountPoint == "" {
-			return response.Fail(c, http.StatusBadRequest, "RESIZE_ERROR",
+			return response.Fail(c, http.StatusBadRequest, response.ErrResizeError,
 				"XFS filesystem must be mounted before resizing. Could not find mount point.")
 		}
 		cmd = exec.Command("xfs_growfs", mountPoint)
 
 	case "btrfs":
 		if !commandExists("btrfs") {
-			return response.Fail(c, http.StatusServiceUnavailable, "TOOL_NOT_INSTALLED",
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 				"btrfs is not installed. Install btrfs-progs: apt install btrfs-progs")
 		}
 		mountPoint, err := findMountPoint(devPath)
 		if err != nil || mountPoint == "" {
-			return response.Fail(c, http.StatusBadRequest, "RESIZE_ERROR",
+			return response.Fail(c, http.StatusBadRequest, response.ErrResizeError,
 				"Btrfs filesystem must be mounted before resizing. Could not find mount point.")
 		}
 		cmd = exec.Command("btrfs", "filesystem", "resize", "max", mountPoint)
 
 	default:
-		return response.Fail(c, http.StatusBadRequest, "RESIZE_ERROR",
+		return response.Fail(c, http.StatusBadRequest, response.ErrResizeError,
 			fmt.Sprintf("resize not supported for filesystem type: %s", fsType))
 	}
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "RESIZE_ERROR",
+		return response.Fail(c, http.StatusInternalServerError, response.ErrResizeError,
 			fmt.Sprintf("resize failed: %s", strings.TrimSpace(string(out))))
 	}
 

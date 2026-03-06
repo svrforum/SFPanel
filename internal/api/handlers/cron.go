@@ -48,7 +48,7 @@ func (h *CronHandler) ListJobs(c echo.Context) error {
 		if strings.Contains(err.Error(), "no crontab for") {
 			return response.OK(c, []CronJob{})
 		}
-		return response.Fail(c, http.StatusInternalServerError, "CRON_ERROR", "Failed to read crontab: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+err.Error())
 	}
 
 	lines := strings.Split(content, "\n")
@@ -72,13 +72,13 @@ func (h *CronHandler) CreateJob(c echo.Context) error {
 		Command  string `json:"command"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	if req.Schedule == "" || req.Command == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Schedule and command are required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Schedule and command are required")
 	}
 	if !isValidSchedule(req.Schedule) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_SCHEDULE", "Invalid cron schedule format")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSchedule, "Invalid cron schedule format")
 	}
 
 	content, err := readCrontab()
@@ -87,7 +87,7 @@ func (h *CronHandler) CreateJob(c echo.Context) error {
 		if strings.Contains(err.Error(), "no crontab for") {
 			content = ""
 		} else {
-			return response.Fail(c, http.StatusInternalServerError, "CRON_ERROR", "Failed to read crontab: "+err.Error())
+			return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+err.Error())
 		}
 	}
 
@@ -100,7 +100,7 @@ func (h *CronHandler) CreateJob(c echo.Context) error {
 	content += newLine + "\n"
 
 	if err := writeCrontab(content); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "CRON_ERROR", "Failed to write crontab: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to write crontab: "+err.Error())
 	}
 
 	// Determine the index of the newly added line
@@ -115,7 +115,7 @@ func (h *CronHandler) CreateJob(c echo.Context) error {
 func (h *CronHandler) UpdateJob(c echo.Context) error {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_ID", "Invalid job ID")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid job ID")
 	}
 
 	var req struct {
@@ -124,18 +124,18 @@ func (h *CronHandler) UpdateJob(c echo.Context) error {
 		Enabled  *bool  `json:"enabled"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 	if req.Schedule == "" || req.Command == "" {
-		return response.Fail(c, http.StatusBadRequest, "MISSING_FIELDS", "Schedule and command are required")
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Schedule and command are required")
 	}
 	if !isValidSchedule(req.Schedule) {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_SCHEDULE", "Invalid cron schedule format")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSchedule, "Invalid cron schedule format")
 	}
 
 	content, err := readCrontab()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "CRON_ERROR", "Failed to read crontab: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+err.Error())
 	}
 
 	lines := strings.Split(content, "\n")
@@ -145,7 +145,7 @@ func (h *CronHandler) UpdateJob(c echo.Context) error {
 	}
 
 	if id < 0 || id >= len(lines) {
-		return response.Fail(c, http.StatusNotFound, "NOT_FOUND", "Job not found")
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Job not found")
 	}
 
 	newLine := req.Schedule + " " + req.Command
@@ -160,7 +160,7 @@ func (h *CronHandler) UpdateJob(c echo.Context) error {
 	lines[id] = newLine
 
 	if err := writeCrontab(strings.Join(lines, "\n") + "\n"); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "CRON_ERROR", "Failed to write crontab: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to write crontab: "+err.Error())
 	}
 
 	return response.OK(c, parseCronLine(newLine, id))
@@ -170,12 +170,12 @@ func (h *CronHandler) UpdateJob(c echo.Context) error {
 func (h *CronHandler) DeleteJob(c echo.Context) error {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		return response.Fail(c, http.StatusBadRequest, "INVALID_ID", "Invalid job ID")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid job ID")
 	}
 
 	content, err := readCrontab()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "CRON_ERROR", "Failed to read crontab: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+err.Error())
 	}
 
 	lines := strings.Split(content, "\n")
@@ -185,13 +185,13 @@ func (h *CronHandler) DeleteJob(c echo.Context) error {
 	}
 
 	if id < 0 || id >= len(lines) {
-		return response.Fail(c, http.StatusNotFound, "NOT_FOUND", "Job not found")
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Job not found")
 	}
 
 	lines = append(lines[:id], lines[id+1:]...)
 
 	if err := writeCrontab(strings.Join(lines, "\n") + "\n"); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "CRON_ERROR", "Failed to write crontab: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to write crontab: "+err.Error())
 	}
 
 	return response.OK(c, map[string]string{"message": "job deleted"})
