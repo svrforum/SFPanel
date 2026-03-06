@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"database/sql"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,8 +19,6 @@ import (
 // maxReadSize is the maximum file size (5 MB) that ReadFile will return.
 const maxReadSize = 5 * 1024 * 1024
 
-// maxUploadSize is the maximum upload size (100 MB) for UploadFile.
-const maxUploadSize = 100 * 1024 * 1024
 
 // criticalPaths are system directories that must never be deleted.
 var criticalPaths = map[string]bool{
@@ -45,7 +45,9 @@ type FileEntry struct {
 }
 
 // FilesHandler exposes REST handlers for server-side file management.
-type FilesHandler struct{}
+type FilesHandler struct {
+	DB *sql.DB
+}
 
 // ---------- helpers ----------
 
@@ -200,7 +202,33 @@ func (h *FilesHandler) WriteFile(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
 	}
 
-	if err := os.WriteFile(req.Path, []byte(req.Content), 0644); err != nil {
+	// Determine file mode: preserve existing permissions or default to 0644.
+	fileMode := os.FileMode(0644)
+	if info, err := os.Stat(req.Path); err == nil {
+		fileMode = info.Mode().Perm()
+
+		// Create .bak backup of existing file.
+		backupPath := req.Path + ".bak"
+		_ = os.Remove(backupPath)
+		if err := os.Rename(req.Path, backupPath); err != nil {
+			// Cross-device fallback: copy content.
+			data, readErr := os.ReadFile(req.Path)
+			if readErr == nil {
+				_ = os.WriteFile(backupPath, data, 0644)
+			}
+		}
+	}
+
+	// Atomic write: write to temp file then rename.
+	tmpPath := req.Path + ".sfpanel.tmp"
+	if err := os.WriteFile(tmpPath, []byte(req.Content), fileMode); err != nil {
+		if os.IsPermission(err) {
+			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+		}
+		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+	}
+	if err := os.Rename(tmpPath, req.Path); err != nil {
+		os.Remove(tmpPath)
 		if os.IsPermission(err) {
 			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
 		}
@@ -371,8 +399,12 @@ func (h *FilesHandler) DownloadFile(c echo.Context) error {
 // UploadFile receives a multipart file upload and saves it to the specified directory.
 // POST /files/upload  multipart form: file (uploaded file), path (destination directory)
 func (h *FilesHandler) UploadFile(c echo.Context) error {
-	// Enforce upload size limit.
-	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxUploadSize)
+	// Enforce upload size limit from settings (default 1024 MB).
+	maxMB, _ := strconv.ParseInt(GetSetting(h.DB, "max_upload_size"), 10, 64)
+	if maxMB <= 0 {
+		maxMB = 1024
+	}
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxMB*1024*1024)
 
 	destDir := c.FormValue("path")
 	if err := validatePath(destDir); err != nil {
@@ -409,17 +441,36 @@ func (h *FilesHandler) UploadFile(c echo.Context) error {
 
 	destPath := filepath.Join(destDir, filename)
 
-	dst, err := os.Create(destPath)
+	// Atomic upload: write to temp file then rename into place.
+	tmpPath := destPath + ".sfpanel.tmp"
+
+	// In sticky-bit directories (like /tmp), fs.protected_regular=2 may prevent
+	// overwriting files owned by other users. Remove existing temp file first.
+	if info, err := os.Lstat(tmpPath); err == nil && !info.IsDir() {
+		os.Remove(tmpPath)
+	}
+
+	dst, err := os.Create(tmpPath)
 	if err != nil {
 		if os.IsPermission(err) {
 			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
 		}
 		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
 	}
-	defer dst.Close()
 
 	written, err := io.Copy(dst, src)
+	dst.Close()
 	if err != nil {
+		os.Remove(tmpPath)
+		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
+	}
+
+	// Rename temp file to final destination (atomic on same filesystem).
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		os.Remove(tmpPath)
+		if os.IsPermission(err) {
+			return response.Fail(c, http.StatusForbidden, "PERMISSION_DENIED", "Permission denied")
+		}
 		return response.Fail(c, http.StatusInternalServerError, "FILE_ERROR", err.Error())
 	}
 
