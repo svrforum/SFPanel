@@ -26,6 +26,7 @@ import type {
   SwapInfo,
   ServiceInfo,
   DashboardOverview,
+  NetworkStatus,
 } from '@/types/api'
 
 const API_BASE = '/api/v1'
@@ -533,6 +534,10 @@ class ApiClient {
   }
 
   // Network
+  getNetworkStatus() {
+    return this.request<NetworkStatus>('/network/status')
+  }
+
   getNetworkInterfaces() {
     return this.request<NetworkInterfaceInfo[]>('/network/interfaces')
   }
