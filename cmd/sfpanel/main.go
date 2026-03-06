@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bufio"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,8 +12,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
+	"time"
 
 	sfpanel "github.com/sfpanel/sfpanel"
 	"github.com/sfpanel/sfpanel/internal/api"
@@ -23,7 +28,7 @@ import (
 )
 
 var (
-	version = "0.3.0"
+	version = "0.4.0"
 	commit  = "none"
 	date    = "unknown"
 )
@@ -62,26 +67,71 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// Set SFPanel log source path from config
+	if cfg.Log.File != "" {
+		handlers.SetSFPanelLogPath(cfg.Log.File)
+	}
+
+	// Set up log file output if configured
+	if cfg.Log.File != "" {
+		if err := os.MkdirAll(filepath.Dir(cfg.Log.File), 0755); err != nil {
+			log.Printf("Warning: failed to create log directory: %v", err)
+		} else {
+			logFile, err := os.OpenFile(cfg.Log.File, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err != nil {
+				log.Printf("Warning: failed to open log file %s: %v", cfg.Log.File, err)
+			} else {
+				multiWriter := io.MultiWriter(os.Stdout, logFile)
+				log.SetOutput(multiWriter)
+				log.Printf("Log file output enabled: %s", cfg.Log.File)
+			}
+		}
+	}
+
 	database, err := db.Open(cfg.Database.Path)
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() {
+		monitor.FlushPending()
+		database.Close()
+	}()
 	log.Printf("Database ready at %s", cfg.Database.Path)
 
-	// Start background metrics history collector (30s interval, 24h retention)
-	monitor.StartHistoryCollector()
+	// Start background metrics history collector (30s interval, 24h retention, persisted to SQLite)
+	monitor.StartHistoryCollector(database)
 
 	// Start terminal session cleanup (timeout from settings, 0 = never)
 	handlers.CleanupTerminalSessions(database)
 
-	e := api.NewRouter(database, cfg, sfpanel.WebDistFS)
+	// Restore DOCKER-USER firewall rules if previously saved
+	handlers.RestoreDockerUserRules()
+
+	e := api.NewRouter(database, cfg, sfpanel.WebDistFS, version)
+	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	log.Printf("SFPanel %s starting on %s", version, addr)
-	if err := e.Start(addr); err != nil {
-		log.Fatalf("Server failed: %v", err)
+
+	// Start server in goroutine
+	go func() {
+		if err := e.Start(addr); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down server...")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := e.Shutdown(ctx); err != nil {
+		log.Fatalf("Server forced shutdown: %v", err)
 	}
+	log.Println("Server stopped")
 }
 
 func resetPanel() {
