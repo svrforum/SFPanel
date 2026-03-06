@@ -1,8 +1,8 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -213,7 +213,8 @@ func (h *DockerHandler) ListImages(c echo.Context) error {
 	return response.OK(c, images)
 }
 
-// PullImage pulls an image by reference. Accepts JSON body: {"image": "nginx:latest"}.
+// PullImage pulls an image by reference with SSE streaming progress.
+// Accepts JSON body: {"image": "nginx:latest"}.
 func (h *DockerHandler) PullImage(c echo.Context) error {
 	var req struct {
 		Image string `json:"image"`
@@ -232,12 +233,27 @@ func (h *DockerHandler) PullImage(c echo.Context) error {
 	}
 	defer reader.Close()
 
-	// Consume the pull output so the operation completes
-	if _, err := io.Copy(io.Discard, reader); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, "DOCKER_ERROR", err.Error())
+	// SSE streaming
+	c.Response().Header().Set("Content-Type", "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().Header().Set("Connection", "keep-alive")
+	c.Response().WriteHeader(http.StatusOK)
+
+	decoder := json.NewDecoder(reader)
+	flusher := c.Response()
+	for {
+		var event map[string]interface{}
+		if err := decoder.Decode(&event); err != nil {
+			break
+		}
+		data, _ := json.Marshal(event)
+		fmt.Fprintf(flusher, "data: %s\n\n", data)
+		flusher.Flush()
 	}
 
-	return response.OK(c, map[string]string{"message": "image pulled", "image": req.Image})
+	fmt.Fprintf(flusher, "data: {\"status\":\"complete\",\"image\":\"%s\"}\n\n", req.Image)
+	flusher.Flush()
+	return nil
 }
 
 // RemoveImage removes an image by ID.

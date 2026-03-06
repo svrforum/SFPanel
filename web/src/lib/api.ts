@@ -223,6 +223,41 @@ class ApiClient {
     })
   }
 
+  async pullImageStream(
+    imageName: string,
+    onProgress: (event: { status: string; progress?: string; id?: string }) => void
+  ): Promise<void> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`
+    }
+
+    const res = await fetch(`${API_BASE}/docker/images/pull`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ image: imageName }),
+    })
+    if (!res.ok) throw new Error('Pull failed')
+    const reader = res.body?.getReader()
+    if (!reader) throw new Error('No stream')
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try { onProgress(JSON.parse(line.slice(6))) } catch { /* skip malformed */ }
+        }
+      }
+    }
+  }
+
   removeImage(id: string) {
     return this.request(`/docker/images/${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
