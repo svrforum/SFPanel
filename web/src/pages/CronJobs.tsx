@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import type { CronJob } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -31,48 +32,41 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
-interface CronJob {
-  id: number
-  schedule: string
-  command: string
-  enabled: boolean
-  raw: string
-  type: 'job' | 'env' | 'comment'
-}
-
 interface SchedulePreset {
   label: string
   value: string
 }
 
-function describeSchedule(schedule: string): string {
-  const descriptions: Record<string, string> = {
-    '* * * * *': 'Every minute',
-    '*/5 * * * *': 'Every 5 minutes',
-    '*/15 * * * *': 'Every 15 minutes',
-    '*/30 * * * *': 'Every 30 minutes',
-    '0 * * * *': 'Every hour',
-    '0 */2 * * *': 'Every 2 hours',
-    '0 */6 * * *': 'Every 6 hours',
-    '0 */12 * * *': 'Every 12 hours',
-    '0 0 * * *': 'Daily at midnight',
-    '0 0 * * 0': 'Weekly on Sunday',
-    '0 0 * * 1': 'Weekly on Monday',
-    '0 0 1 * *': 'Monthly on the 1st',
-    '0 0 1 1 *': 'Yearly on January 1st',
-    '@reboot': 'At system startup',
-    '@daily': 'Once a day',
-    '@hourly': 'Once an hour',
-    '@weekly': 'Once a week',
-    '@monthly': 'Once a month',
-    '@yearly': 'Once a year',
-    '@annually': 'Once a year',
-  }
-  return descriptions[schedule] || schedule
+const SCHEDULE_KEYS: Record<string, string> = {
+  '* * * * *': 'cron.scheduleDesc.everyMinute',
+  '*/5 * * * *': 'cron.scheduleDesc.every5Minutes',
+  '*/15 * * * *': 'cron.scheduleDesc.every15Minutes',
+  '*/30 * * * *': 'cron.scheduleDesc.every30Minutes',
+  '0 * * * *': 'cron.scheduleDesc.everyHour',
+  '0 */2 * * *': 'cron.scheduleDesc.every2Hours',
+  '0 */6 * * *': 'cron.scheduleDesc.every6Hours',
+  '0 */12 * * *': 'cron.scheduleDesc.every12Hours',
+  '0 0 * * *': 'cron.scheduleDesc.dailyMidnight',
+  '0 0 * * 0': 'cron.scheduleDesc.weeklySunday',
+  '0 0 * * 1': 'cron.scheduleDesc.weeklyMonday',
+  '0 0 1 * *': 'cron.scheduleDesc.monthlyFirst',
+  '0 0 1 1 *': 'cron.scheduleDesc.yearlyJan1',
+  '@reboot': 'cron.scheduleDesc.atReboot',
+  '@daily': 'cron.scheduleDesc.daily',
+  '@hourly': 'cron.scheduleDesc.hourly',
+  '@weekly': 'cron.scheduleDesc.weekly',
+  '@monthly': 'cron.scheduleDesc.monthly',
+  '@yearly': 'cron.scheduleDesc.yearly',
+  '@annually': 'cron.scheduleDesc.yearly',
 }
 
 export default function CronJobs() {
   const { t } = useTranslation()
+
+  const describeSchedule = (schedule: string): string => {
+    const key = SCHEDULE_KEYS[schedule]
+    return key ? t(key) : schedule
+  }
 
   const [jobs, setJobs] = useState<CronJob[]>([])
   const [loading, setLoading] = useState(true)

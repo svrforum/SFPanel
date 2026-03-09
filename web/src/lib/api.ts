@@ -109,6 +109,10 @@ class ApiClient {
     })
   }
 
+  get2FAStatus() {
+    return this.request<{ enabled: boolean }>('/auth/2fa/status')
+  }
+
   setup2FA() {
     return this.request<{ secret: string; url: string }>('/auth/2fa/setup', { method: 'POST' })
   }

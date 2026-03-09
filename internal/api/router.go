@@ -77,6 +77,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.GET("/settings", settingsHandler.GetSettings)
 	authorized.PUT("/settings", settingsHandler.UpdateSettings)
 
+	authorized.GET("/auth/2fa/status", authHandler.Get2FAStatus)
 	authorized.POST("/auth/2fa/setup", authHandler.Setup2FA)
 	authorized.POST("/auth/2fa/verify", authHandler.Verify2FA)
 	authorized.POST("/auth/change-password", authHandler.ChangePassword)

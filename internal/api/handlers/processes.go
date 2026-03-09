@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -95,6 +96,9 @@ func (h *ProcessesHandler) KillProcess(c echo.Context) error {
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPID, "Invalid PID")
 	}
+	if pid <= 1 {
+		return response.Fail(c, http.StatusForbidden, response.ErrInvalidPID, "Cannot send signal to PID 0 or 1")
+	}
 
 	var req struct {
 		Signal string `json:"signal"`
@@ -141,12 +145,24 @@ func (h *ProcessesHandler) KillProcess(c echo.Context) error {
 }
 
 // collectProcesses gathers information about all running processes.
+// It calls CPUPercent() twice with a 200ms interval to get accurate CPU usage,
+// since the first call to gopsutil's CPUPercent() returns a value over the
+// process lifetime rather than the current rate.
 func collectProcesses() ([]ProcessInfo, error) {
 	procs, err := process.Processes()
 	if err != nil {
 		return nil, err
 	}
 
+	// First pass: prime CPU measurement for all processes
+	for _, p := range procs {
+		p.CPUPercent()
+	}
+
+	// Wait for a short interval to measure actual CPU rate
+	time.Sleep(200 * time.Millisecond)
+
+	// Second pass: collect actual data
 	var infos []ProcessInfo
 	for _, p := range procs {
 		name, _ := p.Name()

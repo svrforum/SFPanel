@@ -52,6 +52,7 @@ export default function Services() {
   const [logs, setLogs] = useState('')
   const [logsLoading, setLogsLoading] = useState(false)
   const [serviceDeps, setServiceDeps] = useState<ServiceDeps | null>(null)
+  const logContainerRef = useRef<HTMLDivElement>(null)
 
   // Use refs for search/filter so the polling callback doesn't
   // recreate on every keystroke — only explicit actions trigger fetches.
@@ -138,6 +139,12 @@ export default function Services() {
       ])
       setLogs(logsData.logs || '')
       setServiceDeps(depsData)
+      // Scroll to bottom after logs render
+      setTimeout(() => {
+        if (logContainerRef.current) {
+          logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
+        }
+      }, 0)
     } catch {
       setLogs('Failed to load logs')
     } finally {
@@ -361,7 +368,7 @@ export default function Services() {
             </div>
           ) : null}
 
-          <div className="bg-[#1a1a2e] rounded-xl p-4 overflow-auto max-h-[60vh]">
+          <div ref={logContainerRef} className="bg-[#1a1a2e] rounded-xl p-4 overflow-auto max-h-[60vh]">
             {logsLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-5 w-5 animate-spin text-gray-400" />

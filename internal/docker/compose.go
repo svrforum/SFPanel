@@ -6,9 +6,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
+
+var validProjectName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+
+// validServiceName matches valid Docker Compose service names.
+var validServiceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 
 // Supported compose file names in priority order.
 var composeFileNames = []string{
@@ -49,6 +55,17 @@ type ComposeProjectWithStatus struct {
 type ComposeManager struct {
 	baseDir      string // e.g., /opt/stacks
 	dockerClient *Client
+}
+
+func (m *ComposeManager) validateProjectName(name string) error {
+	if name == "" || !validProjectName.MatchString(name) {
+		return fmt.Errorf("invalid project name %q", name)
+	}
+	resolved := filepath.Clean(filepath.Join(m.baseDir, name))
+	if !strings.HasPrefix(resolved, filepath.Clean(m.baseDir)+string(filepath.Separator)) {
+		return fmt.Errorf("invalid project name %q: path traversal", name)
+	}
+	return nil
 }
 
 // NewComposeManager creates a new ComposeManager, ensuring the base directory exists.
@@ -102,6 +119,9 @@ func (m *ComposeManager) ListProjects(_ context.Context) ([]ComposeProject, erro
 
 // GetProject returns a single compose project by name.
 func (m *ComposeManager) GetProject(_ context.Context, name string) (*ComposeProject, error) {
+	if err := m.validateProjectName(name); err != nil {
+		return nil, err
+	}
 	dir := filepath.Join(m.baseDir, name)
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
@@ -124,6 +144,9 @@ func (m *ComposeManager) GetProject(_ context.Context, name string) (*ComposePro
 
 // GetProjectYAML reads the compose file content for a project.
 func (m *ComposeManager) GetProjectYAML(_ context.Context, name string) (string, string, error) {
+	if err := m.validateProjectName(name); err != nil {
+		return "", "", err
+	}
 	dir := filepath.Join(m.baseDir, name)
 	composeFile := findComposeFile(dir)
 	if composeFile == "" {
@@ -139,6 +162,9 @@ func (m *ComposeManager) GetProjectYAML(_ context.Context, name string) (string,
 
 // GetProjectEnv reads the .env file content for a project. Returns empty string if no .env exists.
 func (m *ComposeManager) GetProjectEnv(_ context.Context, name string) (string, error) {
+	if err := m.validateProjectName(name); err != nil {
+		return "", err
+	}
 	envPath := filepath.Join(m.baseDir, name, ".env")
 	content, err := os.ReadFile(envPath)
 	if err != nil {
@@ -152,6 +178,9 @@ func (m *ComposeManager) GetProjectEnv(_ context.Context, name string) (string, 
 
 // UpdateProjectEnv writes the .env file for a project.
 func (m *ComposeManager) UpdateProjectEnv(_ context.Context, name, content string) error {
+	if err := m.validateProjectName(name); err != nil {
+		return err
+	}
 	dir := filepath.Join(m.baseDir, name)
 	if _, err := os.Stat(dir); err != nil {
 		return fmt.Errorf("project %q not found", name)
@@ -161,6 +190,9 @@ func (m *ComposeManager) UpdateProjectEnv(_ context.Context, name, content strin
 
 // CreateProject creates a new compose project directory with a docker-compose.yml.
 func (m *ComposeManager) CreateProject(_ context.Context, name, yamlContent string) (*ComposeProject, error) {
+	if err := m.validateProjectName(name); err != nil {
+		return nil, err
+	}
 	projectDir := filepath.Join(m.baseDir, name)
 
 	// Check if directory already exists with a compose file
@@ -187,6 +219,9 @@ func (m *ComposeManager) CreateProject(_ context.Context, name, yamlContent stri
 
 // UpdateProject updates the compose file content of an existing project.
 func (m *ComposeManager) UpdateProject(_ context.Context, name, yamlContent string) error {
+	if err := m.validateProjectName(name); err != nil {
+		return err
+	}
 	dir := filepath.Join(m.baseDir, name)
 	composeFile := findComposeFile(dir)
 	if composeFile == "" {
@@ -197,6 +232,9 @@ func (m *ComposeManager) UpdateProject(_ context.Context, name, yamlContent stri
 
 // DeleteProject tears down a compose project and removes its directory.
 func (m *ComposeManager) DeleteProject(ctx context.Context, name string) error {
+	if err := m.validateProjectName(name); err != nil {
+		return err
+	}
 	// Attempt docker compose down; ignore errors
 	_, _ = m.runCompose(ctx, name, "down")
 
@@ -216,6 +254,9 @@ func (m *ComposeManager) Down(ctx context.Context, name string) (string, error) 
 
 // runCompose executes a docker compose command for the given project.
 func (m *ComposeManager) runCompose(ctx context.Context, name string, args ...string) (string, error) {
+	if err := m.validateProjectName(name); err != nil {
+		return "", err
+	}
 	dir := filepath.Join(m.baseDir, name)
 	composeFile := findComposeFile(dir)
 	if composeFile == "" {
@@ -232,6 +273,9 @@ func (m *ComposeManager) runCompose(ctx context.Context, name string, args ...st
 
 // GetProjectServices returns the runtime state of each service in a compose project.
 func (m *ComposeManager) GetProjectServices(ctx context.Context, name string) ([]ComposeService, error) {
+	if err := m.validateProjectName(name); err != nil {
+		return nil, err
+	}
 	if m.dockerClient == nil {
 		return nil, fmt.Errorf("docker client not available")
 	}
@@ -332,23 +376,46 @@ func (m *ComposeManager) ListProjectsWithStatus(ctx context.Context) ([]ComposeP
 	return result, nil
 }
 
+// validateServiceName checks that a compose service name is safe.
+func validateServiceName(service string) error {
+	if service == "" {
+		return fmt.Errorf("service name is required")
+	}
+	if !validServiceName.MatchString(service) {
+		return fmt.Errorf("invalid service name %q (allowed: alphanumeric, underscore, dot, hyphen)", service)
+	}
+	return nil
+}
+
 // RestartService restarts a single service within a compose project.
 func (m *ComposeManager) RestartService(ctx context.Context, project, service string) (string, error) {
+	if err := validateServiceName(service); err != nil {
+		return "", err
+	}
 	return m.runCompose(ctx, project, "restart", service)
 }
 
 // StopService stops a single service within a compose project.
 func (m *ComposeManager) StopService(ctx context.Context, project, service string) (string, error) {
+	if err := validateServiceName(service); err != nil {
+		return "", err
+	}
 	return m.runCompose(ctx, project, "stop", service)
 }
 
 // StartService starts a single service within a compose project.
 func (m *ComposeManager) StartService(ctx context.Context, project, service string) (string, error) {
+	if err := validateServiceName(service); err != nil {
+		return "", err
+	}
 	return m.runCompose(ctx, project, "start", service)
 }
 
 // ServiceLogs returns the last N lines of logs for a service.
 func (m *ComposeManager) ServiceLogs(ctx context.Context, project, service string, tail int) (string, error) {
+	if err := validateServiceName(service); err != nil {
+		return "", err
+	}
 	if tail <= 0 {
 		tail = 100
 	}

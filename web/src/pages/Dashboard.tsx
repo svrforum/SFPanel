@@ -183,7 +183,7 @@ export default function Dashboard() {
 
   const chartXDomain = useMemo<[number, number]>(() => {
     return [Date.now() - CHART_RANGE_MS[chartRange], Date.now()]
-  }, [chartRange])
+  }, [chartRange, chartData])
 
   const runningContainers = containers.filter((c) => c.State === 'running').length
   const stoppedContainers = containers.length - runningContainers

@@ -311,7 +311,7 @@ export default function DiskFilesystems() {
               <Label htmlFor="format-device">{t('disk.filesystems.device')}</Label>
               <Input
                 id="format-device"
-                placeholder="e.g., /dev/sdb1"
+                placeholder="e.g., sdb1"
                 value={formatDevice}
                 onChange={(e) => setFormatDevice(e.target.value)}
               />
@@ -362,7 +362,7 @@ export default function DiskFilesystems() {
               <Label htmlFor="mount-device">{t('disk.filesystems.device')}</Label>
               <Input
                 id="mount-device"
-                placeholder="e.g., /dev/sdb1"
+                placeholder="e.g., sdb1"
                 value={mountDevice}
                 onChange={(e) => setMountDevice(e.target.value)}
               />

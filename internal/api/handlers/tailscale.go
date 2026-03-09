@@ -518,11 +518,17 @@ func (h *TailscaleHandler) CheckUpdate(c echo.Context) error {
 		}
 	}
 
-	// Check for update using `apt list --upgradable 2>/dev/null | grep tailscale`
-	output, _ := runCommand("bash", "-c", "apt list --upgradable 2>/dev/null | grep tailscale")
-	output = strings.TrimSpace(output)
+	// Check for update using `apt list --upgradable` and filter in Go
+	aptOutput, _ := runCommand("apt", "list", "--upgradable")
+	output := ""
+	for _, line := range strings.Split(aptOutput, "\n") {
+		if strings.Contains(line, "tailscale") {
+			output = strings.TrimSpace(line)
+			break
+		}
+	}
 
-	updateAvailable := output != "" && strings.Contains(output, "tailscale")
+	updateAvailable := output != ""
 
 	// Parse the new version from apt output (format: tailscale/unknown 1.xx.x amd64 [upgradable from: 1.xx.x])
 	newVersion := ""

@@ -339,7 +339,7 @@ export default function DiskRAID() {
               <Label htmlFor="raid-name">{t('disk.raid.arrayName')}</Label>
               <Input
                 id="raid-name"
-                placeholder="e.g., /dev/md0"
+                placeholder="e.g., md0"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
               />
@@ -361,7 +361,7 @@ export default function DiskRAID() {
               <Label htmlFor="raid-devices">{t('disk.raid.devices')}</Label>
               <Input
                 id="raid-devices"
-                placeholder="e.g., /dev/sdb,/dev/sdc,/dev/sdd"
+                placeholder="e.g., sdb,sdc,sdd"
                 value={newDevices}
                 onChange={(e) => setNewDevices(e.target.value)}
               />
@@ -416,7 +416,7 @@ export default function DiskRAID() {
             <Label htmlFor="add-disk-device">{t('disk.raid.devicePath')}</Label>
             <Input
               id="add-disk-device"
-              placeholder="e.g., /dev/sdd"
+              placeholder="e.g., sdd"
               value={addDiskDevice}
               onChange={(e) => setAddDiskDevice(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddDisk()}

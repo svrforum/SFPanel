@@ -13,6 +13,35 @@ interface PortRow { host: string; container: string; protocol: string }
 interface VolumeRow { host: string; container: string }
 interface EnvRow { key: string; value: string }
 
+/**
+ * Split a command string respecting single and double quotes.
+ * e.g., `/bin/sh -c 'echo hello world'` -> ['/bin/sh', '-c', 'echo hello world']
+ */
+function splitCommand(cmd: string): string[] {
+  const args: string[] = []
+  let current = ''
+  let inSingle = false
+  let inDouble = false
+
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i]
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle
+    } else if (ch === '"' && !inSingle) {
+      inDouble = !inDouble
+    } else if (ch === ' ' && !inSingle && !inDouble) {
+      if (current) {
+        args.push(current)
+        current = ''
+      }
+    } else {
+      current += ch
+    }
+  }
+  if (current) args.push(current)
+  return args
+}
+
 export default function DockerContainerCreate() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -85,7 +114,7 @@ export default function DockerContainerCreate() {
         memory_limit: memoryLimit ? parseInt(memoryLimit) * 1024 * 1024 : undefined,
         network_mode: networkMode || undefined,
         hostname: hostname || undefined,
-        cmd: command.trim() ? command.trim().split(/\s+/) : undefined,
+        cmd: command.trim() ? splitCommand(command.trim()) : undefined,
         auto_start: autoStart,
       })
       toast.success(t('docker.containerCreate.createSuccess'))

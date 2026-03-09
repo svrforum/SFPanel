@@ -356,10 +356,29 @@ func (h *FirewallHandler) UpdateJailConfig(c echo.Context) error {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidIP,
 				"ignoreip contains invalid characters (allowed: IPs, CIDRs, space-separated)")
 		}
-		_, err := runCommand("fail2ban-client", "set", name, "addignoreip", *req.IgnoreIP)
-		if err != nil {
-			return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_CONFIG_ERROR",
-				"Failed to set ignoreip: "+err.Error())
+		// First, remove all existing ignoreip entries
+		existingOutput, _ := runCommand("fail2ban-client", "get", name, "ignoreip")
+		existingIgnoreIP := strings.TrimSpace(existingOutput)
+		if existingIgnoreIP != "" {
+			for _, ip := range strings.Fields(existingIgnoreIP) {
+				ip = strings.TrimSpace(ip)
+				if ip != "" {
+					_, _ = runCommand("fail2ban-client", "set", name, "delignoreip", ip)
+				}
+			}
+		}
+		// Then add the new IPs
+		if *req.IgnoreIP != "" {
+			for _, ip := range strings.Fields(*req.IgnoreIP) {
+				ip = strings.TrimSpace(ip)
+				if ip != "" {
+					_, err := runCommand("fail2ban-client", "set", name, "addignoreip", ip)
+					if err != nil {
+						return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_CONFIG_ERROR",
+							"Failed to set ignoreip: "+err.Error())
+					}
+				}
+			}
 		}
 	}
 

@@ -57,6 +57,7 @@ func (w *safeWSWriter) WriteMessage(messageType int, data []byte) error {
 func (w *safeWSWriter) WriteJSON(v interface{}) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	return w.conn.WriteJSON(v)
 }
 

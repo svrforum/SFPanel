@@ -145,6 +145,24 @@ type ContainerStatsResult struct {
 	MemLimit   uint64  `json:"mem_limit"`
 }
 
+// calcMemUsage returns the actual memory usage by subtracting cache.
+// cgroups v1 uses stats["cache"], cgroups v2 uses stats["inactive_file"].
+func calcMemUsage(stats *container.StatsResponse) uint64 {
+	usage := stats.MemoryStats.Usage
+	if cache, ok := stats.MemoryStats.Stats["inactive_file"]; ok && cache > 0 {
+		// cgroups v2
+		if usage > cache {
+			return usage - cache
+		}
+	} else if cache, ok := stats.MemoryStats.Stats["cache"]; ok && cache > 0 {
+		// cgroups v1
+		if usage > cache {
+			return usage - cache
+		}
+	}
+	return usage
+}
+
 // ContainerStatsBatch returns CPU/memory stats for all running containers in a single call.
 func (c *Client) ContainerStatsBatch(ctx context.Context) ([]ContainerStatsResult, error) {
 	containers, err := c.ListContainers(ctx)
@@ -169,7 +187,7 @@ func (c *Client) ContainerStatsBatch(ctx context.Context) ([]ContainerStatsResul
 			cpuPercent = (cpuDelta / systemDelta) * float64(stats.CPUStats.OnlineCPUs) * 100.0
 		}
 
-		memUsage := stats.MemoryStats.Usage
+		memUsage := calcMemUsage(stats)
 		memLimit := stats.MemoryStats.Limit
 		memPercent := 0.0
 		if memLimit > 0 {
@@ -227,8 +245,8 @@ func (c *Client) CreateVolume(ctx context.Context, name string) (*volume.Volume,
 }
 
 // RemoveVolume removes a volume by name.
-func (c *Client) RemoveVolume(ctx context.Context, name string) error {
-	return c.cli.VolumeRemove(ctx, name, true)
+func (c *Client) RemoveVolume(ctx context.Context, name string, force bool) error {
+	return c.cli.VolumeRemove(ctx, name, force)
 }
 
 // ---------- Networks ----------

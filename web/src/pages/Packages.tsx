@@ -38,20 +38,13 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-import type { PackageUpdate as PackageInfo } from '@/types/api'
+import type { PackageUpdate as PackageInfo, DockerStatus } from '@/types/api'
 
 interface SearchResult {
   name: string
   description: string
   version?: string
   installed?: boolean
-}
-
-interface DockerStatus {
-  installed: boolean
-  version: string
-  running: boolean
-  compose_available: boolean
 }
 
 interface LoadingState {

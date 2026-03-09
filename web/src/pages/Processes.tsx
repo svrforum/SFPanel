@@ -17,7 +17,7 @@ import { formatBytes } from '@/lib/utils'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { Metrics } from '@/types/api'
+import type { Metrics, ProcessInfo } from '@/types/api'
 import {
   Table,
   TableBody,
@@ -34,16 +34,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
-
-interface ProcessInfo {
-  pid: number
-  name: string
-  cpu: number
-  memory: number
-  status: string
-  user: string
-  command: string
-}
 
 type SortField = 'cpu' | 'memory' | 'pid' | 'name'
 
@@ -216,7 +206,7 @@ export default function Processes() {
                     className="h-full rounded-full transition-all duration-500"
                     style={{
                       width: `${Math.min(100, sysMetrics.swap_total > 0 ? sysMetrics.swap_percent : 0)}%`,
-                      backgroundColor: sysMetrics.swap_percent > 80 ? '#f04452' : sysMetrics.swap_percent > 50 ? '#f59e0b' : '#f59e0b'
+                      backgroundColor: sysMetrics.swap_percent > 80 ? '#f04452' : sysMetrics.swap_percent > 50 ? '#f59e0b' : '#3182f6'
                     }}
                   />
                 </div>

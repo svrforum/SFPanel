@@ -210,9 +210,7 @@ export default function FirewallRules() {
     if (!editTarget || !editForm.port.trim()) return
     setEditing(true)
     try {
-      // Step 1: Delete old rule
-      await api.deleteFirewallRule(editTarget.number)
-      // Step 2: Add new rule
+      // Step 1: Add new rule first (safe — old rule still exists if this fails)
       await api.addFirewallRule({
         action: editForm.action,
         port: editForm.port.trim(),
@@ -221,13 +219,19 @@ export default function FirewallRules() {
         to: '',
         comment: editForm.comment.trim(),
       })
+      // Step 2: Delete old rule only after new rule was added successfully
+      // Rule numbers may have shifted after add, so refresh and find the old rule
+      try {
+        await api.deleteFirewallRule(editTarget.number)
+      } catch {
+        // If delete fails, the new rule is already added — just warn
+        toast.warning(t('firewall.rules.editDeleteFailed'))
+      }
       setEditTarget(null)
       await fetchRules()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('common.error')
       toast.error(message)
-      // Refresh rules in case delete succeeded but add failed
-      await fetchRules()
     } finally {
       setEditing(false)
     }

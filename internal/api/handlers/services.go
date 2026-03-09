@@ -124,9 +124,9 @@ func (h *ServicesHandler) StartService(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
 
-	if err := exec.Command("systemctl", "start", name).Run(); err != nil {
+	if out, err := exec.Command("systemctl", "start", name).CombinedOutput(); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrStartFailed,
-			fmt.Sprintf("Failed to start %s: %s", name, err.Error()))
+			fmt.Sprintf("Failed to start %s: %s", name, strings.TrimSpace(string(out))))
 	}
 
 	invalidateServiceCache()
@@ -141,9 +141,9 @@ func (h *ServicesHandler) StopService(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
 
-	if err := exec.Command("systemctl", "stop", name).Run(); err != nil {
+	if out, err := exec.Command("systemctl", "stop", name).CombinedOutput(); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrStopFailed,
-			fmt.Sprintf("Failed to stop %s: %s", name, err.Error()))
+			fmt.Sprintf("Failed to stop %s: %s", name, strings.TrimSpace(string(out))))
 	}
 
 	invalidateServiceCache()
@@ -158,9 +158,9 @@ func (h *ServicesHandler) RestartService(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
 
-	if err := exec.Command("systemctl", "restart", name).Run(); err != nil {
+	if out, err := exec.Command("systemctl", "restart", name).CombinedOutput(); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRestartFailed,
-			fmt.Sprintf("Failed to restart %s: %s", name, err.Error()))
+			fmt.Sprintf("Failed to restart %s: %s", name, strings.TrimSpace(string(out))))
 	}
 
 	invalidateServiceCache()
@@ -175,9 +175,9 @@ func (h *ServicesHandler) EnableService(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
 
-	if err := exec.Command("systemctl", "enable", name).Run(); err != nil {
+	if out, err := exec.Command("systemctl", "enable", name).CombinedOutput(); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrEnableFailed,
-			fmt.Sprintf("Failed to enable %s: %s", name, err.Error()))
+			fmt.Sprintf("Failed to enable %s: %s", name, strings.TrimSpace(string(out))))
 	}
 
 	invalidateServiceCache()
@@ -192,9 +192,9 @@ func (h *ServicesHandler) DisableService(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
 
-	if err := exec.Command("systemctl", "disable", name).Run(); err != nil {
+	if out, err := exec.Command("systemctl", "disable", name).CombinedOutput(); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDisableFailed,
-			fmt.Sprintf("Failed to disable %s: %s", name, err.Error()))
+			fmt.Sprintf("Failed to disable %s: %s", name, strings.TrimSpace(string(out))))
 	}
 
 	invalidateServiceCache()

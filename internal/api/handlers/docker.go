@@ -174,7 +174,17 @@ func (h *DockerHandler) ContainerStats(c echo.Context) error {
 		cpuPercent = (cpuDelta / systemDelta) * float64(stats.CPUStats.OnlineCPUs) * 100.0
 	}
 
+	// Subtract cache from memory usage (cgroups v1: cache, cgroups v2: inactive_file)
 	memUsage := stats.MemoryStats.Usage
+	if cache, ok := stats.MemoryStats.Stats["inactive_file"]; ok && cache > 0 {
+		if memUsage > cache {
+			memUsage -= cache
+		}
+	} else if cache, ok := stats.MemoryStats.Stats["cache"]; ok && cache > 0 {
+		if memUsage > cache {
+			memUsage -= cache
+		}
+	}
 	memLimit := stats.MemoryStats.Limit
 	memPercent := 0.0
 	if memLimit > 0 {
@@ -302,7 +312,8 @@ func (h *DockerHandler) CreateVolume(c echo.Context) error {
 func (h *DockerHandler) RemoveVolume(c echo.Context) error {
 	ctx := c.Request().Context()
 	name := c.Param("name")
-	if err := h.Docker.RemoveVolume(ctx, name); err != nil {
+	force := c.QueryParam("force") == "true"
+	if err := h.Docker.RemoveVolume(ctx, name, force); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 	return response.OK(c, map[string]string{"message": "volume removed"})
@@ -436,12 +447,26 @@ func (h *DockerHandler) PruneNetworks(c echo.Context) error {
 func (h *DockerHandler) PruneAll(c echo.Context) error {
 	ctx := c.Request().Context()
 
-	containerReport, _ := h.Docker.PruneContainers(ctx)
-	imageReport, _ := h.Docker.PruneImages(ctx)
-	volumeReport, _ := h.Docker.PruneVolumes(ctx)
-	networkReport, _ := h.Docker.PruneNetworks(ctx)
+	var pruneErrors []string
 
-	return response.OK(c, map[string]interface{}{
+	containerReport, err := h.Docker.PruneContainers(ctx)
+	if err != nil {
+		pruneErrors = append(pruneErrors, "containers: "+err.Error())
+	}
+	imageReport, err := h.Docker.PruneImages(ctx)
+	if err != nil {
+		pruneErrors = append(pruneErrors, "images: "+err.Error())
+	}
+	volumeReport, err := h.Docker.PruneVolumes(ctx)
+	if err != nil {
+		pruneErrors = append(pruneErrors, "volumes: "+err.Error())
+	}
+	networkReport, err := h.Docker.PruneNetworks(ctx)
+	if err != nil {
+		pruneErrors = append(pruneErrors, "networks: "+err.Error())
+	}
+
+	result := map[string]interface{}{
 		"containers": map[string]interface{}{
 			"deleted":         len(containerReport.ContainersDeleted),
 			"space_reclaimed": containerReport.SpaceReclaimed,
@@ -457,7 +482,13 @@ func (h *DockerHandler) PruneAll(c echo.Context) error {
 		"networks": map[string]interface{}{
 			"deleted": len(networkReport.NetworksDeleted),
 		},
-	})
+	}
+
+	if len(pruneErrors) > 0 {
+		result["errors"] = pruneErrors
+	}
+
+	return response.OK(c, result)
 }
 
 // ---------- Docker Hub Search ----------

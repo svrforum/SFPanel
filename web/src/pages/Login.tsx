@@ -25,8 +25,8 @@ export default function Login() {
       const result = await api.login(username, password, showTotp ? totpCode : undefined)
       api.setToken(result.token)
       navigate('/dashboard')
-    } catch (err: any) {
-      const message = err.message || 'Login failed'
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Login failed'
       if (message.toLowerCase().includes('totp') || message.toLowerCase().includes('2fa')) {
         setShowTotp(true)
         setError(t('login.totpRequired'))
