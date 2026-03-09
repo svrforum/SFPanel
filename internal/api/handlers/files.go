@@ -69,6 +69,14 @@ func validatePath(p string) error {
 	if strings.Contains(p, "..") {
 		return fmt.Errorf("path must not contain '..'")
 	}
+	return nil
+}
+
+// validatePathForWrite checks symlink resolution for write/delete operations.
+func validatePathForWrite(p string) error {
+	if err := validatePath(p); err != nil {
+		return err
+	}
 	realPath, err := filepath.EvalSymlinks(filepath.Dir(p))
 	if err == nil {
 		resolved := filepath.Join(realPath, filepath.Base(p))
@@ -201,7 +209,7 @@ func (h *FilesHandler) WriteFile(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
-	if err := validatePath(req.Path); err != nil {
+	if err := validatePathForWrite(req.Path); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
@@ -287,7 +295,7 @@ func (h *FilesHandler) MkDir(c echo.Context) error {
 func (h *FilesHandler) DeletePath(c echo.Context) error {
 	targetPath := c.QueryParam("path")
 
-	if err := validatePath(targetPath); err != nil {
+	if err := validatePathForWrite(targetPath); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
@@ -331,10 +339,10 @@ func (h *FilesHandler) RenamePath(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
-	if err := validatePath(req.OldPath); err != nil {
+	if err := validatePathForWrite(req.OldPath); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, fmt.Sprintf("old_path: %s", err.Error()))
 	}
-	if err := validatePath(req.NewPath); err != nil {
+	if err := validatePathForWrite(req.NewPath); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, fmt.Sprintf("new_path: %s", err.Error()))
 	}
 
