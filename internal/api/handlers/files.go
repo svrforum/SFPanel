@@ -22,16 +22,23 @@ const maxReadSize = 5 * 1024 * 1024
 
 // criticalPaths are system directories that must never be deleted.
 var criticalPaths = map[string]bool{
-	"/":     true,
-	"/etc":  true,
-	"/usr":  true,
-	"/bin":  true,
-	"/sbin": true,
-	"/var":  true,
-	"/boot": true,
-	"/proc": true,
-	"/sys":  true,
-	"/dev":  true,
+	"/":      true,
+	"/etc":   true,
+	"/usr":   true,
+	"/bin":   true,
+	"/sbin":  true,
+	"/var":   true,
+	"/boot":  true,
+	"/proc":  true,
+	"/sys":   true,
+	"/dev":   true,
+	"/home":  true,
+	"/root":  true,
+	"/lib":   true,
+	"/lib64": true,
+	"/opt":   true,
+	"/run":   true,
+	"/srv":   true,
 }
 
 // FileEntry represents a single file or directory in a listing.
@@ -61,6 +68,13 @@ func validatePath(p string) error {
 	}
 	if strings.Contains(p, "..") {
 		return fmt.Errorf("path must not contain '..'")
+	}
+	realPath, err := filepath.EvalSymlinks(filepath.Dir(p))
+	if err == nil {
+		resolved := filepath.Join(realPath, filepath.Base(p))
+		if isCriticalPath(resolved) {
+			return fmt.Errorf("access to critical system path is not allowed")
+		}
 	}
 	return nil
 }
@@ -326,6 +340,15 @@ func (h *FilesHandler) RenamePath(c echo.Context) error {
 
 	req.OldPath = filepath.Clean(req.OldPath)
 	req.NewPath = filepath.Clean(req.NewPath)
+
+	if isCriticalPath(req.OldPath) {
+		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath,
+			fmt.Sprintf("Renaming '%s' is not allowed: critical system path", req.OldPath))
+	}
+	if isCriticalPath(req.NewPath) {
+		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath,
+			fmt.Sprintf("Renaming to '%s' is not allowed: critical system path", req.NewPath))
+	}
 
 	if _, err := os.Stat(req.OldPath); err != nil {
 		if os.IsNotExist(err) {

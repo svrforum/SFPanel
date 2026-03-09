@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"net"
 	"regexp"
+	"strings"
 )
 
 // FirewallHandler exposes REST handlers for UFW firewall and Fail2ban management.
@@ -71,8 +73,28 @@ type Fail2banJail struct {
 // validPort matches port numbers, ranges (e.g., "8000:8080"), and service names.
 var validPort = regexp.MustCompile(`^[a-zA-Z0-9_\-]+(:[a-zA-Z0-9_\-]+)?$`)
 
-// validIP matches IPv4, IPv6, and CIDR notation addresses.
-var validIP = regexp.MustCompile(`^[a-fA-F0-9.:\/]+$`)
+// isValidIPOrCIDR validates an IP address or CIDR notation using net.ParseIP and net.ParseCIDR.
+func isValidIPOrCIDR(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	if net.ParseIP(s) != nil {
+		return true
+	}
+	_, _, err := net.ParseCIDR(s)
+	return err == nil
+}
+
+// validIP is kept for backward compatibility but delegates to isValidIPOrCIDR.
+// It is used as a simple MatchString check, so we wrap it.
+type ipValidator struct{}
+
+func (ipValidator) MatchString(s string) bool {
+	return isValidIPOrCIDR(s)
+}
+
+var validIP = ipValidator{}
 
 // validProtocol matches allowed protocol values.
 var validProtocol = regexp.MustCompile(`^(tcp|udp|any)$`)

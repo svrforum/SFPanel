@@ -198,7 +198,7 @@ export default function Files() {
     setEditLoading(true)
     try {
       const data = await api.readFile(filePath)
-      setEditContent(typeof data === 'string' ? data : (data as any).content || '')
+      setEditContent(data.content || '')
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('files.readFailed')
       toast.error(message)

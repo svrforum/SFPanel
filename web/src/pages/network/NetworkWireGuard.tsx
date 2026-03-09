@@ -146,6 +146,11 @@ export default function NetworkWireGuard() {
 
   const handleEditSave = async () => {
     if (!editTarget || !editContent.trim()) return
+    // Validate that masked keys are not being saved back
+    if (editContent.includes('********')) {
+      toast.error(t('network.wireguard.maskedKeyError'))
+      return
+    }
     setEditSaving(true)
     try {
       await api.updateWireGuardConfig(editTarget, editContent)

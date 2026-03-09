@@ -465,7 +465,6 @@ export default function NetworkTailscale() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-[13px] text-[#3182f6] hover:underline font-mono break-all"
-                  onClick={() => window.open(authURL, '_blank', 'noopener,noreferrer')}
                 >
                   {authURL}
                   <ExternalLink className="h-3 w-3 shrink-0" />

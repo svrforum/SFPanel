@@ -41,6 +41,7 @@ const (
 	ErrAlreadySetup       = "ALREADY_SETUP"
 	ErrNoUser             = "NO_USER"
 	ErrUserNotFound       = "USER_NOT_FOUND"
+	ErrRateLimited        = "RATE_LIMITED"
 )
 
 // Docker error codes

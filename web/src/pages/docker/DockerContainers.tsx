@@ -422,6 +422,7 @@ export default function DockerContainers() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [selectedContainer, setSelectedContainer] = useState<Container | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [detailTab, setDetailTab] = useState<string>('inspect')
   const [deleteTarget, setDeleteTarget] = useState<Container | null>(null)
   const [confirmAction, setConfirmAction] = useState<{ action: 'stop' | 'restart'; container: Container } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -511,6 +512,13 @@ export default function DockerContainers() {
 
   const openDetail = (container: Container) => {
     setSelectedContainer(container)
+    setDetailTab('inspect')
+    setDetailOpen(true)
+  }
+
+  const openTerminal = (container: Container) => {
+    setSelectedContainer(container)
+    setDetailTab('shell')
     setDetailOpen(true)
   }
 
@@ -659,7 +667,7 @@ export default function DockerContainers() {
                     container={c}
                     actionLoading={actionLoading}
                     onDetail={openDetail}
-                    onTerminal={(ct) => { setSelectedContainer(ct); setDetailOpen(true) }}
+                    onTerminal={openTerminal}
                     onStart={(id) => handleAction('start', id)}
                     onStop={(ct) => setConfirmAction({ action: 'stop', container: ct })}
                     onRestart={(ct) => setConfirmAction({ action: 'restart', container: ct })}
@@ -689,7 +697,7 @@ export default function DockerContainers() {
               container={c}
               actionLoading={actionLoading}
               onDetail={openDetail}
-              onTerminal={(ct) => { setSelectedContainer(ct); setDetailOpen(true) }}
+              onTerminal={openTerminal}
               onStart={(id) => handleAction('start', id)}
               onStop={(ct) => setConfirmAction({ action: 'stop', container: ct })}
               onRestart={(ct) => setConfirmAction({ action: 'restart', container: ct })}
@@ -717,7 +725,7 @@ export default function DockerContainers() {
             </DialogDescription>
           </DialogHeader>
           {selectedContainer && (
-            <Tabs defaultValue="inspect">
+            <Tabs defaultValue={detailTab} key={detailTab}>
               <TabsList>
                 <TabsTrigger value="inspect">
                   <Info className="h-3.5 w-3.5 mr-1" />

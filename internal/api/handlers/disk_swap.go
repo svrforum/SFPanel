@@ -224,7 +224,7 @@ func (h *DiskHandler) SetSwappiness(c echo.Context) error {
 	}
 
 	valStr := fmt.Sprintf("vm.swappiness=%d", req.Value)
-	out, err := exec.Command("sysctl", valStr).CombinedOutput()
+	out, err := exec.Command("sysctl", "-w", valStr).CombinedOutput()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 			fmt.Sprintf("sysctl failed: %s", strings.TrimSpace(string(out))))

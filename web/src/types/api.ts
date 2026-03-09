@@ -587,3 +587,22 @@ export interface PruneAllReport {
   networks: PruneReport
 }
 
+// Docker Status (packages page)
+export interface DockerStatus {
+  installed: boolean
+  version: string
+  running: boolean
+  compose_available: boolean
+}
+
+// Process
+export interface ProcessInfo {
+  pid: number
+  name: string
+  cpu: number
+  memory: number
+  status: string
+  user: string
+  command: string
+}
+

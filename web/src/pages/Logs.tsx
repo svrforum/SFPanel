@@ -4,7 +4,7 @@ import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { FileText, RefreshCw, Radio, ArrowDown, Trash2, Eye, Search, ChevronUp, ChevronDown, X, Download, Plus } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { hasParsedView, getParser, parseLogLines, type LogEntry, type ParsedLogEntry, type ColumnDef } from '@/lib/logParsers'
@@ -112,6 +112,9 @@ export default function Logs() {
   const [currentMatch, setCurrentMatch] = useState(0)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
+  // Delete source dialog
+  const [deleteSourceTarget, setDeleteSourceTarget] = useState<LogSource | null>(null)
+
   // Custom source dialog
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [newSourceName, setNewSourceName] = useState('')
@@ -160,8 +163,9 @@ export default function Logs() {
           setSelectedSource(firstExisting.id)
         }
       }
-    } catch (err: any) {
-      toast.error(err.message || t('logs.loadSourcesFailed'))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('logs.loadSourcesFailed')
+      toast.error(message)
     } finally {
       setSourcesLoading(false)
     }
@@ -180,8 +184,9 @@ export default function Logs() {
       const data: LogResponse = await api.readLog(source, lines)
       setLogLines(data.lines)
       setTotalLines(data.total_lines)
-    } catch (err: any) {
-      toast.error(err.message || t('logs.loadLogFailed'))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('logs.loadLogFailed')
+      toast.error(message)
       setLogLines([])
       setTotalLines(0)
     } finally {
@@ -210,14 +215,23 @@ export default function Logs() {
       try {
         const data = JSON.parse(event.data)
         if (data.line !== undefined) {
-          setLogLines((prev) => [...prev, data.line])
+          setLogLines((prev) => {
+            const next = [...prev, data.line]
+            return next.length > 5000 ? next.slice(-5000) : next
+          })
         } else if (data.lines && Array.isArray(data.lines)) {
-          setLogLines((prev) => [...prev, ...data.lines])
+          setLogLines((prev) => {
+            const next = [...prev, ...data.lines]
+            return next.length > 5000 ? next.slice(-5000) : next
+          })
         }
       } catch {
         // If the message is plain text, add it as a line
         if (typeof event.data === 'string' && event.data.trim()) {
-          setLogLines((prev) => [...prev, event.data])
+          setLogLines((prev) => {
+            const next = [...prev, event.data]
+            return next.length > 5000 ? next.slice(-5000) : next
+          })
         }
       }
     }
@@ -309,26 +323,33 @@ export default function Logs() {
       setNewSourceName('')
       setNewSourcePath('')
       loadSources()
-    } catch (err: any) {
-      toast.error(err.message)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('logs.addSourceFailed')
+      toast.error(message)
     } finally {
       setAddingSource(false)
     }
   }
 
-  async function handleDeleteSource(source: LogSource) {
+  function handleDeleteSourceClick(source: LogSource) {
     if (!source.custom || !source.custom_id) return
-    if (!confirm(t('logs.deleteSourceConfirm'))) return
+    setDeleteSourceTarget(source)
+  }
+
+  async function handleConfirmDeleteSource() {
+    if (!deleteSourceTarget?.custom_id) return
     try {
-      await api.deleteCustomLogSource(source.custom_id)
+      await api.deleteCustomLogSource(deleteSourceTarget.custom_id)
       toast.success(t('logs.sourceDeleted'))
-      if (selectedSource === source.id) {
+      if (selectedSource === deleteSourceTarget.id) {
         setSelectedSource(null)
         setLogLines([])
       }
+      setDeleteSourceTarget(null)
       loadSources()
-    } catch (err: any) {
-      toast.error(err.message)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('logs.deleteSourceFailed')
+      toast.error(message)
     }
   }
 
@@ -498,7 +519,7 @@ export default function Logs() {
                 </button>
                 {source.custom && source.custom_id && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleDeleteSource(source) }}
+                    onClick={(e) => { e.stopPropagation(); handleDeleteSourceClick(source) }}
                     className="absolute top-2 right-2 h-5 w-5 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-destructive/10 hover:bg-destructive/20 text-destructive"
                     title={t('logs.deleteSource')}
                   >
@@ -920,6 +941,30 @@ export default function Logs() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Custom Source Confirmation Dialog */}
+      <Dialog open={!!deleteSourceTarget} onOpenChange={(open) => !open && setDeleteSourceTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('logs.deleteSource')}</DialogTitle>
+            <DialogDescription>{t('logs.deleteSourceConfirm')}</DialogDescription>
+          </DialogHeader>
+          {deleteSourceTarget && (
+            <div className="rounded-xl bg-secondary/50 px-3 py-2 text-[13px]">
+              <span className="font-medium">{deleteSourceTarget.name}</span>
+              <span className="text-muted-foreground ml-2">{deleteSourceTarget.path}</span>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteSourceTarget(null)} className="rounded-xl">
+              {t('common.cancel')}
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmDeleteSource} className="rounded-xl">
+              {t('common.delete')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

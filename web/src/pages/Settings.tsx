@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback, type FormEvent, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
-import type { AuditLogEntry } from '@/types/api'
+import { formatUptime } from '@/lib/utils'
+import type { AuditLogEntry, HostInfo } from '@/types/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Download, Upload, RefreshCw, AlertCircle, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 
 export default function Settings() {
   const { t, i18n } = useTranslation()
@@ -35,7 +37,7 @@ export default function Settings() {
   const [maxUploadSizeLoading, setMaxUploadSizeLoading] = useState(false)
 
   // System info state
-  const [systemInfo, setSystemInfo] = useState<any>(null)
+  const [systemInfo, setSystemInfo] = useState<{ host: HostInfo; version?: string } | null>(null)
   const [panelVersion, setPanelVersion] = useState('...')
 
   // Update state
@@ -66,8 +68,18 @@ export default function Settings() {
   useEffect(() => {
     loadSystemInfo()
     loadSettings()
+    load2FAStatus()
     loadAuditLogs(1)
   }, [loadAuditLogs])
+
+  async function load2FAStatus() {
+    try {
+      const data = await api.get2FAStatus()
+      setTwoFAEnabled(data.enabled)
+    } catch {
+      // ignore
+    }
+  }
 
   async function loadSettings() {
     try {
@@ -94,8 +106,9 @@ export default function Settings() {
     try {
       await api.updateSettings({ terminal_timeout: String(val) })
       toast.success(t('settings.settingsSaved'))
-    } catch (err: any) {
-      toast.error(err.message || t('settings.settingsSaveFailed'))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('settings.settingsSaveFailed')
+      toast.error(message)
     } finally {
       setTerminalTimeoutLoading(false)
     }
@@ -152,8 +165,9 @@ export default function Settings() {
       setCurrentPassword('')
       setNewPassword('')
       setConfirmPassword('')
-    } catch (err: any) {
-      toast.error(err.message || t('settings.passwordChangeFailed'))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('settings.passwordChangeFailed')
+      toast.error(message)
     } finally {
       setPasswordLoading(false)
     }
@@ -166,8 +180,9 @@ export default function Settings() {
       setTwoFASecret(data.secret)
       setTwoFAUrl(data.url)
       setShowTwoFASetup(true)
-    } catch (err: any) {
-      toast.error(err.message || t('settings.twoFASetupFailed'))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('settings.twoFASetupFailed')
+      toast.error(message)
     } finally {
       setTwoFALoading(false)
     }
@@ -189,8 +204,9 @@ export default function Settings() {
       setTwoFACode('')
       setTwoFASecret('')
       setTwoFAUrl('')
-    } catch (err: any) {
-      toast.error(err.message || t('settings.twoFACodeInvalid'))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('settings.twoFACodeInvalid')
+      toast.error(message)
     } finally {
       setTwoFALoading(false)
     }
@@ -444,12 +460,7 @@ export default function Settings() {
             <div className="bg-secondary/30 p-4 rounded-xl space-y-3">
               <p className="text-[13px] font-medium">{t('settings.scanQR')}</p>
               <div className="bg-white p-4 rounded-xl inline-block">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(twoFAUrl)}`}
-                  alt="2FA QR Code"
-                  width={200}
-                  height={200}
-                />
+                <QRCodeSVG value={twoFAUrl} size={200} />
               </div>
               <div className="space-y-1">
                 <Label className="text-[11px] text-muted-foreground">{t('settings.secretKey')}</Label>
@@ -739,7 +750,7 @@ export default function Settings() {
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('dashboard.uptime')}</p>
                 <p className="text-[13px] font-medium">
                   {systemInfo.host.uptime
-                    ? `${Math.floor(systemInfo.host.uptime / 3600)}h ${Math.floor((systemInfo.host.uptime % 3600) / 60)}m`
+                    ? formatUptime(systemInfo.host.uptime)
                     : 'N/A'}
                 </p>
               </div>
