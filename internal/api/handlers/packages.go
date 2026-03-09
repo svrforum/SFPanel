@@ -42,7 +42,14 @@ func validatePackageName(name string) bool {
 // packages that have updates available.
 // GET /packages/updates
 func (h *PackagesHandler) CheckUpdates(c echo.Context) error {
-	output, err := runCommandEnv(aptEnv(), "apt", "list", "--upgradable")
+	// Refresh package lists first so results are up-to-date
+	env := aptEnv()
+	if _, err := runCommandEnv(env, "apt-get", "update"); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
+			"Failed to update package lists: "+err.Error())
+	}
+
+	output, err := runCommandEnv(env, "apt", "list", "--upgradable")
 	if err != nil {
 		// apt list --upgradable may return exit code 0 even with warnings;
 		// only fail if output is completely empty.
