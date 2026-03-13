@@ -27,6 +27,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/monitor"
+	"github.com/svrforum/SFPanel/internal/release"
 )
 
 var (
@@ -184,7 +185,8 @@ func updatePanel() {
 
 	fmt.Println("Checking for latest version...")
 
-	resp, err := http.Get("https://api.github.com/repos/svrforum/SFPanel/releases/latest")
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get("https://api.github.com/repos/svrforum/SFPanel/releases/latest")
 	if err != nil {
 		log.Fatalf("Failed to check for updates: %v", err)
 	}
@@ -194,18 +196,15 @@ func updatePanel() {
 		log.Fatalf("Failed to fetch release info (HTTP %d)", resp.StatusCode)
 	}
 
-	var release struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
+	var ghRelease struct {
+		TagName string          `json:"tag_name"`
+		Assets  []release.Asset `json:"assets"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&ghRelease); err != nil {
 		log.Fatalf("Failed to parse release info: %v", err)
 	}
 
-	latest := strings.TrimPrefix(release.TagName, "v")
+	latest := strings.TrimPrefix(ghRelease.TagName, "v")
 	if latest == version {
 		fmt.Printf("Already up to date (v%s).\n", version)
 		return
@@ -224,22 +223,15 @@ func updatePanel() {
 
 	arch := runtime.GOARCH
 	archiveName := fmt.Sprintf("sfpanel_%s_linux_%s.tar.gz", latest, arch)
-	url := ""
-	checksumsURL := ""
-	for _, asset := range release.Assets {
-		switch asset.Name {
-		case archiveName:
-			url = asset.BrowserDownloadURL
-		case "checksums.txt":
-			checksumsURL = asset.BrowserDownloadURL
-		}
-	}
-	if url == "" || checksumsURL == "" {
+	archiveURL := release.FindAssetURL(ghRelease.Assets, archiveName)
+	checksumsURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt")
+	if archiveURL == "" || checksumsURL == "" {
 		log.Fatal("Required release assets not found (archive or checksums.txt)")
 	}
 	fmt.Printf("Downloading SFPanel v%s (%s)...\n", latest, arch)
 
-	dlResp, err := http.Get(url)
+	dlClient := &http.Client{Timeout: 5 * time.Minute}
+	dlResp, err := dlClient.Get(archiveURL)
 	if err != nil {
 		log.Fatalf("Download failed: %v", err)
 	}
@@ -249,7 +241,7 @@ func updatePanel() {
 		log.Fatalf("Download failed (HTTP %d)", dlResp.StatusCode)
 	}
 
-	checksumResp, err := http.Get(checksumsURL)
+	checksumResp, err := dlClient.Get(checksumsURL)
 	if err != nil {
 		log.Fatalf("Checksum download failed: %v", err)
 	}
@@ -261,19 +253,9 @@ func updatePanel() {
 	if err != nil {
 		log.Fatalf("Checksum read failed: %v", err)
 	}
-	expectedSHA256 := ""
-	for _, line := range strings.Split(string(checksumBody), "\n") {
-		fields := strings.Fields(strings.TrimSpace(line))
-		if len(fields) < 2 {
-			continue
-		}
-		if strings.TrimPrefix(fields[1], "*") == archiveName {
-			expectedSHA256 = strings.ToLower(fields[0])
-			break
-		}
-	}
-	if expectedSHA256 == "" {
-		log.Fatalf("Checksum not found for %s", archiveName)
+	expectedSHA256, err := release.ParseExpectedSHA256(checksumBody, archiveName)
+	if err != nil {
+		log.Fatalf("Checksum verification failed: %v", err)
 	}
 
 	archiveData, err := io.ReadAll(dlResp.Body)
