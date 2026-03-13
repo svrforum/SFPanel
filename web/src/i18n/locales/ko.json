@@ -503,7 +503,17 @@
     },
     "notEnabled": {
       "title": "클러스터가 활성화되지 않았습니다",
-      "description": "클러스터 모드를 사용하려면 CLI에서 초기화하세요. 2~32대 노드를 하나로 묶어 통합 관리할 수 있습니다."
+      "description": "클러스터 모드를 활성화하면 2~32대 노드를 하나로 묶어 통합 관리할 수 있습니다."
+    },
+    "init": {
+      "clusterName": "클러스터 이름",
+      "advertiseAddress": "통신 주소",
+      "advertiseAddressDesc": "다른 노드가 이 서버에 접근할 IP 주소입니다.",
+      "button": "클러스터 초기화",
+      "initializing": "초기화 중...",
+      "success": "클러스터가 초기화되었습니다. 서비스를 재시작합니다.",
+      "restarting": "서비스 재시작 중...",
+      "restartingDesc": "클러스터 모드를 활성화하기 위해 서비스를 재시작하고 있습니다. 잠시만 기다려주세요."
     },
     "overview": {
       "nodes": "노드",

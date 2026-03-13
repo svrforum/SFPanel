@@ -776,3 +776,14 @@ export interface ClusterEventsResponse {
   events: ClusterEvent[]
 }
 
+export interface ClusterInterfacesResponse {
+  interfaces: { name: string; address: string }[]
+}
+
+export interface ClusterInitResponse {
+  message: string
+  name: string
+  node_id: string
+  restart: boolean
+}
+
