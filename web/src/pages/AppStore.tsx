@@ -171,10 +171,10 @@ export default function AppStore() {
             </button>
           ))}
         </div>
-        <div className="relative w-full sm:w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <div className="relative flex items-center w-full sm:w-64">
+          <Search className="absolute left-3 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
-            className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+            className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] w-full"
             placeholder={t('appStore.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
