@@ -18,6 +18,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/release"
 )
 
 type SystemHandler struct {
@@ -28,15 +29,10 @@ type SystemHandler struct {
 }
 
 type GitHubRelease struct {
-	TagName     string        `json:"tag_name"`
-	Body        string        `json:"body"`
-	PublishedAt string        `json:"published_at"`
-	Assets      []GitHubAsset `json:"assets"`
-}
-
-type GitHubAsset struct {
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
+	TagName     string          `json:"tag_name"`
+	Body        string          `json:"body"`
+	PublishedAt string          `json:"published_at"`
+	Assets      []release.Asset `json:"assets"`
 }
 
 type UpdateCheckResponse struct {
@@ -45,29 +41,6 @@ type UpdateCheckResponse struct {
 	UpdateAvailable bool   `json:"update_available"`
 	ReleaseNotes    string `json:"release_notes"`
 	PublishedAt     string `json:"published_at"`
-}
-
-func findReleaseAsset(release GitHubRelease, name string) string {
-	for _, asset := range release.Assets {
-		if asset.Name == name {
-			return asset.BrowserDownloadURL
-		}
-	}
-	return ""
-}
-
-func expectedArchiveSHA256(checksums []byte, archiveName string) (string, error) {
-	for _, line := range strings.Split(string(checksums), "\n") {
-		fields := strings.Fields(strings.TrimSpace(line))
-		if len(fields) < 2 {
-			continue
-		}
-		name := strings.TrimPrefix(fields[1], "*")
-		if name == archiveName {
-			return strings.ToLower(fields[0]), nil
-		}
-	}
-	return "", fmt.Errorf("checksum not found for %s", archiveName)
 }
 
 // CheckUpdate queries GitHub releases API and returns version comparison.
@@ -84,18 +57,18 @@ func (h *SystemHandler) CheckUpdate(c echo.Context) error {
 			fmt.Sprintf("GitHub API returned %d", resp.StatusCode))
 	}
 
-	var release GitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	var ghRelease GitHubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&ghRelease); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUpdateCheckFailed, "Failed to parse release info")
 	}
 
-	latest := strings.TrimPrefix(release.TagName, "v")
+	latest := strings.TrimPrefix(ghRelease.TagName, "v")
 	return response.OK(c, UpdateCheckResponse{
 		CurrentVersion:  h.Version,
 		LatestVersion:   latest,
 		UpdateAvailable: latest != h.Version,
-		ReleaseNotes:    release.Body,
-		PublishedAt:     release.PublishedAt,
+		ReleaseNotes:    ghRelease.Body,
+		PublishedAt:     ghRelease.PublishedAt,
 	})
 }
 
@@ -112,11 +85,11 @@ func (h *SystemHandler) RunUpdate(c echo.Context) error {
 		return response.Fail(c, http.StatusBadGateway, response.ErrUpdateFailed, "GitHub API error")
 	}
 
-	var release GitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	var ghRelease GitHubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&ghRelease); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUpdateFailed, "Failed to parse release")
 	}
-	latest := strings.TrimPrefix(release.TagName, "v")
+	latest := strings.TrimPrefix(ghRelease.TagName, "v")
 	if latest == h.Version {
 		return response.OK(c, map[string]string{"status": "up_to_date"})
 	}
@@ -137,12 +110,12 @@ func (h *SystemHandler) RunUpdate(c echo.Context) error {
 	// Download
 	arch := runtime.GOARCH
 	archiveName := fmt.Sprintf("sfpanel_%s_linux_%s.tar.gz", latest, arch)
-	url := findReleaseAsset(release, archiveName)
+	url := release.FindAssetURL(ghRelease.Assets, archiveName)
 	if url == "" {
 		sendEvent("error", fmt.Sprintf("Release asset not found: %s", archiveName))
 		return nil
 	}
-	checksumsURL := findReleaseAsset(release, "checksums.txt")
+	checksumsURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt")
 	if checksumsURL == "" {
 		sendEvent("error", "Release checksums.txt not found; refusing unsigned update")
 		return nil
@@ -179,7 +152,7 @@ func (h *SystemHandler) RunUpdate(c echo.Context) error {
 		return nil
 	}
 
-	expectedSHA256, err := expectedArchiveSHA256(checksumBody, archiveName)
+	expectedSHA256, err := release.ParseExpectedSHA256(checksumBody, archiveName)
 	if err != nil {
 		sendEvent("error", err.Error())
 		return nil
