@@ -129,8 +129,6 @@ func main() {
 			}
 		}
 	}
-	_ = clusterMgr // TODO: pass to router in Phase 2
-
 	// Start background metrics history collector (30s interval, 24h retention, persisted to SQLite)
 	monitor.StartHistoryCollector(database)
 
@@ -143,7 +141,7 @@ func main() {
 	// Start background update checker (polls GitHub every hour)
 	monitor.StartUpdateChecker(version)
 
-	e := api.NewRouter(database, cfg, sfpanel.WebDistFS, version, cfgPath)
+	e := api.NewRouter(database, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath)
 	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

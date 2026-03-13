@@ -47,7 +47,16 @@
     "collapse": "사이드바 접기",
     "expand": "사이드바 펼치기",
     "updateAvailable": "업데이트",
-    "upToDate": "최신"
+    "upToDate": "최신",
+    "cluster": {
+      "localNode": "이 노드",
+      "selectNode": "노드 선택",
+      "nodeCount": "{{count}}개 노드",
+      "online": "온라인",
+      "offline": "오프라인",
+      "suspect": "점검 중",
+      "leader": "리더"
+    }
   },
   "login": {
     "title": "SFPanel",

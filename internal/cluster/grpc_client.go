@@ -74,6 +74,11 @@ func (c *GRPCClient) GetMetrics(ctx context.Context, nodeID string) (*pb.Metrics
 	return c.client.GetMetrics(ctx, &pb.MetricsRequest{NodeId: nodeID})
 }
 
+// ProxyRequest forwards an API request to the remote node.
+func (c *GRPCClient) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.APIResponse, error) {
+	return c.client.ProxyRequest(ctx, req)
+}
+
 // Close releases the gRPC connection.
 func (c *GRPCClient) Close() error {
 	if c.conn != nil {

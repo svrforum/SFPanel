@@ -13,11 +13,12 @@ import (
 	echoMw "github.com/labstack/echo/v4/middleware"
 	"github.com/svrforum/SFPanel/internal/api/handlers"
 	mw "github.com/svrforum/SFPanel/internal/api/middleware"
+	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/docker"
 )
 
-func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version string, extra ...string) *echo.Echo {
+func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, extra ...string) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -71,6 +72,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	// Protected routes
 	authorized := v1.Group("")
 	authorized.Use(mw.JWTMiddleware(cfg.Auth.JWTSecret))
+	authorized.Use(mw.ClusterProxyMiddleware(clusterMgr))
 	authorized.Use(mw.AuditMiddleware(database))
 	// Settings
 	settingsHandler := &handlers.SettingsHandler{DB: database}
@@ -107,6 +109,15 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.POST("/system/update", systemHandler.RunUpdate)
 	authorized.POST("/system/backup", systemHandler.CreateBackup)
 	authorized.POST("/system/restore", systemHandler.RestoreBackup)
+
+	// Cluster management
+	clusterHandler := &handlers.ClusterHandler{Manager: clusterMgr}
+	clusterGroup := authorized.Group("/cluster")
+	clusterGroup.GET("/status", clusterHandler.GetStatus)
+	clusterGroup.GET("/overview", clusterHandler.GetOverview)
+	clusterGroup.GET("/nodes", clusterHandler.GetNodes)
+	clusterGroup.POST("/token", clusterHandler.CreateToken)
+	clusterGroup.DELETE("/nodes/:id", clusterHandler.RemoveNode)
 
 	// Audit logs
 	auditHandler := &handlers.AuditHandler{DB: database}
