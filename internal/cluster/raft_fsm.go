@@ -81,6 +81,12 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 			if update.Labels != nil {
 				existing.Labels = update.Labels
 			}
+			if update.APIAddress != "" {
+				existing.APIAddress = update.APIAddress
+			}
+			if update.GRPCAddress != "" {
+				existing.GRPCAddress = update.GRPCAddress
+			}
 			existing.LastSeen = time.Now()
 		}
 		return nil

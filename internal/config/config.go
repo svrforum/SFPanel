@@ -48,6 +48,7 @@ type ClusterConfig struct {
 	NodeID           string `yaml:"node_id"`
 	NodeName         string `yaml:"node_name"`
 	GRPCPort         int    `yaml:"grpc_port"`
+	APIPort          int    `yaml:"-"` // Set from Server.Port at runtime, not persisted
 	DataDir          string `yaml:"data_dir"`
 	CertDir          string `yaml:"cert_dir"`
 	AdvertiseAddress string `yaml:"advertise_address"`

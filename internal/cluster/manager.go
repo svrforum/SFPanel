@@ -61,7 +61,8 @@ func (m *Manager) Init(clusterName string) error {
 
 	advertise := m.config.AdvertiseAddress
 	if advertise == "" {
-		advertise = "127.0.0.1"
+		advertise = detectOutboundIP()
+		log.Printf("[cluster] No advertise_address configured, auto-detected: %s", advertise)
 	}
 
 	certPEM, keyPEM, err := m.tls.IssueNodeCert(m.nodeID, []string{advertise})
@@ -86,7 +87,7 @@ func (m *Manager) Init(clusterName string) error {
 
 	time.Sleep(2 * time.Second)
 
-	apiAddr := fmt.Sprintf("%s:%d", advertise, 8443)
+	apiAddr := fmt.Sprintf("%s:%d", advertise, m.config.APIPort)
 	grpcAddr := fmt.Sprintf("%s:%d", advertise, m.config.GRPCPort)
 
 	selfNode := Node{
@@ -132,7 +133,8 @@ func (m *Manager) Start() error {
 
 	advertise := m.config.AdvertiseAddress
 	if advertise == "" {
-		advertise = "127.0.0.1"
+		advertise = detectOutboundIP()
+		log.Printf("[cluster] No advertise_address configured, auto-detected: %s", advertise)
 	}
 
 	raftAddr := fmt.Sprintf("%s:%d", advertise, m.config.GRPCPort+1)
@@ -412,7 +414,7 @@ type MetricsCollector func() (cpuPercent, memPercent, diskPercent float64, conta
 // to the leader via gRPC heartbeat streaming.
 func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 	go func() {
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 
 		var grpcStream pb.ClusterService_HeartbeatClient
@@ -550,4 +552,46 @@ func (m *Manager) onNodeStatusChange(nodeID string, status NodeStatus) {
 	case StatusOffline:
 		m.events.Emit(EventNodeOffline, nodeID, nodeName, "node is offline (heartbeat timeout)")
 	}
+}
+
+// UpdateNodeAddress updates the API and gRPC addresses of a node (leader-only).
+func (m *Manager) UpdateNodeAddress(nodeID, apiAddr, grpcAddr string) error {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return ErrNotLeader
+	}
+	state := m.raft.GetFSM().GetState()
+	node, exists := state.Nodes[nodeID]
+	if !exists {
+		return ErrNodeNotFound
+	}
+
+	node.APIAddress = apiAddr
+	node.GRPCAddress = grpcAddr
+	data, _ := json.Marshal(node)
+	if err := m.raft.Apply(Command{
+		Type:  CmdUpdateNode,
+		Value: data,
+	}, 5*time.Second); err != nil {
+		return fmt.Errorf("update address: %w", err)
+	}
+
+	m.events.Emit(EventNodeJoined, nodeID, node.Name, fmt.Sprintf("address updated: api=%s grpc=%s", apiAddr, grpcAddr))
+	return nil
+}
+
+// detectOutboundIP finds a reasonable non-loopback IP by creating a UDP connection.
+func detectOutboundIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		addrs, _ := net.InterfaceAddrs()
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+				return ipnet.IP.String()
+			}
+		}
+		return "127.0.0.1"
+	}
+	defer conn.Close()
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String()
 }

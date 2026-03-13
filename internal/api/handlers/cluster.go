@@ -301,6 +301,40 @@ func (h *ClusterHandler) UpdateNodeLabels(c echo.Context) error {
 	})
 }
 
+// UpdateNodeAddress updates the API and gRPC addresses of a node. Leader-only.
+// PATCH /api/v1/cluster/nodes/:id/address
+func (h *ClusterHandler) UpdateNodeAddress(c echo.Context) error {
+	if h.Manager == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+
+	nodeID := c.Param("id")
+	if nodeID == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Node ID required")
+	}
+
+	var body struct {
+		APIAddress  string `json:"api_address"`
+		GRPCAddress string `json:"grpc_address"`
+	}
+	if err := c.Bind(&body); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	if body.APIAddress == "" || body.GRPCAddress == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "api_address and grpc_address required")
+	}
+
+	if err := h.Manager.UpdateNodeAddress(nodeID, body.APIAddress, body.GRPCAddress); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
+	}
+
+	return response.OK(c, map[string]string{
+		"node_id":      nodeID,
+		"api_address":  body.APIAddress,
+		"grpc_address": body.GRPCAddress,
+	})
+}
+
 // TransferLeadership transfers Raft leadership to the specified node. Leader-only.
 // POST /api/v1/cluster/leader-transfer
 func (h *ClusterHandler) TransferLeadership(c echo.Context) error {
