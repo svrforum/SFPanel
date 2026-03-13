@@ -33,6 +33,7 @@ import type {
 } from '@/types/api'
 
 const API_BASE = '/api/v1'
+const WS_AUTH_PROTOCOL_PREFIX = 'sfpanel.jwt.'
 
 class ApiClient {
   private token: string | null = null
@@ -53,6 +54,11 @@ class ApiClient {
 
   getToken(): string | null {
     return this.token
+  }
+
+  getWebSocketProtocols(): string[] {
+    if (!this.token) return []
+    return [`${WS_AUTH_PROTOCOL_PREFIX}${this.token}`]
   }
 
   isAuthenticated(): boolean {

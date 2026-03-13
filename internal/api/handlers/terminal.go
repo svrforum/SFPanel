@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -13,7 +14,6 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	"github.com/svrforum/SFPanel/internal/auth"
 )
 
 const scrollbackBufSize = 256 * 1024 // 256 KB ring buffer per session
@@ -52,6 +52,7 @@ func (r *ringBuffer) Bytes() []byte {
 }
 
 type terminalSession struct {
+	owner      string
 	mu         sync.Mutex
 	ptmx       *os.File
 	cmd        *exec.Cmd
@@ -116,6 +117,8 @@ var (
 	sessionsMu sync.Mutex
 )
 
+var terminalSessionIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{15,127}$`)
+
 type resizeMsg struct {
 	Type string `json:"type"`
 	Cols uint16 `json:"cols"`
@@ -132,20 +135,18 @@ func findShell() string {
 }
 
 // TerminalWS creates a new PTY session or reconnects to an existing one
-// and bridges it over a WebSocket. Authentication via query param token.
+// and bridges it over a WebSocket. Authentication is done via Authorization
+// header or WebSocket subprotocol, and session_id is scoped per user.
 // Query param session_id identifies the session; on reconnect the scrollback
 // buffer is replayed so the user sees previous output.
 func TerminalWS(jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		token := c.QueryParam("token")
-		if token == "" {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
-		}
-		if _, err := auth.ParseToken(token, jwtSecret); err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+		claims, protocol, err := authenticateWebSocketRequest(c.Request(), jwtSecret)
+		if err != nil {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or missing token"})
 		}
 
-		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+		ws, err := upgradeAuthorizedWebSocket(c, protocol)
 		if err != nil {
 			return err
 		}
@@ -153,16 +154,24 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 
 		sessionID := c.QueryParam("session_id")
 		if sessionID == "" {
-			sessionID = "default"
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing session_id"})
 		}
+		if !terminalSessionIDPattern.MatchString(sessionID) {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid session_id"})
+		}
+		sessionKey := claims.Username + ":" + sessionID
 
 		sessionsMu.Lock()
-		sess, exists := sessions[sessionID]
+		sess, exists := sessions[sessionKey]
 		if exists {
 			// Check if the process is still alive
+			if sess.owner != claims.Username {
+				sessionsMu.Unlock()
+				return c.JSON(http.StatusForbidden, map[string]string{"error": "session access denied"})
+			}
 			if sess.cmd.ProcessState != nil {
 				sess.ptmx.Close()
-				delete(sessions, sessionID)
+				delete(sessions, sessionKey)
 				exists = false
 			}
 		}
@@ -198,6 +207,7 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			}
 
 			sess = &terminalSession{
+				owner:      claims.Username,
 				ptmx:       ptmx,
 				cmd:        cmd,
 				lastUse:    time.Now(),
@@ -206,7 +216,7 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			}
 
 			sessionsMu.Lock()
-			sessions[sessionID] = sess
+			sessions[sessionKey] = sess
 			sessionsMu.Unlock()
 
 			sess.addReader(ws)

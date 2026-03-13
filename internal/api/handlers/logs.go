@@ -15,7 +15,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
-	"github.com/svrforum/SFPanel/internal/auth"
 )
 
 // logSourceInfo holds metadata about a known log source.
@@ -28,13 +27,13 @@ type logSourceInfo struct {
 // defaultLogSources defines the built-in log sources with their filesystem paths.
 // The sfpanel source path is set dynamically from config via SetSFPanelLogPath.
 var defaultLogSources = map[string]logSourceInfo{
-	"syslog":  {Name: "System Log", Path: "/var/log/syslog"},
-	"auth":    {Name: "Auth Log", Path: "/var/log/auth.log"},
-	"kern":    {Name: "Kernel Log", Path: "/var/log/kern.log"},
-	"sfpanel": {Name: "SFPanel", Path: "/var/log/sfpanel/sfpanel.log"},
-	"dpkg":    {Name: "Package Manager", Path: "/var/log/dpkg.log"},
-	"firewall":  {Name: "Firewall", Path: "/var/log/kern.log", Filter: "UFW|DOCKER-USER"},
-	"fail2ban":  {Name: "Fail2ban", Path: "/var/log/fail2ban.log"},
+	"syslog":   {Name: "System Log", Path: "/var/log/syslog"},
+	"auth":     {Name: "Auth Log", Path: "/var/log/auth.log"},
+	"kern":     {Name: "Kernel Log", Path: "/var/log/kern.log"},
+	"sfpanel":  {Name: "SFPanel", Path: "/var/log/sfpanel/sfpanel.log"},
+	"dpkg":     {Name: "Package Manager", Path: "/var/log/dpkg.log"},
+	"firewall": {Name: "Firewall", Path: "/var/log/kern.log", Filter: "UFW|DOCKER-USER"},
+	"fail2ban": {Name: "Fail2ban", Path: "/var/log/fail2ban.log"},
 }
 
 // SetSFPanelLogPath updates the sfpanel log source path from config.
@@ -220,21 +219,16 @@ func (h *LogsHandler) ReadLog(c echo.Context) error {
 
 // LogStreamWS returns an echo.HandlerFunc that upgrades the connection to a
 // WebSocket and streams new log lines in real-time using tail -F.
-// Authentication is performed via a "token" query parameter containing a JWT.
+// Authentication is performed via Authorization header or WebSocket subprotocol.
 //
 // Query parameters:
 //   - source (required): one of the keys in logSources or a custom source
-//   - token  (required): valid JWT
 func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 	helper := &LogsHandler{DB: database}
 	return func(c echo.Context) error {
-		// Validate JWT from query parameter.
-		token := c.QueryParam("token")
-		if token == "" {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
-		}
-		if _, err := auth.ParseToken(token, jwtSecret); err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+		_, protocol, err := authenticateWebSocketRequest(c.Request(), jwtSecret)
+		if err != nil {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or missing token"})
 		}
 
 		// Validate the requested log source.
@@ -252,7 +246,7 @@ func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 		}
 
 		// Upgrade to WebSocket.
-		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+		ws, err := upgradeAuthorizedWebSocket(c, protocol)
 		if err != nil {
 			return err
 		}
