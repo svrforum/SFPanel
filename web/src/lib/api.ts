@@ -557,6 +557,22 @@ class ApiClient {
     return this.request<import('@/types/api').ComposeValidationResult>(`/docker/compose/${encodeURIComponent(project)}/validate`, { method: 'POST' })
   }
 
+  checkStackUpdates(project: string) {
+    return this.request<import('@/types/api').StackUpdateCheck>(`/docker/compose/${encodeURIComponent(project)}/check-updates`, { method: 'POST' })
+  }
+
+  updateStack(project: string) {
+    return this.request<{ output: string }>(`/docker/compose/${encodeURIComponent(project)}/update`, { method: 'POST' })
+  }
+
+  rollbackStack(project: string) {
+    return this.request<{ output: string }>(`/docker/compose/${encodeURIComponent(project)}/rollback`, { method: 'POST' })
+  }
+
+  hasRollback(project: string) {
+    return this.request<{ has_rollback: boolean }>(`/docker/compose/${encodeURIComponent(project)}/has-rollback`)
+  }
+
   // File Manager
   listFiles(path: string) {
     return this.request<FileEntry[]>(`/files?path=${encodeURIComponent(path)}`)
@@ -786,6 +802,67 @@ class ApiClient {
 
   installDocker() {
     return this.request('/packages/install-docker', { method: 'POST' })
+  }
+
+  getNodeStatus() {
+    return this.request<{ installed: boolean; version: string; nvm_installed: boolean; npm_version: string }>(
+      '/packages/node-status',
+    )
+  }
+
+  installNode() {
+    return this.request('/packages/install-node', { method: 'POST' })
+  }
+
+  getNodeVersions() {
+    return this.request<{ versions: { version: string; active: boolean; lts: boolean }[]; current: string; remote_lts: string[] }>(
+      '/packages/node-versions',
+    )
+  }
+
+  switchNodeVersion(version: string) {
+    return this.request<{ switched: string; output: string }>('/packages/node-switch', {
+      method: 'POST',
+      body: JSON.stringify({ version }),
+    })
+  }
+
+  installNodeVersion(version: string) {
+    return this.request('/packages/node-install-version', {
+      method: 'POST',
+      body: JSON.stringify({ version }),
+    })
+  }
+
+  uninstallNodeVersion(version: string) {
+    return this.request<{ removed: string; output: string }>('/packages/node-uninstall-version', {
+      method: 'POST',
+      body: JSON.stringify({ version }),
+    })
+  }
+
+  getClaudeStatus() {
+    return this.request<{ installed: boolean; version: string }>('/packages/claude-status')
+  }
+
+  installClaude() {
+    return this.request('/packages/install-claude', { method: 'POST' })
+  }
+
+  getCodexStatus() {
+    return this.request<{ installed: boolean; version: string }>('/packages/codex-status')
+  }
+
+  installCodex() {
+    return this.request('/packages/install-codex', { method: 'POST' })
+  }
+
+  getGeminiStatus() {
+    return this.request<{ installed: boolean; version: string }>('/packages/gemini-status')
+  }
+
+  installGemini() {
+    return this.request('/packages/install-gemini', { method: 'POST' })
   }
 
   // Disk Management - Tool Status

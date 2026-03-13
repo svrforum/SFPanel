@@ -517,6 +517,21 @@ export interface ComposeService {
   ports: string
 }
 
+// Docker - Image Update Status
+export interface ImageUpdateStatus {
+  image: string
+  current_id: string
+  has_update: boolean
+  error?: string
+}
+
+// Docker - Stack Update Check
+export interface StackUpdateCheck {
+  project: string
+  images: ImageUpdateStatus[]
+  has_updates: boolean
+}
+
 // Systemd Services
 export interface ServiceInfo {
   name: string

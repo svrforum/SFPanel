@@ -4,11 +4,11 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Plus, Play, Square, RotateCw, ArrowUp, RefreshCw,
   Trash2, Terminal, ScrollText, FileText, FileCode, Save, Loader2,
-  CheckCircle2, XCircle,
+  CheckCircle2, XCircle, Download, Undo2, Search,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import type { ComposeProjectWithStatus, ComposeService } from '@/types/api'
+import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -96,6 +96,13 @@ export default function DockerStacks() {
   const [deleteTarget, setDeleteTarget] = useState<ComposeProjectWithStatus | null>(null)
   const [deleteImages, setDeleteImages] = useState(false)
   const [deleteVolumes, setDeleteVolumes] = useState(false)
+
+  // Image update check
+  const [updateCheck, setUpdateCheck] = useState<StackUpdateCheck | null>(null)
+  const [checkingUpdates, setCheckingUpdates] = useState(false)
+  const [updating, setUpdating] = useState(false)
+  const [rollingBack, setRollingBack] = useState(false)
+  const [hasRollbackData, setHasRollbackData] = useState(false)
 
   // Service logs/shell dialogs
   const [logService, setLogService] = useState<ComposeService | null>(null)
@@ -290,6 +297,67 @@ export default function DockerStacks() {
     }
   }
 
+  // Check rollback availability when stack changes
+  useEffect(() => {
+    if (selectedName) {
+      api.hasRollback(selectedName).then(r => setHasRollbackData(r.has_rollback)).catch(() => setHasRollbackData(false))
+    } else {
+      setUpdateCheck(null)
+      setHasRollbackData(false)
+    }
+  }, [selectedName])
+
+  const handleCheckUpdates = async () => {
+    if (!selectedName) return
+    setCheckingUpdates(true)
+    setUpdateCheck(null)
+    try {
+      const result = await api.checkStackUpdates(selectedName)
+      setUpdateCheck(result)
+      if (result.has_updates) {
+        toast.info(t('docker.stacks.updateAvailable'))
+      } else {
+        toast.success(t('docker.stacks.upToDate'))
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.stacks.updateFailed'))
+    } finally {
+      setCheckingUpdates(false)
+    }
+  }
+
+  const handleUpdate = async () => {
+    if (!selectedName) return
+    setUpdating(true)
+    try {
+      await api.updateStack(selectedName)
+      toast.success(t('docker.stacks.updateSuccess'))
+      setUpdateCheck(null)
+      setHasRollbackData(true)
+      await Promise.all([fetchProjects(false), fetchServices(selectedName)])
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.stacks.updateFailed'))
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  const handleRollback = async () => {
+    if (!selectedName) return
+    setRollingBack(true)
+    try {
+      await api.rollbackStack(selectedName)
+      toast.success(t('docker.stacks.rollbackSuccess'))
+      setUpdateCheck(null)
+      setHasRollbackData(false)
+      await Promise.all([fetchProjects(false), fetchServices(selectedName)])
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.stacks.rollbackFailed'))
+    } finally {
+      setRollingBack(false)
+    }
+  }
+
   const handleServiceAction = async (action: 'restart' | 'stop' | 'start', service: string) => {
     if (!selectedName) return
     setActionLoading(service)
@@ -417,12 +485,95 @@ export default function DockerStacks() {
                 </Button>
               )}
               <Button
+                variant="outline" size="sm" className="rounded-xl"
+                disabled={checkingUpdates}
+                onClick={handleCheckUpdates}
+              >
+                {checkingUpdates ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Search className="h-3.5 w-3.5" />
+                )}
+                {t('docker.stacks.checkUpdates')}
+              </Button>
+              {hasRollbackData && (
+                <Button
+                  variant="outline" size="sm"
+                  className="rounded-xl border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/10 hover:text-[#f59e0b]"
+                  disabled={rollingBack}
+                  onClick={handleRollback}
+                >
+                  {rollingBack ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Undo2 className="h-3.5 w-3.5" />
+                  )}
+                  {t('docker.stacks.rollback')}
+                </Button>
+              )}
+              <Button
                 variant="ghost" size="icon-xs"
                 onClick={() => setDeleteTarget(selectedProject || null)}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
+
+            {/* Update check results */}
+            {updateCheck && (
+              <div className={`rounded-xl p-4 ${
+                updateCheck.has_updates
+                  ? 'bg-[#3182f6]/5 ring-1 ring-[#3182f6]/20'
+                  : 'bg-[#00c471]/5 ring-1 ring-[#00c471]/20'
+              }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[13px] font-semibold">
+                    {t('docker.stacks.imageUpdates')}
+                  </span>
+                  {updateCheck.has_updates && (
+                    <Button
+                      size="sm" className="rounded-xl bg-[#3182f6] hover:bg-[#3182f6]/90 text-white"
+                      disabled={updating}
+                      onClick={handleUpdate}
+                    >
+                      {updating ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Download className="h-3.5 w-3.5" />
+                      )}
+                      {t('docker.stacks.updateAll')}
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  {updateCheck.images.map(img => (
+                    <div key={img.image} className="flex items-center gap-2 text-[13px]">
+                      {img.error ? (
+                        <>
+                          <XCircle className="h-3.5 w-3.5 text-[#f04452] shrink-0" />
+                          <span className="font-mono text-[12px] truncate">{img.image}</span>
+                          <span className="text-[11px] text-[#f04452]">{t('docker.stacks.registryError')}</span>
+                        </>
+                      ) : img.has_update ? (
+                        <>
+                          <span className="inline-block w-2 h-2 rounded-full bg-[#3182f6] shrink-0" />
+                          <span className="font-mono text-[12px] truncate">{img.image}</span>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                            {t('docker.stacks.updateAvailable')}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="h-3.5 w-3.5 text-[#00c471] shrink-0" />
+                          <span className="font-mono text-[12px] truncate">{img.image}</span>
+                          <span className="text-[11px] text-muted-foreground">{t('docker.stacks.upToDate')}</span>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Tabs */}
             <Tabs defaultValue="services">
