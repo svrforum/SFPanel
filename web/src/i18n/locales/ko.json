@@ -41,6 +41,7 @@
       "sites": "사이트",
       "terminal": "터미널",
       "appstore": "앱스토어",
+      "cluster": "클러스터",
       "settings": "설정"
     },
     "logout": "로그아웃",
@@ -492,6 +493,50 @@
     "deleteFailed": "사이트 삭제 실패",
     "sslFailed": "SSL 활성화 실패",
     "fetchFailed": "사이트 목록을 가져올 수 없습니다"
+  },
+  "cluster": {
+    "title": "클러스터",
+    "nav": {
+      "overview": "개요",
+      "nodes": "노드",
+      "tokens": "토큰"
+    },
+    "notEnabled": {
+      "title": "클러스터가 활성화되지 않았습니다",
+      "description": "클러스터 모드를 사용하려면 CLI에서 초기화하세요. 2~32대 노드를 하나로 묶어 통합 관리할 수 있습니다."
+    },
+    "overview": {
+      "nodes": "노드",
+      "avgCpu": "평균 CPU",
+      "avgMemory": "평균 메모리",
+      "avgDisk": "평균 디스크",
+      "containers": "컨테이너",
+      "leaderLabel": "리더",
+      "nodeStatus": "노드 상태",
+      "memory": "메모리",
+      "disk": "디스크",
+      "noMetrics": "메트릭 없음"
+    },
+    "nodes": {
+      "count": "{{count}}개 노드",
+      "name": "이름",
+      "role": "역할",
+      "apiAddress": "API 주소",
+      "grpcAddress": "gRPC 주소",
+      "joinedAt": "참가일",
+      "confirmRemove": "{{name}} 노드를 클러스터에서 제거하시겠습니까?",
+      "removed": "{{name}} 노드가 제거되었습니다"
+    },
+    "tokens": {
+      "generateTitle": "참가 토큰 생성",
+      "generateDescription": "새 노드를 클러스터에 추가하기 위한 1회용 토큰을 생성합니다",
+      "ttl": "유효 기간",
+      "generate": "토큰 생성",
+      "generatedToken": "생성된 토큰",
+      "expiresAt": "만료",
+      "joinCommand": "참가 명령어",
+      "copied": "클립보드에 복사됨"
+    }
   },
   "settings": {
     "title": "설정",

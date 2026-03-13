@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Container, FolderOpen, Clock, FileText, Package, Settings, LogOut, Activity, Terminal, Network, HardDrive, Shield, Cog, PanelLeftClose, PanelLeftOpen, Store } from 'lucide-react'
+import { LayoutDashboard, Container, FolderOpen, Clock, FileText, Package, Settings, LogOut, Activity, Terminal, Network, HardDrive, Shield, Cog, PanelLeftClose, PanelLeftOpen, Store, Server } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -33,6 +33,7 @@ export default function Layout() {
   })
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [panelVersion, setPanelVersion] = useState('')
+  const [clusterEnabled, setClusterEnabled] = useState(false)
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, String(collapsed))
@@ -47,7 +48,14 @@ export default function Layout() {
     api.checkUpdate()
       .then((data) => setUpdateAvailable(data.update_available))
       .catch(() => {})
+    api.getClusterStatus()
+      .then((data) => setClusterEnabled(data.enabled))
+      .catch(() => {})
   }, [])
+
+  const allNavItems = clusterEnabled
+    ? [navItems[0], { to: '/cluster', labelKey: 'layout.nav.cluster', icon: Server }, ...navItems.slice(1)]
+    : navItems
 
   const handleLogout = () => {
     api.clearToken()
@@ -72,7 +80,7 @@ export default function Layout() {
         </div>
 
         <nav className={cn('flex-1 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
-          {navItems.map((item) => (
+          {allNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
