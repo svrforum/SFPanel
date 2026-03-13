@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"time"
 
@@ -71,6 +72,7 @@ func clusterInit(args []string) {
 		log.Fatal("Cluster already initialized. Use 'sfpanel cluster status' to check.")
 	}
 
+	cfg.Cluster.APIPort = cfg.Server.Port
 	mgr := cluster.NewManager(&cfg.Cluster)
 	if err := mgr.Init(clusterName); err != nil {
 		log.Fatalf("Failed to initialize cluster: %v", err)
@@ -121,7 +123,15 @@ func clusterJoin(args []string) {
 
 	advertise := cfg.Cluster.AdvertiseAddress
 	if advertise == "" {
-		advertise = "127.0.0.1"
+		// Auto-detect outbound IP instead of using 127.0.0.1
+		conn, dialErr := net.Dial("udp", "8.8.8.8:80")
+		if dialErr == nil {
+			advertise = conn.LocalAddr().(*net.UDPAddr).IP.String()
+			conn.Close()
+		} else {
+			advertise = "127.0.0.1"
+		}
+		log.Printf("No advertise_address configured, auto-detected: %s", advertise)
 	}
 
 	apiAddr := fmt.Sprintf("%s:%d", advertise, cfg.Server.Port)

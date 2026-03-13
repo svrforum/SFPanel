@@ -110,6 +110,7 @@ func main() {
 	// Start cluster manager if enabled
 	var clusterMgr *cluster.Manager
 	if cfg.Cluster.Enabled {
+		cfg.Cluster.APIPort = cfg.Server.Port
 		clusterMgr = cluster.NewManager(&cfg.Cluster)
 		if err := clusterMgr.Start(); err != nil {
 			log.Printf("Warning: cluster start failed: %v", err)
@@ -140,17 +141,14 @@ func main() {
 			// Start gRPC server for cluster communication
 			grpcServer, grpcErr := cluster.NewGRPCServer(clusterMgr, cfg.Server.Port)
 			if grpcErr != nil {
-				log.Printf("Warning: gRPC server setup failed: %v", grpcErr)
-			} else {
-				grpcAddr := fmt.Sprintf("0.0.0.0:%d", cfg.Cluster.GRPCPort)
-				if startErr := grpcServer.Start(grpcAddr); startErr != nil {
-					log.Printf("Warning: gRPC server start failed: %v", startErr)
-				} else {
-					defer grpcServer.Stop()
-					// Set cluster proxy secret for internal auth bypass
-					middleware.SetClusterProxySecret(grpcServer.ProxySecret())
-				}
+				log.Fatalf("gRPC server setup failed (cluster requires gRPC): %v", grpcErr)
 			}
+			grpcAddr := fmt.Sprintf("0.0.0.0:%d", cfg.Cluster.GRPCPort)
+			if startErr := grpcServer.Start(grpcAddr); startErr != nil {
+				log.Fatalf("gRPC server start failed on %s (port may be in use): %v", grpcAddr, startErr)
+			}
+			defer grpcServer.Stop()
+			middleware.SetClusterProxySecret(grpcServer.ProxySecret())
 		}
 	}
 	// Start background metrics history collector (30s interval, 24h retention, persisted to SQLite)
