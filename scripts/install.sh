@@ -223,6 +223,12 @@ print_success() {
   if [ "$mode" = "install" ]; then
     echo -e "  ${YELLOW}First visit: Set up admin account in the browser${NC}"
     echo ""
+    echo -e "  ${CYAN}Tips:${NC}"
+    echo -e "    Change port:  Edit ${CONFIG_DIR}/config.yaml → server.port"
+    echo -e "                  Then: systemctl restart ${SERVICE_NAME}"
+    echo ""
+    echo -e "    Join cluster: sfpanel cluster join <token>"
+    echo ""
   fi
 }
 

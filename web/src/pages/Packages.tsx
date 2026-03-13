@@ -12,6 +12,7 @@ import {
   Trash2,
   CheckCircle2,
   AlertCircle,
+  Settings2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -40,9 +41,23 @@ import {
 
 import type { PackageUpdate as PackageInfo, PackageSearchResult, DockerStatus } from '@/types/api'
 
+interface DevToolStatus {
+  installed: boolean
+  version: string
+  [key: string]: unknown
+}
+
 interface LoadingState {
   docker: boolean
   dockerInstall: boolean
+  node: boolean
+  nodeInstall: boolean
+  claude: boolean
+  claudeInstall: boolean
+  codex: boolean
+  codexInstall: boolean
+  gemini: boolean
+  geminiInstall: boolean
   updates: boolean
   upgrade: boolean
   install: string | null
@@ -67,6 +82,22 @@ export default function Packages() {
   // Docker status
   const [dockerStatus, setDockerStatus] = useState<DockerStatus | null>(null)
 
+  // Dev tool statuses
+  const [nodeStatus, setNodeStatus] = useState<DevToolStatus | null>(null)
+  const [claudeStatus, setClaudeStatus] = useState<DevToolStatus | null>(null)
+  const [codexStatus, setCodexStatus] = useState<DevToolStatus | null>(null)
+  const [geminiStatus, setGeminiStatus] = useState<DevToolStatus | null>(null)
+
+  // Node version management
+  const [nodeVersionDialog, setNodeVersionDialog] = useState(false)
+  const [nodeVersions, setNodeVersions] = useState<{ version: string; active: boolean; lts: boolean }[]>([])
+  const [remoteLTS, setRemoteLTS] = useState<string[]>([])
+  const [, setNodeCurrent] = useState('')
+  const [nodeVersionLoading, setNodeVersionLoading] = useState(false)
+  const [nodeSwitching, setNodeSwitching] = useState<string | null>(null)
+  const [nodeInstallingVersion, setNodeInstallingVersion] = useState<string | null>(null)
+  const [nodeRemoving, setNodeRemoving] = useState<string | null>(null)
+
   // System updates
   const [updates, setUpdates] = useState<PackageInfo[]>([])
   const [lastChecked, setLastChecked] = useState<string | null>(null)
@@ -81,6 +112,14 @@ export default function Packages() {
   const [loading, setLoading] = useState<LoadingState>({
     docker: false,
     dockerInstall: false,
+    node: false,
+    nodeInstall: false,
+    claude: false,
+    claudeInstall: false,
+    codex: false,
+    codexInstall: false,
+    gemini: false,
+    geminiInstall: false,
     updates: false,
     upgrade: false,
     install: null,
@@ -195,6 +234,220 @@ export default function Packages() {
       setLoadingKey('dockerInstall', false)
     }
   }, [setLoadingKey, openOutput, appendOutput, finishOutput, fetchDockerStatus, t])
+
+  // ---------------------------------------------------------------------------
+  // Dev Tools (Node.js, Claude Code, Codex)
+  // ---------------------------------------------------------------------------
+
+  const fetchNodeStatus = useCallback(async () => {
+    setLoadingKey('node', true)
+    try {
+      const data = await api.getNodeStatus()
+      setNodeStatus(data)
+    } catch {
+      // silent
+    } finally {
+      setLoadingKey('node', false)
+    }
+  }, [setLoadingKey])
+
+  const fetchClaudeStatus = useCallback(async () => {
+    setLoadingKey('claude', true)
+    try {
+      const data = await api.getClaudeStatus()
+      setClaudeStatus(data)
+    } catch {
+      // silent
+    } finally {
+      setLoadingKey('claude', false)
+    }
+  }, [setLoadingKey])
+
+  const fetchCodexStatus = useCallback(async () => {
+    setLoadingKey('codex', true)
+    try {
+      const data = await api.getCodexStatus()
+      setCodexStatus(data)
+    } catch {
+      // silent
+    } finally {
+      setLoadingKey('codex', false)
+    }
+  }, [setLoadingKey])
+
+  const fetchGeminiStatus = useCallback(async () => {
+    setLoadingKey('gemini', true)
+    try {
+      const data = await api.getGeminiStatus()
+      setGeminiStatus(data)
+    } catch {
+      // silent
+    } finally {
+      setLoadingKey('gemini', false)
+    }
+  }, [setLoadingKey])
+
+  const handleSSEInstall = useCallback(async (
+    url: string,
+    loadingKey: keyof LoadingState,
+    title: string,
+    successMsg: string,
+    refreshFn: () => Promise<void>,
+  ) => {
+    setLoadingKey(loadingKey, true as LoadingState[typeof loadingKey])
+    openOutput(title)
+    try {
+      const token = api.getToken()
+      const res = await fetch(`/api/v1${url}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok || !res.body) throw new Error('Failed to start installation')
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') {
+              finishOutput()
+            } else {
+              appendOutput(data + '\n')
+            }
+          }
+        }
+      }
+
+      toast.success(successMsg)
+      finishOutput()
+      await refreshFn()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('packages.installFailed', { name: title })
+      appendOutput('\n' + t('packages.error') + ': ' + message + '\n')
+      finishOutput()
+      toast.error(message)
+    } finally {
+      setLoadingKey(loadingKey, false as LoadingState[typeof loadingKey])
+    }
+  }, [setLoadingKey, openOutput, appendOutput, finishOutput, t])
+
+  const handleInstallNode = useCallback(() =>
+    handleSSEInstall('/packages/install-node', 'nodeInstall', t('packages.installingNode'), t('packages.nodeInstallSuccess'), fetchNodeStatus),
+  [handleSSEInstall, fetchNodeStatus, t])
+
+  const handleInstallClaude = useCallback(() =>
+    handleSSEInstall('/packages/install-claude', 'claudeInstall', t('packages.installingClaude'), t('packages.claudeInstallSuccess'), fetchClaudeStatus),
+  [handleSSEInstall, fetchClaudeStatus, t])
+
+  const handleInstallCodex = useCallback(() =>
+    handleSSEInstall('/packages/install-codex', 'codexInstall', t('packages.installingCodex'), t('packages.codexInstallSuccess'), fetchCodexStatus),
+  [handleSSEInstall, fetchCodexStatus, t])
+
+  const handleInstallGemini = useCallback(() =>
+    handleSSEInstall('/packages/install-gemini', 'geminiInstall', t('packages.installingGemini'), t('packages.geminiInstallSuccess'), fetchGeminiStatus),
+  [handleSSEInstall, fetchGeminiStatus, t])
+
+  // ---------------------------------------------------------------------------
+  // Node.js Version Management
+  // ---------------------------------------------------------------------------
+
+  const fetchNodeVersions = useCallback(async () => {
+    setNodeVersionLoading(true)
+    try {
+      const data = await api.getNodeVersions()
+      setNodeVersions(data.versions || [])
+      setRemoteLTS(data.remote_lts || [])
+      setNodeCurrent(data.current || '')
+    } catch {
+      toast.error(t('packages.nodeVersionsFailed'))
+    } finally {
+      setNodeVersionLoading(false)
+    }
+  }, [t])
+
+  const openNodeVersionDialog = useCallback(() => {
+    setNodeVersionDialog(true)
+    fetchNodeVersions()
+  }, [fetchNodeVersions])
+
+  const handleSwitchNodeVersion = useCallback(async (version: string) => {
+    setNodeSwitching(version)
+    try {
+      await api.switchNodeVersion(version)
+      toast.success(t('packages.nodeSwitched', { version }))
+      await fetchNodeVersions()
+      await fetchNodeStatus()
+    } catch {
+      toast.error(t('packages.nodeSwitchFailed'))
+    } finally {
+      setNodeSwitching(null)
+    }
+  }, [fetchNodeVersions, fetchNodeStatus, t])
+
+  const handleInstallNodeVersion = useCallback(async (version: string) => {
+    setNodeInstallingVersion(version)
+    openOutput(t('packages.installingNodeVersion', { version }))
+    try {
+      const token = api.getToken()
+      const res = await fetch('/api/v1/packages/node-install-version', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version }),
+      })
+      if (!res.ok || !res.body) throw new Error('Failed to start installation')
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') finishOutput()
+            else appendOutput(data + '\n')
+          }
+        }
+      }
+      finishOutput()
+      toast.success(t('packages.nodeVersionInstalled', { version }))
+      await fetchNodeVersions()
+      await fetchNodeStatus()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('packages.installFailed', { name: 'Node.js' })
+      appendOutput('\n' + t('packages.error') + ': ' + message + '\n')
+      finishOutput()
+      toast.error(message)
+    } finally {
+      setNodeInstallingVersion(null)
+    }
+  }, [openOutput, appendOutput, finishOutput, fetchNodeVersions, fetchNodeStatus, t])
+
+  const handleUninstallNodeVersion = useCallback(async (version: string) => {
+    setNodeRemoving(version)
+    try {
+      await api.uninstallNodeVersion(version)
+      toast.success(t('packages.nodeVersionRemoved', { version }))
+      await fetchNodeVersions()
+      await fetchNodeStatus()
+    } catch {
+      toast.error(t('packages.nodeVersionRemoveFailed'))
+    } finally {
+      setNodeRemoving(null)
+    }
+  }, [fetchNodeVersions, fetchNodeStatus, t])
 
   // ---------------------------------------------------------------------------
   // System updates
@@ -359,7 +612,11 @@ export default function Packages() {
 
   useEffect(() => {
     fetchDockerStatus()
-  }, [fetchDockerStatus])
+    fetchNodeStatus()
+    fetchClaudeStatus()
+    fetchCodexStatus()
+    fetchGeminiStatus()
+  }, [fetchDockerStatus, fetchNodeStatus, fetchClaudeStatus, fetchCodexStatus, fetchGeminiStatus])
 
   // ---------------------------------------------------------------------------
   // JSX
@@ -484,6 +741,220 @@ export default function Packages() {
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Dev Tools Card                                                      */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="bg-card rounded-2xl card-shadow">
+        <div className="px-6 pt-5 pb-4">
+          <h3 className="text-[15px] font-semibold flex items-center gap-2">
+            <Package className="h-4 w-4" aria-hidden="true" />
+            {t('packages.devTools')}
+          </h3>
+          <p className="text-[13px] text-muted-foreground mt-1">
+            {t('packages.devToolsDescription')}
+          </p>
+        </div>
+        <div className="px-6 pb-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Node.js */}
+          <div className="border rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-[#68a063]/10 flex items-center justify-center">
+                <span className="text-[14px] font-bold text-[#68a063]">N</span>
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold">Node.js</p>
+                <p className="text-[11px] text-muted-foreground">NVM + LTS</p>
+              </div>
+            </div>
+            {loading.node ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                <span className="text-[12px]">{t('packages.checking')}</span>
+              </div>
+            ) : nodeStatus?.installed ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-[#00c471]" aria-hidden="true" />
+                      <span className="text-[12px] font-medium font-mono">{nodeStatus.version}</span>
+                    </div>
+                    {(nodeStatus as DevToolStatus & { npm_version?: string }).npm_version && (
+                      <p className="text-[11px] text-muted-foreground">npm {(nodeStatus as DevToolStatus & { npm_version?: string }).npm_version}</p>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    onClick={openNodeVersionDialog}
+                    title={t('packages.nodeVersionManage')}
+                  >
+                    <Settings2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                className="rounded-xl w-full"
+                onClick={handleInstallNode}
+                disabled={loading.nodeInstall}
+              >
+                {loading.nodeInstall ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden="true" />
+                    {t('packages.installing')}
+                  </>
+                ) : (
+                  <>
+                    <Download aria-hidden="true" />
+                    {t('packages.installNode')}
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+
+          {/* Claude Code */}
+          <div className="border rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-[#d97757]/10 flex items-center justify-center">
+                <span className="text-[14px] font-bold text-[#d97757]">C</span>
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold">Claude Code</p>
+                <p className="text-[11px] text-muted-foreground">Anthropic CLI</p>
+              </div>
+            </div>
+            {loading.claude ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                <span className="text-[12px]">{t('packages.checking')}</span>
+              </div>
+            ) : claudeStatus?.installed ? (
+              <div className="flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-[#00c471]" aria-hidden="true" />
+                <span className="text-[12px] font-medium font-mono">{claudeStatus.version || t('packages.installed')}</span>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                className="rounded-xl w-full"
+                onClick={handleInstallClaude}
+                disabled={loading.claudeInstall}
+              >
+                {loading.claudeInstall ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden="true" />
+                    {t('packages.installing')}
+                  </>
+                ) : (
+                  <>
+                    <Download aria-hidden="true" />
+                    {t('packages.installClaude')}
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+
+          {/* Codex */}
+          <div className="border rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-[#10a37f]/10 flex items-center justify-center">
+                <span className="text-[14px] font-bold text-[#10a37f]">X</span>
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold">Codex</p>
+                <p className="text-[11px] text-muted-foreground">OpenAI CLI</p>
+              </div>
+            </div>
+            {loading.codex ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                <span className="text-[12px]">{t('packages.checking')}</span>
+              </div>
+            ) : codexStatus?.installed ? (
+              <div className="flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-[#00c471]" aria-hidden="true" />
+                <span className="text-[12px] font-medium font-mono">{codexStatus.version || t('packages.installed')}</span>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                className="rounded-xl w-full"
+                onClick={handleInstallCodex}
+                disabled={loading.codexInstall || !nodeStatus?.installed}
+                title={!nodeStatus?.installed ? t('packages.nodeRequired') : ''}
+              >
+                {loading.codexInstall ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden="true" />
+                    {t('packages.installing')}
+                  </>
+                ) : (
+                  <>
+                    <Download aria-hidden="true" />
+                    {t('packages.installCodex')}
+                  </>
+                )}
+              </Button>
+            )}
+            {!nodeStatus?.installed && !codexStatus?.installed && (
+              <p className="text-[11px] text-muted-foreground">{t('packages.nodeRequired')}</p>
+            )}
+          </div>
+
+          {/* Gemini CLI */}
+          <div className="border rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-[#4285f4]/10 flex items-center justify-center">
+                <span className="text-[14px] font-bold text-[#4285f4]">G</span>
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold">Gemini CLI</p>
+                <p className="text-[11px] text-muted-foreground">Google CLI</p>
+              </div>
+            </div>
+            {loading.gemini ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                <span className="text-[12px]">{t('packages.checking')}</span>
+              </div>
+            ) : geminiStatus?.installed ? (
+              <div className="flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-[#00c471]" aria-hidden="true" />
+                <span className="text-[12px] font-medium font-mono">{geminiStatus.version || t('packages.installed')}</span>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                className="rounded-xl w-full"
+                onClick={handleInstallGemini}
+                disabled={loading.geminiInstall || !nodeStatus?.installed}
+                title={!nodeStatus?.installed ? t('packages.nodeRequired') : ''}
+              >
+                {loading.geminiInstall ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden="true" />
+                    {t('packages.installing')}
+                  </>
+                ) : (
+                  <>
+                    <Download aria-hidden="true" />
+                    {t('packages.installGemini')}
+                  </>
+                )}
+              </Button>
+            )}
+            {!nodeStatus?.installed && !geminiStatus?.installed && (
+              <p className="text-[11px] text-muted-foreground">{t('packages.nodeRequired')}</p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -764,6 +1235,159 @@ export default function Packages() {
           )}
         </div>
       </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Node.js Version Management Dialog                                   */}
+      {/* ------------------------------------------------------------------ */}
+      <Dialog open={nodeVersionDialog} onOpenChange={setNodeVersionDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('packages.nodeVersionManage')}</DialogTitle>
+            <DialogDescription>{t('packages.nodeVersionDescription')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 max-h-96 overflow-y-auto">
+            {nodeVersionLoading ? (
+              <div className="flex items-center justify-center py-6 gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-[13px]">{t('packages.checking')}</span>
+              </div>
+            ) : (
+              <>
+                {/* Installed versions */}
+                <div className="space-y-2">
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('packages.nodeInstalledVersions')}</p>
+                  {nodeVersions.length === 0 && !(nodeStatus as DevToolStatus & { nvm_installed?: boolean })?.nvm_installed ? (
+                    <div className="space-y-2">
+                      <p className="text-[13px] text-muted-foreground">{t('packages.nodeNvmNotInstalled')}</p>
+                      <Button
+                        size="sm"
+                        className="rounded-xl"
+                        onClick={handleInstallNode}
+                        disabled={loading.nodeInstall}
+                      >
+                        {loading.nodeInstall ? (
+                          <>
+                            <Loader2 className="animate-spin h-3 w-3" />
+                            {t('packages.installing')}
+                          </>
+                        ) : (
+                          <>
+                            <Download className="h-3 w-3" />
+                            {t('packages.nodeInstallNvm')}
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  ) : nodeVersions.length === 0 ? (
+                    <div className="space-y-2">
+                      {nodeStatus?.installed && (
+                        <div className="flex items-center justify-between rounded-xl border px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[13px] font-mono font-medium">{nodeStatus.version}</span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                              {t('packages.nodeActive')}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      <p className="text-[12px] text-muted-foreground">{t('packages.nodeNoOtherVersions')}</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {nodeVersions.map((v) => (
+                        <div key={v.version} className="flex items-center justify-between rounded-xl border px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[13px] font-mono font-medium">{v.version}</span>
+                            {v.active && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                                {t('packages.nodeActive')}
+                              </span>
+                            )}
+                            {v.lts && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                                LTS
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {!v.active && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-[12px] rounded-lg"
+                                  onClick={() => handleSwitchNodeVersion(v.version)}
+                                  disabled={nodeSwitching !== null}
+                                >
+                                  {nodeSwitching === v.version ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    t('packages.nodeUse')
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                  onClick={() => handleUninstallNodeVersion(v.version)}
+                                  disabled={nodeRemoving !== null}
+                                >
+                                  {nodeRemoving === v.version ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  )}
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Available LTS versions to install */}
+                {remoteLTS.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('packages.nodeAvailableLTS')}</p>
+                    <div className="space-y-1.5">
+                      {remoteLTS
+                        .filter((v) => !nodeVersions.some((nv) => nv.version === v))
+                        .map((v) => (
+                          <div key={v} className="flex items-center justify-between rounded-xl border border-dashed px-3 py-2">
+                            <span className="text-[13px] font-mono text-muted-foreground">{v}</span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-[12px] rounded-lg"
+                              onClick={() => handleInstallNodeVersion(v)}
+                              disabled={nodeInstallingVersion !== null}
+                            >
+                              {nodeInstallingVersion === v ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <>
+                                  <Download className="h-3 w-3" />
+                                  {t('packages.install')}
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setNodeVersionDialog(false)}>
+              {t('packages.close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ------------------------------------------------------------------ */}
       {/* Operation Output Dialog                                             */}
