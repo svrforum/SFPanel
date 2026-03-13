@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Terminal as TerminalIcon, Plus, X, Minus, Search } from 'lucide-react'
+import { Terminal as TerminalIcon, Plus, X, Minus, Search, Eraser } from 'lucide-react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -212,11 +212,17 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     }
   }, [active])
 
-  // Expose search addon
+  // Expose search addon and ws for parent access
   useEffect(() => {
     const el = containerRef.current
     if (el && searchAddonRef.current) {
       (el as any).__searchAddon = searchAddonRef.current
+    }
+    if (el) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const elAny = el as any
+      elAny.__wsRef = wsRef
+      elAny.__termRef = termRef
     }
   }, [])
 
@@ -324,6 +330,18 @@ export default function TerminalPage() {
       if (addon && searchQuery) addon.findPrevious(searchQuery)
     })
   }, [searchQuery])
+
+  const clearTerminal = useCallback(() => {
+    const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
+    termContainers.forEach(el => {
+      const termRef = (el as any).__termRef
+      const wsRef = (el as any).__wsRef
+      if (termRef?.current) termRef.current.clear()
+      if (wsRef?.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(new TextEncoder().encode('clear\r'))
+      }
+    })
+  }, [])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -442,6 +460,16 @@ export default function TerminalPage() {
             title={t('terminal.search')}
           >
             <Search className="h-3.5 w-3.5" />
+          </Button>
+          {/* Clear */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
+            onClick={clearTerminal}
+            title={t('terminal.clear')}
+          >
+            <Eraser className="h-3.5 w-3.5" />
           </Button>
           <div className="w-px h-4 bg-[#292e42] mx-1" />
           {/* New tab */}
