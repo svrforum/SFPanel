@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,9 +28,15 @@ type SystemHandler struct {
 }
 
 type GitHubRelease struct {
-	TagName     string `json:"tag_name"`
-	Body        string `json:"body"`
-	PublishedAt string `json:"published_at"`
+	TagName     string        `json:"tag_name"`
+	Body        string        `json:"body"`
+	PublishedAt string        `json:"published_at"`
+	Assets      []GitHubAsset `json:"assets"`
+}
+
+type GitHubAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
 type UpdateCheckResponse struct {
@@ -37,6 +45,29 @@ type UpdateCheckResponse struct {
 	UpdateAvailable bool   `json:"update_available"`
 	ReleaseNotes    string `json:"release_notes"`
 	PublishedAt     string `json:"published_at"`
+}
+
+func findReleaseAsset(release GitHubRelease, name string) string {
+	for _, asset := range release.Assets {
+		if asset.Name == name {
+			return asset.BrowserDownloadURL
+		}
+	}
+	return ""
+}
+
+func expectedArchiveSHA256(checksums []byte, archiveName string) (string, error) {
+	for _, line := range strings.Split(string(checksums), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 2 {
+			continue
+		}
+		name := strings.TrimPrefix(fields[1], "*")
+		if name == archiveName {
+			return strings.ToLower(fields[0]), nil
+		}
+	}
+	return "", fmt.Errorf("checksum not found for %s", archiveName)
 }
 
 // CheckUpdate queries GitHub releases API and returns version comparison.
@@ -105,7 +136,17 @@ func (h *SystemHandler) RunUpdate(c echo.Context) error {
 
 	// Download
 	arch := runtime.GOARCH
-	url := fmt.Sprintf("https://github.com/svrforum/SFPanel/releases/download/v%s/sfpanel_%s_linux_%s.tar.gz", latest, latest, arch)
+	archiveName := fmt.Sprintf("sfpanel_%s_linux_%s.tar.gz", latest, arch)
+	url := findReleaseAsset(release, archiveName)
+	if url == "" {
+		sendEvent("error", fmt.Sprintf("Release asset not found: %s", archiveName))
+		return nil
+	}
+	checksumsURL := findReleaseAsset(release, "checksums.txt")
+	if checksumsURL == "" {
+		sendEvent("error", "Release checksums.txt not found; refusing unsigned update")
+		return nil
+	}
 	sendEvent("downloading", fmt.Sprintf("Downloading v%s (%s)...", latest, arch))
 
 	dlClient := &http.Client{Timeout: 5 * time.Minute}
@@ -120,9 +161,44 @@ func (h *SystemHandler) RunUpdate(c echo.Context) error {
 		return nil
 	}
 
+	sendEvent("verifying", "Downloading checksums...")
+	checksumResp, err := dlClient.Get(checksumsURL)
+	if err != nil {
+		sendEvent("error", fmt.Sprintf("Checksum download failed: %v", err))
+		return nil
+	}
+	defer checksumResp.Body.Close()
+	if checksumResp.StatusCode != 200 {
+		sendEvent("error", fmt.Sprintf("Checksum download failed (HTTP %d)", checksumResp.StatusCode))
+		return nil
+	}
+
+	checksumBody, err := io.ReadAll(checksumResp.Body)
+	if err != nil {
+		sendEvent("error", fmt.Sprintf("Checksum read failed: %v", err))
+		return nil
+	}
+
+	expectedSHA256, err := expectedArchiveSHA256(checksumBody, archiveName)
+	if err != nil {
+		sendEvent("error", err.Error())
+		return nil
+	}
+
+	archiveData, err := io.ReadAll(dlResp.Body)
+	if err != nil {
+		sendEvent("error", fmt.Sprintf("Download read failed: %v", err))
+		return nil
+	}
+	actualSHA256 := fmt.Sprintf("%x", sha256.Sum256(archiveData))
+	if actualSHA256 != expectedSHA256 {
+		sendEvent("error", "Checksum verification failed")
+		return nil
+	}
+
 	// Extract
 	sendEvent("extracting", "Extracting binary...")
-	gzr, err := gzip.NewReader(dlResp.Body)
+	gzr, err := gzip.NewReader(bytes.NewReader(archiveData))
 	if err != nil {
 		sendEvent("error", fmt.Sprintf("Decompression failed: %v", err))
 		return nil
