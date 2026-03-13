@@ -20,6 +20,7 @@ type AuditLogEntry struct {
 	Path      string `json:"path"`
 	Status    int    `json:"status"`
 	IP        string `json:"ip"`
+	NodeID    string `json:"node_id,omitempty"`
 	CreatedAt string `json:"created_at"`
 }
 
@@ -45,7 +46,7 @@ func (h *AuditHandler) ListAuditLogs(c echo.Context) error {
 	}
 
 	rows, err := h.DB.Query(
-		"SELECT id, username, method, path, status, ip, created_at FROM audit_logs ORDER BY id DESC LIMIT ? OFFSET ?",
+		"SELECT id, username, method, path, status, ip, node_id, created_at FROM audit_logs ORDER BY id DESC LIMIT ? OFFSET ?",
 		limit, offset,
 	)
 	if err != nil {
@@ -56,7 +57,7 @@ func (h *AuditHandler) ListAuditLogs(c echo.Context) error {
 	var logs []AuditLogEntry
 	for rows.Next() {
 		var entry AuditLogEntry
-		if err := rows.Scan(&entry.ID, &entry.Username, &entry.Method, &entry.Path, &entry.Status, &entry.IP, &entry.CreatedAt); err != nil {
+		if err := rows.Scan(&entry.ID, &entry.Username, &entry.Method, &entry.Path, &entry.Status, &entry.IP, &entry.NodeID, &entry.CreatedAt); err != nil {
 			continue
 		}
 		logs = append(logs, entry)

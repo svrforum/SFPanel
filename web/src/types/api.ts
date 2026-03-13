@@ -763,3 +763,16 @@ export interface ClusterTokenResponse {
   expires_at: string
 }
 
+export interface ClusterEvent {
+  id: number
+  type: string
+  node_id: string
+  node_name?: string
+  detail?: string
+  timestamp: string
+}
+
+export interface ClusterEventsResponse {
+  events: ClusterEvent[]
+}
+

@@ -1,6 +1,9 @@
 package db
 
-import "database/sql"
+import (
+	"database/sql"
+	"strings"
+)
 
 var migrations = []string{
 	`CREATE TABLE IF NOT EXISTS admin (
@@ -48,11 +51,17 @@ var migrations = []string{
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)`,
+	// Phase 5: add node_id column for cluster-aware audit logging
+	`ALTER TABLE audit_logs ADD COLUMN node_id TEXT NOT NULL DEFAULT ''`,
 }
 
 func RunMigrations(db *sql.DB) error {
 	for _, m := range migrations {
 		if _, err := db.Exec(m); err != nil {
+			// ALTER TABLE ADD COLUMN fails if column already exists — safe to ignore
+			if strings.Contains(m, "ALTER TABLE") && strings.Contains(err.Error(), "duplicate column") {
+				continue
+			}
 			return err
 		}
 	}

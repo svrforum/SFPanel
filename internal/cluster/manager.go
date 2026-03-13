@@ -19,6 +19,7 @@ type Manager struct {
 	tls       *TLSManager
 	tokens    *TokenManager
 	heartbeat *HeartbeatManager
+	events    *EventBus
 	nodeID    string
 	nodeName  string
 }
@@ -30,6 +31,7 @@ func NewManager(cfg *config.ClusterConfig) *Manager {
 		tls:       NewTLSManager(cfg.CertDir),
 		tokens:    NewTokenManager(),
 		heartbeat: NewHeartbeatManager(DefaultHeartbeatInterval, DefaultHeartbeatTimeout),
+		events:    NewEventBus(),
 		nodeID:    cfg.NodeID,
 		nodeName:  cfg.NodeName,
 	}
@@ -112,6 +114,7 @@ func (m *Manager) Init(clusterName string) error {
 	}
 
 	m.heartbeat.StartMonitor(m.onNodeStatusChange)
+	m.events.Emit(EventNodeJoined, m.nodeID, m.nodeName, "cluster initialized as leader")
 
 	log.Printf("[cluster] Cluster '%s' initialized. NodeID=%s", clusterName, m.nodeID)
 	return nil
@@ -218,6 +221,8 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		peerList = append(peerList, *n)
 	}
 
+	m.events.Emit(EventNodeJoined, nodeID, nodeName, fmt.Sprintf("joined at %s", grpcAddr))
+
 	log.Printf("[cluster] Node joined: %s (%s) at %s", nodeName, nodeID, grpcAddr)
 	return caCertPEM, certPEM, keyPEM, peerList, nil
 }
@@ -243,6 +248,7 @@ func (m *Manager) RemoveNode(nodeID string) error {
 	}
 
 	m.heartbeat.RemoveNode(nodeID)
+	m.events.Emit(EventNodeLeft, nodeID, "", "removed from cluster")
 	log.Printf("[cluster] Node removed: %s", nodeID)
 	return nil
 }
@@ -325,6 +331,61 @@ func (m *Manager) GetHeartbeat() *HeartbeatManager {
 	return m.heartbeat
 }
 
+// GetEvents returns the event bus.
+func (m *Manager) GetEvents() *EventBus {
+	return m.events
+}
+
+// UpdateNodeLabels sets labels on a node (leader-only).
+func (m *Manager) UpdateNodeLabels(nodeID string, labels map[string]string) error {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return ErrNotLeader
+	}
+	state := m.raft.GetFSM().GetState()
+	node, exists := state.Nodes[nodeID]
+	if !exists {
+		return ErrNodeNotFound
+	}
+
+	node.Labels = labels
+	data, _ := json.Marshal(node)
+	if err := m.raft.Apply(Command{
+		Type:  CmdUpdateNode,
+		Value: data,
+	}, 5*time.Second); err != nil {
+		return fmt.Errorf("update labels: %w", err)
+	}
+
+	m.events.Emit(EventNodeLabelsUpdate, nodeID, node.Name, fmt.Sprintf("labels updated: %v", labels))
+	return nil
+}
+
+// TransferLeadership transfers Raft leadership to the specified node.
+func (m *Manager) TransferLeadership(targetNodeID string) error {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return ErrNotLeader
+	}
+	if targetNodeID == m.nodeID {
+		return fmt.Errorf("already the leader")
+	}
+
+	state := m.raft.GetFSM().GetState()
+	target, exists := state.Nodes[targetNodeID]
+	if !exists {
+		return ErrNodeNotFound
+	}
+	if target.Status != StatusOnline {
+		return fmt.Errorf("target node is not online")
+	}
+
+	if err := m.raft.TransferLeadership(targetNodeID); err != nil {
+		return fmt.Errorf("transfer leadership: %w", err)
+	}
+
+	m.events.Emit(EventLeaderChanged, targetNodeID, target.Name, fmt.Sprintf("leadership transferred from %s", m.nodeName))
+	return nil
+}
+
 // Shutdown gracefully stops all cluster services.
 func (m *Manager) Shutdown() {
 	if m.heartbeat != nil {
@@ -366,4 +427,18 @@ func (m *Manager) onNodeStatusChange(nodeID string, status NodeStatus) {
 		Type:  CmdUpdateNode,
 		Value: data,
 	}, 5*time.Second)
+
+	// Emit event for status transitions
+	nodeName := ""
+	if state := m.raft.GetFSM().GetState(); state.Nodes[nodeID] != nil {
+		nodeName = state.Nodes[nodeID].Name
+	}
+	switch status {
+	case StatusOnline:
+		m.events.Emit(EventNodeOnline, nodeID, nodeName, "node is online")
+	case StatusSuspect:
+		m.events.Emit(EventNodeSuspect, nodeID, nodeName, "node is suspect (heartbeat delayed)")
+	case StatusOffline:
+		m.events.Emit(EventNodeOffline, nodeID, nodeName, "node is offline (heartbeat timeout)")
+	}
 }

@@ -78,6 +78,9 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 			if update.Role != "" {
 				existing.Role = update.Role
 			}
+			if update.Labels != nil {
+				existing.Labels = update.Labels
+			}
 			existing.LastSeen = time.Now()
 		}
 		return nil

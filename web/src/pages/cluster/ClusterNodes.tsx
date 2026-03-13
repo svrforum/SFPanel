@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Trash2, RefreshCw, Crown } from 'lucide-react'
+import { Server, Trash2, RefreshCw, Crown, Tag, ArrowRightLeft } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ClusterNode, ClusterStatus } from '@/types/api'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
@@ -14,6 +16,14 @@ export default function ClusterNodes() {
   const [nodes, setNodes] = useState<ClusterNode[]>([])
   const [localId, setLocalId] = useState('')
   const [loading, setLoading] = useState(true)
+
+  // Label editing
+  const [labelDialogOpen, setLabelDialogOpen] = useState(false)
+  const [editingNodeId, setEditingNodeId] = useState('')
+  const [editingNodeName, setEditingNodeName] = useState('')
+  const [labelKey, setLabelKey] = useState('')
+  const [labelValue, setLabelValue] = useState('')
+  const [editLabels, setEditLabels] = useState<Record<string, string>>({})
 
   const loadNodes = () => {
     setLoading(true)
@@ -34,6 +44,52 @@ export default function ClusterNodes() {
     try {
       await api.removeClusterNode(nodeId)
       toast.success(t('cluster.nodes.removed', { name: nodeName }))
+      loadNodes()
+    } catch (err) {
+      toast.error(String(err))
+    }
+  }
+
+  const handleTransferLeadership = async (nodeId: string, nodeName: string) => {
+    if (!confirm(t('cluster.nodes.confirmTransfer', { name: nodeName }))) return
+    try {
+      await api.transferClusterLeadership(nodeId)
+      toast.success(t('cluster.nodes.leaderTransferred', { name: nodeName }))
+      setTimeout(loadNodes, 2000)
+    } catch (err) {
+      toast.error(String(err))
+    }
+  }
+
+  const openLabelDialog = (nodeId: string, nodeName: string, labels: Record<string, string>) => {
+    setEditingNodeId(nodeId)
+    setEditingNodeName(nodeName)
+    setEditLabels({ ...labels })
+    setLabelKey('')
+    setLabelValue('')
+    setLabelDialogOpen(true)
+  }
+
+  const handleAddLabel = () => {
+    if (!labelKey.trim()) return
+    setEditLabels(prev => ({ ...prev, [labelKey.trim()]: labelValue.trim() }))
+    setLabelKey('')
+    setLabelValue('')
+  }
+
+  const handleRemoveLabel = (key: string) => {
+    setEditLabels(prev => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+
+  const handleSaveLabels = async () => {
+    try {
+      await api.updateClusterNodeLabels(editingNodeId, editLabels)
+      toast.success(t('cluster.nodes.labelsUpdated'))
+      setLabelDialogOpen(false)
       loadNodes()
     } catch (err) {
       toast.error(String(err))
@@ -77,8 +133,8 @@ export default function ClusterNodes() {
               <TableHead>{t('cluster.nodes.name')}</TableHead>
               <TableHead>{t('common.status')}</TableHead>
               <TableHead>{t('cluster.nodes.role')}</TableHead>
+              <TableHead>{t('cluster.nodes.labels')}</TableHead>
               <TableHead>{t('cluster.nodes.apiAddress')}</TableHead>
-              <TableHead>{t('cluster.nodes.grpcAddress')}</TableHead>
               <TableHead>{t('cluster.nodes.joinedAt')}</TableHead>
               <TableHead>{t('common.actions')}</TableHead>
             </TableRow>
@@ -103,28 +159,116 @@ export default function ClusterNodes() {
                   </span>
                 </TableCell>
                 <TableCell className="text-[13px]">{node.role}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {node.labels && Object.entries(node.labels).map(([k, v]) => (
+                      <span key={k} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground">
+                        {k}={v}
+                      </span>
+                    ))}
+                    {status.is_leader && (
+                      <button
+                        onClick={() => openLabelDialog(node.id, node.name, node.labels || {})}
+                        className="p-0.5 rounded hover:bg-accent transition-colors"
+                        title={t('cluster.nodes.editLabels')}
+                      >
+                        <Tag className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                    )}
+                  </div>
+                </TableCell>
                 <TableCell className="text-[13px] text-muted-foreground">{node.api_address}</TableCell>
-                <TableCell className="text-[13px] text-muted-foreground">{node.grpc_address}</TableCell>
                 <TableCell className="text-[13px] text-muted-foreground">
                   {new Date(node.joined_at).toLocaleDateString()}
                 </TableCell>
                 <TableCell>
-                  {node.id !== localId && status.is_leader && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10"
-                      onClick={() => handleRemove(node.id, node.name)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-1">
+                    {node.id !== localId && status.is_leader && node.status === 'online' && node.id !== status.leader_id && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-[#3182f6] hover:text-[#3182f6] hover:bg-[#3182f6]/10"
+                        onClick={() => handleTransferLeadership(node.id, node.name)}
+                        title={t('cluster.nodes.transferLeadership')}
+                      >
+                        <ArrowRightLeft className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {node.id !== localId && status.is_leader && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10"
+                        onClick={() => handleRemove(node.id, node.name)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
+
+      {/* Label editing dialog */}
+      <Dialog open={labelDialogOpen} onOpenChange={setLabelDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[15px]">{t('cluster.nodes.editLabelsTitle', { name: editingNodeName })}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Existing labels */}
+            <div className="space-y-2">
+              {Object.entries(editLabels).map(([k, v]) => (
+                <div key={k} className="flex items-center gap-2">
+                  <span className="inline-flex items-center px-2 py-1 rounded-lg text-[12px] font-medium bg-secondary flex-1">
+                    {k} = {v}
+                  </span>
+                  <button
+                    onClick={() => handleRemoveLabel(k)}
+                    className="p-1 rounded hover:bg-[#f04452]/10 transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-[#f04452]" />
+                  </button>
+                </div>
+              ))}
+              {Object.keys(editLabels).length === 0 && (
+                <p className="text-[13px] text-muted-foreground text-center py-2">{t('cluster.nodes.noLabels')}</p>
+              )}
+            </div>
+
+            {/* Add label form */}
+            <div className="flex items-center gap-2">
+              <Input
+                value={labelKey}
+                onChange={(e) => setLabelKey(e.target.value)}
+                placeholder={t('cluster.nodes.labelKey')}
+                className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] flex-1"
+              />
+              <Input
+                value={labelValue}
+                onChange={(e) => setLabelValue(e.target.value)}
+                placeholder={t('cluster.nodes.labelValue')}
+                className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] flex-1"
+                onKeyDown={(e) => e.key === 'Enter' && handleAddLabel()}
+              />
+              <Button variant="outline" size="sm" className="rounded-xl" onClick={handleAddLabel} disabled={!labelKey.trim()}>
+                +
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setLabelDialogOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button className="rounded-xl" onClick={handleSaveLabels}>
+              {t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -118,6 +118,9 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	clusterGroup.GET("/nodes", clusterHandler.GetNodes)
 	clusterGroup.POST("/token", clusterHandler.CreateToken)
 	clusterGroup.DELETE("/nodes/:id", clusterHandler.RemoveNode)
+	clusterGroup.PATCH("/nodes/:id/labels", clusterHandler.UpdateNodeLabels)
+	clusterGroup.GET("/events", clusterHandler.GetEvents)
+	clusterGroup.POST("/leader-transfer", clusterHandler.TransferLeadership)
 
 	// Audit logs
 	auditHandler := &handlers.AuditHandler{DB: database}

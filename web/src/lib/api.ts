@@ -40,6 +40,7 @@ import type {
   ClusterOverview,
   ClusterNodesResponse,
   ClusterTokenResponse,
+  ClusterEventsResponse,
 } from '@/types/api'
 
 const API_BASE = '/api/v1'
@@ -1287,6 +1288,25 @@ class ApiClient {
   removeClusterNode(nodeId: string) {
     return this.request<{ removed: string }>(`/cluster/nodes/${encodeURIComponent(nodeId)}`, {
       method: 'DELETE',
+    })
+  }
+
+  getClusterEvents(limit?: number) {
+    const params = limit ? `?limit=${limit}` : ''
+    return this.request<ClusterEventsResponse>(`/cluster/events${params}`)
+  }
+
+  updateClusterNodeLabels(nodeId: string, labels: Record<string, string>) {
+    return this.request<{ node_id: string; labels: Record<string, string> }>(`/cluster/nodes/${encodeURIComponent(nodeId)}/labels`, {
+      method: 'PATCH',
+      body: JSON.stringify({ labels }),
+    })
+  }
+
+  transferClusterLeadership(targetNodeId: string) {
+    return this.request<{ message: string; target_node_id: string }>('/cluster/leader-transfer', {
+      method: 'POST',
+      body: JSON.stringify({ target_node_id: targetNodeId }),
     })
   }
 
