@@ -7,10 +7,75 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 )
+
+// ---------- Disk cache ----------
+
+var diskCache struct {
+	sync.RWMutex
+	devices   []BlockDevice
+	iostats   []IOStat
+	updatedAt time.Time
+}
+
+const diskCacheTTL = 5 * time.Second
+
+func getCachedDiskData() ([]BlockDevice, []IOStat, error) {
+	diskCache.RLock()
+	if time.Since(diskCache.updatedAt) < diskCacheTTL {
+		devices := make([]BlockDevice, len(diskCache.devices))
+		copy(devices, diskCache.devices)
+		iostats := make([]IOStat, len(diskCache.iostats))
+		copy(iostats, diskCache.iostats)
+		diskCache.RUnlock()
+		return devices, iostats, nil
+	}
+	diskCache.RUnlock()
+
+	diskCache.Lock()
+	defer diskCache.Unlock()
+
+	// Double-check
+	if time.Since(diskCache.updatedAt) < diskCacheTTL {
+		devices := make([]BlockDevice, len(diskCache.devices))
+		copy(devices, diskCache.devices)
+		iostats := make([]IOStat, len(diskCache.iostats))
+		copy(iostats, diskCache.iostats)
+		return devices, iostats, nil
+	}
+
+	// Fetch lsblk
+	out, err := exec.Command("lsblk", "-J", "-b", "-o",
+		"NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR").CombinedOutput()
+	if err != nil {
+		return nil, nil, fmt.Errorf("lsblk failed: %s", strings.TrimSpace(string(out)))
+	}
+	devices, err := parseLsblkJSON(out)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse lsblk: %w", err)
+	}
+
+	// Fetch iostat
+	iostats, err := readIOStats()
+	if err != nil {
+		iostats = []IOStat{} // non-fatal
+	}
+
+	diskCache.devices = devices
+	diskCache.iostats = iostats
+	diskCache.updatedAt = time.Now()
+
+	devCopy := make([]BlockDevice, len(devices))
+	copy(devCopy, devices)
+	ioCopy := make([]IOStat, len(iostats))
+	copy(ioCopy, iostats)
+	return devCopy, ioCopy, nil
+}
 
 // ---------- 0. Tool Status ----------
 
@@ -38,19 +103,10 @@ func (h *DiskHandler) InstallSmartmontools(c echo.Context) error {
 
 // ListDisks returns all block devices with their hierarchy.
 func (h *DiskHandler) ListDisks(c echo.Context) error {
-	out, err := exec.Command("lsblk", "-J", "-b", "-o",
-		"NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR").CombinedOutput()
+	devices, _, err := getCachedDiskData()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
-			fmt.Sprintf("lsblk failed: %s", strings.TrimSpace(string(out))))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError, err.Error())
 	}
-
-	devices, err := parseLsblkJSON(out)
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
-			fmt.Sprintf("failed to parse lsblk output: %v", err))
-	}
-
 	return response.OK(c, devices)
 }
 
@@ -202,6 +258,22 @@ func (h *DiskHandler) GetSmartInfo(c echo.Context) error {
 	return response.OK(c, info)
 }
 
+// computeSmartStatus determines the status of a SMART attribute.
+// "ok" = value well above threshold, "warn" = within 10% of threshold, "fail" = at or below threshold.
+func computeSmartStatus(value, worst, threshold int) string {
+	if threshold == 0 {
+		return "ok"
+	}
+	if value <= threshold || worst <= threshold {
+		return "fail"
+	}
+	margin := float64(value-threshold) / float64(threshold)
+	if margin < 0.1 {
+		return "warn"
+	}
+	return "ok"
+}
+
 // parseSmartctlJSON parses the JSON output from smartctl -j -a.
 func parseSmartctlJSON(devPath string, data []byte) (*SmartInfo, error) {
 	var raw map[string]interface{}
@@ -282,7 +354,9 @@ func parseSmartctlJSON(devPath string, data []byte) (*SmartInfo, error) {
 						sa.RawValue = strconv.FormatInt(int64(val), 10)
 					}
 				}
-				info.Attributes = append(info.Attributes, sa)
+				// Compute status based on threshold
+			sa.Status = computeSmartStatus(sa.Value, sa.Worst, sa.Threshold)
+			info.Attributes = append(info.Attributes, sa)
 			}
 		}
 	}
@@ -323,6 +397,7 @@ func parseSmartctlJSON(devPath string, data []byte) (*SmartInfo, error) {
 					Name:     f.name,
 					Value:    int(val),
 					RawValue: strconv.FormatInt(int64(val), 10),
+					Status:   "ok",
 				})
 			}
 		}

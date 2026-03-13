@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"net/http"
 	"strconv"
 
@@ -12,6 +13,7 @@ import (
 // ComposeHandler exposes REST handlers for Docker Compose project management.
 type ComposeHandler struct {
 	Compose *docker.ComposeManager
+	DB      *sql.DB
 }
 
 // ListProjectsWithStatus returns all compose projects with real-time service status.
@@ -92,13 +94,22 @@ func (h *ComposeHandler) UpdateProject(c echo.Context) error {
 }
 
 // DeleteProject deletes a compose project by name.
+// Query params: removeImages=true, removeVolumes=true
 func (h *ComposeHandler) DeleteProject(c echo.Context) error {
 	name := c.Param("project")
 	ctx := c.Request().Context()
+	removeImages := c.QueryParam("removeImages") == "true"
+	removeVolumes := c.QueryParam("removeVolumes") == "true"
 
-	if err := h.Compose.DeleteProject(ctx, name); err != nil {
+	if err := h.Compose.DeleteProject(ctx, name, removeImages, removeVolumes); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
 	}
+
+	// Clean up appstore install record if exists
+	if h.DB != nil {
+		_, _ = h.DB.Exec("DELETE FROM settings WHERE key = ?", "appstore_installed_"+name)
+	}
+
 	return response.OK(c, map[string]string{"message": "project deleted"})
 }
 
@@ -208,6 +219,24 @@ func (h *ComposeHandler) StartService(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
 	}
 	return response.OK(c, map[string]string{"output": output})
+}
+
+// ValidateProject validates the docker-compose.yml of a project using `docker compose config`.
+func (h *ComposeHandler) ValidateProject(c echo.Context) error {
+	name := c.Param("project")
+	ctx := c.Request().Context()
+
+	output, err := h.Compose.ValidateConfig(ctx, name)
+	if err != nil {
+		return response.OK(c, map[string]interface{}{
+			"valid":   false,
+			"message": output,
+		})
+	}
+	return response.OK(c, map[string]interface{}{
+		"valid":   true,
+		"message": "Configuration is valid",
+	})
 }
 
 // ServiceLogs returns the last N lines of logs for a service.

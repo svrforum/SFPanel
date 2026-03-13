@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Network, HardDrive, Variable, Globe, Plus, Layers } from 'lucide-react'
+import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Network, HardDrive, Variable, Globe, Plus, Layers, Pause, CheckSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Checkbox } from '@/components/ui/checkbox'
 import ContainerLogs from '@/components/ContainerLogs'
 import ContainerShell from '@/components/ContainerShell'
 
@@ -98,29 +99,33 @@ function ContainerInspect({ containerId }: { containerId: string }) {
   const statsInterval = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
+    let cancelled = false
     const load = async () => {
       setLoading(true)
       try {
         const inspectData = await api.inspectContainer(containerId)
+        if (cancelled) return
         setData(inspectData)
         if (inspectData.state === 'running') {
           const statsData = await api.containerStats(containerId)
+          if (cancelled) return
           setStats(statsData)
           statsInterval.current = setInterval(async () => {
             try {
               const s = await api.containerStats(containerId)
-              setStats(s)
+              if (!cancelled) setStats(s)
             } catch { /* ignore */ }
           }, 3000)
         }
       } catch (err: any) {
-        toast.error(err.message || t('docker.containers.fetchFailed'))
+        if (!cancelled) toast.error(err.message || t('docker.containers.fetchFailed'))
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     }
     load()
     return () => {
+      cancelled = true
       if (statsInterval.current) clearInterval(statsInterval.current)
     }
   }, [containerId, t])
@@ -308,10 +313,15 @@ function ContainerRow({
   onTerminal,
   onStart,
   onStop,
+  onPause,
+  onUnpause,
   onRestart,
   onDelete,
   showService,
   statsMap,
+  batchMode,
+  selected,
+  onToggleSelect,
   t,
 }: {
   container: Container
@@ -320,15 +330,28 @@ function ContainerRow({
   onTerminal: (c: Container) => void
   onStart: (id: string) => void
   onStop: (c: Container) => void
+  onPause: (id: string) => void
+  onUnpause: (id: string) => void
   onRestart: (c: Container) => void
   onDelete: (c: Container) => void
   showService?: boolean
   statsMap: Record<string, ContainerStatsResult>
+  batchMode?: boolean
+  selected?: boolean
+  onToggleSelect?: (id: string) => void
   t: (key: string, opts?: Record<string, unknown>) => string
 }) {
   const serviceName = c.Labels?.['com.docker.compose.service']
   return (
     <TableRow>
+      {batchMode && (
+        <TableCell className="w-10">
+          <Checkbox
+            checked={selected}
+            onCheckedChange={() => onToggleSelect?.(c.Id)}
+          />
+        </TableCell>
+      )}
       <TableCell
         className="font-medium cursor-pointer hover:underline"
         onClick={() => onDetail(c)}
@@ -370,14 +393,35 @@ function ContainerRow({
             <Terminal />
           </Button>
           {c.State === 'running' ? (
+            <>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                title={t('docker.containers.pause')}
+                disabled={actionLoading === c.Id}
+                onClick={() => onPause(c.Id)}
+              >
+                <Pause />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                title={t('docker.containers.stop')}
+                disabled={actionLoading === c.Id}
+                onClick={() => onStop(c)}
+              >
+                <Square />
+              </Button>
+            </>
+          ) : c.State === 'paused' ? (
             <Button
               variant="ghost"
               size="icon-xs"
-              title={t('docker.containers.stop')}
+              title={t('docker.containers.unpause')}
               disabled={actionLoading === c.Id}
-              onClick={() => onStop(c)}
+              onClick={() => onUnpause(c.Id)}
             >
-              <Square />
+              <Play />
             </Button>
           ) : (
             <Button
@@ -429,6 +473,8 @@ export default function DockerContainers() {
   const [filterState, setFilterState] = useState<'all' | 'running' | 'stopped'>('all')
   const [collapsedStacks, setCollapsedStacks] = useState<Set<string>>(new Set())
   const [statsMap, setStatsMap] = useState<Record<string, ContainerStatsResult>>({})
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [batchMode, setBatchMode] = useState(false)
 
   const fetchContainers = useCallback(async () => {
     try {
@@ -507,6 +553,75 @@ export default function DockerContainers() {
       toast.error(message)
     } finally {
       setActionLoading(null)
+    }
+  }
+
+  const handlePause = async (id: string) => {
+    setActionLoading(id)
+    try {
+      await api.pauseContainer(id)
+      toast.success(t('docker.containers.paused'))
+      await fetchContainers()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.containers.pauseFailed'))
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleUnpause = async (id: string) => {
+    setActionLoading(id)
+    try {
+      await api.unpauseContainer(id)
+      toast.success(t('docker.containers.unpaused'))
+      await fetchContainers()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.containers.unpauseFailed'))
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+
+
+  const handleBatchAction = async (action: 'start' | 'stop' | 'restart' | 'remove') => {
+    if (selectedIds.size === 0) return
+    setActionLoading('batch')
+    try {
+      const ids = Array.from(selectedIds)
+      for (const id of ids) {
+        try {
+          if (action === 'start') await api.startContainer(id)
+          else if (action === 'stop') await api.stopContainer(id)
+          else if (action === 'restart') await api.restartContainer(id)
+          else if (action === 'remove') await api.removeContainer(id)
+        } catch { /* continue on individual failures */ }
+      }
+      toast.success(t('docker.containers.batchSuccess', { count: ids.length, action }))
+      setSelectedIds(new Set())
+      setBatchMode(false)
+      await fetchContainers()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.containers.batchFailed'))
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredContainers.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filteredContainers.map(c => c.Id)))
     }
   }
 
@@ -602,16 +717,48 @@ export default function DockerContainers() {
           />
         </div>
         <div className="flex-1" />
+        {batchMode && selectedIds.size > 0 && (
+          <div className="flex items-center gap-1">
+            <span className="text-[13px] text-muted-foreground mr-1">
+              {t('docker.containers.selected', { count: selectedIds.size })}
+            </span>
+            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => handleBatchAction('start')} disabled={actionLoading === 'batch'}>
+              <Play />
+              {t('docker.containers.batchStart')}
+            </Button>
+            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => handleBatchAction('stop')} disabled={actionLoading === 'batch'}>
+              <Square />
+              {t('docker.containers.batchStop')}
+            </Button>
+            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => handleBatchAction('restart')} disabled={actionLoading === 'batch'}>
+              <RotateCw />
+              {t('docker.containers.batchRestart')}
+            </Button>
+            <Button variant="destructive" size="sm" className="rounded-xl" onClick={() => handleBatchAction('remove')} disabled={actionLoading === 'batch'}>
+              <Trash2 />
+              {t('docker.containers.batchDelete')}
+            </Button>
+          </div>
+        )}
         <p className="text-[13px] text-muted-foreground mr-2">
           {t('docker.containers.count', { count: filteredContainers.length })}
         </p>
+        <Button
+          variant={batchMode ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => { setBatchMode(!batchMode); setSelectedIds(new Set()) }}
+          className="rounded-xl"
+        >
+          <CheckSquare />
+          {t('docker.containers.batchMode')}
+        </Button>
         <Button variant="outline" size="sm" onClick={fetchContainers} disabled={loading} className="rounded-xl">
           <RefreshCw className={loading ? 'animate-spin' : ''} />
           {t('common.refresh')}
         </Button>
-        <Button size="sm" onClick={() => navigate('/docker/containers/create')} className="rounded-xl">
+        <Button size="sm" onClick={() => navigate('/docker/stacks?new=1')} className="rounded-xl">
           <Plus />
-          {t('docker.containerCreate.title')}
+          {t('docker.stacks.newStack')}
         </Button>
       </div>
 
@@ -619,6 +766,14 @@ export default function DockerContainers() {
       <Table>
         <TableHeader>
           <TableRow className="border-border/50">
+            {batchMode && (
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={filteredContainers.length > 0 && selectedIds.size === filteredContainers.length}
+                  onCheckedChange={toggleSelectAll}
+                />
+              </TableHead>
+            )}
             <TableHead className="text-[11px]">{t('docker.containers.name')}</TableHead>
             <TableHead className="text-[11px]">{t('docker.containers.image')}</TableHead>
             <TableHead className="text-[11px]">{t('docker.containers.status')}</TableHead>
@@ -631,7 +786,7 @@ export default function DockerContainers() {
         <TableBody>
           {filteredContainers.length === 0 && !loading && (
             <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+              <TableCell colSpan={batchMode ? 8 : 7} className="text-center text-muted-foreground py-8">
                 {searchQuery ? t('docker.containers.noResults') : t('docker.containers.empty')}
               </TableCell>
             </TableRow>
@@ -646,7 +801,7 @@ export default function DockerContainers() {
                   className="bg-secondary/30 hover:bg-secondary/50 cursor-pointer border-border/50"
                   onClick={() => toggleStack(stackName)}
                 >
-                  <TableCell colSpan={7}>
+                  <TableCell colSpan={batchMode ? 8 : 7}>
                     <div className="flex items-center gap-2">
                       {isCollapsed ? (
                         <ChevronRight className="h-4 w-4 text-muted-foreground" />
@@ -670,10 +825,16 @@ export default function DockerContainers() {
                     onTerminal={openTerminal}
                     onStart={(id) => handleAction('start', id)}
                     onStop={(ct) => setConfirmAction({ action: 'stop', container: ct })}
+                    onPause={handlePause}
+                    onUnpause={handleUnpause}
                     onRestart={(ct) => setConfirmAction({ action: 'restart', container: ct })}
                     onDelete={setDeleteTarget}
+
                     showService
                     statsMap={statsMap}
+                    batchMode={batchMode}
+                    selected={selectedIds.has(c.Id)}
+                    onToggleSelect={toggleSelect}
                     t={t}
                   />
                 ))}
@@ -683,7 +844,7 @@ export default function DockerContainers() {
           {/* Standalone section header (only if stacks exist) */}
           {groupedContainers.stacks.length > 0 && groupedContainers.standalone.length > 0 && (
             <TableRow className="bg-secondary/30 border-border/50">
-              <TableCell colSpan={7}>
+              <TableCell colSpan={batchMode ? 8 : 7}>
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] font-semibold text-muted-foreground">{t('docker.containers.standalone')}</span>
                 </div>
@@ -700,9 +861,14 @@ export default function DockerContainers() {
               onTerminal={openTerminal}
               onStart={(id) => handleAction('start', id)}
               onStop={(ct) => setConfirmAction({ action: 'stop', container: ct })}
+              onPause={handlePause}
+              onUnpause={handleUnpause}
               onRestart={(ct) => setConfirmAction({ action: 'restart', container: ct })}
               onDelete={setDeleteTarget}
               statsMap={statsMap}
+              batchMode={batchMode}
+              selected={selectedIds.has(c.Id)}
+              onToggleSelect={toggleSelect}
               t={t}
             />
           ))}

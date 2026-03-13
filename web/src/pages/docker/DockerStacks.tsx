@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Plus, Play, Square, RotateCw, ArrowUp, ArrowDown, RefreshCw,
-  Trash2, Terminal, ScrollText, FileText, FileCode, Save,
+  Plus, Play, Square, RotateCw, ArrowUp, RefreshCw,
+  Trash2, Terminal, ScrollText, FileText, FileCode, Save, Loader2,
+  CheckCircle2, XCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -68,6 +69,7 @@ export default function DockerStacks() {
   const { t } = useTranslation()
   const { name: selectedName } = useParams()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [projects, setProjects] = useState<ComposeProjectWithStatus[]>([])
   const [loading, setLoading] = useState(true)
@@ -87,9 +89,13 @@ export default function DockerStacks() {
   const [editorTab, setEditorTab] = useState<'compose' | 'env'>('compose')
   const [editSaving, setEditSaving] = useState(false)
   const [envSaving, setEnvSaving] = useState(false)
+  const [validating, setValidating] = useState(false)
+  const [validationResult, setValidationResult] = useState<{ valid: boolean; message: string } | null>(null)
 
   // Delete dialog
   const [deleteTarget, setDeleteTarget] = useState<ComposeProjectWithStatus | null>(null)
+  const [deleteImages, setDeleteImages] = useState(false)
+  const [deleteVolumes, setDeleteVolumes] = useState(false)
 
   // Service logs/shell dialogs
   const [logService, setLogService] = useState<ComposeService | null>(null)
@@ -97,16 +103,16 @@ export default function DockerStacks() {
 
   const selectedProject = projects.find(p => p.name === selectedName)
 
-  const fetchProjects = useCallback(async () => {
+  const fetchProjects = useCallback(async (showLoading = true) => {
     try {
-      setLoading(true)
+      if (showLoading) setLoading(true)
       const data = await api.getComposeProjects()
       setProjects(data || [])
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('docker.compose.fetchFailed')
       toast.error(msg)
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
   }, [t])
 
@@ -127,6 +133,13 @@ export default function DockerStacks() {
   }, [fetchProjects])
 
   useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setCreateOpen(true)
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
+
+  useEffect(() => {
     if (selectedName) {
       fetchServices(selectedName)
       // Load YAML
@@ -139,6 +152,29 @@ export default function DockerStacks() {
       }).catch(() => {})
     }
   }, [selectedName, fetchServices])
+
+  useEffect(() => {
+    setValidationResult(null)
+  }, [editYaml])
+
+  const handleValidate = async () => {
+    if (!selectedName) return
+    setValidating(true)
+    setValidationResult(null)
+    try {
+      const result = await api.validateCompose(selectedName)
+      setValidationResult(result)
+      if (result.valid) {
+        toast.success(t('docker.stacks.validateSuccess'))
+      } else {
+        toast.error(t('docker.stacks.validateFailed'))
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.stacks.validateFailed'))
+    } finally {
+      setValidating(false)
+    }
+  }
 
   const handleCreate = async () => {
     if (!newName.trim() || !newYaml.trim()) return
@@ -163,8 +199,10 @@ export default function DockerStacks() {
     try {
       await api.composeUp(name)
       toast.success(t('docker.compose.upSuccess', { name }))
-      await fetchProjects()
-      if (selectedName === name) fetchServices(name)
+      await Promise.all([
+        fetchProjects(false),
+        selectedName === name ? fetchServices(name) : Promise.resolve(),
+      ])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.compose.upFailed'))
     } finally {
@@ -177,8 +215,10 @@ export default function DockerStacks() {
     try {
       await api.composeDown(name)
       toast.success(t('docker.compose.downSuccess', { name }))
-      await fetchProjects()
-      if (selectedName === name) fetchServices(name)
+      await Promise.all([
+        fetchProjects(false),
+        selectedName === name ? fetchServices(name) : Promise.resolve(),
+      ])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.compose.downFailed'))
     } finally {
@@ -190,9 +230,14 @@ export default function DockerStacks() {
     if (!deleteTarget) return
     setActionLoading(deleteTarget.name)
     try {
-      await api.deleteComposeProject(deleteTarget.name)
+      await api.deleteComposeProject(deleteTarget.name, {
+        removeImages: deleteImages,
+        removeVolumes: deleteVolumes,
+      })
       toast.success(t('docker.compose.deleted'))
       setDeleteTarget(null)
+      setDeleteImages(false)
+      setDeleteVolumes(false)
       if (selectedName === deleteTarget.name) navigate('/docker/stacks')
       await fetchProjects()
     } catch (err: unknown) {
@@ -209,8 +254,7 @@ export default function DockerStacks() {
       await api.updateComposeProject(selectedName, editYaml)
       await api.composeUp(selectedName)
       toast.success(t('docker.stacks.deploySuccess'))
-      await fetchProjects()
-      fetchServices(selectedName)
+      await Promise.all([fetchProjects(false), fetchServices(selectedName)])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.stacks.deployFailed'))
     } finally {
@@ -254,8 +298,7 @@ export default function DockerStacks() {
       else if (action === 'stop') await api.stopComposeService(selectedName, service)
       else if (action === 'start') await api.startComposeService(selectedName, service)
       toast.success(t(`docker.stacks.${action}Success`))
-      fetchServices(selectedName)
-      fetchProjects()
+      await Promise.all([fetchServices(selectedName), fetchProjects(false)])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.stacks.actionFailed'))
     } finally {
@@ -270,7 +313,7 @@ export default function DockerStacks() {
         <div className="flex items-center justify-between">
           <span className="text-[15px] font-semibold">{t('docker.stacks.title')}</span>
           <div className="flex gap-1">
-            <Button variant="ghost" size="icon-xs" onClick={fetchProjects} disabled={loading}>
+            <Button variant="ghost" size="icon-xs" onClick={() => fetchProjects()} disabled={loading}>
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             </Button>
             <Button variant="ghost" size="icon-xs" onClick={() => setCreateOpen(true)}>
@@ -329,22 +372,50 @@ export default function DockerStacks() {
                 </>
               )}
               <div className="flex-1" />
-              <Button
-                variant="outline" size="sm" className="rounded-xl"
-                disabled={actionLoading === selectedName}
-                onClick={() => handleUp(selectedName)}
-              >
-                <ArrowUp className="h-3.5 w-3.5" />
-                {t('docker.compose.up')}
-              </Button>
-              <Button
-                variant="outline" size="sm" className="rounded-xl"
-                disabled={actionLoading === selectedName}
-                onClick={() => handleDown(selectedName)}
-              >
-                <ArrowDown className="h-3.5 w-3.5" />
-                {t('docker.compose.down')}
-              </Button>
+              {selectedProject?.real_status !== 'running' && (
+                <Button
+                  size="sm"
+                  className="rounded-xl bg-[#00c471] hover:bg-[#00c471]/90 text-white"
+                  disabled={actionLoading === selectedName}
+                  onClick={() => handleUp(selectedName)}
+                >
+                  {actionLoading === selectedName ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5" />
+                  )}
+                  {t('docker.compose.up')}
+                </Button>
+              )}
+              {selectedProject?.real_status === 'running' || selectedProject?.real_status === 'partial' ? (
+                <Button
+                  variant="outline" size="sm"
+                  className="rounded-xl border-[#f04452]/30 text-[#f04452] hover:bg-[#f04452]/10 hover:text-[#f04452]"
+                  disabled={actionLoading === selectedName}
+                  onClick={() => handleDown(selectedName)}
+                >
+                  {actionLoading === selectedName ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Square className="h-3.5 w-3.5" />
+                  )}
+                  {t('docker.compose.down')}
+                </Button>
+              ) : null}
+              {selectedProject?.real_status === 'running' && (
+                <Button
+                  variant="outline" size="sm" className="rounded-xl"
+                  disabled={actionLoading === selectedName}
+                  onClick={() => handleUp(selectedName)}
+                >
+                  {actionLoading === selectedName ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCw className="h-3.5 w-3.5" />
+                  )}
+                  {t('docker.stacks.redeploy')}
+                </Button>
+              )}
               <Button
                 variant="ghost" size="icon-xs"
                 onClick={() => setDeleteTarget(selectedProject || null)}
@@ -403,19 +474,19 @@ export default function DockerStacks() {
                                 <Button variant="ghost" size="icon-xs" title={t('docker.stacks.stopService')}
                                   disabled={actionLoading === svc.name}
                                   onClick={() => handleServiceAction('stop', svc.name)}>
-                                  <Square className="h-3.5 w-3.5" />
+                                  {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
                                 </Button>
                               ) : (
                                 <Button variant="ghost" size="icon-xs" title={t('docker.stacks.startService')}
                                   disabled={actionLoading === svc.name}
                                   onClick={() => handleServiceAction('start', svc.name)}>
-                                  <Play className="h-3.5 w-3.5" />
+                                  {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
                                 </Button>
                               )}
                               <Button variant="ghost" size="icon-xs" title={t('docker.stacks.restartService')}
                                 disabled={actionLoading === svc.name}
                                 onClick={() => handleServiceAction('restart', svc.name)}>
-                                <RotateCw className="h-3.5 w-3.5" />
+                                {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
                               </Button>
                               <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')}
                                 onClick={() => setLogService(svc)}>
@@ -465,7 +536,26 @@ export default function DockerStacks() {
                       <div className="rounded-2xl overflow-hidden border-t-2 border-t-primary card-shadow">
                         <ComposeEditor value={editYaml} onChange={setEditYaml} />
                       </div>
+                      {validationResult && (
+                        <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] ${
+                          validationResult.valid
+                            ? 'bg-[#00c471]/10 text-[#00c471]'
+                            : 'bg-[#f04452]/10 text-[#f04452]'
+                        }`}>
+                          {validationResult.valid ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                          <span>{validationResult.valid ? t('docker.stacks.configValid') : validationResult.message}</span>
+                        </div>
+                      )}
                       <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={handleValidate}
+                          disabled={validating || !editYaml.trim()}
+                          className="rounded-xl"
+                        >
+                          {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                          {t('docker.stacks.validate')}
+                        </Button>
                         <Button
                           variant="outline"
                           onClick={handleSaveYaml}
@@ -542,7 +632,13 @@ export default function DockerStacks() {
       </Dialog>
 
       {/* Delete dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => {
+        if (!open) {
+          setDeleteTarget(null)
+          setDeleteImages(false)
+          setDeleteVolumes(false)
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('docker.compose.deleteTitle')}</DialogTitle>
@@ -551,6 +647,32 @@ export default function DockerStacks() {
                 components={{ strong: <span className="font-semibold" /> }} />
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-3 py-2">
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={deleteImages}
+                onChange={(e) => setDeleteImages(e.target.checked)}
+                className="h-4 w-4 rounded border-border accent-[#f04452]"
+              />
+              <div>
+                <p className="text-[13px] font-medium group-hover:text-foreground transition-colors">{t('docker.compose.deleteImages')}</p>
+                <p className="text-[11px] text-muted-foreground">{t('docker.compose.deleteImagesDesc')}</p>
+              </div>
+            </label>
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={deleteVolumes}
+                onChange={(e) => setDeleteVolumes(e.target.checked)}
+                className="h-4 w-4 rounded border-border accent-[#f04452]"
+              />
+              <div>
+                <p className="text-[13px] font-medium group-hover:text-foreground transition-colors">{t('docker.compose.deleteVolumes')}</p>
+                <p className="text-[11px] text-muted-foreground">{t('docker.compose.deleteVolumesDesc')}</p>
+              </div>
+            </label>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>{t('common.cancel')}</Button>
             <Button variant="destructive" onClick={handleDelete} disabled={actionLoading === deleteTarget?.name}>

@@ -43,9 +43,6 @@ import {
 
 import type { NetworkInterfaceInfo, InterfaceConfig, NetworkRoute } from '@/types/api'
 
-type NetworkInterface = NetworkInterfaceInfo
-type Route = NetworkRoute
-
 interface DNSConfig {
   servers: string[]
 }
@@ -61,11 +58,11 @@ const BOND_MODES = [
 ]
 
 // Classify interfaces into categories
-function classifyInterfaces(interfaces: NetworkInterface[]) {
-  const physical: NetworkInterface[] = []
-  const docker: NetworkInterface[] = []
-  const virtual: NetworkInterface[] = []
-  const loopback: NetworkInterface[] = []
+function classifyInterfaces(interfaces: NetworkInterfaceInfo[]) {
+  const physical: NetworkInterfaceInfo[] = []
+  const docker: NetworkInterfaceInfo[] = []
+  const virtual: NetworkInterfaceInfo[] = []
+  const loopback: NetworkInterfaceInfo[] = []
 
   for (const iface of interfaces) {
     if (iface.type === 'loopback' || iface.name === 'lo') {
@@ -98,15 +95,14 @@ export default function NetworkInterfaces() {
   const { t } = useTranslation()
 
   // Data state
-  const [interfaces, setInterfaces] = useState<NetworkInterface[]>([])
-  const [routes, setRoutes] = useState<Route[]>([])
+  const [interfaces, setInterfaces] = useState<NetworkInterfaceInfo[]>([])
+  const [routes, setRoutes] = useState<NetworkRoute[]>([])
   const [dnsConfig, setDnsConfig] = useState<DNSConfig>({ servers: [] })
-  const [, setBonds] = useState<NetworkInterface[]>([])
   const [loading, setLoading] = useState(true)
   const [hasChanges, setHasChanges] = useState(false)
 
   // Interface config dialog
-  const [configTarget, setConfigTarget] = useState<NetworkInterface | null>(null)
+  const [configTarget, setConfigTarget] = useState<NetworkInterfaceInfo | null>(null)
   const [configMode, setConfigMode] = useState<'dhcp' | 'static'>('dhcp')
   const [configAddresses, setConfigAddresses] = useState('')
   const [configGateway4, setConfigGateway4] = useState('')
@@ -128,7 +124,7 @@ export default function NetworkInterfaces() {
   const [bondCreating, setBondCreating] = useState(false)
 
   // Bond delete dialog
-  const [bondDeleteTarget, setBondDeleteTarget] = useState<NetworkInterface | null>(null)
+  const [bondDeleteTarget, setBondDeleteTarget] = useState<NetworkInterfaceInfo | null>(null)
   const [bondDeleting, setBondDeleting] = useState(false)
 
   // Apply config dialog
@@ -146,7 +142,6 @@ export default function NetworkInterfaces() {
       setInterfaces(status.interfaces || [])
       setRoutes(status.routes || [])
       setDnsConfig(status.dns || { servers: [] })
-      setBonds(status.bonds || [])
     } catch {
       toast.error(t('network.fetchFailed'))
     } finally {
@@ -159,7 +154,7 @@ export default function NetworkInterfaces() {
   }, [fetchData])
 
   // Open config dialog for an interface
-  const openConfigDialog = (iface: NetworkInterface) => {
+  const openConfigDialog = (iface: NetworkInterfaceInfo) => {
     setConfigTarget(iface)
     const hasStaticAddr = iface.addresses.length > 0 && iface.type !== 'loopback'
     setConfigMode(hasStaticAddr ? 'static' : 'dhcp')
@@ -298,7 +293,7 @@ export default function NetworkInterfaces() {
   }
 
   // Interface type icon
-  const getInterfaceIcon = (iface: NetworkInterface) => {
+  const getInterfaceIcon = (iface: NetworkInterfaceInfo) => {
     if (iface.type === 'loopback') return <Router className="h-4 w-4 text-muted-foreground" />
     if (iface.bond_info) return <Link2 className="h-4 w-4 text-[#3182f6]" />
     if (iface.type === 'wireless' || iface.name.startsWith('wl')) return <Wifi className="h-4 w-4 text-[#3182f6]" />
@@ -327,7 +322,7 @@ export default function NetworkInterfaces() {
   }
 
   // Render interface card
-  const renderInterfaceCard = (iface: NetworkInterface) => {
+  const renderInterfaceCard = (iface: NetworkInterfaceInfo) => {
     const isLoopback = iface.type === 'loopback'
     const ipv4 = iface.addresses.find((a) => a.family === 'ipv4' || a.family === 'inet')
 
@@ -419,7 +414,7 @@ export default function NetworkInterfaces() {
             <Button
               variant="outline"
               size="sm"
-              className="w-full h-8 text-[12px]"
+              className="w-full h-8 text-[12px] rounded-xl"
               onClick={() => openConfigDialog(iface)}
             >
               <Settings2 className="h-3.5 w-3.5" />
@@ -435,7 +430,7 @@ export default function NetworkInterfaces() {
     <div className="space-y-6">
       {/* Top actions */}
       <div className="flex items-center justify-end">
-        <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
+        <Button variant="outline" size="sm" className="rounded-xl" onClick={fetchData} disabled={loading}>
           <RefreshCw className={loading ? 'animate-spin' : ''} />
           {t('common.refresh')}
         </Button>
@@ -510,6 +505,8 @@ export default function NetworkInterfaces() {
               <button
                 className="flex items-center gap-2 mb-3 group"
                 onClick={() => setDockerCollapsed(!dockerCollapsed)}
+                aria-expanded={!dockerCollapsed}
+                aria-controls="docker-interfaces"
               >
                 <Container className="h-4 w-4 text-[#3182f6]" />
                 <h2 className="text-[15px] font-semibold">Docker</h2>
@@ -521,7 +518,7 @@ export default function NetworkInterfaces() {
                 </span>
               </button>
               {!dockerCollapsed && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div id="docker-interfaces" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {classified.docker.map(renderInterfaceCard)}
                 </div>
               )}
@@ -558,6 +555,7 @@ export default function NetworkInterfaces() {
               <Button
                 variant="outline"
                 size="sm"
+                className="rounded-xl"
                 onClick={() => {
                   setDnsInput(dnsConfig.servers.join(', '))
                   setDnsEditing(true)
@@ -575,15 +573,15 @@ export default function NetworkInterfaces() {
                   value={dnsInput}
                   onChange={(e) => setDnsInput(e.target.value)}
                   placeholder="8.8.8.8, 8.8.4.4, 1.1.1.1"
-                  className="font-mono text-[13px]"
+                  className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
                 />
                 <p className="text-[11px] text-muted-foreground">{t('network.dnsHint')}</p>
               </div>
               <div className="flex items-center gap-2 justify-end">
-                <Button variant="outline" size="sm" onClick={() => setDnsEditing(false)}>
+                <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setDnsEditing(false)}>
                   {t('common.cancel')}
                 </Button>
-                <Button size="sm" onClick={handleSaveDns} disabled={dnsSaving}>
+                <Button size="sm" className="rounded-xl" onClick={handleSaveDns} disabled={dnsSaving}>
                   {dnsSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   {t('common.save')}
                 </Button>
@@ -664,7 +662,7 @@ export default function NetworkInterfaces() {
               </span>
             )}
           </h2>
-          <Button size="sm" onClick={() => setBondCreateOpen(true)}>
+          <Button size="sm" className="rounded-xl" onClick={() => setBondCreateOpen(true)}>
             <Plus className="h-3.5 w-3.5" />
             {t('network.createBond')}
           </Button>
@@ -753,8 +751,10 @@ export default function NetworkInterfaces() {
             {/* DHCP / Static toggle */}
             <div className="space-y-2">
               <Label className="text-[13px] font-medium">{t('network.addressMode')}</Label>
-              <div className="flex gap-2">
+              <div className="flex gap-2" role="radiogroup" aria-label={t('network.addressMode')}>
                 <button
+                  role="radio"
+                  aria-checked={configMode === 'dhcp'}
                   className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all ${
                     configMode === 'dhcp'
                       ? 'bg-primary text-primary-foreground'
@@ -765,6 +765,8 @@ export default function NetworkInterfaces() {
                   DHCP
                 </button>
                 <button
+                  role="radio"
+                  aria-checked={configMode === 'static'}
                   className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all ${
                     configMode === 'static'
                       ? 'bg-primary text-primary-foreground'
@@ -801,7 +803,7 @@ export default function NetworkInterfaces() {
                       value={configGateway4}
                       onChange={(e) => setConfigGateway4(e.target.value)}
                       placeholder="192.168.1.1"
-                      className="font-mono text-[13px]"
+                      className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
                     />
                   </div>
                   <div className="space-y-2">
@@ -811,7 +813,7 @@ export default function NetworkInterfaces() {
                       value={configGateway6}
                       onChange={(e) => setConfigGateway6(e.target.value)}
                       placeholder="fe80::1"
-                      className="font-mono text-[13px]"
+                      className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
                     />
                   </div>
                 </div>
@@ -823,7 +825,7 @@ export default function NetworkInterfaces() {
                     value={configDns}
                     onChange={(e) => setConfigDns(e.target.value)}
                     placeholder="8.8.8.8, 1.1.1.1"
-                    className="font-mono text-[13px]"
+                    className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
                   />
                 </div>
               </>
@@ -838,17 +840,17 @@ export default function NetworkInterfaces() {
                 onChange={(e) => setConfigMtu(e.target.value)}
                 placeholder="1500"
                 type="number"
-                className="font-mono text-[13px]"
+                className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
               />
               <p className="text-[11px] text-muted-foreground">{t('network.mtuHint')}</p>
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfigTarget(null)}>
+            <Button variant="outline" className="rounded-xl" onClick={() => setConfigTarget(null)}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleSaveConfig} disabled={configSaving}>
+            <Button className="rounded-xl" onClick={handleSaveConfig} disabled={configSaving}>
               {configSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {t('common.save')}
             </Button>
@@ -877,7 +879,7 @@ export default function NetworkInterfaces() {
                 value={bondName}
                 onChange={(e) => setBondName(e.target.value)}
                 placeholder="bond0"
-                className="font-mono text-[13px]"
+                className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
               />
             </div>
 
@@ -930,10 +932,11 @@ export default function NetworkInterfaces() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setBondCreateOpen(false)}>
+            <Button variant="outline" className="rounded-xl" onClick={() => setBondCreateOpen(false)}>
               {t('common.cancel')}
             </Button>
             <Button
+              className="rounded-xl"
               onClick={handleCreateBond}
               disabled={bondCreating || !bondName.trim() || bondSlaves.length === 0}
             >
@@ -954,10 +957,10 @@ export default function NetworkInterfaces() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setBondDeleteTarget(null)}>
+            <Button variant="outline" className="rounded-xl" onClick={() => setBondDeleteTarget(null)}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" onClick={handleDeleteBond} disabled={bondDeleting}>
+            <Button variant="destructive" className="rounded-xl" onClick={handleDeleteBond} disabled={bondDeleting}>
               {bondDeleting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {t('common.delete')}
             </Button>
@@ -984,10 +987,10 @@ export default function NetworkInterfaces() {
             </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setApplyDialogOpen(false)}>
+            <Button variant="outline" className="rounded-xl" onClick={() => setApplyDialogOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleApplyConfig} disabled={applying}>
+            <Button className="rounded-xl" onClick={handleApplyConfig} disabled={applying}>
               {applying && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {t('network.applyConfig')}
             </Button>

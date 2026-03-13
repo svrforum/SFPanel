@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/auth"
 )
 
 // logSourceInfo holds metadata about a known log source.
@@ -27,13 +29,13 @@ type logSourceInfo struct {
 // defaultLogSources defines the built-in log sources with their filesystem paths.
 // The sfpanel source path is set dynamically from config via SetSFPanelLogPath.
 var defaultLogSources = map[string]logSourceInfo{
-	"syslog":   {Name: "System Log", Path: "/var/log/syslog"},
-	"auth":     {Name: "Auth Log", Path: "/var/log/auth.log"},
-	"kern":     {Name: "Kernel Log", Path: "/var/log/kern.log"},
-	"sfpanel":  {Name: "SFPanel", Path: "/var/log/sfpanel/sfpanel.log"},
-	"dpkg":     {Name: "Package Manager", Path: "/var/log/dpkg.log"},
-	"firewall": {Name: "Firewall", Path: "/var/log/kern.log", Filter: "UFW|DOCKER-USER"},
-	"fail2ban": {Name: "Fail2ban", Path: "/var/log/fail2ban.log"},
+	"syslog":  {Name: "System Log", Path: "/var/log/syslog"},
+	"auth":    {Name: "Auth Log", Path: "/var/log/auth.log"},
+	"kern":    {Name: "Kernel Log", Path: "/var/log/kern.log"},
+	"sfpanel": {Name: "SFPanel", Path: "/var/log/sfpanel/sfpanel.log"},
+	"dpkg":    {Name: "Package Manager", Path: "/var/log/dpkg.log"},
+	"firewall":  {Name: "Firewall", Path: "/var/log/kern.log", Filter: "UFW|DOCKER-USER"},
+	"fail2ban":  {Name: "Fail2ban", Path: "/var/log/fail2ban.log"},
 }
 
 // SetSFPanelLogPath updates the sfpanel log source path from config.
@@ -68,6 +70,31 @@ type LogsHandler struct {
 
 // validSourceID matches alphanumeric, hyphens, and underscores only.
 var validSourceID = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// countFileLines returns the total number of lines in a log file.
+// When filter is non-empty, only matching lines are counted.
+func countFileLines(ctx context.Context, path string, filter string) int {
+	if filter != "" {
+		cmd := exec.CommandContext(ctx, "grep", "-c", "-E", filter, path)
+		out, err := cmd.Output()
+		if err != nil {
+			return 0
+		}
+		n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+		return n
+	}
+	cmd := exec.CommandContext(ctx, "wc", "-l", path)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) > 0 {
+		n, _ := strconv.Atoi(fields[0])
+		return n
+	}
+	return 0
+}
 
 // ListSources returns the list of known log sources along with their
 // availability and file size on disk. Custom sources from the database
@@ -210,25 +237,37 @@ func (h *LogsHandler) ReadLog(c echo.Context) error {
 		logLines = strings.Split(raw, "\n")
 	}
 
+	// Count total lines in the file (or filtered matches) so the UI can
+	// indicate how much of the log is being displayed.
+	totalLines := countFileLines(c.Request().Context(), info.Path, info.Filter)
+	if totalLines < len(logLines) {
+		totalLines = len(logLines)
+	}
+
 	return response.OK(c, LogOutput{
 		Source:     sourceKey,
 		Lines:      logLines,
-		TotalLines: len(logLines),
+		TotalLines: totalLines,
 	})
 }
 
 // LogStreamWS returns an echo.HandlerFunc that upgrades the connection to a
 // WebSocket and streams new log lines in real-time using tail -F.
-// Authentication is performed via Authorization header or WebSocket subprotocol.
+// Authentication is performed via a "token" query parameter containing a JWT.
 //
 // Query parameters:
 //   - source (required): one of the keys in logSources or a custom source
+//   - token  (required): valid JWT
 func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 	helper := &LogsHandler{DB: database}
 	return func(c echo.Context) error {
-		_, protocol, err := authenticateWebSocketRequest(c.Request(), jwtSecret)
-		if err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or missing token"})
+		// Validate JWT from query parameter.
+		token := c.QueryParam("token")
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+		}
+		if _, err := auth.ParseToken(token, jwtSecret); err != nil {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
 		}
 
 		// Validate the requested log source.
@@ -246,7 +285,7 @@ func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 		}
 
 		// Upgrade to WebSocket.
-		ws, err := upgradeAuthorizedWebSocket(c, protocol)
+		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
 		}

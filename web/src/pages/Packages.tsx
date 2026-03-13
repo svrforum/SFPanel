@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Package,
@@ -38,14 +38,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-import type { PackageUpdate as PackageInfo, DockerStatus } from '@/types/api'
-
-interface SearchResult {
-  name: string
-  description: string
-  version?: string
-  installed?: boolean
-}
+import type { PackageUpdate as PackageInfo, PackageSearchResult, DockerStatus } from '@/types/api'
 
 interface LoadingState {
   docker: boolean
@@ -81,7 +74,8 @@ export default function Packages() {
 
   // Search
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [searchResults, setSearchResults] = useState<PackageSearchResult[]>([])
+  const [hasSearched, setHasSearched] = useState(false)
 
   // Loading
   const [loading, setLoading] = useState<LoadingState>({
@@ -102,6 +96,9 @@ export default function Packages() {
     done: false,
   })
 
+  // Auto-scroll ref for output dialog
+  const outputRef = useRef<HTMLDivElement>(null)
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
@@ -118,12 +115,19 @@ export default function Packages() {
   }, [])
 
   const appendOutput = useCallback((text: string) => {
-    setOutputDialog((prev) => ({ ...prev, output: prev.output + text + '\n' }))
+    setOutputDialog((prev) => ({ ...prev, output: prev.output + text }))
   }, [])
 
   const finishOutput = useCallback(() => {
     setOutputDialog((prev) => ({ ...prev, done: true }))
   }, [])
+
+  // Auto-scroll output to bottom
+  useEffect(() => {
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight
+    }
+  }, [outputDialog.output])
 
   // ---------------------------------------------------------------------------
   // Docker
@@ -133,10 +137,9 @@ export default function Packages() {
     setLoadingKey('docker', true)
     try {
       const data = await api.getDockerStatus()
-      setDockerStatus(data as DockerStatus)
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('packages.dockerStatusFailed')
-      toast.error(message)
+      setDockerStatus(data)
+    } catch {
+      toast.error(t('packages.dockerStatusFailed'))
     } finally {
       setLoadingKey('docker', false)
     }
@@ -149,9 +152,7 @@ export default function Packages() {
       const token = api.getToken()
       const res = await fetch('/api/v1/packages/install-docker', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       })
 
       if (!res.ok || !res.body) {
@@ -187,7 +188,7 @@ export default function Packages() {
       await fetchDockerStatus()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('packages.dockerInstallFailed')
-      appendOutput('\n' + t('packages.error') + ': ' + message)
+      appendOutput('\n' + t('packages.error') + ': ' + message + '\n')
       finishOutput()
       toast.error(message)
     } finally {
@@ -202,11 +203,7 @@ export default function Packages() {
   const handleCheckUpdates = useCallback(async () => {
     setLoadingKey('updates', true)
     try {
-      const data = await api.checkUpdates() as {
-        updates: PackageInfo[]
-        total: number
-        last_checked: string
-      }
+      const data = await api.checkUpdates()
       setUpdates(data.updates || [])
       setLastChecked(data.last_checked || new Date().toISOString())
       setSelectedPackages(new Set())
@@ -215,9 +212,8 @@ export default function Packages() {
       } else {
         toast.info(t('packages.updatesFound', { count: data.updates.length }))
       }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('packages.checkUpdatesFailed')
-      toast.error(message)
+    } catch {
+      toast.error(t('packages.checkUpdatesFailed'))
     } finally {
       setLoadingKey('updates', false)
     }
@@ -232,19 +228,18 @@ export default function Packages() {
       openOutput(label)
       try {
         appendOutput(label + '...\n')
-        const result = await api.upgradePackages(packages) as { output?: string }
+        const result = (await api.upgradePackages(packages)) as { output?: string }
         if (result?.output) {
           appendOutput(result.output)
         }
-        appendOutput('\n' + t('packages.upgradeComplete'))
+        appendOutput('\n' + t('packages.upgradeComplete') + '\n')
         finishOutput()
         toast.success(t('packages.upgradeComplete'))
         setSelectedPackages(new Set())
-        // Refresh update list
         await handleCheckUpdates()
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : t('packages.upgradeFailed')
-        appendOutput('\n' + t('packages.error') + ': ' + message)
+        appendOutput('\n' + t('packages.error') + ': ' + message + '\n')
         finishOutput()
         toast.error(message)
       } finally {
@@ -261,19 +256,15 @@ export default function Packages() {
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) return
     setLoadingKey('search', true)
+    setHasSearched(true)
     try {
-      const data = await api.searchPackages(searchQuery.trim()) as {
-        packages: SearchResult[]
-        total: number
-        query: string
-      }
+      const data = await api.searchPackages(searchQuery.trim())
       setSearchResults(data.packages || [])
       if ((data.packages || []).length === 0) {
         toast.info(t('packages.noSearchResults'))
       }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('packages.searchFailed')
-      toast.error(message)
+    } catch {
+      toast.error(t('packages.searchFailed'))
     } finally {
       setLoadingKey('search', false)
     }
@@ -285,16 +276,20 @@ export default function Packages() {
       openOutput(t('packages.installingPackage', { name }))
       try {
         appendOutput(t('packages.installStarted', { name }) + '\n')
-        const result = await api.installPackage(name) as { output?: string }
+        const result = (await api.installPackage(name)) as { output?: string }
         if (result?.output) {
           appendOutput(result.output)
         }
-        appendOutput('\n' + t('packages.installSuccess', { name }))
+        appendOutput('\n' + t('packages.installSuccess', { name }) + '\n')
         finishOutput()
         toast.success(t('packages.installSuccess', { name }))
+        // Update search results to reflect installed status
+        setSearchResults((prev) =>
+          prev.map((pkg) => (pkg.name === name ? { ...pkg, installed: true } : pkg)),
+        )
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : t('packages.installFailed', { name })
-        appendOutput('\n' + t('packages.error') + ': ' + message)
+        appendOutput('\n' + t('packages.error') + ': ' + message + '\n')
         finishOutput()
         toast.error(message)
       } finally {
@@ -310,16 +305,20 @@ export default function Packages() {
       openOutput(t('packages.removingPackage', { name }))
       try {
         appendOutput(t('packages.removeStarted', { name }) + '\n')
-        const result = await api.removePackage(name) as { output?: string }
+        const result = (await api.removePackage(name)) as { output?: string }
         if (result?.output) {
           appendOutput(result.output)
         }
-        appendOutput('\n' + t('packages.removeSuccess', { name }))
+        appendOutput('\n' + t('packages.removeSuccess', { name }) + '\n')
         finishOutput()
         toast.success(t('packages.removeSuccess', { name }))
+        // Update search results to reflect removed status
+        setSearchResults((prev) =>
+          prev.map((pkg) => (pkg.name === name ? { ...pkg, installed: false } : pkg)),
+        )
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : t('packages.removeFailed', { name })
-        appendOutput('\n' + t('packages.error') + ': ' + message)
+        appendOutput('\n' + t('packages.error') + ': ' + message + '\n')
         finishOutput()
         toast.error(message)
       } finally {
@@ -363,18 +362,6 @@ export default function Packages() {
   }, [fetchDockerStatus])
 
   // ---------------------------------------------------------------------------
-  // Render helpers
-  // ---------------------------------------------------------------------------
-
-  function formatTimestamp(iso: string): string {
-    try {
-      return new Date(iso).toLocaleString()
-    } catch {
-      return iso
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // JSX
   // ---------------------------------------------------------------------------
 
@@ -392,94 +379,105 @@ export default function Packages() {
       <div className="bg-card rounded-2xl card-shadow">
         <div className="px-6 pt-5 pb-4">
           <h3 className="text-[15px] font-semibold flex items-center gap-2">
-            <Server className="h-4 w-4" />
+            <Server className="h-4 w-4" aria-hidden="true" />
             {t('packages.dockerStatus')}
           </h3>
-          <p className="text-[13px] text-muted-foreground mt-1">{t('packages.dockerDescription')}</p>
+          <p className="text-[13px] text-muted-foreground mt-1">
+            {t('packages.dockerDescription')}
+          </p>
         </div>
         <div className="px-6 pb-5">
           {loading.docker ? (
             <div className="flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {t('packages.checkingDocker')}
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              <span className="text-[13px]">{t('packages.checkingDocker')}</span>
             </div>
           ) : dockerStatus === null ? (
             <div className="flex items-center gap-2 text-muted-foreground">
-              <AlertCircle className="h-4 w-4" />
-              {t('packages.dockerStatusUnavailable')}
+              <AlertCircle className="h-4 w-4" aria-hidden="true" />
+              <span className="text-[13px]">{t('packages.dockerStatusUnavailable')}</span>
             </div>
           ) : !dockerStatus.installed ? (
-            /* Docker not installed */
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-destructive">
-                <X className="h-5 w-5" />
-                <span className="font-medium">{t('packages.dockerNotInstalled')}</span>
+                <X className="h-5 w-5" aria-hidden="true" />
+                <span className="text-[13px] font-medium">
+                  {t('packages.dockerNotInstalled')}
+                </span>
               </div>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-[13px] text-muted-foreground">
                 {t('packages.dockerNotInstalledHint')}
               </p>
               <Button
                 size="lg"
+                className="rounded-xl"
                 onClick={handleInstallDocker}
                 disabled={loading.dockerInstall}
               >
                 {loading.dockerInstall ? (
                   <>
-                    <Loader2 className="animate-spin" />
+                    <Loader2 className="animate-spin" aria-hidden="true" />
                     {t('packages.installingDocker')}
                   </>
                 ) : (
                   <>
-                    <Download />
+                    <Download aria-hidden="true" />
                     {t('packages.installDocker')}
                   </>
                 )}
               </Button>
             </div>
           ) : (
-            /* Docker installed */
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">{t('packages.dockerInstalled')}</p>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                  {t('packages.dockerInstalled')}
+                </p>
                 <div className="flex items-center gap-1.5">
-                  <CheckCircle2 className="h-4 w-4 text-green-500" />
-                  <span className="text-sm font-medium">{t('packages.yes')}</span>
+                  <CheckCircle2 className="h-4 w-4 text-[#00c471]" aria-hidden="true" />
+                  <span className="text-[13px] font-medium">{t('packages.yes')}</span>
                 </div>
               </div>
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">{t('packages.dockerVersion')}</p>
-                <p className="text-sm font-medium font-mono">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                  {t('packages.dockerVersion')}
+                </p>
+                <p className="text-[13px] font-medium font-mono">
                   {dockerStatus.version || t('packages.unknown')}
                 </p>
               </div>
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">{t('packages.dockerRunning')}</p>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                  {t('packages.dockerRunning')}
+                </p>
                 <div className="flex items-center gap-1.5">
                   {dockerStatus.running ? (
                     <>
-                      <div className="h-2 w-2 rounded-full bg-green-500" />
-                      <span className="text-sm font-medium">{t('packages.running')}</span>
+                      <div className="h-2 w-2 rounded-full bg-[#00c471]" />
+                      <span className="text-[13px] font-medium">{t('packages.running')}</span>
                     </>
                   ) : (
                     <>
-                      <div className="h-2 w-2 rounded-full bg-red-500" />
-                      <span className="text-sm font-medium">{t('packages.stopped')}</span>
+                      <div className="h-2 w-2 rounded-full bg-[#f04452]" />
+                      <span className="text-[13px] font-medium">{t('packages.stopped')}</span>
                     </>
                   )}
                 </div>
               </div>
               <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">{t('packages.dockerCompose')}</p>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                  {t('packages.dockerCompose')}
+                </p>
                 <div className="flex items-center gap-1.5">
                   {dockerStatus.compose_available ? (
                     <>
-                      <Check className="h-4 w-4 text-green-500" />
-                      <span className="text-sm font-medium">{t('packages.available')}</span>
+                      <Check className="h-4 w-4 text-[#00c471]" aria-hidden="true" />
+                      <span className="text-[13px] font-medium">{t('packages.available')}</span>
                     </>
                   ) : (
                     <>
-                      <X className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">{t('packages.notAvailable')}</span>
+                      <X className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                      <span className="text-[13px] font-medium">{t('packages.notAvailable')}</span>
                     </>
                   )}
                 </div>
@@ -495,12 +493,14 @@ export default function Packages() {
       <div className="bg-card rounded-2xl card-shadow">
         <div className="px-6 pt-5 pb-4">
           <h3 className="text-[15px] font-semibold flex items-center gap-2">
-            <RefreshCw className="h-4 w-4" />
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
             {t('packages.systemUpdates')}
           </h3>
           <p className="text-[13px] text-muted-foreground mt-1">
             {lastChecked
-              ? t('packages.lastChecked', { time: formatTimestamp(lastChecked) })
+              ? t('packages.lastChecked', {
+                  time: new Date(lastChecked).toLocaleString(),
+                })
               : t('packages.neverChecked')}
           </p>
         </div>
@@ -509,33 +509,35 @@ export default function Packages() {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
+              className="rounded-xl"
               onClick={handleCheckUpdates}
               disabled={loading.updates || loading.upgrade}
             >
               {loading.updates ? (
                 <>
-                  <Loader2 className="animate-spin" />
+                  <Loader2 className="animate-spin" aria-hidden="true" />
                   {t('packages.checking')}
                 </>
               ) : (
                 <>
-                  <RefreshCw />
+                  <RefreshCw aria-hidden="true" />
                   {t('packages.checkForUpdates')}
                 </>
               )}
             </Button>
             <Button
+              className="rounded-xl"
               onClick={() => handleUpgradePackages()}
               disabled={updates.length === 0 || loading.upgrade || loading.updates}
             >
               {loading.upgrade ? (
                 <>
-                  <Loader2 className="animate-spin" />
+                  <Loader2 className="animate-spin" aria-hidden="true" />
                   {t('packages.upgrading')}
                 </>
               ) : (
                 <>
-                  <Download />
+                  <Download aria-hidden="true" />
                   {t('packages.upgradeAll')}
                 </>
               )}
@@ -543,83 +545,93 @@ export default function Packages() {
             {selectedPackages.size > 0 && (
               <Button
                 variant="secondary"
+                className="rounded-xl"
                 onClick={() => handleUpgradePackages(Array.from(selectedPackages))}
                 disabled={loading.upgrade || loading.updates}
               >
-                <Download />
+                <Download aria-hidden="true" />
                 {t('packages.upgradeSelected', { count: selectedPackages.size })}
               </Button>
             )}
             {updates.length > 0 && (
-              <span className="text-sm text-muted-foreground ml-auto">
+              <span className="text-[13px] text-muted-foreground ml-auto">
                 {t('packages.updatesAvailable', { count: updates.length })}
               </span>
             )}
           </div>
 
           {/* Updates table */}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-gray-300"
-                    checked={updates.length > 0 && selectedPackages.size === updates.length}
-                    onChange={toggleSelectAll}
-                    disabled={updates.length === 0}
-                  />
-                </TableHead>
-                <TableHead>{t('packages.packageName')}</TableHead>
-                <TableHead>{t('packages.currentVersion')}</TableHead>
-                <TableHead>{t('packages.newVersion')}</TableHead>
-                <TableHead>{t('packages.architecture')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading.updates ? (
+          <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8">
-                    <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      {t('packages.checkingForUpdates')}
-                    </div>
-                  </TableCell>
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-300 accent-[#3182f6]"
+                      checked={updates.length > 0 && selectedPackages.size === updates.length}
+                      onChange={toggleSelectAll}
+                      disabled={updates.length === 0}
+                      aria-label={t('packages.selectAll')}
+                    />
+                  </TableHead>
+                  <TableHead>{t('packages.packageName')}</TableHead>
+                  <TableHead>{t('packages.currentVersion')}</TableHead>
+                  <TableHead>{t('packages.newVersion')}</TableHead>
+                  <TableHead>{t('packages.architecture')}</TableHead>
                 </TableRow>
-              ) : updates.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                    {t('packages.noUpdates')}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                updates.map((pkg) => (
-                  <TableRow key={pkg.name}>
-                    <TableCell>
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-gray-300"
-                        checked={selectedPackages.has(pkg.name)}
-                        onChange={() => togglePackageSelection(pkg.name)}
-                      />
-                    </TableCell>
-                    <TableCell className="font-medium font-mono text-sm">
-                      {pkg.name}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm font-mono">
-                      {pkg.current_version}
-                    </TableCell>
-                    <TableCell className="text-sm font-mono">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">{pkg.new_version}</span>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {pkg.arch}
+              </TableHeader>
+              <TableBody>
+                {loading.updates ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8">
+                      <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        <span className="text-[13px]">{t('packages.checkingForUpdates')}</span>
+                      </div>
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : updates.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={5}
+                      className="text-center text-[13px] text-muted-foreground py-8"
+                    >
+                      {t('packages.noUpdates')}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  updates.map((pkg) => (
+                    <TableRow key={pkg.name}>
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-gray-300 accent-[#3182f6]"
+                          checked={selectedPackages.has(pkg.name)}
+                          onChange={() => togglePackageSelection(pkg.name)}
+                          aria-label={pkg.name}
+                        />
+                      </TableCell>
+                      <TableCell className="font-medium font-mono text-[13px]">
+                        {pkg.name}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-[13px] font-mono">
+                        {pkg.current_version}
+                      </TableCell>
+                      <TableCell className="text-[13px] font-mono">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                          {pkg.new_version}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-[13px]">
+                        {pkg.arch}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       </div>
 
@@ -629,28 +641,38 @@ export default function Packages() {
       <div className="bg-card rounded-2xl card-shadow">
         <div className="px-6 pt-5 pb-4">
           <h3 className="text-[15px] font-semibold flex items-center gap-2">
-            <Package className="h-4 w-4" />
+            <Package className="h-4 w-4" aria-hidden="true" />
             {t('packages.searchAndInstall')}
           </h3>
-          <p className="text-[13px] text-muted-foreground mt-1">{t('packages.searchDescription')}</p>
+          <p className="text-[13px] text-muted-foreground mt-1">
+            {t('packages.searchDescription')}
+          </p>
         </div>
         <div className="px-6 pb-5 space-y-4">
           {/* Search bar */}
           <div className="flex items-center gap-2 max-w-xl">
-            <Input
-              placeholder={t('packages.searchPlaceholder')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSearch()
-              }}
-              disabled={loading.search}
-            />
-            <Button onClick={handleSearch} disabled={loading.search || !searchQuery.trim()}>
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <Input
+                className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+                placeholder={t('packages.searchPlaceholder')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !loading.search) handleSearch()
+                }}
+                disabled={loading.search}
+              />
+            </div>
+            <Button
+              className="rounded-xl"
+              onClick={handleSearch}
+              disabled={loading.search || !searchQuery.trim()}
+            >
               {loading.search ? (
-                <Loader2 className="animate-spin" />
+                <Loader2 className="animate-spin" aria-hidden="true" />
               ) : (
-                <Search />
+                <Search aria-hidden="true" />
               )}
               {t('packages.search')}
             </Button>
@@ -658,79 +680,85 @@ export default function Packages() {
 
           {/* Search results */}
           {searchResults.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('packages.packageName')}</TableHead>
-                  <TableHead>{t('packages.description')}</TableHead>
-                  <TableHead className="text-right">{t('packages.actions')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {searchResults.map((pkg) => (
-                  <TableRow key={pkg.name}>
-                    <TableCell className="font-medium font-mono text-sm">
-                      <div className="flex items-center gap-2">
-                        {pkg.name}
-                        {pkg.installed && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">{t('packages.installed')}</span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm max-w-md truncate">
-                      {pkg.description}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {!pkg.installed ? (
-                          <Button
-                            size="sm"
-                            onClick={() => handleInstallPackage(pkg.name)}
-                            disabled={loading.install === pkg.name}
-                          >
-                            {loading.install === pkg.name ? (
-                              <>
-                                <Loader2 className="animate-spin" />
-                                {t('packages.installing')}
-                              </>
-                            ) : (
-                              <>
-                                <Download />
-                                {t('packages.install')}
-                              </>
-                            )}
-                          </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => handleRemovePackage(pkg.name)}
-                            disabled={loading.remove === pkg.name}
-                          >
-                            {loading.remove === pkg.name ? (
-                              <>
-                                <Loader2 className="animate-spin" />
-                                {t('packages.removing')}
-                              </>
-                            ) : (
-                              <>
-                                <Trash2 />
-                                {t('packages.remove')}
-                              </>
-                            )}
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
+            <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('packages.packageName')}</TableHead>
+                    <TableHead>{t('packages.description')}</TableHead>
+                    <TableHead className="text-right">{t('packages.actions')}</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {searchResults.map((pkg) => (
+                    <TableRow key={pkg.name}>
+                      <TableCell className="font-medium font-mono text-[13px]">
+                        <div className="flex items-center gap-2">
+                          {pkg.name}
+                          {pkg.installed && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                              {t('packages.installed')}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-[13px] max-w-md truncate">
+                        {pkg.description}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {!pkg.installed ? (
+                            <Button
+                              size="sm"
+                              className="rounded-xl"
+                              onClick={() => handleInstallPackage(pkg.name)}
+                              disabled={loading.install === pkg.name}
+                            >
+                              {loading.install === pkg.name ? (
+                                <>
+                                  <Loader2 className="animate-spin" aria-hidden="true" />
+                                  {t('packages.installing')}
+                                </>
+                              ) : (
+                                <>
+                                  <Download aria-hidden="true" />
+                                  {t('packages.install')}
+                                </>
+                              )}
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              className="rounded-xl"
+                              onClick={() => handleRemovePackage(pkg.name)}
+                              disabled={loading.remove === pkg.name}
+                            >
+                              {loading.remove === pkg.name ? (
+                                <>
+                                  <Loader2 className="animate-spin" aria-hidden="true" />
+                                  {t('packages.removing')}
+                                </>
+                              ) : (
+                                <>
+                                  <Trash2 aria-hidden="true" />
+                                  {t('packages.remove')}
+                                </>
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
 
-          {/* Empty search state (only after a search has been performed) */}
-          {searchResults.length === 0 && !loading.search && searchQuery.trim() !== '' && (
-            <div className="text-center text-muted-foreground py-6">
+          {/* Empty search state */}
+          {searchResults.length === 0 && !loading.search && hasSearched && (
+            <div className="text-center text-[13px] text-muted-foreground py-6">
               {t('packages.noSearchResults')}
             </div>
           )}
@@ -751,8 +779,12 @@ export default function Packages() {
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {!outputDialog.done && <Loader2 className="h-4 w-4 animate-spin" />}
-              {outputDialog.done && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+              {!outputDialog.done && (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              )}
+              {outputDialog.done && (
+                <CheckCircle2 className="h-4 w-4 text-[#00c471]" aria-hidden="true" />
+              )}
               {outputDialog.title}
             </DialogTitle>
             <DialogDescription>
@@ -761,7 +793,10 @@ export default function Packages() {
                 : t('packages.operationRunning')}
             </DialogDescription>
           </DialogHeader>
-          <div className="bg-zinc-950 text-zinc-100 rounded-lg p-4 max-h-96 overflow-y-auto">
+          <div
+            ref={outputRef}
+            className="bg-zinc-950 text-zinc-100 rounded-xl p-4 max-h-96 overflow-y-auto"
+          >
             <pre className="text-xs font-mono whitespace-pre-wrap break-words">
               {outputDialog.output || t('packages.waitingForOutput')}
             </pre>
@@ -769,6 +804,7 @@ export default function Packages() {
           <DialogFooter>
             <Button
               variant="outline"
+              className="rounded-xl"
               onClick={() =>
                 setOutputDialog({ open: false, title: '', output: '', done: false })
               }

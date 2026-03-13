@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -113,16 +114,79 @@ type CreateBondRequest struct {
 	Primary string   `json:"primary"`
 }
 
-// ---------- Handlers ----------
+// ---------- Cache ----------
 
-// ListInterfaces returns all host network interfaces with statistics.
-func (h *NetworkHandler) ListInterfaces(c echo.Context) error {
-	ifaces, err := gatherInterfaces()
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list interfaces: %v", err))
+// networkStatusCache caches the combined network status to avoid spawning
+// multiple subprocesses (ip route, resolvectl, ethtool) on every request.
+var networkStatusCache struct {
+	sync.RWMutex
+	interfaces []NetworkInterface
+	routes     []Route
+	dns        DNSConfig
+	bonds      []NetworkInterface
+	updatedAt  time.Time
+}
+
+const networkCacheTTL = 3 * time.Second
+
+// cachedNetworkStatus returns cached network data, refreshing when stale.
+func cachedNetworkStatus() ([]NetworkInterface, []Route, DNSConfig, []NetworkInterface, error) {
+	networkStatusCache.RLock()
+	if time.Since(networkStatusCache.updatedAt) < networkCacheTTL && networkStatusCache.interfaces != nil {
+		ifaces := make([]NetworkInterface, len(networkStatusCache.interfaces))
+		copy(ifaces, networkStatusCache.interfaces)
+		routes := make([]Route, len(networkStatusCache.routes))
+		copy(routes, networkStatusCache.routes)
+		dns := networkStatusCache.dns
+		bonds := make([]NetworkInterface, len(networkStatusCache.bonds))
+		copy(bonds, networkStatusCache.bonds)
+		networkStatusCache.RUnlock()
+		return ifaces, routes, dns, bonds, nil
+	}
+	networkStatusCache.RUnlock()
+
+	networkStatusCache.Lock()
+	defer networkStatusCache.Unlock()
+
+	// Double-check after acquiring write lock
+	if time.Since(networkStatusCache.updatedAt) < networkCacheTTL && networkStatusCache.interfaces != nil {
+		ifaces := make([]NetworkInterface, len(networkStatusCache.interfaces))
+		copy(ifaces, networkStatusCache.interfaces)
+		routes := make([]Route, len(networkStatusCache.routes))
+		copy(routes, networkStatusCache.routes)
+		dns := networkStatusCache.dns
+		bonds := make([]NetworkInterface, len(networkStatusCache.bonds))
+		copy(bonds, networkStatusCache.bonds)
+		return ifaces, routes, dns, bonds, nil
 	}
 
-	// Sort: loopback last, then alphabetical
+	// Gather fresh data concurrently
+	var ifaces []NetworkInterface
+	var routeList []Route
+	var ifaceErr, routeErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		ifaces, ifaceErr = gatherInterfaces()
+	}()
+	go func() {
+		defer wg.Done()
+		routeList, routeErr = parseRoutes()
+	}()
+
+	dns := readDNSConfig()
+	wg.Wait()
+
+	if ifaceErr != nil {
+		return nil, nil, DNSConfig{}, nil, ifaceErr
+	}
+	if routeErr != nil {
+		return nil, nil, DNSConfig{}, nil, routeErr
+	}
+
+	// Sort interfaces: loopback last, then alphabetical
 	sort.Slice(ifaces, func(i, j int) bool {
 		if ifaces[i].Type == "loopback" && ifaces[j].Type != "loopback" {
 			return false
@@ -133,71 +197,60 @@ func (h *NetworkHandler) ListInterfaces(c echo.Context) error {
 		return ifaces[i].Name < ifaces[j].Name
 	})
 
+	// Extract bonds
+	var bonds []NetworkInterface
+	for _, iface := range ifaces {
+		if iface.Type == "bond" {
+			bonds = append(bonds, iface)
+		}
+	}
+
+	networkStatusCache.interfaces = ifaces
+	networkStatusCache.routes = routeList
+	networkStatusCache.dns = dns
+	networkStatusCache.bonds = bonds
+	networkStatusCache.updatedAt = time.Now()
+
+	// Return copies
+	ifacesCopy := make([]NetworkInterface, len(ifaces))
+	copy(ifacesCopy, ifaces)
+	routesCopy := make([]Route, len(routeList))
+	copy(routesCopy, routeList)
+	bondsCopy := make([]NetworkInterface, len(bonds))
+	copy(bondsCopy, bonds)
+	return ifacesCopy, routesCopy, dns, bondsCopy, nil
+}
+
+// invalidateNetworkCache forces the next request to re-fetch.
+func invalidateNetworkCache() {
+	networkStatusCache.Lock()
+	networkStatusCache.updatedAt = time.Time{}
+	networkStatusCache.Unlock()
+}
+
+// ---------- Handlers ----------
+
+// ListInterfaces returns all host network interfaces with statistics.
+func (h *NetworkHandler) ListInterfaces(c echo.Context) error {
+	ifaces, _, _, _, err := cachedNetworkStatus()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list interfaces: %v", err))
+	}
 	return response.OK(c, ifaces)
 }
 
 // GetNetworkStatus returns a combined snapshot of interfaces, routes, DNS and bonds
 // in a single API call to reduce frontend round-trips.
 func (h *NetworkHandler) GetNetworkStatus(c echo.Context) error {
-	type result struct {
-		interfaces []NetworkInterface
-		routes     []Route
-		dns        DNSConfig
-		ifaceErr   error
-		routeErr   error
-	}
-
-	var r result
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	// Gather interfaces (bonds are derived from interfaces)
-	go func() {
-		defer wg.Done()
-		r.interfaces, r.ifaceErr = gatherInterfaces()
-	}()
-
-	// Parse routes
-	go func() {
-		defer wg.Done()
-		r.routes, r.routeErr = parseRoutes()
-	}()
-
-	// DNS is fast (no subprocess most of the time), run inline
-	r.dns = readDNSConfig()
-
-	wg.Wait()
-
-	if r.ifaceErr != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list interfaces: %v", r.ifaceErr))
-	}
-	if r.routeErr != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to read routes: %v", r.routeErr))
-	}
-
-	// Sort interfaces: loopback last, then alphabetical
-	sort.Slice(r.interfaces, func(i, j int) bool {
-		if r.interfaces[i].Type == "loopback" && r.interfaces[j].Type != "loopback" {
-			return false
-		}
-		if r.interfaces[i].Type != "loopback" && r.interfaces[j].Type == "loopback" {
-			return true
-		}
-		return r.interfaces[i].Name < r.interfaces[j].Name
-	})
-
-	// Extract bonds from interfaces
-	bonds := []NetworkInterface{}
-	for _, iface := range r.interfaces {
-		if iface.Type == "bond" {
-			bonds = append(bonds, iface)
-		}
+	ifaces, routes, dns, bonds, err := cachedNetworkStatus()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to gather network status: %v", err))
 	}
 
 	return response.OK(c, map[string]interface{}{
-		"interfaces": r.interfaces,
-		"routes":     r.routes,
-		"dns":        r.dns,
+		"interfaces": ifaces,
+		"routes":     routes,
+		"dns":        dns,
 		"bonds":      bonds,
 	})
 }
@@ -209,7 +262,7 @@ func (h *NetworkHandler) GetInterface(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid interface name")
 	}
 
-	ifaces, err := gatherInterfaces()
+	ifaces, _, _, _, err := cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to get interfaces: %v", err))
 	}
@@ -250,6 +303,7 @@ func (h *NetworkHandler) ConfigureInterface(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("failed to update netplan config: %v", err))
 	}
 
+	invalidateNetworkCache()
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("interface %s configuration updated", name)})
 }
 
@@ -259,18 +313,47 @@ func (h *NetworkHandler) ApplyNetplan(c echo.Context) error {
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("netplan apply failed: %s", strings.TrimSpace(string(out))))
 	}
+	invalidateNetworkCache()
 	return response.OK(c, map[string]string{"message": "netplan applied successfully"})
 }
 
 // GetDNS returns the current system DNS configuration.
 func (h *NetworkHandler) GetDNS(c echo.Context) error {
-	cfg := readDNSConfig()
-	return response.OK(c, cfg)
+	_, _, dns, _, err := cachedNetworkStatus()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to read DNS: %v", err))
+	}
+	return response.OK(c, dns)
+}
+
+// ConfigureDNS updates DNS servers via netplan configuration.
+// PUT /network/dns  body: { servers: ["8.8.8.8", "1.1.1.1"] }
+func (h *NetworkHandler) ConfigureDNS(c echo.Context) error {
+	var req struct {
+		Servers []string `json:"servers"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+
+	// Validate each server is a valid IP
+	for _, s := range req.Servers {
+		if net.ParseIP(s) == nil {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, fmt.Sprintf("Invalid DNS server: %s", s))
+		}
+	}
+
+	if err := updateNetplanDNS(req.Servers); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("failed to update DNS: %v", err))
+	}
+
+	invalidateNetworkCache()
+	return response.OK(c, map[string]string{"message": "DNS configuration updated"})
 }
 
 // GetRoutes returns the kernel routing table.
 func (h *NetworkHandler) GetRoutes(c echo.Context) error {
-	routes, err := parseRoutes()
+	_, routes, _, _, err := cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to read routes: %v", err))
 	}
@@ -279,16 +362,9 @@ func (h *NetworkHandler) GetRoutes(c echo.Context) error {
 
 // ListBonds returns only bond interfaces.
 func (h *NetworkHandler) ListBonds(c echo.Context) error {
-	ifaces, err := gatherInterfaces()
+	_, _, _, bonds, err := cachedNetworkStatus()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list interfaces: %v", err))
-	}
-
-	bonds := []NetworkInterface{}
-	for _, iface := range ifaces {
-		if iface.Type == "bond" {
-			bonds = append(bonds, iface)
-		}
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list bonds: %v", err))
 	}
 	return response.OK(c, bonds)
 }
@@ -312,6 +388,7 @@ func (h *NetworkHandler) CreateBond(c echo.Context) error {
 	if err := createNetplanBond(&req); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("failed to create bond: %v", err))
 	}
+	invalidateNetworkCache()
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("bond %s created in netplan config", req.Name)})
 }
 
@@ -325,6 +402,7 @@ func (h *NetworkHandler) DeleteBond(c echo.Context) error {
 	if err := deleteNetplanBond(name); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("failed to delete bond: %v", err))
 	}
+	invalidateNetworkCache()
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("bond %s removed from netplan config", name)})
 }
 
@@ -948,6 +1026,7 @@ func updateNetplanInterface(name string, req *ConfigureInterfaceRequest) error {
 }
 
 // applyConfigToEthernet applies the request fields to a netplan ethernet block.
+// When DHCP is enabled, static fields (addresses, gateways, DNS) are cleared.
 func applyConfigToEthernet(eth *netplanEthernet, req *ConfigureInterfaceRequest) {
 	if req.DHCP4 != nil {
 		eth.DHCP4 = req.DHCP4
@@ -955,27 +1034,34 @@ func applyConfigToEthernet(eth *netplanEthernet, req *ConfigureInterfaceRequest)
 	if req.DHCP6 != nil {
 		eth.DHCP6 = req.DHCP6
 	}
-	if req.Addresses != nil {
-		eth.Addresses = req.Addresses
-	}
-	if req.Gateway4 != "" {
-		eth.Gateway4 = req.Gateway4
-	}
-	if req.Gateway6 != "" {
-		eth.Gateway6 = req.Gateway6
-	}
-	if req.DNS != nil {
-		if eth.Nameservers == nil {
-			eth.Nameservers = &netplanNameservers{}
+
+	// When switching to DHCP, clear static config to prevent conflicts
+	if req.DHCP4 != nil && *req.DHCP4 {
+		eth.Addresses = nil
+		eth.Gateway4 = ""
+		eth.Gateway6 = ""
+		eth.Nameservers = nil
+	} else {
+		if req.Addresses != nil {
+			eth.Addresses = req.Addresses
 		}
-		eth.Nameservers.Addresses = req.DNS
+		eth.Gateway4 = req.Gateway4
+		eth.Gateway6 = req.Gateway6
+		if req.DNS != nil {
+			if eth.Nameservers == nil {
+				eth.Nameservers = &netplanNameservers{}
+			}
+			eth.Nameservers.Addresses = req.DNS
+		}
 	}
+
 	if req.MTU != nil {
 		eth.MTU = req.MTU
 	}
 }
 
 // applyConfigToBond applies the request fields to a netplan bond block.
+// When DHCP is enabled, static fields are cleared.
 func applyConfigToBond(bond *netplanBond, req *ConfigureInterfaceRequest) {
 	if req.DHCP4 != nil {
 		bond.DHCP4 = req.DHCP4
@@ -983,21 +1069,26 @@ func applyConfigToBond(bond *netplanBond, req *ConfigureInterfaceRequest) {
 	if req.DHCP6 != nil {
 		bond.DHCP6 = req.DHCP6
 	}
-	if req.Addresses != nil {
-		bond.Addresses = req.Addresses
-	}
-	if req.Gateway4 != "" {
-		bond.Gateway4 = req.Gateway4
-	}
-	if req.Gateway6 != "" {
-		bond.Gateway6 = req.Gateway6
-	}
-	if req.DNS != nil {
-		if bond.Nameservers == nil {
-			bond.Nameservers = &netplanNameservers{}
+
+	if req.DHCP4 != nil && *req.DHCP4 {
+		bond.Addresses = nil
+		bond.Gateway4 = ""
+		bond.Gateway6 = ""
+		bond.Nameservers = nil
+	} else {
+		if req.Addresses != nil {
+			bond.Addresses = req.Addresses
 		}
-		bond.Nameservers.Addresses = req.DNS
+		bond.Gateway4 = req.Gateway4
+		bond.Gateway6 = req.Gateway6
+		if req.DNS != nil {
+			if bond.Nameservers == nil {
+				bond.Nameservers = &netplanNameservers{}
+			}
+			bond.Nameservers.Addresses = req.DNS
+		}
 	}
+
 	if req.MTU != nil {
 		bond.MTU = req.MTU
 	}
@@ -1081,6 +1172,40 @@ func deleteNetplanBond(name string) error {
 	return fmt.Errorf("bond %s not found in any netplan configuration file", name)
 }
 
+// updateNetplanDNS updates the DNS nameservers in the primary netplan file.
+// It sets nameservers on the default/first ethernet interface found.
+func updateNetplanDNS(servers []string) error {
+	files, err := findNetplanFiles()
+	if err != nil {
+		return fmt.Errorf("find netplan files: %w", err)
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("no netplan configuration files found in /etc/netplan/")
+	}
+
+	// Find the file with the default/primary interface to set DNS on
+	for _, f := range files {
+		np, loadErr := loadNetplanFile(f)
+		if loadErr != nil || np.Network == nil {
+			continue
+		}
+		if np.Network.Ethernets == nil || len(np.Network.Ethernets) == 0 {
+			continue
+		}
+
+		// Set DNS on the first ethernet interface found
+		for _, eth := range np.Network.Ethernets {
+			if eth.Nameservers == nil {
+				eth.Nameservers = &netplanNameservers{}
+			}
+			eth.Nameservers.Addresses = servers
+			return saveNetplanFile(f, np)
+		}
+	}
+
+	return fmt.Errorf("no ethernet interface found in netplan configuration to set DNS")
+}
+
 // ---------- Utility functions ----------
 
 // readSysFile reads a sysfs file and returns its trimmed content.
@@ -1108,8 +1233,6 @@ func fileExists(path string) bool {
 }
 
 // isValidInterfaceName checks that a network interface name is safe.
-var validIfaceName = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,14}$`)
-
 func isValidInterfaceName(name string) bool {
-	return validIfaceName.MatchString(name)
+	return validInterfaceName.MatchString(name)
 }

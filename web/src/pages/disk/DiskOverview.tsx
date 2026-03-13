@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { HardDrive, Activity, ThermometerSun, RefreshCw, ChevronRight, Info, AlertTriangle, Download, Terminal, CheckCircle2, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -23,19 +23,41 @@ import {
 
 import type { BlockDevice, SmartInfo, IOStat } from '@/types/api'
 
-type PhysicalDisk = BlockDevice
-
-function diskTypeBadge(type: string, rotational: boolean) {
+function diskTypeBadge(type_: string, rotational: boolean) {
   const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-  if (!rotational || type === 'ssd') {
+  if (!rotational || type_ === 'ssd') {
     return <span className={`${base} bg-[#3182f6]/10 text-[#3182f6]`}>SSD</span>
   }
   return <span className={`${base} bg-secondary text-muted-foreground`}>HDD</span>
 }
 
+function getSmartAttrStatus(value: number, worst: number, threshold: number): string {
+  if (threshold === 0) return 'ok'
+  if (value <= threshold || worst <= threshold) return 'fail'
+  const margin = (value - threshold) / threshold
+  if (margin < 0.1) return 'warn'
+  return 'ok'
+}
+
+function smartStatusStyle(status: string | undefined, value?: number, worst?: number, threshold?: number) {
+  const computed = status || (value !== undefined && worst !== undefined && threshold !== undefined
+    ? getSmartAttrStatus(value, worst, threshold)
+    : 'ok')
+  const base = 'inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium'
+  switch (computed) {
+    case 'ok':
+    case 'passed':
+      return { className: `${base} bg-[#00c471]/10 text-[#00c471]`, label: 'OK' }
+    case 'warn':
+      return { className: `${base} bg-[#f59e0b]/10 text-[#f59e0b]`, label: 'WARN' }
+    default:
+      return { className: `${base} bg-[#f04452]/10 text-[#f04452]`, label: 'FAIL' }
+  }
+}
+
 export default function DiskOverview() {
   const { t } = useTranslation()
-  const [disks, setDisks] = useState<PhysicalDisk[]>([])
+  const [disks, setDisks] = useState<BlockDevice[]>([])
   const [iostats, setIostats] = useState<IOStat[]>([])
   const [loading, setLoading] = useState(true)
   const [smartOpen, setSmartOpen] = useState(false)
@@ -49,6 +71,20 @@ export default function DiskOverview() {
   const [installModalOpen, setInstallModalOpen] = useState(false)
   const [installOutput, setInstallOutput] = useState('')
   const [installSuccess, setInstallSuccess] = useState<boolean | null>(null)
+
+  // O(1) IOStat lookup map
+  const iostatMap = useMemo(() => {
+    const map = new Map<string, IOStat>()
+    for (const stat of iostats) {
+      map.set(stat.device, stat)
+    }
+    return map
+  }, [iostats])
+
+  const getIOStatForDevice = useCallback((deviceName: string): IOStat | undefined => {
+    const name = deviceName.replace('/dev/', '')
+    return iostatMap.get(name) || iostatMap.get(deviceName)
+  }, [iostatMap])
 
   const fetchData = useCallback(async () => {
     try {
@@ -96,21 +132,17 @@ export default function DiskOverview() {
     setSmartDiskName(diskName)
     setSmartOpen(true)
     setSmartLoading(true)
+    setSmartInfo(null)
     try {
       const data = await api.getDiskSmart(diskName)
       setSmartInfo(data)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('disk.smart.fetchFailed')
       toast.error(message)
-      setSmartInfo(null)
+      setSmartOpen(false)
     } finally {
       setSmartLoading(false)
     }
-  }
-
-  const getIOStatForDevice = (deviceName: string): IOStat | undefined => {
-    const name = deviceName.replace('/dev/', '')
-    return iostats.find((s) => s.device === name || s.device === deviceName)
   }
 
   if (loading) {
@@ -125,8 +157,8 @@ export default function DiskOverview() {
     <div className="space-y-4 mt-4">
       {/* Smartmontools Install Banner */}
       {smartmontoolsInstalled === false && (
-        <div className="flex items-center gap-3 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-2xl px-5 py-3.5">
-          <AlertTriangle className="h-5 w-5 text-[#f59e0b] shrink-0" />
+        <div className="flex items-center gap-3 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-2xl px-5 py-3.5" role="alert">
+          <AlertTriangle className="h-5 w-5 text-[#f59e0b] shrink-0" aria-hidden="true" />
           <div className="flex-1">
             <p className="text-[13px] font-medium">{t('disk.overview.smartmontoolsNotInstalled')}</p>
             <p className="text-[12px] text-muted-foreground mt-0.5">{t('disk.overview.smartmontoolsHint')}</p>
@@ -164,17 +196,17 @@ export default function DiskOverview() {
           {disks.map((disk) => {
             const iostat = getIOStatForDevice(disk.name)
             return (
-              <div key={disk.name} className="bg-card rounded-2xl card-shadow overflow-hidden">
+              <div key={disk.name} className="bg-card rounded-2xl card-shadow overflow-hidden" role="region" aria-label={`${disk.name} ${formatBytes(disk.size)}`}>
                 {/* Disk Header */}
                 <div className="p-5 border-b border-border/50">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-xl bg-primary/10">
-                        <HardDrive className="h-5 w-5 text-primary" />
+                        <HardDrive className="h-5 w-5 text-primary" aria-hidden="true" />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-[15px]">{disk.name}</span>
+                          <h3 className="font-semibold text-[15px]">{disk.name}</h3>
                           {diskTypeBadge(disk.type, disk.rotational)}
                         </div>
                         <div className="text-[13px] text-muted-foreground mt-0.5">
@@ -212,16 +244,16 @@ export default function DiskOverview() {
                 {/* Partition Tree */}
                 {disk.children && disk.children.length > 0 && (
                   <div className="px-5 py-3">
-                    <div className="text-[12px] font-medium text-muted-foreground mb-2">
+                    <h4 className="text-[12px] font-medium text-muted-foreground mb-2">
                       {t('disk.overview.partitions')} ({disk.children.length})
-                    </div>
+                    </h4>
                     <div className="space-y-1">
                       {disk.children.map((child) => (
                         <div
                           key={child.name}
                           className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2 text-[13px]"
                         >
-                          <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                          <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden="true" />
                           <span className="font-mono font-medium w-28 shrink-0">{child.name}</span>
                           <span className="text-muted-foreground w-20 shrink-0">{formatBytes(child.size)}</span>
                           {child.fstype && (
@@ -243,11 +275,11 @@ export default function DiskOverview() {
                 {/* I/O Stats */}
                 {iostat && (
                   <div className="px-5 py-3 border-t border-border/50 bg-muted/20">
-                    <div className="text-[12px] font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
-                      <Activity className="h-3 w-3" />
+                    <h4 className="text-[12px] font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+                      <Activity className="h-3 w-3" aria-hidden="true" />
                       {t('disk.overview.ioStats')}
-                    </div>
-                    <div className="grid grid-cols-4 gap-4 text-[13px]">
+                    </h4>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-[13px]">
                       <div>
                         <div className="text-muted-foreground text-[11px]">{t('disk.overview.readOps')}</div>
                         <div className="font-medium">{iostat.read_ops.toLocaleString()}</div>
@@ -336,7 +368,7 @@ export default function DiskOverview() {
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-secondary/30 rounded-xl py-3 px-4 text-center">
                   <div className="flex items-center justify-center gap-1.5 mb-1">
-                    <Info className="h-3.5 w-3.5 text-primary" />
+                    <Info className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
                     <span className="text-[12px] text-muted-foreground">{t('disk.smart.health')}</span>
                   </div>
                   <span className={`text-lg font-bold ${
@@ -355,7 +387,7 @@ export default function DiskOverview() {
                 </div>
                 <div className="bg-secondary/30 rounded-xl py-3 px-4 text-center">
                   <div className="flex items-center justify-center gap-1.5 mb-1">
-                    <ThermometerSun className="h-3.5 w-3.5 text-[#f59e0b]" />
+                    <ThermometerSun className="h-3.5 w-3.5 text-[#f59e0b]" aria-hidden="true" />
                     <span className="text-[12px] text-muted-foreground">{t('disk.smart.temperature')}</span>
                   </div>
                   <span className={`text-lg font-bold ${smartData.temperature > 50 ? 'text-[#f04452]' : smartData.temperature > 40 ? 'text-[#f59e0b]' : ''}`}>
@@ -364,7 +396,7 @@ export default function DiskOverview() {
                 </div>
                 <div className="bg-secondary/30 rounded-xl py-3 px-4 text-center">
                   <div className="flex items-center justify-center gap-1.5 mb-1">
-                    <HardDrive className="h-3.5 w-3.5 text-[#8b5cf6]" />
+                    <HardDrive className="h-3.5 w-3.5 text-[#8b5cf6]" aria-hidden="true" />
                     <span className="text-[12px] text-muted-foreground">{t('disk.smart.powerOnHours')}</span>
                   </div>
                   <span className="text-lg font-bold">
@@ -376,8 +408,8 @@ export default function DiskOverview() {
               {/* SMART Attributes Table */}
               {smartData.attributes && smartData.attributes.length > 0 && (
                 <div>
-                  <h4 className="text-sm font-semibold mb-2">{t('disk.smart.attributes')}</h4>
-                  <div className="bg-card rounded-xl border overflow-hidden">
+                  <h4 className="text-[13px] font-semibold mb-2">{t('disk.smart.attributes')}</h4>
+                  <div className="bg-card rounded-2xl card-shadow overflow-hidden">
                     <Table>
                       <TableHeader>
                         <TableRow className="border-border/50">
@@ -391,27 +423,24 @@ export default function DiskOverview() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {smartData.attributes.map((attr) => (
-                          <TableRow key={attr.id}>
-                            <TableCell className="font-mono text-xs">{attr.id}</TableCell>
-                            <TableCell className="text-xs">{attr.name}</TableCell>
-                            <TableCell className="font-mono text-xs">{attr.value}</TableCell>
-                            <TableCell className="font-mono text-xs">{attr.worst}</TableCell>
-                            <TableCell className="font-mono text-xs">{attr.threshold}</TableCell>
-                            <TableCell className="font-mono text-xs">{attr.raw_value}</TableCell>
-                            <TableCell>
-                              <span className={`inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium ${
-                                attr.status === 'ok' || attr.status === 'passed'
-                                  ? 'bg-[#00c471]/10 text-[#00c471]'
-                                  : attr.status === 'warn'
-                                    ? 'bg-[#f59e0b]/10 text-[#f59e0b]'
-                                    : 'bg-[#f04452]/10 text-[#f04452]'
-                              }`}>
-                                {attr.status}
-                              </span>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {smartData.attributes.map((attr) => {
+                          const statusInfo = smartStatusStyle(attr.status, attr.value, attr.worst, attr.threshold)
+                          return (
+                            <TableRow key={attr.id}>
+                              <TableCell className="font-mono text-xs">{attr.id}</TableCell>
+                              <TableCell className="text-xs">{attr.name}</TableCell>
+                              <TableCell className="font-mono text-xs">{attr.value}</TableCell>
+                              <TableCell className="font-mono text-xs">{attr.worst}</TableCell>
+                              <TableCell className="font-mono text-xs">{attr.threshold}</TableCell>
+                              <TableCell className="font-mono text-xs">{attr.raw_value}</TableCell>
+                              <TableCell>
+                                <span className={statusInfo.className}>
+                                  {statusInfo.label}
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
                       </TableBody>
                     </Table>
                   </div>

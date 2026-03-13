@@ -200,6 +200,18 @@ const (
 	ErrEmptySettings = "EMPTY_SETTINGS"
 )
 
+// Tuning error codes
+const (
+	ErrTuningError = "TUNING_ERROR"
+)
+
+// App Store error codes
+const (
+	ErrAppStoreError       = "APPSTORE_ERROR"
+	ErrPortConflict        = "PORT_CONFLICT"
+	ErrContainerConflict   = "CONTAINER_CONFLICT"
+)
+
 // System update error codes
 const (
 	ErrUpdateCheckFailed = "UPDATE_CHECK_FAILED"

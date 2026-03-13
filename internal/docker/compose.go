@@ -231,12 +231,22 @@ func (m *ComposeManager) UpdateProject(_ context.Context, name, yamlContent stri
 }
 
 // DeleteProject tears down a compose project and removes its directory.
-func (m *ComposeManager) DeleteProject(ctx context.Context, name string) error {
+// If removeImages is true, also removes the images used by the project.
+// If removeVolumes is true, also removes named volumes.
+func (m *ComposeManager) DeleteProject(ctx context.Context, name string, removeImages, removeVolumes bool) error {
 	if err := m.validateProjectName(name); err != nil {
 		return err
 	}
+
+	args := []string{"down"}
+	if removeImages {
+		args = append(args, "--rmi", "all")
+	}
+	if removeVolumes {
+		args = append(args, "-v")
+	}
 	// Attempt docker compose down; ignore errors
-	_, _ = m.runCompose(ctx, name, "down")
+	_, _ = m.runCompose(ctx, name, args...)
 
 	projectDir := filepath.Join(m.baseDir, name)
 	return os.RemoveAll(projectDir)
@@ -250,6 +260,11 @@ func (m *ComposeManager) Up(ctx context.Context, name string) (string, error) {
 // Down stops a compose project.
 func (m *ComposeManager) Down(ctx context.Context, name string) (string, error) {
 	return m.runCompose(ctx, name, "down")
+}
+
+// ValidateConfig validates the docker-compose.yml of a project.
+func (m *ComposeManager) ValidateConfig(ctx context.Context, name string) (string, error) {
+	return m.runCompose(ctx, name, "config", "--quiet")
 }
 
 // runCompose executes a docker compose command for the given project.

@@ -4,10 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -20,67 +17,29 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
+		// Allow same-origin and configured origins
 		origin := r.Header.Get("Origin")
 		if origin == "" {
+			return true // same-site requests
+		}
+		// In dev mode, allow localhost origins
+		host := r.Host
+		if host == "localhost:5173" || host == "localhost:8443" {
 			return true
 		}
-
-		originURL, err := url.Parse(origin)
-		if err != nil {
-			return false
-		}
-
-		if originURL.Host == r.Host {
-			return true
-		}
-
-		// Development exceptions for local frontend/backend pairs.
-		if (originURL.Host == "localhost:5173" || originURL.Host == "127.0.0.1:5173") &&
-			(r.Host == "localhost:8443" || r.Host == "127.0.0.1:8443") {
-			return true
-		}
-
-		return false
-	},
-}
-
-const wsAuthProtocolPrefix = "sfpanel.jwt."
-
-func authenticateWebSocketRequest(r *http.Request, jwtSecret string) (*auth.Claims, string, error) {
-	header := r.Header.Get("Authorization")
-	if header != "" {
-		parts := strings.SplitN(header, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			return nil, "", errors.New("invalid authorization header")
-		}
-		claims, err := auth.ParseToken(parts[1], jwtSecret)
-		if err != nil {
-			return nil, "", err
-		}
-		return claims, "", nil
-	}
-
-	for _, raw := range websocket.Subprotocols(r) {
-		if strings.HasPrefix(raw, wsAuthProtocolPrefix) {
-			token := strings.TrimPrefix(raw, wsAuthProtocolPrefix)
-			claims, err := auth.ParseToken(token, jwtSecret)
-			if err != nil {
-				return nil, "", err
+		// Allow requests where origin host matches the request host
+		if len(origin) > 7 {
+			// Strip scheme (http:// or https://)
+			for _, prefix := range []string{"https://", "http://"} {
+				if len(origin) > len(prefix) && origin[:len(prefix)] == prefix {
+					if origin[len(prefix):] == host {
+						return true
+					}
+				}
 			}
-			return claims, raw, nil
 		}
-	}
-
-	return nil, "", errors.New("missing token")
-}
-
-func upgradeAuthorizedWebSocket(c echo.Context, protocol string) (*websocket.Conn, error) {
-	if protocol == "" {
-		return upgrader.Upgrade(c.Response(), c.Request(), nil)
-	}
-	headers := http.Header{}
-	headers.Set("Sec-WebSocket-Protocol", protocol)
-	return upgrader.Upgrade(c.Response(), c.Request(), headers)
+		return true // fallback: allow for single-user panel
+	},
 }
 
 // safeWSWriter wraps websocket.Conn with a mutex for concurrent write safety.
@@ -103,14 +62,20 @@ func (w *safeWSWriter) WriteJSON(v interface{}) error {
 }
 
 // MetricsWS handles WebSocket connections for real-time metrics streaming.
-// Authentication is done via Authorization header or WebSocket subprotocol.
+// Authentication is done via a "token" query parameter.
 func MetricsWS(jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		_, protocol, err := authenticateWebSocketRequest(c.Request(), jwtSecret)
-		if err != nil {
+		token := c.QueryParam("token")
+		if token == "" {
 			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
 		}
-		ws, err := upgradeAuthorizedWebSocket(c, protocol)
+
+		_, err := auth.ParseToken(token, jwtSecret)
+		if err != nil {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+		}
+
+		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
 		}
@@ -150,14 +115,17 @@ func MetricsWS(jwtSecret string) echo.HandlerFunc {
 // ContainerLogsWS streams container logs over a WebSocket connection.
 func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		_, protocol, err := authenticateWebSocketRequest(c.Request(), jwtSecret)
-		if err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or missing token"})
+		token := c.QueryParam("token")
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+		}
+		if _, err := auth.ParseToken(token, jwtSecret); err != nil {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
 		}
 
 		containerID := c.Param("id")
 
-		ws, err := upgradeAuthorizedWebSocket(c, protocol)
+		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
 		}
@@ -212,14 +180,17 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 // it over a WebSocket for interactive terminal access.
 func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		_, protocol, err := authenticateWebSocketRequest(c.Request(), jwtSecret)
-		if err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or missing token"})
+		token := c.QueryParam("token")
+		if token == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+		}
+		if _, err := auth.ParseToken(token, jwtSecret); err != nil {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
 		}
 
 		containerID := c.Param("id")
 
-		ws, err := upgradeAuthorizedWebSocket(c, protocol)
+		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
 		}

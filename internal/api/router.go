@@ -56,7 +56,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 
 	// Initialize Compose manager — scans /opt/stacks for compose projects
 	composeManager := docker.NewComposeManager("/opt/stacks", dockerClient)
-	composeHandler := &handlers.ComposeHandler{Compose: composeManager}
+	composeHandler := &handlers.ComposeHandler{Compose: composeManager, DB: database}
 
 	v1 := e.Group("/api/v1")
 
@@ -86,6 +86,23 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.GET("/system/overview", dashboardHandler.GetOverview)
 
 	// System management (update, backup, restore)
+	// System tuning
+	tuningHandler := &handlers.TuningHandler{}
+	authorized.GET("/system/tuning", tuningHandler.GetTuningStatus)
+	authorized.POST("/system/tuning/apply", tuningHandler.ApplyTuning)
+	authorized.POST("/system/tuning/confirm", tuningHandler.ConfirmTuning)
+	authorized.POST("/system/tuning/reset", tuningHandler.ResetTuning)
+
+	// App Store
+	appStoreHandler := &handlers.AppStoreHandler{DB: database, ComposePath: "/opt/stacks"}
+	appStore := authorized.Group("/appstore")
+	appStore.GET("/categories", appStoreHandler.GetCategories)
+	appStore.GET("/apps", appStoreHandler.ListApps)
+	appStore.GET("/apps/:id", appStoreHandler.GetApp)
+	appStore.POST("/apps/:id/install", appStoreHandler.InstallApp)
+	appStore.GET("/installed", appStoreHandler.GetInstalled)
+	appStore.POST("/refresh", appStoreHandler.RefreshCache)
+
 	authorized.GET("/system/update-check", systemHandler.CheckUpdate)
 	authorized.POST("/system/update", systemHandler.RunUpdate)
 	authorized.POST("/system/backup", systemHandler.CreateBackup)
@@ -150,6 +167,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	net.PUT("/interfaces/:name", networkHandler.ConfigureInterface)
 	net.POST("/apply", networkHandler.ApplyNetplan)
 	net.GET("/dns", networkHandler.GetDNS)
+	net.PUT("/dns", networkHandler.ConfigureDNS)
 	net.GET("/routes", networkHandler.GetRoutes)
 	net.GET("/bonds", networkHandler.ListBonds)
 	net.POST("/bonds", networkHandler.CreateBond)
@@ -278,19 +296,22 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	if dockerHandler != nil {
 		dk := authorized.Group("/docker")
 
-		// Containers
+		// Containers (static routes before :id to avoid shadowing)
 		dk.GET("/containers", dockerHandler.ListContainers)
+		dk.GET("/containers/stats/batch", dockerHandler.ContainerStatsBatch)
 		dk.GET("/containers/:id/inspect", dockerHandler.InspectContainer)
 		dk.GET("/containers/:id/stats", dockerHandler.ContainerStats)
 		dk.POST("/containers/:id/start", dockerHandler.StartContainer)
 		dk.POST("/containers/:id/stop", dockerHandler.StopContainer)
 		dk.POST("/containers/:id/restart", dockerHandler.RestartContainer)
-		dk.GET("/containers/stats/batch", dockerHandler.ContainerStatsBatch)
+		dk.POST("/containers/:id/pause", dockerHandler.PauseContainer)
+		dk.POST("/containers/:id/unpause", dockerHandler.UnpauseContainer)
 		dk.DELETE("/containers/:id", dockerHandler.RemoveContainer)
 
 		// Images
 		dk.GET("/images", dockerHandler.ListImages)
 		dk.POST("/images/pull", dockerHandler.PullImage)
+		dk.GET("/images/updates", dockerHandler.CheckImageUpdates)
 		dk.DELETE("/images/:id", dockerHandler.RemoveImage)
 
 		// Volumes
@@ -302,9 +323,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		dk.GET("/networks", dockerHandler.ListNetworks)
 		dk.POST("/networks", dockerHandler.CreateNetwork)
 		dk.DELETE("/networks/:id", dockerHandler.RemoveNetwork)
-
-		// Container creation
-		dk.POST("/containers", dockerHandler.CreateContainer)
+		dk.GET("/networks/:id/inspect", dockerHandler.InspectNetwork)
 
 		// Prune
 		dk.POST("/prune/containers", dockerHandler.PruneContainers)
@@ -332,6 +351,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		compose.POST("/:project/services/:service/stop", composeHandler.StopService)
 		compose.POST("/:project/services/:service/start", composeHandler.StartService)
 		compose.GET("/:project/services/:service/logs", composeHandler.ServiceLogs)
+		compose.POST("/:project/validate", composeHandler.ValidateProject)
 
 		// Docker WebSocket routes (auth via query param token)
 		e.GET("/ws/docker/containers/:id/logs", handlers.ContainerLogsWS(dockerClient, cfg.Auth.JWTSecret))

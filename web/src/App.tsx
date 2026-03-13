@@ -12,7 +12,6 @@ const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const Docker = lazy(() => import('@/pages/Docker'))
 const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 const DockerContainers = lazy(() => import('@/pages/docker/DockerContainers'))
-const DockerContainerCreate = lazy(() => import('@/pages/docker/DockerContainerCreate'))
 const DockerImages = lazy(() => import('@/pages/docker/DockerImages'))
 const DockerVolumes = lazy(() => import('@/pages/docker/DockerVolumes'))
 const DockerNetworks = lazy(() => import('@/pages/docker/DockerNetworks'))
@@ -38,6 +37,7 @@ const FirewallPorts = lazy(() => import('@/pages/firewall/FirewallPorts'))
 const FirewallFail2ban = lazy(() => import('@/pages/firewall/FirewallFail2ban'))
 const FirewallDocker = lazy(() => import('@/pages/firewall/FirewallDocker'))
 const FirewallLogs = lazy(() => import('@/pages/firewall/FirewallLogs'))
+const AppStore = lazy(() => import('@/pages/AppStore'))
 const Packages = lazy(() => import('@/pages/Packages'))
 const Settings = lazy(() => import('@/pages/Settings'))
 const Terminal = lazy(() => import('@/pages/Terminal'))
@@ -118,11 +118,11 @@ export default function App() {
                 <Route path="stacks" element={<DockerStacks />} />
                 <Route path="stacks/:name" element={<DockerStacks />} />
                 <Route path="containers" element={<DockerContainers />} />
-                <Route path="containers/create" element={<DockerContainerCreate />} />
                 <Route path="images" element={<DockerImages />} />
                 <Route path="volumes" element={<DockerVolumes />} />
                 <Route path="networks" element={<DockerNetworks />} />
               </Route>
+              <Route path="appstore" element={<AppStore />} />
               <Route path="files" element={<Files />} />
               <Route path="cron" element={<CronJobs />} />
               <Route path="logs" element={<Logs />} />

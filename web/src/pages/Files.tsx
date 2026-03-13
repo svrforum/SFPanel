@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Folder,
@@ -99,8 +99,9 @@ function getLanguageFromFilename(filename: string): string {
 }
 
 function joinPath(...parts: string[]): string {
-  const joined = parts.join('/').replace(/\/+/g, '/')
-  return joined || '/'
+  const [first, ...rest] = parts
+  const joined = [first.replace(/\/+$/, ''), ...rest.map(p => p.replace(/^\/+/, ''))].join('/')
+  return joined.replace(/\/+/g, '/') || '/'
 }
 
 export default function Files() {
@@ -111,6 +112,8 @@ export default function Files() {
   const [currentPath, setCurrentPath] = useState('/')
   const [files, setFiles] = useState<FileEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const currentPathRef = useRef(currentPath)
+  useEffect(() => { currentPathRef.current = currentPath }, [currentPath])
 
   // Edit dialog state
   const [editOpen, setEditOpen] = useState(false)
@@ -189,7 +192,11 @@ export default function Files() {
   }
 
   // Edit file
+  const editAbortRef = useRef<AbortController | null>(null)
   const handleEditFile = async (entry: FileEntry) => {
+    editAbortRef.current?.abort()
+    const controller = new AbortController()
+    editAbortRef.current = controller
     const filePath = joinPath(currentPath, entry.name)
     setEditFilePath(filePath)
     setEditFileName(entry.name)
@@ -198,13 +205,15 @@ export default function Files() {
     setEditLoading(true)
     try {
       const data = await api.readFile(filePath)
+      if (controller.signal.aborted) return
       setEditContent(data.content || '')
     } catch (err: unknown) {
+      if (controller.signal.aborted) return
       const message = err instanceof Error ? err.message : t('files.readFailed')
       toast.error(message)
       setEditOpen(false)
     } finally {
-      setEditLoading(false)
+      if (!controller.signal.aborted) setEditLoading(false)
     }
   }
 
@@ -245,13 +254,14 @@ export default function Files() {
   const handleCreateFile = async () => {
     if (!newFileName.trim()) return
     setNewFileCreating(true)
+    const pathAtStart = currentPathRef.current
     try {
-      const filePath = joinPath(currentPath, newFileName.trim())
+      const filePath = joinPath(pathAtStart, newFileName.trim())
       await api.writeFile(filePath, '')
       toast.success(t('files.fileCreated'))
       setNewFileOpen(false)
       setNewFileName('')
-      await fetchFiles()
+      if (currentPathRef.current === pathAtStart) await fetchFiles()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('files.fileCreateFailed')
       toast.error(message)
@@ -264,13 +274,14 @@ export default function Files() {
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return
     setNewFolderCreating(true)
+    const pathAtStart = currentPathRef.current
     try {
-      const dirPath = joinPath(currentPath, newFolderName.trim())
+      const dirPath = joinPath(pathAtStart, newFolderName.trim())
       await api.createDir(dirPath)
       toast.success(t('files.folderCreated'))
       setNewFolderOpen(false)
       setNewFolderName('')
-      await fetchFiles()
+      if (currentPathRef.current === pathAtStart) await fetchFiles()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('files.folderCreateFailed')
       toast.error(message)
@@ -285,17 +296,20 @@ export default function Files() {
   }
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const selectedFiles = e.target.files
+    if (!selectedFiles || selectedFiles.length === 0) return
     setUploading(true)
-    setUploadProgress({ fileName: file.name, percent: 0 })
+    const pathAtStart = currentPathRef.current
     try {
-      await api.uploadFile(currentPath, file, (percent) => {
-        setUploadProgress({ fileName: file.name, percent })
-      })
+      for (const file of Array.from(selectedFiles)) {
+        setUploadProgress({ fileName: file.name, percent: 0 })
+        await api.uploadFile(pathAtStart, file, (percent) => {
+          setUploadProgress({ fileName: file.name, percent })
+        })
+        toast.success(t('files.uploadSuccess', { name: file.name }))
+      }
       setUploadProgress(null)
-      toast.success(t('files.uploadSuccess', { name: file.name }))
-      await fetchFiles()
+      if (currentPathRef.current === pathAtStart) await fetchFiles()
     } catch (err: unknown) {
       setUploadProgress(null)
       const message = err instanceof Error ? err.message : t('files.uploadFailed')
@@ -312,12 +326,13 @@ export default function Files() {
   const handleDelete = async () => {
     if (!deleteTarget) return
     setDeleteLoading(true)
+    const pathAtStart = currentPathRef.current
     try {
-      const targetPath = joinPath(currentPath, deleteTarget.name)
+      const targetPath = joinPath(pathAtStart, deleteTarget.name)
       await api.deletePath(targetPath)
       toast.success(t('files.deleteSuccess', { name: deleteTarget.name }))
       setDeleteTarget(null)
-      await fetchFiles()
+      if (currentPathRef.current === pathAtStart) await fetchFiles()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('files.deleteFailed')
       toast.error(message)
@@ -330,14 +345,15 @@ export default function Files() {
   const handleRename = async () => {
     if (!renameTarget || !renameNewName.trim()) return
     setRenameLoading(true)
+    const pathAtStart = currentPathRef.current
     try {
-      const oldPath = joinPath(currentPath, renameTarget.name)
-      const newPath = joinPath(currentPath, renameNewName.trim())
+      const oldPath = joinPath(pathAtStart, renameTarget.name)
+      const newPath = joinPath(pathAtStart, renameNewName.trim())
       await api.renamePath(oldPath, newPath)
       toast.success(t('files.renameSuccess'))
       setRenameTarget(null)
       setRenameNewName('')
-      await fetchFiles()
+      if (currentPathRef.current === pathAtStart) await fetchFiles()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('files.renameFailed')
       toast.error(message)
@@ -374,10 +390,11 @@ export default function Files() {
   }
 
   // Sort: directories first, then files, both alphabetical
-  const sortedFiles = [...files].sort((a, b) => {
-    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
-    return a.name.localeCompare(b.name)
-  })
+  const sortedFiles = useMemo(() =>
+    [...files].sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+      return a.name.localeCompare(b.name)
+    }), [files])
 
   return (
     <div className="space-y-4">
@@ -480,6 +497,7 @@ export default function Files() {
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             className="hidden"
             onChange={handleFileSelected}
           />
@@ -487,8 +505,6 @@ export default function Files() {
       </div>
 
       {/* File listing table */}
-      <ContextMenu>
-      <ContextMenuTrigger asChild>
       <div className="bg-card rounded-2xl card-shadow overflow-hidden">
       <Table>
         <TableHeader>
@@ -641,33 +657,38 @@ export default function Files() {
         </TableBody>
       </Table>
       </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem onClick={handleUploadClick}>
-          <Upload className="h-4 w-4" />
-          {t('files.upload')}
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => {
-          setNewFileName('')
-          setNewFileOpen(true)
-        }}>
-          <FilePlus2 className="h-4 w-4" />
-          {t('files.newFile')}
-        </ContextMenuItem>
-        <ContextMenuItem onClick={() => {
-          setNewFolderName('')
-          setNewFolderOpen(true)
-        }}>
-          <FolderPlus className="h-4 w-4" />
-          {t('files.newFolder')}
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={fetchFiles}>
-          <RefreshCw className="h-4 w-4" />
-          {t('common.refresh')}
-        </ContextMenuItem>
-      </ContextMenuContent>
+
+      {/* Background context menu (right-click on empty space below table) */}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="min-h-[40px]" />
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={handleUploadClick}>
+            <Upload className="h-4 w-4" />
+            {t('files.upload')}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => {
+            setNewFileName('')
+            setNewFileOpen(true)
+          }}>
+            <FilePlus2 className="h-4 w-4" />
+            {t('files.newFile')}
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => {
+            setNewFolderName('')
+            setNewFolderOpen(true)
+          }}>
+            <FolderPlus className="h-4 w-4" />
+            {t('files.newFolder')}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={fetchFiles}>
+            <RefreshCw className="h-4 w-4" />
+            {t('common.refresh')}
+          </ContextMenuItem>
+        </ContextMenuContent>
       </ContextMenu>
 
       {/* Edit file dialog */}

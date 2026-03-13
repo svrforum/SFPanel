@@ -50,6 +50,7 @@ type SmartAttr struct {
 	Worst     int    `json:"worst"`
 	Threshold int    `json:"threshold"`
 	RawValue  string `json:"raw_value"`
+	Status    string `json:"status"` // "ok", "warn", "fail"
 }
 
 // Filesystem represents a mounted filesystem from df output.

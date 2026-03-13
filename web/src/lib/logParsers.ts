@@ -495,12 +495,136 @@ const sfpanelColumns: ColumnDef<SFPanelLogEntry>[] = [
   },
 ]
 
+// --- fail2ban.log parser ---
+
+// Format with jail: "2026-03-09 21:19:54,123 fail2ban.filter [12345]: INFO [sshd] Found 192.168.1.100"
+// Format without jail: "2026-03-09 21:19:54,123 fail2ban.server [12345]: INFO Starting Fail2ban"
+const FAIL2BAN_RE = /^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}),\d+\s+fail2ban\.(\S+)\s+\[\d+\]:\s+(\S+)\s+\[(\S+)\]\s+(.*)/
+const FAIL2BAN_NOJAIL_RE = /^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}),\d+\s+fail2ban\.(\S+)\s+\[\d+\]:\s+(\S+)\s+(.*)/
+
+export type Fail2banAction = 'Found' | 'Ban' | 'Unban' | 'Restore' | 'Ignore' | 'other'
+
+export interface Fail2banLogEntry extends ParsedLogEntry {
+  module: string
+  level: string
+  jail: string
+  action: Fail2banAction
+  ip: string
+  message: string
+}
+
+function classifyFail2banAction(message: string): { action: Fail2banAction; ip: string } {
+  const ipMatch = message.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/)
+  const ip = ipMatch?.[1] ?? '-'
+
+  if (message.startsWith('Found')) return { action: 'Found', ip }
+  if (message.startsWith('Ban') || message.startsWith('Restore Ban')) return { action: 'Ban', ip }
+  if (message.startsWith('Unban')) return { action: 'Unban', ip }
+  if (message.startsWith('Restore')) return { action: 'Restore', ip }
+  if (message.startsWith('Ignore')) return { action: 'Ignore', ip }
+  return { action: 'other', ip }
+}
+
+function parseFail2banLine(line: string): Fail2banLogEntry | RawLogEntry {
+  // Try format with [jail] first
+  const m = FAIL2BAN_RE.exec(line)
+  if (m) {
+    const [, timestamp, module, level, jail, message] = m
+    const { action, ip } = classifyFail2banAction(message)
+    return {
+      parsed: true,
+      timestamp,
+      rawLine: line,
+      module,
+      level,
+      jail,
+      action,
+      ip,
+      message,
+    }
+  }
+
+  // Try format without [jail] (server, database, observer logs)
+  const m2 = FAIL2BAN_NOJAIL_RE.exec(line)
+  if (m2) {
+    const [, timestamp, module, level, message] = m2
+    return {
+      parsed: true,
+      timestamp,
+      rawLine: line,
+      module,
+      level,
+      jail: '-',
+      action: 'other',
+      ip: '-',
+      message,
+    }
+  }
+
+  return { parsed: false, rawLine: line }
+}
+
+const FAIL2BAN_ACTION_COLORS: Record<Fail2banAction, string> = {
+  Found: '#3182f6',
+  Ban: '#f04452',
+  Unban: '#00c471',
+  Restore: '#f59e0b',
+  Ignore: '#6b7280',
+  other: '#6b7280',
+}
+
+const FAIL2BAN_LEVEL_COLORS: Record<string, string> = {
+  WARNING: '#f59e0b',
+  NOTICE: '#3182f6',
+  INFO: '#6b7280',
+  ERROR: '#f04452',
+}
+
+const fail2banColumns: ColumnDef<Fail2banLogEntry>[] = [
+  {
+    key: 'timestamp',
+    i18nKey: 'logs.col.timestamp',
+    width: '140px',
+    render: (e) => ({ text: shortTimestamp(e.timestamp) }),
+  },
+  {
+    key: 'level',
+    i18nKey: 'logs.col.level',
+    width: '80px',
+    render: (e) => ({ text: e.level, color: FAIL2BAN_LEVEL_COLORS[e.level] ?? '#6b7280', pill: true }),
+  },
+  {
+    key: 'jail',
+    i18nKey: 'logs.col.jail',
+    width: '90px',
+    render: (e) => ({ text: e.jail }),
+  },
+  {
+    key: 'action',
+    i18nKey: 'logs.col.action',
+    width: '80px',
+    render: (e) => ({ text: e.action, color: FAIL2BAN_ACTION_COLORS[e.action], pill: true }),
+  },
+  {
+    key: 'ip',
+    i18nKey: 'logs.col.sourceIP',
+    width: '130px',
+    render: (e) => ({ text: e.ip }),
+  },
+  {
+    key: 'details',
+    i18nKey: 'logs.col.details',
+    render: (e) => ({ text: e.message }),
+  },
+]
+
 // --- Registry ---
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const LOG_PARSERS: Record<string, LogParser<any>> = {
   'auth': { parse: parseAuthLine, columns: authColumns },
   'firewall': { parse: parseFirewallLine, columns: firewallColumns },
+  'fail2ban': { parse: parseFail2banLine, columns: fail2banColumns },
   'sfpanel': { parse: parseSFPanelLine, columns: sfpanelColumns },
 }
 

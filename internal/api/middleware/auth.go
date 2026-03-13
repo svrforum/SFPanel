@@ -14,7 +14,12 @@ func JWTMiddleware(secret string) echo.MiddlewareFunc {
 		return func(c echo.Context) error {
 			header := c.Request().Header.Get("Authorization")
 			if header == "" {
-				return response.Fail(c, http.StatusUnauthorized, response.ErrMissingToken, "Authorization header is required")
+				// Fallback: accept token from query parameter (for file downloads via <a> tags)
+				if qToken := c.QueryParam("token"); qToken != "" {
+					header = "Bearer " + qToken
+				} else {
+					return response.Fail(c, http.StatusUnauthorized, response.ErrMissingToken, "Authorization header is required")
+				}
 			}
 
 			parts := strings.SplitN(header, " ", 2)

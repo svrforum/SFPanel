@@ -150,6 +150,22 @@ EOF
   log_info "Config created at ${CONFIG_DIR}/config.yaml"
 }
 
+setup_logrotate() {
+  cat > "/etc/logrotate.d/sfpanel" <<'EOF'
+/var/log/sfpanel/sfpanel.log {
+    daily
+    rotate 7
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    maxsize 10M
+}
+EOF
+  log_info "Logrotate config installed"
+}
+
 setup_systemd() {
   cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
@@ -265,6 +281,7 @@ main() {
   download_binary "$version" "$arch"
   setup_dirs
   generate_config
+  setup_logrotate
   setup_systemd
   print_success "$version" "$mode"
 }

@@ -35,6 +35,7 @@ export default function DockerVolumes() {
   const [deleteTarget, setDeleteTarget] = useState<DockerVolume | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [pruning, setPruning] = useState(false)
+  const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false)
 
   const fetchVolumes = useCallback(async () => {
     try {
@@ -93,15 +94,7 @@ export default function DockerVolumes() {
           {t('docker.volumes.count', { count: volumes.length })}
         </span>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={async () => {
-            setPruning(true)
-            try {
-              const r = await api.pruneVolumes()
-              toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
-              fetchVolumes()
-            } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Prune failed') }
-            finally { setPruning(false) }
-          }} disabled={pruning}>
+          <Button variant="outline" size="sm" onClick={() => setPruneConfirmOpen(true)} disabled={pruning}>
             <Sparkles className={pruning ? 'animate-spin' : ''} />
             {t('docker.sidebar.prune')}
           </Button>
@@ -201,6 +194,30 @@ export default function DockerVolumes() {
             </Button>
             <Button onClick={handleCreate} disabled={creating || !newName.trim()}>
               {creating ? t('common.creating') : t('common.create')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Prune confirmation dialog */}
+      <Dialog open={pruneConfirmOpen} onOpenChange={setPruneConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('docker.prune.title')}</DialogTitle>
+            <DialogDescription>{t('docker.prune.volumesConfirm')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPruneConfirmOpen(false)}>{t('common.cancel')}</Button>
+            <Button variant="destructive" disabled={pruning} onClick={async () => {
+              setPruning(true)
+              try {
+                const r = await api.pruneVolumes()
+                toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
+                fetchVolumes()
+              } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Prune failed') }
+              finally { setPruning(false); setPruneConfirmOpen(false) }
+            }}>
+              {pruning ? t('docker.prune.pruning') : t('docker.prune.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

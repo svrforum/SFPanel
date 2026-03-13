@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Clock,
   Plus,
   Pencil,
   Trash2,
   RefreshCw,
   Play,
   Pause,
+  Info,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -63,9 +65,9 @@ const SCHEDULE_KEYS: Record<string, string> = {
 export default function CronJobs() {
   const { t } = useTranslation()
 
-  const describeSchedule = (schedule: string): string => {
+  const describeSchedule = (schedule: string): string | null => {
     const key = SCHEDULE_KEYS[schedule]
-    return key ? t(key) : schedule
+    return key ? t(key) : null
   }
 
   const [jobs, setJobs] = useState<CronJob[]>([])
@@ -82,6 +84,7 @@ export default function CronJobs() {
 
   // Delete dialog state
   const [deleteTarget, setDeleteTarget] = useState<CronJob | null>(null)
+  const [showGuide, setShowGuide] = useState(false)
 
   const presets: SchedulePreset[] = [
     { label: t('cron.presetEveryMinute'), value: '* * * * *' },
@@ -189,19 +192,89 @@ export default function CronJobs() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <Clock className="h-5 w-5 text-muted-foreground" />
-        <h1 className="text-[22px] font-bold tracking-tight">{t('cron.title')}</h1>
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-primary/10 text-primary">{jobCount}</span>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-[22px] font-bold tracking-tight">{t('cron.title')}</h1>
+          <p className="text-[13px] text-muted-foreground mt-1">{t('cron.subtitle')}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={fetchJobs} disabled={loading}>
+            <RefreshCw className={loading ? 'animate-spin' : ''} />
+            {t('common.refresh')}
+          </Button>
+          <Button size="sm" className="rounded-xl" onClick={openCreateDialog}>
+            <Plus />
+            {t('cron.newJob')}
+          </Button>
+        </div>
       </div>
 
+      {/* Guide */}
+      <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+        <button
+          onClick={() => setShowGuide(!showGuide)}
+          className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
+        >
+          <Info className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-[13px] font-medium flex-1">{t('cron.guideTitle')}</span>
+          {showGuide ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
+        {showGuide && (
+          <div className="px-4 pb-4 space-y-3 animate-in slide-in-from-top-1 duration-200">
+            <div className="h-px bg-border" />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {[
+                { num: '1', title: t('cron.guideTitle'), desc: t('cron.guideWhat') },
+                { num: '2', title: 'root', desc: t('cron.guideWho') },
+                { num: '3', title: t('cron.guideSchedule'), desc: t('cron.guideHow') },
+              ].map((step) => (
+                <div key={step.num} className="flex gap-3">
+                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/10 text-primary text-[11px] font-bold shrink-0 mt-0.5">
+                    {step.num}
+                  </span>
+                  <div>
+                    <p className="text-[12px] font-semibold">{step.title}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{step.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-lg bg-secondary/30 px-3 py-2.5 space-y-1.5">
+              <p className="text-[11px] font-semibold text-foreground">{t('cron.guideSchedule')}: <code className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">{t('cron.guideScheduleDesc')}</code></p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <span className="text-[11px] text-muted-foreground">
+                  <code className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">0 3 * * *</code> — {t('cron.guideExampleDaily')}
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  <code className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">0 0 * * 1</code> — {t('cron.guideExampleWeekly')}
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
+              <span className="text-[11px] text-muted-foreground">
+                <span className="font-medium text-foreground">{t('cron.guideFile')}</span> /var/spool/cron/crontabs/root
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                <span className="font-medium text-foreground">{t('cron.guideLog')}</span> /var/log/syslog
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Filter bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <p className="text-sm text-muted-foreground">
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
             {t('cron.count', { count: jobCount })}
-          </p>
-          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+          </span>
+          <label className="flex items-center gap-2 text-[13px] text-muted-foreground cursor-pointer">
             <input
               type="checkbox"
               checked={showAllTypes}
@@ -211,25 +284,10 @@ export default function CronJobs() {
             {t('cron.showAll')}
           </label>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={fetchJobs} disabled={loading}>
-            <RefreshCw className={loading ? 'animate-spin' : ''} />
-            {t('common.refresh')}
-          </Button>
-          <Button size="sm" onClick={openCreateDialog}>
-            <Plus />
-            {t('cron.newJob')}
-          </Button>
-        </div>
       </div>
 
       <div className="bg-card rounded-2xl card-shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-border/50">
-          <h3 className="text-[15px] font-semibold">{t('cron.tableTitle')}</h3>
-          <p className="text-[13px] text-muted-foreground mt-0.5">{t('cron.tableDescription')}</p>
-        </div>
-        <div className="p-0">
-          <Table>
+        <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[80px]">{t('common.status')}</TableHead>
@@ -277,9 +335,11 @@ export default function CronJobs() {
                         <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">
                           {job.schedule}
                         </code>
-                        <p className="text-xs text-muted-foreground">
-                          {describeSchedule(job.schedule)}
-                        </p>
+                        {describeSchedule(job.schedule) && (
+                          <p className="text-xs text-muted-foreground">
+                            {describeSchedule(job.schedule)}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <span className="text-muted-foreground text-xs">--</span>
@@ -335,7 +395,6 @@ export default function CronJobs() {
               ))}
             </TableBody>
           </Table>
-        </div>
       </div>
 
       {/* Create/Edit dialog */}
@@ -393,7 +452,7 @@ export default function CronJobs() {
               />
             </div>
 
-            {formSchedule && (
+            {formSchedule && describeSchedule(formSchedule) && (
               <div className="rounded-md bg-muted px-3 py-2 text-sm">
                 <span className="text-muted-foreground">{t('cron.preview')}: </span>
                 <span className="font-medium">{describeSchedule(formSchedule)}</span>
