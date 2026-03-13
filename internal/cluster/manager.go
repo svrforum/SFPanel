@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -234,7 +235,10 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		return nil, nil, nil, nil, fmt.Errorf("register node: %w", applyErr)
 	}
 
-	raftAddr := fmt.Sprintf("%s:%d", host, m.config.GRPCPort+1)
+	// Derive Raft port from joining node's gRPC port (+1), not leader's config
+	_, grpcPortStr, _ := net.SplitHostPort(grpcAddr)
+	grpcPort, _ := strconv.Atoi(grpcPortStr)
+	raftAddr := fmt.Sprintf("%s:%d", host, grpcPort+1)
 	if addErr := m.raft.AddVoter(nodeID, raftAddr); addErr != nil {
 		// Rollback: remove node from FSM and restore token
 		m.raft.Apply(Command{Type: CmdRemoveNode, Key: nodeID}, 5*time.Second)

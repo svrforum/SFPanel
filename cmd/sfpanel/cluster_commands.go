@@ -45,7 +45,7 @@ func clusterCommand(args []string) {
 }
 
 func clusterInit(args []string) {
-	cfgPath := "config.yaml"
+	cfgPath := "/etc/sfpanel/config.yaml"
 	clusterName := "sfpanel"
 
 	for i := 0; i < len(args); i++ {
@@ -102,7 +102,7 @@ func clusterJoin(args []string) {
 	leaderAddr := args[0]
 	token := args[1]
 
-	cfgPath := "config.yaml"
+	cfgPath := "/etc/sfpanel/config.yaml"
 	for i := 2; i < len(args); i++ {
 		if args[i] == "--config" && i+1 < len(args) {
 			cfgPath = args[i+1]
@@ -184,7 +184,7 @@ func clusterJoin(args []string) {
 }
 
 func clusterLeave() {
-	cfgPath := "config.yaml"
+	cfgPath := "/etc/sfpanel/config.yaml"
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -205,7 +205,7 @@ func clusterLeave() {
 }
 
 func clusterStatus() {
-	cfgPath := "config.yaml"
+	cfgPath := "/etc/sfpanel/config.yaml"
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -236,7 +236,7 @@ func clusterToken(args []string) {
 		}
 	}
 
-	cfgPath := "config.yaml"
+	cfgPath := "/etc/sfpanel/config.yaml"
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -279,7 +279,7 @@ func clusterRemove(args []string) {
 	}
 	nodeID := args[0]
 
-	cfgPath := "config.yaml"
+	cfgPath := "/etc/sfpanel/config.yaml"
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
