@@ -16,6 +16,7 @@ type Config struct {
 	Auth     AuthConfig     `yaml:"auth"`
 	Docker   DockerConfig   `yaml:"docker"`
 	Log      LogConfig      `yaml:"log"`
+	Cluster  ClusterConfig  `yaml:"cluster"`
 }
 
 type ServerConfig struct {
@@ -41,6 +42,17 @@ type LogConfig struct {
 	File  string `yaml:"file"`
 }
 
+type ClusterConfig struct {
+	Enabled          bool   `yaml:"enabled"`
+	Name             string `yaml:"name"`
+	NodeID           string `yaml:"node_id"`
+	NodeName         string `yaml:"node_name"`
+	GRPCPort         int    `yaml:"grpc_port"`
+	DataDir          string `yaml:"data_dir"`
+	CertDir          string `yaml:"cert_dir"`
+	AdvertiseAddress string `yaml:"advertise_address"`
+}
+
 func Load(path string) (*Config, error) {
 	cfg := &Config{
 		Server:   ServerConfig{Host: "0.0.0.0", Port: 8443},
@@ -48,6 +60,11 @@ func Load(path string) (*Config, error) {
 		Auth:     AuthConfig{TokenExpiry: "24h"},
 		Docker:   DockerConfig{Socket: "unix:///var/run/docker.sock"},
 		Log:      LogConfig{Level: "info"},
+		Cluster: ClusterConfig{
+			GRPCPort: 9443,
+			DataDir:  "/var/lib/sfpanel/cluster",
+			CertDir:  "/etc/sfpanel/cluster",
+		},
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

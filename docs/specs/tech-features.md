@@ -253,6 +253,21 @@
   - 8개 앱 제공: Uptime Kuma, Vaultwarden, Immich, Jellyfin, Nextcloud, Gitea, Portainer, Nginx Proxy Manager
 - **관련 기술**: GitHub Raw API, Docker Compose, crypto/rand, net/http, sync.Mutex (캐시)
 
+### 15. 클러스터 관리 (Phase 1: Core)
+
+- **설명**: Proxmox 스타일 대칭 클러스터. 2~32대 노드를 하나의 클러스터로 통합 관리
+- **주요 기능**:
+  - **Raft 합의 엔진**: `hashicorp/raft` + BoltDB 스토어 (임베디드, 외부 의존 없음)
+  - **gRPC + mTLS**: 노드 간 제어 채널 (포트 9443), TLS 1.3 상호 인증
+  - **인증서 자동 관리**: ECDSA P-256 자체 CA, 노드 인증서 자동 발급
+  - **참가 토큰**: HMAC-SHA256 서명, 1회용, 시간제한 (기본 24시간)
+  - **하트비트 모니터링**: 2초 간격, 3단계 상태 판정 (online → suspect → offline)
+  - **CLI 명령어**: `sfpanel cluster init/join/leave/status/token/remove`
+- **신규 패키지**: `internal/cluster/` (10개 파일, ~1,950줄)
+- **설정 확장**: `config.yaml`에 `cluster` 섹션 추가
+- **설계 문서**: `docs/plans/2026-03-13-cluster-design.md`
+- **관련 기술**: hashicorp/raft, raft-boltdb, gRPC, protobuf, crypto/x509
+
 ### 13. 설정
 
 - **설명**: 패널 설정 및 사용자 계정 관리
@@ -308,6 +323,13 @@
 | `docker.socket` | socket | `unix:///var/run/docker.sock` | Docker 소켓 경로 |
 | `log.level` | level | `info` | 로그 레벨 (debug, info, warn, error) |
 | `log.file` | file | (없음) | 로그 파일 경로 |
+| `cluster.enabled` | enabled | `false` | 클러스터 모드 활성화 |
+| `cluster.name` | name | (없음) | 클러스터 이름 |
+| `cluster.node_id` | node_id | (없음) | 노드 UUID (자동 생성) |
+| `cluster.grpc_port` | grpc_port | `9443` | gRPC 통신 포트 |
+| `cluster.data_dir` | data_dir | `/var/lib/sfpanel/cluster` | Raft 데이터 저장 경로 |
+| `cluster.cert_dir` | cert_dir | `/etc/sfpanel/cluster` | mTLS 인증서 저장 경로 |
+| `cluster.advertise_address` | advertise_address | (없음) | 다른 노드가 접근할 IP |
 
 ### 런타임 설정 (SQLite 저장)
 
@@ -660,6 +682,12 @@ SFPanel 바이너리는 서버 실행 외에도 관리 명령을 지원합니다
 | `sfpanel version` | 버전 정보 출력 (버전, 커밋 해시, 빌드 날짜) |
 | `sfpanel update` | GitHub Releases에서 최신 버전 다운로드 및 자동 업데이트. 현재 아키텍처(amd64/arm64) 자동 감지. systemd 서비스 실행 중이면 자동 재시작. |
 | `sfpanel reset` | 데이터베이스 삭제 및 초기화 (셋업 위저드로 복귀). 확인 프롬프트(y/N) 표시. |
+| `sfpanel cluster init [--name]` | 새 클러스터 초기화 (CA 생성, Raft 부트스트랩) |
+| `sfpanel cluster join ADDR TOKEN` | 기존 클러스터 참가 |
+| `sfpanel cluster leave` | 클러스터 탈퇴 (단독 모드 복귀) |
+| `sfpanel cluster status` | 클러스터 상태 확인 |
+| `sfpanel cluster token [--ttl]` | 참가 토큰 생성 |
+| `sfpanel cluster remove NODE_ID` | 노드 제거 |
 | `sfpanel help` | 사용법 도움말 출력 |
 
 **update 동작 과정:**
