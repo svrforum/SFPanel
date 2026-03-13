@@ -81,19 +81,30 @@ func ClusterProxyMiddleware(mgr *cluster.Manager) echo.MiddlewareFunc {
 				apiReq.Path = req.URL.Path + "?" + encoded
 			}
 
-			// Forward via gRPC
+			// Forward via gRPC using connection pool
 			ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 			defer cancel()
 
-			client, err := cluster.DialNode(targetNode.GRPCAddress, mgr.GetTLS())
+			pool := mgr.GetConnPool()
+			client, err := pool.Get(targetNode.GRPCAddress)
 			if err != nil {
 				return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Failed to connect to node: "+targetNode.Name)
 			}
-			defer client.Close()
+			// Do NOT close — connection is pooled
 
 			resp, err := client.ProxyRequest(ctx, apiReq)
 			if err != nil {
-				return response.Fail(c, http.StatusGatewayTimeout, response.ErrInternalError, "Proxy request failed: "+err.Error())
+				// Connection may be stale, remove from pool and retry once
+				pool.Remove(targetNode.GRPCAddress)
+				client, err = pool.Get(targetNode.GRPCAddress)
+				if err != nil {
+					return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Failed to reconnect to node: "+targetNode.Name)
+				}
+				resp, err = client.ProxyRequest(ctx, apiReq)
+				if err != nil {
+					pool.Remove(targetNode.GRPCAddress)
+					return response.Fail(c, http.StatusGatewayTimeout, response.ErrInternalError, "Proxy request failed: "+err.Error())
+				}
 			}
 
 			// Copy response headers

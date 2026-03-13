@@ -24,21 +24,29 @@ type Manager struct {
 	tokens    *TokenManager
 	heartbeat *HeartbeatManager
 	events    *EventBus
+	connPool  *ConnPool
 	nodeID    string
 	nodeName  string
 }
 
 // NewManager creates a Manager but does not start any services.
 func NewManager(cfg *config.ClusterConfig) *Manager {
+	tlsMgr := NewTLSManager(cfg.CertDir)
 	return &Manager{
 		config:    cfg,
-		tls:       NewTLSManager(cfg.CertDir),
+		tls:       tlsMgr,
 		tokens:    NewTokenManager(),
 		heartbeat: NewHeartbeatManager(DefaultHeartbeatInterval, DefaultHeartbeatTimeout),
 		events:    NewEventBus(),
+		connPool:  NewConnPool(tlsMgr),
 		nodeID:    cfg.NodeID,
 		nodeName:  cfg.NodeName,
 	}
+}
+
+// GetConnPool returns the gRPC connection pool for proxy middleware.
+func (m *Manager) GetConnPool() *ConnPool {
+	return m.connPool
 }
 
 // Init bootstraps a new cluster (first node, becomes leader).
@@ -85,7 +93,16 @@ func (m *Manager) Init(clusterName string) error {
 	}
 	m.raft = raftNode
 
-	time.Sleep(2 * time.Second)
+	// Wait for Raft leader election (up to 10 seconds)
+	for i := 0; i < 20; i++ {
+		if m.raft.IsLeader() {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !m.raft.IsLeader() {
+		return fmt.Errorf("timed out waiting for leader election")
+	}
 
 	apiAddr := fmt.Sprintf("%s:%d", advertise, m.config.APIPort)
 	grpcAddr := fmt.Sprintf("%s:%d", advertise, m.config.GRPCPort)
@@ -213,11 +230,15 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		Type:  CmdAddNode,
 		Value: nodeJSON,
 	}, 5*time.Second); applyErr != nil {
+		m.tokens.RestoreToken(token) // allow retry
 		return nil, nil, nil, nil, fmt.Errorf("register node: %w", applyErr)
 	}
 
 	raftAddr := fmt.Sprintf("%s:%d", host, m.config.GRPCPort+1)
 	if addErr := m.raft.AddVoter(nodeID, raftAddr); addErr != nil {
+		// Rollback: remove node from FSM and restore token
+		m.raft.Apply(Command{Type: CmdRemoveNode, Key: nodeID}, 5*time.Second)
+		m.tokens.RestoreToken(token)
 		return nil, nil, nil, nil, fmt.Errorf("add voter: %w", addErr)
 	}
 
@@ -320,6 +341,14 @@ func (m *Manager) GetOverview() *ClusterOverview {
 		Nodes:     nodes,
 		Metrics:   m.heartbeat.GetAllMetrics(),
 	}
+}
+
+// GetLeaderGRPCAddress returns the gRPC address of the current Raft leader.
+func (m *Manager) GetLeaderGRPCAddress() string {
+	if m.raft == nil {
+		return ""
+	}
+	return m.raft.LeaderGRPCAddress()
 }
 
 // GetTLS returns the TLS manager (for gRPC server setup).
@@ -501,6 +530,27 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 func (m *Manager) Shutdown() {
 	if m.heartbeat != nil {
 		m.heartbeat.Stop()
+	}
+
+	// If we're the leader, try to transfer leadership before shutting down
+	if m.raft != nil && m.raft.IsLeader() {
+		state := m.raft.GetFSM().GetState()
+		for id, node := range state.Nodes {
+			if id != m.nodeID && node.Status == StatusOnline {
+				log.Printf("[cluster] Transferring leadership to %s before shutdown", node.Name)
+				if err := m.raft.TransferLeadership(id); err != nil {
+					log.Printf("[cluster] Leadership transfer failed: %v", err)
+				} else {
+					log.Printf("[cluster] Leadership transferred to %s", node.Name)
+					time.Sleep(1 * time.Second) // allow transfer to propagate
+				}
+				break
+			}
+		}
+	}
+
+	if m.connPool != nil {
+		m.connPool.Close()
 	}
 	if m.raft != nil {
 		m.raft.Shutdown()

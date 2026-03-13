@@ -35,11 +35,11 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 
 	raftCfg := raft.DefaultConfig()
 	raftCfg.LocalID = raft.ServerID(cfg.NodeID)
-	raftCfg.HeartbeatTimeout = 1000 * time.Millisecond
-	raftCfg.ElectionTimeout = 1000 * time.Millisecond
-	raftCfg.CommitTimeout = 500 * time.Millisecond
-	raftCfg.SnapshotInterval = 5 * time.Minute
-	raftCfg.SnapshotThreshold = 100
+	raftCfg.HeartbeatTimeout = 5000 * time.Millisecond
+	raftCfg.ElectionTimeout = 5000 * time.Millisecond
+	raftCfg.CommitTimeout = 2000 * time.Millisecond
+	raftCfg.SnapshotInterval = 10 * time.Minute
+	raftCfg.SnapshotThreshold = 256
 
 	addr, err := net.ResolveTCPAddr("tcp", cfg.BindAddr)
 	if err != nil {
@@ -207,8 +207,18 @@ func (rn *RaftNode) TransferLeadership(targetNodeID string) error {
 	return f.Error()
 }
 
-// Shutdown cleanly stops the Raft node.
+// Shutdown cleanly stops the Raft node with a timeout.
 func (rn *RaftNode) Shutdown() error {
-	f := rn.raft.Shutdown()
-	return f.Error()
+	done := make(chan error, 1)
+	go func() {
+		f := rn.raft.Shutdown()
+		done <- f.Error()
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(10 * time.Second):
+		log.Println("[cluster] Raft shutdown timed out after 10s, forcing")
+		return nil
+	}
 }

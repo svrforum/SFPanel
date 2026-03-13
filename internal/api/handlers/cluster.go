@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
+	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/config"
 	"gopkg.in/yaml.v3"
 )
@@ -137,6 +139,7 @@ func detectDefaultIP() string {
 }
 
 // GetOverview returns cluster overview with all nodes and metrics.
+// On follower nodes, this forwards to the leader for consistent state.
 // GET /api/v1/cluster/overview
 func (h *ClusterHandler) GetOverview(c echo.Context) error {
 	if h.Manager == nil {
@@ -145,6 +148,15 @@ func (h *ClusterHandler) GetOverview(c echo.Context) error {
 			"nodes": []interface{}{}, "metrics": []interface{}{},
 		})
 	}
+
+	// If we're not the leader, try to proxy to the leader for consistent data
+	if !h.Manager.IsLeader() {
+		if resp, err := h.proxyToLeader(c); err == nil {
+			return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
+		}
+		// Fallback to local FSM if leader unreachable
+	}
+
 	overview := h.Manager.GetOverview()
 	if overview == nil {
 		return response.OK(c, map[string]interface{}{
@@ -163,6 +175,13 @@ func (h *ClusterHandler) GetNodes(c echo.Context) error {
 			"nodes": []interface{}{}, "local_id": "", "is_leader": false,
 		})
 	}
+
+	if !h.Manager.IsLeader() {
+		if resp, err := h.proxyToLeader(c); err == nil {
+			return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
+		}
+	}
+
 	nodes := h.Manager.GetNodes()
 	return response.OK(c, map[string]interface{}{
 		"nodes":     nodes,
@@ -179,6 +198,13 @@ func (h *ClusterHandler) GetStatus(c echo.Context) error {
 			"enabled": false,
 		})
 	}
+
+	if !h.Manager.IsLeader() {
+		if resp, err := h.proxyToLeader(c); err == nil {
+			return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
+		}
+	}
+
 	overview := h.Manager.GetOverview()
 	return response.OK(c, map[string]interface{}{
 		"enabled":    true,
@@ -357,6 +383,40 @@ func (h *ClusterHandler) TransferLeadership(c echo.Context) error {
 		"message":        "Leadership transfer initiated",
 		"target_node_id": body.TargetNodeID,
 	})
+}
+
+// proxyToLeader forwards the current request to the cluster leader via gRPC.
+func (h *ClusterHandler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
+	pool := h.Manager.GetConnPool()
+	leaderAddr := h.Manager.GetLeaderGRPCAddress()
+	if leaderAddr == "" {
+		return nil, fmt.Errorf("no leader")
+	}
+
+	client, err := pool.Get(leaderAddr)
+	if err != nil {
+		return nil, fmt.Errorf("dial leader: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
+	defer cancel()
+
+	proxySecret := h.Manager.ProxySecret()
+	headers := make(map[string]string)
+	if proxySecret != "" {
+		headers["X-SFPanel-Internal-Proxy"] = proxySecret
+	}
+
+	resp, err := client.ProxyRequest(ctx, &pb.APIRequest{
+		Method:  c.Request().Method,
+		Path:    c.Request().URL.Path,
+		Headers: headers,
+	})
+	if err != nil {
+		pool.Remove(leaderAddr)
+		return nil, fmt.Errorf("proxy: %w", err)
+	}
+	return resp, nil
 }
 
 // DisbandCluster disables cluster mode and restarts the service.

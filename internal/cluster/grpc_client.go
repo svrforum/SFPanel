@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -89,4 +91,91 @@ func (c *GRPCClient) Close() error {
 		return c.conn.Close()
 	}
 	return nil
+}
+
+// ConnPool manages a pool of reusable gRPC connections to cluster nodes.
+type ConnPool struct {
+	mu    sync.RWMutex
+	conns map[string]*poolEntry
+	tls   *TLSManager
+}
+
+type poolEntry struct {
+	client  *GRPCClient
+	created time.Time
+}
+
+const connMaxAge = 5 * time.Minute
+
+// NewConnPool creates a connection pool.
+func NewConnPool(tlsMgr *TLSManager) *ConnPool {
+	pool := &ConnPool{
+		conns: make(map[string]*poolEntry),
+		tls:   tlsMgr,
+	}
+	// Background cleanup of stale connections
+	go pool.cleanup()
+	return pool
+}
+
+// Get returns a cached or new connection to the given address.
+func (p *ConnPool) Get(address string) (*GRPCClient, error) {
+	p.mu.RLock()
+	if entry, ok := p.conns[address]; ok && time.Since(entry.created) < connMaxAge {
+		p.mu.RUnlock()
+		return entry.client, nil
+	}
+	p.mu.RUnlock()
+
+	// Create new connection
+	client, err := DialNode(address, p.tls)
+	if err != nil {
+		return nil, err
+	}
+
+	p.mu.Lock()
+	// Close old connection if exists
+	if old, ok := p.conns[address]; ok {
+		old.client.Close()
+	}
+	p.conns[address] = &poolEntry{client: client, created: time.Now()}
+	p.mu.Unlock()
+
+	return client, nil
+}
+
+// Remove closes and removes a specific connection.
+func (p *ConnPool) Remove(address string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if entry, ok := p.conns[address]; ok {
+		entry.client.Close()
+		delete(p.conns, address)
+	}
+}
+
+// Close closes all pooled connections.
+func (p *ConnPool) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for addr, entry := range p.conns {
+		entry.client.Close()
+		delete(p.conns, addr)
+	}
+}
+
+func (p *ConnPool) cleanup() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		p.mu.Lock()
+		for addr, entry := range p.conns {
+			if time.Since(entry.created) > connMaxAge {
+				entry.client.Close()
+				delete(p.conns, addr)
+				log.Printf("[cluster] pool: closed stale conn to %s", addr)
+			}
+		}
+		p.mu.Unlock()
+	}
 }

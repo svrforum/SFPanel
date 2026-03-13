@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
@@ -34,7 +35,9 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 	if proxySecret != "" {
 		headers.Set("X-SFPanel-Internal-Proxy", proxySecret)
 	}
-	dialer := websocket.Dialer{}
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
 	remoteWS, resp, err := dialer.Dial(remoteURL.String(), headers)
 	if err != nil {
 		if resp != nil {
@@ -47,10 +50,13 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 	var wg sync.WaitGroup
 	wg.Add(2)
 
+	const wsReadTimeout = 60 * time.Second
+
 	// Client → Remote
 	go func() {
 		defer wg.Done()
 		for {
+			clientWS.SetReadDeadline(time.Now().Add(wsReadTimeout))
 			msgType, msg, err := clientWS.ReadMessage()
 			if err != nil {
 				remoteWS.WriteMessage(websocket.CloseMessage,
@@ -67,6 +73,7 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 	go func() {
 		defer wg.Done()
 		for {
+			remoteWS.SetReadDeadline(time.Now().Add(wsReadTimeout))
 			msgType, msg, err := remoteWS.ReadMessage()
 			if err != nil {
 				clientWS.WriteMessage(websocket.CloseMessage,

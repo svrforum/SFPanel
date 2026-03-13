@@ -73,6 +73,15 @@ func (tm *TokenManager) Validate(token string) error {
 	return nil
 }
 
+// RestoreToken marks a token as unused so it can be retried.
+func (tm *TokenManager) RestoreToken(token string) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	if jt, ok := tm.tokens[token]; ok {
+		jt.Used = false
+	}
+}
+
 func (tm *TokenManager) cleanupLocked() {
 	now := time.Now()
 	for k, t := range tm.tokens {
