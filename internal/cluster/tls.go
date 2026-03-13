@@ -164,7 +164,7 @@ func (t *TLSManager) ServerTLSConfig() (*tls.Config, error) {
 	return &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		ClientCAs:    pool,
-		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientAuth:   tls.VerifyClientCertIfGiven,
 		MinVersion:   tls.VersionTLS13,
 	}, nil
 }

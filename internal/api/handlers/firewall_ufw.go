@@ -16,6 +16,9 @@ import (
 // GetUFWStatus returns the current UFW status including active state and default policies.
 // GET /firewall/status
 func (h *FirewallHandler) GetUFWStatus(c echo.Context) error {
+	if !commandExists("ufw") {
+		return response.OK(c, UFWStatus{})
+	}
 	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "status", "verbose")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWError,
@@ -98,6 +101,12 @@ func (h *FirewallHandler) DisableUFW(c echo.Context) error {
 // ListRules returns all current UFW rules with their numbers.
 // GET /firewall/rules
 func (h *FirewallHandler) ListRules(c echo.Context) error {
+	if !commandExists("ufw") {
+		return response.OK(c, map[string]interface{}{
+			"rules": []UFWRule{},
+			"total": 0,
+		})
+	}
 	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "status", "numbered")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWError,

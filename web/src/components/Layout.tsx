@@ -34,6 +34,13 @@ export default function Layout() {
   })
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [panelVersion, setPanelVersion] = useState('')
+  const [nodeKey, setNodeKey] = useState(0)
+
+  useEffect(() => {
+    const handler = () => setNodeKey((k) => k + 1)
+    window.addEventListener('sfpanel:node-changed', handler)
+    return () => window.removeEventListener('sfpanel:node-changed', handler)
+  }, [])
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, String(collapsed))
@@ -165,7 +172,7 @@ export default function Layout() {
       </aside>
 
       <main className="flex-1 overflow-auto p-8">
-        <Outlet />
+        <Outlet key={nodeKey} />
       </main>
     </div>
   )

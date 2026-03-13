@@ -3,7 +3,6 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -13,7 +12,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	"github.com/svrforum/SFPanel/internal/auth"
+
 )
 
 const scrollbackBufSize = 256 * 1024 // 256 KB ring buffer per session
@@ -137,12 +136,8 @@ func findShell() string {
 // buffer is replayed so the user sees previous output.
 func TerminalWS(jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		token := c.QueryParam("token")
-		if token == "" {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
-		}
-		if _, err := auth.ParseToken(token, jwtSecret); err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+		if err := authenticateWS(c, jwtSecret); err != nil {
+			return err
 		}
 
 		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)

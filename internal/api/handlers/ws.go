@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/docker"
 	"github.com/svrforum/SFPanel/internal/monitor"
@@ -61,18 +62,29 @@ func (w *safeWSWriter) WriteJSON(v interface{}) error {
 	return w.conn.WriteJSON(v)
 }
 
+// authenticateWS validates a WebSocket request via JWT token query param
+// or internal cluster proxy header. Returns nil on success, error response on failure.
+func authenticateWS(c echo.Context, jwtSecret string) error {
+	// Trust cluster-internal relay requests
+	if middleware.IsInternalProxyRequest(c.Request()) {
+		return nil
+	}
+	token := c.QueryParam("token")
+	if token == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+	}
+	if _, err := auth.ParseToken(token, jwtSecret); err != nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+	}
+	return nil
+}
+
 // MetricsWS handles WebSocket connections for real-time metrics streaming.
 // Authentication is done via a "token" query parameter.
 func MetricsWS(jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		token := c.QueryParam("token")
-		if token == "" {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
-		}
-
-		_, err := auth.ParseToken(token, jwtSecret)
-		if err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+		if err := authenticateWS(c, jwtSecret); err != nil {
+			return err
 		}
 
 		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
@@ -115,12 +127,8 @@ func MetricsWS(jwtSecret string) echo.HandlerFunc {
 // ContainerLogsWS streams container logs over a WebSocket connection.
 func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		token := c.QueryParam("token")
-		if token == "" {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
-		}
-		if _, err := auth.ParseToken(token, jwtSecret); err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+		if err := authenticateWS(c, jwtSecret); err != nil {
+			return err
 		}
 
 		containerID := c.Param("id")
@@ -180,12 +188,8 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 // it over a WebSocket for interactive terminal access.
 func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		token := c.QueryParam("token")
-		if token == "" {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
-		}
-		if _, err := auth.ParseToken(token, jwtSecret); err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+		if err := authenticateWS(c, jwtSecret); err != nil {
+			return err
 		}
 
 		containerID := c.Param("id")

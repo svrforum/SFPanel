@@ -155,6 +155,19 @@ func (rn *RaftNode) LeaderID() string {
 	return string(id)
 }
 
+// LeaderGRPCAddress returns the gRPC address of the current leader.
+func (rn *RaftNode) LeaderGRPCAddress() string {
+	leaderID := rn.LeaderID()
+	if leaderID == "" {
+		return ""
+	}
+	state := rn.fsm.GetState()
+	if node, ok := state.Nodes[leaderID]; ok {
+		return node.GRPCAddress
+	}
+	return ""
+}
+
 // State returns the current Raft state string.
 func (rn *RaftNode) State() string {
 	return rn.raft.State().String()

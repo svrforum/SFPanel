@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.1
 // - protoc             v3.21.12
-// source: cluster.proto
+// source: proto/cluster.proto
 
 package proto
 
@@ -305,5 +305,5 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "cluster.proto",
+	Metadata: "proto/cluster.proto",
 }

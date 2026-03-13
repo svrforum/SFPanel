@@ -29,6 +29,10 @@
 | `/` | - | O | Layout | `/dashboard`로 리다이렉트 |
 | `/dashboard` | Dashboard | O | Layout | 시스템 대시보드 (실시간 메트릭) |
 | `/appstore` | AppStore | O | Layout | 앱스토어 (원클릭 Docker 앱 설치) |
+| `/cluster` | Cluster | O | Layout | 클러스터 관리 (사이드 탭 + Outlet 구조) |
+| `/cluster/overview` | ClusterOverview | O | Cluster | 클러스터 개요 + 초기화/해산 (기본 서브라우트) |
+| `/cluster/nodes` | ClusterNodes | O | Cluster | 노드 목록 + 제거/리더 이전/라벨 편집 |
+| `/cluster/tokens` | ClusterTokens | O | Cluster | 참가 토큰 생성 + join 명령어 표시 |
 | `/docker` | Docker | O | Layout | Docker 관리 (사이드 탭 + Outlet 구조) |
 | `/docker/stacks` | DockerStacks | O | Docker | Docker Compose 스택 목록 (기본 서브라우트) |
 | `/docker/stacks/:name` | DockerStacks | O | Docker | 스택 상세 (서비스 목록, YAML 편집, 로그, 셸) |

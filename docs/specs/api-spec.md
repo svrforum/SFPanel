@@ -2785,6 +2785,22 @@ REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
 | GET | `/api/v1/appstore/installed` | O | 설치된 앱 목록 |
 | POST | `/api/v1/appstore/refresh` | O | 앱스토어 캐시 갱신 |
 
+### 클러스터 (11개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/cluster/status` | O | 클러스터 상태 (활성화 여부, 노드 수, 리더) |
+| GET | `/api/v1/cluster/overview` | O | 클러스터 개요 (노드 목록 + 집계 메트릭) |
+| GET | `/api/v1/cluster/nodes` | O | 노드 목록 (상태, 역할, 라벨) |
+| POST | `/api/v1/cluster/token` | O | 참가 토큰 생성 (TTL 지정 가능) |
+| DELETE | `/api/v1/cluster/nodes/:id` | O | 노드 제거 (리더만 가능) |
+| PATCH | `/api/v1/cluster/nodes/:id/labels` | O | 노드 라벨 수정 |
+| GET | `/api/v1/cluster/events` | O | 클러스터 이벤트 로그 |
+| POST | `/api/v1/cluster/leader-transfer` | O | 리더십 이전 |
+| POST | `/api/v1/cluster/init` | O | 클러스터 초기화 (CA 생성, Raft 부트스트랩) |
+| POST | `/api/v1/cluster/disband` | O | 클러스터 해산 |
+| GET | `/api/v1/cluster/interfaces` | O | 네트워크 인터페이스 목록 (클러스터 초기화용) |
+
 ### WebSocket (5개)
 
 | 프로토콜 | 경로 | 인증 | 설명 |
