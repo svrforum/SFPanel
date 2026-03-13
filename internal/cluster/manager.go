@@ -282,6 +282,15 @@ func (m *Manager) GetNodes() []*Node {
 	return nodes
 }
 
+// GetNode returns a single node by ID, or nil if not found.
+func (m *Manager) GetNode(nodeID string) *Node {
+	if m.raft == nil {
+		return nil
+	}
+	state := m.raft.GetFSM().GetState()
+	return state.Nodes[nodeID]
+}
+
 // GetOverview returns the cluster overview with metrics.
 func (m *Manager) GetOverview() *ClusterOverview {
 	if m.raft == nil {

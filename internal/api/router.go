@@ -364,15 +364,15 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		compose.GET("/:project/services/:service/logs", composeHandler.ServiceLogs)
 		compose.POST("/:project/validate", composeHandler.ValidateProject)
 
-		// Docker WebSocket routes (auth via query param token)
-		e.GET("/ws/docker/containers/:id/logs", handlers.ContainerLogsWS(dockerClient, cfg.Auth.JWTSecret))
-		e.GET("/ws/docker/containers/:id/exec", handlers.ContainerExecWS(dockerClient, cfg.Auth.JWTSecret))
+		// Docker WebSocket routes (auth via query param token, cluster relay support)
+		e.GET("/ws/docker/containers/:id/logs", cluster.WrapEchoWSHandler(clusterMgr, handlers.ContainerLogsWS(dockerClient, cfg.Auth.JWTSecret)))
+		e.GET("/ws/docker/containers/:id/exec", cluster.WrapEchoWSHandler(clusterMgr, handlers.ContainerExecWS(dockerClient, cfg.Auth.JWTSecret)))
 	}
 
-	// WebSocket routes (auth via query param token)
-	e.GET("/ws/metrics", handlers.MetricsWS(cfg.Auth.JWTSecret))
-	e.GET("/ws/logs", handlers.LogStreamWS(cfg.Auth.JWTSecret, database))
-	e.GET("/ws/terminal", handlers.TerminalWS(cfg.Auth.JWTSecret))
+	// WebSocket routes (auth via query param token, cluster relay support)
+	e.GET("/ws/metrics", cluster.WrapEchoWSHandler(clusterMgr, handlers.MetricsWS(cfg.Auth.JWTSecret)))
+	e.GET("/ws/logs", cluster.WrapEchoWSHandler(clusterMgr, handlers.LogStreamWS(cfg.Auth.JWTSecret, database)))
+	e.GET("/ws/terminal", cluster.WrapEchoWSHandler(clusterMgr, handlers.TerminalWS(cfg.Auth.JWTSecret)))
 
 	// SPA static file serving — catch-all AFTER all API and WS routes
 	e.GET("/*", spaHandler(webFS))

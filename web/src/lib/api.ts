@@ -1289,6 +1289,20 @@ class ApiClient {
       method: 'DELETE',
     })
   }
+
+  // Build a WebSocket URL with auth token and optional node parameter
+  buildWsUrl(path: string, extraParams?: Record<string, string>): string {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const params = new URLSearchParams()
+    if (this.token) params.set('token', this.token)
+    if (this._currentNode) params.set('node', this._currentNode)
+    if (extraParams) {
+      for (const [k, v] of Object.entries(extraParams)) {
+        params.set(k, v)
+      }
+    }
+    return `${protocol}//${window.location.host}${path}?${params.toString()}`
+  }
 }
 
 export const api = new ApiClient()
