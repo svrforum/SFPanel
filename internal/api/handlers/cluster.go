@@ -52,6 +52,7 @@ func (h *ClusterHandler) InitCluster(c echo.Context) error {
 	}
 
 	h.Config.Cluster.AdvertiseAddress = advertise
+	h.Config.Cluster.APIPort = h.Config.Server.Port
 
 	mgr := cluster.NewManager(&h.Config.Cluster)
 	if err := mgr.Init(clusterName); err != nil {

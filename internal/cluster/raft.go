@@ -37,6 +37,7 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 	raftCfg.LocalID = raft.ServerID(cfg.NodeID)
 	raftCfg.HeartbeatTimeout = 5000 * time.Millisecond
 	raftCfg.ElectionTimeout = 5000 * time.Millisecond
+	raftCfg.LeaderLeaseTimeout = 2500 * time.Millisecond
 	raftCfg.CommitTimeout = 2000 * time.Millisecond
 	raftCfg.SnapshotInterval = 10 * time.Minute
 	raftCfg.SnapshotThreshold = 256
