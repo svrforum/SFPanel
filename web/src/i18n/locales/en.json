@@ -41,6 +41,7 @@
       "sites": "Sites",
       "terminal": "Terminal",
       "appstore": "App Store",
+      "cluster": "Cluster",
       "settings": "Settings"
     },
     "logout": "Logout",
@@ -492,6 +493,50 @@
     "deleteFailed": "Failed to delete site",
     "sslFailed": "Failed to enable SSL",
     "fetchFailed": "Failed to fetch sites"
+  },
+  "cluster": {
+    "title": "Cluster",
+    "nav": {
+      "overview": "Overview",
+      "nodes": "Nodes",
+      "tokens": "Tokens"
+    },
+    "notEnabled": {
+      "title": "Cluster not enabled",
+      "description": "Initialize cluster mode from the CLI. Manage 2-32 nodes as a unified cluster."
+    },
+    "overview": {
+      "nodes": "Nodes",
+      "avgCpu": "Avg CPU",
+      "avgMemory": "Avg Memory",
+      "avgDisk": "Avg Disk",
+      "containers": "Containers",
+      "leaderLabel": "Leader",
+      "nodeStatus": "Node Status",
+      "memory": "Memory",
+      "disk": "Disk",
+      "noMetrics": "No metrics"
+    },
+    "nodes": {
+      "count": "{{count}} nodes",
+      "name": "Name",
+      "role": "Role",
+      "apiAddress": "API Address",
+      "grpcAddress": "gRPC Address",
+      "joinedAt": "Joined",
+      "confirmRemove": "Remove node {{name}} from the cluster?",
+      "removed": "Node {{name}} removed"
+    },
+    "tokens": {
+      "generateTitle": "Generate Join Token",
+      "generateDescription": "Create a single-use token for adding a new node to the cluster",
+      "ttl": "TTL",
+      "generate": "Generate Token",
+      "generatedToken": "Generated Token",
+      "expiresAt": "Expires",
+      "joinCommand": "Join Command",
+      "copied": "Copied to clipboard"
+    }
   },
   "settings": {
     "title": "Settings",

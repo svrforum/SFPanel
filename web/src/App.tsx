@@ -37,6 +37,10 @@ const FirewallPorts = lazy(() => import('@/pages/firewall/FirewallPorts'))
 const FirewallFail2ban = lazy(() => import('@/pages/firewall/FirewallFail2ban'))
 const FirewallDocker = lazy(() => import('@/pages/firewall/FirewallDocker'))
 const FirewallLogs = lazy(() => import('@/pages/firewall/FirewallLogs'))
+const Cluster = lazy(() => import('@/pages/Cluster'))
+const ClusterOverview = lazy(() => import('@/pages/cluster/ClusterOverview'))
+const ClusterNodes = lazy(() => import('@/pages/cluster/ClusterNodes'))
+const ClusterTokens = lazy(() => import('@/pages/cluster/ClusterTokens'))
 const AppStore = lazy(() => import('@/pages/AppStore'))
 const Packages = lazy(() => import('@/pages/Packages'))
 const Settings = lazy(() => import('@/pages/Settings'))
@@ -121,6 +125,12 @@ export default function App() {
                 <Route path="images" element={<DockerImages />} />
                 <Route path="volumes" element={<DockerVolumes />} />
                 <Route path="networks" element={<DockerNetworks />} />
+              </Route>
+              <Route path="cluster" element={<Cluster />}>
+                <Route index element={<Navigate to="overview" replace />} />
+                <Route path="overview" element={<ClusterOverview />} />
+                <Route path="nodes" element={<ClusterNodes />} />
+                <Route path="tokens" element={<ClusterTokens />} />
               </Route>
               <Route path="appstore" element={<AppStore />} />
               <Route path="files" element={<Files />} />
