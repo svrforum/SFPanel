@@ -41,6 +41,8 @@ import type {
   ClusterNodesResponse,
   ClusterTokenResponse,
   ClusterEventsResponse,
+  ClusterInterfacesResponse,
+  ClusterInitResponse,
 } from '@/types/api'
 
 const API_BASE = '/api/v1'
@@ -1268,6 +1270,17 @@ class ApiClient {
   // Cluster
   getClusterStatus() {
     return this.request<ClusterStatus>('/cluster/status')
+  }
+
+  getClusterInterfaces() {
+    return this.request<ClusterInterfacesResponse>('/cluster/interfaces')
+  }
+
+  initCluster(name: string, advertiseAddress: string) {
+    return this.request<ClusterInitResponse>('/cluster/init', {
+      method: 'POST',
+      body: JSON.stringify({ name, advertise_address: advertiseAddress }),
+    })
   }
 
   getClusterOverview() {

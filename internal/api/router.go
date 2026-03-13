@@ -111,7 +111,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.POST("/system/restore", systemHandler.RestoreBackup)
 
 	// Cluster management
-	clusterHandler := &handlers.ClusterHandler{Manager: clusterMgr}
+	clusterHandler := &handlers.ClusterHandler{Manager: clusterMgr, Config: cfg, ConfigPath: cfgPath}
 	clusterGroup := authorized.Group("/cluster")
 	clusterGroup.GET("/status", clusterHandler.GetStatus)
 	clusterGroup.GET("/overview", clusterHandler.GetOverview)
@@ -121,6 +121,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	clusterGroup.PATCH("/nodes/:id/labels", clusterHandler.UpdateNodeLabels)
 	clusterGroup.GET("/events", clusterHandler.GetEvents)
 	clusterGroup.POST("/leader-transfer", clusterHandler.TransferLeadership)
+	clusterGroup.POST("/init", clusterHandler.InitCluster)
+	clusterGroup.GET("/interfaces", clusterHandler.GetNetworkInterfaces)
 
 	// Audit logs
 	auditHandler := &handlers.AuditHandler{DB: database}

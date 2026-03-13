@@ -1,17 +1,139 @@
 package handlers
 
 import (
+	"fmt"
+	"log"
+	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
+	"github.com/svrforum/SFPanel/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 type ClusterHandler struct {
-	Manager *cluster.Manager
+	Manager    *cluster.Manager
+	Config     *config.Config
+	ConfigPath string
+}
+
+// InitCluster initializes a new cluster from the UI.
+// POST /api/v1/cluster/init
+func (h *ClusterHandler) InitCluster(c echo.Context) error {
+	if h.Manager != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster already initialized")
+	}
+	if h.ConfigPath == "" {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Config path not available")
+	}
+
+	var body struct {
+		Name             string `json:"name"`
+		AdvertiseAddress string `json:"advertise_address"`
+	}
+	if err := c.Bind(&body); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+
+	clusterName := body.Name
+	if clusterName == "" {
+		clusterName = "sfpanel"
+	}
+	advertise := body.AdvertiseAddress
+	if advertise == "" {
+		advertise = detectDefaultIP()
+	}
+
+	h.Config.Cluster.AdvertiseAddress = advertise
+
+	mgr := cluster.NewManager(&h.Config.Cluster)
+	if err := mgr.Init(clusterName); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Cluster init failed: %v", err))
+	}
+
+	h.Config.Cluster = *mgr.GetConfig()
+
+	data, err := yaml.Marshal(h.Config)
+	if err != nil {
+		mgr.Shutdown()
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to marshal config: %v", err))
+	}
+	if err := os.WriteFile(h.ConfigPath, data, 0644); err != nil {
+		mgr.Shutdown()
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
+	}
+
+	mgr.Shutdown()
+
+	log.Printf("[cluster] Cluster '%s' initialized via UI. Restarting...", clusterName)
+
+	// Schedule restart after response is sent (exit 1 so systemd Restart=on-failure triggers)
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		log.Println("[cluster] Exiting for systemd restart...")
+		os.Exit(1)
+	}()
+
+	return response.OK(c, map[string]interface{}{
+		"message":  "Cluster initialized. Service restarting...",
+		"name":     clusterName,
+		"node_id":  h.Config.Cluster.NodeID,
+		"restart":  true,
+	})
+}
+
+// GetNetworkInterfaces returns available network interfaces for advertise address selection.
+// GET /api/v1/cluster/interfaces
+func (h *ClusterHandler) GetNetworkInterfaces(c echo.Context) error {
+	type ifaceInfo struct {
+		Name    string `json:"name"`
+		Address string `json:"address"`
+	}
+
+	var result []ifaceInfo
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return response.OK(c, map[string]interface{}{"interfaces": []interface{}{}})
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ip, _, err := net.ParseCIDR(addr.String())
+			if err != nil || ip.To4() == nil {
+				continue
+			}
+			result = append(result, ifaceInfo{
+				Name:    iface.Name,
+				Address: ip.String(),
+			})
+		}
+	}
+
+	return response.OK(c, map[string]interface{}{
+		"interfaces": result,
+	})
+}
+
+func detectDefaultIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return "127.0.0.1"
+	}
+	defer conn.Close()
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String()
 }
 
 // GetOverview returns cluster overview with all nodes and metrics.
