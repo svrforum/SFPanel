@@ -141,8 +141,7 @@ export default function FirewallLogs() {
       wsRef.current = null
     }
 
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws/logs?source=${source}&token=${api.getToken()}`
+    const wsUrl = api.buildWsUrl('/ws/logs', { source })
     const ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {

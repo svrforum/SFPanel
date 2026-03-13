@@ -140,8 +140,7 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
       return
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws/terminal?token=${token}&session_id=${sessionId}`
+    const wsUrl = api.buildWsUrl('/ws/terminal', { session_id: sessionId })
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 

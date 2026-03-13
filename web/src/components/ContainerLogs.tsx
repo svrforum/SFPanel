@@ -85,8 +85,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
       return () => { term.dispose() }
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws/docker/containers/${containerId}/logs?token=${token}`
+    const wsUrl = api.buildWsUrl(`/ws/docker/containers/${containerId}/logs`)
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 

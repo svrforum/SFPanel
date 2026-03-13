@@ -60,8 +60,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
       return () => { term.dispose() }
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws/docker/containers/${containerId}/exec?token=${token}`
+    const wsUrl = api.buildWsUrl(`/ws/docker/containers/${containerId}/exec`)
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
