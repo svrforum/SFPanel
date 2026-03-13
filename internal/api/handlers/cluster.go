@@ -324,3 +324,36 @@ func (h *ClusterHandler) TransferLeadership(c echo.Context) error {
 		"target_node_id": body.TargetNodeID,
 	})
 }
+
+// DisbandCluster disables cluster mode and restarts the service.
+// POST /api/v1/cluster/disband
+func (h *ClusterHandler) DisbandCluster(c echo.Context) error {
+	if h.Manager == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	if h.ConfigPath == "" {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Config path not available")
+	}
+
+	h.Manager.Shutdown()
+
+	h.Config.Cluster.Enabled = false
+	data, err := yaml.Marshal(h.Config)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to marshal config: %v", err))
+	}
+	if err := os.WriteFile(h.ConfigPath, data, 0644); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
+	}
+
+	log.Println("[cluster] Cluster disbanded via UI. Restarting...")
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		os.Exit(1)
+	}()
+
+	return response.OK(c, map[string]string{
+		"message": "Cluster disbanded. Service restarting...",
+	})
+}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Loader2 } from 'lucide-react'
+import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Loader2, Power } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ClusterOverview as ClusterOverviewType, ClusterStatus, ClusterEvent } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -35,6 +35,25 @@ export default function ClusterOverview() {
     )
   }
 
+  const handleDisband = async () => {
+    if (!confirm(t('cluster.overview.confirmDisband'))) return
+    try {
+      await api.disbandCluster()
+      toast.success(t('cluster.overview.disbanded'))
+      setTimeout(() => {
+        const check = setInterval(() => {
+          fetch('/api/v1/cluster/status', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+          })
+            .then((r) => { if (r.ok) { clearInterval(check); window.location.reload() } })
+            .catch(() => {})
+        }, 2000)
+      }, 1000)
+    } catch (err) {
+      toast.error(String(err))
+    }
+  }
+
   if (!status?.enabled) {
     return <ClusterInitForm />
   }
@@ -60,16 +79,27 @@ export default function ClusterOverview() {
     <div className="space-y-6">
       {/* Cluster info */}
       <div className="bg-card rounded-2xl p-5 card-shadow">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Server className="h-4 w-4 text-primary" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+              <Server className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-[15px] font-semibold">{overview?.name || status.name}</h2>
+              <p className="text-[11px] text-muted-foreground">
+                {t('cluster.overview.nodeCount', { count: nodes.length })}
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-[15px] font-semibold">{overview?.name || status.name}</h2>
-            <p className="text-[11px] text-muted-foreground">
-              {t('cluster.overview.leaderLabel')}: {nodes.find(n => n.id === status.leader_id)?.name || status.leader_id}
-            </p>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-xl text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10 border-[#f04452]/20"
+            onClick={handleDisband}
+          >
+            <Power className="h-3.5 w-3.5 mr-1.5" />
+            {t('cluster.overview.disband')}
+          </Button>
         </div>
       </div>
 
@@ -104,7 +134,7 @@ export default function ClusterOverview() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-[13px] font-medium">{node.name}</span>
-                      {isLeader && (
+                      {isLeader && nodes.length > 1 && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
                           <Crown className="h-3 w-3" />
                           {t('layout.cluster.leader')}
@@ -141,7 +171,7 @@ export default function ClusterOverview() {
                   </div>
                 ) : (
                   <div className="flex-1 text-[13px] text-muted-foreground italic">
-                    {node.status === 'offline' ? t('cluster.overview.noMetrics') : '...'}
+                    {node.status === 'offline' ? t('cluster.overview.noMetrics') : t('cluster.overview.metricsLoading')}
                   </div>
                 )}
               </div>

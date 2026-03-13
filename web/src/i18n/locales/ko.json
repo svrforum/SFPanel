@@ -526,7 +526,12 @@
       "memory": "메모리",
       "disk": "디스크",
       "noMetrics": "메트릭 없음",
-      "recentEvents": "최근 이벤트"
+      "metricsLoading": "메트릭 수집 중...",
+      "recentEvents": "최근 이벤트",
+      "nodeCount": "{{count}}개 노드",
+      "disband": "클러스터 해제",
+      "confirmDisband": "정말 클러스터를 해제하시겠습니까? 이 노드는 독립 모드로 전환됩니다.",
+      "disbanded": "클러스터가 해제되었습니다. 서비스를 재시작합니다."
     },
     "events": {
       "node_joined": "클러스터에 참가",

@@ -526,7 +526,12 @@
       "memory": "Memory",
       "disk": "Disk",
       "noMetrics": "No metrics",
-      "recentEvents": "Recent Events"
+      "metricsLoading": "Collecting metrics...",
+      "recentEvents": "Recent Events",
+      "nodeCount": "{{count}} nodes",
+      "disband": "Disband Cluster",
+      "confirmDisband": "Are you sure you want to disband the cluster? This node will switch to standalone mode.",
+      "disbanded": "Cluster disbanded. Restarting service."
     },
     "events": {
       "node_joined": "joined the cluster",

@@ -27,6 +27,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/db"
+	"github.com/svrforum/SFPanel/internal/docker"
 	"github.com/svrforum/SFPanel/internal/monitor"
 	"github.com/svrforum/SFPanel/internal/release"
 )
@@ -114,6 +115,26 @@ func main() {
 		} else {
 			defer clusterMgr.Shutdown()
 			log.Printf("Cluster mode active: %s (node: %s)", cfg.Cluster.Name, cfg.Cluster.NodeID)
+
+			// Start local metrics collection for cluster overview
+			metricsDocker, _ := docker.NewClient(cfg.Docker.Socket)
+			clusterMgr.StartLocalMetrics(func() (float64, float64, float64, int) {
+				m, err := monitor.GetMetrics()
+				if err != nil {
+					return 0, 0, 0, 0
+				}
+				containers := 0
+				if metricsDocker != nil {
+					if list, lErr := metricsDocker.ListContainers(context.Background()); lErr == nil {
+						for _, c := range list {
+							if c.State == "running" {
+								containers++
+							}
+						}
+					}
+				}
+				return m.CPU, m.MemPercent, m.DiskPercent, containers
+			})
 
 			// Start gRPC server for cluster communication
 			grpcServer, grpcErr := cluster.NewGRPCServer(clusterMgr)

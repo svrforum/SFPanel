@@ -386,6 +386,39 @@ func (m *Manager) TransferLeadership(targetNodeID string) error {
 	return nil
 }
 
+// MetricsCollector is a function that collects local system metrics.
+type MetricsCollector func() (cpuPercent, memPercent, diskPercent float64, containerCount int)
+
+// StartLocalMetrics starts a goroutine that periodically collects local metrics.
+func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+
+		collect := func() {
+			cpu, mem, disk, containers := collector()
+			m.heartbeat.RecordHeartbeat(&NodeMetrics{
+				NodeID:         m.nodeID,
+				CPUPercent:     cpu,
+				MemoryPercent:  mem,
+				DiskPercent:    disk,
+				ContainerCount: containers,
+				Timestamp:      time.Now().Unix(),
+			})
+		}
+
+		collect() // immediate first collection
+		for {
+			select {
+			case <-ticker.C:
+				collect()
+			case <-m.heartbeat.stopCh:
+				return
+			}
+		}
+	}()
+}
+
 // Shutdown gracefully stops all cluster services.
 func (m *Manager) Shutdown() {
 	if m.heartbeat != nil {
