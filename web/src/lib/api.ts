@@ -1323,6 +1323,12 @@ class ApiClient {
     })
   }
 
+  disbandCluster() {
+    return this.request<{ message: string }>('/cluster/disband', {
+      method: 'POST',
+    })
+  }
+
   // Build a WebSocket URL with auth token and optional node parameter
   buildWsUrl(path: string, extraParams?: Record<string, string>): string {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
