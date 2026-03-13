@@ -12,6 +12,7 @@
 - **프로세스 관리** — 프로세스 목록, 정렬, 시그널 전송
 - **크론 작업** — crontab GUI 관리
 - **서비스 관리** — systemd 서비스 시작/중지/재시작/활성화/비활성화, 의존성 확인
+- **앱스토어** — Docker Compose 기반 원클릭 앱 설치 (Nextcloud, WordPress, GitLab 등 50+ 앱)
 - **패키지 관리** — APT 패키지 검색/설치/업그레이드, Docker 원클릭 설치
 - **방화벽** — UFW 규칙 관리, 열린 포트 확인, Fail2ban Jail 관리, Docker 네트워크 방화벽
 - **네트워크/VPN** — 인터페이스 설정 (DHCP/Static), DNS, 라우팅, 본딩, WireGuard, Tailscale
