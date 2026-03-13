@@ -50,6 +50,26 @@ func (h *DockerHandler) StopContainer(c echo.Context) error {
 	return response.OK(c, map[string]string{"message": "container stopped"})
 }
 
+// PauseContainer pauses a running container.
+func (h *DockerHandler) PauseContainer(c echo.Context) error {
+	ctx := c.Request().Context()
+	id := c.Param("id")
+	if err := h.Docker.PauseContainer(ctx, id); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+	}
+	return response.OK(c, map[string]string{"message": "container paused"})
+}
+
+// UnpauseContainer unpauses a paused container.
+func (h *DockerHandler) UnpauseContainer(c echo.Context) error {
+	ctx := c.Request().Context()
+	id := c.Param("id")
+	if err := h.Docker.UnpauseContainer(ctx, id); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+	}
+	return response.OK(c, map[string]string{"message": "container unpaused"})
+}
+
 // RestartContainer restarts a container by ID.
 func (h *DockerHandler) RestartContainer(c echo.Context) error {
 	ctx := c.Request().Context()
@@ -81,6 +101,7 @@ func (h *DockerHandler) InspectContainer(c echo.Context) error {
 
 	// Build a clean response with the most useful fields
 	ports := []map[string]interface{}{}
+	if data.NetworkSettings != nil {
 	for containerPort, bindings := range data.NetworkSettings.Ports {
 		for _, b := range bindings {
 			ports = append(ports, map[string]interface{}{
@@ -98,6 +119,7 @@ func (h *DockerHandler) InspectContainer(c echo.Context) error {
 				"host_port":      "",
 			})
 		}
+	}
 	}
 
 	envVars := []string{}
@@ -135,19 +157,32 @@ func (h *DockerHandler) InspectContainer(c echo.Context) error {
 		entrypoint = strings.Join(data.Config.Entrypoint, " ")
 	}
 
+	imageName, workingDir, hostname := "", "", ""
+	if data.Config != nil {
+		imageName = data.Config.Image
+		workingDir = data.Config.WorkingDir
+		hostname = data.Config.Hostname
+	}
+	state, startedAt, finishedAt := "", "", ""
+	if data.State != nil {
+		state = data.State.Status
+		startedAt = data.State.StartedAt
+		finishedAt = data.State.FinishedAt
+	}
+
 	result := map[string]interface{}{
 		"id":            data.ID,
 		"name":          strings.TrimPrefix(data.Name, "/"),
-		"image":         data.Config.Image,
-		"state":         data.State.Status,
-		"started_at":    data.State.StartedAt,
-		"finished_at":   data.State.FinishedAt,
+		"image":         imageName,
+		"state":         state,
+		"started_at":    startedAt,
+		"finished_at":   finishedAt,
 		"restart_count": data.RestartCount,
 		"platform":      data.Platform,
 		"cmd":           cmd,
 		"entrypoint":    entrypoint,
-		"working_dir":   data.Config.WorkingDir,
-		"hostname":      data.Config.Hostname,
+		"working_dir":   workingDir,
+		"hostname":      hostname,
 		"ports":         ports,
 		"env":           envVars,
 		"mounts":        mounts,
@@ -276,6 +311,36 @@ func (h *DockerHandler) RemoveImage(c echo.Context) error {
 	return response.OK(c, map[string]string{"message": "image removed"})
 }
 
+// CheckImageUpdates checks for updates for images used by running containers.
+func (h *DockerHandler) CheckImageUpdates(c echo.Context) error {
+	ctx := c.Request().Context()
+	containers, err := h.Docker.ListContainers(ctx)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+	}
+
+	// Collect unique images from running containers
+	imageSet := make(map[string]bool)
+	for _, ct := range containers {
+		if ct.State == "running" && ct.Image != "" {
+			imageSet[ct.Image] = true
+		}
+	}
+
+	var results []docker.ImageUpdateStatus
+	for img := range imageSet {
+		status, err := h.Docker.CheckImageUpdate(ctx, img)
+		if err != nil {
+			continue
+		}
+		results = append(results, *status)
+	}
+	if results == nil {
+		results = []docker.ImageUpdateStatus{}
+	}
+	return response.OK(c, results)
+}
+
 // ---------- Volumes ----------
 
 // ListVolumes returns all Docker volumes with usage information.
@@ -365,29 +430,46 @@ func (h *DockerHandler) RemoveNetwork(c echo.Context) error {
 	return response.OK(c, map[string]string{"message": "network removed"})
 }
 
-// ---------- Container Creation ----------
-
-// CreateContainer creates a new container. Accepts JSON body matching ContainerCreateConfig.
-func (h *DockerHandler) CreateContainer(c echo.Context) error {
-	var cfg docker.ContainerCreateConfig
-	if err := c.Bind(&cfg); err != nil {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
-	}
-	if cfg.Image == "" {
-		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Image is required")
-	}
-
+// InspectNetwork returns detailed information about a network.
+func (h *DockerHandler) InspectNetwork(c echo.Context) error {
 	ctx := c.Request().Context()
-	id, err := h.Docker.CreateContainer(ctx, cfg)
+	id := c.Param("id")
+	netInfo, err := h.Docker.InspectNetwork(ctx, id)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
 
-	msg := "container created"
-	if cfg.AutoStart {
-		msg = "container created and started"
+	// Build clean response
+	containers := []map[string]string{}
+	for cid, endpoint := range netInfo.Containers {
+		containers = append(containers, map[string]string{
+			"id":           cid[:12],
+			"name":         endpoint.Name,
+			"ipv4_address": endpoint.IPv4Address,
+			"ipv6_address": endpoint.IPv6Address,
+			"mac_address":  endpoint.MacAddress,
+		})
 	}
-	return response.OK(c, map[string]string{"id": id, "message": msg})
+
+	subnet := ""
+	gateway := ""
+	if len(netInfo.IPAM.Config) > 0 {
+		subnet = netInfo.IPAM.Config[0].Subnet
+		gateway = netInfo.IPAM.Config[0].Gateway
+	}
+
+	result := map[string]interface{}{
+		"id":         netInfo.ID,
+		"name":       netInfo.Name,
+		"driver":     netInfo.Driver,
+		"scope":      netInfo.Scope,
+		"internal":   netInfo.Internal,
+		"subnet":     subnet,
+		"gateway":    gateway,
+		"containers": containers,
+		"created":    netInfo.Created,
+	}
+	return response.OK(c, result)
 }
 
 // ---------- Prune ----------

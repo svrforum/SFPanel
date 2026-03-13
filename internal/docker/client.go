@@ -15,7 +15,6 @@ import (
 	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/nat"
 )
 
 // Client wraps the Docker SDK client with convenience methods for
@@ -69,6 +68,16 @@ func (c *Client) RestartContainer(ctx context.Context, id string) error {
 // RemoveContainer forcefully removes a container.
 func (c *Client) RemoveContainer(ctx context.Context, id string) error {
 	return c.cli.ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
+}
+
+// PauseContainer pauses a running container.
+func (c *Client) PauseContainer(ctx context.Context, id string) error {
+	return c.cli.ContainerPause(ctx, id)
+}
+
+// UnpauseContainer unpauses a paused container.
+func (c *Client) UnpauseContainer(ctx context.Context, id string) error {
+	return c.cli.ContainerUnpause(ctx, id)
 }
 
 // ContainerLogs returns a log stream for the given container. The stream
@@ -224,6 +233,51 @@ func (c *Client) RemoveImage(ctx context.Context, id string) error {
 	return err
 }
 
+// InspectImage returns detailed information about an image.
+func (c *Client) InspectImage(ctx context.Context, id string) (types.ImageInspect, error) {
+	resp, _, err := c.cli.ImageInspectWithRaw(ctx, id)
+	return resp, err
+}
+
+// ImageUpdateStatus holds update check result for a single image.
+type ImageUpdateStatus struct {
+	Image     string `json:"image"`
+	CurrentID string `json:"current_id"`
+	HasUpdate bool   `json:"has_update"`
+	Error     string `json:"error,omitempty"`
+}
+
+// CheckImageUpdate checks if a newer version exists by comparing digests.
+func (c *Client) CheckImageUpdate(ctx context.Context, imageRef string) (*ImageUpdateStatus, error) {
+	status := &ImageUpdateStatus{Image: imageRef}
+
+	localInspect, _, err := c.cli.ImageInspectWithRaw(ctx, imageRef)
+	if err != nil {
+		status.Error = fmt.Sprintf("inspect: %v", err)
+		return status, nil
+	}
+	status.CurrentID = localInspect.ID[:12]
+
+	// Use DistributionInspect to get remote digest without pulling
+	distInspect, err := c.cli.DistributionInspect(ctx, imageRef, "")
+	if err != nil {
+		// If distribution inspect fails (auth, private registry), skip
+		status.Error = fmt.Sprintf("registry: %v", err)
+		return status, nil
+	}
+
+	remoteDigest := string(distInspect.Descriptor.Digest)
+	hasMatch := false
+	for _, d := range localInspect.RepoDigests {
+		if strings.Contains(d, remoteDigest) {
+			hasMatch = true
+			break
+		}
+	}
+	status.HasUpdate = !hasMatch
+	return status, nil
+}
+
 // ---------- Volumes ----------
 
 // ListVolumes returns all Docker volumes.
@@ -270,79 +324,9 @@ func (c *Client) RemoveNetwork(ctx context.Context, id string) error {
 	return c.cli.NetworkRemove(ctx, id)
 }
 
-// ---------- Container Creation ----------
-
-// ContainerCreateConfig holds all options for creating a new container.
-type ContainerCreateConfig struct {
-	Name          string            `json:"name"`
-	Image         string            `json:"image"`
-	Cmd           []string          `json:"cmd"`
-	Env           []string          `json:"env"`
-	Ports         map[string]string `json:"ports"`         // "80/tcp" -> "8080"
-	Volumes       map[string]string `json:"volumes"`       // "/host" -> "/container"
-	RestartPolicy string            `json:"restart_policy"` // no, always, unless-stopped, on-failure
-	MemoryLimit   int64             `json:"memory_limit"`
-	CPUQuota      int64             `json:"cpu_quota"`
-	NetworkMode   string            `json:"network_mode"`
-	Hostname      string            `json:"hostname"`
-	Labels        map[string]string `json:"labels"`
-	AutoStart     bool              `json:"auto_start"`
-}
-
-// CreateContainer creates and optionally starts a new container.
-func (c *Client) CreateContainer(ctx context.Context, cfg ContainerCreateConfig) (string, error) {
-	// Port bindings
-	exposedPorts := nat.PortSet{}
-	portBindings := nat.PortMap{}
-	for containerPort, hostPort := range cfg.Ports {
-		cp := nat.Port(containerPort)
-		exposedPorts[cp] = struct{}{}
-		portBindings[cp] = []nat.PortBinding{{HostPort: hostPort}}
-	}
-
-	// Volume binds
-	var binds []string
-	for hostPath, containerPath := range cfg.Volumes {
-		binds = append(binds, fmt.Sprintf("%s:%s", hostPath, containerPath))
-	}
-
-	// Restart policy
-	restartPolicy := container.RestartPolicy{Name: container.RestartPolicyMode(cfg.RestartPolicy)}
-
-	containerCfg := &container.Config{
-		Image:        cfg.Image,
-		Cmd:          cfg.Cmd,
-		Env:          cfg.Env,
-		ExposedPorts: exposedPorts,
-		Hostname:     cfg.Hostname,
-		Labels:       cfg.Labels,
-	}
-
-	hostCfg := &container.HostConfig{
-		PortBindings:  portBindings,
-		Binds:         binds,
-		RestartPolicy: restartPolicy,
-		NetworkMode:   container.NetworkMode(cfg.NetworkMode),
-	}
-	if cfg.MemoryLimit > 0 {
-		hostCfg.Resources.Memory = cfg.MemoryLimit
-	}
-	if cfg.CPUQuota > 0 {
-		hostCfg.Resources.CPUQuota = cfg.CPUQuota
-	}
-
-	resp, err := c.cli.ContainerCreate(ctx, containerCfg, hostCfg, nil, nil, cfg.Name)
-	if err != nil {
-		return "", fmt.Errorf("create container: %w", err)
-	}
-
-	if cfg.AutoStart {
-		if err := c.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-			return resp.ID, fmt.Errorf("start container: %w", err)
-		}
-	}
-
-	return resp.ID, nil
+// InspectNetwork returns detailed information about a network.
+func (c *Client) InspectNetwork(ctx context.Context, id string) (network.Inspect, error) {
+	return c.cli.NetworkInspect(ctx, id, network.InspectOptions{})
 }
 
 // ---------- Prune ----------

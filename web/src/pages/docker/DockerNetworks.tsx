@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { Trash2, RefreshCw, Plus, Sparkles, Check } from 'lucide-react'
+import { Trash2, RefreshCw, Plus, Sparkles, Check, Info } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import type { DockerNetwork } from '@/types/api'
+import type { DockerNetwork, NetworkInspectDetail } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -42,6 +42,9 @@ export default function DockerNetworks() {
   const [deleteTarget, setDeleteTarget] = useState<DockerNetwork | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [pruning, setPruning] = useState(false)
+  const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false)
+  const [inspectTarget, setInspectTarget] = useState<NetworkInspectDetail | null>(null)
+  const [inspecting, setInspecting] = useState(false)
 
   const fetchNetworks = useCallback(async () => {
     try {
@@ -94,6 +97,18 @@ export default function DockerNetworks() {
     }
   }
 
+  const handleInspect = async (id: string) => {
+    setInspecting(true)
+    try {
+      const detail = await api.inspectNetwork(id)
+      setInspectTarget(detail)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.networks.inspectFailed'))
+    } finally {
+      setInspecting(false)
+    }
+  }
+
   const isPredefined = (name: string): boolean => {
     return PREDEFINED_NETWORKS.includes(name.toLowerCase())
   }
@@ -105,15 +120,7 @@ export default function DockerNetworks() {
           {t('docker.networks.count', { count: networks.length })}
         </span>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={async () => {
-            setPruning(true)
-            try {
-              const r = await api.pruneNetworks()
-              toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
-              fetchNetworks()
-            } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Prune failed') }
-            finally { setPruning(false) }
-          }} disabled={pruning}>
+          <Button variant="outline" size="sm" onClick={() => setPruneConfirmOpen(true)} disabled={pruning}>
             <Sparkles className={pruning ? 'animate-spin' : ''} />
             {t('docker.sidebar.prune')}
           </Button>
@@ -173,15 +180,26 @@ export default function DockerNetworks() {
               <TableCell className="text-muted-foreground">{n.Driver}</TableCell>
               <TableCell className="text-muted-foreground">{n.Scope}</TableCell>
               <TableCell className="text-right">
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  title={isPredefined(n.Name) ? t('docker.networks.cannotDeletePredefined') : t('common.delete')}
-                  disabled={isPredefined(n.Name)}
-                  onClick={() => setDeleteTarget(n)}
-                >
-                  <Trash2 />
-                </Button>
+                <div className="flex items-center justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    title="Inspect"
+                    disabled={inspecting}
+                    onClick={() => handleInspect(n.Id)}
+                  >
+                    <Info />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    title={isPredefined(n.Name) ? t('docker.networks.cannotDeletePredefined') : t('common.delete')}
+                    disabled={isPredefined(n.Name)}
+                    onClick={() => setDeleteTarget(n)}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
           ))}
@@ -231,6 +249,77 @@ export default function DockerNetworks() {
             </Button>
             <Button onClick={handleCreate} disabled={creating || !newName.trim()}>
               {creating ? t('common.creating') : t('common.create')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Network inspect dialog */}
+      <Dialog open={!!inspectTarget} onOpenChange={(open) => !open && setInspectTarget(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{inspectTarget?.name}</DialogTitle>
+            <DialogDescription>{inspectTarget?.driver} · {inspectTarget?.scope}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Subnet</p>
+                <p className="text-[13px] font-mono">{inspectTarget?.subnet || '-'}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Gateway</p>
+                <p className="text-[13px] font-mono">{inspectTarget?.gateway || '-'}</p>
+              </div>
+            </div>
+            {inspectTarget?.containers && inspectTarget.containers.length > 0 && (
+              <div>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">{t('docker.networks.connectedContainers')}</p>
+                <div className="bg-card rounded-xl card-shadow overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-border/50">
+                        <TableHead className="text-[11px]">{t('common.name')}</TableHead>
+                        <TableHead className="text-[11px]">IPv4</TableHead>
+                        <TableHead className="text-[11px]">MAC</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {inspectTarget.containers.map(c => (
+                        <TableRow key={c.id}>
+                          <TableCell className="text-[13px] font-medium">{c.name}</TableCell>
+                          <TableCell className="text-[13px] font-mono text-muted-foreground">{c.ipv4_address || '-'}</TableCell>
+                          <TableCell className="text-[13px] font-mono text-muted-foreground">{c.mac_address || '-'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Prune confirmation dialog */}
+      <Dialog open={pruneConfirmOpen} onOpenChange={setPruneConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('docker.prune.title')}</DialogTitle>
+            <DialogDescription>{t('docker.prune.networksConfirm')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPruneConfirmOpen(false)}>{t('common.cancel')}</Button>
+            <Button variant="destructive" disabled={pruning} onClick={async () => {
+              setPruning(true)
+              try {
+                const r = await api.pruneNetworks()
+                toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
+                fetchNetworks()
+              } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Prune failed') }
+              finally { setPruning(false); setPruneConfirmOpen(false) }
+            }}>
+              {pruning ? t('docker.prune.pruning') : t('docker.prune.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

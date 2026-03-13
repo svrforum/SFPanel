@@ -44,7 +44,7 @@ interface FirewallRule {
   v6: boolean
 }
 
-interface NewRuleForm {
+interface RuleForm {
   action: string
   port: string
   protocol: string
@@ -52,12 +52,119 @@ interface NewRuleForm {
   comment: string
 }
 
-const initialRuleForm: NewRuleForm = {
+const initialRuleForm: RuleForm = {
   action: 'allow',
   port: '',
   protocol: 'tcp',
   from: '',
   comment: '',
+}
+
+// Port validation: number, range (8000:8080), or service name
+const PORT_REGEX = /^[a-zA-Z0-9_-]+(:[a-zA-Z0-9_-]+)?$/
+// IP/CIDR validation (basic)
+const IP_CIDR_REGEX = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/
+
+function validatePort(port: string): boolean {
+  return PORT_REGEX.test(port.trim())
+}
+
+function validateFrom(from: string): boolean {
+  if (!from || from === 'any') return true
+  return IP_CIDR_REGEX.test(from.trim())
+}
+
+// Shared form fields component
+function RuleFormFields({
+  form,
+  setForm,
+  t,
+}: {
+  form: RuleForm
+  setForm: (f: RuleForm) => void
+  t: (key: string) => string
+}) {
+  const portError = form.port.trim() && !validatePort(form.port)
+  const fromError = form.from.trim() && !validateFrom(form.from)
+
+  return (
+    <div className="space-y-4">
+      {/* Action */}
+      <div className="space-y-1.5">
+        <label htmlFor="rule-action" className="text-[13px] font-medium">{t('firewall.rules.action')}</label>
+        <Select value={form.action} onValueChange={(v) => setForm({ ...form, action: v })}>
+          <SelectTrigger id="rule-action" className="w-full rounded-xl">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="allow">{t('firewall.rules.allow')}</SelectItem>
+            <SelectItem value="deny">{t('firewall.rules.deny')}</SelectItem>
+            <SelectItem value="reject">{t('firewall.rules.reject')}</SelectItem>
+            <SelectItem value="limit">{t('firewall.rules.limit')}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Port */}
+      <div className="space-y-1.5">
+        <label htmlFor="rule-port" className="text-[13px] font-medium">{t('firewall.rules.port')}</label>
+        <Input
+          id="rule-port"
+          value={form.port}
+          onChange={(e) => setForm({ ...form, port: e.target.value })}
+          placeholder="80, 443, 8000:8080"
+          className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${portError ? 'ring-1 ring-[#f04452]' : ''}`}
+        />
+        {portError && (
+          <p className="text-[11px] text-[#f04452]">{t('firewall.rules.invalidPort')}</p>
+        )}
+      </div>
+
+      {/* Protocol */}
+      <div className="space-y-1.5">
+        <label htmlFor="rule-protocol" className="text-[13px] font-medium">{t('firewall.rules.protocol')}</label>
+        <Select value={form.protocol} onValueChange={(v) => setForm({ ...form, protocol: v })}>
+          <SelectTrigger id="rule-protocol" className="w-full rounded-xl">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="tcp">{t('firewall.rules.tcp')}</SelectItem>
+            <SelectItem value="udp">{t('firewall.rules.udp')}</SelectItem>
+            <SelectItem value="any">{t('firewall.rules.both')}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Source IP */}
+      <div className="space-y-1.5">
+        <label htmlFor="rule-from" className="text-[13px] font-medium">{t('firewall.rules.fromIP')}</label>
+        <Input
+          id="rule-from"
+          value={form.from}
+          onChange={(e) => setForm({ ...form, from: e.target.value })}
+          placeholder={t('firewall.rules.any')}
+          className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${fromError ? 'ring-1 ring-[#f04452]' : ''}`}
+        />
+        {fromError ? (
+          <p className="text-[11px] text-[#f04452]">{t('firewall.rules.invalidIP')}</p>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
+        )}
+      </div>
+
+      {/* Comment */}
+      <div className="space-y-1.5">
+        <label htmlFor="rule-comment" className="text-[13px] font-medium">{t('firewall.rules.comment')}</label>
+        <Input
+          id="rule-comment"
+          value={form.comment}
+          onChange={(e) => setForm({ ...form, comment: e.target.value })}
+          placeholder=""
+          className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+        />
+      </div>
+    </div>
+  )
 }
 
 export default function FirewallRules() {
@@ -76,7 +183,7 @@ export default function FirewallRules() {
 
   // Add rule dialog
   const [addOpen, setAddOpen] = useState(false)
-  const [addForm, setAddForm] = useState<NewRuleForm>(initialRuleForm)
+  const [addForm, setAddForm] = useState<RuleForm>(initialRuleForm)
   const [adding, setAdding] = useState(false)
 
   // Delete confirmation
@@ -85,7 +192,7 @@ export default function FirewallRules() {
 
   // Edit rule (delete + re-add)
   const [editTarget, setEditTarget] = useState<FirewallRule | null>(null)
-  const [editForm, setEditForm] = useState<NewRuleForm>(initialRuleForm)
+  const [editForm, setEditForm] = useState<RuleForm>(initialRuleForm)
   const [editing, setEditing] = useState(false)
 
   const fetchStatus = useCallback(async () => {
@@ -140,8 +247,14 @@ export default function FirewallRules() {
     }
   }
 
+  const isFormValid = (form: RuleForm): boolean => {
+    if (!form.port.trim() || !validatePort(form.port)) return false
+    if (form.from.trim() && !validateFrom(form.from)) return false
+    return true
+  }
+
   const handleAddRule = async () => {
-    if (!addForm.port.trim()) return
+    if (!isFormValid(addForm)) return
     setAdding(true)
     try {
       await api.addFirewallRule({
@@ -179,9 +292,10 @@ export default function FirewallRules() {
   }
 
   const parseRuleTo = (to: string): { port: string; protocol: string } => {
-    // e.g. "80/tcp", "443/tcp", "8000:8080/tcp", "53/udp", "Anywhere"
     const match = to.match(/^(.+)\/(tcp|udp)$/i)
     if (match) return { port: match[1], protocol: match[2].toLowerCase() }
+    // "Anywhere" or other non-port values → empty port so user must re-enter
+    if (!/^\d/.test(to)) return { port: '', protocol: 'tcp' }
     return { port: to, protocol: 'tcp' }
   }
 
@@ -207,25 +321,25 @@ export default function FirewallRules() {
   }
 
   const handleEditRule = async () => {
-    if (!editTarget || !editForm.port.trim()) return
+    if (!editTarget || !isFormValid(editForm)) return
     setEditing(true)
     try {
-      // Step 1: Add new rule first (safe — old rule still exists if this fails)
-      await api.addFirewallRule({
-        action: editForm.action,
-        port: editForm.port.trim(),
-        protocol: editForm.protocol,
-        from: editForm.from.trim() || 'any',
-        to: '',
-        comment: editForm.comment.trim(),
-      })
-      // Step 2: Delete old rule only after new rule was added successfully
-      // Rule numbers may have shifted after add, so refresh and find the old rule
+      // Step 1: Delete old rule first
+      await api.deleteFirewallRule(editTarget.number)
+      // Step 2: Add new rule
       try {
-        await api.deleteFirewallRule(editTarget.number)
-      } catch {
-        // If delete fails, the new rule is already added — just warn
-        toast.warning(t('firewall.rules.editDeleteFailed'))
+        await api.addFirewallRule({
+          action: editForm.action,
+          port: editForm.port.trim(),
+          protocol: editForm.protocol,
+          from: editForm.from.trim() || 'any',
+          to: '',
+          comment: editForm.comment.trim(),
+        })
+      } catch (addErr: unknown) {
+        // Delete succeeded but add failed — warn user
+        const message = addErr instanceof Error ? addErr.message : t('common.error')
+        toast.error(t('firewall.rules.editAddFailed') + ': ' + message)
       }
       setEditTarget(null)
       await fetchRules()
@@ -270,11 +384,11 @@ export default function FirewallRules() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-primary/10">
-              <Shield className="h-5 w-5 text-primary" />
+              <Shield className="h-5 w-5 text-primary" aria-hidden="true" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-[15px] font-semibold">{t('firewall.status.title')}</span>
+                <h3 className="text-[15px] font-semibold">{t('firewall.status.title')}</h3>
                 {status && (
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
                     status.active
@@ -345,7 +459,7 @@ export default function FirewallRules() {
             </TableHeader>
             <TableBody>
               {rules.map((rule) => (
-                <TableRow key={`${rule.number}-${rule.v6 ? 'v6' : 'v4'}`} className="group">
+                <TableRow key={`${rule.number}-${rule.to}-${rule.action}-${rule.from}`} className="group">
                   <TableCell className="font-mono text-xs">{rule.number}</TableCell>
                   <TableCell className="text-[13px] font-mono">{rule.to}</TableCell>
                   <TableCell>
@@ -439,7 +553,12 @@ export default function FirewallRules() {
       </Dialog>
 
       {/* Edit Rule Dialog */}
-      <Dialog open={!!editTarget} onOpenChange={(open) => { if (!editing && !open) setEditTarget(null) }}>
+      <Dialog open={!!editTarget} onOpenChange={(open) => {
+        if (!editing && !open) {
+          setEditTarget(null)
+          setEditForm(initialRuleForm)
+        }
+      }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('firewall.rules.editRule')}</DialogTitle>
@@ -447,79 +566,14 @@ export default function FirewallRules() {
               {t('firewall.rules.editDescription', { number: editTarget?.number })}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            {/* Action */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.action')}</label>
-              <Select value={editForm.action} onValueChange={(v) => setEditForm({ ...editForm, action: v })}>
-                <SelectTrigger className="w-full rounded-xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="allow">{t('firewall.rules.allow')}</SelectItem>
-                  <SelectItem value="deny">{t('firewall.rules.deny')}</SelectItem>
-                  <SelectItem value="reject">{t('firewall.rules.reject')}</SelectItem>
-                  <SelectItem value="limit">{t('firewall.rules.limit')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Port */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.port')}</label>
-              <Input
-                value={editForm.port}
-                onChange={(e) => setEditForm({ ...editForm, port: e.target.value })}
-                placeholder="80, 443, 8000:8080"
-                className="rounded-xl text-[13px]"
-              />
-            </div>
-
-            {/* Protocol */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.protocol')}</label>
-              <Select value={editForm.protocol} onValueChange={(v) => setEditForm({ ...editForm, protocol: v })}>
-                <SelectTrigger className="w-full rounded-xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="tcp">{t('firewall.rules.tcp')}</SelectItem>
-                  <SelectItem value="udp">{t('firewall.rules.udp')}</SelectItem>
-                  <SelectItem value="any">{t('firewall.rules.both')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Source IP */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.fromIP')}</label>
-              <Input
-                value={editForm.from}
-                onChange={(e) => setEditForm({ ...editForm, from: e.target.value })}
-                placeholder={t('firewall.rules.any')}
-                className="rounded-xl text-[13px]"
-              />
-              <p className="text-[11px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
-            </div>
-
-            {/* Comment */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.comment')}</label>
-              <Input
-                value={editForm.comment}
-                onChange={(e) => setEditForm({ ...editForm, comment: e.target.value })}
-                placeholder=""
-                className="rounded-xl text-[13px]"
-              />
-            </div>
-          </div>
+          <RuleFormFields form={editForm} setForm={setEditForm} t={t} />
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setEditTarget(null)} disabled={editing} className="rounded-xl">
               {t('common.cancel')}
             </Button>
             <Button
               onClick={handleEditRule}
-              disabled={editing || !editForm.port.trim()}
+              disabled={editing || !isFormValid(editForm)}
               className="rounded-xl"
             >
               {editing && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -530,85 +584,25 @@ export default function FirewallRules() {
       </Dialog>
 
       {/* Add Rule Dialog */}
-      <Dialog open={addOpen} onOpenChange={(open) => { if (!adding) setAddOpen(open) }}>
+      <Dialog open={addOpen} onOpenChange={(open) => {
+        if (!adding) {
+          setAddOpen(open)
+          if (!open) setAddForm(initialRuleForm)
+        }
+      }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('firewall.rules.addRule')}</DialogTitle>
             <DialogDescription>{t('firewall.rules.title')}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            {/* Action */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.action')}</label>
-              <Select value={addForm.action} onValueChange={(v) => setAddForm({ ...addForm, action: v })}>
-                <SelectTrigger className="w-full rounded-xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="allow">{t('firewall.rules.allow')}</SelectItem>
-                  <SelectItem value="deny">{t('firewall.rules.deny')}</SelectItem>
-                  <SelectItem value="reject">{t('firewall.rules.reject')}</SelectItem>
-                  <SelectItem value="limit">{t('firewall.rules.limit')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Port */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.port')}</label>
-              <Input
-                value={addForm.port}
-                onChange={(e) => setAddForm({ ...addForm, port: e.target.value })}
-                placeholder="80, 443, 8000:8080"
-                className="rounded-xl text-[13px]"
-              />
-            </div>
-
-            {/* Protocol */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.protocol')}</label>
-              <Select value={addForm.protocol} onValueChange={(v) => setAddForm({ ...addForm, protocol: v })}>
-                <SelectTrigger className="w-full rounded-xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="tcp">{t('firewall.rules.tcp')}</SelectItem>
-                  <SelectItem value="udp">{t('firewall.rules.udp')}</SelectItem>
-                  <SelectItem value="any">{t('firewall.rules.both')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Source IP */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.fromIP')}</label>
-              <Input
-                value={addForm.from}
-                onChange={(e) => setAddForm({ ...addForm, from: e.target.value })}
-                placeholder={t('firewall.rules.any')}
-                className="rounded-xl text-[13px]"
-              />
-              <p className="text-[11px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
-            </div>
-
-            {/* Comment */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium">{t('firewall.rules.comment')}</label>
-              <Input
-                value={addForm.comment}
-                onChange={(e) => setAddForm({ ...addForm, comment: e.target.value })}
-                placeholder=""
-                className="rounded-xl text-[13px]"
-              />
-            </div>
-          </div>
+          <RuleFormFields form={addForm} setForm={setAddForm} t={t} />
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setAddOpen(false)} disabled={adding} className="rounded-xl">
               {t('common.cancel')}
             </Button>
             <Button
               onClick={handleAddRule}
-              disabled={adding || !addForm.port.trim()}
+              disabled={adding || !isFormValid(addForm)}
               className="rounded-xl"
             >
               {adding && <Loader2 className="h-4 w-4 animate-spin" />}

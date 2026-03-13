@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +19,12 @@ import (
 
 // maxReadSize is the maximum file size (5 MB) that ReadFile will return.
 const maxReadSize = 5 * 1024 * 1024
+
+// maxWriteSize is the maximum body size (10 MB) for WriteFile.
+const maxWriteSize = 10 * 1024 * 1024
+
+// maxDownloadSize is the maximum file size (2 GB) for DownloadFile.
+const maxDownloadSize = 2 * 1024 * 1024 * 1024
 
 
 // criticalPaths are system directories that must never be deleted.
@@ -77,12 +84,16 @@ func validatePathForWrite(p string) error {
 	if err := validatePath(p); err != nil {
 		return err
 	}
-	realPath, err := filepath.EvalSymlinks(filepath.Dir(p))
-	if err == nil {
-		resolved := filepath.Join(realPath, filepath.Base(p))
-		if isCriticalPath(resolved) {
-			return fmt.Errorf("access to critical system path is not allowed")
-		}
+	realDir, err := filepath.EvalSymlinks(filepath.Dir(p))
+	if err != nil {
+		return fmt.Errorf("cannot resolve parent directory: %w", err)
+	}
+	resolved := filepath.Join(realDir, filepath.Base(p))
+	if isCriticalPath(resolved) {
+		return fmt.Errorf("access to critical system path is not allowed")
+	}
+	if isCriticalPath(realDir) {
+		return fmt.Errorf("writing inside critical system directory is not allowed")
 	}
 	return nil
 }
@@ -201,6 +212,8 @@ func (h *FilesHandler) ReadFile(c echo.Context) error {
 // WriteFile writes (or overwrites) a file with the provided content.
 // POST /files/write  JSON body: { path: string, content: string }
 func (h *FilesHandler) WriteFile(c echo.Context) error {
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxWriteSize)
+
 	var req struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -229,14 +242,14 @@ func (h *FilesHandler) WriteFile(c echo.Context) error {
 	if info, err := os.Stat(req.Path); err == nil {
 		fileMode = info.Mode().Perm()
 
-		// Create .bak backup of existing file.
+		// Create .bak backup of existing file (preserve original permissions).
 		backupPath := req.Path + ".bak"
 		_ = os.Remove(backupPath)
 		if err := os.Rename(req.Path, backupPath); err != nil {
 			// Cross-device fallback: copy content.
 			data, readErr := os.ReadFile(req.Path)
 			if readErr == nil {
-				_ = os.WriteFile(backupPath, data, 0644)
+				_ = os.WriteFile(backupPath, data, fileMode)
 			}
 		}
 	}
@@ -272,7 +285,7 @@ func (h *FilesHandler) MkDir(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
-	if err := validatePath(req.Path); err != nil {
+	if err := validatePathForWrite(req.Path); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
@@ -418,9 +431,17 @@ func (h *FilesHandler) DownloadFile(c echo.Context) error {
 	if info.IsDir() {
 		return response.Fail(c, http.StatusBadRequest, response.ErrIsDirectory, "Cannot download a directory")
 	}
+	if !info.Mode().IsRegular() {
+		return response.Fail(c, http.StatusBadRequest, response.ErrFileError, "Cannot download special files")
+	}
+	if info.Size() > maxDownloadSize {
+		return response.Fail(c, http.StatusBadRequest, response.ErrFileTooLarge,
+			fmt.Sprintf("File size %d bytes exceeds the download limit", info.Size()))
+	}
 
+	encoded := url.PathEscape(filepath.Base(filePath))
 	c.Response().Header().Set("Content-Disposition",
-		fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(filePath)))
+		fmt.Sprintf(`attachment; filename*=UTF-8''%s`, encoded))
 
 	return c.File(filePath)
 }

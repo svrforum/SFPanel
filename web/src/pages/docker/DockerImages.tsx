@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { Trash2, RefreshCw, Download, Sparkles, Check } from 'lucide-react'
+import { Trash2, RefreshCw, Download, Sparkles, Check, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes, formatDate } from '@/lib/utils'
 import DockerHubSearch from '@/components/DockerHubSearch'
-import type { DockerImage } from '@/types/api'
+import type { DockerImage, ImageUpdateStatus } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
@@ -38,8 +38,11 @@ export default function DockerImages() {
   const [pulling, setPulling] = useState(false)
   const [pullProgress, setPullProgress] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DockerImage | null>(null)
-  const [actionLoading, setActionLoading] = useState(false)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [pruning, setPruning] = useState(false)
+  const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false)
+  const [updateResults, setUpdateResults] = useState<ImageUpdateStatus[]>([])
+  const [checkingUpdates, setCheckingUpdates] = useState(false)
 
   const fetchImages = useCallback(async () => {
     try {
@@ -84,7 +87,7 @@ export default function DockerImages() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return
-    setActionLoading(true)
+    setActionLoading(deleteTarget.Id)
     try {
       await api.removeImage(deleteTarget.Id)
       toast.success(t('docker.images.deleted'))
@@ -94,7 +97,7 @@ export default function DockerImages() {
       const message = err instanceof Error ? err.message : t('docker.images.deleteFailed')
       toast.error(message)
     } finally {
-      setActionLoading(false)
+      setActionLoading(null)
     }
   }
 
@@ -105,6 +108,28 @@ export default function DockerImages() {
     return '<none>:<none>'
   }
 
+  const handleCheckUpdates = async () => {
+    setCheckingUpdates(true)
+    try {
+      const results = await api.checkImageUpdates()
+      setUpdateResults(results)
+      const updateCount = results.filter(r => r.has_update).length
+      if (updateCount > 0) {
+        toast.info(t('docker.images.updatesFound', { count: updateCount }))
+      } else {
+        toast.success(t('docker.images.upToDate'))
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.images.updateCheckFailed'))
+    } finally {
+      setCheckingUpdates(false)
+    }
+  }
+
+  const getUpdateStatus = (imageName: string) => {
+    return updateResults.find(r => r.image === imageName)
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -112,17 +137,14 @@ export default function DockerImages() {
           {t('docker.images.count', { count: images.length })}
         </span>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={async () => {
-            setPruning(true)
-            try {
-              const r = await api.pruneImages()
-              toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
-              fetchImages()
-            } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Prune failed') }
-            finally { setPruning(false) }
-          }} disabled={pruning}>
+          <Button variant="outline" size="sm" onClick={() => setPruneConfirmOpen(true)} disabled={pruning}>
             <Sparkles className={pruning ? 'animate-spin' : ''} />
             {t('docker.sidebar.prune')}
+          </Button>
+          <Button variant="outline" size="sm" className="rounded-xl"
+            onClick={handleCheckUpdates} disabled={checkingUpdates}>
+            {checkingUpdates ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {t('docker.images.checkUpdates')}
           </Button>
           <Button variant="outline" size="sm" onClick={fetchImages} disabled={loading}>
             <RefreshCw className={loading ? 'animate-spin' : ''} />
@@ -167,27 +189,34 @@ export default function DockerImages() {
                 {shortId(img.Id)}
               </TableCell>
               <TableCell>
-                {img.in_use ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]" title={img.used_by.join(', ')}>
-                    {t('docker.images.inUse')}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
-                    {t('docker.images.unused')}
-                  </span>
-                )}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {img.in_use ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]" title={img.used_by.join(', ')}>
+                      {t('docker.images.inUse')}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
+                      {t('docker.images.unused')}
+                    </span>
+                  )}
+                  {getUpdateStatus(img.RepoTags?.[0] || '')?.has_update && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                      {t('docker.images.updateAvailable')}
+                    </span>
+                  )}
+                </div>
               </TableCell>
               <TableCell className="text-muted-foreground">{formatBytes(img.Size)}</TableCell>
               <TableCell className="text-muted-foreground">{formatDate(img.Created)}</TableCell>
               <TableCell className="text-right">
                 <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  title={t('common.delete')}
-                  onClick={() => setDeleteTarget(img)}
-                >
-                  <Trash2 />
-                </Button>
+                    variant="ghost"
+                    size="icon-xs"
+                    title={t('common.delete')}
+                    onClick={() => setDeleteTarget(img)}
+                  >
+                    <Trash2 />
+                  </Button>
               </TableCell>
             </TableRow>
           ))}
@@ -228,6 +257,30 @@ export default function DockerImages() {
         </DialogContent>
       </Dialog>
 
+      {/* Prune confirmation dialog */}
+      <Dialog open={pruneConfirmOpen} onOpenChange={setPruneConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('docker.prune.title')}</DialogTitle>
+            <DialogDescription>{t('docker.prune.imagesConfirm')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPruneConfirmOpen(false)}>{t('common.cancel')}</Button>
+            <Button variant="destructive" disabled={pruning} onClick={async () => {
+              setPruning(true)
+              try {
+                const r = await api.pruneImages()
+                toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
+                fetchImages()
+              } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Prune failed') }
+              finally { setPruning(false); setPruneConfirmOpen(false) }
+            }}>
+              {pruning ? t('docker.prune.pruning') : t('docker.prune.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete confirmation dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
@@ -245,7 +298,7 @@ export default function DockerImages() {
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={actionLoading}>
+            <Button variant="destructive" onClick={handleDelete} disabled={!!actionLoading}>
               {t('common.delete')}
             </Button>
           </DialogFooter>

@@ -28,6 +28,7 @@
 | `/setup` | Setup | X | 없음 (독립) | 초기 관리자 계정 생성 (첫 실행 시) |
 | `/` | - | O | Layout | `/dashboard`로 리다이렉트 |
 | `/dashboard` | Dashboard | O | Layout | 시스템 대시보드 (실시간 메트릭) |
+| `/appstore` | AppStore | O | Layout | 앱스토어 (원클릭 Docker 앱 설치) |
 | `/docker` | Docker | O | Layout | Docker 관리 (사이드 탭 + Outlet 구조) |
 | `/docker/stacks` | DockerStacks | O | Docker | Docker Compose 스택 목록 (기본 서브라우트) |
 | `/docker/stacks/:name` | DockerStacks | O | Docker | 스택 상세 (서비스 목록, YAML 편집, 로그, 셸) |
@@ -197,6 +198,19 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 네트워크 삭제 확인 다이얼로그
 - **사용 API**: `api.getNetworks()`, `api.createNetwork()`, `api.removeNetwork()`
 - **사용 컴포넌트**: Table, Dialog, Button, Input, Label (shadcn/ui)
+
+### AppStore
+- **파일**: `web/src/pages/AppStore.tsx`
+- **기능**: 앱스토어 (원클릭 Docker Compose 앱 설치)
+  - 카테고리 필터 필(pill) — 전체/모니터링/보안/미디어/클라우드/개발/인프라 등
+  - 앱 검색 (이름, 설명 기반)
+  - 앱 그리드 (3열) — 앱 이름, 설명, 포트, 설치 상태 표시
+  - 설치 다이얼로그: 동적 환경변수 폼 (앱별 env 설정), generate 타입은 자동 생성된 비밀번호 표시
+  - 설치된 앱은 "설치됨" 상태 필 표시 + Stacks 바로가기 링크
+  - 캐시 갱신 버튼
+- **사용 API**: `api.getAppStoreCategories()`, `api.getAppStoreApps()`, `api.getAppStoreAppDetail()`, `api.installAppStoreApp()`, `api.getInstalledApps()`, `api.refreshAppStore()`
+- **사용 컴포넌트**: Dialog, Button, Input, Label (shadcn/ui)
+- **사이드바 위치**: Docker 다음, 아이콘: `Store` (lucide-react)
 
 ### Files
 - **파일**: `web/src/pages/Files.tsx`
@@ -638,6 +652,16 @@ interface UseWebSocketOptions {
 | `disableFail2banJail(name)` | POST | `/fail2ban/jails/{name}/disable` | `{ message }` | jail 비활성화 |
 | `unbanFail2banIP(jail, ip)` | POST | `/fail2ban/jails/{jail}/unban` | `{ message }` | IP 차단 해제 |
 
+### 앱스토어 (App Store)
+| 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
+|--------|------|------|-----------|------|
+| `getAppStoreCategories()` | GET | `/appstore/categories` | `AppStoreCategory[]` | 카테고리 목록 |
+| `getAppStoreApps(category?)` | GET | `/appstore/apps` | `AppStoreApp[]` | 앱 목록 (카테고리 필터) |
+| `getAppStoreAppDetail(id)` | GET | `/appstore/apps/{id}` | `{ app: AppStoreApp; compose: string; installed: boolean }` | 앱 상세 + Compose YAML |
+| `installAppStoreApp(id, env)` | POST | `/appstore/apps/{id}/install` | `{ message: string; id: string; output: string }` | 앱 설치 |
+| `getInstalledApps()` | GET | `/appstore/installed` | `InstalledApp[]` | 설치된 앱 목록 |
+| `refreshAppStore()` | POST | `/appstore/refresh` | `{ message: string; apps: number; categories: number }` | 캐시 갱신 |
+
 ---
 
 ## 타입 정의
@@ -824,6 +848,29 @@ interface Fail2banJail {
 }
 ```
 
+### 앱스토어 (App Store)
+```typescript
+interface AppStoreCategory {
+  id: string; name: { ko: string; en: string }; icon: string
+}
+interface AppStoreEnvVar {
+  key: string; label: { ko: string; en: string }; type: string;
+  default: string; required: boolean; generate: string
+}
+interface AppStoreApp {
+  id: string; name: string;
+  description: { ko: string; en: string };
+  category: string; version: string;
+  website: string; source: string;
+  ports: string[]; env: AppStoreEnvVar[];
+  installed: boolean
+}
+interface InstalledApp {
+  id: string;
+  details: { version: string; installed_at: string }
+}
+```
+
 ---
 
 ## 유틸리티
@@ -871,7 +918,7 @@ interface Fail2banJail {
 | 네임스페이스 | 설명 | 주요 키 |
 |-------------|------|---------|
 | `common` | 공통 UI 텍스트 | refresh, cancel, delete, create, save, loading, name, status, actions, created, edit, saving, creating |
-| `layout` | 레이아웃/네비게이션 | brand, tagline, nav.dashboard/docker/files/cron/logs/processes/network/disk/firewall/packages/terminal/settings, logout, collapse, expand |
+| `layout` | 레이아웃/네비게이션 | brand, tagline, nav.dashboard/docker/appstore/files/cron/logs/processes/network/disk/firewall/packages/terminal/settings, logout, collapse, expand |
 | `login` | 로그인 페이지 | title, subtitle, username, password, totpCode, signIn, signingIn, totpRequired |
 | `setup` | 초기 셋업 | subtitle, username, password, confirmPassword, createAdmin, passwordMinLength, passwordMismatch |
 | `dashboard` | 대시보드 | title, subtitle, live, disconnected, hostInfo, hostname, os, platform, kernel, uptime, cpuCores, cpuUsage, memory, disk, network, chartTitle, topProcesses, dockerSummary, recentLogs, quickActions, sent, received |
@@ -894,6 +941,7 @@ interface Fail2banJail {
 | `packages` | 패키지 관리 | title, subtitle, dockerStatus, dockerDescription, installDocker, systemUpdates, checkForUpdates, upgradeAll, searchAndInstall, search, install, remove, operationComplete, operationRunning |
 | `firewall` | 방화벽 관리 | title, tabs.rules/ports/fail2ban, status, enable, disable, rules, addRule, deleteRule, ports, action, port, protocol, from, to, comment, listeningPorts |
 | `firewall.fail2ban` | Fail2ban | status, install, jails, enable, disable, unban, bannedIPs, maxRetry, banTime, findTime |
+| `appstore` | 앱스토어 | title, subtitle, searchPlaceholder, allCategories, install, installed, installing, installTitle, installDescription, envVars, refresh, refreshing, noApps, port, website, viewStack, generated |
 
 ---
 

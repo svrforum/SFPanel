@@ -286,7 +286,7 @@ func buildUFWAddArgs(req AddRuleRequest) []string {
 	}
 
 	// Determine if we need 'to any port' or just the port
-	if req.From != "" && req.From != "any" || req.To != "" && req.To != "any" {
+	if (req.From != "" && req.From != "any") || (req.To != "" && req.To != "any") {
 		args = append(args, "port", req.Port)
 	} else if req.Protocol != "any" {
 		args = append(args, "to", "any", "port", req.Port)

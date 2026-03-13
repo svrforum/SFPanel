@@ -6,12 +6,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/shirou/gopsutil/v4/process"
+	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
 type ProcessInfo struct {
@@ -26,9 +27,53 @@ type ProcessInfo struct {
 
 type ProcessesHandler struct{}
 
+// processCache holds a cached snapshot of process data so that the expensive
+// 200ms CPU measurement is not repeated on every HTTP request.
+var processCache struct {
+	sync.RWMutex
+	data      []ProcessInfo
+	updatedAt time.Time
+}
+
+const processCacheTTL = 3 * time.Second
+
+// cachedProcesses returns the cached process list, refreshing it when stale.
+func cachedProcesses() ([]ProcessInfo, error) {
+	processCache.RLock()
+	if time.Since(processCache.updatedAt) < processCacheTTL && processCache.data != nil {
+		result := make([]ProcessInfo, len(processCache.data))
+		copy(result, processCache.data)
+		processCache.RUnlock()
+		return result, nil
+	}
+	processCache.RUnlock()
+
+	// Cache miss — collect fresh data
+	processCache.Lock()
+	defer processCache.Unlock()
+
+	// Double-check after acquiring write lock (another goroutine may have refreshed)
+	if time.Since(processCache.updatedAt) < processCacheTTL && processCache.data != nil {
+		result := make([]ProcessInfo, len(processCache.data))
+		copy(result, processCache.data)
+		return result, nil
+	}
+
+	infos, err := collectProcesses()
+	if err != nil {
+		return nil, err
+	}
+	processCache.data = infos
+	processCache.updatedAt = time.Now()
+
+	result := make([]ProcessInfo, len(infos))
+	copy(result, infos)
+	return result, nil
+}
+
 // TopProcesses returns the top 10 processes by CPU usage (for dashboard).
 func (h *ProcessesHandler) TopProcesses(c echo.Context) error {
-	infos, err := collectProcesses()
+	infos, err := cachedProcesses()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrProcessError, "Failed to list processes")
 	}
@@ -44,42 +89,12 @@ func (h *ProcessesHandler) TopProcesses(c echo.Context) error {
 	return response.OK(c, infos)
 }
 
-// ListProcesses returns all processes with optional search filtering.
-// GET /system/processes/list?q=searchterm&sort=cpu|memory|pid|name
+// ListProcesses returns all processes. Filtering and sorting is handled client-side.
+// GET /system/processes/list
 func (h *ProcessesHandler) ListProcesses(c echo.Context) error {
-	infos, err := collectProcesses()
+	infos, err := cachedProcesses()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrProcessError, "Failed to list processes")
-	}
-
-	// Filter by search query
-	query := strings.ToLower(strings.TrimSpace(c.QueryParam("q")))
-	if query != "" {
-		var filtered []ProcessInfo
-		for _, p := range infos {
-			if strings.Contains(strings.ToLower(p.Name), query) ||
-				strings.Contains(strings.ToLower(p.Command), query) ||
-				strings.Contains(strings.ToLower(p.User), query) ||
-				fmt.Sprintf("%d", p.PID) == query {
-				filtered = append(filtered, p)
-			}
-		}
-		infos = filtered
-	}
-
-	// Sort
-	sortBy := c.QueryParam("sort")
-	switch sortBy {
-	case "memory":
-		sort.Slice(infos, func(i, j int) bool { return infos[i].Memory > infos[j].Memory })
-	case "pid":
-		sort.Slice(infos, func(i, j int) bool { return infos[i].PID < infos[j].PID })
-	case "name":
-		sort.Slice(infos, func(i, j int) bool {
-			return strings.ToLower(infos[i].Name) < strings.ToLower(infos[j].Name)
-		})
-	default: // cpu
-		sort.Slice(infos, func(i, j int) bool { return infos[i].CPU > infos[j].CPU })
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -137,6 +152,11 @@ func (h *ProcessesHandler) KillProcess(c echo.Context) error {
 			fmt.Sprintf("Failed to send signal %s to process %d: %s", req.Signal, pid, err.Error()))
 	}
 
+	// Invalidate cache after kill so the next fetch reflects the change
+	processCache.Lock()
+	processCache.updatedAt = time.Time{}
+	processCache.Unlock()
+
 	return response.OK(c, map[string]interface{}{
 		"message": fmt.Sprintf("Signal %s sent to process %d", strings.ToUpper(req.Signal), pid),
 		"pid":     pid,
@@ -163,7 +183,7 @@ func collectProcesses() ([]ProcessInfo, error) {
 	time.Sleep(200 * time.Millisecond)
 
 	// Second pass: collect actual data
-	var infos []ProcessInfo
+	infos := make([]ProcessInfo, 0, len(procs))
 	for _, p := range procs {
 		name, _ := p.Name()
 		cpuPct, _ := p.CPUPercent()

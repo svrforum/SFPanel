@@ -105,8 +105,8 @@ var validAction = regexp.MustCompile(`^(allow|deny|reject|limit)$`)
 // validJailName matches safe fail2ban jail names.
 var validJailName = regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
 
-// validComment matches safe comment text (alphanumeric, spaces, basic punctuation).
-var validComment = regexp.MustCompile(`^[a-zA-Z0-9 _\-.,()/#:]+$`)
+// validComment matches safe comment text (alphanumeric, spaces, basic punctuation, unicode letters).
+var validComment = regexp.MustCompile(`^[\p{L}\p{N} _\-.,()/#:@!]+$`)
 
 // validBanTime matches fail2ban time values: plain seconds or expressions like 10m, 1h, 1d, -1.
 var validBanTime = regexp.MustCompile(`^-?\d+[smhdw]?$`)

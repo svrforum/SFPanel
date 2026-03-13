@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Container, FolderOpen, Clock, FileText, Package, Settings, LogOut, Activity, Terminal, Network, HardDrive, Shield, Cog, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { LayoutDashboard, Container, FolderOpen, Clock, FileText, Package, Settings, LogOut, Activity, Terminal, Network, HardDrive, Shield, Cog, PanelLeftClose, PanelLeftOpen, Store } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 const navItems = [
   { to: '/dashboard', labelKey: 'layout.nav.dashboard', icon: LayoutDashboard },
   { to: '/docker', labelKey: 'layout.nav.docker', icon: Container },
+  { to: '/appstore', labelKey: 'layout.nav.appstore', icon: Store },
   { to: '/files', labelKey: 'layout.nav.files', icon: FolderOpen },
   { to: '/cron', labelKey: 'layout.nav.cron', icon: Clock },
   { to: '/logs', labelKey: 'layout.nav.logs', icon: FileText },

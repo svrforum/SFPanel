@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os/exec"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,76 +37,19 @@ type ServiceDeps struct {
 // processes on every request. TTL is 3 seconds — enough to absorb rapid
 // polling while still reflecting state changes promptly.
 var serviceCache struct {
-	sync.Mutex
+	sync.RWMutex
 	services []ServiceInfo
 	fetched  time.Time
 }
 
 const serviceCacheTTL = 3 * time.Second
 
-// ListServices returns all systemd services with optional search, filter, and sort.
-// GET /system/services?q=search&sort=name|active|enabled&type=all|running|failed|inactive
+// ListServices returns all systemd services. Filtering and sorting is handled client-side.
+// GET /system/services
 func (h *ServicesHandler) ListServices(c echo.Context) error {
-	all, err := getCachedServices()
+	services, err := getCachedServices()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrServiceError, "Failed to list services")
-	}
-
-	// Work on a copy so filters don't mutate the cache
-	services := make([]ServiceInfo, len(all))
-	copy(services, all)
-
-	// Filter by type
-	filterType := c.QueryParam("type")
-	if filterType != "" && filterType != "all" {
-		var filtered []ServiceInfo
-		for _, s := range services {
-			switch filterType {
-			case "running":
-				if s.ActiveState == "active" && s.SubState == "running" {
-					filtered = append(filtered, s)
-				}
-			case "failed":
-				if s.ActiveState == "failed" {
-					filtered = append(filtered, s)
-				}
-			case "inactive":
-				if s.ActiveState == "inactive" {
-					filtered = append(filtered, s)
-				}
-			}
-		}
-		services = filtered
-	}
-
-	// Filter by search query
-	query := strings.ToLower(strings.TrimSpace(c.QueryParam("q")))
-	if query != "" {
-		var filtered []ServiceInfo
-		for _, s := range services {
-			if strings.Contains(strings.ToLower(s.Name), query) ||
-				strings.Contains(strings.ToLower(s.Description), query) {
-				filtered = append(filtered, s)
-			}
-		}
-		services = filtered
-	}
-
-	// Sort
-	sortBy := c.QueryParam("sort")
-	switch sortBy {
-	case "active":
-		sort.Slice(services, func(i, j int) bool {
-			return services[i].ActiveState < services[j].ActiveState
-		})
-	case "enabled":
-		sort.Slice(services, func(i, j int) bool {
-			return services[i].Enabled < services[j].Enabled
-		})
-	default: // name
-		sort.Slice(services, func(i, j int) bool {
-			return strings.ToLower(services[i].Name) < strings.ToLower(services[j].Name)
-		})
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -288,11 +230,23 @@ func filterDeps(items []string) []string {
 
 // getCachedServices returns the cached service list, refreshing if stale.
 func getCachedServices() ([]ServiceInfo, error) {
+	serviceCache.RLock()
+	if time.Since(serviceCache.fetched) < serviceCacheTTL && serviceCache.services != nil {
+		result := make([]ServiceInfo, len(serviceCache.services))
+		copy(result, serviceCache.services)
+		serviceCache.RUnlock()
+		return result, nil
+	}
+	serviceCache.RUnlock()
+
 	serviceCache.Lock()
 	defer serviceCache.Unlock()
 
+	// Double-check after acquiring write lock
 	if time.Since(serviceCache.fetched) < serviceCacheTTL && serviceCache.services != nil {
-		return serviceCache.services, nil
+		result := make([]ServiceInfo, len(serviceCache.services))
+		copy(result, serviceCache.services)
+		return result, nil
 	}
 
 	services, err := fetchAllServices()
@@ -302,7 +256,10 @@ func getCachedServices() ([]ServiceInfo, error) {
 
 	serviceCache.services = services
 	serviceCache.fetched = time.Now()
-	return services, nil
+
+	result := make([]ServiceInfo, len(services))
+	copy(result, services)
+	return result, nil
 }
 
 // invalidateServiceCache forces the next list request to re-fetch.

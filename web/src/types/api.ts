@@ -500,23 +500,6 @@ export interface ContainerStatsResult {
   mem_limit: number
 }
 
-// Docker - Container Creation
-export interface ContainerCreateConfig {
-  name: string
-  image: string
-  cmd?: string[]
-  env?: string[]
-  ports?: Record<string, string>
-  volumes?: Record<string, string>
-  restart_policy?: string
-  memory_limit?: number
-  cpu_quota?: number
-  network_mode?: string
-  hostname?: string
-  labels?: Record<string, string>
-  auto_start?: boolean
-}
-
 // Docker - Compose with Status
 export interface ComposeProjectWithStatus extends ComposeProject {
   service_count: number
@@ -566,6 +549,41 @@ export interface AuditLogsResponse {
   total: number
 }
 
+// Docker - Image Update Check
+export interface ImageUpdateStatus {
+  image: string
+  current_id: string
+  has_update: boolean
+  error?: string
+}
+
+// Docker - Network Inspect Detail
+export interface NetworkInspectDetail {
+  id: string
+  name: string
+  driver: string
+  scope: string
+  internal: boolean
+  subnet: string
+  gateway: string
+  containers: NetworkContainer[]
+  created: string
+}
+
+export interface NetworkContainer {
+  id: string
+  name: string
+  ipv4_address: string
+  ipv6_address: string
+  mac_address: string
+}
+
+// Docker - Compose Validation Result
+export interface ComposeValidationResult {
+  valid: boolean
+  message: string
+}
+
 // Docker - Hub Search Result
 export interface DockerHubSearchResult {
   name: string
@@ -604,5 +622,93 @@ export interface ProcessInfo {
   status: string
   user: string
   command: string
+}
+
+// System Tuning
+export interface TuningParam {
+  key: string
+  current: string
+  recommended: string
+  description: string
+  applied: boolean
+}
+
+export interface TuningCategory {
+  name: string
+  benefit: string
+  caution: string
+  params: TuningParam[]
+  applied: number
+  total: number
+}
+
+export interface TuningSystemInfo {
+  cpu_cores: number
+  total_ram: number
+  kernel: string
+}
+
+export interface TuningStatus {
+  categories: TuningCategory[]
+  total_params: number
+  applied: number
+  pending_rollback: boolean
+  rollback_remaining: number
+  system_info: TuningSystemInfo
+}
+
+// App Store
+export interface AppStoreCategory {
+  id: string
+  name: Record<string, string>
+  icon: string
+}
+
+export interface AppStoreEnvDef {
+  key: string
+  label: Record<string, string>
+  type: string
+  default?: string
+  required?: boolean
+  generate?: boolean
+  options?: string[]
+}
+
+export interface AppStoreFeature {
+  title: Record<string, string>
+  description: Record<string, string>
+  icon?: string
+}
+
+export interface AppStoreMeta {
+  id: string
+  name: string
+  description: Record<string, string>
+  category: string
+  version: string
+  website: string
+  source: string
+  ports: number[]
+  env: AppStoreEnvDef[]
+  features?: AppStoreFeature[]
+  icon?: string
+}
+
+export interface AppStoreApp extends AppStoreMeta {
+  installed: boolean
+}
+
+export interface AppStoreAppDetail {
+  app: AppStoreMeta
+  compose: string
+  readme: string
+  readme_base_url?: string
+  installed: boolean
+}
+
+export interface AppStoreInstalledApp {
+  id: string
+  version: string
+  installed_at: string
 }
 

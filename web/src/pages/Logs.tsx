@@ -5,9 +5,10 @@ import { formatBytes } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
-import { FileText, RefreshCw, Radio, ArrowDown, Trash2, Eye, Search, ChevronUp, ChevronDown, X, Download, Plus } from 'lucide-react'
+import { FileText, RefreshCw, Radio, ArrowDown, Trash2, Eye, Search, ChevronUp, ChevronDown, X, Download, Plus, Info } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { hasParsedView, getParser, parseLogLines, type LogEntry, type ParsedLogEntry, type ColumnDef } from '@/lib/logParsers'
+import { useVirtualizer } from '@tanstack/react-virtual'
 
 interface LogSource {
   id: string
@@ -29,6 +30,7 @@ type LineCount = 100 | 500 | 1000 | 5000
 
 const LINE_COUNT_OPTIONS: LineCount[] = [100, 500, 1000, 5000]
 
+const ROW_HEIGHT = 20
 
 function highlightText(text: string, query: string) {
   if (!query) return text
@@ -61,15 +63,20 @@ function highlightText(text: string, query: string) {
   )
 }
 
+// Pre-compiled regexes for log level detection (avoid re-creating per call)
+const RE_ERROR = /\b(ERROR|FATAL|CRITICAL|PANIC|EMERG)\b/
+const RE_WARN = /\b(WARN|WARNING)\b/
+const RE_INFO = /\b(INFO|NOTICE)\b/
+const RE_DEBUG = /\b(DEBUG|TRACE)\b/
+const RE_EMPTY_ERROR = /"error":""/g
+
 function getLogLevel(line: string): 'error' | 'warn' | 'info' | 'debug' | null {
-  // Skip empty JSON fields like "error":"" that cause false positives
-  const cleaned = line.replace(/"error":""/g, '')
+  const cleaned = line.replace(RE_EMPTY_ERROR, '')
   const upper = cleaned.toUpperCase()
-  // Common patterns: [ERROR], ERROR:, level=error, "level":"error", FATAL, CRITICAL, PANIC
-  if (/\b(ERROR|FATAL|CRITICAL|PANIC|EMERG)\b/.test(upper)) return 'error'
-  if (/\b(WARN|WARNING)\b/.test(upper)) return 'warn'
-  if (/\b(INFO|NOTICE)\b/.test(upper)) return 'info'
-  if (/\b(DEBUG|TRACE)\b/.test(upper)) return 'debug'
+  if (RE_ERROR.test(upper)) return 'error'
+  if (RE_WARN.test(upper)) return 'warn'
+  if (RE_INFO.test(upper)) return 'info'
+  if (RE_DEBUG.test(upper)) return 'debug'
   return null
 }
 
@@ -115,6 +122,9 @@ export default function Logs() {
   // Delete source dialog
   const [deleteSourceTarget, setDeleteSourceTarget] = useState<LogSource | null>(null)
 
+  // Guide
+  const [showGuide, setShowGuide] = useState(false)
+
   // Custom source dialog
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [newSourceName, setNewSourceName] = useState('')
@@ -127,24 +137,46 @@ export default function Logs() {
   const logContainerRef = useRef<HTMLDivElement>(null)
   const autoScrollRef = useRef(autoScroll)
 
+  // WebSocket batching: accumulate lines and flush via rAF
+  const wsBatchRef = useRef<string[]>([])
+  const wsRafRef = useRef<number | null>(null)
+
   // Keep the ref in sync so the WS message handler can read current value
   useEffect(() => {
     autoScrollRef.current = autoScroll
   }, [autoScroll])
 
-  // Scroll to bottom helper
-  const scrollToBottom = useCallback(() => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
-    }
-  }, [])
+  // Parsed log entries (memoized)
+  const parsedEntries = useMemo<LogEntry[]>(() => {
+    if (!selectedSource || viewMode !== 'parsed' || !hasParsedView(selectedSource)) return []
+    return parseLogLines(selectedSource, logLines)
+  }, [selectedSource, viewMode, logLines])
+
+  const activeParser = selectedSource ? getParser(selectedSource) : null
+
+  // Determine which data the virtualizer operates on
+  const isParsedMode = viewMode === 'parsed' && activeParser && parsedEntries.length > 0
+  const rowCount = !selectedSource || (logLoading && logLines.length === 0) || logLines.length === 0
+    ? 0
+    : isParsedMode
+      ? parsedEntries.length
+      : logLines.length
+
+  // Virtual scrolling
+  const rowVirtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => logContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 30,
+  })
 
   // Auto-scroll when new lines arrive
   useEffect(() => {
-    if (autoScroll) {
-      scrollToBottom()
+    if (autoScroll && rowCount > 0) {
+      rowVirtualizer.scrollToIndex(rowCount - 1, { align: 'end' })
     }
-  }, [logLines, autoScroll, scrollToBottom])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logLines, autoScroll, rowCount])
 
   // Fetch log sources on mount
   useEffect(() => {
@@ -194,44 +226,48 @@ export default function Logs() {
     }
   }
 
+  // Flush batched WS lines into state in a single rAF tick
+  const flushWsBatch = useCallback(() => {
+    wsRafRef.current = null
+    const batch = wsBatchRef.current
+    if (batch.length === 0) return
+    wsBatchRef.current = []
+    setLogLines((prev) => {
+      const next = prev.concat(batch)
+      return next.length > 5000 ? next.slice(-5000) : next
+    })
+  }, [])
+
   // WebSocket lifecycle
   const connectWebSocket = useCallback((source: string) => {
-    // Close any existing connection
     if (wsRef.current) {
       wsRef.current.close()
       wsRef.current = null
     }
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws/logs?source=${encodeURIComponent(source)}`
-    const ws = new WebSocket(wsUrl, api.getWebSocketProtocols())
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws/logs?source=${source}&token=${api.getToken()}`
+    const ws = new WebSocket(wsUrl)
 
-    ws.onopen = () => {
-      setWsConnected(true)
-    }
+    ws.onopen = () => setWsConnected(true)
 
     ws.onmessage = (event) => {
+      // Accumulate into batch buffer
       try {
         const data = JSON.parse(event.data)
         if (data.line !== undefined) {
-          setLogLines((prev) => {
-            const next = [...prev, data.line]
-            return next.length > 5000 ? next.slice(-5000) : next
-          })
+          wsBatchRef.current.push(data.line)
         } else if (data.lines && Array.isArray(data.lines)) {
-          setLogLines((prev) => {
-            const next = [...prev, ...data.lines]
-            return next.length > 5000 ? next.slice(-5000) : next
-          })
+          wsBatchRef.current.push(...data.lines)
         }
       } catch {
-        // If the message is plain text, add it as a line
         if (typeof event.data === 'string' && event.data.trim()) {
-          setLogLines((prev) => {
-            const next = [...prev, event.data]
-            return next.length > 5000 ? next.slice(-5000) : next
-          })
+          wsBatchRef.current.push(event.data)
         }
+      }
+      // Schedule a single flush per animation frame
+      if (wsRafRef.current === null) {
+        wsRafRef.current = requestAnimationFrame(flushWsBatch)
       }
     }
 
@@ -240,22 +276,24 @@ export default function Logs() {
       toast.error(t('logs.wsError'))
     }
 
-    ws.onclose = () => {
-      setWsConnected(false)
-    }
+    ws.onclose = () => setWsConnected(false)
 
     wsRef.current = ws
-  }, [t])
+  }, [t, flushWsBatch])
 
   const disconnectWebSocket = useCallback(() => {
     if (wsRef.current) {
       wsRef.current.close()
       wsRef.current = null
     }
+    if (wsRafRef.current !== null) {
+      cancelAnimationFrame(wsRafRef.current)
+      wsRafRef.current = null
+    }
+    wsBatchRef.current = []
     setWsConnected(false)
   }, [])
 
-  // Toggle live streaming
   function handleToggleLive() {
     if (isLive) {
       disconnectWebSocket()
@@ -270,7 +308,6 @@ export default function Logs() {
     }
   }
 
-  // When selected source changes, disconnect WS
   useEffect(() => {
     if (isLive) {
       disconnectWebSocket()
@@ -279,12 +316,10 @@ export default function Logs() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSource])
 
-  // Cleanup WS on unmount
   useEffect(() => {
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close()
-      }
+      if (wsRef.current) wsRef.current.close()
+      if (wsRafRef.current !== null) cancelAnimationFrame(wsRafRef.current)
     }
   }, [])
 
@@ -296,9 +331,7 @@ export default function Logs() {
   }
 
   function handleRefresh() {
-    if (selectedSource) {
-      loadLog(selectedSource, lineCount)
-    }
+    if (selectedSource) loadLog(selectedSource, lineCount)
   }
 
   function handleClear() {
@@ -352,26 +385,29 @@ export default function Logs() {
     }
   }
 
-  // Search: find matching line indices
-  const searchLower = searchQuery.toLowerCase()
-  const matchingLines = searchQuery
-    ? logLines.reduce<number[]>((acc, line, i) => {
-        if (line.toLowerCase().includes(searchLower)) acc.push(i)
-        return acc
-      }, [])
-    : []
+  // Memoized search: matching line indices + Set for O(1) lookup
+  const matchingLines = useMemo(() => {
+    if (!searchQuery) return []
+    const q = searchQuery.toLowerCase()
+    return logLines.reduce<number[]>((acc, line, i) => {
+      if (line.toLowerCase().includes(q)) acc.push(i)
+      return acc
+    }, [])
+  }, [searchQuery, logLines])
 
-  // Scroll to a matched line
+  const matchingSet = useMemo(() => new Set(matchingLines), [matchingLines])
+
+  // Memoized log levels for raw view (avoid per-row regex on each render)
+  const logLevels = useMemo(() => {
+    if (isParsedMode) return []
+    return logLines.map(getLogLevel)
+  }, [logLines, isParsedMode])
+
+  // Navigate to a virtual row by index
   const scrollToLine = useCallback((lineIndex: number) => {
-    const container = logContainerRef.current
-    if (!container) return
-    const row = container.querySelector(`[data-line="${lineIndex}"]`)
-    if (row) {
-      row.scrollIntoView({ block: 'center', behavior: 'smooth' })
-    }
-  }, [])
+    rowVirtualizer.scrollToIndex(lineIndex, { align: 'center' })
+  }, [rowVirtualizer])
 
-  // Navigate matches
   const goToMatch = useCallback((direction: 'next' | 'prev') => {
     if (matchingLines.length === 0) return
     let next: number
@@ -414,14 +450,6 @@ export default function Logs() {
 
   const selectedSourceData = sources.find((s) => s.id === selectedSource)
 
-  // Parsed log entries (memoized)
-  const parsedEntries = useMemo<LogEntry[]>(() => {
-    if (!selectedSource || viewMode !== 'parsed' || !hasParsedView(selectedSource)) return []
-    return parseLogLines(selectedSource, logLines)
-  }, [selectedSource, viewMode, logLines])
-
-  const activeParser = selectedSource ? getParser(selectedSource) : null
-
   // Download logs
   const handleDownload = useCallback(() => {
     if (logLines.length === 0) return
@@ -435,12 +463,65 @@ export default function Logs() {
     URL.revokeObjectURL(url)
   }, [logLines, selectedSourceData])
 
+  // Virtual items
+  const virtualItems = rowVirtualizer.getVirtualItems()
+  const totalSize = rowVirtualizer.getTotalSize()
+
   return (
     <div className="space-y-6">
       {/* Page header */}
       <div>
         <h1 className="text-[22px] font-bold tracking-tight">{t('logs.title')}</h1>
         <p className="text-[13px] text-muted-foreground mt-1">{t('logs.subtitle')}</p>
+      </div>
+
+      {/* How it works */}
+      <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+        <button
+          onClick={() => setShowGuide(!showGuide)}
+          className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
+        >
+          <Info className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-[13px] font-medium flex-1">{t('logs.guideTitle')}</span>
+          {showGuide ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
+        {showGuide && (
+          <div className="px-4 pb-4 space-y-3 animate-in slide-in-from-top-1 duration-200">
+            <div className="h-px bg-border" />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {[
+                { num: '1', title: t('logs.guideStep1Title'), desc: t('logs.guideStep1Desc') },
+                { num: '2', title: t('logs.guideStep2Title'), desc: t('logs.guideStep2Desc') },
+                { num: '3', title: t('logs.guideStep3Title'), desc: t('logs.guideStep3Desc') },
+              ].map((step) => (
+                <div key={step.num} className="flex gap-3">
+                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/10 text-primary text-[11px] font-bold shrink-0 mt-0.5">
+                    {step.num}
+                  </span>
+                  <div>
+                    <p className="text-[12px] font-semibold">{step.title}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{step.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
+              <span className="text-[11px] text-muted-foreground">
+                <span className="font-medium text-foreground">{t('logs.guideStreaming')}</span> WebSocket (tail -F)
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                <span className="font-medium text-foreground">{t('logs.guideSearch')}</span> Ctrl+F
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                <span className="font-medium text-foreground">{t('logs.guideParsed')}</span> Firewall, Auth, Fail2ban, SFPanel
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col lg:flex-row gap-6">
@@ -542,6 +623,7 @@ export default function Logs() {
                   key={count}
                   variant={lineCount === count ? 'default' : 'outline'}
                   size="xs"
+                  className="rounded-xl"
                   onClick={() => setLineCount(count)}
                 >
                   {count.toLocaleString()}
@@ -583,7 +665,7 @@ export default function Logs() {
               size="sm"
               onClick={handleToggleLive}
               disabled={!selectedSource}
-              className={isLive ? 'bg-red-600 hover:bg-red-700 text-white' : ''}
+              className={`rounded-xl ${isLive ? 'bg-red-600 hover:bg-red-700 text-white' : ''}`}
             >
               <Radio className={`h-3.5 w-3.5 ${isLive ? 'animate-pulse' : ''}`} />
               {t('logs.live')}
@@ -596,6 +678,7 @@ export default function Logs() {
             <Button
               variant={autoScroll ? 'default' : 'outline'}
               size="sm"
+              className="rounded-xl"
               onClick={() => setAutoScroll(!autoScroll)}
               title={t('logs.autoScroll')}
             >
@@ -607,6 +690,7 @@ export default function Logs() {
             <Button
               variant="outline"
               size="icon-sm"
+              className="rounded-xl"
               onClick={handleRefresh}
               disabled={!selectedSource || logLoading}
               title={t('logs.refresh')}
@@ -618,6 +702,7 @@ export default function Logs() {
             <Button
               variant={searchOpen ? 'default' : 'outline'}
               size="icon-sm"
+              className="rounded-xl"
               onClick={() => {
                 setSearchOpen(!searchOpen)
                 if (!searchOpen) setTimeout(() => searchInputRef.current?.focus(), 0)
@@ -632,6 +717,7 @@ export default function Logs() {
             <Button
               variant="outline"
               size="icon-sm"
+              className="rounded-xl"
               onClick={handleDownload}
               disabled={logLines.length === 0}
               title={t('logs.download')}
@@ -643,6 +729,7 @@ export default function Logs() {
             <Button
               variant="outline"
               size="icon-sm"
+              className="rounded-xl"
               onClick={handleClear}
               title={t('logs.clear')}
             >
@@ -723,7 +810,7 @@ export default function Logs() {
               )}
             </div>
             <div className="flex items-center gap-3">
-              {totalLines > 0 && (
+              {totalLines > 0 && totalLines !== logLines.length && (
                 <span>{t('logs.totalLines', { count: totalLines })}</span>
               )}
               <span>{logLines.length.toLocaleString()} {t('logs.linesShown')}</span>
@@ -736,7 +823,7 @@ export default function Logs() {
             </div>
           </div>
 
-          {/* Log content */}
+          {/* Log content — virtualized */}
           <div
             ref={logContainerRef}
             className="flex-1 min-h-[500px] max-h-[calc(100vh-320px)] overflow-auto rounded-b-xl border font-mono text-sm"
@@ -763,11 +850,11 @@ export default function Logs() {
                   <p>{t('logs.empty')}</p>
                 </div>
               </div>
-            ) : viewMode === 'parsed' && activeParser && parsedEntries.length > 0 ? (
+            ) : isParsedMode ? (
               <table className="border-collapse" style={{ tableLayout: 'fixed' }}>
                 <colgroup>
                   <col style={{ width: '3.5rem' }} />
-                  {(activeParser.columns as ColumnDef<ParsedLogEntry>[]).map((col) => (
+                  {(activeParser!.columns as ColumnDef<ParsedLogEntry>[]).map((col) => (
                     <col key={col.key} style={{ width: col.width }} />
                   ))}
                 </colgroup>
@@ -779,7 +866,7 @@ export default function Logs() {
                     >
                       #
                     </th>
-                    {(activeParser.columns as ColumnDef<ParsedLogEntry>[]).map((col) => (
+                    {(activeParser!.columns as ColumnDef<ParsedLogEntry>[]).map((col) => (
                       <th
                         key={col.key}
                         className="text-left px-3 py-1.5 text-gray-400 border-b border-b-gray-700/50 whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider"
@@ -790,16 +877,22 @@ export default function Logs() {
                   </tr>
                 </thead>
                 <tbody>
-                  {parsedEntries.map((entry, index) => {
-                    const isMatch = searchQuery && matchingLines.includes(index)
+                  {/* Top spacer for virtual scroll */}
+                  {virtualItems.length > 0 && virtualItems[0].start > 0 && (
+                    <tr><td colSpan={activeParser!.columns.length + 1} style={{ height: virtualItems[0].start, padding: 0, border: 0 }} /></tr>
+                  )}
+                  {virtualItems.map((virtualRow) => {
+                    const index = virtualRow.index
+                    const entry = parsedEntries[index]
+                    const isMatch = matchingSet.has(index)
                     const isCurrentMatch = isMatch && matchingLines[currentMatch] === index
 
                     if (!entry.parsed) {
-                      // Fallback: show raw line spanning all columns
                       return (
                         <tr
-                          key={index}
+                          key={virtualRow.key}
                           data-line={index}
+                          style={{ height: ROW_HEIGHT }}
                           className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''}`}
                         >
                           <td
@@ -809,9 +902,10 @@ export default function Logs() {
                             {index + 1}
                           </td>
                           <td
-                            colSpan={activeParser.columns.length}
-                            className="px-3 py-0 whitespace-pre-wrap break-all text-gray-400"
+                            colSpan={activeParser!.columns.length}
+                            className="px-3 py-0 whitespace-nowrap overflow-hidden text-ellipsis text-gray-400"
                             style={{ fontSize: '12px', lineHeight: '20px' }}
+                            title={entry.rawLine}
                           >
                             {searchQuery && isMatch ? highlightText(entry.rawLine, searchQuery) : entry.rawLine}
                           </td>
@@ -821,8 +915,9 @@ export default function Logs() {
 
                     return (
                       <tr
-                        key={index}
+                        key={virtualRow.key}
                         data-line={index}
+                        style={{ height: ROW_HEIGHT }}
                         className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''}`}
                       >
                         <td
@@ -831,12 +926,12 @@ export default function Logs() {
                         >
                           {index + 1}
                         </td>
-                        {(activeParser.columns as ColumnDef<ParsedLogEntry>[]).map((col) => {
+                        {(activeParser!.columns as ColumnDef<ParsedLogEntry>[]).map((col) => {
                           const rendered = col.render(entry as ParsedLogEntry)
                           return (
                             <td
                               key={col.key}
-                              className={`px-3 py-0 text-left text-gray-200 ${col.key === 'details' ? 'truncate' : 'whitespace-nowrap overflow-hidden'}`}
+                              className={`px-3 py-0 text-left text-gray-200 whitespace-nowrap overflow-hidden ${col.key === 'details' ? 'text-ellipsis' : ''}`}
                               style={{ fontSize: '12px', lineHeight: '20px' }}
                               title={col.key === 'details' ? rendered.text : undefined}
                             >
@@ -863,40 +958,58 @@ export default function Logs() {
                       </tr>
                     )
                   })}
+                  {/* Bottom spacer for virtual scroll */}
+                  {virtualItems.length > 0 && (
+                    <tr><td colSpan={activeParser!.columns.length + 1} style={{ height: totalSize - (virtualItems[virtualItems.length - 1]?.end ?? 0), padding: 0, border: 0 }} /></tr>
+                  )}
                 </tbody>
               </table>
             ) : (
-              <table className="w-full border-collapse">
-                <tbody>
-                  {logLines.map((line, index) => {
-                    const isMatch = searchQuery && matchingLines.includes(index)
-                    const isCurrentMatch = isMatch && matchingLines[currentMatch] === index
-                    const level = getLogLevel(line)
-                    const levelBorder = level ? LOG_LEVEL_COLORS[level] : ''
-                    const levelText = level ? LOG_LEVEL_TEXT_COLORS[level] : 'text-gray-200'
-                    return (
-                      <tr
-                        key={index}
-                        data-line={index}
-                        className={`hover:bg-white/5 group ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''} ${levelBorder}`}
-                      >
-                        <td
-                          className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 align-top whitespace-nowrap"
-                          style={{ minWidth: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
+              /* Raw view — virtualized */
+              <div style={{ height: totalSize, position: 'relative' }}>
+                <table className="w-full border-collapse" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
+                  <tbody>
+                    {virtualItems.map((virtualRow) => {
+                      const index = virtualRow.index
+                      const line = logLines[index]
+                      const isMatch = matchingSet.has(index)
+                      const isCurrentMatch = isMatch && matchingLines[currentMatch] === index
+                      const level = logLevels[index]
+                      const levelBorder = level ? LOG_LEVEL_COLORS[level] : ''
+                      const levelText = level ? LOG_LEVEL_TEXT_COLORS[level] : 'text-gray-200'
+                      return (
+                        <tr
+                          key={virtualRow.key}
+                          data-line={index}
+                          style={{
+                            height: ROW_HEIGHT,
+                            position: 'absolute',
+                            top: virtualRow.start,
+                            left: 0,
+                            right: 0,
+                            display: 'flex',
+                          }}
+                          className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''} ${levelBorder}`}
                         >
-                          {index + 1}
-                        </td>
-                        <td
-                          className={`px-3 py-0 whitespace-pre-wrap break-all ${levelText}`}
-                          style={{ fontSize: '12px', lineHeight: '20px' }}
-                        >
-                          {searchQuery && isMatch ? highlightText(line, searchQuery) : line}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+                          <td
+                            className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 whitespace-nowrap shrink-0"
+                            style={{ minWidth: '3.5rem', width: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
+                          >
+                            {index + 1}
+                          </td>
+                          <td
+                            className={`px-3 py-0 whitespace-nowrap overflow-hidden text-ellipsis flex-1 ${levelText}`}
+                            style={{ fontSize: '12px', lineHeight: '20px' }}
+                            title={line}
+                          >
+                            {searchQuery && isMatch ? highlightText(line, searchQuery) : line}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>

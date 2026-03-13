@@ -8,8 +8,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Download, Upload, RefreshCw, AlertCircle, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
+import SettingsTuning from '@/pages/SettingsTuning'
 
 export default function Settings() {
   const { t, i18n } = useTranslation()
@@ -315,6 +317,18 @@ export default function Settings() {
         <p className="text-[13px] text-muted-foreground mt-1">{t('settings.subtitle')}</p>
       </div>
 
+      <Tabs defaultValue="general" className="w-full">
+        <TabsList className="bg-secondary/50 rounded-xl p-1 h-auto">
+          <TabsTrigger value="general" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabGeneral')}</TabsTrigger>
+          <TabsTrigger value="security" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSecurity')}</TabsTrigger>
+          <TabsTrigger value="system" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSystem')}</TabsTrigger>
+          <TabsTrigger value="tuning" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabTuning')}</TabsTrigger>
+          <TabsTrigger value="audit" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAuditLog')}</TabsTrigger>
+        </TabsList>
+
+        {/* ===== General Tab ===== */}
+        <TabsContent value="general" className="space-y-6 mt-6">
+
       {/* Language */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
         <h3 className="text-[15px] font-semibold">{t('settings.language')}</h3>
@@ -390,6 +404,11 @@ export default function Settings() {
           </Button>
         </form>
       </div>
+
+        </TabsContent>
+
+        {/* ===== Security Tab ===== */}
+        <TabsContent value="security" className="space-y-6 mt-6">
 
       {/* Change Password */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
@@ -505,6 +524,11 @@ export default function Settings() {
         )}
       </div>
 
+        </TabsContent>
+
+        {/* ===== System Tab ===== */}
+        <TabsContent value="system" className="space-y-6 mt-6">
+
       {/* Panel Update */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
         <h3 className="text-[15px] font-semibold">{t('settings.update')}</h3>
@@ -617,6 +641,55 @@ export default function Settings() {
         </div>
       </div>
 
+      {/* System Info */}
+      <div className="bg-card rounded-2xl p-6 card-shadow">
+        <h3 className="text-[15px] font-semibold">{t('settings.systemInfo')}</h3>
+        <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.systemInfoDescription')}</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.version')}</p>
+            <p className="text-[13px] font-medium">{panelVersion}</p>
+          </div>
+          {systemInfo?.host && (
+            <>
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('dashboard.hostname')}</p>
+                <p className="text-[13px] font-medium">{systemInfo.host.hostname || 'N/A'}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.operatingSystem')}</p>
+                <p className="text-[13px] font-medium">
+                  {systemInfo.host.platform || systemInfo.host.os || 'N/A'}
+                  {systemInfo.host.platform_version ? ` ${systemInfo.host.platform_version}` : ''}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('dashboard.kernel')}</p>
+                <p className="text-[13px] font-medium">{systemInfo.host.kernel || 'N/A'}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('dashboard.uptime')}</p>
+                <p className="text-[13px] font-medium">
+                  {systemInfo.host.uptime
+                    ? formatUptime(systemInfo.host.uptime)
+                    : 'N/A'}
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+        </TabsContent>
+
+        {/* ===== Tuning Tab ===== */}
+        <TabsContent value="tuning" className="mt-6">
+          <SettingsTuning />
+        </TabsContent>
+
+        {/* ===== Audit Log Tab ===== */}
+        <TabsContent value="audit" className="space-y-6 mt-6">
+
       {/* Audit Log */}
       <div className="bg-card rounded-2xl p-6 card-shadow">
         <div className="flex items-center justify-between mb-4">
@@ -720,44 +793,9 @@ export default function Settings() {
         )}
       </div>
 
-      {/* System Info */}
-      <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold">{t('settings.systemInfo')}</h3>
-        <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.systemInfoDescription')}</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.version')}</p>
-            <p className="text-[13px] font-medium">{panelVersion}</p>
-          </div>
-          {systemInfo?.host && (
-            <>
-              <div className="space-y-1">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('dashboard.hostname')}</p>
-                <p className="text-[13px] font-medium">{systemInfo.host.hostname || 'N/A'}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.operatingSystem')}</p>
-                <p className="text-[13px] font-medium">
-                  {systemInfo.host.platform || systemInfo.host.os || 'N/A'}
-                  {systemInfo.host.platform_version ? ` ${systemInfo.host.platform_version}` : ''}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('dashboard.kernel')}</p>
-                <p className="text-[13px] font-medium">{systemInfo.host.kernel || 'N/A'}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('dashboard.uptime')}</p>
-                <p className="text-[13px] font-medium">
-                  {systemInfo.host.uptime
-                    ? formatUptime(systemInfo.host.uptime)
-                    : 'N/A'}
-                </p>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+        </TabsContent>
+
+      </Tabs>
     </div>
   )
 }

@@ -395,19 +395,20 @@ func (h *DiskHandler) ResizeSwap(c echo.Context) error {
 
 // GetIOStats returns I/O statistics for all block devices from /proc/diskstats.
 func (h *DiskHandler) GetIOStats(c echo.Context) error {
+	_, iostats, err := getCachedDiskData()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrIOError, err.Error())
+	}
+	return response.OK(c, iostats)
+}
+
+// readIOStats reads and parses /proc/diskstats.
+func readIOStats() ([]IOStat, error) {
 	data, err := os.ReadFile("/proc/diskstats")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrIOError,
-			fmt.Sprintf("failed to read /proc/diskstats: %v", err))
+		return nil, fmt.Errorf("failed to read /proc/diskstats: %w", err)
 	}
-
-	stats, err := parseDiskStats(string(data))
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrIOError,
-			fmt.Sprintf("failed to parse /proc/diskstats: %v", err))
-	}
-
-	return response.OK(c, stats)
+	return parseDiskStats(string(data))
 }
 
 // parseDiskStats parses /proc/diskstats into IOStat structs.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -21,6 +22,7 @@ type PackageInfo struct {
 	NewVersion     string `json:"new_version,omitempty"`
 	Architecture   string `json:"arch,omitempty"`
 	Description    string `json:"description,omitempty"`
+	Installed      bool   `json:"installed"`
 }
 
 // PackagesHandler exposes REST handlers for system package management via apt.
@@ -270,7 +272,9 @@ func (h *PackagesHandler) SearchPackages(c echo.Context) error {
 			"Search query contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
 
-	output, err := runCommand("apt-cache", "search", query)
+	env := append(aptEnv(), "LANG=C")
+
+	output, err := runCommandEnv(env, "apt-cache", "search", query)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTSearchError,
 			"Failed to search packages: "+err.Error())
@@ -278,11 +282,46 @@ func (h *PackagesHandler) SearchPackages(c echo.Context) error {
 
 	packages := parseSearchResults(output, 50)
 
+	// Enrich with installed status via dpkg-query
+	if len(packages) > 0 {
+		installed := getInstalledPackages(packages)
+		for i := range packages {
+			packages[i].Installed = installed[packages[i].Name]
+		}
+	}
+
 	return response.OK(c, map[string]interface{}{
 		"packages": packages,
 		"total":    len(packages),
 		"query":    query,
 	})
+}
+
+// getInstalledPackages checks which packages from the list are currently installed.
+func getInstalledPackages(packages []PackageInfo) map[string]bool {
+	installed := make(map[string]bool, len(packages))
+
+	names := make([]string, len(packages))
+	for i, pkg := range packages {
+		names[i] = pkg.Name
+	}
+
+	// dpkg-query -W -f='${Package}\t${db:Status-Abbrev}\n' pkg1 pkg2 ...
+	args := append([]string{"-W", "-f=${Package}\t${db:Status-Abbrev}\n"}, names...)
+	output, _ := runCommandWithTimeout(10*time.Second, "dpkg-query", args...)
+
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) == 2 && strings.HasPrefix(parts[1], "ii") {
+			installed[parts[0]] = true
+		}
+	}
+
+	return installed
 }
 
 // parseSearchResults parses the output of `apt-cache search` and limits results.
@@ -386,8 +425,10 @@ func (h *PackagesHandler) InstallDocker(c echo.Context) error {
 
 	sendLine(">>> Downloading Docker install script from https://get.docker.com ...")
 
-	// Step 1: Download get-docker.sh
-	dlCmd := exec.CommandContext(context.Background(), "curl", "-fsSL", "https://get.docker.com", "-o", "/tmp/get-docker.sh")
+	// Step 1: Download get-docker.sh (30s timeout)
+	dlCtx, dlCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer dlCancel()
+	dlCmd := exec.CommandContext(dlCtx, "curl", "-fsSL", "https://get.docker.com", "-o", "/tmp/get-docker.sh")
 	dlOut, err := dlCmd.CombinedOutput()
 	if len(dlOut) > 0 {
 		for _, line := range strings.Split(string(dlOut), "\n") {
@@ -437,6 +478,9 @@ func (h *PackagesHandler) InstallDocker(c echo.Context) error {
 		sendLine("[DONE]")
 		return nil
 	}
+
+	// Clean up temp file
+	os.Remove("/tmp/get-docker.sh")
 
 	sendLine(">>> Docker installation completed successfully!")
 	sendLine("[DONE]")

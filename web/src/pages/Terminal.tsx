@@ -5,6 +5,7 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SearchAddon } from '@xterm/addon-search'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -27,11 +28,8 @@ const DEFAULT_FONT_SIZE = 14
 let tabCounter = 0
 
 function generateTabId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `term-${crypto.randomUUID()}`
-  }
   tabCounter++
-  return `term-${Date.now()}-${tabCounter}`
+  return `term-${tabCounter}`
 }
 
 function loadTabs(): Tab[] {
@@ -42,11 +40,11 @@ function loadTabs(): Tab[] {
       if (Array.isArray(tabs) && tabs.length > 0) {
         for (const t of tabs) {
           const match = t.id.match(/^term-(\d+)$/)
-          if (match) tabCounter = Math.max(tabCounter, parseInt(match[1], 10))
+          if (match) {
+            tabCounter = Math.max(tabCounter, parseInt(match[1], 10))
+          }
         }
-        return tabs.map((tab) => (
-          /^term-[0-9a-f-]{16,}$/i.test(tab.id) ? tab : { ...tab, id: generateTabId() }
-        ))
+        return tabs
       }
     }
   } catch { /* ignore */ }
@@ -124,9 +122,12 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
 
     const fitAddon = new FitAddon()
     const searchAddon = new SearchAddon()
+    const unicode11Addon = new Unicode11Addon()
     term.loadAddon(fitAddon)
     term.loadAddon(new WebLinksAddon())
     term.loadAddon(searchAddon)
+    term.loadAddon(unicode11Addon)
+    term.unicode.activeVersion = '11'
     term.open(containerRef.current)
     fitAddon.fit()
     termRef.current = term
@@ -140,8 +141,8 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws/terminal?session_id=${encodeURIComponent(sessionId)}`
-    const ws = new WebSocket(wsUrl, api.getWebSocketProtocols())
+    const wsUrl = `${protocol}//${window.location.host}/ws/terminal?token=${token}&session_id=${sessionId}`
+    const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
     ws.binaryType = 'arraybuffer'

@@ -2188,6 +2188,194 @@ Fail2ban jail 중지 (비활성화).
 
 ---
 
+## 앱스토어 API (`/api/v1/appstore`)
+
+### GET /api/v1/appstore/categories
+앱스토어 카테고리 목록 조회.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "media",
+      "name": { "ko": "미디어", "en": "Media" },
+      "icon": "Film"
+    }
+  ]
+}
+```
+
+---
+
+### GET /api/v1/appstore/apps
+앱 목록 조회. 카테고리별 필터링 가능.
+
+- **인증 필요**: 예
+
+**Query Parameters:**
+| 이름 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `category` | string | X | 카테고리 ID로 필터링 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uptime-kuma",
+      "name": "Uptime Kuma",
+      "description": { "ko": "셀프 호스팅 모니터링 도구", "en": "Self-hosted monitoring tool" },
+      "category": "monitoring",
+      "version": "1",
+      "website": "https://github.com/louislam/uptime-kuma",
+      "source": "louislam/uptime-kuma",
+      "ports": ["3001"],
+      "env": [
+        {
+          "key": "PORT",
+          "label": { "ko": "포트", "en": "Port" },
+          "type": "number",
+          "default": "3001",
+          "required": true,
+          "generate": ""
+        }
+      ],
+      "installed": false
+    }
+  ]
+}
+```
+
+---
+
+### GET /api/v1/appstore/apps/:id
+앱 상세 정보 및 Compose YAML 조회.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 이름 | 설명 |
+|------|------|
+| `id` | 앱 ID (예: `uptime-kuma`) |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "app": {
+      "id": "uptime-kuma",
+      "name": "Uptime Kuma",
+      "description": { "ko": "...", "en": "..." },
+      "category": "monitoring",
+      "version": "1",
+      "website": "...",
+      "source": "...",
+      "ports": ["3001"],
+      "env": [{ "key": "PORT", "label": {"ko": "포트", "en": "Port"}, "type": "number", "default": "3001", "required": true, "generate": "" }],
+      "installed": false
+    },
+    "compose": "version: '3'\nservices:\n  uptime-kuma:\n    image: louislam/uptime-kuma:1\n    ...",
+    "installed": false
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `APP_NOT_FOUND` | 404 | 존재하지 않는 앱 ID |
+
+---
+
+### POST /api/v1/appstore/apps/:id/install
+앱 설치 (Docker Compose 프로젝트로 배포).
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 이름 | 설명 |
+|------|------|
+| `id` | 앱 ID (예: `uptime-kuma`) |
+
+**Request Body:**
+```json
+{
+  "env": {
+    "PORT": "3001",
+    "PASSWORD": "my-secret"
+  }
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "앱이 설치되었습니다",
+    "id": "uptime-kuma",
+    "output": "docker compose up -d 출력..."
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `APP_NOT_FOUND` | 404 | 존재하지 않는 앱 ID |
+| `APP_ALREADY_INSTALLED` | 409 | 이미 설치된 앱 |
+| `APP_INSTALL_ERROR` | 500 | 설치 실패 |
+
+---
+
+### GET /api/v1/appstore/installed
+설치된 앱 목록 조회.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uptime-kuma",
+      "details": {
+        "version": "1",
+        "installed_at": "2026-03-10T12:00:00Z"
+      }
+    }
+  ]
+}
+```
+
+---
+
+### POST /api/v1/appstore/refresh
+앱스토어 캐시 갱신 (GitHub 레포에서 최신 앱 목록 다시 로드).
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "앱스토어 캐시가 갱신되었습니다",
+    "apps": 8,
+    "categories": 5
+  }
+}
+```
+
+---
+
 ## 헬스체크 API
 
 ### GET /api/v1/health
@@ -2307,7 +2495,7 @@ Fail2ban jail 중지 (비활성화).
 
 ## 전체 엔드포인트 요약
 
-REST API 168개 + WebSocket 5개 = 총 173개 엔드포인트.
+REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
 
 ### 인증/설정 (9개)
 
@@ -2585,6 +2773,17 @@ REST API 168개 + WebSocket 5개 = 총 173개 엔드포인트.
 | POST | `/api/v1/docker/compose/:project/services/:service/stop` | O | 서비스 중지 |
 | POST | `/api/v1/docker/compose/:project/services/:service/start` | O | 서비스 시작 |
 | GET | `/api/v1/docker/compose/:project/services/:service/logs` | O | 서비스 로그 |
+
+### 앱스토어 (6개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/appstore/categories` | O | 앱스토어 카테고리 목록 |
+| GET | `/api/v1/appstore/apps` | O | 앱 목록 (카테고리 필터) |
+| GET | `/api/v1/appstore/apps/:id` | O | 앱 상세 정보 + Compose YAML |
+| POST | `/api/v1/appstore/apps/:id/install` | O | 앱 설치 |
+| GET | `/api/v1/appstore/installed` | O | 설치된 앱 목록 |
+| POST | `/api/v1/appstore/refresh` | O | 앱스토어 캐시 갱신 |
 
 ### WebSocket (5개)
 

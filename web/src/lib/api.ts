@@ -30,10 +30,15 @@ import type {
   NetworkStatus,
   UpdateCheckResult,
   AuditLogsResponse,
+  TuningStatus,
+  AppStoreCategory,
+  AppStoreApp,
+  AppStoreAppDetail,
+  AppStoreInstalledApp,
+  ProcessInfo,
 } from '@/types/api'
 
 const API_BASE = '/api/v1'
-const WS_AUTH_PROTOCOL_PREFIX = 'sfpanel.jwt.'
 
 class ApiClient {
   private token: string | null = null
@@ -56,11 +61,6 @@ class ApiClient {
     return this.token
   }
 
-  getWebSocketProtocols(): string[] {
-    if (!this.token) return []
-    return [`${WS_AUTH_PROTOCOL_PREFIX}${this.token}`]
-  }
-
   isAuthenticated(): boolean {
     return !!this.token
   }
@@ -79,6 +79,12 @@ class ApiClient {
       ...options,
       headers,
     })
+
+    if (res.status === 401 && !path.startsWith('/auth/')) {
+      this.clearToken()
+      window.location.href = '/login'
+      throw new Error('Session expired')
+    }
 
     const json = await res.json()
 
@@ -168,6 +174,30 @@ class ApiClient {
     return this.request<DashboardOverview>('/system/overview')
   }
 
+  // System tuning
+  getTuningStatus() {
+    return this.request<TuningStatus>('/system/tuning')
+  }
+
+  applyTuning(categories?: string[]) {
+    return this.request<{ message: string; output: string; timeout: number }>('/system/tuning/apply', {
+      method: 'POST',
+      body: JSON.stringify({ categories: categories || [] }),
+    })
+  }
+
+  confirmTuning() {
+    return this.request<{ message: string }>('/system/tuning/confirm', {
+      method: 'POST',
+    })
+  }
+
+  resetTuning() {
+    return this.request<{ message: string }>('/system/tuning/reset', {
+      method: 'POST',
+    })
+  }
+
   // System update
   checkUpdate() {
     return this.request<UpdateCheckResult>('/system/update-check')
@@ -236,12 +266,9 @@ class ApiClient {
     if (!json.success) throw new Error(json.error?.message || 'Restore failed')
   }
 
-  listProcesses(query?: string, sort?: string) {
-    const params = new URLSearchParams()
-    if (query) params.set('q', query)
-    if (sort) params.set('sort', sort)
-    return this.request<{ processes: Array<{ pid: number; name: string; cpu: number; memory: number; status: string; user: string; command: string }>; total: number }>(
-      `/system/processes/list?${params.toString()}`
+  listProcesses() {
+    return this.request<{ processes: ProcessInfo[]; total: number }>(
+      '/system/processes/list'
     )
   }
 
@@ -307,16 +334,17 @@ class ApiClient {
     return this.request(`/docker/containers/${id}`, { method: 'DELETE' })
   }
 
+  pauseContainer(id: string) {
+    return this.request(`/docker/containers/${encodeURIComponent(id)}/pause`, { method: 'POST' })
+  }
+
+  unpauseContainer(id: string) {
+    return this.request(`/docker/containers/${encodeURIComponent(id)}/unpause`, { method: 'POST' })
+  }
+
   // Docker Images
   getImages() {
     return this.request<DockerImage[]>('/docker/images')
-  }
-
-  pullImage(image: string) {
-    return this.request('/docker/images/pull', {
-      method: 'POST',
-      body: JSON.stringify({ image }),
-    })
   }
 
   async pullImageStream(
@@ -358,6 +386,10 @@ class ApiClient {
     return this.request(`/docker/images/${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
+  checkImageUpdates() {
+    return this.request<import('@/types/api').ImageUpdateStatus[]>('/docker/images/updates')
+  }
+
   // Docker Volumes
   getVolumes() {
     return this.request<DockerVolume[]>('/docker/volumes')
@@ -390,12 +422,8 @@ class ApiClient {
     return this.request(`/docker/networks/${id}`, { method: 'DELETE' })
   }
 
-  // Docker - Container Creation
-  createContainer(config: import('@/types/api').ContainerCreateConfig) {
-    return this.request<{ id: string; message: string }>('/docker/containers', {
-      method: 'POST',
-      body: JSON.stringify(config),
-    })
+  inspectNetwork(id: string) {
+    return this.request<import('@/types/api').NetworkInspectDetail>(`/docker/networks/${encodeURIComponent(id)}/inspect`)
   }
 
   // Docker - Prune
@@ -449,8 +477,12 @@ class ApiClient {
     })
   }
 
-  deleteComposeProject(project: string) {
-    return this.request(`/docker/compose/${project}`, { method: 'DELETE' })
+  deleteComposeProject(project: string, options?: { removeImages?: boolean; removeVolumes?: boolean }) {
+    const params = new URLSearchParams()
+    if (options?.removeImages) params.set('removeImages', 'true')
+    if (options?.removeVolumes) params.set('removeVolumes', 'true')
+    const qs = params.toString()
+    return this.request(`/docker/compose/${project}${qs ? '?' + qs : ''}`, { method: 'DELETE' })
   }
 
   composeUp(project: string) {
@@ -490,6 +522,10 @@ class ApiClient {
       method: 'PUT',
       body: JSON.stringify({ content }),
     })
+  }
+
+  validateCompose(project: string) {
+    return this.request<import('@/types/api').ComposeValidationResult>(`/docker/compose/${encodeURIComponent(project)}/validate`, { method: 'POST' })
   }
 
   // File Manager
@@ -1154,13 +1190,8 @@ class ApiClient {
   }
 
   // Systemd Services
-  listServices(params?: { q?: string; sort?: string; type?: string }) {
-    const query = new URLSearchParams()
-    if (params?.q) query.set('q', params.q)
-    if (params?.sort) query.set('sort', params.sort)
-    if (params?.type) query.set('type', params.type)
-    const qs = query.toString()
-    return this.request<{ services: ServiceInfo[]; total: number }>(`/system/services${qs ? `?${qs}` : ''}`)
+  listServices() {
+    return this.request<{ services: ServiceInfo[]; total: number }>('/system/services')
   }
 
   startService(name: string) {
@@ -1190,6 +1221,28 @@ class ApiClient {
 
   getServiceDeps(name: string) {
     return this.request<ServiceDeps>(`/system/services/${name}/deps`)
+  }
+
+  // App Store
+  getAppStoreCategories() {
+    return this.request<AppStoreCategory[]>('/appstore/categories')
+  }
+
+  getAppStoreApps(category?: string) {
+    const query = category ? `?category=${category}` : ''
+    return this.request<AppStoreApp[]>(`/appstore/apps${query}`)
+  }
+
+  getAppStoreApp(id: string) {
+    return this.request<AppStoreAppDetail>(`/appstore/apps/${id}`)
+  }
+
+  getInstalledApps() {
+    return this.request<AppStoreInstalledApp[]>('/appstore/installed')
+  }
+
+  refreshAppStore() {
+    return this.request<{ message: string; apps: number; categories: number }>('/appstore/refresh', { method: 'POST' })
   }
 }
 
