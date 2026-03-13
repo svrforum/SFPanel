@@ -18,11 +18,17 @@ type ClusterHandler struct {
 // GET /api/v1/cluster/overview
 func (h *ClusterHandler) GetOverview(c echo.Context) error {
 	if h.Manager == nil {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+		return response.OK(c, map[string]interface{}{
+			"name": "", "node_count": 0, "leader_id": "",
+			"nodes": []interface{}{}, "metrics": []interface{}{},
+		})
 	}
 	overview := h.Manager.GetOverview()
 	if overview == nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Failed to get cluster overview")
+		return response.OK(c, map[string]interface{}{
+			"name": "", "node_count": 0, "leader_id": "",
+			"nodes": []interface{}{}, "metrics": []interface{}{},
+		})
 	}
 	return response.OK(c, overview)
 }
@@ -31,7 +37,9 @@ func (h *ClusterHandler) GetOverview(c echo.Context) error {
 // GET /api/v1/cluster/nodes
 func (h *ClusterHandler) GetNodes(c echo.Context) error {
 	if h.Manager == nil {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+		return response.OK(c, map[string]interface{}{
+			"nodes": []interface{}{}, "local_id": "", "is_leader": false,
+		})
 	}
 	nodes := h.Manager.GetNodes()
 	return response.OK(c, map[string]interface{}{
@@ -112,7 +120,9 @@ func (h *ClusterHandler) RemoveNode(c echo.Context) error {
 // GET /api/v1/cluster/events
 func (h *ClusterHandler) GetEvents(c echo.Context) error {
 	if h.Manager == nil {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+		return response.OK(c, map[string]interface{}{
+			"events": []interface{}{},
+		})
 	}
 
 	limit := 50

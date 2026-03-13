@@ -8,6 +8,7 @@ import NodeSelector from '@/components/NodeSelector'
 
 const navItems = [
   { to: '/dashboard', labelKey: 'layout.nav.dashboard', icon: LayoutDashboard },
+  { to: '/cluster', labelKey: 'layout.nav.cluster', icon: Server },
   { to: '/docker', labelKey: 'layout.nav.docker', icon: Container },
   { to: '/appstore', labelKey: 'layout.nav.appstore', icon: Store },
   { to: '/files', labelKey: 'layout.nav.files', icon: FolderOpen },
@@ -33,7 +34,6 @@ export default function Layout() {
   })
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [panelVersion, setPanelVersion] = useState('')
-  const [clusterEnabled, setClusterEnabled] = useState(false)
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, String(collapsed))
@@ -48,14 +48,7 @@ export default function Layout() {
     api.checkUpdate()
       .then((data) => setUpdateAvailable(data.update_available))
       .catch(() => {})
-    api.getClusterStatus()
-      .then((data) => setClusterEnabled(data.enabled))
-      .catch(() => {})
   }, [])
-
-  const allNavItems = clusterEnabled
-    ? [navItems[0], { to: '/cluster', labelKey: 'layout.nav.cluster', icon: Server }, ...navItems.slice(1)]
-    : navItems
 
   const handleLogout = () => {
     api.clearToken()
@@ -80,7 +73,7 @@ export default function Layout() {
         </div>
 
         <nav className={cn('flex-1 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
-          {allNavItems.map((item) => (
+          {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
