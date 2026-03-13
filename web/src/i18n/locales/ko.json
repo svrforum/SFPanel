@@ -515,17 +515,37 @@
       "nodeStatus": "노드 상태",
       "memory": "메모리",
       "disk": "디스크",
-      "noMetrics": "메트릭 없음"
+      "noMetrics": "메트릭 없음",
+      "recentEvents": "최근 이벤트"
+    },
+    "events": {
+      "node_joined": "클러스터에 참가",
+      "node_left": "클러스터에서 제거됨",
+      "node_online": "온라인 상태로 전환",
+      "node_suspect": "응답 지연 감지",
+      "node_offline": "오프라인 상태로 전환",
+      "leader_changed": "리더 변경됨",
+      "node_labels_updated": "라벨 업데이트됨"
     },
     "nodes": {
       "count": "{{count}}개 노드",
       "name": "이름",
       "role": "역할",
+      "labels": "라벨",
       "apiAddress": "API 주소",
       "grpcAddress": "gRPC 주소",
       "joinedAt": "참가일",
       "confirmRemove": "{{name}} 노드를 클러스터에서 제거하시겠습니까?",
-      "removed": "{{name}} 노드가 제거되었습니다"
+      "removed": "{{name}} 노드가 제거되었습니다",
+      "editLabels": "라벨 편집",
+      "editLabelsTitle": "{{name}} 라벨 편집",
+      "noLabels": "라벨이 없습니다",
+      "labelKey": "키",
+      "labelValue": "값",
+      "labelsUpdated": "라벨이 업데이트되었습니다",
+      "transferLeadership": "리더십 이전",
+      "confirmTransfer": "{{name}} 노드로 리더십을 이전하시겠습니까?",
+      "leaderTransferred": "{{name}} 노드로 리더십이 이전되었습니다"
     },
     "tokens": {
       "generateTitle": "참가 토큰 생성",

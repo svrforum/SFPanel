@@ -1,23 +1,26 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Cpu, MemoryStick, HardDrive, Container, Crown } from 'lucide-react'
+import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { ClusterOverview as ClusterOverviewType, ClusterStatus } from '@/types/api'
+import type { ClusterOverview as ClusterOverviewType, ClusterStatus, ClusterEvent } from '@/types/api'
 import { cn } from '@/lib/utils'
 
 export default function ClusterOverview() {
   const { t } = useTranslation()
   const [status, setStatus] = useState<ClusterStatus | null>(null)
   const [overview, setOverview] = useState<ClusterOverviewType | null>(null)
+  const [events, setEvents] = useState<ClusterEvent[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     Promise.all([
       api.getClusterStatus(),
       api.getClusterOverview().catch(() => null),
-    ]).then(([s, o]) => {
+      api.getClusterEvents(20).catch(() => ({ events: [] })),
+    ]).then(([s, o, e]) => {
       setStatus(s)
       setOverview(o)
+      setEvents(e.events)
     }).finally(() => setLoading(false))
   }, [])
 
@@ -119,7 +122,18 @@ export default function ClusterOverview() {
                         <span className="text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
                       )}
                     </div>
-                    <span className="text-[11px] text-muted-foreground">{node.api_address}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-muted-foreground">{node.api_address}</span>
+                      {node.labels && Object.keys(node.labels).length > 0 && (
+                        <div className="flex gap-1">
+                          {Object.entries(node.labels).map(([k, v]) => (
+                            <span key={k} className="inline-flex items-center px-1.5 py-0 rounded text-[9px] font-medium bg-secondary text-muted-foreground">
+                              {k}={v}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -143,6 +157,32 @@ export default function ClusterOverview() {
           })}
         </div>
       </div>
+
+      {/* Recent events */}
+      {events.length > 0 && (
+        <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+          <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+            <Bell className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-[15px] font-semibold">{t('cluster.overview.recentEvents')}</h3>
+          </div>
+          <div className="divide-y divide-border">
+            {events.slice(0, 10).map((event) => (
+              <div key={event.id} className="px-5 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <EventDot type={event.type} />
+                  <div>
+                    <span className="text-[13px] font-medium">{event.node_name || event.node_id.slice(0, 8)}</span>
+                    <span className="text-[13px] text-muted-foreground ml-2">{t(`cluster.events.${event.type}`, { defaultValue: event.type })}</span>
+                  </div>
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  {new Date(event.timestamp).toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -163,4 +203,16 @@ function MetricBar({ label, value }: { label: string; value: number }) {
       </div>
     </div>
   )
+}
+
+function EventDot({ type }: { type: string }) {
+  const color = type.includes('offline') || type.includes('left')
+    ? '#f04452'
+    : type.includes('suspect')
+      ? '#f59e0b'
+      : type.includes('online') || type.includes('joined')
+        ? '#00c471'
+        : '#3182f6'
+
+  return <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
 }

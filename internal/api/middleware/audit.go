@@ -28,11 +28,12 @@ func AuditMiddleware(db *sql.DB) echo.MiddlewareFunc {
 			status := c.Response().Status
 			username, _ := c.Get("username").(string)
 			ip := c.RealIP()
+			nodeID := c.QueryParam("node")
 
 			go func() {
 				_, _ = db.Exec(
-					"INSERT INTO audit_logs (username, method, path, status, ip) VALUES (?, ?, ?, ?, ?)",
-					username, method, path, status, ip,
+					"INSERT INTO audit_logs (username, method, path, status, ip, node_id) VALUES (?, ?, ?, ?, ?, ?)",
+					username, method, path, status, ip, nodeID,
 				)
 			}()
 

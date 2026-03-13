@@ -165,6 +165,35 @@ func (rn *RaftNode) GetFSM() *FSM {
 	return rn.fsm
 }
 
+// TransferLeadership transfers leadership to the target node.
+func (rn *RaftNode) TransferLeadership(targetNodeID string) error {
+	if rn.raft.State() != raft.Leader {
+		return ErrNotLeader
+	}
+
+	// Find the target server address from Raft configuration
+	configFuture := rn.raft.GetConfiguration()
+	if err := configFuture.Error(); err != nil {
+		return fmt.Errorf("get raft config: %w", err)
+	}
+
+	var targetAddr raft.ServerAddress
+	found := false
+	for _, server := range configFuture.Configuration().Servers {
+		if string(server.ID) == targetNodeID {
+			targetAddr = server.Address
+			found = true
+			break
+		}
+	}
+	if !found {
+		return ErrNodeNotFound
+	}
+
+	f := rn.raft.LeadershipTransferToServer(raft.ServerID(targetNodeID), targetAddr)
+	return f.Error()
+}
+
 // Shutdown cleanly stops the Raft node.
 func (rn *RaftNode) Shutdown() error {
 	f := rn.raft.Shutdown()

@@ -515,17 +515,37 @@
       "nodeStatus": "Node Status",
       "memory": "Memory",
       "disk": "Disk",
-      "noMetrics": "No metrics"
+      "noMetrics": "No metrics",
+      "recentEvents": "Recent Events"
+    },
+    "events": {
+      "node_joined": "joined the cluster",
+      "node_left": "removed from cluster",
+      "node_online": "came online",
+      "node_suspect": "heartbeat delayed",
+      "node_offline": "went offline",
+      "leader_changed": "leader changed",
+      "node_labels_updated": "labels updated"
     },
     "nodes": {
       "count": "{{count}} nodes",
       "name": "Name",
       "role": "Role",
+      "labels": "Labels",
       "apiAddress": "API Address",
       "grpcAddress": "gRPC Address",
       "joinedAt": "Joined",
       "confirmRemove": "Remove node {{name}} from the cluster?",
-      "removed": "Node {{name}} removed"
+      "removed": "Node {{name}} removed",
+      "editLabels": "Edit labels",
+      "editLabelsTitle": "Edit labels for {{name}}",
+      "noLabels": "No labels",
+      "labelKey": "Key",
+      "labelValue": "Value",
+      "labelsUpdated": "Labels updated",
+      "transferLeadership": "Transfer leadership",
+      "confirmTransfer": "Transfer leadership to {{name}}?",
+      "leaderTransferred": "Leadership transferred to {{name}}"
     },
     "tokens": {
       "generateTitle": "Generate Join Token",
