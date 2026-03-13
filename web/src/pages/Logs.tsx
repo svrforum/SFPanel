@@ -203,9 +203,8 @@ export default function Logs() {
     }
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws/logs?source=${source}&token=${api.getToken()}`
-
-    const ws = new WebSocket(wsUrl)
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws/logs?source=${encodeURIComponent(source)}`
+    const ws = new WebSocket(wsUrl, api.getWebSocketProtocols())
 
     ws.onopen = () => {
       setWsConnected(true)
