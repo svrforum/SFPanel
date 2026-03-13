@@ -239,6 +239,52 @@ func (h *ComposeHandler) ValidateProject(c echo.Context) error {
 	})
 }
 
+// CheckStackUpdates checks for image updates in a compose project.
+// POST /api/v1/docker/compose/:project/check-updates
+func (h *ComposeHandler) CheckStackUpdates(c echo.Context) error {
+	name := c.Param("project")
+	ctx := c.Request().Context()
+
+	result, err := h.Compose.CheckStackUpdates(ctx, name)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+	}
+	return response.OK(c, result)
+}
+
+// UpdateStack pulls latest images and recreates containers.
+// POST /api/v1/docker/compose/:project/update
+func (h *ComposeHandler) UpdateStack(c echo.Context) error {
+	name := c.Param("project")
+	ctx := c.Request().Context()
+
+	output, err := h.Compose.UpdateStack(ctx, name)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+	}
+	return response.OK(c, map[string]string{"output": output})
+}
+
+// RollbackStack restores previous image versions.
+// POST /api/v1/docker/compose/:project/rollback
+func (h *ComposeHandler) RollbackStack(c echo.Context) error {
+	name := c.Param("project")
+	ctx := c.Request().Context()
+
+	output, err := h.Compose.RollbackStack(ctx, name)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+	}
+	return response.OK(c, map[string]string{"output": output})
+}
+
+// HasRollback checks if rollback data exists for a project.
+// GET /api/v1/docker/compose/:project/has-rollback
+func (h *ComposeHandler) HasRollback(c echo.Context) error {
+	name := c.Param("project")
+	return response.OK(c, map[string]bool{"has_rollback": h.Compose.HasRollback(name)})
+}
+
 // ServiceLogs returns the last N lines of logs for a service.
 func (h *ComposeHandler) ServiceLogs(c echo.Context) error {
 	project := c.Param("project")

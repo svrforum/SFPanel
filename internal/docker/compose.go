@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -435,4 +436,151 @@ func (m *ComposeManager) ServiceLogs(ctx context.Context, project, service strin
 		tail = 100
 	}
 	return m.runCompose(ctx, project, "logs", "--tail", fmt.Sprintf("%d", tail), "--no-color", service)
+}
+
+// StackUpdateCheck holds the update status for an entire stack.
+type StackUpdateCheck struct {
+	Project    string              `json:"project"`
+	Images     []ImageUpdateStatus `json:"images"`
+	HasUpdates bool                `json:"has_updates"`
+}
+
+// rollbackEntry stores image info for rollback purposes.
+type rollbackEntry struct {
+	Service string `json:"service"`
+	Image   string `json:"image"`
+	ImageID string `json:"image_id"`
+}
+
+// CheckStackUpdates checks each unique image in a compose project for available updates.
+func (m *ComposeManager) CheckStackUpdates(ctx context.Context, name string) (*StackUpdateCheck, error) {
+	if m.dockerClient == nil {
+		return nil, fmt.Errorf("docker client not available")
+	}
+
+	services, err := m.GetProjectServices(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &StackUpdateCheck{Project: name}
+	checked := make(map[string]bool)
+
+	for _, svc := range services {
+		img := svc.Image
+		if img == "" || checked[img] {
+			continue
+		}
+		checked[img] = true
+
+		status, err := m.dockerClient.CheckImageUpdate(ctx, img)
+		if err != nil {
+			result.Images = append(result.Images, ImageUpdateStatus{
+				Image: img,
+				Error: err.Error(),
+			})
+			continue
+		}
+		result.Images = append(result.Images, *status)
+		if status.HasUpdate {
+			result.HasUpdates = true
+		}
+	}
+
+	return result, nil
+}
+
+// UpdateStack pulls latest images and recreates containers.
+// Saves current image IDs for rollback before pulling.
+func (m *ComposeManager) UpdateStack(ctx context.Context, name string) (string, error) {
+	if m.dockerClient == nil {
+		return "", fmt.Errorf("docker client not available")
+	}
+
+	// Save current image IDs for rollback
+	services, err := m.GetProjectServices(ctx, name)
+	if err != nil {
+		return "", fmt.Errorf("get services: %w", err)
+	}
+
+	var rollback []rollbackEntry
+	for _, svc := range services {
+		if svc.Image == "" {
+			continue
+		}
+		inspect, inspErr := m.dockerClient.InspectImage(ctx, svc.Image)
+		if inspErr == nil {
+			rollback = append(rollback, rollbackEntry{
+				Service: svc.Name,
+				Image:   svc.Image,
+				ImageID: inspect.ID,
+			})
+		}
+	}
+
+	// Write rollback file
+	if len(rollback) > 0 {
+		rbData, _ := json.Marshal(rollback)
+		rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
+		os.WriteFile(rbPath, rbData, 0644)
+	}
+
+	// Pull latest images
+	pullOutput, pullErr := m.runCompose(ctx, name, "pull")
+	if pullErr != nil {
+		return pullOutput, fmt.Errorf("pull failed: %w", pullErr)
+	}
+
+	// Recreate containers with new images
+	upOutput, upErr := m.runCompose(ctx, name, "up", "-d", "--force-recreate")
+	output := pullOutput + "\n" + upOutput
+	if upErr != nil {
+		return output, fmt.Errorf("recreate failed: %w", upErr)
+	}
+
+	return output, nil
+}
+
+// RollbackStack restores previous image versions and recreates containers.
+func (m *ComposeManager) RollbackStack(ctx context.Context, name string) (string, error) {
+	if err := m.validateProjectName(name); err != nil {
+		return "", err
+	}
+
+	rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
+	rbData, err := os.ReadFile(rbPath)
+	if err != nil {
+		return "", fmt.Errorf("no rollback data available (update first)")
+	}
+
+	var entries []rollbackEntry
+	if err := json.Unmarshal(rbData, &entries); err != nil {
+		return "", fmt.Errorf("invalid rollback data: %w", err)
+	}
+
+	// Re-tag old images
+	for _, e := range entries {
+		cmd := exec.CommandContext(ctx, "docker", "tag", e.ImageID, e.Image)
+		if out, tagErr := cmd.CombinedOutput(); tagErr != nil {
+			return string(out), fmt.Errorf("tag %s → %s failed: %w", e.ImageID, e.Image, tagErr)
+		}
+	}
+
+	// Recreate containers with restored images
+	output, upErr := m.runCompose(ctx, name, "up", "-d", "--force-recreate")
+	if upErr != nil {
+		return output, fmt.Errorf("recreate failed: %w", upErr)
+	}
+
+	// Remove rollback file after successful rollback
+	os.Remove(rbPath)
+
+	return output, nil
+}
+
+// HasRollback checks if rollback data exists for a project.
+func (m *ComposeManager) HasRollback(name string) bool {
+	rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
+	_, err := os.Stat(rbPath)
+	return err == nil
 }
