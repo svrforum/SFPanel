@@ -1,6 +1,9 @@
 package cluster
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/config"
 )
 
@@ -192,11 +196,6 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		return nil, nil, nil, nil, fmt.Errorf("load CA: %w", caErr)
 	}
 
-	raftAddr := fmt.Sprintf("%s:%d", host, m.config.GRPCPort+1)
-	if addErr := m.raft.AddVoter(nodeID, raftAddr); addErr != nil {
-		return nil, nil, nil, nil, fmt.Errorf("add voter: %w", addErr)
-	}
-
 	newNode := Node{
 		ID:          nodeID,
 		Name:        nodeName,
@@ -213,6 +212,11 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		Value: nodeJSON,
 	}, 5*time.Second); applyErr != nil {
 		return nil, nil, nil, nil, fmt.Errorf("register node: %w", applyErr)
+	}
+
+	raftAddr := fmt.Sprintf("%s:%d", host, m.config.GRPCPort+1)
+	if addErr := m.raft.AddVoter(nodeID, raftAddr); addErr != nil {
+		return nil, nil, nil, nil, fmt.Errorf("add voter: %w", addErr)
 	}
 
 	updatedState := m.raft.GetFSM().GetState()
@@ -321,6 +325,20 @@ func (m *Manager) GetTLS() *TLSManager {
 	return m.tls
 }
 
+// ProxySecret returns the cluster-internal proxy authentication secret
+// derived from the CA certificate hash. Returns empty if TLS is not configured.
+func (m *Manager) ProxySecret() string {
+	if m.tls == nil {
+		return ""
+	}
+	caCert, err := m.tls.LoadCACert()
+	if err != nil {
+		return ""
+	}
+	hash := sha256.Sum256(caCert)
+	return hex.EncodeToString(hash[:])
+}
+
 // GetRaft returns the Raft node (for gRPC server to read FSM).
 func (m *Manager) GetRaft() *RaftNode {
 	return m.raft
@@ -390,21 +408,76 @@ func (m *Manager) TransferLeadership(targetNodeID string) error {
 type MetricsCollector func() (cpuPercent, memPercent, diskPercent float64, containerCount int)
 
 // StartLocalMetrics starts a goroutine that periodically collects local metrics.
+// On the leader, metrics are recorded locally. On followers, metrics are sent
+// to the leader via gRPC heartbeat streaming.
 func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 
+		var grpcStream pb.ClusterService_HeartbeatClient
+		var grpcClient *GRPCClient
+
 		collect := func() {
 			cpu, mem, disk, containers := collector()
-			m.heartbeat.RecordHeartbeat(&NodeMetrics{
+			metrics := &NodeMetrics{
 				NodeID:         m.nodeID,
 				CPUPercent:     cpu,
 				MemoryPercent:  mem,
 				DiskPercent:    disk,
 				ContainerCount: containers,
 				Timestamp:      time.Now().Unix(),
-			})
+			}
+
+			// Always record locally
+			m.heartbeat.RecordHeartbeat(metrics)
+
+			// If follower, also send to leader via gRPC
+			if m.raft != nil && !m.raft.IsLeader() {
+				if grpcStream == nil {
+					leaderAddr := m.raft.LeaderGRPCAddress()
+					if leaderAddr != "" {
+						client, err := DialNode(leaderAddr, m.tls)
+						if err != nil {
+							log.Printf("[cluster] heartbeat dial failed: %v", err)
+							return
+						}
+						stream, err := client.client.Heartbeat(context.Background())
+						if err != nil {
+							client.Close()
+							log.Printf("[cluster] heartbeat stream failed: %v", err)
+							return
+						}
+						grpcClient = client
+						grpcStream = stream
+					}
+				}
+
+				if grpcStream != nil {
+					err := grpcStream.Send(&pb.HeartbeatPing{
+						NodeId:         m.nodeID,
+						CpuPercent:     cpu,
+						MemoryPercent:  mem,
+						ContainerCount: int32(containers),
+						Timestamp:      metrics.Timestamp,
+					})
+					if err != nil {
+						log.Printf("[cluster] heartbeat send failed: %v", err)
+						if grpcClient != nil {
+							grpcClient.Close()
+						}
+						grpcStream = nil
+						grpcClient = nil
+					}
+				}
+			} else if grpcStream != nil {
+				// Became leader, close follower stream
+				if grpcClient != nil {
+					grpcClient.Close()
+				}
+				grpcStream = nil
+				grpcClient = nil
+			}
 		}
 
 		collect() // immediate first collection
@@ -413,6 +486,9 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 			case <-ticker.C:
 				collect()
 			case <-m.heartbeat.stopCh:
+				if grpcClient != nil {
+					grpcClient.Close()
+				}
 				return
 			}
 		}

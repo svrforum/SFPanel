@@ -51,6 +51,12 @@ var validDockerAction = regexp.MustCompile(`^(drop|accept)$`)
 // GetDockerFirewall returns Docker published ports and DOCKER-USER chain rules.
 // GET /firewall/docker
 func (h *FirewallHandler) GetDockerFirewall(c echo.Context) error {
+	if !commandExists("iptables") {
+		return response.OK(c, map[string]interface{}{
+			"ports": []DockerPublishedPort{},
+			"rules": []DockerUserRule{},
+		})
+	}
 	ports, portsErr := getDockerPublishedPorts()
 	rules, rulesErr := getDockerUserRules()
 

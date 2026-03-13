@@ -2,12 +2,12 @@ package cluster
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 )
@@ -38,10 +38,14 @@ func DialNode(address string, tlsMgr *TLSManager) (*GRPCClient, error) {
 	}, nil
 }
 
-// DialNodeInsecure connects without TLS (used during initial join before certs are available).
+// DialNodeInsecure connects with TLS but skips server cert verification and
+// does not present a client certificate. Used during initial join before certs are available.
 func DialNodeInsecure(address string) (*GRPCClient, error) {
+	tlsCfg := &tls.Config{
+		InsecureSkipVerify: true,
+	}
 	conn, err := grpc.NewClient(address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", address, err)

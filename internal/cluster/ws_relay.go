@@ -15,7 +15,7 @@ import (
 // RelayWebSocket connects to a remote node's WebSocket endpoint and
 // bidirectionally relays messages between the client and the remote node.
 // The caller must have already upgraded the client connection.
-func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url.URL) error {
+func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url.URL, proxySecret string) error {
 	// Build remote WS URL
 	apiAddr := remoteNode.APIAddress
 	if !strings.Contains(apiAddr, ":") {
@@ -29,9 +29,13 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 		RawQuery: stripNodeParam(originalURL.RawQuery),
 	}
 
-	// Connect to remote node's WS endpoint
+	// Connect to remote node's WS endpoint with internal proxy auth
+	headers := http.Header{}
+	if proxySecret != "" {
+		headers.Set("X-SFPanel-Internal-Proxy", proxySecret)
+	}
 	dialer := websocket.Dialer{}
-	remoteWS, resp, err := dialer.Dial(remoteURL.String(), nil)
+	remoteWS, resp, err := dialer.Dial(remoteURL.String(), headers)
 	if err != nil {
 		if resp != nil {
 			return fmt.Errorf("remote WS connect failed (HTTP %d): %w", resp.StatusCode, err)
@@ -130,7 +134,7 @@ func WrapEchoWSHandler(mgr *Manager, handler func(c echo.Context) error) func(c 
 		}
 		defer clientWS.Close()
 
-		if err := RelayWebSocket(clientWS, node, c.Request().URL); err != nil {
+		if err := RelayWebSocket(clientWS, node, c.Request().URL, mgr.ProxySecret()); err != nil {
 			log.Printf("WS relay to node %s failed: %v", nodeID, err)
 		}
 		return nil

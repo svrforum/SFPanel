@@ -44,8 +44,9 @@ var envLinePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 func (h *CronHandler) ListJobs(c echo.Context) error {
 	content, err := readCrontab()
 	if err != nil {
-		// crontab -l returns exit code 1 when no crontab is installed
-		if strings.Contains(err.Error(), "no crontab for") {
+		// crontab -l returns exit code 1 when no crontab is installed,
+		// or crontab binary may not exist on the system
+		if strings.Contains(err.Error(), "no crontab for") || strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no such file") {
 			return response.OK(c, []CronJob{})
 		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+err.Error())

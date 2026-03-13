@@ -24,6 +24,7 @@ import (
 	sfpanel "github.com/svrforum/SFPanel"
 	"github.com/svrforum/SFPanel/internal/api"
 	"github.com/svrforum/SFPanel/internal/api/handlers"
+	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/db"
@@ -33,7 +34,7 @@ import (
 )
 
 var (
-	version = "0.5.3"
+	version = "0.5.4"
 	commit  = "none"
 	date    = "unknown"
 )
@@ -137,7 +138,7 @@ func main() {
 			})
 
 			// Start gRPC server for cluster communication
-			grpcServer, grpcErr := cluster.NewGRPCServer(clusterMgr)
+			grpcServer, grpcErr := cluster.NewGRPCServer(clusterMgr, cfg.Server.Port)
 			if grpcErr != nil {
 				log.Printf("Warning: gRPC server setup failed: %v", grpcErr)
 			} else {
@@ -146,6 +147,8 @@ func main() {
 					log.Printf("Warning: gRPC server start failed: %v", startErr)
 				} else {
 					defer grpcServer.Stop()
+					// Set cluster proxy secret for internal auth bypass
+					middleware.SetClusterProxySecret(grpcServer.ProxySecret())
 				}
 			}
 		}

@@ -22,6 +22,10 @@
 | gopsutil | v4.26.1 (`shirou/gopsutil/v4`) | 시스템 메트릭 수집 (CPU, 메모리, 디스크, 네트워크, 호스트 정보, 프로세스) |
 | gopkg.in/yaml.v3 | v3.0.1 | YAML 설정 파일 파싱 |
 | creack/pty | v1.1.24 | 서버 터미널 PTY (pseudo-terminal) 세션 생성 |
+| hashicorp/raft | v1.7.3 | Raft 합의 알고리즘 (클러스터 리더 선출, 로그 복제) |
+| raft-boltdb | v2.0.0 | Raft 로그/스냅샷 저장 (BoltDB 기반, 임베디드) |
+| google.golang.org/grpc | v1.72.0 | 노드 간 gRPC 통신 (클러스터 제어 채널) |
+| google.golang.org/protobuf | v1.36.5 | Protocol Buffers 직렬화 (gRPC 메시지 정의) |
 
 ### 프론트엔드
 
@@ -265,6 +269,11 @@
   - **CLI 명령어**: `sfpanel cluster init/join/leave/status/token/remove`
 - **신규 패키지**: `internal/cluster/` (10개 파일, ~1,950줄)
 - **설정 확장**: `config.yaml`에 `cluster` 섹션 추가
+- **REST API 프록시**: `ClusterProxyMiddleware` — `?node=X` 파라미터로 원격 노드에 REST 요청 투명 전달 (gRPC)
+- **WebSocket 릴레이**: `WrapEchoWSHandler` — 터미널/로그/메트릭/Docker exec 등 모든 WS를 원격 노드로 양방향 릴레이
+- **내부 프록시 인증**: CA 인증서 SHA-256 해시 기반, `X-SFPanel-Internal-Proxy` 헤더로 노드 간 인증 (JWT 비의존)
+- **노드 선택 UI**: 사이드바 NodeSelector 컴포넌트, localStorage 지속, 노드 전환 시 페이지 즉시 갱신
+- **Graceful 누락 처리**: 원격 노드에 ufw/crontab/rsyslog 미설치 시 500 대신 빈 결과 반환
 - **설계 문서**: `docs/plans/2026-03-13-cluster-design.md`
 - **관련 기술**: hashicorp/raft, raft-boltdb, gRPC, protobuf, crypto/x509
 

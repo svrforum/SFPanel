@@ -534,6 +534,52 @@ go func() {
 
 ---
 
+## 클러스터 WebSocket 릴레이
+
+### 개요
+
+클러스터 환경에서 모든 WebSocket 엔드포인트는 `?node=X` 쿼리 파라미터를 지원한다. `node`가 로컬 노드가 아닌 경우, `WrapEchoWSHandler`가 클라이언트 연결을 업그레이드한 뒤 원격 노드의 WebSocket에 양방향으로 릴레이한다.
+
+### 릴레이 동작
+
+```
+클라이언트 ←→ 로컬 노드 (WS 업그레이드) ←→ 원격 노드 (WS 다이얼)
+```
+
+1. 클라이언트가 `ws://host/ws/terminal?token=JWT&node=REMOTE_ID`로 연결
+2. 로컬 노드가 `node` 파라미터 감지 → 클라이언트 WS 업그레이드
+3. 로컬 노드가 원격 노드의 WS 엔드포인트에 연결 (JWT 대신 `X-SFPanel-Internal-Proxy` 헤더 사용)
+4. 양방향 메시지 포워딩 (메시지 타입 보존)
+5. 어느 한쪽이 닫히면 반대쪽도 닫기
+
+### 내부 프록시 인증
+
+클러스터 노드 간 WebSocket 릴레이 시 JWT 토큰 대신 내부 프록시 인증을 사용한다:
+
+- **헤더**: `X-SFPanel-Internal-Proxy`
+- **값**: 클러스터 CA 인증서의 SHA-256 해시 (hex)
+- **검증**: `crypto/subtle.ConstantTimeCompare`로 상수 시간 비교
+- `authenticateWS()` 헬퍼가 내부 프록시 헤더를 우선 확인하고, 없으면 JWT 토큰 검증
+
+### 릴레이 대상 엔드포인트
+
+| 엔드포인트 | 설명 |
+|-----------|------|
+| `/ws/metrics?node=X` | 원격 노드 실시간 메트릭 |
+| `/ws/logs?node=X` | 원격 노드 로그 스트리밍 |
+| `/ws/terminal?node=X` | 원격 노드 터미널 접속 |
+| `/ws/docker/containers/:id/logs?node=X` | 원격 노드 컨테이너 로그 |
+| `/ws/docker/containers/:id/exec?node=X` | 원격 노드 컨테이너 셸 |
+
+### `node` 파라미터 처리
+
+- `node` 미지정 또는 로컬 노드 ID → 로컬 핸들러 실행
+- `node`가 원격 노드 → 릴레이 (원격 연결 시 `node` 파라미터 제거)
+- 노드를 찾을 수 없음 → HTTP 400
+- 노드가 오프라인 → HTTP 503
+
+---
+
 ## 보안 고려사항
 
 1. **Origin 검사 미비**: `CheckOrigin`이 모든 origin을 허용하므로 CSRF 공격에 노출될 수 있다. 프로덕션 환경에서는 허용 origin 목록 설정을 권장한다.

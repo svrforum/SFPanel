@@ -14,17 +14,17 @@ export default function NodeSelector({ collapsed }: NodeSelectorProps) {
   const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null)
   const [nodes, setNodes] = useState<ClusterNode[]>([])
   const [localId, setLocalId] = useState('')
-  const [selectedNode, setSelectedNode] = useState<string | null>(null)
+  const [selectedNode, setSelectedNode] = useState<string | null>(api.currentNode)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    api.getClusterStatus()
+    api.getClusterStatus(true)
       .then((status) => {
         setClusterStatus(status)
         if (status.enabled && status.local_id) {
           setLocalId(status.local_id)
-          api.getClusterNodes().then((data) => {
+          api.getClusterNodes(true).then((data) => {
             setNodes(data.nodes)
           }).catch(() => {})
         }
@@ -32,8 +32,14 @@ export default function NodeSelector({ collapsed }: NodeSelectorProps) {
       .catch(() => {})
   }, [])
 
+  const initialRef = useRef(true)
   useEffect(() => {
     api.setCurrentNode(selectedNode)
+    if (initialRef.current) {
+      initialRef.current = false
+      return
+    }
+    window.dispatchEvent(new Event('sfpanel:node-changed'))
   }, [selectedNode])
 
   useEffect(() => {

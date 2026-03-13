@@ -53,6 +53,7 @@ class ApiClient {
 
   constructor() {
     this.token = localStorage.getItem('token')
+    this._currentNode = localStorage.getItem('sfpanel_current_node')
   }
 
   get currentNode(): string | null {
@@ -61,6 +62,11 @@ class ApiClient {
 
   setCurrentNode(nodeId: string | null) {
     this._currentNode = nodeId
+    if (nodeId) {
+      localStorage.setItem('sfpanel_current_node', nodeId)
+    } else {
+      localStorage.removeItem('sfpanel_current_node')
+    }
   }
 
   setToken(token: string) {
@@ -81,10 +87,11 @@ class ApiClient {
     return !!this.token
   }
 
-  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  private async request<T>(path: string, options: RequestInit & { local?: boolean } = {}): Promise<T> {
+    const { local, ...fetchOptions } = options
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...((options.headers as Record<string, string>) || {}),
+      ...((fetchOptions.headers as Record<string, string>) || {}),
     }
 
     if (this.token) {
@@ -92,13 +99,13 @@ class ApiClient {
     }
 
     let url = `${API_BASE}${path}`
-    if (this._currentNode) {
+    if (this._currentNode && !local) {
       const separator = url.includes('?') ? '&' : '?'
       url += `${separator}node=${encodeURIComponent(this._currentNode)}`
     }
 
     const res = await fetch(url, {
-      ...options,
+      ...fetchOptions,
       headers,
     })
 
@@ -1268,8 +1275,8 @@ class ApiClient {
   }
 
   // Cluster
-  getClusterStatus() {
-    return this.request<ClusterStatus>('/cluster/status')
+  getClusterStatus(local?: boolean) {
+    return this.request<ClusterStatus>('/cluster/status', { local })
   }
 
   getClusterInterfaces() {
@@ -1287,8 +1294,8 @@ class ApiClient {
     return this.request<ClusterOverview>('/cluster/overview')
   }
 
-  getClusterNodes() {
-    return this.request<ClusterNodesResponse>('/cluster/nodes')
+  getClusterNodes(local?: boolean) {
+    return this.request<ClusterNodesResponse>('/cluster/nodes', { local })
   }
 
   createClusterToken(ttl?: string) {

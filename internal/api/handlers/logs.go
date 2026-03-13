@@ -16,7 +16,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
-	"github.com/svrforum/SFPanel/internal/auth"
 )
 
 // logSourceInfo holds metadata about a known log source.
@@ -200,9 +199,13 @@ func (h *LogsHandler) ReadLog(c echo.Context) error {
 		lines = n
 	}
 
-	// Ensure the file exists before attempting to read.
+	// If log file does not exist, return empty result instead of 404
 	if _, err := os.Stat(info.Path); os.IsNotExist(err) {
-		return response.Fail(c, http.StatusNotFound, response.ErrLogNotFound, fmt.Sprintf("Log file does not exist: %s", info.Path))
+		return response.OK(c, map[string]interface{}{
+			"source":    sourceKey,
+			"lines":     []string{},
+			"available": false,
+		})
 	}
 
 	// Use tail (optionally piped through grep) to read the last N lines.
@@ -261,13 +264,8 @@ func (h *LogsHandler) ReadLog(c echo.Context) error {
 func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 	helper := &LogsHandler{DB: database}
 	return func(c echo.Context) error {
-		// Validate JWT from query parameter.
-		token := c.QueryParam("token")
-		if token == "" {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
-		}
-		if _, err := auth.ParseToken(token, jwtSecret); err != nil {
-			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+		if err := authenticateWS(c, jwtSecret); err != nil {
+			return err
 		}
 
 		// Validate the requested log source.
@@ -281,7 +279,11 @@ func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 			return c.String(http.StatusBadRequest, fmt.Sprintf("unknown log source: %s", sourceKey))
 		}
 		if _, err := os.Stat(info.Path); os.IsNotExist(err) {
-			return c.String(http.StatusNotFound, fmt.Sprintf("log file does not exist: %s", info.Path))
+			return response.OK(c, map[string]interface{}{
+				"source":    sourceKey,
+				"lines":     []string{},
+				"available": false,
+			})
 		}
 
 		// Upgrade to WebSocket.

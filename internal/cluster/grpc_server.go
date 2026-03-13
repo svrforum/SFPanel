@@ -3,6 +3,8 @@ package cluster
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -19,13 +21,16 @@ import (
 // GRPCServer serves the ClusterService.
 type GRPCServer struct {
 	pb.UnimplementedClusterServiceServer
-	manager  *Manager
-	server   *grpc.Server
-	listener net.Listener
+	manager     *Manager
+	server      *grpc.Server
+	listener    net.Listener
+	localPort   int
+	proxySecret string
 }
 
 // NewGRPCServer creates and configures the gRPC server with mTLS.
-func NewGRPCServer(mgr *Manager) (*GRPCServer, error) {
+// localPort is the HTTP server port for proxying requests locally.
+func NewGRPCServer(mgr *Manager, localPort int) (*GRPCServer, error) {
 	tlsConfig, err := mgr.GetTLS().ServerTLSConfig()
 	if err != nil {
 		return nil, fmt.Errorf("load TLS config: %w", err)
@@ -34,9 +39,18 @@ func NewGRPCServer(mgr *Manager) (*GRPCServer, error) {
 	creds := credentials.NewTLS(tlsConfig)
 	server := grpc.NewServer(grpc.Creds(creds))
 
+	// Derive proxy secret from CA cert (shared across all cluster nodes)
+	proxySecret := ""
+	if caCert, caErr := mgr.GetTLS().LoadCACert(); caErr == nil {
+		hash := sha256.Sum256(caCert)
+		proxySecret = hex.EncodeToString(hash[:])
+	}
+
 	s := &GRPCServer{
-		manager: mgr,
-		server:  server,
+		manager:     mgr,
+		server:      server,
+		localPort:   localPort,
+		proxySecret: proxySecret,
 	}
 	pb.RegisterClusterServiceServer(server, s)
 
@@ -65,6 +79,11 @@ func (s *GRPCServer) Stop() {
 	if s.server != nil {
 		s.server.GracefulStop()
 	}
+}
+
+// ProxySecret returns the cluster-internal proxy authentication secret.
+func (s *GRPCServer) ProxySecret() string {
+	return s.proxySecret
 }
 
 // Join handles a node join request.
@@ -120,6 +139,7 @@ func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 			NodeID:         ping.NodeId,
 			CPUPercent:     ping.CpuPercent,
 			MemoryPercent:  ping.MemoryPercent,
+			DiskPercent:    ping.DiskPercent,
 			ContainerCount: int(ping.ContainerCount),
 			Timestamp:      ping.Timestamp,
 		})
@@ -141,7 +161,7 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 		body = bytes.NewReader(req.Body)
 	}
 
-	localURL := "http://127.0.0.1:8443" + req.Path
+	localURL := fmt.Sprintf("http://127.0.0.1:%d%s", s.localPort, req.Path)
 	httpReq, err := http.NewRequestWithContext(ctx, req.Method, localURL, body)
 	if err != nil {
 		return &pb.APIResponse{
@@ -155,8 +175,10 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 		httpReq.Header.Set(k, v)
 	}
 
-	// Set auth token
-	if req.AuthToken != "" {
+	// Use internal proxy authentication (bypasses JWT validation)
+	if s.proxySecret != "" {
+		httpReq.Header.Set("X-SFPanel-Internal-Proxy", s.proxySecret)
+	} else if req.AuthToken != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+req.AuthToken)
 	}
 

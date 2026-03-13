@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v3.21.12
-// source: cluster.proto
+// source: proto/cluster.proto
 
 package proto
 
@@ -35,7 +35,7 @@ type JoinRequest struct {
 
 func (x *JoinRequest) Reset() {
 	*x = JoinRequest{}
-	mi := &file_cluster_proto_msgTypes[0]
+	mi := &file_proto_cluster_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -47,7 +47,7 @@ func (x *JoinRequest) String() string {
 func (*JoinRequest) ProtoMessage() {}
 
 func (x *JoinRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[0]
+	mi := &file_proto_cluster_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60,7 +60,7 @@ func (x *JoinRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinRequest.ProtoReflect.Descriptor instead.
 func (*JoinRequest) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{0}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *JoinRequest) GetToken() string {
@@ -120,7 +120,7 @@ type JoinResponse struct {
 
 func (x *JoinResponse) Reset() {
 	*x = JoinResponse{}
-	mi := &file_cluster_proto_msgTypes[1]
+	mi := &file_proto_cluster_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -132,7 +132,7 @@ func (x *JoinResponse) String() string {
 func (*JoinResponse) ProtoMessage() {}
 
 func (x *JoinResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[1]
+	mi := &file_proto_cluster_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -145,7 +145,7 @@ func (x *JoinResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinResponse.ProtoReflect.Descriptor instead.
 func (*JoinResponse) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{1}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *JoinResponse) GetSuccess() bool {
@@ -206,7 +206,7 @@ type LeaveRequest struct {
 
 func (x *LeaveRequest) Reset() {
 	*x = LeaveRequest{}
-	mi := &file_cluster_proto_msgTypes[2]
+	mi := &file_proto_cluster_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -218,7 +218,7 @@ func (x *LeaveRequest) String() string {
 func (*LeaveRequest) ProtoMessage() {}
 
 func (x *LeaveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[2]
+	mi := &file_proto_cluster_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -231,7 +231,7 @@ func (x *LeaveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaveRequest.ProtoReflect.Descriptor instead.
 func (*LeaveRequest) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{2}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *LeaveRequest) GetNodeId() string {
@@ -251,7 +251,7 @@ type LeaveResponse struct {
 
 func (x *LeaveResponse) Reset() {
 	*x = LeaveResponse{}
-	mi := &file_cluster_proto_msgTypes[3]
+	mi := &file_proto_cluster_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -263,7 +263,7 @@ func (x *LeaveResponse) String() string {
 func (*LeaveResponse) ProtoMessage() {}
 
 func (x *LeaveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[3]
+	mi := &file_proto_cluster_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -276,7 +276,7 @@ func (x *LeaveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaveResponse.ProtoReflect.Descriptor instead.
 func (*LeaveResponse) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{3}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *LeaveResponse) GetSuccess() bool {
@@ -300,13 +300,14 @@ type HeartbeatPing struct {
 	MemoryPercent  float64                `protobuf:"fixed64,3,opt,name=memory_percent,json=memoryPercent,proto3" json:"memory_percent,omitempty"`
 	ContainerCount int32                  `protobuf:"varint,4,opt,name=container_count,json=containerCount,proto3" json:"container_count,omitempty"`
 	Timestamp      int64                  `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	DiskPercent    float64                `protobuf:"fixed64,6,opt,name=disk_percent,json=diskPercent,proto3" json:"disk_percent,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
 func (x *HeartbeatPing) Reset() {
 	*x = HeartbeatPing{}
-	mi := &file_cluster_proto_msgTypes[4]
+	mi := &file_proto_cluster_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -318,7 +319,7 @@ func (x *HeartbeatPing) String() string {
 func (*HeartbeatPing) ProtoMessage() {}
 
 func (x *HeartbeatPing) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[4]
+	mi := &file_proto_cluster_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -331,7 +332,7 @@ func (x *HeartbeatPing) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatPing.ProtoReflect.Descriptor instead.
 func (*HeartbeatPing) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{4}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *HeartbeatPing) GetNodeId() string {
@@ -369,6 +370,13 @@ func (x *HeartbeatPing) GetTimestamp() int64 {
 	return 0
 }
 
+func (x *HeartbeatPing) GetDiskPercent() float64 {
+	if x != nil {
+		return x.DiskPercent
+	}
+	return 0
+}
+
 type HeartbeatPong struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	LeaderId      string                 `protobuf:"bytes,1,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
@@ -379,7 +387,7 @@ type HeartbeatPong struct {
 
 func (x *HeartbeatPong) Reset() {
 	*x = HeartbeatPong{}
-	mi := &file_cluster_proto_msgTypes[5]
+	mi := &file_proto_cluster_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -391,7 +399,7 @@ func (x *HeartbeatPong) String() string {
 func (*HeartbeatPong) ProtoMessage() {}
 
 func (x *HeartbeatPong) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[5]
+	mi := &file_proto_cluster_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -404,7 +412,7 @@ func (x *HeartbeatPong) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatPong.ProtoReflect.Descriptor instead.
 func (*HeartbeatPong) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{5}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *HeartbeatPong) GetLeaderId() string {
@@ -434,7 +442,7 @@ type APIRequest struct {
 
 func (x *APIRequest) Reset() {
 	*x = APIRequest{}
-	mi := &file_cluster_proto_msgTypes[6]
+	mi := &file_proto_cluster_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -446,7 +454,7 @@ func (x *APIRequest) String() string {
 func (*APIRequest) ProtoMessage() {}
 
 func (x *APIRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[6]
+	mi := &file_proto_cluster_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -459,7 +467,7 @@ func (x *APIRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use APIRequest.ProtoReflect.Descriptor instead.
 func (*APIRequest) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{6}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *APIRequest) GetMethod() string {
@@ -508,7 +516,7 @@ type APIResponse struct {
 
 func (x *APIResponse) Reset() {
 	*x = APIResponse{}
-	mi := &file_cluster_proto_msgTypes[7]
+	mi := &file_proto_cluster_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -520,7 +528,7 @@ func (x *APIResponse) String() string {
 func (*APIResponse) ProtoMessage() {}
 
 func (x *APIResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[7]
+	mi := &file_proto_cluster_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -533,7 +541,7 @@ func (x *APIResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use APIResponse.ProtoReflect.Descriptor instead.
 func (*APIResponse) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{7}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *APIResponse) GetStatusCode() int32 {
@@ -566,7 +574,7 @@ type MetricsRequest struct {
 
 func (x *MetricsRequest) Reset() {
 	*x = MetricsRequest{}
-	mi := &file_cluster_proto_msgTypes[8]
+	mi := &file_proto_cluster_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -578,7 +586,7 @@ func (x *MetricsRequest) String() string {
 func (*MetricsRequest) ProtoMessage() {}
 
 func (x *MetricsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[8]
+	mi := &file_proto_cluster_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -591,7 +599,7 @@ func (x *MetricsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricsRequest.ProtoReflect.Descriptor instead.
 func (*MetricsRequest) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{8}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *MetricsRequest) GetNodeId() string {
@@ -615,7 +623,7 @@ type MetricsResponse struct {
 
 func (x *MetricsResponse) Reset() {
 	*x = MetricsResponse{}
-	mi := &file_cluster_proto_msgTypes[9]
+	mi := &file_proto_cluster_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -627,7 +635,7 @@ func (x *MetricsResponse) String() string {
 func (*MetricsResponse) ProtoMessage() {}
 
 func (x *MetricsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[9]
+	mi := &file_proto_cluster_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -640,7 +648,7 @@ func (x *MetricsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricsResponse.ProtoReflect.Descriptor instead.
 func (*MetricsResponse) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{9}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *MetricsResponse) GetNodeId() string {
@@ -695,7 +703,7 @@ type SubscribeRequest struct {
 
 func (x *SubscribeRequest) Reset() {
 	*x = SubscribeRequest{}
-	mi := &file_cluster_proto_msgTypes[10]
+	mi := &file_proto_cluster_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -707,7 +715,7 @@ func (x *SubscribeRequest) String() string {
 func (*SubscribeRequest) ProtoMessage() {}
 
 func (x *SubscribeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[10]
+	mi := &file_proto_cluster_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -720,7 +728,7 @@ func (x *SubscribeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeRequest.ProtoReflect.Descriptor instead.
 func (*SubscribeRequest) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{10}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SubscribeRequest) GetNodeId() string {
@@ -749,7 +757,7 @@ type ClusterEvent struct {
 
 func (x *ClusterEvent) Reset() {
 	*x = ClusterEvent{}
-	mi := &file_cluster_proto_msgTypes[11]
+	mi := &file_proto_cluster_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -761,7 +769,7 @@ func (x *ClusterEvent) String() string {
 func (*ClusterEvent) ProtoMessage() {}
 
 func (x *ClusterEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[11]
+	mi := &file_proto_cluster_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -774,7 +782,7 @@ func (x *ClusterEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClusterEvent.ProtoReflect.Descriptor instead.
 func (*ClusterEvent) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{11}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ClusterEvent) GetEventType() string {
@@ -819,7 +827,7 @@ type NodeInfo struct {
 
 func (x *NodeInfo) Reset() {
 	*x = NodeInfo{}
-	mi := &file_cluster_proto_msgTypes[12]
+	mi := &file_proto_cluster_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -831,7 +839,7 @@ func (x *NodeInfo) String() string {
 func (*NodeInfo) ProtoMessage() {}
 
 func (x *NodeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_cluster_proto_msgTypes[12]
+	mi := &file_proto_cluster_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -844,7 +852,7 @@ func (x *NodeInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeInfo.ProtoReflect.Descriptor instead.
 func (*NodeInfo) Descriptor() ([]byte, []int) {
-	return file_cluster_proto_rawDescGZIP(), []int{12}
+	return file_proto_cluster_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *NodeInfo) GetId() string {
@@ -889,11 +897,11 @@ func (x *NodeInfo) GetStatus() string {
 	return ""
 }
 
-var File_cluster_proto protoreflect.FileDescriptor
+var File_proto_cluster_proto protoreflect.FileDescriptor
 
-const file_cluster_proto_rawDesc = "" +
+const file_proto_cluster_proto_rawDesc = "" +
 	"\n" +
-	"\rcluster.proto\x12\x0fsfpanel.cluster\"\xb8\x01\n" +
+	"\x13proto/cluster.proto\x12\x0fsfpanel.cluster\"\xb8\x01\n" +
 	"\vJoinRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12\x1b\n" +
@@ -914,14 +922,15 @@ const file_cluster_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"?\n" +
 	"\rLeaveResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\xb7\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xda\x01\n" +
 	"\rHeartbeatPing\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vcpu_percent\x18\x02 \x01(\x01R\n" +
 	"cpuPercent\x12%\n" +
 	"\x0ememory_percent\x18\x03 \x01(\x01R\rmemoryPercent\x12'\n" +
 	"\x0fcontainer_count\x18\x04 \x01(\x05R\x0econtainerCount\x12\x1c\n" +
-	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\"J\n" +
+	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x12!\n" +
+	"\fdisk_percent\x18\x06 \x01(\x01R\vdiskPercent\"J\n" +
 	"\rHeartbeatPong\x12\x1b\n" +
 	"\tleader_id\x18\x01 \x01(\tR\bleaderId\x12\x1c\n" +
 	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\"\xeb\x01\n" +
@@ -982,19 +991,19 @@ const file_cluster_proto_rawDesc = "" +
 	"\tSubscribe\x12!.sfpanel.cluster.SubscribeRequest\x1a\x1d.sfpanel.cluster.ClusterEvent0\x01B4Z2github.com/svrforum/SFPanel/internal/cluster/protob\x06proto3"
 
 var (
-	file_cluster_proto_rawDescOnce sync.Once
-	file_cluster_proto_rawDescData []byte
+	file_proto_cluster_proto_rawDescOnce sync.Once
+	file_proto_cluster_proto_rawDescData []byte
 )
 
-func file_cluster_proto_rawDescGZIP() []byte {
-	file_cluster_proto_rawDescOnce.Do(func() {
-		file_cluster_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_cluster_proto_rawDesc), len(file_cluster_proto_rawDesc)))
+func file_proto_cluster_proto_rawDescGZIP() []byte {
+	file_proto_cluster_proto_rawDescOnce.Do(func() {
+		file_proto_cluster_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_cluster_proto_rawDesc), len(file_proto_cluster_proto_rawDesc)))
 	})
-	return file_cluster_proto_rawDescData
+	return file_proto_cluster_proto_rawDescData
 }
 
-var file_cluster_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
-var file_cluster_proto_goTypes = []any{
+var file_proto_cluster_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_proto_cluster_proto_goTypes = []any{
 	(*JoinRequest)(nil),      // 0: sfpanel.cluster.JoinRequest
 	(*JoinResponse)(nil),     // 1: sfpanel.cluster.JoinResponse
 	(*LeaveRequest)(nil),     // 2: sfpanel.cluster.LeaveRequest
@@ -1011,7 +1020,7 @@ var file_cluster_proto_goTypes = []any{
 	nil,                      // 13: sfpanel.cluster.APIRequest.HeadersEntry
 	nil,                      // 14: sfpanel.cluster.APIResponse.HeadersEntry
 }
-var file_cluster_proto_depIdxs = []int32{
+var file_proto_cluster_proto_depIdxs = []int32{
 	12, // 0: sfpanel.cluster.JoinResponse.peers:type_name -> sfpanel.cluster.NodeInfo
 	13, // 1: sfpanel.cluster.APIRequest.headers:type_name -> sfpanel.cluster.APIRequest.HeadersEntry
 	14, // 2: sfpanel.cluster.APIResponse.headers:type_name -> sfpanel.cluster.APIResponse.HeadersEntry
@@ -1034,26 +1043,26 @@ var file_cluster_proto_depIdxs = []int32{
 	0,  // [0:3] is the sub-list for field type_name
 }
 
-func init() { file_cluster_proto_init() }
-func file_cluster_proto_init() {
-	if File_cluster_proto != nil {
+func init() { file_proto_cluster_proto_init() }
+func file_proto_cluster_proto_init() {
+	if File_proto_cluster_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cluster_proto_rawDesc), len(file_cluster_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_cluster_proto_rawDesc), len(file_proto_cluster_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_cluster_proto_goTypes,
-		DependencyIndexes: file_cluster_proto_depIdxs,
-		MessageInfos:      file_cluster_proto_msgTypes,
+		GoTypes:           file_proto_cluster_proto_goTypes,
+		DependencyIndexes: file_proto_cluster_proto_depIdxs,
+		MessageInfos:      file_proto_cluster_proto_msgTypes,
 	}.Build()
-	File_cluster_proto = out.File
-	file_cluster_proto_goTypes = nil
-	file_cluster_proto_depIdxs = nil
+	File_proto_cluster_proto = out.File
+	file_proto_cluster_proto_goTypes = nil
+	file_proto_cluster_proto_depIdxs = nil
 }
