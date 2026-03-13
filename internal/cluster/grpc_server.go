@@ -1,10 +1,14 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -129,11 +133,64 @@ func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 	}
 }
 
-// ProxyRequest forwards an API request to this node's local handler (Phase 2 stub).
+// ProxyRequest forwards an API request to this node's local HTTP handler.
 func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.APIResponse, error) {
+	// Build local HTTP request
+	var body io.Reader
+	if len(req.Body) > 0 {
+		body = bytes.NewReader(req.Body)
+	}
+
+	localURL := "http://127.0.0.1:8443" + req.Path
+	httpReq, err := http.NewRequestWithContext(ctx, req.Method, localURL, body)
+	if err != nil {
+		return &pb.APIResponse{
+			StatusCode: 500,
+			Body:       []byte(fmt.Sprintf(`{"success":false,"error":{"code":"PROXY_ERROR","message":"%s"}}`, err.Error())),
+		}, nil
+	}
+
+	// Copy headers
+	for k, v := range req.Headers {
+		httpReq.Header.Set(k, v)
+	}
+
+	// Set auth token
+	if req.AuthToken != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+req.AuthToken)
+	}
+
+	// Execute locally
+	client := &http.Client{Timeout: 25 * time.Second}
+	httpResp, err := client.Do(httpReq)
+	if err != nil {
+		return &pb.APIResponse{
+			StatusCode: 502,
+			Body:       []byte(fmt.Sprintf(`{"success":false,"error":{"code":"PROXY_ERROR","message":"%s"}}`, err.Error())),
+		}, nil
+	}
+	defer httpResp.Body.Close()
+
+	respBody, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return &pb.APIResponse{
+			StatusCode: 500,
+			Body:       []byte(`{"success":false,"error":{"code":"PROXY_ERROR","message":"failed to read response"}}`),
+		}, nil
+	}
+
+	// Collect response headers
+	respHeaders := make(map[string]string)
+	for k, v := range httpResp.Header {
+		if len(v) > 0 {
+			respHeaders[k] = v[0]
+		}
+	}
+
 	return &pb.APIResponse{
-		StatusCode: 501,
-		Body:       []byte(`{"error":"proxy not implemented yet"}`),
+		StatusCode: int32(httpResp.StatusCode),
+		Body:       respBody,
+		Headers:    respHeaders,
 	}, nil
 }
 

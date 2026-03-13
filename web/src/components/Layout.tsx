@@ -4,6 +4,7 @@ import { LayoutDashboard, Container, FolderOpen, Clock, FileText, Package, Setti
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import NodeSelector from '@/components/NodeSelector'
 
 const navItems = [
   { to: '/dashboard', labelKey: 'layout.nav.dashboard', icon: LayoutDashboard },
@@ -91,6 +92,9 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
+
+        {/* Cluster node selector */}
+        <NodeSelector collapsed={collapsed} />
 
         {/* Version info */}
         <div className={cn('border-t border-border', collapsed ? 'px-2 py-2' : 'px-4 py-3')}>

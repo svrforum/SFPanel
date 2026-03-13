@@ -47,7 +47,16 @@
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar",
     "updateAvailable": "Update",
-    "upToDate": "Latest"
+    "upToDate": "Latest",
+    "cluster": {
+      "localNode": "This node",
+      "selectNode": "Select node",
+      "nodeCount": "{{count}} nodes",
+      "online": "Online",
+      "offline": "Offline",
+      "suspect": "Suspect",
+      "leader": "Leader"
+    }
   },
   "login": {
     "title": "SFPanel",

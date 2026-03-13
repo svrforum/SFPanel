@@ -712,3 +712,54 @@ export interface AppStoreInstalledApp {
   installed_at: string
 }
 
+// Cluster
+export interface ClusterNode {
+  id: string
+  name: string
+  api_address: string
+  grpc_address: string
+  role: 'voter' | 'nonvoter'
+  status: 'online' | 'suspect' | 'offline' | 'joining'
+  labels?: Record<string, string>
+  joined_at: string
+  last_seen: string
+}
+
+export interface ClusterNodeMetrics {
+  node_id: string
+  cpu_percent: number
+  memory_percent: number
+  disk_percent: number
+  container_count: number
+  uptime_seconds: number
+  timestamp: number
+}
+
+export interface ClusterOverview {
+  name: string
+  node_count: number
+  leader_id: string
+  nodes: ClusterNode[]
+  metrics?: ClusterNodeMetrics[]
+}
+
+export interface ClusterStatus {
+  enabled: boolean
+  name?: string
+  node_count?: number
+  leader_id?: string
+  local_id?: string
+  is_leader?: boolean
+}
+
+export interface ClusterNodesResponse {
+  nodes: ClusterNode[]
+  local_id: string
+  is_leader: boolean
+}
+
+export interface ClusterTokenResponse {
+  token: string
+  expires_at: string
+}
+

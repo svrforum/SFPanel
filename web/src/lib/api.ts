@@ -36,15 +36,28 @@ import type {
   AppStoreAppDetail,
   AppStoreInstalledApp,
   ProcessInfo,
+  ClusterStatus,
+  ClusterOverview,
+  ClusterNodesResponse,
+  ClusterTokenResponse,
 } from '@/types/api'
 
 const API_BASE = '/api/v1'
 
 class ApiClient {
   private token: string | null = null
+  private _currentNode: string | null = null
 
   constructor() {
     this.token = localStorage.getItem('token')
+  }
+
+  get currentNode(): string | null {
+    return this._currentNode
+  }
+
+  setCurrentNode(nodeId: string | null) {
+    this._currentNode = nodeId
   }
 
   setToken(token: string) {
@@ -75,7 +88,13 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const res = await fetch(`${API_BASE}${path}`, {
+    let url = `${API_BASE}${path}`
+    if (this._currentNode) {
+      const separator = url.includes('?') ? '&' : '?'
+      url += `${separator}node=${encodeURIComponent(this._currentNode)}`
+    }
+
+    const res = await fetch(url, {
       ...options,
       headers,
     })
@@ -1243,6 +1262,32 @@ class ApiClient {
 
   refreshAppStore() {
     return this.request<{ message: string; apps: number; categories: number }>('/appstore/refresh', { method: 'POST' })
+  }
+
+  // Cluster
+  getClusterStatus() {
+    return this.request<ClusterStatus>('/cluster/status')
+  }
+
+  getClusterOverview() {
+    return this.request<ClusterOverview>('/cluster/overview')
+  }
+
+  getClusterNodes() {
+    return this.request<ClusterNodesResponse>('/cluster/nodes')
+  }
+
+  createClusterToken(ttl?: string) {
+    return this.request<ClusterTokenResponse>('/cluster/token', {
+      method: 'POST',
+      body: JSON.stringify({ ttl: ttl || '' }),
+    })
+  }
+
+  removeClusterNode(nodeId: string) {
+    return this.request<{ removed: string }>(`/cluster/nodes/${encodeURIComponent(nodeId)}`, {
+      method: 'DELETE',
+    })
   }
 }
 
