@@ -19,3 +19,15 @@ docker:
 log:
   level: "info"  # debug, info, warn, error
   file: "/var/log/sfpanel/sfpanel.log"
+
+# Cluster configuration (managed by 'sfpanel cluster init/join')
+# Do not edit manually unless you know what you're doing.
+# cluster:
+#   enabled: false
+#   name: ""
+#   node_id: ""
+#   node_name: ""
+#   grpc_port: 9443
+#   data_dir: /var/lib/sfpanel/cluster
+#   cert_dir: /etc/sfpanel/cluster
+#   advertise_address: ""

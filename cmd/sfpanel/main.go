@@ -24,6 +24,7 @@ import (
 	sfpanel "github.com/svrforum/SFPanel"
 	"github.com/svrforum/SFPanel/internal/api"
 	"github.com/svrforum/SFPanel/internal/api/handlers"
+	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/monitor"
@@ -47,6 +48,9 @@ func main() {
 			return
 		case "update":
 			updatePanel()
+			return
+		case "cluster":
+			clusterCommand(os.Args[2:])
 			return
 		case "help":
 			printHelp()
@@ -100,6 +104,32 @@ func main() {
 		database.Close()
 	}()
 	log.Printf("Database ready at %s", cfg.Database.Path)
+
+	// Start cluster manager if enabled
+	var clusterMgr *cluster.Manager
+	if cfg.Cluster.Enabled {
+		clusterMgr = cluster.NewManager(&cfg.Cluster)
+		if err := clusterMgr.Start(); err != nil {
+			log.Printf("Warning: cluster start failed: %v", err)
+		} else {
+			defer clusterMgr.Shutdown()
+			log.Printf("Cluster mode active: %s (node: %s)", cfg.Cluster.Name, cfg.Cluster.NodeID)
+
+			// Start gRPC server for cluster communication
+			grpcServer, grpcErr := cluster.NewGRPCServer(clusterMgr)
+			if grpcErr != nil {
+				log.Printf("Warning: gRPC server setup failed: %v", grpcErr)
+			} else {
+				grpcAddr := fmt.Sprintf("0.0.0.0:%d", cfg.Cluster.GRPCPort)
+				if startErr := grpcServer.Start(grpcAddr); startErr != nil {
+					log.Printf("Warning: gRPC server start failed: %v", startErr)
+				} else {
+					defer grpcServer.Stop()
+				}
+			}
+		}
+	}
+	_ = clusterMgr // TODO: pass to router in Phase 2
 
 	// Start background metrics history collector (30s interval, 24h retention, persisted to SQLite)
 	monitor.StartHistoryCollector(database)
@@ -330,5 +360,6 @@ func printHelp() {
 	fmt.Println("  sfpanel version          Show version info")
 	fmt.Println("  sfpanel update           Download and install latest version")
 	fmt.Println("  sfpanel reset            Delete database and reset to setup wizard")
+	fmt.Println("  sfpanel cluster <cmd>    Cluster management (init/join/leave/status/token/remove)")
 	fmt.Println("  sfpanel help             Show this help")
 }
