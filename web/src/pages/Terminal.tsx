@@ -27,8 +27,11 @@ const DEFAULT_FONT_SIZE = 14
 let tabCounter = 0
 
 function generateTabId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `term-${crypto.randomUUID()}`
+  }
   tabCounter++
-  return `term-${tabCounter}`
+  return `term-${Date.now()}-${tabCounter}`
 }
 
 function loadTabs(): Tab[] {
@@ -39,11 +42,11 @@ function loadTabs(): Tab[] {
       if (Array.isArray(tabs) && tabs.length > 0) {
         for (const t of tabs) {
           const match = t.id.match(/^term-(\d+)$/)
-          if (match) {
-            tabCounter = Math.max(tabCounter, parseInt(match[1], 10))
-          }
+          if (match) tabCounter = Math.max(tabCounter, parseInt(match[1], 10))
         }
-        return tabs
+        return tabs.map((tab) => (
+          /^term-[0-9a-f-]{16,}$/i.test(tab.id) ? tab : { ...tab, id: generateTabId() }
+        ))
       }
     }
   } catch { /* ignore */ }
@@ -137,8 +140,8 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws/terminal?token=${token}&session_id=${sessionId}`
-    const ws = new WebSocket(wsUrl)
+    const wsUrl = `${protocol}//${window.location.host}/ws/terminal?session_id=${encodeURIComponent(sessionId)}`
+    const ws = new WebSocket(wsUrl, api.getWebSocketProtocols())
     wsRef.current = ws
 
     ws.binaryType = 'arraybuffer'

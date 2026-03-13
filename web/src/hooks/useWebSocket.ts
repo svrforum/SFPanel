@@ -26,8 +26,8 @@ export function useWebSocket({ url, onMessage, autoReconnect = true, reconnectIn
     const token = api.getToken()
     if (!token) return
 
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}${url}?token=${token}`
-    const ws = new WebSocket(wsUrl)
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}${url}`
+    const ws = new WebSocket(wsUrl, api.getWebSocketProtocols())
 
     ws.onopen = () => {
       setConnected(true)

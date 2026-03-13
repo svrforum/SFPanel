@@ -3,8 +3,10 @@ package main
 import (
 	"archive/tar"
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -194,6 +196,10 @@ func updatePanel() {
 
 	var release struct {
 		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
 		log.Fatalf("Failed to parse release info: %v", err)
@@ -217,7 +223,20 @@ func updatePanel() {
 	}
 
 	arch := runtime.GOARCH
-	url := fmt.Sprintf("https://github.com/svrforum/SFPanel/releases/download/v%s/sfpanel_%s_linux_%s.tar.gz", latest, latest, arch)
+	archiveName := fmt.Sprintf("sfpanel_%s_linux_%s.tar.gz", latest, arch)
+	url := ""
+	checksumsURL := ""
+	for _, asset := range release.Assets {
+		switch asset.Name {
+		case archiveName:
+			url = asset.BrowserDownloadURL
+		case "checksums.txt":
+			checksumsURL = asset.BrowserDownloadURL
+		}
+	}
+	if url == "" || checksumsURL == "" {
+		log.Fatal("Required release assets not found (archive or checksums.txt)")
+	}
 	fmt.Printf("Downloading SFPanel v%s (%s)...\n", latest, arch)
 
 	dlResp, err := http.Get(url)
@@ -230,7 +249,43 @@ func updatePanel() {
 		log.Fatalf("Download failed (HTTP %d)", dlResp.StatusCode)
 	}
 
-	gzr, err := gzip.NewReader(dlResp.Body)
+	checksumResp, err := http.Get(checksumsURL)
+	if err != nil {
+		log.Fatalf("Checksum download failed: %v", err)
+	}
+	defer checksumResp.Body.Close()
+	if checksumResp.StatusCode != 200 {
+		log.Fatalf("Checksum download failed (HTTP %d)", checksumResp.StatusCode)
+	}
+	checksumBody, err := io.ReadAll(checksumResp.Body)
+	if err != nil {
+		log.Fatalf("Checksum read failed: %v", err)
+	}
+	expectedSHA256 := ""
+	for _, line := range strings.Split(string(checksumBody), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 2 {
+			continue
+		}
+		if strings.TrimPrefix(fields[1], "*") == archiveName {
+			expectedSHA256 = strings.ToLower(fields[0])
+			break
+		}
+	}
+	if expectedSHA256 == "" {
+		log.Fatalf("Checksum not found for %s", archiveName)
+	}
+
+	archiveData, err := io.ReadAll(dlResp.Body)
+	if err != nil {
+		log.Fatalf("Failed to read archive: %v", err)
+	}
+	actualSHA256 := fmt.Sprintf("%x", sha256.Sum256(archiveData))
+	if actualSHA256 != expectedSHA256 {
+		log.Fatal("Checksum verification failed")
+	}
+
+	gzr, err := gzip.NewReader(bytes.NewReader(archiveData))
 	if err != nil {
 		log.Fatalf("Failed to decompress: %v", err)
 	}
