@@ -16,6 +16,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { Metrics, ProcessInfo } from '@/types/api'
@@ -41,6 +42,7 @@ const ROW_HEIGHT = 44
 
 export default function Processes() {
   const { t } = useTranslation()
+  const isMobile = useIsMobile()
   const [allProcesses, setAllProcesses] = useState<ProcessInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -49,6 +51,7 @@ export default function Processes() {
   const [killing, setKilling] = useState(false)
   const [sysMetrics, setSysMetrics] = useState<Metrics | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const rowHeight = isMobile ? 68 : ROW_HEIGHT
 
   // Real-time metrics via WebSocket
   const onMetrics = useCallback((data: Metrics) => {
@@ -115,7 +118,7 @@ export default function Processes() {
   const rowVirtualizer = useVirtualizer({
     count: sorted.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 20,
   })
 
@@ -172,8 +175,8 @@ export default function Processes() {
 
       {/* Resource summary cards */}
       {sysMetrics && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="bg-card rounded-2xl p-4 card-shadow">
+        <div className="grid grid-cols-3 gap-2 md:gap-4">
+          <div className="bg-card rounded-2xl p-3 md:p-4 card-shadow">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-primary/10">
                 <Cpu className="h-4 w-4 text-primary" />
@@ -196,7 +199,7 @@ export default function Processes() {
             </div>
           </div>
 
-          <div className="bg-card rounded-2xl p-4 card-shadow">
+          <div className="bg-card rounded-2xl p-3 md:p-4 card-shadow">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-[#00c471]/10">
                 <MemoryStick className="h-4 w-4 text-[#00c471]" />
@@ -222,7 +225,7 @@ export default function Processes() {
             </div>
           </div>
 
-          <div className="bg-card rounded-2xl p-4 card-shadow">
+          <div className="bg-card rounded-2xl p-3 md:p-4 card-shadow">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-[#f59e0b]/10">
                 <HardDrive className="h-4 w-4 text-[#f59e0b]" />
@@ -255,7 +258,7 @@ export default function Processes() {
       )}
 
       {/* Search and controls */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -265,14 +268,14 @@ export default function Processes() {
             className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
           />
         </div>
-        <Button variant="outline" size="sm" className="rounded-xl" onClick={fetchProcesses} disabled={loading}>
+        <Button variant="outline" size="sm" className="rounded-xl w-full sm:w-auto" onClick={fetchProcesses} disabled={loading}>
           <RefreshCw className={loading ? 'animate-spin' : ''} />
           {t('common.refresh')}
         </Button>
       </div>
 
       {/* Sort buttons */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-muted-foreground">{t('processes.sortBy')}:</span>
         {(['cpu', 'memory', 'pid', 'name'] as SortField[]).map((field) => (
           <Button
@@ -293,37 +296,90 @@ export default function Processes() {
         )}
       </div>
 
-      {/* Process table with virtual scrolling */}
-      <div className="bg-card rounded-2xl card-shadow overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-20">PID</TableHead>
-              <TableHead>{t('processes.name')}</TableHead>
-              <TableHead>{t('processes.user')}</TableHead>
-              <TableHead className="w-20 text-right">CPU %</TableHead>
-              <TableHead className="w-20 text-right">MEM %</TableHead>
-              <TableHead className="w-24">{t('processes.status')}</TableHead>
-              <TableHead className="text-right w-20">{t('common.actions')}</TableHead>
-            </TableRow>
-          </TableHeader>
-        </Table>
-        <div
-          ref={scrollRef}
-          className="overflow-auto"
-          style={{ maxHeight: 'calc(100vh - 420px)' }}
-        >
-          <Table>
-            <TableBody>
-              {sorted.length === 0 && !loading && (
+      {/* Process list */}
+      {sorted.length === 0 && !loading && (
+        <div className="bg-card rounded-2xl p-8 card-shadow text-center text-muted-foreground">
+          {searchQuery ? t('processes.noResults') : t('processes.empty')}
+        </div>
+      )}
+
+      {sorted.length > 0 && (
+        <>
+          {/* Mobile card view */}
+          <div className="md:hidden">
+            <div
+              ref={isMobile ? scrollRef : undefined}
+              className="overflow-auto space-y-2"
+              style={{ maxHeight: 'calc(100vh - 420px)' }}
+            >
+              <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const proc = sorted[virtualRow.index]
+                  if (!proc) return null
+                  return (
+                    <div
+                      key={proc.pid}
+                      className="absolute left-0 right-0 px-0.5"
+                      style={{ top: virtualRow.start, height: virtualRow.size }}
+                    >
+                      <div className="bg-card rounded-xl p-3 card-shadow flex items-center justify-between">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[13px] font-medium truncate">{proc.name}</p>
+                          <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground">
+                            <span className="font-mono">PID {proc.pid}</span>
+                            <span className="flex items-center gap-1">
+                              <Cpu className="h-3 w-3" />
+                              <span className={proc.cpu > 50 ? 'text-[#f04452] font-bold' : proc.cpu > 20 ? 'text-[#f59e0b]' : ''}>
+                                {proc.cpu.toFixed(1)}%
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <MemoryStick className="h-3 w-3" />
+                              <span className={proc.memory > 50 ? 'text-[#f04452] font-bold' : proc.memory > 20 ? 'text-[#f59e0b]' : ''}>
+                                {proc.memory.toFixed(1)}%
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="text-[#f04452] hover:text-[#f04452]/80 ml-2"
+                          title={t('processes.kill')}
+                          onClick={() => setKillTarget(proc)}
+                        >
+                          <Skull className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Desktop table view */}
+          <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                    {searchQuery ? t('processes.noResults') : t('processes.empty')}
-                  </TableCell>
+                  <TableHead className="w-20">PID</TableHead>
+                  <TableHead>{t('processes.name')}</TableHead>
+                  <TableHead>{t('processes.user')}</TableHead>
+                  <TableHead className="w-20 text-right">CPU %</TableHead>
+                  <TableHead className="w-20 text-right">MEM %</TableHead>
+                  <TableHead className="w-24">{t('processes.status')}</TableHead>
+                  <TableHead className="text-right w-20">{t('common.actions')}</TableHead>
                 </TableRow>
-              )}
-              {sorted.length > 0 && (
-                <>
+              </TableHeader>
+            </Table>
+            <div
+              ref={isMobile ? undefined : scrollRef}
+              className="overflow-auto"
+              style={{ maxHeight: 'calc(100vh - 420px)' }}
+            >
+              <Table>
+                <TableBody>
                   <tr style={{ height: rowVirtualizer.getVirtualItems()[0]?.start ?? 0 }} />
                   {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                     const proc = sorted[virtualRow.index]
@@ -372,12 +428,12 @@ export default function Processes() {
                     )
                   })}
                   <tr style={{ height: rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems().at(-1)?.end ?? 0) }} />
-                </>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Kill confirmation dialog */}
       <Dialog open={!!killTarget} onOpenChange={(open) => !open && setKillTarget(null)}>

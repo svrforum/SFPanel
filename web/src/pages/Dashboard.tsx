@@ -189,7 +189,7 @@ export default function Dashboard() {
   const stoppedContainers = containers.length - runningContainers
 
   return (
-    <div className="space-y-6 max-w-[1400px]">
+    <div className="space-y-4 md:space-y-6 max-w-[1400px]">
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
@@ -222,12 +222,12 @@ export default function Dashboard() {
 
       {/* Host info section */}
       {hostInfo && (
-        <div className="bg-card rounded-2xl p-6 card-shadow">
+        <div className="bg-card rounded-2xl p-4 md:p-6 card-shadow">
           <div className="flex items-center gap-2 mb-4">
             <Server className="h-4 w-4 text-muted-foreground" />
             <span className="text-[13px] font-semibold text-foreground">{t('dashboard.hostInfo')}</span>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 md:gap-4">
             {[
               { label: t('dashboard.hostname'), value: hostInfo.hostname },
               { label: t('dashboard.os'), value: hostInfo.os },
@@ -247,7 +247,7 @@ export default function Dashboard() {
       )}
 
       {/* Metrics cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         <MetricsCard
           title={t('dashboard.cpuUsage')}
           value={metrics ? `${metrics.cpu.toFixed(1)}%` : '--'}
@@ -296,7 +296,7 @@ export default function Dashboard() {
       </div>
 
       {/* Charts + Docker summary row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         {/* CPU & Memory Chart — spans 2 columns */}
         <div className="lg:col-span-2">
           <MetricsChart
@@ -304,12 +304,12 @@ export default function Dashboard() {
             title={t('dashboard.chartTitle')}
             xDomain={chartXDomain}
             headerAction={
-              <div className="flex items-center gap-1 bg-secondary/60 rounded-lg p-0.5">
+              <div className="flex items-center gap-1 bg-secondary/60 rounded-lg p-0.5 shrink-0">
                 {(['1h', '4h', '12h', '24h'] as ChartRange[]).map((range) => (
                   <button
                     key={range}
                     onClick={() => setChartRange(range)}
-                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    className={`px-2 md:px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
                       chartRange === range
                         ? 'bg-card text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
@@ -324,9 +324,9 @@ export default function Dashboard() {
         </div>
 
         {/* Docker Summary + Network */}
-        <div className="space-y-6">
+        <div className="space-y-4 md:space-y-6">
           {/* Docker summary */}
-          <div className="bg-card rounded-2xl p-5 card-shadow">
+          <div className="bg-card rounded-2xl p-4 md:p-5 card-shadow">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Container className="h-4 w-4 text-muted-foreground" />
@@ -370,7 +370,7 @@ export default function Dashboard() {
 
           {/* Network I/O */}
           {metrics && (
-            <div className="bg-card rounded-2xl p-5 card-shadow">
+            <div className="bg-card rounded-2xl p-4 md:p-5 card-shadow">
               <div className="flex items-center gap-2 mb-4">
                 <Network className="h-4 w-4 text-muted-foreground" />
                 <span className="text-[13px] font-semibold">{t('dashboard.network')}</span>
@@ -407,9 +407,9 @@ export default function Dashboard() {
       </div>
 
       {/* Processes + Recent Logs row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
         {/* Top Processes */}
-        <div className="bg-card rounded-2xl p-5 card-shadow">
+        <div className="bg-card rounded-2xl p-4 md:p-5 card-shadow">
           <div className="flex items-center gap-2 mb-1">
             <Activity className="h-4 w-4 text-muted-foreground" />
             <span className="text-[13px] font-semibold">{t('dashboard.topProcesses')}</span>
@@ -418,6 +418,7 @@ export default function Dashboard() {
           {processes.length === 0 ? (
             <p className="text-[13px] text-muted-foreground">{t('dashboard.noProcesses')}</p>
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -442,12 +443,13 @@ export default function Dashboard() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </div>
 
         {/* Recent Logs (Firewall / System tabs) */}
-        <div className="bg-card rounded-2xl p-5 card-shadow">
-          <div className="flex items-center justify-between mb-1">
+        <div className="bg-card rounded-2xl p-4 md:p-5 card-shadow">
+          <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <Shield className="h-4 w-4 text-muted-foreground" />
@@ -558,17 +560,17 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Actions */}
-      <div className="bg-card rounded-2xl p-5 card-shadow">
+      <div className="bg-card rounded-2xl p-4 md:p-5 card-shadow">
         <div className="mb-1">
           <span className="text-[13px] font-semibold">{t('dashboard.quickActions')}</span>
         </div>
         <p className="text-[11px] text-muted-foreground mb-4">{t('dashboard.quickActionsDesc')}</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="flex gap-2 overflow-x-auto md:grid md:grid-cols-5 md:gap-3 pb-1 md:pb-0 -mx-1 px-1 md:mx-0 md:px-0">
           {quickActions.map((action) => (
             <button
               key={action.to}
               onClick={() => navigate(action.to)}
-              className="flex flex-col items-center gap-2.5 p-4 rounded-2xl bg-secondary/50 hover:bg-secondary transition-all duration-200 cursor-pointer"
+              className="shrink-0 w-[120px] md:w-auto flex flex-col items-center gap-2.5 p-4 rounded-2xl bg-secondary/50 hover:bg-secondary transition-all duration-200 cursor-pointer"
             >
               <div className={`p-2.5 rounded-xl ${action.color}`}>
                 <action.icon className="h-5 w-5" />
