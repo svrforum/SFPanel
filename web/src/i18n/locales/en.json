@@ -57,6 +57,13 @@
       "offline": "Offline",
       "suspect": "Suspect",
       "leader": "Leader"
+    },
+    "mobileNav": {
+      "dashboard": "Dashboard",
+      "docker": "Docker",
+      "terminal": "Terminal",
+      "processes": "Processes",
+      "more": "More"
     }
   },
   "login": {

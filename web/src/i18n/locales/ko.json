@@ -57,6 +57,13 @@
       "offline": "오프라인",
       "suspect": "점검 중",
       "leader": "리더"
+    },
+    "mobileNav": {
+      "dashboard": "대시보드",
+      "docker": "Docker",
+      "terminal": "터미널",
+      "processes": "프로세스",
+      "more": "더보기"
     }
   },
   "login": {
