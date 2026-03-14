@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -179,7 +180,7 @@ func (h *ClusterHandler) GetNodes(c echo.Context) error {
 
 	if !h.Manager.IsLeader() {
 		if resp, err := h.proxyToLeader(c); err == nil {
-			return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
+			return h.returnWithLocalID(c, resp)
 		}
 	}
 
@@ -202,7 +203,7 @@ func (h *ClusterHandler) GetStatus(c echo.Context) error {
 
 	if !h.Manager.IsLeader() {
 		if resp, err := h.proxyToLeader(c); err == nil {
-			return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
+			return h.returnWithLocalID(c, resp)
 		}
 	}
 
@@ -215,6 +216,25 @@ func (h *ClusterHandler) GetStatus(c echo.Context) error {
 		"local_id":   h.Manager.LocalNodeID(),
 		"is_leader":  h.Manager.IsLeader(),
 	})
+}
+
+// returnWithLocalID takes a proxied response from the leader and replaces
+// local_id and is_leader with the actual local node's values.
+// This prevents the leader's identity from being returned to the client.
+func (h *ClusterHandler) returnWithLocalID(c echo.Context, resp *pb.APIResponse) error {
+	var envelope map[string]interface{}
+	if err := json.Unmarshal(resp.Body, &envelope); err != nil {
+		return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
+	}
+	if data, ok := envelope["data"].(map[string]interface{}); ok {
+		data["local_id"] = h.Manager.LocalNodeID()
+		data["is_leader"] = h.Manager.IsLeader()
+	}
+	patched, err := json.Marshal(envelope)
+	if err != nil {
+		return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
+	}
+	return c.Blob(int(resp.StatusCode), "application/json", patched)
 }
 
 // CreateToken generates a join token. Leader-only.

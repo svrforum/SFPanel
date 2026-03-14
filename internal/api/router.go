@@ -373,6 +373,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		compose.PUT("/:project", composeHandler.UpdateProject)
 		compose.DELETE("/:project", composeHandler.DeleteProject)
 		compose.POST("/:project/up", composeHandler.ProjectUp)
+		compose.POST("/:project/up-stream", composeHandler.ProjectUpStream)
 		compose.POST("/:project/down", composeHandler.ProjectDown)
 		compose.GET("/:project/env", composeHandler.GetEnv)
 		compose.PUT("/:project/env", composeHandler.UpdateEnv)
@@ -384,6 +385,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		compose.POST("/:project/validate", composeHandler.ValidateProject)
 		compose.POST("/:project/check-updates", composeHandler.CheckStackUpdates)
 		compose.POST("/:project/update", composeHandler.UpdateStack)
+		compose.POST("/:project/update-stream", composeHandler.UpdateStackStream)
 		compose.POST("/:project/rollback", composeHandler.RollbackStack)
 		compose.GET("/:project/has-rollback", composeHandler.HasRollback)
 
