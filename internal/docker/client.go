@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -17,10 +19,39 @@ import (
 	"github.com/docker/docker/client"
 )
 
+// cache holds a generic cached result with expiration.
+type cache[T any] struct {
+	mu      sync.Mutex
+	data    T
+	expires time.Time
+}
+
+// get returns cached data if still valid. ok is false on miss/expired.
+func (c *cache[T]) get() (T, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if time.Now().Before(c.expires) {
+		return c.data, true
+	}
+	var zero T
+	return zero, false
+}
+
+// set stores data with the given TTL.
+func (c *cache[T]) set(data T, ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data = data
+	c.expires = time.Now().Add(ttl)
+}
+
 // Client wraps the Docker SDK client with convenience methods for
 // container, image, volume, and network management.
 type Client struct {
 	cli *client.Client
+
+	containersCache cache[[]types.Container]
+	imagesCache     cache[[]ImageWithUsage]
 }
 
 // NewClient creates a new Docker client connected to the given host
@@ -41,6 +72,21 @@ func NewClient(host string) (*Client, error) {
 // ListContainers returns all containers (running and stopped).
 func (c *Client) ListContainers(ctx context.Context) ([]types.Container, error) {
 	return c.cli.ContainerList(ctx, container.ListOptions{All: true})
+}
+
+const containersCacheTTL = 5 * time.Second
+
+// listContainersCached returns containers from cache or fetches fresh data.
+func (c *Client) listContainersCached(ctx context.Context) ([]types.Container, error) {
+	if data, ok := c.containersCache.get(); ok {
+		return data, nil
+	}
+	containers, err := c.ListContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.containersCache.set(containers, containersCacheTTL)
+	return containers, nil
 }
 
 // GetContainer inspects a single container by ID or name.
@@ -172,44 +218,86 @@ func calcMemUsage(stats *container.StatsResponse) uint64 {
 	return usage
 }
 
-// ContainerStatsBatch returns CPU/memory stats for all running containers in a single call.
+// statsBatchConcurrency limits parallel Docker stats API calls.
+const statsBatchConcurrency = 5
+
+// ContainerStatsBatch returns CPU/memory stats for all running containers in parallel.
 func (c *Client) ContainerStatsBatch(ctx context.Context) ([]ContainerStatsResult, error) {
-	containers, err := c.ListContainers(ctx)
+	containers, err := c.listContainersCached(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var results []ContainerStatsResult
+	// Filter running containers.
+	var running []types.Container
 	for _, ct := range containers {
-		if ct.State != "running" {
-			continue
+		if ct.State == "running" {
+			running = append(running, ct)
 		}
-		stats, err := c.ContainerStats(ctx, ct.ID)
-		if err != nil {
-			continue
-		}
+	}
+	if len(running) == 0 {
+		return []ContainerStatsResult{}, nil
+	}
 
-		cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
-		systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
-		cpuPercent := 0.0
-		if systemDelta > 0 && cpuDelta > 0 {
-			cpuPercent = (cpuDelta / systemDelta) * float64(stats.CPUStats.OnlineCPUs) * 100.0
-		}
+	type indexedResult struct {
+		index  int
+		result ContainerStatsResult
+		ok     bool
+	}
 
-		memUsage := calcMemUsage(stats)
-		memLimit := stats.MemoryStats.Limit
-		memPercent := 0.0
-		if memLimit > 0 {
-			memPercent = float64(memUsage) / float64(memLimit) * 100.0
-		}
+	resultsCh := make(chan indexedResult, len(running))
+	sem := make(chan struct{}, statsBatchConcurrency)
+	var wg sync.WaitGroup
 
-		results = append(results, ContainerStatsResult{
-			ID:         ct.ID,
-			CPUPercent: cpuPercent,
-			MemPercent: memPercent,
-			MemUsage:   memUsage,
-			MemLimit:   memLimit,
-		})
+	for i, ct := range running {
+		wg.Add(1)
+		go func(idx int, id string) {
+			defer wg.Done()
+			sem <- struct{}{}        // acquire
+			defer func() { <-sem }() // release
+
+			stats, err := c.ContainerStats(ctx, id)
+			if err != nil {
+				resultsCh <- indexedResult{index: idx, ok: false}
+				return
+			}
+
+			cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
+			systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
+			cpuPercent := 0.0
+			if systemDelta > 0 && cpuDelta > 0 {
+				cpuPercent = (cpuDelta / systemDelta) * float64(stats.CPUStats.OnlineCPUs) * 100.0
+			}
+
+			memUsage := calcMemUsage(stats)
+			memLimit := stats.MemoryStats.Limit
+			memPercent := 0.0
+			if memLimit > 0 {
+				memPercent = float64(memUsage) / float64(memLimit) * 100.0
+			}
+
+			resultsCh <- indexedResult{
+				index: idx,
+				ok:    true,
+				result: ContainerStatsResult{
+					ID:         id,
+					CPUPercent: cpuPercent,
+					MemPercent: memPercent,
+					MemUsage:   memUsage,
+					MemLimit:   memLimit,
+				},
+			}
+		}(i, ct.ID)
+	}
+
+	wg.Wait()
+	close(resultsCh)
+
+	results := make([]ContainerStatsResult, 0, len(running))
+	for ir := range resultsCh {
+		if ir.ok {
+			results = append(results, ir.result)
+		}
 	}
 	return results, nil
 }
@@ -374,13 +462,24 @@ type ImageWithUsage struct {
 	UsedBy []string `json:"used_by"`
 }
 
+const imagesCacheTTL = 10 * time.Second
+
 // ListImagesWithUsage returns all images with container usage information.
+// Results are cached for 10 seconds.
 func (c *Client) ListImagesWithUsage(ctx context.Context) ([]ImageWithUsage, error) {
-	containers, err := c.ListContainers(ctx)
+	if data, ok := c.imagesCache.get(); ok {
+		return data, nil
+	}
+	containers, err := c.listContainersCached(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return c.listImagesWithContainers(ctx, containers)
+	result, err := c.listImagesWithContainers(ctx, containers)
+	if err != nil {
+		return nil, err
+	}
+	c.imagesCache.set(result, imagesCacheTTL)
+	return result, nil
 }
 
 // listImagesWithContainers returns all images with usage info derived from the provided containers.
@@ -426,7 +525,7 @@ type VolumeWithUsage struct {
 
 // ListVolumesWithUsage returns all volumes with container usage information.
 func (c *Client) ListVolumesWithUsage(ctx context.Context) ([]VolumeWithUsage, error) {
-	containers, err := c.ListContainers(ctx)
+	containers, err := c.listContainersCached(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -483,7 +582,7 @@ type NetworkWithUsage struct {
 
 // ListNetworksWithUsage returns all networks with container usage information.
 func (c *Client) ListNetworksWithUsage(ctx context.Context) ([]NetworkWithUsage, error) {
-	containers, err := c.ListContainers(ctx)
+	containers, err := c.listContainersCached(ctx)
 	if err != nil {
 		return nil, err
 	}

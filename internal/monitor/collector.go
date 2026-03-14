@@ -97,6 +97,34 @@ func GetMetrics() (*Metrics, error) {
 	}, nil
 }
 
+// GetCoreMetrics collects only CPU and memory metrics, ignoring disk/network
+// errors that would cause the full GetMetrics to fail. This ensures metrics
+// history collection is not interrupted by transient disk or network errors.
+func GetCoreMetrics() (*Metrics, error) {
+	cpuPercent, err := cpu.Percent(0, false)
+	if err != nil {
+		return nil, err
+	}
+
+	vmem, err := mem.VirtualMemory()
+	if err != nil {
+		return nil, err
+	}
+
+	var cpuVal float64
+	if len(cpuPercent) > 0 {
+		cpuVal = cpuPercent[0]
+	}
+
+	return &Metrics{
+		CPU:        cpuVal,
+		MemTotal:   vmem.Total,
+		MemUsed:    vmem.Used,
+		MemPercent: vmem.UsedPercent,
+		Timestamp:  time.Now().UnixMilli(),
+	}, nil
+}
+
 // GetHostInfo collects static host information.
 func GetHostInfo() (*HostInfo, error) {
 	info, err := host.Info()

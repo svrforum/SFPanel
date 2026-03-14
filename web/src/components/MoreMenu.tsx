@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Drawer } from 'vaul'
@@ -15,9 +16,12 @@ import {
   Package,
   Settings,
   LogOut,
+  Monitor,
+  ChevronDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
+import type { ClusterStatus, ClusterNode } from '@/types/api'
 
 interface MoreMenuProps {
   open: boolean
@@ -43,6 +47,46 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { t } = useTranslation()
+  const [clusterEnabled, setClusterEnabled] = useState(false)
+  const [nodes, setNodes] = useState<ClusterNode[]>([])
+  const [localId, setLocalId] = useState('')
+  const [selectedNode, setSelectedNode] = useState<string | null>(api.currentNode)
+  const [nodeOpen, setNodeOpen] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    api.getClusterStatus(true)
+      .then((status: ClusterStatus) => {
+        setClusterEnabled(status.enabled)
+        if (status.enabled && status.local_id) {
+          setLocalId(status.local_id)
+          setSelectedNode(api.currentNode)
+          api.getClusterNodes(true).then((data) => setNodes(data.nodes)).catch(() => {})
+        }
+      })
+      .catch(() => {})
+  }, [open])
+
+  const handleNodeSelect = (nodeId: string) => {
+    const newNode = nodeId === localId ? null : nodeId
+    setSelectedNode(newNode)
+    api.setCurrentNode(newNode)
+    window.dispatchEvent(new Event('sfpanel:node-changed'))
+    setNodeOpen(false)
+  }
+
+  const statusColor = (status: string) => {
+    switch (status) {
+      case 'online': return 'bg-[#00c471]'
+      case 'suspect': return 'bg-[#f59e0b]'
+      case 'offline': return 'bg-[#f04452]'
+      default: return 'bg-muted-foreground'
+    }
+  }
+
+  const currentNode = selectedNode
+    ? nodes.find((n) => n.id === selectedNode)
+    : nodes.find((n) => n.id === localId)
 
   const handleNavigate = (path: string) => {
     navigate(path)
@@ -64,6 +108,45 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
           <Drawer.Title className="sr-only">Menu</Drawer.Title>
 
           <div className="overflow-y-auto px-4 pb-safe" style={{ maxHeight: '70vh' }}>
+            {/* Mobile node selector */}
+            {clusterEnabled && nodes.length > 0 && (
+              <div className="pb-2 mb-2 border-b border-border">
+                <button
+                  onClick={() => setNodeOpen(!nodeOpen)}
+                  className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-secondary/50 transition-colors"
+                >
+                  <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className={cn('h-2 w-2 rounded-full shrink-0', statusColor(currentNode?.status || ''))} />
+                  <span className="text-[13px] font-medium truncate">
+                    {currentNode?.name || t('layout.cluster.selectNode')}
+                  </span>
+                  <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground ml-auto shrink-0 transition-transform', nodeOpen && 'rotate-180')} />
+                </button>
+                {nodeOpen && (
+                  <div className="mt-1 rounded-xl bg-secondary/30 py-1">
+                    {nodes.map((node) => (
+                      <button
+                        key={node.id}
+                        onClick={() => handleNodeSelect(node.id)}
+                        className={cn(
+                          'flex items-center gap-2 w-full px-3 py-2 text-[13px] transition-colors rounded-lg',
+                          (selectedNode === node.id || (!selectedNode && node.id === localId))
+                            ? 'bg-primary/10 text-primary'
+                            : 'text-foreground/80'
+                        )}
+                      >
+                        <span className={cn('h-2 w-2 rounded-full shrink-0', statusColor(node.status))} />
+                        <span className="truncate">{node.name}</span>
+                        {node.id === localId && (
+                          <span className="text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-4 gap-2 py-2">
               {menuItems.map(({ path, icon: Icon, label }) => {
                 const isActive = location.pathname.startsWith(path)

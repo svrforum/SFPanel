@@ -93,7 +93,13 @@ func loadHistoryFromDB() {
 func collectPoint() {
 	m, err := GetMetrics()
 	if err != nil {
-		return
+		// Even if some subsystems fail, try to get at least CPU and memory
+		// which are the only fields stored in MetricsPoint.
+		m, err = GetCoreMetrics()
+		if err != nil {
+			log.Printf("Failed to collect metrics: %v", err)
+			return
+		}
 	}
 
 	pt := MetricsPoint{
@@ -157,8 +163,8 @@ func GetHistoryRange(rangeStr string) []MetricsPoint {
 		cutoff = now - 24*60*60*1000
 	}
 
-	// Filter by time range
-	var filtered []MetricsPoint
+	// Filter by time range (pre-allocate to avoid repeated reallocation)
+	filtered := make([]MetricsPoint, 0, len(historyPoints))
 	for _, pt := range historyPoints {
 		if pt.Time >= cutoff {
 			filtered = append(filtered, pt)

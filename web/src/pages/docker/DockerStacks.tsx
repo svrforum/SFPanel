@@ -4,7 +4,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Plus, Play, Square, RotateCw, ArrowUp, RefreshCw,
   Trash2, Terminal, ScrollText, FileText, FileCode, Save, Loader2,
-  CheckCircle2, XCircle, Download, Undo2, Search,
+  CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -443,8 +443,8 @@ export default function DockerStacks() {
 
   return (
     <div className="flex flex-col md:flex-row gap-4 h-full">
-      {/* Stack list (left panel) */}
-      <div className="md:w-[220px] shrink-0 space-y-2">
+      {/* Stack list (left panel) — hidden on mobile when a stack is selected */}
+      <div className={`md:w-[220px] shrink-0 space-y-2 ${selectedName ? 'hidden md:block' : ''}`}>
         <div className="flex items-center justify-between">
           <span className="text-[15px] font-semibold">{t('docker.stacks.title')}</span>
           <div className="flex gap-1">
@@ -573,6 +573,13 @@ export default function DockerStacks() {
             {/* Stack header */}
             <div className="space-y-2">
               <div className="flex items-center gap-3 flex-wrap">
+                <Button
+                  variant="ghost" size="icon-xs"
+                  className="md:hidden"
+                  onClick={() => navigate('/docker/stacks')}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
                 <h2 className="text-[18px] font-bold">{selectedName}</h2>
                 {selectedProject && (
                   <>
