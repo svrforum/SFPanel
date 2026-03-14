@@ -55,6 +55,18 @@ func (hm *HeartbeatManager) GetAllMetrics() []*NodeMetrics {
 	return result
 }
 
+// GetLastSeen returns a snapshot of the last-seen times for all nodes.
+func (hm *HeartbeatManager) GetLastSeen() map[string]time.Time {
+	hm.mu.RLock()
+	defer hm.mu.RUnlock()
+
+	result := make(map[string]time.Time, len(hm.lastSeen))
+	for id, t := range hm.lastSeen {
+		result[id] = t
+	}
+	return result
+}
+
 // CheckHealth returns a map of nodeID to NodeStatus based on last-seen times.
 func (hm *HeartbeatManager) CheckHealth() map[string]NodeStatus {
 	hm.mu.RLock()
