@@ -1,8 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeRaw from 'rehype-raw'
+import { Marked } from 'marked'
 import {
   Eye,
   EyeOff,
@@ -64,6 +62,76 @@ function generatePassword(): string {
   const bytes = new Uint8Array(16)
   crypto.getRandomValues(bytes)
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function transformUrl(url: string, baseUrl?: string): string {
+  if (!url) return url
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url
+  if (baseUrl) {
+    const cleanUrl = url.startsWith('./') ? url.slice(2) : url
+    return baseUrl + cleanUrl
+  }
+  return url
+}
+
+function createMarked(baseUrl?: string): Marked {
+  return new Marked({
+    gfm: true,
+    breaks: false,
+    renderer: {
+      image({ href, text }: { href: string; text: string }) {
+        const src = transformUrl(href, baseUrl)
+        const isBadge = src && (
+          src.includes('shields.io') || src.includes('img.shields') ||
+          src.includes('badge') || src.includes('contrib.rocks') ||
+          src.includes('repobeats') || src.includes('star-history')
+        )
+        if (isBadge) {
+          return `<img src="${src}" alt="${text}" class="inline-block h-5 my-0.5 mr-1 rounded-none" />`
+        }
+        const isLogo = (src && (src.endsWith('.svg') || src.includes('logo'))) ||
+          (text && text.toLowerCase().includes('logo'))
+        const maxH = isLogo ? 'max-h-20' : 'max-h-64'
+        return `<img src="${src}" alt="${text}" class="max-w-full h-auto rounded-lg ${maxH}" />`
+      },
+      link({ href, text }: { href: string; text: string }) {
+        const url = transformUrl(href, baseUrl)
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`
+      },
+    },
+  })
+}
+
+function RenderedReadme({ markdown, baseUrl }: { markdown: string; baseUrl?: string }) {
+  const html = useMemo(() => {
+    const processed = processGitHubAlerts(markdown)
+    const md = createMarked(baseUrl)
+    return md.parse(processed) as string
+  }, [markdown, baseUrl])
+
+  return (
+    <div
+      className="rounded-xl bg-secondary/20 p-5 prose prose-sm dark:prose-invert max-w-none
+        prose-headings:text-foreground prose-headings:font-semibold
+        prose-h1:text-[16px] prose-h1:mt-0 prose-h1:mb-2
+        prose-h2:text-[14px] prose-h2:mt-5 prose-h2:mb-2
+        prose-h3:text-[13px] prose-h3:mt-3 prose-h3:mb-1
+        prose-p:text-[12px] prose-p:text-muted-foreground prose-p:leading-relaxed
+        prose-li:text-[12px] prose-li:text-muted-foreground
+        prose-strong:text-foreground prose-strong:font-medium
+        prose-a:text-primary prose-a:no-underline hover:prose-a:underline
+        prose-code:text-[11px] prose-code:bg-secondary/50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-foreground
+        prose-pre:bg-[#1e1e2e] prose-pre:text-[#cdd6f4] prose-pre:rounded-xl prose-pre:p-4
+        [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[11px] [&_pre_code]:text-[#cdd6f4]
+        prose-table:text-[11px]
+        prose-th:text-[10px] prose-th:font-semibold prose-th:text-muted-foreground prose-th:uppercase prose-th:tracking-wider
+        prose-td:text-[11px]
+        prose-img:rounded-lg prose-img:my-2
+        [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-lg
+      "
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
 }
 
 interface AppStoreDetailModalProps {
@@ -751,57 +819,10 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
             {detail.readme && (
               <div>
                 <h3 className="text-[14px] font-semibold mb-3">{t('appStore.about')}</h3>
-                <div className="rounded-xl bg-secondary/20 p-5 prose prose-sm dark:prose-invert max-w-none
-                  prose-headings:text-foreground prose-headings:font-semibold
-                  prose-h1:text-[16px] prose-h1:mt-0 prose-h1:mb-2
-                  prose-h2:text-[14px] prose-h2:mt-5 prose-h2:mb-2
-                  prose-h3:text-[13px] prose-h3:mt-3 prose-h3:mb-1
-                  prose-p:text-[12px] prose-p:text-muted-foreground prose-p:leading-relaxed
-                  prose-li:text-[12px] prose-li:text-muted-foreground
-                  prose-strong:text-foreground prose-strong:font-medium
-                  prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-                  prose-code:text-[11px] prose-code:bg-secondary/50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-foreground
-                  prose-pre:bg-[#1e1e2e] prose-pre:text-[#cdd6f4] prose-pre:rounded-xl prose-pre:p-4
-                  [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[11px] [&_pre_code]:text-[#cdd6f4]
-                  prose-table:text-[11px]
-                  prose-th:text-[10px] prose-th:font-semibold prose-th:text-muted-foreground prose-th:uppercase prose-th:tracking-wider
-                  prose-td:text-[11px]
-                  prose-img:rounded-lg prose-img:my-2
-                  [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-lg
-                ">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    rehypePlugins={[rehypeRaw]}
-                    urlTransform={(url) => {
-                      if (!url) return url
-                      if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url
-                      if (detail.readme_base_url) {
-                        const cleanUrl = url.startsWith('./') ? url.slice(2) : url
-                        return detail.readme_base_url + cleanUrl
-                      }
-                      return url
-                    }}
-                    components={{
-                      img: ({ src, alt, ...props }) => {
-                        const isBadge = src && (
-                          src.includes('shields.io') || src.includes('img.shields') ||
-                          src.includes('badge') || src.includes('contrib.rocks') ||
-                          src.includes('repobeats') || src.includes('star-history')
-                        )
-                        if (isBadge) {
-                          return <img src={src} alt={alt} {...props} className="inline-block h-5 my-0.5 mr-1 rounded-none" />
-                        }
-                        // Check if it looks like a logo (SVG or contains 'logo' in src/alt)
-                        const isLogo = (src && (src.endsWith('.svg') || src.includes('logo'))) ||
-                          (alt && alt.toLowerCase().includes('logo'))
-                        const maxH = isLogo ? 'max-h-20' : 'max-h-64'
-                        return <img src={src} alt={alt} {...props} className={`max-w-full h-auto rounded-lg ${maxH}`} />
-                      },
-                    }}
-                  >
-                    {processGitHubAlerts(detail.readme)}
-                  </ReactMarkdown>
-                </div>
+                <RenderedReadme
+                  markdown={detail.readme}
+                  baseUrl={detail.readme_base_url}
+                />
               </div>
             )}
           </div>

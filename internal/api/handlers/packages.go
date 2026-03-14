@@ -662,7 +662,9 @@ func (h *PackagesHandler) InstallNode(c echo.Context) error {
 	// Step 3: Symlink node/npm/npx to /usr/local/bin so they're in global PATH
 	sendLine(">>> Creating symlinks in /usr/local/bin ...")
 	linkScript := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && NODE_PATH=$(which node) && NODE_DIR=$(dirname "$NODE_PATH") && ln -sf "$NODE_DIR/node" /usr/local/bin/node && ln -sf "$NODE_DIR/npm" /usr/local/bin/npm && ln -sf "$NODE_DIR/npx" /usr/local/bin/npx && echo "Linked: $(node --version), npm $(npm --version)"`, nvmDir)
-	linkCmd := exec.CommandContext(context.Background(), "bash", "-c", linkScript)
+	linkCtx, linkCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer linkCancel()
+	linkCmd := exec.CommandContext(linkCtx, "bash", "-c", linkScript)
 	linkCmd.Env = append(os.Environ(), "HOME="+homeDir, "NVM_DIR="+nvmDir)
 	linkOut, err := linkCmd.CombinedOutput()
 	if err != nil {

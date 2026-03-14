@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -12,10 +13,10 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-
 )
 
 const scrollbackBufSize = 256 * 1024 // 256 KB ring buffer per session
+const maxTerminalSessions = 20       // Maximum concurrent terminal sessions
 
 // ringBuffer is a fixed-size circular byte buffer that keeps the most recent
 // output, dropping the oldest bytes when the buffer is full.
@@ -178,6 +179,16 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			sess.addReader(ws)
 			defer sess.removeReader(ws)
 		} else {
+			// Check session limit before creating a new one
+			sessionsMu.Lock()
+			activeCount := len(sessions)
+			sessionsMu.Unlock()
+			if activeCount >= maxTerminalSessions {
+				ws.WriteMessage(websocket.TextMessage,
+					[]byte(fmt.Sprintf("\r\nError: maximum terminal sessions reached (%d). Close unused sessions first.\r\n", maxTerminalSessions)))
+				return nil
+			}
+
 			// Create new PTY session
 			shell := findShell()
 			cmd := exec.Command(shell)

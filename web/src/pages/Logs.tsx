@@ -5,7 +5,7 @@ import { formatBytes } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
-import { FileText, RefreshCw, Radio, ArrowDown, Trash2, Eye, Search, ChevronUp, ChevronDown, X, Download, Plus, Info } from 'lucide-react'
+import { FileText, RefreshCw, Radio, ArrowDown, Trash2, Eye, Search, ChevronUp, ChevronDown, ChevronLeft, X, Download, Plus, Info } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { hasParsedView, getParser, parseLogLines, type LogEntry, type ParsedLogEntry, type ColumnDef } from '@/lib/logParsers'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -523,9 +523,9 @@ export default function Logs() {
         )}
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-6">
+      <div className="flex flex-col md:flex-row gap-6">
         {/* Left sidebar: log sources */}
-        <div className="w-full lg:w-72 shrink-0 space-y-2">
+        <div className={`w-full md:w-72 shrink-0 space-y-2 ${selectedSource ? 'hidden md:block' : ''}`}>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
               {t('logs.sources')}
@@ -610,19 +610,29 @@ export default function Logs() {
           )}
         </div>
 
-        {/* Main log content area */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        {/* Main log content area — hidden on mobile when no source selected */}
+        <div className={`flex-1 min-w-0 flex flex-col ${!selectedSource ? 'hidden md:flex' : ''}`}>
           {/* Toolbar */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
+            {/* Back button (mobile only) */}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="rounded-xl md:hidden"
+              onClick={() => setSelectedSource(null)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+
             {/* Line count selector */}
-            <div className="flex items-center gap-1 mr-2">
-              <span className="text-xs text-muted-foreground mr-1">{t('logs.lines')}:</span>
+            <div className="flex items-center gap-1 mr-2 overflow-x-auto no-scrollbar">
+              <span className="text-xs text-muted-foreground mr-1 shrink-0">{t('logs.lines')}:</span>
               {LINE_COUNT_OPTIONS.map((count) => (
                 <Button
                   key={count}
                   variant={lineCount === count ? 'default' : 'outline'}
                   size="xs"
-                  className="rounded-xl"
+                  className="rounded-xl shrink-0"
                   onClick={() => setLineCount(count)}
                 >
                   {count.toLocaleString()}
@@ -667,7 +677,7 @@ export default function Logs() {
               className={`rounded-xl ${isLive ? 'bg-red-600 hover:bg-red-700 text-white' : ''}`}
             >
               <Radio className={`h-3.5 w-3.5 ${isLive ? 'animate-pulse' : ''}`} />
-              {t('logs.live')}
+              <span className="hidden sm:inline">{t('logs.live')}</span>
               {isLive && wsConnected && (
                 <span className="ml-1 h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
               )}
@@ -682,7 +692,7 @@ export default function Logs() {
               title={t('logs.autoScroll')}
             >
               <ArrowDown className="h-3.5 w-3.5" />
-              {t('logs.autoScroll')}
+              <span className="hidden sm:inline">{t('logs.autoScroll')}</span>
             </Button>
 
             {/* Refresh */}
@@ -825,7 +835,7 @@ export default function Logs() {
           {/* Log content — virtualized */}
           <div
             ref={logContainerRef}
-            className="flex-1 min-h-[500px] max-h-[calc(100vh-320px)] overflow-auto rounded-b-xl border font-mono text-sm"
+            className="flex-1 min-h-[500px] max-h-[calc(100vh-320px)] overflow-auto overflow-x-auto rounded-b-xl border font-mono text-sm"
             style={{ backgroundColor: '#1e1e1e' }}
           >
             {!selectedSource ? (

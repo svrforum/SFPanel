@@ -1,10 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { useEffect, useState } from 'react'
-import { LayoutDashboard, Container, Terminal, Activity, Menu, Server, type LucideIcon } from 'lucide-react'
+import { LayoutDashboard, Container, Terminal, FileText, Menu, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { api } from '@/lib/api'
-import type { ClusterStatus } from '@/types/api'
 
 interface NavItem {
   to: string
@@ -20,24 +17,15 @@ interface BottomNavProps {
 export default function BottomNav({ onMorePress }: BottomNavProps) {
   const { t } = useTranslation()
   const location = useLocation()
-  const [clusterEnabled, setClusterEnabled] = useState(false)
 
-  useEffect(() => {
-    api.getClusterStatus(true)
-      .then((status: ClusterStatus) => setClusterEnabled(status.enabled))
-      .catch(() => {})
-  }, [])
-
-  // Hide on terminal page (fullscreen mode)
+  // Terminal page has its own mobile toolbar — hide bottom nav there
   if (location.pathname === '/terminal') return null
 
   const navItems: NavItem[] = [
     { to: '/dashboard', icon: LayoutDashboard, label: t('layout.mobileNav.dashboard') },
     { to: '/docker', icon: Container, label: t('layout.mobileNav.docker') },
     { to: '/terminal', icon: Terminal, label: t('layout.mobileNav.terminal') },
-    clusterEnabled
-      ? { to: '/cluster', icon: Server, label: t('layout.nav.cluster') }
-      : { to: '/processes', icon: Activity, label: t('layout.mobileNav.processes') },
+    { to: '/logs', icon: FileText, label: t('layout.nav.logs') },
   ]
 
   return (

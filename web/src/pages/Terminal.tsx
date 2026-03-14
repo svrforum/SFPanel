@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { Terminal as TerminalIcon, Plus, X, Minus, Search, Eraser } from 'lucide-react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -237,6 +238,98 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
   )
 }
 
+function MobileTerminalBar({ onSendKey }: { onSendKey: (data: string) => void }) {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const [ctrlActive, setCtrlActive] = useState(false)
+  const [altActive, setAltActive] = useState(false)
+
+  const sendKey = (key: string) => {
+    let data = key
+    if (ctrlActive) {
+      // Convert to ctrl sequence: Ctrl+C = \x03, Ctrl+D = \x04, etc.
+      if (key.length === 1) {
+        const code = key.toUpperCase().charCodeAt(0) - 64
+        if (code > 0 && code < 32) data = String.fromCharCode(code)
+      }
+      setCtrlActive(false)
+    }
+    if (altActive) {
+      data = '\x1b' + key
+      setAltActive(false)
+    }
+    onSendKey(data)
+  }
+
+  const keys = [
+    { label: 'Esc', data: '\x1b' },
+    { label: 'Tab', data: '\t' },
+    { label: 'Ctrl', toggle: 'ctrl' as const },
+    { label: 'Alt', toggle: 'alt' as const },
+    { label: '↑', data: '\x1b[A' },
+    { label: '↓', data: '\x1b[B' },
+    { label: '←', data: '\x1b[D' },
+    { label: '→', data: '\x1b[C' },
+    { label: '|', data: '|' },
+    { label: '/', data: '/' },
+    { label: '~', data: '~' },
+    { label: '-', data: '-' },
+  ]
+
+  return (
+    <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[#1a1b26] border-t border-[#292e42]">
+      {/* Special keys row */}
+      <div className="flex items-center gap-0.5 px-1 py-1 overflow-x-auto no-scrollbar">
+        {keys.map((k) => (
+          <button
+            key={k.label}
+            className={cn(
+              'shrink-0 px-2.5 py-1.5 rounded text-[11px] font-medium transition-colors',
+              (k.toggle === 'ctrl' && ctrlActive) || (k.toggle === 'alt' && altActive)
+                ? 'bg-[#7aa2f7] text-[#1a1b26]'
+                : 'bg-[#24283b] text-[#a9b1d6] active:bg-[#414868]'
+            )}
+            onClick={() => {
+              if (k.toggle === 'ctrl') { setCtrlActive(!ctrlActive); setAltActive(false) }
+              else if (k.toggle === 'alt') { setAltActive(!altActive); setCtrlActive(false) }
+              else if (k.data) sendKey(k.data)
+            }}
+          >
+            {k.label}
+          </button>
+        ))}
+      </div>
+      {/* Navigation row */}
+      <div className="flex items-center justify-around h-10 pb-safe border-t border-[#292e42]">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="flex flex-col items-center justify-center flex-1 h-full text-[#565f89] active:text-[#a9b1d6]"
+        >
+          <span className="text-[10px] font-medium">← {t('layout.mobileNav.dashboard')}</span>
+        </button>
+        <button
+          onClick={() => onSendKey('\x03')}
+          className="flex flex-col items-center justify-center flex-1 h-full text-[#f7768e] active:opacity-70"
+        >
+          <span className="text-[10px] font-semibold">Ctrl+C</span>
+        </button>
+        <button
+          onClick={() => onSendKey('\x04')}
+          className="flex flex-col items-center justify-center flex-1 h-full text-[#e0af68] active:opacity-70"
+        >
+          <span className="text-[10px] font-semibold">Ctrl+D</span>
+        </button>
+        <button
+          onClick={() => onSendKey('\x1a')}
+          className="flex flex-col items-center justify-center flex-1 h-full text-[#565f89] active:text-[#a9b1d6]"
+        >
+          <span className="text-[10px] font-semibold">Ctrl+Z</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function TerminalPage() {
   const { t } = useTranslation()
   const [tabs, setTabs] = useState<Tab[]>(() => loadTabs())
@@ -360,6 +453,18 @@ export default function TerminalPage() {
     return () => window.removeEventListener('keydown', handler)
   }, [searchOpen])
 
+  const sendKeyToActiveTerminal = useCallback((data: string) => {
+    const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
+    termContainers.forEach(el => {
+      const wsRef = (el as any).__wsRef
+      const termRef = (el as any).__termRef
+      if (wsRef?.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(new TextEncoder().encode(data))
+      }
+      termRef?.current?.focus()
+    })
+  }, [])
+
   // Create initial tab if none exist
   useEffect(() => {
     if (tabs.length === 0) {
@@ -370,7 +475,7 @@ export default function TerminalPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)] -m-4 md:-m-8">
+    <div className="flex flex-col h-screen fixed inset-0 z-40 md:static md:h-[calc(100vh-3rem)] md:-m-8">
       {/* Tab Bar */}
       <div className="flex items-center bg-[#1a1b26] border-b border-[#292e42] px-2 shrink-0">
         <div className="flex items-center gap-0.5 overflow-x-auto py-1 flex-1">
@@ -565,6 +670,8 @@ export default function TerminalPage() {
           </div>
         )}
       </div>
+
+      <MobileTerminalBar onSendKey={sendKeyToActiveTerminal} />
     </div>
   )
 }
