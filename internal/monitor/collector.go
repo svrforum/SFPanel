@@ -125,6 +125,15 @@ func GetCoreMetrics() (*Metrics, error) {
 	}, nil
 }
 
+// GetDiskPercent returns only the root disk usage percentage.
+func GetDiskPercent() (float64, error) {
+	d, err := disk.Usage("/")
+	if err != nil {
+		return 0, err
+	}
+	return d.UsedPercent, nil
+}
+
 // GetHostInfo collects static host information.
 func GetHostInfo() (*HostInfo, error) {
 	info, err := host.Info()

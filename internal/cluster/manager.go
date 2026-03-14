@@ -485,7 +485,7 @@ type MetricsCollector func() (cpuPercent, memPercent, diskPercent float64, conta
 // to the leader via gRPC heartbeat streaming.
 func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
 
 		var grpcStream pb.ClusterService_HeartbeatClient
@@ -568,6 +568,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						CpuPercent:     cpu,
 						MemoryPercent:  mem,
 						ContainerCount: int32(containers),
+						DiskPercent:    disk,
 						Timestamp:      metrics.Timestamp,
 					})
 					if err != nil {

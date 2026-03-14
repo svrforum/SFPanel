@@ -121,9 +121,13 @@ func main() {
 			// Start local metrics collection for cluster overview
 			metricsDocker, _ := docker.NewClient(cfg.Docker.Socket)
 			clusterMgr.StartLocalMetrics(func() (float64, float64, float64, int) {
-				m, err := monitor.GetMetrics()
+				m, err := monitor.GetCoreMetrics()
 				if err != nil {
 					return 0, 0, 0, 0
+				}
+				diskPercent := 0.0
+				if d, dErr := monitor.GetDiskPercent(); dErr == nil {
+					diskPercent = d
 				}
 				containers := 0
 				if metricsDocker != nil {
@@ -137,7 +141,7 @@ func main() {
 					}
 					cancel()
 				}
-				return m.CPU, m.MemPercent, m.DiskPercent, containers
+				return m.CPU, m.MemPercent, diskPercent, containers
 			})
 
 			// Start gRPC server for cluster communication
