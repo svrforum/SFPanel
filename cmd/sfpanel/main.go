@@ -34,7 +34,7 @@ import (
 )
 
 var (
-	version = "0.5.4"
+	version = "0.5.5"
 	commit  = "none"
 	date    = "unknown"
 )
@@ -127,13 +127,15 @@ func main() {
 				}
 				containers := 0
 				if metricsDocker != nil {
-					if list, lErr := metricsDocker.ListContainers(context.Background()); lErr == nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					if list, lErr := metricsDocker.ListContainers(ctx); lErr == nil {
 						for _, c := range list {
 							if c.State == "running" {
 								containers++
 							}
 						}
 					}
+					cancel()
 				}
 				return m.CPU, m.MemPercent, m.DiskPercent, containers
 			})
