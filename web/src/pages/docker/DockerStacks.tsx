@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
@@ -100,13 +100,24 @@ export default function DockerStacks() {
   // Image update check
   const [updateCheck, setUpdateCheck] = useState<StackUpdateCheck | null>(null)
   const [checkingUpdates, setCheckingUpdates] = useState(false)
-  const [updating, setUpdating] = useState(false)
   const [rollingBack, setRollingBack] = useState(false)
   const [hasRollbackData, setHasRollbackData] = useState(false)
+
+  // Progress modal
+  const [progressOpen, setProgressOpen] = useState(false)
+  const [progressTitle, setProgressTitle] = useState('')
+  const [progressLines, setProgressLines] = useState<string[]>([])
+  const [progressDone, setProgressDone] = useState(false)
+  const [progressError, setProgressError] = useState(false)
+  const progressEndRef = useRef<HTMLDivElement>(null)
 
   // Service logs/shell dialogs
   const [logService, setLogService] = useState<ComposeService | null>(null)
   const [shellService, setShellService] = useState<ComposeService | null>(null)
+
+  useEffect(() => {
+    progressEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [progressLines])
 
   const selectedProject = projects.find(p => p.name === selectedName)
 
@@ -202,18 +213,33 @@ export default function DockerStacks() {
   }
 
   const handleUp = async (name: string) => {
-    setActionLoading(name)
+    setProgressTitle(t('docker.stacks.deploying'))
+    setProgressLines([])
+    setProgressDone(false)
+    setProgressError(false)
+    setProgressOpen(true)
+
     try {
-      await api.composeUp(name)
+      await api.composeUpStream(name, (event) => {
+        if (event.phase === 'error') {
+          setProgressError(true)
+          setProgressLines(prev => [...prev, `❌ ${event.line}`])
+        } else if (event.phase === 'complete') {
+          setProgressLines(prev => [...prev, `✅ ${event.line}`])
+        } else {
+          setProgressLines(prev => [...prev, event.line])
+        }
+      })
+      setProgressDone(true)
       toast.success(t('docker.compose.upSuccess', { name }))
       await Promise.all([
         fetchProjects(false),
         selectedName === name ? fetchServices(name) : Promise.resolve(),
       ])
     } catch (err: unknown) {
+      setProgressError(true)
+      setProgressDone(true)
       toast.error(err instanceof Error ? err.message : t('docker.compose.upFailed'))
-    } finally {
-      setActionLoading(null)
     }
   }
 
@@ -259,13 +285,38 @@ export default function DockerStacks() {
     setEditSaving(true)
     try {
       await api.updateComposeProject(selectedName, editYaml)
-      await api.composeUp(selectedName)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.stacks.saveFailed'))
+      setEditSaving(false)
+      return
+    }
+    setEditSaving(false)
+
+    // Open progress modal and stream
+    setProgressTitle(t('docker.stacks.deploying'))
+    setProgressLines([])
+    setProgressDone(false)
+    setProgressError(false)
+    setProgressOpen(true)
+
+    try {
+      await api.composeUpStream(selectedName, (event) => {
+        if (event.phase === 'error') {
+          setProgressError(true)
+          setProgressLines(prev => [...prev, `❌ ${event.line}`])
+        } else if (event.phase === 'complete') {
+          setProgressLines(prev => [...prev, `✅ ${event.line}`])
+        } else {
+          setProgressLines(prev => [...prev, event.line])
+        }
+      })
+      setProgressDone(true)
       toast.success(t('docker.stacks.deploySuccess'))
       await Promise.all([fetchProjects(false), fetchServices(selectedName)])
     } catch (err: unknown) {
+      setProgressError(true)
+      setProgressDone(true)
       toast.error(err instanceof Error ? err.message : t('docker.stacks.deployFailed'))
-    } finally {
-      setEditSaving(false)
     }
   }
 
@@ -297,12 +348,12 @@ export default function DockerStacks() {
     }
   }
 
-  // Check rollback availability when stack changes
+  // Reset update check and rollback when stack changes
   useEffect(() => {
+    setUpdateCheck(null)
     if (selectedName) {
       api.hasRollback(selectedName).then(r => setHasRollbackData(r.has_rollback)).catch(() => setHasRollbackData(false))
     } else {
-      setUpdateCheck(null)
       setHasRollbackData(false)
     }
   }, [selectedName])
@@ -328,17 +379,33 @@ export default function DockerStacks() {
 
   const handleUpdate = async () => {
     if (!selectedName) return
-    setUpdating(true)
+
+    setProgressTitle(t('docker.stacks.updating'))
+    setProgressLines([])
+    setProgressDone(false)
+    setProgressError(false)
+    setProgressOpen(true)
+
     try {
-      await api.updateStack(selectedName)
+      await api.updateStackStream(selectedName, (event) => {
+        if (event.phase === 'error') {
+          setProgressError(true)
+          setProgressLines(prev => [...prev, `❌ ${event.line}`])
+        } else if (event.phase === 'complete') {
+          setProgressLines(prev => [...prev, `✅ ${event.line}`])
+        } else {
+          setProgressLines(prev => [...prev, event.line])
+        }
+      })
+      setProgressDone(true)
       toast.success(t('docker.stacks.updateSuccess'))
       setUpdateCheck(null)
       setHasRollbackData(true)
       await Promise.all([fetchProjects(false), fetchServices(selectedName)])
     } catch (err: unknown) {
+      setProgressError(true)
+      setProgressDone(true)
       toast.error(err instanceof Error ? err.message : t('docker.stacks.updateFailed'))
-    } finally {
-      setUpdating(false)
     }
   }
 
@@ -375,9 +442,9 @@ export default function DockerStacks() {
   }
 
   return (
-    <div className="flex gap-4 h-full">
+    <div className="flex flex-col md:flex-row gap-4 h-full">
       {/* Stack list (left panel) */}
-      <div className="w-[220px] shrink-0 space-y-2">
+      <div className="md:w-[220px] shrink-0 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-[15px] font-semibold">{t('docker.stacks.title')}</span>
           <div className="flex gap-1">
@@ -390,7 +457,8 @@ export default function DockerStacks() {
           </div>
         </div>
 
-        <div className="space-y-1">
+        {/* Desktop stack list */}
+        <div className="hidden md:block space-y-1">
           {projects.length === 0 && !loading && (
             <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
           )}
@@ -412,6 +480,86 @@ export default function DockerStacks() {
             </div>
           ))}
         </div>
+
+        {/* Mobile stack cards */}
+        <div className="md:hidden space-y-2">
+          {projects.length === 0 && !loading && (
+            <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
+          )}
+          {projects.map(p => (
+            <div
+              key={p.name}
+              className={`bg-card rounded-2xl p-4 card-shadow ${
+                selectedName === p.name ? 'ring-1 ring-primary/20' : ''
+              }`}
+            >
+              <div
+                className="flex items-center gap-2 cursor-pointer"
+                onClick={() => navigate(`/docker/stacks/${p.name}`)}
+              >
+                {statusIcon(p.real_status)}
+                <span className="text-[13px] font-medium truncate flex-1">{p.name}</span>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                  p.real_status === 'running' ? 'bg-[#00c471]/10 text-[#00c471]' :
+                  p.real_status === 'partial' ? 'bg-[#f59e0b]/10 text-[#f59e0b]' :
+                  'bg-secondary text-muted-foreground'
+                }`}>
+                  {p.running_count}/{p.service_count}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border/50">
+                {p.real_status !== 'running' && (
+                  <Button
+                    size="sm" variant="ghost"
+                    className="rounded-xl h-7 px-2 text-[11px] text-[#00c471]"
+                    disabled={actionLoading === p.name}
+                    onClick={() => handleUp(p.name)}
+                  >
+                    {actionLoading === p.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                    {t('docker.compose.up')}
+                  </Button>
+                )}
+                {(p.real_status === 'running' || p.real_status === 'partial') && (
+                  <>
+                    <Button
+                      size="sm" variant="ghost"
+                      className="rounded-xl h-7 px-2 text-[11px] text-[#f04452]"
+                      disabled={actionLoading === p.name}
+                      onClick={() => handleDown(p.name)}
+                    >
+                      {actionLoading === p.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
+                      {t('docker.compose.down')}
+                    </Button>
+                    <Button
+                      size="sm" variant="ghost"
+                      className="rounded-xl h-7 px-2 text-[11px]"
+                      disabled={actionLoading === p.name}
+                      onClick={() => handleUp(p.name)}
+                    >
+                      {actionLoading === p.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
+                      {t('docker.stacks.redeploy')}
+                    </Button>
+                  </>
+                )}
+                <div className="flex-1" />
+                <Button
+                  size="sm" variant="ghost"
+                  className="rounded-xl h-7 px-2 text-[11px]"
+                  onClick={() => navigate(`/docker/stacks/${p.name}`)}
+                >
+                  <FileCode className="h-3 w-3" />
+                  {t('docker.stacks.editor')}
+                </Button>
+                <Button
+                  variant="ghost" size="icon-xs"
+                  onClick={() => setDeleteTarget(p)}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Stack detail (right panel) */}
@@ -423,100 +571,103 @@ export default function DockerStacks() {
         ) : (
           <div className="space-y-4">
             {/* Stack header */}
-            <div className="flex items-center gap-3">
-              <h2 className="text-[18px] font-bold">{selectedName}</h2>
-              {selectedProject && (
-                <>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                    selectedProject.real_status === 'running' ? 'bg-[#00c471]/10 text-[#00c471]' :
-                    selectedProject.real_status === 'partial' ? 'bg-[#f59e0b]/10 text-[#f59e0b]' :
-                    'bg-secondary text-muted-foreground'
-                  }`}>
-                    {t(`docker.stacks.${selectedProject.real_status}`)}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground font-mono">
-                    {selectedProject.path}
-                  </span>
-                </>
-              )}
-              <div className="flex-1" />
-              {selectedProject?.real_status !== 'running' && (
-                <Button
-                  size="sm"
-                  className="rounded-xl bg-[#00c471] hover:bg-[#00c471]/90 text-white"
-                  disabled={actionLoading === selectedName}
-                  onClick={() => handleUp(selectedName)}
-                >
-                  {actionLoading === selectedName ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Play className="h-3.5 w-3.5" />
-                  )}
-                  {t('docker.compose.up')}
-                </Button>
-              )}
-              {selectedProject?.real_status === 'running' || selectedProject?.real_status === 'partial' ? (
-                <Button
-                  variant="outline" size="sm"
-                  className="rounded-xl border-[#f04452]/30 text-[#f04452] hover:bg-[#f04452]/10 hover:text-[#f04452]"
-                  disabled={actionLoading === selectedName}
-                  onClick={() => handleDown(selectedName)}
-                >
-                  {actionLoading === selectedName ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Square className="h-3.5 w-3.5" />
-                  )}
-                  {t('docker.compose.down')}
-                </Button>
-              ) : null}
-              {selectedProject?.real_status === 'running' && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-[18px] font-bold">{selectedName}</h2>
+                {selectedProject && (
+                  <>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                      selectedProject.real_status === 'running' ? 'bg-[#00c471]/10 text-[#00c471]' :
+                      selectedProject.real_status === 'partial' ? 'bg-[#f59e0b]/10 text-[#f59e0b]' :
+                      'bg-secondary text-muted-foreground'
+                    }`}>
+                      {t(`docker.stacks.${selectedProject.real_status}`)}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground font-mono hidden sm:inline">
+                      {selectedProject.path}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {selectedProject?.real_status !== 'running' && (
+                  <Button
+                    size="sm"
+                    className="rounded-xl bg-[#00c471] hover:bg-[#00c471]/90 text-white"
+                    disabled={actionLoading === selectedName}
+                    onClick={() => handleUp(selectedName)}
+                  >
+                    {actionLoading === selectedName ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Play className="h-3.5 w-3.5" />
+                    )}
+                    {t('docker.compose.up')}
+                  </Button>
+                )}
+                {selectedProject?.real_status === 'running' || selectedProject?.real_status === 'partial' ? (
+                  <Button
+                    variant="outline" size="sm"
+                    className="rounded-xl border-[#f04452]/30 text-[#f04452] hover:bg-[#f04452]/10 hover:text-[#f04452]"
+                    disabled={actionLoading === selectedName}
+                    onClick={() => handleDown(selectedName)}
+                  >
+                    {actionLoading === selectedName ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Square className="h-3.5 w-3.5" />
+                    )}
+                    {t('docker.compose.down')}
+                  </Button>
+                ) : null}
+                {selectedProject?.real_status === 'running' && (
+                  <Button
+                    variant="outline" size="sm" className="rounded-xl"
+                    disabled={actionLoading === selectedName}
+                    onClick={() => handleUp(selectedName)}
+                  >
+                    {actionLoading === selectedName ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RotateCw className="h-3.5 w-3.5" />
+                    )}
+                    {t('docker.stacks.redeploy')}
+                  </Button>
+                )}
                 <Button
                   variant="outline" size="sm" className="rounded-xl"
-                  disabled={actionLoading === selectedName}
-                  onClick={() => handleUp(selectedName)}
+                  disabled={checkingUpdates}
+                  onClick={handleCheckUpdates}
                 >
-                  {actionLoading === selectedName ? (
+                  {checkingUpdates ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
-                    <RotateCw className="h-3.5 w-3.5" />
+                    <Search className="h-3.5 w-3.5" />
                   )}
-                  {t('docker.stacks.redeploy')}
+                  {t('docker.stacks.checkUpdates')}
                 </Button>
-              )}
-              <Button
-                variant="outline" size="sm" className="rounded-xl"
-                disabled={checkingUpdates}
-                onClick={handleCheckUpdates}
-              >
-                {checkingUpdates ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Search className="h-3.5 w-3.5" />
+                {hasRollbackData && (
+                  <Button
+                    variant="outline" size="sm"
+                    className="rounded-xl border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/10 hover:text-[#f59e0b]"
+                    disabled={rollingBack}
+                    onClick={handleRollback}
+                  >
+                    {rollingBack ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Undo2 className="h-3.5 w-3.5" />
+                    )}
+                    {t('docker.stacks.rollback')}
+                  </Button>
                 )}
-                {t('docker.stacks.checkUpdates')}
-              </Button>
-              {hasRollbackData && (
                 <Button
-                  variant="outline" size="sm"
-                  className="rounded-xl border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/10 hover:text-[#f59e0b]"
-                  disabled={rollingBack}
-                  onClick={handleRollback}
+                  variant="ghost" size="icon-xs"
+                  onClick={() => setDeleteTarget(selectedProject || null)}
                 >
-                  {rollingBack ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Undo2 className="h-3.5 w-3.5" />
-                  )}
-                  {t('docker.stacks.rollback')}
+                  <Trash2 className="h-3.5 w-3.5" />
                 </Button>
-              )}
-              <Button
-                variant="ghost" size="icon-xs"
-                onClick={() => setDeleteTarget(selectedProject || null)}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              </div>
             </div>
 
             {/* Update check results */}
@@ -533,10 +684,10 @@ export default function DockerStacks() {
                   {updateCheck.has_updates && (
                     <Button
                       size="sm" className="rounded-xl bg-[#3182f6] hover:bg-[#3182f6]/90 text-white"
-                      disabled={updating}
+                      disabled={progressOpen && !progressDone}
                       onClick={handleUpdate}
                     >
-                      {updating ? (
+                      {progressOpen && !progressDone ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <Download className="h-3.5 w-3.5" />
@@ -589,7 +740,8 @@ export default function DockerStacks() {
               </TabsList>
 
               <TabsContent value="services">
-                <div className="bg-card rounded-2xl card-shadow overflow-hidden border-t-2 border-t-[#00c471]">
+                {/* Desktop table */}
+                <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden border-t-2 border-t-[#00c471]">
                   <Table>
                     <TableHeader>
                       <TableRow className="border-border/50">
@@ -656,12 +808,66 @@ export default function DockerStacks() {
                     </TableBody>
                   </Table>
                 </div>
+
+                {/* Mobile service cards */}
+                <div className="md:hidden space-y-2">
+                  {servicesLoading && (
+                    <p className="text-center text-muted-foreground py-8 text-[13px]">{t('common.loading')}</p>
+                  )}
+                  {!servicesLoading && services.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8 text-[13px]">
+                      {t('docker.stacks.noServices')}
+                    </p>
+                  )}
+                  {services.map(svc => (
+                    <div key={svc.name} className="bg-card rounded-2xl p-4 card-shadow">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-[13px] font-medium truncate flex-1">{svc.name}</span>
+                        {serviceBadge(svc.state)}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground font-mono truncate mb-1">{svc.image}</div>
+                      {svc.ports && (
+                        <div className="text-[11px] text-muted-foreground font-mono truncate mb-2">{svc.ports}</div>
+                      )}
+                      <div className="flex items-center gap-1 pt-2 border-t border-border/50">
+                        {svc.state === 'running' ? (
+                          <Button variant="ghost" size="icon-xs" title={t('docker.stacks.stopService')}
+                            disabled={actionLoading === svc.name}
+                            onClick={() => handleServiceAction('stop', svc.name)}>
+                            {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+                          </Button>
+                        ) : (
+                          <Button variant="ghost" size="icon-xs" title={t('docker.stacks.startService')}
+                            disabled={actionLoading === svc.name}
+                            onClick={() => handleServiceAction('start', svc.name)}>
+                            {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.restartService')}
+                          disabled={actionLoading === svc.name}
+                          onClick={() => handleServiceAction('restart', svc.name)}>
+                          {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
+                        </Button>
+                        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')}
+                          onClick={() => setLogService(svc)}>
+                          <ScrollText className="h-3.5 w-3.5" />
+                        </Button>
+                        {svc.container_id && svc.state === 'running' && (
+                          <Button variant="ghost" size="icon-xs" title={t('docker.stacks.openShell')}
+                            onClick={() => setShellService(svc)}>
+                            <Terminal className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </TabsContent>
 
               <TabsContent value="editor">
                 <div className="space-y-3">
                   {/* Compose / Env sub-tabs */}
-                  <div className="flex items-center gap-1 bg-secondary/40 rounded-xl p-1 w-fit">
+                  <div className="flex items-center gap-1 bg-secondary/40 rounded-xl p-1 w-fit overflow-x-auto">
                     <button
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all ${
                         editorTab === 'compose' ? 'bg-primary/10 text-primary card-shadow' : 'text-muted-foreground hover:text-foreground'
@@ -697,7 +903,7 @@ export default function DockerStacks() {
                           <span>{validationResult.valid ? t('docker.stacks.configValid') : validationResult.message}</span>
                         </div>
                       )}
-                      <div className="flex justify-end gap-2">
+                      <div className="flex flex-wrap justify-end gap-2">
                         <Button
                           variant="outline"
                           onClick={handleValidate}
@@ -752,7 +958,7 @@ export default function DockerStacks() {
 
       {/* Create project dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="w-[calc(100vw-2rem)] md:w-full sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t('docker.compose.createTitle')}</DialogTitle>
             <DialogDescription>{t('docker.stacks.createDescription')}</DialogDescription>
@@ -835,7 +1041,7 @@ export default function DockerStacks() {
 
       {/* Service logs dialog */}
       <Dialog open={!!logService} onOpenChange={(open) => !open && setLogService(null)}>
-        <DialogContent className="sm:max-w-3xl max-h-[80vh]">
+        <DialogContent className="w-[calc(100vw-2rem)] md:w-full sm:max-w-3xl h-[90vh] md:h-[80vh]">
           <DialogHeader>
             <DialogTitle>{logService?.name} — {t('docker.stacks.logs')}</DialogTitle>
           </DialogHeader>
@@ -845,11 +1051,54 @@ export default function DockerStacks() {
 
       {/* Service shell dialog */}
       <Dialog open={!!shellService} onOpenChange={(open) => !open && setShellService(null)}>
-        <DialogContent className="sm:max-w-3xl max-h-[80vh]">
+        <DialogContent className="w-[calc(100vw-2rem)] md:w-full sm:max-w-3xl h-[90vh] md:h-[80vh]">
           <DialogHeader>
             <DialogTitle>{shellService?.name} — Shell</DialogTitle>
           </DialogHeader>
           {shellService?.container_id && <ContainerShell containerId={shellService.container_id} />}
+        </DialogContent>
+      </Dialog>
+
+      {/* Deploy/Update progress modal */}
+      <Dialog open={progressOpen} onOpenChange={(open) => {
+        if (!open && progressDone) setProgressOpen(false)
+      }}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {!progressDone && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+              {progressDone && !progressError && <CheckCircle2 className="h-4 w-4 text-[#00c471]" />}
+              {progressDone && progressError && <XCircle className="h-4 w-4 text-[#f04452]" />}
+              {progressTitle}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="bg-[#0d1117] rounded-xl p-4 max-h-[400px] overflow-y-auto font-mono text-[12px] text-[#c9d1d9] leading-5">
+            {progressLines.map((line, i) => (
+              <div key={i} className={
+                line.startsWith('✅') ? 'text-[#00c471]' :
+                line.startsWith('❌') ? 'text-[#f04452]' :
+                line.startsWith('[pull]') ? 'text-[#3182f6]' :
+                line.startsWith('[recreate]') ? 'text-[#f59e0b]' :
+                ''
+              }>
+                {line}
+              </div>
+            ))}
+            {!progressDone && (
+              <div className="flex items-center gap-1.5 text-muted-foreground mt-1">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                {t('common.loading')}
+              </div>
+            )}
+            <div ref={progressEndRef} />
+          </div>
+          {progressDone && (
+            <DialogFooter>
+              <Button onClick={() => setProgressOpen(false)} className="rounded-xl">
+                {t('common.close')}
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
     </div>

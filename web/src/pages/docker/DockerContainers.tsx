@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Network, HardDrive, Variable, Globe, Plus, Layers, Pause, CheckSquare } from 'lucide-react'
+import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Network, HardDrive, Variable, Globe, Plus, Layers, Pause, CheckSquare, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
@@ -370,11 +370,11 @@ function ContainerRow({
       <TableCell>
         <ContainerStatsCell stats={statsMap[c.Id]} state={c.State} />
       </TableCell>
-      <TableCell className="text-muted-foreground text-xs font-mono">
+      <TableCell className="text-muted-foreground text-xs font-mono max-w-[160px] truncate" title={formatPorts(c.Ports)}>
         {formatPorts(c.Ports)}
       </TableCell>
-      <TableCell className="text-muted-foreground text-xs">{timeAgo(c.Created)}</TableCell>
-      <TableCell className="text-right">
+      <TableCell className="text-muted-foreground text-xs whitespace-nowrap">{timeAgo(c.Created)}</TableCell>
+      <TableCell className="text-right whitespace-nowrap">
         <div className="flex items-center justify-end gap-1">
           <Button
             variant="ghost"
@@ -475,6 +475,8 @@ export default function DockerContainers() {
   const [statsMap, setStatsMap] = useState<Record<string, ContainerStatsResult>>({})
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [batchMode, setBatchMode] = useState(false)
+  const [stackActionLoading, setStackActionLoading] = useState<string | null>(null)
+  const [confirmStackAction, setConfirmStackAction] = useState<{ action: 'down' | 'restart' | 'delete'; stackName: string } | null>(null)
 
   const fetchContainers = useCallback(async () => {
     try {
@@ -583,6 +585,26 @@ export default function DockerContainers() {
   }
 
 
+
+  const handleStackAction = async (action: 'up' | 'down' | 'restart' | 'delete', stackName: string) => {
+    setStackActionLoading(stackName)
+    try {
+      if (action === 'up') await api.composeUp(stackName)
+      else if (action === 'down') await api.composeDown(stackName)
+      else if (action === 'restart') {
+        await api.composeDown(stackName)
+        await api.composeUp(stackName)
+      } else if (action === 'delete') {
+        await api.deleteComposeProject(stackName, { removeVolumes: false })
+      }
+      toast.success(t('docker.containers.stackActionSuccess', { action, name: stackName }))
+      await fetchContainers()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('docker.containers.stackActionFailed'))
+    } finally {
+      setStackActionLoading(null)
+    }
+  }
 
   const handleBatchAction = async (action: 'start' | 'stop' | 'restart' | 'remove') => {
     if (selectedIds.size === 0) return
@@ -706,8 +728,8 @@ export default function DockerContainers() {
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+        <div className="relative flex-1 sm:max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder={t('docker.containers.searchPlaceholder')}
@@ -716,9 +738,9 @@ export default function DockerContainers() {
             className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
           />
         </div>
-        <div className="flex-1" />
+        <div className="hidden sm:block flex-1" />
         {batchMode && selectedIds.size > 0 && (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-wrap">
             <span className="text-[13px] text-muted-foreground mr-1">
               {t('docker.containers.selected', { count: selectedIds.size })}
             </span>
@@ -740,30 +762,262 @@ export default function DockerContainers() {
             </Button>
           </div>
         )}
-        <p className="text-[13px] text-muted-foreground mr-2">
-          {t('docker.containers.count', { count: filteredContainers.length })}
-        </p>
-        <Button
-          variant={batchMode ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => { setBatchMode(!batchMode); setSelectedIds(new Set()) }}
-          className="rounded-xl"
-        >
-          <CheckSquare />
-          {t('docker.containers.batchMode')}
-        </Button>
-        <Button variant="outline" size="sm" onClick={fetchContainers} disabled={loading} className="rounded-xl">
-          <RefreshCw className={loading ? 'animate-spin' : ''} />
-          {t('common.refresh')}
-        </Button>
-        <Button size="sm" onClick={() => navigate('/docker/stacks?new=1')} className="rounded-xl">
-          <Plus />
-          {t('docker.stacks.newStack')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <p className="text-[13px] text-muted-foreground mr-2 hidden sm:block">
+            {t('docker.containers.count', { count: filteredContainers.length })}
+          </p>
+          <Button
+            variant={batchMode ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => { setBatchMode(!batchMode); setSelectedIds(new Set()) }}
+            className="rounded-xl hidden sm:inline-flex"
+          >
+            <CheckSquare />
+            {t('docker.containers.batchMode')}
+          </Button>
+          <Button variant="outline" size="sm" onClick={fetchContainers} disabled={loading} className="rounded-xl">
+            <RefreshCw className={loading ? 'animate-spin' : ''} />
+            <span className="hidden sm:inline">{t('common.refresh')}</span>
+          </Button>
+          <Button size="sm" onClick={() => navigate('/docker/stacks?new=1')} className="rounded-xl">
+            <Plus />
+            <span className="hidden sm:inline">{t('docker.stacks.newStack')}</span>
+          </Button>
+        </div>
       </div>
 
-      <div className="bg-card rounded-2xl card-shadow overflow-hidden">
-      <Table>
+      {/* Mobile card view */}
+      <div className="md:hidden space-y-2">
+        {filteredContainers.length === 0 && !loading && (
+          <div className="text-center text-muted-foreground py-8">
+            {searchQuery ? t('docker.containers.noResults') : t('docker.containers.empty')}
+          </div>
+        )}
+        {/* Stack groups */}
+        {groupedContainers.stacks.map(([stackName, stackContainers]) => {
+          const isCollapsed = collapsedStacks.has(stackName)
+          const stackRunning = stackContainers.filter(c => c.State === 'running').length
+          const isStackLoading = stackActionLoading === stackName
+          return (
+            <React.Fragment key={`mobile-stack-${stackName}`}>
+              <div
+                className="bg-secondary/30 rounded-2xl p-3 cursor-pointer"
+                onClick={() => toggleStack(stackName)}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {isCollapsed ? (
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                  )}
+                  <Layers className="h-4 w-4 text-primary shrink-0" />
+                  <span className="text-[13px] font-semibold truncate">{stackName}</span>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                    {stackRunning}/{stackContainers.length}
+                  </span>
+                  <div className="flex-1 min-w-0" />
+                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    {stackRunning === 0 ? (
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        title={t('docker.compose.up')}
+                        disabled={isStackLoading}
+                        onClick={() => handleStackAction('up', stackName)}
+                      >
+                        {isStackLoading ? <Loader2 className="animate-spin" /> : <Play />}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        title={t('docker.compose.down')}
+                        disabled={isStackLoading}
+                        onClick={() => setConfirmStackAction({ action: 'down', stackName })}
+                      >
+                        {isStackLoading ? <Loader2 className="animate-spin" /> : <Square />}
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      title={t('docker.containers.restart')}
+                      disabled={isStackLoading}
+                      onClick={() => setConfirmStackAction({ action: 'restart', stackName })}
+                    >
+                      <RotateCw />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      title={t('common.delete')}
+                      disabled={isStackLoading}
+                      onClick={() => setConfirmStackAction({ action: 'delete', stackName })}
+                    >
+                      <Trash2 className="text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              {!isCollapsed && stackContainers.map((c) => {
+                const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
+                const statusClasses = c.State === 'running' ? `${base} bg-[#00c471]/10 text-[#00c471]`
+                  : c.State === 'exited' ? `${base} bg-[#f04452]/10 text-[#f04452]`
+                  : c.State === 'paused' ? `${base} bg-[#f59e0b]/10 text-[#f59e0b]`
+                  : `${base} bg-secondary text-muted-foreground`
+                const stats = statsMap[c.Id]
+                return (
+                  <div key={c.Id} className="bg-card rounded-2xl p-4 card-shadow ml-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1 cursor-pointer" onClick={() => openDetail(c)}>
+                        <p className="text-[13px] font-semibold truncate">
+                          {formatContainerName(c.Names)}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground truncate mt-0.5">{c.Image}</p>
+                      </div>
+                      <span className={statusClasses}>
+                        {c.State}
+                      </span>
+                    </div>
+                    {c.State === 'running' && stats && (
+                      <div className="flex items-center gap-3 text-xs mt-2">
+                        <span className="flex items-center gap-1">
+                          <Cpu className="h-3 w-3 text-blue-500" />
+                          <span className={stats.cpu_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.cpu_percent.toFixed(1)}%</span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <MemoryStick className="h-3 w-3 text-purple-500" />
+                          <span className={stats.mem_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.mem_percent.toFixed(1)}%</span>
+                        </span>
+                      </div>
+                    )}
+                    {c.Ports && c.Ports.length > 0 && formatPorts(c.Ports) !== '-' && (
+                      <p className="text-[11px] text-muted-foreground font-mono mt-2 truncate">
+                        {formatPorts(c.Ports)}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-1 mt-3 justify-end">
+                      <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} onClick={() => openDetail(c)}>
+                        <Info />
+                      </Button>
+                      <Button variant="ghost" size="icon-xs" title={t('docker.containers.terminal')} onClick={() => openTerminal(c)}>
+                        <Terminal />
+                      </Button>
+                      {c.State === 'running' ? (
+                        <>
+                          <Button variant="ghost" size="icon-xs" title={t('docker.containers.pause')} disabled={actionLoading === c.Id} onClick={() => handlePause(c.Id)}>
+                            <Pause />
+                          </Button>
+                          <Button variant="ghost" size="icon-xs" title={t('docker.containers.stop')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'stop', container: c })}>
+                            <Square />
+                          </Button>
+                        </>
+                      ) : c.State === 'paused' ? (
+                        <Button variant="ghost" size="icon-xs" title={t('docker.containers.unpause')} disabled={actionLoading === c.Id} onClick={() => handleUnpause(c.Id)}>
+                          <Play />
+                        </Button>
+                      ) : (
+                        <Button variant="ghost" size="icon-xs" title={t('docker.containers.start')} disabled={actionLoading === c.Id} onClick={() => handleAction('start', c.Id)}>
+                          <Play />
+                        </Button>
+                      )}
+                      <Button variant="ghost" size="icon-xs" title={t('docker.containers.restart')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'restart', container: c })}>
+                        <RotateCw />
+                      </Button>
+                      <Button variant="ghost" size="icon-xs" title={t('common.delete')} disabled={actionLoading === c.Id} onClick={() => setDeleteTarget(c)}>
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+            </React.Fragment>
+          )
+        })}
+        {/* Standalone section header (only if stacks exist) */}
+        {groupedContainers.stacks.length > 0 && groupedContainers.standalone.length > 0 && (
+          <div className="px-1 py-2">
+            <span className="text-[13px] font-semibold text-muted-foreground">{t('docker.containers.standalone')}</span>
+          </div>
+        )}
+        {/* Standalone containers */}
+        {groupedContainers.standalone.map((c) => {
+          const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
+          const statusClasses = c.State === 'running' ? `${base} bg-[#00c471]/10 text-[#00c471]`
+            : c.State === 'exited' ? `${base} bg-[#f04452]/10 text-[#f04452]`
+            : c.State === 'paused' ? `${base} bg-[#f59e0b]/10 text-[#f59e0b]`
+            : `${base} bg-secondary text-muted-foreground`
+          const stats = statsMap[c.Id]
+          return (
+            <div key={c.Id} className="bg-card rounded-2xl p-4 card-shadow">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1 cursor-pointer" onClick={() => openDetail(c)}>
+                  <p className="text-[13px] font-semibold truncate">
+                    {formatContainerName(c.Names)}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground truncate mt-0.5">{c.Image}</p>
+                </div>
+                <span className={statusClasses}>
+                  {c.State}
+                </span>
+              </div>
+              {c.State === 'running' && stats && (
+                <div className="flex items-center gap-3 text-xs mt-2">
+                  <span className="flex items-center gap-1">
+                    <Cpu className="h-3 w-3 text-blue-500" />
+                    <span className={stats.cpu_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.cpu_percent.toFixed(1)}%</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <MemoryStick className="h-3 w-3 text-purple-500" />
+                    <span className={stats.mem_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.mem_percent.toFixed(1)}%</span>
+                  </span>
+                </div>
+              )}
+              {c.Ports && c.Ports.length > 0 && formatPorts(c.Ports) !== '-' && (
+                <p className="text-[11px] text-muted-foreground font-mono mt-2 truncate">
+                  {formatPorts(c.Ports)}
+                </p>
+              )}
+              <div className="flex items-center gap-1 mt-3 justify-end">
+                <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} onClick={() => openDetail(c)}>
+                  <Info />
+                </Button>
+                <Button variant="ghost" size="icon-xs" title={t('docker.containers.terminal')} onClick={() => openTerminal(c)}>
+                  <Terminal />
+                </Button>
+                {c.State === 'running' ? (
+                  <>
+                    <Button variant="ghost" size="icon-xs" title={t('docker.containers.pause')} disabled={actionLoading === c.Id} onClick={() => handlePause(c.Id)}>
+                      <Pause />
+                    </Button>
+                    <Button variant="ghost" size="icon-xs" title={t('docker.containers.stop')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'stop', container: c })}>
+                      <Square />
+                    </Button>
+                  </>
+                ) : c.State === 'paused' ? (
+                  <Button variant="ghost" size="icon-xs" title={t('docker.containers.unpause')} disabled={actionLoading === c.Id} onClick={() => handleUnpause(c.Id)}>
+                    <Play />
+                  </Button>
+                ) : (
+                  <Button variant="ghost" size="icon-xs" title={t('docker.containers.start')} disabled={actionLoading === c.Id} onClick={() => handleAction('start', c.Id)}>
+                    <Play />
+                  </Button>
+                )}
+                <Button variant="ghost" size="icon-xs" title={t('docker.containers.restart')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'restart', container: c })}>
+                  <RotateCw />
+                </Button>
+                <Button variant="ghost" size="icon-xs" title={t('common.delete')} disabled={actionLoading === c.Id} onClick={() => setDeleteTarget(c)}>
+                  <Trash2 />
+                </Button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Desktop table view */}
+      <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden overflow-x-auto">
+      <Table className="table-fixed w-full min-w-[800px]">
         <TableHeader>
           <TableRow className="border-border/50">
             {batchMode && (
@@ -774,13 +1028,13 @@ export default function DockerContainers() {
                 />
               </TableHead>
             )}
-            <TableHead className="text-[11px]">{t('docker.containers.name')}</TableHead>
-            <TableHead className="text-[11px]">{t('docker.containers.image')}</TableHead>
-            <TableHead className="text-[11px]">{t('docker.containers.status')}</TableHead>
-            <TableHead className="text-[11px]">{t('docker.containers.resources')}</TableHead>
-            <TableHead className="text-[11px]">{t('docker.containers.ports')}</TableHead>
-            <TableHead className="text-[11px]">{t('common.created')}</TableHead>
-            <TableHead className="text-right text-[11px]">{t('common.actions')}</TableHead>
+            <TableHead className="text-[11px] w-[17%]">{t('docker.containers.name')}</TableHead>
+            <TableHead className="text-[11px] w-[14%]">{t('docker.containers.image')}</TableHead>
+            <TableHead className="text-[11px] w-[7%]">{t('docker.containers.status')}</TableHead>
+            <TableHead className="text-[11px] w-[11%]">{t('docker.containers.resources')}</TableHead>
+            <TableHead className="text-[11px] w-[16%]">{t('docker.containers.ports')}</TableHead>
+            <TableHead className="text-[11px] w-[8%]">{t('common.created')}</TableHead>
+            <TableHead className="text-right text-[11px] w-[27%]">{t('common.actions')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -795,6 +1049,7 @@ export default function DockerContainers() {
           {groupedContainers.stacks.map(([stackName, stackContainers]) => {
             const isCollapsed = collapsedStacks.has(stackName)
             const stackRunning = stackContainers.filter(c => c.State === 'running').length
+            const isStackLoading = stackActionLoading === stackName
             return (
               <React.Fragment key={`stack-${stackName}`}>
                 <TableRow
@@ -802,17 +1057,59 @@ export default function DockerContainers() {
                   onClick={() => toggleStack(stackName)}
                 >
                   <TableCell colSpan={batchMode ? 8 : 7}>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
                       {isCollapsed ? (
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                       ) : (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
                       )}
-                      <Layers className="h-4 w-4 text-primary" />
-                      <span className="text-[13px] font-semibold">{stackName}</span>
+                      <Layers className="h-4 w-4 text-primary shrink-0" />
+                      <span className="text-[13px] font-semibold truncate">{stackName}</span>
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
                         {stackRunning}/{stackContainers.length}
                       </span>
+                      <div className="flex-1 min-w-0" />
+                      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        {stackRunning === 0 ? (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            title={t('docker.compose.up')}
+                            disabled={isStackLoading}
+                            onClick={() => handleStackAction('up', stackName)}
+                          >
+                            {isStackLoading ? <Loader2 className="animate-spin" /> : <Play />}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            title={t('docker.compose.down')}
+                            disabled={isStackLoading}
+                            onClick={() => setConfirmStackAction({ action: 'down', stackName })}
+                          >
+                            {isStackLoading ? <Loader2 className="animate-spin" /> : <Square />}
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          title={t('docker.containers.restart')}
+                          disabled={isStackLoading}
+                          onClick={() => setConfirmStackAction({ action: 'restart', stackName })}
+                        >
+                          <RotateCw />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          title={t('common.delete')}
+                          disabled={isStackLoading}
+                          onClick={() => setConfirmStackAction({ action: 'delete', stackName })}
+                        >
+                          <Trash2 className="text-destructive" />
+                        </Button>
+                      </div>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -950,6 +1247,41 @@ export default function DockerContainers() {
               disabled={actionLoading === confirmAction?.container.Id}
             >
               {confirmAction?.action === 'stop' ? t('docker.containers.stop') : t('docker.containers.restart')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Stack action confirmation dialog */}
+      <Dialog open={!!confirmStackAction} onOpenChange={(open) => !open && setConfirmStackAction(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {confirmStackAction?.action === 'delete' ? t('common.delete') : confirmStackAction?.action === 'down' ? t('docker.compose.down') : t('docker.containers.restart')}
+            </DialogTitle>
+            <DialogDescription>
+              <Trans
+                i18nKey={confirmStackAction?.action === 'delete' ? 'docker.containers.stackDeleteConfirm' : confirmStackAction?.action === 'down' ? 'docker.containers.stackDownConfirm' : 'docker.containers.stackRestartConfirm'}
+                values={{ name: confirmStackAction?.stackName ?? '' }}
+                components={{ strong: <span className="font-semibold" /> }}
+              />
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmStackAction(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant={confirmStackAction?.action === 'down' || confirmStackAction?.action === 'delete' ? 'destructive' : 'default'}
+              onClick={() => {
+                if (confirmStackAction) {
+                  handleStackAction(confirmStackAction.action, confirmStackAction.stackName)
+                  setConfirmStackAction(null)
+                }
+              }}
+              disabled={stackActionLoading === confirmStackAction?.stackName}
+            >
+              {confirmStackAction?.action === 'delete' ? t('common.delete') : confirmStackAction?.action === 'down' ? t('docker.compose.down') : t('docker.containers.restart')}
             </Button>
           </DialogFooter>
         </DialogContent>

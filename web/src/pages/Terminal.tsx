@@ -370,7 +370,7 @@ export default function TerminalPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)] -m-6">
+    <div className="flex flex-col h-[calc(100vh-3rem)] -m-4 md:-m-8">
       {/* Tab Bar */}
       <div className="flex items-center bg-[#1a1b26] border-b border-[#292e42] px-2 shrink-0">
         <div className="flex items-center gap-0.5 overflow-x-auto py-1 flex-1">
@@ -378,7 +378,7 @@ export default function TerminalPage() {
             <div
               key={tab.id}
               className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs cursor-pointer select-none group transition-colors',
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs cursor-pointer select-none group transition-colors shrink-0',
                 activeTab === tab.id
                   ? 'bg-[#24283b] text-[#c0caf5]'
                   : 'text-[#565f89] hover:text-[#a9b1d6] hover:bg-[#1f2335]'
@@ -487,7 +487,7 @@ export default function TerminalPage() {
 
       {/* Search bar */}
       {searchOpen && (
-        <div className="flex items-center gap-2 bg-[#1f2335] border-b border-[#292e42] px-3 py-1.5">
+        <div className="flex items-center gap-1.5 bg-[#1f2335] border-b border-[#292e42] px-2 md:px-3 py-1.5">
           <Search className="h-3.5 w-3.5 text-[#565f89]" />
           <Input
             ref={searchInputRef}
@@ -505,24 +505,26 @@ export default function TerminalPage() {
               }
             }}
             placeholder={t('terminal.searchPlaceholder')}
-            className="h-6 text-xs bg-[#1a1b26] border-[#292e42] text-[#c0caf5] flex-1 max-w-xs"
+            className="h-6 text-xs bg-[#1a1b26] border-[#292e42] text-[#c0caf5] flex-1 max-w-[10rem] md:max-w-xs"
             autoFocus
           />
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 text-xs text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1a1b26]"
+            className="h-6 px-1.5 md:px-2 text-xs text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1a1b26]"
             onClick={handleSearchPrev}
           >
-            {t('terminal.prev')}
+            <span className="hidden md:inline">{t('terminal.prev')}</span>
+            <span className="md:hidden">↑</span>
           </Button>
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-2 text-xs text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1a1b26]"
+            className="h-6 px-1.5 md:px-2 text-xs text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1a1b26]"
             onClick={handleSearchNext}
           >
-            {t('terminal.next')}
+            <span className="hidden md:inline">{t('terminal.next')}</span>
+            <span className="md:hidden">↓</span>
           </Button>
           <Button
             variant="ghost"
