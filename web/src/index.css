@@ -135,4 +135,10 @@
     .card-shadow-lg {
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
     }
+    .pb-safe {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    .pb-bottom-nav {
+        padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+    }
 }

@@ -248,6 +248,7 @@
       "stopSuccess": "Service stopped",
       "startSuccess": "Service started",
       "actionFailed": "Service action failed",
+      "deploying": "Deploying Stack...",
       "deploySuccess": "Stack deployed",
       "deployFailed": "Stack deploy failed",
       "deploy": "Deploy",
@@ -370,7 +371,12 @@
       "batchSuccess": "{{count}} containers {{action}} completed",
       "batchFailed": "Batch operation failed",
       "selectAll": "Select all",
-      "selected": "{{count}} selected"
+      "selected": "{{count}} selected",
+      "stackActionSuccess": "Stack {{name}} {{action}} completed",
+      "stackActionFailed": "Stack action failed",
+      "stackDownConfirm": "Stop all containers in <strong>{{name}}</strong> stack?",
+      "stackRestartConfirm": "Restart <strong>{{name}}</strong> stack?",
+      "stackDeleteConfirm": "Delete <strong>{{name}}</strong> stack? Containers will be stopped and removed."
     },
     "images": {
       "count_one": "{{count}} image",
