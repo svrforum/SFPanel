@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -283,6 +285,72 @@ func (h *ComposeHandler) RollbackStack(c echo.Context) error {
 func (h *ComposeHandler) HasRollback(c echo.Context) error {
 	name := c.Param("project")
 	return response.OK(c, map[string]bool{"has_rollback": h.Compose.HasRollback(name)})
+}
+
+// ProjectUpStream starts a compose project with SSE streaming output.
+// POST /api/v1/docker/compose/:project/up-stream
+func (h *ComposeHandler) ProjectUpStream(c echo.Context) error {
+	name := c.Param("project")
+	ctx := c.Request().Context()
+
+	c.Response().Header().Set("Content-Type", "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().Header().Set("Connection", "keep-alive")
+	c.Response().WriteHeader(http.StatusOK)
+
+	flusher := c.Response()
+	sendEvent := func(phase, line string) {
+		data, _ := json.Marshal(map[string]string{"phase": phase, "line": line})
+		fmt.Fprintf(flusher, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	sendEvent("deploy", "Starting deployment...")
+
+	err := h.Compose.UpStream(ctx, name, func(line string) {
+		sendEvent("deploy", line)
+	})
+
+	if err != nil {
+		sendEvent("error", err.Error())
+	} else {
+		sendEvent("complete", "Deployment completed successfully")
+	}
+
+	return nil
+}
+
+// UpdateStackStream pulls latest images and recreates containers with SSE streaming.
+// POST /api/v1/docker/compose/:project/update-stream
+func (h *ComposeHandler) UpdateStackStream(c echo.Context) error {
+	name := c.Param("project")
+	ctx := c.Request().Context()
+
+	c.Response().Header().Set("Content-Type", "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().Header().Set("Connection", "keep-alive")
+	c.Response().WriteHeader(http.StatusOK)
+
+	flusher := c.Response()
+	sendEvent := func(phase, line string) {
+		data, _ := json.Marshal(map[string]string{"phase": phase, "line": line})
+		fmt.Fprintf(flusher, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	sendEvent("pull", "Starting update...")
+
+	err := h.Compose.UpdateStackStream(ctx, name, func(line string) {
+		sendEvent("update", line)
+	})
+
+	if err != nil {
+		sendEvent("error", err.Error())
+	} else {
+		sendEvent("complete", "Update completed successfully")
+	}
+
+	return nil
 }
 
 // ServiceLogs returns the last N lines of logs for a service.

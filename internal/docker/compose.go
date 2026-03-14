@@ -1,9 +1,11 @@
 package docker
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -285,6 +287,102 @@ func (m *ComposeManager) runCompose(ctx context.Context, name string, args ...st
 	cmd.Dir = dir // Set working directory so .env is picked up
 	output, err := cmd.CombinedOutput()
 	return string(output), err
+}
+
+// runComposeStream executes a docker compose command and streams output line by line.
+func (m *ComposeManager) runComposeStream(ctx context.Context, name string, onLine func(string), args ...string) error {
+	if err := m.validateProjectName(name); err != nil {
+		return err
+	}
+	dir := filepath.Join(m.baseDir, name)
+	composeFile := findComposeFile(dir)
+	if composeFile == "" {
+		return fmt.Errorf("no compose file found in %q", name)
+	}
+
+	yamlPath := filepath.Join(dir, composeFile)
+	cmdArgs := append([]string{"compose", "-f", yamlPath}, args...)
+	cmd := exec.CommandContext(ctx, "docker", cmdArgs...)
+	cmd.Dir = dir
+
+	// Merge stdout and stderr into one pipe
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+	cmd.Stderr = pw
+
+	if err := cmd.Start(); err != nil {
+		pw.Close()
+		return err
+	}
+
+	// Close pipe writer when process exits so scanner stops
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- cmd.Wait()
+		pw.Close()
+	}()
+
+	scanner := bufio.NewScanner(pr)
+	for scanner.Scan() {
+		onLine(scanner.Text())
+	}
+
+	return <-waitDone
+}
+
+// UpStream starts a compose project with streaming output.
+func (m *ComposeManager) UpStream(ctx context.Context, name string, onLine func(string)) error {
+	return m.runComposeStream(ctx, name, onLine, "up", "-d")
+}
+
+// UpdateStackStream pulls latest images and recreates containers with streaming output.
+func (m *ComposeManager) UpdateStackStream(ctx context.Context, name string, onLine func(string)) error {
+	if m.dockerClient == nil {
+		return fmt.Errorf("docker client not available")
+	}
+
+	// Save current image IDs for rollback
+	services, err := m.GetProjectServices(ctx, name)
+	if err != nil {
+		return fmt.Errorf("get services: %w", err)
+	}
+
+	var rollback []rollbackEntry
+	for _, svc := range services {
+		if svc.Image == "" {
+			continue
+		}
+		inspect, inspErr := m.dockerClient.InspectImage(ctx, svc.Image)
+		if inspErr == nil {
+			rollback = append(rollback, rollbackEntry{
+				Service: svc.Name,
+				Image:   svc.Image,
+				ImageID: inspect.ID,
+			})
+		}
+	}
+
+	if len(rollback) > 0 {
+		rbData, _ := json.Marshal(rollback)
+		rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
+		os.WriteFile(rbPath, rbData, 0644)
+	}
+
+	onLine("[pull] Pulling latest images...")
+	if err := m.runComposeStream(ctx, name, func(line string) {
+		onLine("[pull] " + line)
+	}, "pull"); err != nil {
+		return fmt.Errorf("pull failed: %w", err)
+	}
+
+	onLine("[recreate] Recreating containers...")
+	if err := m.runComposeStream(ctx, name, func(line string) {
+		onLine("[recreate] " + line)
+	}, "up", "-d", "--force-recreate"); err != nil {
+		return fmt.Errorf("recreate failed: %w", err)
+	}
+
+	return nil
 }
 
 // GetProjectServices returns the runtime state of each service in a compose project.

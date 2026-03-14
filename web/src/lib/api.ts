@@ -518,6 +518,56 @@ class ApiClient {
     return this.request(`/docker/compose/${project}/up`, { method: 'POST' })
   }
 
+  async composeUpStream(
+    project: string,
+    onEvent: (event: { phase: string; line: string }) => void
+  ): Promise<void> {
+    const nodeParam = this._currentNode ? `?node=${this._currentNode}` : ''
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`
+    const res = await fetch(`${API_BASE}/docker/compose/${encodeURIComponent(project)}/up-stream${nodeParam}`, {
+      method: 'POST', headers,
+    })
+    if (!res.ok) throw new Error('Deploy failed')
+    await this.readSSEStream(res, onEvent)
+  }
+
+  async updateStackStream(
+    project: string,
+    onEvent: (event: { phase: string; line: string }) => void
+  ): Promise<void> {
+    const nodeParam = this._currentNode ? `?node=${this._currentNode}` : ''
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`
+    const res = await fetch(`${API_BASE}/docker/compose/${encodeURIComponent(project)}/update-stream${nodeParam}`, {
+      method: 'POST', headers,
+    })
+    if (!res.ok) throw new Error('Update failed')
+    await this.readSSEStream(res, onEvent)
+  }
+
+  private async readSSEStream(
+    res: Response,
+    onEvent: (event: { phase: string; line: string }) => void
+  ): Promise<void> {
+    const reader = res.body?.getReader()
+    if (!reader) throw new Error('No stream')
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try { onEvent(JSON.parse(line.slice(6))) } catch { /* skip */ }
+        }
+      }
+    }
+  }
+
   composeDown(project: string) {
     return this.request(`/docker/compose/${project}/down`, { method: 'POST' })
   }
