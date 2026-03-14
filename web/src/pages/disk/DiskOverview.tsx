@@ -365,7 +365,7 @@ export default function DiskOverview() {
           ) : smartData ? (
             <div className="space-y-4 max-h-[500px] overflow-y-auto pr-1">
               {/* Health Summary */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="bg-secondary/30 rounded-xl py-3 px-4 text-center">
                   <div className="flex items-center justify-center gap-1.5 mb-1">
                     <Info className="h-3.5 w-3.5 text-primary" aria-hidden="true" />

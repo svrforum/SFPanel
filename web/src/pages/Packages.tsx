@@ -1031,8 +1031,46 @@ export default function Packages() {
             )}
           </div>
 
-          {/* Updates table */}
-          <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+          {/* Mobile updates card view */}
+          <div className="md:hidden space-y-2">
+            {loading.updates ? (
+              <div className="flex items-center justify-center gap-2 text-muted-foreground py-8">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                <span className="text-[13px]">{t('packages.checkingForUpdates')}</span>
+              </div>
+            ) : updates.length === 0 ? (
+              <div className="text-center text-[13px] text-muted-foreground py-8">
+                {t('packages.noUpdates')}
+              </div>
+            ) : (
+              updates.map((pkg) => (
+                <div key={pkg.name} className="bg-card rounded-2xl p-4 card-shadow">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-300 accent-[#3182f6] mt-0.5 shrink-0"
+                      checked={selectedPackages.has(pkg.name)}
+                      onChange={() => togglePackageSelection(pkg.name)}
+                      aria-label={pkg.name}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-medium font-mono truncate">{pkg.name}</p>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className="text-[11px] text-muted-foreground font-mono">{pkg.current_version}</span>
+                        <span className="text-[11px] text-muted-foreground">→</span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                          {pkg.new_version}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop updates table */}
+          <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1151,80 +1189,136 @@ export default function Packages() {
 
           {/* Search results */}
           {searchResults.length > 0 && (
-            <div className="bg-card rounded-2xl card-shadow overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('packages.packageName')}</TableHead>
-                    <TableHead>{t('packages.description')}</TableHead>
-                    <TableHead className="text-right">{t('packages.actions')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {searchResults.map((pkg) => (
-                    <TableRow key={pkg.name}>
-                      <TableCell className="font-medium font-mono text-[13px]">
-                        <div className="flex items-center gap-2">
-                          {pkg.name}
+            <>
+              {/* Mobile search results */}
+              <div className="md:hidden space-y-2">
+                {searchResults.map((pkg) => (
+                  <div key={pkg.name} className="bg-card rounded-2xl p-4 card-shadow">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-[13px] font-medium font-mono">{pkg.name}</p>
                           {pkg.installed && (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
                               {t('packages.installed')}
                             </span>
                           )}
                         </div>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-[13px] max-w-md truncate">
-                        {pkg.description}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {!pkg.installed ? (
-                            <Button
-                              size="sm"
-                              className="rounded-xl"
-                              onClick={() => handleInstallPackage(pkg.name)}
-                              disabled={loading.install === pkg.name}
-                            >
-                              {loading.install === pkg.name ? (
-                                <>
-                                  <Loader2 className="animate-spin" aria-hidden="true" />
-                                  {t('packages.installing')}
-                                </>
-                              ) : (
-                                <>
-                                  <Download aria-hidden="true" />
-                                  {t('packages.install')}
-                                </>
-                              )}
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              className="rounded-xl"
-                              onClick={() => handleRemovePackage(pkg.name)}
-                              disabled={loading.remove === pkg.name}
-                            >
-                              {loading.remove === pkg.name ? (
-                                <>
-                                  <Loader2 className="animate-spin" aria-hidden="true" />
-                                  {t('packages.removing')}
-                                </>
-                              ) : (
-                                <>
-                                  <Trash2 aria-hidden="true" />
-                                  {t('packages.remove')}
-                                </>
-                              )}
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
+                        {pkg.description && (
+                          <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{pkg.description}</p>
+                        )}
+                      </div>
+                      <div className="shrink-0">
+                        {!pkg.installed ? (
+                          <Button
+                            size="sm"
+                            className="rounded-xl"
+                            onClick={() => handleInstallPackage(pkg.name)}
+                            disabled={loading.install === pkg.name}
+                          >
+                            {loading.install === pkg.name ? (
+                              <Loader2 className="animate-spin h-4 w-4" aria-hidden="true" />
+                            ) : (
+                              <Download className="h-4 w-4" aria-hidden="true" />
+                            )}
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="rounded-xl"
+                            onClick={() => handleRemovePackage(pkg.name)}
+                            disabled={loading.remove === pkg.name}
+                          >
+                            {loading.remove === pkg.name ? (
+                              <Loader2 className="animate-spin h-4 w-4" aria-hidden="true" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop search results */}
+              <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t('packages.packageName')}</TableHead>
+                      <TableHead>{t('packages.description')}</TableHead>
+                      <TableHead className="text-right">{t('packages.actions')}</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {searchResults.map((pkg) => (
+                      <TableRow key={pkg.name}>
+                        <TableCell className="font-medium font-mono text-[13px]">
+                          <div className="flex items-center gap-2">
+                            {pkg.name}
+                            {pkg.installed && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                                {t('packages.installed')}
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-[13px] max-w-md truncate">
+                          {pkg.description}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {!pkg.installed ? (
+                              <Button
+                                size="sm"
+                                className="rounded-xl"
+                                onClick={() => handleInstallPackage(pkg.name)}
+                                disabled={loading.install === pkg.name}
+                              >
+                                {loading.install === pkg.name ? (
+                                  <>
+                                    <Loader2 className="animate-spin" aria-hidden="true" />
+                                    {t('packages.installing')}
+                                  </>
+                                ) : (
+                                  <>
+                                    <Download aria-hidden="true" />
+                                    {t('packages.install')}
+                                  </>
+                                )}
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="rounded-xl"
+                                onClick={() => handleRemovePackage(pkg.name)}
+                                disabled={loading.remove === pkg.name}
+                              >
+                                {loading.remove === pkg.name ? (
+                                  <>
+                                    <Loader2 className="animate-spin" aria-hidden="true" />
+                                    {t('packages.removing')}
+                                  </>
+                                ) : (
+                                  <>
+                                    <Trash2 aria-hidden="true" />
+                                    {t('packages.remove')}
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
 
           {/* Empty search state */}

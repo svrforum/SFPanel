@@ -132,32 +132,79 @@ export default function DockerImages() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary shrink-0">
           {t('docker.images.count', { count: images.length })}
         </span>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setPruneConfirmOpen(true)} disabled={pruning}>
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+          <Button variant="outline" size="sm" className="shrink-0" onClick={() => setPruneConfirmOpen(true)} disabled={pruning}>
             <Sparkles className={pruning ? 'animate-spin' : ''} />
             {t('docker.sidebar.prune')}
           </Button>
-          <Button variant="outline" size="sm" className="rounded-xl"
+          <Button variant="outline" size="sm" className="rounded-xl shrink-0"
             onClick={handleCheckUpdates} disabled={checkingUpdates}>
             {checkingUpdates ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             {t('docker.images.checkUpdates')}
           </Button>
-          <Button variant="outline" size="sm" onClick={fetchImages} disabled={loading}>
+          <Button variant="outline" size="sm" className="shrink-0" onClick={fetchImages} disabled={loading}>
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             {t('common.refresh')}
           </Button>
-          <Button size="sm" onClick={() => setPullDialogOpen(true)}>
+          <Button size="sm" className="shrink-0" onClick={() => setPullDialogOpen(true)}>
             <Download />
             {t('docker.images.pullImage')}
           </Button>
         </div>
       </div>
 
-      <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+      {/* Mobile card view */}
+      <div className="md:hidden space-y-2">
+        {images.length === 0 && !loading && (
+          <div className="text-center text-muted-foreground py-8 text-[13px]">
+            {t('docker.images.empty')}
+          </div>
+        )}
+        {[...images].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1)).map((img) => (
+          <div key={img.Id} className="bg-card rounded-2xl p-4 card-shadow">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium font-mono truncate">{getRepoTag(img)}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[11px] text-muted-foreground font-mono">{shortId(img.Id)}</span>
+                  <span className="text-[11px] text-muted-foreground">{formatBytes(img.Size)}</span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                  {img.in_use ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                      {t('docker.images.inUse')}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
+                      {t('docker.images.unused')}
+                    </span>
+                  )}
+                  {getUpdateStatus(img.RepoTags?.[0] || '')?.has_update && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                      {t('docker.images.updateAvailable')}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                title={t('common.delete')}
+                onClick={() => setDeleteTarget(img)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow>

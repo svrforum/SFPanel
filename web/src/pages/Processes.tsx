@@ -175,7 +175,7 @@ export default function Processes() {
 
       {/* Resource summary cards */}
       {sysMetrics && (
-        <div className="grid grid-cols-3 gap-2 md:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 md:gap-4">
           <div className="bg-card rounded-2xl p-3 md:p-4 card-shadow">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-primary/10">

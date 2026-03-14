@@ -242,7 +242,7 @@ export default function DiskSwap() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-card rounded-2xl card-shadow p-4">
           <div className="flex items-center gap-2 mb-1">
             <MemoryStick className="h-4 w-4 text-primary" />

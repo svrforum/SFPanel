@@ -266,7 +266,7 @@ export default function DiskRAID() {
                 </div>
 
                 {/* Device Summary */}
-                <div className="mt-3 grid grid-cols-4 gap-3">
+                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="bg-secondary/30 rounded-lg px-3 py-2 text-center">
                     <div className="text-[11px] text-muted-foreground">{t('disk.raid.totalDevices')}</div>
                     <div className="text-lg font-bold">{arr.total}</div>

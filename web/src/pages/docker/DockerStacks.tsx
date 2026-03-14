@@ -565,7 +565,7 @@ export default function DockerStacks() {
       {/* Stack detail (right panel) */}
       <div className="flex-1 min-w-0">
         {!selectedName ? (
-          <div className="flex items-center justify-center h-64 text-muted-foreground text-[13px]">
+          <div className="hidden md:flex items-center justify-center h-64 text-muted-foreground text-[13px]">
             {t('docker.stacks.selectStack')}
           </div>
         ) : (

@@ -256,13 +256,81 @@ export default function Services() {
         )}
       </div>
 
-      {/* Services table */}
-      <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+      {/* Mobile card view */}
+      <div className="md:hidden space-y-2">
+        {filtered.length === 0 && !loading && (
+          <div className="text-center text-muted-foreground py-8 text-[13px]">
+            {t('services.noServices')}
+          </div>
+        )}
+        {filtered.map((svc) => (
+          <div key={svc.name} className="bg-card rounded-2xl p-4 card-shadow">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium truncate" title={svc.name}>{svc.name}</p>
+                {svc.description && (
+                  <p className="text-[11px] text-muted-foreground truncate mt-0.5" title={svc.description}>
+                    {svc.description}
+                  </p>
+                )}
+                <div className="flex items-center gap-2 mt-2">
+                  <span className={getActiveStateStyle(svc.active_state, svc.sub_state)}>
+                    {svc.sub_state || svc.active_state}
+                  </span>
+                  <span className={getEnabledStyle(svc.enabled)}>
+                    {svc.enabled}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  title={t('services.start')}
+                  disabled={svc.active_state === 'active' || !!actionLoading?.startsWith(svc.name + ':')}
+                  onClick={() => handleAction(svc.name, 'start')}
+                >
+                  <Play className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  title={t('services.stop')}
+                  disabled={svc.active_state === 'inactive' || !!actionLoading?.startsWith(svc.name + ':')}
+                  onClick={() => handleAction(svc.name, 'stop')}
+                >
+                  <Square className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  title={t('services.restart')}
+                  disabled={!!actionLoading?.startsWith(svc.name + ':')}
+                  onClick={() => handleAction(svc.name, 'restart')}
+                >
+                  <RotateCw className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  title={t('services.viewLogs')}
+                  onClick={() => handleViewLogs(svc.name)}
+                >
+                  <FileText className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Services table (desktop) */}
+      <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
         <Table className="table-fixed">
           <TableHeader>
             <TableRow>
               <TableHead className="w-[30%]">{t('services.name')}</TableHead>
-              <TableHead className="hidden md:table-cell">{t('services.description')}</TableHead>
+              <TableHead>{t('services.description')}</TableHead>
               <TableHead className="w-24">{t('services.status')}</TableHead>
               <TableHead className="w-24">{t('services.boot')}</TableHead>
               <TableHead className="text-right w-14">{t('services.actions')}</TableHead>
@@ -281,7 +349,7 @@ export default function Services() {
                 <TableCell>
                   <span className="font-medium text-[13px] truncate block" title={svc.name}>{svc.name}</span>
                 </TableCell>
-                <TableCell className="hidden md:table-cell">
+                <TableCell>
                   <span className="text-[13px] text-muted-foreground truncate block" title={svc.description}>
                     {svc.description}
                   </span>

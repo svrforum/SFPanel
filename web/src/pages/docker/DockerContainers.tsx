@@ -703,7 +703,7 @@ export default function DockerContainers() {
   return (
     <div className="space-y-4">
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2 md:gap-3">
         <div
           className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 ${filterState === 'all' ? 'bg-primary/10 ring-1 ring-primary/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
           onClick={() => setFilterState('all')}

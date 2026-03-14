@@ -142,7 +142,7 @@ export default function SettingsTuning() {
           <Cpu className="h-4 w-4 text-muted-foreground" />
           <h3 className="text-[15px] font-semibold">{t('settings.tuning.systemSpecs')}</h3>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-1">
             <p className="text-[11px] text-muted-foreground uppercase tracking-wider">CPU</p>
             <p className="text-[13px] font-medium">{status.system_info.cpu_cores} {t('settings.tuning.cores')}</p>
