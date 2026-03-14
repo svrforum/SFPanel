@@ -286,7 +286,77 @@ export default function CronJobs() {
         </div>
       </div>
 
-      <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+      {/* Mobile card view */}
+      <div className="md:hidden space-y-2">
+        {filteredJobs.length === 0 && !loading && (
+          <div className="text-center text-muted-foreground py-8 text-[13px]">
+            {t('cron.empty')}
+          </div>
+        )}
+        {filteredJobs.map((job) => (
+          <div key={job.id} className={`bg-card rounded-2xl p-4 card-shadow ${!job.enabled && job.type === 'job' ? 'opacity-60' : ''}`}>
+            {job.type === 'job' ? (
+              <div className="space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <code className="text-[13px] font-mono break-all">{job.command}</code>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <code className="text-[11px] font-mono bg-muted px-1.5 py-0.5 rounded">
+                        {job.schedule}
+                      </code>
+                      {describeSchedule(job.schedule) && (
+                        <span className="text-[11px] text-muted-foreground">
+                          {describeSchedule(job.schedule)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      title={job.enabled ? t('cron.clickToDisable') : t('cron.clickToEnable')}
+                      disabled={actionLoading === job.id}
+                      onClick={() => handleToggleEnabled(job)}
+                    >
+                      {job.enabled ? (
+                        <Play className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <Pause className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      title={t('common.edit')}
+                      disabled={actionLoading === job.id}
+                      onClick={() => openEditDialog(job)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      title={t('common.delete')}
+                      disabled={actionLoading === job.id}
+                      onClick={() => setDeleteTarget(job)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : job.type === 'comment' ? (
+              <span className="text-muted-foreground text-[13px] italic">{job.raw}</span>
+            ) : (
+              <code className="text-[13px] font-mono text-amber-600">{job.raw}</code>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
         <Table>
             <TableHeader>
               <TableRow>

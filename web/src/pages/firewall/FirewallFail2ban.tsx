@@ -746,7 +746,7 @@ export default function FirewallFail2ban() {
                             {t('common.edit')}
                           </Button>
                         </div>
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                           <div className="bg-card rounded-xl px-4 py-3 card-shadow">
                             <div className="text-[11px] text-muted-foreground uppercase tracking-wider">
                               {t('firewall.fail2ban.maxRetry')}
@@ -1139,7 +1139,7 @@ export default function FirewallFail2ban() {
                 />
                 <p className="text-[11px] text-muted-foreground">{t('firewall.fail2ban.logPathHint')}</p>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-[13px] font-medium">{t('firewall.fail2ban.maxRetry')}</label>
                   <Input

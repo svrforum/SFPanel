@@ -109,7 +109,49 @@ export default function DockerVolumes() {
         </div>
       </div>
 
-      <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+      {/* Mobile card view */}
+      <div className="md:hidden space-y-2">
+        {volumes.length === 0 && !loading && (
+          <div className="text-center text-muted-foreground py-8 text-[13px]">
+            {t('docker.volumes.empty')}
+          </div>
+        )}
+        {[...volumes].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1)).map((v) => (
+          <div key={v.Name} className="bg-card rounded-2xl p-4 card-shadow">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium font-mono truncate">{v.Name}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[11px] text-muted-foreground">{v.Driver}</span>
+                  <span className="text-[11px] text-muted-foreground">{formatDate(v.CreatedAt)}</span>
+                </div>
+                <div className="mt-1.5">
+                  {v.in_use ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                      {t('docker.volumes.inUse')}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
+                      {t('docker.volumes.unused')}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                title={t('common.delete')}
+                onClick={() => setDeleteTarget(v)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow>
