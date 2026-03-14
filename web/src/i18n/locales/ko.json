@@ -248,6 +248,7 @@
       "stopSuccess": "서비스 중지됨",
       "startSuccess": "서비스 시작됨",
       "actionFailed": "서비스 작업 실패",
+      "deploying": "스택 배포 중...",
       "deploySuccess": "스택 배포 완료",
       "deployFailed": "스택 배포 실패",
       "deploy": "배포",
@@ -370,7 +371,12 @@
       "batchSuccess": "{{count}}개 컨테이너 {{action}} 완료",
       "batchFailed": "일괄 작업 실패",
       "selectAll": "전체 선택",
-      "selected": "{{count}}개 선택됨"
+      "selected": "{{count}}개 선택됨",
+      "stackActionSuccess": "스택 {{name}} {{action}} 완료",
+      "stackActionFailed": "스택 작업 실패",
+      "stackDownConfirm": "<strong>{{name}}</strong> 스택의 모든 컨테이너를 중지하시겠습니까?",
+      "stackRestartConfirm": "<strong>{{name}}</strong> 스택을 재시작하시겠습니까?",
+      "stackDeleteConfirm": "<strong>{{name}}</strong> 스택을 삭제하시겠습니까? 컨테이너가 중지되고 제거됩니다."
     },
     "images": {
       "count_one": "{{count}}개 이미지",

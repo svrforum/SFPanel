@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import NodeSelector from '@/components/NodeSelector'
+import BottomNav from '@/components/BottomNav'
+import MoreMenu from '@/components/MoreMenu'
 
 const navItems = [
   { to: '/dashboard', labelKey: 'layout.nav.dashboard', icon: LayoutDashboard },
@@ -35,6 +37,7 @@ export default function Layout() {
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [panelVersion, setPanelVersion] = useState('')
   const [nodeKey, setNodeKey] = useState(0)
+  const [moreOpen, setMoreOpen] = useState(false)
 
   useEffect(() => {
     const handler = () => setNodeKey((k) => k + 1)
@@ -65,7 +68,7 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-background">
       <aside className={cn(
-        'bg-card border-r border-border flex flex-col transition-all duration-300 ease-in-out shrink-0',
+        'bg-card border-r border-border flex-col transition-all duration-300 ease-in-out shrink-0 hidden md:flex',
         collapsed ? 'w-[68px]' : 'w-60'
       )}>
         <div className={cn('flex items-center py-6', collapsed ? 'px-3 justify-center' : 'px-5')}>
@@ -171,9 +174,12 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-auto p-8">
+      <main className="flex-1 overflow-auto p-4 pb-bottom-nav md:p-8 md:pb-8">
         <Outlet key={nodeKey} />
       </main>
+
+      <BottomNav onMorePress={() => setMoreOpen(true)} />
+      <MoreMenu open={moreOpen} onOpenChange={setMoreOpen} />
     </div>
   )
 }
