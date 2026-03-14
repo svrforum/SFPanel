@@ -129,10 +129,30 @@ func (s *GRPCServer) Leave(ctx context.Context, req *pb.LeaveRequest) (*pb.Leave
 
 // Heartbeat implements bidirectional heartbeat streaming.
 func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
+	const idleTimeout = 30 * time.Second
 	for {
-		ping, err := stream.Recv()
-		if err != nil {
+		// Set deadline so goroutine doesn't hang if client disconnects
+		timer := time.NewTimer(idleTimeout)
+		recvCh := make(chan *pb.HeartbeatPing, 1)
+		errCh := make(chan error, 1)
+		go func() {
+			ping, err := stream.Recv()
+			if err != nil {
+				errCh <- err
+			} else {
+				recvCh <- ping
+			}
+		}()
+
+		var ping *pb.HeartbeatPing
+		select {
+		case ping = <-recvCh:
+			timer.Stop()
+		case err := <-errCh:
+			timer.Stop()
 			return err
+		case <-timer.C:
+			return fmt.Errorf("heartbeat stream idle timeout (%v)", idleTimeout)
 		}
 
 		s.manager.GetHeartbeat().RecordHeartbeat(&NodeMetrics{
@@ -183,7 +203,7 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 	}
 
 	// Execute locally
-	client := &http.Client{Timeout: 25 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second}
 	httpResp, err := client.Do(httpReq)
 	if err != nil {
 		return &pb.APIResponse{

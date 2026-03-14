@@ -278,6 +278,11 @@ func (m *Manager) RemoveNode(nodeID string) error {
 		return fmt.Errorf("remove from state: %w", err)
 	}
 
+	// Clean up heartbeat + connection pool for removed node
+	state := m.raft.GetFSM().GetState()
+	if node, ok := state.Nodes[nodeID]; ok && node.GRPCAddress != "" {
+		m.connPool.Remove(node.GRPCAddress)
+	}
 	m.heartbeat.RemoveNode(nodeID)
 	m.events.Emit(EventNodeLeft, nodeID, "", "removed from cluster")
 	log.Printf("[cluster] Node removed: %s", nodeID)
@@ -306,15 +311,26 @@ func (m *Manager) IsLeader() bool {
 	return m.raft.IsLeader()
 }
 
-// GetNodes returns all known cluster nodes.
+// GetNodes returns all known cluster nodes with real-time health status.
 func (m *Manager) GetNodes() []*Node {
 	if m.raft == nil {
 		return nil
 	}
 	state := m.raft.GetFSM().GetState()
+	health := m.heartbeat.CheckHealth()
+	lastSeenMap := m.heartbeat.GetLastSeen()
+
 	nodes := make([]*Node, 0, len(state.Nodes))
 	for _, n := range state.Nodes {
-		nodes = append(nodes, n)
+		cp := *n
+		// Override with real-time heartbeat data
+		if ls, ok := lastSeenMap[n.ID]; ok {
+			cp.LastSeen = ls
+		}
+		if status, ok := health[n.ID]; ok {
+			cp.Status = status
+		}
+		nodes = append(nodes, &cp)
 	}
 	return nodes
 }
@@ -325,7 +341,19 @@ func (m *Manager) GetNode(nodeID string) *Node {
 		return nil
 	}
 	state := m.raft.GetFSM().GetState()
-	return state.Nodes[nodeID]
+	n := state.Nodes[nodeID]
+	if n == nil {
+		return nil
+	}
+	cp := *n
+	if ls, ok := m.heartbeat.GetLastSeen()[cp.ID]; ok {
+		cp.LastSeen = ls
+	}
+	health := m.heartbeat.CheckHealth()
+	if status, ok := health[cp.ID]; ok {
+		cp.Status = status
+	}
+	return &cp
 }
 
 // GetOverview returns the cluster overview with metrics.
@@ -334,9 +362,19 @@ func (m *Manager) GetOverview() *ClusterOverview {
 		return nil
 	}
 	state := m.raft.GetFSM().GetState()
+	health := m.heartbeat.CheckHealth()
+	lastSeenMap := m.heartbeat.GetLastSeen()
+
 	nodes := make([]*Node, 0, len(state.Nodes))
 	for _, n := range state.Nodes {
-		nodes = append(nodes, n)
+		cp := *n
+		if ls, ok := lastSeenMap[n.ID]; ok {
+			cp.LastSeen = ls
+		}
+		if status, ok := health[n.ID]; ok {
+			cp.Status = status
+		}
+		nodes = append(nodes, &cp)
 	}
 	return &ClusterOverview{
 		Name:      state.Config["cluster_name"],
@@ -452,6 +490,23 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 
 		var grpcStream pb.ClusterService_HeartbeatClient
 		var grpcClient *GRPCClient
+		var streamCancel context.CancelFunc
+		var connectedLeaderAddr string
+		var dialFailures int
+
+		closeStream := func() {
+			if streamCancel != nil {
+				streamCancel()
+			}
+			if grpcClient != nil {
+				grpcClient.Close()
+			}
+			grpcStream = nil
+			grpcClient = nil
+			streamCancel = nil
+			connectedLeaderAddr = ""
+			dialFailures = 0
+		}
 
 		collect := func() {
 			cpu, mem, disk, containers := collector()
@@ -469,23 +524,42 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 
 			// If follower, also send to leader via gRPC
 			if m.raft != nil && !m.raft.IsLeader() {
-				if grpcStream == nil {
-					leaderAddr := m.raft.LeaderGRPCAddress()
-					if leaderAddr != "" {
-						client, err := DialNode(leaderAddr, m.tls)
-						if err != nil {
-							log.Printf("[cluster] heartbeat dial failed: %v", err)
-							return
-						}
-						stream, err := client.client.Heartbeat(context.Background())
-						if err != nil {
-							client.Close()
-							log.Printf("[cluster] heartbeat stream failed: %v", err)
-							return
-						}
-						grpcClient = client
-						grpcStream = stream
+				leaderAddr := m.raft.LeaderGRPCAddress()
+
+				// If leader changed, close old stream
+				if grpcStream != nil && leaderAddr != connectedLeaderAddr {
+					log.Printf("[cluster] leader changed (%s -> %s), reconnecting heartbeat", connectedLeaderAddr, leaderAddr)
+					closeStream()
+				}
+
+				if grpcStream == nil && leaderAddr != "" {
+					// Exponential backoff on repeated dial failures (max 30s)
+					if dialFailures > 0 {
+						backoff := time.Duration(1<<min(dialFailures, 5)) * time.Second
+						log.Printf("[cluster] heartbeat dial backoff: %v (attempt %d)", backoff, dialFailures+1)
+						time.Sleep(backoff)
 					}
+
+					client, err := DialNode(leaderAddr, m.tls)
+					if err != nil {
+						dialFailures++
+						log.Printf("[cluster] heartbeat dial failed: %v", err)
+						return
+					}
+					ctx, cancel := context.WithCancel(context.Background())
+					stream, err := client.client.Heartbeat(ctx)
+					if err != nil {
+						cancel()
+						client.Close()
+						dialFailures++
+						log.Printf("[cluster] heartbeat stream failed: %v", err)
+						return
+					}
+					grpcClient = client
+					grpcStream = stream
+					streamCancel = cancel
+					connectedLeaderAddr = leaderAddr
+					dialFailures = 0
 				}
 
 				if grpcStream != nil {
@@ -498,20 +572,12 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 					})
 					if err != nil {
 						log.Printf("[cluster] heartbeat send failed: %v", err)
-						if grpcClient != nil {
-							grpcClient.Close()
-						}
-						grpcStream = nil
-						grpcClient = nil
+						closeStream()
 					}
 				}
 			} else if grpcStream != nil {
 				// Became leader, close follower stream
-				if grpcClient != nil {
-					grpcClient.Close()
-				}
-				grpcStream = nil
-				grpcClient = nil
+				closeStream()
 			}
 		}
 
@@ -521,9 +587,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 			case <-ticker.C:
 				collect()
 			case <-m.heartbeat.stopCh:
-				if grpcClient != nil {
-					grpcClient.Close()
-				}
+				closeStream()
 				return
 			}
 		}
