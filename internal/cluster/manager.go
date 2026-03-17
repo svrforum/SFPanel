@@ -88,6 +88,7 @@ func (m *Manager) Init(clusterName string) error {
 		BindAddr:  raftAddr,
 		DataDir:   m.config.DataDir,
 		Bootstrap: true,
+		TLS:       m.tls,
 	})
 	if err != nil {
 		return fmt.Errorf("start raft: %w", err)
@@ -161,6 +162,7 @@ func (m *Manager) Start() error {
 		BindAddr:  raftAddr,
 		DataDir:   m.config.DataDir,
 		Bootstrap: false,
+		TLS:       m.tls,
 	})
 	if err != nil {
 		return fmt.Errorf("start raft: %w", err)
@@ -289,12 +291,31 @@ func (m *Manager) RemoveNode(nodeID string) error {
 	return nil
 }
 
-// Leave gracefully leaves the cluster.
+// Leave gracefully leaves the cluster by notifying the leader to remove this node.
 func (m *Manager) Leave() error {
 	if m.raft == nil {
 		return ErrNotInitialized
 	}
 	m.heartbeat.Stop()
+
+	// If we are the leader, remove ourselves from the cluster
+	if m.raft.IsLeader() {
+		if err := m.raft.RemoveServer(m.nodeID); err != nil {
+			log.Printf("[cluster] Failed to remove self from Raft: %v", err)
+		}
+	} else {
+		// Notify the leader to remove us via gRPC
+		leaderAddr := m.raft.LeaderGRPCAddress()
+		if leaderAddr != "" && m.connPool != nil {
+			client, err := m.connPool.Get(leaderAddr)
+			if err == nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				_, _ = client.client.Leave(ctx, &pb.LeaveRequest{NodeId: m.nodeID})
+				cancel()
+			}
+		}
+	}
+
 	return m.raft.Shutdown()
 }
 
@@ -493,6 +514,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 		var streamCancel context.CancelFunc
 		var connectedLeaderAddr string
 		var dialFailures int
+		var dialSkipCount int
 
 		closeStream := func() {
 			if streamCancel != nil {
@@ -533,11 +555,14 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 				}
 
 				if grpcStream == nil && leaderAddr != "" {
-					// Exponential backoff on repeated dial failures (max 30s)
+					// Skip dial attempts during backoff (non-blocking)
 					if dialFailures > 0 {
-						backoff := time.Duration(1<<min(dialFailures, 5)) * time.Second
-						log.Printf("[cluster] heartbeat dial backoff: %v (attempt %d)", backoff, dialFailures+1)
-						time.Sleep(backoff)
+						backoffTicks := 1 << min(dialFailures, 5)
+						dialSkipCount++
+						if dialSkipCount < backoffTicks {
+							return // skip this tick
+						}
+						dialSkipCount = 0
 					}
 
 					client, err := DialNode(leaderAddr, m.tls)
@@ -604,16 +629,20 @@ func (m *Manager) Shutdown() {
 	// If we're the leader, try to transfer leadership before shutting down
 	if m.raft != nil && m.raft.IsLeader() {
 		state := m.raft.GetFSM().GetState()
+		// Use live heartbeat health instead of stale FSM status
+		liveHealth := m.heartbeat.CheckHealth()
 		for id, node := range state.Nodes {
-			if id != m.nodeID && node.Status == StatusOnline {
-				log.Printf("[cluster] Transferring leadership to %s before shutdown", node.Name)
-				if err := m.raft.TransferLeadership(id); err != nil {
-					log.Printf("[cluster] Leadership transfer failed: %v", err)
-				} else {
-					log.Printf("[cluster] Leadership transferred to %s", node.Name)
-					time.Sleep(1 * time.Second) // allow transfer to propagate
+			if id != m.nodeID {
+				if status, ok := liveHealth[id]; ok && status == StatusOnline {
+					log.Printf("[cluster] Transferring leadership to %s before shutdown", node.Name)
+					if err := m.raft.TransferLeadership(id); err != nil {
+						log.Printf("[cluster] Leadership transfer failed: %v", err)
+					} else {
+						log.Printf("[cluster] Leadership transferred to %s", node.Name)
+						time.Sleep(1 * time.Second)
+					}
+					break
 				}
-				break
 			}
 		}
 	}
