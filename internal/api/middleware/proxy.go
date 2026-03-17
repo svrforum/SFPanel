@@ -20,7 +20,9 @@ import (
 // isStreamingEndpoint checks if the request path is an SSE streaming endpoint
 // that should be relayed via direct HTTP instead of gRPC.
 func isStreamingEndpoint(path string) bool {
-	return strings.HasSuffix(path, "/up-stream") || strings.HasSuffix(path, "/update-stream")
+	return strings.HasSuffix(path, "/up-stream") ||
+		strings.HasSuffix(path, "/update-stream") ||
+		strings.HasSuffix(path, "/system/update")
 }
 
 // newRemoteHTTPClient creates an HTTP client for remote node communication.

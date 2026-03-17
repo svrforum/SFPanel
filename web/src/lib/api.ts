@@ -1470,6 +1470,36 @@ class ApiClient {
     })
   }
 
+  clusterUpdateStream(mode: 'rolling' | 'simultaneous', onEvent: (data: Record<string, unknown>) => void): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const token = this.getToken()
+      if (!token) return reject(new Error('No token'))
+      fetch(`${API_BASE}/cluster/update`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      }).then(resp => {
+        if (!resp.ok || !resp.body) return reject(new Error(`HTTP ${resp.status}`))
+        const reader = resp.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        const pump = (): Promise<void> => reader.read().then(({ done, value }) => {
+          if (done) { resolve(); return }
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try { onEvent(JSON.parse(line.slice(6))) } catch { /* skip */ }
+            }
+          }
+          return pump()
+        })
+        pump().catch(reject)
+      }).catch(reject)
+    })
+  }
+
   // Build a WebSocket URL with auth token and optional node parameter
   buildWsUrl(path: string, extraParams?: Record<string, string>): string {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'

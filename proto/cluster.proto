@@ -46,6 +46,7 @@ message HeartbeatPing {
     int32  container_count = 4;
     int64  timestamp = 5;
     double disk_percent = 6;
+    string version = 7;
 }
 
 message HeartbeatPong {

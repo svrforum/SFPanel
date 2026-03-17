@@ -177,6 +177,7 @@ func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 				MemoryPercent:  result.ping.MemoryPercent,
 				DiskPercent:    result.ping.DiskPercent,
 				ContainerCount: int(result.ping.ContainerCount),
+				Version:        result.ping.Version,
 				Timestamp:      result.ping.Timestamp,
 			})
 

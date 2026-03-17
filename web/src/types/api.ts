@@ -747,6 +747,7 @@ export interface ClusterNodeMetrics {
   disk_percent: number
   container_count: number
   uptime_seconds: number
+  version: string
   timestamp: number
 }
 

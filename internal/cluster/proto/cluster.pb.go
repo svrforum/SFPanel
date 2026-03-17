@@ -301,6 +301,7 @@ type HeartbeatPing struct {
 	ContainerCount int32                  `protobuf:"varint,4,opt,name=container_count,json=containerCount,proto3" json:"container_count,omitempty"`
 	Timestamp      int64                  `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	DiskPercent    float64                `protobuf:"fixed64,6,opt,name=disk_percent,json=diskPercent,proto3" json:"disk_percent,omitempty"`
+	Version        string                 `protobuf:"bytes,7,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -375,6 +376,13 @@ func (x *HeartbeatPing) GetDiskPercent() float64 {
 		return x.DiskPercent
 	}
 	return 0
+}
+
+func (x *HeartbeatPing) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
 }
 
 type HeartbeatPong struct {
@@ -922,7 +930,7 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"?\n" +
 	"\rLeaveResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\xda\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\xf4\x01\n" +
 	"\rHeartbeatPing\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vcpu_percent\x18\x02 \x01(\x01R\n" +
@@ -930,7 +938,8 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\x0ememory_percent\x18\x03 \x01(\x01R\rmemoryPercent\x12'\n" +
 	"\x0fcontainer_count\x18\x04 \x01(\x05R\x0econtainerCount\x12\x1c\n" +
 	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x12!\n" +
-	"\fdisk_percent\x18\x06 \x01(\x01R\vdiskPercent\"J\n" +
+	"\fdisk_percent\x18\x06 \x01(\x01R\vdiskPercent\x12\x18\n" +
+	"\aversion\x18\a \x01(\tR\aversion\"J\n" +
 	"\rHeartbeatPong\x12\x1b\n" +
 	"\tleader_id\x18\x01 \x01(\tR\bleaderId\x12\x1c\n" +
 	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\"\xeb\x01\n" +
