@@ -42,7 +42,7 @@ func (t *tlsStreamLayer) Dial(address raft.ServerAddress, timeout time.Duration)
 // newRaftTransport creates a Raft transport. If TLS is configured, the transport
 // uses TLS-encrypted connections. Otherwise, plain TCP is used.
 func newRaftTransport(cfg RaftConfig, addr *net.TCPAddr) (raft.Transport, error) {
-	if cfg.TLS == nil {
+	if cfg.TLS == nil || !cfg.RaftTLS {
 		t, err := raft.NewTCPTransport(cfg.BindAddr, addr, 3, 10*time.Second, os.Stderr)
 		if err != nil {
 			return nil, fmt.Errorf("create transport: %w", err)
