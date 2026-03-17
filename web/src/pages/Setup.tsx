@@ -34,8 +34,8 @@ export default function Setup() {
       const result = await api.setupAdmin(username, password)
       api.setToken(result.token)
       navigate('/dashboard')
-    } catch (err: any) {
-      setError(err.message || 'Setup failed')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Setup failed')
     } finally {
       setLoading(false)
     }

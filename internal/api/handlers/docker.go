@@ -18,6 +18,11 @@ type DockerHandler struct {
 	Docker *docker.Client
 }
 
+// safeLen returns the length of a string slice, safely handling nil.
+func safeLen[T any](s []T) int {
+	return len(s)
+}
+
 // ---------- Containers ----------
 
 // ListContainers returns all containers (running and stopped).
@@ -296,7 +301,8 @@ func (h *DockerHandler) PullImage(c echo.Context) error {
 		flusher.Flush()
 	}
 
-	fmt.Fprintf(flusher, "data: {\"status\":\"complete\",\"image\":\"%s\"}\n\n", req.Image)
+	completeData, _ := json.Marshal(map[string]string{"status": "complete", "image": req.Image})
+	fmt.Fprintf(flusher, "data: %s\n\n", completeData)
 	flusher.Flush()
 	return nil
 }
@@ -442,8 +448,12 @@ func (h *DockerHandler) InspectNetwork(c echo.Context) error {
 	// Build clean response
 	containers := []map[string]string{}
 	for cid, endpoint := range netInfo.Containers {
+		shortID := cid
+		if len(cid) > 12 {
+			shortID = cid[:12]
+		}
 		containers = append(containers, map[string]string{
-			"id":           cid[:12],
+			"id":           shortID,
 			"name":         endpoint.Name,
 			"ipv4_address": endpoint.IPv4Address,
 			"ipv6_address": endpoint.IPv6Address,
@@ -550,19 +560,19 @@ func (h *DockerHandler) PruneAll(c echo.Context) error {
 
 	result := map[string]interface{}{
 		"containers": map[string]interface{}{
-			"deleted":         len(containerReport.ContainersDeleted),
+			"deleted":         safeLen(containerReport.ContainersDeleted),
 			"space_reclaimed": containerReport.SpaceReclaimed,
 		},
 		"images": map[string]interface{}{
-			"deleted":         len(imageReport.ImagesDeleted),
+			"deleted":         safeLen(imageReport.ImagesDeleted),
 			"space_reclaimed": imageReport.SpaceReclaimed,
 		},
 		"volumes": map[string]interface{}{
-			"deleted":         len(volumeReport.VolumesDeleted),
+			"deleted":         safeLen(volumeReport.VolumesDeleted),
 			"space_reclaimed": volumeReport.SpaceReclaimed,
 		},
 		"networks": map[string]interface{}{
-			"deleted": len(networkReport.NetworksDeleted),
+			"deleted": safeLen(networkReport.NetworksDeleted),
 		},
 	}
 

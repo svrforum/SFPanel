@@ -118,10 +118,11 @@ type AppStoreHandler struct {
 	DB          *sql.DB
 	ComposePath string // "/opt/stacks"
 
-	mu         sync.RWMutex
-	categories []AppStoreCategory
-	apps       []AppStoreMeta
-	cachedAt   time.Time
+	mu           sync.RWMutex
+	categories   []AppStoreCategory
+	apps         []AppStoreMeta
+	cachedAt     time.Time
+	refreshing   sync.Mutex // prevents concurrent refresh calls
 }
 
 // ---------------------------------------------------------------------------
@@ -139,7 +140,8 @@ func (h *AppStoreHandler) httpGet(url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP GET %s returned %d", url, resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	const maxResponseSize = 10 * 1024 * 1024 // 10MB
+	return io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 }
 
 func (h *AppStoreHandler) ensureCache() error {
@@ -153,6 +155,17 @@ func (h *AppStoreHandler) ensureCache() error {
 }
 
 func (h *AppStoreHandler) refreshCache() error {
+	h.refreshing.Lock()
+	defer h.refreshing.Unlock()
+
+	// Double-check after acquiring lock
+	h.mu.RLock()
+	valid := !h.cachedAt.IsZero() && time.Since(h.cachedAt) < cacheTTL
+	h.mu.RUnlock()
+	if valid {
+		return nil
+	}
+
 	// 1. Fetch categories.json (raw URL, no API rate limit)
 	catData, err := h.httpGet(appStoreBaseURL + "categories.json")
 	if err != nil {
@@ -494,7 +507,7 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 
 		if strings.TrimSpace(req.EnvRaw) != "" {
 			envPath := filepath.Join(stackDir, ".env")
-			if err := os.WriteFile(envPath, []byte(req.EnvRaw), 0644); err != nil {
+			if err := os.WriteFile(envPath, []byte(req.EnvRaw), 0600); err != nil {
 				cleanup()
 				send("prepare", "Failed to write .env file: "+err.Error(), true, false)
 				return nil
@@ -540,7 +553,7 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 		if len(envLines) > 0 {
 			envPath := filepath.Join(stackDir, ".env")
 			envContent := strings.Join(envLines, "\n") + "\n"
-			if err := os.WriteFile(envPath, []byte(envContent), 0644); err != nil {
+			if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
 				cleanup()
 				send("prepare", "Failed to write .env file: "+err.Error(), true, false)
 				return nil

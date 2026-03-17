@@ -165,6 +165,13 @@ class ApiClient {
     })
   }
 
+  disable2FA(password: string) {
+    return this.request<{ message: string }>('/auth/2fa', {
+      method: 'DELETE',
+      body: JSON.stringify({ password }),
+    })
+  }
+
   // Settings
   getSettings() {
     return this.request<Record<string, string>>('/settings')

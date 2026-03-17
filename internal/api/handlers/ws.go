@@ -165,9 +165,16 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		writer := &safeWSWriter{conn: ws}
 
 		// Stream log lines to WebSocket.
+		scanDone := make(chan struct{})
 		go func() {
+			defer close(scanDone)
 			scanner := bufio.NewScanner(logReader)
 			for scanner.Scan() {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
 				line := scanner.Bytes()
 				if len(line) > 8 && (line[0] == 1 || line[0] == 2) {
 					line = line[8:]
@@ -179,7 +186,11 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 			}
 		}()
 
-		<-done
+		select {
+		case <-done:
+		case <-scanDone:
+		}
+		cancel()
 		return nil
 	}
 }
@@ -231,7 +242,6 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 			for {
 				_, msg, err := ws.ReadMessage()
 				if err != nil {
-					hijacked.Close()
 					return
 				}
 				var resizeMsg struct {

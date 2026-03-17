@@ -538,7 +538,7 @@ type CreateJailRequest struct {
 	Filter string `json:"filter,omitempty"`
 }
 
-// validLogPath matches safe file paths for log files.
+// validLogPath matches safe file paths for log files (no path traversal).
 var validLogPath = regexp.MustCompile(`^[a-zA-Z0-9/_\-.*]+\.log[a-zA-Z0-9/_\-.*]*$`)
 
 // validIgnoreIP matches space-separated IPs, CIDRs, and common fail2ban ignoreip values.
@@ -573,7 +573,7 @@ func (h *FirewallHandler) CreateJail(c echo.Context) error {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFilterName,
 				"Filter name contains invalid characters")
 		}
-		if !validLogPath.MatchString(req.LogPath) {
+		if !validLogPath.MatchString(req.LogPath) || strings.Contains(req.LogPath, "..") {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidLogPath,
 				"Log path contains invalid characters")
 		}

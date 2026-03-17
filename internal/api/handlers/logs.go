@@ -400,12 +400,24 @@ func (h *LogsHandler) AddCustomSource(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Both 'name' and 'path' are required")
 	}
 
-	// Security: absolute path required, no path traversal
+	// Security: absolute path required, no path traversal, must be under /var/log or /opt
 	if !filepath.IsAbs(req.Path) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrPathInvalid, "Path must be absolute")
 	}
 	if strings.Contains(req.Path, "..") {
 		return response.Fail(c, http.StatusBadRequest, response.ErrPathInvalid, "Path must not contain '..'")
+	}
+	cleanPath := filepath.Clean(req.Path)
+	allowedPrefixes := []string{"/var/log/", "/opt/", "/home/", "/tmp/"}
+	allowed := false
+	for _, prefix := range allowedPrefixes {
+		if strings.HasPrefix(cleanPath, prefix) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return response.Fail(c, http.StatusBadRequest, response.ErrPathInvalid, "Custom log path must be under /var/log, /opt, /home, or /tmp")
 	}
 
 	// Generate source_id from name: lowercase, replace spaces with hyphens

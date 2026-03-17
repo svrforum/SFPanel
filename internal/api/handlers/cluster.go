@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -428,10 +429,16 @@ func (h *ClusterHandler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) 
 		headers["X-SFPanel-Internal-Proxy"] = proxySecret
 	}
 
+	var bodyBytes []byte
+	if c.Request().Body != nil {
+		bodyBytes, _ = io.ReadAll(c.Request().Body)
+	}
+
 	resp, err := client.ProxyRequest(ctx, &pb.APIRequest{
 		Method:  c.Request().Method,
 		Path:    c.Request().URL.Path,
 		Headers: headers,
+		Body:    bodyBytes,
 	})
 	if err != nil {
 		pool.Remove(leaderAddr)

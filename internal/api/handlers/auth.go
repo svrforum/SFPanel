@@ -13,16 +13,17 @@ import (
 )
 
 type loginAttempt struct {
-	count    int
-	firstAt  time.Time
+	mu           sync.Mutex
+	count        int
+	firstAt      time.Time
 	blockedUntil time.Time
 }
 
 var loginAttempts sync.Map
 
 const (
-	rateLimitMaxAttempts = 5
-	rateLimitWindow     = 60 * time.Second
+	rateLimitMaxAttempts   = 5
+	rateLimitWindow        = 60 * time.Second
 	rateLimitBlockDuration = 5 * time.Minute
 )
 
@@ -61,7 +62,10 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	ip := c.RealIP()
 	if val, ok := loginAttempts.Load(ip); ok {
 		attempt := val.(*loginAttempt)
-		if time.Now().Before(attempt.blockedUntil) {
+		attempt.mu.Lock()
+		blocked := time.Now().Before(attempt.blockedUntil)
+		attempt.mu.Unlock()
+		if blocked {
 			return response.Fail(c, http.StatusTooManyRequests, response.ErrRateLimited, "Too many login attempts. Try again later.")
 		}
 	}
@@ -120,12 +124,14 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 func recordFailedLogin(ip string) {
 	now := time.Now()
-	val, ok := loginAttempts.Load(ip)
-	if !ok {
-		loginAttempts.Store(ip, &loginAttempt{count: 1, firstAt: now})
+	newAttempt := &loginAttempt{count: 1, firstAt: now}
+	val, loaded := loginAttempts.LoadOrStore(ip, newAttempt)
+	if !loaded {
 		return
 	}
 	attempt := val.(*loginAttempt)
+	attempt.mu.Lock()
+	defer attempt.mu.Unlock()
 	if now.Sub(attempt.firstAt) > rateLimitWindow {
 		attempt.count = 1
 		attempt.firstAt = now
@@ -141,7 +147,7 @@ func recordFailedLogin(ip string) {
 func (h *AuthHandler) Setup2FA(c echo.Context) error {
 	username, _ := c.Get("username").(string)
 	if username == "" {
-		username = "admin"
+		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
 	}
 
 	key, err := auth.GenerateSecret(username)
@@ -156,6 +162,11 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 }
 
 func (h *AuthHandler) Verify2FA(c echo.Context) error {
+	username, _ := c.Get("username").(string)
+	if username == "" {
+		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
+	}
+
 	var req verify2FARequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -167,11 +178,6 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 
 	if !auth.ValidateCode(req.Secret, req.Code) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidTOTP, "Invalid 2FA code")
-	}
-
-	username, _ := c.Get("username").(string)
-	if username == "" {
-		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
 	}
 
 	_, err := h.DB.Exec("UPDATE admin SET totp_secret = ? WHERE username = ?", req.Secret, username)
@@ -200,6 +206,41 @@ func (h *AuthHandler) Get2FAStatus(c echo.Context) error {
 
 	enabled := totpSecret.Valid && totpSecret.String != ""
 	return response.OK(c, map[string]bool{"enabled": enabled})
+}
+
+// Disable2FA removes the TOTP secret, disabling 2FA. Requires current password for verification.
+func (h *AuthHandler) Disable2FA(c echo.Context) error {
+	username, _ := c.Get("username").(string)
+	if username == "" {
+		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
+	}
+
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	if req.Password == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Password is required")
+	}
+
+	var passwordHash string
+	err := h.DB.QueryRow("SELECT password FROM admin WHERE username = ?", username).Scan(&passwordHash)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
+	}
+
+	if !auth.CheckPassword(req.Password, passwordHash) {
+		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidPassword, "Invalid password")
+	}
+
+	_, err = h.DB.Exec("UPDATE admin SET totp_secret = NULL WHERE username = ?", username)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to disable 2FA")
+	}
+
+	return response.OK(c, map[string]string{"message": "2FA disabled successfully"})
 }
 
 // ChangePassword allows an authenticated user to change their password.

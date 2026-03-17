@@ -13,12 +13,15 @@ type Claims struct {
 }
 
 func GenerateToken(username string, secret string, expiry time.Duration) (string, error) {
+	now := time.Now()
 	claims := Claims{
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "sfpanel",
 			Subject:   username,
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiry)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -31,7 +34,7 @@ func ParseToken(tokenString string, secret string) (*Claims, error) {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return []byte(secret), nil
-	})
+	}, jwt.WithIssuer("sfpanel"))
 	if err != nil {
 		return nil, err
 	}
