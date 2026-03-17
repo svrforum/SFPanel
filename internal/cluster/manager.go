@@ -28,7 +28,11 @@ type Manager struct {
 	connPool  *ConnPool
 	nodeID    string
 	nodeName  string
+	version   string
 }
+
+// SetVersion sets the panel version for heartbeat reporting.
+func (m *Manager) SetVersion(v string) { m.version = v }
 
 // NewManager creates a Manager but does not start any services.
 func NewManager(cfg *config.ClusterConfig) *Manager {
@@ -538,6 +542,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 				MemoryPercent:  mem,
 				DiskPercent:    disk,
 				ContainerCount: containers,
+				Version:        m.version,
 				Timestamp:      time.Now().Unix(),
 			}
 
@@ -594,6 +599,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						MemoryPercent:  mem,
 						ContainerCount: int32(containers),
 						DiskPercent:    disk,
+						Version:        m.version,
 						Timestamp:      metrics.Timestamp,
 					})
 					if err != nil {

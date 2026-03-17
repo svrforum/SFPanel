@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Server, Trash2, RefreshCw, Crown, Tag, ArrowRightLeft } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { ClusterNode, ClusterStatus } from '@/types/api'
+import type { ClusterNode, ClusterStatus, ClusterNodeMetrics } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -14,6 +14,7 @@ export default function ClusterNodes() {
   const { t } = useTranslation()
   const [status, setStatus] = useState<ClusterStatus | null>(null)
   const [nodes, setNodes] = useState<ClusterNode[]>([])
+  const [metrics, setMetrics] = useState<ClusterNodeMetrics[]>([])
   const [localId, setLocalId] = useState('')
   const [loading, setLoading] = useState(true)
 
@@ -30,10 +31,12 @@ export default function ClusterNodes() {
     Promise.all([
       api.getClusterStatus(),
       api.getClusterNodes().catch(() => ({ nodes: [], local_id: '', is_leader: false })),
-    ]).then(([s, data]) => {
+      api.getClusterOverview().catch(() => null),
+    ]).then(([s, data, overview]) => {
       setStatus(s)
       setNodes(data.nodes)
       setLocalId(data.local_id)
+      if (overview?.metrics) setMetrics(overview.metrics)
     }).finally(() => setLoading(false))
   }
 
@@ -137,6 +140,7 @@ export default function ClusterNodes() {
               <TableHead>{t('cluster.nodes.name')}</TableHead>
               <TableHead>{t('common.status')}</TableHead>
               <TableHead>{t('cluster.nodes.role')}</TableHead>
+              <TableHead>{t('cluster.nodes.version')}</TableHead>
               <TableHead>{t('cluster.nodes.labels')}</TableHead>
               <TableHead>{t('cluster.nodes.apiAddress')}</TableHead>
               <TableHead>{t('cluster.nodes.joinedAt')}</TableHead>
@@ -163,6 +167,9 @@ export default function ClusterNodes() {
                   </span>
                 </TableCell>
                 <TableCell className="text-[13px]">{node.role}</TableCell>
+                <TableCell className="text-[13px]">
+                  {metrics.find(m => m.node_id === node.id)?.version || '-'}
+                </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1 flex-wrap">
                     {node.labels && Object.entries(node.labels).map(([k, v]) => (

@@ -118,6 +118,9 @@ func main() {
 			defer clusterMgr.Shutdown()
 			log.Printf("Cluster mode active: %s (node: %s)", cfg.Cluster.Name, cfg.Cluster.NodeID)
 
+			// Set version for cluster heartbeat reporting
+			clusterMgr.SetVersion(version)
+
 			// Start local metrics collection for cluster overview
 			metricsDocker, _ := docker.NewClient(cfg.Docker.Socket)
 			clusterMgr.StartLocalMetrics(func() (float64, float64, float64, int) {

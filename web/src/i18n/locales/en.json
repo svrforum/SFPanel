@@ -559,7 +559,12 @@
       "nodeCount": "{{count}} nodes",
       "disband": "Disband Cluster",
       "confirmDisband": "Are you sure you want to disband the cluster? This node will switch to standalone mode.",
-      "disbanded": "Cluster disbanded. Restarting service."
+      "disbanded": "Cluster disbanded. Restarting service.",
+      "rollingUpdate": "Rolling Update",
+      "simultaneousUpdate": "Simultaneous Update",
+      "confirmUpdate": "Start cluster-wide update?",
+      "updating": "Updating...",
+      "updateProgress": "Update Progress"
     },
     "events": {
       "node_joined": "joined the cluster",
@@ -574,6 +579,7 @@
       "count": "{{count}} nodes",
       "name": "Name",
       "role": "Role",
+      "version": "Version",
       "labels": "Labels",
       "apiAddress": "API Address",
       "grpcAddress": "gRPC Address",

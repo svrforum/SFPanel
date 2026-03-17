@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Loader2, Power } from 'lucide-react'
+import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Loader2, Power, Download } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ClusterOverview as ClusterOverviewType, ClusterStatus, ClusterEvent } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -60,6 +60,25 @@ export default function ClusterOverview() {
     }
   }
 
+  const [updating, setUpdating] = useState(false)
+  const [updateLog, setUpdateLog] = useState<Array<{ node_name?: string; step?: string; message?: string; overall?: string }>>([])
+
+  const handleClusterUpdate = async (mode: 'rolling' | 'simultaneous') => {
+    if (!confirm(t('cluster.overview.confirmUpdate'))) return
+    setUpdating(true)
+    setUpdateLog([])
+    try {
+      await api.clusterUpdateStream(mode, (data) => {
+        setUpdateLog(prev => [...prev, data as typeof prev[0]])
+      })
+    } catch (err) {
+      toast.error(String(err))
+    } finally {
+      setUpdating(false)
+      loadData()
+    }
+  }
+
   if (!status?.enabled) {
     return <ClusterInitForm />
   }
@@ -97,17 +116,67 @@ export default function ClusterOverview() {
               </p>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-xl text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10 border-[#f04452]/20"
-            onClick={handleDisband}
-          >
-            <Power className="h-3.5 w-3.5 mr-1.5" />
-            {t('cluster.overview.disband')}
-          </Button>
+          <div className="flex gap-2">
+            {status.is_leader && (
+              <div className="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl"
+                  disabled={updating}
+                  onClick={() => handleClusterUpdate('rolling')}
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" />
+                  {updating ? t('cluster.overview.updating') : t('cluster.overview.rollingUpdate')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl"
+                  disabled={updating}
+                  onClick={() => handleClusterUpdate('simultaneous')}
+                >
+                  <Download className="h-3.5 w-3.5 mr-1.5" />
+                  {t('cluster.overview.simultaneousUpdate')}
+                </Button>
+              </div>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10 border-[#f04452]/20"
+              onClick={handleDisband}
+            >
+              <Power className="h-3.5 w-3.5 mr-1.5" />
+              {t('cluster.overview.disband')}
+            </Button>
+          </div>
         </div>
       </div>
+
+      {/* Update progress */}
+      {updateLog.length > 0 && (
+        <div className="bg-card rounded-2xl p-5 card-shadow">
+          <h3 className="text-[15px] font-semibold mb-3">{t('cluster.overview.updateProgress')}</h3>
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {updateLog.map((entry, i) => (
+              <div key={i} className="flex items-center gap-2 text-[12px]">
+                {entry.step === 'complete' || entry.step === 'online' ? (
+                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#00c471]" />
+                ) : entry.step === 'error' ? (
+                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#f04452]" />
+                ) : entry.overall === 'complete' ? (
+                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#00c471]" />
+                ) : (
+                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#3182f6] animate-pulse" />
+                )}
+                <span className="text-muted-foreground">{entry.node_name || 'Cluster'}</span>
+                <span>{entry.message || entry.overall}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">

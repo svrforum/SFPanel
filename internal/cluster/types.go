@@ -56,6 +56,7 @@ type NodeMetrics struct {
 	DiskPercent    float64 `json:"disk_percent"`
 	ContainerCount int     `json:"container_count"`
 	UptimeSeconds  int64   `json:"uptime_seconds"`
+	Version        string  `json:"version"`
 	Timestamp      int64   `json:"timestamp"`
 }
 
