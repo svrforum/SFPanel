@@ -25,7 +25,8 @@ type RaftConfig struct {
 	BindAddr  string
 	DataDir   string
 	Bootstrap bool
-	TLS       *TLSManager // optional: if set, Raft transport uses TLS
+	TLS       *TLSManager // TLS manager (always passed for cert access)
+	RaftTLS   bool        // if true, Raft transport uses TLS encryption (new clusters only)
 }
 
 // NewRaftNode creates and starts a Raft instance.
