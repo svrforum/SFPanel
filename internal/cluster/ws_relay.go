@@ -52,6 +52,9 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 
 	const wsReadTimeout = 60 * time.Second
 
+	// Mutexes to protect concurrent writes on each connection
+	var clientMu, remoteMu sync.Mutex
+
 	// Client → Remote
 	go func() {
 		defer wg.Done()
@@ -59,11 +62,16 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 			clientWS.SetReadDeadline(time.Now().Add(wsReadTimeout))
 			msgType, msg, err := clientWS.ReadMessage()
 			if err != nil {
+				remoteMu.Lock()
 				remoteWS.WriteMessage(websocket.CloseMessage,
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				remoteMu.Unlock()
 				return
 			}
-			if err := remoteWS.WriteMessage(msgType, msg); err != nil {
+			remoteMu.Lock()
+			writeErr := remoteWS.WriteMessage(msgType, msg)
+			remoteMu.Unlock()
+			if writeErr != nil {
 				return
 			}
 		}
@@ -76,11 +84,16 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 			remoteWS.SetReadDeadline(time.Now().Add(wsReadTimeout))
 			msgType, msg, err := remoteWS.ReadMessage()
 			if err != nil {
+				clientMu.Lock()
 				clientWS.WriteMessage(websocket.CloseMessage,
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+				clientMu.Unlock()
 				return
 			}
-			if err := clientWS.WriteMessage(msgType, msg); err != nil {
+			clientMu.Lock()
+			writeErr := clientWS.WriteMessage(msgType, msg)
+			clientMu.Unlock()
+			if writeErr != nil {
 				return
 			}
 		}

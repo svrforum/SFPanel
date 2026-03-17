@@ -95,9 +95,10 @@ func (c *GRPCClient) Close() error {
 
 // ConnPool manages a pool of reusable gRPC connections to cluster nodes.
 type ConnPool struct {
-	mu    sync.RWMutex
-	conns map[string]*poolEntry
-	tls   *TLSManager
+	mu     sync.RWMutex
+	conns  map[string]*poolEntry
+	tls    *TLSManager
+	stopCh chan struct{}
 }
 
 type poolEntry struct {
@@ -110,8 +111,9 @@ const connMaxAge = 5 * time.Minute
 // NewConnPool creates a connection pool.
 func NewConnPool(tlsMgr *TLSManager) *ConnPool {
 	pool := &ConnPool{
-		conns: make(map[string]*poolEntry),
-		tls:   tlsMgr,
+		conns:  make(map[string]*poolEntry),
+		tls:    tlsMgr,
+		stopCh: make(chan struct{}),
 	}
 	// Background cleanup of stale connections
 	go pool.cleanup()
@@ -154,8 +156,13 @@ func (p *ConnPool) Remove(address string) {
 	}
 }
 
-// Close closes all pooled connections.
+// Close closes all pooled connections and stops the cleanup goroutine.
 func (p *ConnPool) Close() {
+	select {
+	case <-p.stopCh:
+	default:
+		close(p.stopCh)
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for addr, entry := range p.conns {
@@ -167,7 +174,12 @@ func (p *ConnPool) Close() {
 func (p *ConnPool) cleanup() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+		}
 		p.mu.Lock()
 		for addr, entry := range p.conns {
 			if time.Since(entry.created) > connMaxAge {
