@@ -70,7 +70,7 @@ func (m *Manager) Init(clusterName string) error {
 
 	advertise := m.config.AdvertiseAddress
 	if advertise == "" {
-		advertise = detectOutboundIP()
+		advertise = DetectOutboundIP()
 		log.Printf("[cluster] No advertise_address configured, auto-detected: %s", advertise)
 	}
 
@@ -152,7 +152,7 @@ func (m *Manager) Start() error {
 
 	advertise := m.config.AdvertiseAddress
 	if advertise == "" {
-		advertise = detectOutboundIP()
+		advertise = DetectOutboundIP()
 		log.Printf("[cluster] No advertise_address configured, auto-detected: %s", advertise)
 	}
 
@@ -639,7 +639,6 @@ func (m *Manager) Shutdown() {
 						log.Printf("[cluster] Leadership transfer failed: %v", err)
 					} else {
 						log.Printf("[cluster] Leadership transferred to %s", node.Name)
-						time.Sleep(1 * time.Second)
 					}
 					break
 				}
@@ -727,8 +726,8 @@ func (m *Manager) UpdateNodeAddress(nodeID, apiAddr, grpcAddr string) error {
 	return nil
 }
 
-// detectOutboundIP finds a reasonable non-loopback IP by creating a UDP connection.
-func detectOutboundIP() string {
+// DetectOutboundIP finds a reasonable non-loopback IP by creating a UDP connection.
+func DetectOutboundIP() string {
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		addrs, _ := net.InterfaceAddrs()

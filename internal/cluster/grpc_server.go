@@ -13,10 +13,16 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 )
+
+// localHTTPClient is reused for all proxy requests to 127.0.0.1 to leverage
+// HTTP connection pooling instead of creating a new client per request.
+var localHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // GRPCServer serves the ClusterService.
 type GRPCServer struct {
@@ -217,9 +223,8 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 		httpReq.Header.Set("Authorization", "Bearer "+req.AuthToken)
 	}
 
-	// Execute locally
-	client := &http.Client{Timeout: 30 * time.Second}
-	httpResp, err := client.Do(httpReq)
+	// Execute locally (reuse connection pool)
+	httpResp, err := localHTTPClient.Do(httpReq)
 	if err != nil {
 		return &pb.APIResponse{
 			StatusCode: 502,
@@ -267,8 +272,7 @@ func (s *GRPCServer) GetMetrics(ctx context.Context, req *pb.MetricsRequest) (*p
 	}, nil
 }
 
-// Subscribe sends cluster events to the client (Phase 5 stub).
+// Subscribe sends cluster events to the client.
 func (s *GRPCServer) Subscribe(req *pb.SubscribeRequest, stream pb.ClusterService_SubscribeServer) error {
-	<-stream.Context().Done()
-	return nil
+	return status.Errorf(codes.Unimplemented, "Subscribe is not yet implemented")
 }

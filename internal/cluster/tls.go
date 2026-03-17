@@ -17,8 +17,11 @@ import (
 )
 
 // TLSManager handles cluster mTLS certificate operations.
+// TLS configs are cached after first load to avoid repeated disk reads.
 type TLSManager struct {
-	certDir string
+	certDir        string
+	cachedServer   *tls.Config
+	cachedClient   *tls.Config
 }
 
 func NewTLSManager(certDir string) *TLSManager {
@@ -143,8 +146,11 @@ func (t *TLSManager) LoadCACert() ([]byte, error) {
 	return os.ReadFile(filepath.Join(t.certDir, "ca.crt"))
 }
 
-// ServerTLSConfig builds a TLS config for the gRPC server.
+// ServerTLSConfig builds a TLS config for the gRPC server (cached after first call).
 func (t *TLSManager) ServerTLSConfig() (*tls.Config, error) {
+	if t.cachedServer != nil {
+		return t.cachedServer, nil
+	}
 	cert, err := tls.LoadX509KeyPair(
 		filepath.Join(t.certDir, "node.crt"),
 		filepath.Join(t.certDir, "node.key"),
@@ -161,16 +167,20 @@ func (t *TLSManager) ServerTLSConfig() (*tls.Config, error) {
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(caCertPEM)
 
-	return &tls.Config{
+	t.cachedServer = &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		ClientCAs:    pool,
 		ClientAuth:   tls.RequireAndVerifyClientCert,
 		MinVersion:   tls.VersionTLS13,
-	}, nil
+	}
+	return t.cachedServer, nil
 }
 
-// ClientTLSConfig builds a TLS config for gRPC client connections.
+// ClientTLSConfig builds a TLS config for gRPC client connections (cached after first call).
 func (t *TLSManager) ClientTLSConfig() (*tls.Config, error) {
+	if t.cachedClient != nil {
+		return t.cachedClient, nil
+	}
 	cert, err := tls.LoadX509KeyPair(
 		filepath.Join(t.certDir, "node.crt"),
 		filepath.Join(t.certDir, "node.key"),
@@ -187,11 +197,12 @@ func (t *TLSManager) ClientTLSConfig() (*tls.Config, error) {
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(caCertPEM)
 
-	return &tls.Config{
+	t.cachedClient = &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      pool,
 		MinVersion:   tls.VersionTLS13,
-	}, nil
+	}
+	return t.cachedClient, nil
 }
 
 // HasCA checks if CA certificate exists.

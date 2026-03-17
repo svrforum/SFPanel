@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Loader2, Power } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -15,7 +15,7 @@ export default function ClusterOverview() {
   const [events, setEvents] = useState<ClusterEvent[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     Promise.all([
       api.getClusterStatus(),
       api.getClusterOverview().catch(() => null),
@@ -26,6 +26,12 @@ export default function ClusterOverview() {
       setEvents(e.events)
     }).finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    loadData()
+    const interval = setInterval(loadData, 15000)
+    return () => clearInterval(interval)
+  }, [loadData])
 
   if (loading) {
     return (

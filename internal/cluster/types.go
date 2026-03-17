@@ -72,7 +72,7 @@ type ClusterOverview struct {
 const (
 	DefaultGRPCPort          = 9443
 	DefaultHeartbeatInterval = 5 * time.Second
-	DefaultHeartbeatTimeout  = 20 * time.Second
+	DefaultHeartbeatTimeout  = 45 * time.Second
 	DefaultTokenTTL          = 24 * time.Hour
 	DefaultDataDir           = "/var/lib/sfpanel/cluster"
 	DefaultCertDir           = "/etc/sfpanel/cluster"
