@@ -78,6 +78,9 @@ func (h *CronHandler) CreateJob(c echo.Context) error {
 	if req.Schedule == "" || req.Command == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Schedule and command are required")
 	}
+	if strings.ContainsAny(req.Schedule, "\n\r") || strings.ContainsAny(req.Command, "\n\r") {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Schedule and command must not contain newlines")
+	}
 	if !isValidSchedule(req.Schedule) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSchedule, "Invalid cron schedule format")
 	}
@@ -129,6 +132,9 @@ func (h *CronHandler) UpdateJob(c echo.Context) error {
 	}
 	if req.Schedule == "" || req.Command == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Schedule and command are required")
+	}
+	if strings.ContainsAny(req.Schedule, "\n\r") || strings.ContainsAny(req.Command, "\n\r") {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Schedule and command must not contain newlines")
 	}
 	if !isValidSchedule(req.Schedule) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSchedule, "Invalid cron schedule format")

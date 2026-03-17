@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -219,10 +220,10 @@ func (h *SystemHandler) RunUpdate(c echo.Context) error {
 
 	// Backup DB + config before update
 	if data, readErr := os.ReadFile(h.DBPath); readErr == nil {
-		_ = os.WriteFile(h.DBPath+".bak", data, 0644)
+		_ = os.WriteFile(h.DBPath+".bak", data, 0600)
 	}
 	if data, readErr := os.ReadFile(h.ConfigPath); readErr == nil {
-		_ = os.WriteFile(h.ConfigPath+".bak", data, 0644)
+		_ = os.WriteFile(h.ConfigPath+".bak", data, 0600)
 	}
 
 	tmpPath := execPath + ".new"
@@ -279,7 +280,9 @@ func (h *SystemHandler) CreateBackup(c echo.Context) error {
 					filePath := filepath.Join(h.ComposePath, entry.Name(), cf)
 					if _, statErr := os.Stat(filePath); statErr == nil {
 						archiveName := filepath.Join("compose", entry.Name(), cf)
-						_ = addFileToTar(tw, filePath, archiveName)
+						if err := addFileToTar(tw, filePath, archiveName); err != nil {
+							log.Printf("backup: skipping %s: %v", filePath, err)
+						}
 					}
 				}
 			}
@@ -302,9 +305,10 @@ func addFileToTar(tw *tar.Writer, filePath, nameInArchive string) error {
 	}
 
 	hdr := &tar.Header{
-		Name: nameInArchive,
-		Size: info.Size(),
-		Mode: int64(info.Mode()),
+		Name:    nameInArchive,
+		Size:    info.Size(),
+		Mode:    int64(info.Mode()),
+		ModTime: info.ModTime(),
 	}
 	if err := tw.WriteHeader(hdr); err != nil {
 		return err
@@ -332,6 +336,8 @@ func (h *SystemHandler) RestoreBackup(c echo.Context) error {
 	}
 	defer gzr.Close()
 
+	const maxEntrySize = 100 * 1024 * 1024 // 100MB per entry
+
 	tr := tar.NewReader(gzr)
 	files := make(map[string][]byte)
 	for {
@@ -345,12 +351,17 @@ func (h *SystemHandler) RestoreBackup(c echo.Context) error {
 		if hdr.Typeflag == tar.TypeDir {
 			continue
 		}
-		if hdr.Name == "sfpanel.db" || hdr.Name == "config.yaml" || strings.HasPrefix(hdr.Name, "compose/") {
-			data, readErr := io.ReadAll(tr)
+		// Prevent path traversal (Zip Slip)
+		clean := filepath.Clean(hdr.Name)
+		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
+			continue
+		}
+		if clean == "sfpanel.db" || clean == "config.yaml" || strings.HasPrefix(clean, "compose/") {
+			data, readErr := io.ReadAll(io.LimitReader(tr, maxEntrySize))
 			if readErr != nil {
 				return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to read archive entry")
 			}
-			files[hdr.Name] = data
+			files[clean] = data
 		}
 	}
 
@@ -360,33 +371,42 @@ func (h *SystemHandler) RestoreBackup(c echo.Context) error {
 
 	// Backup current files
 	if data, readErr := os.ReadFile(h.DBPath); readErr == nil {
-		_ = os.WriteFile(h.DBPath+".bak", data, 0644)
+		_ = os.WriteFile(h.DBPath+".bak", data, 0600)
 	}
 	if data, readErr := os.ReadFile(h.ConfigPath); readErr == nil {
-		_ = os.WriteFile(h.ConfigPath+".bak", data, 0644)
+		_ = os.WriteFile(h.ConfigPath+".bak", data, 0600)
 	}
 
 	// Write restored files
 	if dbData, ok := files["sfpanel.db"]; ok {
-		if err := os.WriteFile(h.DBPath, dbData, 0644); err != nil {
+		if err := os.WriteFile(h.DBPath, dbData, 0600); err != nil {
+			// Attempt to restore from backup
+			if bakData, bakErr := os.ReadFile(h.DBPath + ".bak"); bakErr == nil {
+				_ = os.WriteFile(h.DBPath, bakData, 0600)
+			}
 			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to restore database")
 		}
 	}
 	if cfgData, ok := files["config.yaml"]; ok {
-		if err := os.WriteFile(h.ConfigPath, cfgData, 0644); err != nil {
+		if err := os.WriteFile(h.ConfigPath, cfgData, 0600); err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to restore config")
 		}
 	}
 
 	// Restore compose files
 	if h.ComposePath != "" {
+		composePath := filepath.Clean(h.ComposePath)
 		for name, data := range files {
 			if !strings.HasPrefix(name, "compose/") {
 				continue
 			}
 			// name format: compose/<project>/<filename>
 			relPath := strings.TrimPrefix(name, "compose/")
-			destPath := filepath.Join(h.ComposePath, relPath)
+			destPath := filepath.Join(composePath, relPath)
+			// Verify path stays within compose directory
+			if !strings.HasPrefix(filepath.Clean(destPath), composePath+string(os.PathSeparator)) {
+				continue
+			}
 			destDir := filepath.Dir(destPath)
 			if err := os.MkdirAll(destDir, 0755); err != nil {
 				continue

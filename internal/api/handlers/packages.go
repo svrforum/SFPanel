@@ -917,12 +917,17 @@ func (h *PackagesHandler) UninstallNodeVersion(c echo.Context) error {
 // ---------- GetClaudeStatus ----------
 
 // findNVMDir searches for NVM installation across root and user home directories.
+var safePathRe = regexp.MustCompile(`^[a-zA-Z0-9/_.-]+$`)
+
 func findNVMDir() string {
 	candidates := []string{"/root/.nvm"}
 	if entries, err := os.ReadDir("/home"); err == nil {
 		for _, e := range entries {
 			if e.IsDir() {
-				candidates = append(candidates, "/home/"+e.Name()+"/.nvm")
+				p := "/home/" + e.Name() + "/.nvm"
+				if safePathRe.MatchString(p) {
+					candidates = append(candidates, p)
+				}
 			}
 		}
 	}

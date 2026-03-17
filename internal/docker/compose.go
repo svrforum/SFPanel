@@ -188,7 +188,7 @@ func (m *ComposeManager) UpdateProjectEnv(_ context.Context, name, content strin
 	if _, err := os.Stat(dir); err != nil {
 		return fmt.Errorf("project %q not found", name)
 	}
-	return os.WriteFile(filepath.Join(dir, ".env"), []byte(content), 0644)
+	return os.WriteFile(filepath.Join(dir, ".env"), []byte(content), 0600)
 }
 
 // CreateProject creates a new compose project directory with a docker-compose.yml.
@@ -365,7 +365,7 @@ func (m *ComposeManager) UpdateStackStream(ctx context.Context, name string, onL
 	if len(rollback) > 0 {
 		rbData, _ := json.Marshal(rollback)
 		rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
-		os.WriteFile(rbPath, rbData, 0644)
+		os.WriteFile(rbPath, rbData, 0600)
 	}
 
 	onLine("[pull] Pulling latest images...")
@@ -620,7 +620,7 @@ func (m *ComposeManager) UpdateStack(ctx context.Context, name string) (string, 
 	if len(rollback) > 0 {
 		rbData, _ := json.Marshal(rollback)
 		rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
-		os.WriteFile(rbPath, rbData, 0644)
+		os.WriteFile(rbPath, rbData, 0600)
 	}
 
 	// Pull latest images
@@ -678,6 +678,9 @@ func (m *ComposeManager) RollbackStack(ctx context.Context, name string) (string
 
 // HasRollback checks if rollback data exists for a project.
 func (m *ComposeManager) HasRollback(name string) bool {
+	if err := m.validateProjectName(name); err != nil {
+		return false
+	}
 	rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
 	_, err := os.Stat(rbPath)
 	return err == nil

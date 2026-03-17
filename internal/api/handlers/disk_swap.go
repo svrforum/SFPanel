@@ -145,6 +145,9 @@ func (h *DiskHandler) CreateSwap(c echo.Context) error {
 		if err := validateDiskPath(req.Path); err != nil {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 		}
+		if strings.HasPrefix(req.Path, "/dev/") {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "File-based swap cannot use /dev/ paths")
+		}
 		if req.SizeMB <= 0 {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSize,
 				"Size in MB is required for file-based swap")
@@ -315,6 +318,9 @@ func (h *DiskHandler) ResizeSwap(c echo.Context) error {
 
 	if err := validateDiskPath(req.Path); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
+	}
+	if strings.HasPrefix(req.Path, "/dev/") {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "File-based swap cannot use /dev/ paths")
 	}
 	if req.NewSizeMB <= 0 {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSize,

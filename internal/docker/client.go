@@ -344,7 +344,11 @@ func (c *Client) CheckImageUpdate(ctx context.Context, imageRef string) (*ImageU
 		status.Error = fmt.Sprintf("inspect: %v", err)
 		return status, nil
 	}
-	status.CurrentID = localInspect.ID[:12]
+	id := strings.TrimPrefix(localInspect.ID, "sha256:")
+	if len(id) > 12 {
+		id = id[:12]
+	}
+	status.CurrentID = id
 
 	// Use DistributionInspect to get remote digest without pulling
 	distInspect, err := c.cli.DistributionInspect(ctx, imageRef, "")

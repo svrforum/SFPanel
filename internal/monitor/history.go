@@ -123,10 +123,12 @@ func saveToDB(pt MetricsPoint) {
 	if historyDB == nil {
 		return
 	}
-	_, _ = historyDB.Exec(
+	if _, err := historyDB.Exec(
 		"INSERT OR REPLACE INTO metrics_history (time, cpu, mem_percent) VALUES (?, ?, ?)",
 		pt.Time, pt.CPU, pt.MemPercent,
-	)
+	); err != nil {
+		log.Printf("Failed to persist metrics point: %v", err)
+	}
 }
 
 // FlushPending is a no-op now since we write every point immediately.

@@ -181,8 +181,10 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 		selectedCategories[cat] = true
 	}
 
-	// --- Save current state for rollback ---
+	// Hold lock for entire apply operation to prevent concurrent applies
 	rollbackMu.Lock()
+	defer rollbackMu.Unlock()
+
 	// Cancel any existing rollback timer
 	if rollbackTimer != nil {
 		rollbackTimer.Stop()
@@ -207,12 +209,11 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 		preApplyConfFile = data
 		preApplyHadFile = true
 	}
-	rollbackMu.Unlock()
 
 	// Read existing config to preserve other categories
 	existingParams := make(map[string]string)
-	if data, err := os.ReadFile(sysctlConfPath); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
+	if preApplyHadFile {
+		for _, line := range strings.Split(string(preApplyConfFile), "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
@@ -261,18 +262,22 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 
 	output, err := runCommand("sysctl", "-p", sysctlConfPath)
 	if err != nil {
+		// Restore previous config file on sysctl failure
+		if preApplyHadFile {
+			_ = os.WriteFile(sysctlConfPath, preApplyConfFile, 0644)
+		} else {
+			_ = os.Remove(sysctlConfPath)
+		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTuningError,
 			"Failed to apply tuning: "+err.Error())
 	}
 
-	// --- Start rollback timer ---
-	rollbackMu.Lock()
+	// Start rollback timer
 	rollbackValues = preApplyValues
 	rollbackConfFile = preApplyConfFile
 	rollbackHadFile = preApplyHadFile
 	rollbackDeadline = time.Now().Add(rollbackTimeout * time.Second)
 	rollbackTimer = time.AfterFunc(rollbackTimeout*time.Second, performRollback)
-	rollbackMu.Unlock()
 
 	return response.OK(c, map[string]interface{}{
 		"message": "Tuning applied — confirm within 60 seconds or changes will be rolled back",
@@ -294,14 +299,20 @@ func performRollback() {
 
 	// Restore each sysctl value
 	for key, val := range rollbackValues {
-		_, _ = runCommand("sysctl", "-w", key+"="+val)
+		if _, err := runCommand("sysctl", "-w", key+"="+val); err != nil {
+			log.Printf("[tuning] Rollback failed for %s: %v", key, err)
+		}
 	}
 
 	// Restore config file
 	if rollbackHadFile && rollbackConfFile != nil {
-		_ = os.WriteFile(sysctlConfPath, rollbackConfFile, 0644)
+		if err := os.WriteFile(sysctlConfPath, rollbackConfFile, 0644); err != nil {
+			log.Printf("[tuning] Failed to restore config file: %v", err)
+		}
 	} else if !rollbackHadFile {
-		_ = os.Remove(sysctlConfPath)
+		if err := os.Remove(sysctlConfPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("[tuning] Failed to remove config file: %v", err)
+		}
 	}
 
 	rollbackValues = nil
@@ -341,6 +352,17 @@ func (h *TuningHandler) ConfirmTuning(c echo.Context) error {
 // ResetTuning removes the SFPanel sysctl config and reloads system defaults.
 // POST /system/tuning/reset
 func (h *TuningHandler) ResetTuning(c echo.Context) error {
+	// Cancel any pending rollback timer first
+	rollbackMu.Lock()
+	if rollbackTimer != nil {
+		rollbackTimer.Stop()
+		rollbackTimer = nil
+	}
+	rollbackValues = nil
+	rollbackConfFile = nil
+	rollbackHadFile = false
+	rollbackMu.Unlock()
+
 	if _, err := os.Stat(sysctlConfPath); os.IsNotExist(err) {
 		return response.OK(c, map[string]interface{}{
 			"message": "No tuning configuration to reset",
