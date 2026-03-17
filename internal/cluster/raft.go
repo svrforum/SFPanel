@@ -25,6 +25,7 @@ type RaftConfig struct {
 	BindAddr  string
 	DataDir   string
 	Bootstrap bool
+	TLS       *TLSManager // optional: if set, Raft transport uses TLS
 }
 
 // NewRaftNode creates and starts a Raft instance.
@@ -37,7 +38,7 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 	raftCfg.LocalID = raft.ServerID(cfg.NodeID)
 	raftCfg.HeartbeatTimeout = 2000 * time.Millisecond
 	raftCfg.ElectionTimeout = 5000 * time.Millisecond
-	raftCfg.LeaderLeaseTimeout = 1500 * time.Millisecond
+	raftCfg.LeaderLeaseTimeout = 2000 * time.Millisecond
 	raftCfg.CommitTimeout = 1000 * time.Millisecond
 	raftCfg.SnapshotInterval = 10 * time.Minute
 	raftCfg.SnapshotThreshold = 2048
@@ -47,9 +48,9 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 		return nil, fmt.Errorf("resolve bind addr: %w", err)
 	}
 
-	transport, err := raft.NewTCPTransport(cfg.BindAddr, addr, 3, 10*time.Second, os.Stderr)
+	transport, err := newRaftTransport(cfg, addr)
 	if err != nil {
-		return nil, fmt.Errorf("create transport: %w", err)
+		return nil, err
 	}
 
 	logStore, err := raftboltdb.NewBoltStore(filepath.Join(cfg.DataDir, "raft-log.db"))

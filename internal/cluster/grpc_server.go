@@ -130,45 +130,60 @@ func (s *GRPCServer) Leave(ctx context.Context, req *pb.LeaveRequest) (*pb.Leave
 // Heartbeat implements bidirectional heartbeat streaming.
 func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 	const idleTimeout = 30 * time.Second
-	for {
-		// Set deadline so goroutine doesn't hang if client disconnects
-		timer := time.NewTimer(idleTimeout)
-		recvCh := make(chan *pb.HeartbeatPing, 1)
-		errCh := make(chan error, 1)
-		go func() {
-			ping, err := stream.Recv()
-			if err != nil {
-				errCh <- err
-			} else {
-				recvCh <- ping
-			}
-		}()
 
-		var ping *pb.HeartbeatPing
+	type recvResult struct {
+		ping *pb.HeartbeatPing
+		err  error
+	}
+
+	// Single goroutine for receiving — avoids goroutine leak per iteration
+	recvCh := make(chan recvResult, 1)
+	go func() {
+		for {
+			ping, err := stream.Recv()
+			recvCh <- recvResult{ping, err}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	timer := time.NewTimer(idleTimeout)
+	defer timer.Stop()
+
+	for {
 		select {
-		case ping = <-recvCh:
-			timer.Stop()
-		case err := <-errCh:
-			timer.Stop()
-			return err
+		case result := <-recvCh:
+			if result.err != nil {
+				return result.err
+			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(idleTimeout)
+
+			s.manager.GetHeartbeat().RecordHeartbeat(&NodeMetrics{
+				NodeID:         result.ping.NodeId,
+				CPUPercent:     result.ping.CpuPercent,
+				MemoryPercent:  result.ping.MemoryPercent,
+				DiskPercent:    result.ping.DiskPercent,
+				ContainerCount: int(result.ping.ContainerCount),
+				Timestamp:      result.ping.Timestamp,
+			})
+
+			if err := stream.Send(&pb.HeartbeatPong{
+				LeaderId:  s.manager.GetRaft().LeaderID(),
+				Timestamp: result.ping.Timestamp,
+			}); err != nil {
+				return err
+			}
 		case <-timer.C:
 			return fmt.Errorf("heartbeat stream idle timeout (%v)", idleTimeout)
-		}
-
-		s.manager.GetHeartbeat().RecordHeartbeat(&NodeMetrics{
-			NodeID:         ping.NodeId,
-			CPUPercent:     ping.CpuPercent,
-			MemoryPercent:  ping.MemoryPercent,
-			DiskPercent:    ping.DiskPercent,
-			ContainerCount: int(ping.ContainerCount),
-			Timestamp:      ping.Timestamp,
-		})
-
-		if err := stream.Send(&pb.HeartbeatPong{
-			LeaderId:  s.manager.GetRaft().LeaderID(),
-			Timestamp: ping.Timestamp,
-		}); err != nil {
-			return err
+		case <-stream.Context().Done():
+			return stream.Context().Err()
 		}
 	}
 }
