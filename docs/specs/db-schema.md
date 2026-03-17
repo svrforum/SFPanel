@@ -18,7 +18,7 @@
 
 ## 테이블
 
-총 6개 테이블 + SQLite 내부 테이블 1개 (sqlite_sequence)
+총 7개 테이블 + SQLite 내부 테이블 1개 (sqlite_sequence)
 
 > **참고**: `sites` 테이블은 v0.3에서 제거됨 (Nginx 가상호스트 기능 폐기). `metrics_history` 테이블이 v0.2에서 추가됨.
 
@@ -139,6 +139,35 @@ Docker Compose 프로젝트 메타데이터. YAML 파일은 디스크(`/var/lib/
 
 ---
 
+### audit_logs
+
+API 요청 감사 로그 테이블. 모든 인증된 API 요청의 메서드, 경로, 상태 코드, 클라이언트 IP, 사용자명을 기록. 클러스터 환경에서는 노드 ID도 추적.
+
+| 컬럼 | 타입 | NOT NULL | 기본값 | 제약조건 | 설명 |
+|------|------|----------|--------|----------|------|
+| id | INTEGER | - | 자동 | PK, AUTOINCREMENT | 로그 고유 ID |
+| username | TEXT | O | `''` | - | 요청한 사용자명 (JWT에서 추출) |
+| method | TEXT | O | - | - | HTTP 메서드 (GET, POST, PUT, DELETE, PATCH) |
+| path | TEXT | O | - | - | 요청 경로 (예: `/api/v1/docker/containers`) |
+| status | INTEGER | O | `0` | - | HTTP 응답 상태 코드 (200, 400, 500 등) |
+| ip | TEXT | O | `''` | - | 클라이언트 IP 주소 |
+| node_id | TEXT | O | `''` | - | 클러스터 노드 ID (단일 서버 시 빈 문자열) |
+| created_at | DATETIME | - | CURRENT_TIMESTAMP | - | 로그 기록 시각 (UTC) |
+
+**인덱스:**
+- `idx_audit_logs_created_at` — `created_at` 컬럼 인덱스 (시간 기반 조회 성능 최적화)
+
+**마이그레이션 이력:**
+- v0.5: 초기 테이블 생성 (id, username, method, path, status, ip, created_at)
+- v0.5.5: `node_id` 컬럼 추가 (`ALTER TABLE audit_logs ADD COLUMN node_id TEXT NOT NULL DEFAULT ''`)
+
+**사용처:**
+- `api/middleware/audit.go` — AuditMiddleware에서 모든 인증된 요청을 자동 기록 (`INSERT`)
+- `handlers/audit.go` — 감사 로그 목록 조회 (`SELECT ... ORDER BY id DESC LIMIT ? OFFSET ?`), 페이지네이션 지원 (page, limit 파라미터)
+- `handlers/audit.go` — 감사 로그 전체 삭제 (`DELETE FROM audit_logs`)
+
+---
+
 ### sqlite_sequence (SQLite 내부)
 
 SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `AUTOINCREMENT`를 사용하는 테이블마다 자동 생성됨.
@@ -156,7 +185,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 
 ### v1: 초기 스키마
 
-단일 마이그레이션 배치로 6개 테이블 생성:
+단일 마이그레이션 배치로 7개 테이블 생성:
 
 1. **admin** — 관리자 계정 (단일 사용자)
 2. **compose_projects** — Docker Compose 프로젝트 메타데이터
@@ -164,6 +193,12 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 4. **settings** — 키-값 설정 저장소
 5. **custom_log_sources** — 사용자 정의 로그 소스
 6. **metrics_history** — 시스템 메트릭 24시간 히스토리
+7. **audit_logs** — API 요청 감사 로그 (메서드/경로/상태/IP/사용자명/노드ID)
+
+### v2: 클러스터 지원
+
+- `audit_logs` 테이블에 `node_id TEXT NOT NULL DEFAULT ''` 컬럼 추가
+- `idx_audit_logs_created_at` 인덱스 생성
 
 ---
 
@@ -222,6 +257,20 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 │ cpu (REAL)           │
 │ mem_percent (REAL)   │
 └─────────────────────┘
+
+┌─────────────────────┐
+│    audit_logs        │
+├─────────────────────┤
+│ id (PK, AUTO)       │
+│ username             │
+│ method               │
+│ path                 │
+│ status (INT)         │
+│ ip                   │
+│ node_id              │
+│ created_at           │
+└─────────────────────┘
+  ↑ idx_audit_logs_created_at
 ```
 
 > 참고: 현재 테이블 간 외래 키(FK) 관계는 없음. 모든 테이블이 독립적으로 운영됨.

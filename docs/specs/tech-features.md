@@ -23,9 +23,9 @@
 | gopkg.in/yaml.v3 | v3.0.1 | YAML 설정 파일 파싱 |
 | creack/pty | v1.1.24 | 서버 터미널 PTY (pseudo-terminal) 세션 생성 |
 | hashicorp/raft | v1.7.3 | Raft 합의 알고리즘 (클러스터 리더 선출, 로그 복제) |
-| raft-boltdb | v2.0.0 | Raft 로그/스냅샷 저장 (BoltDB 기반, 임베디드) |
-| google.golang.org/grpc | v1.72.0 | 노드 간 gRPC 통신 (클러스터 제어 채널) |
-| google.golang.org/protobuf | v1.36.5 | Protocol Buffers 직렬화 (gRPC 메시지 정의) |
+| raft-boltdb | v2.3.1 | Raft 로그/스냅샷 저장 (BoltDB 기반, 임베디드) |
+| google.golang.org/grpc | v1.79.2 | 노드 간 gRPC 통신 (클러스터 제어 채널) |
+| google.golang.org/protobuf | v1.36.11 | Protocol Buffers 직렬화 (gRPC 메시지 정의) |
 
 ### 프론트엔드
 
@@ -64,7 +64,7 @@
 
 | 기법 | 구현 |
 |------|------|
-| **코드 스플리팅** | `React.lazy()` + `Suspense` — 모든 페이지 컴포넌트(35개)를 지연 로딩. 초기 번들 크기 감소 및 라우트별 온디맨드 로딩 |
+| **코드 스플리팅** | `React.lazy()` + `Suspense` — 모든 페이지 컴포넌트(41개)를 지연 로딩. 초기 번들 크기 감소 및 라우트별 온디맨드 로딩 |
 | **공유 유틸리티** | `formatBytes()` 함수를 `web/src/lib/utils.ts`에 추출하여 Dashboard, Docker, Files, Network 등에서 재사용 |
 | **SetupGuard 캐싱** | 초기 설정 상태 확인 API(`/auth/setup-status`)를 모듈 레벨 변수로 캐싱 — 매 라우트 전환마다 API 호출하지 않고 한 번만 확인 |
 | **버전 정보 서버 제공** | `DashboardHandler.Version` 필드로 빌드 시 주입된 버전을 `/api/v1/system/info` 응답에 포함 (`version` 키) |
@@ -276,6 +276,52 @@
 - **Graceful 누락 처리**: 원격 노드에 ufw/crontab/rsyslog 미설치 시 500 대신 빈 결과 반환
 - **설계 문서**: `docs/plans/2026-03-13-cluster-design.md`
 - **관련 기술**: hashicorp/raft, raft-boltdb, gRPC, protobuf, crypto/x509
+
+### 16. 시스템 튜닝
+
+- **설명**: 커널 매개변수(sysctl)를 웹 UI에서 조회하고 권장값으로 적용하는 시스템 성능 최적화 도구
+- **주요 기능**:
+  - **튜닝 상태 조회**: 4개 카테고리(네트워크/메모리/파일시스템/보안) 37개 sysctl 매개변수의 현재값 vs 권장값 비교
+  - **동적 권장값 계산**: CPU 코어 수, RAM 용량에 따라 버퍼 크기/백로그/swappiness 등 자동 조정
+  - **카테고리별 적용**: 네트워크(BBR, TCP 버퍼, 커넥션 백로그), 메모리(swappiness, dirty ratio, cache pressure), 파일시스템(file-max, inotify), 보안(SYN 쿠키, RP 필터, ICMP 제한) 선택 적용
+  - **안전한 적용/확인/롤백 워크플로우**: 적용 후 60초 내 확인하지 않으면 자동 롤백 (이전 sysctl 값 + 설정 파일 복원)
+  - **설정 초기화**: SFPanel 튜닝 설정 파일 제거 및 시스템 기본값 복원 (`sysctl --system`)
+  - 설정 파일: `/etc/sysctl.d/99-sfpanel-tuning.conf`
+- **관련 기술**: sysctl CLI, gopsutil (시스템 정보), os 파일 I/O
+
+### 17. 감사 로그
+
+- **설명**: 모든 상태 변경 API 요청(POST, PUT, DELETE)을 자동으로 기록하는 감사 추적 시스템
+- **주요 기능**:
+  - **자동 기록**: AuditMiddleware가 모든 상태 변경 요청을 비동기로 `audit_logs` 테이블에 기록
+  - **기록 항목**: 사용자명, HTTP 메서드, 경로, 응답 상태 코드, 클라이언트 IP, 노드 ID, 생성 시각
+  - **클러스터 지원**: `?node=X` 파라미터로 원격 노드 요청 시 노드 ID 자동 추적
+  - **감사 로그 조회**: 페이지네이션 지원 (page/limit 파라미터, 기본 50건, 최대 100건)
+  - **감사 로그 삭제**: 전체 감사 로그 일괄 삭제
+  - **보안 예외**: 로그인/셋업 엔드포인트는 비밀번호 노출 방지를 위해 기록 제외
+- **관련 기술**: Echo 미들웨어, SQLite, 비동기 INSERT (goroutine)
+
+### 18. 시스템 백업/복원
+
+- **설명**: SFPanel 설정 데이터를 백업하고 복원하는 재해 복구 기능
+- **주요 기능**:
+  - **백업 생성**: SQLite DB + config.yaml + Docker Compose 프로젝트 파일을 tar.gz 아카이브로 다운로드
+  - **Compose 파일 포함**: `/opt/stacks/` 하위 모든 프로젝트의 docker-compose.yml, compose.yaml, .env 파일 자동 수집
+  - **백업 파일 복원**: tar.gz 업로드 → DB/설정/Compose 파일 복원, 기존 파일 자동 .bak 백업
+  - **필수 파일 검증**: sfpanel.db 미포함 시 복원 거부
+  - **서비스 자동 재시작**: 복원 완료 후 systemd 서비스 활성 상태이면 자동 재시작
+- **관련 기술**: archive/tar, compress/gzip, multipart 업로드, systemctl
+
+### 19. AI 도구 설치
+
+- **설명**: AI 코딩 어시스턴트 CLI 도구 설치 상태 확인 및 원클릭 설치
+- **주요 기능**:
+  - **Claude CLI**: 설치 상태/버전 확인, 공식 install.sh로 원클릭 설치 (SSE 실시간 출력)
+  - **Codex CLI**: 설치 상태/버전 확인, npm 글로벌 설치 (`@openai/codex`, SSE 스트리밍)
+  - **Gemini CLI**: 설치 상태/버전 확인, npm 글로벌 설치 (`@google/gemini-cli`, SSE 스트리밍)
+  - **Node.js 버전 관리**: NVM 기반 설치된 버전 목록, 버전 전환, 신규 버전 설치, 버전 삭제
+  - **원격 LTS 조회**: NVM을 통해 사용 가능한 LTS 버전 목록 제공
+- **관련 기술**: NVM, npm, curl, SSE 스트리밍, exec.Command
 
 ### 13. 설정
 
