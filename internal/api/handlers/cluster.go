@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -19,6 +20,26 @@ import (
 	"github.com/svrforum/SFPanel/internal/config"
 	"gopkg.in/yaml.v3"
 )
+
+// clusterErrResponse maps cluster errors to appropriate HTTP status codes.
+func clusterErrResponse(c echo.Context, err error) error {
+	switch {
+	case errors.Is(err, cluster.ErrNotLeader):
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "This node is not the cluster leader")
+	case errors.Is(err, cluster.ErrNodeNotFound):
+		return response.Fail(c, http.StatusNotFound, response.ErrInternalError, "Node not found")
+	case errors.Is(err, cluster.ErrSelfRemove):
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cannot remove self from cluster")
+	case errors.Is(err, cluster.ErrNodeAlreadyExists):
+		return response.Fail(c, http.StatusConflict, response.ErrInvalidRequest, "Node already exists")
+	case errors.Is(err, cluster.ErrMaxNodesReached):
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Maximum node count reached")
+	case errors.Is(err, cluster.ErrInvalidToken), errors.Is(err, cluster.ErrTokenUsed):
+		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidRequest, err.Error())
+	default:
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
+	}
+}
 
 type ClusterHandler struct {
 	Manager    *cluster.Manager
@@ -50,7 +71,7 @@ func (h *ClusterHandler) InitCluster(c echo.Context) error {
 	}
 	advertise := body.AdvertiseAddress
 	if advertise == "" {
-		advertise = detectDefaultIP()
+		advertise = cluster.DetectOutboundIP()
 	}
 
 	h.Config.Cluster.AdvertiseAddress = advertise
@@ -131,15 +152,6 @@ func (h *ClusterHandler) GetNetworkInterfaces(c echo.Context) error {
 	})
 }
 
-func detectDefaultIP() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		return "127.0.0.1"
-	}
-	defer conn.Close()
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP.String()
-}
 
 // GetOverview returns cluster overview with all nodes and metrics.
 // On follower nodes, this forwards to the leader for consistent state.
@@ -258,7 +270,7 @@ func (h *ClusterHandler) CreateToken(c echo.Context) error {
 
 	token, err := h.Manager.CreateJoinToken(ttl)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
+		return clusterErrResponse(c, err)
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -280,7 +292,7 @@ func (h *ClusterHandler) RemoveNode(c echo.Context) error {
 	}
 
 	if err := h.Manager.RemoveNode(nodeID); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
+		return clusterErrResponse(c, err)
 	}
 
 	return response.OK(c, map[string]string{"removed": nodeID})
@@ -340,7 +352,7 @@ func (h *ClusterHandler) UpdateNodeLabels(c echo.Context) error {
 	}
 
 	if err := h.Manager.UpdateNodeLabels(nodeID, body.Labels); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
+		return clusterErrResponse(c, err)
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -373,7 +385,7 @@ func (h *ClusterHandler) UpdateNodeAddress(c echo.Context) error {
 	}
 
 	if err := h.Manager.UpdateNodeAddress(nodeID, body.APIAddress, body.GRPCAddress); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
+		return clusterErrResponse(c, err)
 	}
 
 	return response.OK(c, map[string]string{
@@ -398,7 +410,7 @@ func (h *ClusterHandler) TransferLeadership(c echo.Context) error {
 	}
 
 	if err := h.Manager.TransferLeadership(body.TargetNodeID); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
+		return clusterErrResponse(c, err)
 	}
 
 	return response.OK(c, map[string]string{

@@ -37,7 +37,11 @@ export default function ClusterNodes() {
     }).finally(() => setLoading(false))
   }
 
-  useEffect(() => { loadNodes() }, [])
+  useEffect(() => {
+    loadNodes()
+    const interval = setInterval(loadNodes, 15000)
+    return () => clearInterval(interval)
+  }, [])
 
   const handleRemove = async (nodeId: string, nodeName: string) => {
     if (!confirm(t('cluster.nodes.confirmRemove', { name: nodeName }))) return
