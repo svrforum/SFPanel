@@ -37,7 +37,6 @@
 | `/docker/stacks` | DockerStacks | O | Docker | Docker Compose 스택 목록 (기본 서브라우트) |
 | `/docker/stacks/:name` | DockerStacks | O | Docker | 스택 상세 (서비스 목록, YAML 편집, 로그, 셸) |
 | `/docker/containers` | DockerContainers | O | Docker | 컨테이너 관리 |
-| `/docker/containers/create` | DockerContainerCreate | O | Docker | 컨테이너 생성 폼 |
 | `/docker/images` | DockerImages | O | Docker | 이미지 관리 |
 | `/docker/volumes` | DockerVolumes | O | Docker | 볼륨 관리 |
 | `/docker/networks` | DockerNetworks | O | Docker | 네트워크 관리 |
@@ -124,7 +123,6 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **탭 구조** (NavLink, `<Outlet />` 패턴):
   - `/docker/stacks` (기본값) -> DockerStacks
   - `/docker/containers` -> DockerContainers
-  - `/docker/containers/create` -> DockerContainerCreate
   - `/docker/images` -> DockerImages
   - `/docker/volumes` -> DockerVolumes
   - `/docker/networks` -> DockerNetworks
@@ -158,19 +156,6 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **내부 서브컴포넌트**:
   - `ContainerStatsCell`: 개별 컨테이너 CPU/MEM 실시간 표시 (5초 주기 폴링)
   - `ContainerInspect`: 컨테이너 상세정보 패널 (리소스 게이지, 일반정보, 포트, 볼륨, 네트워크, 환경변수)
-
-### Docker > DockerContainerCreate
-- **파일**: `web/src/pages/docker/DockerContainerCreate.tsx`
-- **기능**: Docker 컨테이너 생성 폼
-  - Docker Hub 이미지 검색 (DockerHubSearch 자동완성 컴포넌트)
-  - 컨테이너 이름 입력
-  - 포트 매핑 (host/container/protocol) 동적 추가/삭제
-  - 볼륨 매핑 (host/container) 동적 추가/삭제
-  - 환경 변수 (key/value) 동적 추가/삭제
-  - 고급 옵션 토글: 재시작 정책, 메모리 제한, 네트워크 모드, 호스트네임, 명령어
-  - 생성 + 자동 시작 옵션
-- **사용 API**: `api.createContainer(config)`
-- **사용 컴포넌트**: Button, Input, Label, DockerHubSearch (shadcn/ui + 커스텀)
 
 ### Docker > DockerImages
 - **파일**: `web/src/pages/docker/DockerImages.tsx`
@@ -215,6 +200,26 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **사용 API**: `api.getAppStoreCategories()`, `api.getAppStoreApps()`, `api.getAppStoreAppDetail()`, `api.installAppStoreApp()`, `api.getInstalledApps()`, `api.refreshAppStore()`
 - **사용 컴포넌트**: Dialog, Button, Input, Label (shadcn/ui)
 - **사이드바 위치**: Docker 다음, 아이콘: `Store` (lucide-react)
+- **내부 서브컴포넌트**: `AppStoreDetailModal` (`web/src/pages/AppStoreDetail.tsx`)
+
+### AppStore > AppStoreDetailModal
+- **파일**: `web/src/pages/AppStoreDetail.tsx`
+- **기능**: 앱 상세 정보 + 설치 모달 (AppStore 페이지 내에서 호출되는 모달 컴포넌트)
+  - 앱 아이콘, 이름, 설명(다국어), 버전, 카테고리, 포트 표시
+  - 웹사이트/소스 코드 링크
+  - 설치 상태 표시 (설치됨/미설치)
+  - 설치 폼: 심플 모드 (환경변수 폼) / 고급 모드 (docker-compose.yml + .env 직접 편집) 탭 전환
+  - 환경변수 타입별 입력: text, password (비밀번호 표시/숨기기 토글 + 자동 생성), port (숫자), select (드롭다운)
+  - SSE 기반 설치 진행률 표시: 단계 인디케이터 (fetch → prepare → pull → start → done) + 실시간 로그 출력
+  - 설치 에러 처리: 포트 충돌, 컨테이너 이름 충돌, 이미 설치됨 등 에러 코드별 메시지
+  - Docker Compose YAML 미리보기 (접기/펼치기)
+  - 앱 기능(features) 그리드 표시
+  - README 마크다운 렌더링 (GitHub Alert 문법 지원, 이미지/링크 base URL 변환)
+  - ESC 키로 닫기, 배경 클릭으로 닫기 (설치 중에는 비활성화)
+- **Props**: `appId`, `open`, `onClose`, `onInstalled`
+- **사용 API**: `api.getAppStoreApp(id)` (상세 로드), `POST /appstore/apps/{id}/install` (SSE 스트리밍 설치, fetch API 직접 사용)
+- **사용 컴포넌트**: Button, Input (shadcn/ui), Marked (마크다운 렌더링)
+- **내부 서브컴포넌트**: `RenderedReadme` (마크다운 → HTML 변환 + GitHub Alert 처리)
 
 ### Files
 - **파일**: `web/src/pages/Files.tsx`
@@ -325,7 +330,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 ### Firewall
 - **파일**: `web/src/pages/Firewall.tsx`
 - **기능**: 방화벽(UFW) 및 Fail2ban 침입 방지 시스템 관리
-  - 탭 구조: UFW Rules, Open Ports, Fail2ban
+  - 탭 구조: UFW Rules, Open Ports, Fail2ban, Docker, Logs
   - **UFW Rules 탭** (`FirewallRules`): UFW 활성화/비활성화 토글, 규칙 목록 테이블 (번호/대상/동작/소스/코멘트/IPv6), 규칙 추가 다이얼로그 (action/port/protocol/from/to/comment), 규칙 삭제 확인 다이얼로그
   - **Open Ports 탭** (`FirewallPorts`): 리스닝 TCP/UDP 포트 목록 테이블 (프로토콜/주소/포트/PID/프로세스), 선택한 포트로 UFW 규칙 직접 추가 기능
   - **Fail2ban 탭** (`FirewallFail2ban`): Fail2ban 설치 상태 확인 및 원클릭 설치, jail 템플릿에서 생성, jail 목록 테이블 (이름/활성/차단수/총차단수), jail 상세 (설정값, 차단 IP 목록), jail 활성화/비활성화, jail 설정 편집, jail 삭제, IP 차단 해제
@@ -333,12 +338,16 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - rules (기본값) -> FirewallRules
   - ports -> FirewallPorts
   - fail2ban -> FirewallFail2ban
+  - docker -> FirewallDocker
+  - logs -> FirewallLogs
 - **사용 API**: `api.getFirewallStatus()`, `api.enableFirewall()`, `api.disableFirewall()`, `api.getFirewallRules()`, `api.addFirewallRule()`, `api.deleteFirewallRule()`, `api.getListeningPorts()`, `api.getFail2banStatus()`, `api.installFail2ban()`, `api.getFail2banTemplates()`, `api.createFail2banJail()`, `api.deleteFail2banJail()`, `api.getFail2banJails()`, `api.getFail2banJailDetail()`, `api.updateFail2banJailConfig()`, `api.enableFail2banJail()`, `api.disableFail2banJail()`, `api.unbanFail2banIP()`
 - **사용 컴포넌트**: Tabs, TabsList, TabsTrigger, TabsContent, Table, Dialog, Button, Input, Select (shadcn/ui)
 - **서브 컴포넌트 파일**:
   - `web/src/pages/firewall/FirewallRules.tsx` — UFW 규칙 관리
   - `web/src/pages/firewall/FirewallPorts.tsx` — 리스닝 포트 조회
   - `web/src/pages/firewall/FirewallFail2ban.tsx` — Fail2ban 관리
+  - `web/src/pages/firewall/FirewallDocker.tsx` — Docker 방화벽 (DOCKER-USER 체인) 관리
+  - `web/src/pages/firewall/FirewallLogs.tsx` — 방화벽 로그 뷰어
 
 ### Packages
 - **파일**: `web/src/pages/Packages.tsx`
@@ -377,8 +386,26 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 2FA 관리: 설정 시작 -> QR 코드(외부 API로 생성) + 시크릿 키 표시 -> 6자리 코드 인증
   - 시스템 정보 표시 (버전, 호스트명, OS, 커널, 가동시간)
   - **버전 표시**: `api.getSystemInfo()`의 `data.version` 필드에서 가져옴 (`v${data.version}` 형식)
+  - 시스템 튜닝 섹션 (SettingsTuning 컴포넌트 내장)
 - **사용 API**: `api.getSettings()`, `api.updateSettings()`, `api.changePassword()`, `api.setup2FA()`, `api.verify2FA()`, `api.getSystemInfo()`
 - **사용 컴포넌트**: Button, Input, Label (shadcn/ui)
+- **내부 서브컴포넌트**: `SettingsTuning` (`web/src/pages/SettingsTuning.tsx`)
+
+### Settings > SettingsTuning
+- **파일**: `web/src/pages/SettingsTuning.tsx`
+- **기능**: 시스템 커널 파라미터 최적화 관리 (Settings 페이지 내에 포함된 컴포넌트)
+  - 시스템 스펙 표시 (CPU 코어 수, RAM 용량, 커널 버전)
+  - 전체 최적화 진행률 바 + 적용 카운트 (applied / total_params)
+  - 전체 적용 / 기본값 복원 버튼
+  - 카테고리별 최적화 카드 (network, memory, filesystem, security)
+    - 카테고리 헤더: 아이콘, 이름, 설명, 적용 상태 (optimized 필/카운트), 개별 적용 버튼
+    - 카테고리 펼치기: 혜택(benefit) + 주의사항(caution) 안내, 파라미터 목록 (key, 현재값 → 추천값, 적용 상태)
+  - 안전 롤백 메커니즘: 적용 후 자동 카운트다운 (60초), 카운트다운 내 "유지" 확인 필요, 미확인 시 서버에서 자동 롤백
+  - 롤백 카운트다운 배너 (진행률 바 + 확인 버튼)
+- **사용 API**: `api.getTuningStatus()`, `api.applyTuning(categories?)`, `api.confirmTuning()`, `api.resetTuning()`
+- **사용 컴포넌트**: Button (shadcn/ui)
+- **사용 유틸리티**: `formatBytes()` (`web/src/lib/utils.ts`)
+- **타입**: `TuningStatus`, `TuningCategory` (`web/src/types/api.ts`)
 
 ---
 

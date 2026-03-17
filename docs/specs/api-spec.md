@@ -2376,6 +2376,353 @@ Fail2ban jail 중지 (비활성화).
 
 ---
 
+## 시스템 관리 API (`/api/v1/system`)
+
+### GET /api/v1/system/update-check
+GitHub 릴리즈 API에서 최신 버전 확인.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "current_version": "0.5.5",
+    "latest_version": "0.5.6",
+    "update_available": true,
+    "release_notes": "## 변경사항\n- ...",
+    "published_at": "2026-03-15T10:00:00Z"
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `current_version` | string | 현재 설치된 버전 |
+| `latest_version` | string | GitHub 최신 릴리즈 버전 |
+| `update_available` | boolean | 업데이트 가능 여부 |
+| `release_notes` | string | 릴리즈 노트 (Markdown) |
+| `published_at` | string | 릴리즈 일시 (ISO 8601) |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `UPDATE_CHECK_FAILED` | 502 | GitHub API 요청 실패 |
+
+---
+
+### POST /api/v1/system/update
+최신 버전 다운로드 및 바이너리 교체. SSE(Server-Sent Events)로 진행 상황 실시간 스트리밍. 체크섬(SHA-256) 검증 포함.
+
+- **인증 필요**: 예
+- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+
+**Response:** SSE 스트림 (각 이벤트는 JSON)
+```
+data: {"step":"downloading","message":"Downloading v0.5.6 (amd64)..."}
+
+data: {"step":"verifying","message":"Downloading checksums..."}
+
+data: {"step":"extracting","message":"Extracting binary..."}
+
+data: {"step":"replacing","message":"Replacing binary..."}
+
+data: {"step":"restarting","message":"Restarting service..."}
+
+data: {"step":"complete","message":"Updated to v0.5.6. Restarting..."}
+```
+
+에러 발생 시 `step`이 `"error"`인 이벤트가 전송됩니다.
+
+---
+
+### POST /api/v1/system/backup
+시스템 설정 백업 파일 다운로드 (tar.gz 아카이브). DB, 설정 파일, Docker Compose 프로젝트 파일 포함.
+
+- **인증 필요**: 예
+- **응답 형식**: `application/gzip` (표준 JSON 응답이 아님)
+
+**Response:** 바이너리 tar.gz 파일 (`Content-Disposition: attachment; filename=sfpanel-backup-20260317-120000.tar.gz`)
+
+**아카이브 내용:**
+| 파일 | 설명 |
+|------|------|
+| `sfpanel.db` | SQLite 데이터베이스 |
+| `config.yaml` | 서버 설정 파일 |
+| `compose/<project>/<file>` | Docker Compose 프로젝트 파일 (docker-compose.yml, .env 등) |
+
+---
+
+### POST /api/v1/system/restore
+백업 파일로 시스템 설정 복원. multipart/form-data로 tar.gz 파일 업로드. 복원 후 서비스 자동 재시작.
+
+- **인증 필요**: 예
+- **Content-Type**: `multipart/form-data`
+
+**Form Fields:**
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `backup` | File | 예 | 백업 tar.gz 파일 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Backup restored. Service restarting..."
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `RESTORE_FAILED` | 400 | 백업 파일 미제공, 유효하지 않은 gzip/tar, sfpanel.db 누락 |
+| `RESTORE_FAILED` | 500 | DB 또는 설정 파일 복원 실패 |
+
+---
+
+## 시스템 튜닝 API (`/api/v1/system/tuning`)
+
+커널 파라미터(sysctl) 튜닝 관리. 시스템 사양(CPU, RAM)에 따라 동적으로 최적 값을 추천하며, 적용 후 60초 이내 확인하지 않으면 자동 롤백됩니다.
+
+### GET /api/v1/system/tuning
+현재 sysctl 값과 추천 값 비교. 카테고리별(network, memory, filesystem, security) 파라미터 목록 반환.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "categories": [
+      {
+        "name": "network",
+        "benefit": "benefit_network",
+        "caution": "caution_network",
+        "params": [
+          {
+            "key": "net.core.default_qdisc",
+            "current": "pfifo_fast",
+            "recommended": "fq",
+            "description": "Fair Queue scheduler (required for BBR)",
+            "applied": false
+          }
+        ],
+        "applied": 0,
+        "total": 16
+      }
+    ],
+    "total_params": 37,
+    "applied": 0,
+    "pending_rollback": false,
+    "rollback_remaining": 0,
+    "system_info": {
+      "cpu_cores": 4,
+      "total_ram": 8388608000,
+      "kernel": "6.17.0-14-generic"
+    }
+  }
+}
+```
+
+**카테고리:**
+| 이름 | 설명 | 파라미터 수 |
+|------|------|------------|
+| `network` | 네트워크 버퍼, TCP 최적화, BBR 등 | 16 |
+| `memory` | swappiness, dirty ratio, cache pressure 등 | 5 |
+| `filesystem` | file-max, inotify, aio 등 | 4 |
+| `security` | SYN cookies, rp_filter, ICMP 보호 등 | 12 |
+
+**TuningParam 객체 필드:**
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `key` | string | sysctl 키 (예: "net.core.default_qdisc") |
+| `current` | string | 현재 시스템 값 |
+| `recommended` | string | SFPanel 추천 값 (시스템 사양 기반) |
+| `description` | string | 파라미터 설명 (영문) |
+| `applied` | boolean | SFPanel 설정 파일에 이 키가 포함되어 있는지 여부 |
+
+---
+
+### POST /api/v1/system/tuning/apply
+추천 sysctl 값을 적용. 적용 후 60초 이내에 `/system/tuning/confirm`을 호출하지 않으면 자동 롤백.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "categories": ["network", "memory"]
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `categories` | string[] | 아니오 | 적용할 카테고리 목록. 비어있으면 전체 적용 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Tuning applied — confirm within 60 seconds or changes will be rolled back",
+    "output": "net.core.default_qdisc = fq\n...",
+    "timeout": 60
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `TUNING_ERROR` | 500 | sysctl 설정 적용 실패 |
+
+---
+
+### POST /api/v1/system/tuning/confirm
+적용된 튜닝 변경사항을 확인하고 영구 저장. 롤백 타이머를 취소합니다.
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Tuning confirmed and saved permanently"
+  }
+}
+```
+
+대기 중인 변경사항이 없을 경우:
+```json
+{
+  "success": true,
+  "data": {
+    "message": "No pending changes to confirm"
+  }
+}
+```
+
+---
+
+### POST /api/v1/system/tuning/reset
+SFPanel 튜닝 설정 파일(`/etc/sysctl.d/99-sfpanel-tuning.conf`)을 삭제하고 시스템 기본값으로 복원.
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Tuning reset to system defaults"
+  }
+}
+```
+
+설정 파일이 없을 경우:
+```json
+{
+  "success": true,
+  "data": {
+    "message": "No tuning configuration to reset"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `TUNING_ERROR` | 500 | 설정 파일 삭제 실패 |
+
+---
+
+## 감사 로그 API (`/api/v1/audit`)
+
+API 요청 기록을 조회하고 관리합니다. 감사 로그는 인증된 모든 API 요청에 대해 자동 기록됩니다.
+
+### GET /api/v1/audit/logs
+감사 로그 목록 조회 (최신순 정렬, 페이지네이션 지원).
+
+- **인증 필요**: 예
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|----------|------|------|--------|------|
+| `page` | number | 아니오 | `1` | 페이지 번호 (1부터 시작) |
+| `limit` | number | 아니오 | `50` | 페이지당 항목 수 (최대 100) |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "logs": [
+      {
+        "id": 1234,
+        "username": "admin",
+        "method": "POST",
+        "path": "/api/v1/docker/containers/abc123/restart",
+        "status": 200,
+        "ip": "192.168.1.10",
+        "node_id": "",
+        "created_at": "2026-03-17T10:30:00Z"
+      }
+    ],
+    "total": 5000
+  }
+}
+```
+
+**AuditLogEntry 객체 필드:**
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `id` | number | 로그 항목 ID |
+| `username` | string | 요청한 사용자명 |
+| `method` | string | HTTP 메서드 (GET, POST, PUT, DELETE, PATCH) |
+| `path` | string | 요청 경로 |
+| `status` | number | HTTP 응답 상태 코드 |
+| `ip` | string | 클라이언트 IP 주소 |
+| `node_id` | string | 클러스터 노드 ID (클러스터 미사용 시 빈 문자열) |
+| `created_at` | string | 기록 일시 (ISO 8601) |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `DB_ERROR` | 500 | 데이터베이스 조회 실패 |
+
+---
+
+### DELETE /api/v1/audit/logs
+감사 로그 전체 삭제.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Audit logs cleared"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `DB_ERROR` | 500 | 데이터베이스 삭제 실패 |
+
+---
+
 ## 헬스체크 API
 
 ### GET /api/v1/health
@@ -2389,6 +2736,751 @@ Fail2ban jail 중지 (비활성화).
   "success": true,
   "data": {
     "status": "ok"
+  }
+}
+```
+
+---
+
+## 패키지 관리 — Node.js API (`/api/v1/packages`)
+
+### GET /api/v1/packages/node-status
+Node.js 및 NVM(Node Version Manager) 설치 상태 확인.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "installed": true,
+    "version": "v22.12.0",
+    "nvm_installed": true,
+    "npm_version": "10.9.0"
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `installed` | boolean | Node.js 설치 여부 |
+| `version` | string | Node.js 버전 (미설치 시 빈 문자열) |
+| `nvm_installed` | boolean | NVM 설치 여부 |
+| `npm_version` | string | npm 버전 (미설치 시 빈 문자열) |
+
+---
+
+### POST /api/v1/packages/install-node
+NVM을 통해 Node.js LTS 설치. NVM이 없으면 먼저 설치. SSE(Server-Sent Events)로 진행 상황 스트리밍.
+
+- **인증 필요**: 예
+- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+
+**Response:** SSE 스트림
+```
+data: >>> Installing NVM (Node Version Manager) ...
+
+data: >>> Installing Node.js LTS via NVM ...
+
+data: >>> Creating symlinks in /usr/local/bin ...
+
+data: >>> Node.js installation completed successfully!
+
+data: [DONE]
+```
+
+---
+
+### GET /api/v1/packages/node-versions
+NVM으로 설치된 Node.js 버전 목록 및 활성 버전 조회.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "versions": [
+      {
+        "version": "v20.18.0",
+        "active": false,
+        "lts": true
+      },
+      {
+        "version": "v22.12.0",
+        "active": true,
+        "lts": true
+      }
+    ],
+    "current": "v22.12.0",
+    "remote_lts": ["v18.20.5", "v20.18.0", "v22.12.0"]
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `versions` | array | 설치된 버전 목록 |
+| `current` | string | 현재 활성 버전 |
+| `remote_lts` | string[] | 원격 LTS 최신 버전 목록 (최대 5개) |
+
+---
+
+### POST /api/v1/packages/node-switch
+활성 Node.js 버전 전환. `/usr/local/bin` 심볼릭 링크도 함께 업데이트.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "version": "v20.18.0"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `version` | string | 예 | 전환할 버전 (예: "v20.18.0", "20") |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "switched": "v20.18.0",
+    "output": "Now using node v20.18.0 (npm v10.8.2)"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_BODY` | 400 | version 누락 또는 형식 오류 |
+| `COMMAND_FAILED` | 500 | NVM 미설치 또는 버전 전환 실패 |
+
+---
+
+### POST /api/v1/packages/node-install-version
+특정 Node.js 버전 설치. SSE(Server-Sent Events)로 진행 상황 스트리밍.
+
+- **인증 필요**: 예
+- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+
+**Request Body:**
+```json
+{
+  "version": "v18.20.5"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `version` | string | 예 | 설치할 버전 (예: "v18.20.5", "18") |
+
+**Response:** SSE 스트림
+```
+data: >>> Installing Node.js v18.20.5 ...
+
+data: Downloading and installing node v18.20.5...
+
+data: >>> Node.js v18.20.5 installed successfully!
+
+data: [DONE]
+```
+
+---
+
+### POST /api/v1/packages/node-uninstall-version
+특정 Node.js 버전 삭제.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "version": "v18.20.5"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `version` | string | 예 | 삭제할 버전 (예: "v18.20.5") |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "removed": "v18.20.5",
+    "output": "Uninstalled node v18.20.5"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_BODY` | 400 | version 누락 또는 형식 오류 |
+| `COMMAND_FAILED` | 500 | NVM 미설치 또는 삭제 실패 |
+
+---
+
+## 패키지 관리 — AI CLI API (`/api/v1/packages`)
+
+### GET /api/v1/packages/claude-status
+Claude Code CLI 설치 상태 확인.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "installed": true,
+    "version": "1.0.0"
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `installed` | boolean | Claude CLI 설치 여부 |
+| `version` | string | Claude CLI 버전 (미설치 시 빈 문자열) |
+
+---
+
+### POST /api/v1/packages/install-claude
+Claude Code CLI 설치 (공식 설치 스크립트 사용). SSE(Server-Sent Events)로 진행 상황 스트리밍.
+
+- **인증 필요**: 예
+- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+
+**Response:** SSE 스트림
+```
+data: >>> Installing Claude Code CLI ...
+
+data: [설치 로그...]
+
+data: >>> Claude Code CLI installed successfully!
+
+data: [DONE]
+```
+
+---
+
+### GET /api/v1/packages/codex-status
+OpenAI Codex CLI 설치 상태 확인.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "installed": true,
+    "version": "0.1.0"
+  }
+}
+```
+
+---
+
+### POST /api/v1/packages/install-codex
+OpenAI Codex CLI 설치 (`npm install -g @openai/codex`). Node.js가 먼저 설치되어 있어야 합니다. SSE(Server-Sent Events)로 진행 상황 스트리밍.
+
+- **인증 필요**: 예
+- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+
+**Response:** SSE 스트림
+```
+data: >>> Installing OpenAI Codex CLI via npm ...
+
+data: [npm 로그...]
+
+data: >>> OpenAI Codex CLI installed successfully!
+
+data: [DONE]
+```
+
+npm 미설치 시:
+```
+data: ERROR: npm is not installed. Please install Node.js first.
+
+data: [DONE]
+```
+
+---
+
+### GET /api/v1/packages/gemini-status
+Google Gemini CLI 설치 상태 확인.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "installed": false,
+    "version": ""
+  }
+}
+```
+
+---
+
+### POST /api/v1/packages/install-gemini
+Google Gemini CLI 설치 (`npm install -g @google/gemini-cli`). Node.js가 먼저 설치되어 있어야 합니다. SSE(Server-Sent Events)로 진행 상황 스트리밍.
+
+- **인증 필요**: 예
+- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+
+**Response:** SSE 스트림
+```
+data: >>> Installing Google Gemini CLI via npm ...
+
+data: [npm 로그...]
+
+data: >>> Google Gemini CLI installed successfully!
+
+data: [DONE]
+```
+
+---
+
+## Docker 이미지 — 업데이트 확인 API
+
+### GET /api/v1/docker/images/updates
+실행 중인 컨테이너에서 사용하는 이미지의 업데이트 가능 여부 확인. Docker Hub의 최신 다이제스트와 로컬 다이제스트를 비교합니다.
+
+- **인증 필요**: 예
+- **Docker 사용 가능 시에만 등록**
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "image": "nginx:latest",
+      "current_digest": "sha256:abc123...",
+      "latest_digest": "sha256:def456...",
+      "update_available": true
+    }
+  ]
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `image` | string | 이미지 이름:태그 |
+| `current_digest` | string | 현재 로컬 이미지 다이제스트 |
+| `latest_digest` | string | 레지스트리 최신 다이제스트 |
+| `update_available` | boolean | 업데이트 가능 여부 |
+
+---
+
+## Docker 네트워크 — 상세 조회 API
+
+### GET /api/v1/docker/networks/:id/inspect
+Docker 네트워크 상세 정보 조회. 연결된 컨테이너 목록, 서브넷, 게이트웨이 정보 포함.
+
+- **인증 필요**: 예
+- **Docker 사용 가능 시에만 등록**
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `id` | 네트워크 ID 또는 이름 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "abc123def456...",
+    "name": "my-network",
+    "driver": "bridge",
+    "scope": "local",
+    "internal": false,
+    "subnet": "172.18.0.0/16",
+    "gateway": "172.18.0.1",
+    "containers": [
+      {
+        "id": "abc123def456",
+        "name": "my-container",
+        "ipv4_address": "172.18.0.2/16",
+        "ipv6_address": "",
+        "mac_address": "02:42:ac:12:00:02"
+      }
+    ],
+    "created": "2026-03-15T10:00:00Z"
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `id` | string | 네트워크 ID |
+| `name` | string | 네트워크 이름 |
+| `driver` | string | 네트워크 드라이버 (bridge, overlay 등) |
+| `scope` | string | 범위 (local, swarm) |
+| `internal` | boolean | 내부 네트워크 여부 |
+| `subnet` | string | 서브넷 CIDR |
+| `gateway` | string | 게이트웨이 IP |
+| `containers` | array | 연결된 컨테이너 목록 |
+| `created` | string | 생성 일시 (ISO 8601) |
+
+---
+
+## Docker Compose — 추가 API
+
+### POST /api/v1/docker/compose/:project/up-stream
+Compose 프로젝트 시작 (SSE 스트리밍). 배포 진행 상황을 실시간으로 전달합니다.
+
+- **인증 필요**: 예
+- **Docker 사용 가능 시에만 등록**
+- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `project` | 프로젝트 이름 |
+
+**Response:** SSE 스트림 (각 이벤트는 JSON)
+```
+data: {"phase":"deploy","line":"Starting deployment..."}
+
+data: {"phase":"deploy","line":"Creating network my-project_default"}
+
+data: {"phase":"complete","line":"Deployment completed successfully"}
+```
+
+에러 발생 시 `phase`가 `"error"`인 이벤트가 전송됩니다.
+
+---
+
+### POST /api/v1/docker/compose/:project/validate
+Compose 설정 파일 검증 (`docker compose config`).
+
+- **인증 필요**: 예
+- **Docker 사용 가능 시에만 등록**
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `project` | 프로젝트 이름 |
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "valid": true,
+    "message": "Configuration is valid"
+  }
+}
+```
+
+검증 실패 시:
+```json
+{
+  "success": true,
+  "data": {
+    "valid": false,
+    "message": "services.web.image must be a string"
+  }
+}
+```
+
+---
+
+### POST /api/v1/docker/compose/:project/check-updates
+Compose 프로젝트의 서비스 이미지 업데이트 가능 여부 확인.
+
+- **인증 필요**: 예
+- **Docker 사용 가능 시에만 등록**
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `project` | 프로젝트 이름 |
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):** Docker ComposeManager.CheckStackUpdates 반환값
+
+---
+
+### POST /api/v1/docker/compose/:project/update
+Compose 스택 업데이트 (이미지 풀 + 컨테이너 재생성). 업데이트 전 현재 이미지 정보를 저장하여 롤백을 지원합니다.
+
+- **인증 필요**: 예
+- **Docker 사용 가능 시에만 등록**
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `project` | 프로젝트 이름 |
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "output": "Pulling images... Recreating containers..."
+  }
+}
+```
+
+---
+
+### POST /api/v1/docker/compose/:project/update-stream
+Compose 스택 업데이트 (SSE 스트리밍). 풀 및 재생성 진행 상황을 실시간으로 전달합니다.
+
+- **인증 필요**: 예
+- **Docker 사용 가능 시에만 등록**
+- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `project` | 프로젝트 이름 |
+
+**Response:** SSE 스트림 (각 이벤트는 JSON)
+```
+data: {"phase":"pull","line":"Starting update..."}
+
+data: {"phase":"update","line":"Pulling nginx:latest..."}
+
+data: {"phase":"complete","line":"Update completed successfully"}
+```
+
+---
+
+### POST /api/v1/docker/compose/:project/rollback
+이전 이미지 버전으로 롤백. `update` 또는 `update-stream` 실행 시 저장된 이전 이미지 정보를 사용합니다.
+
+- **인증 필요**: 예
+- **Docker 사용 가능 시에만 등록**
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `project` | 프로젝트 이름 |
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "output": "Rolling back images... Recreating containers..."
+  }
+}
+```
+
+---
+
+### GET /api/v1/docker/compose/:project/has-rollback
+프로젝트에 롤백 데이터가 존재하는지 확인.
+
+- **인증 필요**: 예
+- **Docker 사용 가능 시에만 등록**
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `project` | 프로젝트 이름 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "has_rollback": true
+  }
+}
+```
+
+---
+
+## 클러스터 — 추가 API
+
+### POST /api/v1/cluster/disband
+클러스터 모드 비활성화 및 서비스 재시작. 설정 파일에서 `cluster.enabled`를 `false`로 변경합니다.
+
+- **인증 필요**: 예
+
+**Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Cluster disbanded. Service restarting..."
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 클러스터가 구성되지 않음 |
+| `INTERNAL_ERROR` | 500 | 설정 저장 실패 |
+
+---
+
+### POST /api/v1/cluster/leader-transfer
+Raft 리더십을 지정한 노드로 이전. 리더 노드에서만 실행 가능.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "target_node_id": "node-abc123"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `target_node_id` | string | 예 | 리더십을 이전할 대상 노드 ID |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Leadership transfer initiated",
+    "target_node_id": "node-abc123"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 클러스터 미구성 또는 target_node_id 누락 |
+| `INTERNAL_ERROR` | 500 | 리더십 이전 실패 |
+
+---
+
+### PATCH /api/v1/cluster/nodes/:id/labels
+노드 라벨 업데이트. 리더 노드에서만 실행 가능.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `id` | 노드 ID |
+
+**Request Body:**
+```json
+{
+  "labels": {
+    "role": "worker",
+    "region": "kr-1"
+  }
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `labels` | object | 예 | 키-값 라벨 맵 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "node_id": "node-abc123",
+    "labels": {
+      "role": "worker",
+      "region": "kr-1"
+    }
+  }
+}
+```
+
+---
+
+### PATCH /api/v1/cluster/nodes/:id/address
+노드 API 및 gRPC 주소 업데이트. 리더 노드에서만 실행 가능.
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `id` | 노드 ID |
+
+**Request Body:**
+```json
+{
+  "api_address": "https://192.168.1.10:8443",
+  "grpc_address": "192.168.1.10:9443"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `api_address` | string | 예 | 새 API 주소 (URL) |
+| `grpc_address` | string | 예 | 새 gRPC 주소 (host:port) |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "node_id": "node-abc123",
+    "api_address": "https://192.168.1.10:8443",
+    "grpc_address": "192.168.1.10:9443"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 클러스터 미구성 또는 노드 ID 누락 |
+| `MISSING_FIELDS` | 400 | api_address 또는 grpc_address 누락 |
+| `INTERNAL_ERROR` | 500 | 주소 업데이트 실패 |
+
+---
+
+### GET /api/v1/cluster/interfaces
+클러스터 초기화 시 Advertise Address 선택을 위한 네트워크 인터페이스 목록. 활성(UP) 상태의 비-루프백 인터페이스만 반환.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "interfaces": [
+      {
+        "name": "eth0",
+        "address": "192.168.1.10"
+      },
+      {
+        "name": "wlan0",
+        "address": "192.168.1.20"
+      }
+    ]
   }
 }
 ```
@@ -2495,9 +3587,9 @@ Fail2ban jail 중지 (비활성화).
 
 ## 전체 엔드포인트 요약
 
-REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
+REST API 223개 + WebSocket 5개 = 총 228개 엔드포인트.
 
-### 인증/설정 (9개)
+### 인증/설정 (10개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -2505,28 +3597,46 @@ REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
 | POST | `/api/v1/auth/login` | X | 로그인 |
 | GET | `/api/v1/auth/setup-status` | X | 셋업 필요 여부 |
 | POST | `/api/v1/auth/setup` | X | 초기 관리자 생성 |
+| GET | `/api/v1/auth/2fa/status` | O | 2FA 상태 확인 |
 | POST | `/api/v1/auth/2fa/setup` | O | 2FA 시크릿 생성 |
 | POST | `/api/v1/auth/2fa/verify` | O | 2FA 활성화 |
 | POST | `/api/v1/auth/change-password` | O | 비밀번호 변경 |
 | GET | `/api/v1/settings` | O | 설정 조회 |
 | PUT | `/api/v1/settings` | O | 설정 업데이트 |
 
-### 시스템 (12개)
+### 시스템 (18개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/system/info` | O | 시스템 정보 + 메트릭 + 버전 |
 | GET | `/api/v1/system/metrics-history` | O | 24시간 메트릭 히스토리 |
+| GET | `/api/v1/system/overview` | O | 대시보드 통합 엔드포인트 |
+| GET | `/api/v1/system/update-check` | O | 업데이트 확인 |
+| POST | `/api/v1/system/update` | O | 업데이트 실행 (SSE) |
+| POST | `/api/v1/system/backup` | O | 시스템 백업 다운로드 |
+| POST | `/api/v1/system/restore` | O | 시스템 백업 복원 |
+| GET | `/api/v1/system/tuning` | O | 시스템 튜닝 상태 조회 |
+| POST | `/api/v1/system/tuning/apply` | O | 시스템 튜닝 적용 |
+| POST | `/api/v1/system/tuning/confirm` | O | 시스템 튜닝 확인 |
+| POST | `/api/v1/system/tuning/reset` | O | 시스템 튜닝 초기화 |
 | GET | `/api/v1/system/processes` | O | 상위 10 프로세스 |
 | GET | `/api/v1/system/processes/list` | O | 전체 프로세스 목록 |
 | POST | `/api/v1/system/processes/:pid/kill` | O | 프로세스 시그널 전송 |
 | GET | `/api/v1/system/services` | O | Systemd 서비스 목록 |
 | GET | `/api/v1/system/services/:name/logs` | O | 서비스 로그 조회 |
+| GET | `/api/v1/system/services/:name/deps` | O | 서비스 의존성 조회 |
 | POST | `/api/v1/system/services/:name/start` | O | 서비스 시작 |
 | POST | `/api/v1/system/services/:name/stop` | O | 서비스 중지 |
 | POST | `/api/v1/system/services/:name/restart` | O | 서비스 재시작 |
 | POST | `/api/v1/system/services/:name/enable` | O | 서비스 활성화 |
 | POST | `/api/v1/system/services/:name/disable` | O | 서비스 비활성화 |
+
+### 감사 로그 (2개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/audit/logs` | O | 감사 로그 목록 |
+| DELETE | `/api/v1/audit/logs` | O | 감사 로그 전체 삭제 |
 
 ### 파일 관리 (8개)
 
@@ -2559,15 +3669,17 @@ REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
 | POST | `/api/v1/logs/custom-sources` | O | 커스텀 로그 소스 추가 |
 | DELETE | `/api/v1/logs/custom-sources/:id` | O | 커스텀 로그 소스 삭제 |
 
-### 네트워크 (9개)
+### 네트워크 (11개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
+| GET | `/api/v1/network/status` | O | 네트워크 통합 상태 |
 | GET | `/api/v1/network/interfaces` | O | 네트워크 인터페이스 목록 |
 | GET | `/api/v1/network/interfaces/:name` | O | 인터페이스 상세 |
 | PUT | `/api/v1/network/interfaces/:name` | O | 인터페이스 설정 변경 |
 | POST | `/api/v1/network/apply` | O | Netplan 적용 |
 | GET | `/api/v1/network/dns` | O | DNS 설정 조회 |
+| PUT | `/api/v1/network/dns` | O | DNS 설정 변경 |
 | GET | `/api/v1/network/routes` | O | 라우팅 테이블 조회 |
 | GET | `/api/v1/network/bonds` | O | 본딩 목록 |
 | POST | `/api/v1/network/bonds` | O | 본딩 생성 |
@@ -2695,7 +3807,7 @@ REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
 | PUT | `/api/v1/fail2ban/jails/:name/config` | O | Jail 설정 변경 |
 | POST | `/api/v1/fail2ban/jails/:name/unban` | O | IP 차단 해제 |
 
-### 패키지 관리 (7개)
+### 패키지 관리 (19개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -2706,27 +3818,42 @@ REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
 | GET | `/api/v1/packages/search` | O | 패키지 검색 |
 | GET | `/api/v1/packages/docker-status` | O | Docker 상태 확인 |
 | POST | `/api/v1/packages/install-docker` | O | Docker 설치 (SSE) |
+| GET | `/api/v1/packages/node-status` | O | Node.js 설치 상태 |
+| POST | `/api/v1/packages/install-node` | O | Node.js 설치 (SSE) |
+| GET | `/api/v1/packages/node-versions` | O | Node.js 설치된 버전 목록 |
+| POST | `/api/v1/packages/node-switch` | O | Node.js 버전 전환 |
+| POST | `/api/v1/packages/node-install-version` | O | Node.js 특정 버전 설치 (SSE) |
+| POST | `/api/v1/packages/node-uninstall-version` | O | Node.js 특정 버전 삭제 |
+| GET | `/api/v1/packages/claude-status` | O | Claude CLI 설치 상태 |
+| POST | `/api/v1/packages/install-claude` | O | Claude CLI 설치 (SSE) |
+| GET | `/api/v1/packages/codex-status` | O | Codex CLI 설치 상태 |
+| POST | `/api/v1/packages/install-codex` | O | Codex CLI 설치 (SSE) |
+| GET | `/api/v1/packages/gemini-status` | O | Gemini CLI 설치 상태 |
+| POST | `/api/v1/packages/install-gemini` | O | Gemini CLI 설치 (SSE) |
 
-### Docker - 컨테이너 (8개)
+### Docker - 컨테이너 (10개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/docker/containers` | O | 컨테이너 목록 |
-| POST | `/api/v1/docker/containers` | O | 컨테이너 생성 |
+| GET | `/api/v1/docker/containers/stats/batch` | O | 컨테이너 배치 stats |
 | GET | `/api/v1/docker/containers/:id/inspect` | O | 컨테이너 상세 |
 | GET | `/api/v1/docker/containers/:id/stats` | O | 컨테이너 리소스 |
 | POST | `/api/v1/docker/containers/:id/start` | O | 컨테이너 시작 |
 | POST | `/api/v1/docker/containers/:id/stop` | O | 컨테이너 중지 |
 | POST | `/api/v1/docker/containers/:id/restart` | O | 컨테이너 재시작 |
+| POST | `/api/v1/docker/containers/:id/pause` | O | 컨테이너 일시정지 |
+| POST | `/api/v1/docker/containers/:id/unpause` | O | 컨테이너 일시정지 해제 |
 | DELETE | `/api/v1/docker/containers/:id` | O | 컨테이너 삭제 |
 
-### Docker - 이미지 (4개)
+### Docker - 이미지 (5개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/docker/images` | O | 이미지 목록 |
 | GET | `/api/v1/docker/images/search` | O | Docker Hub 이미지 검색 |
 | POST | `/api/v1/docker/images/pull` | O | 이미지 풀 |
+| GET | `/api/v1/docker/images/updates` | O | 이미지 업데이트 확인 |
 | DELETE | `/api/v1/docker/images/:id` | O | 이미지 삭제 |
 
 ### Docker - 볼륨 (3개)
@@ -2737,13 +3864,14 @@ REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
 | POST | `/api/v1/docker/volumes` | O | 볼륨 생성 |
 | DELETE | `/api/v1/docker/volumes/:name` | O | 볼륨 삭제 |
 
-### Docker - 네트워크 (3개)
+### Docker - 네트워크 (4개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/docker/networks` | O | 네트워크 목록 |
 | POST | `/api/v1/docker/networks` | O | 네트워크 생성 |
 | DELETE | `/api/v1/docker/networks/:id` | O | 네트워크 삭제 |
+| GET | `/api/v1/docker/networks/:id/inspect` | O | 네트워크 상세 조회 |
 
 ### Docker - Prune (5개)
 
@@ -2755,7 +3883,7 @@ REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
 | POST | `/api/v1/docker/prune/networks` | O | 미사용 네트워크 정리 |
 | POST | `/api/v1/docker/prune/all` | O | 전체 정리 |
 
-### Docker - Compose (14개)
+### Docker - Compose (20개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -2765,6 +3893,7 @@ REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
 | PUT | `/api/v1/docker/compose/:project` | O | Compose YAML 수정 |
 | DELETE | `/api/v1/docker/compose/:project` | O | Compose 프로젝트 삭제 |
 | POST | `/api/v1/docker/compose/:project/up` | O | Compose 시작 |
+| POST | `/api/v1/docker/compose/:project/up-stream` | O | Compose 시작 (SSE 스트리밍) |
 | POST | `/api/v1/docker/compose/:project/down` | O | Compose 중지 |
 | GET | `/api/v1/docker/compose/:project/env` | O | 환경변수 파일 조회 |
 | PUT | `/api/v1/docker/compose/:project/env` | O | 환경변수 파일 수정 |
@@ -2773,6 +3902,12 @@ REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
 | POST | `/api/v1/docker/compose/:project/services/:service/stop` | O | 서비스 중지 |
 | POST | `/api/v1/docker/compose/:project/services/:service/start` | O | 서비스 시작 |
 | GET | `/api/v1/docker/compose/:project/services/:service/logs` | O | 서비스 로그 |
+| POST | `/api/v1/docker/compose/:project/validate` | O | Compose 설정 검증 |
+| POST | `/api/v1/docker/compose/:project/check-updates` | O | 스택 이미지 업데이트 확인 |
+| POST | `/api/v1/docker/compose/:project/update` | O | 스택 업데이트 (풀 + 재생성) |
+| POST | `/api/v1/docker/compose/:project/update-stream` | O | 스택 업데이트 (SSE 스트리밍) |
+| POST | `/api/v1/docker/compose/:project/rollback` | O | 스택 롤백 |
+| GET | `/api/v1/docker/compose/:project/has-rollback` | O | 롤백 가능 여부 확인 |
 
 ### 앱스토어 (6개)
 
@@ -2785,7 +3920,7 @@ REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
 | GET | `/api/v1/appstore/installed` | O | 설치된 앱 목록 |
 | POST | `/api/v1/appstore/refresh` | O | 앱스토어 캐시 갱신 |
 
-### 클러스터 (11개)
+### 클러스터 (12개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -2795,6 +3930,7 @@ REST API 174개 + WebSocket 5개 = 총 179개 엔드포인트.
 | POST | `/api/v1/cluster/token` | O | 참가 토큰 생성 (TTL 지정 가능) |
 | DELETE | `/api/v1/cluster/nodes/:id` | O | 노드 제거 (리더만 가능) |
 | PATCH | `/api/v1/cluster/nodes/:id/labels` | O | 노드 라벨 수정 |
+| PATCH | `/api/v1/cluster/nodes/:id/address` | O | 노드 주소 수정 |
 | GET | `/api/v1/cluster/events` | O | 클러스터 이벤트 로그 |
 | POST | `/api/v1/cluster/leader-transfer` | O | 리더십 이전 |
 | POST | `/api/v1/cluster/init` | O | 클러스터 초기화 (CA 생성, Raft 부트스트랩) |
