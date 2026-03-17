@@ -434,9 +434,15 @@ func (h *ClusterHandler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) 
 		bodyBytes, _ = io.ReadAll(c.Request().Body)
 	}
 
+	// Include query parameters in the proxied path
+	proxyPath := c.Request().URL.Path
+	if rawQuery := c.Request().URL.RawQuery; rawQuery != "" {
+		proxyPath += "?" + rawQuery
+	}
+
 	resp, err := client.ProxyRequest(ctx, &pb.APIRequest{
 		Method:  c.Request().Method,
-		Path:    c.Request().URL.Path,
+		Path:    proxyPath,
 		Headers: headers,
 		Body:    bodyBytes,
 	})

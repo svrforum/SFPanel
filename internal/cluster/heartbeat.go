@@ -14,6 +14,7 @@ type HeartbeatManager struct {
 	interval time.Duration
 	timeout  time.Duration
 	stopCh   chan struct{}
+	stopped  sync.Once
 }
 
 func NewHeartbeatManager(interval, timeout time.Duration) *HeartbeatManager {
@@ -125,7 +126,9 @@ func (hm *HeartbeatManager) RemoveNode(nodeID string) {
 	delete(hm.lastSeen, nodeID)
 }
 
-// Stop shuts down the heartbeat monitor.
+// Stop shuts down the heartbeat monitor. Safe to call multiple times.
 func (hm *HeartbeatManager) Stop() {
-	close(hm.stopCh)
+	hm.stopped.Do(func() {
+		close(hm.stopCh)
+	})
 }
