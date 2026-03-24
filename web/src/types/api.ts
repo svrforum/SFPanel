@@ -500,6 +500,48 @@ export interface ContainerStatsResult {
   mem_limit: number
 }
 
+// Docker - Container Inspect Detail
+export interface ContainerInspectPort {
+  container_port: string
+  protocol: string
+  host_ip: string
+  host_port: string
+}
+
+export interface ContainerInspectMount {
+  type: string
+  source: string
+  destination: string
+  mode: string
+  rw: string
+}
+
+export interface ContainerInspectNetwork {
+  name: string
+  ip_address: string
+  gateway: string
+  mac_address: string
+}
+
+export interface ContainerInspectDetail {
+  id: string
+  name: string
+  image: string
+  state: string
+  started_at: string
+  finished_at: string
+  restart_count: number
+  platform: string
+  cmd: string
+  entrypoint: string
+  working_dir: string
+  hostname: string
+  ports: ContainerInspectPort[]
+  env: string[]
+  mounts: ContainerInspectMount[]
+  networks: ContainerInspectNetwork[]
+}
+
 // Docker - Compose with Status
 export interface ComposeProjectWithStatus extends ComposeProject {
   service_count: number
@@ -564,13 +606,6 @@ export interface AuditLogsResponse {
   total: number
 }
 
-// Docker - Image Update Check
-export interface ImageUpdateStatus {
-  image: string
-  current_id: string
-  has_update: boolean
-  error?: string
-}
 
 // Docker - Network Inspect Detail
 export interface NetworkInspectDetail {
