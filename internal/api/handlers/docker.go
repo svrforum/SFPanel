@@ -201,44 +201,11 @@ func (h *DockerHandler) InspectContainer(c echo.Context) error {
 func (h *DockerHandler) ContainerStats(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
-	stats, err := h.Docker.ContainerStats(ctx, id)
+	stats, err := h.Docker.CalcContainerStats(ctx, id)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
 	}
-
-	// Calculate CPU percentage
-	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
-	systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
-	cpuPercent := 0.0
-	if systemDelta > 0 && cpuDelta > 0 {
-		cpuPercent = (cpuDelta / systemDelta) * float64(stats.CPUStats.OnlineCPUs) * 100.0
-	}
-
-	// Subtract cache from memory usage (cgroups v1: cache, cgroups v2: inactive_file)
-	memUsage := stats.MemoryStats.Usage
-	if cache, ok := stats.MemoryStats.Stats["inactive_file"]; ok && cache > 0 {
-		if memUsage > cache {
-			memUsage -= cache
-		}
-	} else if cache, ok := stats.MemoryStats.Stats["cache"]; ok && cache > 0 {
-		if memUsage > cache {
-			memUsage -= cache
-		}
-	}
-	memLimit := stats.MemoryStats.Limit
-	memPercent := 0.0
-	if memLimit > 0 {
-		memPercent = float64(memUsage) / float64(memLimit) * 100.0
-	}
-
-	result := map[string]interface{}{
-		"cpu_percent": cpuPercent,
-		"mem_usage":   memUsage,
-		"mem_limit":   memLimit,
-		"mem_percent": memPercent,
-	}
-
-	return response.OK(c, result)
+	return response.OK(c, stats)
 }
 
 // ContainerStatsBatch returns CPU and memory stats for all running containers.

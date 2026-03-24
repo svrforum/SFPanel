@@ -218,6 +218,36 @@ func calcMemUsage(stats *container.StatsResponse) uint64 {
 	return usage
 }
 
+// CalcContainerStats returns calculated CPU/memory stats for a single container.
+func (c *Client) CalcContainerStats(ctx context.Context, id string) (*ContainerStatsResult, error) {
+	stats, err := c.ContainerStats(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage - stats.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(stats.CPUStats.SystemUsage - stats.PreCPUStats.SystemUsage)
+	cpuPercent := 0.0
+	if systemDelta > 0 && cpuDelta > 0 {
+		cpuPercent = (cpuDelta / systemDelta) * float64(stats.CPUStats.OnlineCPUs) * 100.0
+	}
+
+	memUsage := calcMemUsage(stats)
+	memLimit := stats.MemoryStats.Limit
+	memPercent := 0.0
+	if memLimit > 0 {
+		memPercent = float64(memUsage) / float64(memLimit) * 100.0
+	}
+
+	return &ContainerStatsResult{
+		ID:         id,
+		CPUPercent: cpuPercent,
+		MemPercent: memPercent,
+		MemUsage:   memUsage,
+		MemLimit:   memLimit,
+	}, nil
+}
+
 // statsBatchConcurrency limits parallel Docker stats API calls.
 const statsBatchConcurrency = 5
 
@@ -639,5 +669,12 @@ func (c *Client) listNetworksWithContainers(ctx context.Context, containers []ty
 func (c *Client) ListContainersByComposeProject(ctx context.Context, project string) ([]types.Container, error) {
 	f := filters.NewArgs()
 	f.Add("label", fmt.Sprintf("com.docker.compose.project=%s", project))
+	return c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+}
+
+// ListContainersByComposeWorkingDir returns containers belonging to a compose project by working directory.
+func (c *Client) ListContainersByComposeWorkingDir(ctx context.Context, workingDir string) ([]types.Container, error) {
+	f := filters.NewArgs()
+	f.Add("label", fmt.Sprintf("com.docker.compose.project.working_dir=%s", workingDir))
 	return c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
 }

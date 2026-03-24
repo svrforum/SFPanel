@@ -394,10 +394,15 @@ func (m *ComposeManager) GetProjectServices(ctx context.Context, name string) ([
 		return nil, fmt.Errorf("docker client not available")
 	}
 
-	// Docker compose normalizes project names to lowercase
-	containers, err := m.dockerClient.ListContainersByComposeProject(ctx, strings.ToLower(name))
-	if err != nil {
-		return nil, fmt.Errorf("list containers for project %q: %w", name, err)
+	// Match by working_dir path first (reliable even when compose name: field differs from directory name)
+	dir := filepath.Join(m.baseDir, name)
+	containers, err := m.dockerClient.ListContainersByComposeWorkingDir(ctx, dir)
+	if err != nil || len(containers) == 0 {
+		// Fallback: match by project name (for containers without working_dir label)
+		containers, err = m.dockerClient.ListContainersByComposeProject(ctx, strings.ToLower(name))
+		if err != nil {
+			return nil, fmt.Errorf("list containers for project %q: %w", name, err)
+		}
 	}
 
 	var services []ComposeService
@@ -439,10 +444,13 @@ func (m *ComposeManager) ListProjectsWithStatus(ctx context.Context) ([]ComposeP
 
 	// Build per-project container stats from a single API call
 	type projectStats struct {
-		serviceCount  int
-		runningCount  int
+		serviceCount int
+		runningCount int
 	}
-	statsMap := make(map[string]*projectStats)
+	// Key by working_dir path for reliable matching
+	byPath := make(map[string]*projectStats)
+	// Fallback: key by project name (lowercase)
+	byName := make(map[string]*projectStats)
 
 	if m.dockerClient != nil {
 		containers, cErr := m.dockerClient.ListContainers(ctx)
@@ -452,10 +460,25 @@ func (m *ComposeManager) ListProjectsWithStatus(ctx context.Context) ([]ComposeP
 				if proj == "" {
 					continue
 				}
-				ps, ok := statsMap[proj]
+				workingDir := c.Labels["com.docker.compose.project.working_dir"]
+
+				if workingDir != "" {
+					ps, ok := byPath[workingDir]
+					if !ok {
+						ps = &projectStats{}
+						byPath[workingDir] = ps
+					}
+					ps.serviceCount++
+					if c.State == "running" {
+						ps.runningCount++
+					}
+				}
+
+				// Always populate byName as fallback
+				ps, ok := byName[proj]
 				if !ok {
 					ps = &projectStats{}
-					statsMap[proj] = ps
+					byName[proj] = ps
 				}
 				ps.serviceCount++
 				if c.State == "running" {
@@ -470,7 +493,11 @@ func (m *ComposeManager) ListProjectsWithStatus(ctx context.Context) ([]ComposeP
 		pwStatus := ComposeProjectWithStatus{
 			ComposeProject: p,
 		}
-		if ps, ok := statsMap[strings.ToLower(p.Name)]; ok {
+		// Try path-based matching first, then fallback to name-based
+		if ps, ok := byPath[p.Path]; ok {
+			pwStatus.ServiceCount = ps.serviceCount
+			pwStatus.RunningCount = ps.runningCount
+		} else if ps, ok := byName[strings.ToLower(p.Name)]; ok {
 			pwStatus.ServiceCount = ps.serviceCount
 			pwStatus.RunningCount = ps.runningCount
 		}

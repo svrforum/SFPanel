@@ -333,24 +333,7 @@ class ApiClient {
   }
 
   inspectContainer(id: string) {
-    return this.request<{
-      id: string
-      name: string
-      image: string
-      state: string
-      started_at: string
-      finished_at: string
-      restart_count: number
-      platform: string
-      cmd: string
-      entrypoint: string
-      working_dir: string
-      hostname: string
-      ports: Array<{ container_port: string; protocol: string; host_ip: string; host_port: string }>
-      env: string[]
-      mounts: Array<{ type: string; source: string; destination: string; mode: string; rw: string }>
-      networks: Array<{ name: string; ip_address: string; gateway: string; mac_address: string }>
-    }>(`/docker/containers/${id}/inspect`)
+    return this.request<import('@/types/api').ContainerInspectDetail>(`/docker/containers/${id}/inspect`)
   }
 
   containerStats(id: string) {
@@ -400,22 +383,7 @@ class ApiClient {
       body: JSON.stringify({ image: imageName }),
     })
     if (!res.ok) throw new Error('Pull failed')
-    const reader = res.body?.getReader()
-    if (!reader) throw new Error('No stream')
-    const decoder = new TextDecoder()
-    let buffer = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try { onProgress(JSON.parse(line.slice(6))) } catch { /* skip malformed */ }
-        }
-      }
-    }
+    await this.readSSEStream(res, onProgress)
   }
 
   removeImage(id: string) {
@@ -553,9 +521,9 @@ class ApiClient {
     await this.readSSEStream(res, onEvent)
   }
 
-  private async readSSEStream(
+  private async readSSEStream<T = { phase: string; line: string }>(
     res: Response,
-    onEvent: (event: { phase: string; line: string }) => void
+    onEvent: (event: T) => void
   ): Promise<void> {
     const reader = res.body?.getReader()
     if (!reader) throw new Error('No stream')
