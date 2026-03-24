@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	types "github.com/docker/docker/api/types"
 )
 
 var validProjectName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
@@ -394,11 +396,27 @@ func (m *ComposeManager) GetProjectServices(ctx context.Context, name string) ([
 		return nil, fmt.Errorf("docker client not available")
 	}
 
-	// Match by working_dir path first (reliable even when compose name: field differs from directory name)
+	// Match containers to this project by checking working_dir label
 	dir := filepath.Join(m.baseDir, name)
-	containers, err := m.dockerClient.ListContainersByComposeWorkingDir(ctx, dir)
-	if err != nil || len(containers) == 0 {
-		// Fallback: match by project name (for containers without working_dir label)
+	dirPrefix := dir + string(filepath.Separator)
+
+	// Get all compose containers and filter by working_dir prefix
+	// (working_dir may point to a subdirectory, e.g. /opt/stacks/scraper/app)
+	allContainers, err := m.dockerClient.ListContainers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list containers: %w", err)
+	}
+
+	var containers []types.Container
+	for _, c := range allContainers {
+		workingDir := c.Labels["com.docker.compose.project.working_dir"]
+		if workingDir == dir || strings.HasPrefix(workingDir, dirPrefix) {
+			containers = append(containers, c)
+		}
+	}
+
+	// Fallback: match by project name (for containers without working_dir label)
+	if len(containers) == 0 {
 		containers, err = m.dockerClient.ListContainersByComposeProject(ctx, strings.ToLower(name))
 		if err != nil {
 			return nil, fmt.Errorf("list containers for project %q: %w", name, err)
@@ -463,10 +481,18 @@ func (m *ComposeManager) ListProjectsWithStatus(ctx context.Context) ([]ComposeP
 				workingDir := c.Labels["com.docker.compose.project.working_dir"]
 
 				if workingDir != "" {
-					ps, ok := byPath[workingDir]
+					// Normalize working_dir to project root directory
+					// e.g., /opt/stacks/scraper/app → /opt/stacks/scraper
+					projectPath := workingDir
+					if strings.HasPrefix(workingDir, m.baseDir+string(filepath.Separator)) {
+						rel, _ := filepath.Rel(m.baseDir, workingDir)
+						parts := strings.SplitN(rel, string(filepath.Separator), 2)
+						projectPath = filepath.Join(m.baseDir, parts[0])
+					}
+					ps, ok := byPath[projectPath]
 					if !ok {
 						ps = &projectStats{}
-						byPath[workingDir] = ps
+						byPath[projectPath] = ps
 					}
 					ps.serviceCount++
 					if c.State == "running" {
