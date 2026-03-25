@@ -475,7 +475,7 @@ export default function TerminalPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex flex-col h-[100dvh] md:h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Tab Bar */}
       <div className="flex items-center bg-[#1a1b26] border-b border-[#292e42] px-2 shrink-0">
         <div className="flex items-center gap-0.5 overflow-x-auto py-1 flex-1">
