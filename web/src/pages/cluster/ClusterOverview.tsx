@@ -49,7 +49,15 @@ export default function ClusterOverview() {
       await api.disbandCluster()
       toast.success(t('cluster.overview.disbanded'))
       setTimeout(() => {
+        let attempts = 0
+        const maxAttempts = 15
         const check = setInterval(() => {
+          attempts++
+          if (attempts >= maxAttempts) {
+            clearInterval(check)
+            window.location.reload()
+            return
+          }
           fetch('/api/v1/cluster/status', {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
           })
