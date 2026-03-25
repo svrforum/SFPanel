@@ -98,18 +98,23 @@ func (m *ComposeManager) resolveComposeFilePath(ctx context.Context, name string
 	// Try to find the actual config file from running containers
 	if m.dockerClient != nil {
 		dirPrefix := projectDir + string(filepath.Separator)
-		allContainers, err := m.dockerClient.ListContainers(ctx)
+		allContainers, err := m.dockerClient.ListContainersCached(ctx)
 		if err == nil {
 			for _, c := range allContainers {
 				workingDir := c.Labels["com.docker.compose.project.working_dir"]
-				if workingDir == projectDir || strings.HasPrefix(workingDir, dirPrefix) {
-					configFiles := c.Labels["com.docker.compose.project.config_files"]
-					if configFiles != "" && strings.HasPrefix(configFiles, projectDir+string(filepath.Separator)) {
-						if _, err := os.Stat(configFiles); err == nil {
-							return configFiles, filepath.Dir(configFiles)
-						}
+				if workingDir != projectDir && !strings.HasPrefix(workingDir, dirPrefix) {
+					continue
+				}
+				configFiles := c.Labels["com.docker.compose.project.config_files"]
+				if configFiles == "" {
+					continue
+				}
+				// config_files may contain comma-separated paths; use the first one
+				primaryFile := strings.SplitN(configFiles, ",", 2)[0]
+				if strings.HasPrefix(primaryFile, projectDir+string(filepath.Separator)) {
+					if _, err := os.Stat(primaryFile); err == nil {
+						return primaryFile, filepath.Dir(primaryFile)
 					}
-					break
 				}
 			}
 		}
@@ -341,6 +346,7 @@ func (m *ComposeManager) runComposeStream(ctx context.Context, name string, onLi
 
 	// Merge stdout and stderr into one pipe
 	pr, pw := io.Pipe()
+	defer pr.Close()
 	cmd.Stdout = pw
 	cmd.Stderr = pw
 
@@ -357,8 +363,12 @@ func (m *ComposeManager) runComposeStream(ctx context.Context, name string, onLi
 	}()
 
 	scanner := bufio.NewScanner(pr)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // up to 1MB per line
 	for scanner.Scan() {
 		onLine(scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		onLine("error: log scan failed: " + err.Error())
 	}
 
 	return <-waitDone
@@ -434,7 +444,7 @@ func (m *ComposeManager) GetProjectServices(ctx context.Context, name string) ([
 
 	// Get all compose containers and filter by working_dir prefix
 	// (working_dir may point to a subdirectory, e.g. /opt/stacks/scraper/app)
-	allContainers, err := m.dockerClient.ListContainers(ctx)
+	allContainers, err := m.dockerClient.ListContainersCached(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list containers: %w", err)
 	}
@@ -503,7 +513,7 @@ func (m *ComposeManager) ListProjectsWithStatus(ctx context.Context) ([]ComposeP
 	byName := make(map[string]*projectStats)
 
 	if m.dockerClient != nil {
-		containers, cErr := m.dockerClient.ListContainers(ctx)
+		containers, cErr := m.dockerClient.ListContainersCached(ctx)
 		if cErr == nil {
 			for _, c := range containers {
 				proj := c.Labels["com.docker.compose.project"]
@@ -511,16 +521,15 @@ func (m *ComposeManager) ListProjectsWithStatus(ctx context.Context) ([]ComposeP
 					continue
 				}
 				workingDir := c.Labels["com.docker.compose.project.working_dir"]
+				matched := false
 
-				if workingDir != "" {
+				if workingDir != "" && strings.HasPrefix(workingDir, m.baseDir+string(filepath.Separator)) {
 					// Normalize working_dir to project root directory
 					// e.g., /opt/stacks/scraper/app → /opt/stacks/scraper
-					projectPath := workingDir
-					if strings.HasPrefix(workingDir, m.baseDir+string(filepath.Separator)) {
-						rel, _ := filepath.Rel(m.baseDir, workingDir)
-						parts := strings.SplitN(rel, string(filepath.Separator), 2)
-						projectPath = filepath.Join(m.baseDir, parts[0])
-					}
+					rel, _ := filepath.Rel(m.baseDir, workingDir)
+					parts := strings.SplitN(rel, string(filepath.Separator), 2)
+					projectPath := filepath.Join(m.baseDir, parts[0])
+
 					ps, ok := byPath[projectPath]
 					if !ok {
 						ps = &projectStats{}
@@ -530,17 +539,20 @@ func (m *ComposeManager) ListProjectsWithStatus(ctx context.Context) ([]ComposeP
 					if c.State == "running" {
 						ps.runningCount++
 					}
+					matched = true
 				}
 
-				// Always populate byName as fallback
-				ps, ok := byName[proj]
-				if !ok {
-					ps = &projectStats{}
-					byName[proj] = ps
-				}
-				ps.serviceCount++
-				if c.State == "running" {
-					ps.runningCount++
+				// Only populate byName when path-based matching didn't work
+				if !matched {
+					ps, ok := byName[proj]
+					if !ok {
+						ps = &projectStats{}
+						byName[proj] = ps
+					}
+					ps.serviceCount++
+					if c.State == "running" {
+						ps.runningCount++
+					}
 				}
 			}
 		}
@@ -624,6 +636,9 @@ func (m *ComposeManager) ServiceLogs(ctx context.Context, project, service strin
 // StreamLogs streams compose project logs via a callback function.
 // If service is empty, logs from all services are streamed.
 func (m *ComposeManager) StreamLogs(ctx context.Context, project string, tail int, service string, onLine func(string)) error {
+	if err := m.validateProjectName(project); err != nil {
+		return err
+	}
 	if tail <= 0 {
 		tail = 100
 	}
