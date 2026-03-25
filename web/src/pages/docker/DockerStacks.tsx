@@ -741,13 +741,13 @@ export default function DockerStacks() {
                   <Play className="h-3.5 w-3.5 mr-1" />
                   {t('docker.stacks.services')}
                 </TabsTrigger>
-                <TabsTrigger value="logs" className="rounded-lg text-[13px] data-[state=active]:text-[#f59e0b]">
-                  <ScrollText className="h-3.5 w-3.5 mr-1" />
-                  {t('docker.stacks.logs')}
-                </TabsTrigger>
                 <TabsTrigger value="editor" className="rounded-lg text-[13px] data-[state=active]:text-primary">
                   <FileCode className="h-3.5 w-3.5 mr-1" />
                   {t('docker.stacks.editor')}
+                </TabsTrigger>
+                <TabsTrigger value="logs" className="rounded-lg text-[13px] data-[state=active]:text-[#f59e0b]">
+                  <ScrollText className="h-3.5 w-3.5 mr-1" />
+                  {t('docker.stacks.logs')}
                 </TabsTrigger>
               </TabsList>
 
@@ -876,15 +876,6 @@ export default function DockerStacks() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="logs">
-                {selectedName && (
-                  <ComposeLogs
-                    project={selectedName}
-                    serviceNames={services.map(s => s.name)}
-                  />
-                )}
-              </TabsContent>
-
               <TabsContent value="editor">
                 <div className="space-y-3">
                   {/* Compose / Env sub-tabs */}
@@ -971,6 +962,15 @@ export default function DockerStacks() {
                     </>
                   )}
                 </div>
+              </TabsContent>
+
+              <TabsContent value="logs">
+                {selectedName && (
+                  <ComposeLogs
+                    project={selectedName}
+                    serviceNames={services.map(s => s.name)}
+                  />
+                )}
               </TabsContent>
             </Tabs>
           </div>

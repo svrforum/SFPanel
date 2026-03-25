@@ -89,6 +89,40 @@ func findComposeFile(dir string) string {
 	return ""
 }
 
+// resolveComposeFilePath returns the actual compose file path for a project.
+// It first checks running containers' config_files label (which points to the
+// real compose file used during deployment), then falls back to findComposeFile.
+func (m *ComposeManager) resolveComposeFilePath(ctx context.Context, name string) (yamlPath string, dir string) {
+	projectDir := filepath.Join(m.baseDir, name)
+
+	// Try to find the actual config file from running containers
+	if m.dockerClient != nil {
+		dirPrefix := projectDir + string(filepath.Separator)
+		allContainers, err := m.dockerClient.ListContainers(ctx)
+		if err == nil {
+			for _, c := range allContainers {
+				workingDir := c.Labels["com.docker.compose.project.working_dir"]
+				if workingDir == projectDir || strings.HasPrefix(workingDir, dirPrefix) {
+					configFiles := c.Labels["com.docker.compose.project.config_files"]
+					if configFiles != "" && strings.HasPrefix(configFiles, projectDir+string(filepath.Separator)) {
+						if _, err := os.Stat(configFiles); err == nil {
+							return configFiles, filepath.Dir(configFiles)
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// Fallback: find compose file in project root directory
+	composeFile := findComposeFile(projectDir)
+	if composeFile != "" {
+		return filepath.Join(projectDir, composeFile), projectDir
+	}
+	return "", projectDir
+}
+
 // ListProjects scans the base directory for subdirectories containing a compose file.
 func (m *ComposeManager) ListProjects(_ context.Context) ([]ComposeProject, error) {
 	entries, err := os.ReadDir(m.baseDir)
@@ -277,13 +311,12 @@ func (m *ComposeManager) runCompose(ctx context.Context, name string, args ...st
 	if err := m.validateProjectName(name); err != nil {
 		return "", err
 	}
-	dir := filepath.Join(m.baseDir, name)
-	composeFile := findComposeFile(dir)
-	if composeFile == "" {
+
+	yamlPath, dir := m.resolveComposeFilePath(ctx, name)
+	if yamlPath == "" {
 		return "", fmt.Errorf("no compose file found in %q", name)
 	}
 
-	yamlPath := filepath.Join(dir, composeFile)
 	cmdArgs := append([]string{"compose", "-f", yamlPath}, args...)
 	cmd := exec.CommandContext(ctx, "docker", cmdArgs...)
 	cmd.Dir = dir // Set working directory so .env is picked up
@@ -296,13 +329,12 @@ func (m *ComposeManager) runComposeStream(ctx context.Context, name string, onLi
 	if err := m.validateProjectName(name); err != nil {
 		return err
 	}
-	dir := filepath.Join(m.baseDir, name)
-	composeFile := findComposeFile(dir)
-	if composeFile == "" {
+
+	yamlPath, dir := m.resolveComposeFilePath(ctx, name)
+	if yamlPath == "" {
 		return fmt.Errorf("no compose file found in %q", name)
 	}
 
-	yamlPath := filepath.Join(dir, composeFile)
 	cmdArgs := append([]string{"compose", "-f", yamlPath}, args...)
 	cmd := exec.CommandContext(ctx, "docker", cmdArgs...)
 	cmd.Dir = dir
