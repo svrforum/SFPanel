@@ -792,14 +792,23 @@ func (m *ComposeManager) RollbackStack(ctx context.Context, name string) (string
 	return output, nil
 }
 
+// RollbackDetail holds previous and current image info for a service.
+type RollbackDetail struct {
+	Service      string `json:"service"`
+	PrevImage    string `json:"prev_image"`
+	PrevImageID  string `json:"prev_image_id"`
+	CurrImageID  string `json:"curr_image_id,omitempty"`
+}
+
 // RollbackInfo holds rollback availability and details for a project.
 type RollbackInfo struct {
-	HasRollback bool            `json:"has_rollback"`
-	Entries     []rollbackEntry `json:"entries,omitempty"`
+	HasRollback bool             `json:"has_rollback"`
+	Details     []RollbackDetail `json:"details,omitempty"`
 }
 
 // GetRollbackInfo returns rollback availability and image details for a project.
-func (m *ComposeManager) GetRollbackInfo(name string) RollbackInfo {
+// Includes current image IDs for comparison when Docker client is available.
+func (m *ComposeManager) GetRollbackInfo(ctx context.Context, name string) RollbackInfo {
 	if err := m.validateProjectName(name); err != nil {
 		return RollbackInfo{}
 	}
@@ -812,10 +821,41 @@ func (m *ComposeManager) GetRollbackInfo(name string) RollbackInfo {
 	if err := json.Unmarshal(rbData, &entries); err != nil {
 		return RollbackInfo{}
 	}
-	return RollbackInfo{HasRollback: true, Entries: entries}
+
+	// Build current image ID map from running containers
+	currImageMap := make(map[string]string) // image name → current image ID
+	if m.dockerClient != nil {
+		services, sErr := m.GetProjectServices(ctx, name)
+		if sErr == nil {
+			for _, svc := range services {
+				if svc.Image != "" {
+					inspect, iErr := m.dockerClient.InspectImage(ctx, svc.Image)
+					if iErr == nil {
+						currImageMap[svc.Image] = inspect.ID
+					}
+				}
+			}
+		}
+	}
+
+	details := make([]RollbackDetail, len(entries))
+	for i, e := range entries {
+		details[i] = RollbackDetail{
+			Service:     e.Service,
+			PrevImage:   e.Image,
+			PrevImageID: e.ImageID,
+			CurrImageID: currImageMap[e.Image],
+		}
+	}
+	return RollbackInfo{HasRollback: true, Details: details}
 }
 
 // HasRollback checks if rollback data exists for a project.
 func (m *ComposeManager) HasRollback(name string) bool {
-	return m.GetRollbackInfo(name).HasRollback
+	if err := m.validateProjectName(name); err != nil {
+		return false
+	}
+	rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
+	_, err := os.Stat(rbPath)
+	return err == nil
 }
