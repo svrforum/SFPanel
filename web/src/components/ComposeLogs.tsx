@@ -95,13 +95,12 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
       return () => { term.dispose() }
     }
 
-    let wsPath = `/ws/docker/compose/${encodeURIComponent(project)}/logs`
-    const params: string[] = []
-    if (tail > 0) params.push(`tail=${tail}`)
-    if (selectedService) params.push(`service=${encodeURIComponent(selectedService)}`)
-    if (params.length > 0) wsPath += `?${params.join('&')}`
+    const wsPath = `/ws/docker/compose/${encodeURIComponent(project)}/logs`
+    const extraParams: Record<string, string> = {}
+    if (tail > 0) extraParams.tail = String(tail)
+    if (selectedService) extraParams.service = selectedService
 
-    const wsUrl = api.buildWsUrl(wsPath)
+    const wsUrl = api.buildWsUrl(wsPath, extraParams)
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
