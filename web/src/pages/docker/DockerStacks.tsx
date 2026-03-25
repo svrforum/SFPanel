@@ -412,6 +412,7 @@ export default function DockerStacks() {
 
   const handleRollback = async () => {
     if (!selectedName) return
+    if (!confirm(t('docker.stacks.confirmRollback'))) return
     setRollingBack(true)
     try {
       await api.rollbackStack(selectedName)
@@ -660,6 +661,7 @@ export default function DockerStacks() {
                     className="rounded-xl border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/10 hover:text-[#f59e0b]"
                     disabled={rollingBack}
                     onClick={handleRollback}
+                    title={t('docker.stacks.rollbackDescription')}
                   >
                     {rollingBack ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
