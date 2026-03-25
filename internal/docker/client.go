@@ -76,8 +76,8 @@ func (c *Client) ListContainers(ctx context.Context) ([]types.Container, error) 
 
 const containersCacheTTL = 5 * time.Second
 
-// listContainersCached returns containers from cache or fetches fresh data.
-func (c *Client) listContainersCached(ctx context.Context) ([]types.Container, error) {
+// ListContainersCached returns containers from cache or fetches fresh data.
+func (c *Client) ListContainersCached(ctx context.Context) ([]types.Container, error) {
 	if data, ok := c.containersCache.get(); ok {
 		return data, nil
 	}
@@ -253,7 +253,7 @@ const statsBatchConcurrency = 5
 
 // ContainerStatsBatch returns CPU/memory stats for all running containers in parallel.
 func (c *Client) ContainerStatsBatch(ctx context.Context) ([]ContainerStatsResult, error) {
-	containers, err := c.listContainersCached(ctx)
+	containers, err := c.ListContainersCached(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -504,7 +504,7 @@ func (c *Client) ListImagesWithUsage(ctx context.Context) ([]ImageWithUsage, err
 	if data, ok := c.imagesCache.get(); ok {
 		return data, nil
 	}
-	containers, err := c.listContainersCached(ctx)
+	containers, err := c.ListContainersCached(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -559,7 +559,7 @@ type VolumeWithUsage struct {
 
 // ListVolumesWithUsage returns all volumes with container usage information.
 func (c *Client) ListVolumesWithUsage(ctx context.Context) ([]VolumeWithUsage, error) {
-	containers, err := c.listContainersCached(ctx)
+	containers, err := c.ListContainersCached(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -616,7 +616,7 @@ type NetworkWithUsage struct {
 
 // ListNetworksWithUsage returns all networks with container usage information.
 func (c *Client) ListNetworksWithUsage(ctx context.Context) ([]NetworkWithUsage, error) {
-	containers, err := c.listContainersCached(ctx)
+	containers, err := c.ListContainersCached(ctx)
 	if err != nil {
 		return nil, err
 	}
