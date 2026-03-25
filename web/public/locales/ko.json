@@ -285,7 +285,10 @@
       "rollbackFailed": "롤백 실패",
       "noRollback": "롤백 데이터 없음",
       "imageUpdates": "이미지 업데이트",
-      "registryError": "레지스트리 확인 불가"
+      "registryError": "레지스트리 확인 불가",
+      "allServices": "전체 서비스",
+      "lastLines": "최근",
+      "allLogs": "전체"
     },
     "search": {
       "placeholder": "Docker Hub에서 이미지 검색...",
@@ -559,7 +562,12 @@
       "nodeCount": "{{count}}개 노드",
       "disband": "클러스터 해제",
       "confirmDisband": "정말 클러스터를 해제하시겠습니까? 이 노드는 독립 모드로 전환됩니다.",
-      "disbanded": "클러스터가 해제되었습니다. 서비스를 재시작합니다."
+      "disbanded": "클러스터가 해제되었습니다. 서비스를 재시작합니다.",
+      "rollingUpdate": "순차 업데이트",
+      "simultaneousUpdate": "동시 업데이트",
+      "confirmUpdate": "클러스터 전체 업데이트를 시작하시겠습니까?",
+      "updating": "업데이트 중...",
+      "updateProgress": "업데이트 진행 상황"
     },
     "events": {
       "node_joined": "클러스터에 참가",
@@ -574,6 +582,7 @@
       "count": "{{count}}개 노드",
       "name": "이름",
       "role": "역할",
+      "version": "버전",
       "labels": "라벨",
       "apiAddress": "API 주소",
       "grpcAddress": "gRPC 주소",
