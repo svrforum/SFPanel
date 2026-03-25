@@ -94,7 +94,9 @@ func (s *terminalSession) broadcast(data []byte) {
 
 // startReader spawns a goroutine that reads from the PTY and broadcasts
 // to all connected WebSocket clients. It runs for the lifetime of the session.
-func (s *terminalSession) startReader() {
+// When the PTY closes (e.g. user types 'exit'), the session is automatically
+// cleaned up from the global sessions map.
+func (s *terminalSession) startReader(sessionID string) {
 	if s.started {
 		return
 	}
@@ -104,6 +106,17 @@ func (s *terminalSession) startReader() {
 		for {
 			n, err := s.ptmx.Read(buf)
 			if err != nil {
+				// PTY closed (shell exited) — clean up session
+				sessionsMu.Lock()
+				if sessions[sessionID] == s {
+					s.ptmx.Close()
+					if s.cmd.Process != nil {
+						s.cmd.Process.Kill()
+					}
+					s.cmd.Wait()
+					delete(sessions, sessionID)
+				}
+				sessionsMu.Unlock()
 				return
 			}
 			s.broadcast(buf[:n])
@@ -181,9 +194,8 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 		} else {
 			// Check session limit before creating a new one
 			sessionsMu.Lock()
-			activeCount := len(sessions)
-			sessionsMu.Unlock()
-			if activeCount >= maxTerminalSessions {
+			if len(sessions) >= maxTerminalSessions {
+				sessionsMu.Unlock()
 				ws.WriteMessage(websocket.TextMessage,
 					[]byte(fmt.Sprintf("\r\nError: maximum terminal sessions reached (%d). Close unused sessions first.\r\n", maxTerminalSessions)))
 				return nil
@@ -202,6 +214,7 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 
 			ptmx, err := pty.Start(cmd)
 			if err != nil {
+				sessionsMu.Unlock()
 				ws.WriteMessage(websocket.TextMessage, []byte("Failed to start shell: "+err.Error()))
 				return nil
 			}
@@ -213,8 +226,6 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 				scrollback: newRingBuffer(scrollbackBufSize),
 				readers:    make(map[*websocket.Conn]struct{}),
 			}
-
-			sessionsMu.Lock()
 			sessions[sessionID] = sess
 			sessionsMu.Unlock()
 
@@ -222,7 +233,7 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			defer sess.removeReader(ws)
 
 			// Start the background PTY reader
-			sess.startReader()
+			sess.startReader(sessionID)
 		}
 
 		// WebSocket -> PTY (runs until the WebSocket closes)
@@ -267,16 +278,27 @@ func CleanupTerminalSessions(db *sql.DB) {
 			}
 
 			timeout := time.Duration(timeoutMin) * time.Minute
+			// Collect expired sessions under lock, clean up outside lock
+			type expired struct {
+				id   string
+				sess *terminalSession
+			}
+			var toClean []expired
 			sessionsMu.Lock()
 			for id, sess := range sessions {
 				if time.Since(sess.lastUse) > timeout {
-					sess.ptmx.Close()
-					sess.cmd.Process.Kill()
-					sess.cmd.Wait()
 					delete(sessions, id)
+					toClean = append(toClean, expired{id, sess})
 				}
 			}
 			sessionsMu.Unlock()
+			for _, e := range toClean {
+				e.sess.ptmx.Close()
+				if e.sess.cmd.Process != nil {
+					e.sess.cmd.Process.Kill()
+				}
+				e.sess.cmd.Wait()
+			}
 		}
 	}()
 }

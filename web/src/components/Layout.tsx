@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Container, FolderOpen, Clock, FileText, Package, Settings, LogOut, Activity, Terminal, Network, HardDrive, Shield, Cog, PanelLeftClose, PanelLeftOpen, Store, Server } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
@@ -38,6 +38,8 @@ export default function Layout() {
   const [panelVersion, setPanelVersion] = useState('')
   const [nodeKey, setNodeKey] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
+  const location = useLocation()
+  const isTerminal = location.pathname === '/terminal'
 
   useEffect(() => {
     const handler = () => setNodeKey((k) => k + 1)
@@ -174,7 +176,10 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-auto px-5 py-4 pb-bottom-nav md:p-8 md:pb-8">
+      <main className={cn(
+        "flex-1",
+        isTerminal ? "p-0 overflow-hidden" : "overflow-auto px-5 py-4 pb-bottom-nav md:p-8 md:pb-8"
+      )}>
         <Outlet key={nodeKey} />
       </main>
 
