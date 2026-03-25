@@ -28,10 +28,14 @@ export default function ClusterTokens() {
   }
 
   const handleCopy = async (text: string) => {
-    await navigator.clipboard.writeText(text)
-    setCopied(true)
-    toast.success(t('cluster.tokens.copied'))
-    setTimeout(() => setCopied(false), 2000)
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      toast.success(t('cluster.tokens.copied'))
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast.error('Failed to copy to clipboard')
+    }
   }
 
   return (
