@@ -280,11 +280,11 @@ func (h *ComposeHandler) RollbackStack(c echo.Context) error {
 	return response.OK(c, map[string]string{"output": output})
 }
 
-// HasRollback checks if rollback data exists for a project.
+// HasRollback returns rollback availability and image details for a project.
 // GET /api/v1/docker/compose/:project/has-rollback
 func (h *ComposeHandler) HasRollback(c echo.Context) error {
 	name := c.Param("project")
-	return response.OK(c, map[string]bool{"has_rollback": h.Compose.HasRollback(name)})
+	return response.OK(c, h.Compose.GetRollbackInfo(name))
 }
 
 // ProjectUpStream starts a compose project with SSE streaming output.

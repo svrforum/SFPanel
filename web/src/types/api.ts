@@ -574,6 +574,18 @@ export interface StackUpdateCheck {
   has_updates: boolean
 }
 
+// Docker - Rollback Info
+export interface RollbackEntry {
+  service: string
+  image: string
+  image_id: string
+}
+
+export interface RollbackInfo {
+  has_rollback: boolean
+  entries?: RollbackEntry[]
+}
+
 // Systemd Services
 export interface ServiceInfo {
   name: string

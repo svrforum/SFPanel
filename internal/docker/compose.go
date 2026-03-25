@@ -792,12 +792,30 @@ func (m *ComposeManager) RollbackStack(ctx context.Context, name string) (string
 	return output, nil
 }
 
-// HasRollback checks if rollback data exists for a project.
-func (m *ComposeManager) HasRollback(name string) bool {
+// RollbackInfo holds rollback availability and details for a project.
+type RollbackInfo struct {
+	HasRollback bool            `json:"has_rollback"`
+	Entries     []rollbackEntry `json:"entries,omitempty"`
+}
+
+// GetRollbackInfo returns rollback availability and image details for a project.
+func (m *ComposeManager) GetRollbackInfo(name string) RollbackInfo {
 	if err := m.validateProjectName(name); err != nil {
-		return false
+		return RollbackInfo{}
 	}
 	rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
-	_, err := os.Stat(rbPath)
-	return err == nil
+	rbData, err := os.ReadFile(rbPath)
+	if err != nil {
+		return RollbackInfo{}
+	}
+	var entries []rollbackEntry
+	if err := json.Unmarshal(rbData, &entries); err != nil {
+		return RollbackInfo{}
+	}
+	return RollbackInfo{HasRollback: true, Entries: entries}
+}
+
+// HasRollback checks if rollback data exists for a project.
+func (m *ComposeManager) HasRollback(name string) bool {
+	return m.GetRollbackInfo(name).HasRollback
 }

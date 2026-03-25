@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck } from '@/types/api'
+import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck, RollbackInfo } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -102,7 +102,7 @@ export default function DockerStacks() {
   const [updateCheck, setUpdateCheck] = useState<StackUpdateCheck | null>(null)
   const [checkingUpdates, setCheckingUpdates] = useState(false)
   const [rollingBack, setRollingBack] = useState(false)
-  const [hasRollbackData, setHasRollbackData] = useState(false)
+  const [rollbackInfo, setRollbackInfo] = useState<RollbackInfo | null>(null)
 
   // Progress modal
   const [progressOpen, setProgressOpen] = useState(false)
@@ -353,9 +353,9 @@ export default function DockerStacks() {
   useEffect(() => {
     setUpdateCheck(null)
     if (selectedName) {
-      api.hasRollback(selectedName).then(r => setHasRollbackData(r.has_rollback)).catch(() => setHasRollbackData(false))
+      api.hasRollback(selectedName).then(r => setRollbackInfo(r)).catch(() => setRollbackInfo(null))
     } else {
-      setHasRollbackData(false)
+      setRollbackInfo(null)
     }
   }, [selectedName])
 
@@ -401,7 +401,9 @@ export default function DockerStacks() {
       setProgressDone(true)
       toast.success(t('docker.stacks.updateSuccess'))
       setUpdateCheck(null)
-      setHasRollbackData(true)
+      if (selectedName) {
+        api.hasRollback(selectedName).then(r => setRollbackInfo(r)).catch(() => {})
+      }
       await Promise.all([fetchProjects(false), fetchServices(selectedName)])
     } catch (err: unknown) {
       setProgressError(true)
@@ -412,13 +414,14 @@ export default function DockerStacks() {
 
   const handleRollback = async () => {
     if (!selectedName) return
-    if (!confirm(t('docker.stacks.confirmRollback'))) return
+    const details = rollbackInfo?.entries?.map(e => `  ${e.service}: ${e.image} → ${e.image_id.substring(7, 19)}`).join('\n') || ''
+    if (!confirm(`${t('docker.stacks.confirmRollback')}\n\n${details}`)) return
     setRollingBack(true)
     try {
       await api.rollbackStack(selectedName)
       toast.success(t('docker.stacks.rollbackSuccess'))
       setUpdateCheck(null)
-      setHasRollbackData(false)
+      setRollbackInfo(null)
       await Promise.all([fetchProjects(false), fetchServices(selectedName)])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.stacks.rollbackFailed'))
@@ -655,21 +658,28 @@ export default function DockerStacks() {
                   )}
                   {t('docker.stacks.checkUpdates')}
                 </Button>
-                {hasRollbackData && (
-                  <Button
-                    variant="outline" size="sm"
-                    className="rounded-xl border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/10 hover:text-[#f59e0b]"
-                    disabled={rollingBack}
-                    onClick={handleRollback}
-                    title={t('docker.stacks.rollbackDescription')}
-                  >
-                    {rollingBack ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Undo2 className="h-3.5 w-3.5" />
+                {rollbackInfo?.has_rollback && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline" size="sm"
+                      className="rounded-xl border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/10 hover:text-[#f59e0b]"
+                      disabled={rollingBack}
+                      onClick={handleRollback}
+                      title={rollbackInfo.entries?.map(e => `${e.service}: ${e.image} (${e.image_id.substring(7, 19)})`).join('\n')}
+                    >
+                      {rollingBack ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Undo2 className="h-3.5 w-3.5" />
+                      )}
+                      {t('docker.stacks.rollback')}
+                    </Button>
+                    {rollbackInfo.entries && rollbackInfo.entries.length > 0 && (
+                      <span className="text-[11px] text-muted-foreground font-mono hidden md:inline">
+                        {rollbackInfo.entries.map(e => `${e.image_id.substring(7, 19)}`).join(', ')}
+                      </span>
                     )}
-                    {t('docker.stacks.rollback')}
-                  </Button>
+                  </div>
                 )}
                 <Button
                   variant="ghost" size="icon-xs"
