@@ -84,7 +84,7 @@ export default function Layout() {
           )}
         </div>
 
-        <nav className={cn('flex-1 min-h-0 overflow-y-auto space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
+        <nav className={cn('flex-1 min-h-0 overflow-y-auto no-scrollbar space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
           {navItems.map((item) => (
             <NavLink
               key={item.to}
