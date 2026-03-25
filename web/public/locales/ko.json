@@ -283,6 +283,8 @@
       "rollingBack": "롤백 중...",
       "rollbackSuccess": "이전 버전으로 롤백되었습니다",
       "rollbackFailed": "롤백 실패",
+      "confirmRollback": "이전 이미지로 롤백하시겠습니까? 현재 실행 중인 컨테이너가 재생성됩니다.",
+      "rollbackDescription": "마지막 업데이트 전 이미지로 되돌립니다",
       "noRollback": "롤백 데이터 없음",
       "imageUpdates": "이미지 업데이트",
       "registryError": "레지스트리 확인 불가",

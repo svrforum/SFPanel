@@ -283,6 +283,8 @@
       "rollingBack": "Rolling back...",
       "rollbackSuccess": "Rolled back to previous version",
       "rollbackFailed": "Rollback failed",
+      "confirmRollback": "Roll back to the previous image? Running containers will be recreated.",
+      "rollbackDescription": "Reverts to the image before the last update",
       "noRollback": "No rollback data",
       "imageUpdates": "Image Updates",
       "registryError": "Registry check failed",
