@@ -195,6 +195,79 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 	}
 }
 
+// ComposeLogsWS streams compose project logs over a WebSocket connection.
+// Query params: tail (default 100), service (empty = all services).
+func ComposeLogsWS(composeManager *docker.ComposeManager, jwtSecret string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if err := authenticateWS(c, jwtSecret); err != nil {
+			return err
+		}
+
+		project := c.Param("project")
+		tail := 100
+		if t := c.QueryParam("tail"); t != "" {
+			if v, err := parseInt(t); err == nil && v > 0 {
+				tail = v
+			}
+		}
+		service := c.QueryParam("service")
+
+		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+		if err != nil {
+			return err
+		}
+		defer ws.Close()
+
+		ctx, cancel := context.WithCancel(c.Request().Context())
+		defer cancel()
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for {
+				if _, _, err := ws.ReadMessage(); err != nil {
+					cancel()
+					return
+				}
+			}
+		}()
+
+		writer := &safeWSWriter{conn: ws}
+
+		streamDone := make(chan struct{})
+		go func() {
+			defer close(streamDone)
+			err := composeManager.StreamLogs(ctx, project, tail, service, func(line string) {
+				if writeErr := writer.WriteMessage(websocket.TextMessage, []byte(line+"\n")); writeErr != nil {
+					cancel()
+				}
+			})
+			if err != nil {
+				writer.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()+"\n"))
+			}
+		}()
+
+		select {
+		case <-done:
+		case <-streamDone:
+		}
+		cancel()
+		return nil
+	}
+}
+
+// parseInt is a small helper for safe query param parsing.
+func parseInt(s string) (int, error) {
+	var n int
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, context.DeadlineExceeded
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n, nil
+}
+
 // ContainerExecWS creates an exec session in a container and bridges
 // it over a WebSocket for interactive terminal access.
 func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {

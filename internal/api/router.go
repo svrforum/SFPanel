@@ -394,6 +394,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		// Docker WebSocket routes (auth via query param token, cluster relay support)
 		e.GET("/ws/docker/containers/:id/logs", cluster.WrapEchoWSHandler(clusterMgr, handlers.ContainerLogsWS(dockerClient, cfg.Auth.JWTSecret)))
 		e.GET("/ws/docker/containers/:id/exec", cluster.WrapEchoWSHandler(clusterMgr, handlers.ContainerExecWS(dockerClient, cfg.Auth.JWTSecret)))
+		e.GET("/ws/docker/compose/:project/logs", cluster.WrapEchoWSHandler(clusterMgr, handlers.ComposeLogsWS(composeManager, cfg.Auth.JWTSecret)))
 	}
 
 	// WebSocket routes (auth via query param token, cluster relay support)
