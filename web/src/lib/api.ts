@@ -595,7 +595,7 @@ class ApiClient {
   }
 
   hasRollback(project: string) {
-    return this.request<{ has_rollback: boolean }>(`/docker/compose/${encodeURIComponent(project)}/has-rollback`)
+    return this.request<import('@/types/api').RollbackInfo>(`/docker/compose/${encodeURIComponent(project)}/has-rollback`)
   }
 
   // File Manager
