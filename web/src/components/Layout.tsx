@@ -68,9 +68,9 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen overflow-hidden bg-background">
       <aside className={cn(
-        'bg-card border-r border-border flex-col transition-all duration-300 ease-in-out shrink-0 hidden md:flex',
+        'bg-card border-r border-border flex-col transition-all duration-300 ease-in-out shrink-0 hidden md:flex h-screen',
         collapsed ? 'w-[68px]' : 'w-60'
       )}>
         <div className={cn('flex items-center py-6', collapsed ? 'px-3 justify-center' : 'px-5')}>
@@ -84,7 +84,7 @@ export default function Layout() {
           )}
         </div>
 
-        <nav className={cn('flex-1 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
+        <nav className={cn('flex-1 min-h-0 overflow-y-auto space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
           {navItems.map((item) => (
             <NavLink
               key={item.to}
@@ -106,6 +106,8 @@ export default function Layout() {
           ))}
         </nav>
 
+        {/* Sidebar bottom (fixed, never pushed off-screen) */}
+        <div className="shrink-0 mt-auto">
         {/* Cluster node selector */}
         <NodeSelector collapsed={collapsed} />
 
@@ -174,10 +176,11 @@ export default function Layout() {
             {!collapsed && t('layout.logout')}
           </button>
         </div>
+        </div>
       </aside>
 
       <main className={cn(
-        "flex-1",
+        "flex-1 min-h-0",
         isTerminal ? "p-0 overflow-hidden" : "overflow-auto px-5 py-4 pb-bottom-nav md:p-8 md:pb-8"
       )}>
         <Outlet key={nodeKey} />
