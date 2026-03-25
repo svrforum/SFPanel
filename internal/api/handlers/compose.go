@@ -284,7 +284,8 @@ func (h *ComposeHandler) RollbackStack(c echo.Context) error {
 // GET /api/v1/docker/compose/:project/has-rollback
 func (h *ComposeHandler) HasRollback(c echo.Context) error {
 	name := c.Param("project")
-	return response.OK(c, h.Compose.GetRollbackInfo(name))
+	ctx := c.Request().Context()
+	return response.OK(c, h.Compose.GetRollbackInfo(ctx, name))
 }
 
 // ProjectUpStream starts a compose project with SSE streaming output.

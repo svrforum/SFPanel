@@ -414,8 +414,12 @@ export default function DockerStacks() {
 
   const handleRollback = async () => {
     if (!selectedName) return
-    const details = rollbackInfo?.entries?.map(e => `  ${e.service}: ${e.image} → ${e.image_id.substring(7, 19)}`).join('\n') || ''
-    if (!confirm(`${t('docker.stacks.confirmRollback')}\n\n${details}`)) return
+    const detailLines = rollbackInfo?.details?.map(e => {
+      const prev = e.prev_image_id.substring(7, 19)
+      const curr = e.curr_image_id ? e.curr_image_id.substring(7, 19) : '?'
+      return `  ${e.service}: ${curr} → ${prev}`
+    }).join('\n') || ''
+    if (!confirm(`${t('docker.stacks.confirmRollback')}\n\n${detailLines}`)) return
     setRollingBack(true)
     try {
       await api.rollbackStack(selectedName)
@@ -665,7 +669,11 @@ export default function DockerStacks() {
                       className="rounded-xl border-[#f59e0b]/30 text-[#f59e0b] hover:bg-[#f59e0b]/10 hover:text-[#f59e0b]"
                       disabled={rollingBack}
                       onClick={handleRollback}
-                      title={rollbackInfo.entries?.map(e => `${e.service}: ${e.image} (${e.image_id.substring(7, 19)})`).join('\n')}
+                      title={rollbackInfo.details?.map(e => {
+                        const prev = e.prev_image_id.substring(7, 19)
+                        const curr = e.curr_image_id ? e.curr_image_id.substring(7, 19) : '?'
+                        return `${e.service}: ${curr} → ${prev}`
+                      }).join('\n')}
                     >
                       {rollingBack ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -674,9 +682,13 @@ export default function DockerStacks() {
                       )}
                       {t('docker.stacks.rollback')}
                     </Button>
-                    {rollbackInfo.entries && rollbackInfo.entries.length > 0 && (
+                    {rollbackInfo.details && rollbackInfo.details.length > 0 && (
                       <span className="text-[11px] text-muted-foreground font-mono hidden md:inline">
-                        {rollbackInfo.entries.map(e => `${e.image_id.substring(7, 19)}`).join(', ')}
+                        {rollbackInfo.details.map(e => {
+                          const prev = e.prev_image_id.substring(7, 19)
+                          const curr = e.curr_image_id ? e.curr_image_id.substring(7, 19) : '?'
+                          return `${curr} → ${prev}`
+                        }).join(', ')}
                       </span>
                     )}
                   </div>
