@@ -14,6 +14,8 @@ export default function ClusterOverview() {
   const [overview, setOverview] = useState<ClusterOverviewType | null>(null)
   const [events, setEvents] = useState<ClusterEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [updating, setUpdating] = useState(false)
+  const [updateLog, setUpdateLog] = useState<Array<{ node_name?: string; step?: string; message?: string; overall?: string }>>([])
 
   const loadData = useCallback(() => {
     Promise.all([
@@ -59,9 +61,6 @@ export default function ClusterOverview() {
       toast.error(String(err))
     }
   }
-
-  const [updating, setUpdating] = useState(false)
-  const [updateLog, setUpdateLog] = useState<Array<{ node_name?: string; step?: string; message?: string; overall?: string }>>([])
 
   const handleClusterUpdate = async (mode: 'rolling' | 'simultaneous') => {
     if (!confirm(t('cluster.overview.confirmUpdate'))) return

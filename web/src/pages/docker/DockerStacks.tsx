@@ -30,6 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import ComposeEditor from '@/components/ComposeEditor'
+import ComposeLogs from '@/components/ComposeLogs'
 import ContainerLogs from '@/components/ContainerLogs'
 import ContainerShell from '@/components/ContainerShell'
 
@@ -740,6 +741,10 @@ export default function DockerStacks() {
                   <Play className="h-3.5 w-3.5 mr-1" />
                   {t('docker.stacks.services')}
                 </TabsTrigger>
+                <TabsTrigger value="logs" className="rounded-lg text-[13px] data-[state=active]:text-[#f59e0b]">
+                  <ScrollText className="h-3.5 w-3.5 mr-1" />
+                  {t('docker.stacks.logs')}
+                </TabsTrigger>
                 <TabsTrigger value="editor" className="rounded-lg text-[13px] data-[state=active]:text-primary">
                   <FileCode className="h-3.5 w-3.5 mr-1" />
                   {t('docker.stacks.editor')}
@@ -869,6 +874,15 @@ export default function DockerStacks() {
                     </div>
                   ))}
                 </div>
+              </TabsContent>
+
+              <TabsContent value="logs">
+                {selectedName && (
+                  <ComposeLogs
+                    project={selectedName}
+                    serviceNames={services.map(s => s.name)}
+                  />
+                )}
               </TabsContent>
 
               <TabsContent value="editor">

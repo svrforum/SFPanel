@@ -285,7 +285,10 @@
       "rollbackFailed": "Rollback failed",
       "noRollback": "No rollback data",
       "imageUpdates": "Image Updates",
-      "registryError": "Registry check failed"
+      "registryError": "Registry check failed",
+      "allServices": "All services",
+      "lastLines": "Last",
+      "allLogs": "All"
     },
     "search": {
       "placeholder": "Search Docker Hub...",

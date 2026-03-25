@@ -589,6 +589,22 @@ func (m *ComposeManager) ServiceLogs(ctx context.Context, project, service strin
 	return m.runCompose(ctx, project, "logs", "--tail", fmt.Sprintf("%d", tail), "--no-color", service)
 }
 
+// StreamLogs streams compose project logs via a callback function.
+// If service is empty, logs from all services are streamed.
+func (m *ComposeManager) StreamLogs(ctx context.Context, project string, tail int, service string, onLine func(string)) error {
+	if tail <= 0 {
+		tail = 100
+	}
+	args := []string{"logs", "-f", "--tail", fmt.Sprintf("%d", tail), "--no-color"}
+	if service != "" {
+		if err := validateServiceName(service); err != nil {
+			return err
+		}
+		args = append(args, service)
+	}
+	return m.runComposeStream(ctx, project, onLine, args...)
+}
+
 // StackUpdateCheck holds the update status for an entire stack.
 type StackUpdateCheck struct {
 	Project    string              `json:"project"`
