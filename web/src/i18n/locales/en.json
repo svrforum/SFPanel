@@ -87,7 +87,8 @@
     "connectionFailed": "Unable to connect to server",
     "invalidUrl": "Enter a valid URL (https://... or http://...)",
     "recentServer": "Recent server",
-    "disconnect": "Disconnect"
+    "disconnect": "Disconnect",
+    "examples": "Examples:"
   },
   "setup": {
     "title": "SFPanel",

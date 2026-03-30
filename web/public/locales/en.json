@@ -77,6 +77,19 @@
     "signIn": "Sign In",
     "totpRequired": "Please enter your 2FA code"
   },
+  "connect": {
+    "title": "Connect to Server",
+    "subtitle": "Enter your SFPanel server URL",
+    "serverUrl": "Server URL",
+    "placeholder": "https://192.168.1.100:8443",
+    "connect": "Connect",
+    "connecting": "Connecting...",
+    "connectionFailed": "Unable to connect to server",
+    "invalidUrl": "Enter a valid URL (https://... or http://...)",
+    "recentServer": "Recent server",
+    "disconnect": "Disconnect",
+    "examples": "Examples:"
+  },
   "setup": {
     "title": "SFPanel",
     "subtitle": "Initial Setup \u2014 Create your admin account",
