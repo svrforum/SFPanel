@@ -5,23 +5,35 @@ import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Monitor } from 'lucide-react'
+import { Monitor, Globe } from 'lucide-react'
+import { LANGUAGE_KEY } from '@/i18n'
+
+const EXAMPLES = [
+  'https://192.168.1.100:8443',
+  'https://myserver.example.com:8443',
+  'http://10.0.0.5:8443',
+]
 
 export default function Connect() {
   const navigate = useNavigate()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [url, setUrl] = useState(localStorage.getItem('sfpanel_server_url') || '')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  const currentLang = i18n.language?.startsWith('ko') ? 'ko' : 'en'
+
+  const switchLanguage = (lang: string) => {
+    i18n.changeLanguage(lang)
+    localStorage.setItem(LANGUAGE_KEY, lang)
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
 
-    // Normalize URL: remove trailing slash
     let serverUrl = url.trim().replace(/\/+$/, '')
 
-    // Validate URL format
     try {
       const parsed = new URL(serverUrl)
       if (!['http:', 'https:'].includes(parsed.protocol)) {
@@ -37,14 +49,12 @@ export default function Connect() {
     setLoading(true)
 
     try {
-      // Test connection by hitting the health endpoint
       const res = await fetch(`${serverUrl}/api/v1/health`, {
         signal: AbortSignal.timeout(5000),
       })
       const json = await res.json()
       if (!json.success) throw new Error()
 
-      // Connection successful — save and proceed
       api.setServerUrl(serverUrl)
       navigate('/login', { replace: true })
     } catch {
@@ -55,7 +65,7 @@ export default function Connect() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background">
       <div className="w-full max-w-sm px-6">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 mb-4">
@@ -82,11 +92,26 @@ export default function Connect() {
                 type="url"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder={t('connect.placeholder')}
+                placeholder="https://192.168.1.100:8443"
                 required
                 autoFocus
                 className="h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30"
               />
+              <div className="space-y-1 pt-1">
+                <p className="text-[11px] text-muted-foreground">{t('connect.examples')}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {EXAMPLES.map((example) => (
+                    <button
+                      key={example}
+                      type="button"
+                      onClick={() => setUrl(example)}
+                      className="text-[11px] px-2 py-0.5 rounded-full bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <Button
@@ -98,6 +123,33 @@ export default function Connect() {
             </Button>
           </form>
         </div>
+      </div>
+
+      <div className="flex items-center gap-2 mt-6">
+        <Globe className="w-3.5 h-3.5 text-muted-foreground" />
+        <button
+          type="button"
+          onClick={() => switchLanguage('ko')}
+          className={`text-[12px] px-2 py-0.5 rounded-full transition-colors ${
+            currentLang === 'ko'
+              ? 'bg-primary/10 text-primary font-medium'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          한국어
+        </button>
+        <span className="text-muted-foreground text-[11px]">|</span>
+        <button
+          type="button"
+          onClick={() => switchLanguage('en')}
+          className={`text-[12px] px-2 py-0.5 rounded-full transition-colors ${
+            currentLang === 'en'
+              ? 'bg-primary/10 text-primary font-medium'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          English
+        </button>
       </div>
     </div>
   )

@@ -77,6 +77,19 @@
     "signIn": "로그인",
     "totpRequired": "2FA 인증 코드를 입력하세요"
   },
+  "connect": {
+    "title": "서버 접속",
+    "subtitle": "SFPanel 서버 URL을 입력하세요",
+    "serverUrl": "서버 URL",
+    "placeholder": "https://192.168.1.100:8443",
+    "connect": "접속",
+    "connecting": "접속 중...",
+    "connectionFailed": "서버에 접속할 수 없습니다",
+    "invalidUrl": "올바른 URL을 입력하세요 (https://... 또는 http://...)",
+    "recentServer": "최근 접속 서버",
+    "disconnect": "연결 해제",
+    "examples": "예시:"
+  },
   "setup": {
     "title": "SFPanel",
     "subtitle": "초기 설정 \u2014 관리자 계정 생성",

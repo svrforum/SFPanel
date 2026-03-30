@@ -71,7 +71,7 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
   const [checking, setChecking] = useState(!setupChecked)
 
   useEffect(() => {
-    if (setupChecked || location.pathname === '/setup') {
+    if (setupChecked || location.pathname === '/setup' || location.pathname === '/connect') {
       setChecking(false)
       return
     }
