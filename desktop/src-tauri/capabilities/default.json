@@ -1,0 +1,9 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for SFPanel desktop",
+  "windows": ["*"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open"
+  ]
+}
