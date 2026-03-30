@@ -45,6 +45,7 @@ const AppStore = lazy(() => import('@/pages/AppStore'))
 const Packages = lazy(() => import('@/pages/Packages'))
 const Settings = lazy(() => import('@/pages/Settings'))
 const Terminal = lazy(() => import('@/pages/Terminal'))
+const Connect = lazy(() => import('@/pages/Connect'))
 
 function PageLoader() {
   return (
@@ -102,72 +103,83 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function TauriGuard({ children }: { children: React.ReactNode }) {
+  const location = useLocation()
+  if (api.isTauri && !api.isConnected() && location.pathname !== '/connect') {
+    return <Navigate to="/connect" replace />
+  }
+  return <>{children}</>
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <SetupGuard>
-        <Suspense fallback={<PageLoader />}>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/setup" element={<Setup />} />
-            <Route path="/" element={
-              <ProtectedRoute>
-                <Layout />
-              </ProtectedRoute>
-            }>
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<Dashboard />} />
-              <Route path="docker" element={<Docker />}>
-                <Route index element={<Navigate to="stacks" replace />} />
-                <Route path="stacks" element={<DockerStacks />} />
-                <Route path="stacks/:name" element={<DockerStacks />} />
-                <Route path="containers" element={<DockerContainers />} />
-                <Route path="images" element={<DockerImages />} />
-                <Route path="volumes" element={<DockerVolumes />} />
-                <Route path="networks" element={<DockerNetworks />} />
+      <TauriGuard>
+        <SetupGuard>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route path="/connect" element={<Connect />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/setup" element={<Setup />} />
+              <Route path="/" element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }>
+                <Route index element={<Navigate to="/dashboard" replace />} />
+                <Route path="dashboard" element={<Dashboard />} />
+                <Route path="docker" element={<Docker />}>
+                  <Route index element={<Navigate to="stacks" replace />} />
+                  <Route path="stacks" element={<DockerStacks />} />
+                  <Route path="stacks/:name" element={<DockerStacks />} />
+                  <Route path="containers" element={<DockerContainers />} />
+                  <Route path="images" element={<DockerImages />} />
+                  <Route path="volumes" element={<DockerVolumes />} />
+                  <Route path="networks" element={<DockerNetworks />} />
+                </Route>
+                <Route path="cluster" element={<Cluster />}>
+                  <Route index element={<Navigate to="overview" replace />} />
+                  <Route path="overview" element={<ClusterOverview />} />
+                  <Route path="nodes" element={<ClusterNodes />} />
+                  <Route path="tokens" element={<ClusterTokens />} />
+                </Route>
+                <Route path="appstore" element={<AppStore />} />
+                <Route path="files" element={<Files />} />
+                <Route path="cron" element={<CronJobs />} />
+                <Route path="logs" element={<Logs />} />
+                <Route path="processes" element={<Processes />} />
+                <Route path="services" element={<Services />} />
+                <Route path="network" element={<Network />}>
+                  <Route index element={<Navigate to="interfaces" replace />} />
+                  <Route path="interfaces" element={<NetworkInterfaces />} />
+                  <Route path="wireguard" element={<NetworkWireGuard />} />
+                  <Route path="tailscale" element={<NetworkTailscale />} />
+                </Route>
+                <Route path="disk" element={<Disk />}>
+                  <Route index element={<Navigate to="overview" replace />} />
+                  <Route path="overview" element={<DiskOverview />} />
+                  <Route path="partitions" element={<DiskPartitions />} />
+                  <Route path="filesystems" element={<DiskFilesystems />} />
+                  <Route path="lvm" element={<DiskLVM />} />
+                  <Route path="raid" element={<DiskRAID />} />
+                  <Route path="swap" element={<DiskSwap />} />
+                </Route>
+                <Route path="firewall" element={<Firewall />}>
+                  <Route index element={<Navigate to="rules" replace />} />
+                  <Route path="rules" element={<FirewallRules />} />
+                  <Route path="ports" element={<FirewallPorts />} />
+                  <Route path="fail2ban" element={<FirewallFail2ban />} />
+                  <Route path="docker" element={<FirewallDocker />} />
+                  <Route path="logs" element={<FirewallLogs />} />
+                </Route>
+                <Route path="packages" element={<Packages />} />
+                <Route path="terminal" element={<Terminal />} />
+                <Route path="settings" element={<Settings />} />
               </Route>
-              <Route path="cluster" element={<Cluster />}>
-                <Route index element={<Navigate to="overview" replace />} />
-                <Route path="overview" element={<ClusterOverview />} />
-                <Route path="nodes" element={<ClusterNodes />} />
-                <Route path="tokens" element={<ClusterTokens />} />
-              </Route>
-              <Route path="appstore" element={<AppStore />} />
-              <Route path="files" element={<Files />} />
-              <Route path="cron" element={<CronJobs />} />
-              <Route path="logs" element={<Logs />} />
-              <Route path="processes" element={<Processes />} />
-              <Route path="services" element={<Services />} />
-              <Route path="network" element={<Network />}>
-                <Route index element={<Navigate to="interfaces" replace />} />
-                <Route path="interfaces" element={<NetworkInterfaces />} />
-                <Route path="wireguard" element={<NetworkWireGuard />} />
-                <Route path="tailscale" element={<NetworkTailscale />} />
-              </Route>
-              <Route path="disk" element={<Disk />}>
-                <Route index element={<Navigate to="overview" replace />} />
-                <Route path="overview" element={<DiskOverview />} />
-                <Route path="partitions" element={<DiskPartitions />} />
-                <Route path="filesystems" element={<DiskFilesystems />} />
-                <Route path="lvm" element={<DiskLVM />} />
-                <Route path="raid" element={<DiskRAID />} />
-                <Route path="swap" element={<DiskSwap />} />
-              </Route>
-              <Route path="firewall" element={<Firewall />}>
-                <Route index element={<Navigate to="rules" replace />} />
-                <Route path="rules" element={<FirewallRules />} />
-                <Route path="ports" element={<FirewallPorts />} />
-                <Route path="fail2ban" element={<FirewallFail2ban />} />
-                <Route path="docker" element={<FirewallDocker />} />
-                <Route path="logs" element={<FirewallLogs />} />
-              </Route>
-              <Route path="packages" element={<Packages />} />
-              <Route path="terminal" element={<Terminal />} />
-              <Route path="settings" element={<Settings />} />
-            </Route>
-          </Routes>
-        </Suspense>
-      </SetupGuard>
+            </Routes>
+          </Suspense>
+        </SetupGuard>
+      </TauriGuard>
       <Toaster />
     </BrowserRouter>
   )
