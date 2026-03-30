@@ -84,9 +84,7 @@ jobs:
           Copy-Item "desktop\src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.exe" dist\ -ErrorAction SilentlyContinue
           $exe = "desktop\src-tauri\target\${{ matrix.target }}\release\sfpanel-desktop.exe"
           if (Test-Path $exe) {
-            Copy-Item $exe "dist\SFPanel.exe"
-            Compress-Archive -Path "dist\SFPanel.exe" -DestinationPath "dist\SFPanel_portable_windows_amd64.zip"
-            Remove-Item "dist\SFPanel.exe"
+            Copy-Item $exe "dist\SFPanel_portable_windows_amd64.exe"
           }
 
       - name: Collect artifacts (macOS)
