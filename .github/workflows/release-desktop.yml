@@ -85,6 +85,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist
           Copy-Item "desktop\src-tauri\target\${{ matrix.target }}\release\bundle\msi\*.msi" dist\ -ErrorAction SilentlyContinue
           Copy-Item "desktop\src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.exe" dist\ -ErrorAction SilentlyContinue
+          $exe = "desktop\src-tauri\target\${{ matrix.target }}\release\SFPanel.exe"
+          if (Test-Path $exe) {
+            Compress-Archive -Path $exe -DestinationPath "dist\SFPanel_portable_windows_amd64.zip"
+          }
 
       - name: Collect artifacts (macOS)
         if: contains(matrix.platform, 'macos')
