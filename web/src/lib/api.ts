@@ -107,7 +107,7 @@ class ApiClient {
   }
 
   get isTauri(): boolean {
-    return !!(window as Record<string, unknown>).__TAURI_INTERNALS__
+    return '__TAURI_INTERNALS__' in window
   }
 
   isConnected(): boolean {
