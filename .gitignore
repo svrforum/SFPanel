@@ -48,5 +48,12 @@ screenshots/
 # Claude Code
 CLAUDE.md
 
+# Desktop (Tauri)
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/icons/android/
+desktop/src-tauri/icons/ios/
+
 # Binary
 /sfpanel
