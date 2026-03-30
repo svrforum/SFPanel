@@ -45,15 +45,17 @@ import type {
   ClusterInitResponse,
 } from '@/types/api'
 
-const API_BASE = '/api/v1'
+const API_PATH = '/api/v1'
 
 class ApiClient {
   private token: string | null = null
   private _currentNode: string | null = null
+  private _serverUrl: string | null = null
 
   constructor() {
     this.token = localStorage.getItem('token')
     this._currentNode = localStorage.getItem('sfpanel_current_node')
+    this._serverUrl = localStorage.getItem('sfpanel_server_url')
   }
 
   get currentNode(): string | null {
@@ -87,6 +89,31 @@ class ApiClient {
     return !!this.token
   }
 
+  get serverUrl(): string | null {
+    return this._serverUrl
+  }
+
+  setServerUrl(url: string | null) {
+    this._serverUrl = url
+    if (url) {
+      localStorage.setItem('sfpanel_server_url', url)
+    } else {
+      localStorage.removeItem('sfpanel_server_url')
+    }
+  }
+
+  get apiBase(): string {
+    return this._serverUrl ? `${this._serverUrl}${API_PATH}` : API_PATH
+  }
+
+  get isTauri(): boolean {
+    return !!(window as Record<string, unknown>).__TAURI_INTERNALS__
+  }
+
+  isConnected(): boolean {
+    return !this.isTauri || !!this._serverUrl
+  }
+
   private async request<T>(path: string, options: RequestInit & { local?: boolean } = {}): Promise<T> {
     const { local, ...fetchOptions } = options
     const headers: Record<string, string> = {
@@ -98,7 +125,7 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    let url = `${API_BASE}${path}`
+    let url = `${this.apiBase}${path}`
     if (this._currentNode && !local) {
       const separator = url.includes('?') ? '&' : '?'
       url += `${separator}node=${encodeURIComponent(this._currentNode)}`
@@ -111,7 +138,7 @@ class ApiClient {
 
     if (res.status === 401 && !path.startsWith('/auth/')) {
       this.clearToken()
-      window.location.href = '/login'
+      window.location.href = this.isTauri ? '/connect' : '/login'
       throw new Error('Session expired')
     }
 
@@ -249,7 +276,7 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const res = await fetch(`${API_BASE}/system/update`, {
+    const res = await fetch(`${this.apiBase}/system/update`, {
       method: 'POST',
       headers,
     })
@@ -278,7 +305,7 @@ class ApiClient {
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`
     }
-    const res = await fetch(`${API_BASE}/system/backup`, {
+    const res = await fetch(`${this.apiBase}/system/backup`, {
       method: 'POST',
       headers,
     })
@@ -293,7 +320,7 @@ class ApiClient {
     }
     const formData = new FormData()
     formData.append('backup', file)
-    const res = await fetch(`${API_BASE}/system/restore`, {
+    const res = await fetch(`${this.apiBase}/system/restore`, {
       method: 'POST',
       headers,
       body: formData,
@@ -377,7 +404,7 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const res = await fetch(`${API_BASE}/docker/images/pull`, {
+    const res = await fetch(`${this.apiBase}/docker/images/pull`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ image: imageName }),
@@ -500,7 +527,7 @@ class ApiClient {
     const nodeParam = this._currentNode ? `?node=${this._currentNode}` : ''
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`
-    const res = await fetch(`${API_BASE}/docker/compose/${encodeURIComponent(project)}/up-stream${nodeParam}`, {
+    const res = await fetch(`${this.apiBase}/docker/compose/${encodeURIComponent(project)}/up-stream${nodeParam}`, {
       method: 'POST', headers,
     })
     if (!res.ok) throw new Error('Deploy failed')
@@ -514,7 +541,7 @@ class ApiClient {
     const nodeParam = this._currentNode ? `?node=${this._currentNode}` : ''
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`
-    const res = await fetch(`${API_BASE}/docker/compose/${encodeURIComponent(project)}/update-stream${nodeParam}`, {
+    const res = await fetch(`${this.apiBase}/docker/compose/${encodeURIComponent(project)}/update-stream${nodeParam}`, {
       method: 'POST', headers,
     })
     if (!res.ok) throw new Error('Update failed')
@@ -635,7 +662,7 @@ class ApiClient {
   uploadFile(destPath: string, file: File, onProgress?: (percent: number) => void): Promise<void> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
-      xhr.open('POST', `${API_BASE}/files/upload`)
+      xhr.open('POST', `${this.apiBase}/files/upload`)
 
       if (this.token) {
         xhr.setRequestHeader('Authorization', `Bearer ${this.token}`)
@@ -675,7 +702,7 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const res = await fetch(`${API_BASE}/files/download?path=${encodeURIComponent(path)}`, { headers })
+    const res = await fetch(`${this.apiBase}/files/download?path=${encodeURIComponent(path)}`, { headers })
 
     if (!res.ok) {
       throw new Error(`Download failed (${res.status})`)
@@ -1442,7 +1469,7 @@ class ApiClient {
     return new Promise((resolve, reject) => {
       const token = this.getToken()
       if (!token) return reject(new Error('No token'))
-      fetch(`${API_BASE}/cluster/update`, {
+      fetch(`${this.apiBase}/cluster/update`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode }),
@@ -1470,7 +1497,16 @@ class ApiClient {
 
   // Build a WebSocket URL with auth token and optional node parameter
   buildWsUrl(path: string, extraParams?: Record<string, string>): string {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    let host: string
+    let protocol: string
+    if (this._serverUrl) {
+      const url = new URL(this._serverUrl)
+      host = url.host
+      protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    } else {
+      host = window.location.host
+      protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    }
     const params = new URLSearchParams()
     if (this.token) params.set('token', this.token)
     if (this._currentNode) params.set('node', this._currentNode)
@@ -1479,7 +1515,7 @@ class ApiClient {
         params.set(k, v)
       }
     }
-    return `${protocol}//${window.location.host}${path}?${params.toString()}`
+    return `${protocol}//${host}${path}?${params.toString()}`
   }
 }
 
