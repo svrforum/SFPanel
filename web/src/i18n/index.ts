@@ -1,19 +1,20 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
-import HttpBackend from 'i18next-http-backend'
+import ko from './locales/ko.json'
+import en from './locales/en.json'
 
 const LANGUAGE_KEY = 'sfpanel_language'
 
 i18n
-  .use(HttpBackend)
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
     fallbackLng: 'en',
     supportedLngs: ['en', 'ko'],
-    backend: {
-      loadPath: '/locales/{{lng}}.json',
+    resources: {
+      ko: { translation: ko },
+      en: { translation: en },
     },
     detection: {
       order: ['localStorage', 'navigator'],
