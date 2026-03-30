@@ -53,12 +53,13 @@ export default function Connect() {
         signal: AbortSignal.timeout(5000),
       })
       const json = await res.json()
-      if (!json.success) throw new Error()
+      if (!json.success) throw new Error('Server returned error')
 
       api.setServerUrl(serverUrl)
       navigate('/login', { replace: true })
-    } catch {
-      setError(t('connect.connectionFailed'))
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      setError(`${t('connect.connectionFailed')}\n${detail}`)
     } finally {
       setLoading(false)
     }
@@ -78,7 +79,7 @@ export default function Connect() {
         <div className="bg-card rounded-2xl card-shadow-lg p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
-              <div className="bg-destructive/8 text-destructive text-sm p-3 rounded-xl text-center font-medium">
+              <div className="bg-destructive/8 text-destructive text-sm p-3 rounded-xl text-center font-medium whitespace-pre-line">
                 {error}
               </div>
             )}
