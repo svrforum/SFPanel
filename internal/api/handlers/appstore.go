@@ -78,6 +78,9 @@ type appStoreAppDetail struct {
 type appStoreInstallRecord struct {
 	Version     string `json:"version"`
 	InstalledAt string `json:"installed_at"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Icon        string `json:"icon,omitempty"`
 }
 
 // SSE event payload (typed — avoids map[string]interface{})
@@ -100,6 +103,9 @@ type installedAppResponse struct {
 	ID          string `json:"id"`
 	Version     string `json:"version"`
 	InstalledAt string `json:"installed_at"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Icon        string `json:"icon,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +157,14 @@ func (h *AppStoreHandler) ensureCache() error {
 	if valid {
 		return nil
 	}
+	// Try loading from DB first (fast restart)
+	h.loadCacheFromDB()
+	h.mu.RLock()
+	valid = !h.cachedAt.IsZero() && time.Since(h.cachedAt) < cacheTTL
+	h.mu.RUnlock()
+	if valid {
+		return nil
+	}
 	return h.refreshCache()
 }
 
@@ -186,77 +200,115 @@ func (h *AppStoreHandler) refreshCache() error {
 		return fmt.Errorf("parse index: %w", err)
 	}
 
-	// 3. Fetch each app's metadata.json (raw URL)
-	var apps []AppStoreMeta
-	for _, appID := range appIDs {
-		metaURL := appStoreBaseURL + "apps/" + appID + "/metadata.json"
-		metaData, err := h.httpGet(metaURL)
-		if err != nil {
-			log.Printf("[appstore] skip %s: fetch error: %v", appID, err)
-			continue
-		}
-		var meta AppStoreMeta
-		if err := json.Unmarshal(metaData, &meta); err != nil {
-			log.Printf("[appstore] skip %s: parse error: %v", appID, err)
-			continue
-		}
-		if meta.ID == "" {
-			meta.ID = appID
-		}
-		// Fetch latest release version from source GitHub repo (raw redirect, no API)
-		if meta.Source != "" && strings.Contains(meta.Source, "github.com") {
-			if ver := h.fetchLatestVersion(meta.Source); ver != "" {
-				meta.Version = ver
+	// 3. Fetch each app's metadata.json in parallel (max 5 concurrent)
+	type metaResult struct {
+		meta AppStoreMeta
+		ok   bool
+	}
+	results := make([]metaResult, len(appIDs))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 5) // max 5 concurrent fetches
+
+	for i, appID := range appIDs {
+		wg.Add(1)
+		go func(idx int, id string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			metaURL := appStoreBaseURL + "apps/" + id + "/metadata.json"
+			metaData, err := h.httpGet(metaURL)
+			if err != nil {
+				log.Printf("[appstore] skip %s: fetch error: %v", id, err)
+				return
 			}
+			var meta AppStoreMeta
+			if err := json.Unmarshal(metaData, &meta); err != nil {
+				log.Printf("[appstore] skip %s: parse error: %v", id, err)
+				return
+			}
+			if meta.ID == "" {
+				meta.ID = id
+			}
+			results[idx] = metaResult{meta: meta, ok: true}
+		}(i, appID)
+	}
+	wg.Wait()
+
+	var apps []AppStoreMeta
+	for _, r := range results {
+		if r.ok {
+			apps = append(apps, r.meta)
 		}
-		apps = append(apps, meta)
 	}
 
 	h.mu.Lock()
 	h.categories = cats
 	h.apps = apps
 	h.cachedAt = time.Now()
+	// Persist cache to DB for fast restart
+	go h.persistCache()
 	h.mu.Unlock()
 	return nil
 }
 
-// fetchLatestVersion gets the latest release tag from a GitHub repo
-// using the releases/latest redirect (no API rate limit).
-func (h *AppStoreHandler) fetchLatestVersion(source string) string {
-	repoPath := strings.TrimSuffix(strings.TrimPrefix(source, "https://github.com/"), "/")
-	if repoPath == "" || strings.Count(repoPath, "/") != 1 {
-		return ""
-	}
-	// Use redirect-based approach: GitHub redirects /releases/latest to /releases/tag/vX.Y.Z
-	url := "https://github.com/" + repoPath + "/releases/latest"
-	client := &http.Client{
-		Timeout: httpTimeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse // don't follow redirect
-		},
-	}
-	resp, err := client.Get(url)
+func (h *AppStoreHandler) persistCache() {
+	h.mu.RLock()
+	cacheData := struct {
+		Categories []AppStoreCategory `json:"categories"`
+		Apps       []AppStoreMeta     `json:"apps"`
+		CachedAt   time.Time          `json:"cached_at"`
+	}{h.categories, h.apps, h.cachedAt}
+	h.mu.RUnlock()
+
+	data, err := json.Marshal(cacheData)
 	if err != nil {
-		return ""
+		return
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusFound && resp.StatusCode != http.StatusMovedPermanently {
-		return ""
+	_, _ = h.DB.Exec(
+		"INSERT INTO settings (key, value) VALUES ('appstore_cache', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+		string(data),
+	)
+}
+
+func (h *AppStoreHandler) loadCacheFromDB() {
+	var value string
+	err := h.DB.QueryRow("SELECT value FROM settings WHERE key = 'appstore_cache'").Scan(&value)
+	if err != nil {
+		return
 	}
-	loc := resp.Header.Get("Location")
-	// Location: https://github.com/org/repo/releases/tag/v1.2.3
-	if idx := strings.LastIndex(loc, "/tag/"); idx != -1 {
-		tag := loc[idx+5:]
-		return strings.TrimPrefix(tag, "v")
+	var cacheData struct {
+		Categories []AppStoreCategory `json:"categories"`
+		Apps       []AppStoreMeta     `json:"apps"`
+		CachedAt   time.Time          `json:"cached_at"`
 	}
-	return ""
+	if err := json.Unmarshal([]byte(value), &cacheData); err != nil {
+		return
+	}
+	if time.Since(cacheData.CachedAt) < cacheTTL {
+		h.mu.Lock()
+		h.categories = cacheData.Categories
+		h.apps = cacheData.Apps
+		h.cachedAt = cacheData.CachedAt
+		h.mu.Unlock()
+	}
 }
 
 func (h *AppStoreHandler) isInstalled(appID string) bool {
 	key := "appstore_installed_" + appID
 	var value string
 	err := h.DB.QueryRow("SELECT value FROM settings WHERE key = ?", key).Scan(&value)
-	return err == nil && value != ""
+	if err != nil || value == "" {
+		return false
+	}
+	// Verify compose file still exists on disk
+	composePath := filepath.Join(h.ComposePath, appID, "docker-compose.yml")
+	if _, err := os.Stat(composePath); os.IsNotExist(err) {
+		// Stack was removed externally — clean up the stale record
+		_, _ = h.DB.Exec("DELETE FROM settings WHERE key = ?", key)
+		return false
+	}
+	return true
 }
 
 func generatePassword(length int) string {
@@ -442,6 +494,17 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "App not found")
 	}
 
+	// Fetch compose data once (used for both pre-flight and installation)
+	var composeData []byte
+	if !req.Advanced {
+		composeURL := appStoreBaseURL + "apps/" + id + "/docker-compose.yml"
+		var err error
+		composeData, err = h.httpGet(composeURL)
+		if err != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError, "Failed to fetch compose: "+err.Error())
+		}
+	}
+
 	// Pre-flight checks (return JSON errors before SSE starts)
 	stackDir := filepath.Join(h.ComposePath, id)
 
@@ -457,7 +520,12 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 	}
 
 	// 3. Check container name conflicts
-	nameConflicts := h.checkContainerNameConflicts(id)
+	var nameConflicts []string
+	if composeData != nil {
+		nameConflicts = h.checkContainerNameConflicts(composeData)
+	} else if req.Advanced && req.Compose != "" {
+		nameConflicts = h.checkContainerNameConflicts([]byte(req.Compose))
+	}
 	if len(nameConflicts) > 0 {
 		return response.Fail(c, http.StatusConflict, response.ErrContainerConflict, "Container name conflict: "+strings.Join(nameConflicts, ", "))
 	}
@@ -515,16 +583,8 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 			send("prepare", ".env file written", false, true)
 		}
 	} else {
-		// Simple mode: fetch compose from GitHub + build .env from form values
-		send("fetch", "Downloading docker-compose.yml...", false, true)
-		composeURL := appStoreBaseURL + "apps/" + id + "/docker-compose.yml"
-		composeData, err := h.httpGet(composeURL)
-		if err != nil {
-			cleanup()
-			send("fetch", "Failed to fetch compose file: "+err.Error(), true, false)
-			return nil
-		}
-		send("fetch", "docker-compose.yml downloaded", false, true)
+		// Simple mode: use pre-fetched compose data
+		send("fetch", "docker-compose.yml ready", false, true)
 
 		if err := os.WriteFile(composePath, composeData, 0644); err != nil {
 			cleanup()
@@ -580,6 +640,9 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 	record := appStoreInstallRecord{
 		Version:     found.Version,
 		InstalledAt: time.Now().UTC().Format(time.RFC3339),
+		Name:        found.Name,
+		Description: found.Description["en"],
+		Icon:        found.Icon,
 	}
 	recordJSON, _ := json.Marshal(record)
 	settingsKey := "appstore_installed_" + id
@@ -673,19 +736,12 @@ func isPortInUse(port int) bool {
 	return len(strings.TrimSpace(string(out))) > 0
 }
 
-// checkContainerNameConflicts checks if any containers from this app's compose
-// would conflict with existing containers (by fetching compose and parsing container_name).
-func (h *AppStoreHandler) checkContainerNameConflicts(appID string) []string {
-	// Fetch the compose file to parse container names
-	composeURL := appStoreBaseURL + "apps/" + appID + "/docker-compose.yml"
-	data, err := h.httpGet(composeURL)
-	if err != nil {
-		return nil // can't check, let installation handle it
-	}
-
+// checkContainerNameConflicts checks if any containers from the compose data
+// would conflict with existing containers (by parsing container_name from YAML).
+func (h *AppStoreHandler) checkContainerNameConflicts(composeData []byte) []string {
 	// Simple regex to extract container_name values from YAML
 	re := regexp.MustCompile(`(?m)^\s+container_name:\s*(\S+)`)
-	matches := re.FindAllSubmatch(data, -1)
+	matches := re.FindAllSubmatch(composeData, -1)
 	if len(matches) == 0 {
 		return nil
 	}
@@ -735,6 +791,9 @@ func (h *AppStoreHandler) GetInstalled(c echo.Context) error {
 			ID:          appID,
 			Version:     record.Version,
 			InstalledAt: record.InstalledAt,
+			Name:        record.Name,
+			Description: record.Description,
+			Icon:        record.Icon,
 		})
 	}
 
