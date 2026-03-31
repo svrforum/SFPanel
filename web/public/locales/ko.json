@@ -1871,6 +1871,7 @@
     "simpleMode": "간편 설치",
     "advancedMode": "고급 설치",
     "portConflict": "포트가 이미 사용 중입니다",
+    "portInUse": "⚠️ 포트 {{port}} 사용 중 → {{suggested}}로 자동 변경됨",
     "containerConflict": "같은 이름의 컨테이너가 이미 존재합니다",
     "stageFetch": "다운로드",
     "stagePrepare": "준비",

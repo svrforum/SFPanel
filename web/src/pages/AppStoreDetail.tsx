@@ -185,12 +185,29 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
       const data = await api.getAppStoreApp(appId)
       setDetail(data)
 
+      // Build port conflict map from port_status
+      const portSuggestions = new Map<number, number>()
+      if (data.port_status) {
+        for (const ps of data.port_status) {
+          if (ps.in_use && ps.suggested) {
+            portSuggestions.set(ps.port, ps.suggested)
+          }
+        }
+      }
+
       const defaults: Record<string, string> = {}
       for (const envDef of data.app.env) {
         if (envDef.generate && envDef.type === 'password') {
           defaults[envDef.key] = generatePassword()
         } else if (envDef.default !== undefined) {
-          defaults[envDef.key] = envDef.default
+          // Auto-replace conflicting port with suggested free port
+          if (envDef.type === 'port') {
+            const port = parseInt(envDef.default, 10)
+            const suggested = portSuggestions.get(port)
+            defaults[envDef.key] = suggested ? String(suggested) : envDef.default
+          } else {
+            defaults[envDef.key] = envDef.default
+          }
         } else {
           defaults[envDef.key] = ''
         }
@@ -589,14 +606,27 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                             )}
                           </div>
                         ) : (
-                          <Input
-                            type={envDef.type === 'port' ? 'number' : 'text'}
-                            className="h-9 rounded-xl bg-background border-border text-[13px]"
-                            value={envValues[envDef.key] || ''}
-                            onChange={(e) =>
-                              setEnvValues((prev) => ({ ...prev, [envDef.key]: e.target.value }))
-                            }
-                          />
+                          <div>
+                            <Input
+                              type={envDef.type === 'port' ? 'number' : 'text'}
+                              className="h-9 rounded-xl bg-background border-border text-[13px]"
+                              value={envValues[envDef.key] || ''}
+                              onChange={(e) =>
+                                setEnvValues((prev) => ({ ...prev, [envDef.key]: e.target.value }))
+                              }
+                            />
+                            {envDef.type === 'port' && detail?.port_status && (() => {
+                              const ps = detail.port_status?.find(p => p.port === parseInt(envDef.default || '0', 10))
+                              if (ps?.in_use) {
+                                return (
+                                  <p className="text-[11px] text-[#f59e0b] mt-1">
+                                    {t('appStore.portInUse', { port: ps.port, suggested: ps.suggested || '' })}
+                                  </p>
+                                )
+                              }
+                              return null
+                            })()}
+                          </div>
                         )}
                       </div>
                     ))}
