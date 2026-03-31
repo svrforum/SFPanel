@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FormEvent } from 'react'
+import { useState, useRef, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
@@ -14,22 +14,7 @@ const EXAMPLES = [
   'http://10.0.0.5:8443',
 ]
 
-// Tauri HTTP 플러그인 로딩 (CORS 우회용)
 const isTauri = '__TAURI_INTERNALS__' in window
-let pluginFetchPromise: Promise<typeof globalThis.fetch> | null = null
-if (isTauri) {
-  pluginFetchPromise = import('@tauri-apps/plugin-http')
-    .then((mod) => mod.fetch as typeof globalThis.fetch)
-    .catch(() => globalThis.fetch)
-}
-
-async function safeFetch(input: string, init?: RequestInit): Promise<Response> {
-  if (pluginFetchPromise) {
-    const fn = await pluginFetchPromise
-    return fn(input, init)
-  }
-  return globalThis.fetch(input, init)
-}
 
 export default function Connect() {
   const navigate = useNavigate()
@@ -39,23 +24,14 @@ export default function Connect() {
   const [loading, setLoading] = useState(false)
   const [showDiag, setShowDiag] = useState(false)
   const [diagLog, setDiagLog] = useState<string[]>([])
-  const [pluginReady, setPluginReady] = useState(!isTauri)
   const logRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (pluginFetchPromise) {
-      pluginFetchPromise.then(() => setPluginReady(true))
-    }
-  }, [])
-
-  useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight
-    }
-  }, [diagLog])
-
   const addLog = (msg: string) => {
-    setDiagLog((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`])
+    setDiagLog((prev) => {
+      const next = [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]
+      setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight }, 0)
+      return next
+    })
   }
 
   const currentLang = i18n.language?.startsWith('ko') ? 'ko' : 'en'
@@ -88,7 +64,7 @@ export default function Connect() {
 
     setLoading(true)
     try {
-      const res = await safeFetch(`${serverUrl}/api/v1/health`, {
+      const res = await fetch(`${serverUrl}/api/v1/health`, {
         signal: AbortSignal.timeout(5000),
       })
       const json = await res.json()
@@ -114,25 +90,23 @@ export default function Connect() {
     }
 
     addLog(`🔍 환경: ${isTauri ? 'Tauri 데스크톱' : '웹 브라우저'}`)
-    addLog(`🔍 HTTP 플러그인: ${pluginReady ? '로드됨' : '미로드'}`)
     addLog(`🔍 대상: ${serverUrl}`)
 
-    // Step 1: 플러그인 fetch 테스트
-    addLog('--- Step 1: HTTP 요청 테스트 ---')
+    addLog('--- Health Check 테스트 ---')
     try {
       addLog(`📡 ${serverUrl}/api/v1/health 요청 중...`)
-      const res = await safeFetch(`${serverUrl}/api/v1/health`, {
+      const res = await fetch(`${serverUrl}/api/v1/health`, {
         signal: AbortSignal.timeout(5000),
       })
       addLog(`✅ 응답 수신: HTTP ${res.status} ${res.statusText}`)
       const text = await res.text()
-      addLog(`📄 응답 본문: ${text.substring(0, 200)}`)
+      addLog(`📄 응답: ${text.substring(0, 200)}`)
       try {
         const json = JSON.parse(text)
         if (json.success) {
-          addLog('✅ Health check 성공!')
+          addLog('✅ Health check 성공! 접속 버튼으로 연결하세요.')
         } else {
-          addLog(`❌ 서버가 실패 응답 반환: ${JSON.stringify(json)}`)
+          addLog(`❌ 서버 실패 응답: ${JSON.stringify(json)}`)
         }
       } catch {
         addLog('❌ JSON 파싱 실패 — 서버 응답이 JSON이 아닙니다')
@@ -142,24 +116,15 @@ export default function Connect() {
       addLog(`❌ 요청 실패: ${msg}`)
 
       if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-        addLog('💡 원인: CORS 차단 또는 네트워크 연결 불가')
-        addLog('💡 서버가 최신 버전(v0.6.0+)인지 확인하세요')
+        addLog('💡 CORS 차단 또는 네트워크 연결 불가')
+        addLog('💡 서버가 v0.6.0 이상인지 확인하세요')
       } else if (msg.includes('TimeoutError') || msg.includes('timed out')) {
-        addLog('💡 원인: 서버 응답 없음 (타임아웃 5초)')
+        addLog('💡 서버 응답 없음 (5초 타임아웃)')
         addLog('💡 서버 주소와 포트를 확인하세요')
+      } else if (msg.includes('not allowed')) {
+        addLog('💡 Tauri 보안 정책에 의한 차단')
+        addLog('💡 앱 업데이트가 필요합니다')
       }
-    }
-
-    // Step 2: globalThis.fetch 직접 테스트
-    addLog('--- Step 2: 브라우저 기본 fetch 테스트 ---')
-    try {
-      const res = await globalThis.fetch(`${serverUrl}/api/v1/health`, {
-        signal: AbortSignal.timeout(5000),
-      })
-      addLog(`✅ 기본 fetch 성공: HTTP ${res.status}`)
-    } catch (err) {
-      const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-      addLog(`❌ 기본 fetch 실패: ${msg}`)
     }
 
     addLog('--- 진단 완료 ---')
@@ -218,9 +183,9 @@ export default function Connect() {
             <Button
               type="submit"
               className="w-full h-11 rounded-xl font-semibold text-sm transition-all duration-200 hover:brightness-110"
-              disabled={loading || !pluginReady}
+              disabled={loading}
             >
-              {!pluginReady ? '플러그인 로딩 중...' : loading ? t('connect.connecting') : t('connect.connect')}
+              {loading ? t('connect.connecting') : t('connect.connect')}
             </Button>
           </form>
 
