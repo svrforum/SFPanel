@@ -22,7 +22,8 @@ import (
 func isStreamingEndpoint(path string) bool {
 	return strings.HasSuffix(path, "/up-stream") ||
 		strings.HasSuffix(path, "/update-stream") ||
-		strings.HasSuffix(path, "/system/update")
+		strings.HasSuffix(path, "/system/update") ||
+		(strings.Contains(path, "/appstore/apps/") && strings.HasSuffix(path, "/install"))
 }
 
 // newRemoteHTTPClient creates an HTTP client for remote node communication.
@@ -124,66 +125,78 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 		return nil
 	}
 
-	// Remote doesn't support SSE — fallback to regular endpoint
-	resp.Body.Close()
-
-	// Determine fallback path: /up-stream → /up, /update-stream → /update
-	fallbackPath := strings.Replace(req.URL.Path, "-stream", "", 1)
-	fallbackURL := baseURL + fallbackPath + queryStr
-
-	httpReq, err = http.NewRequestWithContext(ctx, req.Method, fallbackURL, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Failed to create fallback request")
-	}
-	if ct := req.Header.Get("Content-Type"); ct != "" {
-		httpReq.Header.Set("Content-Type", ct)
-	}
-	setAuthHeaders(httpReq, req, mgr)
-
-	resp, err = client.Do(httpReq)
-	if err != nil {
-		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Fallback request failed: "+err.Error())
-	}
+	// Remote returned non-SSE response (e.g. JSON error from pre-flight check)
+	// Pass it through to the client as-is
 	defer resp.Body.Close()
-
-	// Set SSE headers and synthesize events from the response
-	w := c.Response()
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
-
 	respBody, _ := io.ReadAll(resp.Body)
 
-	if resp.StatusCode != http.StatusOK {
-		writeSSEEvent(w, "error", fmt.Sprintf("Remote node error (HTTP %d)", resp.StatusCode))
-		return nil
+	// If it's a JSON error response, forward directly
+	if !strings.Contains(ct, "text/event-stream") {
+		for k, v := range resp.Header {
+			if len(v) > 0 {
+				c.Response().Header().Set(k, v[0])
+			}
+		}
+		return c.Blob(resp.StatusCode, ct, respBody)
 	}
 
-	// Parse response — try to extract output field
-	var result struct {
-		Success bool `json:"success"`
-		Data    struct {
-			Output string `json:"output"`
-		} `json:"data"`
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(respBody, &result); err == nil {
-		if !result.Success && result.Error.Message != "" {
-			writeSSEEvent(w, "error", result.Error.Message)
+	// Fallback: try non-streaming endpoint (/up-stream → /up, /update-stream → /update)
+	if strings.Contains(req.URL.Path, "-stream") {
+		fallbackPath := strings.Replace(req.URL.Path, "-stream", "", 1)
+		fallbackURL := baseURL + fallbackPath + queryStr
+
+		httpReq, err = http.NewRequestWithContext(ctx, req.Method, fallbackURL, bytes.NewReader(bodyBytes))
+		if err != nil {
+			return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Failed to create fallback request")
+		}
+		if fct := req.Header.Get("Content-Type"); fct != "" {
+			httpReq.Header.Set("Content-Type", fct)
+		}
+		setAuthHeaders(httpReq, req, mgr)
+
+		fallbackResp, err := client.Do(httpReq)
+		if err != nil {
+			return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Fallback request failed: "+err.Error())
+		}
+		defer fallbackResp.Body.Close()
+
+		w := c.Response()
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+
+		fallbackBody, _ := io.ReadAll(fallbackResp.Body)
+
+		if fallbackResp.StatusCode != http.StatusOK {
+			writeSSEEvent(w, "error", fmt.Sprintf("Remote node error (HTTP %d)", fallbackResp.StatusCode))
 			return nil
 		}
-		if result.Data.Output != "" {
-			for _, line := range strings.Split(result.Data.Output, "\n") {
-				if line = strings.TrimSpace(line); line != "" {
-					writeSSEEvent(w, "deploy", line)
+
+		var result struct {
+			Success bool `json:"success"`
+			Data    struct {
+				Output string `json:"output"`
+			} `json:"data"`
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(fallbackBody, &result); err == nil {
+			if !result.Success && result.Error.Message != "" {
+				writeSSEEvent(w, "error", result.Error.Message)
+				return nil
+			}
+			if result.Data.Output != "" {
+				for _, line := range strings.Split(result.Data.Output, "\n") {
+					if line = strings.TrimSpace(line); line != "" {
+						writeSSEEvent(w, "deploy", line)
+					}
 				}
 			}
 		}
+		writeSSEEvent(w, "complete", "Deployment completed successfully")
 	}
-	writeSSEEvent(w, "complete", "Deployment completed successfully")
 	return nil
 }
 
