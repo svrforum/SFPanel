@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
@@ -20,6 +20,15 @@ export default function Connect() {
   const [url, setUrl] = useState(localStorage.getItem('sfpanel_server_url') || '')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [fetchFn, setFetchFn] = useState<typeof globalThis.fetch>(() => globalThis.fetch)
+
+  useEffect(() => {
+    if ('__TAURI_INTERNALS__' in window) {
+      import('@tauri-apps/plugin-http').then((mod) => {
+        setFetchFn(() => mod.fetch as typeof globalThis.fetch)
+      })
+    }
+  }, [])
 
   const currentLang = i18n.language?.startsWith('ko') ? 'ko' : 'en'
 
@@ -49,7 +58,7 @@ export default function Connect() {
     setLoading(true)
 
     try {
-      const res = await fetch(`${serverUrl}/api/v1/health`, {
+      const res = await fetchFn(`${serverUrl}/api/v1/health`, {
         signal: AbortSignal.timeout(5000),
       })
       const json = await res.json()
