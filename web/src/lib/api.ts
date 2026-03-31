@@ -47,6 +47,21 @@ import type {
 
 const API_PATH = '/api/v1'
 
+// Tauri 환경에서는 플러그인 fetch 사용 (CORS 우회)
+let tauriFetch: typeof globalThis.fetch | null = null
+if ('__TAURI_INTERNALS__' in window) {
+  import('@tauri-apps/plugin-http').then((mod) => {
+    tauriFetch = mod.fetch as typeof globalThis.fetch
+  })
+}
+
+function httpFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  if (tauriFetch) {
+    return tauriFetch(input, init)
+  }
+  return globalThis.fetch(input, init)
+}
+
 class ApiClient {
   private token: string | null = null
   private _currentNode: string | null = null
@@ -131,7 +146,7 @@ class ApiClient {
       url += `${separator}node=${encodeURIComponent(this._currentNode)}`
     }
 
-    const res = await fetch(url, {
+    const res = await httpFetch(url, {
       ...fetchOptions,
       headers,
     })
@@ -276,7 +291,7 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const res = await fetch(`${this.apiBase}/system/update`, {
+    const res = await httpFetch(`${this.apiBase}/system/update`, {
       method: 'POST',
       headers,
     })
@@ -305,7 +320,7 @@ class ApiClient {
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`
     }
-    const res = await fetch(`${this.apiBase}/system/backup`, {
+    const res = await httpFetch(`${this.apiBase}/system/backup`, {
       method: 'POST',
       headers,
     })
@@ -320,7 +335,7 @@ class ApiClient {
     }
     const formData = new FormData()
     formData.append('backup', file)
-    const res = await fetch(`${this.apiBase}/system/restore`, {
+    const res = await httpFetch(`${this.apiBase}/system/restore`, {
       method: 'POST',
       headers,
       body: formData,
@@ -404,7 +419,7 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const res = await fetch(`${this.apiBase}/docker/images/pull`, {
+    const res = await httpFetch(`${this.apiBase}/docker/images/pull`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ image: imageName }),
@@ -527,7 +542,7 @@ class ApiClient {
     const nodeParam = this._currentNode ? `?node=${this._currentNode}` : ''
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`
-    const res = await fetch(`${this.apiBase}/docker/compose/${encodeURIComponent(project)}/up-stream${nodeParam}`, {
+    const res = await httpFetch(`${this.apiBase}/docker/compose/${encodeURIComponent(project)}/up-stream${nodeParam}`, {
       method: 'POST', headers,
     })
     if (!res.ok) throw new Error('Deploy failed')
@@ -541,7 +556,7 @@ class ApiClient {
     const nodeParam = this._currentNode ? `?node=${this._currentNode}` : ''
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (this.token) headers['Authorization'] = `Bearer ${this.token}`
-    const res = await fetch(`${this.apiBase}/docker/compose/${encodeURIComponent(project)}/update-stream${nodeParam}`, {
+    const res = await httpFetch(`${this.apiBase}/docker/compose/${encodeURIComponent(project)}/update-stream${nodeParam}`, {
       method: 'POST', headers,
     })
     if (!res.ok) throw new Error('Update failed')
@@ -702,7 +717,7 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const res = await fetch(`${this.apiBase}/files/download?path=${encodeURIComponent(path)}`, { headers })
+    const res = await httpFetch(`${this.apiBase}/files/download?path=${encodeURIComponent(path)}`, { headers })
 
     if (!res.ok) {
       throw new Error(`Download failed (${res.status})`)
@@ -1469,7 +1484,7 @@ class ApiClient {
     return new Promise((resolve, reject) => {
       const token = this.getToken()
       if (!token) return reject(new Error('No token'))
-      fetch(`${this.apiBase}/cluster/update`, {
+      httpFetch(`${this.apiBase}/cluster/update`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode }),
