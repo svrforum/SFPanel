@@ -280,8 +280,9 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
       const controller = new AbortController()
       abortRef.current = controller
 
-      const token = localStorage.getItem('token')
-      const res = await fetch(`/api/v1/appstore/apps/${detail.app.id}/install`, {
+      const token = api.getToken()
+      const nodeParam = api.currentNode ? `?node=${encodeURIComponent(api.currentNode)}` : ''
+      const res = await fetch(`${api.apiBase}/appstore/apps/${detail.app.id}/install${nodeParam}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
