@@ -88,7 +88,10 @@
     "invalidUrl": "Enter a valid URL (https://... or http://...)",
     "recentServer": "Recent server",
     "disconnect": "Disconnect",
-    "examples": "Examples:"
+    "examples": "Examples:",
+    "diagnose": "Connection Diagnostic",
+    "diagTitle": "Diagnostic Log",
+    "diagEmpty": "Run diagnostic to see logs here"
   },
   "setup": {
     "title": "SFPanel",
