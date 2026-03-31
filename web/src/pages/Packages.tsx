@@ -298,7 +298,8 @@ export default function Packages() {
     openOutput(title)
     try {
       const token = api.getToken()
-      const res = await fetch(`/api/v1${url}`, {
+      const nodeParam = api.currentNode ? `?node=${encodeURIComponent(api.currentNode)}` : ''
+      const res = await fetch(`${api.apiBase}${url}${nodeParam}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
