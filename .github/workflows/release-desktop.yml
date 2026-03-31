@@ -65,6 +65,7 @@ jobs:
       - name: Build Tauri app
         run: cd desktop && npx tauri build --target ${{ matrix.target }}
         env:
+          # Updater signing disabled — set TAURI_SIGNING_PRIVATE_KEY secret for signed builds
           TAURI_SIGNING_PRIVATE_KEY: ""
 
       - name: Collect artifacts (Linux)

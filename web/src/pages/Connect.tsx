@@ -85,49 +85,49 @@ export default function Connect() {
     setDiagLog([])
     const serverUrl = getServerUrl()
     if (!serverUrl) {
-      addLog('❌ URL 형식이 올바르지 않습니다')
+      addLog(t('connect.diagInvalidUrl'))
       return
     }
 
-    addLog(`🔍 환경: ${isTauri ? 'Tauri 데스크톱' : '웹 브라우저'}`)
-    addLog(`🔍 대상: ${serverUrl}`)
+    addLog(t('connect.diagEnv', { env: isTauri ? 'Tauri' : 'Web' }))
+    addLog(t('connect.diagTarget', { url: serverUrl }))
 
-    addLog('--- Health Check 테스트 ---')
+    addLog(t('connect.diagHealthCheck'))
     try {
-      addLog(`📡 ${serverUrl}/api/v1/health 요청 중...`)
+      addLog(t('connect.diagRequesting', { url: `${serverUrl}/api/v1/health` }))
       const res = await fetch(`${serverUrl}/api/v1/health`, {
         signal: AbortSignal.timeout(5000),
       })
-      addLog(`✅ 응답 수신: HTTP ${res.status} ${res.statusText}`)
+      addLog(t('connect.diagResponse', { status: res.status, statusText: res.statusText }))
       const text = await res.text()
-      addLog(`📄 응답: ${text.substring(0, 200)}`)
+      addLog(t('connect.diagBody', { body: text.substring(0, 200) }))
       try {
         const json = JSON.parse(text)
         if (json.success) {
-          addLog('✅ Health check 성공! 접속 버튼으로 연결하세요.')
+          addLog(t('connect.diagSuccess'))
         } else {
-          addLog(`❌ 서버 실패 응답: ${JSON.stringify(json)}`)
+          addLog(t('connect.diagServerError', { error: JSON.stringify(json) }))
         }
       } catch {
-        addLog('❌ JSON 파싱 실패 — 서버 응답이 JSON이 아닙니다')
+        addLog(t('connect.diagJsonError'))
       }
     } catch (err) {
       const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-      addLog(`❌ 요청 실패: ${msg}`)
+      addLog(t('connect.diagFetchError', { error: msg }))
 
       if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-        addLog('💡 CORS 차단 또는 네트워크 연결 불가')
-        addLog('💡 서버가 v0.6.0 이상인지 확인하세요')
+        addLog(t('connect.diagHintCors'))
+        addLog(t('connect.diagHintVersion'))
       } else if (msg.includes('TimeoutError') || msg.includes('timed out')) {
-        addLog('💡 서버 응답 없음 (5초 타임아웃)')
-        addLog('💡 서버 주소와 포트를 확인하세요')
+        addLog(t('connect.diagHintTimeout'))
+        addLog(t('connect.diagHintAddress'))
       } else if (msg.includes('not allowed')) {
-        addLog('💡 Tauri 보안 정책에 의한 차단')
-        addLog('💡 앱 업데이트가 필요합니다')
+        addLog(t('connect.diagHintScope'))
+        addLog(t('connect.diagHintUpdate'))
       }
     }
 
-    addLog('--- 진단 완료 ---')
+    addLog(t('connect.diagDone'))
   }
 
   return (
