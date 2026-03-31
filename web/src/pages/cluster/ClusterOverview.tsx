@@ -58,7 +58,7 @@ export default function ClusterOverview() {
             window.location.reload()
             return
           }
-          fetch('/api/v1/cluster/status', {
+          fetch(`${api.apiBase}/cluster/status`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
           })
             .then((r) => { if (r.ok) { clearInterval(check); window.location.reload() } })
@@ -338,7 +338,7 @@ function ClusterInitForm() {
       // Wait for service restart, then reload
       setTimeout(() => {
         const check = setInterval(() => {
-          fetch('/api/v1/cluster/status', {
+          fetch(`${api.apiBase}/cluster/status`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
           })
             .then((r) => {
