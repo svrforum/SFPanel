@@ -88,7 +88,10 @@
     "invalidUrl": "올바른 URL을 입력하세요 (https://... 또는 http://...)",
     "recentServer": "최근 접속 서버",
     "disconnect": "연결 해제",
-    "examples": "예시:"
+    "examples": "예시:",
+    "diagnose": "접속 진단",
+    "diagTitle": "접속 진단 로그",
+    "diagEmpty": "진단을 실행하면 로그가 여기에 표시됩니다"
   },
   "setup": {
     "title": "SFPanel",

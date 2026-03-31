@@ -1,11 +1,11 @@
-import { useState, useEffect, type FormEvent } from 'react'
+import { useState, useEffect, useRef, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Monitor, Globe } from 'lucide-react'
+import { Monitor, Globe, Bug } from 'lucide-react'
 import { LANGUAGE_KEY } from '@/i18n'
 
 const EXAMPLES = [
@@ -14,21 +14,49 @@ const EXAMPLES = [
   'http://10.0.0.5:8443',
 ]
 
+// Tauri HTTP 플러그인 로딩 (CORS 우회용)
+const isTauri = '__TAURI_INTERNALS__' in window
+let pluginFetchPromise: Promise<typeof globalThis.fetch> | null = null
+if (isTauri) {
+  pluginFetchPromise = import('@tauri-apps/plugin-http')
+    .then((mod) => mod.fetch as typeof globalThis.fetch)
+    .catch(() => globalThis.fetch)
+}
+
+async function safeFetch(input: string, init?: RequestInit): Promise<Response> {
+  if (pluginFetchPromise) {
+    const fn = await pluginFetchPromise
+    return fn(input, init)
+  }
+  return globalThis.fetch(input, init)
+}
+
 export default function Connect() {
   const navigate = useNavigate()
   const { t, i18n } = useTranslation()
   const [url, setUrl] = useState(localStorage.getItem('sfpanel_server_url') || '')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [fetchFn, setFetchFn] = useState<typeof globalThis.fetch>(() => globalThis.fetch)
+  const [showDiag, setShowDiag] = useState(false)
+  const [diagLog, setDiagLog] = useState<string[]>([])
+  const [pluginReady, setPluginReady] = useState(!isTauri)
+  const logRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if ('__TAURI_INTERNALS__' in window) {
-      import('@tauri-apps/plugin-http').then((mod) => {
-        setFetchFn(() => mod.fetch as typeof globalThis.fetch)
-      })
+    if (pluginFetchPromise) {
+      pluginFetchPromise.then(() => setPluginReady(true))
     }
   }, [])
+
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight
+    }
+  }, [diagLog])
+
+  const addLog = (msg: string) => {
+    setDiagLog((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`])
+  }
 
   const currentLang = i18n.language?.startsWith('ko') ? 'ko' : 'en'
 
@@ -37,32 +65,34 @@ export default function Connect() {
     localStorage.setItem(LANGUAGE_KEY, lang)
   }
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
-    setError('')
-
+  const getServerUrl = (): string | null => {
     let serverUrl = url.trim().replace(/\/+$/, '')
-
     try {
       const parsed = new URL(serverUrl)
       if (!['http:', 'https:'].includes(parsed.protocol)) {
         setError(t('connect.invalidUrl'))
-        return
+        return null
       }
-      serverUrl = parsed.origin
+      return parsed.origin
     } catch {
       setError(t('connect.invalidUrl'))
-      return
+      return null
     }
+  }
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setError('')
+    const serverUrl = getServerUrl()
+    if (!serverUrl) return
 
     setLoading(true)
-
     try {
-      const res = await fetchFn(`${serverUrl}/api/v1/health`, {
+      const res = await safeFetch(`${serverUrl}/api/v1/health`, {
         signal: AbortSignal.timeout(5000),
       })
       const json = await res.json()
-      if (!json.success) throw new Error('Server returned error')
+      if (!json.success) throw new Error('Server returned error response')
 
       api.setServerUrl(serverUrl)
       navigate('/login', { replace: true })
@@ -72,6 +102,67 @@ export default function Connect() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const runDiagnostic = async () => {
+    setShowDiag(true)
+    setDiagLog([])
+    const serverUrl = getServerUrl()
+    if (!serverUrl) {
+      addLog('❌ URL 형식이 올바르지 않습니다')
+      return
+    }
+
+    addLog(`🔍 환경: ${isTauri ? 'Tauri 데스크톱' : '웹 브라우저'}`)
+    addLog(`🔍 HTTP 플러그인: ${pluginReady ? '로드됨' : '미로드'}`)
+    addLog(`🔍 대상: ${serverUrl}`)
+
+    // Step 1: 플러그인 fetch 테스트
+    addLog('--- Step 1: HTTP 요청 테스트 ---')
+    try {
+      addLog(`📡 ${serverUrl}/api/v1/health 요청 중...`)
+      const res = await safeFetch(`${serverUrl}/api/v1/health`, {
+        signal: AbortSignal.timeout(5000),
+      })
+      addLog(`✅ 응답 수신: HTTP ${res.status} ${res.statusText}`)
+      const text = await res.text()
+      addLog(`📄 응답 본문: ${text.substring(0, 200)}`)
+      try {
+        const json = JSON.parse(text)
+        if (json.success) {
+          addLog('✅ Health check 성공!')
+        } else {
+          addLog(`❌ 서버가 실패 응답 반환: ${JSON.stringify(json)}`)
+        }
+      } catch {
+        addLog('❌ JSON 파싱 실패 — 서버 응답이 JSON이 아닙니다')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+      addLog(`❌ 요청 실패: ${msg}`)
+
+      if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+        addLog('💡 원인: CORS 차단 또는 네트워크 연결 불가')
+        addLog('💡 서버가 최신 버전(v0.6.0+)인지 확인하세요')
+      } else if (msg.includes('TimeoutError') || msg.includes('timed out')) {
+        addLog('💡 원인: 서버 응답 없음 (타임아웃 5초)')
+        addLog('💡 서버 주소와 포트를 확인하세요')
+      }
+    }
+
+    // Step 2: globalThis.fetch 직접 테스트
+    addLog('--- Step 2: 브라우저 기본 fetch 테스트 ---')
+    try {
+      const res = await globalThis.fetch(`${serverUrl}/api/v1/health`, {
+        signal: AbortSignal.timeout(5000),
+      })
+      addLog(`✅ 기본 fetch 성공: HTTP ${res.status}`)
+    } catch (err) {
+      const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+      addLog(`❌ 기본 fetch 실패: ${msg}`)
+    }
+
+    addLog('--- 진단 완료 ---')
   }
 
   return (
@@ -127,12 +218,52 @@ export default function Connect() {
             <Button
               type="submit"
               className="w-full h-11 rounded-xl font-semibold text-sm transition-all duration-200 hover:brightness-110"
-              disabled={loading}
+              disabled={loading || !pluginReady}
             >
-              {loading ? t('connect.connecting') : t('connect.connect')}
+              {!pluginReady ? '플러그인 로딩 중...' : loading ? t('connect.connecting') : t('connect.connect')}
             </Button>
           </form>
+
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              onClick={runDiagnostic}
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Bug className="w-3 h-3" />
+              {t('connect.diagnose')}
+            </button>
+          </div>
         </div>
+
+        {showDiag && (
+          <div className="mt-4 bg-card rounded-2xl card-shadow p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[13px] font-semibold">{t('connect.diagTitle')}</span>
+              <button
+                type="button"
+                onClick={() => { setShowDiag(false); setDiagLog([]) }}
+                className="text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                {t('common.close')}
+              </button>
+            </div>
+            <div
+              ref={logRef}
+              className="bg-secondary/50 rounded-xl p-3 max-h-60 overflow-y-auto font-mono text-[11px] leading-5 space-y-0.5"
+            >
+              {diagLog.length === 0 ? (
+                <p className="text-muted-foreground">{t('connect.diagEmpty')}</p>
+              ) : (
+                diagLog.map((line, i) => (
+                  <p key={i} className={line.includes('❌') ? 'text-[#f04452]' : line.includes('✅') ? 'text-[#00c471]' : ''}>
+                    {line}
+                  </p>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2 mt-6">
