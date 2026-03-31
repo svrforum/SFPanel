@@ -24,6 +24,7 @@
 
 | 경로 | 컴포넌트 | 인증 필요 | 레이아웃 | 설명 |
 |------|----------|-----------|----------|------|
+| `/connect` | Connect | X | 없음 (독립) | Tauri 데스크톱 서버 접속 (URL 입력, health check, 진단, 언어 선택) |
 | `/login` | Login | X | 없음 (독립) | 관리자 로그인 |
 | `/setup` | Setup | X | 없음 (독립) | 초기 관리자 계정 생성 (첫 실행 시) |
 | `/` | - | O | Layout | `/dashboard`로 리다이렉트 |
@@ -68,6 +69,7 @@
 
 ### 라우트 가드
 
+- **TauriGuard**: Tauri 데스크톱 환경에서만 활성화. 서버 URL이 설정되지 않은 경우 `/connect` 페이지로 리다이렉트. 웹 브라우저 환경에서는 패스스루.
 - **SetupGuard**: 모든 라우트를 감싸고, `/setup` 경로가 아닌 경우 `api.getSetupStatus()`를 호출하여 `setup_required === true`이면 `/setup`으로 리다이렉트. **모듈 레벨 `setupChecked` 변수**로 결과를 캐싱하여 한 번 체크 후에는 재호출하지 않음.
 - **ProtectedRoute**: `api.isAuthenticated()` (localStorage 토큰 존재 여부)를 체크하여, 미인증 시 `/login`으로 리다이렉트
 
@@ -87,6 +89,13 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 ---
 
 ## 페이지 컴포넌트
+
+### Connect (Tauri 전용)
+- **파일**: `web/src/pages/Connect.tsx`
+- **기능**: Tauri 데스크톱 클라이언트에서 서버 접속 페이지. 서버 URL 입력, health check API 호출로 연결 가능 여부 확인, 연결 실패 시 진단 기능 (포트/방화벽/DNS 등), 언어 선택 (한국어/영어). 웹 브라우저에서는 접근 불가 (TauriGuard가 리다이렉트).
+- **사용 API**: `api.healthCheck()`
+- **사용 컴포넌트**: Button, Input (shadcn/ui)
+- **상태**: serverUrl, connectionStatus, diagnostics, language
 
 ### Login
 - **파일**: `web/src/pages/Login.tsx`

@@ -323,6 +323,17 @@
   - **원격 LTS 조회**: NVM을 통해 사용 가능한 LTS 버전 목록 제공
 - **관련 기술**: NVM, npm, curl, SSE 스트리밍, exec.Command
 
+### 20. Tauri 데스크톱 클라이언트
+
+- **설명**: 크로스플랫폼 데스크톱 앱으로 원격 SFPanel 서버에 접속하여 관리
+- **주요 기능**:
+  - **서버 접속**: URL 입력 후 health check API로 연결 가능 여부 확인
+  - **연결 진단**: 접속 실패 시 포트/방화벽/DNS 등 문제 진단 기능
+  - **언어 선택**: Connect 페이지에서 한국어/영어 전환
+  - **TauriGuard**: 서버 URL 미설정 시 자동으로 /connect 페이지로 리다이렉트
+  - **크로스플랫폼**: macOS, Windows, Linux 지원 (Tauri v2)
+- **관련 기술**: Tauri v2, tauri-plugin-http, Rust, WebView
+
 ### 13. 설정
 
 - **설명**: 패널 설정 및 사용자 계정 관리
