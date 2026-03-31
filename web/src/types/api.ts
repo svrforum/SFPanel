@@ -761,12 +761,19 @@ export interface AppStoreApp extends AppStoreMeta {
   installed: boolean
 }
 
+export interface PortStatus {
+  port: number
+  in_use: boolean
+  suggested?: number
+}
+
 export interface AppStoreAppDetail {
   app: AppStoreMeta
   compose: string
   readme: string
   readme_base_url?: string
   installed: boolean
+  port_status?: PortStatus[]
 }
 
 export interface AppStoreInstalledApp {

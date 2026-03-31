@@ -1871,6 +1871,7 @@
     "simpleMode": "Simple",
     "advancedMode": "Advanced",
     "portConflict": "Port already in use",
+    "portInUse": "⚠️ Port {{port}} in use → auto-changed to {{suggested}}",
     "containerConflict": "Container name already exists",
     "stageFetch": "Download",
     "stagePrepare": "Prepare",

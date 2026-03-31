@@ -67,12 +67,19 @@ type appStoreAppListItem struct {
 	Installed bool `json:"installed"`
 }
 
+type portStatus struct {
+	Port      int  `json:"port"`
+	InUse     bool `json:"in_use"`
+	Suggested int  `json:"suggested,omitempty"` // 0 if not in use
+}
+
 type appStoreAppDetail struct {
 	App           AppStoreMeta `json:"app"`
 	Compose       string       `json:"compose"`
 	Readme        string       `json:"readme"`
 	ReadmeBaseURL string       `json:"readme_base_url,omitempty"`
 	Installed     bool         `json:"installed"`
+	PortStatus    []portStatus `json:"port_status,omitempty"`
 }
 
 type appStoreInstallRecord struct {
@@ -445,12 +452,34 @@ func (h *AppStoreHandler) GetApp(c echo.Context) error {
 
 	readmeResult := <-readmeCh
 
+	// Check port availability and suggest alternatives
+	var ports []portStatus
+	for _, p := range found.Ports {
+		ps := portStatus{Port: p, InUse: isPortInUse(p)}
+		if ps.InUse {
+			ps.Suggested = findFreePort(p)
+		}
+		ports = append(ports, ps)
+	}
+	for _, env := range found.Env {
+		if env.Type == "port" && env.Default != "" {
+			if port := parsePort(env.Default); port > 0 {
+				ps := portStatus{Port: port, InUse: isPortInUse(port)}
+				if ps.InUse {
+					ps.Suggested = findFreePort(port)
+				}
+				ports = append(ports, ps)
+			}
+		}
+	}
+
 	detail := appStoreAppDetail{
 		App:           *found,
 		Compose:       string(composeResult.data),
 		Readme:        readmeResult.content,
 		ReadmeBaseURL: readmeResult.baseURL,
 		Installed:     h.isInstalled(id),
+		PortStatus:    ports,
 	}
 
 	return response.OK(c, detail)
@@ -734,6 +763,21 @@ func isPortInUse(port int) bool {
 		return false
 	}
 	return len(strings.TrimSpace(string(out))) > 0
+}
+
+// findFreePort finds the nearest free port starting from the given port.
+// Tries port+1, port+2, ... up to 100 attempts.
+func findFreePort(from int) int {
+	for i := 1; i <= 100; i++ {
+		candidate := from + i
+		if candidate > 65535 {
+			break
+		}
+		if !isPortInUse(candidate) {
+			return candidate
+		}
+	}
+	return 0
 }
 
 // checkContainerNameConflicts checks if any containers from the compose data
