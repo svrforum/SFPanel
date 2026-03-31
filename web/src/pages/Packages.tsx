@@ -189,7 +189,7 @@ export default function Packages() {
     openOutput(t('packages.installingDocker'))
     try {
       const token = api.getToken()
-      const res = await fetch('/api/v1/packages/install-docker', {
+      const res = await fetch(`${api.apiBase}/packages/install-docker`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -398,7 +398,7 @@ export default function Packages() {
     openOutput(t('packages.installingNodeVersion', { version }))
     try {
       const token = api.getToken()
-      const res = await fetch('/api/v1/packages/node-install-version', {
+      const res = await fetch(`${api.apiBase}/packages/node-install-version`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ version }),

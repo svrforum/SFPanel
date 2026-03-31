@@ -252,7 +252,7 @@ export default function Settings() {
         if (event.step === 'complete') {
           setTimeout(() => {
             const check = setInterval(() => {
-              fetch('/api/v1/auth/setup-status')
+              fetch(`${api.apiBase}/auth/setup-status`)
                 .then(() => { clearInterval(check); window.location.reload() })
                 .catch(() => {})
             }, 2000)
@@ -296,7 +296,7 @@ export default function Settings() {
       toast.success(t('settings.restoreSuccess'))
       setTimeout(() => {
         const check = setInterval(() => {
-          fetch('/api/v1/auth/setup-status')
+          fetch(`${api.apiBase}/auth/setup-status`)
             .then(() => { clearInterval(check); window.location.reload() })
             .catch(() => {})
         }, 2000)

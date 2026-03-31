@@ -131,7 +131,7 @@ export default function NetworkTailscale() {
 
     try {
       const token = api.getToken()
-      const res = await fetch('/api/v1/network/tailscale/install', {
+      const res = await fetch(`${api.apiBase}/network/tailscale/install`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
