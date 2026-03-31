@@ -730,7 +730,7 @@ export interface AppStoreCategory {
 export interface AppStoreEnvDef {
   key: string
   label: Record<string, string>
-  type: string
+  type: 'text' | 'password' | 'port' | 'select' | 'number'
   default?: string
   required?: boolean
   generate?: boolean
@@ -773,6 +773,9 @@ export interface AppStoreInstalledApp {
   id: string
   version: string
   installed_at: string
+  name: string
+  description?: string
+  icon?: string
 }
 
 // Cluster
