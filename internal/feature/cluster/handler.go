@@ -83,6 +83,13 @@ func (h *Handler) InitCluster(c echo.Context) error {
 
 	h.Config.Cluster = *mgr.GetConfig()
 
+	// Store JWT secret in Raft FSM so joining nodes can sync it
+	if h.Config.Auth.JWTSecret != "" {
+		if err := mgr.SetConfig("jwt_secret", h.Config.Auth.JWTSecret); err != nil {
+			slog.Warn("failed to store jwt_secret in cluster", "error", err)
+		}
+	}
+
 	data, err := yaml.Marshal(h.Config)
 	if err != nil {
 		mgr.Shutdown()

@@ -488,6 +488,27 @@ func (m *Manager) ProxySecret() string {
 	return hex.EncodeToString(hash[:])
 }
 
+// SetConfig stores a key-value pair in the Raft FSM config.
+func (m *Manager) SetConfig(key, value string) error {
+	if m.raft == nil {
+		return fmt.Errorf("raft not initialized")
+	}
+	return m.raft.Apply(Command{
+		Type:  CmdSetConfig,
+		Key:   key,
+		Value: mustJSON(value),
+	}, 5*time.Second)
+}
+
+// GetFSMConfig reads a value from the Raft FSM config map.
+func (m *Manager) GetFSMConfig(key string) string {
+	if m.raft == nil {
+		return ""
+	}
+	state := m.raft.GetFSM().GetState()
+	return state.Config[key]
+}
+
 // SetAccount proposes an account upsert to the Raft cluster.
 // Only the leader can apply this; returns ErrNotLeader on followers.
 func (m *Manager) SetAccount(acct AdminAccount) error {
