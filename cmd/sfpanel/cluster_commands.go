@@ -201,6 +201,22 @@ func clusterLeave() {
 		log.Printf("Warning: failed to save config: %v", err)
 	}
 
+	// Clean up Raft data and TLS certs to prevent zombie state
+	if cfg.Cluster.DataDir != "" {
+		if err := os.RemoveAll(cfg.Cluster.DataDir); err != nil {
+			log.Printf("Warning: failed to remove cluster data: %v", err)
+		} else {
+			fmt.Printf("Removed cluster data: %s\n", cfg.Cluster.DataDir)
+		}
+	}
+	if cfg.Cluster.CertDir != "" {
+		if err := os.RemoveAll(cfg.Cluster.CertDir); err != nil {
+			log.Printf("Warning: failed to remove cluster certs: %v", err)
+		} else {
+			fmt.Printf("Removed cluster certs: %s\n", cfg.Cluster.CertDir)
+		}
+	}
+
 	fmt.Println("Cluster left. Restart sfpanel to run in standalone mode: sudo systemctl restart sfpanel")
 }
 
