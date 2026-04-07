@@ -1,4 +1,4 @@
-.PHONY: build dev dev-api dev-web lint clean
+.PHONY: build dev dev-api dev-web lint clean ci
 
 # 프론트엔드 빌드 후 Go 바이너리 빌드
 build:
@@ -31,3 +31,6 @@ test:
 test-coverage:
 	go test ./internal/... -coverprofile=coverage.out
 	go tool cover -func=coverage.out | tail -1
+
+# CI - 로컬에서 전체 파이프라인 실행
+ci: lint test build
