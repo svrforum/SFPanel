@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Download, Upload, RefreshCw, AlertCircle, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { QRCodeSVG } from 'qrcode.react'
 import SettingsTuning from '@/pages/SettingsTuning'
+import AlertSettings from '@/pages/settings/AlertSettings'
 
 export default function Settings() {
   const { t, i18n } = useTranslation()
@@ -323,6 +324,7 @@ export default function Settings() {
           <TabsTrigger value="security" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSecurity')}</TabsTrigger>
           <TabsTrigger value="system" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSystem')}</TabsTrigger>
           <TabsTrigger value="tuning" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabTuning')}</TabsTrigger>
+          <TabsTrigger value="alerts" className="rounded-lg text-[13px] px-4 py-2">알림</TabsTrigger>
           <TabsTrigger value="audit" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAuditLog')}</TabsTrigger>
         </TabsList>
 
@@ -708,6 +710,11 @@ export default function Settings() {
         {/* ===== Tuning Tab ===== */}
         <TabsContent value="tuning" className="mt-6">
           <SettingsTuning />
+        </TabsContent>
+
+        {/* ===== Alerts Tab ===== */}
+        <TabsContent value="alerts" className="mt-6">
+          <AlertSettings />
         </TabsContent>
 
         {/* ===== Audit Log Tab ===== */}
