@@ -20,8 +20,34 @@ const VALID_TABS = ['general', 'security', 'system', 'tuning', 'alerts', 'audit'
 export default function Settings() {
   const { t, i18n } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const initialTab = VALID_TABS.includes(searchParams.get('tab') || '') ? searchParams.get('tab')! : 'general'
+  const [clusterEnabled, setClusterEnabled] = useState(false)
+
+  useEffect(() => {
+    api.getClusterStatus(true)
+      .then((s) => setClusterEnabled(s.enabled))
+      .catch(() => {})
+  }, [])
+
+  // In cluster mode: filter tabs based on context
+  // ?scope=node → show only system/tuning (node-specific)
+  // otherwise → show only global tabs (general, security, alerts, audit)
+  const scope = searchParams.get('scope')
+  const isNodeScope = clusterEnabled && scope === 'node'
+  const visibleTabs = clusterEnabled
+    ? (isNodeScope ? ['system', 'tuning'] : ['general', 'security', 'alerts', 'audit'])
+    : VALID_TABS
+
+  const defaultTab = visibleTabs[0]
+  const requestedTab = searchParams.get('tab') || ''
+  const initialTab = visibleTabs.includes(requestedTab) ? requestedTab : defaultTab
   const [activeTab, setActiveTab] = useState(initialTab)
+
+  // Sync active tab when visible tabs change (cluster status loaded)
+  useEffect(() => {
+    if (!visibleTabs.includes(activeTab)) {
+      setActiveTab(visibleTabs[0])
+    }
+  }, [visibleTabs.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleTabChange = (value: string) => {
     setActiveTab(value)
@@ -336,12 +362,12 @@ export default function Settings() {
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         <TabsList className="bg-secondary/50 rounded-xl p-1 h-auto">
-          <TabsTrigger value="general" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabGeneral')}</TabsTrigger>
-          <TabsTrigger value="security" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSecurity')}</TabsTrigger>
-          <TabsTrigger value="system" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSystem')}</TabsTrigger>
-          <TabsTrigger value="tuning" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabTuning')}</TabsTrigger>
-          <TabsTrigger value="alerts" className="rounded-lg text-[13px] px-4 py-2">알림</TabsTrigger>
-          <TabsTrigger value="audit" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAuditLog')}</TabsTrigger>
+          {visibleTabs.includes('general') && <TabsTrigger value="general" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabGeneral')}</TabsTrigger>}
+          {visibleTabs.includes('security') && <TabsTrigger value="security" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSecurity')}</TabsTrigger>}
+          {visibleTabs.includes('system') && <TabsTrigger value="system" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSystem')}</TabsTrigger>}
+          {visibleTabs.includes('tuning') && <TabsTrigger value="tuning" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabTuning')}</TabsTrigger>}
+          {visibleTabs.includes('alerts') && <TabsTrigger value="alerts" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAlerts', { defaultValue: '알림' })}</TabsTrigger>}
+          {visibleTabs.includes('audit') && <TabsTrigger value="audit" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAuditLog')}</TabsTrigger>}
         </TabsList>
 
         {/* ===== General Tab ===== */}

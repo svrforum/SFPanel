@@ -80,7 +80,7 @@ const nodeMenuGroups: MenuGroup[] = [
     labelKey: 'clusterContextMenu.tools',
     items: [
       { to: '/terminal', labelKey: 'layout.nav.terminal', icon: Terminal },
-      { to: '/settings?tab=tuning', labelKey: 'settings.tabTuning', icon: Settings },
+      { to: '/settings?scope=node', labelKey: 'layout.nav.settings', icon: Settings },
     ],
   },
 ]
