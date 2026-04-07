@@ -154,6 +154,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	clusterGroup.GET("/events", clusterHandler.GetEvents)
 	clusterGroup.POST("/leader-transfer", clusterHandler.TransferLeadership)
 	clusterGroup.POST("/init", clusterHandler.InitCluster)
+	clusterGroup.POST("/join", clusterHandler.JoinCluster)
 	clusterGroup.POST("/disband", clusterHandler.DisbandCluster)
 	clusterGroup.GET("/interfaces", clusterHandler.GetNetworkInterfaces)
 	clusterGroup.POST("/update", clusterHandler.ClusterUpdate)

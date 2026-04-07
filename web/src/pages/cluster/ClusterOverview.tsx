@@ -317,6 +317,11 @@ function ClusterInitForm() {
   const [initializing, setInitializing] = useState(false)
   const [restarting, setRestarting] = useState(false)
 
+  // Join form state
+  const [leaderAddress, setLeaderAddress] = useState('')
+  const [joinToken, setJoinToken] = useState('')
+  const [joining, setJoining] = useState(false)
+
   useEffect(() => {
     api.getClusterInterfaces()
       .then((data) => {
@@ -353,6 +358,33 @@ function ClusterInitForm() {
     } catch (err) {
       toast.error(String(err))
       setInitializing(false)
+    }
+  }
+
+  const handleJoin = async () => {
+    if (!leaderAddress.trim() || !joinToken.trim()) return
+    setJoining(true)
+    try {
+      await api.joinCluster(leaderAddress.trim(), joinToken.trim(), selectedAddr || undefined)
+      toast.success(t('cluster.join.success'))
+      setRestarting(true)
+      setTimeout(() => {
+        const check = setInterval(() => {
+          fetch(`${api.apiBase}/cluster/status`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+          })
+            .then((r) => {
+              if (r.ok) {
+                clearInterval(check)
+                window.location.reload()
+              }
+            })
+            .catch(() => {})
+        }, 2000)
+      }, 1000)
+    } catch (err) {
+      toast.error(String(err))
+      setJoining(false)
     }
   }
 
@@ -441,6 +473,62 @@ function ClusterInitForm() {
           t('cluster.init.button')
         )}
       </Button>
+
+      {/* Divider */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-border" />
+        <span className="text-[11px] text-muted-foreground">{t('cluster.join.or')}</span>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+
+      {/* Join existing cluster */}
+      <div className="space-y-4">
+        <div className="text-center space-y-1">
+          <h3 className="text-[14px] font-semibold">{t('cluster.join.title')}</h3>
+          <p className="text-[12px] text-muted-foreground">{t('cluster.join.description')}</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+            {t('cluster.join.leaderAddress')}
+          </label>
+          <Input
+            value={leaderAddress}
+            onChange={(e) => setLeaderAddress(e.target.value)}
+            placeholder={t('cluster.join.leaderAddressPlaceholder')}
+            className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+          />
+          <p className="text-[11px] text-muted-foreground">{t('cluster.join.leaderAddressDesc')}</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+            {t('cluster.join.token')}
+          </label>
+          <Input
+            value={joinToken}
+            onChange={(e) => setJoinToken(e.target.value)}
+            placeholder={t('cluster.join.tokenPlaceholder')}
+            className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
+          />
+        </div>
+
+        <Button
+          onClick={handleJoin}
+          disabled={joining || !leaderAddress.trim() || !joinToken.trim()}
+          variant="outline"
+          className="w-full rounded-xl"
+        >
+          {joining ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              {t('cluster.join.joining')}
+            </>
+          ) : (
+            t('cluster.join.button')
+          )}
+        </Button>
+      </div>
     </div>
   )
 }

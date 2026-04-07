@@ -1433,6 +1433,13 @@ class ApiClient {
     })
   }
 
+  joinCluster(leaderAddress: string, token: string, advertiseAddress?: string) {
+    return this.request<{ message: string; cluster_name: string; node_id: string; restart: boolean }>('/cluster/join', {
+      method: 'POST',
+      body: JSON.stringify({ leader_address: leaderAddress, token, advertise_address: advertiseAddress }),
+    })
+  }
+
   getClusterOverview() {
     return this.request<ClusterOverview>('/cluster/overview')
   }

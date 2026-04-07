@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, type FormEvent, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { formatUptime } from '@/lib/utils'
 import type { AuditLogEntry, HostInfo } from '@/types/api'
@@ -14,8 +15,23 @@ import { QRCodeSVG } from 'qrcode.react'
 import SettingsTuning from '@/pages/SettingsTuning'
 import AlertSettings from '@/pages/settings/AlertSettings'
 
+const VALID_TABS = ['general', 'security', 'system', 'tuning', 'alerts', 'audit']
+
 export default function Settings() {
   const { t, i18n } = useTranslation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialTab = VALID_TABS.includes(searchParams.get('tab') || '') ? searchParams.get('tab')! : 'general'
+  const [activeTab, setActiveTab] = useState(initialTab)
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value)
+    if (value === 'general') {
+      searchParams.delete('tab')
+    } else {
+      searchParams.set('tab', value)
+    }
+    setSearchParams(searchParams, { replace: true })
+  }
 
   // Password change state
   const [currentPassword, setCurrentPassword] = useState('')
@@ -318,7 +334,7 @@ export default function Settings() {
         <p className="text-[13px] text-muted-foreground mt-1">{t('settings.subtitle')}</p>
       </div>
 
-      <Tabs defaultValue="general" className="w-full">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         <TabsList className="bg-secondary/50 rounded-xl p-1 h-auto">
           <TabsTrigger value="general" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabGeneral')}</TabsTrigger>
           <TabsTrigger value="security" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSecurity')}</TabsTrigger>
