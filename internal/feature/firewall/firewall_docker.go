@@ -2,7 +2,7 @@ package firewall
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"regexp"
@@ -373,13 +373,13 @@ func (h *Handler) AddDockerUserRule(c echo.Context) error {
 		logArgs = append(logArgs, "-p", req.Protocol, "--dport", strconv.Itoa(matchPort),
 			"-j", "LOG", "--log-prefix", logPrefix, "--log-level", "4")
 		if _, logErr := h.Cmd.Run("iptables", logArgs...); logErr != nil {
-			log.Printf("Warning: failed to add LOG rule for DOCKER-USER DROP: %v", logErr)
+			slog.Warn("failed to add LOG rule for DOCKER-USER DROP", "component", "firewall", "error", logErr)
 		}
 	}
 
 	// Persist rules
 	if saveErr := h.saveDockerUserRules(); saveErr != nil {
-		log.Printf("Warning: failed to persist DOCKER-USER rules: %v", saveErr)
+		slog.Warn("failed to persist DOCKER-USER rules", "component", "firewall", "error", saveErr)
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -406,7 +406,7 @@ func (h *Handler) DeleteDockerUserRule(c echo.Context) error {
 			if logErr == nil && strings.Contains(logOutput, "-j LOG") && strings.Contains(logOutput, "DOCKER-USER DROP]") {
 				// Delete the LOG rule first (same number since after deletion indices shift)
 				if _, delErr := h.Cmd.Run("iptables", "-D", "DOCKER-USER", strconv.Itoa(number-1)); delErr != nil {
-					log.Printf("Warning: failed to delete companion LOG rule: %v", delErr)
+					slog.Warn("failed to delete companion LOG rule", "component", "firewall", "error", delErr)
 				}
 				// After deleting the LOG rule, the DROP rule shifts up by 1
 				number = number - 1
@@ -422,7 +422,7 @@ func (h *Handler) DeleteDockerUserRule(c echo.Context) error {
 
 	// Persist rules
 	if saveErr := h.saveDockerUserRules(); saveErr != nil {
-		log.Printf("Warning: failed to persist DOCKER-USER rules: %v", saveErr)
+		slog.Warn("failed to persist DOCKER-USER rules", "component", "firewall", "error", saveErr)
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -485,9 +485,9 @@ func RestoreDockerUserRules(cmd exec.Commander) {
 
 	output, err := cmd.Run("iptables-restore", "-n", "--", dockerUserRulesFile)
 	if err != nil {
-		log.Printf("Warning: failed to restore DOCKER-USER rules: %v (output: %s)", err, output)
+		slog.Warn("failed to restore DOCKER-USER rules", "component", "firewall", "error", err, "output", output)
 		return
 	}
 
-	log.Printf("Restored DOCKER-USER firewall rules from %s", dockerUserRulesFile)
+	slog.Info("restored DOCKER-USER firewall rules", "component", "firewall", "file", dockerUserRulesFile)
 }

@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -283,7 +283,7 @@ func (h *Handler) CreateBackup(c echo.Context) error {
 					if _, statErr := os.Stat(filePath); statErr == nil {
 						archiveName := filepath.Join("compose", entry.Name(), cf)
 						if err := addFileToTar(tw, filePath, archiveName); err != nil {
-							log.Printf("backup: skipping %s: %v", filePath, err)
+							slog.Warn("backup: skipping file", "path", filePath, "error", err)
 						}
 					}
 				}

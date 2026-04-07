@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -94,11 +94,11 @@ func (h *Handler) InitCluster(c echo.Context) error {
 
 	mgr.Shutdown()
 
-	log.Printf("[cluster] Cluster '%s' initialized via UI. Restarting...", clusterName)
+	slog.Info("cluster initialized via UI, restarting", "component", "cluster", "name", clusterName)
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		log.Println("[cluster] Exiting for systemd restart...")
+		slog.Info("exiting for systemd restart", "component", "cluster")
 		os.Exit(1)
 	}()
 
@@ -452,7 +452,7 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
 	}
 
-	log.Println("[cluster] Cluster disbanded via UI. Restarting...")
+	slog.Info("cluster disbanded via UI, restarting", "component", "cluster")
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)

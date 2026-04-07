@@ -5,7 +5,7 @@ import (
 	"embed"
 	"io"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -44,6 +44,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 
 	e.Use(echoMw.Logger())
 	e.Use(echoMw.Recover())
+	e.Use(mw.RequestLogger())
 	e.Use(echoMw.CORSWithConfig(echoMw.CORSConfig{
 		AllowOrigins: []string{
 			"http://localhost:5173",
@@ -75,7 +76,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	// Initialize Docker client
 	dockerClient, err := docker.NewClient(cfg.Docker.Socket)
 	if err != nil {
-		log.Printf("Warning: Docker not available: %v", err)
+		slog.Warn("Docker not available", "error", err)
 	}
 
 	var dockerHandler *featureDocker.Handler
@@ -442,7 +443,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 func spaHandler(fsys embed.FS) echo.HandlerFunc {
 	subFS, err := fs.Sub(fsys, "web/dist")
 	if err != nil {
-		log.Fatalf("Failed to create sub-filesystem for embedded SPA: %v", err)
+		slog.Error("failed to create sub-filesystem for embedded SPA", "error", err)
+		panic("embedded SPA filesystem unavailable")
 	}
 	fileServer := http.FileServer(http.FS(subFS))
 

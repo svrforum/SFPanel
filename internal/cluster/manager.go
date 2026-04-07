@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"strconv"
@@ -75,7 +75,7 @@ func (m *Manager) Init(clusterName string) error {
 	advertise := m.config.AdvertiseAddress
 	if advertise == "" {
 		advertise = DetectOutboundIP()
-		log.Printf("[cluster] No advertise_address configured, auto-detected: %s", advertise)
+		slog.Info("auto-detected advertise address", "component", "cluster", "address", advertise)
 	}
 
 	certPEM, keyPEM, err := m.tls.IssueNodeCert(m.nodeID, []string{advertise})
@@ -144,7 +144,7 @@ func (m *Manager) Init(clusterName string) error {
 	m.heartbeat.StartMonitor(m.onNodeStatusChange)
 	m.events.Emit(EventNodeJoined, m.nodeID, m.nodeName, "cluster initialized as leader")
 
-	log.Printf("[cluster] Cluster '%s' initialized. NodeID=%s", clusterName, m.nodeID)
+	slog.Info("cluster initialized", "component", "cluster", "name", clusterName, "node_id", m.nodeID)
 	return nil
 }
 
@@ -157,7 +157,7 @@ func (m *Manager) Start() error {
 	advertise := m.config.AdvertiseAddress
 	if advertise == "" {
 		advertise = DetectOutboundIP()
-		log.Printf("[cluster] No advertise_address configured, auto-detected: %s", advertise)
+		slog.Info("auto-detected advertise address", "component", "cluster", "address", advertise)
 	}
 
 	raftAddr := fmt.Sprintf("%s:%d", advertise, m.config.GRPCPort+1)
@@ -175,7 +175,7 @@ func (m *Manager) Start() error {
 
 	m.heartbeat.StartMonitor(m.onNodeStatusChange)
 
-	log.Printf("[cluster] Cluster node started. NodeID=%s", m.nodeID)
+	slog.Info("cluster node started", "component", "cluster", "node_id", m.nodeID)
 	return nil
 }
 
@@ -260,7 +260,7 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 
 	m.events.Emit(EventNodeJoined, nodeID, nodeName, fmt.Sprintf("joined at %s", grpcAddr))
 
-	log.Printf("[cluster] Node joined: %s (%s) at %s", nodeName, nodeID, grpcAddr)
+	slog.Info("node joined", "component", "cluster", "name", nodeName, "node_id", nodeID, "grpc_addr", grpcAddr)
 	return caCertPEM, certPEM, keyPEM, peerList, nil
 }
 
@@ -291,7 +291,7 @@ func (m *Manager) RemoveNode(nodeID string) error {
 	}
 	m.heartbeat.RemoveNode(nodeID)
 	m.events.Emit(EventNodeLeft, nodeID, "", "removed from cluster")
-	log.Printf("[cluster] Node removed: %s", nodeID)
+	slog.Info("node removed", "component", "cluster", "node_id", nodeID)
 	return nil
 }
 
@@ -305,7 +305,7 @@ func (m *Manager) Leave() error {
 	// If we are the leader, remove ourselves from the cluster
 	if m.raft.IsLeader() {
 		if err := m.raft.RemoveServer(m.nodeID); err != nil {
-			log.Printf("[cluster] Failed to remove self from Raft: %v", err)
+			slog.Error("failed to remove self from Raft", "component", "cluster", "error", err)
 		}
 	} else {
 		// Notify the leader to remove us via gRPC
@@ -555,7 +555,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 
 				// If leader changed, close old stream
 				if grpcStream != nil && leaderAddr != connectedLeaderAddr {
-					log.Printf("[cluster] leader changed (%s -> %s), reconnecting heartbeat", connectedLeaderAddr, leaderAddr)
+					slog.Info("leader changed, reconnecting heartbeat", "component", "cluster", "old_leader", connectedLeaderAddr, "new_leader", leaderAddr)
 					closeStream()
 				}
 
@@ -573,7 +573,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 					client, err := DialNode(leaderAddr, m.tls)
 					if err != nil {
 						dialFailures++
-						log.Printf("[cluster] heartbeat dial failed: %v", err)
+						slog.Warn("heartbeat dial failed", "component", "cluster", "error", err)
 						return
 					}
 					ctx, cancel := context.WithCancel(context.Background())
@@ -582,7 +582,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						cancel()
 						client.Close()
 						dialFailures++
-						log.Printf("[cluster] heartbeat stream failed: %v", err)
+						slog.Warn("heartbeat stream failed", "component", "cluster", "error", err)
 						return
 					}
 					grpcClient = client
@@ -603,7 +603,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						Timestamp:      metrics.Timestamp,
 					})
 					if err != nil {
-						log.Printf("[cluster] heartbeat send failed: %v", err)
+						slog.Warn("heartbeat send failed", "component", "cluster", "error", err)
 						closeStream()
 					}
 				}
@@ -640,11 +640,11 @@ func (m *Manager) Shutdown() {
 		for id, node := range state.Nodes {
 			if id != m.nodeID {
 				if status, ok := liveHealth[id]; ok && status == StatusOnline {
-					log.Printf("[cluster] Transferring leadership to %s before shutdown", node.Name)
+					slog.Info("transferring leadership before shutdown", "component", "cluster", "target", node.Name)
 					if err := m.raft.TransferLeadership(id); err != nil {
-						log.Printf("[cluster] Leadership transfer failed: %v", err)
+						slog.Error("leadership transfer failed", "component", "cluster", "error", err)
 					} else {
-						log.Printf("[cluster] Leadership transferred to %s", node.Name)
+						slog.Info("leadership transferred", "component", "cluster", "target", node.Name)
 					}
 					break
 				}
@@ -658,7 +658,7 @@ func (m *Manager) Shutdown() {
 	if m.raft != nil {
 		m.raft.Shutdown()
 	}
-	log.Println("[cluster] Cluster manager stopped")
+	slog.Info("cluster manager stopped", "component", "cluster")
 }
 
 // GetConfig returns the current cluster config for writing to YAML.

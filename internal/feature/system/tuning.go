@@ -2,7 +2,7 @@ package system
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -285,21 +285,21 @@ func performRollback() {
 		return
 	}
 
-	log.Println("[tuning] Auto-rollback: no confirmation received, reverting changes")
+	slog.Info("auto-rollback: no confirmation received, reverting changes", "component", "tuning")
 
 	for key, val := range rollbackValues {
 		if _, err := runTuningCommand(rollbackCmd, "sysctl", "-w", key+"="+val); err != nil {
-			log.Printf("[tuning] Rollback failed for %s: %v", key, err)
+			slog.Error("rollback failed", "component", "tuning", "key", key, "error", err)
 		}
 	}
 
 	if rollbackHadFile && rollbackConfFile != nil {
 		if err := os.WriteFile(sysctlConfPath, rollbackConfFile, 0644); err != nil {
-			log.Printf("[tuning] Failed to restore config file: %v", err)
+			slog.Error("failed to restore config file", "component", "tuning", "error", err)
 		}
 	} else if !rollbackHadFile {
 		if err := os.Remove(sysctlConfPath); err != nil && !os.IsNotExist(err) {
-			log.Printf("[tuning] Failed to remove config file: %v", err)
+			slog.Error("failed to remove config file", "component", "tuning", "error", err)
 		}
 	}
 
@@ -307,7 +307,7 @@ func performRollback() {
 	rollbackConfFile = nil
 	rollbackCmd = nil
 	rollbackTimer = nil
-	log.Println("[tuning] Auto-rollback completed")
+	slog.Info("auto-rollback completed", "component", "tuning")
 }
 
 // ---------- ConfirmTuning ----------

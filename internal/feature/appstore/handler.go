@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	osExec "os/exec"
@@ -224,12 +224,12 @@ func (h *Handler) refreshCache() error {
 			metaURL := appStoreBaseURL + "apps/" + id + "/metadata.json"
 			metaData, err := h.httpGet(metaURL)
 			if err != nil {
-				log.Printf("[appstore] skip %s: fetch error: %v", id, err)
+				slog.Warn("skip app: fetch error", "component", "appstore", "app_id", id, "error", err)
 				return
 			}
 			var meta AppStoreMeta
 			if err := json.Unmarshal(metaData, &meta); err != nil {
-				log.Printf("[appstore] skip %s: parse error: %v", id, err)
+				slog.Warn("skip app: parse error", "component", "appstore", "app_id", id, "error", err)
 				return
 			}
 			if meta.ID == "" {

@@ -3,6 +3,7 @@ package exec
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
@@ -33,13 +34,19 @@ func (c *SystemCommander) Run(name string, args ...string) (string, error) {
 }
 
 func (c *SystemCommander) RunWithTimeout(timeout time.Duration, name string, args ...string) (string, error) {
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, name, args...)
 	out, err := cmd.CombinedOutput()
+	duration := time.Since(start)
 	if ctx.Err() == context.DeadlineExceeded {
+		slog.Warn("command timeout", "cmd", name, "duration_ms", duration.Milliseconds())
 		return string(out), fmt.Errorf("command timed out after %s", timeout)
+	}
+	if err != nil {
+		slog.Debug("command failed", "cmd", name, "duration_ms", duration.Milliseconds(), "error", err)
 	}
 	return string(out), err
 }
