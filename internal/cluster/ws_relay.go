@@ -2,7 +2,7 @@ package cluster
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -149,13 +149,13 @@ func WrapEchoWSHandler(mgr *Manager, handler func(c echo.Context) error) func(c 
 		// Upgrade client connection
 		clientWS, err := WSRelayUpgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
-			log.Printf("WS relay upgrade failed: %v", err)
+			slog.Warn("WS relay upgrade failed", "component", "cluster", "error", err)
 			return nil
 		}
 		defer clientWS.Close()
 
 		if err := RelayWebSocket(clientWS, node, c.Request().URL, mgr.ProxySecret()); err != nil {
-			log.Printf("WS relay to node %s failed: %v", nodeID, err)
+			slog.Warn("WS relay to node failed", "component", "cluster", "node_id", nodeID, "error", err)
 		}
 		return nil
 	}

@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -71,10 +71,10 @@ func (s *GRPCServer) Start(addr string) error {
 	}
 	s.listener = lis
 
-	log.Printf("[cluster] gRPC server listening on %s", addr)
+	slog.Info("gRPC server listening", "component", "cluster", "addr", addr)
 	go func() {
 		if err := s.server.Serve(lis); err != nil {
-			log.Printf("[cluster] gRPC server error: %v", err)
+			slog.Error("gRPC server error", "component", "cluster", "error", err)
 		}
 	}()
 	return nil
