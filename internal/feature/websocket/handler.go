@@ -127,6 +127,18 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 
 		containerID := c.Param("id")
 
+		tail := c.QueryParam("tail")
+		timestamps := c.QueryParam("timestamps") == "true"
+		stream := c.QueryParam("stream")
+		since := c.QueryParam("since")
+
+		opts := docker.LogOptions{
+			Tail:       tail,
+			Timestamps: timestamps,
+			Stream:     stream,
+			Since:      since,
+		}
+
 		ws, err := Upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
@@ -136,7 +148,7 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		ctx, cancel := context.WithCancel(c.Request().Context())
 		defer cancel()
 
-		logReader, err := dockerClient.ContainerLogs(ctx, containerID)
+		logReader, err := dockerClient.ContainerLogs(ctx, containerID, opts)
 		if err != nil {
 			ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
 			return nil
