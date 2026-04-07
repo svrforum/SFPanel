@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Crown, ChevronDown, ChevronRight, Server, LogOut } from 'lucide-react'
+import { Crown, ChevronDown, ChevronRight, Server, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import type { ClusterNode, ClusterStatus } from '@/types/api'
@@ -49,10 +49,10 @@ export default function TreePanel({
       <div className="w-[52px] bg-card border-r border-border flex flex-col h-full shrink-0">
         <button
           onClick={onToggleCollapse}
-          className="flex items-center justify-center py-4"
-          title="Expand"
+          className="flex items-center justify-center py-3 hover:bg-accent transition-colors"
+          title="Expand tree"
         >
-          <span className="text-sm font-bold text-foreground">SF</span>
+          <PanelLeftOpen className="h-4 w-4 text-muted-foreground" />
         </button>
 
         <div className="flex-1 flex flex-col items-center gap-1 px-1 py-2">
@@ -97,11 +97,16 @@ export default function TreePanel({
 
   return (
     <div className="w-[180px] bg-card border-r border-border flex flex-col h-full shrink-0">
-      {/* Logo */}
-      <button onClick={onToggleCollapse} className="px-4 py-4 text-left">
-        <h1 className="text-[15px] font-bold tracking-tight text-foreground">SFPanel</h1>
-        <p className="text-[10px] text-muted-foreground mt-0.5">{t('layout.tagline')}</p>
-      </button>
+      {/* Logo + collapse button */}
+      <div className="px-4 py-4 flex items-start justify-between">
+        <div>
+          <h1 className="text-[15px] font-bold tracking-tight text-foreground">SFPanel</h1>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{t('layout.tagline')}</p>
+        </div>
+        <button onClick={onToggleCollapse} className="p-1 rounded hover:bg-accent transition-colors mt-0.5 shrink-0" title="Collapse tree">
+          <PanelLeftClose className="h-3.5 w-3.5 text-muted-foreground" />
+        </button>
+      </div>
 
       {/* Tree */}
       <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-2">
