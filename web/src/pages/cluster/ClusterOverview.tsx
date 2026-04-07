@@ -32,7 +32,12 @@ export default function ClusterOverview() {
   useEffect(() => {
     loadData()
     const interval = setInterval(loadData, 15000)
-    return () => clearInterval(interval)
+    const handleVisibility = () => { if (!document.hidden) loadData() }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [loadData])
 
   if (loading) {

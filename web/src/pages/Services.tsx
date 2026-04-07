@@ -68,10 +68,15 @@ export default function Services() {
     fetchServices()
   }, [fetchServices])
 
-  // Auto-refresh every 15 seconds
+  // Auto-refresh every 15 seconds, pause when tab hidden
   useEffect(() => {
     const interval = setInterval(fetchServices, 15000)
-    return () => clearInterval(interval)
+    const handleVisibility = () => { if (!document.hidden) fetchServices() }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [fetchServices])
 
   // Client-side filtering
