@@ -5,7 +5,8 @@ import type { ClusterStatus, ClusterNode } from '@/types/api'
 import TreePanel, { type TreeSelection } from './TreePanel'
 import ContextMenu from './ContextMenu'
 
-const COLLAPSE_KEY = 'sfpanel-cluster-sidebar-collapsed'
+const TREE_COLLAPSE_KEY = 'sfpanel-cluster-tree-collapsed'
+const MENU_COLLAPSE_KEY = 'sfpanel-cluster-menu-collapsed'
 const SELECTION_KEY = 'sfpanel-cluster-selection'
 
 interface ClusterSidebarProps {
@@ -19,7 +20,8 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
   const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null)
   const [nodes, setNodes] = useState<ClusterNode[]>([])
   const [localId, setLocalId] = useState('')
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === 'true')
+  const [treeCollapsed, setTreeCollapsed] = useState(() => localStorage.getItem(TREE_COLLAPSE_KEY) === 'true')
+  const [menuCollapsed, setMenuCollapsed] = useState(() => localStorage.getItem(MENU_COLLAPSE_KEY) === 'true')
 
   const [selection, setSelection] = useState<TreeSelection>(() => {
     try {
@@ -48,10 +50,13 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
     return () => clearInterval(interval)
   }, [loadClusterData])
 
-  // Persist collapse state
   useEffect(() => {
-    localStorage.setItem(COLLAPSE_KEY, String(collapsed))
-  }, [collapsed])
+    localStorage.setItem(TREE_COLLAPSE_KEY, String(treeCollapsed))
+  }, [treeCollapsed])
+
+  useEffect(() => {
+    localStorage.setItem(MENU_COLLAPSE_KEY, String(menuCollapsed))
+  }, [menuCollapsed])
 
   // Handle selection changes
   useEffect(() => {
@@ -63,12 +68,10 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
     }
 
     if (selection.type === 'datacenter') {
-      // Switch to local node context + navigate to cluster overview
       api.setCurrentNode(null)
       onNodeChanged()
       navigate('/cluster/overview')
     } else {
-      // Switch to selected node
       const targetNodeId = selection.nodeId
       const isLocal = targetNodeId === localId
       api.setCurrentNode(isLocal ? null : targetNodeId)
@@ -91,17 +94,17 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
         localId={localId}
         selection={selection}
         onSelect={setSelection}
-        collapsed={collapsed}
-        onToggleCollapse={() => setCollapsed(!collapsed)}
+        collapsed={treeCollapsed}
+        onToggleCollapse={() => setTreeCollapsed(!treeCollapsed)}
         panelVersion={panelVersion}
         onLogout={onLogout}
       />
-      {!collapsed && (
-        <ContextMenu
-          selection={selection}
-          nodeName={selectedNodeName}
-        />
-      )}
+      <ContextMenu
+        selection={selection}
+        nodeName={selectedNodeName}
+        collapsed={menuCollapsed}
+        onToggleCollapse={() => setMenuCollapsed(!menuCollapsed)}
+      />
     </div>
   )
 }
