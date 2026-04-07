@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -15,6 +16,7 @@ type Commander interface {
 	Run(name string, args ...string) (string, error)
 	RunWithTimeout(timeout time.Duration, name string, args ...string) (string, error)
 	RunWithEnv(env []string, name string, args ...string) (string, error)
+	RunWithInput(input string, name string, args ...string) (string, error)
 	Exists(name string) bool
 }
 
@@ -48,6 +50,19 @@ func (c *SystemCommander) RunWithEnv(env []string, name string, args ...string) 
 
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(cmd.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return string(out), fmt.Errorf("command timed out after %s", DefaultTimeout)
+	}
+	return string(out), err
+}
+
+func (c *SystemCommander) RunWithInput(input string, name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Stdin = strings.NewReader(input)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return string(out), fmt.Errorf("command timed out after %s", DefaultTimeout)
