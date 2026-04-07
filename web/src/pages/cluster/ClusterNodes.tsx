@@ -43,7 +43,12 @@ export default function ClusterNodes() {
   useEffect(() => {
     loadNodes()
     const interval = setInterval(loadNodes, 15000)
-    return () => clearInterval(interval)
+    const handleVisibility = () => { if (!document.hidden) loadNodes() }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [])
 
   const handleRemove = async (nodeId: string, nodeName: string) => {

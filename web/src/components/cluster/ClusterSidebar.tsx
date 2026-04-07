@@ -47,7 +47,12 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
   useEffect(() => {
     loadClusterData()
     const interval = setInterval(loadClusterData, 15000)
-    return () => clearInterval(interval)
+    const handleVisibility = () => { if (!document.hidden) loadClusterData() }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [loadClusterData])
 
   useEffect(() => {

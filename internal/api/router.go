@@ -45,6 +45,10 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	e.HideBanner = true
 
 	e.Use(echoMw.Recover())
+	e.Use(echoMw.GzipWithConfig(echoMw.GzipConfig{
+		Level:   5,
+		MinLength: 1024,
+	}))
 	e.Use(mw.RequestLogger())
 	e.Use(echoMw.CORSWithConfig(echoMw.CORSConfig{
 		AllowOrigins: []string{

@@ -519,8 +519,17 @@ export default function DockerContainers() {
     }
 
     fetchBatchStats()
-    const interval = setInterval(fetchBatchStats, 5000)
-    return () => clearInterval(interval)
+    const interval = setInterval(fetchBatchStats, 10000)
+
+    const handleVisibility = () => {
+      if (!document.hidden) fetchBatchStats()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [containers])
 
   const handleAction = async (

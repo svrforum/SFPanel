@@ -75,10 +75,15 @@ export default function Processes() {
     fetchProcesses()
   }, [fetchProcesses])
 
-  // Auto-refresh every 10 seconds (server caches for 3s anyway)
+  // Auto-refresh every 15 seconds, pause when tab hidden
   useEffect(() => {
-    const interval = setInterval(fetchProcesses, 10000)
-    return () => clearInterval(interval)
+    const interval = setInterval(fetchProcesses, 15000)
+    const handleVisibility = () => { if (!document.hidden) fetchProcesses() }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [fetchProcesses])
 
   // Client-side filtering
