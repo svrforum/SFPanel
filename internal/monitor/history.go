@@ -16,7 +16,7 @@ type MetricsPoint struct {
 
 const (
 	// Collect a point every 30 seconds, keep 24 hours = 2880 points.
-	historyInterval = 30 * time.Second
+	historyInterval = 60 * time.Second
 	historyMaxLen   = 2880
 )
 

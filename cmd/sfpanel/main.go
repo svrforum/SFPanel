@@ -19,6 +19,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -46,6 +47,12 @@ var (
 )
 
 func main() {
+	// Optimize Go runtime for low resource usage
+	runtime.GOMAXPROCS(2)
+	if os.Getenv("GOGC") == "" {
+		debug.SetGCPercent(50)
+	}
+
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "version":

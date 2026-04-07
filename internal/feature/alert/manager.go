@@ -29,10 +29,10 @@ func NewManager(db *sql.DB) *Manager {
 
 func (m *Manager) Start(ctx context.Context) {
 	ctx, m.cancel = context.WithCancel(ctx)
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
-	slog.Info("alert manager started", "interval", "30s")
+	slog.Info("alert manager started", "interval", "60s")
 	for {
 		select {
 		case <-ctx.Done():
