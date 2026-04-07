@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
@@ -70,9 +69,6 @@ type Handler struct {
 	DB *sql.DB
 }
 
-// validSourceID matches alphanumeric, hyphens, and underscores only.
-var validSourceID = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-
 var Upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
@@ -108,18 +104,6 @@ func authenticateWS(c echo.Context, jwtSecret string) error {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
 	}
 	return nil
-}
-
-// safeWSWriter wraps websocket.Conn with a mutex for concurrent write safety.
-type safeWSWriter struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
-}
-
-func (w *safeWSWriter) WriteMessage(messageType int, data []byte) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.conn.WriteMessage(messageType, data)
 }
 
 // countFileLines returns the total number of lines in a log file.

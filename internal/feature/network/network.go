@@ -1191,7 +1191,7 @@ func updateNetplanDNS(servers []string) error {
 		if loadErr != nil || np.Network == nil {
 			continue
 		}
-		if np.Network.Ethernets == nil || len(np.Network.Ethernets) == 0 {
+		if len(np.Network.Ethernets) == 0 {
 			continue
 		}
 

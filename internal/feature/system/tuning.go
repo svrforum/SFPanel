@@ -81,10 +81,6 @@ func readSysctl(cmd commonExec.Commander, key string) string {
 	return strings.TrimSpace(out)
 }
 
-func normalizeSysctl(v string) string {
-	return strings.Join(strings.Fields(strings.TrimSpace(v)), " ")
-}
-
 // ---------- GetTuningStatus ----------
 
 func (h *TuningHandler) GetTuningStatus(c echo.Context) error {

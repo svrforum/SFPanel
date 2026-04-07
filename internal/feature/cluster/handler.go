@@ -598,7 +598,6 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 			if updateNode(f) {
 				updated++
 			} else {
-				failed++
 				sendSSE(map[string]interface{}{"overall": "error", "message": fmt.Sprintf("Rolling update stopped: %s failed", f.Name)})
 				return nil
 			}
