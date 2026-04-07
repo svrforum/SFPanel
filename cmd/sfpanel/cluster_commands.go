@@ -196,6 +196,18 @@ func clusterLeave() {
 
 	fmt.Println("Leaving cluster...")
 
+	// Try to notify leader to remove this node (best-effort)
+	mgr := cluster.NewManager(&cfg.Cluster)
+	if startErr := mgr.Start(); startErr == nil {
+		time.Sleep(3 * time.Second)
+		if err := mgr.Leave(); err != nil {
+			fmt.Printf("Warning: could not notify cluster of departure: %v\n", err)
+		} else {
+			fmt.Println("Leader notified of departure.")
+		}
+		mgr.Shutdown()
+	}
+
 	cfg.Cluster.Enabled = false
 	if err := saveConfig(cfgPath, cfg); err != nil {
 		log.Printf("Warning: failed to save config: %v", err)

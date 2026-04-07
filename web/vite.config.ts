@@ -36,16 +36,9 @@ export default defineConfig({
           '**/wgsl-*.js',
         ],
         navigateFallback: '/index.html',
-        runtimeCaching: [
-          {
-            urlPattern: /^\/api\//,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: { maxEntries: 50, maxAgeSeconds: 300 },
-            },
-          },
-        ],
+        runtimeCaching: [],
+        skipWaiting: true,
+        clientsClaim: true,
       },
     }),
   ],

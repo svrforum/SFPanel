@@ -95,28 +95,49 @@ func Load(path string) (*Config, error) {
 			CertDir:  "/etc/sfpanel/cluster",
 		},
 	}
+	needsSave := false
 	data, err := os.ReadFile(path)
 	if err != nil {
 		cfg.Auth.JWTSecret = generateRandomSecret()
 		slog.Warn("no config file found, using defaults with random JWT secret")
-		cfg.ApplyEnvOverrides()
-		if err := cfg.Validate(); err != nil {
-			return nil, fmt.Errorf("config validation: %w", err)
+		needsSave = true
+	} else {
+		if err := yaml.Unmarshal(data, cfg); err != nil {
+			return nil, err
 		}
-		return cfg, nil
-	}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, err
 	}
 	if cfg.Auth.JWTSecret == "" {
 		cfg.Auth.JWTSecret = generateRandomSecret()
-		slog.Warn("jwt_secret not set in config, generated random secret (tokens will invalidate on restart)")
+		slog.Info("generated random JWT secret")
+		needsSave = true
 	}
 	cfg.ApplyEnvOverrides()
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("config validation: %w", err)
 	}
+
+	// Persist generated secrets so tokens survive restarts
+	if needsSave {
+		if saveData, err := yaml.Marshal(cfg); err == nil {
+			if writeErr := AtomicWriteFile(path, saveData, 0600); writeErr != nil {
+				slog.Warn("failed to persist generated config", "path", path, "error", writeErr)
+			} else {
+				slog.Info("config persisted with generated secrets", "path", path)
+			}
+		}
+	}
+
 	return cfg, nil
+}
+
+// AtomicWriteFile writes data to a temp file then renames to target path.
+// This prevents partial writes from corrupting the config.
+func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func generateRandomSecret() string {
