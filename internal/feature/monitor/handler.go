@@ -1,4 +1,4 @@
-package handlers
+package featuremonitor
 
 import (
 	"net/http"
@@ -9,11 +9,11 @@ import (
 	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
-type DashboardHandler struct {
+type Handler struct {
 	Version string
 }
 
-func (h *DashboardHandler) GetSystemInfo(c echo.Context) error {
+func (h *Handler) GetSystemInfo(c echo.Context) error {
 	hostInfo, err := monitor.GetHostInfo()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrHostInfoError, "Failed to get host info")
@@ -33,7 +33,7 @@ func (h *DashboardHandler) GetSystemInfo(c echo.Context) error {
 
 // GetMetricsHistory returns the metrics history collected in memory.
 // Optional query param: range=1h|4h|12h|24h (default 24h)
-func (h *DashboardHandler) GetMetricsHistory(c echo.Context) error {
+func (h *Handler) GetMetricsHistory(c echo.Context) error {
 	rangeStr := c.QueryParam("range")
 	history := monitor.GetHistoryRange(rangeStr)
 	return response.OK(c, history)
@@ -50,7 +50,7 @@ type DashboardOverview struct {
 
 // GetOverview returns combined system info and metrics history in a single call
 // to reduce the number of API requests on dashboard initial load.
-func (h *DashboardHandler) GetOverview(c echo.Context) error {
+func (h *Handler) GetOverview(c echo.Context) error {
 	var (
 		hostInfo       *monitor.HostInfo
 		metrics        *monitor.Metrics

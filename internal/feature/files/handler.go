@@ -1,4 +1,4 @@
-package handlers
+package files
 
 import (
 	"database/sql"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/feature/settings"
 )
 
 // maxReadSize is the maximum file size (5 MB) that ReadFile will return.
@@ -58,8 +59,8 @@ type FileEntry struct {
 	IsDir   bool        `json:"isDir"`
 }
 
-// FilesHandler exposes REST handlers for server-side file management.
-type FilesHandler struct {
+// Handler exposes REST handlers for server-side file management.
+type Handler struct {
 	DB *sql.DB
 }
 
@@ -108,7 +109,7 @@ func isCriticalPath(p string) bool {
 
 // ListDir returns the contents of a directory.
 // GET /files?path=/some/path
-func (h *FilesHandler) ListDir(c echo.Context) error {
+func (h *Handler) ListDir(c echo.Context) error {
 	dirPath := c.QueryParam("path")
 	if dirPath == "" {
 		dirPath = "/"
@@ -131,7 +132,7 @@ func (h *FilesHandler) ListDir(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
-	files := make([]FileEntry, 0, len(entries))
+	filesList := make([]FileEntry, 0, len(entries))
 	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
@@ -139,7 +140,7 @@ func (h *FilesHandler) ListDir(c echo.Context) error {
 			continue
 		}
 		fullPath := filepath.Join(dirPath, entry.Name())
-		files = append(files, FileEntry{
+		filesList = append(filesList, FileEntry{
 			Name:    entry.Name(),
 			Path:    fullPath,
 			Size:    info.Size(),
@@ -150,21 +151,21 @@ func (h *FilesHandler) ListDir(c echo.Context) error {
 	}
 
 	// Sort: directories first, then alphabetical by name.
-	sort.Slice(files, func(i, j int) bool {
-		if files[i].IsDir != files[j].IsDir {
-			return files[i].IsDir
+	sort.Slice(filesList, func(i, j int) bool {
+		if filesList[i].IsDir != filesList[j].IsDir {
+			return filesList[i].IsDir
 		}
-		return strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
+		return strings.ToLower(filesList[i].Name) < strings.ToLower(filesList[j].Name)
 	})
 
-	return response.OK(c, files)
+	return response.OK(c, filesList)
 }
 
 // ---------- ReadFile ----------
 
 // ReadFile returns the text content of a file (up to 5 MB).
 // GET /files/read?path=/etc/hostname
-func (h *FilesHandler) ReadFile(c echo.Context) error {
+func (h *Handler) ReadFile(c echo.Context) error {
 	filePath := c.QueryParam("path")
 
 	if err := validatePath(filePath); err != nil {
@@ -211,7 +212,7 @@ func (h *FilesHandler) ReadFile(c echo.Context) error {
 
 // WriteFile writes (or overwrites) a file with the provided content.
 // POST /files/write  JSON body: { path: string, content: string }
-func (h *FilesHandler) WriteFile(c echo.Context) error {
+func (h *Handler) WriteFile(c echo.Context) error {
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxWriteSize)
 
 	var req struct {
@@ -277,7 +278,7 @@ func (h *FilesHandler) WriteFile(c echo.Context) error {
 
 // MkDir creates a directory (and any missing parents).
 // POST /files/mkdir  JSON body: { path: string }
-func (h *FilesHandler) MkDir(c echo.Context) error {
+func (h *Handler) MkDir(c echo.Context) error {
 	var req struct {
 		Path string `json:"path"`
 	}
@@ -305,7 +306,7 @@ func (h *FilesHandler) MkDir(c echo.Context) error {
 
 // DeletePath removes a file or directory (recursively for directories).
 // DELETE /files?path=/some/file
-func (h *FilesHandler) DeletePath(c echo.Context) error {
+func (h *Handler) DeletePath(c echo.Context) error {
 	targetPath := c.QueryParam("path")
 
 	if err := validatePathForWrite(targetPath); err != nil {
@@ -343,7 +344,7 @@ func (h *FilesHandler) DeletePath(c echo.Context) error {
 
 // RenamePath renames (moves) a file or directory.
 // POST /files/rename  JSON body: { old_path: string, new_path: string }
-func (h *FilesHandler) RenamePath(c echo.Context) error {
+func (h *Handler) RenamePath(c echo.Context) error {
 	var req struct {
 		OldPath string `json:"old_path"`
 		NewPath string `json:"new_path"`
@@ -408,7 +409,7 @@ func (h *FilesHandler) RenamePath(c echo.Context) error {
 
 // DownloadFile serves a file as an attachment download.
 // GET /files/download?path=/some/file
-func (h *FilesHandler) DownloadFile(c echo.Context) error {
+func (h *Handler) DownloadFile(c echo.Context) error {
 	filePath := c.QueryParam("path")
 
 	if err := validatePath(filePath); err != nil {
@@ -450,9 +451,9 @@ func (h *FilesHandler) DownloadFile(c echo.Context) error {
 
 // UploadFile receives a multipart file upload and saves it to the specified directory.
 // POST /files/upload  multipart form: file (uploaded file), path (destination directory)
-func (h *FilesHandler) UploadFile(c echo.Context) error {
+func (h *Handler) UploadFile(c echo.Context) error {
 	// Enforce upload size limit from settings (default 1024 MB).
-	maxMB, _ := strconv.ParseInt(GetSetting(h.DB, "max_upload_size"), 10, 64)
+	maxMB, _ := strconv.ParseInt(settings.GetSetting(h.DB, "max_upload_size"), 10, 64)
 	if maxMB <= 0 {
 		maxMB = 1024
 	}

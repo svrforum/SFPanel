@@ -1,10 +1,12 @@
-package handlers
+package system
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -19,8 +21,9 @@ import (
 )
 
 const (
-	sysctlConfPath   = "/etc/sysctl.d/99-sfpanel-tuning.conf"
-	rollbackTimeout  = 60 // seconds
+	sysctlConfPath  = "/etc/sysctl.d/99-sfpanel-tuning.conf"
+	rollbackTimeout = 60 // seconds
+	commandTimeout  = 5 * time.Minute
 )
 
 // TuningHandler exposes REST handlers for system kernel parameter tuning.
@@ -30,10 +33,10 @@ type TuningHandler struct{}
 var (
 	rollbackMu       sync.Mutex
 	rollbackTimer    *time.Timer
-	rollbackValues   map[string]string // pre-apply sysctl values
-	rollbackConfFile []byte            // pre-apply config file content (nil if didn't exist)
-	rollbackHadFile  bool              // whether config file existed before apply
-	rollbackDeadline time.Time         // when rollback will trigger
+	rollbackValues   map[string]string
+	rollbackConfFile []byte
+	rollbackHadFile  bool
+	rollbackDeadline time.Time
 )
 
 // TuningParam represents a single sysctl parameter with current and recommended values.
@@ -42,7 +45,7 @@ type TuningParam struct {
 	Current     string `json:"current"`
 	Recommended string `json:"recommended"`
 	Description string `json:"description"`
-	Applied     bool   `json:"applied"` // true if SFPanel config file contains this key
+	Applied     bool   `json:"applied"`
 }
 
 // TuningCategory groups related tuning parameters.
@@ -64,24 +67,32 @@ type TuningSystemInfo struct {
 
 // ---------- Helpers ----------
 
-// readSysctl reads a single sysctl value.
+func runTuningCommand(name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return string(out), fmt.Errorf("command timed out after %s", commandTimeout)
+	}
+	return string(out), err
+}
+
 func readSysctl(key string) string {
-	out, err := runCommand("sysctl", "-n", key)
+	out, err := runTuningCommand("sysctl", "-n", key)
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(out)
 }
 
-// normalizeSysctl normalizes whitespace for comparison (e.g. tcp_rmem has tabs).
 func normalizeSysctl(v string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(v)), " ")
 }
 
 // ---------- GetTuningStatus ----------
 
-// GetTuningStatus returns current sysctl values compared against recommended values.
-// GET /system/tuning
 func (h *TuningHandler) GetTuningStatus(c echo.Context) error {
 	cpuCores := runtime.NumCPU()
 	v, _ := mem.VirtualMemory()
@@ -93,7 +104,6 @@ func (h *TuningHandler) GetTuningStatus(c echo.Context) error {
 
 	categories := buildRecommendations(cpuCores, totalRAMGB, totalRAM)
 
-	// Read SFPanel config file to determine which keys we've applied
 	configuredKeys := make(map[string]bool)
 	if data, err := os.ReadFile(sysctlConfPath); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
@@ -115,7 +125,6 @@ func (h *TuningHandler) GetTuningStatus(c echo.Context) error {
 		for j, p := range cat.Params {
 			current := readSysctl(p.Key)
 			categories[i].Params[j].Current = current
-			// "applied" means SFPanel config file contains this key
 			categories[i].Params[j].Applied = configuredKeys[p.Key]
 			if categories[i].Params[j].Applied {
 				applied++
@@ -127,7 +136,6 @@ func (h *TuningHandler) GetTuningStatus(c echo.Context) error {
 		totalApplied += applied
 	}
 
-	// Check if there's a pending rollback
 	rollbackMu.Lock()
 	pending := rollbackValues != nil
 	remaining := 0
@@ -140,10 +148,10 @@ func (h *TuningHandler) GetTuningStatus(c echo.Context) error {
 	rollbackMu.Unlock()
 
 	return response.OK(c, map[string]interface{}{
-		"categories":       categories,
-		"total_params":     totalParams,
-		"applied":          totalApplied,
-		"pending_rollback": pending,
+		"categories":         categories,
+		"total_params":       totalParams,
+		"applied":            totalApplied,
+		"pending_rollback":   pending,
 		"rollback_remaining": remaining,
 		"system_info": TuningSystemInfo{
 			CPUCores: cpuCores,
@@ -155,9 +163,6 @@ func (h *TuningHandler) GetTuningStatus(c echo.Context) error {
 
 // ---------- ApplyTuning ----------
 
-// ApplyTuning writes recommended sysctl values and applies them.
-// POST /system/tuning/apply
-// JSON body: { "categories": ["network", "memory"] } — empty applies all
 func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 	var req struct {
 		Categories []string `json:"categories"`
@@ -181,17 +186,14 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 		selectedCategories[cat] = true
 	}
 
-	// Hold lock for entire apply operation to prevent concurrent applies
 	rollbackMu.Lock()
 	defer rollbackMu.Unlock()
 
-	// Cancel any existing rollback timer
 	if rollbackTimer != nil {
 		rollbackTimer.Stop()
 		rollbackTimer = nil
 	}
 
-	// Save current sysctl values for all params being changed
 	preApplyValues := make(map[string]string)
 	for _, cat := range categories {
 		if len(req.Categories) > 0 && !selectedCategories[cat.Name] {
@@ -202,7 +204,6 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 		}
 	}
 
-	// Save current config file
 	var preApplyConfFile []byte
 	preApplyHadFile := false
 	if data, err := os.ReadFile(sysctlConfPath); err == nil {
@@ -210,7 +211,6 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 		preApplyHadFile = true
 	}
 
-	// Read existing config to preserve other categories
 	existingParams := make(map[string]string)
 	if preApplyHadFile {
 		for _, line := range strings.Split(string(preApplyConfFile), "\n") {
@@ -225,7 +225,6 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 		}
 	}
 
-	// Merge new values
 	for _, cat := range categories {
 		if len(req.Categories) > 0 && !selectedCategories[cat.Name] {
 			continue
@@ -235,7 +234,6 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 		}
 	}
 
-	// Sort keys for consistent output
 	keys := make([]string, 0, len(existingParams))
 	for k := range existingParams {
 		keys = append(keys, k)
@@ -260,9 +258,8 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 			"Failed to write config: "+err.Error())
 	}
 
-	output, err := runCommand("sysctl", "-p", sysctlConfPath)
+	output, err := runTuningCommand("sysctl", "-p", sysctlConfPath)
 	if err != nil {
-		// Restore previous config file on sysctl failure
 		if preApplyHadFile {
 			_ = os.WriteFile(sysctlConfPath, preApplyConfFile, 0644)
 		} else {
@@ -272,7 +269,6 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 			"Failed to apply tuning: "+err.Error())
 	}
 
-	// Start rollback timer
 	rollbackValues = preApplyValues
 	rollbackConfFile = preApplyConfFile
 	rollbackHadFile = preApplyHadFile
@@ -286,7 +282,6 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 	})
 }
 
-// performRollback restores sysctl values to their pre-apply state.
 func performRollback() {
 	rollbackMu.Lock()
 	defer rollbackMu.Unlock()
@@ -297,14 +292,12 @@ func performRollback() {
 
 	log.Println("[tuning] Auto-rollback: no confirmation received, reverting changes")
 
-	// Restore each sysctl value
 	for key, val := range rollbackValues {
-		if _, err := runCommand("sysctl", "-w", key+"="+val); err != nil {
+		if _, err := runTuningCommand("sysctl", "-w", key+"="+val); err != nil {
 			log.Printf("[tuning] Rollback failed for %s: %v", key, err)
 		}
 	}
 
-	// Restore config file
 	if rollbackHadFile && rollbackConfFile != nil {
 		if err := os.WriteFile(sysctlConfPath, rollbackConfFile, 0644); err != nil {
 			log.Printf("[tuning] Failed to restore config file: %v", err)
@@ -323,8 +316,6 @@ func performRollback() {
 
 // ---------- ConfirmTuning ----------
 
-// ConfirmTuning confirms the applied tuning and cancels the rollback timer.
-// POST /system/tuning/confirm
 func (h *TuningHandler) ConfirmTuning(c echo.Context) error {
 	rollbackMu.Lock()
 	defer rollbackMu.Unlock()
@@ -349,10 +340,7 @@ func (h *TuningHandler) ConfirmTuning(c echo.Context) error {
 
 // ---------- ResetTuning ----------
 
-// ResetTuning removes the SFPanel sysctl config and reloads system defaults.
-// POST /system/tuning/reset
 func (h *TuningHandler) ResetTuning(c echo.Context) error {
-	// Cancel any pending rollback timer first
 	rollbackMu.Lock()
 	if rollbackTimer != nil {
 		rollbackTimer.Stop()
@@ -374,8 +362,7 @@ func (h *TuningHandler) ResetTuning(c echo.Context) error {
 			"Failed to remove config: "+err.Error())
 	}
 
-	// Reload all system sysctl configs to restore defaults
-	_, _ = runCommand("sysctl", "--system")
+	_, _ = runTuningCommand("sysctl", "--system")
 
 	return response.OK(c, map[string]interface{}{
 		"message": "Tuning reset to system defaults",
@@ -385,7 +372,6 @@ func (h *TuningHandler) ResetTuning(c echo.Context) error {
 // ---------- Recommendations ----------
 
 func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64) []TuningCategory {
-	// --- Network buffer sizes based on RAM ---
 	var rmemMax, wmemMax, tcpRmem, tcpWmem string
 	switch {
 	case totalRAMGB >= 16:
@@ -405,7 +391,6 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 		tcpWmem = "4096 65536 4194304"
 	}
 
-	// --- Connection backlog based on CPU ---
 	somaxconn := "65535"
 	backlog := "65535"
 	if cpuCores <= 2 {
@@ -413,7 +398,6 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 		backlog = "32768"
 	}
 
-	// --- Swappiness based on RAM ---
 	swappiness := "10"
 	if totalRAMGB < 2 {
 		swappiness = "60"
@@ -421,7 +405,6 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 		swappiness = "30"
 	}
 
-	// --- file-max based on RAM (roughly 256 per MB, capped at 2M) ---
 	totalRAMMB := totalRAMBytes / (1024 * 1024)
 	fileMax := totalRAMMB * 256
 	if fileMax < 65536 {
@@ -431,7 +414,6 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 		fileMax = 2097152
 	}
 
-	// --- min_free_kbytes based on RAM ---
 	minFreeKB := 65536
 	if totalRAMGB >= 32 {
 		minFreeKB = 262144

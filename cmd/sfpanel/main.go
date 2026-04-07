@@ -23,13 +23,14 @@ import (
 
 	sfpanel "github.com/svrforum/SFPanel"
 	"github.com/svrforum/SFPanel/internal/api"
-	"github.com/svrforum/SFPanel/internal/api/handlers"
 	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
 	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
+	featureLogs "github.com/svrforum/SFPanel/internal/feature/logs"
+	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	"github.com/svrforum/SFPanel/internal/monitor"
 	"github.com/svrforum/SFPanel/internal/release"
 )
@@ -79,7 +80,7 @@ func main() {
 
 	// Set SFPanel log source path from config
 	if cfg.Log.File != "" {
-		handlers.SetSFPanelLogPath(cfg.Log.File)
+		featureLogs.SetSFPanelLogPath(cfg.Log.File)
 	}
 
 	// Set up log file output if configured
@@ -165,7 +166,7 @@ func main() {
 	monitor.StartHistoryCollector(database)
 
 	// Start terminal session cleanup (timeout from settings, 0 = never)
-	handlers.CleanupTerminalSessions(database)
+	featureTerminal.CleanupTerminalSessions(database)
 
 	// Restore DOCKER-USER firewall rules if previously saved
 	featureFirewall.RestoreDockerUserRules()

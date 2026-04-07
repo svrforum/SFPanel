@@ -1,4 +1,4 @@
-package handlers
+package system
 
 import (
 	"archive/tar"
@@ -22,7 +22,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/release"
 )
 
-type SystemHandler struct {
+type Handler struct {
 	Version     string
 	DBPath      string
 	ConfigPath  string
@@ -45,7 +45,7 @@ type UpdateCheckResponse struct {
 }
 
 // CheckUpdate queries GitHub releases API and returns version comparison.
-func (h *SystemHandler) CheckUpdate(c echo.Context) error {
+func (h *Handler) CheckUpdate(c echo.Context) error {
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get("https://api.github.com/repos/svrforum/SFPanel/releases/latest")
 	if err != nil {
@@ -74,7 +74,7 @@ func (h *SystemHandler) CheckUpdate(c echo.Context) error {
 }
 
 // RunUpdate downloads the latest release and replaces the current binary, streaming progress via SSE.
-func (h *SystemHandler) RunUpdate(c echo.Context) error {
+func (h *Handler) RunUpdate(c echo.Context) error {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get("https://api.github.com/repos/svrforum/SFPanel/releases/latest")
 	if err != nil {
@@ -212,13 +212,11 @@ func (h *SystemHandler) RunUpdate(c echo.Context) error {
 		return nil
 	}
 
-	// Backup current binary
 	backupPath := execPath + ".bak"
 	if data, readErr := os.ReadFile(execPath); readErr == nil {
 		_ = os.WriteFile(backupPath, data, 0755)
 	}
 
-	// Backup DB + config before update
 	if data, readErr := os.ReadFile(h.DBPath); readErr == nil {
 		_ = os.WriteFile(h.DBPath+".bak", data, 0600)
 	}
@@ -248,7 +246,7 @@ func (h *SystemHandler) RunUpdate(c echo.Context) error {
 }
 
 // CreateBackup creates a tar.gz archive of DB + config and sends it as download.
-func (h *SystemHandler) CreateBackup(c echo.Context) error {
+func (h *Handler) CreateBackup(c echo.Context) error {
 	c.Response().Header().Set("Content-Type", "application/gzip")
 	c.Response().Header().Set("Content-Disposition",
 		fmt.Sprintf("attachment; filename=sfpanel-backup-%s.tar.gz", time.Now().Format("20060102-150405")))
@@ -318,7 +316,7 @@ func addFileToTar(tw *tar.Writer, filePath, nameInArchive string) error {
 }
 
 // RestoreBackup receives a tar.gz upload, validates contents, and restores DB + config.
-func (h *SystemHandler) RestoreBackup(c echo.Context) error {
+func (h *Handler) RestoreBackup(c echo.Context) error {
 	file, err := c.FormFile("backup")
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed, "No backup file provided")
@@ -336,7 +334,7 @@ func (h *SystemHandler) RestoreBackup(c echo.Context) error {
 	}
 	defer gzr.Close()
 
-	const maxEntrySize = 100 * 1024 * 1024 // 100MB per entry
+	const maxEntrySize = 100 * 1024 * 1024
 
 	tr := tar.NewReader(gzr)
 	files := make(map[string][]byte)
@@ -351,7 +349,6 @@ func (h *SystemHandler) RestoreBackup(c echo.Context) error {
 		if hdr.Typeflag == tar.TypeDir {
 			continue
 		}
-		// Prevent path traversal (Zip Slip)
 		clean := filepath.Clean(hdr.Name)
 		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
 			continue
@@ -369,7 +366,6 @@ func (h *SystemHandler) RestoreBackup(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed, "Backup must contain sfpanel.db")
 	}
 
-	// Backup current files
 	if data, readErr := os.ReadFile(h.DBPath); readErr == nil {
 		_ = os.WriteFile(h.DBPath+".bak", data, 0600)
 	}
@@ -377,10 +373,8 @@ func (h *SystemHandler) RestoreBackup(c echo.Context) error {
 		_ = os.WriteFile(h.ConfigPath+".bak", data, 0600)
 	}
 
-	// Write restored files
 	if dbData, ok := files["sfpanel.db"]; ok {
 		if err := os.WriteFile(h.DBPath, dbData, 0600); err != nil {
-			// Attempt to restore from backup
 			if bakData, bakErr := os.ReadFile(h.DBPath + ".bak"); bakErr == nil {
 				_ = os.WriteFile(h.DBPath, bakData, 0600)
 			}
@@ -393,17 +387,14 @@ func (h *SystemHandler) RestoreBackup(c echo.Context) error {
 		}
 	}
 
-	// Restore compose files
 	if h.ComposePath != "" {
 		composePath := filepath.Clean(h.ComposePath)
 		for name, data := range files {
 			if !strings.HasPrefix(name, "compose/") {
 				continue
 			}
-			// name format: compose/<project>/<filename>
 			relPath := strings.TrimPrefix(name, "compose/")
 			destPath := filepath.Join(composePath, relPath)
-			// Verify path stays within compose directory
 			if !strings.HasPrefix(filepath.Clean(destPath), composePath+string(os.PathSeparator)) {
 				continue
 			}
@@ -415,7 +406,6 @@ func (h *SystemHandler) RestoreBackup(c echo.Context) error {
 		}
 	}
 
-	// Restart service
 	if err := exec.Command("systemctl", "is-active", "--quiet", "sfpanel").Run(); err == nil {
 		_ = exec.Command("systemctl", "restart", "sfpanel").Start()
 	}

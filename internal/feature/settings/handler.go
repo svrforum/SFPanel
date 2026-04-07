@@ -1,4 +1,4 @@
-package handlers
+package settings
 
 import (
 	"database/sql"
@@ -8,17 +8,17 @@ import (
 	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
-type SettingsHandler struct {
+type Handler struct {
 	DB *sql.DB
 }
 
 // defaults for settings that haven't been saved yet.
 var settingDefaults = map[string]string{
-	"terminal_timeout":  "30",
-	"max_upload_size": "1024",
+	"terminal_timeout": "30",
+	"max_upload_size":  "1024",
 }
 
-func (h *SettingsHandler) GetSettings(c echo.Context) error {
+func (h *Handler) GetSettings(c echo.Context) error {
 	result := make(map[string]string)
 
 	// Start from defaults
@@ -48,7 +48,7 @@ type updateSettingsRequest struct {
 	Settings map[string]string `json:"settings"`
 }
 
-func (h *SettingsHandler) UpdateSettings(c echo.Context) error {
+func (h *Handler) UpdateSettings(c echo.Context) error {
 	var req updateSettingsRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")

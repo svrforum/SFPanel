@@ -1,4 +1,4 @@
-package handlers
+package featureauth
 
 import (
 	"database/sql"
@@ -27,7 +27,7 @@ const (
 	rateLimitBlockDuration = 5 * time.Minute
 )
 
-type AuthHandler struct {
+type Handler struct {
 	DB     *sql.DB
 	Config *config.Config
 }
@@ -58,7 +58,7 @@ type setupAdminRequest struct {
 	Password string `json:"password"`
 }
 
-func (h *AuthHandler) Login(c echo.Context) error {
+func (h *Handler) Login(c echo.Context) error {
 	ip := c.RealIP()
 	if val, ok := loginAttempts.Load(ip); ok {
 		attempt := val.(*loginAttempt)
@@ -144,7 +144,7 @@ func recordFailedLogin(ip string) {
 	}
 }
 
-func (h *AuthHandler) Setup2FA(c echo.Context) error {
+func (h *Handler) Setup2FA(c echo.Context) error {
 	username, _ := c.Get("username").(string)
 	if username == "" {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
@@ -161,7 +161,7 @@ func (h *AuthHandler) Setup2FA(c echo.Context) error {
 	})
 }
 
-func (h *AuthHandler) Verify2FA(c echo.Context) error {
+func (h *Handler) Verify2FA(c echo.Context) error {
 	username, _ := c.Get("username").(string)
 	if username == "" {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
@@ -188,8 +188,7 @@ func (h *AuthHandler) Verify2FA(c echo.Context) error {
 	return response.OK(c, map[string]string{"message": "2FA enabled successfully"})
 }
 
-// Get2FAStatus returns whether 2FA is enabled for the authenticated user.
-func (h *AuthHandler) Get2FAStatus(c echo.Context) error {
+func (h *Handler) Get2FAStatus(c echo.Context) error {
 	username, _ := c.Get("username").(string)
 	if username == "" {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
@@ -208,8 +207,7 @@ func (h *AuthHandler) Get2FAStatus(c echo.Context) error {
 	return response.OK(c, map[string]bool{"enabled": enabled})
 }
 
-// Disable2FA removes the TOTP secret, disabling 2FA. Requires current password for verification.
-func (h *AuthHandler) Disable2FA(c echo.Context) error {
+func (h *Handler) Disable2FA(c echo.Context) error {
 	username, _ := c.Get("username").(string)
 	if username == "" {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
@@ -243,8 +241,7 @@ func (h *AuthHandler) Disable2FA(c echo.Context) error {
 	return response.OK(c, map[string]string{"message": "2FA disabled successfully"})
 }
 
-// ChangePassword allows an authenticated user to change their password.
-func (h *AuthHandler) ChangePassword(c echo.Context) error {
+func (h *Handler) ChangePassword(c echo.Context) error {
 	var req changePasswordRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -263,7 +260,6 @@ func (h *AuthHandler) ChangePassword(c echo.Context) error {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
 	}
 
-	// Verify current password
 	var passwordHash string
 	err := h.DB.QueryRow("SELECT password FROM admin WHERE username = ?", username).Scan(&passwordHash)
 	if err == sql.ErrNoRows {
@@ -277,7 +273,6 @@ func (h *AuthHandler) ChangePassword(c echo.Context) error {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidPassword, "Current password is incorrect")
 	}
 
-	// Hash and save new password
 	newHash, err := auth.HashPassword(req.NewPassword)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrHashError, "Failed to hash new password")
@@ -291,9 +286,7 @@ func (h *AuthHandler) ChangePassword(c echo.Context) error {
 	return response.OK(c, map[string]string{"message": "Password changed successfully"})
 }
 
-// GetSetupStatus checks if initial setup is required (no admin exists).
-// This is a PUBLIC endpoint — no auth required.
-func (h *AuthHandler) GetSetupStatus(c echo.Context) error {
+func (h *Handler) GetSetupStatus(c echo.Context) error {
 	var count int
 	err := h.DB.QueryRow("SELECT COUNT(*) FROM admin").Scan(&count)
 	if err != nil {
@@ -303,9 +296,7 @@ func (h *AuthHandler) GetSetupStatus(c echo.Context) error {
 	return response.OK(c, map[string]bool{"setup_required": count == 0})
 }
 
-// SetupAdmin creates the initial admin account. Only works if no admin exists yet.
-// This is a PUBLIC endpoint — no auth required.
-func (h *AuthHandler) SetupAdmin(c echo.Context) error {
+func (h *Handler) SetupAdmin(c echo.Context) error {
 	var req setupAdminRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -346,7 +337,6 @@ func (h *AuthHandler) SetupAdmin(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to create admin account")
 	}
 
-	// Generate JWT so user is logged in immediately
 	expiry, err := time.ParseDuration(h.Config.Auth.TokenExpiry)
 	if err != nil {
 		expiry = 24 * time.Hour

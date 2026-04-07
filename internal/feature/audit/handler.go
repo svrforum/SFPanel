@@ -1,4 +1,4 @@
-package handlers
+package audit
 
 import (
 	"database/sql"
@@ -9,7 +9,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
-type AuditHandler struct {
+type Handler struct {
 	DB *sql.DB
 }
 
@@ -29,7 +29,7 @@ type AuditLogsResponse struct {
 	Total int             `json:"total"`
 }
 
-func (h *AuditHandler) ListAuditLogs(c echo.Context) error {
+func (h *Handler) ListAuditLogs(c echo.Context) error {
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	if page < 1 {
 		page = 1
@@ -72,7 +72,7 @@ func (h *AuditHandler) ListAuditLogs(c echo.Context) error {
 	})
 }
 
-func (h *AuditHandler) ClearAuditLogs(c echo.Context) error {
+func (h *Handler) ClearAuditLogs(c echo.Context) error {
 	if _, err := h.DB.Exec("DELETE FROM audit_logs"); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to clear audit logs")
 	}

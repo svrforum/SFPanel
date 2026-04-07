@@ -1,4 +1,4 @@
-package handlers
+package logs
 
 import (
 	"bufio"
@@ -12,10 +12,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/auth"
 )
 
 // logSourceInfo holds metadata about a known log source.
@@ -28,13 +31,13 @@ type logSourceInfo struct {
 // defaultLogSources defines the built-in log sources with their filesystem paths.
 // The sfpanel source path is set dynamically from config via SetSFPanelLogPath.
 var defaultLogSources = map[string]logSourceInfo{
-	"syslog":  {Name: "System Log", Path: "/var/log/syslog"},
-	"auth":    {Name: "Auth Log", Path: "/var/log/auth.log"},
-	"kern":    {Name: "Kernel Log", Path: "/var/log/kern.log"},
-	"sfpanel": {Name: "SFPanel", Path: "/var/log/sfpanel/sfpanel.log"},
-	"dpkg":    {Name: "Package Manager", Path: "/var/log/dpkg.log"},
-	"firewall":  {Name: "Firewall", Path: "/var/log/kern.log", Filter: "UFW|DOCKER-USER"},
-	"fail2ban":  {Name: "Fail2ban", Path: "/var/log/fail2ban.log"},
+	"syslog":   {Name: "System Log", Path: "/var/log/syslog"},
+	"auth":     {Name: "Auth Log", Path: "/var/log/auth.log"},
+	"kern":     {Name: "Kernel Log", Path: "/var/log/kern.log"},
+	"sfpanel":  {Name: "SFPanel", Path: "/var/log/sfpanel/sfpanel.log"},
+	"dpkg":     {Name: "Package Manager", Path: "/var/log/dpkg.log"},
+	"firewall": {Name: "Firewall", Path: "/var/log/kern.log", Filter: "UFW|DOCKER-USER"},
+	"fail2ban": {Name: "Fail2ban", Path: "/var/log/fail2ban.log"},
 }
 
 // SetSFPanelLogPath updates the sfpanel log source path from config.
@@ -58,17 +61,66 @@ type LogSource struct {
 // LogOutput represents the response payload from ReadLog.
 type LogOutput struct {
 	Source     string   `json:"source"`
-	Lines      []string `json:"lines"`
-	TotalLines int      `json:"total_lines"`
+	Lines     []string `json:"lines"`
+	TotalLines int     `json:"total_lines"`
 }
 
-// LogsHandler exposes REST handlers for viewing system and application logs.
-type LogsHandler struct {
+// Handler exposes REST handlers for viewing system and application logs.
+type Handler struct {
 	DB *sql.DB
 }
 
 // validSourceID matches alphanumeric, hyphens, and underscores only.
 var validSourceID = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+var Upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		host := r.Host
+		if host == "localhost:5173" || host == "localhost:8443" {
+			return true
+		}
+		if len(origin) > 7 {
+			for _, prefix := range []string{"https://", "http://"} {
+				if len(origin) > len(prefix) && origin[:len(prefix)] == prefix {
+					if origin[len(prefix):] == host {
+						return true
+					}
+				}
+			}
+		}
+		return true
+	},
+}
+
+func authenticateWS(c echo.Context, jwtSecret string) error {
+	if middleware.IsInternalProxyRequest(c.Request()) {
+		return nil
+	}
+	token := c.QueryParam("token")
+	if token == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+	}
+	if _, err := auth.ParseToken(token, jwtSecret); err != nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+	}
+	return nil
+}
+
+// safeWSWriter wraps websocket.Conn with a mutex for concurrent write safety.
+type safeWSWriter struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (w *safeWSWriter) WriteMessage(messageType int, data []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.conn.WriteMessage(messageType, data)
+}
 
 // countFileLines returns the total number of lines in a log file.
 // When filter is non-empty, only matching lines are counted.
@@ -98,7 +150,7 @@ func countFileLines(ctx context.Context, path string, filter string) int {
 // ListSources returns the list of known log sources along with their
 // availability and file size on disk. Custom sources from the database
 // are merged with the built-in system sources.
-func (h *LogsHandler) ListSources(c echo.Context) error {
+func (h *Handler) ListSources(c echo.Context) error {
 	sources := make([]LogSource, 0, len(defaultLogSources))
 
 	for id, info := range defaultLogSources {
@@ -149,7 +201,7 @@ func (h *LogsHandler) ListSources(c echo.Context) error {
 }
 
 // allSources returns a merged map of built-in and custom sources.
-func (h *LogsHandler) allSources() map[string]logSourceInfo {
+func (h *Handler) allSources() map[string]logSourceInfo {
 	merged := make(map[string]logSourceInfo, len(defaultLogSources))
 	for k, v := range defaultLogSources {
 		merged[k] = v
@@ -174,7 +226,7 @@ func (h *LogsHandler) allSources() map[string]logSourceInfo {
 // Query parameters:
 //   - source (required): one of the keys in logSources or a custom source
 //   - lines  (optional): number of lines to return (default 100, max 5000)
-func (h *LogsHandler) ReadLog(c echo.Context) error {
+func (h *Handler) ReadLog(c echo.Context) error {
 	sourceKey := c.QueryParam("source")
 	if sourceKey == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingSource, "Query parameter 'source' is required")
@@ -249,7 +301,7 @@ func (h *LogsHandler) ReadLog(c echo.Context) error {
 
 	return response.OK(c, LogOutput{
 		Source:     sourceKey,
-		Lines:      logLines,
+		Lines:     logLines,
 		TotalLines: totalLines,
 	})
 }
@@ -262,7 +314,7 @@ func (h *LogsHandler) ReadLog(c echo.Context) error {
 //   - source (required): one of the keys in logSources or a custom source
 //   - token  (required): valid JWT
 func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
-	helper := &LogsHandler{DB: database}
+	helper := &Handler{DB: database}
 	return func(c echo.Context) error {
 		if err := authenticateWS(c, jwtSecret); err != nil {
 			return err
@@ -287,7 +339,7 @@ func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 		}
 
 		// Upgrade to WebSocket.
-		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+		ws, err := Upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
 		}
@@ -384,7 +436,7 @@ func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 
 // AddCustomSource adds a new custom log source.
 // POST /api/v1/logs/custom-sources
-func (h *LogsHandler) AddCustomSource(c echo.Context) error {
+func (h *Handler) AddCustomSource(c echo.Context) error {
 	var req struct {
 		Name string `json:"name"`
 		Path string `json:"path"`
@@ -467,7 +519,7 @@ func (h *LogsHandler) AddCustomSource(c echo.Context) error {
 
 // DeleteCustomSource deletes a custom log source by its database ID.
 // DELETE /api/v1/logs/custom-sources/:id
-func (h *LogsHandler) DeleteCustomSource(c echo.Context) error {
+func (h *Handler) DeleteCustomSource(c echo.Context) error {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {

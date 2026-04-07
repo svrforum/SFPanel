@@ -1,4 +1,4 @@
-package handlers
+package featurecluster
 
 import (
 	"context"
@@ -41,15 +41,13 @@ func clusterErrResponse(c echo.Context, err error) error {
 	}
 }
 
-type ClusterHandler struct {
+type Handler struct {
 	Manager    *cluster.Manager
 	Config     *config.Config
 	ConfigPath string
 }
 
-// InitCluster initializes a new cluster from the UI.
-// POST /api/v1/cluster/init
-func (h *ClusterHandler) InitCluster(c echo.Context) error {
+func (h *Handler) InitCluster(c echo.Context) error {
 	if h.Manager != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster already initialized")
 	}
@@ -98,7 +96,6 @@ func (h *ClusterHandler) InitCluster(c echo.Context) error {
 
 	log.Printf("[cluster] Cluster '%s' initialized via UI. Restarting...", clusterName)
 
-	// Schedule restart after response is sent (exit 1 so systemd Restart=on-failure triggers)
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		log.Println("[cluster] Exiting for systemd restart...")
@@ -106,16 +103,14 @@ func (h *ClusterHandler) InitCluster(c echo.Context) error {
 	}()
 
 	return response.OK(c, map[string]interface{}{
-		"message":  "Cluster initialized. Service restarting...",
-		"name":     clusterName,
-		"node_id":  h.Config.Cluster.NodeID,
-		"restart":  true,
+		"message": "Cluster initialized. Service restarting...",
+		"name":    clusterName,
+		"node_id": h.Config.Cluster.NodeID,
+		"restart": true,
 	})
 }
 
-// GetNetworkInterfaces returns available network interfaces for advertise address selection.
-// GET /api/v1/cluster/interfaces
-func (h *ClusterHandler) GetNetworkInterfaces(c echo.Context) error {
+func (h *Handler) GetNetworkInterfaces(c echo.Context) error {
 	type ifaceInfo struct {
 		Name    string `json:"name"`
 		Address string `json:"address"`
@@ -152,11 +147,7 @@ func (h *ClusterHandler) GetNetworkInterfaces(c echo.Context) error {
 	})
 }
 
-
-// GetOverview returns cluster overview with all nodes and metrics.
-// On follower nodes, this forwards to the leader for consistent state.
-// GET /api/v1/cluster/overview
-func (h *ClusterHandler) GetOverview(c echo.Context) error {
+func (h *Handler) GetOverview(c echo.Context) error {
 	if h.Manager == nil {
 		return response.OK(c, map[string]interface{}{
 			"name": "", "node_count": 0, "leader_id": "",
@@ -164,12 +155,10 @@ func (h *ClusterHandler) GetOverview(c echo.Context) error {
 		})
 	}
 
-	// If we're not the leader, try to proxy to the leader for consistent data
 	if !h.Manager.IsLeader() {
 		if resp, err := h.proxyToLeader(c); err == nil {
 			return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
 		}
-		// Fallback to local FSM if leader unreachable
 	}
 
 	overview := h.Manager.GetOverview()
@@ -182,9 +171,7 @@ func (h *ClusterHandler) GetOverview(c echo.Context) error {
 	return response.OK(c, overview)
 }
 
-// GetNodes returns the list of cluster nodes.
-// GET /api/v1/cluster/nodes
-func (h *ClusterHandler) GetNodes(c echo.Context) error {
+func (h *Handler) GetNodes(c echo.Context) error {
 	if h.Manager == nil {
 		return response.OK(c, map[string]interface{}{
 			"nodes": []interface{}{}, "local_id": "", "is_leader": false,
@@ -205,9 +192,7 @@ func (h *ClusterHandler) GetNodes(c echo.Context) error {
 	})
 }
 
-// GetStatus returns basic cluster status info.
-// GET /api/v1/cluster/status
-func (h *ClusterHandler) GetStatus(c echo.Context) error {
+func (h *Handler) GetStatus(c echo.Context) error {
 	if h.Manager == nil {
 		return response.OK(c, map[string]interface{}{
 			"enabled": false,
@@ -231,10 +216,7 @@ func (h *ClusterHandler) GetStatus(c echo.Context) error {
 	})
 }
 
-// returnWithLocalID takes a proxied response from the leader and replaces
-// local_id and is_leader with the actual local node's values.
-// This prevents the leader's identity from being returned to the client.
-func (h *ClusterHandler) returnWithLocalID(c echo.Context, resp *pb.APIResponse) error {
+func (h *Handler) returnWithLocalID(c echo.Context, resp *pb.APIResponse) error {
 	var envelope map[string]interface{}
 	if err := json.Unmarshal(resp.Body, &envelope); err != nil {
 		return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
@@ -250,9 +232,7 @@ func (h *ClusterHandler) returnWithLocalID(c echo.Context, resp *pb.APIResponse)
 	return c.Blob(int(resp.StatusCode), "application/json", patched)
 }
 
-// CreateToken generates a join token. Leader-only.
-// POST /api/v1/cluster/token
-func (h *ClusterHandler) CreateToken(c echo.Context) error {
+func (h *Handler) CreateToken(c echo.Context) error {
 	if h.Manager == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
@@ -279,9 +259,7 @@ func (h *ClusterHandler) CreateToken(c echo.Context) error {
 	})
 }
 
-// RemoveNode removes a node from the cluster. Leader-only.
-// DELETE /api/v1/cluster/nodes/:id
-func (h *ClusterHandler) RemoveNode(c echo.Context) error {
+func (h *Handler) RemoveNode(c echo.Context) error {
 	if h.Manager == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
@@ -298,9 +276,7 @@ func (h *ClusterHandler) RemoveNode(c echo.Context) error {
 	return response.OK(c, map[string]string{"removed": nodeID})
 }
 
-// GetEvents returns recent cluster events.
-// GET /api/v1/cluster/events
-func (h *ClusterHandler) GetEvents(c echo.Context) error {
+func (h *Handler) GetEvents(c echo.Context) error {
 	if h.Manager == nil {
 		return response.OK(c, map[string]interface{}{
 			"events": []interface{}{},
@@ -332,9 +308,7 @@ func (h *ClusterHandler) GetEvents(c echo.Context) error {
 	})
 }
 
-// UpdateNodeLabels updates labels for a node. Leader-only.
-// PATCH /api/v1/cluster/nodes/:id/labels
-func (h *ClusterHandler) UpdateNodeLabels(c echo.Context) error {
+func (h *Handler) UpdateNodeLabels(c echo.Context) error {
 	if h.Manager == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
@@ -361,9 +335,7 @@ func (h *ClusterHandler) UpdateNodeLabels(c echo.Context) error {
 	})
 }
 
-// UpdateNodeAddress updates the API and gRPC addresses of a node. Leader-only.
-// PATCH /api/v1/cluster/nodes/:id/address
-func (h *ClusterHandler) UpdateNodeAddress(c echo.Context) error {
+func (h *Handler) UpdateNodeAddress(c echo.Context) error {
 	if h.Manager == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
@@ -395,9 +367,7 @@ func (h *ClusterHandler) UpdateNodeAddress(c echo.Context) error {
 	})
 }
 
-// TransferLeadership transfers Raft leadership to the specified node. Leader-only.
-// POST /api/v1/cluster/leader-transfer
-func (h *ClusterHandler) TransferLeadership(c echo.Context) error {
+func (h *Handler) TransferLeadership(c echo.Context) error {
 	if h.Manager == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
@@ -419,8 +389,7 @@ func (h *ClusterHandler) TransferLeadership(c echo.Context) error {
 	})
 }
 
-// proxyToLeader forwards the current request to the cluster leader via gRPC.
-func (h *ClusterHandler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
+func (h *Handler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
 	pool := h.Manager.GetConnPool()
 	leaderAddr := h.Manager.GetLeaderGRPCAddress()
 	if leaderAddr == "" {
@@ -446,7 +415,6 @@ func (h *ClusterHandler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) 
 		bodyBytes, _ = io.ReadAll(c.Request().Body)
 	}
 
-	// Include query parameters in the proxied path
 	proxyPath := c.Request().URL.Path
 	if rawQuery := c.Request().URL.RawQuery; rawQuery != "" {
 		proxyPath += "?" + rawQuery
@@ -465,9 +433,7 @@ func (h *ClusterHandler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) 
 	return resp, nil
 }
 
-// DisbandCluster disables cluster mode and restarts the service.
-// POST /api/v1/cluster/disband
-func (h *ClusterHandler) DisbandCluster(c echo.Context) error {
+func (h *Handler) DisbandCluster(c echo.Context) error {
 	if h.Manager == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
@@ -498,10 +464,7 @@ func (h *ClusterHandler) DisbandCluster(c echo.Context) error {
 	})
 }
 
-// ClusterUpdate triggers a cluster-wide update. Leader-only, SSE response.
-// POST /api/v1/cluster/update
-// Body: { "mode": "rolling" | "simultaneous" }
-func (h *ClusterHandler) ClusterUpdate(c echo.Context) error {
+func (h *Handler) ClusterUpdate(c echo.Context) error {
 	if h.Manager == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
@@ -510,7 +473,7 @@ func (h *ClusterHandler) ClusterUpdate(c echo.Context) error {
 	}
 
 	var req struct {
-		Mode string `json:"mode"` // "rolling" or "simultaneous"
+		Mode string `json:"mode"`
 	}
 	if err := c.Bind(&req); err != nil {
 		req.Mode = "rolling"
@@ -519,7 +482,6 @@ func (h *ClusterHandler) ClusterUpdate(c echo.Context) error {
 		req.Mode = "rolling"
 	}
 
-	// SSE setup
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
@@ -532,7 +494,6 @@ func (h *ClusterHandler) ClusterUpdate(c echo.Context) error {
 		flusher.Flush()
 	}
 
-	// Get all online nodes and their versions
 	state := h.Manager.GetRaft().GetFSM().GetState()
 	health := h.Manager.GetHeartbeat().CheckHealth()
 	metricsSlice := h.Manager.GetHeartbeat().GetAllMetrics()
@@ -570,18 +531,14 @@ func (h *ClusterHandler) ClusterUpdate(c echo.Context) error {
 
 	sendSSE(map[string]interface{}{"overall": "started", "mode": req.Mode, "total_nodes": len(followers) + 1})
 
-	// Helper: trigger update on a specific node via gRPC proxy
 	updateNode := func(ni nodeInfo) bool {
 		sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "updating", "message": "Starting update..."})
 
 		if ni.IsLocal {
-			// Local: call the update endpoint directly
-			// We'll defer the local update to the end
 			sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "updating", "message": "Triggering local update..."})
 			return true
 		}
 
-		// Remote: use gRPC proxy to trigger update
 		node, ok := state.Nodes[ni.ID]
 		if !ok {
 			sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Node not found"})
@@ -620,7 +577,6 @@ func (h *ClusterHandler) ClusterUpdate(c echo.Context) error {
 
 		sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "complete", "message": "Update triggered, node restarting..."})
 
-		// Wait for node to come back online (max 60s)
 		sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "waiting", "message": "Waiting for node to restart..."})
 		for attempt := 0; attempt < 12; attempt++ {
 			time.Sleep(5 * time.Second)
@@ -631,14 +587,13 @@ func (h *ClusterHandler) ClusterUpdate(c echo.Context) error {
 			}
 		}
 		sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "warning", "message": "Node did not come back within 60s"})
-		return true // continue anyway
+		return true
 	}
 
 	updated := 0
 	failed := 0
 
 	if req.Mode == "rolling" {
-		// Rolling: update followers one by one, then leader
 		for _, f := range followers {
 			if updateNode(f) {
 				updated++
@@ -649,7 +604,6 @@ func (h *ClusterHandler) ClusterUpdate(c echo.Context) error {
 			}
 		}
 	} else {
-		// Simultaneous: update all followers at once
 		type result struct {
 			ok   bool
 			name string
@@ -670,10 +624,8 @@ func (h *ClusterHandler) ClusterUpdate(c echo.Context) error {
 		}
 	}
 
-	// Finally update the leader (self)
 	if leader.ID != "" {
 		sendSSE(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "updating", "message": "Updating leader (this node)..."})
-		// Transfer leadership first if possible
 		for _, f := range followers {
 			h2 := h.Manager.GetHeartbeat().CheckHealth()
 			if s, ok := h2[f.ID]; ok && s == cluster.StatusOnline {
@@ -688,12 +640,10 @@ func (h *ClusterHandler) ClusterUpdate(c echo.Context) error {
 
 	sendSSE(map[string]interface{}{"overall": "complete", "updated": updated, "failed": failed})
 
-	// Trigger local update last (will restart the process)
 	if leader.ID != "" {
 		go func() {
 			time.Sleep(1 * time.Second)
 			h.Manager.Shutdown()
-			// The actual update is triggered by calling the local endpoint
 			client := &http.Client{Timeout: 5 * time.Minute}
 			req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/api/v1/system/update", h.Config.Server.Port), nil)
 			if secret := h.Manager.ProxySecret(); secret != "" {

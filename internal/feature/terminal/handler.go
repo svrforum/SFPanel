@@ -1,9 +1,10 @@
-package handlers
+package terminal
 
 import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -13,10 +14,50 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/middleware"
+	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/feature/settings"
 )
 
 const scrollbackBufSize = 256 * 1024 // 256 KB ring buffer per session
 const maxTerminalSessions = 20       // Maximum concurrent terminal sessions
+
+var Upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		host := r.Host
+		if host == "localhost:5173" || host == "localhost:8443" {
+			return true
+		}
+		if len(origin) > 7 {
+			for _, prefix := range []string{"https://", "http://"} {
+				if len(origin) > len(prefix) && origin[:len(prefix)] == prefix {
+					if origin[len(prefix):] == host {
+						return true
+					}
+				}
+			}
+		}
+		return true
+	},
+}
+
+func authenticateWS(c echo.Context, jwtSecret string) error {
+	if middleware.IsInternalProxyRequest(c.Request()) {
+		return nil
+	}
+	token := c.QueryParam("token")
+	if token == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+	}
+	if _, err := auth.ParseToken(token, jwtSecret); err != nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+	}
+	return nil
+}
 
 // ringBuffer is a fixed-size circular byte buffer that keeps the most recent
 // output, dropping the oldest bytes when the buffer is full.
@@ -154,7 +195,7 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			return err
 		}
 
-		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+		ws, err := Upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
 		}
@@ -268,7 +309,7 @@ func CleanupTerminalSessions(db *sql.DB) {
 	ticker := time.NewTicker(1 * time.Minute)
 	go func() {
 		for range ticker.C {
-			timeoutStr := GetSetting(db, "terminal_timeout")
+			timeoutStr := settings.GetSetting(db, "terminal_timeout")
 			timeoutMin, err := strconv.Atoi(timeoutStr)
 			if err != nil || timeoutMin < 0 {
 				timeoutMin = 30

@@ -1,4 +1,4 @@
-package handlers
+package featuredocker
 
 import (
 	"encoding/json"
@@ -12,9 +12,9 @@ import (
 	"github.com/svrforum/SFPanel/internal/docker"
 )
 
-// DockerHandler holds a Docker client and exposes REST handlers for
+// Handler holds a Docker client and exposes REST handlers for
 // container, image, volume, and network management.
-type DockerHandler struct {
+type Handler struct {
 	Docker *docker.Client
 }
 
@@ -26,7 +26,7 @@ func safeLen[T any](s []T) int {
 // ---------- Containers ----------
 
 // ListContainers returns all containers (running and stopped).
-func (h *DockerHandler) ListContainers(c echo.Context) error {
+func (h *Handler) ListContainers(c echo.Context) error {
 	ctx := c.Request().Context()
 	containers, err := h.Docker.ListContainers(ctx)
 	if err != nil {
@@ -36,7 +36,7 @@ func (h *DockerHandler) ListContainers(c echo.Context) error {
 }
 
 // StartContainer starts a container by ID.
-func (h *DockerHandler) StartContainer(c echo.Context) error {
+func (h *Handler) StartContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.StartContainer(ctx, id); err != nil {
@@ -46,7 +46,7 @@ func (h *DockerHandler) StartContainer(c echo.Context) error {
 }
 
 // StopContainer stops a container by ID.
-func (h *DockerHandler) StopContainer(c echo.Context) error {
+func (h *Handler) StopContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.StopContainer(ctx, id); err != nil {
@@ -56,7 +56,7 @@ func (h *DockerHandler) StopContainer(c echo.Context) error {
 }
 
 // PauseContainer pauses a running container.
-func (h *DockerHandler) PauseContainer(c echo.Context) error {
+func (h *Handler) PauseContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.PauseContainer(ctx, id); err != nil {
@@ -66,7 +66,7 @@ func (h *DockerHandler) PauseContainer(c echo.Context) error {
 }
 
 // UnpauseContainer unpauses a paused container.
-func (h *DockerHandler) UnpauseContainer(c echo.Context) error {
+func (h *Handler) UnpauseContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.UnpauseContainer(ctx, id); err != nil {
@@ -76,7 +76,7 @@ func (h *DockerHandler) UnpauseContainer(c echo.Context) error {
 }
 
 // RestartContainer restarts a container by ID.
-func (h *DockerHandler) RestartContainer(c echo.Context) error {
+func (h *Handler) RestartContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.RestartContainer(ctx, id); err != nil {
@@ -86,7 +86,7 @@ func (h *DockerHandler) RestartContainer(c echo.Context) error {
 }
 
 // RemoveContainer removes a container by ID (force).
-func (h *DockerHandler) RemoveContainer(c echo.Context) error {
+func (h *Handler) RemoveContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.RemoveContainer(ctx, id); err != nil {
@@ -96,7 +96,7 @@ func (h *DockerHandler) RemoveContainer(c echo.Context) error {
 }
 
 // InspectContainer returns detailed inspection data for a container.
-func (h *DockerHandler) InspectContainer(c echo.Context) error {
+func (h *Handler) InspectContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	data, err := h.Docker.GetContainer(ctx, id)
@@ -198,7 +198,7 @@ func (h *DockerHandler) InspectContainer(c echo.Context) error {
 }
 
 // ContainerStats returns CPU and memory usage stats for a container.
-func (h *DockerHandler) ContainerStats(c echo.Context) error {
+func (h *Handler) ContainerStats(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	stats, err := h.Docker.CalcContainerStats(ctx, id)
@@ -209,7 +209,7 @@ func (h *DockerHandler) ContainerStats(c echo.Context) error {
 }
 
 // ContainerStatsBatch returns CPU and memory stats for all running containers.
-func (h *DockerHandler) ContainerStatsBatch(c echo.Context) error {
+func (h *Handler) ContainerStatsBatch(c echo.Context) error {
 	ctx := c.Request().Context()
 	stats, err := h.Docker.ContainerStatsBatch(ctx)
 	if err != nil {
@@ -221,7 +221,7 @@ func (h *DockerHandler) ContainerStatsBatch(c echo.Context) error {
 // ---------- Images ----------
 
 // ListImages returns all local Docker images with usage information.
-func (h *DockerHandler) ListImages(c echo.Context) error {
+func (h *Handler) ListImages(c echo.Context) error {
 	ctx := c.Request().Context()
 	images, err := h.Docker.ListImagesWithUsage(ctx)
 	if err != nil {
@@ -232,7 +232,7 @@ func (h *DockerHandler) ListImages(c echo.Context) error {
 
 // PullImage pulls an image by reference with SSE streaming progress.
 // Accepts JSON body: {"image": "nginx:latest"}.
-func (h *DockerHandler) PullImage(c echo.Context) error {
+func (h *Handler) PullImage(c echo.Context) error {
 	var req struct {
 		Image string `json:"image"`
 	}
@@ -275,7 +275,7 @@ func (h *DockerHandler) PullImage(c echo.Context) error {
 }
 
 // RemoveImage removes an image by ID.
-func (h *DockerHandler) RemoveImage(c echo.Context) error {
+func (h *Handler) RemoveImage(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.RemoveImage(ctx, id); err != nil {
@@ -285,7 +285,7 @@ func (h *DockerHandler) RemoveImage(c echo.Context) error {
 }
 
 // CheckImageUpdates checks for updates for images used by running containers.
-func (h *DockerHandler) CheckImageUpdates(c echo.Context) error {
+func (h *Handler) CheckImageUpdates(c echo.Context) error {
 	ctx := c.Request().Context()
 	containers, err := h.Docker.ListContainers(ctx)
 	if err != nil {
@@ -317,7 +317,7 @@ func (h *DockerHandler) CheckImageUpdates(c echo.Context) error {
 // ---------- Volumes ----------
 
 // ListVolumes returns all Docker volumes with usage information.
-func (h *DockerHandler) ListVolumes(c echo.Context) error {
+func (h *Handler) ListVolumes(c echo.Context) error {
 	ctx := c.Request().Context()
 	volumes, err := h.Docker.ListVolumesWithUsage(ctx)
 	if err != nil {
@@ -327,7 +327,7 @@ func (h *DockerHandler) ListVolumes(c echo.Context) error {
 }
 
 // CreateVolume creates a volume. Accepts JSON body: {"name": "myvolume"}.
-func (h *DockerHandler) CreateVolume(c echo.Context) error {
+func (h *Handler) CreateVolume(c echo.Context) error {
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -347,7 +347,7 @@ func (h *DockerHandler) CreateVolume(c echo.Context) error {
 }
 
 // RemoveVolume removes a volume by name.
-func (h *DockerHandler) RemoveVolume(c echo.Context) error {
+func (h *Handler) RemoveVolume(c echo.Context) error {
 	ctx := c.Request().Context()
 	name := c.Param("name")
 	force := c.QueryParam("force") == "true"
@@ -360,7 +360,7 @@ func (h *DockerHandler) RemoveVolume(c echo.Context) error {
 // ---------- Networks ----------
 
 // ListNetworks returns all Docker networks with usage information.
-func (h *DockerHandler) ListNetworks(c echo.Context) error {
+func (h *Handler) ListNetworks(c echo.Context) error {
 	ctx := c.Request().Context()
 	networks, err := h.Docker.ListNetworksWithUsage(ctx)
 	if err != nil {
@@ -370,7 +370,7 @@ func (h *DockerHandler) ListNetworks(c echo.Context) error {
 }
 
 // CreateNetwork creates a network. Accepts JSON body: {"name": "mynet", "driver": "bridge"}.
-func (h *DockerHandler) CreateNetwork(c echo.Context) error {
+func (h *Handler) CreateNetwork(c echo.Context) error {
 	var req struct {
 		Name   string `json:"name"`
 		Driver string `json:"driver"`
@@ -394,7 +394,7 @@ func (h *DockerHandler) CreateNetwork(c echo.Context) error {
 }
 
 // RemoveNetwork removes a network by ID.
-func (h *DockerHandler) RemoveNetwork(c echo.Context) error {
+func (h *Handler) RemoveNetwork(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.RemoveNetwork(ctx, id); err != nil {
@@ -404,7 +404,7 @@ func (h *DockerHandler) RemoveNetwork(c echo.Context) error {
 }
 
 // InspectNetwork returns detailed information about a network.
-func (h *DockerHandler) InspectNetwork(c echo.Context) error {
+func (h *Handler) InspectNetwork(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	netInfo, err := h.Docker.InspectNetwork(ctx, id)
@@ -452,7 +452,7 @@ func (h *DockerHandler) InspectNetwork(c echo.Context) error {
 // ---------- Prune ----------
 
 // PruneContainers removes all stopped containers.
-func (h *DockerHandler) PruneContainers(c echo.Context) error {
+func (h *Handler) PruneContainers(c echo.Context) error {
 	ctx := c.Request().Context()
 	report, err := h.Docker.PruneContainers(ctx)
 	if err != nil {
@@ -465,7 +465,7 @@ func (h *DockerHandler) PruneContainers(c echo.Context) error {
 }
 
 // PruneImages removes dangling images.
-func (h *DockerHandler) PruneImages(c echo.Context) error {
+func (h *Handler) PruneImages(c echo.Context) error {
 	ctx := c.Request().Context()
 	report, err := h.Docker.PruneImages(ctx)
 	if err != nil {
@@ -478,7 +478,7 @@ func (h *DockerHandler) PruneImages(c echo.Context) error {
 }
 
 // PruneVolumes removes unused volumes.
-func (h *DockerHandler) PruneVolumes(c echo.Context) error {
+func (h *Handler) PruneVolumes(c echo.Context) error {
 	ctx := c.Request().Context()
 	report, err := h.Docker.PruneVolumes(ctx)
 	if err != nil {
@@ -491,7 +491,7 @@ func (h *DockerHandler) PruneVolumes(c echo.Context) error {
 }
 
 // PruneNetworks removes unused networks.
-func (h *DockerHandler) PruneNetworks(c echo.Context) error {
+func (h *Handler) PruneNetworks(c echo.Context) error {
 	ctx := c.Request().Context()
 	report, err := h.Docker.PruneNetworks(ctx)
 	if err != nil {
@@ -503,7 +503,7 @@ func (h *DockerHandler) PruneNetworks(c echo.Context) error {
 }
 
 // PruneAll removes all unused Docker resources.
-func (h *DockerHandler) PruneAll(c echo.Context) error {
+func (h *Handler) PruneAll(c echo.Context) error {
 	ctx := c.Request().Context()
 
 	var pruneErrors []string
@@ -553,7 +553,7 @@ func (h *DockerHandler) PruneAll(c echo.Context) error {
 // ---------- Docker Hub Search ----------
 
 // SearchImages searches Docker Hub for images.
-func (h *DockerHandler) SearchImages(c echo.Context) error {
+func (h *Handler) SearchImages(c echo.Context) error {
 	q := c.QueryParam("q")
 	if q == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Search query (q) is required")

@@ -1,7 +1,8 @@
-package handlers
+package appstore
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -70,7 +71,7 @@ type appStoreAppListItem struct {
 type portStatus struct {
 	Port      int  `json:"port"`
 	InUse     bool `json:"in_use"`
-	Suggested int  `json:"suggested,omitempty"` // 0 if not in use
+	Suggested int  `json:"suggested,omitempty"`
 }
 
 type appStoreAppDetail struct {
@@ -90,7 +91,6 @@ type appStoreInstallRecord struct {
 	Icon        string `json:"icon,omitempty"`
 }
 
-// SSE event payload (typed — avoids map[string]interface{})
 type sseEvent struct {
 	Stage   string `json:"stage"`
 	Message string `json:"message"`
@@ -98,14 +98,12 @@ type sseEvent struct {
 	Success bool   `json:"success"`
 }
 
-// Refresh response
 type refreshResult struct {
 	Message    string `json:"message"`
 	Apps       int    `json:"apps"`
 	Categories int    `json:"categories"`
 }
 
-// Flattened installed app (matches frontend AppStoreInstalledApp type)
 type installedAppResponse struct {
 	ID          string `json:"id"`
 	Version     string `json:"version"`
@@ -113,6 +111,24 @@ type installedAppResponse struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Icon        string `json:"icon,omitempty"`
+}
+
+// ---------------------------------------------------------------------------
+// Exec helpers
+// ---------------------------------------------------------------------------
+
+const commandTimeout = 5 * time.Minute
+
+func runCommand(name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return string(out), fmt.Errorf("command timed out after %s", commandTimeout)
+	}
+	return string(out), err
 }
 
 // ---------------------------------------------------------------------------
@@ -127,22 +143,22 @@ const (
 
 var validAppID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,49}$`)
 
-type AppStoreHandler struct {
+type Handler struct {
 	DB          *sql.DB
-	ComposePath string // "/opt/stacks"
+	ComposePath string
 
-	mu           sync.RWMutex
-	categories   []AppStoreCategory
-	apps         []AppStoreMeta
-	cachedAt     time.Time
-	refreshing   sync.Mutex // prevents concurrent refresh calls
+	mu         sync.RWMutex
+	categories []AppStoreCategory
+	apps       []AppStoreMeta
+	cachedAt   time.Time
+	refreshing sync.Mutex
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-func (h *AppStoreHandler) httpGet(url string) ([]byte, error) {
+func (h *Handler) httpGet(url string) ([]byte, error) {
 	client := &http.Client{Timeout: httpTimeout}
 	resp, err := client.Get(url)
 	if err != nil {
@@ -153,18 +169,17 @@ func (h *AppStoreHandler) httpGet(url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP GET %s returned %d", url, resp.StatusCode)
 	}
-	const maxResponseSize = 10 * 1024 * 1024 // 10MB
+	const maxResponseSize = 10 * 1024 * 1024
 	return io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 }
 
-func (h *AppStoreHandler) ensureCache() error {
+func (h *Handler) ensureCache() error {
 	h.mu.RLock()
 	valid := !h.cachedAt.IsZero() && time.Since(h.cachedAt) < cacheTTL
 	h.mu.RUnlock()
 	if valid {
 		return nil
 	}
-	// Try loading from DB first (fast restart)
 	h.loadCacheFromDB()
 	h.mu.RLock()
 	valid = !h.cachedAt.IsZero() && time.Since(h.cachedAt) < cacheTTL
@@ -175,11 +190,10 @@ func (h *AppStoreHandler) ensureCache() error {
 	return h.refreshCache()
 }
 
-func (h *AppStoreHandler) refreshCache() error {
+func (h *Handler) refreshCache() error {
 	h.refreshing.Lock()
 	defer h.refreshing.Unlock()
 
-	// Double-check after acquiring lock
 	h.mu.RLock()
 	valid := !h.cachedAt.IsZero() && time.Since(h.cachedAt) < cacheTTL
 	h.mu.RUnlock()
@@ -187,7 +201,6 @@ func (h *AppStoreHandler) refreshCache() error {
 		return nil
 	}
 
-	// 1. Fetch categories.json (raw URL, no API rate limit)
 	catData, err := h.httpGet(appStoreBaseURL + "categories.json")
 	if err != nil {
 		return fmt.Errorf("fetch categories: %w", err)
@@ -197,7 +210,6 @@ func (h *AppStoreHandler) refreshCache() error {
 		return fmt.Errorf("parse categories: %w", err)
 	}
 
-	// 2. Fetch index.json for app ID list (raw URL, no API rate limit)
 	indexData, err := h.httpGet(appStoreBaseURL + "index.json")
 	if err != nil {
 		return fmt.Errorf("fetch index: %w", err)
@@ -207,14 +219,13 @@ func (h *AppStoreHandler) refreshCache() error {
 		return fmt.Errorf("parse index: %w", err)
 	}
 
-	// 3. Fetch each app's metadata.json in parallel (max 5 concurrent)
 	type metaResult struct {
 		meta AppStoreMeta
 		ok   bool
 	}
 	results := make([]metaResult, len(appIDs))
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 5) // max 5 concurrent fetches
+	sem := make(chan struct{}, 5)
 
 	for i, appID := range appIDs {
 		wg.Add(1)
@@ -253,13 +264,12 @@ func (h *AppStoreHandler) refreshCache() error {
 	h.categories = cats
 	h.apps = apps
 	h.cachedAt = time.Now()
-	// Persist cache to DB for fast restart
 	go h.persistCache()
 	h.mu.Unlock()
 	return nil
 }
 
-func (h *AppStoreHandler) persistCache() {
+func (h *Handler) persistCache() {
 	h.mu.RLock()
 	cacheData := struct {
 		Categories []AppStoreCategory `json:"categories"`
@@ -278,7 +288,7 @@ func (h *AppStoreHandler) persistCache() {
 	)
 }
 
-func (h *AppStoreHandler) loadCacheFromDB() {
+func (h *Handler) loadCacheFromDB() {
 	var value string
 	err := h.DB.QueryRow("SELECT value FROM settings WHERE key = 'appstore_cache'").Scan(&value)
 	if err != nil {
@@ -301,17 +311,15 @@ func (h *AppStoreHandler) loadCacheFromDB() {
 	}
 }
 
-func (h *AppStoreHandler) isInstalled(appID string) bool {
+func (h *Handler) isInstalled(appID string) bool {
 	key := "appstore_installed_" + appID
 	var value string
 	err := h.DB.QueryRow("SELECT value FROM settings WHERE key = ?", key).Scan(&value)
 	if err != nil || value == "" {
 		return false
 	}
-	// Verify compose file still exists on disk
 	composePath := filepath.Join(h.ComposePath, appID, "docker-compose.yml")
 	if _, err := os.Stat(composePath); os.IsNotExist(err) {
-		// Stack was removed externally — clean up the stale record
 		_, _ = h.DB.Exec("DELETE FROM settings WHERE key = ?", key)
 		return false
 	}
@@ -324,7 +332,6 @@ func generatePassword(length int) string {
 	return hex.EncodeToString(b)[:length]
 }
 
-// sendSSE writes a typed SSE event to the response writer.
 func sendSSE(w io.Writer, flusher http.Flusher, event sseEvent) {
 	jsonData, _ := json.Marshal(event)
 	fmt.Fprintf(w, "data: %s\n\n", jsonData)
@@ -337,8 +344,7 @@ func sendSSE(w io.Writer, flusher http.Flusher, event sseEvent) {
 // Endpoints
 // ---------------------------------------------------------------------------
 
-// GET /appstore/categories
-func (h *AppStoreHandler) GetCategories(c echo.Context) error {
+func (h *Handler) GetCategories(c echo.Context) error {
 	if err := h.ensureCache(); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError, "Failed to load app store: "+err.Error())
 	}
@@ -350,8 +356,7 @@ func (h *AppStoreHandler) GetCategories(c echo.Context) error {
 	return response.OK(c, cats)
 }
 
-// GET /appstore/apps?category=xxx
-func (h *AppStoreHandler) ListApps(c echo.Context) error {
+func (h *Handler) ListApps(c echo.Context) error {
 	if err := h.ensureCache(); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError, "Failed to load app store: "+err.Error())
 	}
@@ -380,8 +385,7 @@ func (h *AppStoreHandler) ListApps(c echo.Context) error {
 	return response.OK(c, result)
 }
 
-// GET /appstore/apps/:id
-func (h *AppStoreHandler) GetApp(c echo.Context) error {
+func (h *Handler) GetApp(c echo.Context) error {
 	id := c.Param("id")
 	if !validAppID.MatchString(id) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid app ID")
@@ -391,7 +395,6 @@ func (h *AppStoreHandler) GetApp(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError, "Failed to load app store: "+err.Error())
 	}
 
-	// Find app in cache
 	h.mu.RLock()
 	var found *AppStoreMeta
 	for _, app := range h.apps {
@@ -407,7 +410,6 @@ func (h *AppStoreHandler) GetApp(c echo.Context) error {
 		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "App not found")
 	}
 
-	// Fetch compose YAML and README from GitHub in parallel
 	type fetchResult struct {
 		data []byte
 		err  error
@@ -452,7 +454,6 @@ func (h *AppStoreHandler) GetApp(c echo.Context) error {
 
 	readmeResult := <-readmeCh
 
-	// Check port availability and suggest alternatives
 	var ports []portStatus
 	for _, p := range found.Ports {
 		ps := portStatus{Port: p, InUse: isPortInUse(p)}
@@ -485,19 +486,17 @@ func (h *AppStoreHandler) GetApp(c echo.Context) error {
 	return response.OK(c, detail)
 }
 
-// POST /appstore/apps/:id/install — SSE streaming installation
-func (h *AppStoreHandler) InstallApp(c echo.Context) error {
+func (h *Handler) InstallApp(c echo.Context) error {
 	id := c.Param("id")
 	if !validAppID.MatchString(id) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid app ID")
 	}
 
-	// Parse request body
 	var req struct {
 		Env      map[string]string `json:"env"`
-		Compose  string            `json:"compose"`  // advanced mode: custom docker-compose.yml
-		EnvRaw   string            `json:"env_raw"`   // advanced mode: custom .env content
-		Advanced bool              `json:"advanced"`  // true = use compose/env_raw fields
+		Compose  string            `json:"compose"`
+		EnvRaw   string            `json:"env_raw"`
+		Advanced bool              `json:"advanced"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "Invalid request body")
@@ -507,7 +506,6 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError, "Failed to load app store: "+err.Error())
 	}
 
-	// Find app meta
 	h.mu.RLock()
 	var found *AppStoreMeta
 	for _, app := range h.apps {
@@ -523,7 +521,6 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "App not found")
 	}
 
-	// Fetch compose data once (used for both pre-flight and installation)
 	var composeData []byte
 	if !req.Advanced {
 		composeURL := appStoreBaseURL + "apps/" + id + "/docker-compose.yml"
@@ -534,21 +531,17 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 		}
 	}
 
-	// Pre-flight checks (return JSON errors before SSE starts)
 	stackDir := filepath.Join(h.ComposePath, id)
 
-	// 1. Check directory doesn't already exist
 	if _, err := os.Stat(stackDir); err == nil {
 		return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, "Stack directory already exists: "+stackDir)
 	}
 
-	// 2. Check port conflicts — resolve env defaults for port values
 	conflicts := h.checkPortConflicts(found, req.Env)
 	if len(conflicts) > 0 {
 		return response.Fail(c, http.StatusConflict, response.ErrPortConflict, "Port conflict: "+strings.Join(conflicts, ", "))
 	}
 
-	// 3. Check container name conflicts
 	var nameConflicts []string
 	if composeData != nil {
 		nameConflicts = h.checkContainerNameConflicts(composeData)
@@ -559,7 +552,6 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 		return response.Fail(c, http.StatusConflict, response.ErrContainerConflict, "Container name conflict: "+strings.Join(nameConflicts, ", "))
 	}
 
-	// Set up SSE
 	w := c.Response()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -571,14 +563,12 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 		sendSSE(w, flusher, sseEvent{Stage: stage, Message: message, Done: done, Success: success})
 	}
 
-	// Create directory
 	send("prepare", "Creating directory: "+stackDir, false, true)
 	if err := os.MkdirAll(stackDir, 0755); err != nil {
 		send("prepare", "Failed to create directory: "+err.Error(), true, false)
 		return nil
 	}
 
-	// Cleanup on failure
 	cleanup := func() {
 		composePath := filepath.Join(stackDir, "docker-compose.yml")
 		_, _ = runCommand("docker", "compose", "-f", composePath, "down", "-v", "--remove-orphans")
@@ -588,7 +578,6 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 	composePath := filepath.Join(stackDir, "docker-compose.yml")
 
 	if req.Advanced {
-		// Advanced mode: use user-provided compose and env content directly
 		if strings.TrimSpace(req.Compose) == "" {
 			cleanup()
 			send("prepare", "docker-compose.yml content is empty", true, false)
@@ -612,7 +601,6 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 			send("prepare", ".env file written", false, true)
 		}
 	} else {
-		// Simple mode: use pre-fetched compose data
 		send("fetch", "docker-compose.yml ready", false, true)
 
 		if err := os.WriteFile(composePath, composeData, 0644); err != nil {
@@ -622,7 +610,6 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 		}
 		send("prepare", "docker-compose.yml written", false, true)
 
-		// Build .env content from form values
 		var envLines []string
 		if req.Env == nil {
 			req.Env = make(map[string]string)
@@ -651,11 +638,9 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 		}
 	}
 
-	// Pull images first (stream output)
 	send("pull", "Pulling images...", false, true)
 	h.streamCommand(w, flusher, "pull", "docker", "compose", "-f", composePath, "pull")
 
-	// Start containers (stream output)
 	send("start", "Starting containers...", false, true)
 	exitCode := h.streamCommand(w, flusher, "start", "docker", "compose", "-f", composePath, "up", "-d")
 
@@ -665,7 +650,6 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 		return nil
 	}
 
-	// Save install record
 	record := appStoreInstallRecord{
 		Version:     found.Version,
 		InstalledAt: time.Now().UTC().Format(time.RFC3339),
@@ -684,9 +668,7 @@ func (h *AppStoreHandler) InstallApp(c echo.Context) error {
 	return nil
 }
 
-// streamCommand runs a command and streams its combined output as SSE events.
-// Returns the exit code.
-func (h *AppStoreHandler) streamCommand(w io.Writer, flusher http.Flusher, stage string, name string, args ...string) int {
+func (h *Handler) streamCommand(w io.Writer, flusher http.Flusher, stage string, name string, args ...string) int {
 	cmd := exec.Command(name, args...)
 	cmd.Env = os.Environ()
 
@@ -712,16 +694,12 @@ func (h *AppStoreHandler) streamCommand(w io.Writer, flusher http.Flusher, stage
 	return 0
 }
 
-// checkPortConflicts checks if any ports the app needs are already in use.
-// It resolves port env vars from user values or defaults.
-func (h *AppStoreHandler) checkPortConflicts(meta *AppStoreMeta, envVals map[string]string) []string {
-	// Collect ports to check from metadata
+func (h *Handler) checkPortConflicts(meta *AppStoreMeta, envVals map[string]string) []string {
 	portsToCheck := make(map[int]bool)
 	for _, p := range meta.Ports {
 		portsToCheck[p] = true
 	}
 
-	// Also check env vars of type "port" — user may have customized them
 	for _, envDef := range meta.Env {
 		if envDef.Type == "port" {
 			val := ""
@@ -747,7 +725,6 @@ func (h *AppStoreHandler) checkPortConflicts(meta *AppStoreMeta, envVals map[str
 	return conflicts
 }
 
-// parsePort parses a string to a port number.
 func parsePort(s string) int {
 	var port int
 	if _, err := fmt.Sscanf(s, "%d", &port); err == nil && port > 0 && port <= 65535 {
@@ -756,7 +733,6 @@ func parsePort(s string) int {
 	return 0
 }
 
-// isPortInUse checks if a TCP port is currently listening.
 func isPortInUse(port int) bool {
 	out, err := exec.Command("ss", "-tlnH", "sport", "=", fmt.Sprintf(":%d", port)).Output()
 	if err != nil {
@@ -765,8 +741,6 @@ func isPortInUse(port int) bool {
 	return len(strings.TrimSpace(string(out))) > 0
 }
 
-// findFreePort finds the nearest free port starting from the given port.
-// Tries port+1, port+2, ... up to 100 attempts.
 func findFreePort(from int) int {
 	for i := 1; i <= 100; i++ {
 		candidate := from + i
@@ -780,17 +754,13 @@ func findFreePort(from int) int {
 	return 0
 }
 
-// checkContainerNameConflicts checks if any containers from the compose data
-// would conflict with existing containers (by parsing container_name from YAML).
-func (h *AppStoreHandler) checkContainerNameConflicts(composeData []byte) []string {
-	// Simple regex to extract container_name values from YAML
+func (h *Handler) checkContainerNameConflicts(composeData []byte) []string {
 	re := regexp.MustCompile(`(?m)^\s+container_name:\s*(\S+)`)
 	matches := re.FindAllSubmatch(composeData, -1)
 	if len(matches) == 0 {
 		return nil
 	}
 
-	// Check each container name against existing containers
 	out, err := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}").Output()
 	if err != nil {
 		return nil
@@ -812,8 +782,7 @@ func (h *AppStoreHandler) checkContainerNameConflicts(composeData []byte) []stri
 	return conflicts
 }
 
-// GET /appstore/installed
-func (h *AppStoreHandler) GetInstalled(c echo.Context) error {
+func (h *Handler) GetInstalled(c echo.Context) error {
 	rows, err := h.DB.Query("SELECT key, value FROM settings WHERE key LIKE 'appstore_installed_%'")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to query installed apps")
@@ -848,8 +817,7 @@ func (h *AppStoreHandler) GetInstalled(c echo.Context) error {
 	return response.OK(c, result)
 }
 
-// POST /appstore/refresh
-func (h *AppStoreHandler) RefreshCache(c echo.Context) error {
+func (h *Handler) RefreshCache(c echo.Context) error {
 	if err := h.refreshCache(); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError, "Failed to refresh app store: "+err.Error())
 	}

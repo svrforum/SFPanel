@@ -1,4 +1,4 @@
-package handlers
+package websocket
 
 import (
 	"bufio"
@@ -16,21 +16,17 @@ import (
 	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
-var upgrader = websocket.Upgrader{
+var Upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		// Allow same-origin and configured origins
 		origin := r.Header.Get("Origin")
 		if origin == "" {
-			return true // same-site requests
+			return true
 		}
-		// In dev mode, allow localhost origins
 		host := r.Host
 		if host == "localhost:5173" || host == "localhost:8443" {
 			return true
 		}
-		// Allow requests where origin host matches the request host
 		if len(origin) > 7 {
-			// Strip scheme (http:// or https://)
 			for _, prefix := range []string{"https://", "http://"} {
 				if len(origin) > len(prefix) && origin[:len(prefix)] == prefix {
 					if origin[len(prefix):] == host {
@@ -39,7 +35,7 @@ var upgrader = websocket.Upgrader{
 				}
 			}
 		}
-		return true // fallback: allow for single-user panel
+		return true
 	},
 }
 
@@ -62,10 +58,9 @@ func (w *safeWSWriter) WriteJSON(v interface{}) error {
 	return w.conn.WriteJSON(v)
 }
 
-// authenticateWS validates a WebSocket request via JWT token query param
+// AuthenticateWS validates a WebSocket request via JWT token query param
 // or internal cluster proxy header. Returns nil on success, error response on failure.
-func authenticateWS(c echo.Context, jwtSecret string) error {
-	// Trust cluster-internal relay requests
+func AuthenticateWS(c echo.Context, jwtSecret string) error {
 	if middleware.IsInternalProxyRequest(c.Request()) {
 		return nil
 	}
@@ -80,14 +75,13 @@ func authenticateWS(c echo.Context, jwtSecret string) error {
 }
 
 // MetricsWS handles WebSocket connections for real-time metrics streaming.
-// Authentication is done via a "token" query parameter.
 func MetricsWS(jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if err := authenticateWS(c, jwtSecret); err != nil {
+		if err := AuthenticateWS(c, jwtSecret); err != nil {
 			return err
 		}
 
-		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+		ws, err := Upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
 		}
@@ -127,20 +121,18 @@ func MetricsWS(jwtSecret string) echo.HandlerFunc {
 // ContainerLogsWS streams container logs over a WebSocket connection.
 func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if err := authenticateWS(c, jwtSecret); err != nil {
+		if err := AuthenticateWS(c, jwtSecret); err != nil {
 			return err
 		}
 
 		containerID := c.Param("id")
 
-		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+		ws, err := Upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
 		}
 		defer ws.Close()
 
-		// Use a cancellable context so the log reader goroutine stops
-		// when the client disconnects.
 		ctx, cancel := context.WithCancel(c.Request().Context())
 		defer cancel()
 
@@ -156,7 +148,7 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 			defer close(done)
 			for {
 				if _, _, err := ws.ReadMessage(); err != nil {
-					cancel() // cancel context to stop scanner goroutine
+					cancel()
 					return
 				}
 			}
@@ -164,7 +156,6 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 
 		writer := &safeWSWriter{conn: ws}
 
-		// Stream log lines to WebSocket.
 		scanDone := make(chan struct{})
 		go func() {
 			defer close(scanDone)
@@ -196,10 +187,9 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 }
 
 // ComposeLogsWS streams compose project logs over a WebSocket connection.
-// Query params: tail (default 100), service (empty = all services).
 func ComposeLogsWS(composeManager *docker.ComposeManager, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if err := authenticateWS(c, jwtSecret); err != nil {
+		if err := AuthenticateWS(c, jwtSecret); err != nil {
 			return err
 		}
 
@@ -212,7 +202,7 @@ func ComposeLogsWS(composeManager *docker.ComposeManager, jwtSecret string) echo
 		}
 		service := c.QueryParam("service")
 
-		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+		ws, err := Upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
 		}
@@ -256,7 +246,6 @@ func ComposeLogsWS(composeManager *docker.ComposeManager, jwtSecret string) echo
 	}
 }
 
-// parseInt is a small helper for safe query param parsing.
 func parseInt(s string) (int, error) {
 	var n int
 	for _, c := range s {
@@ -272,13 +261,13 @@ func parseInt(s string) (int, error) {
 // it over a WebSocket for interactive terminal access.
 func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if err := authenticateWS(c, jwtSecret); err != nil {
+		if err := AuthenticateWS(c, jwtSecret); err != nil {
 			return err
 		}
 
 		containerID := c.Param("id")
 
-		ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+		ws, err := Upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
 			return err
 		}
@@ -294,7 +283,6 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 
 		writer := &safeWSWriter{conn: ws}
 
-		// exec stdout -> WebSocket
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
@@ -310,7 +298,6 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 			}
 		}()
 
-		// WebSocket -> exec stdin (handle resize messages separately)
 		go func() {
 			for {
 				_, msg, err := ws.ReadMessage()
