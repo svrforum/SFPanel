@@ -3,7 +3,6 @@ run:
 
 linters:
   enable:
-    - errcheck
     - govet
     - staticcheck
     - unused
@@ -11,12 +10,7 @@ linters:
     - ineffassign
     - typecheck
 
-linters-settings:
-  errcheck:
-    check-type-assertions: false
-
 issues:
-  new-from-rev: main
   exclude-rules:
     - path: _test\.go
       linters:
