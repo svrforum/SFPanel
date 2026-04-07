@@ -537,6 +537,9 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Config path not available")
 	}
 
+	dataDir := h.Config.Cluster.DataDir
+	certDir := h.Config.Cluster.CertDir
+
 	h.Manager.Shutdown()
 
 	h.Config.Cluster.Enabled = false
@@ -546,6 +549,18 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 	}
 	if err := os.WriteFile(h.ConfigPath, data, 0644); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
+	}
+
+	// Clean up Raft data and TLS certs to prevent zombie state on restart
+	if dataDir != "" {
+		if rmErr := os.RemoveAll(dataDir); rmErr != nil {
+			slog.Warn("failed to remove cluster data dir", "path", dataDir, "error", rmErr)
+		}
+	}
+	if certDir != "" {
+		if rmErr := os.RemoveAll(certDir); rmErr != nil {
+			slog.Warn("failed to remove cluster cert dir", "path", certDir, "error", rmErr)
+		}
 	}
 
 	slog.Info("cluster disbanded via UI, restarting", "component", "cluster")
