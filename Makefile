@@ -22,3 +22,12 @@ lint:
 clean:
 	rm -f sfpanel
 	rm -rf web/dist
+
+# 테스트
+test:
+	go test ./internal/... -v -count=1
+
+# 테스트 커버리지
+test-coverage:
+	go test ./internal/... -coverprofile=coverage.out
+	go tool cover -func=coverage.out | tail -1
