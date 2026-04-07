@@ -114,7 +114,7 @@ class ApiClient {
     return !this.isTauri || !!this._serverUrl
   }
 
-  private async request<T>(path: string, options: RequestInit & { local?: boolean; timeout?: number } = {}): Promise<T> {
+  async request<T>(path: string, options: RequestInit & { local?: boolean; timeout?: number } = {}): Promise<T> {
     const { local, timeout = 30000, ...fetchOptions } = options
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
