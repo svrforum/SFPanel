@@ -126,7 +126,7 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
           className="flex items-center justify-center py-3 border-b border-border hover:bg-accent transition-colors"
           title="Expand menu"
         >
-          <PanelLeftOpen className="h-4 w-4 text-muted-foreground" />
+          <PanelLeftOpen className="h-4 w-4 text-foreground/60" />
         </button>
         <nav className="flex-1 min-h-0 overflow-y-auto no-scrollbar flex flex-col items-center gap-0.5 py-2">
           {groups.flatMap(g => g.items).map((item) => (
@@ -160,8 +160,8 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
           </p>
           <p className="text-[13px] font-semibold text-foreground truncate mt-0.5">{title}</p>
         </div>
-        <button onClick={onToggleCollapse} className="p-1 rounded hover:bg-accent transition-colors mt-0.5 shrink-0" title="Collapse menu">
-          <PanelLeftClose className="h-3.5 w-3.5 text-muted-foreground" />
+        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors mt-0.5 shrink-0" title="Collapse menu">
+          <PanelLeftClose className="h-4 w-4 text-foreground/60" />
         </button>
       </div>
 
