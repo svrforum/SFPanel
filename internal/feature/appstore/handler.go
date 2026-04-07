@@ -2,7 +2,6 @@ package appstore
 
 import (
 	"bufio"
-	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -12,7 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
+	osExec "os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // ---------------------------------------------------------------------------
@@ -117,20 +117,6 @@ type installedAppResponse struct {
 // Exec helpers
 // ---------------------------------------------------------------------------
 
-const commandTimeout = 5 * time.Minute
-
-func runCommand(name string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, name, args...)
-	out, err := cmd.CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded {
-		return string(out), fmt.Errorf("command timed out after %s", commandTimeout)
-	}
-	return string(out), err
-}
-
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -146,6 +132,7 @@ var validAppID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,49}$`)
 type Handler struct {
 	DB          *sql.DB
 	ComposePath string
+	Cmd         exec.Commander
 
 	mu         sync.RWMutex
 	categories []AppStoreCategory
@@ -456,18 +443,18 @@ func (h *Handler) GetApp(c echo.Context) error {
 
 	var ports []portStatus
 	for _, p := range found.Ports {
-		ps := portStatus{Port: p, InUse: isPortInUse(p)}
+		ps := portStatus{Port: p, InUse: h.isPortInUse(p)}
 		if ps.InUse {
-			ps.Suggested = findFreePort(p)
+			ps.Suggested = h.findFreePort(p)
 		}
 		ports = append(ports, ps)
 	}
 	for _, env := range found.Env {
 		if env.Type == "port" && env.Default != "" {
 			if port := parsePort(env.Default); port > 0 {
-				ps := portStatus{Port: port, InUse: isPortInUse(port)}
+				ps := portStatus{Port: port, InUse: h.isPortInUse(port)}
 				if ps.InUse {
-					ps.Suggested = findFreePort(port)
+					ps.Suggested = h.findFreePort(port)
 				}
 				ports = append(ports, ps)
 			}
@@ -571,7 +558,7 @@ func (h *Handler) InstallApp(c echo.Context) error {
 
 	cleanup := func() {
 		composePath := filepath.Join(stackDir, "docker-compose.yml")
-		_, _ = runCommand("docker", "compose", "-f", composePath, "down", "-v", "--remove-orphans")
+		_, _ = h.Cmd.Run("docker", "compose", "-f", composePath, "down", "-v", "--remove-orphans")
 		_ = os.RemoveAll(stackDir)
 	}
 
@@ -669,7 +656,8 @@ func (h *Handler) InstallApp(c echo.Context) error {
 }
 
 func (h *Handler) streamCommand(w io.Writer, flusher http.Flusher, stage string, name string, args ...string) int {
-	cmd := exec.Command(name, args...)
+	// Streaming command — cannot use Commander (needs live stdout pipe)
+	cmd := osExec.Command(name, args...)
 	cmd.Env = os.Environ()
 
 	pipe, err := cmd.StdoutPipe()
@@ -718,7 +706,7 @@ func (h *Handler) checkPortConflicts(meta *AppStoreMeta, envVals map[string]stri
 
 	var conflicts []string
 	for port := range portsToCheck {
-		if isPortInUse(port) {
+		if h.isPortInUse(port) {
 			conflicts = append(conflicts, fmt.Sprintf("%d", port))
 		}
 	}
@@ -733,21 +721,21 @@ func parsePort(s string) int {
 	return 0
 }
 
-func isPortInUse(port int) bool {
-	out, err := exec.Command("ss", "-tlnH", "sport", "=", fmt.Sprintf(":%d", port)).Output()
+func (h *Handler) isPortInUse(port int) bool {
+	out, err := h.Cmd.Run("ss", "-tlnH", "sport", "=", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return false
 	}
-	return len(strings.TrimSpace(string(out))) > 0
+	return len(strings.TrimSpace(out)) > 0
 }
 
-func findFreePort(from int) int {
+func (h *Handler) findFreePort(from int) int {
 	for i := 1; i <= 100; i++ {
 		candidate := from + i
 		if candidate > 65535 {
 			break
 		}
-		if !isPortInUse(candidate) {
+		if !h.isPortInUse(candidate) {
 			return candidate
 		}
 	}
@@ -761,12 +749,12 @@ func (h *Handler) checkContainerNameConflicts(composeData []byte) []string {
 		return nil
 	}
 
-	out, err := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}").Output()
+	out, err := h.Cmd.Run("docker", "ps", "-a", "--format", "{{.Names}}")
 	if err != nil {
 		return nil
 	}
 	existing := make(map[string]bool)
-	for _, name := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
 		if name != "" {
 			existing[name] = true
 		}

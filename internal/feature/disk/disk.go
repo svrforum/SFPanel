@@ -4,11 +4,15 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // Handler exposes REST handlers for host disk management
 // (block devices, SMART, partitions, filesystems, LVM, RAID, swap, I/O stats).
-type Handler struct{}
+type Handler struct {
+	Cmd exec.Commander
+}
 
 // ---------- Types ----------
 

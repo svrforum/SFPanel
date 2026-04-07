@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -12,10 +11,13 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // WireGuardHandler exposes REST handlers for WireGuard VPN management.
-type WireGuardHandler struct{}
+type WireGuardHandler struct {
+	Cmd exec.Commander
+}
 
 // ---------- Types ----------
 
@@ -127,8 +129,8 @@ func parseWGConfField(content, field string) string {
 }
 
 // isWGInterfaceActive checks if a WireGuard interface is currently active.
-func isWGInterfaceActive(name string) bool {
-	output, err := runCommand("ip", "link", "show", "type", "wireguard")
+func (h *WireGuardHandler) isWGInterfaceActive(name string) bool {
+	output, err := h.Cmd.Run("ip", "link", "show", "type", "wireguard")
 	if err != nil {
 		return false
 	}
@@ -177,13 +179,12 @@ func maskPrivateKey(content string) string {
 func (h *WireGuardHandler) GetStatus(c echo.Context) error {
 	status := WireGuardStatus{}
 
-	path, err := exec.LookPath("wg")
-	if err != nil || path == "" {
+	if !h.Cmd.Exists("wg") {
 		return response.OK(c, status)
 	}
 
 	status.Installed = true
-	versionOutput, err := runCommand("wg", "--version")
+	versionOutput, err := h.Cmd.Run("wg", "--version")
 	if err == nil {
 		status.Version = strings.TrimSpace(versionOutput)
 	}
@@ -194,13 +195,13 @@ func (h *WireGuardHandler) GetStatus(c echo.Context) error {
 // Install installs wireguard-tools via apt.
 // POST /network/wireguard/install
 func (h *WireGuardHandler) Install(c echo.Context) error {
-	_, err := runCommandEnv(aptEnv(), "apt-get", "update")
+	_, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "update")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
 			"Failed to update package lists: "+err.Error())
 	}
 
-	output, err := runCommandEnv(aptEnv(), "apt-get", "install", "-y", "wireguard-tools")
+	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "install", "-y", "wireguard-tools")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWGInstallError,
 			"Failed to install wireguard-tools: "+err.Error())
@@ -225,7 +226,7 @@ func (h *WireGuardHandler) ListInterfaces(c echo.Context) error {
 	for _, name := range names {
 		iface := WireGuardInterface{
 			Name:   name,
-			Active: isWGInterfaceActive(name),
+			Active: h.isWGInterfaceActive(name),
 			Peers:  []WireGuardPeer{},
 		}
 
@@ -239,7 +240,7 @@ func (h *WireGuardHandler) ListInterfaces(c echo.Context) error {
 
 		// Get runtime info if active
 		if iface.Active {
-			dump, err := runCommand("wg", "show", name, "dump")
+			dump, err := h.Cmd.Run("wg", "show", name, "dump")
 			if err == nil {
 				iface.PublicKey, iface.ListenPort, iface.Peers = parseWGDump(dump)
 			}
@@ -266,7 +267,7 @@ func (h *WireGuardHandler) GetInterface(c echo.Context) error {
 
 	iface := WireGuardInterface{
 		Name:   name,
-		Active: isWGInterfaceActive(name),
+		Active: h.isWGInterfaceActive(name),
 		Peers:  []WireGuardPeer{},
 	}
 
@@ -277,7 +278,7 @@ func (h *WireGuardHandler) GetInterface(c echo.Context) error {
 	}
 
 	if iface.Active {
-		dump, err := runCommand("wg", "show", name, "dump")
+		dump, err := h.Cmd.Run("wg", "show", name, "dump")
 		if err == nil {
 			iface.PublicKey, iface.ListenPort, iface.Peers = parseWGDump(dump)
 		}
@@ -299,7 +300,7 @@ func (h *WireGuardHandler) InterfaceUp(c echo.Context) error {
 		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Interface config not found")
 	}
 
-	output, err := runCommand("wg-quick", "up", name)
+	output, err := h.Cmd.Run("wg-quick", "up", name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWGUpError,
 			"Failed to bring up interface: "+err.Error()+"\n"+output)
@@ -316,7 +317,7 @@ func (h *WireGuardHandler) InterfaceDown(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid interface name")
 	}
 
-	output, err := runCommand("wg-quick", "down", name)
+	output, err := h.Cmd.Run("wg-quick", "down", name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWGDownError,
 			"Failed to bring down interface: "+err.Error()+"\n"+output)
@@ -435,8 +436,8 @@ func (h *WireGuardHandler) DeleteConfig(c echo.Context) error {
 	}
 
 	// Bring down interface if active
-	if isWGInterfaceActive(name) {
-		runCommand("wg-quick", "down", name)
+	if h.isWGInterfaceActive(name) {
+		h.Cmd.Run("wg-quick", "down", name)
 	}
 
 	if err := os.Remove(confPath); err != nil {

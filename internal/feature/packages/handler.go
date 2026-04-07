@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
+	osExec "os/exec"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // PackageInfo represents a system package with version and architecture details.
@@ -26,7 +27,9 @@ type PackageInfo struct {
 }
 
 // Handler exposes REST handlers for system package management via apt.
-type Handler struct{}
+type Handler struct {
+	Cmd exec.Commander
+}
 
 // validPackageName matches only safe package name characters.
 var validPackageName = regexp.MustCompile(`^[a-zA-Z0-9._+\-]+$`)
@@ -45,13 +48,13 @@ func validatePackageName(name string) bool {
 // GET /packages/updates
 func (h *Handler) CheckUpdates(c echo.Context) error {
 	// Refresh package lists first so results are up-to-date
-	env := aptEnv()
-	if _, err := runCommandEnv(env, "apt-get", "update"); err != nil {
+	env := exec.AptEnv()
+	if _, err := h.Cmd.RunWithEnv(env, "apt-get", "update"); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
 			"Failed to update package lists: "+err.Error())
 	}
 
-	output, err := runCommandEnv(env, "apt", "list", "--upgradable")
+	output, err := h.Cmd.RunWithEnv(env, "apt", "list", "--upgradable")
 	if err != nil {
 		// apt list --upgradable may return exit code 0 even with warnings;
 		// only fail if output is completely empty.
@@ -163,10 +166,10 @@ func (h *Handler) UpgradePackages(c echo.Context) error {
 		}
 	}
 
-	env := aptEnv()
+	env := exec.AptEnv()
 
 	// Step 1: apt-get update
-	updateOutput, err := runCommandEnv(env, "apt-get", "update")
+	updateOutput, err := h.Cmd.RunWithEnv(env, "apt-get", "update")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
 			"Failed to update package lists: "+err.Error())
@@ -181,7 +184,7 @@ func (h *Handler) UpgradePackages(c echo.Context) error {
 		upgradeArgs = []string{"upgrade", "-y"}
 	}
 
-	upgradeOutput, err := runCommandEnv(env, "apt-get", upgradeArgs...)
+	upgradeOutput, err := h.Cmd.RunWithEnv(env, "apt-get", upgradeArgs...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpgradeError,
 			"Failed to upgrade packages: "+err.Error())
@@ -214,7 +217,7 @@ func (h *Handler) InstallPackage(c echo.Context) error {
 			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
 
-	output, err := runCommandEnv(aptEnv(), "apt-get", "install", "-y", req.Name)
+	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "install", "-y", req.Name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTInstallError,
 			"Failed to install package: "+err.Error())
@@ -246,7 +249,7 @@ func (h *Handler) RemovePackage(c echo.Context) error {
 			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
 
-	output, err := runCommandEnv(aptEnv(), "apt-get", "remove", "-y", req.Name)
+	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "remove", "-y", req.Name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTRemoveError,
 			"Failed to remove package: "+err.Error())
@@ -272,9 +275,9 @@ func (h *Handler) SearchPackages(c echo.Context) error {
 			"Search query contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
 
-	env := append(aptEnv(), "LANG=C")
+	env := append(exec.AptEnv(), "LANG=C")
 
-	output, err := runCommandEnv(env, "apt-cache", "search", query)
+	output, err := h.Cmd.RunWithEnv(env, "apt-cache", "search", query)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTSearchError,
 			"Failed to search packages: "+err.Error())
@@ -284,7 +287,7 @@ func (h *Handler) SearchPackages(c echo.Context) error {
 
 	// Enrich with installed status via dpkg-query
 	if len(packages) > 0 {
-		installed := getInstalledPackages(packages)
+		installed := h.getInstalledPackages(packages)
 		for i := range packages {
 			packages[i].Installed = installed[packages[i].Name]
 		}
@@ -298,7 +301,7 @@ func (h *Handler) SearchPackages(c echo.Context) error {
 }
 
 // getInstalledPackages checks which packages from the list are currently installed.
-func getInstalledPackages(packages []PackageInfo) map[string]bool {
+func (h *Handler) getInstalledPackages(packages []PackageInfo) map[string]bool {
 	installed := make(map[string]bool, len(packages))
 
 	names := make([]string, len(packages))
@@ -308,7 +311,7 @@ func getInstalledPackages(packages []PackageInfo) map[string]bool {
 
 	// dpkg-query -W -f='${Package}\t${db:Status-Abbrev}\n' pkg1 pkg2 ...
 	args := append([]string{"-W", "-f=${Package}\t${db:Status-Abbrev}\n"}, names...)
-	output, _ := runCommandWithTimeout(10*time.Second, "dpkg-query", args...)
+	output, _ := h.Cmd.RunWithTimeout(10*time.Second, "dpkg-query", args...)
 
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
@@ -368,32 +371,30 @@ func (h *Handler) GetDockerStatus(c echo.Context) error {
 	}
 
 	// Check if docker is installed
-	dockerPath, err := exec.LookPath("docker")
-	if err != nil || dockerPath == "" {
+	if !h.Cmd.Exists("docker") {
 		return response.OK(c, status)
 	}
 	status["installed"] = true
 
 	// Get docker version
-	versionOutput, err := runCommand("docker", "--version")
+	versionOutput, err := h.Cmd.Run("docker", "--version")
 	if err == nil {
 		status["version"] = strings.TrimSpace(versionOutput)
 	}
 
 	// Check if docker service is running
-	activeOutput, err := runCommand("systemctl", "is-active", "docker")
+	activeOutput, err := h.Cmd.Run("systemctl", "is-active", "docker")
 	if err == nil && strings.TrimSpace(activeOutput) == "active" {
 		status["running"] = true
 	}
 
 	// Check if docker compose is available (plugin form first, then standalone)
-	_, err = runCommand("docker", "compose", "version")
+	_, err = h.Cmd.Run("docker", "compose", "version")
 	if err == nil {
 		status["compose_available"] = true
 	} else {
 		// Fallback: check for standalone docker-compose binary
-		_, lookErr := exec.LookPath("docker-compose")
-		if lookErr == nil {
+		if h.Cmd.Exists("docker-compose") {
 			status["compose_available"] = true
 		}
 	}
@@ -428,7 +429,7 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 	// Step 1: Download get-docker.sh (30s timeout)
 	dlCtx, dlCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer dlCancel()
-	dlCmd := exec.CommandContext(dlCtx, "curl", "-fsSL", "https://get.docker.com", "-o", "/tmp/get-docker.sh")
+	dlCmd := osExec.CommandContext(dlCtx, "curl", "-fsSL", "https://get.docker.com", "-o", "/tmp/get-docker.sh")
 	dlOut, err := dlCmd.CombinedOutput()
 	if len(dlOut) > 0 {
 		for _, line := range strings.Split(string(dlOut), "\n") {
@@ -449,7 +450,7 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "sh", "/tmp/get-docker.sh")
+	cmd := osExec.CommandContext(ctx, "sh", "/tmp/get-docker.sh")
 	cmd.Env = append(cmd.Environ(), "DEBIAN_FRONTEND=noninteractive")
 
 	// Create a pipe for real-time output
@@ -506,8 +507,7 @@ func (h *Handler) GetNodeStatus(c echo.Context) error {
 	}
 
 	// Check if node is in PATH
-	nodePath, err := exec.LookPath("node")
-	if err != nil || nodePath == "" {
+	if !h.Cmd.Exists("node") {
 		// NVM-installed node might not be in PATH, check common location
 		nvmNode := nvmDir + "/versions/node"
 		if entries, dirErr := os.ReadDir(nvmNode); dirErr == nil && len(entries) > 0 {
@@ -515,15 +515,15 @@ func (h *Handler) GetNodeStatus(c echo.Context) error {
 			latest := entries[len(entries)-1].Name()
 			testPath := nvmNode + "/" + latest + "/bin/node"
 			if _, statErr := os.Stat(testPath); statErr == nil {
-				out, runErr := exec.Command(testPath, "--version").Output()
+				out, runErr := h.Cmd.Run(testPath, "--version")
 				if runErr == nil {
 					status["installed"] = true
-					status["version"] = strings.TrimSpace(string(out))
+					status["version"] = strings.TrimSpace(out)
 				}
 				npmPath := nvmNode + "/" + latest + "/bin/npm"
-				npmOut, npmErr := exec.Command(npmPath, "--version").Output()
+				npmOut, npmErr := h.Cmd.Run(npmPath, "--version")
 				if npmErr == nil {
-					status["npm_version"] = strings.TrimSpace(string(npmOut))
+					status["npm_version"] = strings.TrimSpace(npmOut)
 				}
 			}
 		}
@@ -531,13 +531,13 @@ func (h *Handler) GetNodeStatus(c echo.Context) error {
 	}
 
 	status["installed"] = true
-	versionOutput, err := exec.Command("node", "--version").Output()
+	versionOutput, err := h.Cmd.Run("node", "--version")
 	if err == nil {
-		status["version"] = strings.TrimSpace(string(versionOutput))
+		status["version"] = strings.TrimSpace(versionOutput)
 	}
-	npmOut, err := exec.Command("npm", "--version").Output()
+	npmOut, err := h.Cmd.Run("npm", "--version")
 	if err == nil {
-		status["npm_version"] = strings.TrimSpace(string(npmOut))
+		status["npm_version"] = strings.TrimSpace(npmOut)
 	}
 
 	return response.OK(c, status)
@@ -573,7 +573,7 @@ func (h *Handler) InstallNode(c echo.Context) error {
 
 		dlCtx, dlCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer dlCancel()
-		dlCmd := exec.CommandContext(dlCtx, "curl", "-fsSL", "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh", "-o", "/tmp/install-nvm.sh")
+		dlCmd := osExec.CommandContext(dlCtx, "curl", "-fsSL", "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh", "-o", "/tmp/install-nvm.sh")
 		dlOut, err := dlCmd.CombinedOutput()
 		if len(dlOut) > 0 {
 			for _, line := range strings.Split(string(dlOut), "\n") {
@@ -591,7 +591,7 @@ func (h *Handler) InstallNode(c echo.Context) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
-		cmd := exec.CommandContext(ctx, "bash", "/tmp/install-nvm.sh")
+		cmd := osExec.CommandContext(ctx, "bash", "/tmp/install-nvm.sh")
 		cmd.Env = append(os.Environ(), "HOME="+homeDir, "NVM_DIR="+nvmDir)
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -631,7 +631,7 @@ func (h *Handler) InstallNode(c echo.Context) error {
 
 	// Source nvm and install LTS in a single bash invocation
 	script := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm install --lts && nvm alias default lts/* && node --version && npm --version`, nvmDir)
-	cmd := exec.CommandContext(ctx, "bash", "-c", script)
+	cmd := osExec.CommandContext(ctx, "bash", "-c", script)
 	cmd.Env = append(os.Environ(), "HOME="+homeDir, "NVM_DIR="+nvmDir)
 
 	stdout, err := cmd.StdoutPipe()
@@ -664,7 +664,7 @@ func (h *Handler) InstallNode(c echo.Context) error {
 	linkScript := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && NODE_PATH=$(which node) && NODE_DIR=$(dirname "$NODE_PATH") && ln -sf "$NODE_DIR/node" /usr/local/bin/node && ln -sf "$NODE_DIR/npm" /usr/local/bin/npm && ln -sf "$NODE_DIR/npx" /usr/local/bin/npx && echo "Linked: $(node --version), npm $(npm --version)"`, nvmDir)
 	linkCtx, linkCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer linkCancel()
-	linkCmd := exec.CommandContext(linkCtx, "bash", "-c", linkScript)
+	linkCmd := osExec.CommandContext(linkCtx, "bash", "-c", linkScript)
 	linkCmd.Env = append(os.Environ(), "HOME="+homeDir, "NVM_DIR="+nvmDir)
 	linkOut, err := linkCmd.CombinedOutput()
 	if err != nil {
@@ -707,8 +707,8 @@ func (h *Handler) GetNodeVersions(c echo.Context) error {
 
 	// Get current active version
 	currentScript := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm current 2>/dev/null`, nvmDir)
-	currentOut, _ := exec.Command("bash", "-c", currentScript).Output()
-	current := strings.TrimSpace(string(currentOut))
+	currentOut, _ := h.Cmd.Run("bash", "-c", currentScript)
+	current := strings.TrimSpace(currentOut)
 	result["current"] = current
 
 	// List installed versions by scanning the NVM versions directory directly
@@ -730,10 +730,10 @@ func (h *Handler) GetNodeVersions(c echo.Context) error {
 
 	// Check which versions are LTS using nvm ls (best effort)
 	script := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm ls --no-colors 2>/dev/null`, nvmDir)
-	if out, err := exec.Command("bash", "-c", script).Output(); err == nil {
+	if out, err := h.Cmd.Run("bash", "-c", script); err == nil {
 		ltsVersions := make(map[string]bool)
 		versionRe := regexp.MustCompile(`(v\d+\.\d+\.\d+)`)
-		for _, line := range strings.Split(string(out), "\n") {
+		for _, line := range strings.Split(out, "\n") {
 			if strings.Contains(line, "lts/") {
 				if matches := versionRe.FindStringSubmatch(line); len(matches) > 1 {
 					ltsVersions[matches[1]] = true
@@ -751,12 +751,10 @@ func (h *Handler) GetNodeVersions(c echo.Context) error {
 
 	// List available remote LTS versions (cached, quick)
 	ltsScript := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm ls-remote --lts --no-colors 2>/dev/null | grep "Latest" | tail -5`, nvmDir)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	ltsOut, err := exec.CommandContext(ctx, "bash", "-c", ltsScript).Output()
+	ltsOut, err := h.Cmd.RunWithTimeout(15*time.Second, "bash", "-c", ltsScript)
 	if err == nil {
 		var remoteLTS []string
-		for _, line := range strings.Split(string(ltsOut), "\n") {
+		for _, line := range strings.Split(ltsOut, "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue
@@ -797,16 +795,16 @@ func (h *Handler) SwitchNodeVersion(c echo.Context) error {
 	}
 
 	script := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm alias default %s && nvm use %s 2>&1`, nvmDir, body.Version, body.Version)
-	out, err := exec.Command("bash", "-c", script).CombinedOutput()
+	out, err := h.Cmd.Run("bash", "-c", script)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrCommandFailed, string(out))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCommandFailed, out)
 	}
 
 	// Update symlinks in /usr/local/bin
 	linkScript := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm use %s && NODE_PATH=$(which node) && NODE_DIR=$(dirname "$NODE_PATH") && ln -sf "$NODE_DIR/node" /usr/local/bin/node && ln -sf "$NODE_DIR/npm" /usr/local/bin/npm && ln -sf "$NODE_DIR/npx" /usr/local/bin/npx`, nvmDir, body.Version)
-	exec.Command("bash", "-c", linkScript).Run()
+	h.Cmd.Run("bash", "-c", linkScript)
 
-	return response.OK(c, map[string]string{"switched": body.Version, "output": strings.TrimSpace(string(out))})
+	return response.OK(c, map[string]string{"switched": body.Version, "output": strings.TrimSpace(out)})
 }
 
 // ---------- InstallNodeVersion ----------
@@ -852,7 +850,7 @@ func (h *Handler) InstallNodeVersion(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", script)
+	cmd := osExec.CommandContext(ctx, "bash", "-c", script)
 	cmd.Env = append(os.Environ(), "NVM_DIR="+nvmDir)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -906,12 +904,12 @@ func (h *Handler) UninstallNodeVersion(c echo.Context) error {
 	}
 
 	script := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm uninstall %s 2>&1`, nvmDir, body.Version)
-	out, err := exec.Command("bash", "-c", script).CombinedOutput()
+	out, err := h.Cmd.Run("bash", "-c", script)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrCommandFailed, string(out))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCommandFailed, out)
 	}
 
-	return response.OK(c, map[string]string{"removed": body.Version, "output": strings.TrimSpace(string(out))})
+	return response.OK(c, map[string]string{"removed": body.Version, "output": strings.TrimSpace(out)})
 }
 
 // ---------- GetClaudeStatus ----------
@@ -941,7 +939,7 @@ func findNVMDir() string {
 
 // findBinaryPath searches for a binary in PATH and common user-local directories.
 func findBinaryPath(name string) string {
-	if p, err := exec.LookPath(name); err == nil && p != "" {
+	if p, err := osExec.LookPath(name); err == nil && p != "" {
 		return p
 	}
 	// Check common locations: /root/.local/bin, /home/*/.local/bin, /usr/local/bin
@@ -979,9 +977,9 @@ func (h *Handler) GetClaudeStatus(c echo.Context) error {
 	}
 	status["installed"] = true
 
-	versionOutput, err := exec.Command(claudePath, "--version").Output()
+	versionOutput, err := h.Cmd.Run(claudePath, "--version")
 	if err == nil {
-		status["version"] = strings.TrimSpace(string(versionOutput))
+		status["version"] = strings.TrimSpace(versionOutput)
 	}
 
 	return response.OK(c, status)
@@ -1012,7 +1010,7 @@ func (h *Handler) InstallClaude(c echo.Context) error {
 
 	dlCtx, dlCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer dlCancel()
-	dlCmd := exec.CommandContext(dlCtx, "curl", "-fsSL", "https://claude.ai/install.sh", "-o", "/tmp/install-claude.sh")
+	dlCmd := osExec.CommandContext(dlCtx, "curl", "-fsSL", "https://claude.ai/install.sh", "-o", "/tmp/install-claude.sh")
 	dlOut, err := dlCmd.CombinedOutput()
 	if len(dlOut) > 0 {
 		for _, line := range strings.Split(string(dlOut), "\n") {
@@ -1030,7 +1028,7 @@ func (h *Handler) InstallClaude(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "bash", "/tmp/install-claude.sh")
+	cmd := osExec.CommandContext(ctx, "bash", "/tmp/install-claude.sh")
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1080,9 +1078,9 @@ func (h *Handler) GetCodexStatus(c echo.Context) error {
 	}
 	status["installed"] = true
 
-	versionOutput, err := exec.Command(codexPath, "--version").Output()
+	versionOutput, err := h.Cmd.Run(codexPath, "--version")
 	if err == nil {
-		status["version"] = strings.TrimSpace(string(versionOutput))
+		status["version"] = strings.TrimSpace(versionOutput)
 	}
 
 	return response.OK(c, status)
@@ -1110,8 +1108,7 @@ func (h *Handler) InstallCodex(c echo.Context) error {
 	}
 
 	// Check npm is available
-	npmPath, err := exec.LookPath("npm")
-	if err != nil || npmPath == "" {
+	if !h.Cmd.Exists("npm") {
 		sendLine("ERROR: npm is not installed. Please install Node.js first.")
 		sendLine("[DONE]")
 		return nil
@@ -1122,7 +1119,7 @@ func (h *Handler) InstallCodex(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "npm", "install", "-g", "@openai/codex")
+	cmd := osExec.CommandContext(ctx, "npm", "install", "-g", "@openai/codex")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		sendLine("ERROR: " + err.Error())
@@ -1169,9 +1166,9 @@ func (h *Handler) GetGeminiStatus(c echo.Context) error {
 	}
 	status["installed"] = true
 
-	versionOutput, err := exec.Command(geminiPath, "--version").Output()
+	versionOutput, err := h.Cmd.Run(geminiPath, "--version")
 	if err == nil {
-		status["version"] = strings.TrimSpace(string(versionOutput))
+		status["version"] = strings.TrimSpace(versionOutput)
 	}
 
 	return response.OK(c, status)
@@ -1199,8 +1196,7 @@ func (h *Handler) InstallGemini(c echo.Context) error {
 	}
 
 	// Check npm is available
-	npmPath, err := exec.LookPath("npm")
-	if err != nil || npmPath == "" {
+	if !h.Cmd.Exists("npm") {
 		sendLine("ERROR: npm is not installed. Please install Node.js first.")
 		sendLine("[DONE]")
 		return nil
@@ -1211,7 +1207,7 @@ func (h *Handler) InstallGemini(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "npm", "install", "-g", "@google/gemini-cli")
+	cmd := osExec.CommandContext(ctx, "npm", "install", "-g", "@google/gemini-cli")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		sendLine("ERROR: " + err.Error())

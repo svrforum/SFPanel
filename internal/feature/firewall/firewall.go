@@ -4,10 +4,19 @@ import (
 	"net"
 	"regexp"
 	"strings"
+
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // Handler exposes REST handlers for UFW firewall and Fail2ban management.
-type Handler struct{}
+type Handler struct {
+	Cmd exec.Commander
+}
+
+// aptEnv returns the standard environment variables for non-interactive apt operations.
+func aptEnv() []string {
+	return []string{"DEBIAN_FRONTEND=noninteractive"}
+}
 
 // ---------- Types ----------
 

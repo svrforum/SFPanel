@@ -16,10 +16,10 @@ import (
 // GetUFWStatus returns the current UFW status including active state and default policies.
 // GET /firewall/status
 func (h *Handler) GetUFWStatus(c echo.Context) error {
-	if !commandExists("ufw") {
+	if !h.Cmd.Exists("ufw") {
 		return response.OK(c, UFWStatus{})
 	}
-	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "status", "verbose")
+	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "status", "verbose")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWError,
 			"Failed to get UFW status: "+err.Error())
@@ -71,7 +71,7 @@ func parseUFWStatus(output string) UFWStatus {
 // EnableUFW enables the UFW firewall.
 // POST /firewall/enable
 func (h *Handler) EnableUFW(c echo.Context) error {
-	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "--force", "enable")
+	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "--force", "enable")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWEnableError,
 			"Failed to enable UFW: "+err.Error())
@@ -86,7 +86,7 @@ func (h *Handler) EnableUFW(c echo.Context) error {
 // DisableUFW disables the UFW firewall.
 // POST /firewall/disable
 func (h *Handler) DisableUFW(c echo.Context) error {
-	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "disable")
+	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "disable")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWDisableError,
 			"Failed to disable UFW: "+err.Error())
@@ -101,13 +101,13 @@ func (h *Handler) DisableUFW(c echo.Context) error {
 // ListRules returns all current UFW rules with their numbers.
 // GET /firewall/rules
 func (h *Handler) ListRules(c echo.Context) error {
-	if !commandExists("ufw") {
+	if !h.Cmd.Exists("ufw") {
 		return response.OK(c, map[string]interface{}{
 			"rules": []UFWRule{},
 			"total": 0,
 		})
 	}
-	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "status", "numbered")
+	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "status", "numbered")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWError,
 			"Failed to list UFW rules: "+err.Error())
@@ -260,7 +260,7 @@ func (h *Handler) AddRule(c echo.Context) error {
 	// Build the UFW command
 	args := buildUFWAddArgs(req)
 
-	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", args...)
+	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWAddRuleError,
 			"Failed to add rule: "+err.Error())
@@ -321,7 +321,7 @@ func (h *Handler) DeleteRule(c echo.Context) error {
 			"Rule number must be a positive integer")
 	}
 
-	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "--force", "delete", strconv.Itoa(number))
+	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "--force", "delete", strconv.Itoa(number))
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWDeleteError,
 			"Failed to delete rule: "+err.Error())
@@ -339,14 +339,14 @@ func (h *Handler) DeleteRule(c echo.Context) error {
 // GET /firewall/ports
 func (h *Handler) ListPorts(c echo.Context) error {
 	// Get TCP listening ports
-	tcpOutput, err := runCommand("ss", "-tlnp")
+	tcpOutput, err := h.Cmd.Run("ss", "-tlnp")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSSError,
 			"Failed to list TCP ports: "+err.Error())
 	}
 
 	// Get UDP listening ports
-	udpOutput, err := runCommand("ss", "-ulnp")
+	udpOutput, err := h.Cmd.Run("ss", "-ulnp")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSSError,
 			"Failed to list UDP ports: "+err.Error())

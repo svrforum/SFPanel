@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // ---------- Docker Firewall (DOCKER-USER chain) ----------
@@ -51,14 +52,14 @@ var validDockerAction = regexp.MustCompile(`^(drop|accept)$`)
 // GetDockerFirewall returns Docker published ports and DOCKER-USER chain rules.
 // GET /firewall/docker
 func (h *Handler) GetDockerFirewall(c echo.Context) error {
-	if !commandExists("iptables") {
+	if !h.Cmd.Exists("iptables") {
 		return response.OK(c, map[string]interface{}{
 			"ports": []DockerPublishedPort{},
 			"rules": []DockerUserRule{},
 		})
 	}
-	ports, portsErr := getDockerPublishedPorts()
-	rules, rulesErr := getDockerUserRules()
+	ports, portsErr := h.getDockerPublishedPorts()
+	rules, rulesErr := h.getDockerUserRules()
 
 	if portsErr != nil && rulesErr != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerFirewallError,
@@ -85,14 +86,14 @@ func normalizeProtocol(proto string) string {
 }
 
 // getDockerPublishedPorts parses iptables NAT DOCKER chain to find published ports.
-func getDockerPublishedPorts() ([]DockerPublishedPort, error) {
-	output, err := runCommand("iptables", "-t", "nat", "-L", "DOCKER", "-n", "--line-numbers")
+func (h *Handler) getDockerPublishedPorts() ([]DockerPublishedPort, error) {
+	output, err := h.Cmd.Run("iptables", "-t", "nat", "-L", "DOCKER", "-n", "--line-numbers")
 	if err != nil {
 		return nil, fmt.Errorf("iptables nat DOCKER: %w", err)
 	}
 
 	// Build container IP → name mapping from docker ps
-	ipToName := buildContainerIPMap()
+	ipToName := h.buildContainerIPMap()
 
 	var ports []DockerPublishedPort
 
@@ -141,17 +142,17 @@ func getDockerPublishedPorts() ([]DockerPublishedPort, error) {
 }
 
 // buildContainerIPMap builds a map of container IP → container name using docker inspect.
-func buildContainerIPMap() map[string]string {
+func (h *Handler) buildContainerIPMap() map[string]string {
 	ipMap := make(map[string]string)
 
-	output, err := runCommand("docker", "ps", "-q")
+	output, err := h.Cmd.Run("docker", "ps", "-q")
 	if err != nil || strings.TrimSpace(output) == "" {
 		return ipMap
 	}
 
 	ids := strings.Fields(strings.TrimSpace(output))
 	for _, id := range ids {
-		inspectOut, err := runCommand("docker", "inspect",
+		inspectOut, err := h.Cmd.Run("docker", "inspect",
 			"--format", "{{.Name}} {{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}", id)
 		if err != nil {
 			continue
@@ -174,8 +175,8 @@ func buildContainerIPMap() map[string]string {
 // lookupDNATMapping finds the container IP and container port for a given host port
 // by inspecting Docker's NAT DNAT rules. After Docker DNAT in PREROUTING, packets in
 // FORWARD/DOCKER-USER have the container IP:port as destination, not the host port.
-func lookupDNATMapping(hostPort int, protocol string) (containerIP string, containerPort int, found bool) {
-	output, err := runCommand("iptables", "-t", "nat", "-L", "DOCKER", "-n")
+func (h *Handler) lookupDNATMapping(hostPort int, protocol string) (containerIP string, containerPort int, found bool) {
+	output, err := h.Cmd.Run("iptables", "-t", "nat", "-L", "DOCKER", "-n")
 	if err != nil {
 		return "", 0, false
 	}
@@ -204,9 +205,9 @@ func lookupDNATMapping(hostPort int, protocol string) (containerIP string, conta
 
 // buildReverseDNATMap builds a mapping from "containerIP:containerPort/protocol" → hostPort
 // so that DOCKER-USER rules (which match on post-DNAT destination) can be displayed with host ports.
-func buildReverseDNATMap() map[string]int {
+func (h *Handler) buildReverseDNATMap() map[string]int {
 	result := make(map[string]int)
-	output, err := runCommand("iptables", "-t", "nat", "-L", "DOCKER", "-n")
+	output, err := h.Cmd.Run("iptables", "-t", "nat", "-L", "DOCKER", "-n")
 	if err != nil {
 		return result
 	}
@@ -231,14 +232,14 @@ func buildReverseDNATMap() map[string]int {
 }
 
 // getDockerUserRules parses the DOCKER-USER iptables chain.
-func getDockerUserRules() ([]DockerUserRule, error) {
-	output, err := runCommand("iptables", "-L", "DOCKER-USER", "-n", "--line-numbers")
+func (h *Handler) getDockerUserRules() ([]DockerUserRule, error) {
+	output, err := h.Cmd.Run("iptables", "-L", "DOCKER-USER", "-n", "--line-numbers")
 	if err != nil {
 		return nil, fmt.Errorf("iptables DOCKER-USER: %w", err)
 	}
 
 	// Build reverse DNAT map to translate container IP:port back to host port
-	reverseMap := buildReverseDNATMap()
+	reverseMap := h.buildReverseDNATMap()
 
 	var rules []DockerUserRule
 
@@ -345,7 +346,7 @@ func (h *Handler) AddDockerUserRule(c echo.Context) error {
 	// Look up DNAT mapping: Docker rewrites destination to container IP:port in PREROUTING,
 	// so DOCKER-USER (in FORWARD chain) sees the container IP:port, not the host port.
 	matchPort := req.Port
-	containerIP, containerPort, dnatFound := lookupDNATMapping(req.Port, req.Protocol)
+	containerIP, containerPort, dnatFound := h.lookupDNATMapping(req.Port, req.Protocol)
 	if dnatFound {
 		args = append(args, "-d", containerIP)
 		matchPort = containerPort
@@ -353,7 +354,7 @@ func (h *Handler) AddDockerUserRule(c echo.Context) error {
 
 	args = append(args, "-p", req.Protocol, "--dport", strconv.Itoa(matchPort), "-j", iptablesAction)
 
-	_, err := runCommand("iptables", args...)
+	_, err := h.Cmd.Run("iptables", args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrIPTablesError,
 			"Failed to add DOCKER-USER rule: "+err.Error())
@@ -371,13 +372,13 @@ func (h *Handler) AddDockerUserRule(c echo.Context) error {
 		logPrefix := fmt.Sprintf("[DOCKER-USER DROP] HPORT=%d ", req.Port)
 		logArgs = append(logArgs, "-p", req.Protocol, "--dport", strconv.Itoa(matchPort),
 			"-j", "LOG", "--log-prefix", logPrefix, "--log-level", "4")
-		if _, logErr := runCommand("iptables", logArgs...); logErr != nil {
+		if _, logErr := h.Cmd.Run("iptables", logArgs...); logErr != nil {
 			log.Printf("Warning: failed to add LOG rule for DOCKER-USER DROP: %v", logErr)
 		}
 	}
 
 	// Persist rules
-	if saveErr := saveDockerUserRules(); saveErr != nil {
+	if saveErr := h.saveDockerUserRules(); saveErr != nil {
 		log.Printf("Warning: failed to persist DOCKER-USER rules: %v", saveErr)
 	}
 
@@ -399,12 +400,12 @@ func (h *Handler) DeleteDockerUserRule(c echo.Context) error {
 	// Check if the rule above (number-1) is a companion LOG rule for this DROP.
 	// Pattern: LOG rule at N-1 has same match criteria as DROP rule at N.
 	if number >= 2 {
-		output, listErr := runCommand("iptables", "-S", "DOCKER-USER", strconv.Itoa(number))
+		output, listErr := h.Cmd.Run("iptables", "-S", "DOCKER-USER", strconv.Itoa(number))
 		if listErr == nil && strings.Contains(output, "-j DROP") {
-			logOutput, logErr := runCommand("iptables", "-S", "DOCKER-USER", strconv.Itoa(number-1))
+			logOutput, logErr := h.Cmd.Run("iptables", "-S", "DOCKER-USER", strconv.Itoa(number-1))
 			if logErr == nil && strings.Contains(logOutput, "-j LOG") && strings.Contains(logOutput, "DOCKER-USER DROP]") {
 				// Delete the LOG rule first (same number since after deletion indices shift)
-				if _, delErr := runCommand("iptables", "-D", "DOCKER-USER", strconv.Itoa(number-1)); delErr != nil {
+				if _, delErr := h.Cmd.Run("iptables", "-D", "DOCKER-USER", strconv.Itoa(number-1)); delErr != nil {
 					log.Printf("Warning: failed to delete companion LOG rule: %v", delErr)
 				}
 				// After deleting the LOG rule, the DROP rule shifts up by 1
@@ -413,14 +414,14 @@ func (h *Handler) DeleteDockerUserRule(c echo.Context) error {
 		}
 	}
 
-	_, err = runCommand("iptables", "-D", "DOCKER-USER", strconv.Itoa(number))
+	_, err = h.Cmd.Run("iptables", "-D", "DOCKER-USER", strconv.Itoa(number))
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrIPTablesError,
 			"Failed to delete DOCKER-USER rule: "+err.Error())
 	}
 
 	// Persist rules
-	if saveErr := saveDockerUserRules(); saveErr != nil {
+	if saveErr := h.saveDockerUserRules(); saveErr != nil {
 		log.Printf("Warning: failed to persist DOCKER-USER rules: %v", saveErr)
 	}
 
@@ -430,8 +431,8 @@ func (h *Handler) DeleteDockerUserRule(c echo.Context) error {
 }
 
 // saveDockerUserRules extracts DOCKER-USER rules from iptables-save and persists to file.
-func saveDockerUserRules() error {
-	output, err := runCommand("iptables-save", "-t", "filter")
+func (h *Handler) saveDockerUserRules() error {
+	output, err := h.Cmd.Run("iptables-save", "-t", "filter")
 	if err != nil {
 		return fmt.Errorf("iptables-save: %w", err)
 	}
@@ -477,12 +478,12 @@ func saveDockerUserRules() error {
 
 // RestoreDockerUserRules restores DOCKER-USER rules from the persisted file.
 // Called at SFPanel startup. Silently skips if no file exists.
-func RestoreDockerUserRules() {
+func RestoreDockerUserRules(cmd exec.Commander) {
 	if _, err := os.Stat(dockerUserRulesFile); os.IsNotExist(err) {
 		return
 	}
 
-	output, err := runCommand("iptables-restore", "-n", "--", dockerUserRulesFile)
+	output, err := cmd.Run("iptables-restore", "-n", "--", dockerUserRulesFile)
 	if err != nil {
 		log.Printf("Warning: failed to restore DOCKER-USER rules: %v (output: %s)", err, output)
 		return

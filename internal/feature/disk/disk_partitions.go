@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -22,18 +21,18 @@ func (h *Handler) ListPartitions(c echo.Context) error {
 	}
 
 	devPath := "/dev/" + device
-	out, err := exec.Command("lsblk", "-J", "-b", "-o",
+	out, err := h.Cmd.Run("lsblk", "-J", "-b", "-o",
 		"NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,PARTLABEL,PARTUUID",
-		devPath).CombinedOutput()
+		devPath)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
-			fmt.Sprintf("lsblk failed for %s: %s", device, strings.TrimSpace(string(out))))
+			fmt.Sprintf("lsblk failed for %s: %s", device, strings.TrimSpace(out)))
 	}
 
 	var raw struct {
 		BlockDevices []json.RawMessage `json:"blockdevices"`
 	}
-	if err := json.Unmarshal(out, &raw); err != nil {
+	if err := json.Unmarshal([]byte(out), &raw); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
 			fmt.Sprintf("failed to parse lsblk output: %v", err))
 	}
@@ -48,7 +47,7 @@ func (h *Handler) CreatePartition(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
-	if !commandExists("parted") {
+	if !h.Cmd.Exists("parted") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"parted is not installed. Install it: apt install parted")
 	}
@@ -78,11 +77,11 @@ func (h *Handler) CreatePartition(c echo.Context) error {
 	}
 
 	devPath := "/dev/" + device
-	out, err := exec.Command("parted", "-s", devPath,
-		"mkpart", "primary", fsType, req.Start, req.End).CombinedOutput()
+	out, err := h.Cmd.Run("parted", "-s", devPath,
+		"mkpart", "primary", fsType, req.Start, req.End)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionError,
-			fmt.Sprintf("parted mkpart failed: %s", strings.TrimSpace(string(out))))
+			fmt.Sprintf("parted mkpart failed: %s", strings.TrimSpace(out)))
 	}
 
 	return response.OK(c, map[string]string{
@@ -103,16 +102,16 @@ func (h *Handler) DeletePartition(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPartition, "Invalid partition number")
 	}
 
-	if !commandExists("parted") {
+	if !h.Cmd.Exists("parted") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"parted is not installed. Install it: apt install parted")
 	}
 
 	devPath := "/dev/" + device
-	out, err := exec.Command("parted", "-s", devPath, "rm", number).CombinedOutput()
+	out, err := h.Cmd.Run("parted", "-s", devPath, "rm", number)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionError,
-			fmt.Sprintf("parted rm failed: %s", strings.TrimSpace(string(out))))
+			fmt.Sprintf("parted rm failed: %s", strings.TrimSpace(out)))
 	}
 
 	return response.OK(c, map[string]string{

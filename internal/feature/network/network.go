@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,7 +25,9 @@ var validInterfaceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,14}$`)
 
 // Handler exposes REST handlers for host network management
 // (interfaces, DNS, routes, bonding, netplan configuration).
-type Handler struct{}
+type Handler struct {
+	Cmd exec.Commander
+}
 
 // ---------- Types ----------
 
@@ -130,7 +132,7 @@ var networkStatusCache struct {
 const networkCacheTTL = 3 * time.Second
 
 // cachedNetworkStatus returns cached network data, refreshing when stale.
-func cachedNetworkStatus() ([]NetworkInterface, []Route, DNSConfig, []NetworkInterface, error) {
+func (h *Handler) cachedNetworkStatus() ([]NetworkInterface, []Route, DNSConfig, []NetworkInterface, error) {
 	networkStatusCache.RLock()
 	if time.Since(networkStatusCache.updatedAt) < networkCacheTTL && networkStatusCache.interfaces != nil {
 		ifaces := make([]NetworkInterface, len(networkStatusCache.interfaces))
@@ -169,14 +171,14 @@ func cachedNetworkStatus() ([]NetworkInterface, []Route, DNSConfig, []NetworkInt
 
 	go func() {
 		defer wg.Done()
-		ifaces, ifaceErr = gatherInterfaces()
+		ifaces, ifaceErr = h.gatherInterfaces()
 	}()
 	go func() {
 		defer wg.Done()
-		routeList, routeErr = parseRoutes()
+		routeList, routeErr = h.parseRoutes()
 	}()
 
-	dns := readDNSConfig()
+	dns := h.readDNSConfig()
 	wg.Wait()
 
 	if ifaceErr != nil {
@@ -232,7 +234,7 @@ func invalidateNetworkCache() {
 
 // ListInterfaces returns all host network interfaces with statistics.
 func (h *Handler) ListInterfaces(c echo.Context) error {
-	ifaces, _, _, _, err := cachedNetworkStatus()
+	ifaces, _, _, _, err := h.cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list interfaces: %v", err))
 	}
@@ -242,7 +244,7 @@ func (h *Handler) ListInterfaces(c echo.Context) error {
 // GetNetworkStatus returns a combined snapshot of interfaces, routes, DNS and bonds
 // in a single API call to reduce frontend round-trips.
 func (h *Handler) GetNetworkStatus(c echo.Context) error {
-	ifaces, routes, dns, bonds, err := cachedNetworkStatus()
+	ifaces, routes, dns, bonds, err := h.cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to gather network status: %v", err))
 	}
@@ -262,7 +264,7 @@ func (h *Handler) GetInterface(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid interface name")
 	}
 
-	ifaces, _, _, _, err := cachedNetworkStatus()
+	ifaces, _, _, _, err := h.cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to get interfaces: %v", err))
 	}
@@ -309,9 +311,9 @@ func (h *Handler) ConfigureInterface(c echo.Context) error {
 
 // ApplyNetplan runs `netplan apply` to activate the current configuration.
 func (h *Handler) ApplyNetplan(c echo.Context) error {
-	out, err := exec.Command("netplan", "apply").CombinedOutput()
+	out, err := h.Cmd.Run("netplan", "apply")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("netplan apply failed: %s", strings.TrimSpace(string(out))))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("netplan apply failed: %s", strings.TrimSpace(out)))
 	}
 	invalidateNetworkCache()
 	return response.OK(c, map[string]string{"message": "netplan applied successfully"})
@@ -319,7 +321,7 @@ func (h *Handler) ApplyNetplan(c echo.Context) error {
 
 // GetDNS returns the current system DNS configuration.
 func (h *Handler) GetDNS(c echo.Context) error {
-	_, _, dns, _, err := cachedNetworkStatus()
+	_, _, dns, _, err := h.cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to read DNS: %v", err))
 	}
@@ -353,7 +355,7 @@ func (h *Handler) ConfigureDNS(c echo.Context) error {
 
 // GetRoutes returns the kernel routing table.
 func (h *Handler) GetRoutes(c echo.Context) error {
-	_, routes, _, _, err := cachedNetworkStatus()
+	_, routes, _, _, err := h.cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to read routes: %v", err))
 	}
@@ -362,7 +364,7 @@ func (h *Handler) GetRoutes(c echo.Context) error {
 
 // ListBonds returns only bond interfaces.
 func (h *Handler) ListBonds(c echo.Context) error {
-	_, _, _, bonds, err := cachedNetworkStatus()
+	_, _, _, bonds, err := h.cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list bonds: %v", err))
 	}
@@ -409,13 +411,13 @@ func (h *Handler) DeleteBond(c echo.Context) error {
 // ---------- Internal helpers ----------
 
 // gatherInterfaces collects information about every network interface on the host.
-func gatherInterfaces() ([]NetworkInterface, error) {
+func (h *Handler) gatherInterfaces() ([]NetworkInterface, error) {
 	goIfaces, err := net.Interfaces()
 	if err != nil {
 		return nil, fmt.Errorf("net.Interfaces: %w", err)
 	}
 
-	defaultIface := detectDefaultInterface()
+	defaultIface := h.detectDefaultInterface()
 
 	result := make([]NetworkInterface, 0, len(goIfaces))
 	for _, iface := range goIfaces {
@@ -481,7 +483,7 @@ func gatherInterfaces() ([]NetworkInterface, error) {
 		ni.Speed = readInterfaceSpeed(iface.Name)
 
 		// Driver
-		ni.Driver = readInterfaceDriver(iface.Name)
+		ni.Driver = h.readInterfaceDriver(iface.Name)
 
 		// Statistics
 		ni.TxBytes = readSysStat(iface.Name, "tx_bytes")
@@ -540,13 +542,13 @@ func detectInterfaceType(name string) string {
 }
 
 // detectDefaultInterface returns the name of the interface used for the default route.
-func detectDefaultInterface() string {
-	out, err := exec.Command("ip", "route", "show", "default").Output()
+func (h *Handler) detectDefaultInterface() string {
+	out, err := h.Cmd.Run("ip", "route", "show", "default")
 	if err != nil {
 		return ""
 	}
 	// Expected: "default via 192.168.1.1 dev eth0 ..."
-	fields := strings.Fields(string(out))
+	fields := strings.Fields(out)
 	for i, f := range fields {
 		if f == "dev" && i+1 < len(fields) {
 			return fields[i+1]
@@ -570,7 +572,7 @@ func readInterfaceSpeed(name string) int {
 }
 
 // readInterfaceDriver tries to determine the driver for an interface.
-func readInterfaceDriver(name string) string {
+func (h *Handler) readInterfaceDriver(name string) string {
 	// Try the sysfs device/driver symlink first
 	link, err := os.Readlink(filepath.Join("/sys/class/net", name, "device", "driver"))
 	if err == nil {
@@ -578,11 +580,11 @@ func readInterfaceDriver(name string) string {
 	}
 
 	// Fallback: ethtool -i
-	out, err := exec.Command("ethtool", "-i", name).Output()
+	out, err := h.Cmd.Run("ethtool", "-i", name)
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		if strings.HasPrefix(line, "driver:") {
 			return strings.TrimSpace(strings.TrimPrefix(line, "driver:"))
 		}
@@ -633,16 +635,16 @@ func readBondInfo(name string) *BondInfo {
 // ---------- DNS ----------
 
 // readDNSConfig reads DNS configuration from resolvectl or /etc/resolv.conf.
-func readDNSConfig() DNSConfig {
+func (h *Handler) readDNSConfig() DNSConfig {
 	cfg := DNSConfig{
 		Servers: []string{},
 		Search:  []string{},
 	}
 
 	// Try resolvectl first (systemd-resolved)
-	out, err := exec.Command("resolvectl", "status").Output()
+	out, err := h.Cmd.Run("resolvectl", "status")
 	if err == nil {
-		cfg = parseResolvectlOutput(string(out))
+		cfg = parseResolvectlOutput(out)
 		if len(cfg.Servers) > 0 {
 			return cfg
 		}
@@ -706,14 +708,14 @@ func parseResolvectlOutput(output string) DNSConfig {
 // ---------- Routes ----------
 
 // parseRoutes parses the output of `ip route show`.
-func parseRoutes() ([]Route, error) {
-	out, err := exec.Command("ip", "route", "show").Output()
+func (h *Handler) parseRoutes() ([]Route, error) {
+	out, err := h.Cmd.Run("ip", "route", "show")
 	if err != nil {
 		return nil, fmt.Errorf("ip route show: %w", err)
 	}
 
 	routes := []Route{}
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	scanner := bufio.NewScanner(strings.NewReader(out))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {

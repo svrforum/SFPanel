@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -24,10 +23,10 @@ func (h *Handler) GetSwapInfo(c echo.Context) error {
 	}
 
 	// Parse swap entries from swapon --show
-	swapOut, err := exec.Command("swapon", "--show=NAME,TYPE,SIZE,USED,PRIO",
-		"--bytes", "--noheadings").CombinedOutput()
+	swapOut, err := h.Cmd.Run("swapon", "--show=NAME,TYPE,SIZE,USED,PRIO",
+		"--bytes", "--noheadings")
 	if err == nil {
-		info.Entries = parseSwapEntries(string(swapOut))
+		info.Entries = parseSwapEntries(swapOut)
 	}
 
 	// Read totals from /proc/meminfo
@@ -122,17 +121,17 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 		devPath := "/dev/" + req.Device
 
 		// Create swap signature
-		mkswapOut, err := exec.Command("mkswap", devPath).CombinedOutput()
+		mkswapOut, err := h.Cmd.Run("mkswap", devPath)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-				fmt.Sprintf("mkswap failed: %s", strings.TrimSpace(string(mkswapOut))))
+				fmt.Sprintf("mkswap failed: %s", strings.TrimSpace(mkswapOut)))
 		}
 
 		// Enable the swap
-		swaponOut, err := exec.Command("swapon", devPath).CombinedOutput()
+		swaponOut, err := h.Cmd.Run("swapon", devPath)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-				fmt.Sprintf("swapon failed: %s", strings.TrimSpace(string(swaponOut))))
+				fmt.Sprintf("swapon failed: %s", strings.TrimSpace(swaponOut)))
 		}
 
 		return response.OK(c, map[string]string{
@@ -156,11 +155,11 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 		sizeMB := strconv.FormatInt(req.SizeMB, 10)
 
 		// Create the swap file with dd
-		ddOut, err := exec.Command("dd", "if=/dev/zero", "of="+req.Path,
-			"bs=1M", "count="+sizeMB).CombinedOutput()
+		ddOut, err := h.Cmd.Run("dd", "if=/dev/zero", "of="+req.Path,
+			"bs=1M", "count="+sizeMB)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-				fmt.Sprintf("dd failed: %s", strings.TrimSpace(string(ddOut))))
+				fmt.Sprintf("dd failed: %s", strings.TrimSpace(ddOut)))
 		}
 
 		// Set permissions
@@ -170,17 +169,17 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 		}
 
 		// Create swap signature
-		mkswapOut, err := exec.Command("mkswap", req.Path).CombinedOutput()
+		mkswapOut, err := h.Cmd.Run("mkswap", req.Path)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-				fmt.Sprintf("mkswap failed: %s", strings.TrimSpace(string(mkswapOut))))
+				fmt.Sprintf("mkswap failed: %s", strings.TrimSpace(mkswapOut)))
 		}
 
 		// Enable the swap
-		swaponOut, err := exec.Command("swapon", req.Path).CombinedOutput()
+		swaponOut, err := h.Cmd.Run("swapon", req.Path)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-				fmt.Sprintf("swapon failed: %s", strings.TrimSpace(string(swaponOut))))
+				fmt.Sprintf("swapon failed: %s", strings.TrimSpace(swaponOut)))
 		}
 
 		return response.OK(c, map[string]string{
@@ -203,10 +202,10 @@ func (h *Handler) RemoveSwap(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
-	out, err := exec.Command("swapoff", req.Path).CombinedOutput()
+	out, err := h.Cmd.Run("swapoff", req.Path)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-			fmt.Sprintf("swapoff failed: %s", strings.TrimSpace(string(out))))
+			fmt.Sprintf("swapoff failed: %s", strings.TrimSpace(out)))
 	}
 
 	return response.OK(c, map[string]string{
@@ -227,10 +226,10 @@ func (h *Handler) SetSwappiness(c echo.Context) error {
 	}
 
 	valStr := fmt.Sprintf("vm.swappiness=%d", req.Value)
-	out, err := exec.Command("sysctl", "-w", valStr).CombinedOutput()
+	out, err := h.Cmd.Run("sysctl", "-w", valStr)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-			fmt.Sprintf("sysctl failed: %s", strings.TrimSpace(string(out))))
+			fmt.Sprintf("sysctl failed: %s", strings.TrimSpace(out)))
 	}
 
 	return response.OK(c, map[string]string{
@@ -257,10 +256,10 @@ func (h *Handler) CheckSwapResize(c echo.Context) error {
 
 	// Available disk space on the partition containing the swap file
 	dir := filepath.Dir(path)
-	dfOut, err := exec.Command("df", "-B1", "--output=avail", dir).CombinedOutput()
+	dfOut, err := h.Cmd.Run("df", "-B1", "--output=avail", dir)
 	var diskFreeMB int64
 	if err == nil {
-		lines := strings.Split(strings.TrimSpace(string(dfOut)), "\n")
+		lines := strings.Split(strings.TrimSpace(dfOut), "\n")
 		if len(lines) >= 2 {
 			avail, _ := strconv.ParseInt(strings.TrimSpace(lines[1]), 10, 64)
 			diskFreeMB = avail / 1024 / 1024
@@ -346,26 +345,26 @@ func (h *Handler) ResizeSwap(c echo.Context) error {
 	steps := []stepResult{}
 
 	// Step 1: swapoff
-	swapoffOut, err := exec.Command("swapoff", req.Path).CombinedOutput()
+	swapoffOut, err := h.Cmd.Run("swapoff", req.Path)
 	if err != nil {
-		steps = append(steps, stepResult{"swapoff", "failed", strings.TrimSpace(string(swapoffOut))})
+		steps = append(steps, stepResult{"swapoff", "failed", strings.TrimSpace(swapoffOut)})
 		return response.OK(c, map[string]interface{}{"success": false, "steps": steps})
 	}
-	steps = append(steps, stepResult{"swapoff", "success", strings.TrimSpace(string(swapoffOut))})
+	steps = append(steps, stepResult{"swapoff", "success", strings.TrimSpace(swapoffOut)})
 
 	// Step 2: dd (create file with new size)
 	sizeMB := strconv.FormatInt(req.NewSizeMB, 10)
-	ddOut, err := exec.Command("dd", "if=/dev/zero", "of="+req.Path,
-		"bs=1M", "count="+sizeMB).CombinedOutput()
+	ddOut, err := h.Cmd.Run("dd", "if=/dev/zero", "of="+req.Path,
+		"bs=1M", "count="+sizeMB)
 	if err != nil {
-		steps = append(steps, stepResult{"dd", "failed", strings.TrimSpace(string(ddOut))})
+		steps = append(steps, stepResult{"dd", "failed", strings.TrimSpace(ddOut)})
 		// Rollback: try to re-enable old swap
-		_ = exec.Command("mkswap", req.Path).Run()
-		_ = exec.Command("swapon", req.Path).Run()
+		_, _ = h.Cmd.Run("mkswap", req.Path)
+		_, _ = h.Cmd.Run("swapon", req.Path)
 		steps = append(steps, stepResult{"rollback", "success", "attempted to restore original swap"})
 		return response.OK(c, map[string]interface{}{"success": false, "steps": steps})
 	}
-	steps = append(steps, stepResult{"dd", "success", strings.TrimSpace(string(ddOut))})
+	steps = append(steps, stepResult{"dd", "success", strings.TrimSpace(ddOut)})
 
 	// Step 3: chmod
 	if err := os.Chmod(req.Path, 0600); err != nil {
@@ -375,20 +374,20 @@ func (h *Handler) ResizeSwap(c echo.Context) error {
 	steps = append(steps, stepResult{"chmod", "success", "permissions set to 0600"})
 
 	// Step 4: mkswap
-	mkswapOut, err := exec.Command("mkswap", req.Path).CombinedOutput()
+	mkswapOut, err := h.Cmd.Run("mkswap", req.Path)
 	if err != nil {
-		steps = append(steps, stepResult{"mkswap", "failed", strings.TrimSpace(string(mkswapOut))})
+		steps = append(steps, stepResult{"mkswap", "failed", strings.TrimSpace(mkswapOut)})
 		return response.OK(c, map[string]interface{}{"success": false, "steps": steps})
 	}
-	steps = append(steps, stepResult{"mkswap", "success", strings.TrimSpace(string(mkswapOut))})
+	steps = append(steps, stepResult{"mkswap", "success", strings.TrimSpace(mkswapOut)})
 
 	// Step 5: swapon
-	swaponOut, err := exec.Command("swapon", req.Path).CombinedOutput()
+	swaponOut, err := h.Cmd.Run("swapon", req.Path)
 	if err != nil {
-		steps = append(steps, stepResult{"swapon", "failed", strings.TrimSpace(string(swaponOut))})
+		steps = append(steps, stepResult{"swapon", "failed", strings.TrimSpace(swaponOut)})
 		return response.OK(c, map[string]interface{}{"success": false, "steps": steps})
 	}
-	steps = append(steps, stepResult{"swapon", "success", strings.TrimSpace(string(swaponOut))})
+	steps = append(steps, stepResult{"swapon", "success", strings.TrimSpace(swaponOut)})
 
 	return response.OK(c, map[string]interface{}{
 		"success": true,
@@ -401,7 +400,7 @@ func (h *Handler) ResizeSwap(c echo.Context) error {
 
 // GetIOStats returns I/O statistics for all block devices from /proc/diskstats.
 func (h *Handler) GetIOStats(c echo.Context) error {
-	_, iostats, err := getCachedDiskData()
+	_, iostats, err := h.getCachedDiskData()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrIOError, err.Error())
 	}
@@ -520,7 +519,7 @@ func (h *Handler) GetDiskUsage(c echo.Context) error {
 	}
 
 	depthStr := strconv.Itoa(depth)
-	out, err := exec.Command("du", "-b", "--max-depth="+depthStr, req.Path).CombinedOutput()
+	out, err := h.Cmd.Run("du", "-b", "--max-depth="+depthStr, req.Path)
 	if err != nil {
 		// du may return non-zero on permission errors but still produce useful output
 		if len(out) == 0 {
@@ -529,7 +528,7 @@ func (h *Handler) GetDiskUsage(c echo.Context) error {
 		}
 	}
 
-	entries := parseDuOutput(string(out), req.Path)
+	entries := parseDuOutput(out, req.Path)
 	return response.OK(c, entries)
 }
 

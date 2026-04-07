@@ -25,6 +25,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/api"
 	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/cluster"
+	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
@@ -169,7 +170,7 @@ func main() {
 	featureTerminal.CleanupTerminalSessions(database)
 
 	// Restore DOCKER-USER firewall rules if previously saved
-	featureFirewall.RestoreDockerUserRules()
+	featureFirewall.RestoreDockerUserRules(commonExec.NewCommander())
 
 	// Start background update checker (polls GitHub every hour)
 	monitor.StartUpdateChecker(version)

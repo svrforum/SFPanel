@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,12 +17,12 @@ import (
 
 // ListRAID returns all RAID arrays from /proc/mdstat and mdadm --detail --scan.
 func (h *Handler) ListRAID(c echo.Context) error {
-	if !commandExists("mdadm") {
+	if !h.Cmd.Exists("mdadm") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
 
-	arrays, err := parseAllRAIDArrays()
+	arrays, err := h.parseAllRAIDArrays()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
 			fmt.Sprintf("failed to list RAID arrays: %v", err))
@@ -33,7 +32,7 @@ func (h *Handler) ListRAID(c echo.Context) error {
 }
 
 // parseAllRAIDArrays parses /proc/mdstat and enriches with mdadm --detail --scan.
-func parseAllRAIDArrays() ([]RAIDArray, error) {
+func (h *Handler) parseAllRAIDArrays() ([]RAIDArray, error) {
 	// Read /proc/mdstat for basic info
 	mdstatData, err := os.ReadFile("/proc/mdstat")
 	if err != nil {
@@ -48,7 +47,7 @@ func parseAllRAIDArrays() ([]RAIDArray, error) {
 
 	// Enrich with mdadm --detail for each array
 	for i := range arrays {
-		detail, err := getMdadmDetail(arrays[i].Name)
+		detail, err := h.getMdadmDetail(arrays[i].Name)
 		if err == nil && detail != nil {
 			// Merge detail data into the array
 			if detail.Level != "" {
@@ -123,11 +122,11 @@ func parseMdstat(data string) []RAIDArray {
 }
 
 // getMdadmDetail runs mdadm --detail on a specific array and parses the output.
-func getMdadmDetail(name string) (*RAIDArray, error) {
+func (h *Handler) getMdadmDetail(name string) (*RAIDArray, error) {
 	devPath := "/dev/" + name
-	out, err := exec.Command("mdadm", "--detail", devPath).CombinedOutput()
+	out, err := h.Cmd.Run("mdadm", "--detail", devPath)
 	if err != nil {
-		return nil, fmt.Errorf("mdadm --detail failed: %s", strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("mdadm --detail failed: %s", strings.TrimSpace(out))
 	}
 
 	array := &RAIDArray{
@@ -135,7 +134,7 @@ func getMdadmDetail(name string) (*RAIDArray, error) {
 		Devices: []RAIDDisk{},
 	}
 
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	scanner := bufio.NewScanner(strings.NewReader(out))
 	inDeviceSection := false
 
 	for scanner.Scan() {
@@ -202,7 +201,7 @@ func getMdadmDetail(name string) (*RAIDArray, error) {
 
 // GetRAIDDetail returns detailed information about a specific RAID array.
 func (h *Handler) GetRAIDDetail(c echo.Context) error {
-	if !commandExists("mdadm") {
+	if !h.Cmd.Exists("mdadm") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
@@ -212,7 +211,7 @@ func (h *Handler) GetRAIDDetail(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
-	detail, err := getMdadmDetail(name)
+	detail, err := h.getMdadmDetail(name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
 			fmt.Sprintf("failed to get RAID detail: %v", err))
@@ -223,7 +222,7 @@ func (h *Handler) GetRAIDDetail(c echo.Context) error {
 
 // CreateRAID creates a new RAID array using mdadm.
 func (h *Handler) CreateRAID(c echo.Context) error {
-	if !commandExists("mdadm") {
+	if !h.Cmd.Exists("mdadm") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
@@ -268,10 +267,10 @@ func (h *Handler) CreateRAID(c echo.Context) error {
 	}
 	args = append(args, devPaths...)
 
-	out, err := exec.Command("mdadm", args...).CombinedOutput()
+	out, err := h.Cmd.Run("mdadm", args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --create failed: %s", strings.TrimSpace(string(out))))
+			fmt.Sprintf("mdadm --create failed: %s", strings.TrimSpace(out)))
 	}
 
 	return response.OK(c, map[string]string{
@@ -281,7 +280,7 @@ func (h *Handler) CreateRAID(c echo.Context) error {
 
 // DeleteRAID stops and removes a RAID array.
 func (h *Handler) DeleteRAID(c echo.Context) error {
-	if !commandExists("mdadm") {
+	if !h.Cmd.Exists("mdadm") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
@@ -294,14 +293,14 @@ func (h *Handler) DeleteRAID(c echo.Context) error {
 	devPath := "/dev/" + name
 
 	// Stop the array
-	stopOut, err := exec.Command("mdadm", "--stop", devPath).CombinedOutput()
+	stopOut, err := h.Cmd.Run("mdadm", "--stop", devPath)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --stop failed: %s", strings.TrimSpace(string(stopOut))))
+			fmt.Sprintf("mdadm --stop failed: %s", strings.TrimSpace(stopOut)))
 	}
 
 	// Remove the array
-	removeOut, err := exec.Command("mdadm", "--remove", devPath).CombinedOutput()
+	removeOut, err := h.Cmd.Run("mdadm", "--remove", devPath)
 	if err != nil {
 		// --remove may fail if already stopped/removed; this is not fatal
 		_ = removeOut
@@ -314,7 +313,7 @@ func (h *Handler) DeleteRAID(c echo.Context) error {
 
 // AddRAIDDisk adds a disk to an existing RAID array (as spare or for rebuild).
 func (h *Handler) AddRAIDDisk(c echo.Context) error {
-	if !commandExists("mdadm") {
+	if !h.Cmd.Exists("mdadm") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
@@ -336,10 +335,10 @@ func (h *Handler) AddRAIDDisk(c echo.Context) error {
 	raidDev := "/dev/" + name
 	diskDev := "/dev/" + req.Device
 
-	out, err := exec.Command("mdadm", "--add", raidDev, diskDev).CombinedOutput()
+	out, err := h.Cmd.Run("mdadm", "--add", raidDev, diskDev)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --add failed: %s", strings.TrimSpace(string(out))))
+			fmt.Sprintf("mdadm --add failed: %s", strings.TrimSpace(out)))
 	}
 
 	return response.OK(c, map[string]string{
@@ -349,7 +348,7 @@ func (h *Handler) AddRAIDDisk(c echo.Context) error {
 
 // RemoveRAIDDisk marks a disk as faulty and removes it from a RAID array.
 func (h *Handler) RemoveRAIDDisk(c echo.Context) error {
-	if !commandExists("mdadm") {
+	if !h.Cmd.Exists("mdadm") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
@@ -372,17 +371,17 @@ func (h *Handler) RemoveRAIDDisk(c echo.Context) error {
 	diskDev := "/dev/" + req.Device
 
 	// First mark the device as faulty
-	failOut, err := exec.Command("mdadm", "--fail", raidDev, diskDev).CombinedOutput()
+	failOut, err := h.Cmd.Run("mdadm", "--fail", raidDev, diskDev)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --fail failed: %s", strings.TrimSpace(string(failOut))))
+			fmt.Sprintf("mdadm --fail failed: %s", strings.TrimSpace(failOut)))
 	}
 
 	// Then remove it
-	removeOut, err := exec.Command("mdadm", "--remove", raidDev, diskDev).CombinedOutput()
+	removeOut, err := h.Cmd.Run("mdadm", "--remove", raidDev, diskDev)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --remove failed: %s", strings.TrimSpace(string(removeOut))))
+			fmt.Sprintf("mdadm --remove failed: %s", strings.TrimSpace(removeOut)))
 	}
 
 	return response.OK(c, map[string]string{

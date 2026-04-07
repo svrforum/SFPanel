@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,7 +24,7 @@ var diskCache struct {
 
 const diskCacheTTL = 5 * time.Second
 
-func getCachedDiskData() ([]BlockDevice, []IOStat, error) {
+func (h *Handler) getCachedDiskData() ([]BlockDevice, []IOStat, error) {
 	diskCache.RLock()
 	if time.Since(diskCache.updatedAt) < diskCacheTTL {
 		devices := make([]BlockDevice, len(diskCache.devices))
@@ -50,12 +49,12 @@ func getCachedDiskData() ([]BlockDevice, []IOStat, error) {
 	}
 
 	// Fetch lsblk
-	out, err := exec.Command("lsblk", "-J", "-b", "-o",
-		"NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR").CombinedOutput()
+	outStr, err := h.Cmd.Run("lsblk", "-J", "-b", "-o",
+		"NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR")
 	if err != nil {
-		return nil, nil, fmt.Errorf("lsblk failed: %s", strings.TrimSpace(string(out)))
+		return nil, nil, fmt.Errorf("lsblk failed: %s", strings.TrimSpace(outStr))
 	}
-	devices, err := parseLsblkJSON(out)
+	devices, err := parseLsblkJSON([]byte(outStr))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse lsblk: %w", err)
 	}
@@ -81,14 +80,14 @@ func getCachedDiskData() ([]BlockDevice, []IOStat, error) {
 
 // CheckSmartmontools reports whether smartctl (smartmontools) is installed.
 func (h *Handler) CheckSmartmontools(c echo.Context) error {
-	installed := commandExists("smartctl")
+	installed := h.Cmd.Exists("smartctl")
 	return response.OK(c, map[string]bool{"installed": installed})
 }
 
 // InstallSmartmontools installs smartmontools via apt.
 func (h *Handler) InstallSmartmontools(c echo.Context) error {
-	out, err := exec.Command("apt-get", "install", "-y", "smartmontools").CombinedOutput()
-	output := strings.TrimSpace(string(out))
+	out, err := h.Cmd.Run("apt-get", "install", "-y", "smartmontools")
+	output := strings.TrimSpace(out)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInstallError,
 			fmt.Sprintf("apt install failed: %s", output))
@@ -103,7 +102,7 @@ func (h *Handler) InstallSmartmontools(c echo.Context) error {
 
 // ListDisks returns all block devices with their hierarchy.
 func (h *Handler) ListDisks(c echo.Context) error {
-	devices, _, err := getCachedDiskData()
+	devices, _, err := h.getCachedDiskData()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError, err.Error())
 	}
@@ -233,23 +232,23 @@ func (h *Handler) GetSmartInfo(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
-	if !commandExists("smartctl") {
+	if !h.Cmd.Exists("smartctl") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"smartctl is not installed. Install smartmontools: apt install smartmontools")
 	}
 
 	devPath := "/dev/" + device
-	out, err := exec.Command("smartctl", "-j", "-a", devPath).CombinedOutput()
+	outStr, err := h.Cmd.Run("smartctl", "-j", "-a", devPath)
 	if err != nil {
 		// smartctl returns non-zero exit codes for various SMART statuses;
 		// we still try to parse the JSON output.
-		if len(out) == 0 {
+		if len(outStr) == 0 {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSMARTError,
 				fmt.Sprintf("smartctl failed: %v", err))
 		}
 	}
 
-	info, err := parseSmartctlJSON(devPath, out)
+	info, err := parseSmartctlJSON(devPath, []byte(outStr))
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSMARTError,
 			fmt.Sprintf("failed to parse smartctl output: %v", err))

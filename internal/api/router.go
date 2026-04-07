@@ -125,7 +125,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.POST("/system/tuning/reset", tuningHandler.ResetTuning)
 
 	// App Store
-	appStoreHandler := &featureAppstore.Handler{DB: database, ComposePath: "/opt/stacks"}
+	appStoreHandler := &featureAppstore.Handler{DB: database, ComposePath: "/opt/stacks", Cmd: cmd}
 	appStore := authorized.Group("/appstore")
 	appStore.GET("/categories", appStoreHandler.GetCategories)
 	appStore.GET("/apps", appStoreHandler.ListApps)
@@ -207,7 +207,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	logs.DELETE("/custom-sources/:id", logsHandler.DeleteCustomSource)
 
 	// Network
-	networkHandler := &featureNetwork.Handler{}
+	networkHandler := &featureNetwork.Handler{Cmd: cmd}
 	net := authorized.Group("/network")
 	net.GET("/status", networkHandler.GetNetworkStatus)
 	net.GET("/interfaces", networkHandler.ListInterfaces)
@@ -222,7 +222,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	net.DELETE("/bonds/:name", networkHandler.DeleteBond)
 
 	// WireGuard VPN
-	wireguardHandler := &featureNetwork.WireGuardHandler{}
+	wireguardHandler := &featureNetwork.WireGuardHandler{Cmd: cmd}
 	wg := authorized.Group("/network/wireguard")
 	wg.GET("/status", wireguardHandler.GetStatus)
 	wg.POST("/install", wireguardHandler.Install)
@@ -236,7 +236,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	wg.DELETE("/configs/:name", wireguardHandler.DeleteConfig)
 
 	// Tailscale VPN
-	tailscaleHandler := &featureNetwork.TailscaleHandler{}
+	tailscaleHandler := &featureNetwork.TailscaleHandler{Cmd: cmd}
 	ts := authorized.Group("/network/tailscale")
 	ts.GET("/status", tailscaleHandler.GetStatus)
 	ts.POST("/install", tailscaleHandler.Install)
@@ -248,7 +248,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	ts.GET("/update-check", tailscaleHandler.CheckUpdate)
 
 	// Disk management
-	diskHandler := &featureDisk.Handler{}
+	diskHandler := &featureDisk.Handler{Cmd: cmd}
 	disks := authorized.Group("/disks")
 	disks.GET("/overview", diskHandler.ListDisks)
 	disks.GET("/iostat", diskHandler.GetIOStats)
@@ -302,7 +302,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	swap.PUT("/resize", diskHandler.ResizeSwap)
 
 	// Firewall management (UFW)
-	firewallHandler := &featureFirewall.Handler{}
+	firewallHandler := &featureFirewall.Handler{Cmd: cmd}
 	fw := authorized.Group("/firewall")
 	fw.GET("/status", firewallHandler.GetUFWStatus)
 	fw.POST("/enable", firewallHandler.EnableUFW)
@@ -330,7 +330,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	f2b.POST("/jails/:name/unban", firewallHandler.UnbanIP)
 
 	// Package management routes
-	packagesHandler := &featurePackages.Handler{}
+	packagesHandler := &featurePackages.Handler{Cmd: cmd}
 	packages := authorized.Group("/packages")
 	packages.GET("/updates", packagesHandler.CheckUpdates)
 	packages.POST("/upgrade", packagesHandler.UpgradePackages)

@@ -6,16 +6,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os/exec"
+	osExec "os/exec"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // TailscaleHandler exposes REST handlers for Tailscale VPN management.
-type TailscaleHandler struct{}
+type TailscaleHandler struct {
+	Cmd exec.Commander
+}
 
 // ---------- Types ----------
 
@@ -91,8 +94,8 @@ type tsCurrentTailnetJSON struct {
 // ---------- Helpers ----------
 
 // getTailscaleStatusJSON runs `tailscale status --json` and parses the output.
-func getTailscaleStatusJSON() (*tsStatusJSON, error) {
-	output, err := runCommand("tailscale", "status", "--json")
+func (h *TailscaleHandler) getTailscaleStatusJSON() (*tsStatusJSON, error) {
+	output, err := h.Cmd.Run("tailscale", "status", "--json")
 	if err != nil {
 		return nil, fmt.Errorf("tailscale status failed: %w", err)
 	}
@@ -106,8 +109,8 @@ func getTailscaleStatusJSON() (*tsStatusJSON, error) {
 }
 
 // isTailscaleDaemonRunning checks if the tailscaled service is active.
-func isTailscaleDaemonRunning() bool {
-	output, err := runCommand("systemctl", "is-active", "tailscaled")
+func (h *TailscaleHandler) isTailscaleDaemonRunning() bool {
+	output, err := h.Cmd.Run("systemctl", "is-active", "tailscaled")
 	if err != nil {
 		return false
 	}
@@ -121,8 +124,8 @@ type tsPrefsJSON struct {
 }
 
 // getTailscalePrefs parses `tailscale debug prefs` for current preference state.
-func getTailscalePrefs() (acceptRoutes bool, advertiseExitNode bool) {
-	output, err := runCommand("tailscale", "debug", "prefs")
+func (h *TailscaleHandler) getTailscalePrefs() (acceptRoutes bool, advertiseExitNode bool) {
+	output, err := h.Cmd.Run("tailscale", "debug", "prefs")
 	if err != nil {
 		return false, false
 	}
@@ -149,15 +152,14 @@ func getTailscalePrefs() (acceptRoutes bool, advertiseExitNode bool) {
 func (h *TailscaleHandler) GetStatus(c echo.Context) error {
 	status := TailscaleStatus{}
 
-	path, err := exec.LookPath("tailscale")
-	if err != nil || path == "" {
+	if !h.Cmd.Exists("tailscale") {
 		return response.OK(c, status)
 	}
 
 	status.Installed = true
 
 	// Get version
-	versionOutput, err := runCommand("tailscale", "version")
+	versionOutput, err := h.Cmd.Run("tailscale", "version")
 	if err == nil {
 		lines := strings.Split(strings.TrimSpace(versionOutput), "\n")
 		if len(lines) > 0 {
@@ -166,14 +168,14 @@ func (h *TailscaleHandler) GetStatus(c echo.Context) error {
 	}
 
 	// Check daemon
-	status.DaemonRunning = isTailscaleDaemonRunning()
+	status.DaemonRunning = h.isTailscaleDaemonRunning()
 	if !status.DaemonRunning {
 		status.BackendState = "Stopped"
 		return response.OK(c, status)
 	}
 
 	// Get detailed status from JSON
-	tsStatus, err := getTailscaleStatusJSON()
+	tsStatus, err := h.getTailscaleStatusJSON()
 	if err != nil {
 		status.BackendState = "NoState"
 		return response.OK(c, status)
@@ -208,7 +210,7 @@ func (h *TailscaleHandler) GetStatus(c echo.Context) error {
 	}
 
 	// Get current preferences (accept-routes, advertise-exit-node) from debug prefs
-	acceptRoutes, advertiseExitNode := getTailscalePrefs()
+	acceptRoutes, advertiseExitNode := h.getTailscalePrefs()
 	status.AcceptRoutes = acceptRoutes
 	status.AdvertiseExitNode = advertiseExitNode
 
@@ -248,7 +250,8 @@ func (h *TailscaleHandler) Install(c echo.Context) error {
 	sendLine(">>> Downloading Tailscale install script...")
 
 	// Step 1: Download install script
-	dlCmd := exec.CommandContext(context.Background(), "curl", "-fsSL", "https://tailscale.com/install.sh", "-o", "/tmp/tailscale-install.sh")
+	// Streaming command — cannot use Commander (needs live stdout pipe)
+	dlCmd := osExec.CommandContext(context.Background(), "curl", "-fsSL", "https://tailscale.com/install.sh", "-o", "/tmp/tailscale-install.sh")
 	dlOut, err := dlCmd.CombinedOutput()
 	if len(dlOut) > 0 {
 		for _, line := range strings.Split(string(dlOut), "\n") {
@@ -269,7 +272,8 @@ func (h *TailscaleHandler) Install(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "sh", "/tmp/tailscale-install.sh")
+	// Streaming command — cannot use Commander (needs live stdout pipe)
+	cmd := osExec.CommandContext(ctx, "sh", "/tmp/tailscale-install.sh")
 	cmd.Env = append(cmd.Environ(), "DEBIAN_FRONTEND=noninteractive")
 
 	stdout, err := cmd.StdoutPipe()
@@ -299,7 +303,7 @@ func (h *TailscaleHandler) Install(c echo.Context) error {
 
 	// Step 3: Enable and start tailscaled
 	sendLine(">>> Enabling tailscaled service...")
-	enableOut, err := runCommand("systemctl", "enable", "--now", "tailscaled")
+	enableOut, err := h.Cmd.Run("systemctl", "enable", "--now", "tailscaled")
 	if err != nil {
 		sendLine("WARNING: Failed to enable tailscaled: " + err.Error())
 	} else if enableOut != "" {
@@ -329,7 +333,7 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 		if req.ExitNode != "" {
 			args = append(args, "--exit-node="+req.ExitNode)
 		}
-		output, err := runCommand("tailscale", args...)
+		output, err := h.Cmd.Run("tailscale", args...)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrTSUpError,
 				"Failed to connect: "+err.Error()+"\n"+output)
@@ -347,7 +351,8 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 		args = append(args, "--exit-node="+req.ExitNode)
 	}
 
-	cmd := exec.CommandContext(ctx, "tailscale", args...)
+	// Streaming command — cannot use Commander (needs custom context timeout + auth URL extraction)
+	cmd := osExec.CommandContext(ctx, "tailscale", args...)
 	outputBytes, err := cmd.CombinedOutput()
 	output := string(outputBytes)
 
@@ -374,7 +379,7 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 	}
 
 	// Also check tailscale status for the auth URL
-	tsStatus, statusErr := getTailscaleStatusJSON()
+	tsStatus, statusErr := h.getTailscaleStatusJSON()
 	if statusErr == nil && tsStatus.AuthURL != "" {
 		return response.OK(c, map[string]interface{}{
 			"needs_auth": true,
@@ -384,7 +389,7 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 
 	// If context was canceled (timeout) check status for auth URL
 	if ctx.Err() == context.DeadlineExceeded {
-		tsStatus, statusErr := getTailscaleStatusJSON()
+		tsStatus, statusErr := h.getTailscaleStatusJSON()
 		if statusErr == nil && tsStatus.AuthURL != "" {
 			return response.OK(c, map[string]interface{}{
 				"needs_auth": true,
@@ -406,7 +411,7 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 // Down disconnects from Tailscale.
 // POST /network/tailscale/down
 func (h *TailscaleHandler) Down(c echo.Context) error {
-	output, err := runCommand("tailscale", "down")
+	output, err := h.Cmd.Run("tailscale", "down")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTSDownError,
 			"Failed to disconnect: "+err.Error()+"\n"+output)
@@ -418,7 +423,7 @@ func (h *TailscaleHandler) Down(c echo.Context) error {
 // Logout logs out from Tailscale and deauthorizes the device.
 // POST /network/tailscale/logout
 func (h *TailscaleHandler) Logout(c echo.Context) error {
-	output, err := runCommand("tailscale", "logout")
+	output, err := h.Cmd.Run("tailscale", "logout")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTSLogoutError,
 			"Failed to logout: "+err.Error()+"\n"+output)
@@ -430,7 +435,7 @@ func (h *TailscaleHandler) Logout(c echo.Context) error {
 // ListPeers returns the list of peers in the tailnet.
 // GET /network/tailscale/peers
 func (h *TailscaleHandler) ListPeers(c echo.Context) error {
-	tsStatus, err := getTailscaleStatusJSON()
+	tsStatus, err := h.getTailscaleStatusJSON()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTSPeersError,
 			"Failed to get peers: "+err.Error())
@@ -496,7 +501,7 @@ func (h *TailscaleHandler) SetPreferences(c echo.Context) error {
 		return response.OK(c, map[string]string{"message": "No preferences to update"})
 	}
 
-	output, err := runCommand("tailscale", args...)
+	output, err := h.Cmd.Run("tailscale", args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTSSetError,
 			"Failed to update preferences: "+err.Error()+"\n"+output)
@@ -510,7 +515,7 @@ func (h *TailscaleHandler) SetPreferences(c echo.Context) error {
 func (h *TailscaleHandler) CheckUpdate(c echo.Context) error {
 	// Get current version
 	currentVersion := ""
-	versionOutput, err := runCommand("tailscale", "version")
+	versionOutput, err := h.Cmd.Run("tailscale", "version")
 	if err == nil {
 		lines := strings.Split(strings.TrimSpace(versionOutput), "\n")
 		if len(lines) > 0 {
@@ -519,7 +524,7 @@ func (h *TailscaleHandler) CheckUpdate(c echo.Context) error {
 	}
 
 	// Check for update using `apt list --upgradable` and filter in Go
-	aptOutput, _ := runCommand("apt", "list", "--upgradable")
+	aptOutput, _ := h.Cmd.Run("apt", "list", "--upgradable")
 	output := ""
 	for _, line := range strings.Split(aptOutput, "\n") {
 		if strings.Contains(line, "tailscale") {
