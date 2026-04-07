@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Container, FolderOpen, Clock, FileText, Package, Settings, LogOut, Activity, Terminal, Network, HardDrive, Shield, Cog, PanelLeftClose, PanelLeftOpen, Store, Server } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import NodeSelector from '@/components/NodeSelector'
+import ClusterSidebar from '@/components/cluster/ClusterSidebar'
 import BottomNav from '@/components/BottomNav'
 import MoreMenu from '@/components/MoreMenu'
 
@@ -38,13 +39,25 @@ export default function Layout() {
   const [panelVersion, setPanelVersion] = useState('')
   const [nodeKey, setNodeKey] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [clusterEnabled, setClusterEnabled] = useState(false)
   const location = useLocation()
   const isTerminal = location.pathname === '/terminal'
+
+  const handleNodeChanged = useCallback(() => {
+    setNodeKey((k) => k + 1)
+    window.dispatchEvent(new Event('sfpanel:node-changed'))
+  }, [])
 
   useEffect(() => {
     const handler = () => setNodeKey((k) => k + 1)
     window.addEventListener('sfpanel:node-changed', handler)
     return () => window.removeEventListener('sfpanel:node-changed', handler)
+  }, [])
+
+  useEffect(() => {
+    api.getClusterStatus(true)
+      .then((status) => setClusterEnabled(status.enabled))
+      .catch(() => setClusterEnabled(false))
   }, [])
 
   useEffect(() => {
@@ -69,7 +82,19 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <aside className={cn(
+      {/* Cluster dual-panel sidebar */}
+      {clusterEnabled && (
+        <div className="hidden md:flex h-screen shrink-0">
+          <ClusterSidebar
+            panelVersion={panelVersion}
+            onLogout={handleLogout}
+            onNodeChanged={handleNodeChanged}
+          />
+        </div>
+      )}
+
+      {/* Standard sidebar (non-cluster mode) */}
+      {!clusterEnabled && <aside className={cn(
         'bg-card border-r border-border flex-col transition-all duration-300 ease-in-out shrink-0 hidden md:flex h-screen',
         collapsed ? 'w-[68px]' : 'w-60'
       )}>
@@ -177,7 +202,7 @@ export default function Layout() {
           </button>
         </div>
         </div>
-      </aside>
+      </aside>}
 
       <main className={cn(
         "flex-1 min-h-0",

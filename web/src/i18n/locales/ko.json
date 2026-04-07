@@ -885,6 +885,13 @@
       "download": "다운로드",
       "rename": "이름 변경",
       "delete": "삭제"
+    },
+    "clusterContextMenu": {
+      "overview": "개요",
+      "containers": "컨테이너",
+      "system": "시스템",
+      "infrastructure": "인프라",
+      "tools": "도구"
     }
   },
   "cron": {

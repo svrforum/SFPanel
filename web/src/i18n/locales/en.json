@@ -885,6 +885,13 @@
       "download": "Download",
       "rename": "Rename",
       "delete": "Delete"
+    },
+    "clusterContextMenu": {
+      "overview": "Overview",
+      "containers": "Containers",
+      "system": "System",
+      "infrastructure": "Infrastructure",
+      "tools": "Tools"
     }
   },
   "cron": {
