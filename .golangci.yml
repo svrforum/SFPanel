@@ -16,6 +16,7 @@ linters-settings:
     check-type-assertions: false
 
 issues:
+  new-from-rev: main
   exclude-rules:
     - path: _test\.go
       linters:
