@@ -1,4 +1,4 @@
-package handlers
+package process
 
 import (
 	"fmt"
@@ -25,7 +25,7 @@ type ProcessInfo struct {
 	Command string  `json:"command"`
 }
 
-type ProcessesHandler struct{}
+type Handler struct{}
 
 // processCache holds a cached snapshot of process data so that the expensive
 // 200ms CPU measurement is not repeated on every HTTP request.
@@ -72,7 +72,7 @@ func cachedProcesses() ([]ProcessInfo, error) {
 }
 
 // TopProcesses returns the top 10 processes by CPU usage (for dashboard).
-func (h *ProcessesHandler) TopProcesses(c echo.Context) error {
+func (h *Handler) TopProcesses(c echo.Context) error {
 	infos, err := cachedProcesses()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrProcessError, "Failed to list processes")
@@ -91,7 +91,7 @@ func (h *ProcessesHandler) TopProcesses(c echo.Context) error {
 
 // ListProcesses returns all processes. Filtering and sorting is handled client-side.
 // GET /system/processes/list
-func (h *ProcessesHandler) ListProcesses(c echo.Context) error {
+func (h *Handler) ListProcesses(c echo.Context) error {
 	infos, err := cachedProcesses()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrProcessError, "Failed to list processes")
@@ -105,7 +105,7 @@ func (h *ProcessesHandler) ListProcesses(c echo.Context) error {
 
 // KillProcess sends a signal to a process.
 // POST /system/processes/:pid/kill  body: { signal: "TERM" | "KILL" | "9" | "15" }
-func (h *ProcessesHandler) KillProcess(c echo.Context) error {
+func (h *Handler) KillProcess(c echo.Context) error {
 	pidStr := c.Param("pid")
 	pid, err := strconv.ParseInt(pidStr, 10, 32)
 	if err != nil {

@@ -16,6 +16,10 @@ import (
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/docker"
+	featureCron "github.com/svrforum/SFPanel/internal/feature/cron"
+	featurePackages "github.com/svrforum/SFPanel/internal/feature/packages"
+	featureProcess "github.com/svrforum/SFPanel/internal/feature/process"
+	featureServices "github.com/svrforum/SFPanel/internal/feature/services"
 )
 
 func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, extra ...string) *echo.Echo {
@@ -139,13 +143,13 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.DELETE("/audit/logs", auditHandler.ClearAuditLogs)
 
 	// Processes
-	processesHandler := &handlers.ProcessesHandler{}
+	processesHandler := &featureProcess.Handler{}
 	authorized.GET("/system/processes", processesHandler.TopProcesses)
 	authorized.GET("/system/processes/list", processesHandler.ListProcesses)
 	authorized.POST("/system/processes/:pid/kill", processesHandler.KillProcess)
 
 	// Systemd services
-	servicesHandler := &handlers.ServicesHandler{}
+	servicesHandler := &featureServices.Handler{}
 	authorized.GET("/system/services", servicesHandler.ListServices)
 	authorized.POST("/system/services/:name/start", servicesHandler.StartService)
 	authorized.POST("/system/services/:name/stop", servicesHandler.StopService)
@@ -168,7 +172,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	files.POST("/upload", filesHandler.UploadFile)
 
 	// Cron job management routes
-	cronHandler := &handlers.CronHandler{}
+	cronHandler := &featureCron.Handler{}
 	cron := authorized.Group("/cron")
 	cron.GET("", cronHandler.ListJobs)
 	cron.POST("", cronHandler.CreateJob)
@@ -307,7 +311,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	f2b.POST("/jails/:name/unban", firewallHandler.UnbanIP)
 
 	// Package management routes
-	packagesHandler := &handlers.PackagesHandler{}
+	packagesHandler := &featurePackages.Handler{}
 	packages := authorized.Group("/packages")
 	packages.GET("/updates", packagesHandler.CheckUpdates)
 	packages.POST("/upgrade", packagesHandler.UpgradePackages)

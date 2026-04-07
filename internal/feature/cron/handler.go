@@ -1,4 +1,4 @@
-package handlers
+package cron
 
 import (
 	"fmt"
@@ -22,8 +22,8 @@ type CronJob struct {
 	Type     string `json:"type"` // "job", "env", "comment"
 }
 
-// CronHandler exposes REST handlers for system crontab management.
-type CronHandler struct{}
+// Handler exposes REST handlers for system crontab management.
+type Handler struct{}
 
 // predefinedSchedules contains the special cron schedule keywords.
 var predefinedSchedules = map[string]bool{
@@ -41,7 +41,7 @@ var predefinedSchedules = map[string]bool{
 var envLinePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 
 // ListJobs returns all entries from the root crontab.
-func (h *CronHandler) ListJobs(c echo.Context) error {
+func (h *Handler) ListJobs(c echo.Context) error {
 	content, err := readCrontab()
 	if err != nil {
 		// crontab -l returns exit code 1 when no crontab is installed,
@@ -67,7 +67,7 @@ func (h *CronHandler) ListJobs(c echo.Context) error {
 
 // CreateJob appends a new cron job to the crontab.
 // Accepts JSON body: {"schedule": "...", "command": "..."}.
-func (h *CronHandler) CreateJob(c echo.Context) error {
+func (h *Handler) CreateJob(c echo.Context) error {
 	var req struct {
 		Schedule string `json:"schedule"`
 		Command  string `json:"command"`
@@ -116,7 +116,7 @@ func (h *CronHandler) CreateJob(c echo.Context) error {
 
 // UpdateJob modifies an existing crontab entry by line index.
 // Accepts JSON body: {"schedule": "...", "command": "...", "enabled": true/false}.
-func (h *CronHandler) UpdateJob(c echo.Context) error {
+func (h *Handler) UpdateJob(c echo.Context) error {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid job ID")
@@ -174,7 +174,7 @@ func (h *CronHandler) UpdateJob(c echo.Context) error {
 }
 
 // DeleteJob removes a crontab entry by line index.
-func (h *CronHandler) DeleteJob(c echo.Context) error {
+func (h *Handler) DeleteJob(c echo.Context) error {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid job ID")

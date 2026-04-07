@@ -1,4 +1,4 @@
-package handlers
+package services
 
 import (
 	"fmt"
@@ -16,7 +16,7 @@ import (
 
 var validServiceName = regexp.MustCompile(`^[a-zA-Z0-9@._:-]+\.service$`)
 
-type ServicesHandler struct{}
+type Handler struct{}
 
 type ServiceInfo struct {
 	Name        string `json:"name"`
@@ -33,9 +33,6 @@ type ServiceDeps struct {
 	WantedBy   []string `json:"wanted_by,omitempty"`
 }
 
-// serviceCache caches the full service list to avoid spawning systemctl
-// processes on every request. TTL is 3 seconds — enough to absorb rapid
-// polling while still reflecting state changes promptly.
 var serviceCache struct {
 	sync.RWMutex
 	services []ServiceInfo
@@ -44,9 +41,9 @@ var serviceCache struct {
 
 const serviceCacheTTL = 3 * time.Second
 
-// ListServices returns all systemd services. Filtering and sorting is handled client-side.
+// ListServices returns all systemd services.
 // GET /system/services
-func (h *ServicesHandler) ListServices(c echo.Context) error {
+func (h *Handler) ListServices(c echo.Context) error {
 	services, err := getCachedServices()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrServiceError, "Failed to list services")
@@ -60,7 +57,7 @@ func (h *ServicesHandler) ListServices(c echo.Context) error {
 
 // StartService starts a systemd service.
 // POST /system/services/:name/start
-func (h *ServicesHandler) StartService(c echo.Context) error {
+func (h *Handler) StartService(c echo.Context) error {
 	name := c.Param("name")
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
@@ -77,7 +74,7 @@ func (h *ServicesHandler) StartService(c echo.Context) error {
 
 // StopService stops a systemd service.
 // POST /system/services/:name/stop
-func (h *ServicesHandler) StopService(c echo.Context) error {
+func (h *Handler) StopService(c echo.Context) error {
 	name := c.Param("name")
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
@@ -94,7 +91,7 @@ func (h *ServicesHandler) StopService(c echo.Context) error {
 
 // RestartService restarts a systemd service.
 // POST /system/services/:name/restart
-func (h *ServicesHandler) RestartService(c echo.Context) error {
+func (h *Handler) RestartService(c echo.Context) error {
 	name := c.Param("name")
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
@@ -111,7 +108,7 @@ func (h *ServicesHandler) RestartService(c echo.Context) error {
 
 // EnableService enables a systemd service to start at boot.
 // POST /system/services/:name/enable
-func (h *ServicesHandler) EnableService(c echo.Context) error {
+func (h *Handler) EnableService(c echo.Context) error {
 	name := c.Param("name")
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
@@ -128,7 +125,7 @@ func (h *ServicesHandler) EnableService(c echo.Context) error {
 
 // DisableService disables a systemd service from starting at boot.
 // POST /system/services/:name/disable
-func (h *ServicesHandler) DisableService(c echo.Context) error {
+func (h *Handler) DisableService(c echo.Context) error {
 	name := c.Param("name")
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
@@ -145,7 +142,7 @@ func (h *ServicesHandler) DisableService(c echo.Context) error {
 
 // ServiceLogs returns journalctl logs for a service.
 // GET /system/services/:name/logs?lines=100
-func (h *ServicesHandler) ServiceLogs(c echo.Context) error {
+func (h *Handler) ServiceLogs(c echo.Context) error {
 	name := c.Param("name")
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
@@ -172,7 +169,7 @@ func (h *ServicesHandler) ServiceLogs(c echo.Context) error {
 
 // GetServiceDeps returns dependency information for a systemd service.
 // GET /system/services/:name/deps
-func (h *ServicesHandler) GetServiceDeps(c echo.Context) error {
+func (h *Handler) GetServiceDeps(c echo.Context) error {
 	name := c.Param("name")
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
@@ -212,11 +209,10 @@ func (h *ServicesHandler) GetServiceDeps(c echo.Context) error {
 	return response.OK(c, deps)
 }
 
-// filterDeps removes common base targets that add noise.
 func filterDeps(items []string) []string {
 	noise := map[string]bool{
-		"-.mount":    true,
-		"init.scope": true,
+		"-.mount":      true,
+		"init.scope":   true,
 		"system.slice": true,
 	}
 	var result []string
@@ -228,7 +224,6 @@ func filterDeps(items []string) []string {
 	return result
 }
 
-// getCachedServices returns the cached service list, refreshing if stale.
 func getCachedServices() ([]ServiceInfo, error) {
 	serviceCache.RLock()
 	if time.Since(serviceCache.fetched) < serviceCacheTTL && serviceCache.services != nil {
@@ -242,34 +237,31 @@ func getCachedServices() ([]ServiceInfo, error) {
 	serviceCache.Lock()
 	defer serviceCache.Unlock()
 
-	// Double-check after acquiring write lock
 	if time.Since(serviceCache.fetched) < serviceCacheTTL && serviceCache.services != nil {
 		result := make([]ServiceInfo, len(serviceCache.services))
 		copy(result, serviceCache.services)
 		return result, nil
 	}
 
-	services, err := fetchAllServices()
+	svcs, err := fetchAllServices()
 	if err != nil {
 		return nil, err
 	}
 
-	serviceCache.services = services
+	serviceCache.services = svcs
 	serviceCache.fetched = time.Now()
 
-	result := make([]ServiceInfo, len(services))
-	copy(result, services)
+	result := make([]ServiceInfo, len(svcs))
+	copy(result, svcs)
 	return result, nil
 }
 
-// invalidateServiceCache forces the next list request to re-fetch.
 func invalidateServiceCache() {
 	serviceCache.Lock()
 	serviceCache.fetched = time.Time{}
 	serviceCache.Unlock()
 }
 
-// fetchAllServices runs systemctl commands and parses the output.
 func fetchAllServices() ([]ServiceInfo, error) {
 	out, err := exec.Command("systemctl", "list-units", "--type=service", "--all", "--no-pager", "--plain", "--no-legend").Output()
 	if err != nil {
@@ -278,7 +270,7 @@ func fetchAllServices() ([]ServiceInfo, error) {
 
 	enabledMap := getEnabledStates()
 
-	var services []ServiceInfo
+	var svcs []ServiceInfo
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if line == "" {
 			continue
@@ -303,7 +295,7 @@ func fetchAllServices() ([]ServiceInfo, error) {
 			enabled = "unknown"
 		}
 
-		services = append(services, ServiceInfo{
+		svcs = append(svcs, ServiceInfo{
 			Name:        name,
 			Description: description,
 			LoadState:   loadState,
@@ -313,10 +305,9 @@ func fetchAllServices() ([]ServiceInfo, error) {
 		})
 	}
 
-	return services, nil
+	return svcs, nil
 }
 
-// getEnabledStates returns a map of service name -> enabled state.
 func getEnabledStates() map[string]string {
 	out, err := exec.Command("systemctl", "list-unit-files", "--type=service", "--no-pager", "--no-legend").Output()
 	if err != nil {

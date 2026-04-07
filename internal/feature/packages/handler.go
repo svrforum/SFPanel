@@ -1,4 +1,4 @@
-package handlers
+package packages
 
 import (
 	"bufio"
@@ -25,8 +25,8 @@ type PackageInfo struct {
 	Installed      bool   `json:"installed"`
 }
 
-// PackagesHandler exposes REST handlers for system package management via apt.
-type PackagesHandler struct{}
+// Handler exposes REST handlers for system package management via apt.
+type Handler struct{}
 
 // validPackageName matches only safe package name characters.
 var validPackageName = regexp.MustCompile(`^[a-zA-Z0-9._+\-]+$`)
@@ -43,7 +43,7 @@ func validatePackageName(name string) bool {
 // CheckUpdates runs `apt list --upgradable` and returns a structured list of
 // packages that have updates available.
 // GET /packages/updates
-func (h *PackagesHandler) CheckUpdates(c echo.Context) error {
+func (h *Handler) CheckUpdates(c echo.Context) error {
 	// Refresh package lists first so results are up-to-date
 	env := aptEnv()
 	if _, err := runCommandEnv(env, "apt-get", "update"); err != nil {
@@ -147,7 +147,7 @@ func parseUpgradableLine(line string) *PackageInfo {
 // specific packages. This is a potentially long-running operation.
 // POST /packages/upgrade
 // JSON body: { "packages": ["pkg1", "pkg2"] } (optional; empty upgrades all)
-func (h *PackagesHandler) UpgradePackages(c echo.Context) error {
+func (h *Handler) UpgradePackages(c echo.Context) error {
 	var req struct {
 		Packages []string `json:"packages"`
 	}
@@ -199,7 +199,7 @@ func (h *PackagesHandler) UpgradePackages(c echo.Context) error {
 // InstallPackage installs a single package via apt-get install.
 // POST /packages/install
 // JSON body: { "name": "nginx" }
-func (h *PackagesHandler) InstallPackage(c echo.Context) error {
+func (h *Handler) InstallPackage(c echo.Context) error {
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -231,7 +231,7 @@ func (h *PackagesHandler) InstallPackage(c echo.Context) error {
 // RemovePackage removes a single package via apt-get remove.
 // POST /packages/remove
 // JSON body: { "name": "nginx" }
-func (h *PackagesHandler) RemovePackage(c echo.Context) error {
+func (h *Handler) RemovePackage(c echo.Context) error {
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -262,7 +262,7 @@ func (h *PackagesHandler) RemovePackage(c echo.Context) error {
 
 // SearchPackages searches the apt cache for packages matching a query string.
 // GET /packages/search?q=nginx
-func (h *PackagesHandler) SearchPackages(c echo.Context) error {
+func (h *Handler) SearchPackages(c echo.Context) error {
 	query := strings.TrimSpace(c.QueryParam("q"))
 	if query == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingQuery, "Query parameter 'q' is required")
@@ -359,7 +359,7 @@ func parseSearchResults(output string, limit int) []PackageInfo {
 
 // GetDockerStatus checks whether Docker and Docker Compose are installed and running.
 // GET /packages/docker-status
-func (h *PackagesHandler) GetDockerStatus(c echo.Context) error {
+func (h *Handler) GetDockerStatus(c echo.Context) error {
 	status := map[string]interface{}{
 		"installed":         false,
 		"version":           "",
@@ -406,7 +406,7 @@ func (h *PackagesHandler) GetDockerStatus(c echo.Context) error {
 // InstallDocker installs Docker Engine using the official get.docker.com script.
 // Uses Server-Sent Events (SSE) to stream installation output in real-time.
 // POST /packages/install-docker
-func (h *PackagesHandler) InstallDocker(c echo.Context) error {
+func (h *Handler) InstallDocker(c echo.Context) error {
 	// Set SSE headers for streaming
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
@@ -491,7 +491,7 @@ func (h *PackagesHandler) InstallDocker(c echo.Context) error {
 
 // GetNodeStatus checks whether Node.js and NVM are installed.
 // GET /packages/node-status
-func (h *PackagesHandler) GetNodeStatus(c echo.Context) error {
+func (h *Handler) GetNodeStatus(c echo.Context) error {
 	status := map[string]interface{}{
 		"installed":     false,
 		"version":       "",
@@ -548,7 +548,7 @@ func (h *PackagesHandler) GetNodeStatus(c echo.Context) error {
 // InstallNode installs Node.js via NVM (Node Version Manager).
 // Uses Server-Sent Events (SSE) to stream installation output in real-time.
 // POST /packages/install-node
-func (h *PackagesHandler) InstallNode(c echo.Context) error {
+func (h *Handler) InstallNode(c echo.Context) error {
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
@@ -686,7 +686,7 @@ func (h *PackagesHandler) InstallNode(c echo.Context) error {
 
 // GetNodeVersions lists installed Node.js versions via NVM and identifies the active one.
 // GET /packages/node-versions
-func (h *PackagesHandler) GetNodeVersions(c echo.Context) error {
+func (h *Handler) GetNodeVersions(c echo.Context) error {
 	nvmDir := findNVMDir()
 
 	type NodeVersion struct {
@@ -696,9 +696,9 @@ func (h *PackagesHandler) GetNodeVersions(c echo.Context) error {
 	}
 
 	result := map[string]interface{}{
-		"versions":       []NodeVersion{},
-		"current":        "",
-		"remote_lts":     []string{},
+		"versions":   []NodeVersion{},
+		"current":    "",
+		"remote_lts": []string{},
 	}
 
 	if nvmDir == "" {
@@ -779,7 +779,7 @@ func (h *PackagesHandler) GetNodeVersions(c echo.Context) error {
 
 // SwitchNodeVersion switches the active Node.js version via NVM.
 // POST /packages/node-switch
-func (h *PackagesHandler) SwitchNodeVersion(c echo.Context) error {
+func (h *Handler) SwitchNodeVersion(c echo.Context) error {
 	var body struct {
 		Version string `json:"version"`
 	}
@@ -813,7 +813,7 @@ func (h *PackagesHandler) SwitchNodeVersion(c echo.Context) error {
 
 // InstallNodeVersion installs a specific Node.js version via NVM.
 // POST /packages/node-install-version
-func (h *PackagesHandler) InstallNodeVersion(c echo.Context) error {
+func (h *Handler) InstallNodeVersion(c echo.Context) error {
 	var body struct {
 		Version string `json:"version"`
 	}
@@ -888,7 +888,7 @@ func (h *PackagesHandler) InstallNodeVersion(c echo.Context) error {
 
 // UninstallNodeVersion removes a specific Node.js version via NVM.
 // POST /packages/node-uninstall-version
-func (h *PackagesHandler) UninstallNodeVersion(c echo.Context) error {
+func (h *Handler) UninstallNodeVersion(c echo.Context) error {
 	var body struct {
 		Version string `json:"version"`
 	}
@@ -967,7 +967,7 @@ func findBinaryPath(name string) string {
 
 // GetClaudeStatus checks whether Claude Code CLI is installed.
 // GET /packages/claude-status
-func (h *PackagesHandler) GetClaudeStatus(c echo.Context) error {
+func (h *Handler) GetClaudeStatus(c echo.Context) error {
 	status := map[string]interface{}{
 		"installed": false,
 		"version":   "",
@@ -992,7 +992,7 @@ func (h *PackagesHandler) GetClaudeStatus(c echo.Context) error {
 // InstallClaude installs Claude Code CLI using the official install script.
 // Uses Server-Sent Events (SSE) to stream installation output in real-time.
 // POST /packages/install-claude
-func (h *PackagesHandler) InstallClaude(c echo.Context) error {
+func (h *Handler) InstallClaude(c echo.Context) error {
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
@@ -1068,7 +1068,7 @@ func (h *PackagesHandler) InstallClaude(c echo.Context) error {
 
 // GetCodexStatus checks whether OpenAI Codex CLI is installed.
 // GET /packages/codex-status
-func (h *PackagesHandler) GetCodexStatus(c echo.Context) error {
+func (h *Handler) GetCodexStatus(c echo.Context) error {
 	status := map[string]interface{}{
 		"installed": false,
 		"version":   "",
@@ -1093,7 +1093,7 @@ func (h *PackagesHandler) GetCodexStatus(c echo.Context) error {
 // InstallCodex installs OpenAI Codex CLI via npm.
 // Uses Server-Sent Events (SSE) to stream installation output in real-time.
 // POST /packages/install-codex
-func (h *PackagesHandler) InstallCodex(c echo.Context) error {
+func (h *Handler) InstallCodex(c echo.Context) error {
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
@@ -1157,7 +1157,7 @@ func (h *PackagesHandler) InstallCodex(c echo.Context) error {
 
 // GetGeminiStatus checks whether Google Gemini CLI is installed.
 // GET /packages/gemini-status
-func (h *PackagesHandler) GetGeminiStatus(c echo.Context) error {
+func (h *Handler) GetGeminiStatus(c echo.Context) error {
 	status := map[string]interface{}{
 		"installed": false,
 		"version":   "",
@@ -1182,7 +1182,7 @@ func (h *PackagesHandler) GetGeminiStatus(c echo.Context) error {
 // InstallGemini installs Google Gemini CLI via npm.
 // Uses Server-Sent Events (SSE) to stream installation output in real-time.
 // POST /packages/install-gemini
-func (h *PackagesHandler) InstallGemini(c echo.Context) error {
+func (h *Handler) InstallGemini(c echo.Context) error {
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
