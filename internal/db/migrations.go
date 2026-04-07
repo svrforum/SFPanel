@@ -53,6 +53,40 @@ var migrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)`,
 	// Phase 5: add node_id column for cluster-aware audit logging
 	`ALTER TABLE audit_logs ADD COLUMN node_id TEXT NOT NULL DEFAULT ''`,
+	// Alert system tables
+	`CREATE TABLE IF NOT EXISTS alert_channels (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		type TEXT NOT NULL,
+		name TEXT NOT NULL,
+		config TEXT NOT NULL,
+		enabled INTEGER DEFAULT 1,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`,
+	`CREATE TABLE IF NOT EXISTS alert_rules (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		type TEXT NOT NULL,
+		condition TEXT NOT NULL,
+		channel_ids TEXT NOT NULL DEFAULT '[]',
+		severity TEXT DEFAULT 'warning',
+		cooldown INTEGER DEFAULT 300,
+		node_scope TEXT DEFAULT 'all',
+		node_ids TEXT DEFAULT '[]',
+		enabled INTEGER DEFAULT 1,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`,
+	`CREATE TABLE IF NOT EXISTS alert_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		rule_id INTEGER,
+		rule_name TEXT,
+		type TEXT,
+		severity TEXT,
+		message TEXT,
+		node_id TEXT DEFAULT '',
+		sent_channels TEXT DEFAULT '[]',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_alert_history_created_at ON alert_history(created_at)`,
 }
 
 func RunMigrations(db *sql.DB) error {
