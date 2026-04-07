@@ -3,7 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 
 	_ "modernc.org/sqlite"
 )
@@ -25,9 +25,9 @@ func Open(path string) (*sql.DB, error) {
 	if err := db.QueryRow("PRAGMA journal_mode;").Scan(&journalMode); err != nil {
 		return nil, fmt.Errorf("failed to verify journal_mode: %w", err)
 	}
-	log.Printf("SQLite journal_mode: %s", journalMode)
+	slog.Info("SQLite journal mode", "mode", journalMode)
 	if journalMode != "wal" {
-		log.Printf("WARNING: expected journal_mode=wal but got %s, attempting explicit PRAGMA", journalMode)
+		slog.Warn("unexpected journal_mode, attempting explicit PRAGMA", "expected", "wal", "got", journalMode)
 		if _, err := db.Exec("PRAGMA journal_mode=WAL;"); err != nil {
 			return nil, fmt.Errorf("failed to set WAL mode: %w", err)
 		}

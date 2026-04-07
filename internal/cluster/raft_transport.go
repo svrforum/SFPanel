@@ -3,7 +3,7 @@ package cluster
 import (
 	"crypto/tls"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"time"
@@ -73,6 +73,6 @@ func newRaftTransport(cfg RaftConfig, addr *net.TCPAddr) (raft.Transport, error)
 	}
 
 	transport := raft.NewNetworkTransport(stream, 3, 10*time.Second, os.Stderr)
-	log.Println("[cluster] Raft transport using TLS encryption")
+	slog.Info("Raft transport using TLS encryption", "component", "cluster")
 	return transport, nil
 }

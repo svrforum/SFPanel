@@ -2,7 +2,7 @@ package monitor
 
 import (
 	"database/sql"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -59,7 +59,7 @@ func loadHistoryFromDB() {
 		cutoff,
 	)
 	if err != nil {
-		log.Printf("Failed to load metrics history: %v", err)
+		slog.Error("failed to load metrics history", "error", err)
 		return
 	}
 	defer rows.Close()
@@ -82,7 +82,7 @@ func loadHistoryFromDB() {
 	historyPoints = points
 	historyMu.Unlock()
 
-	log.Printf("Loaded %d metrics history points from database", len(points))
+	slog.Info("loaded metrics history", "points", len(points))
 
 	// Clean up old entries beyond 24h
 	go func() {
@@ -97,7 +97,7 @@ func collectPoint() {
 		// which are the only fields stored in MetricsPoint.
 		m, err = GetCoreMetrics()
 		if err != nil {
-			log.Printf("Failed to collect metrics: %v", err)
+			slog.Warn("failed to collect metrics", "error", err)
 			return
 		}
 	}
@@ -127,7 +127,7 @@ func saveToDB(pt MetricsPoint) {
 		"INSERT OR REPLACE INTO metrics_history (time, cpu, mem_percent) VALUES (?, ?, ?)",
 		pt.Time, pt.CPU, pt.MemPercent,
 	); err != nil {
-		log.Printf("Failed to persist metrics point: %v", err)
+		slog.Warn("failed to persist metrics point", "error", err)
 	}
 }
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -185,7 +185,7 @@ func (p *ConnPool) cleanup() {
 			if time.Since(entry.created) > connMaxAge {
 				entry.client.Close()
 				delete(p.conns, addr)
-				log.Printf("[cluster] pool: closed stale conn to %s", addr)
+				slog.Debug("pool: closed stale conn", "component", "cluster", "addr", addr)
 			}
 		}
 		p.mu.Unlock()

@@ -9,11 +9,8 @@ import (
 )
 
 var (
-	updateMu        sync.RWMutex
-	cachedLatest    string
-	cachedNotes     string
-	cachedPublished string
-	lastCheck       time.Time
+	updateMu     sync.RWMutex
+	cachedLatest string
 )
 
 // StartUpdateChecker polls GitHub releases every hour in background.
@@ -51,9 +48,6 @@ func checkUpdate(currentVersion string) {
 	latest := strings.TrimPrefix(release.TagName, "v")
 	updateMu.Lock()
 	cachedLatest = latest
-	cachedNotes = release.Body
-	cachedPublished = release.PublishedAt
-	lastCheck = time.Now()
 	updateMu.Unlock()
 }
 

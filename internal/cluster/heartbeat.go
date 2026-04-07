@@ -1,7 +1,7 @@
 package cluster
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -104,7 +104,7 @@ func (hm *HeartbeatManager) StartMonitor(onStatusChange func(nodeID string, stat
 				health := hm.CheckHealth()
 				for nodeID, status := range health {
 					if prev[nodeID] != status {
-						log.Printf("[cluster] node %s status: %s -> %s", nodeID, prev[nodeID], status)
+						slog.Info("node status changed", "component", "cluster", "node_id", nodeID, "from", prev[nodeID], "to", status)
 						if onStatusChange != nil {
 							onStatusChange(nodeID, status)
 						}

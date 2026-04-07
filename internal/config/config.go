@@ -4,8 +4,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
+	"strconv"
 
 	"gopkg.in/yaml.v3"
 )
@@ -54,6 +55,33 @@ type ClusterConfig struct {
 	AdvertiseAddress string `yaml:"advertise_address"`
 }
 
+func (c *Config) Validate() error {
+	if c.Server.Port <= 0 {
+		return fmt.Errorf("server.port must be positive, got %d", c.Server.Port)
+	}
+	if c.Database.Path == "" {
+		return fmt.Errorf("database.path is required")
+	}
+	return nil
+}
+
+func (c *Config) ApplyEnvOverrides() {
+	if v := os.Getenv("SFPANEL_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			c.Server.Port = port
+		}
+	}
+	if v := os.Getenv("SFPANEL_JWT_SECRET"); v != "" {
+		c.Auth.JWTSecret = v
+	}
+	if v := os.Getenv("SFPANEL_DB_PATH"); v != "" {
+		c.Database.Path = v
+	}
+	if v := os.Getenv("SFPANEL_LOG_LEVEL"); v != "" {
+		c.Log.Level = v
+	}
+}
+
 func Load(path string) (*Config, error) {
 	cfg := &Config{
 		Server:   ServerConfig{Host: "0.0.0.0", Port: 8443},
@@ -70,7 +98,11 @@ func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		cfg.Auth.JWTSecret = generateRandomSecret()
-		log.Println("[WARN] No config file found — using defaults with random JWT secret")
+		slog.Warn("no config file found, using defaults with random JWT secret")
+		cfg.ApplyEnvOverrides()
+		if err := cfg.Validate(); err != nil {
+			return nil, fmt.Errorf("config validation: %w", err)
+		}
 		return cfg, nil
 	}
 	if err := yaml.Unmarshal(data, cfg); err != nil {
@@ -78,7 +110,11 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Auth.JWTSecret == "" {
 		cfg.Auth.JWTSecret = generateRandomSecret()
-		log.Println("[WARN] jwt_secret not set in config — generated random secret (tokens will invalidate on restart)")
+		slog.Warn("jwt_secret not set in config, generated random secret (tokens will invalidate on restart)")
+	}
+	cfg.ApplyEnvOverrides()
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config validation: %w", err)
 	}
 	return cfg, nil
 }
