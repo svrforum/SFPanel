@@ -5,25 +5,45 @@ import (
 	"embed"
 	"io"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v4"
 	echoMw "github.com/labstack/echo/v4/middleware"
-	"github.com/svrforum/SFPanel/internal/api/handlers"
 	mw "github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/cluster"
+	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/docker"
+	featureAudit "github.com/svrforum/SFPanel/internal/feature/audit"
+	featureCron "github.com/svrforum/SFPanel/internal/feature/cron"
+	featureDisk "github.com/svrforum/SFPanel/internal/feature/disk"
+	featureAppstore "github.com/svrforum/SFPanel/internal/feature/appstore"
+	featureAuth "github.com/svrforum/SFPanel/internal/feature/auth"
+	featureCluster "github.com/svrforum/SFPanel/internal/feature/cluster"
+	featureCompose "github.com/svrforum/SFPanel/internal/feature/compose"
+	featureDocker "github.com/svrforum/SFPanel/internal/feature/docker"
+	featureFiles "github.com/svrforum/SFPanel/internal/feature/files"
+	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
+	featureLogs "github.com/svrforum/SFPanel/internal/feature/logs"
+	featureMonitor "github.com/svrforum/SFPanel/internal/feature/monitor"
+	featureNetwork "github.com/svrforum/SFPanel/internal/feature/network"
+	featurePackages "github.com/svrforum/SFPanel/internal/feature/packages"
+	featureProcess "github.com/svrforum/SFPanel/internal/feature/process"
+	featureServices "github.com/svrforum/SFPanel/internal/feature/services"
+	featureSettings "github.com/svrforum/SFPanel/internal/feature/settings"
+	featureSystem "github.com/svrforum/SFPanel/internal/feature/system"
+	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
+	featureWS "github.com/svrforum/SFPanel/internal/feature/websocket"
 )
 
 func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, extra ...string) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 
-	e.Use(echoMw.Logger())
 	e.Use(echoMw.Recover())
+	e.Use(mw.RequestLogger())
 	e.Use(echoMw.CORSWithConfig(echoMw.CORSConfig{
 		AllowOrigins: []string{
 			"http://localhost:5173",
@@ -35,34 +55,37 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		AllowHeaders: []string{"Authorization", "Content-Type"},
 	}))
 
-	authHandler := &handlers.AuthHandler{DB: database, Config: cfg}
-	dashboardHandler := &handlers.DashboardHandler{Version: version}
+	cmd := commonExec.NewCommander()
+
+	authHandler := &featureAuth.Handler{DB: database, Config: cfg}
+	dashboardHandler := &featureMonitor.Handler{Version: version}
 
 	cfgPath := ""
 	if len(extra) > 0 {
 		cfgPath = extra[0]
 	}
-	systemHandler := &handlers.SystemHandler{
+	systemHandler := &featureSystem.Handler{
 		Version:     version,
 		DBPath:      cfg.Database.Path,
 		ConfigPath:  cfgPath,
 		ComposePath: "/opt/stacks",
+		Cmd:         cmd,
 	}
 
 	// Initialize Docker client
 	dockerClient, err := docker.NewClient(cfg.Docker.Socket)
 	if err != nil {
-		log.Printf("Warning: Docker not available: %v", err)
+		slog.Warn("Docker not available", "error", err)
 	}
 
-	var dockerHandler *handlers.DockerHandler
+	var dockerHandler *featureDocker.Handler
 	if dockerClient != nil {
-		dockerHandler = &handlers.DockerHandler{Docker: dockerClient}
+		dockerHandler = &featureDocker.Handler{Docker: dockerClient}
 	}
 
 	// Initialize Compose manager — scans /opt/stacks for compose projects
 	composeManager := docker.NewComposeManager("/opt/stacks", dockerClient)
-	composeHandler := &handlers.ComposeHandler{Compose: composeManager, DB: database}
+	composeHandler := &featureCompose.Handler{Compose: composeManager, DB: database}
 
 	v1 := e.Group("/api/v1")
 
@@ -80,7 +103,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.Use(mw.ClusterProxyMiddleware(clusterMgr))
 	authorized.Use(mw.AuditMiddleware(database))
 	// Settings
-	settingsHandler := &handlers.SettingsHandler{DB: database}
+	settingsHandler := &featureSettings.Handler{DB: database}
 	authorized.GET("/settings", settingsHandler.GetSettings)
 	authorized.PUT("/settings", settingsHandler.UpdateSettings)
 
@@ -95,14 +118,14 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 
 	// System management (update, backup, restore)
 	// System tuning
-	tuningHandler := &handlers.TuningHandler{}
+	tuningHandler := &featureSystem.TuningHandler{Cmd: cmd}
 	authorized.GET("/system/tuning", tuningHandler.GetTuningStatus)
 	authorized.POST("/system/tuning/apply", tuningHandler.ApplyTuning)
 	authorized.POST("/system/tuning/confirm", tuningHandler.ConfirmTuning)
 	authorized.POST("/system/tuning/reset", tuningHandler.ResetTuning)
 
 	// App Store
-	appStoreHandler := &handlers.AppStoreHandler{DB: database, ComposePath: "/opt/stacks"}
+	appStoreHandler := &featureAppstore.Handler{DB: database, ComposePath: "/opt/stacks", Cmd: cmd}
 	appStore := authorized.Group("/appstore")
 	appStore.GET("/categories", appStoreHandler.GetCategories)
 	appStore.GET("/apps", appStoreHandler.ListApps)
@@ -117,7 +140,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.POST("/system/restore", systemHandler.RestoreBackup)
 
 	// Cluster management
-	clusterHandler := &handlers.ClusterHandler{Manager: clusterMgr, Config: cfg, ConfigPath: cfgPath}
+	clusterHandler := &featureCluster.Handler{Manager: clusterMgr, Config: cfg, ConfigPath: cfgPath}
 	clusterGroup := authorized.Group("/cluster")
 	clusterGroup.GET("/status", clusterHandler.GetStatus)
 	clusterGroup.GET("/overview", clusterHandler.GetOverview)
@@ -134,18 +157,18 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	clusterGroup.POST("/update", clusterHandler.ClusterUpdate)
 
 	// Audit logs
-	auditHandler := &handlers.AuditHandler{DB: database}
+	auditHandler := &featureAudit.Handler{DB: database}
 	authorized.GET("/audit/logs", auditHandler.ListAuditLogs)
 	authorized.DELETE("/audit/logs", auditHandler.ClearAuditLogs)
 
 	// Processes
-	processesHandler := &handlers.ProcessesHandler{}
+	processesHandler := &featureProcess.Handler{}
 	authorized.GET("/system/processes", processesHandler.TopProcesses)
 	authorized.GET("/system/processes/list", processesHandler.ListProcesses)
 	authorized.POST("/system/processes/:pid/kill", processesHandler.KillProcess)
 
 	// Systemd services
-	servicesHandler := &handlers.ServicesHandler{}
+	servicesHandler := &featureServices.Handler{Cmd: cmd}
 	authorized.GET("/system/services", servicesHandler.ListServices)
 	authorized.POST("/system/services/:name/start", servicesHandler.StartService)
 	authorized.POST("/system/services/:name/stop", servicesHandler.StopService)
@@ -156,7 +179,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.GET("/system/services/:name/deps", servicesHandler.GetServiceDeps)
 
 	// File manager routes
-	filesHandler := &handlers.FilesHandler{DB: database}
+	filesHandler := &featureFiles.Handler{DB: database}
 	files := authorized.Group("/files")
 	files.GET("", filesHandler.ListDir)
 	files.GET("/read", filesHandler.ReadFile)
@@ -168,7 +191,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	files.POST("/upload", filesHandler.UploadFile)
 
 	// Cron job management routes
-	cronHandler := &handlers.CronHandler{}
+	cronHandler := &featureCron.Handler{Cmd: cmd}
 	cron := authorized.Group("/cron")
 	cron.GET("", cronHandler.ListJobs)
 	cron.POST("", cronHandler.CreateJob)
@@ -176,7 +199,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	cron.DELETE("/:id", cronHandler.DeleteJob)
 
 	// Log viewer routes
-	logsHandler := &handlers.LogsHandler{DB: database}
+	logsHandler := &featureLogs.Handler{DB: database}
 	logs := authorized.Group("/logs")
 	logs.GET("/sources", logsHandler.ListSources)
 	logs.GET("/read", logsHandler.ReadLog)
@@ -184,7 +207,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	logs.DELETE("/custom-sources/:id", logsHandler.DeleteCustomSource)
 
 	// Network
-	networkHandler := &handlers.NetworkHandler{}
+	networkHandler := &featureNetwork.Handler{Cmd: cmd}
 	net := authorized.Group("/network")
 	net.GET("/status", networkHandler.GetNetworkStatus)
 	net.GET("/interfaces", networkHandler.ListInterfaces)
@@ -199,7 +222,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	net.DELETE("/bonds/:name", networkHandler.DeleteBond)
 
 	// WireGuard VPN
-	wireguardHandler := &handlers.WireGuardHandler{}
+	wireguardHandler := &featureNetwork.WireGuardHandler{Cmd: cmd}
 	wg := authorized.Group("/network/wireguard")
 	wg.GET("/status", wireguardHandler.GetStatus)
 	wg.POST("/install", wireguardHandler.Install)
@@ -213,7 +236,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	wg.DELETE("/configs/:name", wireguardHandler.DeleteConfig)
 
 	// Tailscale VPN
-	tailscaleHandler := &handlers.TailscaleHandler{}
+	tailscaleHandler := &featureNetwork.TailscaleHandler{Cmd: cmd}
 	ts := authorized.Group("/network/tailscale")
 	ts.GET("/status", tailscaleHandler.GetStatus)
 	ts.POST("/install", tailscaleHandler.Install)
@@ -225,7 +248,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	ts.GET("/update-check", tailscaleHandler.CheckUpdate)
 
 	// Disk management
-	diskHandler := &handlers.DiskHandler{}
+	diskHandler := &featureDisk.Handler{Cmd: cmd}
 	disks := authorized.Group("/disks")
 	disks.GET("/overview", diskHandler.ListDisks)
 	disks.GET("/iostat", diskHandler.GetIOStats)
@@ -279,7 +302,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	swap.PUT("/resize", diskHandler.ResizeSwap)
 
 	// Firewall management (UFW)
-	firewallHandler := &handlers.FirewallHandler{}
+	firewallHandler := &featureFirewall.Handler{Cmd: cmd}
 	fw := authorized.Group("/firewall")
 	fw.GET("/status", firewallHandler.GetUFWStatus)
 	fw.POST("/enable", firewallHandler.EnableUFW)
@@ -307,7 +330,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	f2b.POST("/jails/:name/unban", firewallHandler.UnbanIP)
 
 	// Package management routes
-	packagesHandler := &handlers.PackagesHandler{}
+	packagesHandler := &featurePackages.Handler{Cmd: cmd}
 	packages := authorized.Group("/packages")
 	packages.GET("/updates", packagesHandler.CheckUpdates)
 	packages.POST("/upgrade", packagesHandler.UpgradePackages)
@@ -397,15 +420,15 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		compose.GET("/:project/has-rollback", composeHandler.HasRollback)
 
 		// Docker WebSocket routes (auth via query param token, cluster relay support)
-		e.GET("/ws/docker/containers/:id/logs", cluster.WrapEchoWSHandler(clusterMgr, handlers.ContainerLogsWS(dockerClient, cfg.Auth.JWTSecret)))
-		e.GET("/ws/docker/containers/:id/exec", cluster.WrapEchoWSHandler(clusterMgr, handlers.ContainerExecWS(dockerClient, cfg.Auth.JWTSecret)))
-		e.GET("/ws/docker/compose/:project/logs", cluster.WrapEchoWSHandler(clusterMgr, handlers.ComposeLogsWS(composeManager, cfg.Auth.JWTSecret)))
+		e.GET("/ws/docker/containers/:id/logs", cluster.WrapEchoWSHandler(clusterMgr, featureWS.ContainerLogsWS(dockerClient, cfg.Auth.JWTSecret)))
+		e.GET("/ws/docker/containers/:id/exec", cluster.WrapEchoWSHandler(clusterMgr, featureWS.ContainerExecWS(dockerClient, cfg.Auth.JWTSecret)))
+		e.GET("/ws/docker/compose/:project/logs", cluster.WrapEchoWSHandler(clusterMgr, featureWS.ComposeLogsWS(composeManager, cfg.Auth.JWTSecret)))
 	}
 
 	// WebSocket routes (auth via query param token, cluster relay support)
-	e.GET("/ws/metrics", cluster.WrapEchoWSHandler(clusterMgr, handlers.MetricsWS(cfg.Auth.JWTSecret)))
-	e.GET("/ws/logs", cluster.WrapEchoWSHandler(clusterMgr, handlers.LogStreamWS(cfg.Auth.JWTSecret, database)))
-	e.GET("/ws/terminal", cluster.WrapEchoWSHandler(clusterMgr, handlers.TerminalWS(cfg.Auth.JWTSecret)))
+	e.GET("/ws/metrics", cluster.WrapEchoWSHandler(clusterMgr, featureWS.MetricsWS(cfg.Auth.JWTSecret)))
+	e.GET("/ws/logs", cluster.WrapEchoWSHandler(clusterMgr, featureLogs.LogStreamWS(cfg.Auth.JWTSecret, database)))
+	e.GET("/ws/terminal", cluster.WrapEchoWSHandler(clusterMgr, featureTerminal.TerminalWS(cfg.Auth.JWTSecret)))
 
 	// SPA static file serving — catch-all AFTER all API and WS routes
 	e.GET("/*", spaHandler(webFS))
@@ -419,7 +442,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 func spaHandler(fsys embed.FS) echo.HandlerFunc {
 	subFS, err := fs.Sub(fsys, "web/dist")
 	if err != nil {
-		log.Fatalf("Failed to create sub-filesystem for embedded SPA: %v", err)
+		slog.Error("failed to create sub-filesystem for embedded SPA", "error", err)
+		panic("embedded SPA filesystem unavailable")
 	}
 	fileServer := http.FileServer(http.FS(subFS))
 
