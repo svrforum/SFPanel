@@ -6,6 +6,10 @@ linters:
     - errcheck
   enable:
     - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
     - typecheck
 
 issues:
