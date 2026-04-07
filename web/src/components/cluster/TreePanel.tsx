@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Crown, ChevronDown, ChevronRight, ChevronLeft, Server, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Crown, ChevronDown, ChevronRight, Server, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import type { ClusterNode, ClusterStatus } from '@/types/api'
