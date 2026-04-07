@@ -90,7 +90,7 @@ func Load(path string) (*Config, error) {
 		Docker:   DockerConfig{Socket: "unix:///var/run/docker.sock"},
 		Log:      LogConfig{Level: "info"},
 		Cluster: ClusterConfig{
-			GRPCPort: 9443,
+			GRPCPort: 9444,
 			DataDir:  "/var/lib/sfpanel/cluster",
 			CertDir:  "/etc/sfpanel/cluster",
 		},
