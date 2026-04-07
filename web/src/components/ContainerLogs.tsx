@@ -25,6 +25,10 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [connected, setConnected] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+  const [tail, setTail] = useState('100')
+  const [stream, setStream] = useState('all')
+  const [timestamps, setTimestamps] = useState(false)
+  const [since, setSince] = useState('all')
 
   const handleSearchNext = useCallback(() => {
     if (searchAddonRef.current && searchQuery) {
@@ -49,8 +53,33 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
     URL.revokeObjectURL(url)
   }, [containerId])
 
+  function highlightLogLevel(line: string): string {
+    if (line.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(line)
+        const level = (parsed.level || parsed.Level || '').toLowerCase()
+        if (level === 'error' || level === 'fatal') return `\x1b[31m${line}\x1b[0m`
+        if (level === 'warn' || level === 'warning') return `\x1b[33m${line}\x1b[0m`
+        if (level === 'debug' || level === 'trace') return `\x1b[2m${line}\x1b[0m`
+        return line
+      } catch { /* not JSON, fall through */ }
+    }
+
+    const upper = line.toUpperCase()
+    if (upper.includes('ERROR') || upper.includes('FATAL')) return `\x1b[31m${line}\x1b[0m`
+    if (upper.includes('WARN')) return `\x1b[33m${line}\x1b[0m`
+    if (upper.includes('DEBUG') || upper.includes('TRACE')) return `\x1b[2m${line}\x1b[0m`
+    return line
+  }
+
   useEffect(() => {
     if (!terminalRef.current) return
+
+    // Clear previous logs on reconnect
+    if (termRef.current) {
+      termRef.current.clear()
+      logLinesRef.current = []
+    }
 
     const term = new Terminal({
       cursorBlink: false,
@@ -85,7 +114,13 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
       return () => { term.dispose() }
     }
 
-    const wsUrl = api.buildWsUrl(`/ws/docker/containers/${containerId}/logs`)
+    const params = new URLSearchParams()
+    if (tail !== '100') params.set('tail', tail)
+    if (timestamps) params.set('timestamps', 'true')
+    if (stream !== 'all') params.set('stream', stream)
+    if (since !== 'all') params.set('since', since)
+    const qs = params.toString()
+    const wsUrl = api.buildWsUrl(`/ws/docker/containers/${containerId}/logs${qs ? '?' + qs : ''}`)
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
@@ -96,7 +131,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
     ws.onmessage = (event) => {
       const data = event.data as string
       logLinesRef.current.push(data.replace(/\n$/, ''))
-      term.write(data)
+      term.write(highlightLogLevel(data))
     }
 
     ws.onerror = () => {
@@ -118,7 +153,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
       ws.close()
       term.dispose()
     }
-  }, [containerId, t])
+  }, [containerId, t, tail, stream, timestamps, since])
 
   useEffect(() => {
     if (searchAddonRef.current && searchQuery) {
@@ -145,6 +180,47 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             <span className="text-[11px] text-white/40 font-medium">
               {connected ? t('terminal.connected') : t('terminal.disconnected')}
             </span>
+          </div>
+          {/* Log options */}
+          <div className="flex items-center gap-1 ml-2 border-l border-white/[0.08] pl-2">
+            <select
+              value={tail}
+              onChange={(e) => setTail(e.target.value)}
+              className="h-5 text-[10px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
+            >
+              <option value="100">100줄</option>
+              <option value="500">500줄</option>
+              <option value="1000">1000줄</option>
+              <option value="all">전체</option>
+            </select>
+            <select
+              value={stream}
+              onChange={(e) => setStream(e.target.value)}
+              className="h-5 text-[10px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
+            >
+              <option value="all">전체</option>
+              <option value="stdout">stdout</option>
+              <option value="stderr">stderr</option>
+            </select>
+            <select
+              value={since}
+              onChange={(e) => setSince(e.target.value)}
+              className="h-5 text-[10px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
+            >
+              <option value="all">전체 시간</option>
+              <option value="1h">1시간</option>
+              <option value="6h">6시간</option>
+              <option value="24h">24시간</option>
+            </select>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className={`text-white/40 hover:text-white hover:bg-white/10 ${timestamps ? 'text-[#3182f6]' : ''}`}
+              title="Timestamps"
+              onClick={() => setTimestamps(!timestamps)}
+            >
+              <span className="text-[10px] font-mono">T</span>
+            </Button>
           </div>
         </div>
         <div className="flex items-center gap-0.5">
