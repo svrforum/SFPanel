@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from
 import { Toaster } from '@/components/ui/sonner'
 import { api } from '@/lib/api'
 import Layout from '@/components/Layout'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 // Lazy-loaded pages for code splitting
 const Login = lazy(() => import('@/pages/Login'))
@@ -113,6 +114,7 @@ function TauriGuard({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <BrowserRouter>
       <TauriGuard>
         <SetupGuard>
@@ -182,5 +184,6 @@ export default function App() {
       </TauriGuard>
       <Toaster />
     </BrowserRouter>
+    </ErrorBoundary>
   )
 }

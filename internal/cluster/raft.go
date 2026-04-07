@@ -3,7 +3,7 @@ package cluster
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -91,7 +91,7 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 		}
 	}
 
-	log.Printf("[cluster] Raft node started: id=%s addr=%s bootstrap=%v", cfg.NodeID, cfg.BindAddr, cfg.Bootstrap)
+	slog.Info("Raft node started", "component", "cluster", "id", cfg.NodeID, "addr", cfg.BindAddr, "bootstrap", cfg.Bootstrap)
 
 	return &RaftNode{raft: r, fsm: fsm}, nil
 }
@@ -221,7 +221,7 @@ func (rn *RaftNode) Shutdown() error {
 	case err := <-done:
 		return err
 	case <-time.After(10 * time.Second):
-		log.Println("[cluster] Raft shutdown timed out after 10s, forcing")
+		slog.Warn("Raft shutdown timed out after 10s, forcing", "component", "cluster")
 		return nil
 	}
 }

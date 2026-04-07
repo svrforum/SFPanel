@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -23,12 +24,16 @@ import (
 
 	sfpanel "github.com/svrforum/SFPanel"
 	"github.com/svrforum/SFPanel/internal/api"
-	"github.com/svrforum/SFPanel/internal/api/handlers"
 	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/cluster"
+	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/logging"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
+	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
+	featureLogs "github.com/svrforum/SFPanel/internal/feature/logs"
+	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	"github.com/svrforum/SFPanel/internal/monitor"
 	"github.com/svrforum/SFPanel/internal/release"
 )
@@ -78,34 +83,28 @@ func main() {
 
 	// Set SFPanel log source path from config
 	if cfg.Log.File != "" {
-		handlers.SetSFPanelLogPath(cfg.Log.File)
+		featureLogs.SetSFPanelLogPath(cfg.Log.File)
 	}
 
-	// Set up log file output if configured
+	// Set up structured logging with slog
 	if cfg.Log.File != "" {
 		if err := os.MkdirAll(filepath.Dir(cfg.Log.File), 0755); err != nil {
-			log.Printf("Warning: failed to create log directory: %v", err)
-		} else {
-			logFile, err := os.OpenFile(cfg.Log.File, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-			if err != nil {
-				log.Printf("Warning: failed to open log file %s: %v", cfg.Log.File, err)
-			} else {
-				multiWriter := io.MultiWriter(os.Stdout, logFile)
-				log.SetOutput(multiWriter)
-				log.Printf("Log file output enabled: %s", cfg.Log.File)
-			}
+			slog.Warn("failed to create log directory", "error", err)
 		}
 	}
+	logging.SetupFromConfig(cfg.Log.Level, cfg.Log.File)
+	slog.Info("SFPanel starting", "version", version, "port", cfg.Server.Port)
 
 	database, err := db.Open(cfg.Database.Path)
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		slog.Error("failed to open database", "error", err)
+		os.Exit(1)
 	}
 	defer func() {
 		monitor.FlushPending()
 		database.Close()
 	}()
-	log.Printf("Database ready at %s", cfg.Database.Path)
+	slog.Info("database ready", "path", cfg.Database.Path)
 
 	// Start cluster manager if enabled
 	var clusterMgr *cluster.Manager
@@ -113,10 +112,10 @@ func main() {
 		cfg.Cluster.APIPort = cfg.Server.Port
 		clusterMgr = cluster.NewManager(&cfg.Cluster)
 		if err := clusterMgr.Start(); err != nil {
-			log.Printf("Warning: cluster start failed: %v", err)
+			slog.Warn("cluster start failed", "error", err)
 		} else {
 			defer clusterMgr.Shutdown()
-			log.Printf("Cluster mode active: %s (node: %s)", cfg.Cluster.Name, cfg.Cluster.NodeID)
+			slog.Info("cluster mode active", "component", "cluster", "name", cfg.Cluster.Name, "node_id", cfg.Cluster.NodeID)
 
 			// Set version for cluster heartbeat reporting
 			clusterMgr.SetVersion(version)
@@ -150,11 +149,13 @@ func main() {
 			// Start gRPC server for cluster communication
 			grpcServer, grpcErr := cluster.NewGRPCServer(clusterMgr, cfg.Server.Port)
 			if grpcErr != nil {
-				log.Fatalf("gRPC server setup failed (cluster requires gRPC): %v", grpcErr)
+				slog.Error("gRPC server setup failed (cluster requires gRPC)", "error", grpcErr)
+				os.Exit(1)
 			}
 			grpcAddr := fmt.Sprintf("0.0.0.0:%d", cfg.Cluster.GRPCPort)
 			if startErr := grpcServer.Start(grpcAddr); startErr != nil {
-				log.Fatalf("gRPC server start failed on %s (port may be in use): %v", grpcAddr, startErr)
+				slog.Error("gRPC server start failed", "addr", grpcAddr, "error", startErr)
+				os.Exit(1)
 			}
 			defer grpcServer.Stop()
 			middleware.SetClusterProxySecret(grpcServer.ProxySecret())
@@ -164,10 +165,10 @@ func main() {
 	monitor.StartHistoryCollector(database)
 
 	// Start terminal session cleanup (timeout from settings, 0 = never)
-	handlers.CleanupTerminalSessions(database)
+	featureTerminal.CleanupTerminalSessions(database)
 
 	// Restore DOCKER-USER firewall rules if previously saved
-	handlers.RestoreDockerUserRules()
+	featureFirewall.RestoreDockerUserRules(commonExec.NewCommander())
 
 	// Start background update checker (polls GitHub every hour)
 	monitor.StartUpdateChecker(version)
@@ -176,12 +177,13 @@ func main() {
 	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	log.Printf("SFPanel %s starting on %s", version, addr)
+	slog.Info("server listening", "addr", addr)
 
 	// Start server in goroutine
 	go func() {
 		if err := e.Start(addr); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server failed: %v", err)
+			slog.Error("server failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -190,13 +192,14 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Shutting down server...")
+	slog.Info("shutting down server")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := e.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced shutdown: %v", err)
+		slog.Error("server forced shutdown", "error", err)
+		os.Exit(1)
 	}
-	log.Println("Server stopped")
+	slog.Info("server stopped")
 }
 
 func resetPanel() {

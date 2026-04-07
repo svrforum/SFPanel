@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"database/sql"
-	"log"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -45,7 +45,7 @@ func AuditMiddleware(db *sql.DB) echo.MiddlewareFunc {
 					"INSERT INTO audit_logs (username, method, path, status, ip, node_id) VALUES (?, ?, ?, ?, ?, ?)",
 					username, method, path, status, ip, nodeID,
 				); dbErr != nil {
-					log.Printf("Audit log write failed: %v", dbErr)
+					slog.Error("audit log write failed", "error", dbErr)
 				}
 
 				// Periodic cleanup: keep at most auditMaxRows (check every 5 minutes)

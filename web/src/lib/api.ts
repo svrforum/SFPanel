@@ -114,8 +114,8 @@ class ApiClient {
     return !this.isTauri || !!this._serverUrl
   }
 
-  private async request<T>(path: string, options: RequestInit & { local?: boolean } = {}): Promise<T> {
-    const { local, ...fetchOptions } = options
+  private async request<T>(path: string, options: RequestInit & { local?: boolean; timeout?: number } = {}): Promise<T> {
+    const { local, timeout = 30000, ...fetchOptions } = options
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...((fetchOptions.headers as Record<string, string>) || {}),
@@ -131,10 +131,24 @@ class ApiClient {
       url += `${separator}node=${encodeURIComponent(this._currentNode)}`
     }
 
-    const res = await fetch(url, {
-      ...fetchOptions,
-      headers,
-    })
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeout)
+
+    let res: Response
+    try {
+      res = await fetch(url, {
+        ...fetchOptions,
+        headers,
+        signal: controller.signal,
+      })
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        throw new Error('Request timed out')
+      }
+      throw err
+    } finally {
+      clearTimeout(timer)
+    }
 
     if (res.status === 401 && !path.startsWith('/auth/')) {
       this.clearToken()
