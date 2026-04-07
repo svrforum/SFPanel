@@ -219,3 +219,7 @@ const (
 	ErrBackupFailed      = "BACKUP_FAILED"
 	ErrRestoreFailed     = "RESTORE_FAILED"
 )
+
+// Command execution error codes
+var ErrCommandTimeout = "COMMAND_TIMEOUT"
+var ErrToolNotFound = "TOOL_NOT_INSTALLED"

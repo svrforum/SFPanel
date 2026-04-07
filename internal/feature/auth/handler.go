@@ -21,6 +21,11 @@ type loginAttempt struct {
 
 var loginAttempts sync.Map
 
+var setupLimiter = struct {
+	mu       sync.Mutex
+	attempts map[string][]time.Time
+}{attempts: make(map[string][]time.Time)}
+
 const (
 	rateLimitMaxAttempts   = 5
 	rateLimitWindow        = 60 * time.Second
@@ -297,6 +302,23 @@ func (h *Handler) GetSetupStatus(c echo.Context) error {
 }
 
 func (h *Handler) SetupAdmin(c echo.Context) error {
+	ip := c.RealIP()
+	now := time.Now()
+	setupLimiter.mu.Lock()
+	attempts := setupLimiter.attempts[ip]
+	var recent []time.Time
+	for _, t := range attempts {
+		if now.Sub(t) < time.Minute {
+			recent = append(recent, t)
+		}
+	}
+	if len(recent) >= 5 {
+		setupLimiter.mu.Unlock()
+		return response.Fail(c, http.StatusTooManyRequests, response.ErrRateLimited, "Too many setup attempts. Try again later.")
+	}
+	setupLimiter.attempts[ip] = append(recent, now)
+	setupLimiter.mu.Unlock()
+
 	var req setupAdminRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
