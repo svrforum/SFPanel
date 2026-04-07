@@ -17,6 +17,8 @@ import (
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/docker"
 	featureCron "github.com/svrforum/SFPanel/internal/feature/cron"
+	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
+	featureNetwork "github.com/svrforum/SFPanel/internal/feature/network"
 	featurePackages "github.com/svrforum/SFPanel/internal/feature/packages"
 	featureProcess "github.com/svrforum/SFPanel/internal/feature/process"
 	featureServices "github.com/svrforum/SFPanel/internal/feature/services"
@@ -188,7 +190,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	logs.DELETE("/custom-sources/:id", logsHandler.DeleteCustomSource)
 
 	// Network
-	networkHandler := &handlers.NetworkHandler{}
+	networkHandler := &featureNetwork.Handler{}
 	net := authorized.Group("/network")
 	net.GET("/status", networkHandler.GetNetworkStatus)
 	net.GET("/interfaces", networkHandler.ListInterfaces)
@@ -203,7 +205,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	net.DELETE("/bonds/:name", networkHandler.DeleteBond)
 
 	// WireGuard VPN
-	wireguardHandler := &handlers.WireGuardHandler{}
+	wireguardHandler := &featureNetwork.WireGuardHandler{}
 	wg := authorized.Group("/network/wireguard")
 	wg.GET("/status", wireguardHandler.GetStatus)
 	wg.POST("/install", wireguardHandler.Install)
@@ -217,7 +219,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	wg.DELETE("/configs/:name", wireguardHandler.DeleteConfig)
 
 	// Tailscale VPN
-	tailscaleHandler := &handlers.TailscaleHandler{}
+	tailscaleHandler := &featureNetwork.TailscaleHandler{}
 	ts := authorized.Group("/network/tailscale")
 	ts.GET("/status", tailscaleHandler.GetStatus)
 	ts.POST("/install", tailscaleHandler.Install)
@@ -283,7 +285,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	swap.PUT("/resize", diskHandler.ResizeSwap)
 
 	// Firewall management (UFW)
-	firewallHandler := &handlers.FirewallHandler{}
+	firewallHandler := &featureFirewall.Handler{}
 	fw := authorized.Group("/firewall")
 	fw.GET("/status", firewallHandler.GetUFWStatus)
 	fw.POST("/enable", firewallHandler.EnableUFW)

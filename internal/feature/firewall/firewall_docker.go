@@ -1,4 +1,4 @@
-package handlers
+package firewall
 
 import (
 	"fmt"
@@ -50,7 +50,7 @@ var validDockerAction = regexp.MustCompile(`^(drop|accept)$`)
 
 // GetDockerFirewall returns Docker published ports and DOCKER-USER chain rules.
 // GET /firewall/docker
-func (h *FirewallHandler) GetDockerFirewall(c echo.Context) error {
+func (h *Handler) GetDockerFirewall(c echo.Context) error {
 	if !commandExists("iptables") {
 		return response.OK(c, map[string]interface{}{
 			"ports": []DockerPublishedPort{},
@@ -294,7 +294,7 @@ func getDockerUserRules() ([]DockerUserRule, error) {
 
 // AddDockerUserRule adds a rule to the DOCKER-USER iptables chain.
 // POST /firewall/docker/rules
-func (h *FirewallHandler) AddDockerUserRule(c echo.Context) error {
+func (h *Handler) AddDockerUserRule(c echo.Context) error {
 	var req AddDockerRuleRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -388,7 +388,7 @@ func (h *FirewallHandler) AddDockerUserRule(c echo.Context) error {
 
 // DeleteDockerUserRule removes a rule from the DOCKER-USER chain by number.
 // DELETE /firewall/docker/rules/:number
-func (h *FirewallHandler) DeleteDockerUserRule(c echo.Context) error {
+func (h *Handler) DeleteDockerUserRule(c echo.Context) error {
 	numberStr := c.Param("number")
 	number, err := strconv.Atoi(numberStr)
 	if err != nil || number < 1 {

@@ -1,4 +1,4 @@
-package handlers
+package network
 
 import (
 	"bufio"
@@ -23,9 +23,9 @@ import (
 // validInterfaceName matches safe Linux network interface names.
 var validInterfaceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,14}$`)
 
-// NetworkHandler exposes REST handlers for host network management
+// Handler exposes REST handlers for host network management
 // (interfaces, DNS, routes, bonding, netplan configuration).
-type NetworkHandler struct{}
+type Handler struct{}
 
 // ---------- Types ----------
 
@@ -231,7 +231,7 @@ func invalidateNetworkCache() {
 // ---------- Handlers ----------
 
 // ListInterfaces returns all host network interfaces with statistics.
-func (h *NetworkHandler) ListInterfaces(c echo.Context) error {
+func (h *Handler) ListInterfaces(c echo.Context) error {
 	ifaces, _, _, _, err := cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list interfaces: %v", err))
@@ -241,7 +241,7 @@ func (h *NetworkHandler) ListInterfaces(c echo.Context) error {
 
 // GetNetworkStatus returns a combined snapshot of interfaces, routes, DNS and bonds
 // in a single API call to reduce frontend round-trips.
-func (h *NetworkHandler) GetNetworkStatus(c echo.Context) error {
+func (h *Handler) GetNetworkStatus(c echo.Context) error {
 	ifaces, routes, dns, bonds, err := cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to gather network status: %v", err))
@@ -256,7 +256,7 @@ func (h *NetworkHandler) GetNetworkStatus(c echo.Context) error {
 }
 
 // GetInterface returns detailed information for a single interface including netplan config.
-func (h *NetworkHandler) GetInterface(c echo.Context) error {
+func (h *Handler) GetInterface(c echo.Context) error {
 	name := c.Param("name")
 	if !validInterfaceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid interface name")
@@ -288,7 +288,7 @@ func (h *NetworkHandler) GetInterface(c echo.Context) error {
 }
 
 // ConfigureInterface modifies the netplan configuration for a given interface.
-func (h *NetworkHandler) ConfigureInterface(c echo.Context) error {
+func (h *Handler) ConfigureInterface(c echo.Context) error {
 	name := c.Param("name")
 	if !validInterfaceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid interface name")
@@ -308,7 +308,7 @@ func (h *NetworkHandler) ConfigureInterface(c echo.Context) error {
 }
 
 // ApplyNetplan runs `netplan apply` to activate the current configuration.
-func (h *NetworkHandler) ApplyNetplan(c echo.Context) error {
+func (h *Handler) ApplyNetplan(c echo.Context) error {
 	out, err := exec.Command("netplan", "apply").CombinedOutput()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("netplan apply failed: %s", strings.TrimSpace(string(out))))
@@ -318,7 +318,7 @@ func (h *NetworkHandler) ApplyNetplan(c echo.Context) error {
 }
 
 // GetDNS returns the current system DNS configuration.
-func (h *NetworkHandler) GetDNS(c echo.Context) error {
+func (h *Handler) GetDNS(c echo.Context) error {
 	_, _, dns, _, err := cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to read DNS: %v", err))
@@ -328,7 +328,7 @@ func (h *NetworkHandler) GetDNS(c echo.Context) error {
 
 // ConfigureDNS updates DNS servers via netplan configuration.
 // PUT /network/dns  body: { servers: ["8.8.8.8", "1.1.1.1"] }
-func (h *NetworkHandler) ConfigureDNS(c echo.Context) error {
+func (h *Handler) ConfigureDNS(c echo.Context) error {
 	var req struct {
 		Servers []string `json:"servers"`
 	}
@@ -352,7 +352,7 @@ func (h *NetworkHandler) ConfigureDNS(c echo.Context) error {
 }
 
 // GetRoutes returns the kernel routing table.
-func (h *NetworkHandler) GetRoutes(c echo.Context) error {
+func (h *Handler) GetRoutes(c echo.Context) error {
 	_, routes, _, _, err := cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to read routes: %v", err))
@@ -361,7 +361,7 @@ func (h *NetworkHandler) GetRoutes(c echo.Context) error {
 }
 
 // ListBonds returns only bond interfaces.
-func (h *NetworkHandler) ListBonds(c echo.Context) error {
+func (h *Handler) ListBonds(c echo.Context) error {
 	_, _, _, bonds, err := cachedNetworkStatus()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list bonds: %v", err))
@@ -370,7 +370,7 @@ func (h *NetworkHandler) ListBonds(c echo.Context) error {
 }
 
 // CreateBond adds a bond configuration to netplan.
-func (h *NetworkHandler) CreateBond(c echo.Context) error {
+func (h *Handler) CreateBond(c echo.Context) error {
 	var req CreateBondRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -393,7 +393,7 @@ func (h *NetworkHandler) CreateBond(c echo.Context) error {
 }
 
 // DeleteBond removes a bond from the netplan configuration.
-func (h *NetworkHandler) DeleteBond(c echo.Context) error {
+func (h *Handler) DeleteBond(c echo.Context) error {
 	name := c.Param("name")
 	if !validInterfaceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid bond name")

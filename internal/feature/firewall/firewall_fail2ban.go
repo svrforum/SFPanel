@@ -1,4 +1,4 @@
-package handlers
+package firewall
 
 import (
 	"fmt"
@@ -17,7 +17,7 @@ import (
 
 // GetFail2banStatus checks if fail2ban is installed and running.
 // GET /fail2ban/status
-func (h *FirewallHandler) GetFail2banStatus(c echo.Context) error {
+func (h *Handler) GetFail2banStatus(c echo.Context) error {
 	status := Fail2banStatus{}
 
 	// Check if fail2ban-client exists
@@ -44,7 +44,7 @@ func (h *FirewallHandler) GetFail2banStatus(c echo.Context) error {
 
 // InstallFail2ban installs fail2ban via apt and enables the service.
 // POST /fail2ban/install
-func (h *FirewallHandler) InstallFail2ban(c echo.Context) error {
+func (h *Handler) InstallFail2ban(c echo.Context) error {
 	// Step 1: apt-get update
 	_, err := runCommandEnv(aptEnv(), "apt-get", "update")
 	if err != nil {
@@ -76,7 +76,7 @@ func (h *FirewallHandler) InstallFail2ban(c echo.Context) error {
 
 // ListJails returns all fail2ban jails with their status.
 // GET /fail2ban/jails
-func (h *FirewallHandler) ListJails(c echo.Context) error {
+func (h *Handler) ListJails(c echo.Context) error {
 	output, err := runCommand("fail2ban-client", "status")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFail2banError,
@@ -214,7 +214,7 @@ func parseFail2banJailStatus(output string, jail Fail2banJail) Fail2banJail {
 
 // GetJailDetail returns detailed information for a specific fail2ban jail.
 // GET /fail2ban/jails/:name
-func (h *FirewallHandler) GetJailDetail(c echo.Context) error {
+func (h *Handler) GetJailDetail(c echo.Context) error {
 	name := c.Param("name")
 	if name == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
@@ -242,7 +242,7 @@ func (h *FirewallHandler) GetJailDetail(c echo.Context) error {
 
 // EnableJail starts a fail2ban jail.
 // POST /fail2ban/jails/:name/enable
-func (h *FirewallHandler) EnableJail(c echo.Context) error {
+func (h *Handler) EnableJail(c echo.Context) error {
 	name := c.Param("name")
 	if name == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
@@ -266,7 +266,7 @@ func (h *FirewallHandler) EnableJail(c echo.Context) error {
 
 // DisableJail stops a fail2ban jail.
 // POST /fail2ban/jails/:name/disable
-func (h *FirewallHandler) DisableJail(c echo.Context) error {
+func (h *Handler) DisableJail(c echo.Context) error {
 	name := c.Param("name")
 	if name == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
@@ -291,7 +291,7 @@ func (h *FirewallHandler) DisableJail(c echo.Context) error {
 // UpdateJailConfig updates the configuration (maxretry, bantime, findtime) for a fail2ban jail.
 // PUT /fail2ban/jails/:name/config
 // JSON body: { "max_retry": 5, "ban_time": "600", "find_time": "600" }
-func (h *FirewallHandler) UpdateJailConfig(c echo.Context) error {
+func (h *Handler) UpdateJailConfig(c echo.Context) error {
 	name := c.Param("name")
 	if name == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
@@ -390,7 +390,7 @@ func (h *FirewallHandler) UpdateJailConfig(c echo.Context) error {
 // UnbanIP removes a banned IP from a specific fail2ban jail.
 // POST /fail2ban/jails/:name/unban
 // JSON body: { "ip": "192.168.1.100" }
-func (h *FirewallHandler) UnbanIP(c echo.Context) error {
+func (h *Handler) UnbanIP(c echo.Context) error {
 	name := c.Param("name")
 	if name == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
@@ -497,7 +497,7 @@ var jailTemplates = []JailTemplate{
 
 // GetJailTemplates returns available jail templates with availability status.
 // GET /fail2ban/templates
-func (h *FirewallHandler) GetJailTemplates(c echo.Context) error {
+func (h *Handler) GetJailTemplates(c echo.Context) error {
 	// Get currently active jails
 	output, _ := runCommand("fail2ban-client", "status")
 	activeJails := make(map[string]bool)
@@ -546,7 +546,7 @@ var validIgnoreIP = regexp.MustCompile(`^[a-fA-F0-9.:/ ]+$`)
 
 // CreateJail creates a new fail2ban jail from a template or custom config.
 // POST /fail2ban/jails
-func (h *FirewallHandler) CreateJail(c echo.Context) error {
+func (h *Handler) CreateJail(c echo.Context) error {
 	var req CreateJailRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -684,7 +684,7 @@ findtime = %d
 
 // DeleteJail removes a fail2ban jail by deleting its config file and reloading.
 // DELETE /fail2ban/jails/:name
-func (h *FirewallHandler) DeleteJail(c echo.Context) error {
+func (h *Handler) DeleteJail(c echo.Context) error {
 	name := c.Param("name")
 	if name == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")

@@ -1,4 +1,4 @@
-package handlers
+package firewall
 
 import (
 	"net"
@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// FirewallHandler exposes REST handlers for UFW firewall and Fail2ban management.
-type FirewallHandler struct{}
+// Handler exposes REST handlers for UFW firewall and Fail2ban management.
+type Handler struct{}
 
 // ---------- Types ----------
 

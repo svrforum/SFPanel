@@ -1,4 +1,4 @@
-package handlers
+package firewall
 
 import (
 	"fmt"
@@ -15,7 +15,7 @@ import (
 
 // GetUFWStatus returns the current UFW status including active state and default policies.
 // GET /firewall/status
-func (h *FirewallHandler) GetUFWStatus(c echo.Context) error {
+func (h *Handler) GetUFWStatus(c echo.Context) error {
 	if !commandExists("ufw") {
 		return response.OK(c, UFWStatus{})
 	}
@@ -70,7 +70,7 @@ func parseUFWStatus(output string) UFWStatus {
 
 // EnableUFW enables the UFW firewall.
 // POST /firewall/enable
-func (h *FirewallHandler) EnableUFW(c echo.Context) error {
+func (h *Handler) EnableUFW(c echo.Context) error {
 	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "--force", "enable")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWEnableError,
@@ -85,7 +85,7 @@ func (h *FirewallHandler) EnableUFW(c echo.Context) error {
 
 // DisableUFW disables the UFW firewall.
 // POST /firewall/disable
-func (h *FirewallHandler) DisableUFW(c echo.Context) error {
+func (h *Handler) DisableUFW(c echo.Context) error {
 	output, err := runCommandEnv([]string{"LANG=C"}, "ufw", "disable")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWDisableError,
@@ -100,7 +100,7 @@ func (h *FirewallHandler) DisableUFW(c echo.Context) error {
 
 // ListRules returns all current UFW rules with their numbers.
 // GET /firewall/rules
-func (h *FirewallHandler) ListRules(c echo.Context) error {
+func (h *Handler) ListRules(c echo.Context) error {
 	if !commandExists("ufw") {
 		return response.OK(c, map[string]interface{}{
 			"rules": []UFWRule{},
@@ -200,7 +200,7 @@ func parseUFWRules(output string) []UFWRule {
 // AddRule adds a new UFW firewall rule.
 // POST /firewall/rules
 // JSON body: { "action": "allow", "port": "22", "protocol": "tcp", "from": "any", "to": "", "comment": "SSH" }
-func (h *FirewallHandler) AddRule(c echo.Context) error {
+func (h *Handler) AddRule(c echo.Context) error {
 	var req AddRuleRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -313,7 +313,7 @@ func buildUFWAddArgs(req AddRuleRequest) []string {
 
 // DeleteRule deletes a UFW rule by its number.
 // DELETE /firewall/rules/:number
-func (h *FirewallHandler) DeleteRule(c echo.Context) error {
+func (h *Handler) DeleteRule(c echo.Context) error {
 	numberStr := c.Param("number")
 	number, err := strconv.Atoi(numberStr)
 	if err != nil || number < 1 {
@@ -337,7 +337,7 @@ func (h *FirewallHandler) DeleteRule(c echo.Context) error {
 
 // ListPorts returns all listening TCP and UDP ports on the system.
 // GET /firewall/ports
-func (h *FirewallHandler) ListPorts(c echo.Context) error {
+func (h *Handler) ListPorts(c echo.Context) error {
 	// Get TCP listening ports
 	tcpOutput, err := runCommand("ss", "-tlnp")
 	if err != nil {
