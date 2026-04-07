@@ -13,6 +13,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"database/sql"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -159,6 +160,24 @@ func main() {
 			}
 			defer grpcServer.Stop()
 			middleware.SetClusterProxySecret(grpcServer.ProxySecret())
+
+			// Sync local admin account to cluster FSM (leader only, best-effort)
+			go func() {
+				time.Sleep(5 * time.Second) // wait for leader election
+				var username, passwordHash string
+				var totpSecret sql.NullString
+				if err := database.QueryRow("SELECT username, password, totp_secret FROM admin LIMIT 1").Scan(&username, &passwordHash, &totpSecret); err == nil {
+					totp := ""
+					if totpSecret.Valid {
+						totp = totpSecret.String
+					}
+					if syncErr := clusterMgr.SyncAccountFromDB(username, passwordHash, totp); syncErr != nil {
+						slog.Debug("account cluster sync skipped (not leader or already synced)", "error", syncErr)
+					} else {
+						slog.Info("synced local admin account to cluster", "component", "cluster", "username", username)
+					}
+				}
+			}()
 		}
 	}
 	// Start background metrics history collector (30s interval, 24h retention, persisted to SQLite)

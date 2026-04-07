@@ -35,9 +35,10 @@ type Node struct {
 
 // ClusterState holds the full cluster state managed by Raft FSM.
 type ClusterState struct {
-	Name   string            `json:"name"`
-	Nodes  map[string]*Node  `json:"nodes"`
-	Config map[string]string `json:"config"`
+	Name     string                   `json:"name"`
+	Nodes    map[string]*Node         `json:"nodes"`
+	Config   map[string]string        `json:"config"`
+	Accounts map[string]*AdminAccount `json:"accounts,omitempty"`
 }
 
 // JoinToken is a time-limited, single-use token for node joining.

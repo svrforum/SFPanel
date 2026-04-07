@@ -2,6 +2,7 @@ package featureauth
 
 import (
 	"database/sql"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
 )
 
@@ -33,8 +35,9 @@ const (
 )
 
 type Handler struct {
-	DB     *sql.DB
-	Config *config.Config
+	DB         *sql.DB
+	Config     *config.Config
+	ClusterMgr *cluster.Manager // nil when cluster not active
 }
 
 type loginRequest struct {
@@ -84,19 +87,29 @@ func (h *Handler) Login(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Username and password are required")
 	}
 
-	var id int
 	var passwordHash string
-	var totpSecret sql.NullString
-	err := h.DB.QueryRow(
-		"SELECT id, password, totp_secret FROM admin WHERE username = ?",
-		req.Username,
-	).Scan(&id, &passwordHash, &totpSecret)
-	if err == sql.ErrNoRows {
-		recordFailedLogin(ip)
-		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials, "Invalid username or password")
-	}
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
+	var totpSecretStr string
+
+	// Try cluster FSM first, fallback to local DB
+	if acct := h.getClusterAccount(req.Username); acct != nil {
+		passwordHash = acct.Password
+		totpSecretStr = acct.TOTPSecret
+	} else {
+		var totpSecret sql.NullString
+		err := h.DB.QueryRow(
+			"SELECT id, password, totp_secret FROM admin WHERE username = ?",
+			req.Username,
+		).Scan(new(int), &passwordHash, &totpSecret)
+		if err == sql.ErrNoRows {
+			recordFailedLogin(ip)
+			return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials, "Invalid username or password")
+		}
+		if err != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
+		}
+		if totpSecret.Valid {
+			totpSecretStr = totpSecret.String
+		}
 	}
 
 	if !auth.CheckPassword(req.Password, passwordHash) {
@@ -104,11 +117,11 @@ func (h *Handler) Login(c echo.Context) error {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials, "Invalid username or password")
 	}
 
-	if totpSecret.Valid && totpSecret.String != "" {
+	if totpSecretStr != "" {
 		if req.TOTPCode == "" {
 			return response.Fail(c, http.StatusBadRequest, response.ErrTOTPRequired, "2FA code is required")
 		}
-		if !auth.ValidateCode(totpSecret.String, req.TOTPCode) {
+		if !auth.ValidateCode(totpSecretStr, req.TOTPCode) {
 			return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidTOTP, "Invalid 2FA code")
 		}
 	}
@@ -190,6 +203,8 @@ func (h *Handler) Verify2FA(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to save 2FA secret")
 	}
 
+	h.syncAccountToCluster(username)
+
 	return response.OK(c, map[string]string{"message": "2FA enabled successfully"})
 }
 
@@ -243,6 +258,8 @@ func (h *Handler) Disable2FA(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to disable 2FA")
 	}
 
+	h.syncAccountToCluster(username)
+
 	return response.OK(c, map[string]string{"message": "2FA disabled successfully"})
 }
 
@@ -287,6 +304,9 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to update password")
 	}
+
+	// Sync to cluster
+	h.syncAccountToCluster(username)
 
 	return response.OK(c, map[string]string{"message": "Password changed successfully"})
 }
@@ -359,6 +379,9 @@ func (h *Handler) SetupAdmin(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to create admin account")
 	}
 
+	// Sync new account to cluster
+	h.syncAccountToCluster(req.Username)
+
 	expiry, err := time.ParseDuration(h.Config.Auth.TokenExpiry)
 	if err != nil {
 		expiry = 24 * time.Hour
@@ -370,4 +393,37 @@ func (h *Handler) SetupAdmin(c echo.Context) error {
 	}
 
 	return response.OK(c, map[string]string{"token": token})
+}
+
+// getClusterAccount returns an account from the cluster FSM, or nil if cluster is not active.
+func (h *Handler) getClusterAccount(username string) *cluster.AdminAccount {
+	if h.ClusterMgr == nil {
+		return nil
+	}
+	return h.ClusterMgr.GetAccount(username)
+}
+
+// syncAccountToCluster reads the account from local DB and proposes it to Raft.
+// Best-effort: logs errors but does not fail the parent operation.
+func (h *Handler) syncAccountToCluster(username string) {
+	if h.ClusterMgr == nil {
+		return
+	}
+
+	var passwordHash string
+	var totpSecret sql.NullString
+	err := h.DB.QueryRow("SELECT password, totp_secret FROM admin WHERE username = ?", username).Scan(&passwordHash, &totpSecret)
+	if err != nil {
+		slog.Warn("failed to read account for cluster sync", "username", username, "error", err)
+		return
+	}
+
+	totp := ""
+	if totpSecret.Valid {
+		totp = totpSecret.String
+	}
+
+	if err := h.ClusterMgr.SyncAccountFromDB(username, passwordHash, totp); err != nil {
+		slog.Warn("failed to sync account to cluster", "username", username, "error", err)
+	}
 }

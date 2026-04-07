@@ -14,12 +14,22 @@ import (
 type CommandType uint8
 
 const (
-	CmdAddNode    CommandType = iota + 1
+	CmdAddNode       CommandType = iota + 1
 	CmdRemoveNode
 	CmdUpdateNode
 	CmdSetConfig
 	CmdDeleteConfig
+	CmdSetAccount
+	CmdDeleteAccount
 )
+
+// AdminAccount represents a cluster-synced user account.
+type AdminAccount struct {
+	Username   string `json:"username"`
+	Password   string `json:"password"`     // bcrypt hash
+	TOTPSecret string `json:"totp_secret"`  // base32-encoded, empty if not set
+	UpdatedAt  int64  `json:"updated_at"`   // unix timestamp
+}
 
 // Command is the payload applied to the Raft FSM.
 type Command struct {
@@ -37,8 +47,9 @@ type FSM struct {
 func NewFSM() *FSM {
 	return &FSM{
 		state: ClusterState{
-			Nodes:  make(map[string]*Node),
-			Config: make(map[string]string),
+			Nodes:    make(map[string]*Node),
+			Config:   make(map[string]string),
+			Accounts: make(map[string]*AdminAccount),
 		},
 	}
 }
@@ -103,6 +114,23 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 		delete(f.state.Config, cmd.Key)
 		return nil
 
+	case CmdSetAccount:
+		var acct AdminAccount
+		if err := json.Unmarshal(cmd.Value, &acct); err != nil {
+			return err
+		}
+		if f.state.Accounts == nil {
+			f.state.Accounts = make(map[string]*AdminAccount)
+		}
+		f.state.Accounts[acct.Username] = &acct
+		return nil
+
+	case CmdDeleteAccount:
+		if f.state.Accounts != nil {
+			delete(f.state.Accounts, cmd.Key)
+		}
+		return nil
+
 	default:
 		return fmt.Errorf("unknown command type: %d", cmd.Type)
 	}
@@ -149,10 +177,16 @@ func (f *FSM) GetState() ClusterState {
 	for k, v := range f.state.Config {
 		config[k] = v
 	}
+	accounts := make(map[string]*AdminAccount, len(f.state.Accounts))
+	for k, v := range f.state.Accounts {
+		a := *v
+		accounts[k] = &a
+	}
 	return ClusterState{
-		Name:   f.state.Name,
-		Nodes:  nodes,
-		Config: config,
+		Name:     f.state.Name,
+		Nodes:    nodes,
+		Config:   config,
+		Accounts: accounts,
 	}
 }
 
@@ -163,6 +197,18 @@ func (f *FSM) GetNode(id string) *Node {
 
 	if n, ok := f.state.Nodes[id]; ok {
 		copy := *n
+		return &copy
+	}
+	return nil
+}
+
+// GetAccount returns a specific account, or nil.
+func (f *FSM) GetAccount(username string) *AdminAccount {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	if a, ok := f.state.Accounts[username]; ok {
+		copy := *a
 		return &copy
 	}
 	return nil
