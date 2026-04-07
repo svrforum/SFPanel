@@ -3,7 +3,6 @@ package services
 import (
 	"fmt"
 	"net/http"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -12,11 +11,14 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 var validServiceName = regexp.MustCompile(`^[a-zA-Z0-9@._:-]+\.service$`)
 
-type Handler struct{}
+type Handler struct {
+	Cmd exec.Commander
+}
 
 type ServiceInfo struct {
 	Name        string `json:"name"`
@@ -44,7 +46,7 @@ const serviceCacheTTL = 3 * time.Second
 // ListServices returns all systemd services.
 // GET /system/services
 func (h *Handler) ListServices(c echo.Context) error {
-	services, err := getCachedServices()
+	services, err := getCachedServices(h.Cmd)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrServiceError, "Failed to list services")
 	}
@@ -63,9 +65,9 @@ func (h *Handler) StartService(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
 
-	if out, err := exec.Command("systemctl", "start", name).CombinedOutput(); err != nil {
+	if out, err := h.Cmd.Run("systemctl", "start", name); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrStartFailed,
-			fmt.Sprintf("Failed to start %s: %s", name, strings.TrimSpace(string(out))))
+			fmt.Sprintf("Failed to start %s: %s", name, strings.TrimSpace(out)))
 	}
 
 	invalidateServiceCache()
@@ -80,9 +82,9 @@ func (h *Handler) StopService(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
 
-	if out, err := exec.Command("systemctl", "stop", name).CombinedOutput(); err != nil {
+	if out, err := h.Cmd.Run("systemctl", "stop", name); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrStopFailed,
-			fmt.Sprintf("Failed to stop %s: %s", name, strings.TrimSpace(string(out))))
+			fmt.Sprintf("Failed to stop %s: %s", name, strings.TrimSpace(out)))
 	}
 
 	invalidateServiceCache()
@@ -97,9 +99,9 @@ func (h *Handler) RestartService(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
 
-	if out, err := exec.Command("systemctl", "restart", name).CombinedOutput(); err != nil {
+	if out, err := h.Cmd.Run("systemctl", "restart", name); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRestartFailed,
-			fmt.Sprintf("Failed to restart %s: %s", name, strings.TrimSpace(string(out))))
+			fmt.Sprintf("Failed to restart %s: %s", name, strings.TrimSpace(out)))
 	}
 
 	invalidateServiceCache()
@@ -114,9 +116,9 @@ func (h *Handler) EnableService(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
 
-	if out, err := exec.Command("systemctl", "enable", name).CombinedOutput(); err != nil {
+	if out, err := h.Cmd.Run("systemctl", "enable", name); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrEnableFailed,
-			fmt.Sprintf("Failed to enable %s: %s", name, strings.TrimSpace(string(out))))
+			fmt.Sprintf("Failed to enable %s: %s", name, strings.TrimSpace(out)))
 	}
 
 	invalidateServiceCache()
@@ -131,9 +133,9 @@ func (h *Handler) DisableService(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
 
-	if out, err := exec.Command("systemctl", "disable", name).CombinedOutput(); err != nil {
+	if out, err := h.Cmd.Run("systemctl", "disable", name); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDisableFailed,
-			fmt.Sprintf("Failed to disable %s: %s", name, strings.TrimSpace(string(out))))
+			fmt.Sprintf("Failed to disable %s: %s", name, strings.TrimSpace(out)))
 	}
 
 	invalidateServiceCache()
@@ -158,13 +160,13 @@ func (h *Handler) ServiceLogs(c echo.Context) error {
 		}
 	}
 
-	out, err := exec.Command("journalctl", "-u", name, "--no-pager", "-n", strconv.Itoa(lines), "--output=short-iso").Output()
+	out, err := h.Cmd.Run("journalctl", "-u", name, "--no-pager", "-n", strconv.Itoa(lines), "--output=short-iso")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLogError,
 			fmt.Sprintf("Failed to read logs for %s", name))
 	}
 
-	return response.OK(c, map[string]string{"logs": string(out)})
+	return response.OK(c, map[string]string{"logs": out})
 }
 
 // GetServiceDeps returns dependency information for a systemd service.
@@ -175,14 +177,14 @@ func (h *Handler) GetServiceDeps(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
 
-	out, err := exec.Command("systemctl", "show", name, "--property=Requires,RequiredBy,WantedBy").Output()
+	out, err := h.Cmd.Run("systemctl", "show", name, "--property=Requires,RequiredBy,WantedBy")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrServiceError,
 			fmt.Sprintf("Failed to get dependencies for %s", name))
 	}
 
 	deps := ServiceDeps{}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
 			continue
@@ -224,7 +226,7 @@ func filterDeps(items []string) []string {
 	return result
 }
 
-func getCachedServices() ([]ServiceInfo, error) {
+func getCachedServices(cmd exec.Commander) ([]ServiceInfo, error) {
 	serviceCache.RLock()
 	if time.Since(serviceCache.fetched) < serviceCacheTTL && serviceCache.services != nil {
 		result := make([]ServiceInfo, len(serviceCache.services))
@@ -243,7 +245,7 @@ func getCachedServices() ([]ServiceInfo, error) {
 		return result, nil
 	}
 
-	svcs, err := fetchAllServices()
+	svcs, err := fetchAllServices(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -262,16 +264,16 @@ func invalidateServiceCache() {
 	serviceCache.Unlock()
 }
 
-func fetchAllServices() ([]ServiceInfo, error) {
-	out, err := exec.Command("systemctl", "list-units", "--type=service", "--all", "--no-pager", "--plain", "--no-legend").Output()
+func fetchAllServices(cmd exec.Commander) ([]ServiceInfo, error) {
+	out, err := cmd.Run("systemctl", "list-units", "--type=service", "--all", "--no-pager", "--plain", "--no-legend")
 	if err != nil {
 		return nil, err
 	}
 
-	enabledMap := getEnabledStates()
+	enabledMap := getEnabledStates(cmd)
 
 	var svcs []ServiceInfo
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if line == "" {
 			continue
 		}
@@ -308,14 +310,14 @@ func fetchAllServices() ([]ServiceInfo, error) {
 	return svcs, nil
 }
 
-func getEnabledStates() map[string]string {
-	out, err := exec.Command("systemctl", "list-unit-files", "--type=service", "--no-pager", "--no-legend").Output()
+func getEnabledStates(cmd exec.Commander) map[string]string {
+	out, err := cmd.Run("systemctl", "list-unit-files", "--type=service", "--no-pager", "--no-legend")
 	if err != nil {
 		return nil
 	}
 
 	result := make(map[string]string)
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if line == "" {
 			continue
 		}

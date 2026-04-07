@@ -1,12 +1,10 @@
 package system
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -18,6 +16,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 const (
@@ -27,7 +26,9 @@ const (
 )
 
 // TuningHandler exposes REST handlers for system kernel parameter tuning.
-type TuningHandler struct{}
+type TuningHandler struct {
+	Cmd commonExec.Commander
+}
 
 // rollbackState holds the state for auto-rollback on unconfirmed changes.
 var (
@@ -37,6 +38,7 @@ var (
 	rollbackConfFile []byte
 	rollbackHadFile  bool
 	rollbackDeadline time.Time
+	rollbackCmd      commonExec.Commander
 )
 
 // TuningParam represents a single sysctl parameter with current and recommended values.
@@ -67,20 +69,12 @@ type TuningSystemInfo struct {
 
 // ---------- Helpers ----------
 
-func runTuningCommand(name string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, name, args...)
-	out, err := cmd.CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded {
-		return string(out), fmt.Errorf("command timed out after %s", commandTimeout)
-	}
-	return string(out), err
+func runTuningCommand(cmd commonExec.Commander, name string, args ...string) (string, error) {
+	return cmd.RunWithTimeout(commandTimeout, name, args...)
 }
 
-func readSysctl(key string) string {
-	out, err := runTuningCommand("sysctl", "-n", key)
+func readSysctl(cmd commonExec.Commander, key string) string {
+	out, err := runTuningCommand(cmd, "sysctl", "-n", key)
 	if err != nil {
 		return ""
 	}
@@ -123,7 +117,7 @@ func (h *TuningHandler) GetTuningStatus(c echo.Context) error {
 	for i, cat := range categories {
 		applied := 0
 		for j, p := range cat.Params {
-			current := readSysctl(p.Key)
+			current := readSysctl(h.Cmd, p.Key)
 			categories[i].Params[j].Current = current
 			categories[i].Params[j].Applied = configuredKeys[p.Key]
 			if categories[i].Params[j].Applied {
@@ -156,7 +150,7 @@ func (h *TuningHandler) GetTuningStatus(c echo.Context) error {
 		"system_info": TuningSystemInfo{
 			CPUCores: cpuCores,
 			TotalRAM: totalRAM,
-			Kernel:   readSysctl("kernel.osrelease"),
+			Kernel:   readSysctl(h.Cmd, "kernel.osrelease"),
 		},
 	})
 }
@@ -200,7 +194,7 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 			continue
 		}
 		for _, p := range cat.Params {
-			preApplyValues[p.Key] = readSysctl(p.Key)
+			preApplyValues[p.Key] = readSysctl(h.Cmd, p.Key)
 		}
 	}
 
@@ -258,7 +252,7 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 			"Failed to write config: "+err.Error())
 	}
 
-	output, err := runTuningCommand("sysctl", "-p", sysctlConfPath)
+	output, err := runTuningCommand(h.Cmd, "sysctl", "-p", sysctlConfPath)
 	if err != nil {
 		if preApplyHadFile {
 			_ = os.WriteFile(sysctlConfPath, preApplyConfFile, 0644)
@@ -272,6 +266,7 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 	rollbackValues = preApplyValues
 	rollbackConfFile = preApplyConfFile
 	rollbackHadFile = preApplyHadFile
+	rollbackCmd = h.Cmd
 	rollbackDeadline = time.Now().Add(rollbackTimeout * time.Second)
 	rollbackTimer = time.AfterFunc(rollbackTimeout*time.Second, performRollback)
 
@@ -293,7 +288,7 @@ func performRollback() {
 	log.Println("[tuning] Auto-rollback: no confirmation received, reverting changes")
 
 	for key, val := range rollbackValues {
-		if _, err := runTuningCommand("sysctl", "-w", key+"="+val); err != nil {
+		if _, err := runTuningCommand(rollbackCmd, "sysctl", "-w", key+"="+val); err != nil {
 			log.Printf("[tuning] Rollback failed for %s: %v", key, err)
 		}
 	}
@@ -310,6 +305,7 @@ func performRollback() {
 
 	rollbackValues = nil
 	rollbackConfFile = nil
+	rollbackCmd = nil
 	rollbackTimer = nil
 	log.Println("[tuning] Auto-rollback completed")
 }
@@ -362,7 +358,7 @@ func (h *TuningHandler) ResetTuning(c echo.Context) error {
 			"Failed to remove config: "+err.Error())
 	}
 
-	_, _ = runTuningCommand("sysctl", "--system")
+	_, _ = runTuningCommand(h.Cmd, "sysctl", "--system")
 
 	return response.OK(c, map[string]interface{}{
 		"message": "Tuning reset to system defaults",

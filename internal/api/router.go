@@ -13,6 +13,7 @@ import (
 	echoMw "github.com/labstack/echo/v4/middleware"
 	mw "github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/cluster"
+	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/docker"
 	featureAudit "github.com/svrforum/SFPanel/internal/feature/audit"
@@ -54,6 +55,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		AllowHeaders: []string{"Authorization", "Content-Type"},
 	}))
 
+	cmd := commonExec.NewCommander()
+
 	authHandler := &featureAuth.Handler{DB: database, Config: cfg}
 	dashboardHandler := &featureMonitor.Handler{Version: version}
 
@@ -66,6 +69,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		DBPath:      cfg.Database.Path,
 		ConfigPath:  cfgPath,
 		ComposePath: "/opt/stacks",
+		Cmd:         cmd,
 	}
 
 	// Initialize Docker client
@@ -114,7 +118,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 
 	// System management (update, backup, restore)
 	// System tuning
-	tuningHandler := &featureSystem.TuningHandler{}
+	tuningHandler := &featureSystem.TuningHandler{Cmd: cmd}
 	authorized.GET("/system/tuning", tuningHandler.GetTuningStatus)
 	authorized.POST("/system/tuning/apply", tuningHandler.ApplyTuning)
 	authorized.POST("/system/tuning/confirm", tuningHandler.ConfirmTuning)
@@ -164,7 +168,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.POST("/system/processes/:pid/kill", processesHandler.KillProcess)
 
 	// Systemd services
-	servicesHandler := &featureServices.Handler{}
+	servicesHandler := &featureServices.Handler{Cmd: cmd}
 	authorized.GET("/system/services", servicesHandler.ListServices)
 	authorized.POST("/system/services/:name/start", servicesHandler.StartService)
 	authorized.POST("/system/services/:name/stop", servicesHandler.StopService)
@@ -187,7 +191,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	files.POST("/upload", filesHandler.UploadFile)
 
 	// Cron job management routes
-	cronHandler := &featureCron.Handler{}
+	cronHandler := &featureCron.Handler{Cmd: cmd}
 	cron := authorized.Group("/cron")
 	cron.GET("", cronHandler.ListJobs)
 	cron.POST("", cronHandler.CreateJob)

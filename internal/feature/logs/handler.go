@@ -348,6 +348,7 @@ func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 		// Start tail -F to follow the log file, optionally piped through grep.
 		// -F (uppercase) follows the filename, so logrotate is handled automatically.
 		// #nosec G204 — info.Path and info.Filter are from the hardcoded allowlist.
+		// Streaming command — cannot use Commander (needs live stdout pipe)
 		tailCmd := exec.Command("tail", "-F", info.Path)
 
 		var cmd *exec.Cmd

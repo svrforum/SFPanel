@@ -3,13 +3,13 @@ package cron
 import (
 	"fmt"
 	"net/http"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // CronJob represents a single entry in the system crontab.
@@ -23,7 +23,9 @@ type CronJob struct {
 }
 
 // Handler exposes REST handlers for system crontab management.
-type Handler struct{}
+type Handler struct {
+	Cmd exec.Commander
+}
 
 // predefinedSchedules contains the special cron schedule keywords.
 var predefinedSchedules = map[string]bool{
@@ -42,7 +44,7 @@ var envLinePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 
 // ListJobs returns all entries from the root crontab.
 func (h *Handler) ListJobs(c echo.Context) error {
-	content, err := readCrontab()
+	content, err := readCrontab(h.Cmd)
 	if err != nil {
 		// crontab -l returns exit code 1 when no crontab is installed,
 		// or crontab binary may not exist on the system
@@ -85,7 +87,7 @@ func (h *Handler) CreateJob(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSchedule, "Invalid cron schedule format")
 	}
 
-	content, err := readCrontab()
+	content, err := readCrontab(h.Cmd)
 	if err != nil {
 		// If there is no existing crontab, start with an empty one
 		if strings.Contains(err.Error(), "no crontab for") {
@@ -103,7 +105,7 @@ func (h *Handler) CreateJob(c echo.Context) error {
 	}
 	content += newLine + "\n"
 
-	if err := writeCrontab(content); err != nil {
+	if err := writeCrontab(h.Cmd, content); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to write crontab: "+err.Error())
 	}
 
@@ -140,7 +142,7 @@ func (h *Handler) UpdateJob(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSchedule, "Invalid cron schedule format")
 	}
 
-	content, err := readCrontab()
+	content, err := readCrontab(h.Cmd)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+err.Error())
 	}
@@ -166,7 +168,7 @@ func (h *Handler) UpdateJob(c echo.Context) error {
 
 	lines[id] = newLine
 
-	if err := writeCrontab(strings.Join(lines, "\n") + "\n"); err != nil {
+	if err := writeCrontab(h.Cmd, strings.Join(lines, "\n")+"\n"); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to write crontab: "+err.Error())
 	}
 
@@ -180,7 +182,7 @@ func (h *Handler) DeleteJob(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid job ID")
 	}
 
-	content, err := readCrontab()
+	content, err := readCrontab(h.Cmd)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+err.Error())
 	}
@@ -197,7 +199,7 @@ func (h *Handler) DeleteJob(c echo.Context) error {
 
 	lines = append(lines[:id], lines[id+1:]...)
 
-	if err := writeCrontab(strings.Join(lines, "\n") + "\n"); err != nil {
+	if err := writeCrontab(h.Cmd, strings.Join(lines, "\n")+"\n"); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to write crontab: "+err.Error())
 	}
 
@@ -205,22 +207,19 @@ func (h *Handler) DeleteJob(c echo.Context) error {
 }
 
 // readCrontab executes `crontab -l` and returns its output.
-func readCrontab() (string, error) {
-	cmd := exec.Command("crontab", "-l")
-	out, err := cmd.CombinedOutput()
+func readCrontab(cmd exec.Commander) (string, error) {
+	out, err := cmd.Run("crontab", "-l")
 	if err != nil {
-		return "", fmt.Errorf("%s: %s", err.Error(), strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("%s: %s", err.Error(), strings.TrimSpace(out))
 	}
-	return string(out), nil
+	return out, nil
 }
 
 // writeCrontab writes the given content to the crontab via `crontab -` (stdin).
-func writeCrontab(content string) error {
-	cmd := exec.Command("crontab", "-")
-	cmd.Stdin = strings.NewReader(content)
-	out, err := cmd.CombinedOutput()
+func writeCrontab(cmd exec.Commander, content string) error {
+	out, err := cmd.RunWithInput(content, "crontab", "-")
 	if err != nil {
-		return fmt.Errorf("%s: %s", err.Error(), strings.TrimSpace(string(out)))
+		return fmt.Errorf("%s: %s", err.Error(), strings.TrimSpace(out))
 	}
 	return nil
 }

@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+
+	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -27,6 +29,7 @@ type Handler struct {
 	DBPath      string
 	ConfigPath  string
 	ComposePath string
+	Cmd         commonExec.Commander
 }
 
 type GitHubRelease struct {
@@ -237,7 +240,8 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 
 	// Restart
 	sendEvent("restarting", "Restarting service...")
-	if err := exec.Command("systemctl", "is-active", "--quiet", "sfpanel").Run(); err == nil {
+	if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
+		// Use exec.Command.Start() to restart without blocking — the current process will be replaced.
 		_ = exec.Command("systemctl", "restart", "sfpanel").Start()
 	}
 
@@ -406,7 +410,8 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 		}
 	}
 
-	if err := exec.Command("systemctl", "is-active", "--quiet", "sfpanel").Run(); err == nil {
+	if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
+		// Use exec.Command.Start() to restart without blocking — the current process will be replaced.
 		_ = exec.Command("systemctl", "restart", "sfpanel").Start()
 	}
 
