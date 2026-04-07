@@ -1,4 +1,4 @@
-package handlers
+package disk
 
 import (
 	"encoding/json"
@@ -80,13 +80,13 @@ func getCachedDiskData() ([]BlockDevice, []IOStat, error) {
 // ---------- 0. Tool Status ----------
 
 // CheckSmartmontools reports whether smartctl (smartmontools) is installed.
-func (h *DiskHandler) CheckSmartmontools(c echo.Context) error {
+func (h *Handler) CheckSmartmontools(c echo.Context) error {
 	installed := commandExists("smartctl")
 	return response.OK(c, map[string]bool{"installed": installed})
 }
 
 // InstallSmartmontools installs smartmontools via apt.
-func (h *DiskHandler) InstallSmartmontools(c echo.Context) error {
+func (h *Handler) InstallSmartmontools(c echo.Context) error {
 	out, err := exec.Command("apt-get", "install", "-y", "smartmontools").CombinedOutput()
 	output := strings.TrimSpace(string(out))
 	if err != nil {
@@ -102,7 +102,7 @@ func (h *DiskHandler) InstallSmartmontools(c echo.Context) error {
 // ---------- 1. Overview ----------
 
 // ListDisks returns all block devices with their hierarchy.
-func (h *DiskHandler) ListDisks(c echo.Context) error {
+func (h *Handler) ListDisks(c echo.Context) error {
 	devices, _, err := getCachedDiskData()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError, err.Error())
@@ -227,7 +227,7 @@ func convertLsblkDevice(d lsblkDevice) BlockDevice {
 // ---------- 2. S.M.A.R.T. ----------
 
 // GetSmartInfo returns S.M.A.R.T. data for a specific disk device.
-func (h *DiskHandler) GetSmartInfo(c echo.Context) error {
+func (h *Handler) GetSmartInfo(c echo.Context) error {
 	device := c.Param("device")
 	if err := validateDeviceName(device); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())

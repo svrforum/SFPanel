@@ -1,4 +1,4 @@
-package handlers
+package disk
 
 import (
 	"bufio"
@@ -18,7 +18,7 @@ import (
 // ---------- 7. Swap ----------
 
 // GetSwapInfo returns swap information including entries and system totals.
-func (h *DiskHandler) GetSwapInfo(c echo.Context) error {
+func (h *Handler) GetSwapInfo(c echo.Context) error {
 	info := SwapInfo{
 		Entries: []SwapEntry{},
 	}
@@ -107,7 +107,7 @@ func parseSwapFromMeminfo(data string) (total, used, free int64) {
 }
 
 // CreateSwap creates a new swap area (file-based or partition-based).
-func (h *DiskHandler) CreateSwap(c echo.Context) error {
+func (h *Handler) CreateSwap(c echo.Context) error {
 	var req CreateSwapRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -193,7 +193,7 @@ func (h *DiskHandler) CreateSwap(c echo.Context) error {
 }
 
 // RemoveSwap disables a swap area.
-func (h *DiskHandler) RemoveSwap(c echo.Context) error {
+func (h *Handler) RemoveSwap(c echo.Context) error {
 	var req RemoveSwapRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -215,7 +215,7 @@ func (h *DiskHandler) RemoveSwap(c echo.Context) error {
 }
 
 // SetSwappiness sets the vm.swappiness kernel parameter.
-func (h *DiskHandler) SetSwappiness(c echo.Context) error {
+func (h *Handler) SetSwappiness(c echo.Context) error {
 	var req SetSwappinessRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -240,7 +240,7 @@ func (h *DiskHandler) SetSwappiness(c echo.Context) error {
 
 // CheckSwapResize returns constraints for resizing a swap file
 // (available disk space, RAM, current swap usage).
-func (h *DiskHandler) CheckSwapResize(c echo.Context) error {
+func (h *Handler) CheckSwapResize(c echo.Context) error {
 	path := c.QueryParam("path")
 	if path == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingPath, "path query param required")
@@ -308,9 +308,9 @@ func (h *DiskHandler) CheckSwapResize(c echo.Context) error {
 	})
 }
 
-// ResizeSwap resizes a file-based swap area (swapoff → dd resize → mkswap → swapon).
+// ResizeSwap resizes a file-based swap area (swapoff -> dd resize -> mkswap -> swapon).
 // Returns step-by-step results.
-func (h *DiskHandler) ResizeSwap(c echo.Context) error {
+func (h *Handler) ResizeSwap(c echo.Context) error {
 	var req ResizeSwapRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -400,7 +400,7 @@ func (h *DiskHandler) ResizeSwap(c echo.Context) error {
 // ---------- 8. I/O Stats ----------
 
 // GetIOStats returns I/O statistics for all block devices from /proc/diskstats.
-func (h *DiskHandler) GetIOStats(c echo.Context) error {
+func (h *Handler) GetIOStats(c echo.Context) error {
 	_, iostats, err := getCachedDiskData()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrIOError, err.Error())
@@ -489,7 +489,7 @@ func parseDiskStats(data string) ([]IOStat, error) {
 // ---------- 9. Disk Usage ----------
 
 // GetDiskUsage returns disk usage for a given path with configurable depth.
-func (h *DiskHandler) GetDiskUsage(c echo.Context) error {
+func (h *Handler) GetDiskUsage(c echo.Context) error {
 	var req DiskUsageRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")

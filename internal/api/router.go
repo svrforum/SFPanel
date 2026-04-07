@@ -21,6 +21,7 @@ import (
 	featureNetwork "github.com/svrforum/SFPanel/internal/feature/network"
 	featurePackages "github.com/svrforum/SFPanel/internal/feature/packages"
 	featureProcess "github.com/svrforum/SFPanel/internal/feature/process"
+	featureDisk "github.com/svrforum/SFPanel/internal/feature/disk"
 	featureServices "github.com/svrforum/SFPanel/internal/feature/services"
 )
 
@@ -231,7 +232,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	ts.GET("/update-check", tailscaleHandler.CheckUpdate)
 
 	// Disk management
-	diskHandler := &handlers.DiskHandler{}
+	diskHandler := &featureDisk.Handler{}
 	disks := authorized.Group("/disks")
 	disks.GET("/overview", diskHandler.ListDisks)
 	disks.GET("/iostat", diskHandler.GetIOStats)

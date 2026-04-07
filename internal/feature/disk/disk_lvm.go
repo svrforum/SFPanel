@@ -1,4 +1,4 @@
-package handlers
+package disk
 
 import (
 	"encoding/json"
@@ -15,7 +15,7 @@ import (
 // ---------- 5. LVM ----------
 
 // ListPVs returns all LVM physical volumes.
-func (h *DiskHandler) ListPVs(c echo.Context) error {
+func (h *Handler) ListPVs(c echo.Context) error {
 	if !commandExists("pvs") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
@@ -70,7 +70,7 @@ func parsePVsJSON(data []byte) ([]PhysicalVolume, error) {
 }
 
 // ListVGs returns all LVM volume groups.
-func (h *DiskHandler) ListVGs(c echo.Context) error {
+func (h *Handler) ListVGs(c echo.Context) error {
 	if !commandExists("vgs") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
@@ -129,7 +129,7 @@ func parseVGsJSON(data []byte) ([]VolumeGroup, error) {
 }
 
 // ListLVs returns all LVM logical volumes.
-func (h *DiskHandler) ListLVs(c echo.Context) error {
+func (h *Handler) ListLVs(c echo.Context) error {
 	if !commandExists("lvs") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
@@ -188,7 +188,7 @@ func parseLVsJSON(data []byte) ([]LogicalVolume, error) {
 }
 
 // CreatePV creates a new LVM physical volume on a device.
-func (h *DiskHandler) CreatePV(c echo.Context) error {
+func (h *Handler) CreatePV(c echo.Context) error {
 	if !commandExists("pvcreate") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
@@ -216,7 +216,7 @@ func (h *DiskHandler) CreatePV(c echo.Context) error {
 }
 
 // CreateVG creates a new LVM volume group.
-func (h *DiskHandler) CreateVG(c echo.Context) error {
+func (h *Handler) CreateVG(c echo.Context) error {
 	if !commandExists("vgcreate") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
@@ -270,7 +270,7 @@ func (h *DiskHandler) CreateVG(c echo.Context) error {
 }
 
 // CreateLV creates a new LVM logical volume.
-func (h *DiskHandler) CreateLV(c echo.Context) error {
+func (h *Handler) CreateLV(c echo.Context) error {
 	if !commandExists("lvcreate") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
@@ -303,7 +303,7 @@ func (h *DiskHandler) CreateLV(c echo.Context) error {
 }
 
 // RemovePV removes an LVM physical volume.
-func (h *DiskHandler) RemovePV(c echo.Context) error {
+func (h *Handler) RemovePV(c echo.Context) error {
 	if !commandExists("pvremove") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
@@ -327,7 +327,7 @@ func (h *DiskHandler) RemovePV(c echo.Context) error {
 }
 
 // RemoveVG removes an LVM volume group.
-func (h *DiskHandler) RemoveVG(c echo.Context) error {
+func (h *Handler) RemoveVG(c echo.Context) error {
 	if !commandExists("vgremove") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
@@ -350,7 +350,7 @@ func (h *DiskHandler) RemoveVG(c echo.Context) error {
 }
 
 // RemoveLV removes an LVM logical volume.
-func (h *DiskHandler) RemoveLV(c echo.Context) error {
+func (h *Handler) RemoveLV(c echo.Context) error {
 	if !commandExists("lvremove") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
@@ -378,7 +378,7 @@ func (h *DiskHandler) RemoveLV(c echo.Context) error {
 }
 
 // ResizeLV resizes an LVM logical volume.
-func (h *DiskHandler) ResizeLV(c echo.Context) error {
+func (h *Handler) ResizeLV(c echo.Context) error {
 	if !commandExists("lvresize") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"LVM tools are not installed. Install lvm2: apt install lvm2")

@@ -1,4 +1,4 @@
-package handlers
+package disk
 
 import (
 	"encoding/json"
@@ -15,7 +15,7 @@ import (
 // ---------- 3. Partitions ----------
 
 // ListPartitions returns partitions for a specific disk device using lsblk.
-func (h *DiskHandler) ListPartitions(c echo.Context) error {
+func (h *Handler) ListPartitions(c echo.Context) error {
 	device := c.Param("device")
 	if err := validateDeviceName(device); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
@@ -42,7 +42,7 @@ func (h *DiskHandler) ListPartitions(c echo.Context) error {
 }
 
 // CreatePartition creates a new partition on a disk device using parted.
-func (h *DiskHandler) CreatePartition(c echo.Context) error {
+func (h *Handler) CreatePartition(c echo.Context) error {
 	device := c.Param("device")
 	if err := validateDeviceName(device); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
@@ -91,7 +91,7 @@ func (h *DiskHandler) CreatePartition(c echo.Context) error {
 }
 
 // DeletePartition deletes a partition by number from a disk device using parted.
-func (h *DiskHandler) DeletePartition(c echo.Context) error {
+func (h *Handler) DeletePartition(c echo.Context) error {
 	device := c.Param("device")
 	if err := validateDeviceName(device); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())

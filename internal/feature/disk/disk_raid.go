@@ -1,4 +1,4 @@
-package handlers
+package disk
 
 import (
 	"bufio"
@@ -17,7 +17,7 @@ import (
 // ---------- 6. RAID (mdadm) ----------
 
 // ListRAID returns all RAID arrays from /proc/mdstat and mdadm --detail --scan.
-func (h *DiskHandler) ListRAID(c echo.Context) error {
+func (h *Handler) ListRAID(c echo.Context) error {
 	if !commandExists("mdadm") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
@@ -201,7 +201,7 @@ func getMdadmDetail(name string) (*RAIDArray, error) {
 }
 
 // GetRAIDDetail returns detailed information about a specific RAID array.
-func (h *DiskHandler) GetRAIDDetail(c echo.Context) error {
+func (h *Handler) GetRAIDDetail(c echo.Context) error {
 	if !commandExists("mdadm") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
@@ -222,7 +222,7 @@ func (h *DiskHandler) GetRAIDDetail(c echo.Context) error {
 }
 
 // CreateRAID creates a new RAID array using mdadm.
-func (h *DiskHandler) CreateRAID(c echo.Context) error {
+func (h *Handler) CreateRAID(c echo.Context) error {
 	if !commandExists("mdadm") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
@@ -280,7 +280,7 @@ func (h *DiskHandler) CreateRAID(c echo.Context) error {
 }
 
 // DeleteRAID stops and removes a RAID array.
-func (h *DiskHandler) DeleteRAID(c echo.Context) error {
+func (h *Handler) DeleteRAID(c echo.Context) error {
 	if !commandExists("mdadm") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
@@ -313,7 +313,7 @@ func (h *DiskHandler) DeleteRAID(c echo.Context) error {
 }
 
 // AddRAIDDisk adds a disk to an existing RAID array (as spare or for rebuild).
-func (h *DiskHandler) AddRAIDDisk(c echo.Context) error {
+func (h *Handler) AddRAIDDisk(c echo.Context) error {
 	if !commandExists("mdadm") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")
@@ -348,7 +348,7 @@ func (h *DiskHandler) AddRAIDDisk(c echo.Context) error {
 }
 
 // RemoveRAIDDisk marks a disk as faulty and removes it from a RAID array.
-func (h *DiskHandler) RemoveRAIDDisk(c echo.Context) error {
+func (h *Handler) RemoveRAIDDisk(c echo.Context) error {
 	if !commandExists("mdadm") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 			"mdadm is not installed. Install it: apt install mdadm")

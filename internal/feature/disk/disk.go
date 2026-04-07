@@ -1,4 +1,4 @@
-package handlers
+package disk
 
 import (
 	"fmt"
@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-// DiskHandler exposes REST handlers for host disk management
+// Handler exposes REST handlers for host disk management
 // (block devices, SMART, partitions, filesystems, LVM, RAID, swap, I/O stats).
-type DiskHandler struct{}
+type Handler struct{}
 
 // ---------- Types ----------
 
@@ -376,4 +376,3 @@ func validateRAIDLevel(level string) error {
 	}
 	return nil
 }
-

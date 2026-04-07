@@ -1,4 +1,4 @@
-package handlers
+package disk
 
 import (
 	"bufio"
@@ -18,7 +18,7 @@ import (
 // ---------- 4. Filesystems ----------
 
 // ListFilesystems returns all mounted filesystems with usage information.
-func (h *DiskHandler) ListFilesystems(c echo.Context) error {
+func (h *Handler) ListFilesystems(c echo.Context) error {
 	out, err := exec.Command("df", "-B1", "--output=source,fstype,size,used,avail,pcent,target").CombinedOutput()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
@@ -35,8 +35,8 @@ func (h *DiskHandler) ListFilesystems(c echo.Context) error {
 }
 
 // CheckExpandable analyzes all filesystems and returns candidates that can be expanded.
-// It detects the full VM expansion chain: disk free space → growpart → pvresize → lvextend → resize_fs.
-func (h *DiskHandler) CheckExpandable(c echo.Context) error {
+// It detects the full VM expansion chain: disk free space -> growpart -> pvresize -> lvextend -> resize_fs.
+func (h *Handler) CheckExpandable(c echo.Context) error {
 	// Get current filesystems
 	out, err := exec.Command("df", "-B1", "--output=source,fstype,size,used,avail,pcent,target").CombinedOutput()
 	if err != nil {
@@ -79,7 +79,7 @@ func (h *DiskHandler) CheckExpandable(c echo.Context) error {
 		var totalFree int64
 
 		if candidate.IsLVM && commandExists("lvs") {
-			// LVM path: check VG free, then trace back to PV → disk for growpart
+			// LVM path: check VG free, then trace back to PV -> disk for growpart
 			vgName, vgFree := getVGInfoForLV(fs.Source)
 			if vgName == "" {
 				continue // not actually an LV
@@ -179,7 +179,7 @@ func (h *DiskHandler) CheckExpandable(c echo.Context) error {
 }
 
 // ExpandFilesystem executes the full expansion chain for a given filesystem source.
-func (h *DiskHandler) ExpandFilesystem(c echo.Context) error {
+func (h *Handler) ExpandFilesystem(c echo.Context) error {
 	var req struct {
 		Source string `json:"source"` // full path like /dev/mapper/ubuntu--vg-ubuntu--lv or /dev/sda2
 	}
@@ -364,7 +364,7 @@ func getPVDeviceForVG(vgName string) string {
 }
 
 // getParentDisk extracts the parent disk device and partition number from a partition path.
-// e.g., /dev/sda2 → ("/dev/sda", "2"), /dev/nvme0n1p3 → ("/dev/nvme0n1", "3")
+// e.g., /dev/sda2 -> ("/dev/sda", "2"), /dev/nvme0n1p3 -> ("/dev/nvme0n1", "3")
 func getParentDisk(partDevice string) (disk string, partNum string) {
 	// Handle /dev/nvme*p* and /dev/loop*p*
 	if idx := strings.LastIndex(partDevice, "p"); idx > 0 {
@@ -497,7 +497,7 @@ func parseDfOutput(data []byte) ([]Filesystem, error) {
 }
 
 // FormatPartition formats a device with the specified filesystem type.
-func (h *DiskHandler) FormatPartition(c echo.Context) error {
+func (h *Handler) FormatPartition(c echo.Context) error {
 	var req FormatPartitionRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -593,7 +593,7 @@ func (h *DiskHandler) FormatPartition(c echo.Context) error {
 }
 
 // MountFilesystem mounts a device to a mount point.
-func (h *DiskHandler) MountFilesystem(c echo.Context) error {
+func (h *Handler) MountFilesystem(c echo.Context) error {
 	var req MountFilesystemRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -643,7 +643,7 @@ func (h *DiskHandler) MountFilesystem(c echo.Context) error {
 }
 
 // UnmountFilesystem unmounts a filesystem from a mount point.
-func (h *DiskHandler) UnmountFilesystem(c echo.Context) error {
+func (h *Handler) UnmountFilesystem(c echo.Context) error {
 	var req UnmountFilesystemRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -665,7 +665,7 @@ func (h *DiskHandler) UnmountFilesystem(c echo.Context) error {
 }
 
 // ResizeFilesystem resizes a filesystem on a given device.
-func (h *DiskHandler) ResizeFilesystem(c echo.Context) error {
+func (h *Handler) ResizeFilesystem(c echo.Context) error {
 	var req ResizeFilesystemRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
