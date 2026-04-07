@@ -93,10 +93,14 @@ func (h *Handler) InitCluster(c echo.Context) error {
 	data, err := yaml.Marshal(h.Config)
 	if err != nil {
 		mgr.Shutdown()
+		os.RemoveAll(h.Config.Cluster.DataDir)
+		os.RemoveAll(h.Config.Cluster.CertDir)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to marshal config: %v", err))
 	}
-	if err := os.WriteFile(h.ConfigPath, data, 0644); err != nil {
+	if err := config.AtomicWriteFile(h.ConfigPath, data, 0600); err != nil {
 		mgr.Shutdown()
+		os.RemoveAll(h.Config.Cluster.DataDir)
+		os.RemoveAll(h.Config.Cluster.CertDir)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
 	}
 
@@ -105,9 +109,9 @@ func (h *Handler) InitCluster(c echo.Context) error {
 	slog.Info("cluster initialized via UI, restarting", "component", "cluster", "name", clusterName)
 
 	go func() {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(2 * time.Second) // allow HTTP response to flush
 		slog.Info("exiting for systemd restart", "component", "cluster")
-		os.Exit(1)
+		os.Exit(0)
 	}()
 
 	return response.OK(c, map[string]interface{}{
@@ -175,11 +179,15 @@ func (h *Handler) JoinCluster(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, fmt.Sprintf("Join rejected: %s", resp.Error))
 	}
 
-	tlsMgr := cluster.NewTLSManager(h.Config.Cluster.CertDir)
+	// Save certs (rollback on failure)
+	certDir := h.Config.Cluster.CertDir
+	tlsMgr := cluster.NewTLSManager(certDir)
 	if err := tlsMgr.SaveCACert(resp.CaCert); err != nil {
+		os.RemoveAll(certDir)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save CA cert: %v", err))
 	}
 	if err := tlsMgr.SaveNodeCert(resp.NodeCert, resp.NodeKey); err != nil {
+		os.RemoveAll(certDir)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save node cert: %v", err))
 	}
 
@@ -192,17 +200,19 @@ func (h *Handler) JoinCluster(c echo.Context) error {
 
 	data, err := yaml.Marshal(h.Config)
 	if err != nil {
+		os.RemoveAll(certDir)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to marshal config: %v", err))
 	}
-	if err := os.WriteFile(h.ConfigPath, data, 0644); err != nil {
+	if err := config.AtomicWriteFile(h.ConfigPath, data, 0600); err != nil {
+		os.RemoveAll(certDir)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
 	}
 
 	slog.Info("cluster join successful, restarting", "component", "cluster", "cluster_name", resp.ClusterName, "node_id", nodeID)
 
 	go func() {
-		time.Sleep(500 * time.Millisecond)
-		os.Exit(1)
+		time.Sleep(2 * time.Second)
+		os.Exit(0)
 	}()
 
 	return response.OK(c, map[string]interface{}{
@@ -554,7 +564,7 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to marshal config: %v", err))
 	}
-	if err := os.WriteFile(h.ConfigPath, data, 0644); err != nil {
+	if err := config.AtomicWriteFile(h.ConfigPath, data, 0600); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
 	}
 
@@ -573,8 +583,8 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 	slog.Info("cluster disbanded via UI, restarting", "component", "cluster")
 
 	go func() {
-		time.Sleep(500 * time.Millisecond)
-		os.Exit(1)
+		time.Sleep(2 * time.Second)
+		os.Exit(0)
 	}()
 
 	return response.OK(c, map[string]string{

@@ -205,11 +205,10 @@ func main() {
 							data, err := yaml.Marshal(cfg)
 							if err == nil {
 								if writeErr := os.WriteFile(cfgPath, data, 0644); writeErr == nil {
-									slog.Info("jwt_secret updated in config, restart required for full effect", "component", "cluster")
-									// Restart to apply the new JWT secret
+									slog.Info("jwt_secret updated in config, restarting to apply", "component", "cluster")
 									go func() {
-										time.Sleep(1 * time.Second)
-										os.Exit(1)
+										time.Sleep(3 * time.Second)
+										os.Exit(0)
 									}()
 								}
 							}

@@ -370,23 +370,43 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed, "Backup must contain sfpanel.db")
 	}
 
+	// Create backups of current files
 	if data, readErr := os.ReadFile(h.DBPath); readErr == nil {
-		_ = os.WriteFile(h.DBPath+".bak", data, 0600)
+		if err := os.WriteFile(h.DBPath+".bak", data, 0600); err != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to create database backup")
+		}
 	}
 	if data, readErr := os.ReadFile(h.ConfigPath); readErr == nil {
-		_ = os.WriteFile(h.ConfigPath+".bak", data, 0600)
+		if err := os.WriteFile(h.ConfigPath+".bak", data, 0600); err != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to create config backup")
+		}
 	}
 
+	// Write new files to .new first (atomic swap)
 	if dbData, ok := files["sfpanel.db"]; ok {
-		if err := os.WriteFile(h.DBPath, dbData, 0600); err != nil {
-			if bakData, bakErr := os.ReadFile(h.DBPath + ".bak"); bakErr == nil {
-				_ = os.WriteFile(h.DBPath, bakData, 0600)
-			}
+		newPath := h.DBPath + ".new"
+		if err := os.WriteFile(newPath, dbData, 0600); err != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to write database")
+		}
+		if err := os.Rename(newPath, h.DBPath); err != nil {
+			os.Remove(newPath)
 			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to restore database")
 		}
 	}
 	if cfgData, ok := files["config.yaml"]; ok {
-		if err := os.WriteFile(h.ConfigPath, cfgData, 0600); err != nil {
+		newPath := h.ConfigPath + ".new"
+		if err := os.WriteFile(newPath, cfgData, 0600); err != nil {
+			// Rollback DB
+			if bakData, bakErr := os.ReadFile(h.DBPath + ".bak"); bakErr == nil {
+				_ = os.WriteFile(h.DBPath, bakData, 0600)
+			}
+			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to write config")
+		}
+		if err := os.Rename(newPath, h.ConfigPath); err != nil {
+			os.Remove(newPath)
+			if bakData, bakErr := os.ReadFile(h.DBPath + ".bak"); bakErr == nil {
+				_ = os.WriteFile(h.DBPath, bakData, 0600)
+			}
 			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to restore config")
 		}
 	}
