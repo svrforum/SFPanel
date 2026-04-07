@@ -21,6 +21,8 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 	"syscall"
 	"time"
 
@@ -168,9 +170,11 @@ func main() {
 			defer grpcServer.Stop()
 			middleware.SetClusterProxySecret(grpcServer.ProxySecret())
 
-			// Sync local admin account to cluster FSM (leader only, best-effort)
+			// Sync local admin account + JWT secret to cluster (leader only, best-effort)
 			go func() {
 				time.Sleep(5 * time.Second) // wait for leader election
+
+				// Sync admin account
 				var username, passwordHash string
 				var totpSecret sql.NullString
 				if err := database.QueryRow("SELECT username, password, totp_secret FROM admin LIMIT 1").Scan(&username, &passwordHash, &totpSecret); err == nil {
@@ -182,6 +186,34 @@ func main() {
 						slog.Debug("account cluster sync skipped (not leader or already synced)", "error", syncErr)
 					} else {
 						slog.Info("synced local admin account to cluster", "component", "cluster", "username", username)
+					}
+				}
+
+				// Leader: store JWT secret in FSM for joining nodes
+				if cfg.Auth.JWTSecret != "" {
+					if err := clusterMgr.SetConfig("jwt_secret", cfg.Auth.JWTSecret); err != nil {
+						slog.Debug("jwt_secret cluster sync skipped", "error", err)
+					}
+				}
+
+				// Follower: sync JWT secret from FSM to local config
+				if !clusterMgr.IsLeader() {
+					if fsmSecret := clusterMgr.GetFSMConfig("jwt_secret"); fsmSecret != "" && fsmSecret != cfg.Auth.JWTSecret {
+						slog.Info("syncing jwt_secret from cluster FSM", "component", "cluster")
+						cfg.Auth.JWTSecret = fsmSecret
+						if cfgPath != "" {
+							data, err := yaml.Marshal(cfg)
+							if err == nil {
+								if writeErr := os.WriteFile(cfgPath, data, 0644); writeErr == nil {
+									slog.Info("jwt_secret updated in config, restart required for full effect", "component", "cluster")
+									// Restart to apply the new JWT secret
+									go func() {
+										time.Sleep(1 * time.Second)
+										os.Exit(1)
+									}()
+								}
+							}
+						}
 					}
 				}
 			}()
