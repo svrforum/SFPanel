@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"io"
@@ -34,6 +35,7 @@ import (
 	featureServices "github.com/svrforum/SFPanel/internal/feature/services"
 	featureSettings "github.com/svrforum/SFPanel/internal/feature/settings"
 	featureSystem "github.com/svrforum/SFPanel/internal/feature/system"
+	featureAlert "github.com/svrforum/SFPanel/internal/feature/alert"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	featureWS "github.com/svrforum/SFPanel/internal/feature/websocket"
 )
@@ -160,6 +162,23 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	auditHandler := &featureAudit.Handler{DB: database}
 	authorized.GET("/audit/logs", auditHandler.ListAuditLogs)
 	authorized.DELETE("/audit/logs", auditHandler.ClearAuditLogs)
+
+	// Alert system
+	alertManager := featureAlert.NewManager(database)
+	go alertManager.Start(context.Background())
+	alertHandler := &featureAlert.Handler{DB: database, Manager: alertManager}
+	alerts := authorized.Group("/alerts")
+	alerts.GET("/channels", alertHandler.ListChannels)
+	alerts.POST("/channels", alertHandler.CreateChannel)
+	alerts.PUT("/channels/:id", alertHandler.UpdateChannel)
+	alerts.DELETE("/channels/:id", alertHandler.DeleteChannel)
+	alerts.POST("/channels/:id/test", alertHandler.TestChannel)
+	alerts.GET("/rules", alertHandler.ListRules)
+	alerts.POST("/rules", alertHandler.CreateRule)
+	alerts.PUT("/rules/:id", alertHandler.UpdateRule)
+	alerts.DELETE("/rules/:id", alertHandler.DeleteRule)
+	alerts.GET("/history", alertHandler.ListHistory)
+	alerts.DELETE("/history", alertHandler.ClearHistory)
 
 	// Processes
 	processesHandler := &featureProcess.Handler{}

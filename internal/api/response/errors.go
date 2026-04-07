@@ -212,6 +212,13 @@ const (
 	ErrContainerConflict   = "CONTAINER_CONFLICT"
 )
 
+// Alert error codes
+const (
+	ErrAlertError   = "ALERT_ERROR"
+	ErrChannelError = "CHANNEL_ERROR"
+	ErrRuleError    = "RULE_ERROR"
+)
+
 // System update error codes
 const (
 	ErrUpdateCheckFailed = "UPDATE_CHECK_FAILED"
