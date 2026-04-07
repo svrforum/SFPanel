@@ -10,7 +10,7 @@ import (
 
 func Open(path string) (*sql.DB, error) {
 	// modernc.org/sqlite uses _pragma=name(value) format for DSN pragmas
-	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)&_pragma=synchronous(NORMAL)"
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)&_pragma=synchronous(NORMAL)&_pragma=mmap_size(268435456)&_pragma=cache_size(-8000)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
