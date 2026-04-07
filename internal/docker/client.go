@@ -126,15 +126,44 @@ func (c *Client) UnpauseContainer(ctx context.Context, id string) error {
 	return c.cli.ContainerUnpause(ctx, id)
 }
 
+// LogOptions configures container log retrieval.
+type LogOptions struct {
+	Tail       string // "100", "500", "1000", "all"
+	Timestamps bool
+	Stream     string // "all", "stdout", "stderr"
+	Since      string // "", "1h", "6h", "24h"
+}
+
 // ContainerLogs returns a log stream for the given container. The stream
-// follows new output and includes both stdout and stderr, tailing the
-// last 100 lines.
-func (c *Client) ContainerLogs(ctx context.Context, id string) (io.ReadCloser, error) {
+// follows new output and applies the provided LogOptions.
+func (c *Client) ContainerLogs(ctx context.Context, id string, opts LogOptions) (io.ReadCloser, error) {
+	tail := opts.Tail
+	if tail == "" {
+		tail = "100"
+	}
+	if tail == "all" {
+		tail = "" // Docker API: empty string means all
+	}
+
+	showStdout := opts.Stream != "stderr"
+	showStderr := opts.Stream != "stdout"
+
+	var since string
+	if opts.Since != "" && opts.Since != "all" {
+		// Convert "1h", "6h", "24h" to RFC3339
+		dur, err := time.ParseDuration(opts.Since)
+		if err == nil {
+			since = time.Now().Add(-dur).Format(time.RFC3339)
+		}
+	}
+
 	return c.cli.ContainerLogs(ctx, id, container.LogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
+		ShowStdout: showStdout,
+		ShowStderr: showStderr,
 		Follow:     true,
-		Tail:       "100",
+		Tail:       tail,
+		Timestamps: opts.Timestamps,
+		Since:      since,
 	})
 }
 
