@@ -175,8 +175,59 @@ func (m *Manager) Start() error {
 
 	m.heartbeat.StartMonitor(m.onNodeStatusChange)
 
+	// Auto-fix own node address if it doesn't match config
+	go m.verifySelfAddress()
+
 	slog.Info("cluster node started", "component", "cluster", "node_id", m.nodeID)
 	return nil
+}
+
+// verifySelfAddress checks if this node's registered addresses in the FSM
+// match its current config, and auto-corrects if not. This prevents stale
+// gRPC addresses from causing heartbeat/metrics collection failures.
+func (m *Manager) verifySelfAddress() {
+	// Wait for Raft to stabilize and leader to be elected
+	time.Sleep(10 * time.Second)
+
+	advertise := m.config.AdvertiseAddress
+	if advertise == "" {
+		advertise = DetectOutboundIP()
+	}
+	expectedAPI := fmt.Sprintf("%s:%d", advertise, m.config.APIPort)
+	expectedGRPC := fmt.Sprintf("%s:%d", advertise, m.config.GRPCPort)
+
+	node := m.raft.GetFSM().GetNode(m.nodeID)
+	if node == nil {
+		return
+	}
+
+	if node.APIAddress == expectedAPI && node.GRPCAddress == expectedGRPC {
+		return // All good
+	}
+
+	slog.Warn("node address mismatch detected, auto-correcting",
+		"component", "cluster",
+		"node_id", m.nodeID,
+		"fsm_api", node.APIAddress, "expected_api", expectedAPI,
+		"fsm_grpc", node.GRPCAddress, "expected_grpc", expectedGRPC,
+	)
+
+	update := Node{
+		ID:          m.nodeID,
+		APIAddress:  expectedAPI,
+		GRPCAddress: expectedGRPC,
+	}
+	updateJSON, _ := json.Marshal(update)
+	if err := m.raft.Apply(Command{
+		Type:  CmdUpdateNode,
+		Key:   m.nodeID,
+		Value: updateJSON,
+	}, 5*time.Second); err != nil {
+		slog.Warn("failed to auto-correct node address (not leader?)", "component", "cluster", "error", err)
+	} else {
+		slog.Info("auto-corrected node address in FSM", "component", "cluster",
+			"api", expectedAPI, "grpc", expectedGRPC)
+	}
 }
 
 // CreateJoinToken generates a time-limited token for new nodes.
