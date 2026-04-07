@@ -170,7 +170,7 @@ func (t *TLSManager) ServerTLSConfig() (*tls.Config, error) {
 	t.cachedServer = &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		ClientCAs:    pool,
-		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientAuth:   tls.VerifyClientCertIfGiven,
 		MinVersion:   tls.VersionTLS13,
 	}
 	return t.cachedServer, nil
