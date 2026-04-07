@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
@@ -107,6 +108,101 @@ func (h *Handler) InitCluster(c echo.Context) error {
 		"name":    clusterName,
 		"node_id": h.Config.Cluster.NodeID,
 		"restart": true,
+	})
+}
+
+func (h *Handler) JoinCluster(c echo.Context) error {
+	if h.Manager != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Already part of a cluster")
+	}
+	if h.ConfigPath == "" {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Config path not available")
+	}
+
+	var body struct {
+		LeaderAddress    string `json:"leader_address"`
+		Token            string `json:"token"`
+		AdvertiseAddress string `json:"advertise_address"`
+	}
+	if err := c.Bind(&body); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	if body.LeaderAddress == "" || body.Token == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "leader_address and token are required")
+	}
+
+	advertise := body.AdvertiseAddress
+	if advertise == "" {
+		advertise = cluster.DetectOutboundIP()
+	}
+
+	nodeID := uuid.New().String()
+	hostname, _ := os.Hostname()
+
+	grpcPort := h.Config.Cluster.GRPCPort
+	if grpcPort == 0 {
+		grpcPort = h.Config.Server.Port + 1
+	}
+	apiAddr := fmt.Sprintf("%s:%d", advertise, h.Config.Server.Port)
+	grpcAddr := fmt.Sprintf("%s:%d", advertise, grpcPort)
+
+	slog.Info("joining cluster via web UI", "component", "cluster", "leader", body.LeaderAddress)
+
+	client, err := cluster.DialNodeInsecure(body.LeaderAddress)
+	if err != nil {
+		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, fmt.Sprintf("Failed to connect to leader: %v", err))
+	}
+	defer client.Close()
+
+	resp, err := client.Join(context.Background(), &pb.JoinRequest{
+		Token:       body.Token,
+		NodeId:      nodeID,
+		NodeName:    hostname,
+		ApiAddress:  apiAddr,
+		GrpcAddress: grpcAddr,
+	})
+	if err != nil {
+		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, fmt.Sprintf("Join request failed: %v", err))
+	}
+	if !resp.Success {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, fmt.Sprintf("Join rejected: %s", resp.Error))
+	}
+
+	tlsMgr := cluster.NewTLSManager(h.Config.Cluster.CertDir)
+	if err := tlsMgr.SaveCACert(resp.CaCert); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save CA cert: %v", err))
+	}
+	if err := tlsMgr.SaveNodeCert(resp.NodeCert, resp.NodeKey); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save node cert: %v", err))
+	}
+
+	h.Config.Cluster.Enabled = true
+	h.Config.Cluster.Name = resp.ClusterName
+	h.Config.Cluster.NodeID = nodeID
+	h.Config.Cluster.NodeName = hostname
+	h.Config.Cluster.AdvertiseAddress = advertise
+	h.Config.Cluster.GRPCPort = grpcPort
+
+	data, err := yaml.Marshal(h.Config)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to marshal config: %v", err))
+	}
+	if err := os.WriteFile(h.ConfigPath, data, 0644); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
+	}
+
+	slog.Info("cluster join successful, restarting", "component", "cluster", "cluster_name", resp.ClusterName, "node_id", nodeID)
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		os.Exit(1)
+	}()
+
+	return response.OK(c, map[string]interface{}{
+		"message":      "Joined cluster. Service restarting...",
+		"cluster_name": resp.ClusterName,
+		"node_id":      nodeID,
+		"restart":      true,
 	})
 }
 

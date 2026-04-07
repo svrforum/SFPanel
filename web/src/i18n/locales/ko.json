@@ -582,6 +582,19 @@
       "restarting": "서비스 재시작 중...",
       "restartingDesc": "클러스터 모드를 활성화하기 위해 서비스를 재시작하고 있습니다. 잠시만 기다려주세요."
     },
+    "join": {
+      "title": "기존 클러스터에 가입",
+      "description": "리더 노드에서 생성한 토큰으로 클러스터에 가입합니다.",
+      "leaderAddress": "리더 주소",
+      "leaderAddressPlaceholder": "192.168.1.100:9444",
+      "leaderAddressDesc": "리더 노드의 gRPC 주소 (IP:포트)",
+      "token": "가입 토큰",
+      "tokenPlaceholder": "리더에서 생성한 토큰을 입력하세요",
+      "button": "클러스터 가입",
+      "joining": "가입 중...",
+      "success": "클러스터에 가입했습니다. 서비스를 재시작합니다.",
+      "or": "또는"
+    },
     "overview": {
       "nodes": "노드",
       "avgCpu": "평균 CPU",
