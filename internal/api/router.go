@@ -59,7 +59,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 
 	cmd := commonExec.NewCommander()
 
-	authHandler := &featureAuth.Handler{DB: database, Config: cfg}
+	authHandler := &featureAuth.Handler{DB: database, Config: cfg, ClusterMgr: clusterMgr}
 	dashboardHandler := &featureMonitor.Handler{Version: version}
 
 	cfgPath := ""

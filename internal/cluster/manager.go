@@ -437,6 +437,61 @@ func (m *Manager) ProxySecret() string {
 	return hex.EncodeToString(hash[:])
 }
 
+// SetAccount proposes an account upsert to the Raft cluster.
+// Only the leader can apply this; returns ErrNotLeader on followers.
+func (m *Manager) SetAccount(acct AdminAccount) error {
+	if m.raft == nil {
+		return fmt.Errorf("raft not initialized")
+	}
+	acct.UpdatedAt = time.Now().Unix()
+	return m.raft.Apply(Command{
+		Type:  CmdSetAccount,
+		Key:   acct.Username,
+		Value: mustJSON(acct),
+	}, 5*time.Second)
+}
+
+// DeleteAccount proposes an account deletion to the Raft cluster.
+func (m *Manager) DeleteAccount(username string) error {
+	if m.raft == nil {
+		return fmt.Errorf("raft not initialized")
+	}
+	return m.raft.Apply(Command{
+		Type: CmdDeleteAccount,
+		Key:  username,
+	}, 5*time.Second)
+}
+
+// GetAccount returns an account from the FSM state, or nil.
+func (m *Manager) GetAccount(username string) *AdminAccount {
+	if m.raft == nil {
+		return nil
+	}
+	return m.raft.GetFSM().GetAccount(username)
+}
+
+// GetAccounts returns all accounts from the FSM state.
+func (m *Manager) GetAccounts() map[string]*AdminAccount {
+	if m.raft == nil {
+		return nil
+	}
+	return m.raft.GetFSM().GetState().Accounts
+}
+
+// SyncAccountFromDB imports a local DB account into Raft (used on init/join).
+func (m *Manager) SyncAccountFromDB(username, passwordHash, totpSecret string) error {
+	return m.SetAccount(AdminAccount{
+		Username:   username,
+		Password:   passwordHash,
+		TOTPSecret: totpSecret,
+	})
+}
+
+func mustJSON(v interface{}) json.RawMessage {
+	data, _ := json.Marshal(v)
+	return data
+}
+
 // GetRaft returns the Raft node (for gRPC server to read FSM).
 func (m *Manager) GetRaft() *RaftNode {
 	return m.raft
