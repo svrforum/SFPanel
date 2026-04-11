@@ -110,8 +110,12 @@ func (h *Handler) InitCluster(c echo.Context) error {
 
 	go func() {
 		time.Sleep(2 * time.Second) // allow HTTP response to flush
-		slog.Info("exiting for systemd restart", "component", "cluster")
-		os.Exit(0)
+		// Exit code 1 so a supervisor with Restart=on-failure still wakes
+		// us up; Restart=always doesn't care about the code. Previously
+		// this exited 0, which silently broke restart under the install.sh
+		// default of Restart=on-failure.
+		slog.Info("exiting with code 1 to trigger supervisor restart", "component", "cluster")
+		os.Exit(1)
 	}()
 
 	return response.OK(c, map[string]interface{}{
@@ -211,8 +215,11 @@ func (h *Handler) JoinCluster(c echo.Context) error {
 	slog.Info("cluster join successful, restarting", "component", "cluster", "cluster_name", resp.ClusterName, "node_id", nodeID)
 
 	go func() {
-		time.Sleep(2 * time.Second)
-		os.Exit(0)
+		time.Sleep(2 * time.Second) // allow HTTP response to flush
+		// See the comment on the same pattern in InitCluster — exit 1,
+		// not 0, so Restart=on-failure still triggers a supervisor cycle.
+		slog.Info("exiting with code 1 to trigger supervisor restart", "component", "cluster")
+		os.Exit(1)
 	}()
 
 	return response.OK(c, map[string]interface{}{
@@ -583,8 +590,11 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 	slog.Info("cluster disbanded via UI, restarting", "component", "cluster")
 
 	go func() {
-		time.Sleep(2 * time.Second)
-		os.Exit(0)
+		time.Sleep(2 * time.Second) // allow HTTP response to flush
+		// See the comment on the same pattern in InitCluster — exit 1,
+		// not 0, so Restart=on-failure still triggers a supervisor cycle.
+		slog.Info("exiting with code 1 to trigger supervisor restart", "component", "cluster")
+		os.Exit(1)
 	}()
 
 	return response.OK(c, map[string]string{

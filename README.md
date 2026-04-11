@@ -180,6 +180,8 @@ cd web && npm run dev
 sudo go run ./cmd/sfpanel
 ```
 
+> ⚠️ 수동 실행 환경 주의: systemd 없이 바이너리를 직접 띄운 경우, 웹 UI에서 **클러스터 생성/조인/해산**을 누르면 백엔드가 의도적으로 종료된 뒤 재기동될 supervisor가 없어 패널이 꺼진 채로 남습니다. 이 버튼들은 `Restart=always` systemd 유닛(`scripts/install.sh`로 설치) 하에서만 안전합니다. 수동 개발 중에는 해당 버튼을 누른 뒤 바이너리를 손수 다시 띄워야 합니다.
+
 ### 린트
 
 ```bash

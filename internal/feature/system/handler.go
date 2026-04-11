@@ -14,6 +14,7 @@ import (
 	"os/exec"
 
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/lifecycle"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -240,6 +241,14 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 
 	// Restart
 	sendEvent("restarting", "Restarting service...")
+	// Bring any pre-existing systemd unit up to date before the restart
+	// so operators who installed under the old Restart=on-failure policy
+	// inherit Restart=always without having to re-run install.sh.
+	if migrated, migrateErr := lifecycle.MigrateRestartPolicy(); migrateErr != nil {
+		slog.Warn("systemd unit migration failed during update", "error", migrateErr)
+	} else if migrated {
+		sendEvent("restarting", "Migrated systemd unit (Restart=on-failure → Restart=always)")
+	}
 	if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
 		// Use exec.Command.Start() to restart without blocking — the current process will be replaced.
 		_ = exec.Command("systemctl", "restart", "sfpanel").Start()

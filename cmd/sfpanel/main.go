@@ -31,6 +31,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/lifecycle"
 	"github.com/svrforum/SFPanel/internal/common/logging"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/db"
@@ -430,6 +431,15 @@ func updatePanel() {
 	}
 
 	fmt.Printf("Updated to v%s.\n", latest)
+
+	// Bring any pre-existing systemd unit up to date before the restart
+	// so operators who installed under the old Restart=on-failure policy
+	// inherit Restart=always without having to re-run install.sh.
+	if migrated, err := lifecycle.MigrateRestartPolicy(); err != nil {
+		log.Printf("Failed to migrate systemd unit: %v", err)
+	} else if migrated {
+		fmt.Println("Migrated systemd unit: Restart=on-failure → Restart=always")
+	}
 
 	// Restart systemd service if active
 	if err := exec.Command("systemctl", "is-active", "--quiet", "sfpanel").Run(); err == nil {
