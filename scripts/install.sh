@@ -176,7 +176,11 @@ Wants=docker.service
 [Service]
 Type=simple
 ExecStart=${INSTALL_DIR}/sfpanel ${CONFIG_DIR}/config.yaml
-Restart=on-failure
+# Restart=always (not on-failure) because several HTTP handlers
+# intentionally exit the process so a supervisor can pick up new cluster
+# config — on-failure would treat those clean exits as "done" and leave
+# the panel down. See internal/feature/cluster/handler.go.
+Restart=always
 RestartSec=5
 LimitNOFILE=65536
 
