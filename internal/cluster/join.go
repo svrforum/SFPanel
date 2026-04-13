@@ -191,18 +191,7 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr string) (*JoinResu
 		}
 	}
 
-	// Step 5: Update admin credentials from leader
-	if e.DB != nil && resp.AdminUsername != "" && resp.AdminPasswordHash != "" {
-		_, err := e.DB.Exec(
-			"UPDATE admin SET password = ? WHERE username = ?",
-			resp.AdminPasswordHash, resp.AdminUsername,
-		)
-		if err != nil {
-			slog.Warn("failed to sync admin credentials from leader", "error", err)
-		}
-	}
-
-	// Step 6: Live activate (if callback provided)
+	// Step 5: Live activate (if callback provided)
 	var mgr *Manager
 	if e.OnActivate != nil {
 		e.Config.Cluster.APIPort = e.Config.Server.Port
@@ -210,6 +199,17 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr string) (*JoinResu
 		if err != nil {
 			e.rollbackJoin(certDir, originalConfig)
 			return nil, fmt.Errorf("live activation failed: %w", err)
+		}
+	}
+
+	// Step 6: Update admin credentials from leader (after LiveActivate so rollback is clean)
+	if e.DB != nil && resp.AdminUsername != "" && resp.AdminPasswordHash != "" {
+		_, err := e.DB.Exec(
+			"UPDATE admin SET password = ? WHERE username = ?",
+			resp.AdminPasswordHash, resp.AdminUsername,
+		)
+		if err != nil {
+			slog.Warn("failed to sync admin credentials from leader", "error", err)
 		}
 	}
 
