@@ -126,6 +126,11 @@ func (hm *HeartbeatManager) RemoveNode(nodeID string) {
 	delete(hm.lastSeen, nodeID)
 }
 
+// Done returns a channel that is closed when the heartbeat manager stops.
+func (hm *HeartbeatManager) Done() <-chan struct{} {
+	return hm.stopCh
+}
+
 // Stop shuts down the heartbeat monitor. Safe to call multiple times.
 func (hm *HeartbeatManager) Stop() {
 	hm.stopped.Do(func() {

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -43,6 +44,7 @@ func clusterErrResponse(c echo.Context, err error) error {
 }
 
 type Handler struct {
+	mu           sync.RWMutex
 	Manager      *cluster.Manager
 	Config       *config.Config
 	ConfigPath   string
@@ -50,8 +52,20 @@ type Handler struct {
 	LiveActivate cluster.LiveActivateFunc
 }
 
+func (h *Handler) getManager() *cluster.Manager {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.Manager
+}
+
+func (h *Handler) setManager(m *cluster.Manager) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.Manager = m
+}
+
 func (h *Handler) InitCluster(c echo.Context) error {
-	if h.Manager != nil {
+	if h.getManager() != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Already part of a cluster")
 	}
 	if h.ConfigPath == "" {
@@ -124,7 +138,7 @@ func (h *Handler) InitCluster(c echo.Context) error {
 				"live":    false,
 			})
 		}
-		h.Manager = newMgr
+		h.setManager(newMgr)
 
 		// Store JWT secret in FSM
 		if h.Config.Auth.JWTSecret != "" {
@@ -151,12 +165,12 @@ func (h *Handler) InitCluster(c echo.Context) error {
 		"message": "Cluster initialized successfully",
 		"name":    clusterName,
 		"node_id": h.Config.Cluster.NodeID,
-		"live":    h.Manager != nil,
+		"live":    h.getManager() != nil,
 	})
 }
 
 func (h *Handler) JoinCluster(c echo.Context) error {
-	if h.Manager != nil {
+	if h.getManager() != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Already part of a cluster")
 	}
 
@@ -198,7 +212,7 @@ func (h *Handler) JoinCluster(c echo.Context) error {
 
 	// Update handler's Manager pointer for subsequent requests
 	if result.Manager != nil {
-		h.Manager = result.Manager
+		h.setManager(result.Manager)
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -264,20 +278,21 @@ func (h *Handler) GetNetworkInterfaces(c echo.Context) error {
 }
 
 func (h *Handler) GetOverview(c echo.Context) error {
-	if h.Manager == nil {
+	mgr := h.getManager()
+	if mgr == nil {
 		return response.OK(c, map[string]interface{}{
 			"name": "", "node_count": 0, "leader_id": "",
 			"nodes": []interface{}{}, "metrics": []interface{}{},
 		})
 	}
 
-	if !h.Manager.IsLeader() {
+	if !mgr.IsLeader() {
 		if resp, err := h.proxyToLeader(c); err == nil {
 			return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
 		}
 	}
 
-	overview := h.Manager.GetOverview()
+	overview := mgr.GetOverview()
 	if overview == nil {
 		return response.OK(c, map[string]interface{}{
 			"name": "", "node_count": 0, "leader_id": "",
@@ -288,58 +303,61 @@ func (h *Handler) GetOverview(c echo.Context) error {
 }
 
 func (h *Handler) GetNodes(c echo.Context) error {
-	if h.Manager == nil {
+	mgr := h.getManager()
+	if mgr == nil {
 		return response.OK(c, map[string]interface{}{
 			"nodes": []interface{}{}, "local_id": "", "is_leader": false,
 		})
 	}
 
-	if !h.Manager.IsLeader() {
+	if !mgr.IsLeader() {
 		if resp, err := h.proxyToLeader(c); err == nil {
 			return h.returnWithLocalID(c, resp)
 		}
 	}
 
-	nodes := h.Manager.GetNodes()
+	nodes := mgr.GetNodes()
 	return response.OK(c, map[string]interface{}{
 		"nodes":     nodes,
-		"local_id":  h.Manager.LocalNodeID(),
-		"is_leader": h.Manager.IsLeader(),
+		"local_id":  mgr.LocalNodeID(),
+		"is_leader": mgr.IsLeader(),
 	})
 }
 
 func (h *Handler) GetStatus(c echo.Context) error {
-	if h.Manager == nil {
+	mgr := h.getManager()
+	if mgr == nil {
 		return response.OK(c, map[string]interface{}{
 			"enabled": false,
 		})
 	}
 
-	if !h.Manager.IsLeader() {
+	if !mgr.IsLeader() {
 		if resp, err := h.proxyToLeader(c); err == nil {
 			return h.returnWithLocalID(c, resp)
 		}
 	}
 
-	overview := h.Manager.GetOverview()
+	overview := mgr.GetOverview()
 	return response.OK(c, map[string]interface{}{
 		"enabled":    true,
 		"name":       overview.Name,
 		"node_count": overview.NodeCount,
 		"leader_id":  overview.LeaderID,
-		"local_id":   h.Manager.LocalNodeID(),
-		"is_leader":  h.Manager.IsLeader(),
+		"local_id":   mgr.LocalNodeID(),
+		"is_leader":  mgr.IsLeader(),
 	})
 }
 
 func (h *Handler) returnWithLocalID(c echo.Context, resp *pb.APIResponse) error {
+	mgr := h.getManager()
 	var envelope map[string]interface{}
 	if err := json.Unmarshal(resp.Body, &envelope); err != nil {
 		return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
 	}
 	if data, ok := envelope["data"].(map[string]interface{}); ok {
-		data["local_id"] = h.Manager.LocalNodeID()
-		data["is_leader"] = h.Manager.IsLeader()
+		data["local_id"] = mgr.LocalNodeID()
+		data["is_leader"] = mgr.IsLeader()
 	}
 	patched, err := json.Marshal(envelope)
 	if err != nil {
@@ -349,7 +367,8 @@ func (h *Handler) returnWithLocalID(c echo.Context, resp *pb.APIResponse) error 
 }
 
 func (h *Handler) CreateToken(c echo.Context) error {
-	if h.Manager == nil {
+	mgr := h.getManager()
+	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
 
@@ -364,7 +383,7 @@ func (h *Handler) CreateToken(c echo.Context) error {
 		}
 	}
 
-	token, err := h.Manager.CreateJoinToken(ttl)
+	token, err := mgr.CreateJoinToken(ttl)
 	if err != nil {
 		return clusterErrResponse(c, err)
 	}
@@ -376,7 +395,8 @@ func (h *Handler) CreateToken(c echo.Context) error {
 }
 
 func (h *Handler) RemoveNode(c echo.Context) error {
-	if h.Manager == nil {
+	mgr := h.getManager()
+	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
 
@@ -385,7 +405,7 @@ func (h *Handler) RemoveNode(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Node ID required")
 	}
 
-	if err := h.Manager.RemoveNode(nodeID); err != nil {
+	if err := mgr.RemoveNode(nodeID); err != nil {
 		return clusterErrResponse(c, err)
 	}
 
@@ -393,7 +413,8 @@ func (h *Handler) RemoveNode(c echo.Context) error {
 }
 
 func (h *Handler) GetEvents(c echo.Context) error {
-	if h.Manager == nil {
+	mgr := h.getManager()
+	if mgr == nil {
 		return response.OK(c, map[string]interface{}{
 			"events": []interface{}{},
 		})
@@ -411,9 +432,9 @@ func (h *Handler) GetEvents(c echo.Context) error {
 
 	var events []cluster.ClusterEvent
 	if afterID > 0 {
-		events = h.Manager.GetEvents().Since(afterID)
+		events = mgr.GetEvents().Since(afterID)
 	} else {
-		events = h.Manager.GetEvents().Recent(limit)
+		events = mgr.GetEvents().Recent(limit)
 	}
 	if events == nil {
 		events = []cluster.ClusterEvent{}
@@ -425,7 +446,8 @@ func (h *Handler) GetEvents(c echo.Context) error {
 }
 
 func (h *Handler) UpdateNodeLabels(c echo.Context) error {
-	if h.Manager == nil {
+	mgr := h.getManager()
+	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
 
@@ -441,7 +463,7 @@ func (h *Handler) UpdateNodeLabels(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
-	if err := h.Manager.UpdateNodeLabels(nodeID, body.Labels); err != nil {
+	if err := mgr.UpdateNodeLabels(nodeID, body.Labels); err != nil {
 		return clusterErrResponse(c, err)
 	}
 
@@ -452,7 +474,8 @@ func (h *Handler) UpdateNodeLabels(c echo.Context) error {
 }
 
 func (h *Handler) UpdateNodeAddress(c echo.Context) error {
-	if h.Manager == nil {
+	mgr := h.getManager()
+	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
 
@@ -472,7 +495,7 @@ func (h *Handler) UpdateNodeAddress(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "api_address and grpc_address required")
 	}
 
-	if err := h.Manager.UpdateNodeAddress(nodeID, body.APIAddress, body.GRPCAddress); err != nil {
+	if err := mgr.UpdateNodeAddress(nodeID, body.APIAddress, body.GRPCAddress); err != nil {
 		return clusterErrResponse(c, err)
 	}
 
@@ -484,7 +507,8 @@ func (h *Handler) UpdateNodeAddress(c echo.Context) error {
 }
 
 func (h *Handler) TransferLeadership(c echo.Context) error {
-	if h.Manager == nil {
+	mgr := h.getManager()
+	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
 
@@ -495,7 +519,7 @@ func (h *Handler) TransferLeadership(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "target_node_id required")
 	}
 
-	if err := h.Manager.TransferLeadership(body.TargetNodeID); err != nil {
+	if err := mgr.TransferLeadership(body.TargetNodeID); err != nil {
 		return clusterErrResponse(c, err)
 	}
 
@@ -506,8 +530,9 @@ func (h *Handler) TransferLeadership(c echo.Context) error {
 }
 
 func (h *Handler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
-	pool := h.Manager.GetConnPool()
-	leaderAddr := h.Manager.GetLeaderGRPCAddress()
+	mgr := h.getManager()
+	pool := mgr.GetConnPool()
+	leaderAddr := mgr.GetLeaderGRPCAddress()
 	if leaderAddr == "" {
 		return nil, fmt.Errorf("no leader")
 	}
@@ -520,7 +545,7 @@ func (h *Handler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
 	defer cancel()
 
-	proxySecret := h.Manager.ProxySecret()
+	proxySecret := mgr.ProxySecret()
 	headers := make(map[string]string)
 	if proxySecret != "" {
 		headers["X-SFPanel-Internal-Proxy"] = proxySecret
@@ -550,7 +575,8 @@ func (h *Handler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
 }
 
 func (h *Handler) DisbandCluster(c echo.Context) error {
-	if h.Manager == nil {
+	mgr := h.getManager()
+	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
 	if h.ConfigPath == "" {
@@ -560,7 +586,7 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 	dataDir := h.Config.Cluster.DataDir
 	certDir := h.Config.Cluster.CertDir
 
-	h.Manager.Shutdown()
+	mgr.Shutdown()
 
 	h.Config.Cluster.Enabled = false
 	data, err := yaml.Marshal(h.Config)
@@ -599,10 +625,11 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 }
 
 func (h *Handler) ClusterUpdate(c echo.Context) error {
-	if h.Manager == nil {
+	mgr := h.getManager()
+	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
-	if !h.Manager.IsLeader() {
+	if !mgr.IsLeader() {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "Only the leader can orchestrate cluster updates")
 	}
 
@@ -628,15 +655,15 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		flusher.Flush()
 	}
 
-	state := h.Manager.GetRaft().GetFSM().GetState()
-	health := h.Manager.GetHeartbeat().CheckHealth()
-	metricsSlice := h.Manager.GetHeartbeat().GetAllMetrics()
+	state := mgr.GetRaft().GetFSM().GetState()
+	health := mgr.GetHeartbeat().CheckHealth()
+	metricsSlice := mgr.GetHeartbeat().GetAllMetrics()
 	metricsMap := make(map[string]*cluster.NodeMetrics, len(metricsSlice))
 	for _, m := range metricsSlice {
 		metricsMap[m.NodeID] = m
 	}
 
-	localID := h.Manager.LocalNodeID()
+	localID := mgr.LocalNodeID()
 	type nodeInfo struct {
 		ID      string
 		Name    string
@@ -679,7 +706,7 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 			return false
 		}
 
-		pool := h.Manager.GetConnPool()
+		pool := mgr.GetConnPool()
 		client, err := pool.Get(node.GRPCAddress)
 		if err != nil {
 			sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Connection failed: " + err.Error()})
@@ -690,7 +717,7 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		defer cancel()
 
 		proxyHeaders := make(map[string]string)
-		if secret := h.Manager.ProxySecret(); secret != "" {
+		if secret := mgr.ProxySecret(); secret != "" {
 			proxyHeaders["X-SFPanel-Internal-Proxy"] = secret
 		}
 
@@ -714,7 +741,7 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "waiting", "message": "Waiting for node to restart..."})
 		for attempt := 0; attempt < 12; attempt++ {
 			time.Sleep(5 * time.Second)
-			h2 := h.Manager.GetHeartbeat().CheckHealth()
+			h2 := mgr.GetHeartbeat().CheckHealth()
 			if s, ok := h2[ni.ID]; ok && s == cluster.StatusOnline {
 				sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "online", "message": "Node back online"})
 				return true
@@ -760,10 +787,10 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	if leader.ID != "" {
 		sendSSE(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "updating", "message": "Updating leader (this node)..."})
 		for _, f := range followers {
-			h2 := h.Manager.GetHeartbeat().CheckHealth()
+			h2 := mgr.GetHeartbeat().CheckHealth()
 			if s, ok := h2[f.ID]; ok && s == cluster.StatusOnline {
 				sendSSE(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "transfer", "message": "Transferring leadership to " + f.Name})
-				_ = h.Manager.GetRaft().TransferLeadership(f.ID)
+				_ = mgr.GetRaft().TransferLeadership(f.ID)
 				time.Sleep(2 * time.Second)
 				break
 			}
@@ -776,10 +803,10 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	if leader.ID != "" {
 		go func() {
 			time.Sleep(1 * time.Second)
-			h.Manager.Shutdown()
+			mgr.Shutdown()
 			client := &http.Client{Timeout: 5 * time.Minute}
 			req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/api/v1/system/update", h.Config.Server.Port), nil)
-			if secret := h.Manager.ProxySecret(); secret != "" {
+			if secret := mgr.ProxySecret(); secret != "" {
 				req.Header.Set("X-SFPanel-Internal-Proxy", secret)
 			}
 			client.Do(req)

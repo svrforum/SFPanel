@@ -164,6 +164,12 @@ func main() {
 		}
 		middleware.SetClusterProxySecret(grpcServer.ProxySecret())
 
+		// Stop gRPC server when manager shuts down
+		go func() {
+			<-mgr.GetHeartbeat().Done()
+			grpcServer.Stop()
+		}()
+
 		return mgr, nil
 	})
 
