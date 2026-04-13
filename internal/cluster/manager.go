@@ -74,7 +74,10 @@ func (m *Manager) Init(clusterName string) error {
 
 	advertise := m.config.AdvertiseAddress
 	if advertise == "" {
-		advertise = DetectOutboundIP()
+		advertise = DetectFallbackIP()
+		if advertise == "" {
+			return fmt.Errorf("cannot detect advertise address: no non-loopback IPv4 found")
+		}
 		slog.Info("auto-detected advertise address", "component", "cluster", "address", advertise)
 	}
 
@@ -156,7 +159,10 @@ func (m *Manager) Start() error {
 
 	advertise := m.config.AdvertiseAddress
 	if advertise == "" {
-		advertise = DetectOutboundIP()
+		advertise = DetectFallbackIP()
+		if advertise == "" {
+			return fmt.Errorf("cannot detect advertise address: no non-loopback IPv4 found")
+		}
 		slog.Info("auto-detected advertise address", "component", "cluster", "address", advertise)
 	}
 
@@ -191,7 +197,10 @@ func (m *Manager) verifySelfAddress() {
 
 	advertise := m.config.AdvertiseAddress
 	if advertise == "" {
-		advertise = DetectOutboundIP()
+		advertise = DetectFallbackIP()
+		if advertise == "" {
+			return
+		}
 	}
 	expectedAPI := fmt.Sprintf("%s:%d", advertise, m.config.APIPort)
 	expectedGRPC := fmt.Sprintf("%s:%d", advertise, m.config.GRPCPort)
@@ -313,6 +322,36 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 
 	slog.Info("node joined", "component", "cluster", "name", nodeName, "node_id", nodeID, "grpc_addr", grpcAddr)
 	return caCertPEM, certPEM, keyPEM, peerList, nil
+}
+
+// HandlePreFlight validates a token without consuming it (for pre-flight checks).
+func (m *Manager) HandlePreFlight(token string) (clusterName string, nodeCount, maxNodes int, err error) {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return "", 0, 0, ErrNotLeader
+	}
+
+	if err := m.tokens.Peek(token); err != nil {
+		return "", 0, 0, err
+	}
+
+	state := m.raft.GetFSM().GetState()
+	return state.Config["cluster_name"], len(state.Nodes), MaxNodes, nil
+}
+
+// GetJWTAndAdmin returns the leader's JWT secret and primary admin account
+// for inclusion in join responses.
+func (m *Manager) GetJWTAndAdmin() (jwtSecret, adminUser, adminPassHash string) {
+	if m.raft == nil {
+		return "", "", ""
+	}
+	state := m.raft.GetFSM().GetState()
+	jwtSecret = state.Config["jwt_secret"]
+
+	// Return the first (primary) admin account
+	for _, acct := range state.Accounts {
+		return jwtSecret, acct.Username, acct.Password
+	}
+	return jwtSecret, "", ""
 }
 
 // RemoveNode removes a node from the cluster (leader-only).
@@ -859,19 +898,3 @@ func (m *Manager) UpdateNodeAddress(nodeID, apiAddr, grpcAddr string) error {
 	return nil
 }
 
-// DetectOutboundIP finds a reasonable non-loopback IP by creating a UDP connection.
-func DetectOutboundIP() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		addrs, _ := net.InterfaceAddrs()
-		for _, addr := range addrs {
-			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-				return ipnet.IP.String()
-			}
-		}
-		return "127.0.0.1"
-	}
-	defer conn.Close()
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP.String()
-}

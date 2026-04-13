@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	ClusterService_PreFlight_FullMethodName    = "/sfpanel.cluster.ClusterService/PreFlight"
 	ClusterService_Join_FullMethodName         = "/sfpanel.cluster.ClusterService/Join"
 	ClusterService_Leave_FullMethodName        = "/sfpanel.cluster.ClusterService/Leave"
 	ClusterService_Heartbeat_FullMethodName    = "/sfpanel.cluster.ClusterService/Heartbeat"
@@ -31,6 +32,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ClusterServiceClient interface {
+	PreFlight(ctx context.Context, in *PreFlightRequest, opts ...grpc.CallOption) (*PreFlightResponse, error)
 	Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error)
 	Leave(ctx context.Context, in *LeaveRequest, opts ...grpc.CallOption) (*LeaveResponse, error)
 	Heartbeat(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[HeartbeatPing, HeartbeatPong], error)
@@ -45,6 +47,16 @@ type clusterServiceClient struct {
 
 func NewClusterServiceClient(cc grpc.ClientConnInterface) ClusterServiceClient {
 	return &clusterServiceClient{cc}
+}
+
+func (c *clusterServiceClient) PreFlight(ctx context.Context, in *PreFlightRequest, opts ...grpc.CallOption) (*PreFlightResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PreFlightResponse)
+	err := c.cc.Invoke(ctx, ClusterService_PreFlight_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *clusterServiceClient) Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error) {
@@ -123,6 +135,7 @@ type ClusterService_SubscribeClient = grpc.ServerStreamingClient[ClusterEvent]
 // All implementations must embed UnimplementedClusterServiceServer
 // for forward compatibility.
 type ClusterServiceServer interface {
+	PreFlight(context.Context, *PreFlightRequest) (*PreFlightResponse, error)
 	Join(context.Context, *JoinRequest) (*JoinResponse, error)
 	Leave(context.Context, *LeaveRequest) (*LeaveResponse, error)
 	Heartbeat(grpc.BidiStreamingServer[HeartbeatPing, HeartbeatPong]) error
@@ -139,6 +152,9 @@ type ClusterServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedClusterServiceServer struct{}
 
+func (UnimplementedClusterServiceServer) PreFlight(context.Context, *PreFlightRequest) (*PreFlightResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PreFlight not implemented")
+}
 func (UnimplementedClusterServiceServer) Join(context.Context, *JoinRequest) (*JoinResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Join not implemented")
 }
@@ -176,6 +192,24 @@ func RegisterClusterServiceServer(s grpc.ServiceRegistrar, srv ClusterServiceSer
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&ClusterService_ServiceDesc, srv)
+}
+
+func _ClusterService_PreFlight_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PreFlightRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterServiceServer).PreFlight(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterService_PreFlight_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterServiceServer).PreFlight(ctx, req.(*PreFlightRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _ClusterService_Join_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -275,6 +309,10 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "sfpanel.cluster.ClusterService",
 	HandlerType: (*ClusterServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "PreFlight",
+			Handler:    _ClusterService_PreFlight_Handler,
+		},
 		{
 			MethodName: "Join",
 			Handler:    _ClusterService_Join_Handler,

@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// TokenManager handles join token creation and validation.
 type TokenManager struct {
 	mu     sync.Mutex
 	tokens map[string]*JoinToken
@@ -26,7 +25,6 @@ func NewTokenManager() *TokenManager {
 	}
 }
 
-// Create generates a new time-limited, single-use join token.
 func (tm *TokenManager) Create(ttl time.Duration, createdBy string) (*JoinToken, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -52,6 +50,24 @@ func (tm *TokenManager) Create(ttl time.Duration, createdBy string) (*JoinToken,
 	return jt, nil
 }
 
+// Peek checks token validity without consuming it.
+func (tm *TokenManager) Peek(token string) error {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	jt, ok := tm.tokens[token]
+	if !ok {
+		return ErrTokenNotFound
+	}
+	if jt.Used {
+		return ErrTokenUsed
+	}
+	if time.Now().After(jt.ExpiresAt) {
+		return ErrTokenExpired
+	}
+	return nil
+}
+
 // Validate checks the token and marks it as used.
 func (tm *TokenManager) Validate(token string) error {
 	tm.mu.Lock()
@@ -59,14 +75,14 @@ func (tm *TokenManager) Validate(token string) error {
 
 	jt, ok := tm.tokens[token]
 	if !ok {
-		return ErrInvalidToken
+		return ErrTokenNotFound
 	}
 	if jt.Used {
 		return ErrTokenUsed
 	}
 	if time.Now().After(jt.ExpiresAt) {
 		delete(tm.tokens, token)
-		return ErrInvalidToken
+		return ErrTokenExpired
 	}
 
 	jt.Used = true
