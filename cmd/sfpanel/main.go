@@ -117,12 +117,18 @@ func main() {
 	slog.Info("database ready", "path", cfg.Database.Path)
 
 	// Define LiveActivate callback for dynamic cluster activation
-	liveActivate := cluster.LiveActivateFunc(func(activeCfg *config.Config, activeCfgPath string) (*cluster.Manager, error) {
-		activeCfg.Cluster.APIPort = activeCfg.Server.Port
-		mgr := cluster.NewManager(&activeCfg.Cluster)
-		mgr.SetVersion(version)
-		if err := mgr.Start(); err != nil {
-			return nil, fmt.Errorf("cluster start: %w", err)
+	liveActivate := cluster.LiveActivateFunc(func(activeCfg *config.Config, activeCfgPath string, existingMgr *cluster.Manager) (*cluster.Manager, error) {
+		var mgr *cluster.Manager
+		if existingMgr != nil {
+			mgr = existingMgr
+			mgr.SetVersion(version)
+		} else {
+			activeCfg.Cluster.APIPort = activeCfg.Server.Port
+			mgr = cluster.NewManager(&activeCfg.Cluster)
+			mgr.SetVersion(version)
+			if err := mgr.Start(); err != nil {
+				return nil, fmt.Errorf("cluster start: %w", err)
+			}
 		}
 
 		// Start metrics collection
@@ -154,12 +160,16 @@ func main() {
 		// Start gRPC server
 		grpcServer, grpcErr := cluster.NewGRPCServer(mgr, activeCfg.Server.Port)
 		if grpcErr != nil {
-			mgr.Shutdown()
+			if existingMgr == nil {
+				mgr.Shutdown()
+			}
 			return nil, fmt.Errorf("gRPC server: %w", grpcErr)
 		}
 		grpcAddr := fmt.Sprintf("0.0.0.0:%d", activeCfg.Cluster.GRPCPort)
 		if startErr := grpcServer.Start(grpcAddr); startErr != nil {
-			mgr.Shutdown()
+			if existingMgr == nil {
+				mgr.Shutdown()
+			}
 			return nil, fmt.Errorf("gRPC listen %s: %w", grpcAddr, startErr)
 		}
 		middleware.SetClusterProxySecret(grpcServer.ProxySecret())
@@ -177,7 +187,7 @@ func main() {
 	var clusterMgr *cluster.Manager
 	if cfg.Cluster.Enabled {
 		var err error
-		clusterMgr, err = liveActivate(cfg, cfgPath)
+		clusterMgr, err = liveActivate(cfg, cfgPath, nil)
 		if err != nil {
 			slog.Warn("cluster start failed", "error", err)
 		} else {

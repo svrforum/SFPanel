@@ -16,7 +16,9 @@ import (
 )
 
 // LiveActivateFunc starts Manager + gRPC server in-process after a successful join/init.
-type LiveActivateFunc func(cfg *config.Config, cfgPath string) (*Manager, error)
+// If existingMgr is non-nil, it reuses that Manager instead of creating a new one
+// (used by Init flow to avoid Raft shutdown/reopen race).
+type LiveActivateFunc func(cfg *config.Config, cfgPath string, existingMgr *Manager) (*Manager, error)
 
 // JoinEngine handles the full cluster join pipeline for both CLI and Web UI.
 type JoinEngine struct {
@@ -195,7 +197,7 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr string) (*JoinResu
 	var mgr *Manager
 	if e.OnActivate != nil {
 		e.Config.Cluster.APIPort = e.Config.Server.Port
-		mgr, err = e.OnActivate(e.Config, e.ConfigPath)
+		mgr, err = e.OnActivate(e.Config, e.ConfigPath, nil)
 		if err != nil {
 			e.rollbackJoin(certDir, originalConfig)
 			return nil, fmt.Errorf("live activation failed: %w", err)

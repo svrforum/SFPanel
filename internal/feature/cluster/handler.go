@@ -124,12 +124,11 @@ func (h *Handler) InitCluster(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
 	}
 
-	mgr.Shutdown()
-
-	// Live activate
+	// Live activate — pass existing manager to avoid Raft shutdown/reopen race
 	if h.LiveActivate != nil {
-		newMgr, err := h.LiveActivate(h.Config, h.ConfigPath)
+		newMgr, err := h.LiveActivate(h.Config, h.ConfigPath, mgr)
 		if err != nil {
+			mgr.Shutdown()
 			slog.Error("live activation failed after init", "error", err)
 			return response.OK(c, map[string]interface{}{
 				"message": "Cluster initialized but live activation failed. Restart required.",
@@ -157,6 +156,8 @@ func (h *Handler) InitCluster(c echo.Context) error {
 				newMgr.SyncAccountFromDB(username, passwordHash, totp)
 			}
 		}
+	} else {
+		mgr.Shutdown()
 	}
 
 	slog.Info("cluster initialized via UI", "component", "cluster", "name", clusterName)
