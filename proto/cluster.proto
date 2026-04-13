@@ -3,12 +3,25 @@ package sfpanel.cluster;
 option go_package = "github.com/svrforum/SFPanel/internal/cluster/proto";
 
 service ClusterService {
+    rpc PreFlight(PreFlightRequest) returns (PreFlightResponse);
     rpc Join(JoinRequest) returns (JoinResponse);
     rpc Leave(LeaveRequest) returns (LeaveResponse);
     rpc Heartbeat(stream HeartbeatPing) returns (stream HeartbeatPong);
     rpc ProxyRequest(APIRequest) returns (APIResponse);
     rpc GetMetrics(MetricsRequest) returns (MetricsResponse);
     rpc Subscribe(SubscribeRequest) returns (stream ClusterEvent);
+}
+
+message PreFlightRequest {
+    string token = 1;
+}
+
+message PreFlightResponse {
+    bool   valid = 1;
+    string error = 2;
+    string cluster_name = 3;
+    int32  node_count = 4;
+    int32  max_nodes = 5;
 }
 
 message JoinRequest {
@@ -28,6 +41,9 @@ message JoinResponse {
     bytes  node_cert = 5;
     bytes  node_key = 6;
     repeated NodeInfo peers = 7;
+    string jwt_secret = 8;
+    string admin_username = 9;
+    string admin_password_hash = 10;
 }
 
 message LeaveRequest {

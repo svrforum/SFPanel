@@ -40,7 +40,7 @@ import (
 	featureWS "github.com/svrforum/SFPanel/internal/feature/websocket"
 )
 
-func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, extra ...string) *echo.Echo {
+func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -66,10 +66,6 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authHandler := &featureAuth.Handler{DB: database, Config: cfg, ClusterMgr: clusterMgr}
 	dashboardHandler := &featureMonitor.Handler{Version: version}
 
-	cfgPath := ""
-	if len(extra) > 0 {
-		cfgPath = extra[0]
-	}
 	systemHandler := &featureSystem.Handler{
 		Version:     version,
 		DBPath:      cfg.Database.Path,
@@ -146,7 +142,13 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.POST("/system/restore", systemHandler.RestoreBackup)
 
 	// Cluster management
-	clusterHandler := &featureCluster.Handler{Manager: clusterMgr, Config: cfg, ConfigPath: cfgPath}
+	clusterHandler := &featureCluster.Handler{
+		Manager:      clusterMgr,
+		Config:       cfg,
+		ConfigPath:   cfgPath,
+		DB:           database,
+		LiveActivate: liveActivate,
+	}
 	clusterGroup := authorized.Group("/cluster")
 	clusterGroup.GET("/status", clusterHandler.GetStatus)
 	clusterGroup.GET("/overview", clusterHandler.GetOverview)

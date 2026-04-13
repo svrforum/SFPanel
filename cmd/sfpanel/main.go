@@ -22,7 +22,6 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"syscall"
 	"time"
 
@@ -117,65 +116,71 @@ func main() {
 	}()
 	slog.Info("database ready", "path", cfg.Database.Path)
 
+	// Define LiveActivate callback for dynamic cluster activation
+	liveActivate := cluster.LiveActivateFunc(func(activeCfg *config.Config, activeCfgPath string) (*cluster.Manager, error) {
+		activeCfg.Cluster.APIPort = activeCfg.Server.Port
+		mgr := cluster.NewManager(&activeCfg.Cluster)
+		mgr.SetVersion(version)
+		if err := mgr.Start(); err != nil {
+			return nil, fmt.Errorf("cluster start: %w", err)
+		}
+
+		// Start metrics collection
+		metricsDocker, _ := docker.NewClient(activeCfg.Docker.Socket)
+		mgr.StartLocalMetrics(func() (float64, float64, float64, int) {
+			m, mErr := monitor.GetCoreMetrics()
+			if mErr != nil {
+				return 0, 0, 0, 0
+			}
+			diskPercent := 0.0
+			if d, dErr := monitor.GetDiskPercent(); dErr == nil {
+				diskPercent = d
+			}
+			containers := 0
+			if metricsDocker != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				if list, lErr := metricsDocker.ListContainers(ctx); lErr == nil {
+					for _, c := range list {
+						if c.State == "running" {
+							containers++
+						}
+					}
+				}
+				cancel()
+			}
+			return m.CPU, m.MemPercent, diskPercent, containers
+		})
+
+		// Start gRPC server
+		grpcServer, grpcErr := cluster.NewGRPCServer(mgr, activeCfg.Server.Port)
+		if grpcErr != nil {
+			mgr.Shutdown()
+			return nil, fmt.Errorf("gRPC server: %w", grpcErr)
+		}
+		grpcAddr := fmt.Sprintf("0.0.0.0:%d", activeCfg.Cluster.GRPCPort)
+		if startErr := grpcServer.Start(grpcAddr); startErr != nil {
+			mgr.Shutdown()
+			return nil, fmt.Errorf("gRPC listen %s: %w", grpcAddr, startErr)
+		}
+		middleware.SetClusterProxySecret(grpcServer.ProxySecret())
+
+		return mgr, nil
+	})
+
 	// Start cluster manager if enabled
 	var clusterMgr *cluster.Manager
 	if cfg.Cluster.Enabled {
-		cfg.Cluster.APIPort = cfg.Server.Port
-		clusterMgr = cluster.NewManager(&cfg.Cluster)
-		if err := clusterMgr.Start(); err != nil {
+		var err error
+		clusterMgr, err = liveActivate(cfg, cfgPath)
+		if err != nil {
 			slog.Warn("cluster start failed", "error", err)
 		} else {
 			defer clusterMgr.Shutdown()
 			slog.Info("cluster mode active", "component", "cluster", "name", cfg.Cluster.Name, "node_id", cfg.Cluster.NodeID)
 
-			// Set version for cluster heartbeat reporting
-			clusterMgr.SetVersion(version)
-
-			// Start local metrics collection for cluster overview
-			metricsDocker, _ := docker.NewClient(cfg.Docker.Socket)
-			clusterMgr.StartLocalMetrics(func() (float64, float64, float64, int) {
-				m, err := monitor.GetCoreMetrics()
-				if err != nil {
-					return 0, 0, 0, 0
-				}
-				diskPercent := 0.0
-				if d, dErr := monitor.GetDiskPercent(); dErr == nil {
-					diskPercent = d
-				}
-				containers := 0
-				if metricsDocker != nil {
-					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-					if list, lErr := metricsDocker.ListContainers(ctx); lErr == nil {
-						for _, c := range list {
-							if c.State == "running" {
-								containers++
-							}
-						}
-					}
-					cancel()
-				}
-				return m.CPU, m.MemPercent, diskPercent, containers
-			})
-
-			// Start gRPC server for cluster communication
-			grpcServer, grpcErr := cluster.NewGRPCServer(clusterMgr, cfg.Server.Port)
-			if grpcErr != nil {
-				slog.Error("gRPC server setup failed (cluster requires gRPC)", "error", grpcErr)
-				os.Exit(1)
-			}
-			grpcAddr := fmt.Sprintf("0.0.0.0:%d", cfg.Cluster.GRPCPort)
-			if startErr := grpcServer.Start(grpcAddr); startErr != nil {
-				slog.Error("gRPC server start failed", "addr", grpcAddr, "error", startErr)
-				os.Exit(1)
-			}
-			defer grpcServer.Stop()
-			middleware.SetClusterProxySecret(grpcServer.ProxySecret())
-
-			// Sync local admin account + JWT secret to cluster (leader only, best-effort)
+			// Leader-only: sync JWT secret and admin account to FSM
 			go func() {
-				time.Sleep(5 * time.Second) // wait for leader election
-
-				// Sync admin account
+				time.Sleep(5 * time.Second)
 				var username, passwordHash string
 				var totpSecret sql.NullString
 				if err := database.QueryRow("SELECT username, password, totp_secret FROM admin LIMIT 1").Scan(&username, &passwordHash, &totpSecret); err == nil {
@@ -184,37 +189,11 @@ func main() {
 						totp = totpSecret.String
 					}
 					if syncErr := clusterMgr.SyncAccountFromDB(username, passwordHash, totp); syncErr != nil {
-						slog.Debug("account cluster sync skipped (not leader or already synced)", "error", syncErr)
-					} else {
-						slog.Info("synced local admin account to cluster", "component", "cluster", "username", username)
+						slog.Debug("account cluster sync skipped", "error", syncErr)
 					}
 				}
-
-				// Leader: store JWT secret in FSM for joining nodes
 				if cfg.Auth.JWTSecret != "" {
-					if err := clusterMgr.SetConfig("jwt_secret", cfg.Auth.JWTSecret); err != nil {
-						slog.Debug("jwt_secret cluster sync skipped", "error", err)
-					}
-				}
-
-				// Follower: sync JWT secret from FSM to local config
-				if !clusterMgr.IsLeader() {
-					if fsmSecret := clusterMgr.GetFSMConfig("jwt_secret"); fsmSecret != "" && fsmSecret != cfg.Auth.JWTSecret {
-						slog.Info("syncing jwt_secret from cluster FSM", "component", "cluster")
-						cfg.Auth.JWTSecret = fsmSecret
-						if cfgPath != "" {
-							data, err := yaml.Marshal(cfg)
-							if err == nil {
-								if writeErr := os.WriteFile(cfgPath, data, 0644); writeErr == nil {
-									slog.Info("jwt_secret updated in config, restarting to apply", "component", "cluster")
-									go func() {
-										time.Sleep(3 * time.Second)
-										os.Exit(0)
-									}()
-								}
-							}
-						}
-					}
+					clusterMgr.SetConfig("jwt_secret", cfg.Auth.JWTSecret)
 				}
 			}()
 		}
@@ -231,7 +210,7 @@ func main() {
 	// Start background update checker (polls GitHub every hour)
 	monitor.StartUpdateChecker(version)
 
-	e := api.NewRouter(database, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath)
+	e := api.NewRouter(database, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate)
 	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

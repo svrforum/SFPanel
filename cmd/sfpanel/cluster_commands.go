@@ -1,19 +1,104 @@
 package main
 
 import (
-	"context"
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
-	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/config"
 	"gopkg.in/yaml.v3"
 )
+
+// defaultCfgPath is the fallback config path when --config is not provided.
+const defaultCfgPath = "/etc/sfpanel/config.yaml"
+
+// parseCfgFlag extracts "--config PATH" from args and returns (path, remainingArgs).
+// Used by all cluster subcommands so operators can point at a non-default config.
+func parseCfgFlag(args []string) (string, []string) {
+	cfgPath := defaultCfgPath
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--config" && i+1 < len(args) {
+			cfgPath = args[i+1]
+			i++
+			continue
+		}
+		out = append(out, args[i])
+	}
+	return cfgPath, out
+}
+
+// loadCfgForCLI reads a config file for read-only CLI commands. Unlike
+// config.Load, it refuses to auto-generate a config when the file is missing —
+// that auto-creation side effect would clobber unrelated state for users who
+// mistyped --config.
+func loadCfgForCLI(cfgPath string) *config.Config {
+	if _, err := os.Stat(cfgPath); err != nil {
+		if os.IsNotExist(err) {
+			log.Fatalf("Config file not found: %s (use --config PATH)", cfgPath)
+		}
+		log.Fatalf("Failed to stat config: %v", err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	return cfg
+}
+
+// callLocalAPI issues an authenticated HTTP request to the local running
+// sfpanel server, using a short-lived JWT minted from the config's jwt_secret.
+// This is how CLI commands that need LIVE cluster state (token, remove, …)
+// coordinate with the running process instead of spawning a conflicting one.
+func callLocalAPI(cfg *config.Config, method, path string, body interface{}) ([]byte, error) {
+	jwt, err := auth.GenerateToken("sfpanel-cli", cfg.Auth.JWTSecret, time.Minute)
+	if err != nil {
+		return nil, fmt.Errorf("mint admin token: %w", err)
+	}
+
+	var reader io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("marshal request body: %w", err)
+		}
+		reader = bytes.NewReader(raw)
+	}
+
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", cfg.Server.Port, path)
+	req, err := http.NewRequest(method, url, reader)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("reach local sfpanel at %s: %w (is the server running?)", url, err)
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned %s: %s", resp.Status, string(raw))
+	}
+	return raw, nil
+}
 
 func clusterCommand(args []string) {
 	if os.Getuid() != 0 {
@@ -31,9 +116,9 @@ func clusterCommand(args []string) {
 	case "join":
 		clusterJoin(args[1:])
 	case "leave":
-		clusterLeave()
+		clusterLeave(args[1:])
 	case "status":
-		clusterStatus()
+		clusterStatus(args[1:])
 	case "token":
 		clusterToken(args[1:])
 	case "remove":
@@ -45,24 +130,22 @@ func clusterCommand(args []string) {
 }
 
 func clusterInit(args []string) {
-	cfgPath := "/etc/sfpanel/config.yaml"
+	cfgPath, rest := parseCfgFlag(args)
 	clusterName := "sfpanel"
+	var advertise string
 
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--name":
-			if i+1 < len(args) {
-				clusterName = args[i+1]
-				i++
-			}
-		case "--config":
-			if i+1 < len(args) {
-				cfgPath = args[i+1]
-				i++
-			}
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == "--name" && i+1 < len(rest) {
+			clusterName = rest[i+1]
+			i++
+		}
+		if rest[i] == "--advertise" && i+1 < len(rest) {
+			advertise = rest[i+1]
+			i++
 		}
 	}
 
+	// Try to delegate to running server
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -72,6 +155,32 @@ func clusterInit(args []string) {
 		log.Fatal("Cluster already initialized. Use 'sfpanel cluster status' to check.")
 	}
 
+	if isServerRunning(cfg.Server.Port) {
+		fmt.Println("Server is running — delegating init to live server...")
+		body := map[string]string{
+			"name":              clusterName,
+			"advertise_address": advertise,
+		}
+		raw, err := callLocalAPI(cfg, "POST", "/api/v1/cluster/init", body)
+		if err != nil {
+			log.Fatalf("Init via server failed: %v", err)
+		}
+		fmt.Println(string(raw))
+		return
+	}
+
+	// Server not running — init directly
+	if advertise == "" {
+		advertise = cfg.Cluster.AdvertiseAddress
+	}
+	if advertise == "" {
+		advertise = cluster.DetectFallbackIP()
+	}
+	if advertise == "" {
+		log.Fatal("Cannot detect advertise address. Use --advertise IP.")
+	}
+
+	cfg.Cluster.AdvertiseAddress = advertise
 	cfg.Cluster.APIPort = cfg.Server.Port
 	mgr := cluster.NewManager(&cfg.Cluster)
 	if err := mgr.Init(clusterName); err != nil {
@@ -90,22 +199,24 @@ func clusterInit(args []string) {
 	fmt.Println("\nNext steps:")
 	fmt.Println("  1. Restart sfpanel: sudo systemctl restart sfpanel")
 	fmt.Println("  2. Create a join token: sfpanel cluster token")
-	fmt.Println("  3. On other nodes: sfpanel cluster join <this-ip>:9443 <token>")
+	fmt.Println("  3. On other nodes: sfpanel cluster join <this-ip>:9444 <token>")
 }
 
 func clusterJoin(args []string) {
-	if len(args) < 2 {
-		fmt.Println("Usage: sfpanel cluster join <leader-address:port> <token>")
+	cfgPath, rest := parseCfgFlag(args)
+	if len(rest) < 2 {
+		fmt.Println("Usage: sfpanel cluster join <leader-address:port> <token> [--advertise IP] [--config PATH]")
 		os.Exit(1)
 	}
 
-	leaderAddr := args[0]
-	token := args[1]
+	leaderAddr := rest[0]
+	token := rest[1]
 
-	cfgPath := "/etc/sfpanel/config.yaml"
-	for i := 2; i < len(args); i++ {
-		if args[i] == "--config" && i+1 < len(args) {
-			cfgPath = args[i+1]
+	var advertise string
+	for i := 2; i < len(rest); i++ {
+		if rest[i] == "--advertise" && i+1 < len(rest) {
+			advertise = rest[i+1]
+			i++
 		}
 	}
 
@@ -118,77 +229,71 @@ func clusterJoin(args []string) {
 		log.Fatal("This node is already part of a cluster.")
 	}
 
-	nodeID := uuid.New().String()
-	hostname, _ := os.Hostname()
-
-	advertise := cfg.Cluster.AdvertiseAddress
-	if advertise == "" {
-		// Auto-detect outbound IP instead of using 127.0.0.1
-		conn, dialErr := net.Dial("udp", "8.8.8.8:80")
-		if dialErr == nil {
-			advertise = conn.LocalAddr().(*net.UDPAddr).IP.String()
-			conn.Close()
-		} else {
-			advertise = "127.0.0.1"
+	// Try to delegate to running server
+	if isServerRunning(cfg.Server.Port) {
+		fmt.Println("Server is running — delegating join to live server...")
+		body := map[string]string{
+			"leader_address":    leaderAddr,
+			"token":             token,
+			"advertise_address": advertise,
 		}
-		log.Printf("No advertise_address configured, auto-detected: %s", advertise)
+		raw, err := callLocalAPI(cfg, "POST", "/api/v1/cluster/join", body)
+		if err != nil {
+			log.Fatalf("Join via server failed: %v", err)
+		}
+		fmt.Println(string(raw))
+		return
 	}
 
-	apiAddr := fmt.Sprintf("%s:%d", advertise, cfg.Server.Port)
-	grpcAddr := fmt.Sprintf("%s:%d", advertise, cfg.Cluster.GRPCPort)
+	// Server not running — use JoinEngine directly (config-only mode)
+	engine := &cluster.JoinEngine{
+		ConfigPath: cfgPath,
+		Config:     cfg,
+	}
 
-	fmt.Printf("Joining cluster at %s...\n", leaderAddr)
-
-	client, err := cluster.DialNodeInsecure(leaderAddr)
+	fmt.Printf("Pre-flight check against %s...\n", leaderAddr)
+	pf, err := engine.PreFlight(leaderAddr, token)
 	if err != nil {
-		log.Fatalf("Failed to connect to leader: %v", err)
+		log.Fatalf("Pre-flight failed: %v", err)
 	}
-	defer client.Close()
+	fmt.Printf("  Cluster: %s (%d/%d nodes)\n", pf.ClusterName, pf.NodeCount, pf.MaxNodes)
 
-	resp, err := client.Join(context.Background(), &pb.JoinRequest{
-		Token:       token,
-		NodeId:      nodeID,
-		NodeName:    hostname,
-		ApiAddress:  apiAddr,
-		GrpcAddress: grpcAddr,
-	})
+	if advertise == "" {
+		if cfg.Cluster.AdvertiseAddress != "" {
+			advertise = cfg.Cluster.AdvertiseAddress
+		} else {
+			advertise = pf.RecommendedIP
+		}
+	}
+	fmt.Printf("  Advertise IP: %s (%s)\n", advertise, pf.IPReason)
+
+	result, err := engine.Execute(leaderAddr, token, advertise)
 	if err != nil {
 		log.Fatalf("Join failed: %v", err)
 	}
-	if !resp.Success {
-		log.Fatalf("Join rejected: %s", resp.Error)
-	}
 
-	tlsMgr := cluster.NewTLSManager(cfg.Cluster.CertDir)
-	if err := tlsMgr.SaveCACert(resp.CaCert); err != nil {
-		log.Fatalf("Failed to save CA cert: %v", err)
-	}
-	if err := tlsMgr.SaveNodeCert(resp.NodeCert, resp.NodeKey); err != nil {
-		log.Fatalf("Failed to save node cert: %v", err)
-	}
-
-	cfg.Cluster.Enabled = true
-	cfg.Cluster.Name = resp.ClusterName
-	cfg.Cluster.NodeID = nodeID
-	cfg.Cluster.NodeName = hostname
-	cfg.Cluster.AdvertiseAddress = advertise
-
-	if err := saveConfig(cfgPath, cfg); err != nil {
-		log.Printf("Warning: failed to save config: %v", err)
-	}
-
-	fmt.Printf("Successfully joined cluster '%s'.\n", resp.ClusterName)
-	fmt.Printf("Node ID: %s\n", nodeID)
-	fmt.Printf("Peers: %d nodes\n", len(resp.Peers))
+	fmt.Printf("\nSuccessfully joined cluster '%s'.\n", result.ClusterName)
+	fmt.Printf("Node ID: %s\n", result.NodeID)
 	fmt.Println("\nRestart sfpanel to activate: sudo systemctl restart sfpanel")
 }
 
-func clusterLeave() {
-	cfgPath := "/etc/sfpanel/config.yaml"
-	cfg, err := config.Load(cfgPath)
+// isServerRunning checks if the local sfpanel server is listening.
+func isServerRunning(port int) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		return false
 	}
+	conn.Close()
+	return true
+}
+
+// NOTE: clusterLeave still spawns its own cluster.Manager, which collides with
+// a running sfpanel server on the Raft port. Operators must stop the server
+// before calling this command. A future refactor should route this through the
+// running server's HTTP API the same way clusterToken does.
+func clusterLeave(args []string) {
+	cfgPath, _ := parseCfgFlag(args)
+	cfg := loadCfgForCLI(cfgPath)
 
 	if !cfg.Cluster.Enabled {
 		log.Fatal("This node is not part of a cluster.")
@@ -232,12 +337,9 @@ func clusterLeave() {
 	fmt.Println("Cluster left. Restart sfpanel to run in standalone mode: sudo systemctl restart sfpanel")
 }
 
-func clusterStatus() {
-	cfgPath := "/etc/sfpanel/config.yaml"
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
+func clusterStatus(args []string) {
+	cfgPath, _ := parseCfgFlag(args)
+	cfg := loadCfgForCLI(cfgPath)
 
 	if !cfg.Cluster.Enabled {
 		fmt.Println("Cluster: not configured (standalone mode)")
@@ -253,40 +355,45 @@ func clusterStatus() {
 }
 
 func clusterToken(args []string) {
+	cfgPath, rest := parseCfgFlag(args)
 	ttl := 24 * time.Hour
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--ttl" && i+1 < len(args) {
-			d, err := time.ParseDuration(args[i+1])
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == "--ttl" && i+1 < len(rest) {
+			d, err := time.ParseDuration(rest[i+1])
 			if err != nil {
 				log.Fatalf("Invalid TTL: %v", err)
 			}
 			ttl = d
+			i++
 		}
 	}
 
-	cfgPath := "/etc/sfpanel/config.yaml"
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-
+	cfg := loadCfgForCLI(cfgPath)
 	if !cfg.Cluster.Enabled {
 		log.Fatal("Cluster not initialized. Run 'sfpanel cluster init' first.")
 	}
 
-	mgr := cluster.NewManager(&cfg.Cluster)
-	if err := mgr.Start(); err != nil {
-		log.Fatalf("Failed to start cluster manager: %v", err)
-	}
-
-	time.Sleep(3 * time.Second)
-
-	token, err := mgr.CreateJoinToken(ttl)
+	// Tokens live in-memory on the running server's TokenManager, so we must
+	// delegate to it via the HTTP API. Spawning a separate Manager here would
+	// (a) conflict on the Raft port and (b) produce tokens the real server
+	// never sees.
+	raw, err := callLocalAPI(cfg, http.MethodPost, "/api/v1/cluster/token", map[string]string{
+		"ttl": ttl.String(),
+	})
 	if err != nil {
 		log.Fatalf("Failed to create token: %v", err)
 	}
 
-	mgr.Shutdown()
+	var envelope struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Token     string    `json:"token"`
+			ExpiresAt time.Time `json:"expires_at"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		log.Fatalf("Parse token response: %v\nbody: %s", err, string(raw))
+	}
 
 	addr := cfg.Cluster.AdvertiseAddress
 	if addr == "" {
@@ -294,25 +401,24 @@ func clusterToken(args []string) {
 	}
 	grpcPort := cfg.Cluster.GRPCPort
 
-	fmt.Printf("Join token (expires: %s):\n\n", token.ExpiresAt.Format(time.RFC3339))
-	fmt.Printf("  %s\n\n", token.Token)
+	fmt.Printf("Join token (expires: %s):\n\n", envelope.Data.ExpiresAt.Format(time.RFC3339))
+	fmt.Printf("  %s\n\n", envelope.Data.Token)
 	fmt.Println("Join command:")
-	fmt.Printf("  sfpanel cluster join %s:%d %s\n", addr, grpcPort, token.Token)
+	fmt.Printf("  sfpanel cluster join %s:%d %s\n", addr, grpcPort, envelope.Data.Token)
 }
 
+// NOTE: clusterRemove still spawns its own cluster.Manager; see the note on
+// clusterLeave. This should be migrated to the HTTP API (DELETE /cluster/nodes/:id)
+// so it can work against a running server.
 func clusterRemove(args []string) {
-	if len(args) < 1 {
-		fmt.Println("Usage: sfpanel cluster remove <node-id>")
+	cfgPath, rest := parseCfgFlag(args)
+	if len(rest) < 1 {
+		fmt.Println("Usage: sfpanel cluster remove <node-id> [--config PATH]")
 		os.Exit(1)
 	}
-	nodeID := args[0]
+	nodeID := rest[0]
 
-	cfgPath := "/etc/sfpanel/config.yaml"
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-
+	cfg := loadCfgForCLI(cfgPath)
 	if !cfg.Cluster.Enabled {
 		log.Fatal("Cluster not initialized.")
 	}
@@ -348,4 +454,7 @@ func printClusterHelp() {
 	fmt.Println("  sfpanel cluster status                    Show cluster status")
 	fmt.Println("  sfpanel cluster remove NODE_ID            Remove a node")
 	fmt.Println("  sfpanel cluster leave                     Leave the cluster")
+	fmt.Println()
+	fmt.Println("All subcommands accept --config PATH to select a config file")
+	fmt.Println("(default: /etc/sfpanel/config.yaml).")
 }

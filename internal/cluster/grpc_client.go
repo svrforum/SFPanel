@@ -66,6 +66,13 @@ func (c *GRPCClient) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinRes
 	return c.client.Join(ctx, req)
 }
 
+// PreFlight checks token validity without consuming it.
+func (c *GRPCClient) PreFlight(ctx context.Context, token string) (*pb.PreFlightResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return c.client.PreFlight(ctx, &pb.PreFlightRequest{Token: token})
+}
+
 // Leave notifies the leader that this node is leaving.
 func (c *GRPCClient) Leave(ctx context.Context, nodeID string) (*pb.LeaveResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)

@@ -2,6 +2,7 @@ package featurecluster
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +14,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
@@ -35,7 +35,7 @@ func clusterErrResponse(c echo.Context, err error) error {
 		return response.Fail(c, http.StatusConflict, response.ErrInvalidRequest, "Node already exists")
 	case errors.Is(err, cluster.ErrMaxNodesReached):
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Maximum node count reached")
-	case errors.Is(err, cluster.ErrInvalidToken), errors.Is(err, cluster.ErrTokenUsed):
+	case errors.Is(err, cluster.ErrTokenNotFound), errors.Is(err, cluster.ErrTokenExpired), errors.Is(err, cluster.ErrTokenUsed):
 		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidRequest, err.Error())
 	default:
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
@@ -43,14 +43,16 @@ func clusterErrResponse(c echo.Context, err error) error {
 }
 
 type Handler struct {
-	Manager    *cluster.Manager
-	Config     *config.Config
-	ConfigPath string
+	Manager      *cluster.Manager
+	Config       *config.Config
+	ConfigPath   string
+	DB           *sql.DB
+	LiveActivate cluster.LiveActivateFunc
 }
 
 func (h *Handler) InitCluster(c echo.Context) error {
 	if h.Manager != nil {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster already initialized")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Already part of a cluster")
 	}
 	if h.ConfigPath == "" {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Config path not available")
@@ -68,34 +70,38 @@ func (h *Handler) InitCluster(c echo.Context) error {
 	if clusterName == "" {
 		clusterName = "sfpanel"
 	}
+
 	advertise := body.AdvertiseAddress
 	if advertise == "" {
-		advertise = cluster.DetectOutboundIP()
+		advertise = cluster.DetectFallbackIP()
+	}
+	if advertise == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cannot detect advertise address. Please provide one.")
 	}
 
 	h.Config.Cluster.AdvertiseAddress = advertise
-	h.Config.Cluster.APIPort = h.Config.Server.Port
 
+	grpcPort := h.Config.Cluster.GRPCPort
+	if grpcPort == 0 {
+		grpcPort = h.Config.Server.Port + 1
+		h.Config.Cluster.GRPCPort = grpcPort
+	}
+
+	h.Config.Cluster.APIPort = h.Config.Server.Port
 	mgr := cluster.NewManager(&h.Config.Cluster)
 	if err := mgr.Init(clusterName); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Cluster init failed: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Init failed: %v", err))
 	}
 
 	h.Config.Cluster = *mgr.GetConfig()
 
-	// Store JWT secret in Raft FSM so joining nodes can sync it
-	if h.Config.Auth.JWTSecret != "" {
-		if err := mgr.SetConfig("jwt_secret", h.Config.Auth.JWTSecret); err != nil {
-			slog.Warn("failed to store jwt_secret in cluster", "error", err)
-		}
-	}
-
+	// Save config
 	data, err := yaml.Marshal(h.Config)
 	if err != nil {
 		mgr.Shutdown()
 		os.RemoveAll(h.Config.Cluster.DataDir)
 		os.RemoveAll(h.Config.Cluster.CertDir)
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to marshal config: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
 	}
 	if err := config.AtomicWriteFile(h.ConfigPath, data, 0600); err != nil {
 		mgr.Shutdown()
@@ -106,32 +112,52 @@ func (h *Handler) InitCluster(c echo.Context) error {
 
 	mgr.Shutdown()
 
-	slog.Info("cluster initialized via UI, restarting", "component", "cluster", "name", clusterName)
+	// Live activate
+	if h.LiveActivate != nil {
+		newMgr, err := h.LiveActivate(h.Config, h.ConfigPath)
+		if err != nil {
+			slog.Error("live activation failed after init", "error", err)
+			return response.OK(c, map[string]interface{}{
+				"message": "Cluster initialized but live activation failed. Restart required.",
+				"name":    clusterName,
+				"node_id": h.Config.Cluster.NodeID,
+				"live":    false,
+			})
+		}
+		h.Manager = newMgr
 
-	go func() {
-		time.Sleep(2 * time.Second) // allow HTTP response to flush
-		// Exit code 1 so a supervisor with Restart=on-failure still wakes
-		// us up; Restart=always doesn't care about the code. Previously
-		// this exited 0, which silently broke restart under the install.sh
-		// default of Restart=on-failure.
-		slog.Info("exiting with code 1 to trigger supervisor restart", "component", "cluster")
-		os.Exit(1)
-	}()
+		// Store JWT secret in FSM
+		if h.Config.Auth.JWTSecret != "" {
+			newMgr.SetConfig("jwt_secret", h.Config.Auth.JWTSecret)
+		}
+
+		// Sync admin account to FSM
+		if h.DB != nil {
+			var username, passwordHash string
+			var totpSecret sql.NullString
+			if err := h.DB.QueryRow("SELECT username, password, totp_secret FROM admin LIMIT 1").Scan(&username, &passwordHash, &totpSecret); err == nil {
+				totp := ""
+				if totpSecret.Valid {
+					totp = totpSecret.String
+				}
+				newMgr.SyncAccountFromDB(username, passwordHash, totp)
+			}
+		}
+	}
+
+	slog.Info("cluster initialized via UI", "component", "cluster", "name", clusterName)
 
 	return response.OK(c, map[string]interface{}{
-		"message": "Cluster initialized. Service restarting...",
+		"message": "Cluster initialized successfully",
 		"name":    clusterName,
 		"node_id": h.Config.Cluster.NodeID,
-		"restart": true,
+		"live":    h.Manager != nil,
 	})
 }
 
 func (h *Handler) JoinCluster(c echo.Context) error {
 	if h.Manager != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Already part of a cluster")
-	}
-	if h.ConfigPath == "" {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Config path not available")
 	}
 
 	var body struct {
@@ -146,87 +172,40 @@ func (h *Handler) JoinCluster(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "leader_address and token are required")
 	}
 
+	engine := &cluster.JoinEngine{
+		ConfigPath: h.ConfigPath,
+		Config:     h.Config,
+		DB:         h.DB,
+		OnActivate: h.LiveActivate,
+	}
+
+	// Pre-flight check
+	pfResult, err := engine.PreFlight(body.LeaderAddress, body.Token)
+	if err != nil {
+		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, err.Error())
+	}
+
 	advertise := body.AdvertiseAddress
 	if advertise == "" {
-		advertise = cluster.DetectOutboundIP()
+		advertise = pfResult.RecommendedIP
 	}
 
-	nodeID := uuid.New().String()
-	hostname, _ := os.Hostname()
-
-	grpcPort := h.Config.Cluster.GRPCPort
-	if grpcPort == 0 {
-		grpcPort = h.Config.Server.Port + 1
-	}
-	apiAddr := fmt.Sprintf("%s:%d", advertise, h.Config.Server.Port)
-	grpcAddr := fmt.Sprintf("%s:%d", advertise, grpcPort)
-
-	slog.Info("joining cluster via web UI", "component", "cluster", "leader", body.LeaderAddress)
-
-	client, err := cluster.DialNodeInsecure(body.LeaderAddress)
+	// Execute join
+	result, err := engine.Execute(body.LeaderAddress, body.Token, advertise)
 	if err != nil {
-		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, fmt.Sprintf("Failed to connect to leader: %v", err))
-	}
-	defer client.Close()
-
-	resp, err := client.Join(context.Background(), &pb.JoinRequest{
-		Token:       body.Token,
-		NodeId:      nodeID,
-		NodeName:    hostname,
-		ApiAddress:  apiAddr,
-		GrpcAddress: grpcAddr,
-	})
-	if err != nil {
-		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, fmt.Sprintf("Join request failed: %v", err))
-	}
-	if !resp.Success {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, fmt.Sprintf("Join rejected: %s", resp.Error))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
 	}
 
-	// Save certs (rollback on failure)
-	certDir := h.Config.Cluster.CertDir
-	tlsMgr := cluster.NewTLSManager(certDir)
-	if err := tlsMgr.SaveCACert(resp.CaCert); err != nil {
-		os.RemoveAll(certDir)
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save CA cert: %v", err))
+	// Update handler's Manager pointer for subsequent requests
+	if result.Manager != nil {
+		h.Manager = result.Manager
 	}
-	if err := tlsMgr.SaveNodeCert(resp.NodeCert, resp.NodeKey); err != nil {
-		os.RemoveAll(certDir)
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save node cert: %v", err))
-	}
-
-	h.Config.Cluster.Enabled = true
-	h.Config.Cluster.Name = resp.ClusterName
-	h.Config.Cluster.NodeID = nodeID
-	h.Config.Cluster.NodeName = hostname
-	h.Config.Cluster.AdvertiseAddress = advertise
-	h.Config.Cluster.GRPCPort = grpcPort
-
-	data, err := yaml.Marshal(h.Config)
-	if err != nil {
-		os.RemoveAll(certDir)
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to marshal config: %v", err))
-	}
-	if err := config.AtomicWriteFile(h.ConfigPath, data, 0600); err != nil {
-		os.RemoveAll(certDir)
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
-	}
-
-	slog.Info("cluster join successful, restarting", "component", "cluster", "cluster_name", resp.ClusterName, "node_id", nodeID)
-
-	go func() {
-		time.Sleep(2 * time.Second) // allow HTTP response to flush
-		// See the comment on the same pattern in InitCluster — exit 1,
-		// not 0, so Restart=on-failure still triggers a supervisor cycle.
-		slog.Info("exiting with code 1 to trigger supervisor restart", "component", "cluster")
-		os.Exit(1)
-	}()
 
 	return response.OK(c, map[string]interface{}{
-		"message":      "Joined cluster. Service restarting...",
-		"cluster_name": resp.ClusterName,
-		"node_id":      nodeID,
-		"restart":      true,
+		"message":      "Joined cluster successfully",
+		"cluster_name": result.ClusterName,
+		"node_id":      result.NodeID,
+		"live":         result.Manager != nil,
 	})
 }
 
@@ -239,7 +218,7 @@ func (h *Handler) GetNetworkInterfaces(c echo.Context) error {
 	var result []ifaceInfo
 	ifaces, err := net.Interfaces()
 	if err != nil {
-		return response.OK(c, map[string]interface{}{"interfaces": []interface{}{}})
+		return response.OK(c, map[string]interface{}{"interfaces": []interface{}{}, "recommended": "", "reason": ""})
 	}
 
 	for _, iface := range ifaces {
@@ -262,8 +241,25 @@ func (h *Handler) GetNetworkInterfaces(c echo.Context) error {
 		}
 	}
 
+	recommended := ""
+	reason := ""
+	leaderAddr := c.QueryParam("leader_addr")
+	if leaderAddr != "" {
+		if ip, err := cluster.DetectAdvertiseAddress(leaderAddr); err == nil {
+			recommended = ip
+			leaderHost, _, _ := net.SplitHostPort(leaderAddr)
+			if cluster.IsTailscaleIP(net.ParseIP(leaderHost)) {
+				reason = "Tailscale network matches leader"
+			} else {
+				reason = "same network as leader"
+			}
+		}
+	}
+
 	return response.OK(c, map[string]interface{}{
-		"interfaces": result,
+		"interfaces":  result,
+		"recommended": recommended,
+		"reason":      reason,
 	})
 }
 

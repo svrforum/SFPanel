@@ -114,14 +114,32 @@ func (s *GRPCServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinRes
 	}
 
 	state := s.manager.GetRaft().GetFSM().GetState()
+	jwtSecret, adminUser, adminPassHash := s.manager.GetJWTAndAdmin()
 
 	return &pb.JoinResponse{
-		Success:     true,
-		ClusterName: state.Config["cluster_name"],
-		CaCert:      caCert,
-		NodeCert:    nodeCert,
-		NodeKey:     nodeKey,
-		Peers:       pbPeers,
+		Success:           true,
+		ClusterName:       state.Config["cluster_name"],
+		CaCert:            caCert,
+		NodeCert:          nodeCert,
+		NodeKey:           nodeKey,
+		Peers:             pbPeers,
+		JwtSecret:         jwtSecret,
+		AdminUsername:     adminUser,
+		AdminPasswordHash: adminPassHash,
+	}, nil
+}
+
+// PreFlight validates a join token without consuming it.
+func (s *GRPCServer) PreFlight(ctx context.Context, req *pb.PreFlightRequest) (*pb.PreFlightResponse, error) {
+	clusterName, nodeCount, maxNodes, err := s.manager.HandlePreFlight(req.Token)
+	if err != nil {
+		return &pb.PreFlightResponse{Valid: false, Error: err.Error()}, nil
+	}
+	return &pb.PreFlightResponse{
+		Valid:       true,
+		ClusterName: clusterName,
+		NodeCount:   int32(nodeCount),
+		MaxNodes:    int32(maxNodes),
 	}, nil
 }
 
