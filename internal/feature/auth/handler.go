@@ -203,28 +203,6 @@ func preRecordLoginAttempt(ip string) (blocked bool) {
 	return false
 }
 
-func recordFailedLogin(ip string) {
-	now := time.Now()
-	newAttempt := &loginAttempt{count: 1, firstAt: now}
-	val, loaded := loginAttempts.LoadOrStore(ip, newAttempt)
-	if !loaded {
-		return
-	}
-	attempt := val.(*loginAttempt)
-	attempt.mu.Lock()
-	defer attempt.mu.Unlock()
-	if now.Sub(attempt.firstAt) > rateLimitWindow {
-		attempt.count = 1
-		attempt.firstAt = now
-		attempt.blockedUntil = time.Time{}
-		return
-	}
-	attempt.count++
-	if attempt.count >= rateLimitMaxAttempts {
-		attempt.blockedUntil = now.Add(rateLimitBlockDuration)
-	}
-}
-
 func (h *Handler) Setup2FA(c echo.Context) error {
 	username, _ := c.Get("username").(string)
 	if username == "" {

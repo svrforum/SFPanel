@@ -365,8 +365,10 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 		// Refuse non-regular entries outright. A crafted archive could embed
 		// a symlink like "compose/app/docker-compose.yml -> /etc/cron.d/evil";
 		// we only want plain files here so later os.WriteFile calls land
-		// exactly where we expect.
-		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+		// exactly where we expect. Modern archive/tar maps the legacy
+		// '\x00' regular-file typeflag to TypeReg on read, so this single
+		// comparison covers both old and new archive formats.
+		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 		clean := filepath.Clean(hdr.Name)
