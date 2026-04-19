@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -50,11 +51,37 @@ func (tm *TokenManager) Create(ttl time.Duration, createdBy string) (*JoinToken,
 	return jt, nil
 }
 
+// verifyHMAC re-computes the expected HMAC for a token string and compares in
+// constant time. Today the token map alone is enough (tokens only enter via
+// Create), but verifying HMAC here means that if tokens ever get persisted
+// or serialized out of process, an attacker can't forge an entry by guessing
+// a random 24-byte raw half.
+func (tm *TokenManager) verifyHMAC(token string) bool {
+	parts := strings.SplitN(token, ".", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	raw, err := hex.DecodeString(parts[0])
+	if err != nil {
+		return false
+	}
+	providedMAC, err := hex.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, tm.secret)
+	mac.Write(raw)
+	return hmac.Equal(providedMAC, mac.Sum(nil))
+}
+
 // Peek checks token validity without consuming it.
 func (tm *TokenManager) Peek(token string) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
+	if !tm.verifyHMAC(token) {
+		return ErrTokenNotFound
+	}
 	jt, ok := tm.tokens[token]
 	if !ok {
 		return ErrTokenNotFound
@@ -73,6 +100,9 @@ func (tm *TokenManager) Validate(token string) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
+	if !tm.verifyHMAC(token) {
+		return ErrTokenNotFound
+	}
 	jt, ok := tm.tokens[token]
 	if !ok {
 		return ErrTokenNotFound
