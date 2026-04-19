@@ -20,19 +20,26 @@ import (
 // the cluster's mTLS client config; passing nil falls back to system roots
 // (still hostname-verified) rather than InsecureSkipVerify.
 func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url.URL, proxySecret string, tlsCfg *crypto_tls.Config) error {
-	// Build remote WS URL
+	// Build remote WS URL.
+	//
+	// SFPanel's HTTP API is plain HTTP by design (TLS is the reverse
+	// proxy's job). Default to ws://. Only switch to wss:// when the stored
+	// APIAddress explicitly carries the https:// prefix, which happens only
+	// if an operator put the panel behind TLS and wrote that form into
+	// config.Cluster.APIAddress. The previous default-to-wss behavior
+	// produced "tls: first record does not look like a TLS handshake" for
+	// every cross-node terminal/exec/logs/metrics relay.
 	apiAddr := remoteNode.APIAddress
+	scheme := "ws"
+	switch {
+	case strings.HasPrefix(apiAddr, "https://"):
+		scheme = "wss"
+		apiAddr = strings.TrimPrefix(apiAddr, "https://")
+	case strings.HasPrefix(apiAddr, "http://"):
+		apiAddr = strings.TrimPrefix(apiAddr, "http://")
+	}
 	if !strings.Contains(apiAddr, ":") {
 		apiAddr += ":19443"
-	}
-
-	// Use wss:// if the API address looks like HTTPS, otherwise ws://
-	scheme := "wss"
-	if strings.HasPrefix(apiAddr, "http://") {
-		scheme = "ws"
-		apiAddr = strings.TrimPrefix(apiAddr, "http://")
-	} else {
-		apiAddr = strings.TrimPrefix(apiAddr, "https://")
 	}
 
 	remoteURL := url.URL{
@@ -150,8 +157,15 @@ var WSRelayUpgrader = websocket.Upgrader{
 // WrapEchoWSHandler wraps an Echo WebSocket handler with cluster relay support.
 // If the request contains a ?node=X parameter targeting a remote node,
 // it relays the WebSocket connection to that node instead of running locally.
-func WrapEchoWSHandler(mgr *Manager, handler func(c echo.Context) error) func(c echo.Context) error {
+//
+// Takes a getter so runtime cluster activation (init/join after a standalone
+// start) takes effect without a process restart — capturing a nil *Manager
+// at boot time would otherwise permanently disable WS relaying on this
+// process, and every ?node=remote terminal/exec/logs/metrics request would
+// silently fall through to the local handler.
+func WrapEchoWSHandler(getMgr func() *Manager, handler func(c echo.Context) error) func(c echo.Context) error {
 	return func(c echo.Context) error {
+		mgr := getMgr()
 		if mgr == nil {
 			return handler(c)
 		}

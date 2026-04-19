@@ -466,16 +466,18 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		compose.POST("/:project/rollback", composeHandler.RollbackStack)
 		compose.GET("/:project/has-rollback", composeHandler.HasRollback)
 
-		// Docker WebSocket routes (auth via query param token, cluster relay support)
-		e.GET("/ws/docker/containers/:id/logs", cluster.WrapEchoWSHandler(clusterMgr, featureWS.ContainerLogsWS(dockerClient, cfg.Auth.JWTSecret)))
-		e.GET("/ws/docker/containers/:id/exec", cluster.WrapEchoWSHandler(clusterMgr, featureWS.ContainerExecWS(dockerClient, cfg.Auth.JWTSecret)))
-		e.GET("/ws/docker/compose/:project/logs", cluster.WrapEchoWSHandler(clusterMgr, featureWS.ComposeLogsWS(composeManager, cfg.Auth.JWTSecret)))
+		// Docker WebSocket routes (auth via query param token, cluster relay support).
+		// Use a dynamic getter so runtime cluster init takes effect without a
+		// process restart — see the same pattern on ClusterProxyMiddleware above.
+		e.GET("/ws/docker/containers/:id/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ContainerLogsWS(dockerClient, cfg.Auth.JWTSecret)))
+		e.GET("/ws/docker/containers/:id/exec", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ContainerExecWS(dockerClient, cfg.Auth.JWTSecret)))
+		e.GET("/ws/docker/compose/:project/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ComposeLogsWS(composeManager, cfg.Auth.JWTSecret)))
 	}
 
 	// WebSocket routes (auth via query param token, cluster relay support)
-	e.GET("/ws/metrics", cluster.WrapEchoWSHandler(clusterMgr, featureWS.MetricsWS(cfg.Auth.JWTSecret)))
-	e.GET("/ws/logs", cluster.WrapEchoWSHandler(clusterMgr, featureLogs.LogStreamWS(cfg.Auth.JWTSecret, database)))
-	e.GET("/ws/terminal", cluster.WrapEchoWSHandler(clusterMgr, featureTerminal.TerminalWS(cfg.Auth.JWTSecret)))
+	e.GET("/ws/metrics", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.MetricsWS(cfg.Auth.JWTSecret)))
+	e.GET("/ws/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureLogs.LogStreamWS(cfg.Auth.JWTSecret, database)))
+	e.GET("/ws/terminal", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureTerminal.TerminalWS(cfg.Auth.JWTSecret)))
 
 	// SPA static file serving — catch-all AFTER all API and WS routes
 	e.GET("/*", spaHandler(webFS))
