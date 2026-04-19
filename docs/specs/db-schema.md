@@ -1,5 +1,9 @@
 # SFPanel DB 스키마
 
+> 마지막 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/db-inventory.md`
+>
+> 10개 테이블(+ `sqlite_sequence`). 마이그레이션 13단계. 백업/복구 자동화는 아직 미구현.
+
 ## 개요
 
 - **DB 엔진**: SQLite (드라이버: `modernc.org/sqlite`, CGO-free 순수 Go 구현)

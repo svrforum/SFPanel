@@ -1,5 +1,7 @@
 # SFPanel 프론트엔드 스펙
 
+> 마지막 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/frontend-inventory.md`
+
 ## 개요
 
 - **프레임워크**: React 19 + TypeScript + Vite 7
@@ -1114,4 +1116,4 @@ interface InstalledApp {
 - **윈도우**: 1280×800 기본, 최소 900×600, 중앙 정렬
 - **CSP**: `connect-src 'self' http: https: ws: wss:`, `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net`
 - **플랫폼 산출물**: Windows `.exe`, macOS `.dmg` + `.app`, Linux `.deb` + `AppImage`
-- **Tauri 감지**: 프런트엔드가 `window.__TAURI_INTERNALS__`를 검사하여 `api.isTauri` 플래그 설정. `TauriGuard`가 서버 URL 미설정 시 `/connect`로 리다이렉트
+- **Tauri 감지**: 프론트엔드가 `window.__TAURI_INTERNALS__`를 검사하여 `api.isTauri` 플래그 설정. `TauriGuard`가 서버 URL 미설정 시 `/connect`로 리다이렉트
