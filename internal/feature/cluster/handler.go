@@ -45,11 +45,16 @@ func clusterErrResponse(c echo.Context, err error) error {
 
 type Handler struct {
 	mu           sync.RWMutex
+	joiningMu    sync.Mutex // prevents concurrent Init/Join
+	configMu     sync.Mutex // protects h.Config.Cluster field writes
 	Manager      *cluster.Manager
 	Config       *config.Config
 	ConfigPath   string
 	DB           *sql.DB
 	LiveActivate cluster.LiveActivateFunc
+	// OnManagerActivated is called after a manager is set (init/join).
+	// Used to propagate the manager to other handlers (e.g. auth).
+	OnManagerActivated func(*cluster.Manager)
 }
 
 func (h *Handler) getManager() *cluster.Manager {
@@ -60,11 +65,21 @@ func (h *Handler) getManager() *cluster.Manager {
 
 func (h *Handler) setManager(m *cluster.Manager) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.Manager = m
+	cb := h.OnManagerActivated
+	h.mu.Unlock()
+	if cb != nil {
+		cb(m)
+	}
 }
 
 func (h *Handler) InitCluster(c echo.Context) error {
+	// Prevent concurrent init/join operations
+	if !h.joiningMu.TryLock() {
+		return response.Fail(c, http.StatusConflict, response.ErrInvalidRequest, "Another cluster operation is in progress")
+	}
+	defer h.joiningMu.Unlock()
+
 	if h.getManager() != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Already part of a cluster")
 	}
@@ -93,6 +108,7 @@ func (h *Handler) InitCluster(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cannot detect advertise address. Please provide one.")
 	}
 
+	h.configMu.Lock()
 	h.Config.Cluster.AdvertiseAddress = advertise
 
 	grpcPort := h.Config.Cluster.GRPCPort
@@ -102,12 +118,15 @@ func (h *Handler) InitCluster(c echo.Context) error {
 	}
 
 	h.Config.Cluster.APIPort = h.Config.Server.Port
+	h.configMu.Unlock()
 	mgr := cluster.NewManager(&h.Config.Cluster)
 	if err := mgr.Init(clusterName); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Init failed: %v", err))
 	}
 
+	h.configMu.Lock()
 	h.Config.Cluster = *mgr.GetConfig()
+	h.configMu.Unlock()
 
 	// Save config
 	data, err := yaml.Marshal(h.Config)
@@ -139,10 +158,11 @@ func (h *Handler) InitCluster(c echo.Context) error {
 		}
 		h.setManager(newMgr)
 
-		// Store JWT secret in FSM
+		// Store JWT secret and raft_tls flag in FSM
 		if h.Config.Auth.JWTSecret != "" {
 			newMgr.SetConfig("jwt_secret", h.Config.Auth.JWTSecret)
 		}
+		newMgr.SetConfig("raft_tls", "true")
 
 		// Sync admin account to FSM
 		if h.DB != nil {
@@ -171,6 +191,12 @@ func (h *Handler) InitCluster(c echo.Context) error {
 }
 
 func (h *Handler) JoinCluster(c echo.Context) error {
+	// Prevent concurrent init/join operations
+	if !h.joiningMu.TryLock() {
+		return response.Fail(c, http.StatusConflict, response.ErrInvalidRequest, "Another cluster operation is in progress")
+	}
+	defer h.joiningMu.Unlock()
+
 	if h.getManager() != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Already part of a cluster")
 	}
@@ -575,6 +601,58 @@ func (h *Handler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
 	return resp, nil
 }
 
+// LeaveCluster gracefully removes this node from the cluster.
+// Unlike Disband, it notifies the leader of departure before cleaning up.
+func (h *Handler) LeaveCluster(c echo.Context) error {
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	if h.ConfigPath == "" {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Config path not available")
+	}
+
+	dataDir := h.Config.Cluster.DataDir
+	certDir := h.Config.Cluster.CertDir
+
+	// Notify leader of departure (best-effort).
+	// Leave() internally shuts down Raft, so no separate Shutdown() call needed.
+	if err := mgr.Leave(); err != nil {
+		slog.Warn("could not notify cluster of departure", "component", "cluster", "error", err)
+	}
+
+	h.Config.Cluster.Enabled = false
+	data, err := yaml.Marshal(h.Config)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to marshal config: %v", err))
+	}
+	if err := config.AtomicWriteFile(h.ConfigPath, data, 0600); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
+	}
+
+	if dataDir != "" {
+		if rmErr := os.RemoveAll(dataDir); rmErr != nil {
+			slog.Warn("failed to remove cluster data dir", "path", dataDir, "error", rmErr)
+		}
+	}
+	if certDir != "" {
+		if rmErr := os.RemoveAll(certDir); rmErr != nil {
+			slog.Warn("failed to remove cluster cert dir", "path", certDir, "error", rmErr)
+		}
+	}
+
+	slog.Info("node left cluster via API, restarting", "component", "cluster")
+
+	go func() {
+		time.Sleep(2 * time.Second)
+		os.Exit(1)
+	}()
+
+	return response.OK(c, map[string]string{
+		"message": "Left cluster. Service restarting in standalone mode...",
+	})
+}
+
 func (h *Handler) DisbandCluster(c echo.Context) error {
 	mgr := h.getManager()
 	if mgr == nil {
@@ -650,7 +728,10 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	c.Response().WriteHeader(http.StatusOK)
 	flusher := c.Response()
 
+	var sseMu sync.Mutex
 	sendSSE := func(data map[string]interface{}) {
+		sseMu.Lock()
+		defer sseMu.Unlock()
 		jsonData, _ := json.Marshal(data)
 		fmt.Fprintf(flusher, "data: %s\n\n", jsonData)
 		flusher.Flush()

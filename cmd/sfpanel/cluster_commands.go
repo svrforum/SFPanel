@@ -287,10 +287,6 @@ func isServerRunning(port int) bool {
 	return true
 }
 
-// NOTE: clusterLeave still spawns its own cluster.Manager, which collides with
-// a running sfpanel server on the Raft port. Operators must stop the server
-// before calling this command. A future refactor should route this through the
-// running server's HTTP API the same way clusterToken does.
 func clusterLeave(args []string) {
 	cfgPath, _ := parseCfgFlag(args)
 	cfg := loadCfgForCLI(cfgPath)
@@ -299,9 +295,20 @@ func clusterLeave(args []string) {
 		log.Fatal("This node is not part of a cluster.")
 	}
 
+	// Delegate to running server to avoid Raft port conflict
+	if isServerRunning(cfg.Server.Port) {
+		fmt.Println("Server is running — delegating leave to live server...")
+		raw, err := callLocalAPI(cfg, "POST", "/api/v1/cluster/leave", nil)
+		if err != nil {
+			log.Fatalf("Leave via server failed: %v", err)
+		}
+		fmt.Println(string(raw))
+		return
+	}
+
+	// Server not running — handle locally
 	fmt.Println("Leaving cluster...")
 
-	// Try to notify leader to remove this node (best-effort)
 	mgr := cluster.NewManager(&cfg.Cluster)
 	if startErr := mgr.Start(); startErr == nil {
 		time.Sleep(3 * time.Second)
@@ -318,7 +325,6 @@ func clusterLeave(args []string) {
 		log.Printf("Warning: failed to save config: %v", err)
 	}
 
-	// Clean up Raft data and TLS certs to prevent zombie state
 	if cfg.Cluster.DataDir != "" {
 		if err := os.RemoveAll(cfg.Cluster.DataDir); err != nil {
 			log.Printf("Warning: failed to remove cluster data: %v", err)
@@ -407,9 +413,6 @@ func clusterToken(args []string) {
 	fmt.Printf("  sfpanel cluster join %s:%d %s\n", addr, grpcPort, envelope.Data.Token)
 }
 
-// NOTE: clusterRemove still spawns its own cluster.Manager; see the note on
-// clusterLeave. This should be migrated to the HTTP API (DELETE /cluster/nodes/:id)
-// so it can work against a running server.
 func clusterRemove(args []string) {
 	cfgPath, rest := parseCfgFlag(args)
 	if len(rest) < 1 {
@@ -423,6 +426,18 @@ func clusterRemove(args []string) {
 		log.Fatal("Cluster not initialized.")
 	}
 
+	// Delegate to running server to avoid Raft port conflict
+	if isServerRunning(cfg.Server.Port) {
+		fmt.Println("Server is running — delegating remove to live server...")
+		raw, err := callLocalAPI(cfg, "DELETE", "/api/v1/cluster/nodes/"+nodeID, nil)
+		if err != nil {
+			log.Fatalf("Remove via server failed: %v", err)
+		}
+		fmt.Println(string(raw))
+		return
+	}
+
+	// Server not running — handle locally
 	mgr := cluster.NewManager(&cfg.Cluster)
 	if err := mgr.Start(); err != nil {
 		log.Fatalf("Failed to start cluster manager: %v", err)
@@ -442,7 +457,7 @@ func saveConfig(path string, cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	return os.WriteFile(path, data, 0644)
+	return config.AtomicWriteFile(path, data, 0644)
 }
 
 func printClusterHelp() {

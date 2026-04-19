@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	crypto_tls "crypto/tls"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -23,8 +24,17 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 		apiAddr += ":8443"
 	}
 
+	// Use wss:// if the API address looks like HTTPS, otherwise ws://
+	scheme := "wss"
+	if strings.HasPrefix(apiAddr, "http://") {
+		scheme = "ws"
+		apiAddr = strings.TrimPrefix(apiAddr, "http://")
+	} else {
+		apiAddr = strings.TrimPrefix(apiAddr, "https://")
+	}
+
 	remoteURL := url.URL{
-		Scheme:   "ws",
+		Scheme:   scheme,
 		Host:     apiAddr,
 		Path:     originalURL.Path,
 		RawQuery: stripNodeParam(originalURL.RawQuery),
@@ -35,8 +45,11 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 	if proxySecret != "" {
 		headers.Set("X-SFPanel-Internal-Proxy", proxySecret)
 	}
+	// TODO: use cluster's mTLS config for proper certificate verification
+	// instead of InsecureSkipVerify once TLS credentials are plumbed through.
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
+		TLSClientConfig:  &crypto_tls.Config{InsecureSkipVerify: true},
 	}
 	remoteWS, resp, err := dialer.Dial(remoteURL.String(), headers)
 	if err != nil {

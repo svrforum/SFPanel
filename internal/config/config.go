@@ -53,6 +53,7 @@ type ClusterConfig struct {
 	DataDir          string `yaml:"data_dir"`
 	CertDir          string `yaml:"cert_dir"`
 	AdvertiseAddress string `yaml:"advertise_address"`
+	RaftTLS          bool   `yaml:"raft_tls"` // TLS encryption for Raft transport (set on init)
 }
 
 func (c *Config) Validate() error {

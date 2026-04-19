@@ -44,6 +44,7 @@ message JoinResponse {
     string jwt_secret = 8;
     string admin_username = 9;
     string admin_password_hash = 10;
+    bool   raft_tls = 11;
 }
 
 message LeaveRequest {

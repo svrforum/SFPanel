@@ -175,6 +175,7 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr string) (*JoinResu
 	e.Config.Cluster.NodeName = hostname
 	e.Config.Cluster.AdvertiseAddress = advertiseAddr
 	e.Config.Cluster.GRPCPort = grpcPort
+	e.Config.Cluster.RaftTLS = resp.RaftTls
 
 	if resp.JwtSecret != "" {
 		e.Config.Auth.JWTSecret = resp.JwtSecret
