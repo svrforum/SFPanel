@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Container, FolderOpen, Clock, FileText, Package, Settings, LogOut, Activity, Terminal, Network, HardDrive, Shield, Cog, PanelLeftClose, PanelLeftOpen, Store, Server } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
@@ -98,17 +98,15 @@ export default function Layout() {
         'bg-card border-r border-border flex-col transition-all duration-300 ease-in-out shrink-0 hidden md:flex h-screen',
         collapsed ? 'w-[68px]' : 'w-60'
       )}>
-        <div className={cn('flex items-center py-6', collapsed ? 'px-3 justify-center' : 'px-5 gap-3')}>
+        <div className={cn('flex items-center', collapsed ? 'px-3 py-6 justify-center' : 'px-4 py-4')}>
           {collapsed ? (
-            <img src="/favicon.png" alt="SFPanel" className="h-8 w-8 rounded-lg" />
+            <Link to="/dashboard" aria-label="SFPanel" className="rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+              <img src="/favicon.png" alt="SFPanel" className="h-8 w-8 rounded-lg" />
+            </Link>
           ) : (
-            <>
-              <img src="/favicon.png" alt="" className="h-9 w-9 rounded-lg shrink-0" />
-              <div className="min-w-0">
-                <h1 className="text-lg font-bold tracking-tight text-foreground leading-tight">SFPanel</h1>
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">{t('layout.tagline')}</p>
-              </div>
-            </>
+            <Link to="/dashboard" aria-label="SFPanel" className="block w-full rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+              <img src="/banner.png" alt="SFPanel" className="w-full h-auto" />
+            </Link>
           )}
         </div>
 
