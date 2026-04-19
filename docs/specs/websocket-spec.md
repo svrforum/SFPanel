@@ -390,6 +390,49 @@ container.ExecOptions{
 
 ---
 
+### 6. `/ws/docker/compose/:project/logs` -- Compose 프로젝트 로그 스트리밍
+
+| 항목 | 값 |
+|------|-----|
+| **용도** | Docker Compose 프로젝트의 서비스 로그 실시간 스트리밍 |
+| **인증** | `?token=<JWT>` (필수) |
+| **경로 파라미터** | `:project` -- Compose 프로젝트명 |
+| **통신 방향** | 서버 -> 클라이언트 (단방향 푸시) |
+| **메시지 타입** | 텍스트 (TextMessage) -- 줄 단위, 끝에 `\n` 포함 |
+| **라우트 등록** | `e.GET("/ws/docker/compose/:project/logs", ...)` (Docker 가용 시에만 등록) |
+| **Docker 의존성** | 필수 (`dockerClient != nil` 조건) |
+
+**쿼리 파라미터:**
+
+| 파라미터 | 필수 | 설명 |
+|----------|------|------|
+| `token` | 예 | JWT 토큰 |
+| `tail` | 아니오 | 초기 표시 줄 수 (기본값: `100`) |
+| `service` | 아니오 | 특정 서비스명 필터 (미지정 시 모든 서비스) |
+
+**메시지 형식 (서버 -> 클라이언트):**
+
+```
+nginx-1  | 2026-04-10 10:23:45 [notice] worker process started\n
+redis-1  | 1:M 10 Apr 2026 10:23:46.123 * Ready to accept connections\n
+```
+
+- ComposeManager의 `StreamLogs(ctx, project, tail, service, callback)`를 호출하여 스트림을 받아 줄 단위로 전송한다.
+- 각 메시지 끝에 `\n`을 추가하여 줄바꿈을 보장한다.
+- `service` 파라미터 지정 시 해당 서비스의 로그만 스트리밍한다.
+
+**에러 처리:**
+
+- 로그 스트림 실패 시: `"error: {메시지}\n"` 텍스트 메시지 전송 후 연결 종료.
+
+**서버 구현 세부사항:**
+
+- `safeWSWriter`를 사용하여 동시 쓰기를 직렬화한다.
+- 별도 고루틴에서 `StreamLogs`를 실행하며, 클라이언트 연결 해제 시 컨텍스트 취소로 스트림을 정리한다.
+- 클라이언트 연결 해제 감지를 위한 별도 고루틴이 `ReadMessage()`를 루프한다.
+
+---
+
 ## 프론트엔드 훅: `useWebSocket`
 
 ### 위치
@@ -486,6 +529,7 @@ const send = (data: any) => {
 | `/ws/logs` | 서버->클라 | 평문 Text | 직접 관리 | 없음 (수동) | 없음 |
 | `/ws/docker/containers/:id/logs` | 서버->클라 | Text (+`\n`) | 직접 관리 | 없음 | 없음 |
 | `/ws/docker/containers/:id/exec` | 양방향 | Text | 직접 관리 | 없음 | 없음 |
+| `/ws/docker/compose/:project/logs` | 서버->클라 | Text (+`\n`) | 직접 관리 | 없음 | 없음 |
 | `/ws/terminal` | 양방향 | Binary + Text(resize) | 직접 관리 | 없음 | 있음 (PTY 영속) |
 
 ---
@@ -499,6 +543,7 @@ e (Echo 루트)
 ├── /ws/terminal                          <- 항상 등록, 자체 JWT 검증
 ├── /ws/docker/containers/:id/logs        <- Docker 가용 시에만 등록
 ├── /ws/docker/containers/:id/exec        <- Docker 가용 시에만 등록
+├── /ws/docker/compose/:project/logs      <- Docker 가용 시에만 등록
 └── /api/v1/...                           <- REST API 라우트
 ```
 
@@ -530,6 +575,7 @@ go func() {
 - `/ws/logs`: `<-done`으로 블로킹 후 tail 프로세스 정리
 - `/ws/docker/containers/:id/logs`: `<-done`으로 블로킹 후 logReader 닫기
 - `/ws/docker/containers/:id/exec`: 입력 고루틴에서 ReadMessage 에러 시 hijacked 연결 닫기
+- `/ws/docker/compose/:project/logs`: 컨텍스트 취소 후 `select`로 done/streamDone 대기
 - `/ws/terminal`: for 루프에서 `ReadMessage` 에러 시 직접 return
 
 ---
@@ -570,6 +616,7 @@ go func() {
 | `/ws/terminal?node=X` | 원격 노드 터미널 접속 |
 | `/ws/docker/containers/:id/logs?node=X` | 원격 노드 컨테이너 로그 |
 | `/ws/docker/containers/:id/exec?node=X` | 원격 노드 컨테이너 셸 |
+| `/ws/docker/compose/:project/logs?node=X` | 원격 노드 Compose 로그 |
 
 ### `node` 파라미터 처리
 
@@ -586,3 +633,78 @@ go func() {
 2. **토큰 URL 노출**: JWT가 쿼리 파라미터에 포함되어 서버 접근 로그에 기록될 수 있다.
 3. **로그 소스 제한**: `/ws/logs`의 로그 소스는 화이트리스트 방식으로 제한되어 있어 임의 파일 접근은 차단된다.
 4. **시스템 터미널 보안**: `/ws/terminal`은 호스트 셸에 직접 접근하므로 JWT 인증이 유일한 방어선이다.
+
+---
+
+## Server-Sent Events (SSE) 스트리밍
+
+WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 8개가 존재한다. REST API와 달리 `Content-Type: text/event-stream`을 반환하고, 장시간 실행되는 명령(설치, 업데이트, 이미지 풀 등)의 출력을 라인 단위로 스트리밍한다.
+
+### 인증
+
+표준 JWT 미들웨어(`Authorization: Bearer <JWT>`)가 적용된다. 쿼리 파라미터 토큰 방식은 쓰지 않는다 (일반 HTTP 요청이므로 헤더 전송에 제약이 없음).
+
+### 라이프사이클
+
+- 서버가 각 이벤트 후 `flusher.Flush()`를 명시적으로 호출하여 즉각 전송
+- 클라이언트 연결 종료는 `ctx.Request().Context().Done()`으로 감지, 서브 프로세스에 SIGTERM 전파
+- 종료 마커: 평문 스트림은 `data: [DONE]\n\n`, JSON 스트림은 `{"step":"complete"}` 또는 `{"phase":"complete"}`
+
+### 엔드포인트 표
+
+| 경로 | 메서드 | 용도 | 이벤트 스키마 |
+|------|--------|------|-------------|
+| `/api/v1/system/update` | POST | SFPanel 바이너리 자체 업데이트 (다운로드 → 체크섬 검증 → 교체 → 재시작) | JSON `{step, message}` — step: `downloading` / `verifying` / `extracting` / `replacing` / `restarting` / `complete` |
+| `/api/v1/docker/images/pull` | POST | Docker 이미지 풀 | JSON (Docker Engine API 이벤트 그대로 포워딩) |
+| `/api/v1/docker/compose/:project/up-stream` | POST | Compose 프로젝트 시작 | JSON `{phase, line}` — phase: `deploy` / `complete` |
+| `/api/v1/docker/compose/:project/update-stream` | POST | Compose 이미지 풀 + 서비스 재생성 | JSON `{phase, line}` — phase: `pull` / `update` / `complete` |
+| `/api/v1/packages/install-docker` | POST | Docker 엔진 설치 (get.docker.com 스크립트) | 평문 라인, 종료 시 `[DONE]` |
+| `/api/v1/packages/install-node` | POST | Node.js/NVM 설치 | 평문 라인, 종료 시 `[DONE]` |
+| `/api/v1/network/tailscale/install` | POST | Tailscale 설치 (공식 install.sh) | 평문 라인, 종료 시 `[DONE]` |
+| `/api/v1/cluster/update` | POST | 클러스터 멀티노드 업데이트 오케스트레이션 | JSON `{overall?, node_id, node_name, step, status, message}` — 전체 시작 시 `{"overall":"started","mode":"rolling","total_nodes":N}`, 이후 노드별 진행 이벤트 |
+
+### 메시지 예시
+
+`/api/v1/system/update`:
+```
+data: {"step":"downloading","message":"Downloading v1.2.3 (amd64)..."}
+
+data: {"step":"verifying","message":"Downloading checksums..."}
+
+data: {"step":"complete","message":"Updated to v1.2.3. Restarting..."}
+```
+
+`/api/v1/packages/install-docker`:
+```
+data: >>> Downloading Docker install script from https://get.docker.com ...
+
+data: + sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker-ce ...'
+
+data: >>> Docker installation completed successfully!
+
+data: [DONE]
+```
+
+`/api/v1/cluster/update` (rolling 모드):
+```
+data: {"overall":"started","mode":"rolling","total_nodes":3}
+
+data: {"node_id":"node-1","node_name":"Leader","step":"updating","message":"Starting update..."}
+
+data: {"node_id":"node-1","node_name":"Leader","step":"complete","message":"Node updated successfully"}
+```
+
+### 클러스터 프록시
+
+SSE 엔드포인트에 `?node=X`가 오면 `ClusterProxyMiddleware`가 gRPC 프록시 대신 **HTTP 직접 릴레이**로 처리한다 (스트리밍 특성 때문에 gRPC 단일-응답 모델이 맞지 않음). 타임아웃 5분 (`config.yaml` 조정 불가, 코드 상수). 릴레이 식별은 경로의 `-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 같은 화이트리스트.
+
+### 프런트엔드 소비
+
+`lib/api.ts`의 `readSSEStream(url, body, onEvent)` 헬퍼가 `fetch`로 POST 후 응답 바디를 `ReadableStream`으로 받아 라인 단위 파싱:
+
+```typescript
+await api.readSSEStream('/system/update', null, (event) => {
+  if (event.step === 'complete') close()
+  else updateProgress(event.message)
+})
+```
