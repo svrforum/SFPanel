@@ -45,6 +45,11 @@ export default function Setup() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-sm px-6">
         <div className="text-center mb-8">
+          <img
+            src="/favicon.png"
+            alt="SFPanel"
+            className="mx-auto mb-3 h-16 w-16 rounded-2xl"
+          />
           <h1 className="text-2xl font-bold tracking-tight text-foreground">SFPanel</h1>
           <p className="text-sm text-muted-foreground mt-2">{t('setup.subtitle')}</p>
         </div>

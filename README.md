@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="banner.png" alt="SFPanel" width="518" />
+</p>
+
 # SFPanel
 
 경량 서버 관리 웹 패널. 올인원 Go 바이너리로 설치 즉시 사용 가능.
