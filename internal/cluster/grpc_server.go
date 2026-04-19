@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
@@ -34,6 +35,33 @@ type GRPCServer struct {
 	proxySecret string
 }
 
+// unauthenticatedMethods lists gRPC methods that a joining node can legitimately
+// call before it has a CA-issued client certificate. Everything else requires
+// a verified peer certificate.
+var unauthenticatedMethods = map[string]bool{
+	"/cluster.ClusterService/PreFlight": true,
+	"/cluster.ClusterService/Join":      true,
+}
+
+// requireClientCertInterceptor rejects RPCs that need mTLS but came in without
+// a verified peer certificate. Combined with VerifyClientCertIfGiven on the
+// TLS handshake, this lets PreFlight/Join land without a client cert while
+// every other method is still gated on cluster CA trust.
+func requireClientCertInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	if unauthenticatedMethods[info.FullMethod] {
+		return handler(ctx, req)
+	}
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "missing peer info")
+	}
+	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok || len(tlsInfo.State.VerifiedChains) == 0 {
+		return nil, status.Error(codes.Unauthenticated, "client certificate required for this method")
+	}
+	return handler(ctx, req)
+}
+
 // NewGRPCServer creates and configures the gRPC server with mTLS.
 // localPort is the HTTP server port for proxying requests locally.
 func NewGRPCServer(mgr *Manager, localPort int) (*GRPCServer, error) {
@@ -43,7 +71,10 @@ func NewGRPCServer(mgr *Manager, localPort int) (*GRPCServer, error) {
 	}
 
 	creds := credentials.NewTLS(tlsConfig)
-	server := grpc.NewServer(grpc.Creds(creds))
+	server := grpc.NewServer(
+		grpc.Creds(creds),
+		grpc.UnaryInterceptor(requireClientCertInterceptor),
+	)
 
 	// Derive proxy secret from CA cert (shared across all cluster nodes)
 	proxySecret := ""

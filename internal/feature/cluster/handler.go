@@ -894,12 +894,17 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	sendSSE(map[string]interface{}{"overall": "complete", "updated": updated, "failed": failed})
 
 	if leader.ID != "" {
+		// Snapshot the proxy secret *before* Shutdown. Shutdown currently
+		// leaves the TLSManager intact so ProxySecret() still works, but
+		// relying on that is fragile — if a future change cleans up the
+		// TLS state during shutdown, this call would start returning "".
+		proxySecret := mgr.ProxySecret()
 		go func() {
 			time.Sleep(1 * time.Second)
 			mgr.Shutdown()
 			client := &http.Client{Timeout: 5 * time.Minute}
 			req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/api/v1/system/update", h.Config.Server.Port), nil)
-			if secret := mgr.ProxySecret(); secret != "" {
+			if secret := proxySecret; secret != "" {
 				req.Header.Set("X-SFPanel-Internal-Proxy", secret)
 			}
 			client.Do(req)
