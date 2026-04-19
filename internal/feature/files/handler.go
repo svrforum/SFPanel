@@ -15,7 +15,6 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
-	"github.com/svrforum/SFPanel/internal/feature/settings"
 )
 
 // maxReadSize is the maximum file size (5 MB) that ReadFile will return.
@@ -521,8 +520,14 @@ func (h *Handler) DownloadFile(c echo.Context) error {
 // UploadFile receives a multipart file upload and saves it to the specified directory.
 // POST /files/upload  multipart form: file (uploaded file), path (destination directory)
 func (h *Handler) UploadFile(c echo.Context) error {
-	// Enforce upload size limit from settings (default 1024 MB).
-	maxMB, _ := strconv.ParseInt(settings.GetSetting(h.DB, "max_upload_size"), 10, 64)
+	// Enforce upload size limit from settings (default 1024 MB). Read the
+	// row directly so this module doesn't have to import the settings
+	// feature package — keeping the feature/* layer free of sibling imports.
+	var maxMBStr string
+	if h.DB != nil {
+		_ = h.DB.QueryRow("SELECT value FROM settings WHERE key = ?", "max_upload_size").Scan(&maxMBStr)
+	}
+	maxMB, _ := strconv.ParseInt(maxMBStr, 10, 64)
 	if maxMB <= 0 {
 		maxMB = 1024
 	}

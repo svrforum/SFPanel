@@ -15,9 +15,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/auth"
-	"github.com/svrforum/SFPanel/internal/feature/settings"
 )
 
 const scrollbackBufSize = 256 * 1024 // 256 KB ring buffer per session
@@ -33,7 +31,7 @@ var Upgrader = websocket.Upgrader{
 }
 
 func authenticateWS(c echo.Context, jwtSecret string) error {
-	if middleware.IsInternalProxyRequest(c.Request()) {
+	if auth.IsInternalProxyRequest(c.Request()) {
 		return nil
 	}
 	token := c.QueryParam("token")
@@ -340,7 +338,12 @@ func CleanupTerminalSessions(ctx context.Context, db *sql.DB) {
 				return
 			case <-ticker.C:
 			}
-			timeoutStr := settings.GetSetting(db, "terminal_timeout")
+			// Read terminal_timeout directly from the settings table instead of
+			// importing the settings feature module (which would be a
+			// feature → feature dependency). Missing row is not an error;
+			// Scan returns sql.ErrNoRows and we fall back to the default.
+			var timeoutStr string
+			_ = db.QueryRow("SELECT value FROM settings WHERE key = ?", "terminal_timeout").Scan(&timeoutStr)
 			timeoutMin, err := strconv.Atoi(timeoutStr)
 			if err != nil || timeoutMin < 0 {
 				timeoutMin = 30
