@@ -11,7 +11,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/docker"
 	"github.com/svrforum/SFPanel/internal/monitor"
@@ -51,7 +50,7 @@ func (w *safeWSWriter) WriteJSON(v interface{}) error {
 // AuthenticateWS validates a WebSocket request via JWT token query param
 // or internal cluster proxy header. Returns nil on success, error response on failure.
 func AuthenticateWS(c echo.Context, jwtSecret string) error {
-	if middleware.IsInternalProxyRequest(c.Request()) {
+	if auth.IsInternalProxyRequest(c.Request()) {
 		return nil
 	}
 	token := c.QueryParam("token")

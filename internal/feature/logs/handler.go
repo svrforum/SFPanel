@@ -17,7 +17,6 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
-	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 )
@@ -81,7 +80,7 @@ var Upgrader = websocket.Upgrader{
 }
 
 func authenticateWS(c echo.Context, jwtSecret string) error {
-	if middleware.IsInternalProxyRequest(c.Request()) {
+	if auth.IsInternalProxyRequest(c.Request()) {
 		return nil
 	}
 	token := c.QueryParam("token")
