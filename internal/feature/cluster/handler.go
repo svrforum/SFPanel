@@ -64,6 +64,13 @@ func (h *Handler) getManager() *cluster.Manager {
 	return h.Manager
 }
 
+// GetManager is the exported accessor used by the API router's middleware
+// layer so it can resolve the live cluster manager on every request instead
+// of capturing a (possibly nil) pointer at startup.
+func (h *Handler) GetManager() *cluster.Manager {
+	return h.getManager()
+}
+
 func (h *Handler) setManager(m *cluster.Manager) {
 	h.mu.Lock()
 	h.Manager = m

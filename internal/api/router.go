@@ -105,10 +105,28 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	v1.GET("/auth/setup-status", authHandler.GetSetupStatus)
 	v1.POST("/auth/setup", authHandler.SetupAdmin)
 
+	// Cluster handler — created here so it can be referenced by the proxy
+	// middleware's getter below. Route registration happens further down.
+	clusterHandler := &featureCluster.Handler{
+		Manager:      clusterMgr,
+		Config:       cfg,
+		ConfigPath:   cfgPath,
+		DB:           database,
+		LiveActivate: liveActivate,
+		OnManagerActivated: func(m *cluster.Manager) {
+			authHandler.SetClusterMgr(m)
+		},
+	}
+
 	// Protected routes
 	authorized := v1.Group("")
 	authorized.Use(mw.JWTMiddleware(cfg.Auth.JWTSecret))
-	authorized.Use(mw.ClusterProxyMiddleware(clusterMgr))
+	// Resolve the cluster manager dynamically so init-at-runtime becomes
+	// effective without a service restart. The clusterHandler keeps the
+	// authoritative live pointer; we route all middleware reads through it.
+	authorized.Use(mw.ClusterProxyMiddleware(func() *cluster.Manager {
+		return clusterHandler.GetManager()
+	}))
 	authorized.Use(mw.AuditMiddleware(database))
 	// Settings
 	settingsHandler := &featureSettings.Handler{DB: database}
@@ -147,17 +165,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.POST("/system/backup", systemHandler.CreateBackup)
 	authorized.POST("/system/restore", systemHandler.RestoreBackup)
 
-	// Cluster management
-	clusterHandler := &featureCluster.Handler{
-		Manager:      clusterMgr,
-		Config:       cfg,
-		ConfigPath:   cfgPath,
-		DB:           database,
-		LiveActivate: liveActivate,
-		OnManagerActivated: func(m *cluster.Manager) {
-			authHandler.SetClusterMgr(m)
-		},
-	}
+	// Cluster management (handler already created above so the proxy
+	// middleware can reference it for dynamic manager resolution)
 	clusterGroup := authorized.Group("/cluster")
 	clusterGroup.GET("/status", clusterHandler.GetStatus)
 	clusterGroup.GET("/overview", clusterHandler.GetOverview)

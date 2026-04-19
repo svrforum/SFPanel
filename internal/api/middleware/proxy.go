@@ -219,9 +219,16 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 // ClusterProxyMiddleware intercepts requests with ?node=X and forwards them
 // to the target node via gRPC. If no node param or local node, passes through.
 // SSE streaming endpoints are relayed via direct HTTP for real-time output.
-func ClusterProxyMiddleware(mgr *cluster.Manager) echo.MiddlewareFunc {
+//
+// The manager is resolved dynamically via getMgr on every request so that
+// late activation (a node that started standalone and later initialized
+// or joined a cluster) takes effect without a restart — the middleware
+// chain is built once at boot, so capturing a nil *Manager as a closure
+// would permanently disable proxy routing for cluster-init-at-runtime.
+func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			mgr := getMgr()
 			// Skip if cluster not active
 			if mgr == nil {
 				return next(c)
