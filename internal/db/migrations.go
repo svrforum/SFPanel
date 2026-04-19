@@ -2,8 +2,28 @@ package db
 
 import (
 	"database/sql"
+	"regexp"
 	"strings"
 )
+
+// alterAddColumnRe extracts "<table>" and "<column>" from statements of the
+// shape `ALTER TABLE <table> ADD COLUMN <column> <type>...` so the runner can
+// skip them idempotently by checking the live schema instead of matching
+// driver-specific error messages.
+var alterAddColumnRe = regexp.MustCompile(`(?is)^\s*ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\b`)
+
+// columnExists uses SQLite's pragma_table_info so migration idempotency
+// doesn't depend on the driver's specific error wording.
+func columnExists(db *sql.DB, table, column string) (bool, error) {
+	var n int
+	err := db.QueryRow(
+		"SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?", table, column,
+	).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
 
 var migrations = []string{
 	`CREATE TABLE IF NOT EXISTS admin (
@@ -91,8 +111,23 @@ var migrations = []string{
 
 func RunMigrations(db *sql.DB) error {
 	for _, m := range migrations {
+		// Idempotent ALTER TABLE ADD COLUMN: skip if the column already
+		// exists. Previously we matched on the driver's error string
+		// ("duplicate column"), which would break silently whenever the
+		// SQLite driver (or a future replacement) reworded its errors.
+		if match := alterAddColumnRe.FindStringSubmatch(m); match != nil {
+			exists, err := columnExists(db, match[1], match[2])
+			if err != nil {
+				return err
+			}
+			if exists {
+				continue
+			}
+		}
 		if _, err := db.Exec(m); err != nil {
-			// ALTER TABLE ADD COLUMN fails if column already exists — safe to ignore
+			// Belt-and-suspenders: keep the legacy duplicate-column error
+			// fallback so a driver that still raises the old message won't
+			// fail the boot even if the pragma check above somehow missed.
 			if strings.Contains(m, "ALTER TABLE") && strings.Contains(err.Error(), "duplicate column") {
 				continue
 			}

@@ -205,11 +205,19 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr string) (*JoinResu
 		}
 	}
 
-	// Step 6: Update admin credentials from leader (after LiveActivate so rollback is clean)
+	// Step 6: Update admin credentials from leader (after LiveActivate so rollback is clean).
+	// Also sync the TOTP secret so the follower's local-DB login fallback
+	// can enforce 2FA before Raft replication lands the admin account.
 	if e.DB != nil && resp.AdminUsername != "" && resp.AdminPasswordHash != "" {
+		var totpValue interface{}
+		if resp.AdminTotpSecret == "" {
+			totpValue = nil // preserve "2FA disabled" state explicitly
+		} else {
+			totpValue = resp.AdminTotpSecret
+		}
 		_, err := e.DB.Exec(
-			"UPDATE admin SET password = ? WHERE username = ?",
-			resp.AdminPasswordHash, resp.AdminUsername,
+			"UPDATE admin SET password = ?, totp_secret = ? WHERE username = ?",
+			resp.AdminPasswordHash, totpValue, resp.AdminUsername,
 		)
 		if err != nil {
 			slog.Warn("failed to sync admin credentials from leader", "error", err)

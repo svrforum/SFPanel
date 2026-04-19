@@ -346,17 +346,27 @@ func (m *Manager) HandlePreFlight(token string) (clusterName string, nodeCount, 
 // GetJWTAndAdmin returns the leader's JWT secret and primary admin account
 // for inclusion in join responses.
 func (m *Manager) GetJWTAndAdmin() (jwtSecret, adminUser, adminPassHash string) {
+	js, u, p, _ := m.GetJWTAndAdminFull()
+	return js, u, p
+}
+
+// GetJWTAndAdminFull is like GetJWTAndAdmin but also returns the TOTP secret
+// so a joining node can populate its local DB with the same 2FA state the
+// leader has. Without this, the follower's fallback-to-local-DB login path
+// would let an attacker bypass 2FA in the window before Raft replication
+// lands the admin account on the new node.
+func (m *Manager) GetJWTAndAdminFull() (jwtSecret, adminUser, adminPassHash, adminTOTPSecret string) {
 	if m.raft == nil {
-		return "", "", ""
+		return "", "", "", ""
 	}
 	state := m.raft.GetFSM().GetState()
 	jwtSecret = state.Config["jwt_secret"]
 
 	// Return the first (primary) admin account
 	for _, acct := range state.Accounts {
-		return jwtSecret, acct.Username, acct.Password
+		return jwtSecret, acct.Username, acct.Password, acct.TOTPSecret
 	}
-	return jwtSecret, "", ""
+	return jwtSecret, "", "", ""
 }
 
 // RemoveNode removes a node from the cluster (leader-only).
