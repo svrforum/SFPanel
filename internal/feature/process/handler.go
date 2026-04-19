@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -111,8 +112,11 @@ func (h *Handler) KillProcess(c echo.Context) error {
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPID, "Invalid PID")
 	}
-	if pid <= 1 {
-		return response.Fail(c, http.StatusForbidden, response.ErrInvalidPID, "Cannot send signal to PID 0 or 1")
+	if pid <= 2 {
+		return response.Fail(c, http.StatusForbidden, response.ErrInvalidPID, "Cannot send signal to PID 0, 1 (init), or 2 (kthreadd)")
+	}
+	if int(pid) == os.Getpid() {
+		return response.Fail(c, http.StatusForbidden, response.ErrInvalidPID, "Cannot send signal to the SFPanel process itself")
 	}
 
 	var req struct {

@@ -62,7 +62,8 @@ const (
 	ErrNotAFile       = "NOT_A_FILE"
 	ErrIsDirectory    = "IS_DIRECTORY"
 	ErrInvalidFilename = "INVALID_FILENAME"
-	ErrCriticalPath   = "CRITICAL_PATH"
+	ErrCriticalPath    = "CRITICAL_PATH"
+	ErrReadProtected   = "READ_PROTECTED"
 )
 
 // System / Process error codes

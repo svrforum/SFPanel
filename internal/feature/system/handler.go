@@ -163,7 +163,7 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		return nil
 	}
 
-	archiveData, err := io.ReadAll(dlResp.Body)
+	archiveData, err := io.ReadAll(io.LimitReader(dlResp.Body, 200*1024*1024))
 	if err != nil {
 		sendEvent("error", fmt.Sprintf("Download read failed: %v", err))
 		return nil

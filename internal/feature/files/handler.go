@@ -85,9 +85,15 @@ func validatePathForWrite(p string) error {
 	if err := validatePath(p); err != nil {
 		return err
 	}
-	realDir, err := filepath.EvalSymlinks(filepath.Dir(p))
+	parentDir := filepath.Dir(p)
+	realDir, err := filepath.EvalSymlinks(parentDir)
 	if err != nil {
-		return fmt.Errorf("cannot resolve parent directory: %w", err)
+		if os.IsNotExist(err) {
+			// Parent doesn't exist yet — MkdirAll will create it; validate the literal path
+			realDir = filepath.Clean(parentDir)
+		} else {
+			return fmt.Errorf("cannot resolve parent directory: %w", err)
+		}
 	}
 	resolved := filepath.Join(realDir, filepath.Base(p))
 	if isCriticalPath(resolved) {
@@ -103,6 +109,40 @@ func validatePathForWrite(p string) error {
 func isCriticalPath(p string) bool {
 	cleaned := filepath.Clean(p)
 	return criticalPaths[cleaned]
+}
+
+// readProtectedPaths are files that must not be readable via the file API.
+var readProtectedPaths = map[string]bool{
+	"/etc/shadow":  true,
+	"/etc/gshadow": true,
+}
+
+// isReadProtectedPath returns true if the resolved path is a read-protected file.
+// It resolves symlinks before checking to prevent bypass via symlink indirection.
+func isReadProtectedPath(p string) bool {
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		// If we can't resolve, check the literal path.
+		resolved = filepath.Clean(p)
+	}
+
+	if readProtectedPaths[resolved] {
+		return true
+	}
+
+	// Block config files under /etc/sfpanel/
+	if strings.HasPrefix(resolved, "/etc/sfpanel/") {
+		// Block TLS certificates directory
+		if strings.HasPrefix(resolved, "/etc/sfpanel/cluster/") {
+			return true
+		}
+		// Block config.yaml files
+		if resolved == "/etc/sfpanel/config.yaml" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ---------- ListDir ----------
@@ -173,6 +213,10 @@ func (h *Handler) ReadFile(c echo.Context) error {
 	}
 
 	filePath = filepath.Clean(filePath)
+
+	if isReadProtectedPath(filePath) {
+		return response.Fail(c, http.StatusForbidden, response.ErrReadProtected, "Access to this file is not allowed")
+	}
 
 	info, err := os.Stat(filePath)
 	if err != nil {
@@ -418,6 +462,10 @@ func (h *Handler) DownloadFile(c echo.Context) error {
 
 	filePath = filepath.Clean(filePath)
 
+	if isReadProtectedPath(filePath) {
+		return response.Fail(c, http.StatusForbidden, response.ErrReadProtected, "Access to this file is not allowed")
+	}
+
 	info, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -460,7 +508,7 @@ func (h *Handler) UploadFile(c echo.Context) error {
 	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxMB*1024*1024)
 
 	destDir := c.FormValue("path")
-	if err := validatePath(destDir); err != nil {
+	if err := validatePathForWrite(destDir); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
@@ -493,6 +541,11 @@ func (h *Handler) UploadFile(c echo.Context) error {
 	}
 
 	destPath := filepath.Join(destDir, filename)
+
+	if isCriticalPath(destPath) {
+		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath,
+			fmt.Sprintf("Uploading to '%s' is not allowed: critical system path", destPath))
+	}
 
 	// Atomic upload: write to temp file then rename into place.
 	tmpPath := destPath + ".sfpanel.tmp"

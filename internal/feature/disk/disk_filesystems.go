@@ -14,6 +14,9 @@ import (
 	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
+// validLabel matches safe filesystem labels (alphanumeric, spaces, underscores, dots, hyphens; max 16 chars).
+var validLabel = regexp.MustCompile(`^[a-zA-Z0-9 _.-]{0,16}$`)
+
 // ---------- 4. Filesystems ----------
 
 // ListFilesystems returns all mounted filesystems with usage information.
@@ -53,7 +56,7 @@ func (h *Handler) CheckExpandable(c echo.Context) error {
 		"xfs": true, "btrfs": true,
 	}
 
-	var candidates []ExpandCandidate
+	candidates := make([]ExpandCandidate, 0)
 
 	for _, fs := range filesystems {
 		if !resizableTypes[fs.FsType] {
@@ -74,7 +77,7 @@ func (h *Handler) CheckExpandable(c echo.Context) error {
 			IsLVM:       strings.HasPrefix(fs.Source, "/dev/mapper/"),
 		}
 
-		var steps []ExpandStep
+		steps := make([]ExpandStep, 0)
 		var totalFree int64
 
 		if candidate.IsLVM && h.Cmd.Exists("lvs") {
@@ -218,7 +221,7 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 	}
 
 	isLVM := strings.HasPrefix(req.Source, "/dev/mapper/")
-	var executedSteps []string
+	executedSteps := make([]string, 0)
 
 	if isLVM && h.Cmd.Exists("lvs") {
 		vgName, _ := h.getVGInfoForLV(req.Source)
@@ -347,6 +350,9 @@ func (h *Handler) getVGInfoForLV(lvDevice string) (vgName string, vgFree int64) 
 // getPVDeviceForVG returns the first PV device path for a given VG name.
 func (h *Handler) getPVDeviceForVG(vgName string) string {
 	if !h.Cmd.Exists("pvs") {
+		return ""
+	}
+	if err := validateLVMName(vgName); err != nil {
 		return ""
 	}
 	out, err := h.Cmd.Run("pvs", "--noheadings", "-o", "pv_name",
@@ -509,7 +515,33 @@ func (h *Handler) FormatPartition(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFSType, err.Error())
 	}
 
+	if req.Label != "" {
+		if !validLabel.MatchString(req.Label) {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
+				"invalid label: must be alphanumeric/spaces/underscores/dots/hyphens, max 16 characters")
+		}
+		if strings.HasPrefix(req.Label, "-") {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
+				"invalid label: must not start with '-'")
+		}
+	}
+
 	devPath := "/dev/" + req.Device
+
+	// Verify the device exists and is a block/character device, not a regular file or directory.
+	devInfo, err := os.Stat(devPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
+				fmt.Sprintf("device does not exist: %s", devPath))
+		}
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
+			fmt.Sprintf("cannot stat device: %v", err))
+	}
+	if devInfo.Mode().IsRegular() || devInfo.IsDir() {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
+			fmt.Sprintf("%s is not a block device", devPath))
+	}
 
 	// Build the mkfs command based on filesystem type
 	var mkfsName string
@@ -620,8 +652,8 @@ func (h *Handler) MountFilesystem(c echo.Context) error {
 		args = append(args, "-t", req.FsType)
 	}
 	if req.Options != "" {
-		// Validate options: only allow safe characters
-		if !validDiskPath.MatchString(req.Options) && !regexp.MustCompile(`^[a-zA-Z0-9,=_-]+$`).MatchString(req.Options) {
+		// Validate options: only allow safe mount option characters
+		if !regexp.MustCompile(`^[a-zA-Z0-9,=/_.-]+$`).MatchString(req.Options) {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidOptions,
 				"mount options contain invalid characters")
 		}

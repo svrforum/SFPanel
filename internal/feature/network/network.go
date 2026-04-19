@@ -200,7 +200,7 @@ func (h *Handler) cachedNetworkStatus() ([]NetworkInterface, []Route, DNSConfig,
 	})
 
 	// Extract bonds
-	var bonds []NetworkInterface
+	bonds := make([]NetworkInterface, 0)
 	for _, iface := range ifaces {
 		if iface.Type == "bond" {
 			bonds = append(bonds, iface)
@@ -301,6 +301,47 @@ func (h *Handler) ConfigureInterface(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
+	// Validate addresses (must be valid CIDR)
+	for _, addr := range req.Addresses {
+		if _, _, err := net.ParseCIDR(addr); err != nil {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
+				fmt.Sprintf("Invalid address %q: must be valid CIDR notation", addr))
+		}
+	}
+
+	// Validate gateway4 (must be valid IPv4)
+	if req.Gateway4 != "" {
+		ip := net.ParseIP(req.Gateway4)
+		if ip == nil || ip.To4() == nil {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
+				fmt.Sprintf("Invalid gateway4 %q: must be a valid IPv4 address", req.Gateway4))
+		}
+	}
+
+	// Validate gateway6 (must be valid IPv6, including IPv4-mapped like ::ffff:x.x.x.x)
+	if req.Gateway6 != "" {
+		if net.ParseIP(req.Gateway6) == nil || !strings.Contains(req.Gateway6, ":") {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
+				fmt.Sprintf("Invalid gateway6 %q: must be a valid IPv6 address", req.Gateway6))
+		}
+	}
+
+	// Validate DNS entries
+	for _, dns := range req.DNS {
+		if net.ParseIP(dns) == nil {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
+				fmt.Sprintf("Invalid DNS server %q: must be a valid IP address", dns))
+		}
+	}
+
+	// Validate MTU range (576 minimum, 9216 max for jumbo frames)
+	if req.MTU != nil {
+		if *req.MTU < 576 || *req.MTU > 9216 {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
+				fmt.Sprintf("MTU %d is out of valid range [576-9216]", *req.MTU))
+		}
+	}
+
 	if err := updateNetplanInterface(name, &req); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("failed to update netplan config: %v", err))
 	}
@@ -383,8 +424,38 @@ func (h *Handler) CreateBond(c echo.Context) error {
 	if len(req.Slaves) == 0 {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "At least one slave interface is required")
 	}
+
+	// Validate slave interface names
+	for _, slave := range req.Slaves {
+		if !isValidInterfaceName(slave) {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName,
+				fmt.Sprintf("Invalid slave interface name: %s", slave))
+		}
+	}
+
 	if req.Mode == "" {
 		req.Mode = "active-backup"
+	}
+
+	// Validate bond mode against allowlist
+	validBondModes := map[string]bool{
+		"balance-rr":    true,
+		"active-backup": true,
+		"balance-xor":   true,
+		"broadcast":     true,
+		"802.3ad":       true,
+		"balance-tlb":   true,
+		"balance-alb":   true,
+	}
+	if !validBondModes[req.Mode] {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
+			fmt.Sprintf("Invalid bond mode %q: must be one of balance-rr, active-backup, balance-xor, broadcast, 802.3ad, balance-tlb, balance-alb", req.Mode))
+	}
+
+	// Validate primary interface name if set
+	if req.Primary != "" && !isValidInterfaceName(req.Primary) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName,
+			fmt.Sprintf("Invalid primary interface name: %s", req.Primary))
 	}
 
 	if err := createNetplanBond(&req); err != nil {

@@ -6,17 +6,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	types "github.com/docker/docker/api/types"
 )
 
 var validProjectName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+
+// validImageID matches Docker image IDs (with optional sha256: prefix).
+var validImageID = regexp.MustCompile(`^(sha256:)?[a-f0-9]{12,64}$`)
+
+// validImageRef matches Docker image references including registry:port/name:tag format.
+var validImageRef = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*(:[0-9]+)?(/[a-zA-Z0-9._/-]+)*(:[a-zA-Z0-9._-]+)?$`)
 
 // validServiceName matches valid Docker Compose service names.
 var validServiceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
@@ -316,6 +324,9 @@ func (m *ComposeManager) runCompose(ctx context.Context, name string, args ...st
 	if err := m.validateProjectName(name); err != nil {
 		return "", err
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
 
 	yamlPath, dir := m.resolveComposeFilePath(ctx, name)
 	if yamlPath == "" {
@@ -774,6 +785,14 @@ func (m *ComposeManager) RollbackStack(ctx context.Context, name string) (string
 
 	// Re-tag old images
 	for _, e := range entries {
+		if !validImageID.MatchString(e.ImageID) {
+			slog.Warn("rollback: skipping entry with invalid image ID", "component", "compose", "image_id", e.ImageID, "image", e.Image)
+			continue
+		}
+		if !validImageRef.MatchString(e.Image) {
+			slog.Warn("rollback: skipping entry with invalid image reference", "component", "compose", "image_id", e.ImageID, "image", e.Image)
+			continue
+		}
 		cmd := exec.CommandContext(ctx, "docker", "tag", e.ImageID, e.Image)
 		if out, tagErr := cmd.CombinedOutput(); tagErr != nil {
 			return string(out), fmt.Errorf("tag %s → %s failed: %w", e.ImageID, e.Image, tagErr)

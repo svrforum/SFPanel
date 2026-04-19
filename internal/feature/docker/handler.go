@@ -30,7 +30,7 @@ func (h *Handler) ListContainers(c echo.Context) error {
 	ctx := c.Request().Context()
 	containers, err := h.Docker.ListContainers(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, containers)
 }
@@ -40,7 +40,7 @@ func (h *Handler) StartContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.StartContainer(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]string{"message": "container started"})
 }
@@ -50,7 +50,7 @@ func (h *Handler) StopContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.StopContainer(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]string{"message": "container stopped"})
 }
@@ -60,7 +60,7 @@ func (h *Handler) PauseContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.PauseContainer(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]string{"message": "container paused"})
 }
@@ -70,7 +70,7 @@ func (h *Handler) UnpauseContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.UnpauseContainer(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]string{"message": "container unpaused"})
 }
@@ -80,7 +80,7 @@ func (h *Handler) RestartContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.RestartContainer(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]string{"message": "container restarted"})
 }
@@ -90,7 +90,7 @@ func (h *Handler) RemoveContainer(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.RemoveContainer(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]string{"message": "container removed"})
 }
@@ -101,7 +101,7 @@ func (h *Handler) InspectContainer(c echo.Context) error {
 	id := c.Param("id")
 	data, err := h.Docker.GetContainer(ctx, id)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 
 	// Build a clean response with the most useful fields
@@ -203,7 +203,7 @@ func (h *Handler) ContainerStats(c echo.Context) error {
 	id := c.Param("id")
 	stats, err := h.Docker.CalcContainerStats(ctx, id)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, stats)
 }
@@ -213,7 +213,7 @@ func (h *Handler) ContainerStatsBatch(c echo.Context) error {
 	ctx := c.Request().Context()
 	stats, err := h.Docker.ContainerStatsBatch(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, stats)
 }
@@ -225,7 +225,7 @@ func (h *Handler) ListImages(c echo.Context) error {
 	ctx := c.Request().Context()
 	images, err := h.Docker.ListImagesWithUsage(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, images)
 }
@@ -246,7 +246,7 @@ func (h *Handler) PullImage(c echo.Context) error {
 	ctx := c.Request().Context()
 	reader, err := h.Docker.PullImage(ctx, req.Image)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	defer reader.Close()
 
@@ -279,7 +279,7 @@ func (h *Handler) RemoveImage(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.RemoveImage(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]string{"message": "image removed"})
 }
@@ -289,7 +289,7 @@ func (h *Handler) CheckImageUpdates(c echo.Context) error {
 	ctx := c.Request().Context()
 	containers, err := h.Docker.ListContainers(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 
 	// Collect unique images from running containers
@@ -321,7 +321,7 @@ func (h *Handler) ListVolumes(c echo.Context) error {
 	ctx := c.Request().Context()
 	volumes, err := h.Docker.ListVolumesWithUsage(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, volumes)
 }
@@ -341,7 +341,7 @@ func (h *Handler) CreateVolume(c echo.Context) error {
 	ctx := c.Request().Context()
 	vol, err := h.Docker.CreateVolume(ctx, req.Name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, vol)
 }
@@ -352,7 +352,7 @@ func (h *Handler) RemoveVolume(c echo.Context) error {
 	name := c.Param("name")
 	force := c.QueryParam("force") == "true"
 	if err := h.Docker.RemoveVolume(ctx, name, force); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]string{"message": "volume removed"})
 }
@@ -364,7 +364,7 @@ func (h *Handler) ListNetworks(c echo.Context) error {
 	ctx := c.Request().Context()
 	networks, err := h.Docker.ListNetworksWithUsage(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, networks)
 }
@@ -388,7 +388,7 @@ func (h *Handler) CreateNetwork(c echo.Context) error {
 	ctx := c.Request().Context()
 	net, err := h.Docker.CreateNetwork(ctx, req.Name, req.Driver)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, net)
 }
@@ -398,7 +398,7 @@ func (h *Handler) RemoveNetwork(c echo.Context) error {
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if err := h.Docker.RemoveNetwork(ctx, id); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]string{"message": "network removed"})
 }
@@ -409,7 +409,7 @@ func (h *Handler) InspectNetwork(c echo.Context) error {
 	id := c.Param("id")
 	netInfo, err := h.Docker.InspectNetwork(ctx, id)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 
 	// Build clean response
@@ -456,7 +456,7 @@ func (h *Handler) PruneContainers(c echo.Context) error {
 	ctx := c.Request().Context()
 	report, err := h.Docker.PruneContainers(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]interface{}{
 		"deleted":         len(report.ContainersDeleted),
@@ -469,7 +469,7 @@ func (h *Handler) PruneImages(c echo.Context) error {
 	ctx := c.Request().Context()
 	report, err := h.Docker.PruneImages(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]interface{}{
 		"deleted":         len(report.ImagesDeleted),
@@ -482,7 +482,7 @@ func (h *Handler) PruneVolumes(c echo.Context) error {
 	ctx := c.Request().Context()
 	report, err := h.Docker.PruneVolumes(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]interface{}{
 		"deleted":         len(report.VolumesDeleted),
@@ -495,7 +495,7 @@ func (h *Handler) PruneNetworks(c echo.Context) error {
 	ctx := c.Request().Context()
 	report, err := h.Docker.PruneNetworks(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]interface{}{
 		"deleted": len(report.NetworksDeleted),
@@ -506,7 +506,7 @@ func (h *Handler) PruneNetworks(c echo.Context) error {
 func (h *Handler) PruneAll(c echo.Context) error {
 	ctx := c.Request().Context()
 
-	var pruneErrors []string
+	pruneErrors := make([]string, 0)
 
 	containerReport, err := h.Docker.PruneContainers(ctx)
 	if err != nil {
@@ -544,6 +544,7 @@ func (h *Handler) PruneAll(c echo.Context) error {
 	}
 
 	if len(pruneErrors) > 0 {
+		result["partial_failure"] = true
 		result["errors"] = pruneErrors
 	}
 
@@ -569,7 +570,7 @@ func (h *Handler) SearchImages(c echo.Context) error {
 	ctx := c.Request().Context()
 	results, err := h.Docker.SearchImages(ctx, q, limit)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 
 	// Transform to cleaner response format

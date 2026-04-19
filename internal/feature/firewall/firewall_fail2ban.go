@@ -102,7 +102,7 @@ func (h *Handler) ListJails(c echo.Context) error {
 //	|- Number of jail:	2
 //	`- Jail list:	sshd, apache-auth
 func parseFail2banJailList(output string) []string {
-	var jails []string
+	jails := make([]string, 0)
 
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {

@@ -23,24 +23,10 @@ const scrollbackBufSize = 256 * 1024 // 256 KB ring buffer per session
 const maxTerminalSessions = 20       // Maximum concurrent terminal sessions
 
 var Upgrader = websocket.Upgrader{
+	// CheckOrigin allows all origins because auth uses explicit JWT token
+	// in query params, not cookies. CSWSH is not a risk since credentials
+	// are never sent automatically by the browser.
 	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return true
-		}
-		host := r.Host
-		if host == "localhost:5173" || host == "localhost:8443" {
-			return true
-		}
-		if len(origin) > 7 {
-			for _, prefix := range []string{"https://", "http://"} {
-				if len(origin) > len(prefix) && origin[:len(prefix)] == prefix {
-					if origin[len(prefix):] == host {
-						return true
-					}
-				}
-			}
-		}
 		return true
 	},
 }
@@ -98,6 +84,7 @@ type terminalSession struct {
 	cmd        *exec.Cmd
 	lastUse    time.Time
 	scrollback *ringBuffer
+	writeMu    sync.Mutex // protects ptmx.Write and pty.Setsize (both write to the PTY fd)
 	// readers keeps track of connected WebSocket clients so the
 	// background PTY reader goroutine can fan-out output.
 	readers   map[*websocket.Conn]struct{}
@@ -219,7 +206,9 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 		sessionsMu.Unlock()
 
 		if exists {
+			sess.mu.Lock()
 			sess.lastUse = time.Now()
+			sess.mu.Unlock()
 
 			// Replay scrollback buffer so the reconnected client sees history
 			sess.mu.Lock()
@@ -288,17 +277,26 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			if msgType == websocket.TextMessage {
 				var resize resizeMsg
 				if json.Unmarshal(msg, &resize) == nil && resize.Type == "resize" {
+					sess.writeMu.Lock()
 					pty.Setsize(sess.ptmx, &pty.Winsize{
 						Cols: resize.Cols,
 						Rows: resize.Rows,
 					})
+					sess.writeMu.Unlock()
 					continue
 				}
 			}
 
-			if _, err := sess.ptmx.Write(msg); err != nil {
+			sess.writeMu.Lock()
+			_, writeErr := sess.ptmx.Write(msg)
+			sess.writeMu.Unlock()
+			if writeErr != nil {
 				return nil
 			}
+
+			sess.mu.Lock()
+			sess.lastUse = time.Now()
+			sess.mu.Unlock()
 		}
 	}
 }
@@ -327,7 +325,10 @@ func CleanupTerminalSessions(db *sql.DB) {
 			var toClean []expired
 			sessionsMu.Lock()
 			for id, sess := range sessions {
-				if time.Since(sess.lastUse) > timeout {
+				sess.mu.Lock()
+				idle := time.Since(sess.lastUse) > timeout
+				sess.mu.Unlock()
+				if idle {
 					delete(sessions, id)
 					toClean = append(toClean, expired{id, sess})
 				}

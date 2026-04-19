@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	osExec "os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -89,6 +91,22 @@ type tsCurrentTailnetJSON struct {
 	Name            string `json:"Name"`
 	MagicDNSSuffix  string `json:"MagicDNSSuffix"`
 	MagicDNSEnabled bool   `json:"MagicDNSEnabled"`
+}
+
+// ---------- Validation ----------
+
+// validTSAuthKey matches Tailscale auth key format.
+var validTSAuthKey = regexp.MustCompile(`^tskey-[a-zA-Z0-9_-]+$`)
+
+// validTSHostname matches a valid hostname pattern for exit nodes.
+var validTSHostname = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,253}[a-zA-Z0-9])?$`)
+
+// isValidExitNode checks that an exit node value is a valid IP address or hostname.
+func isValidExitNode(s string) bool {
+	if net.ParseIP(s) != nil {
+		return true
+	}
+	return validTSHostname.MatchString(s)
 }
 
 // ---------- Helpers ----------
@@ -327,6 +345,18 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
+	// Validate auth key format if provided
+	if req.AuthKey != "" && !validTSAuthKey.MatchString(req.AuthKey) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
+			"Invalid auth key format: must match tskey-<alphanumeric>")
+	}
+
+	// Validate exit node if provided
+	if req.ExitNode != "" && !isValidExitNode(req.ExitNode) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
+			"Invalid exit node: must be a valid IP address or hostname")
+	}
+
 	// If auth key is provided, use it directly (blocking is fine, it will complete quickly)
 	if req.AuthKey != "" {
 		args := []string{"up", "--authkey=" + req.AuthKey}
@@ -478,6 +508,10 @@ func (h *TailscaleHandler) SetPreferences(c echo.Context) error {
 	args := []string{"set"}
 
 	if req.ExitNode != nil {
+		if *req.ExitNode != "" && !isValidExitNode(*req.ExitNode) {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
+				"Invalid exit node: must be a valid IP address or hostname")
+		}
 		args = append(args, "--exit-node="+*req.ExitNode)
 	}
 

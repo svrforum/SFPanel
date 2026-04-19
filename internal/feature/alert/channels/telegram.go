@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
 )
 
 type TelegramPayload struct {
@@ -36,7 +35,7 @@ func SendTelegram(botToken, chatID, title, message, severity string) error {
 	}
 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	resp, err := alertHTTPClient.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("telegram api: %w", err)
 	}

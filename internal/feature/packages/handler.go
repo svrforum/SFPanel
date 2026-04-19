@@ -81,7 +81,7 @@ func (h *Handler) CheckUpdates(c echo.Context) error {
 //
 //	package/focal-updates 1.2.3-4ubuntu1 amd64 [upgradable from: 1.2.3-3ubuntu1]
 func parseUpgradablePackages(output string) []PackageInfo {
-	var packages []PackageInfo
+	packages := make([]PackageInfo, 0)
 	lines := strings.Split(output, "\n")
 
 	for _, line := range lines {
@@ -330,7 +330,7 @@ func (h *Handler) getInstalledPackages(packages []PackageInfo) map[string]bool {
 // parseSearchResults parses the output of `apt-cache search` and limits results.
 // Each line has the format: "package-name - Short description"
 func parseSearchResults(output string, limit int) []PackageInfo {
-	var packages []PackageInfo
+	packages := make([]PackageInfo, 0)
 	lines := strings.Split(output, "\n")
 
 	for _, line := range lines {
@@ -713,7 +713,7 @@ func (h *Handler) GetNodeVersions(c echo.Context) error {
 
 	// List installed versions by scanning the NVM versions directory directly
 	// This is more reliable than parsing `nvm ls` output which has ANSI codes and varying formats
-	var versions []NodeVersion
+	versions := make([]NodeVersion, 0)
 	versionsDir := nvmDir + "/versions/node"
 	if entries, err := os.ReadDir(versionsDir); err == nil {
 		for _, e := range entries {
@@ -753,7 +753,7 @@ func (h *Handler) GetNodeVersions(c echo.Context) error {
 	ltsScript := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm ls-remote --lts --no-colors 2>/dev/null | grep "Latest" | tail -5`, nvmDir)
 	ltsOut, err := h.Cmd.RunWithTimeout(15*time.Second, "bash", "-c", ltsScript)
 	if err == nil {
-		var remoteLTS []string
+		remoteLTS := make([]string, 0)
 		for _, line := range strings.Split(ltsOut, "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" {

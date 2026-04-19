@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -17,24 +18,10 @@ import (
 )
 
 var Upgrader = websocket.Upgrader{
+	// CheckOrigin allows all origins because auth uses explicit JWT token
+	// in query params, not cookies. CSWSH is not a risk since credentials
+	// are never sent automatically by the browser.
 	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return true
-		}
-		host := r.Host
-		if host == "localhost:5173" || host == "localhost:8443" {
-			return true
-		}
-		if len(origin) > 7 {
-			for _, prefix := range []string{"https://", "http://"} {
-				if len(origin) > len(prefix) && origin[:len(prefix)] == prefix {
-					if origin[len(prefix):] == host {
-						return true
-					}
-				}
-			}
-		}
 		return true
 	},
 }
@@ -262,9 +249,12 @@ func parseInt(s string) (int, error) {
 	var n int
 	for _, c := range s {
 		if c < '0' || c > '9' {
-			return 0, context.DeadlineExceeded
+			return 0, fmt.Errorf("non-digit character in integer: %c", c)
 		}
 		n = n*10 + int(c-'0')
+		if n > 1000000 {
+			return 0, fmt.Errorf("value too large")
+		}
 	}
 	return n, nil
 }
@@ -285,7 +275,9 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		}
 		defer ws.Close()
 
-		ctx := c.Request().Context()
+		ctx, cancel := context.WithCancel(c.Request().Context())
+		defer cancel()
+
 		hijacked, execID, err := dockerClient.ContainerExec(ctx, containerID, []string{"/bin/sh"})
 		if err != nil {
 			ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
@@ -295,9 +287,18 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 
 		writer := &safeWSWriter{conn: ws}
 
+		// Close hijacked connection when context is cancelled (from either goroutine)
+		// This unblocks hijacked.Reader.Read() in the Docker reader goroutine
+		go func() {
+			<-ctx.Done()
+			hijacked.Close()
+		}()
+
+		// Docker -> WS: read from exec session and forward to WebSocket
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
+			defer cancel() // signal the writer goroutine to stop
 			buf := make([]byte, 4096)
 			for {
 				n, err := hijacked.Reader.Read(buf)
@@ -310,10 +311,12 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 			}
 		}()
 
+		// WS -> Docker: read from WebSocket and forward to exec session
 		go func() {
 			for {
 				_, msg, err := ws.ReadMessage()
 				if err != nil {
+					cancel()
 					return
 				}
 				var resizeMsg struct {
@@ -322,8 +325,13 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 					Rows int    `json:"rows"`
 				}
 				if json.Unmarshal(msg, &resizeMsg) == nil && resizeMsg.Type == "resize" {
-					_ = dockerClient.ExecResize(c.Request().Context(), execID, resizeMsg.Cols, resizeMsg.Rows)
+					_ = dockerClient.ExecResize(ctx, execID, resizeMsg.Cols, resizeMsg.Rows)
 					continue
+				}
+				select {
+				case <-ctx.Done():
+					return
+				default:
 				}
 				if _, err := hijacked.Conn.Write(msg); err != nil {
 					return

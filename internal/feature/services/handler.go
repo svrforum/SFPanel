@@ -272,7 +272,7 @@ func fetchAllServices(cmd exec.Commander) ([]ServiceInfo, error) {
 
 	enabledMap := getEnabledStates(cmd)
 
-	var svcs []ServiceInfo
+	svcs := make([]ServiceInfo, 0)
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if line == "" {
 			continue
