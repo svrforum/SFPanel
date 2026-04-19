@@ -179,6 +179,14 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 	rollbackMu.Lock()
 	defer rollbackMu.Unlock()
 
+	// Refuse if an earlier apply is still pending confirmation: otherwise
+	// we'd overwrite the original snapshot and lose the ability to roll back
+	// to the *real* pre-tuning state.
+	if rollbackValues != nil {
+		return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists,
+			"A previous tuning apply is awaiting /confirm or /reset; resolve that first")
+	}
+
 	if rollbackTimer != nil {
 		rollbackTimer.Stop()
 		rollbackTimer = nil

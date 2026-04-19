@@ -214,11 +214,16 @@ func main() {
 			}()
 		}
 	}
-	// Start background metrics history collector (30s interval, 24h retention, persisted to SQLite)
-	monitor.StartHistoryCollector(database)
+	// Context for long-lived background goroutines. Cancelled on SIGTERM
+	// below so they stop cleanly before the DB closes.
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	defer bgCancel()
+
+	// Start background metrics history collector (60s interval, 24h rolling window)
+	monitor.StartHistoryCollector(bgCtx, database)
 
 	// Start terminal session cleanup (timeout from settings, 0 = never)
-	featureTerminal.CleanupTerminalSessions(database)
+	featureTerminal.CleanupTerminalSessions(bgCtx, database)
 
 	// Restore DOCKER-USER firewall rules if previously saved
 	featureFirewall.RestoreDockerUserRules(commonExec.NewCommander())
@@ -256,6 +261,9 @@ func main() {
 	// NewRouter) *after* the HTTP server has drained so no request can race
 	// with goroutine shutdown, but *before* the DB closes.
 	routerCleanup()
+	// Cancel long-running background collectors (metrics history, terminal
+	// cleanup) so they exit before main returns and the process dies.
+	bgCancel()
 	slog.Info("server stopped")
 }
 

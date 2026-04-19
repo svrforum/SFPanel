@@ -118,8 +118,12 @@ func (h *Handler) InitCluster(c echo.Context) error {
 	}
 
 	h.Config.Cluster.APIPort = h.Config.Server.Port
+	// Hand NewManager a *copy* of the cluster config so Manager can mutate
+	// its own state without racing other handlers (GetStatus, etc.) that
+	// read h.Config.Cluster under configMu.
+	cfgCopy := h.Config.Cluster
 	h.configMu.Unlock()
-	mgr := cluster.NewManager(&h.Config.Cluster)
+	mgr := cluster.NewManager(&cfgCopy)
 	if err := mgr.Init(clusterName); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Init failed: %v", err))
 	}
@@ -822,7 +826,14 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 
 		sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "waiting", "message": "Waiting for node to restart..."})
 		for attempt := 0; attempt < 12; attempt++ {
-			time.Sleep(5 * time.Second)
+			// Honour client disconnect: if the SSE consumer has gone away,
+			// bail out instead of sitting in a 60s sleep loop that keeps the
+			// handler goroutine alive.
+			select {
+			case <-c.Request().Context().Done():
+				return false
+			case <-time.After(5 * time.Second):
+			}
 			h2 := mgr.GetHeartbeat().CheckHealth()
 			if s, ok := h2[ni.ID]; ok && s == cluster.StatusOnline {
 				sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "online", "message": "Node back online"})

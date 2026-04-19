@@ -65,6 +65,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 let setupChecked = false
 
+// Exported so the Setup page can reset the cache after a successful reset
+// (e.g. `sfpanel reset` run remotely) puts the server back into setup mode.
+export function invalidateSetupCache() {
+  setupChecked = false
+}
+
 function SetupGuard({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
   const navigate = useNavigate()

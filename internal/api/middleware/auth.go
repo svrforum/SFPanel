@@ -27,6 +27,14 @@ func SetClusterProxySecret(secret string) {
 	clusterProxySecretMu.Unlock()
 }
 
+// allowsQueryToken returns true for the few endpoints that legitimately need
+// to pass a JWT through a URL (plain file download via <a>, backup download).
+// Everything else must use the Authorization header.
+func allowsQueryToken(path string) bool {
+	return path == "/api/v1/files/download" ||
+		path == "/api/v1/system/backup"
+}
+
 // IsInternalProxyRequest checks if the HTTP request carries a valid internal proxy header.
 // Used by WebSocket handlers to bypass JWT validation for cluster-relayed connections.
 func IsInternalProxyRequest(r *http.Request) bool {
@@ -63,8 +71,12 @@ func JWTMiddleware(secret string) echo.MiddlewareFunc {
 
 			header := c.Request().Header.Get("Authorization")
 			if header == "" {
-				// Fallback: accept token from query parameter (for file downloads via <a> tags)
-				if qToken := c.QueryParam("token"); qToken != "" {
+				// Fallback: accept token from query parameter ONLY on endpoints
+				// that can't send a custom Authorization header (plain <a>
+				// downloads). Leaving ?token= allowed on every route would
+				// otherwise leak JWTs into access logs, Referer, and browser
+				// history for any protected GET.
+				if qToken := c.QueryParam("token"); qToken != "" && allowsQueryToken(c.Request().URL.Path) {
 					header = "Bearer " + qToken
 				} else {
 					return response.Fail(c, http.StatusUnauthorized, response.ErrMissingToken, "Authorization header is required")

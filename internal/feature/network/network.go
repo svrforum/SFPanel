@@ -350,11 +350,24 @@ func (h *Handler) ConfigureInterface(c echo.Context) error {
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("interface %s configuration updated", name)})
 }
 
-// ApplyNetplan runs `netplan apply` to activate the current configuration.
+// ApplyNetplan validates and activates the current configuration. `generate`
+// catches YAML / rule errors up front; actually applying via `apply` afterwards
+// makes the change immediate. Remote admins who misconfigure their primary
+// interface shouldn't be able to brick the server with one click.
+//
+// `netplan try --timeout=N` would auto-rollback on console input, which is
+// the ideal tool, but it requires an interactive terminal the HTTP handler
+// doesn't have. The `generate` + `apply` split at least rejects syntactic
+// disasters before they take the network down.
 func (h *Handler) ApplyNetplan(c echo.Context) error {
+	if out, err := h.Cmd.Run("netplan", "generate"); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrNetplanError,
+			"netplan config invalid: "+response.SanitizeOutput(strings.TrimSpace(out)))
+	}
 	out, err := h.Cmd.Run("netplan", "apply")
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("netplan apply failed: %s", strings.TrimSpace(out)))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError,
+			"netplan apply failed: "+response.SanitizeOutput(strings.TrimSpace(out)))
 	}
 	invalidateNetworkCache()
 	return response.OK(c, map[string]string{"message": "netplan applied successfully"})

@@ -67,7 +67,7 @@ func (h *Handler) StartService(c echo.Context) error {
 
 	if out, err := h.Cmd.Run("systemctl", "start", name); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrStartFailed,
-			fmt.Sprintf("Failed to start %s: %s", name, strings.TrimSpace(out)))
+			fmt.Sprintf("Failed to start %s: %s", name, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	invalidateServiceCache()
@@ -84,7 +84,7 @@ func (h *Handler) StopService(c echo.Context) error {
 
 	if out, err := h.Cmd.Run("systemctl", "stop", name); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrStopFailed,
-			fmt.Sprintf("Failed to stop %s: %s", name, strings.TrimSpace(out)))
+			fmt.Sprintf("Failed to stop %s: %s", name, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	invalidateServiceCache()
@@ -101,7 +101,7 @@ func (h *Handler) RestartService(c echo.Context) error {
 
 	if out, err := h.Cmd.Run("systemctl", "restart", name); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRestartFailed,
-			fmt.Sprintf("Failed to restart %s: %s", name, strings.TrimSpace(out)))
+			fmt.Sprintf("Failed to restart %s: %s", name, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	invalidateServiceCache()
@@ -118,7 +118,7 @@ func (h *Handler) EnableService(c echo.Context) error {
 
 	if out, err := h.Cmd.Run("systemctl", "enable", name); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrEnableFailed,
-			fmt.Sprintf("Failed to enable %s: %s", name, strings.TrimSpace(out)))
+			fmt.Sprintf("Failed to enable %s: %s", name, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	invalidateServiceCache()
@@ -135,7 +135,7 @@ func (h *Handler) DisableService(c echo.Context) error {
 
 	if out, err := h.Cmd.Run("systemctl", "disable", name); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDisableFailed,
-			fmt.Sprintf("Failed to disable %s: %s", name, strings.TrimSpace(out)))
+			fmt.Sprintf("Failed to disable %s: %s", name, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	invalidateServiceCache()

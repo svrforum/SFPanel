@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -790,15 +789,16 @@ func (m *ComposeManager) RollbackStack(ctx context.Context, name string) (string
 		return "", fmt.Errorf("invalid rollback data: %w", err)
 	}
 
-	// Re-tag old images
+	// Re-tag old images. Any failure aborts the rollback rather than
+	// continuing: a partial rollback followed by `up -d --force-recreate`
+	// would produce a mixed-version stack, which is worse than leaving
+	// the current (already-working) images in place.
 	for _, e := range entries {
 		if !validImageID.MatchString(e.ImageID) {
-			slog.Warn("rollback: skipping entry with invalid image ID", "component", "compose", "image_id", e.ImageID, "image", e.Image)
-			continue
+			return "", fmt.Errorf("rollback aborted: invalid image ID %q in rollback manifest", e.ImageID)
 		}
 		if !validImageRef.MatchString(e.Image) {
-			slog.Warn("rollback: skipping entry with invalid image reference", "component", "compose", "image_id", e.ImageID, "image", e.Image)
-			continue
+			return "", fmt.Errorf("rollback aborted: invalid image reference %q in rollback manifest", e.Image)
 		}
 		cmd := exec.CommandContext(ctx, "docker", "tag", e.ImageID, e.Image)
 		if out, tagErr := cmd.CombinedOutput(); tagErr != nil {
