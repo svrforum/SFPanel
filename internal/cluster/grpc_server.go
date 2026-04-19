@@ -126,6 +126,7 @@ func (s *GRPCServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinRes
 		JwtSecret:         jwtSecret,
 		AdminUsername:     adminUser,
 		AdminPasswordHash: adminPassHash,
+		RaftTls:           s.manager.config.RaftTLS,
 	}, nil
 }
 

@@ -148,6 +148,9 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		ConfigPath:   cfgPath,
 		DB:           database,
 		LiveActivate: liveActivate,
+		OnManagerActivated: func(m *cluster.Manager) {
+			authHandler.SetClusterMgr(m)
+		},
 	}
 	clusterGroup := authorized.Group("/cluster")
 	clusterGroup.GET("/status", clusterHandler.GetStatus)
@@ -161,6 +164,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	clusterGroup.POST("/leader-transfer", clusterHandler.TransferLeadership)
 	clusterGroup.POST("/init", clusterHandler.InitCluster)
 	clusterGroup.POST("/join", clusterHandler.JoinCluster)
+	clusterGroup.POST("/leave", clusterHandler.LeaveCluster)
 	clusterGroup.POST("/disband", clusterHandler.DisbandCluster)
 	clusterGroup.GET("/interfaces", clusterHandler.GetNetworkInterfaces)
 	clusterGroup.POST("/update", clusterHandler.ClusterUpdate)
@@ -171,6 +175,9 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.DELETE("/audit/logs", auditHandler.ClearAuditLogs)
 
 	// Alert system
+	// TODO: The alert manager goroutine is started with no shutdown hook.
+	// alertManager.Stop() should be called during graceful server shutdown
+	// (requires lifecycle integration in main.go).
 	alertManager := featureAlert.NewManager(database)
 	go alertManager.Start(context.Background())
 	alertHandler := &featureAlert.Handler{DB: database, Manager: alertManager}

@@ -43,6 +43,10 @@ func setAuthHeaders(httpReq *http.Request, origReq *http.Request, mgr *cluster.M
 	} else if auth := origReq.Header.Get("Authorization"); auth != "" {
 		httpReq.Header.Set("Authorization", auth)
 	}
+	// Forward the original username so the target node knows who initiated the request
+	if user := origReq.Header.Get("X-SFPanel-Original-User"); user != "" {
+		httpReq.Header.Set("X-SFPanel-Original-User", user)
+	}
 }
 
 // writeSSEEvent writes a single SSE event to the response writer and flushes.
@@ -233,6 +237,11 @@ func ClusterProxyMiddleware(mgr *cluster.Manager) echo.MiddlewareFunc {
 
 			if targetNode.Status != cluster.StatusOnline {
 				return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "Node is offline: "+targetNode.Name)
+			}
+
+			// Propagate the authenticated username for cluster-internal requests
+			if username, ok := c.Get("username").(string); ok && username != "" {
+				c.Request().Header.Set("X-SFPanel-Original-User", username)
 			}
 
 			// SSE streaming endpoints: relay via direct HTTP for real-time output

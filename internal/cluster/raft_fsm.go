@@ -98,7 +98,13 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 			if update.GRPCAddress != "" {
 				existing.GRPCAddress = update.GRPCAddress
 			}
-			existing.LastSeen = time.Now()
+			// Only update LastSeen for online status or explicit timestamp.
+			// Avoid overwriting with "now" when marking a node offline/suspect.
+			if !update.LastSeen.IsZero() {
+				existing.LastSeen = update.LastSeen
+			} else if update.Status == StatusOnline || update.Status == "" {
+				existing.LastSeen = time.Now()
+			}
 		}
 		return nil
 

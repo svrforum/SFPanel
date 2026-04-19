@@ -89,6 +89,9 @@ func (m *Manager) Init(clusterName string) error {
 		return fmt.Errorf("save node cert: %w", err)
 	}
 
+	// Enable Raft TLS for new clusters
+	m.config.RaftTLS = true
+
 	raftAddr := fmt.Sprintf("%s:%d", advertise, m.config.GRPCPort+1)
 	raftNode, err := NewRaftNode(RaftConfig{
 		NodeID:    m.nodeID,
@@ -96,6 +99,7 @@ func (m *Manager) Init(clusterName string) error {
 		DataDir:   m.config.DataDir,
 		Bootstrap: true,
 		TLS:       m.tls,
+		RaftTLS:   m.config.RaftTLS,
 	})
 	if err != nil {
 		return fmt.Errorf("start raft: %w", err)
@@ -173,6 +177,7 @@ func (m *Manager) Start() error {
 		DataDir:   m.config.DataDir,
 		Bootstrap: false,
 		TLS:       m.tls,
+		RaftTLS:   m.config.RaftTLS,
 	})
 	if err != nil {
 		return fmt.Errorf("start raft: %w", err)
@@ -363,6 +368,13 @@ func (m *Manager) RemoveNode(nodeID string) error {
 		return ErrSelfRemove
 	}
 
+	// Read address before removal (node will be deleted from FSM by CmdRemoveNode)
+	preState := m.raft.GetFSM().GetState()
+	var removedGRPCAddr string
+	if node, ok := preState.Nodes[nodeID]; ok {
+		removedGRPCAddr = node.GRPCAddress
+	}
+
 	if err := m.raft.RemoveServer(nodeID); err != nil {
 		return fmt.Errorf("remove from raft: %w", err)
 	}
@@ -374,10 +386,9 @@ func (m *Manager) RemoveNode(nodeID string) error {
 		return fmt.Errorf("remove from state: %w", err)
 	}
 
-	// Clean up heartbeat + connection pool for removed node
-	state := m.raft.GetFSM().GetState()
-	if node, ok := state.Nodes[nodeID]; ok && node.GRPCAddress != "" {
-		m.connPool.Remove(node.GRPCAddress)
+	// Clean up connection pool using pre-removal address
+	if removedGRPCAddr != "" {
+		m.connPool.Remove(removedGRPCAddr)
 	}
 	m.heartbeat.RemoveNode(nodeID)
 	m.events.Emit(EventNodeLeft, nodeID, "", "removed from cluster")
@@ -623,14 +634,18 @@ func (m *Manager) UpdateNodeLabels(nodeID string, labels map[string]string) erro
 	if m.raft == nil || !m.raft.IsLeader() {
 		return ErrNotLeader
 	}
+	// Verify node exists
 	state := m.raft.GetFSM().GetState()
 	node, exists := state.Nodes[nodeID]
 	if !exists {
 		return ErrNodeNotFound
 	}
+	nodeName := node.Name
 
-	node.Labels = labels
-	data, _ := json.Marshal(node)
+	// Send only ID and Labels to avoid overwriting concurrent changes to other fields.
+	// The FSM's applyUpdateNode merges non-zero fields only.
+	update := Node{ID: nodeID, Labels: labels}
+	data, _ := json.Marshal(update)
 	if err := m.raft.Apply(Command{
 		Type:  CmdUpdateNode,
 		Value: data,
@@ -638,7 +653,7 @@ func (m *Manager) UpdateNodeLabels(nodeID string, labels map[string]string) erro
 		return fmt.Errorf("update labels: %w", err)
 	}
 
-	m.events.Emit(EventNodeLabelsUpdate, nodeID, node.Name, fmt.Sprintf("labels updated: %v", labels))
+	m.events.Emit(EventNodeLabelsUpdate, nodeID, nodeName, fmt.Sprintf("labels updated: %v", labels))
 	return nil
 }
 
@@ -784,7 +799,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 			select {
 			case <-ticker.C:
 				collect()
-			case <-m.heartbeat.stopCh:
+			case <-m.heartbeat.Done():
 				closeStream()
 				return
 			}
@@ -878,15 +893,18 @@ func (m *Manager) UpdateNodeAddress(nodeID, apiAddr, grpcAddr string) error {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return ErrNotLeader
 	}
+	// Verify node exists
 	state := m.raft.GetFSM().GetState()
 	node, exists := state.Nodes[nodeID]
 	if !exists {
 		return ErrNodeNotFound
 	}
+	nodeName := node.Name
 
-	node.APIAddress = apiAddr
-	node.GRPCAddress = grpcAddr
-	data, _ := json.Marshal(node)
+	// Send only ID and address fields to avoid overwriting concurrent changes.
+	// The FSM's applyUpdateNode merges non-zero fields only.
+	update := Node{ID: nodeID, APIAddress: apiAddr, GRPCAddress: grpcAddr}
+	data, _ := json.Marshal(update)
 	if err := m.raft.Apply(Command{
 		Type:  CmdUpdateNode,
 		Value: data,
@@ -894,7 +912,7 @@ func (m *Manager) UpdateNodeAddress(nodeID, apiAddr, grpcAddr string) error {
 		return fmt.Errorf("update address: %w", err)
 	}
 
-	m.events.Emit(EventNodeJoined, nodeID, node.Name, fmt.Sprintf("address updated: api=%s grpc=%s", apiAddr, grpcAddr))
+	m.events.Emit(EventNodeJoined, nodeID, nodeName, fmt.Sprintf("address updated: api=%s grpc=%s", apiAddr, grpcAddr))
 	return nil
 }
 

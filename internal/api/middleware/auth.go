@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -17,32 +18,45 @@ const InternalProxyHeader = "X-SFPanel-Internal-Proxy"
 
 // clusterProxySecret is set at startup for validating internal proxy requests.
 var clusterProxySecret string
+var clusterProxySecretMu sync.RWMutex
 
 // SetClusterProxySecret configures the secret used to validate internal proxy requests.
 func SetClusterProxySecret(secret string) {
+	clusterProxySecretMu.Lock()
 	clusterProxySecret = secret
+	clusterProxySecretMu.Unlock()
 }
 
 // IsInternalProxyRequest checks if the HTTP request carries a valid internal proxy header.
 // Used by WebSocket handlers to bypass JWT validation for cluster-relayed connections.
 func IsInternalProxyRequest(r *http.Request) bool {
-	if clusterProxySecret == "" {
+	clusterProxySecretMu.RLock()
+	secret := clusterProxySecret
+	clusterProxySecretMu.RUnlock()
+	if secret == "" {
 		return false
 	}
 	proxyToken := r.Header.Get(InternalProxyHeader)
 	if proxyToken == "" {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(proxyToken), []byte(clusterProxySecret)) == 1
+	return subtle.ConstantTimeCompare([]byte(proxyToken), []byte(secret)) == 1
 }
 
 func JWTMiddleware(secret string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			// Trust cluster-internal proxy requests (authenticated via mTLS)
-			if proxyToken := c.Request().Header.Get(InternalProxyHeader); proxyToken != "" && clusterProxySecret != "" {
-				if subtle.ConstantTimeCompare([]byte(proxyToken), []byte(clusterProxySecret)) == 1 {
-					c.Set("username", "admin")
+			clusterProxySecretMu.RLock()
+			proxySecret := clusterProxySecret
+			clusterProxySecretMu.RUnlock()
+			if proxyToken := c.Request().Header.Get(InternalProxyHeader); proxyToken != "" && proxySecret != "" {
+				if subtle.ConstantTimeCompare([]byte(proxyToken), []byte(proxySecret)) == 1 {
+					username := c.Request().Header.Get("X-SFPanel-Original-User")
+					if username == "" {
+						username = "admin"
+					}
+					c.Set("username", username)
 					return next(c)
 				}
 			}

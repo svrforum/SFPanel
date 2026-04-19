@@ -37,7 +37,22 @@ const (
 type Handler struct {
 	DB         *sql.DB
 	Config     *config.Config
+	clusterMu  sync.RWMutex
 	ClusterMgr *cluster.Manager // nil when cluster not active
+}
+
+// SetClusterMgr updates the cluster manager reference at runtime.
+// Called when a node joins or initializes a cluster while the server is running.
+func (h *Handler) SetClusterMgr(m *cluster.Manager) {
+	h.clusterMu.Lock()
+	defer h.clusterMu.Unlock()
+	h.ClusterMgr = m
+}
+
+func (h *Handler) getClusterMgr() *cluster.Manager {
+	h.clusterMu.RLock()
+	defer h.clusterMu.RUnlock()
+	return h.ClusterMgr
 }
 
 type loginRequest struct {
@@ -68,15 +83,6 @@ type setupAdminRequest struct {
 
 func (h *Handler) Login(c echo.Context) error {
 	ip := c.RealIP()
-	if val, ok := loginAttempts.Load(ip); ok {
-		attempt := val.(*loginAttempt)
-		attempt.mu.Lock()
-		blocked := time.Now().Before(attempt.blockedUntil)
-		attempt.mu.Unlock()
-		if blocked {
-			return response.Fail(c, http.StatusTooManyRequests, response.ErrRateLimited, "Too many login attempts. Try again later.")
-		}
-	}
 
 	var req loginRequest
 	if err := c.Bind(&req); err != nil {
@@ -85,6 +91,12 @@ func (h *Handler) Login(c echo.Context) error {
 
 	if req.Username == "" || req.Password == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Username and password are required")
+	}
+
+	// Atomically check rate limit and pre-increment before expensive bcrypt check.
+	// This prevents concurrent requests from bypassing the limiter.
+	if blocked := preRecordLoginAttempt(ip); blocked {
+		return response.Fail(c, http.StatusTooManyRequests, response.ErrRateLimited, "Too many login attempts. Try again later.")
 	}
 
 	var passwordHash string
@@ -101,7 +113,6 @@ func (h *Handler) Login(c echo.Context) error {
 			req.Username,
 		).Scan(new(int), &passwordHash, &totpSecret)
 		if err == sql.ErrNoRows {
-			recordFailedLogin(ip)
 			return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials, "Invalid username or password")
 		}
 		if err != nil {
@@ -113,7 +124,6 @@ func (h *Handler) Login(c echo.Context) error {
 	}
 
 	if !auth.CheckPassword(req.Password, passwordHash) {
-		recordFailedLogin(ip)
 		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials, "Invalid username or password")
 	}
 
@@ -122,6 +132,8 @@ func (h *Handler) Login(c echo.Context) error {
 			return response.Fail(c, http.StatusBadRequest, response.ErrTOTPRequired, "2FA code is required")
 		}
 		if !auth.ValidateCode(totpSecretStr, req.TOTPCode) {
+			// preRecordLoginAttempt already counted this attempt; no additional recordFailedLogin
+			// to avoid double-counting (which would lock out after ~3 TOTP fumbles instead of 5)
 			return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidTOTP, "Invalid 2FA code")
 		}
 	}
@@ -138,6 +150,36 @@ func (h *Handler) Login(c echo.Context) error {
 
 	loginAttempts.Delete(ip)
 	return response.OK(c, map[string]string{"token": token})
+}
+
+// preRecordLoginAttempt atomically checks the rate limit and pre-increments the
+// attempt counter. Returns true if the IP is currently blocked. This must be
+// called before the expensive bcrypt comparison so that concurrent requests
+// cannot bypass the limiter.
+func preRecordLoginAttempt(ip string) (blocked bool) {
+	now := time.Now()
+	newAttempt := &loginAttempt{count: 1, firstAt: now}
+	val, loaded := loginAttempts.LoadOrStore(ip, newAttempt)
+	if !loaded {
+		return false
+	}
+	attempt := val.(*loginAttempt)
+	attempt.mu.Lock()
+	defer attempt.mu.Unlock()
+	if now.Before(attempt.blockedUntil) {
+		return true
+	}
+	if now.Sub(attempt.firstAt) > rateLimitWindow {
+		attempt.count = 1
+		attempt.firstAt = now
+		attempt.blockedUntil = time.Time{}
+		return false
+	}
+	attempt.count++
+	if attempt.count >= rateLimitMaxAttempts {
+		attempt.blockedUntil = now.Add(rateLimitBlockDuration)
+	}
+	return false
 }
 
 func recordFailedLogin(ip string) {
@@ -325,18 +367,26 @@ func (h *Handler) SetupAdmin(c echo.Context) error {
 	ip := c.RealIP()
 	now := time.Now()
 	setupLimiter.mu.Lock()
-	attempts := setupLimiter.attempts[ip]
-	var recent []time.Time
-	for _, t := range attempts {
-		if now.Sub(t) < time.Minute {
-			recent = append(recent, t)
+	// Garbage collect stale entries for all IPs
+	for k, timestamps := range setupLimiter.attempts {
+		var valid []time.Time
+		for _, t := range timestamps {
+			if now.Sub(t) < time.Minute {
+				valid = append(valid, t)
+			}
+		}
+		if len(valid) == 0 {
+			delete(setupLimiter.attempts, k)
+		} else {
+			setupLimiter.attempts[k] = valid
 		}
 	}
-	if len(recent) >= 5 {
+	attempts := setupLimiter.attempts[ip]
+	if len(attempts) >= 5 {
 		setupLimiter.mu.Unlock()
 		return response.Fail(c, http.StatusTooManyRequests, response.ErrRateLimited, "Too many setup attempts. Try again later.")
 	}
-	setupLimiter.attempts[ip] = append(recent, now)
+	setupLimiter.attempts[ip] = append(attempts, now)
 	setupLimiter.mu.Unlock()
 
 	var req setupAdminRequest
@@ -397,16 +447,18 @@ func (h *Handler) SetupAdmin(c echo.Context) error {
 
 // getClusterAccount returns an account from the cluster FSM, or nil if cluster is not active.
 func (h *Handler) getClusterAccount(username string) *cluster.AdminAccount {
-	if h.ClusterMgr == nil {
+	mgr := h.getClusterMgr()
+	if mgr == nil {
 		return nil
 	}
-	return h.ClusterMgr.GetAccount(username)
+	return mgr.GetAccount(username)
 }
 
 // syncAccountToCluster reads the account from local DB and proposes it to Raft.
 // Best-effort: logs errors but does not fail the parent operation.
 func (h *Handler) syncAccountToCluster(username string) {
-	if h.ClusterMgr == nil {
+	mgr := h.getClusterMgr()
+	if mgr == nil {
 		return
 	}
 
@@ -423,7 +475,7 @@ func (h *Handler) syncAccountToCluster(username string) {
 		totp = totpSecret.String
 	}
 
-	if err := h.ClusterMgr.SyncAccountFromDB(username, passwordHash, totp); err != nil {
+	if err := mgr.SyncAccountFromDB(username, passwordHash, totp); err != nil {
 		slog.Warn("failed to sync account to cluster", "username", username, "error", err)
 	}
 }
