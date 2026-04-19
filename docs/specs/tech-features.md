@@ -413,7 +413,7 @@
 | 섹션 | 키 | 기본값 | 설명 |
 |------|-----|--------|------|
 | `server.host` | host | `0.0.0.0` | 바인딩 호스트 주소 |
-| `server.port` | port | `8443` | 서버 포트 |
+| `server.port` | port | `19443` | 서버 포트 |
 | `database.path` | path | `./sfpanel.db` | SQLite 데이터베이스 파일 경로 |
 | `auth.jwt_secret` | jwt_secret | (없음) | JWT 서명 시크릿 (반드시 변경 필요) |
 | `auth.token_expiry` | token_expiry | `24h` | JWT 토큰 만료 시간 (Go duration 형식) |
@@ -720,8 +720,8 @@ make build
 # 2. go build -ldflags="-s -w" -trimpath -o sfpanel ./cmd/sfpanel  → 바이너리 생성 (~16MB)
 
 # 개발 모드
-make dev-api   # Go 백엔드 (:8443)
-make dev-web   # Vite 프론트엔드 (:5173, API 프록시 → :8443)
+make dev-api   # Go 백엔드 (:19443)
+make dev-web   # Vite 프론트엔드 (:5173, API 프록시 → :19443)
 
 # 린트
 make lint      # golangci-lint + eslint

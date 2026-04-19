@@ -1094,7 +1094,7 @@ interface InstalledApp {
 ### Dev 서버 포트
 
 - Vite: `:5173` (HMR)
-- 백엔드 API/WS: `:8443` (config 기본값, 프로덕션 `install.sh`도 동일)
+- 백엔드 API/WS: `:19443` (config 기본값, 프로덕션 `install.sh`도 동일)
 
 ### 린트/타입체크/테스트
 

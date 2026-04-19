@@ -96,7 +96,7 @@ func (c *Config) ApplyEnvOverrides() {
 
 func Load(path string) (*Config, error) {
 	cfg := &Config{
-		Server:   ServerConfig{Host: "0.0.0.0", Port: 8443, StacksPath: "/opt/stacks"},
+		Server:   ServerConfig{Host: "0.0.0.0", Port: 19443, StacksPath: "/opt/stacks"},
 		Database: DatabaseConfig{Path: "./sfpanel.db"},
 		Auth:     AuthConfig{TokenExpiry: "24h"},
 		Docker:   DockerConfig{Socket: "unix:///var/run/docker.sock"},

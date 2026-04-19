@@ -9,9 +9,9 @@ import { Globe, Bug } from 'lucide-react'
 import { LANGUAGE_KEY } from '@/i18n'
 
 const EXAMPLES = [
-  'https://192.168.1.100:8443',
-  'https://myserver.example.com:8443',
-  'http://10.0.0.5:8443',
+  'https://192.168.1.100:19443',
+  'https://myserver.example.com:19443',
+  'http://10.0.0.5:19443',
 ]
 
 const isTauri = '__TAURI_INTERNALS__' in window
@@ -160,7 +160,7 @@ export default function Connect() {
                 type="url"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://192.168.1.100:8443"
+                placeholder="https://192.168.1.100:19443"
                 required
                 autoFocus
                 className="h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30"

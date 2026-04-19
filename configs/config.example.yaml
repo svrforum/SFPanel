@@ -1,7 +1,7 @@
 # SFPanel Configuration
 server:
   host: "0.0.0.0"
-  port: 8443
+  port: 19443
   # tls:
   #   cert: "/etc/sfpanel/cert.pem"
   #   key: "/etc/sfpanel/key.pem"
