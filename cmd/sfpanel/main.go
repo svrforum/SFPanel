@@ -226,7 +226,7 @@ func main() {
 	// Start background update checker (polls GitHub every hour)
 	monitor.StartUpdateChecker(version)
 
-	e := api.NewRouter(database, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate)
+	e, routerCleanup := api.NewRouter(database, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate)
 	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -252,6 +252,10 @@ func main() {
 		slog.Error("server forced shutdown", "error", err)
 		os.Exit(1)
 	}
+	// Stop the alert manager (and any other background work registered in
+	// NewRouter) *after* the HTTP server has drained so no request can race
+	// with goroutine shutdown, but *before* the DB closes.
+	routerCleanup()
 	slog.Info("server stopped")
 }
 

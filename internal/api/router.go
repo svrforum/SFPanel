@@ -40,7 +40,11 @@ import (
 	featureWS "github.com/svrforum/SFPanel/internal/feature/websocket"
 )
 
-func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc) *echo.Echo {
+// NewRouter wires the HTTP server and returns both the Echo instance and a
+// cleanup function. The cleanup function must be called by the caller during
+// graceful shutdown to stop background goroutines (e.g. the alert manager)
+// before the DB is closed.
+func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc) (*echo.Echo, func()) {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -174,10 +178,9 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.GET("/audit/logs", auditHandler.ListAuditLogs)
 	authorized.DELETE("/audit/logs", auditHandler.ClearAuditLogs)
 
-	// Alert system
-	// TODO: The alert manager goroutine is started with no shutdown hook.
-	// alertManager.Stop() should be called during graceful server shutdown
-	// (requires lifecycle integration in main.go).
+	// Alert system. The manager owns a background goroutine that periodically
+	// evaluates rules; it's stopped via the cleanup closure returned by
+	// NewRouter so main.go can wind it down before closing the DB.
 	alertManager := featureAlert.NewManager(database)
 	go alertManager.Start(context.Background())
 	alertHandler := &featureAlert.Handler{DB: database, Manager: alertManager}
@@ -466,7 +469,10 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	// SPA static file serving — catch-all AFTER all API and WS routes
 	e.GET("/*", spaHandler(webFS))
 
-	return e
+	cleanup := func() {
+		alertManager.Stop()
+	}
+	return e, cleanup
 }
 
 // spaHandler serves the embedded React SPA with fallback to index.html

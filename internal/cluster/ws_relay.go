@@ -16,8 +16,10 @@ import (
 
 // RelayWebSocket connects to a remote node's WebSocket endpoint and
 // bidirectionally relays messages between the client and the remote node.
-// The caller must have already upgraded the client connection.
-func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url.URL, proxySecret string) error {
+// The caller must have already upgraded the client connection. `tlsCfg` is
+// the cluster's mTLS client config; passing nil falls back to system roots
+// (still hostname-verified) rather than InsecureSkipVerify.
+func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url.URL, proxySecret string, tlsCfg *crypto_tls.Config) error {
 	// Build remote WS URL
 	apiAddr := remoteNode.APIAddress
 	if !strings.Contains(apiAddr, ":") {
@@ -45,11 +47,13 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 	if proxySecret != "" {
 		headers.Set("X-SFPanel-Internal-Proxy", proxySecret)
 	}
-	// TODO: use cluster's mTLS config for proper certificate verification
-	// instead of InsecureSkipVerify once TLS credentials are plumbed through.
+	dialCfg := &crypto_tls.Config{}
+	if tlsCfg != nil {
+		dialCfg = tlsCfg.Clone()
+	}
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
-		TLSClientConfig:  &crypto_tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig:  dialCfg,
 	}
 	remoteWS, resp, err := dialer.Dial(remoteURL.String(), headers)
 	if err != nil {
@@ -167,7 +171,13 @@ func WrapEchoWSHandler(mgr *Manager, handler func(c echo.Context) error) func(c 
 		}
 		defer clientWS.Close()
 
-		if err := RelayWebSocket(clientWS, node, c.Request().URL, mgr.ProxySecret()); err != nil {
+		var tlsCfg *crypto_tls.Config
+		if t := mgr.GetTLS(); t != nil {
+			if cfg, cfgErr := t.ClientTLSConfig(); cfgErr == nil {
+				tlsCfg = cfg
+			}
+		}
+		if err := RelayWebSocket(clientWS, node, c.Request().URL, mgr.ProxySecret(), tlsCfg); err != nil {
 			slog.Warn("WS relay to node failed", "component", "cluster", "node_id", nodeID, "error", err)
 		}
 		return nil

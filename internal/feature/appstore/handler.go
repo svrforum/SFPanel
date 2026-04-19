@@ -574,6 +574,16 @@ func (h *Handler) InstallApp(c echo.Context) error {
 			send("prepare", "docker-compose.yml content is empty", true, false)
 			return nil
 		}
+		// Advanced mode lets the user submit arbitrary compose YAML, which
+		// otherwise becomes a trivial host-root-escape primitive
+		// (privileged: true, pid: host, /:/hostfs bind, docker.sock bind).
+		// Reject the most obvious patterns before handing the file to
+		// `docker compose up -d`.
+		if err := validateAdvancedCompose(req.Compose); err != nil {
+			cleanup()
+			send("prepare", "Refused compose file: "+err.Error(), true, false)
+			return nil
+		}
 		send("prepare", "Writing custom docker-compose.yml...", false, true)
 		if err := os.WriteFile(composePath, []byte(req.Compose), 0644); err != nil {
 			cleanup()
