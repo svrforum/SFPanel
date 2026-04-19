@@ -27,11 +27,23 @@ func isStreamingEndpoint(path string) bool {
 }
 
 // newRemoteHTTPClient creates an HTTP client for remote node communication.
-func newRemoteHTTPClient(timeout time.Duration) *http.Client {
+// It uses the cluster's mTLS configuration so remote traffic is authenticated
+// via the shared CA instead of being blanket-trusted. If the TLS manager
+// isn't ready yet (e.g. very early in Init), falls back to a config that
+// still verifies hostnames against whatever system roots are available;
+// this is strictly safer than InsecureSkipVerify while not crashing during
+// bootstrap.
+func newRemoteHTTPClient(timeout time.Duration, mgr *cluster.Manager) *http.Client {
+	tlsCfg := &tls.Config{}
+	if mgr != nil {
+		if cfg, err := mgr.GetTLS().ClientTLSConfig(); err == nil && cfg != nil {
+			tlsCfg = cfg.Clone()
+		}
+	}
 	return &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: tlsCfg,
 		},
 	}
 }
@@ -83,7 +95,7 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 	ctx, cancel := context.WithTimeout(req.Context(), 5*time.Minute)
 	defer cancel()
 
-	client := newRemoteHTTPClient(5 * time.Minute)
+	client := newRemoteHTTPClient(5*time.Minute, mgr)
 
 	// Try SSE streaming endpoint first
 	sseURL := baseURL + req.URL.Path + queryStr

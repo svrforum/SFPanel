@@ -80,15 +80,39 @@ get_latest_version() {
 download_binary() {
   local version="$1"
   local arch="$2"
-  local url="https://github.com/${REPO}/releases/download/v${version}/sfpanel_${version}_linux_${arch}.tar.gz"
+  local asset="sfpanel_${version}_linux_${arch}.tar.gz"
+  local base="https://github.com/${REPO}/releases/download/v${version}"
   local tmp_dir
 
   tmp_dir=$(mktemp -d)
 
   log_info "Downloading SFPanel v${version} (linux/${arch})..."
-  if ! curl -fsSL "$url" -o "${tmp_dir}/sfpanel.tar.gz"; then
+  if ! curl -fsSL "${base}/${asset}" -o "${tmp_dir}/sfpanel.tar.gz"; then
     rm -rf "$tmp_dir"
-    log_error "Download failed: $url"
+    log_error "Download failed: ${base}/${asset}"
+    exit 1
+  fi
+
+  # Integrity check against the release's checksums.txt. Without this step
+  # a compromised mirror or MITM could ship a tampered binary that install.sh
+  # would happily run as root.
+  log_info "Verifying SHA-256 checksum..."
+  if ! curl -fsSL "${base}/checksums.txt" -o "${tmp_dir}/checksums.txt"; then
+    rm -rf "$tmp_dir"
+    log_error "Could not fetch checksums.txt from ${base}/"
+    exit 1
+  fi
+  local expected actual
+  expected=$(awk -v a="${asset}" '$2==a || $2=="*"a {print $1; exit}' "${tmp_dir}/checksums.txt")
+  if [ -z "$expected" ]; then
+    rm -rf "$tmp_dir"
+    log_error "Asset ${asset} not listed in checksums.txt"
+    exit 1
+  fi
+  actual=$(sha256sum "${tmp_dir}/sfpanel.tar.gz" | awk '{print $1}')
+  if [ "$expected" != "$actual" ]; then
+    rm -rf "$tmp_dir"
+    log_error "Checksum mismatch: expected ${expected}, got ${actual}"
     exit 1
   fi
 
@@ -101,7 +125,9 @@ download_binary() {
     exit 1
   fi
 
-  # Stop service if running (upgrade case)
+  # Only touch the running service after every verification has passed,
+  # so a bad download can't leave the host with the service stopped and
+  # no replacement binary in place.
   if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
     log_info "Stopping existing SFPanel service..."
     systemctl stop "$SERVICE_NAME"

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Marked } from 'marked'
+import DOMPurify from 'dompurify'
 import {
   Eye,
   EyeOff,
@@ -106,7 +107,11 @@ function RenderedReadme({ markdown, baseUrl }: { markdown: string; baseUrl?: str
   const html = useMemo(() => {
     const processed = processGitHubAlerts(markdown)
     const md = createMarked(baseUrl)
-    return md.parse(processed) as string
+    const raw = md.parse(processed) as string
+    // README text comes from an untrusted external repo — sanitize before
+    // injecting into the DOM. ADD_ATTR keeps our rendered anchors' target/rel
+    // attributes (opener isolation), which DOMPurify drops by default.
+    return DOMPurify.sanitize(raw, { ADD_ATTR: ['target', 'rel'] })
   }, [markdown, baseUrl])
 
   return (
