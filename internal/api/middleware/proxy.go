@@ -75,9 +75,20 @@ func writeSSEEvent(w *echo.Response, phase, line string) {
 // and relays the event stream to the client in real-time.
 // If the remote node doesn't support SSE streaming (old version), falls back
 // to the regular non-streaming endpoint and synthesizes SSE events.
+// nodeBaseURL returns the scheme+host for HTTP requests to a cluster peer's
+// panel API. Panels are plain HTTP by default (TLS is a reverse-proxy's
+// job), so we default to http://; only honor an explicit https:// prefix
+// if an operator stored one into APIAddress.
+func nodeBaseURL(apiAddr string) string {
+	if strings.HasPrefix(apiAddr, "http://") || strings.HasPrefix(apiAddr, "https://") {
+		return apiAddr
+	}
+	return "http://" + apiAddr
+}
+
 func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
 	req := c.Request()
-	baseURL := "http://" + targetNode.APIAddress
+	baseURL := nodeBaseURL(targetNode.APIAddress)
 	query := req.URL.Query()
 	query.Del("node")
 	queryStr := ""
