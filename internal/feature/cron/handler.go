@@ -6,11 +6,18 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
 )
+
+// crontabMu serializes the read-modify-write cycles in CreateJob / UpdateJob /
+// DeleteJob. Without it, two concurrent API requests would each `crontab -l`,
+// compute independent edits, and then `crontab -` with a stale view, losing
+// one of the edits.
+var crontabMu sync.Mutex
 
 // CronJob represents a single entry in the system crontab.
 type CronJob struct {
@@ -70,6 +77,8 @@ func (h *Handler) ListJobs(c echo.Context) error {
 // CreateJob appends a new cron job to the crontab.
 // Accepts JSON body: {"schedule": "...", "command": "..."}.
 func (h *Handler) CreateJob(c echo.Context) error {
+	crontabMu.Lock()
+	defer crontabMu.Unlock()
 	var req struct {
 		Schedule string `json:"schedule"`
 		Command  string `json:"command"`
@@ -119,6 +128,8 @@ func (h *Handler) CreateJob(c echo.Context) error {
 // UpdateJob modifies an existing crontab entry by line index.
 // Accepts JSON body: {"schedule": "...", "command": "...", "enabled": true/false}.
 func (h *Handler) UpdateJob(c echo.Context) error {
+	crontabMu.Lock()
+	defer crontabMu.Unlock()
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid job ID")
@@ -177,6 +188,8 @@ func (h *Handler) UpdateJob(c echo.Context) error {
 
 // DeleteJob removes a crontab entry by line index.
 func (h *Handler) DeleteJob(c echo.Context) error {
+	crontabMu.Lock()
+	defer crontabMu.Unlock()
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid job ID")

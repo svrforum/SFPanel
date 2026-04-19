@@ -193,7 +193,19 @@ export default function Files() {
 
   // Edit file
   const editAbortRef = useRef<AbortController | null>(null)
+  const editMaxBytes = 5 * 1024 * 1024 // 5 MB; server also enforces similar cap
   const handleEditFile = async (entry: FileEntry) => {
+    // Guard against opening huge files in Monaco — multi-MB text loads can
+    // freeze the tab even though the fetch succeeds.
+    if (entry.size > editMaxBytes) {
+      const ok = window.confirm(
+        t('files.largeFileWarning', {
+          size: Math.round(entry.size / 1024 / 1024),
+        }) ||
+          `This file is ${Math.round(entry.size / 1024 / 1024)} MB and may freeze the editor. Open anyway?`,
+      )
+      if (!ok) return
+    }
     editAbortRef.current?.abort()
     const controller = new AbortController()
     editAbortRef.current = controller

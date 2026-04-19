@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html"
 )
 
 type TelegramPayload struct {
@@ -12,6 +13,10 @@ type TelegramPayload struct {
 	ParseMode string `json:"parse_mode"`
 }
 
+// SendTelegram uses HTML parse mode because rule names and metric values can
+// contain the markdown metacharacters (`_`, `*`, `` ` ``, `[`) that would
+// otherwise make the API reject the message. HTML is the one Telegram parse
+// mode where we only have to escape `<`, `>`, and `&`.
 func SendTelegram(botToken, chatID, title, message, severity string) error {
 	emoji := "ℹ️"
 	switch severity {
@@ -21,12 +26,12 @@ func SendTelegram(botToken, chatID, title, message, severity string) error {
 		emoji = "🚨"
 	}
 
-	text := fmt.Sprintf("%s *%s*\n\n%s", emoji, title, message)
+	text := fmt.Sprintf("%s <b>%s</b>\n\n%s", emoji, html.EscapeString(title), html.EscapeString(message))
 
 	payload := TelegramPayload{
 		ChatID:    chatID,
 		Text:      text,
-		ParseMode: "Markdown",
+		ParseMode: "HTML",
 	}
 
 	body, err := json.Marshal(payload)

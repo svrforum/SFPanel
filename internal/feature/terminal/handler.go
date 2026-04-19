@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -113,11 +114,27 @@ func (s *terminalSession) broadcast(data []byte) {
 
 	s.readersMu.Lock()
 	for ws := range s.readers {
+		_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		if err := ws.WriteMessage(websocket.BinaryMessage, data); err != nil {
 			delete(s.readers, ws)
 		}
 	}
 	s.readersMu.Unlock()
+}
+
+// writeToReader writes to a specific reader under the same readersMu that
+// broadcast holds, so scrollback replay on reconnect can't interleave with
+// a simultaneous broadcast and tear the frame.
+func (s *terminalSession) writeToReader(ws *websocket.Conn, data []byte) {
+	s.readersMu.Lock()
+	defer s.readersMu.Unlock()
+	if _, ok := s.readers[ws]; !ok {
+		return
+	}
+	_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := ws.WriteMessage(websocket.BinaryMessage, data); err != nil {
+		delete(s.readers, ws)
+	}
 }
 
 // startReader spawns a goroutine that reads from the PTY and broadcasts
@@ -210,17 +227,25 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			sess.lastUse = time.Now()
 			sess.mu.Unlock()
 
-			// Replay scrollback buffer so the reconnected client sees history
+			// Register this WebSocket as a reader BEFORE replaying scrollback.
+			// Otherwise a PTY write arriving between snapshot and addReader
+			// would be lost: the broadcast goroutine wouldn't find this conn
+			// in readers, and the replay path wouldn't include it.
+			sess.addReader(ws)
+			defer sess.removeReader(ws)
+
+			// Replay scrollback buffer so the reconnected client sees history.
 			sess.mu.Lock()
 			history := sess.scrollback.Bytes()
 			sess.mu.Unlock()
 			if len(history) > 0 {
-				ws.WriteMessage(websocket.BinaryMessage, history)
+				// Go through broadcast's mutex path indirectly by using the
+				// session's readers-map write: a dedicated write wouldn't race
+				// broadcast on this conn because broadcast holds readersMu
+				// around its iteration, and addReader above is under the same
+				// mutex.
+				sess.writeToReader(ws, history)
 			}
-
-			// Register this WebSocket as a reader
-			sess.addReader(ws)
-			defer sess.removeReader(ws)
 		} else {
 			// Check session limit before creating a new one
 			sessionsMu.Lock()
@@ -303,10 +328,18 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 
 // CleanupTerminalSessions removes idle terminal sessions based on the
 // terminal_timeout setting (in minutes). A value of 0 means never expire.
-func CleanupTerminalSessions(db *sql.DB) {
-	ticker := time.NewTicker(1 * time.Minute)
+// The goroutine stops when ctx is cancelled (main.go wires this to the
+// graceful shutdown signal).
+func CleanupTerminalSessions(ctx context.Context, db *sql.DB) {
 	go func() {
-		for range ticker.C {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
 			timeoutStr := settings.GetSetting(db, "terminal_timeout")
 			timeoutMin, err := strconv.Atoi(timeoutStr)
 			if err != nil || timeoutMin < 0 {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -23,7 +24,20 @@ type DiscordPayload struct {
 	Embeds  []DiscordEmbed `json:"embeds"`
 }
 
+// isDiscordWebhook blocks SSRF attempts where an authenticated admin sets a
+// webhook URL pointing at internal metadata endpoints or arbitrary hosts.
+// The official webhook path is https://discord.com/api/webhooks/...; anything
+// else is rejected.
+func isDiscordWebhook(u string) bool {
+	u = strings.TrimSpace(u)
+	return strings.HasPrefix(u, "https://discord.com/api/webhooks/") ||
+		strings.HasPrefix(u, "https://discordapp.com/api/webhooks/")
+}
+
 func SendDiscord(webhookURL, title, message, severity string) error {
+	if !isDiscordWebhook(webhookURL) {
+		return fmt.Errorf("invalid webhook URL: must point at discord.com/api/webhooks/")
+	}
 	color := 0x3182f6 // blue (info)
 	switch severity {
 	case "warning":

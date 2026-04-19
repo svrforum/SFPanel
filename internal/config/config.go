@@ -24,6 +24,10 @@ type ServerConfig struct {
 	Host       string `yaml:"host"`
 	Port       int    `yaml:"port"`
 	StacksPath string `yaml:"stacks_path"` // Docker Compose project root scanned at startup
+	// AllowedOrigins is merged into the CORS config. Defaults (dev server,
+	// Tauri) are always honoured; additional values here let reverse-proxy
+	// deployments (`https://panel.example.com`) work without a code change.
+	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 type DatabaseConfig struct {

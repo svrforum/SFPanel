@@ -642,6 +642,20 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                 {/* Advanced mode: compose + env editors */}
                 {installMode === 'advanced' && (
                   <div className="mb-5">
+                    {/* Safety reminder — advanced mode hands arbitrary YAML
+                        to `docker compose up -d` running as root. The server
+                        rejects the most dangerous patterns (privileged, host
+                        namespaces, bind mounts into system paths, docker.sock)
+                        but a broken file can still brick the stack. */}
+                    <div className="mb-3 rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3 text-[11px] text-yellow-900 dark:text-yellow-100">
+                      ⚠️ Advanced mode runs arbitrary Docker Compose YAML on
+                      the host with root privileges. Dangerous patterns
+                      (privileged containers, host namespaces, bind mounts into
+                      {' '}<code>/etc</code>, <code>/root</code>,
+                      {' '}<code>/var/lib/sfpanel</code>, the Docker socket,
+                      etc.) are rejected server-side. Review your file before
+                      installing.
+                    </div>
                     {/* Sub-tabs */}
                     <div className="flex gap-1 mb-3">
                       <button

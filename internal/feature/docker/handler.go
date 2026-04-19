@@ -510,19 +510,19 @@ func (h *Handler) PruneAll(c echo.Context) error {
 
 	containerReport, err := h.Docker.PruneContainers(ctx)
 	if err != nil {
-		pruneErrors = append(pruneErrors, "containers: "+err.Error())
+		pruneErrors = append(pruneErrors, "containers: "+response.SanitizeOutput(err.Error()))
 	}
 	imageReport, err := h.Docker.PruneImages(ctx)
 	if err != nil {
-		pruneErrors = append(pruneErrors, "images: "+err.Error())
+		pruneErrors = append(pruneErrors, "images: "+response.SanitizeOutput(err.Error()))
 	}
 	volumeReport, err := h.Docker.PruneVolumes(ctx)
 	if err != nil {
-		pruneErrors = append(pruneErrors, "volumes: "+err.Error())
+		pruneErrors = append(pruneErrors, "volumes: "+response.SanitizeOutput(err.Error()))
 	}
 	networkReport, err := h.Docker.PruneNetworks(ctx)
 	if err != nil {
-		pruneErrors = append(pruneErrors, "networks: "+err.Error())
+		pruneErrors = append(pruneErrors, "networks: "+response.SanitizeOutput(err.Error()))
 	}
 
 	result := map[string]interface{}{
@@ -563,6 +563,9 @@ func (h *Handler) SearchImages(c echo.Context) error {
 	limit := 25
 	if l := c.QueryParam("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			if parsed > 100 {
+				parsed = 100
+			}
 			limit = parsed
 		}
 	}

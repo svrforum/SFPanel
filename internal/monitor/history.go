@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 	"sync"
@@ -15,37 +16,48 @@ type MetricsPoint struct {
 }
 
 const (
-	// Collect a point every 30 seconds, keep 24 hours = 2880 points.
+	// Collect a point every 60 seconds; retention is time-based (24h rolling).
+	// historyMaxLen caps the in-memory ring buffer at 2× expected size as a
+	// belt-and-suspenders limit against clock jumps.
 	historyInterval = 60 * time.Second
 	historyMaxLen   = 2880
 )
 
 var (
-	historyMu     sync.RWMutex
-	historyPoints []MetricsPoint
-	historyDB     *sql.DB
+	historyMu      sync.RWMutex
+	historyPoints  []MetricsPoint
+	historyDB      *sql.DB
+	historyStarted sync.Once
 )
 
 // StartHistoryCollector begins collecting metrics at regular intervals
 // in a background goroutine. It persists data to SQLite so history
-// survives process restarts. Call once at startup after DB is ready.
-func StartHistoryCollector(db *sql.DB) {
-	historyDB = db
+// survives process restarts. Safe to call multiple times: only the first
+// call actually starts a collector. The collector stops when ctx is done.
+func StartHistoryCollector(ctx context.Context, db *sql.DB) {
+	historyStarted.Do(func() {
+		historyDB = db
 
-	// Load existing history from DB (up to 24h)
-	loadHistoryFromDB()
+		// Load existing history from DB (up to 24h)
+		loadHistoryFromDB()
 
-	go func() {
-		ticker := time.NewTicker(historyInterval)
-		defer ticker.Stop()
+		go func() {
+			ticker := time.NewTicker(historyInterval)
+			defer ticker.Stop()
 
-		// Collect first point immediately
-		collectPoint()
-
-		for range ticker.C {
+			// Collect first point immediately
 			collectPoint()
-		}
-	}()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					collectPoint()
+				}
+			}
+		}()
+	})
 }
 
 func loadHistoryFromDB() {

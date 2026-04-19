@@ -35,6 +35,9 @@ type safeWSWriter struct {
 func (w *safeWSWriter) WriteMessage(messageType int, data []byte) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	// A stalled client (TCP RWIN exhausted, flaky link) must not be able to
+	// pin the writer goroutine forever. The 10s deadline matches WriteJSON.
+	w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	return w.conn.WriteMessage(messageType, data)
 }
 
@@ -325,7 +328,12 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 					Rows int    `json:"rows"`
 				}
 				if json.Unmarshal(msg, &resizeMsg) == nil && resizeMsg.Type == "resize" {
-					_ = dockerClient.ExecResize(ctx, execID, resizeMsg.Cols, resizeMsg.Rows)
+					// Defensive bounds check: negative values wrap to huge uint
+					// in ExecResize; >65535 is larger than any real terminal.
+					if resizeMsg.Cols > 0 && resizeMsg.Rows > 0 &&
+						resizeMsg.Cols <= 65535 && resizeMsg.Rows <= 65535 {
+						_ = dockerClient.ExecResize(ctx, execID, resizeMsg.Cols, resizeMsg.Rows)
+					}
 					continue
 				}
 				select {

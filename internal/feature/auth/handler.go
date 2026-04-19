@@ -124,6 +124,7 @@ func (h *Handler) Login(c echo.Context) error {
 	}
 
 	if !auth.CheckPassword(req.Password, passwordHash) {
+		h.recordLoginEvent(req.Username, ip, http.StatusUnauthorized, "invalid_password")
 		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials, "Invalid username or password")
 	}
 
@@ -134,6 +135,7 @@ func (h *Handler) Login(c echo.Context) error {
 		if !auth.ValidateCode(totpSecretStr, req.TOTPCode) {
 			// preRecordLoginAttempt already counted this attempt; no additional recordFailedLogin
 			// to avoid double-counting (which would lock out after ~3 TOTP fumbles instead of 5)
+			h.recordLoginEvent(req.Username, ip, http.StatusUnauthorized, "invalid_totp")
 			return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidTOTP, "Invalid 2FA code")
 		}
 	}
@@ -149,7 +151,26 @@ func (h *Handler) Login(c echo.Context) error {
 	}
 
 	loginAttempts.Delete(ip)
+	h.recordLoginEvent(req.Username, ip, http.StatusOK, "success")
 	return response.OK(c, map[string]string{"token": token})
+}
+
+// recordLoginEvent appends a row to audit_logs for login outcomes. The audit
+// middleware skips /auth/login to avoid logging passwords, so this is the
+// only path that produces a login trail; never include the password here.
+// The `reason` goes into the path column so breach investigations can filter
+// by success/invalid_password/invalid_totp without a schema change.
+func (h *Handler) recordLoginEvent(username, ip string, status int, reason string) {
+	if h.DB == nil {
+		return
+	}
+	path := "/api/v1/auth/login#" + reason
+	go func() {
+		_, _ = h.DB.Exec(
+			"INSERT INTO audit_logs (username, method, path, status, ip, node_id) VALUES (?, ?, ?, ?, ?, ?)",
+			username, "POST", path, status, ip, "",
+		)
+	}()
 }
 
 // preRecordLoginAttempt atomically checks the rate limit and pre-increments the
@@ -270,6 +291,13 @@ func (h *Handler) Get2FAStatus(c echo.Context) error {
 }
 
 func (h *Handler) Disable2FA(c echo.Context) error {
+	// Gate behind the per-IP rate limiter so the bcrypt compare below
+	// can't be used as a CPU DoS by a session-hijacked attacker.
+	ip := c.RealIP()
+	if preRecordLoginAttempt(ip) {
+		return response.Fail(c, http.StatusTooManyRequests, response.ErrRateLimited, "Too many attempts, try again later")
+	}
+
 	username, _ := c.Get("username").(string)
 	if username == "" {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
@@ -277,6 +305,7 @@ func (h *Handler) Disable2FA(c echo.Context) error {
 
 	var req struct {
 		Password string `json:"password"`
+		TOTPCode string `json:"totp_code"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -286,7 +315,11 @@ func (h *Handler) Disable2FA(c echo.Context) error {
 	}
 
 	var passwordHash string
-	err := h.DB.QueryRow("SELECT password FROM admin WHERE username = ?", username).Scan(&passwordHash)
+	var totpSecret sql.NullString
+	err := h.DB.QueryRow(
+		"SELECT password, totp_secret FROM admin WHERE username = ?",
+		username,
+	).Scan(&passwordHash, &totpSecret)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
 	}
@@ -295,17 +328,37 @@ func (h *Handler) Disable2FA(c echo.Context) error {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidPassword, "Invalid password")
 	}
 
+	// If 2FA is currently active, require a valid current TOTP code. This
+	// prevents a session-only attacker (stolen JWT + stolen password but
+	// no physical device) from downgrading the account to password-only.
+	if totpSecret.Valid && totpSecret.String != "" {
+		if req.TOTPCode == "" {
+			return response.Fail(c, http.StatusBadRequest, response.ErrTOTPRequired, "Current 2FA code is required to disable 2FA")
+		}
+		if !auth.ValidateCode(totpSecret.String, req.TOTPCode) {
+			return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidTOTP, "Invalid 2FA code")
+		}
+	}
+
 	_, err = h.DB.Exec("UPDATE admin SET totp_secret = NULL WHERE username = ?", username)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to disable 2FA")
 	}
 
 	h.syncAccountToCluster(username)
-
+	// Clear the limiter on success so the legitimate user isn't locked out.
+	loginAttempts.Delete(ip)
 	return response.OK(c, map[string]string{"message": "2FA disabled successfully"})
 }
 
 func (h *Handler) ChangePassword(c echo.Context) error {
+	// Rate-limit per-IP to prevent the bcrypt verify below being used for
+	// sustained CPU DoS against an admin session.
+	ip := c.RealIP()
+	if preRecordLoginAttempt(ip) {
+		return response.Fail(c, http.StatusTooManyRequests, response.ErrRateLimited, "Too many attempts, try again later")
+	}
+
 	var req changePasswordRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -350,6 +403,8 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 	// Sync to cluster
 	h.syncAccountToCluster(username)
 
+	// Successful change — clear rate-limit counter for this IP.
+	loginAttempts.Delete(ip)
 	return response.OK(c, map[string]string{"message": "Password changed successfully"})
 }
 

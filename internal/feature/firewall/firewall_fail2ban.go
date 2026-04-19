@@ -139,6 +139,12 @@ func (h *Handler) getJailInfo(name string) Fail2banJail {
 		BannedIPs: []string{},
 	}
 
+	// Jail names here come from parsing fail2ban-client output; validate
+	// defensively before feeding them back into another fail2ban-client call.
+	if !validJailName.MatchString(name) {
+		return jail
+	}
+
 	output, err := h.Cmd.Run("fail2ban-client", "status", name)
 	if err != nil {
 		return jail

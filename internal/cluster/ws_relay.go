@@ -80,12 +80,16 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 			msgType, msg, err := clientWS.ReadMessage()
 			if err != nil {
 				remoteMu.Lock()
+				// WriteDeadline so a hung peer can't pin this goroutine forever
+				// and prevent wg.Wait() from returning.
+				remoteWS.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				remoteWS.WriteMessage(websocket.CloseMessage,
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 				remoteMu.Unlock()
 				return
 			}
 			remoteMu.Lock()
+			remoteWS.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			writeErr := remoteWS.WriteMessage(msgType, msg)
 			remoteMu.Unlock()
 			if writeErr != nil {
@@ -102,12 +106,14 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 			msgType, msg, err := remoteWS.ReadMessage()
 			if err != nil {
 				clientMu.Lock()
+				clientWS.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				clientWS.WriteMessage(websocket.CloseMessage,
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 				clientMu.Unlock()
 				return
 			}
 			clientMu.Lock()
+			clientWS.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			writeErr := clientWS.WriteMessage(msgType, msg)
 			clientMu.Unlock()
 			if writeErr != nil {

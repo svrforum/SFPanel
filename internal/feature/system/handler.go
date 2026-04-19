@@ -362,6 +362,13 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 		if hdr.Typeflag == tar.TypeDir {
 			continue
 		}
+		// Refuse non-regular entries outright. A crafted archive could embed
+		// a symlink like "compose/app/docker-compose.yml -> /etc/cron.d/evil";
+		// we only want plain files here so later os.WriteFile calls land
+		// exactly where we expect.
+		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+			continue
+		}
 		clean := filepath.Clean(hdr.Name)
 		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
 			continue

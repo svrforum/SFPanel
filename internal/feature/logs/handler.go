@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
@@ -378,6 +380,17 @@ func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 			_ = cmd.Wait()
 		}()
 
+		// Serialize writes to the WS connection. ws.Close() in the outer
+		// handler's defer also writes a close frame, so without this lock
+		// the scanner goroutine's WriteMessage can race it.
+		var writeMu sync.Mutex
+		writeMsg := func(data []byte) error {
+			writeMu.Lock()
+			defer writeMu.Unlock()
+			_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			return ws.WriteMessage(websocket.TextMessage, data)
+		}
+
 		// Read goroutine to detect client disconnect.
 		done := make(chan struct{})
 		go func() {
@@ -389,11 +402,18 @@ func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 			}
 		}()
 
-		// Stream new log lines to the WebSocket client.
+		// Stream new log lines to the WebSocket client. Block the outer
+		// handler return until the scanner is fully drained so the
+		// subsequent `defer ws.Close()` can't race an in-flight write.
+		scanDone := make(chan struct{})
 		go func() {
+			defer close(scanDone)
 			scanner := bufio.NewScanner(stdout)
+			// Lines longer than 64KB (long stack traces, hex dumps) would
+			// otherwise make the scanner return an error and silently stop.
+			scanner.Buffer(make([]byte, 256*1024), 1024*1024)
 			for scanner.Scan() {
-				if wsErr := ws.WriteMessage(websocket.TextMessage, scanner.Bytes()); wsErr != nil {
+				if err := writeMsg(scanner.Bytes()); err != nil {
 					return
 				}
 			}
@@ -401,6 +421,9 @@ func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 
 		// Block until the client disconnects.
 		<-done
+		// Also wait for the scanner goroutine before returning, so the
+		// handler's defer closes the WS only after the writer has exited.
+		<-scanDone
 		return nil
 	}
 }
@@ -462,7 +485,7 @@ func (h *Handler) AddCustomSource(c echo.Context) error {
 
 	res, err := h.DB.Exec(
 		"INSERT INTO custom_log_sources (source_id, name, path) VALUES (?, ?, ?)",
-		sourceID, req.Name, req.Path,
+		sourceID, req.Name, cleanPath,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {

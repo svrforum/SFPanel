@@ -167,6 +167,15 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 		if err := syscall.Statfs(targetDir, &stat); err != nil {
 			slog.Warn("failed to check disk space for swap creation", "path", targetDir, "error", err)
 		} else {
+			// Reject tmpfs / ramfs targets. `mkswap` on an in-memory
+			// filesystem "works" but backs the swap with RAM, which
+			// defeats the point and vanishes on reboot.
+			const tmpfsMagic = 0x01021994
+			const ramfsMagic = 0x858458f6
+			if int64(stat.Type) == tmpfsMagic || int64(stat.Type) == ramfsMagic {
+				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath,
+					fmt.Sprintf("Refusing to create swap on an in-memory filesystem (%s)", targetDir))
+			}
 			availableBytes := int64(stat.Bavail) * int64(stat.Bsize)
 			requiredBytes := req.SizeMB * 1024 * 1024
 			if requiredBytes > availableBytes {

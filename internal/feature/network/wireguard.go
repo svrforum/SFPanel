@@ -378,7 +378,7 @@ func (h *WireGuardHandler) CreateConfig(c echo.Context) error {
 			"Failed to create config directory: "+err.Error())
 	}
 
-	if err := os.WriteFile(confPath, []byte(req.Content), 0600); err != nil {
+	if err := atomicWriteFile(confPath, []byte(req.Content), 0600); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWriteError,
 			"Failed to write config file: "+err.Error())
 	}
@@ -387,6 +387,17 @@ func (h *WireGuardHandler) CreateConfig(c echo.Context) error {
 		"message": fmt.Sprintf("Config %s created", req.Name),
 		"path":    confPath,
 	})
+}
+
+// atomicWriteFile writes to a temp file in the same directory then renames
+// over the target, so a mid-write crash can't leave a half-formed wg config
+// that `wg-quick up` would fail on.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // GetConfig reads a WireGuard config file with PrivateKey masked.
@@ -442,7 +453,7 @@ func (h *WireGuardHandler) UpdateConfig(c echo.Context) error {
 		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Config not found")
 	}
 
-	if err := os.WriteFile(confPath, []byte(req.Content), 0600); err != nil {
+	if err := atomicWriteFile(confPath, []byte(req.Content), 0600); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWriteError,
 			"Failed to update config: "+err.Error())
 	}

@@ -54,13 +54,15 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		MinLength: 1024,
 	}))
 	e.Use(mw.RequestLogger())
+	corsOrigins := []string{
+		"http://localhost:5173",
+		"tauri://localhost",
+		"http://tauri.localhost",
+		"https://tauri.localhost",
+	}
+	corsOrigins = append(corsOrigins, cfg.Server.AllowedOrigins...)
 	e.Use(echoMw.CORSWithConfig(echoMw.CORSConfig{
-		AllowOrigins: []string{
-			"http://localhost:5173",
-			"tauri://localhost",
-			"http://tauri.localhost",
-			"https://tauri.localhost",
-		},
+		AllowOrigins: corsOrigins,
 		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "PATCH"},
 		AllowHeaders: []string{"Authorization", "Content-Type"},
 	}))

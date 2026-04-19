@@ -10,10 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-const (
-	auditMaxRows     = 50000
-	auditCleanupRows = 10000 // delete oldest N rows when max exceeded
-)
+const auditMaxRows = 50000
 
 var lastCleanup atomic.Int64
 
@@ -48,13 +45,18 @@ func AuditMiddleware(db *sql.DB) echo.MiddlewareFunc {
 					slog.Error("audit log write failed", "error", dbErr)
 				}
 
-				// Periodic cleanup: keep at most auditMaxRows (check every 5 minutes)
+				// Periodic cleanup: keep at most auditMaxRows. CompareAndSwap
+				// guarantees only one goroutine per 5-minute window runs the
+				// DELETE, and the single statement keeps count+prune atomic so
+				// two concurrent middlewares can't double-delete.
 				now := time.Now().Unix()
-				if now-lastCleanup.Load() > 300 {
-					lastCleanup.Store(now)
-					var count int
-					if err := db.QueryRow("SELECT COUNT(*) FROM audit_logs").Scan(&count); err == nil && count > auditMaxRows {
-						db.Exec("DELETE FROM audit_logs WHERE id IN (SELECT id FROM audit_logs ORDER BY id ASC LIMIT ?)", auditCleanupRows)
+				prev := lastCleanup.Load()
+				if now-prev > 300 && lastCleanup.CompareAndSwap(prev, now) {
+					if _, dbErr := db.Exec(
+						"DELETE FROM audit_logs WHERE id IN (SELECT id FROM audit_logs ORDER BY id DESC LIMIT -1 OFFSET ?)",
+						auditMaxRows,
+					); dbErr != nil {
+						slog.Warn("audit log cleanup failed", "error", dbErr)
 					}
 				}
 			}()

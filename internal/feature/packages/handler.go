@@ -192,8 +192,8 @@ func (h *Handler) UpgradePackages(c echo.Context) error {
 
 	return response.OK(c, map[string]interface{}{
 		"message":        "Packages upgraded successfully",
-		"update_output":  updateOutput,
-		"upgrade_output": upgradeOutput,
+		"update_output":  response.SanitizeOutput(updateOutput),
+		"upgrade_output": response.SanitizeOutput(upgradeOutput),
 	})
 }
 
@@ -225,7 +225,7 @@ func (h *Handler) InstallPackage(c echo.Context) error {
 
 	return response.OK(c, map[string]interface{}{
 		"message": fmt.Sprintf("Package %s installed successfully", req.Name),
-		"output":  output,
+		"output":  response.SanitizeOutput(output),
 	})
 }
 
@@ -257,7 +257,7 @@ func (h *Handler) RemovePackage(c echo.Context) error {
 
 	return response.OK(c, map[string]interface{}{
 		"message": fmt.Sprintf("Package %s removed successfully", req.Name),
-		"output":  output,
+		"output":  response.SanitizeOutput(output),
 	})
 }
 
@@ -794,15 +794,19 @@ func (h *Handler) SwitchNodeVersion(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrCommandFailed, "NVM is not installed")
 	}
 
-	script := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm alias default %s && nvm use %s 2>&1`, nvmDir, body.Version, body.Version)
-	out, err := h.Cmd.Run("bash", "-c", script)
+	// Pass NVM_DIR via environment so the shell-injectable path component
+	// (findNVMDir result) never lives inside the `bash -c` script string.
+	// body.Version is already validated above against versionRe.
+	env := append(os.Environ(), "NVM_DIR="+nvmDir)
+	script := fmt.Sprintf(`. "$NVM_DIR/nvm.sh" && nvm alias default %s && nvm use %s 2>&1`, body.Version, body.Version)
+	out, err := h.Cmd.RunWithEnv(env, "bash", "-c", script)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCommandFailed, out)
 	}
 
 	// Update symlinks in /usr/local/bin
-	linkScript := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm use %s && NODE_PATH=$(which node) && NODE_DIR=$(dirname "$NODE_PATH") && ln -sf "$NODE_DIR/node" /usr/local/bin/node && ln -sf "$NODE_DIR/npm" /usr/local/bin/npm && ln -sf "$NODE_DIR/npx" /usr/local/bin/npx`, nvmDir, body.Version)
-	h.Cmd.Run("bash", "-c", linkScript)
+	linkScript := fmt.Sprintf(`. "$NVM_DIR/nvm.sh" && nvm use %s && NODE_PATH=$(which node) && NODE_DIR=$(dirname "$NODE_PATH") && ln -sf "$NODE_DIR/node" /usr/local/bin/node && ln -sf "$NODE_DIR/npm" /usr/local/bin/npm && ln -sf "$NODE_DIR/npx" /usr/local/bin/npx`, body.Version)
+	h.Cmd.RunWithEnv(env, "bash", "-c", linkScript)
 
 	return response.OK(c, map[string]string{"switched": body.Version, "output": strings.TrimSpace(out)})
 }
