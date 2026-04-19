@@ -105,10 +105,25 @@ func validatePathForWrite(p string) error {
 	return nil
 }
 
-// isCriticalPath returns true if the cleaned path matches a protected system directory.
+// isCriticalPath returns true if the cleaned path is a protected system
+// directory *or is located anywhere under one*. Prefix-matching is required
+// because the previous exact-match behaviour left /etc/cron.d, /etc/sudoers.d,
+// /usr/local/bin, etc. writable even though their parents (/etc, /usr) were
+// in the protected set.
 func isCriticalPath(p string) bool {
 	cleaned := filepath.Clean(p)
-	return criticalPaths[cleaned]
+	if criticalPaths[cleaned] {
+		return true
+	}
+	for critical := range criticalPaths {
+		if critical == "/" {
+			continue
+		}
+		if strings.HasPrefix(cleaned, critical+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // readProtectedPaths are files that must not be readable via the file API.
@@ -180,6 +195,12 @@ func (h *Handler) ListDir(c echo.Context) error {
 			continue
 		}
 		fullPath := filepath.Join(dirPath, entry.Name())
+		// Hide read-protected files (TLS certs, /etc/shadow, SFPanel config) from
+		// directory listings so their existence, size, and mtime aren't leaked
+		// to clients that can't read them anyway.
+		if isReadProtectedPath(fullPath) {
+			continue
+		}
 		filesList = append(filesList, FileEntry{
 			Name:    entry.Name(),
 			Path:    fullPath,
