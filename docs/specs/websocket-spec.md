@@ -1,5 +1,9 @@
 # SFPanel WebSocket 스펙
 
+> 마지막 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/ws-inventory.md`
+>
+> WebSocket 6개 + SSE(Server-Sent Events) 8개. SSE 섹션은 문서 하단 참조.
+
 ## 개요
 
 ### 라이브러리
@@ -698,7 +702,7 @@ data: {"node_id":"node-1","node_name":"Leader","step":"complete","message":"Node
 
 SSE 엔드포인트에 `?node=X`가 오면 `ClusterProxyMiddleware`가 gRPC 프록시 대신 **HTTP 직접 릴레이**로 처리한다 (스트리밍 특성 때문에 gRPC 단일-응답 모델이 맞지 않음). 타임아웃 5분 (`config.yaml` 조정 불가, 코드 상수). 릴레이 식별은 경로의 `-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 같은 화이트리스트.
 
-### 프런트엔드 소비
+### 프론트엔드 소비
 
 `lib/api.ts`의 `readSSEStream(url, body, onEvent)` 헬퍼가 `fetch`로 POST 후 응답 바디를 `ReadableStream`으로 받아 라인 단위 파싱:
 

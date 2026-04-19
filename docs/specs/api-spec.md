@@ -1,5 +1,7 @@
 # SFPanel API 스펙
 
+> 마지막 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/api-inventory.md`
+
 ## 개요
 
 ### 기본 URL
