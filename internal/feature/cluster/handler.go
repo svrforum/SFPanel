@@ -47,6 +47,7 @@ type Handler struct {
 	mu           sync.RWMutex
 	joiningMu    sync.Mutex // prevents concurrent Init/Join
 	configMu     sync.Mutex // protects h.Config.Cluster field writes
+	disbandOnce  sync.Once  // guards performDisband so replicated CmdDisband can't fire twice
 	Manager      *cluster.Manager
 	Config       *config.Config
 	ConfigPath   string
@@ -71,6 +72,60 @@ func (h *Handler) setManager(m *cluster.Manager) {
 	if cb != nil {
 		cb(m)
 	}
+	if m != nil {
+		// L-04: Register the disband callback so this node self-cleans when
+		// any leader broadcasts CmdDisband through the Raft log. sync.Once
+		// inside performDisband guards against duplicate invocation in the
+		// unlikely event of log replay firing twice.
+		m.SetOnDisband(h.performDisband)
+	}
+}
+
+// performDisband is the node-local cleanup fired by CmdDisband replication.
+// Runs on both the leader (who initiated) and every follower. Wipes cluster
+// material, flips config.Enabled=false, and exits so the supervisor restarts
+// the node in standalone mode. Guarded by sync.Once — safe to invoke from
+// multiple replication paths.
+func (h *Handler) performDisband(fromNodeID string) {
+	h.disbandOnce.Do(func() {
+		slog.Info("performing cluster disband from replicated CmdDisband", "component", "cluster", "initiator", fromNodeID)
+		h.configMu.Lock()
+		dataDir := h.Config.Cluster.DataDir
+		certDir := h.Config.Cluster.CertDir
+		h.configMu.Unlock()
+
+		if mgr := h.getManager(); mgr != nil {
+			mgr.Shutdown()
+		}
+
+		if dataDir != "" {
+			if rmErr := os.RemoveAll(dataDir); rmErr != nil {
+				slog.Warn("disband: failed to remove data dir", "path", dataDir, "error", rmErr)
+			}
+		}
+		if certDir != "" {
+			if rmErr := os.RemoveAll(certDir); rmErr != nil {
+				slog.Warn("disband: failed to remove cert dir", "path", certDir, "error", rmErr)
+			}
+		}
+
+		h.configMu.Lock()
+		h.Config.Cluster.Enabled = false
+		data, err := yaml.Marshal(h.Config)
+		h.configMu.Unlock()
+		if err == nil && h.ConfigPath != "" {
+			if wErr := config.AtomicWriteFile(h.ConfigPath, data, 0600); wErr != nil {
+				slog.Error("disband: failed to persist standalone config", "error", wErr)
+			}
+		}
+
+		// Give the HTTP response (if any) time to flush, then exit so
+		// systemd restarts us in standalone mode. Exit 1 per the project
+		// convention — Restart=always needs a non-zero code path.
+		time.Sleep(2 * time.Second)
+		slog.Info("disband: exiting to restart in standalone mode", "component", "cluster")
+		os.Exit(1)
+	})
 }
 
 func (h *Handler) InitCluster(c echo.Context) error {
@@ -125,12 +180,41 @@ func (h *Handler) InitCluster(c echo.Context) error {
 	h.configMu.Unlock()
 	mgr := cluster.NewManager(&cfgCopy)
 	if err := mgr.Init(clusterName); err != nil {
+		// L-01: Init may have written CA, node cert, or Raft data to disk
+		// before failing. Clean those up so a retry starts from a clean slate;
+		// otherwise NewRaftNode hits ErrCantBootstrap on existing BoltDB and
+		// the CA ends up orphaned in /etc/sfpanel/cluster.
+		mgr.Shutdown()
+		os.RemoveAll(cfgCopy.DataDir)
+		os.RemoveAll(cfgCopy.CertDir)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Init failed: %v", err))
 	}
 
 	h.configMu.Lock()
 	h.Config.Cluster = *mgr.GetConfig()
 	h.configMu.Unlock()
+
+	// L-02: Write jwt_secret + admin to FSM *before* persisting config.
+	// If the process dies between the config file write and these Raft
+	// applies, the node reboots with Enabled=true but an empty FSM,
+	// breaking auth. Doing them first makes the Raft log durable in the
+	// happy path; a crash before the config write simply means Enabled=false
+	// on reboot (clean state).
+	if h.Config.Auth.JWTSecret != "" {
+		mgr.SetConfig("jwt_secret", h.Config.Auth.JWTSecret)
+	}
+	mgr.SetConfig("raft_tls", "true")
+	if h.DB != nil {
+		var username, passwordHash string
+		var totpSecret sql.NullString
+		if err := h.DB.QueryRow("SELECT username, password, totp_secret FROM admin LIMIT 1").Scan(&username, &passwordHash, &totpSecret); err == nil {
+			totp := ""
+			if totpSecret.Valid {
+				totp = totpSecret.String
+			}
+			mgr.SyncAccountFromDB(username, passwordHash, totp)
+		}
+	}
 
 	// Save config
 	data, err := yaml.Marshal(h.Config)
@@ -161,25 +245,6 @@ func (h *Handler) InitCluster(c echo.Context) error {
 			})
 		}
 		h.setManager(newMgr)
-
-		// Store JWT secret and raft_tls flag in FSM
-		if h.Config.Auth.JWTSecret != "" {
-			newMgr.SetConfig("jwt_secret", h.Config.Auth.JWTSecret)
-		}
-		newMgr.SetConfig("raft_tls", "true")
-
-		// Sync admin account to FSM
-		if h.DB != nil {
-			var username, passwordHash string
-			var totpSecret sql.NullString
-			if err := h.DB.QueryRow("SELECT username, password, totp_secret FROM admin LIMIT 1").Scan(&username, &passwordHash, &totpSecret); err == nil {
-				totp := ""
-				if totpSecret.Valid {
-					totp = totpSecret.String
-				}
-				newMgr.SyncAccountFromDB(username, passwordHash, totp)
-			}
-		}
 	} else {
 		mgr.Shutdown()
 	}
@@ -318,9 +383,15 @@ func (h *Handler) GetOverview(c echo.Context) error {
 	}
 
 	if !mgr.IsLeader() {
-		if resp, err := h.proxyToLeader(c); err == nil {
-			return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
+		// L-06: only the leader applies CmdUpdateNode, so follower-local
+		// FSM status can be stale by many heartbeat ticks. Prefer an
+		// explicit 503 over silently serving stale data — the frontend can
+		// retry or surface a "leader unreachable" banner.
+		resp, err := h.proxyToLeader(c)
+		if err != nil {
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, fmt.Sprintf("leader unreachable: %v", err))
 		}
+		return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
 	}
 
 	overview := mgr.GetOverview()
@@ -342,9 +413,13 @@ func (h *Handler) GetNodes(c echo.Context) error {
 	}
 
 	if !mgr.IsLeader() {
-		if resp, err := h.proxyToLeader(c); err == nil {
-			return h.returnWithLocalID(c, resp)
+		// L-06: see GetOverview — follower-local status is stale; refuse
+		// to answer without leader confirmation.
+		resp, err := h.proxyToLeader(c)
+		if err != nil {
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, fmt.Sprintf("leader unreachable: %v", err))
 		}
+		return h.returnWithLocalID(c, resp)
 	}
 
 	nodes := mgr.GetNodes()
@@ -625,6 +700,25 @@ func (h *Handler) LeaveCluster(c echo.Context) error {
 		slog.Warn("could not notify cluster of departure", "component", "cluster", "error", err)
 	}
 
+	// L-03: Wipe Raft data + TLS material *before* flipping config.Enabled=false.
+	// A crash between the config write and RemoveAll would leave stale
+	// cluster material on a "standalone" node, which confuses future joins
+	// and accumulates junk in /var/lib/sfpanel/cluster. Config write last
+	// means the node reboots as the old cluster member (Enabled=true) and
+	// the operator can retry cleanly on a transient removal failure.
+	if dataDir != "" {
+		if rmErr := os.RemoveAll(dataDir); rmErr != nil {
+			slog.Warn("failed to remove cluster data dir", "path", dataDir, "error", rmErr)
+			return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to remove cluster data: %v", rmErr))
+		}
+	}
+	if certDir != "" {
+		if rmErr := os.RemoveAll(certDir); rmErr != nil {
+			slog.Warn("failed to remove cluster cert dir", "path", certDir, "error", rmErr)
+			return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to remove cluster certs: %v", rmErr))
+		}
+	}
+
 	h.Config.Cluster.Enabled = false
 	data, err := yaml.Marshal(h.Config)
 	if err != nil {
@@ -632,17 +726,6 @@ func (h *Handler) LeaveCluster(c echo.Context) error {
 	}
 	if err := config.AtomicWriteFile(h.ConfigPath, data, 0600); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
-	}
-
-	if dataDir != "" {
-		if rmErr := os.RemoveAll(dataDir); rmErr != nil {
-			slog.Warn("failed to remove cluster data dir", "path", dataDir, "error", rmErr)
-		}
-	}
-	if certDir != "" {
-		if rmErr := os.RemoveAll(certDir); rmErr != nil {
-			slog.Warn("failed to remove cluster cert dir", "path", certDir, "error", rmErr)
-		}
 	}
 
 	slog.Info("node left cluster via API, restarting", "component", "cluster")
@@ -666,44 +749,24 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Config path not available")
 	}
 
-	dataDir := h.Config.Cluster.DataDir
-	certDir := h.Config.Cluster.CertDir
-
-	mgr.Shutdown()
-
-	h.Config.Cluster.Enabled = false
-	data, err := yaml.Marshal(h.Config)
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to marshal config: %v", err))
-	}
-	if err := config.AtomicWriteFile(h.ConfigPath, data, 0600); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
-	}
-
-	// Clean up Raft data and TLS certs to prevent zombie state on restart
-	if dataDir != "" {
-		if rmErr := os.RemoveAll(dataDir); rmErr != nil {
-			slog.Warn("failed to remove cluster data dir", "path", dataDir, "error", rmErr)
-		}
-	}
-	if certDir != "" {
-		if rmErr := os.RemoveAll(certDir); rmErr != nil {
-			slog.Warn("failed to remove cluster cert dir", "path", certDir, "error", rmErr)
-		}
+	// L-04: Broadcast disband to all nodes through the Raft FSM. Apply blocks
+	// until CmdDisband is replicated to a majority. Each node's FSM.Apply
+	// fires performDisband (in its own goroutine), which wipes local state
+	// and exits — including on this leader. Single, unified cleanup path.
+	if err := mgr.Disband(10 * time.Second); err != nil {
+		slog.Warn("cluster-wide Disband broadcast failed, falling back to local-only cleanup", "component", "cluster", "error", err)
+		// Fallback: fire performDisband directly for this node so the
+		// operator isn't left with a half-disbanded leader. Followers (if
+		// any) will go Offline via heartbeats and need manual leave.
+		go h.performDisband(mgr.LocalNodeID())
+		return response.OK(c, map[string]string{
+			"message": "Disband broadcast failed; leader is cleaning up locally. Follower nodes require manual 'cluster leave'.",
+		})
 	}
 
-	slog.Info("cluster disbanded via UI, restarting", "component", "cluster")
-
-	go func() {
-		time.Sleep(2 * time.Second) // allow HTTP response to flush
-		// See the comment on the same pattern in InitCluster — exit 1,
-		// not 0, so Restart=on-failure still triggers a supervisor cycle.
-		slog.Info("exiting with code 1 to trigger supervisor restart", "component", "cluster")
-		os.Exit(1)
-	}()
-
+	slog.Info("cluster disbanded via UI, nodes will self-clean from CmdDisband", "component", "cluster")
 	return response.OK(c, map[string]string{
-		"message": "Cluster disbanded. Service restarting...",
+		"message": "Cluster disbanded. All nodes are restarting in standalone mode...",
 	})
 }
 

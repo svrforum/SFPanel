@@ -311,7 +311,14 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 	grpcPort, _ := strconv.Atoi(grpcPortStr)
 	raftAddr := fmt.Sprintf("%s:%d", host, grpcPort+1)
 	if addErr := m.raft.AddVoter(nodeID, raftAddr); addErr != nil {
-		// Rollback: remove node from FSM and restore token
+		// Rollback: AddVoter can return an error after its config-change
+		// log entry has already committed (e.g. timeout during replication
+		// to the new voter). RemoveServer first to guarantee the Raft
+		// configuration does not keep a voter that never fully materialized;
+		// FSM remove + token restore follow. All three are idempotent.
+		if rmErr := m.raft.RemoveServer(nodeID); rmErr != nil {
+			slog.Debug("rollback RemoveServer ignored", "component", "cluster", "node_id", nodeID, "error", rmErr)
+		}
 		m.raft.Apply(Command{Type: CmdRemoveNode, Key: nodeID}, 5*time.Second)
 		m.tokens.RestoreToken(token)
 		return nil, nil, nil, nil, fmt.Errorf("add voter: %w", addErr)
@@ -413,13 +420,38 @@ func (m *Manager) Leave() error {
 	}
 	m.heartbeat.Stop()
 
-	// If we are the leader, remove ourselves from the cluster
+	// L-05: If we're the leader AND there's a healthy peer, transfer
+	// leadership first. Calling RemoveServer on ourselves without a
+	// handoff forces an immediate step-down; if the sole remaining voter
+	// is unreachable, the config change never replicates and the peer is
+	// orphaned in a permanent candidate loop. Transferring first lets the
+	// new leader apply the RemoveServer change and propagate it.
 	if m.raft.IsLeader() {
+		if target := m.pickTransferTarget(); target != "" {
+			slog.Info("leave: transferring leadership before self-remove", "component", "cluster", "target", target)
+			if err := m.raft.TransferLeadership(target); err != nil {
+				slog.Warn("leave: leadership transfer failed, falling back to self-remove", "component", "cluster", "error", err)
+			} else {
+				// Wait briefly for step-down to register. TransferLeadership's
+				// future resolves once the target is elected, but IsLeader
+				// may lag a raft tick.
+				for i := 0; i < 20; i++ {
+					if !m.raft.IsLeader() {
+						break
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+		}
+	}
+
+	if m.raft.IsLeader() {
+		// Still leader (no transfer target or transfer failed): remove self.
 		if err := m.raft.RemoveServer(m.nodeID); err != nil {
 			slog.Error("failed to remove self from Raft", "component", "cluster", "error", err)
 		}
 	} else {
-		// Notify the leader to remove us via gRPC
+		// Follower (original, or post-transfer): ask the leader to drop us.
 		leaderAddr := m.raft.LeaderGRPCAddress()
 		if leaderAddr != "" && m.connPool != nil {
 			client, err := m.connPool.Get(leaderAddr)
@@ -432,6 +464,29 @@ func (m *Manager) Leave() error {
 	}
 
 	return m.raft.Shutdown()
+}
+
+// pickTransferTarget returns a voter node ID other than self whose live
+// heartbeat status is Online, or "" if none is suitable for handoff.
+func (m *Manager) pickTransferTarget() string {
+	if m.raft == nil {
+		return ""
+	}
+	state := m.raft.GetFSM().GetState()
+	health := m.heartbeat.CheckHealth()
+	for id, node := range state.Nodes {
+		if id == m.nodeID {
+			continue
+		}
+		if node.Role != RoleVoter {
+			continue
+		}
+		if status, ok := health[id]; !ok || status != StatusOnline {
+			continue
+		}
+		return id
+	}
+	return ""
 }
 
 // LocalNodeID returns this node's ID.
@@ -558,6 +613,33 @@ func (m *Manager) SetConfig(key, value string) error {
 		Key:   key,
 		Value: mustJSON(value),
 	}, 5*time.Second)
+}
+
+// Disband is invoked by the leader to dissolve the cluster. It applies a
+// replicated CmdDisband log entry; every node's FSM.Apply then fires the
+// registered onDisband callback to perform local cleanup and exit. Returns
+// an error if this node isn't the leader or if replication times out.
+func (m *Manager) Disband(timeout time.Duration) error {
+	if m.raft == nil {
+		return fmt.Errorf("raft not initialized")
+	}
+	if !m.raft.IsLeader() {
+		return fmt.Errorf("disband must be initiated on the leader")
+	}
+	return m.raft.Apply(Command{
+		Type: CmdDisband,
+		Key:  m.nodeID,
+	}, timeout)
+}
+
+// SetOnDisband wires a callback that fires on every node when a CmdDisband
+// log entry is applied to the local FSM. Call immediately after Init/Start
+// so it's in place before any replayed log entries reach this node.
+func (m *Manager) SetOnDisband(cb func(fromNodeID string)) {
+	if m.raft == nil {
+		return
+	}
+	m.raft.GetFSM().SetOnDisband(cb)
 }
 
 // GetFSMConfig reads a value from the Raft FSM config map.
