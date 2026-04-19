@@ -165,12 +165,39 @@
 - R0 F-01 / R8 F-01 클러스터 proxy + WS relay의 `InsecureSkipVerify` 제거 → `Manager.GetTLS().ClientTLSConfig()` 사용
 - R10 C-1 AppStoreDetail의 marked README 출력에 DOMPurify sanitize 적용
 
-### 남은 사항
-- R0 F-02 gRPC 서버 `VerifyClientCertIfGiven` → `RequireAndVerifyClientCert` 승격 + PreFlight/Join 예외 경로 분리 (별도 QA 필요)
-- R6 C-01 잔여: get.docker.com / claude.ai install.sh 자체의 해시 검증 (소스 스크립트 해시 하드코딩 정책 결정 필요)
-- R7 N-1 scrollback replay 순서 + N-2 safeWSWriter.WriteMessage 데드라인 (묶음 γ 일괄)
-- R0 S-06 잔여 firewall/cron/system/services SanitizeOutput 적용
-- 기타 다수 P1 (R2 A-02/A-03/A-04, R3 N-02/N-03, R9 I-1~I-5 등)
+### 07ca31a — P1 후속 일괄
+- R0 S-06 firewall/services/cron/docker/packages/appstore/tailscale/wireguard SanitizeOutput 전면 적용
+- R9 I-1 Telegram Markdown → HTML parse mode + 이스케이프
+- R9 I-2 Discord webhook URL prefix 검증 (SSRF 차단)
+- R9 I-3 services systemctl stderr SanitizeOutput
+- R9 I-4 audit cleanup TOCTOU → CAS + 단일 DELETE
+- R9 I-5 crontab 직렬화 mutex
+- R5 I-01 UFW 코멘트 `#` 제거, I-02 netplan generate 사전검증, I-03 swap tmpfs 차단, I-04 WireGuard 원자 쓰기, I-05 getJailInfo 검증
+- R4 C-01 runComposeStream 30분 하드 타임아웃 (이전 ff2064e에서 이미), I-02 Hub limit 100 상한, I-03 tail 상한, I-04 RollbackStack 부분 실패 abort, M-01 PruneAll sanitize, M-02 TTY resize 음수/극값 차단
+- R3 N-02 Scanner 256KB/1MB 버퍼, N-03 safeWSWriter 유사 + scanner drain 대기, N-04 cleanPath INSERT
+- R0 P0-1 logs WS 쓰기 직렬화, P1-2 CleanupTerminalSessions ctx, P1-4/7 monitor history sync.Once + ctx, P1-6 ws_relay CloseMessage WriteDeadline, P1-10 ClusterUpdate ctx 취소 관찰
+- R7 N-1 scrollback replay 순서 + writeToReader, N-2 safeWSWriter WriteMessage 데드라인
+- R8 N-01 Manager에 h.Config.Cluster 복사본 전달 (P1-5)
+- R2 A-02 Disable2FA TOTP 재확인, A-04 ChangePassword/Disable2FA rate limit
+- R1 P4-1 login 감사 로그 기록, P5-1 `?token=` `/files/download` + `/system/backup` 한정, P5-2 CORS `AllowedOrigins` 설정
+- R6 I-02 restore tar 심볼릭 링크 차단, I-03 apt output SanitizeOutput, I-04 tuning 이중 apply guard, I-05 nvm env
+- R10 I-2 파일 크기 프런트 경고, I-4 AppStore advanced 경고 배너, I-1 `invalidateSetupCache` export
+- AppStore advanced 모드에 compose YAML safety validator 추가
+
+### c92af03 — 클러스터 신뢰 경계 강화
+- R0 F-02 / R8 F-02 gRPC `UnaryInterceptor`로 PreFlight/Join 외 모든 메서드에 verified client cert 요구
+- R8 N-02 `ClusterUpdate`가 Shutdown 전에 `ProxySecret()` 캡처
+- R8 N-03 Token Peek/Validate에 HMAC 재검증 추가
+
+### 54bc562 — 잔여 항목
+- R2 A-03 JoinResponse proto에 `admin_totp_secret` 추가 + follower DB UPDATE에 totp 포함
+- R1 P2-1 마이그레이션 `ALTER TABLE`을 `PRAGMA table_info` 기반 체크로 교체 (드라이버 에러 문자열 의존성 제거)
+
+### 남은 사항 (정책/범위 이유로 연기)
+- **R6 C-01 잔여**: get.docker.com / claude.ai / nvm install.sh 해시 pinning. 업스트림 스크립트가 고정 해시로 배포되지 않으므로 운영자 정책(특정 버전 고정 vs 최신) 결정 필요.
+- **R0 S-03**: `defaultLogSources`를 `Handler` 구조체 필드로 이동. 변경 자체는 작지만 기존 `SetSFPanelLogPath()` 호출 경로 재설계 필요 — 현재 initialization-only 사용이라 실제 레이스 없음.
+- **R0 S-01/S-02**: feature → feature (settings), feature → api/middleware (IsInternalProxyRequest) 역방향 import. 순환은 없고, 완전 해결은 패키지 재배치를 수반.
+- **R10 I-5**: i18n `escapeValue: true`로 복원. 현재 실제 XSS 경로 없음(JSX 자동 이스케이프). 복원 시 HTML 포함 번역 모두 `Trans` 컴포넌트로 바꿔야 해 범위 큼.
 
 ## 아키텍처적으로 양호하다고 확인된 영역
 
