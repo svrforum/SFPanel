@@ -35,10 +35,9 @@ e2e/node_modules/
 e2e/test-results/
 e2e/playwright-report/
 
-# Screenshots (Playwright MCP, 개발 중 캡처)
-*.png
-*.jpg
-*.jpeg
+# Screenshots (Playwright MCP, 개발 중 캡처) — 전체 *.png 차단은 너무 광범위해
+# 스크린샷 디렉토리로 한정. 루트의 banner.png / favicon.png, web/public 하위
+# 아이콘 등 프로젝트 자산은 계속 추적되도록 남김.
 screenshots/
 .playwright-mcp/
 
@@ -60,3 +59,7 @@ desktop/src-tauri/icons/ios/
 
 # Stray protoc 출력 (정식 경로는 internal/cluster/proto/)
 /proto/*.pb.go
+
+# Public repo — 개발자 전용 Claude 가이드는 깃에 올리지 않음.
+# 로컬 파일은 유지되지만 새로 추적되지 않도록 차단.
+/CLAUDE.md

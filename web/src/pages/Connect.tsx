@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Monitor, Globe, Bug } from 'lucide-react'
+import { Globe, Bug } from 'lucide-react'
 import { LANGUAGE_KEY } from '@/i18n'
 
 const EXAMPLES = [
@@ -134,9 +134,11 @@ export default function Connect() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-background">
       <div className="w-full max-w-sm px-6">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-primary/10 mb-4">
-            <Monitor className="w-6 h-6 text-primary" />
-          </div>
+          <img
+            src="/favicon.png"
+            alt="SFPanel"
+            className="mx-auto mb-4 h-16 w-16 rounded-2xl"
+          />
           <h1 className="text-2xl font-bold tracking-tight text-foreground">SFPanel</h1>
           <p className="text-sm text-muted-foreground mt-2">{t('connect.subtitle')}</p>
         </div>

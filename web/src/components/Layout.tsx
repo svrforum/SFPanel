@@ -98,14 +98,17 @@ export default function Layout() {
         'bg-card border-r border-border flex-col transition-all duration-300 ease-in-out shrink-0 hidden md:flex h-screen',
         collapsed ? 'w-[68px]' : 'w-60'
       )}>
-        <div className={cn('flex items-center py-6', collapsed ? 'px-3 justify-center' : 'px-5')}>
+        <div className={cn('flex items-center py-6', collapsed ? 'px-3 justify-center' : 'px-5 gap-3')}>
           {collapsed ? (
-            <h1 className="text-lg font-bold tracking-tight text-foreground">SF</h1>
+            <img src="/favicon.png" alt="SFPanel" className="h-8 w-8 rounded-lg" />
           ) : (
-            <div>
-              <h1 className="text-lg font-bold tracking-tight text-foreground">SFPanel</h1>
-              <p className="text-xs text-muted-foreground mt-0.5">{t('layout.tagline')}</p>
-            </div>
+            <>
+              <img src="/favicon.png" alt="" className="h-9 w-9 rounded-lg shrink-0" />
+              <div className="min-w-0">
+                <h1 className="text-lg font-bold tracking-tight text-foreground leading-tight">SFPanel</h1>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">{t('layout.tagline')}</p>
+              </div>
+            </>
           )}
         </div>
 
