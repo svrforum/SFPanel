@@ -13,6 +13,8 @@ import (
 	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
+var logger = slog.Default().With("component", "alert")
+
 type Manager struct {
 	db       *sql.DB
 	mu       sync.RWMutex
@@ -32,7 +34,7 @@ func (m *Manager) Start(ctx context.Context) {
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
-	slog.Info("alert manager started", "interval", "60s")
+	logger.Info("alert manager started", "interval", "60s")
 	for {
 		select {
 		case <-ctx.Done():
@@ -57,7 +59,7 @@ type ruleCondition struct {
 func (m *Manager) evaluate() {
 	rows, err := m.db.Query("SELECT id, name, type, condition, channel_ids, severity, cooldown, node_scope, node_ids, enabled FROM alert_rules WHERE enabled=1")
 	if err != nil {
-		slog.Error("alert: failed to load rules", "error", err)
+		logger.Error("failed to load rules", "error", err)
 		return
 	}
 	defer rows.Close()
@@ -82,7 +84,7 @@ func (m *Manager) evaluate() {
 		// Parse condition
 		var cond ruleCondition
 		if err := json.Unmarshal([]byte(r.Condition), &cond); err != nil {
-			slog.Warn("alert: invalid condition JSON", "rule", r.Name, "error", err)
+			logger.Warn("invalid condition JSON", "rule", r.Name, "error", err)
 			continue
 		}
 
@@ -168,7 +170,7 @@ func (m *Manager) evaluate() {
 			}
 
 			if sendErr != nil {
-				slog.Warn("alert: send failed", "channel", ch.Name, "error", sendErr)
+				logger.Warn("send failed", "channel", ch.Name, "error", sendErr)
 			} else {
 				sentChannelNames = append(sentChannelNames, ch.Name)
 			}
@@ -187,11 +189,11 @@ func (m *Manager) evaluate() {
 			_, err := m.db.Exec("INSERT INTO alert_history (rule_id, rule_name, type, severity, message, node_id, sent_channels) VALUES (?,?,?,?,?,?,?)",
 				r.ID, r.Name, r.Type, r.Severity, message, "", string(sentJSON))
 			if err != nil {
-				slog.Warn("alert: failed to record history", "error", err)
+				logger.Warn("failed to record history", "error", err)
 			}
-			slog.Info("alert triggered", "rule", r.Name, "type", r.Type, "value", valueLabel, "severity", r.Severity)
+			logger.Info("triggered", "rule", r.Name, "type", r.Type, "value", valueLabel, "severity", r.Severity)
 		} else {
-			slog.Warn("alert: all channel sends failed, skipping history", "rule", r.Name, "type", r.Type)
+			logger.Warn("all channel sends failed, skipping history", "rule", r.Name, "type", r.Type)
 		}
 	}
 }

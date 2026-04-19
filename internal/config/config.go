@@ -21,8 +21,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
+	Host       string `yaml:"host"`
+	Port       int    `yaml:"port"`
+	StacksPath string `yaml:"stacks_path"` // Docker Compose project root scanned at startup
 }
 
 type DatabaseConfig struct {
@@ -85,7 +86,7 @@ func (c *Config) ApplyEnvOverrides() {
 
 func Load(path string) (*Config, error) {
 	cfg := &Config{
-		Server:   ServerConfig{Host: "0.0.0.0", Port: 8443},
+		Server:   ServerConfig{Host: "0.0.0.0", Port: 8443, StacksPath: "/opt/stacks"},
 		Database: DatabaseConfig{Path: "./sfpanel.db"},
 		Auth:     AuthConfig{TokenExpiry: "24h"},
 		Docker:   DockerConfig{Socket: "unix:///var/run/docker.sock"},
@@ -111,6 +112,9 @@ func Load(path string) (*Config, error) {
 		cfg.Auth.JWTSecret = generateRandomSecret()
 		slog.Info("generated random JWT secret")
 		needsSave = true
+	}
+	if cfg.Server.StacksPath == "" {
+		cfg.Server.StacksPath = "/opt/stacks"
 	}
 	cfg.ApplyEnvOverrides()
 	if err := cfg.Validate(); err != nil {

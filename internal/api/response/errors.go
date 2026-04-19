@@ -20,7 +20,6 @@ const (
 	ErrInvalidID       = "INVALID_ID"
 	ErrInvalidAction   = "INVALID_ACTION"
 	ErrInvalidPath     = "INVALID_PATH"
-	ErrPathInvalid     = "PATH_INVALID"
 	ErrMissingPath     = "MISSING_PATH"
 	ErrPermissionDenied = "PERMISSION_DENIED"
 	ErrSSEError        = "SSE_ERROR"
@@ -229,5 +228,6 @@ const (
 )
 
 // Command execution error codes
-var ErrCommandTimeout = "COMMAND_TIMEOUT"
-var ErrToolNotFound = "TOOL_NOT_INSTALLED"
+const (
+	ErrCommandTimeout = "COMMAND_TIMEOUT"
+)

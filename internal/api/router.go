@@ -70,7 +70,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		Version:     version,
 		DBPath:      cfg.Database.Path,
 		ConfigPath:  cfgPath,
-		ComposePath: "/opt/stacks",
+		ComposePath: cfg.Server.StacksPath,
 		Cmd:         cmd,
 	}
 
@@ -85,8 +85,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		dockerHandler = &featureDocker.Handler{Docker: dockerClient}
 	}
 
-	// Initialize Compose manager — scans /opt/stacks for compose projects
-	composeManager := docker.NewComposeManager("/opt/stacks", dockerClient)
+	// Initialize Compose manager — scans cfg.Server.StacksPath for compose projects
+	composeManager := docker.NewComposeManager(cfg.Server.StacksPath, dockerClient)
 	composeHandler := &featureCompose.Handler{Compose: composeManager, DB: database}
 
 	v1 := e.Group("/api/v1")
@@ -127,7 +127,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.POST("/system/tuning/reset", tuningHandler.ResetTuning)
 
 	// App Store
-	appStoreHandler := &featureAppstore.Handler{DB: database, ComposePath: "/opt/stacks", Cmd: cmd}
+	appStoreHandler := &featureAppstore.Handler{DB: database, ComposePath: cfg.Server.StacksPath, Cmd: cmd}
 	appStore := authorized.Group("/appstore")
 	appStore.GET("/categories", appStoreHandler.GetCategories)
 	appStore.GET("/apps", appStoreHandler.ListApps)
