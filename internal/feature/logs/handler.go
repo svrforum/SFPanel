@@ -431,7 +431,10 @@ func (h *Handler) AddCustomSource(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "Path must not contain '..'")
 	}
 	cleanPath := filepath.Clean(req.Path)
-	allowedPrefixes := []string{"/var/log/", "/opt/", "/home/", "/tmp/"}
+	// Restricted to /var/log and /opt. /home and /tmp were previously permitted
+	// but contained user-private material (SSH keys, .env, .bash_history) and
+	// tmpfs indirection that made path canonicalization unreliable.
+	allowedPrefixes := []string{"/var/log/", "/opt/"}
 	allowed := false
 	for _, prefix := range allowedPrefixes {
 		if strings.HasPrefix(cleanPath, prefix) {
@@ -440,7 +443,7 @@ func (h *Handler) AddCustomSource(c echo.Context) error {
 		}
 	}
 	if !allowed {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "Custom log path must be under /var/log, /opt, /home, or /tmp")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "Custom log path must be under /var/log or /opt")
 	}
 
 	// Generate source_id from name: lowercase, replace spaces with hyphens

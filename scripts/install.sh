@@ -114,6 +114,11 @@ download_binary() {
 
 setup_dirs() {
   mkdir -p "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
+  # DB + cluster material under /var/lib/sfpanel contain bcrypt hashes, TOTP
+  # secrets, and mTLS private keys. Keep root-only.
+  chmod 700 "$DATA_DIR"
+  # /etc/sfpanel holds config.yaml (JWT secret).
+  chmod 700 "$CONFIG_DIR"
 }
 
 generate_config() {

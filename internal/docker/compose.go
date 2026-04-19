@@ -346,6 +346,13 @@ func (m *ComposeManager) runComposeStream(ctx context.Context, name string, onLi
 		return err
 	}
 
+	// Hard cap at 30 minutes so a hung `docker compose pull` (registry outage,
+	// stalled mirror) can't outlive its client indefinitely. The request context
+	// is still honoured for earlier cancellation; this is a fallback for
+	// reverse-proxy setups that buffer the SSE stream and delay ctx cancel.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
+
 	yamlPath, dir := m.resolveComposeFilePath(ctx, name)
 	if yamlPath == "" {
 		return fmt.Errorf("no compose file found in %q", name)

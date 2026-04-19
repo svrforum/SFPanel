@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	osExec "os/exec"
 	"regexp"
 	"strings"
@@ -357,13 +358,16 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 			"Invalid exit node: must be a valid IP address or hostname")
 	}
 
-	// If auth key is provided, use it directly (blocking is fine, it will complete quickly)
+	// If auth key is provided, pass it via TS_AUTHKEY environment variable so
+	// the 30-day credential doesn't land in `ps aux` or /proc/<pid>/cmdline,
+	// where other local users could read it.
 	if req.AuthKey != "" {
-		args := []string{"up", "--authkey=" + req.AuthKey}
+		args := []string{"up"}
 		if req.ExitNode != "" {
 			args = append(args, "--exit-node="+req.ExitNode)
 		}
-		output, err := h.Cmd.Run("tailscale", args...)
+		env := append(os.Environ(), "TS_AUTHKEY="+req.AuthKey)
+		output, err := h.Cmd.RunWithEnv(env, "tailscale", args...)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrTSUpError,
 				"Failed to connect: "+response.SanitizeOutput(err.Error()+"\n"+output))
