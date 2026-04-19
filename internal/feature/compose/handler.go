@@ -23,7 +23,7 @@ func (h *Handler) ListProjectsWithStatus(c echo.Context) error {
 	ctx := c.Request().Context()
 	projects, err := h.Compose.ListProjectsWithStatus(ctx)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 	if projects == nil {
 		projects = []docker.ComposeProjectWithStatus{}
@@ -48,7 +48,7 @@ func (h *Handler) CreateProject(c echo.Context) error {
 	ctx := c.Request().Context()
 	project, err := h.Compose.CreateProject(ctx, req.Name, req.YAML)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, project)
 }
@@ -60,12 +60,12 @@ func (h *Handler) GetProject(c echo.Context) error {
 
 	project, err := h.Compose.GetProject(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, err.Error())
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, response.SanitizeOutput(err.Error()))
 	}
 
 	yaml, _, err := h.Compose.GetProjectYAML(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -90,7 +90,7 @@ func (h *Handler) UpdateProject(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	if err := h.Compose.UpdateProject(ctx, name, req.YAML); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]string{"message": "project updated"})
 }
@@ -104,7 +104,7 @@ func (h *Handler) DeleteProject(c echo.Context) error {
 	removeVolumes := c.QueryParam("removeVolumes") == "true"
 
 	if err := h.Compose.DeleteProject(ctx, name, removeImages, removeVolumes); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 
 	// Clean up appstore install record if exists
@@ -122,7 +122,7 @@ func (h *Handler) ProjectUp(c echo.Context) error {
 
 	output, err := h.Compose.Up(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(output))
 	}
 	return response.OK(c, map[string]string{"output": output})
 }
@@ -134,7 +134,7 @@ func (h *Handler) ProjectDown(c echo.Context) error {
 
 	output, err := h.Compose.Down(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(output))
 	}
 	return response.OK(c, map[string]string{"output": output})
 }
@@ -146,7 +146,7 @@ func (h *Handler) GetProjectServices(c echo.Context) error {
 
 	services, err := h.Compose.GetProjectServices(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 	if services == nil {
 		services = []docker.ComposeService{}
@@ -161,7 +161,7 @@ func (h *Handler) GetEnv(c echo.Context) error {
 
 	content, err := h.Compose.GetProjectEnv(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]string{"content": content})
 }
@@ -179,7 +179,7 @@ func (h *Handler) UpdateEnv(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	if err := h.Compose.UpdateProjectEnv(ctx, name, req.Content); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, map[string]string{"message": "env updated"})
 }
@@ -192,7 +192,7 @@ func (h *Handler) RestartService(c echo.Context) error {
 
 	output, err := h.Compose.RestartService(ctx, project, service)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(output))
 	}
 	return response.OK(c, map[string]string{"output": output})
 }
@@ -205,7 +205,7 @@ func (h *Handler) StopService(c echo.Context) error {
 
 	output, err := h.Compose.StopService(ctx, project, service)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(output))
 	}
 	return response.OK(c, map[string]string{"output": output})
 }
@@ -218,7 +218,7 @@ func (h *Handler) StartService(c echo.Context) error {
 
 	output, err := h.Compose.StartService(ctx, project, service)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(output))
 	}
 	return response.OK(c, map[string]string{"output": output})
 }
@@ -248,7 +248,7 @@ func (h *Handler) CheckStackUpdates(c echo.Context) error {
 
 	result, err := h.Compose.CheckStackUpdates(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, result)
 }
@@ -260,7 +260,7 @@ func (h *Handler) UpdateStack(c echo.Context) error {
 
 	output, err := h.Compose.UpdateStack(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(output))
 	}
 	return response.OK(c, map[string]string{"output": output})
 }
@@ -272,7 +272,7 @@ func (h *Handler) RollbackStack(c echo.Context) error {
 
 	output, err := h.Compose.RollbackStack(ctx, name)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(output))
 	}
 	return response.OK(c, map[string]string{"output": output})
 }
@@ -363,7 +363,7 @@ func (h *Handler) ServiceLogs(c echo.Context) error {
 	ctx := c.Request().Context()
 	output, err := h.Compose.ServiceLogs(ctx, project, service, tail)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, output)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(output))
 	}
 	return response.OK(c, map[string]string{"logs": output})
 }

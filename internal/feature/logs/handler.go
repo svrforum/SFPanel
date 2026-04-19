@@ -70,24 +70,10 @@ type Handler struct {
 }
 
 var Upgrader = websocket.Upgrader{
+	// CheckOrigin allows all origins because auth uses explicit JWT token
+	// in query params, not cookies. CSWSH is not a risk since credentials
+	// are never sent automatically by the browser.
 	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return true
-		}
-		host := r.Host
-		if host == "localhost:5173" || host == "localhost:8443" {
-			return true
-		}
-		if len(origin) > 7 {
-			for _, prefix := range []string{"https://", "http://"} {
-				if len(origin) > len(prefix) && origin[:len(prefix)] == prefix {
-					if origin[len(prefix):] == host {
-						return true
-					}
-				}
-			}
-		}
 		return true
 	},
 }

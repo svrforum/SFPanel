@@ -2,6 +2,7 @@ package settings
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -56,6 +57,19 @@ func (h *Handler) UpdateSettings(c echo.Context) error {
 
 	if len(req.Settings) == 0 {
 		return response.Fail(c, http.StatusBadRequest, response.ErrEmptySettings, "No settings provided")
+	}
+
+	// Validate setting values (max length) — keys are not restricted because
+	// other modules (e.g., appstore) also write dynamic keys to the settings table
+	for key, value := range req.Settings {
+		if len(key) > 200 {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
+				fmt.Sprintf("Setting key %q exceeds maximum length of 200 characters", key))
+		}
+		if len(value) > 1000 {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
+				fmt.Sprintf("Value for %q exceeds maximum length of 1000 characters", key))
+		}
 	}
 
 	for key, value := range req.Settings {

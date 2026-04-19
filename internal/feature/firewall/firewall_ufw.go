@@ -132,7 +132,7 @@ func (h *Handler) ListRules(c echo.Context) error {
 //	[ 2] 80/tcp                     ALLOW IN    Anywhere
 //	[ 3] 22/tcp (v6)                ALLOW IN    Anywhere (v6)              # SSH
 func parseUFWRules(output string) []UFWRule {
-	var rules []UFWRule
+	rules := make([]UFWRule, 0)
 
 	// Match lines like: [ 1] 22/tcp   ALLOW IN   Anywhere   # SSH
 	// The number is in brackets, followed by the rule details.
@@ -368,7 +368,7 @@ func (h *Handler) ListPorts(c echo.Context) error {
 //	LISTEN  0       128      0.0.0.0:22            0.0.0.0:*          users:(("sshd",pid=1234,fd=3))
 //	LISTEN  0       128      [::]:22               [::]:*             users:(("sshd",pid=1234,fd=4))
 func parseSSOutput(output string, protocol string) []ListeningPort {
-	var ports []ListeningPort
+	ports := make([]ListeningPort, 0)
 
 	// Regex to extract PID and process name from users:(("name",pid=123,fd=4))
 	processRe := regexp.MustCompile(`"([^"]+)",pid=(\d+)`)

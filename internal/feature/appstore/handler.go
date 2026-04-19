@@ -2,6 +2,7 @@ package appstore
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -128,6 +129,7 @@ const (
 )
 
 var validAppID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,49}$`)
+var validRepoPath = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/-]*$`)
 
 type Handler struct {
 	DB          *sql.DB
@@ -192,7 +194,7 @@ func (h *Handler) refreshCache() error {
 	if err != nil {
 		return fmt.Errorf("fetch categories: %w", err)
 	}
-	var cats []AppStoreCategory
+	cats := make([]AppStoreCategory, 0)
 	if err := json.Unmarshal(catData, &cats); err != nil {
 		return fmt.Errorf("parse categories: %w", err)
 	}
@@ -240,7 +242,7 @@ func (h *Handler) refreshCache() error {
 	}
 	wg.Wait()
 
-	var apps []AppStoreMeta
+	apps := make([]AppStoreMeta, 0)
 	for _, r := range results {
 		if r.ok {
 			apps = append(apps, r.meta)
@@ -416,15 +418,17 @@ func (h *Handler) GetApp(c echo.Context) error {
 	go func() {
 		content := ""
 		baseURL := ""
-		if found.Source != "" && strings.Contains(found.Source, "github.com") {
+		if found.Source != "" && strings.HasPrefix(found.Source, "https://github.com/") {
 			parts := strings.TrimSuffix(found.Source, "/")
 			repoPath := strings.TrimPrefix(parts, "https://github.com/")
-			for _, branch := range []string{"main", "master", "develop"} {
-				url := "https://raw.githubusercontent.com/" + repoPath + "/" + branch + "/README.md"
-				if data, err := h.httpGet(url); err == nil {
-					content = string(data)
-					baseURL = "https://raw.githubusercontent.com/" + repoPath + "/" + branch + "/"
-					break
+			if validRepoPath.MatchString(repoPath) {
+				for _, branch := range []string{"main", "master", "develop"} {
+					url := "https://raw.githubusercontent.com/" + repoPath + "/" + branch + "/README.md"
+					if data, err := h.httpGet(url); err == nil {
+						content = string(data)
+						baseURL = "https://raw.githubusercontent.com/" + repoPath + "/" + branch + "/"
+						break
+					}
 				}
 			}
 		}
@@ -441,7 +445,7 @@ func (h *Handler) GetApp(c echo.Context) error {
 
 	readmeResult := <-readmeCh
 
-	var ports []portStatus
+	ports := make([]portStatus, 0)
 	for _, p := range found.Ports {
 		ps := portStatus{Port: p, InUse: h.isPortInUse(p)}
 		if ps.InUse {
@@ -529,7 +533,7 @@ func (h *Handler) InstallApp(c echo.Context) error {
 		return response.Fail(c, http.StatusConflict, response.ErrPortConflict, "Port conflict: "+strings.Join(conflicts, ", "))
 	}
 
-	var nameConflicts []string
+	nameConflicts := make([]string, 0)
 	if composeData != nil {
 		nameConflicts = h.checkContainerNameConflicts(composeData)
 	} else if req.Advanced && req.Compose != "" {
@@ -597,7 +601,7 @@ func (h *Handler) InstallApp(c echo.Context) error {
 		}
 		send("prepare", "docker-compose.yml written", false, true)
 
-		var envLines []string
+		envLines := make([]string, 0)
 		if req.Env == nil {
 			req.Env = make(map[string]string)
 		}
@@ -625,11 +629,16 @@ func (h *Handler) InstallApp(c echo.Context) error {
 		}
 	}
 
+	// Use a detached context with timeout so docker operations continue even if
+	// the HTTP client disconnects (SSE writes will silently fail on closed conn)
+	installCtx, installCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer installCancel()
+
 	send("pull", "Pulling images...", false, true)
-	h.streamCommand(w, flusher, "pull", "docker", "compose", "-f", composePath, "pull")
+	h.streamCommand(installCtx, w, flusher, "pull", "docker", "compose", "-f", composePath, "pull")
 
 	send("start", "Starting containers...", false, true)
-	exitCode := h.streamCommand(w, flusher, "start", "docker", "compose", "-f", composePath, "up", "-d")
+	exitCode := h.streamCommand(installCtx, w, flusher, "start", "docker", "compose", "-f", composePath, "up", "-d")
 
 	if exitCode != 0 {
 		cleanup()
@@ -655,9 +664,9 @@ func (h *Handler) InstallApp(c echo.Context) error {
 	return nil
 }
 
-func (h *Handler) streamCommand(w io.Writer, flusher http.Flusher, stage string, name string, args ...string) int {
+func (h *Handler) streamCommand(ctx context.Context, w io.Writer, flusher http.Flusher, stage string, name string, args ...string) int {
 	// Streaming command — cannot use Commander (needs live stdout pipe)
-	cmd := osExec.Command(name, args...)
+	cmd := osExec.CommandContext(ctx, name, args...)
 	cmd.Env = os.Environ()
 
 	pipe, err := cmd.StdoutPipe()
@@ -704,7 +713,7 @@ func (h *Handler) checkPortConflicts(meta *AppStoreMeta, envVals map[string]stri
 		}
 	}
 
-	var conflicts []string
+	conflicts := make([]string, 0)
 	for port := range portsToCheck {
 		if h.isPortInUse(port) {
 			conflicts = append(conflicts, fmt.Sprintf("%d", port))
@@ -760,7 +769,7 @@ func (h *Handler) checkContainerNameConflicts(composeData []byte) []string {
 		}
 	}
 
-	var conflicts []string
+	conflicts := make([]string, 0)
 	for _, m := range matches {
 		name := string(m[1])
 		if existing[name] {
@@ -777,7 +786,7 @@ func (h *Handler) GetInstalled(c echo.Context) error {
 	}
 	defer rows.Close()
 
-	var result []installedAppResponse
+	result := make([]installedAppResponse, 0)
 	for rows.Next() {
 		var key, value string
 		if err := rows.Scan(&key, &value); err != nil {

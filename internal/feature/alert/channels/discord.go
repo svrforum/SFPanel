@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// alertHTTPClient is shared across all alert channel implementations.
+var alertHTTPClient = &http.Client{Timeout: 10 * time.Second}
+
 type DiscordEmbed struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
@@ -43,7 +46,7 @@ func SendDiscord(webhookURL, title, message, severity string) error {
 		return fmt.Errorf("marshal discord payload: %w", err)
 	}
 
-	resp, err := http.Post(webhookURL, "application/json", bytes.NewReader(body))
+	resp, err := alertHTTPClient.Post(webhookURL, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("discord webhook: %w", err)
 	}

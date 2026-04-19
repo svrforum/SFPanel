@@ -3,16 +3,21 @@ package disk
 import (
 	"bufio"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 )
+
+// maxSwapSizeMB is the maximum allowed swap size (64 GB).
+const maxSwapSizeMB = 65536
 
 // ---------- 7. Swap ----------
 
@@ -150,6 +155,26 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 		if req.SizeMB <= 0 {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSize,
 				"Size in MB is required for file-based swap")
+		}
+		if req.SizeMB > maxSwapSizeMB {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSize,
+				fmt.Sprintf("Swap size %d MB exceeds maximum allowed (%d MB)", req.SizeMB, maxSwapSizeMB))
+		}
+
+		// Check available disk space on the target filesystem.
+		targetDir := filepath.Dir(req.Path)
+		var stat syscall.Statfs_t
+		if err := syscall.Statfs(targetDir, &stat); err != nil {
+			slog.Warn("failed to check disk space for swap creation", "path", targetDir, "error", err)
+		} else {
+			availableBytes := int64(stat.Bavail) * int64(stat.Bsize)
+			requiredBytes := req.SizeMB * 1024 * 1024
+			if requiredBytes > availableBytes {
+				availableMB := availableBytes / (1024 * 1024)
+				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSize,
+					fmt.Sprintf("Insufficient disk space: need %d MB but only %d MB available on %s",
+						req.SizeMB, availableMB, targetDir))
+			}
 		}
 
 		sizeMB := strconv.FormatInt(req.SizeMB, 10)
@@ -358,10 +383,10 @@ func (h *Handler) ResizeSwap(c echo.Context) error {
 		"bs=1M", "count="+sizeMB)
 	if err != nil {
 		steps = append(steps, stepResult{"dd", "failed", strings.TrimSpace(ddOut)})
-		// Rollback: try to re-enable old swap
-		_, _ = h.Cmd.Run("mkswap", req.Path)
-		_, _ = h.Cmd.Run("swapon", req.Path)
-		steps = append(steps, stepResult{"rollback", "success", "attempted to restore original swap"})
+		// The swap file is now in an inconsistent state after a partial dd write.
+		// Do NOT attempt mkswap+swapon on a corrupted file as it could cause data issues.
+		steps = append(steps, stepResult{"rollback", "skipped",
+			"swap file is in an inconsistent state; please manually recreate the swap file"})
 		return response.OK(c, map[string]interface{}{"success": false, "steps": steps})
 	}
 	steps = append(steps, stepResult{"dd", "success", strings.TrimSpace(ddOut)})
@@ -539,7 +564,7 @@ func parseDuOutput(data string, rootPath string) []DiskUsageEntry {
 		size int64
 		path string
 	}
-	var allEntries []rawEntry
+	allEntries := make([]rawEntry, 0)
 
 	scanner := bufio.NewScanner(strings.NewReader(data))
 	for scanner.Scan() {
@@ -578,7 +603,7 @@ func parseDuOutput(data string, rootPath string) []DiskUsageEntry {
 	}
 
 	// Link children to parents
-	var result []DiskUsageEntry
+	result := make([]DiskUsageEntry, 0)
 	for _, e := range allEntries {
 		parentPath := filepath.Dir(e.path)
 		entry := entryMap[e.path]

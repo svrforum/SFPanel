@@ -138,7 +138,7 @@ func (m *Manager) evaluate() {
 		var channelIDs []int
 		json.Unmarshal([]byte(r.ChannelIDs), &channelIDs)
 
-		var sentChannelNames []string
+		sentChannelNames := make([]string, 0)
 		for _, chID := range channelIDs {
 			var ch AlertChannel
 			var chEnabled int
@@ -174,19 +174,24 @@ func (m *Manager) evaluate() {
 			}
 		}
 
-		// Record cooldown
-		m.mu.Lock()
-		m.lastSent[r.ID] = time.Now()
-		m.mu.Unlock()
-
-		// Store in history
-		sentJSON, _ := json.Marshal(sentChannelNames)
-		_, err := m.db.Exec("INSERT INTO alert_history (rule_id, rule_name, type, severity, message, node_id, sent_channels) VALUES (?,?,?,?,?,?,?)",
-			r.ID, r.Name, r.Type, r.Severity, message, "", string(sentJSON))
-		if err != nil {
-			slog.Warn("alert: failed to record history", "error", err)
+		// Record cooldown only if at least one channel send succeeded
+		if len(sentChannelNames) > 0 {
+			m.mu.Lock()
+			m.lastSent[r.ID] = time.Now()
+			m.mu.Unlock()
 		}
 
-		slog.Info("alert triggered", "rule", r.Name, "type", r.Type, "value", valueLabel, "severity", r.Severity)
+		// Store in history only if at least one channel send succeeded
+		if len(sentChannelNames) > 0 {
+			sentJSON, _ := json.Marshal(sentChannelNames)
+			_, err := m.db.Exec("INSERT INTO alert_history (rule_id, rule_name, type, severity, message, node_id, sent_channels) VALUES (?,?,?,?,?,?,?)",
+				r.ID, r.Name, r.Type, r.Severity, message, "", string(sentJSON))
+			if err != nil {
+				slog.Warn("alert: failed to record history", "error", err)
+			}
+			slog.Info("alert triggered", "rule", r.Name, "type", r.Type, "value", valueLabel, "severity", r.Severity)
+		} else {
+			slog.Warn("alert: all channel sends failed, skipping history", "rule", r.Name, "type", r.Type)
+		}
 	}
 }

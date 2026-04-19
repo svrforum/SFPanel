@@ -59,6 +59,24 @@ type CreateWGConfigRequest struct {
 // validWGName matches safe WireGuard interface names (path traversal prevention).
 var validWGName = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]{0,14}$`)
 
+// containsDangerousWGDirective checks if a WireGuard config contains PostUp/PostDown/PreUp/PreDown
+// directives that wg-quick would execute as shell commands.
+func containsDangerousWGDirective(content string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(strings.ToLower(line))
+		for _, directive := range []string{"postup", "postdown", "preup", "predown"} {
+			if strings.HasPrefix(trimmed, directive) {
+				rest := strings.TrimPrefix(trimmed, directive)
+				rest = strings.TrimSpace(rest)
+				if rest == "" || strings.HasPrefix(rest, "=") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // ---------- Helpers ----------
 
 // wgConfigDir is the directory where WireGuard config files are stored.
@@ -343,6 +361,11 @@ func (h *WireGuardHandler) CreateConfig(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrEmptyContent, "Config content cannot be empty")
 	}
 
+	if containsDangerousWGDirective(req.Content) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
+			"WireGuard config must not contain PostUp/PostDown/PreUp/PreDown directives for security reasons")
+	}
+
 	confPath := filepath.Join(wgConfigDir, req.Name+".conf")
 	if _, err := os.Stat(confPath); err == nil {
 		return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists,
@@ -407,6 +430,11 @@ func (h *WireGuardHandler) UpdateConfig(c echo.Context) error {
 
 	if strings.TrimSpace(req.Content) == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrEmptyContent, "Config content cannot be empty")
+	}
+
+	if containsDangerousWGDirective(req.Content) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
+			"WireGuard config must not contain PostUp/PostDown/PreUp/PreDown directives for security reasons")
 	}
 
 	confPath := filepath.Join(wgConfigDir, name+".conf")
