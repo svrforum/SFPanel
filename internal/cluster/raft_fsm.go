@@ -21,6 +21,12 @@ const (
 	CmdDeleteConfig
 	CmdSetAccount
 	CmdDeleteAccount
+	// CmdDisband is applied by the leader to notify every node that the
+	// cluster has been dissolved. Each node's FSM.Apply fires the
+	// registered onDisband callback; the callback is responsible for
+	// local cleanup (wiping cluster material, flipping config, exiting).
+	// cmd.Key carries the node ID that initiated the disband.
+	CmdDisband
 )
 
 // AdminAccount represents a cluster-synced user account.
@@ -42,6 +48,10 @@ type Command struct {
 type FSM struct {
 	mu    sync.RWMutex
 	state ClusterState
+
+	// onDisband is invoked (in a goroutine) when a CmdDisband entry is
+	// applied. Set once at Manager wire-up; never changed at runtime.
+	onDisband func(fromNodeID string)
 }
 
 func NewFSM() *FSM {
@@ -52,6 +62,14 @@ func NewFSM() *FSM {
 			Accounts: make(map[string]*AdminAccount),
 		},
 	}
+}
+
+// SetOnDisband registers the callback invoked on every CmdDisband apply.
+// Call once before the Raft loop starts replaying log entries.
+func (f *FSM) SetOnDisband(cb func(fromNodeID string)) {
+	f.mu.Lock()
+	f.onDisband = cb
+	f.mu.Unlock()
 }
 
 // Apply a Raft log entry to the FSM.
@@ -134,6 +152,17 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 	case CmdDeleteAccount:
 		if f.state.Accounts != nil {
 			delete(f.state.Accounts, cmd.Key)
+		}
+		return nil
+
+	case CmdDisband:
+		// Fire the callback outside the FSM lock. The callback typically
+		// wipes disk state and exits the process, both of which must not
+		// stall the Raft Apply loop.
+		cb := f.onDisband
+		from := cmd.Key
+		if cb != nil {
+			go cb(from)
 		}
 		return nil
 
