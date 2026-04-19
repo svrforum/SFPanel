@@ -366,7 +366,7 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 		output, err := h.Cmd.Run("tailscale", args...)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrTSUpError,
-				"Failed to connect: "+err.Error()+"\n"+output)
+				"Failed to connect: "+response.SanitizeOutput(err.Error()+"\n"+output))
 		}
 		return response.OK(c, map[string]string{"message": "Tailscale connected"})
 	}
@@ -435,7 +435,7 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 	}
 
 	return response.Fail(c, http.StatusInternalServerError, response.ErrTSUpError,
-		"Failed to connect: "+err.Error()+"\n"+output)
+		"Failed to connect: "+response.SanitizeOutput(err.Error()+"\n"+output))
 }
 
 // Down disconnects from Tailscale.
@@ -444,7 +444,7 @@ func (h *TailscaleHandler) Down(c echo.Context) error {
 	output, err := h.Cmd.Run("tailscale", "down")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTSDownError,
-			"Failed to disconnect: "+err.Error()+"\n"+output)
+			"Failed to disconnect: "+response.SanitizeOutput(err.Error()+"\n"+output))
 	}
 
 	return response.OK(c, map[string]string{"message": "Tailscale disconnected"})
@@ -456,7 +456,7 @@ func (h *TailscaleHandler) Logout(c echo.Context) error {
 	output, err := h.Cmd.Run("tailscale", "logout")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTSLogoutError,
-			"Failed to logout: "+err.Error()+"\n"+output)
+			"Failed to logout: "+response.SanitizeOutput(err.Error()+"\n"+output))
 	}
 
 	return response.OK(c, map[string]string{"message": "Tailscale logged out"})
@@ -538,7 +538,7 @@ func (h *TailscaleHandler) SetPreferences(c echo.Context) error {
 	output, err := h.Cmd.Run("tailscale", args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTSSetError,
-			"Failed to update preferences: "+err.Error()+"\n"+output)
+			"Failed to update preferences: "+response.SanitizeOutput(err.Error()+"\n"+output))
 	}
 
 	return response.OK(c, map[string]string{"message": "Preferences updated"})

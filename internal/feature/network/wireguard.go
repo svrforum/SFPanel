@@ -321,7 +321,7 @@ func (h *WireGuardHandler) InterfaceUp(c echo.Context) error {
 	output, err := h.Cmd.Run("wg-quick", "up", name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWGUpError,
-			"Failed to bring up interface: "+err.Error()+"\n"+output)
+			"Failed to bring up interface: "+response.SanitizeOutput(err.Error()+"\n"+output))
 	}
 
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("Interface %s is now up", name)})
@@ -338,7 +338,7 @@ func (h *WireGuardHandler) InterfaceDown(c echo.Context) error {
 	output, err := h.Cmd.Run("wg-quick", "down", name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWGDownError,
-			"Failed to bring down interface: "+err.Error()+"\n"+output)
+			"Failed to bring down interface: "+response.SanitizeOutput(err.Error()+"\n"+output))
 	}
 
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("Interface %s is now down", name)})

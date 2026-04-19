@@ -11,10 +11,10 @@
 
 | 영역 | P0 | P1 | P2 |
 |---|---|---|---|
-| 보안 | 2 | 7 | 2 |
+| 보안 | 2 | 6 (F-08 재검증 후 취소) | 2 |
 | 동시성/생명주기 | 3 | 10 | 4 |
 | 구조/에러/의존 | 0 | 8 | 4 |
-| **합계** | **5** | **25** | **10** |
+| **합계** | **5** | **24** | **10** |
 
 ## 2. 즉시 수정 권고 (P0 — 상위 5건)
 
@@ -29,22 +29,13 @@
 
 **수정 경로**: `cluster.TLSManager.ClientTLSConfig()`는 이미 존재 (`tls.go` 참조). proxy와 ws_relay가 그걸 쓰도록 바꾸고, gRPC 서버를 `RequireAndVerifyClientCert`로 승격. PreFlight/Join 같은 unauthenticated RPC는 별도 서버 포트 또는 `UnaryInterceptor`에서 선별 허용.
 
-### P0-B. 로그인 Rate limit off-by-one (보안 F-08) — **확인 완료**
-- `internal/feature/auth/handler.go:177-182`
-- 코드 읽음: `attempt.count++` 후 `>= rateLimitMaxAttempts(5)` 검사하지만 그 시도 자체는 `return false`로 통과. 실제 허용 횟수 6회.
+### ~~P0-B. 로그인 Rate limit off-by-one~~ — **재검증 결과: 해석 차이, 현재 구현 OK**
+- `internal/feature/auth/handler.go:155-183` 재확인
+- `preRecordLoginAttempt`은 auth 체크 전에 시도를 사전 카운트하고, 성공 시 `loginAttempts.Delete(ip)`로 전체를 리셋. 실패 상태에서만 count가 남음.
+- 시퀀스(count 기준): 1→2→3→4→5(`blockedUntil` 설정, 통과)→6(차단). 즉 "5회 실패 발생 후 6번째부터 차단"은 fail2ban 스타일로 **README의 "5회 실패 → 차단"과 합치되는 해석**.
+- 만약 스펙 의도가 "5번째 시도 자체를 차단"(4 strikes)라면 `>=` 조건에서 `return true`로 바꾸면 됨. 제품 결정 사항.
 
-**영향**: 공격자가 5회까지 자유롭게 시도 가능. README/spec은 "5회 실패 → 5분 차단"으로 광고.
-
-**수정**: `attempt.count >= rateLimitMaxAttempts` 시 `return true` (이번 시도도 차단).
-
-```go
-attempt.count++
-if attempt.count >= rateLimitMaxAttempts {
-    attempt.blockedUntil = now.Add(rateLimitBlockDuration)
-    return true   // ← 이 값을 바꾸면 됨
-}
-return false
-```
+→ 이 항목은 P0에서 제거. 실질적으로 보안 버그 아님.
 
 ### P0-C. 앱스토어 `advanced` 모드 = 호스트 루트 탈출 (보안 F-09)
 - `internal/feature/appstore/handler.go:570-593`

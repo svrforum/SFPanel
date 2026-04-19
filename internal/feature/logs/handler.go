@@ -425,10 +425,10 @@ func (h *Handler) AddCustomSource(c echo.Context) error {
 
 	// Security: absolute path required, no path traversal, must be under /var/log or /opt
 	if !filepath.IsAbs(req.Path) {
-		return response.Fail(c, http.StatusBadRequest, response.ErrPathInvalid, "Path must be absolute")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "Path must be absolute")
 	}
 	if strings.Contains(req.Path, "..") {
-		return response.Fail(c, http.StatusBadRequest, response.ErrPathInvalid, "Path must not contain '..'")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "Path must not contain '..'")
 	}
 	cleanPath := filepath.Clean(req.Path)
 	allowedPrefixes := []string{"/var/log/", "/opt/", "/home/", "/tmp/"}
@@ -440,7 +440,7 @@ func (h *Handler) AddCustomSource(c echo.Context) error {
 		}
 	}
 	if !allowed {
-		return response.Fail(c, http.StatusBadRequest, response.ErrPathInvalid, "Custom log path must be under /var/log, /opt, /home, or /tmp")
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "Custom log path must be under /var/log, /opt, /home, or /tmp")
 	}
 
 	// Generate source_id from name: lowercase, replace spaces with hyphens
