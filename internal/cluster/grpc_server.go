@@ -38,9 +38,13 @@ type GRPCServer struct {
 // unauthenticatedMethods lists gRPC methods that a joining node can legitimately
 // call before it has a CA-issued client certificate. Everything else requires
 // a verified peer certificate.
+// unauthenticatedMethods uses the fully-qualified proto method names from
+// the generated code (`sfpanel.cluster.ClusterService/*`). Joining nodes
+// haven't received a CA-issued client cert yet, so these two RPCs are the
+// only ones permitted without a verified peer certificate.
 var unauthenticatedMethods = map[string]bool{
-	"/cluster.ClusterService/PreFlight": true,
-	"/cluster.ClusterService/Join":      true,
+	"/sfpanel.cluster.ClusterService/PreFlight": true,
+	"/sfpanel.cluster.ClusterService/Join":      true,
 }
 
 // requireClientCertInterceptor rejects RPCs that need mTLS but came in without
