@@ -10,7 +10,7 @@
 - **토스트 알림**: Sonner (via shadcn/ui 래퍼)
 - **코드 에디터**: Monaco Editor (@monaco-editor/react)
 - **터미널**: xterm.js (@xterm/xterm + fit/web-links/search 애드온)
-- **차트**: Recharts v3 (LineChart)
+- **차트**: uPlot v1.6 (시계열 차트)
 - **아이콘**: Lucide React
 - **엔트리포인트**: `web/src/main.tsx` -> `<App />`
 - **CSS**: `web/src/index.css` (Tailwind 설정)
@@ -30,6 +30,7 @@
 | `/` | - | O | Layout | `/dashboard`로 리다이렉트 |
 | `/dashboard` | Dashboard | O | Layout | 시스템 대시보드 (실시간 메트릭) |
 | `/appstore` | AppStore | O | Layout | 앱스토어 (원클릭 Docker 앱 설치) |
+| `/appstore` (모달) | AppStoreDetailModal | O | AppStore 내장 | 앱 상세 + 설치 모달 (SSE 설치 진행률) |
 | `/cluster` | Cluster | O | Layout | 클러스터 관리 (사이드 탭 + Outlet 구조) |
 | `/cluster/overview` | ClusterOverview | O | Cluster | 클러스터 개요 + 초기화/해산 (기본 서브라우트) |
 | `/cluster/nodes` | ClusterNodes | O | Cluster | 노드 목록 + 제거/리더 이전/라벨 편집 |
@@ -66,6 +67,8 @@
 | `/packages` | Packages | O | Layout | 시스템 패키지 관리 + Docker 설치 |
 | `/terminal` | Terminal | O | Layout | 웹 터미널 (멀티 탭) |
 | `/settings` | Settings | O | Layout | 계정/시스템 설정 |
+| `/settings` (내장) | SettingsTuning | O | Settings 내장 | 시스템 커널 튜닝 (sysctl 최적화, 4 카테고리, 롤백) |
+| `/settings` (내장) | AlertSettings | O | Settings 내장 | 알림 채널/규칙 관리 (Discord, Telegram) |
 
 ### 라우트 가드
 
@@ -396,9 +399,10 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 시스템 정보 표시 (버전, 호스트명, OS, 커널, 가동시간)
   - **버전 표시**: `api.getSystemInfo()`의 `data.version` 필드에서 가져옴 (`v${data.version}` 형식)
   - 시스템 튜닝 섹션 (SettingsTuning 컴포넌트 내장)
+  - 알림 설정 섹션 (AlertSettings 컴포넌트 내장)
 - **사용 API**: `api.getSettings()`, `api.updateSettings()`, `api.changePassword()`, `api.setup2FA()`, `api.verify2FA()`, `api.getSystemInfo()`
 - **사용 컴포넌트**: Button, Input, Label (shadcn/ui)
-- **내부 서브컴포넌트**: `SettingsTuning` (`web/src/pages/SettingsTuning.tsx`)
+- **내부 서브컴포넌트**: `SettingsTuning` (`web/src/pages/SettingsTuning.tsx`), `AlertSettings` (`web/src/pages/settings/AlertSettings.tsx`)
 
 ### Settings > SettingsTuning
 - **파일**: `web/src/pages/SettingsTuning.tsx`
@@ -416,6 +420,21 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **사용 유틸리티**: `formatBytes()` (`web/src/lib/utils.ts`)
 - **타입**: `TuningStatus`, `TuningCategory` (`web/src/types/api.ts`)
 
+### Settings > AlertSettings
+- **파일**: `web/src/pages/settings/AlertSettings.tsx`
+- **기능**: 알림 채널 및 규칙 관리 (Settings 페이지 내에 포함된 컴포넌트)
+  - 알림 채널 관리: Discord (Webhook URL), Telegram (Bot Token + Chat ID) 채널 추가/삭제/활성화 토글/테스트 전송
+  - 알림 규칙 관리: 규칙 생성/삭제/활성화 토글
+    - 규칙 타입: CPU, 메모리, 디스크, 컨테이너, 서비스, 로그인, 패키지
+    - 심각도: Info, Warning, Critical (색상별 배지)
+    - 임계값 + 쿨다운(초) 설정
+    - 채널 선택 (다중 선택)
+    - 노드 범위: 전체(all) / 특정 노드 선택
+  - 알림 히스토리 뷰어: 페이지네이션 (20건 단위), 히스토리 전체 삭제
+- **사용 API**: `/alerts/channels` (GET/POST), `/alerts/channels/{id}` (PUT/DELETE), `/alerts/channels/{id}/test` (POST), `/alerts/rules` (GET/POST), `/alerts/rules/{id}` (PUT/DELETE), `/alerts/history` (GET/DELETE)
+- **사용 컴포넌트**: Button, Input, Label, Table, Select, Checkbox (shadcn/ui)
+- **타입**: `AlertChannel`, `AlertRule`, `AlertHistoryEntry` (컴포넌트 내부 정의)
+
 ---
 
 ## 공용 컴포넌트
@@ -424,7 +443,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 |----------|------|------|
 | Layout | `web/src/components/Layout.tsx` | 인증된 페이지의 공통 레이아웃. 좌측 사이드바(네비게이션 12항목 + 접기/펼치기 + 로그아웃) + 우측 메인 콘텐츠(Outlet). NavLink로 활성 상태 표시. 사이드바 접기 상태 localStorage 영속화. |
 | MetricsCard | `web/src/components/MetricsCard.tsx` | 메트릭 표시 카드. 아이콘 + 제목 + 값 + 프로그레스 바(80% 초과 빨강, 60% 초과 노랑, 그 외 파랑). |
-| MetricsChart | `web/src/components/MetricsChart.tsx` | CPU/메모리 시계열 차트. Recharts LineChart 사용. CPU(파랑) + Memory(초록) 이중 라인. Y축 0-100%, 애니메이션 비활성화. |
+| MetricsChart | `web/src/components/MetricsChart.tsx` | CPU/메모리 시계열 차트. uPlot 사용. CPU(파랑) + Memory(초록) 이중 라인. Y축 0-100%. |
 | ContainerShell | `web/src/components/ContainerShell.tsx` | Docker 컨테이너 셸 접속. xterm.js + WebSocket(`/ws/docker/containers/{id}/exec`). 키 입력 전송, 리사이즈 이벤트 전송. |
 | ContainerLogs | `web/src/components/ContainerLogs.tsx` | Docker 컨테이너 로그 스트리밍. xterm.js(읽기 전용) + WebSocket(`/ws/docker/containers/{id}/logs`). 검색(SearchAddon), 로그 다운로드 기능. |
 | ComposeEditor | `web/src/components/ComposeEditor.tsx` | YAML/텍스트 에디터. Monaco Editor 래퍼. 높이 400px, vs-dark 테마, 미니맵 비활성화, 자동 레이아웃. Props: `value`, `onChange`, `language`(기본값 'yaml'). |
@@ -1012,3 +1031,87 @@ interface InstalledApp {
 - **공유 유틸리티**: `formatBytes()`는 `web/src/lib/utils.ts`에서 공유 (각 페이지에서 중복 정의하지 않음)
 - **Docker 탭 네비게이션**: shadcn/ui Tabs 대신 React Router NavLink + `<Outlet />` 패턴으로 URL 기반 서브라우트
 - **사이드바**: 접기/펼치기 토글 지원, 상태 localStorage 영속화
+
+---
+
+## 상태 관리 현황
+
+전역 상태 라이브러리는 **사용하지 않음** — Zustand / Context API / TanStack Query / SWR 어느 것도 도입되지 않았음. 모든 상태는 다음 중 하나:
+
+- 페이지 내부 `useState` / `useEffect`
+- `localStorage` (영속화)
+- `ApiClient` 싱글턴 인스턴스의 private 필드 (토큰, 현재 노드 ID, Tauri 모드 플래그 등)
+
+### localStorage 영속화 키
+
+| 키 | 용도 | 관리 위치 |
+|----|------|----------|
+| `token` | JWT 액세스 토큰 | `ApiClient` (login/logout) |
+| `sfpanel_server_url` | Tauri 모드에서 원격 서버 URL | `Connect.tsx`, `ApiClient` |
+| `sfpanel_current_node` | 클러스터 원격 노드 ID (`?node=` 자동 주입) | `NodeSelector`, `ApiClient` |
+| `sfpanel_language` | i18next 선택 언어 | `Settings.tsx`, i18next detector |
+| `sfpanel-sidebar-collapsed` | 사이드바 접기 상태 | `Layout.tsx` |
+| `sfpanel_terminal_tabs` | 터미널 탭 상태 (이름, 순서) | `Terminal.tsx` |
+| `sfpanel_file_path` | 파일 관리자 마지막 경로 | `Files.tsx` |
+
+---
+
+## API 클라이언트 (`lib/api.ts`)
+
+- **싱글턴 패턴**: 파일 하단에서 `export const api = new ApiClient()`로 단일 인스턴스만 공개
+- **80+ 메서드** — auth / system / docker / files / network / disk / firewall / logs / packages / cluster 영역별 그룹화
+- **자동 주입**: 모든 요청에 `Authorization: Bearer <token>` 헤더와 (클러스터 모드인 경우) `?node=<id>` 쿼리 파라미터 자동 삽입
+- **타임아웃**: 30초 기본 (`AbortController`), 메서드별 재정의 가능
+- **실패 처리**: `{success:false, error:{code,message}}` 응답은 Error로 throw — 각 페이지가 toast로 표시
+- **SSE 헬퍼**: `readSSEStream(url, body, onEvent)` — `fetch`로 POST 후 `ReadableStream`을 라인 단위 파싱, 종료 마커(`[DONE]` 또는 `step:complete`)에서 resolve
+- **WebSocket URL 빌더**: `buildWsUrl(path)` — `ws:`/`wss:` 자동 결정 + 토큰 + 노드 ID 병합
+- **파일 다운로드/업로드**: `downloadBackup()`(Blob), `restoreBackup()`(FormData)
+
+---
+
+## 빌드 & 번들링
+
+### Vite 설정 (`web/vite.config.ts`)
+
+- 플러그인: `@vitejs/plugin-react`, `@tailwindcss/vite` (Tailwind v4 JIT), `vite-plugin-pwa`
+- **수동 청크** (6개):
+  - `react-vendor` — react, react-dom, react-router-dom
+  - `ui-vendor` — cva, clsx, tailwind-merge
+  - `xterm` — xterm + 애드온
+  - `i18n` — i18next 계열
+  - `uplot` — 시계열 차트
+  - `monaco` — Monaco Editor
+- 경고 한계: 1000KB
+- **PWA**: 서비스워커 자동 생성. 캐시 포함 — `*.css/html/ico/png/svg/woff2`, `assets/*.js`. 캐시 제외 — Monaco/xterm/TypeScript 워커 파일 (바이트 큰 WASM/Worker는 네트워크에서만 로드)
+
+### 빌드 출력
+
+- `web/dist/` — 약 **16 MB** (정적 자산 포함, Monaco+xterm 번들 영향)
+- Go 바이너리: `web.go`의 `//go:embed all:web/dist`로 전체 통합 → 단일 실행 파일
+
+### Dev 서버 포트
+
+- Vite: `:5173` (HMR)
+- 백엔드 API/WS: `:8443` (config 기본값, 프로덕션 `install.sh`도 동일)
+
+### 린트/타입체크/테스트
+
+- ESLint 9 flat config + `typescript-eslint` + `eslint-plugin-react-hooks` + `eslint-plugin-react-refresh`
+- 타입 체크: `tsc -b` (빌드 전)
+- **자동 테스트 없음** — Vitest / Playwright 미설정. 변경 사항 검증은 수동 브라우저 테스트 또는 백엔드 `make test`에 의존.
+
+---
+
+## Desktop (Tauri 2)
+
+`desktop/` 디렉토리 (`com.sfpanel.desktop`). Tauri 2 래퍼로 Windows/macOS/Linux 네이티브 앱 제공.
+
+- **프론트엔드 주입**: `../../web/dist` (빌드 산출물)
+- **dev URL**: `http://localhost:5173`
+- **빌드 스크립트**:
+  - `beforeDevCommand`: `cd ../web && npm run dev`
+  - `beforeBuildCommand`: `cd ../web && npm run build`
+- **윈도우**: 1280×800 기본, 최소 900×600, 중앙 정렬
+- **CSP**: `connect-src 'self' http: https: ws: wss:`, `script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net`
+- **플랫폼 산출물**: Windows `.exe`, macOS `.dmg` + `.app`, Linux `.deb` + `AppImage`
+- **Tauri 감지**: 프런트엔드가 `window.__TAURI_INTERNALS__`를 검사하여 `api.isTauri` 플래그 설정. `TauriGuard`가 서버 URL 미설정 시 `/connect`로 리다이렉트
