@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Crown, ChevronDown, ChevronRight, Server, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
@@ -97,13 +98,12 @@ export default function TreePanel({
 
   return (
     <div className="w-[180px] bg-card border-r border-border flex flex-col h-full shrink-0">
-      {/* Logo + collapse button */}
-      <div className="px-4 py-4 flex items-start justify-between">
-        <div>
-          <h1 className="text-[15px] font-bold tracking-tight text-foreground">SFPanel</h1>
-          <p className="text-[10px] text-muted-foreground mt-0.5">{t('layout.tagline')}</p>
-        </div>
-        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors mt-0.5 shrink-0" title="Collapse tree">
+      {/* Banner link + collapse button */}
+      <div className="px-3 py-3 flex items-center gap-2">
+        <Link to="/dashboard" aria-label="SFPanel" className="flex-1 min-w-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+          <img src="/banner.png" alt="SFPanel" className="w-full h-auto" />
+        </Link>
+        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors shrink-0" title="Collapse tree">
           <PanelLeftClose className="h-4 w-4 text-foreground/60" />
         </button>
       </div>
