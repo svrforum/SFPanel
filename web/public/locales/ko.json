@@ -81,7 +81,7 @@
     "title": "서버 접속",
     "subtitle": "SFPanel 서버 URL을 입력하세요",
     "serverUrl": "서버 URL",
-    "placeholder": "https://192.168.1.100:8443",
+    "placeholder": "https://192.168.1.100:19443",
     "connect": "접속",
     "connecting": "접속 중...",
     "connectionFailed": "서버에 접속할 수 없습니다",

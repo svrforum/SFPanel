@@ -81,7 +81,7 @@
     "title": "Connect to Server",
     "subtitle": "Enter your SFPanel server URL",
     "serverUrl": "Server URL",
-    "placeholder": "https://192.168.1.100:8443",
+    "placeholder": "https://192.168.1.100:19443",
     "connect": "Connect",
     "connecting": "Connecting...",
     "connectionFailed": "Unable to connect to server",

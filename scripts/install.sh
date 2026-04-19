@@ -164,7 +164,7 @@ generate_config() {
 # SFPanel Configuration
 server:
   host: "0.0.0.0"
-  port: 8443
+  port: 19443
 
 database:
   path: "${DATA_DIR}/sfpanel.db"
@@ -237,7 +237,7 @@ print_success() {
   local version="$1"
   local mode="$2"
   local port
-  port=$(grep -oP 'port:\s*\K[0-9]+' "${CONFIG_DIR}/config.yaml" 2>/dev/null || echo "8443")
+  port=$(grep -oP 'port:\s*\K[0-9]+' "${CONFIG_DIR}/config.yaml" 2>/dev/null || echo "19443")
 
   echo ""
   echo -e "${CYAN}============================================${NC}"

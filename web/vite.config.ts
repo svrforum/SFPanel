@@ -66,11 +66,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8443',
+        target: 'http://localhost:19443',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:8443',
+        target: 'ws://localhost:19443',
         ws: true,
       },
     },

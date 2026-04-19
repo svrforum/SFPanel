@@ -23,7 +23,7 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 	// Build remote WS URL
 	apiAddr := remoteNode.APIAddress
 	if !strings.Contains(apiAddr, ":") {
-		apiAddr += ":8443"
+		apiAddr += ":19443"
 	}
 
 	// Use wss:// if the API address looks like HTTPS, otherwise ws://
