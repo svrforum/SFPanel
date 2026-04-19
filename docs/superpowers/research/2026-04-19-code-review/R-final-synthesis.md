@@ -137,8 +137,9 @@
 | 7 | **AppStore advanced 정책 결정** (R0 F-09, R6 C-02) | 정책 | — |
 | 8 | **설정/레이어 정리** (`/opt/stacks`, 에러 코드 dedup, WS auth 표준화 — 이미 PR 27ad522로 부분 처리) | 소 | 이미 일부 완료 |
 
-## 이미 처리된 항목 (27ad522 커밋)
+## 이미 처리된 항목
 
+### 27ad522 — 로우리스크 정리
 - `ErrToolNotFound` 중복 var 제거
 - `ErrCommandTimeout` const 승격
 - `ErrPathInvalid` → `ErrInvalidPath` 통일
@@ -146,6 +147,30 @@
 - `alert/manager.go` `component="alert"` slog 태그
 - wireguard/tailscale 7곳 `response.SanitizeOutput`
 - R0 F-08 (rate limit off-by-one) — 재검증 후 정상 동작으로 판정
+
+### ff2064e — 고임팩트 P0 1차
+- R3 N-01 `isCriticalPath` prefix 체크 → `/etc/cron.d`·`/etc/sudoers.d`·`/usr/local/bin` 보호
+- R0 F-07 `ListDir`에서 readProtectedPaths 파일 숨김
+- R0 F-06 커스텀 로그 소스 `/home/`·`/tmp/` 제거
+- R5 C-01 Tailscale authkey → `TS_AUTHKEY` env var
+- R0 S-11 / R1 P2-3 `config.Validate()` JWT secret 길이 ≥ 16
+- R4 C-01 `runComposeStream` 30분 하드 타임아웃
+- R1 P1-3 install.sh `chmod 700` on `/etc/sfpanel`, `/var/lib/sfpanel`
+
+### c8b59cd — 잔여 P0 6건 일괄
+- R2 A-01 TOTP replay 캐시 (30초 내 재사용 차단)
+- R0 P0-D / R9 I-1 Alert 매니저 graceful shutdown (NewRouter cleanup 클로저 + main.go에서 호출)
+- R1 P1-1 / R6 C-01 install.sh 체크섬 검증 (`checksums.txt` 비교 후에만 systemctl stop)
+- R0 F-09 / R6 C-02 AppStore advanced 모드 compose YAML 위험 패턴 차단 (privileged, pid:host, SYS_ADMIN, 위험 bind mounts, docker.sock 등)
+- R0 F-01 / R8 F-01 클러스터 proxy + WS relay의 `InsecureSkipVerify` 제거 → `Manager.GetTLS().ClientTLSConfig()` 사용
+- R10 C-1 AppStoreDetail의 marked README 출력에 DOMPurify sanitize 적용
+
+### 남은 사항
+- R0 F-02 gRPC 서버 `VerifyClientCertIfGiven` → `RequireAndVerifyClientCert` 승격 + PreFlight/Join 예외 경로 분리 (별도 QA 필요)
+- R6 C-01 잔여: get.docker.com / claude.ai install.sh 자체의 해시 검증 (소스 스크립트 해시 하드코딩 정책 결정 필요)
+- R7 N-1 scrollback replay 순서 + N-2 safeWSWriter.WriteMessage 데드라인 (묶음 γ 일괄)
+- R0 S-06 잔여 firewall/cron/system/services SanitizeOutput 적용
+- 기타 다수 P1 (R2 A-02/A-03/A-04, R3 N-02/N-03, R9 I-1~I-5 등)
 
 ## 아키텍처적으로 양호하다고 확인된 영역
 
