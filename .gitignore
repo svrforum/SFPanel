@@ -22,6 +22,8 @@ Thumbs.db
 # Config (실제 설정 파일은 커밋하지 않음)
 config.yaml
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 
 # Environment
@@ -45,9 +47,6 @@ screenshots/
 /package.json
 /package-lock.json
 
-# Claude Code
-CLAUDE.md
-
 # Desktop (Tauri)
 desktop/node_modules/
 desktop/src-tauri/target/
@@ -55,5 +54,9 @@ desktop/src-tauri/gen/
 desktop/src-tauri/icons/android/
 desktop/src-tauri/icons/ios/
 
-# Binary
-/sfpanel
+# Binary (arch-suffixed 빌드 산출물)
+/sfpanel-amd64
+/sfpanel-arm64
+
+# Stray protoc 출력 (정식 경로는 internal/cluster/proto/)
+/proto/*.pb.go
