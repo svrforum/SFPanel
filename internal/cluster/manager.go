@@ -941,16 +941,18 @@ func (m *Manager) GetConfig() *config.ClusterConfig {
 		state := m.raft.GetFSM().GetState()
 		clusterName = state.Config["cluster_name"]
 	}
-	return &config.ClusterConfig{
-		Enabled:          true,
-		Name:             clusterName,
-		NodeID:           m.nodeID,
-		NodeName:         m.nodeName,
-		GRPCPort:         m.config.GRPCPort,
-		DataDir:          m.config.DataDir,
-		CertDir:          m.config.CertDir,
-		AdvertiseAddress: m.config.AdvertiseAddress,
-	}
+	// Start from the live in-memory config so fields like RaftTLS + APIPort
+	// set during Init (e.g. manager.go:93 sets RaftTLS=true) round-trip back
+	// to the handler and get persisted. Previously this returned a
+	// hand-assembled struct missing those fields, which silently clobbered
+	// raft_tls=false on the leader's config.yaml and broke Raft handshakes
+	// after a restart.
+	out := *m.config
+	out.Enabled = true
+	out.Name = clusterName
+	out.NodeID = m.nodeID
+	out.NodeName = m.nodeName
+	return &out
 }
 
 func (m *Manager) onNodeStatusChange(nodeID string, status NodeStatus) {
