@@ -45,11 +45,7 @@ func TestTLSManager_HotReloadNodeCert(t *testing.T) {
 	if len(first.Certificate) == 0 {
 		t.Fatalf("initial cert empty")
 	}
-	firstSerial := first.Leaf
-	if firstSerial == nil {
-		// Leaf is only populated when Certificates is preloaded; fall back
-		// to comparing the raw DER bytes.
-	}
+	// tls.LoadX509KeyPair leaves Leaf nil; compare raw DER bytes instead.
 	firstDER := string(first.Certificate[0])
 
 	// Issue a fresh cert (different serial) and overwrite node.{crt,key}.
