@@ -145,7 +145,7 @@ func (s *GRPCServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinRes
 	}
 
 	state := s.manager.GetRaft().GetFSM().GetState()
-	jwtSecret, adminUser, adminPassHash := s.manager.GetJWTAndAdmin()
+	jwtSecret, adminUser, adminPassHash, adminTOTPSecret := s.manager.GetJWTAndAdminFull()
 
 	return &pb.JoinResponse{
 		Success:           true,
@@ -157,6 +157,7 @@ func (s *GRPCServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinRes
 		JwtSecret:         jwtSecret,
 		AdminUsername:     adminUser,
 		AdminPasswordHash: adminPassHash,
+		AdminTotpSecret:   adminTOTPSecret,
 		RaftTls:           s.manager.config.RaftTLS,
 	}, nil
 }

@@ -45,6 +45,10 @@ message JoinResponse {
     string admin_username = 9;
     string admin_password_hash = 10;
     bool   raft_tls = 11;
+    // TOTP secret of the admin account on the leader, so the joining node's
+    // local DB is in sync before the FSM replication catches up. Empty if
+    // the admin account doesn't have 2FA enabled.
+    string admin_totp_secret = 12;
 }
 
 message LeaveRequest {

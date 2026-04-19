@@ -238,8 +238,12 @@ type JoinResponse struct {
 	AdminUsername     string                 `protobuf:"bytes,9,opt,name=admin_username,json=adminUsername,proto3" json:"admin_username,omitempty"`
 	AdminPasswordHash string                 `protobuf:"bytes,10,opt,name=admin_password_hash,json=adminPasswordHash,proto3" json:"admin_password_hash,omitempty"`
 	RaftTls           bool                   `protobuf:"varint,11,opt,name=raft_tls,json=raftTls,proto3" json:"raft_tls,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// TOTP secret of the admin account on the leader, so the joining node's
+	// local DB is in sync before the FSM replication catches up. Empty if
+	// the admin account doesn't have 2FA enabled.
+	AdminTotpSecret string `protobuf:"bytes,12,opt,name=admin_totp_secret,json=adminTotpSecret,proto3" json:"admin_totp_secret,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *JoinResponse) Reset() {
@@ -347,6 +351,13 @@ func (x *JoinResponse) GetRaftTls() bool {
 		return x.RaftTls
 	}
 	return false
+}
+
+func (x *JoinResponse) GetAdminTotpSecret() string {
+	if x != nil {
+		return x.AdminTotpSecret
+	}
+	return ""
 }
 
 type LeaveRequest struct {
@@ -1078,7 +1089,7 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\vapi_address\x18\x04 \x01(\tR\n" +
 	"apiAddress\x12!\n" +
 	"\fgrpc_address\x18\x05 \x01(\tR\vgrpcAddress\x12\x19\n" +
-	"\btls_cert\x18\x06 \x01(\fR\atlsCert\"\xf4\x02\n" +
+	"\btls_cert\x18\x06 \x01(\fR\atlsCert\"\xa0\x03\n" +
 	"\fJoinResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12!\n" +
@@ -1092,7 +1103,8 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\x0eadmin_username\x18\t \x01(\tR\radminUsername\x12.\n" +
 	"\x13admin_password_hash\x18\n" +
 	" \x01(\tR\x11adminPasswordHash\x12\x19\n" +
-	"\braft_tls\x18\v \x01(\bR\araftTls\"'\n" +
+	"\braft_tls\x18\v \x01(\bR\araftTls\x12*\n" +
+	"\x11admin_totp_secret\x18\f \x01(\tR\x0fadminTotpSecret\"'\n" +
 	"\fLeaveRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"?\n" +
 	"\rLeaveResponse\x12\x18\n" +
