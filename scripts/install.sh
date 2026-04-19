@@ -59,7 +59,11 @@ check_commands() {
 
 get_current_version() {
   if [ -x "${INSTALL_DIR}/sfpanel" ]; then
-    "${INSTALL_DIR}/sfpanel" version 2>/dev/null | grep -oP 'v\K[0-9]+\.[0-9]+\.[0-9]+' || echo ""
+    # `sfpanel version` prints e.g. "SFPanel 0.10.0 (commit: X, built: Y)".
+    # Match the semver without requiring a 'v' prefix (the binary never
+    # prints one); the old \Kv-lookbehind regex always returned empty,
+    # which silently broke "already installed"/"upgrade" detection.
+    "${INSTALL_DIR}/sfpanel" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || echo ""
   else
     echo ""
   fi
