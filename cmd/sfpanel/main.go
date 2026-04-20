@@ -36,14 +36,13 @@ import (
 	"github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
 	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
-	featureLogs "github.com/svrforum/SFPanel/internal/feature/logs"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	"github.com/svrforum/SFPanel/internal/monitor"
 	"github.com/svrforum/SFPanel/internal/release"
 )
 
 var (
-	version = "0.10.4"
+	version = "0.11.0"
 	commit  = "none"
 	date    = "unknown"
 )
@@ -91,10 +90,9 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Set SFPanel log source path from config
-	if cfg.Log.File != "" {
-		featureLogs.SetSFPanelLogPath(cfg.Log.File)
-	}
+	// The SFPanel log source path moved onto the logs.Handler instance
+	// (see internal/feature/logs/handler.go). Router wires it in NewRouter
+	// when it constructs the handler, so there's nothing to do here.
 
 	// Set up structured logging with slog
 	if cfg.Log.File != "" {

@@ -194,6 +194,17 @@ func (h *Handler) InitCluster(c echo.Context) error {
 		mgr.Shutdown()
 		os.RemoveAll(cfgCopy.DataDir)
 		os.RemoveAll(cfgCopy.CertDir)
+		// Reset in-memory cluster config so a retry picks a fresh NodeID.
+		// Without this, the handler retains cfgCopy.NodeID assigned by
+		// mgr.Init (uuid.New on first call) and the next retry reuses it,
+		// which can collide with stale Raft state and keep failing.
+		h.configMu.Lock()
+		h.Config.Cluster = config.ClusterConfig{
+			GRPCPort: cfgCopy.GRPCPort,
+			DataDir:  cfgCopy.DataDir,
+			CertDir:  cfgCopy.CertDir,
+		}
+		h.configMu.Unlock()
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Init failed: %v", err))
 	}
 
