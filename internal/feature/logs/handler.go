@@ -28,9 +28,13 @@ type logSourceInfo struct {
 	Filter string // optional grep filter pattern applied when reading
 }
 
-// defaultLogSources defines the built-in log sources with their filesystem paths.
-// The sfpanel source path is set dynamically from config via SetSFPanelLogPath.
-var defaultLogSources = map[string]logSourceInfo{
+// builtinLogSources is the template for the per-Handler built-in log source
+// map. Each Handler clones this at construction and then optionally points
+// the "sfpanel" entry at the configured log path via SetSFPanelLogPath.
+// Keeping the template immutable and the per-Handler copy unexported means
+// there is no package-level mutable state for tests or parallel Handlers
+// to trip over (R0 S-03 cleanup).
+var builtinLogSources = map[string]logSourceInfo{
 	"syslog":   {Name: "System Log", Path: "/var/log/syslog"},
 	"auth":     {Name: "Auth Log", Path: "/var/log/auth.log"},
 	"kern":     {Name: "Kernel Log", Path: "/var/log/kern.log"},
@@ -40,11 +44,14 @@ var defaultLogSources = map[string]logSourceInfo{
 	"fail2ban": {Name: "Fail2ban", Path: "/var/log/fail2ban.log"},
 }
 
-// SetSFPanelLogPath updates the sfpanel log source path from config.
-func SetSFPanelLogPath(path string) {
-	if path != "" {
-		defaultLogSources["sfpanel"] = logSourceInfo{Name: "SFPanel", Path: path}
+// cloneBuiltinSources returns a fresh copy of the built-in source map so
+// each Handler has an independent, mutable view.
+func cloneBuiltinSources() map[string]logSourceInfo {
+	out := make(map[string]logSourceInfo, len(builtinLogSources))
+	for k, v := range builtinLogSources {
+		out[k] = v
 	}
+	return out
 }
 
 // LogSource represents a single log source returned by ListSources.
@@ -68,6 +75,30 @@ type LogOutput struct {
 // Handler exposes REST handlers for viewing system and application logs.
 type Handler struct {
 	DB *sql.DB
+	// sources is the per-Handler view of built-in log sources. The
+	// "sfpanel" entry is overridden via SetSFPanelLogPath at startup
+	// (from cfg.Log.File). Initialized lazily in builtinSources().
+	sources map[string]logSourceInfo
+}
+
+// builtinSources returns this Handler's built-in source map, cloning the
+// package-level template on first access.
+func (h *Handler) builtinSources() map[string]logSourceInfo {
+	if h.sources == nil {
+		h.sources = cloneBuiltinSources()
+	}
+	return h.sources
+}
+
+// SetSFPanelLogPath overrides the "sfpanel" built-in source's path for this
+// Handler. Call once at startup from cfg.Log.File; not safe for concurrent
+// mutation with in-flight requests.
+func (h *Handler) SetSFPanelLogPath(path string) {
+	if path == "" {
+		return
+	}
+	srcs := h.builtinSources()
+	srcs["sfpanel"] = logSourceInfo{Name: "SFPanel", Path: path}
 }
 
 var Upgrader = websocket.Upgrader{
@@ -122,9 +153,9 @@ func countFileLines(ctx context.Context, path string, filter string) int {
 // availability and file size on disk. Custom sources from the database
 // are merged with the built-in system sources.
 func (h *Handler) ListSources(c echo.Context) error {
-	sources := make([]LogSource, 0, len(defaultLogSources))
+	sources := make([]LogSource, 0, len(h.builtinSources()))
 
-	for id, info := range defaultLogSources {
+	for id, info := range h.builtinSources() {
 		src := LogSource{
 			ID:   id,
 			Name: info.Name,
@@ -173,8 +204,8 @@ func (h *Handler) ListSources(c echo.Context) error {
 
 // allSources returns a merged map of built-in and custom sources.
 func (h *Handler) allSources() map[string]logSourceInfo {
-	merged := make(map[string]logSourceInfo, len(defaultLogSources))
-	for k, v := range defaultLogSources {
+	merged := make(map[string]logSourceInfo, len(h.builtinSources()))
+	for k, v := range h.builtinSources() {
 		merged[k] = v
 	}
 	if h.DB != nil {
@@ -478,7 +509,7 @@ func (h *Handler) AddCustomSource(c echo.Context) error {
 	sourceID = "custom-" + sourceID
 
 	// Check for collision with built-in sources
-	if _, ok := defaultLogSources[sourceID]; ok {
+	if _, ok := h.builtinSources()[sourceID]; ok {
 		return response.Fail(c, http.StatusConflict, response.ErrSourceExists, "A built-in source with this ID already exists")
 	}
 

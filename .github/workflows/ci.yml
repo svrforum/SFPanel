@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Opt the Node.js-based actions onto Node 24 before GitHub flips the default
+# in 2026-06. No untrusted input is injected anywhere in this workflow.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   go-test:
     runs-on: ubuntu-latest

@@ -247,6 +247,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 
 	// Log viewer routes
 	logsHandler := &featureLogs.Handler{DB: database}
+	logsHandler.SetSFPanelLogPath(cfg.Log.File)
 	logs := authorized.Group("/logs")
 	logs.GET("/sources", logsHandler.ListSources)
 	logs.GET("/read", logsHandler.ReadLog)

@@ -123,10 +123,54 @@ func clusterCommand(args []string) {
 		clusterToken(args[1:])
 	case "remove":
 		clusterRemove(args[1:])
+	case "reissue-cert":
+		clusterReissueCert(args[1:])
 	default:
 		fmt.Printf("Unknown cluster command: %s\n", args[0])
 		printClusterHelp()
 	}
+}
+
+// clusterReissueCert re-issues this node's cluster mTLS certificate using
+// the local CA. The running sfpanel process picks up the new cert on the
+// next handshake (bounded by TLSManager.certReloadDebounce = 1 min) — no
+// service restart is required. Only the node running this command is
+// rotated; run it once per node that needs a fresh cert.
+func clusterReissueCert(args []string) {
+	cfgPath, _ := parseCfgFlag(args)
+	cfg := loadCfgForCLI(cfgPath)
+
+	if !cfg.Cluster.Enabled {
+		log.Fatal("Cluster not initialized on this node. Run 'sfpanel cluster init' or 'join' first.")
+	}
+	if cfg.Cluster.NodeID == "" {
+		log.Fatal("cluster.node_id missing from config; refusing to reissue.")
+	}
+
+	certDir := cfg.Cluster.CertDir
+	tls := cluster.NewTLSManager(certDir)
+	if !tls.HasCA() {
+		log.Fatalf("CA cert not found under %s. This node is not the leader of a standalone-issued CA; only the leader can reissue with the cluster CA on disk. If you are a follower, ask the leader to reissue and redistribute.", certDir)
+	}
+
+	advertise := cfg.Cluster.AdvertiseAddress
+	if advertise == "" {
+		advertise = cluster.DetectFallbackIP()
+		if advertise == "" {
+			log.Fatal("advertise address not in config and no non-loopback IPv4 detected; pass via config manually first.")
+		}
+	}
+
+	certPEM, keyPEM, err := tls.IssueNodeCert(cfg.Cluster.NodeID, []string{advertise})
+	if err != nil {
+		log.Fatalf("issue node cert: %v", err)
+	}
+	if err := tls.SaveNodeCert(certPEM, keyPEM); err != nil {
+		log.Fatalf("save node cert: %v", err)
+	}
+
+	fmt.Printf("Node cert reissued under %s (advertise=%s, node_id=%s).\n", certDir, advertise, cfg.Cluster.NodeID)
+	fmt.Println("Running sfpanel will pick up the new cert on the next TLS handshake (≤ 1 minute). No restart required.")
 }
 
 func clusterInit(args []string) {
@@ -469,6 +513,7 @@ func printClusterHelp() {
 	fmt.Println("  sfpanel cluster status                    Show cluster status")
 	fmt.Println("  sfpanel cluster remove NODE_ID            Remove a node")
 	fmt.Println("  sfpanel cluster leave                     Leave the cluster")
+	fmt.Println("  sfpanel cluster reissue-cert              Re-issue this node's cluster cert (hot reload)")
 	fmt.Println()
 	fmt.Println("All subcommands accept --config PATH to select a config file")
 	fmt.Println("(default: /etc/sfpanel/config.yaml).")
