@@ -334,6 +334,11 @@ func updatePanel() {
 		fmt.Printf("Already up to date (v%s).\n", version)
 		return
 	}
+	if forward, vErr := release.IsForwardUpdate(version, latest); vErr != nil {
+		log.Fatalf("Cannot compare versions: %v", vErr)
+	} else if !forward {
+		log.Fatalf("Refusing to downgrade %s → %s", version, latest)
+	}
 
 	fmt.Printf("Current: v%s → Latest: v%s\n", version, latest)
 	fmt.Print("Update now? (y/N): ")
@@ -446,7 +451,9 @@ func updatePanel() {
 		fmt.Println("Migrated systemd unit: Restart=on-failure → Restart=always")
 	}
 
-	// Restart systemd service if active
+	// Restart systemd service if active. Use Run() (not Start()) here because
+	// the CLI is short-lived — we want the restart to complete and surface
+	// errors before the binary exits.
 	if err := exec.Command("systemctl", "is-active", "--quiet", "sfpanel").Run(); err == nil {
 		fmt.Println("Restarting sfpanel service...")
 		if err := exec.Command("systemctl", "restart", "sfpanel").Run(); err != nil {

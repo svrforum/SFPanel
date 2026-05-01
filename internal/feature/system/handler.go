@@ -2,9 +2,9 @@ package system
 
 import (
 	"archive/tar"
-	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sync"
 
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/common/lifecycle"
@@ -24,6 +25,16 @@ import (
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/release"
 )
+
+// updateMu serialises in-process update operations. Two simultaneous
+// `POST /api/v1/system/update` calls would otherwise race on `execPath+".new"`
+// and end up renaming a half-written temp file over /usr/local/bin/sfpanel.
+var updateMu sync.Mutex
+
+// maxUpdateArchiveBytes caps the downloaded archive at 200 MiB. Keeping the
+// limit on the wire (LimitReader) and on disk (size check) prevents a
+// compromised release host from filling the disk during the verify step.
+const maxUpdateArchiveBytes int64 = 200 * 1024 * 1024
 
 type Handler struct {
 	Version     string
@@ -79,6 +90,13 @@ func (h *Handler) CheckUpdate(c echo.Context) error {
 
 // RunUpdate downloads the latest release and replaces the current binary, streaming progress via SSE.
 func (h *Handler) RunUpdate(c echo.Context) error {
+	// Refuse a second concurrent update — two callers fighting over execPath+".new"
+	// can install a truncated binary if both writes interleave before the rename.
+	if !updateMu.TryLock() {
+		return response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress, "Another update is already running")
+	}
+	defer updateMu.Unlock()
+
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get("https://api.github.com/repos/svrforum/SFPanel/releases/latest")
 	if err != nil {
@@ -97,6 +115,15 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	latest := strings.TrimPrefix(ghRelease.TagName, "v")
 	if latest == h.Version {
 		return response.OK(c, map[string]string{"status": "up_to_date"})
+	}
+	// Block downgrades: a poisoned upstream response that returns a known-vulnerable
+	// older tag would otherwise silently roll the binary backwards.
+	if forward, vErr := release.IsForwardUpdate(h.Version, latest); vErr != nil {
+		return response.Fail(c, http.StatusBadGateway, response.ErrUpdateFailed,
+			fmt.Sprintf("Cannot compare versions: %v", vErr))
+	} else if !forward {
+		return response.Fail(c, http.StatusConflict, response.ErrUpdateDowngrade,
+			fmt.Sprintf("Refusing to downgrade %s → %s", h.Version, latest))
 	}
 
 	// SSE setup
@@ -163,12 +190,38 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		return nil
 	}
 
-	archiveData, err := io.ReadAll(io.LimitReader(dlResp.Body, 200*1024*1024))
+	// Stream the archive to a temp file rather than buffering 200 MiB in RAM.
+	// Small (256–512 MB) cluster nodes were OOM-killed mid-update with the old
+	// io.ReadAll path. Hash is computed in the same pass via TeeReader.
+	tmpDir, err := os.MkdirTemp("", "sfpanel-update-*")
+	if err != nil {
+		sendEvent("error", fmt.Sprintf("Cannot create temp dir: %v", err))
+		return nil
+	}
+	defer os.RemoveAll(tmpDir)
+	archivePath := filepath.Join(tmpDir, archiveName)
+	archiveFile, err := os.Create(archivePath)
+	if err != nil {
+		sendEvent("error", fmt.Sprintf("Cannot open archive temp: %v", err))
+		return nil
+	}
+	hasher := sha256.New()
+	written, err := io.Copy(io.MultiWriter(archiveFile, hasher),
+		io.LimitReader(dlResp.Body, maxUpdateArchiveBytes+1))
+	closeErr := archiveFile.Close()
 	if err != nil {
 		sendEvent("error", fmt.Sprintf("Download read failed: %v", err))
 		return nil
 	}
-	actualSHA256 := fmt.Sprintf("%x", sha256.Sum256(archiveData))
+	if closeErr != nil {
+		sendEvent("error", fmt.Sprintf("Archive flush failed: %v", closeErr))
+		return nil
+	}
+	if written > maxUpdateArchiveBytes {
+		sendEvent("error", fmt.Sprintf("Archive exceeds %d bytes, refusing to install", maxUpdateArchiveBytes))
+		return nil
+	}
+	actualSHA256 := hex.EncodeToString(hasher.Sum(nil))
 	if actualSHA256 != expectedSHA256 {
 		sendEvent("error", "Checksum verification failed")
 		return nil
@@ -176,7 +229,13 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 
 	// Extract
 	sendEvent("extracting", "Extracting binary...")
-	gzr, err := gzip.NewReader(bytes.NewReader(archiveData))
+	archiveReader, err := os.Open(archivePath)
+	if err != nil {
+		sendEvent("error", fmt.Sprintf("Re-open archive failed: %v", err))
+		return nil
+	}
+	defer archiveReader.Close()
+	gzr, err := gzip.NewReader(archiveReader)
 	if err != nil {
 		sendEvent("error", fmt.Sprintf("Decompression failed: %v", err))
 		return nil
@@ -249,12 +308,19 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	} else if migrated {
 		sendEvent("restarting", "Migrated systemd unit (Restart=on-failure → Restart=always)")
 	}
-	if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
-		// Use exec.Command.Start() to restart without blocking — the current process will be replaced.
-		_ = exec.Command("systemctl", "restart", "sfpanel").Start()
-	}
-
+	// Send the SSE 'complete' event *before* triggering systemctl restart, then
+	// give the kernel a chance to flush the bytes to the client. systemd sends
+	// SIGTERM almost immediately after `systemctl restart`, so without this
+	// pause the SSE consumer sees a connection reset mid-stream and cannot tell
+	// success from failure. Mirrors the cluster leave/disband pattern.
 	sendEvent("complete", fmt.Sprintf("Updated to v%s. Restarting...", latest))
+	if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
+		go func() {
+			time.Sleep(2 * time.Second)
+			// Use exec.Command.Start() to restart without blocking — the current process will be replaced.
+			_ = exec.Command("systemctl", "restart", "sfpanel").Start()
+		}()
+	}
 	return nil
 }
 

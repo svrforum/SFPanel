@@ -223,6 +223,8 @@ const (
 const (
 	ErrUpdateCheckFailed = "UPDATE_CHECK_FAILED"
 	ErrUpdateFailed      = "UPDATE_FAILED"
+	ErrUpdateDowngrade   = "UPDATE_DOWNGRADE_BLOCKED"
+	ErrUpdateInProgress  = "UPDATE_IN_PROGRESS"
 	ErrBackupFailed      = "BACKUP_FAILED"
 	ErrRestoreFailed     = "RESTORE_FAILED"
 )
