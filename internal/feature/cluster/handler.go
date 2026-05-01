@@ -857,6 +857,26 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		}
 	}
 
+	// Quorum guard for simultaneous mode. Restarting every voter at once would
+	// break Raft for the duration of the slowest node's download + restart
+	// (which can be minutes for a 200 MB tarball on a slow link). Refuse it
+	// up front when the cluster doesn't have enough headroom: a 3-voter cluster
+	// can't safely take all 3 down at once, and a 5-voter cluster can lose at
+	// most 2. Single-node clusters are always fine — there's nothing to lose.
+	if req.Mode == "simultaneous" && len(followers) > 0 {
+		voters := 1 + len(followers) // 1 leader + N online followers as voters
+		quorum := voters/2 + 1
+		// We're about to take voters-many nodes down. Surviving is voters - voters = 0,
+		// which is < quorum unless voters == 1.
+		if voters >= 2 {
+			sendSSE(map[string]interface{}{
+				"overall": "error",
+				"message": fmt.Sprintf("Refusing simultaneous update: would take all %d voters offline at once (quorum=%d). Use rolling mode.", voters, quorum),
+			})
+			return nil
+		}
+	}
+
 	sendSSE(map[string]interface{}{"overall": "started", "mode": req.Mode, "total_nodes": len(followers) + 1})
 
 	updateNode := func(ni nodeInfo) bool {

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -35,12 +36,32 @@ type Manager struct {
 func (m *Manager) SetVersion(v string) { m.version = v }
 
 // NewManager creates a Manager but does not start any services.
+//
+// Join tokens persist under cfg.DataDir so a leader restart doesn't silently
+// invalidate every operator-issued invite. If persistence fails (disk full,
+// bad permissions) we fall back to a memory-only manager and log a warning —
+// degraded but functional, matching the prior behavior.
 func NewManager(cfg *config.ClusterConfig) *Manager {
 	tlsMgr := NewTLSManager(cfg.CertDir)
+
+	var tokens *TokenManager
+	if cfg.DataDir != "" {
+		tokenPath := filepath.Join(cfg.DataDir, "tokens.json")
+		if pt, err := NewPersistedTokenManager(tokenPath); err == nil {
+			tokens = pt
+		} else {
+			slog.Warn("falling back to memory-only join tokens",
+				"component", "cluster", "path", tokenPath, "error", err)
+			tokens = NewTokenManager()
+		}
+	} else {
+		tokens = NewTokenManager()
+	}
+
 	return &Manager{
 		config:    cfg,
 		tls:       tlsMgr,
-		tokens:    NewTokenManager(),
+		tokens:    tokens,
 		heartbeat: NewHeartbeatManager(DefaultHeartbeatInterval, DefaultHeartbeatTimeout),
 		events:    NewEventBus(),
 		connPool:  NewConnPool(tlsMgr),
