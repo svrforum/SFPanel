@@ -3,6 +3,9 @@ set -euo pipefail
 
 # SFPanel Installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | bash
+#        sudo ./install.sh                # install / upgrade
+#        sudo ./install.sh uninstall      # remove binary + service
+#        FORCE_SYSTEMD=1 sudo ./install.sh   # rewrite systemd unit even if present
 
 REPO="svrforum/SFPanel"
 INSTALL_DIR="/usr/local/bin"
@@ -10,6 +13,7 @@ CONFIG_DIR="/etc/sfpanel"
 DATA_DIR="/var/lib/sfpanel"
 LOG_DIR="/var/log/sfpanel"
 SERVICE_NAME="sfpanel"
+FORCE_SYSTEMD="${FORCE_SYSTEMD:-0}"
 
 # Colors
 RED='\033[0;31m'
@@ -36,6 +40,13 @@ check_os() {
     log_error "SFPanel only supports Linux"
     exit 1
   fi
+  # SFPanel targets Debian/Ubuntu — install.sh hard-codes apt-style paths (logrotate
+  # at /etc/logrotate.d, systemd unit at /etc/systemd/system) and the runtime panel
+  # shells out to apt for package management. Allow non-Debian distros to proceed
+  # with a warning rather than blocking, since the binary itself works anywhere.
+  if [ ! -f /etc/debian_version ]; then
+    log_warn "Non-Debian/Ubuntu host detected; package management features (apt) will not work."
+  fi
 }
 
 detect_arch() {
@@ -48,8 +59,16 @@ detect_arch() {
   esac
 }
 
+check_systemd() {
+  # Container bases (e.g. plain debian:slim docker images) ship without systemd;
+  # calling systemctl mid-install just produces a cryptic "Failed to connect to bus"
+  # error. Detect upfront so the operator gets a clear message and the binary still
+  # gets installed for manual launch.
+  [ -d /run/systemd/system ]
+}
+
 check_commands() {
-  for cmd in curl tar; do
+  for cmd in curl tar sha256sum awk; do
     if ! command -v "$cmd" &>/dev/null; then
       log_error "Required command not found: $cmd"
       exit 1
@@ -67,6 +86,18 @@ get_current_version() {
   else
     echo ""
   fi
+}
+
+# Read server.port out of config.yaml using POSIX awk only — `grep -oP` (PCRE)
+# isn't available on Alpine/busybox, so the previous one-liner crashed there.
+read_config_port() {
+  awk '
+    /^server:/        { in_server=1; next }
+    /^[^[:space:]]/   { in_server=0 }
+    in_server && /port[[:space:]]*:/ {
+      gsub(/[^0-9]/, "", $0); print; exit
+    }
+  ' "${CONFIG_DIR}/config.yaml" 2>/dev/null
 }
 
 # --- Core functions ---
@@ -132,7 +163,7 @@ download_binary() {
   # Only touch the running service after every verification has passed,
   # so a bad download can't leave the host with the service stopped and
   # no replacement binary in place.
-  if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+  if check_systemd && systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
     log_info "Stopping existing SFPanel service..."
     systemctl stop "$SERVICE_NAME"
   fi
@@ -151,6 +182,22 @@ setup_dirs() {
   chmod 700 "$CONFIG_DIR"
 }
 
+# generate_jwt_secret returns 64 hex characters (32 bytes of /dev/urandom).
+# Prefer openssl when available; fall back to xxd to keep the script working
+# on minimal images that lack openssl. The previous head/base64/tr pipeline
+# could under-shoot to fewer than 32 chars in rare runs because tr -d '/+='
+# deletes characters before the truncate step.
+generate_jwt_secret() {
+  if command -v openssl &>/dev/null; then
+    openssl rand -hex 32
+  elif command -v xxd &>/dev/null; then
+    xxd -l 32 -p /dev/urandom | tr -d '\n'
+  else
+    # Last resort: hex-encode 32 bytes via od. Produces 64 hex chars.
+    od -vN 32 -An -tx1 /dev/urandom | tr -d ' \n'
+  fi
+}
+
 generate_config() {
   if [ -f "${CONFIG_DIR}/config.yaml" ]; then
     log_warn "Config already exists at ${CONFIG_DIR}/config.yaml (skipping)"
@@ -158,7 +205,7 @@ generate_config() {
   fi
 
   local jwt_secret
-  jwt_secret=$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)
+  jwt_secret=$(generate_jwt_secret)
 
   cat > "${CONFIG_DIR}/config.yaml" <<EOF
 # SFPanel Configuration
@@ -186,7 +233,17 @@ EOF
 }
 
 setup_logrotate() {
-  cat > "/etc/logrotate.d/sfpanel" <<'EOF'
+  local target="/etc/logrotate.d/sfpanel"
+  # Don't clobber an operator-tweaked logrotate config on every re-run. The
+  # bundled defaults are fine for the common case, but a host that already
+  # has custom rotation (e.g. forwarding to journald or a longer retention)
+  # would silently lose those edits otherwise. FORCE_SYSTEMD=1 also forces
+  # logrotate rewrite — same big hammer covers both.
+  if [ -f "$target" ] && [ "$FORCE_SYSTEMD" != "1" ]; then
+    log_info "Logrotate config already present (use FORCE_SYSTEMD=1 to rewrite)"
+    return
+  fi
+  cat > "$target" <<'EOF'
 /var/log/sfpanel/sfpanel.log {
     daily
     rotate 7
@@ -202,7 +259,28 @@ EOF
 }
 
 setup_systemd() {
-  cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
+  if ! check_systemd; then
+    log_warn "systemd not detected (no /run/systemd/system); skipping unit install."
+    log_warn "Run the binary directly: ${INSTALL_DIR}/sfpanel ${CONFIG_DIR}/config.yaml"
+    return
+  fi
+
+  local unit="/etc/systemd/system/${SERVICE_NAME}.service"
+  # Same idempotency reasoning as setup_logrotate: don't blow away ExecStartPre,
+  # Environment=, or LimitMEMLOCK= edits operators add for tuning. The
+  # `update`/CLI path uses lifecycle.MigrateRestartPolicy() to inject the one
+  # change that's mandatory (Restart=always), so most upgrades don't need a
+  # full unit rewrite anyway.
+  if [ -f "$unit" ] && [ "$FORCE_SYSTEMD" != "1" ]; then
+    log_info "Systemd unit already present at $unit (use FORCE_SYSTEMD=1 to rewrite)"
+    systemctl daemon-reload
+    systemctl enable "$SERVICE_NAME" >/dev/null 2>&1 || true
+    systemctl start "$SERVICE_NAME"
+    verify_service_started
+    return
+  fi
+
+  cat > "$unit" <<EOF
 [Unit]
 Description=SFPanel - Server Management Panel
 After=network.target docker.service
@@ -230,14 +308,33 @@ EOF
   systemctl daemon-reload
   systemctl enable "$SERVICE_NAME"
   systemctl start "$SERVICE_NAME"
+  verify_service_started
   log_info "Systemd service enabled and started"
+}
+
+# verify_service_started polls systemctl is-active for ~10 seconds. Without
+# this check the script exits 0 even when the service never came up (port
+# already bound, missing config, broken migration), so the operator sees
+# "installed successfully" and a 502 in the browser.
+verify_service_started() {
+  local attempt
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+      return 0
+    fi
+    sleep 1
+  done
+  log_error "Service ${SERVICE_NAME} failed to start within 10s. Recent journal:"
+  journalctl -u "$SERVICE_NAME" -n 30 --no-pager 2>&1 | sed 's/^/  /' >&2 || true
+  exit 1
 }
 
 print_success() {
   local version="$1"
   local mode="$2"
   local port
-  port=$(grep -oP 'port:\s*\K[0-9]+' "${CONFIG_DIR}/config.yaml" 2>/dev/null || echo "19443")
+  port=$(read_config_port)
+  : "${port:=19443}"
 
   echo ""
   echo -e "${CYAN}============================================${NC}"
@@ -275,12 +372,17 @@ print_success() {
 
 uninstall() {
   log_info "Uninstalling SFPanel..."
-  systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-  systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+  if check_systemd; then
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+  fi
   rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
-  systemctl daemon-reload
+  rm -f "/etc/logrotate.d/sfpanel"
+  if check_systemd; then
+    systemctl daemon-reload
+  fi
   rm -f "${INSTALL_DIR}/sfpanel"
-  log_info "Binary and service removed"
+  log_info "Binary, service unit, and logrotate config removed"
   log_warn "Config (${CONFIG_DIR}) and data (${DATA_DIR}) preserved. Remove manually if needed."
 }
 
