@@ -134,6 +134,38 @@ func (rn *RaftNode) AddVoter(nodeID, address string) error {
 	return f.Error()
 }
 
+// AddNonvoter adds a node as a non-voting member. Used during the first phase
+// of two-phase join — the node receives Raft state and replicates the log
+// without contributing to quorum, so a mid-join crash can't drop the cluster
+// below quorum on a 2-of-3 cluster.
+func (rn *RaftNode) AddNonvoter(nodeID, address string) error {
+	if rn.raft.State() != raft.Leader {
+		return ErrNotLeader
+	}
+	f := rn.raft.AddNonvoter(
+		raft.ServerID(nodeID),
+		raft.ServerAddress(address),
+		0, 30*time.Second,
+	)
+	return f.Error()
+}
+
+// PromoteToVoter upgrades a previously-added non-voter to voter. Called once
+// the joining node confirms it has caught up with the log and is ready to
+// contribute to quorum. Idempotent — re-promoting a voter is a no-op in
+// HashiCorp Raft.
+func (rn *RaftNode) PromoteToVoter(nodeID, address string) error {
+	if rn.raft.State() != raft.Leader {
+		return ErrNotLeader
+	}
+	f := rn.raft.AddVoter(
+		raft.ServerID(nodeID),
+		raft.ServerAddress(address),
+		0, 30*time.Second,
+	)
+	return f.Error()
+}
+
 // RemoveServer removes a node from the Raft cluster.
 func (rn *RaftNode) RemoveServer(nodeID string) error {
 	if rn.raft.State() != raft.Leader {

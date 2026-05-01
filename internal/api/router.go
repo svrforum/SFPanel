@@ -77,7 +77,10 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		DBPath:      cfg.Database.Path,
 		ConfigPath:  cfgPath,
 		ComposePath: cfg.Server.StacksPath,
-		Cmd:         cmd,
+		// Port lets the update flow point its rollback watchdog at the
+		// local health endpoint after a binary swap.
+		Port: cfg.Server.Port,
+		Cmd:  cmd,
 	}
 
 	// Initialize Docker client

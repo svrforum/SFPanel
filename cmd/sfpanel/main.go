@@ -65,6 +65,11 @@ func main() {
 		case "update":
 			updatePanel()
 			return
+		case "watchdog-update":
+			// Used by RunUpdate to monitor a fresh swap and roll back if the
+			// new binary never comes up. Args: <bak_path> <binary_path> <check_url> <grace_seconds>
+			watchdogUpdate(os.Args[2:])
+			return
 		case "cluster":
 			clusterCommand(os.Args[2:])
 			return
