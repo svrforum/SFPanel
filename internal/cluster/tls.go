@@ -137,8 +137,14 @@ func (t *TLSManager) IssueNodeCert(nodeID string, addresses []string) (certPEM, 
 }
 
 // SaveNodeCert writes cert/key files for this node.
+//
+// Both files are written 0600. The cert is technically public material in
+// mTLS, but writing it 0644 lets any local user read the cluster topology
+// (subject CN includes node ID, SANs include node IP). Locking down to root
+// matches the key, the data dir, and the config dir — no part of the cluster
+// trust material should be visible to non-root processes on the host.
 func (t *TLSManager) SaveNodeCert(certPEM, keyPEM []byte) error {
-	if err := os.WriteFile(filepath.Join(t.certDir, "node.crt"), certPEM, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(t.certDir, "node.crt"), certPEM, 0600); err != nil {
 		return fmt.Errorf("write node cert: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(t.certDir, "node.key"), keyPEM, 0600); err != nil {
