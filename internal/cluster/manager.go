@@ -313,10 +313,13 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		Name:        nodeName,
 		APIAddress:  apiAddr,
 		GRPCAddress: grpcAddr,
-		Role:        RoleVoter,
-		Status:      StatusOnline,
-		JoinedAt:    time.Now(),
-		LastSeen:    time.Now(),
+		// New nodes start as non-voters and are promoted by ConfirmJoin once
+		// the joining side reports it's caught up. This keeps quorum stable
+		// across a mid-join crash on, e.g., a 2 → 3 voter growth.
+		Role:     RoleNonVoter,
+		Status:   StatusOnline,
+		JoinedAt: time.Now(),
+		LastSeen: time.Now(),
 	}
 	nodeJSON, _ := json.Marshal(newNode)
 	if applyErr := m.raft.Apply(Command{
@@ -331,18 +334,18 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 	_, grpcPortStr, _ := net.SplitHostPort(grpcAddr)
 	grpcPort, _ := strconv.Atoi(grpcPortStr)
 	raftAddr := fmt.Sprintf("%s:%d", host, grpcPort+1)
-	if addErr := m.raft.AddVoter(nodeID, raftAddr); addErr != nil {
-		// Rollback: AddVoter can return an error after its config-change
+	if addErr := m.raft.AddNonvoter(nodeID, raftAddr); addErr != nil {
+		// Rollback: AddNonvoter can return an error after its config-change
 		// log entry has already committed (e.g. timeout during replication
-		// to the new voter). RemoveServer first to guarantee the Raft
-		// configuration does not keep a voter that never fully materialized;
+		// to the new node). RemoveServer first to guarantee the Raft
+		// configuration does not keep a node that never fully materialized;
 		// FSM remove + token restore follow. All three are idempotent.
 		if rmErr := m.raft.RemoveServer(nodeID); rmErr != nil {
 			slog.Debug("rollback RemoveServer ignored", "component", "cluster", "node_id", nodeID, "error", rmErr)
 		}
 		m.raft.Apply(Command{Type: CmdRemoveNode, Key: nodeID}, 5*time.Second)
 		m.tokens.RestoreToken(token)
-		return nil, nil, nil, nil, fmt.Errorf("add voter: %w", addErr)
+		return nil, nil, nil, nil, fmt.Errorf("add nonvoter: %w", addErr)
 	}
 
 	updatedState := m.raft.GetFSM().GetState()
@@ -355,6 +358,70 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 
 	slog.Info("node joined", "component", "cluster", "name", nodeName, "node_id", nodeID, "grpc_addr", grpcAddr)
 	return caCertPEM, certPEM, keyPEM, peerList, nil
+}
+
+// ConfirmJoin promotes a previously-added non-voter to voter. The joining
+// node calls this after it has its certs on disk, gRPC up, and Raft caught
+// up. Idempotent: calling it on a node that's already a voter is a no-op,
+// so a network blip causing a retry doesn't break anything.
+//
+// If the FSM still shows the node, but Raft no longer does (operator yanked
+// it during the gap), Apply rolls the FSM back to keep the two views aligned.
+func (m *Manager) ConfirmJoin(nodeID string) error {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return ErrNotLeader
+	}
+
+	state := m.raft.GetFSM().GetState()
+	node, exists := state.Nodes[nodeID]
+	if !exists {
+		return fmt.Errorf("node %s not found in FSM", nodeID)
+	}
+
+	host, grpcPortStr, _ := net.SplitHostPort(node.GRPCAddress)
+	grpcPort, _ := strconv.Atoi(grpcPortStr)
+	raftAddr := fmt.Sprintf("%s:%d", host, grpcPort+1)
+
+	if err := m.raft.PromoteToVoter(nodeID, raftAddr); err != nil {
+		return fmt.Errorf("promote to voter: %w", err)
+	}
+
+	// Mark the FSM role as voter so cluster status reflects the promotion.
+	updated := *node
+	updated.Role = RoleVoter
+	updatedJSON, _ := json.Marshal(updated)
+	if err := m.raft.Apply(Command{
+		Type:  CmdAddNode,
+		Value: updatedJSON,
+	}, 5*time.Second); err != nil {
+		// Raft already shows voter; FSM update failed. Surface but don't
+		// undo Raft — leaving FSM out-of-sync is recoverable on the next
+		// heartbeat tick (StartLocalMetrics rewrites the entry).
+		slog.Warn("FSM voter-role update failed after promotion",
+			"component", "cluster", "node_id", nodeID, "error", err)
+	}
+
+	slog.Info("node promoted to voter", "component", "cluster", "node_id", nodeID)
+	return nil
+}
+
+// PromoteOnHeartbeatIfPending promotes a non-voter node to voter when its
+// first heartbeat arrives. Called from the leader's heartbeat handler. No-op
+// when not leader, when the node is already a voter, or when the node isn't
+// in the FSM. Errors are logged but never bubbled — heartbeats must keep
+// flowing even if the FSM is mid-migration.
+func (m *Manager) PromoteOnHeartbeatIfPending(nodeID string) {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return
+	}
+	state := m.raft.GetFSM().GetState()
+	node, ok := state.Nodes[nodeID]
+	if !ok || node.Role == RoleVoter {
+		return
+	}
+	if err := m.ConfirmJoin(nodeID); err != nil {
+		slog.Warn("non-voter promotion deferred", "component", "cluster", "node_id", nodeID, "error", err)
+	}
 }
 
 // HandlePreFlight validates a token without consuming it (for pre-flight checks).

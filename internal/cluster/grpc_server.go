@@ -236,6 +236,13 @@ func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 				Timestamp:      result.ping.Timestamp,
 			})
 
+			// Two-phase join: a node added as non-voter via HandleJoin gets
+			// promoted on its first successful heartbeat — that's the
+			// strongest in-cluster signal that the new node is fully up
+			// (gRPC connected, certs accepted, Raft caught up). Idempotent
+			// for already-voter nodes; a missing FSM entry just no-ops.
+			s.manager.PromoteOnHeartbeatIfPending(result.ping.NodeId)
+
 			if err := stream.Send(&pb.HeartbeatPong{
 				LeaderId:  s.manager.GetRaft().LeaderID(),
 				Timestamp: result.ping.Timestamp,

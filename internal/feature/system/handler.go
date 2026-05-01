@@ -41,7 +41,11 @@ type Handler struct {
 	DBPath      string
 	ConfigPath  string
 	ComposePath string
-	Cmd         commonExec.Commander
+	// Port is the HTTP listen port — used by the update watchdog to compose
+	// the local health-check URL after binary swap. Zero means "skip
+	// watchdog rollback" (gracefully degrades to the pre-watchdog behavior).
+	Port int
+	Cmd  commonExec.Commander
 }
 
 type GitHubRelease struct {
@@ -308,6 +312,33 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	} else if migrated {
 		sendEvent("restarting", "Migrated systemd unit (Restart=on-failure → Restart=always)")
 	}
+	// Spawn an external watchdog process from the BACKUP binary. If the new
+	// binary fails to come up within 90 s the watchdog restores .bak and
+	// restarts sfpanel — without this, a botched update leaves systemd
+	// in a Restart=always loop on a broken binary forever.
+	//
+	// Forward-only: spawning is best-effort. Pre-watchdog binaries used as
+	// .bak don't know the subcommand and will exit 2 — the rollback path
+	// still works as long as either bound is the new code, which is the
+	// common case after this lands.
+	if h.Port > 0 {
+		watchdogCmd := exec.Command(backupPath, "watchdog-update",
+			backupPath,
+			execPath,
+			fmt.Sprintf("http://127.0.0.1:%d/api/v1/system/info", h.Port),
+			"90",
+		)
+		watchdogCmd.SysProcAttr = detachAttr() // platform-specific: detach so systemctl restart can't kill it
+		watchdogCmd.Stdout = nil
+		watchdogCmd.Stderr = nil
+		watchdogCmd.Stdin = nil
+		if wdErr := watchdogCmd.Start(); wdErr != nil {
+			slog.Warn("update watchdog failed to start; proceeding without rollback safety", "error", wdErr)
+		} else {
+			slog.Info("update watchdog spawned", "pid", watchdogCmd.Process.Pid, "grace_s", 90)
+		}
+	}
+
 	// Send the SSE 'complete' event *before* triggering systemctl restart, then
 	// give the kernel a chance to flush the bytes to the client. systemd sends
 	// SIGTERM almost immediately after `systemctl restart`, so without this
