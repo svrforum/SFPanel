@@ -18,7 +18,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          # Read the version from go.mod so CI never drifts behind a dep
+          # bump that raises the minimum Go toolchain.
+          go-version-file: go.mod
           cache: true
       - run: go test ./internal/... -v -count=1
 
@@ -28,7 +30,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          # Read the version from go.mod so CI never drifts behind a dep
+          # bump that raises the minimum Go toolchain.
+          go-version-file: go.mod
           cache: true
       - uses: actions/setup-node@v4
         with:
@@ -48,7 +52,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          # Read the version from go.mod so CI never drifts behind a dep
+          # bump that raises the minimum Go toolchain.
+          go-version-file: go.mod
           cache: true
       - uses: actions/setup-node@v4
         with:
