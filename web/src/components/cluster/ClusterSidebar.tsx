@@ -27,7 +27,9 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
     try {
       const saved = localStorage.getItem(SELECTION_KEY)
       if (saved) return JSON.parse(saved)
-    } catch {}
+    } catch {
+      // ignore parse errors and fall through to the default selection
+    }
     return { type: 'datacenter' }
   })
 

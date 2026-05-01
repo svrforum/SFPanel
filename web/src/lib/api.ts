@@ -143,7 +143,7 @@ class ApiClient {
       })
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        throw new Error('Request timed out')
+        throw new Error('Request timed out', { cause: err })
       }
       throw err
     } finally {
