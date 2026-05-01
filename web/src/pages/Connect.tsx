@@ -42,7 +42,7 @@ export default function Connect() {
   }
 
   const getServerUrl = (): string | null => {
-    let serverUrl = url.trim().replace(/\/+$/, '')
+    const serverUrl = url.trim().replace(/\/+$/, '')
     try {
       const parsed = new URL(serverUrl)
       if (!['http:', 'https:'].includes(parsed.protocol)) {

@@ -9,7 +9,7 @@ import {
   RefreshCw,
   Package,
   Globe,
-  Github,
+  Code2,
   Download,
   Check,
   ChevronDown,
@@ -507,7 +507,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
                     >
-                      <Github className="h-3.5 w-3.5" />
+                      <Code2 className="h-3.5 w-3.5" />
                       {t('appStore.source')}
                     </a>
                   )}

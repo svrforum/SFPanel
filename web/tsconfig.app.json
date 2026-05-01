@@ -23,7 +23,10 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
-    "baseUrl": ".",
+    /* baseUrl is deprecated in TypeScript 6.0 and will stop functioning in 7.0.
+       Paths can resolve relative to tsconfig.json itself, so we drop baseUrl
+       and switch the @/* mapping to be project-relative — this matches what
+       Vite does at runtime via vite.config.ts paths alias. */
     "paths": {
       "@/*": ["./src/*"]
     }
