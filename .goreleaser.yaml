@@ -1,5 +1,14 @@
 version: 2
 
+# `goreleaser release --clean` is meant to be self-contained — calling it
+# without this hook used to embed a stale (or empty) web/dist into the
+# release tarball when run locally. The release.yml workflow already runs
+# the frontend build separately, so this is mostly insurance for human
+# operators running goreleaser by hand.
+before:
+  hooks:
+    - bash -c "cd web && npm ci && npm run build"
+
 builds:
   - id: sfpanel
     main: ./cmd/sfpanel
