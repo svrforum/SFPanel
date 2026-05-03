@@ -82,7 +82,7 @@ func TestRestartLoopEvaluator(t *testing.T) {
 func TestContainerDispatcher_FiresContainerDown(t *testing.T) {
 	db := openAlertTestDB(t)
 	db.Exec(`INSERT INTO alert_rules (name,type,condition,channel_ids,severity,cooldown,node_scope,node_ids,enabled) VALUES
-		('down-all', 'container_down', '{"container_pattern":"*"}', '[]', 'warning', 0, 'all', '[]', 1)`)
+		('down-all', 'container_down', '{"container_pattern":"*"}', '[1,2]', 'warning', 60, 'all', '[]', 1)`)
 
 	chDisp := &fakeChannelDispatcher{}
 	disp := NewContainerDispatcher(db, chDisp)
@@ -93,11 +93,100 @@ func TestContainerDispatcher_FiresContainerDown(t *testing.T) {
 	if chDisp.count != 1 {
 		t.Errorf("expected 1 alert fire, got %d", chDisp.count)
 	}
+	// Verify the AlertFire payload now carries the routing/cooldown fields
+	// the channel dispatcher needs.
+	if chDisp.lastFire.RuleID == 0 {
+		t.Errorf("expected RuleID to be populated, got 0")
+	}
+	if chDisp.lastFire.ChannelIDs != "[1,2]" {
+		t.Errorf("expected ChannelIDs '[1,2]', got %q", chDisp.lastFire.ChannelIDs)
+	}
+	if chDisp.lastFire.Cooldown != 60 {
+		t.Errorf("expected Cooldown 60, got %d", chDisp.lastFire.Cooldown)
+	}
 }
 
-type fakeChannelDispatcher struct{ count int }
+func TestContainerDispatcher_PatternNonMatch_DoesNotFire(t *testing.T) {
+	db := openAlertTestDB(t)
+	db.Exec(`INSERT INTO alert_rules (name,type,condition,channel_ids,severity,cooldown,node_scope,node_ids,enabled) VALUES
+		('down-nginx', 'container_down', '{"container_pattern":"nginx-*"}', '[]', 'warning', 0, 'all', '[]', 1)`)
 
-func (f *fakeChannelDispatcher) Fire(_ context.Context, _ AlertFire) { f.count++ }
+	chDisp := &fakeChannelDispatcher{}
+	disp := NewContainerDispatcher(db, chDisp)
+	disp.Dispatch(context.Background(), &AlertContainerEvent{
+		ID: "abc", Name: "apache-app", Type: "die", TS: 1714742400000,
+	})
+
+	if chDisp.count != 0 {
+		t.Errorf("expected 0 alert fires, got %d", chDisp.count)
+	}
+}
+
+func TestContainerDispatcher_OOM_OverridesSeverityToCritical(t *testing.T) {
+	db := openAlertTestDB(t)
+	db.Exec(`INSERT INTO alert_rules (name,type,condition,channel_ids,severity,cooldown,node_scope,node_ids,enabled) VALUES
+		('oom-all', 'container_oom', '{"container_pattern":"*"}', '[]', 'warning', 0, 'all', '[]', 1)`)
+
+	chDisp := &fakeChannelDispatcher{}
+	disp := NewContainerDispatcher(db, chDisp)
+	disp.Dispatch(context.Background(), &AlertContainerEvent{
+		ID: "abc", Name: "nginx-app", Type: "oom", TS: 1714742400000,
+	})
+
+	if chDisp.count != 1 {
+		t.Fatalf("expected 1 alert fire, got %d", chDisp.count)
+	}
+	if chDisp.lastFire.Severity != "critical" {
+		t.Errorf("expected severity 'critical', got %q", chDisp.lastFire.Severity)
+	}
+}
+
+func TestContainerDispatcher_DownDoesNotFireOnOOM(t *testing.T) {
+	db := openAlertTestDB(t)
+	// Only a container_down rule; no container_oom. Docker emits `oom`
+	// immediately followed by `die` for OOM-kills, so the down rule must
+	// ignore the standalone `oom` event to avoid duplicate fires.
+	db.Exec(`INSERT INTO alert_rules (name,type,condition,channel_ids,severity,cooldown,node_scope,node_ids,enabled) VALUES
+		('down-all', 'container_down', '{"container_pattern":"*"}', '[]', 'warning', 0, 'all', '[]', 1)`)
+
+	chDisp := &fakeChannelDispatcher{}
+	disp := NewContainerDispatcher(db, chDisp)
+	disp.Dispatch(context.Background(), &AlertContainerEvent{
+		ID: "abc", Name: "nginx-app", Type: "oom", TS: 1714742400000,
+	})
+
+	if chDisp.count != 0 {
+		t.Errorf("expected 0 alert fires (down rule must not fire on oom), got %d", chDisp.count)
+	}
+}
+
+func TestContainerDispatcher_MalformedConditionJSON_SkipsRule(t *testing.T) {
+	db := openAlertTestDB(t)
+	db.Exec(`INSERT INTO alert_rules (name,type,condition,channel_ids,severity,cooldown,node_scope,node_ids,enabled) VALUES
+		('broken', 'container_down', 'not json', '[]', 'warning', 0, 'all', '[]', 1)`)
+
+	chDisp := &fakeChannelDispatcher{}
+	disp := NewContainerDispatcher(db, chDisp)
+
+	// Must not panic and must not fire.
+	disp.Dispatch(context.Background(), &AlertContainerEvent{
+		ID: "abc", Name: "nginx-app", Type: "die", TS: 1714742400000,
+	})
+
+	if chDisp.count != 0 {
+		t.Errorf("expected 0 alert fires for malformed condition, got %d", chDisp.count)
+	}
+}
+
+type fakeChannelDispatcher struct {
+	count    int
+	lastFire AlertFire
+}
+
+func (f *fakeChannelDispatcher) Fire(_ context.Context, fire AlertFire) {
+	f.count++
+	f.lastFire = fire
+}
 
 func openAlertTestDB(t *testing.T) *sql.DB {
 	t.Helper()
