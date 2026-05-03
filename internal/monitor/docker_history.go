@@ -70,6 +70,15 @@ func collectOnce(ctx context.Context, client DockerStatsClient, db *sql.DB) {
 }
 
 func computeCPUPercent(s *container.StatsResponse) float64 {
+	// Guard against uint64 underflow on counter resets (e.g. container
+	// restart). A wrapped subtraction would yield a huge positive float64
+	// and bypass the <= 0 check below, producing a bogus near-100% sample.
+	if s.CPUStats.CPUUsage.TotalUsage < s.PreCPUStats.CPUUsage.TotalUsage {
+		return 0
+	}
+	if s.CPUStats.SystemUsage < s.PreCPUStats.SystemUsage {
+		return 0
+	}
 	cpuDelta := float64(s.CPUStats.CPUUsage.TotalUsage - s.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(s.CPUStats.SystemUsage - s.PreCPUStats.SystemUsage)
 	if systemDelta <= 0 || cpuDelta <= 0 {
