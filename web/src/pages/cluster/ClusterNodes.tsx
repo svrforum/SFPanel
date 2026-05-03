@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Server, Trash2, RefreshCw, Crown, Tag, ArrowRightLeft } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -26,8 +26,12 @@ export default function ClusterNodes() {
   const [labelValue, setLabelValue] = useState('')
   const [editLabels, setEditLabels] = useState<Record<string, string>>({})
 
-  const loadNodes = () => {
-    setLoading(true)
+  // Background refreshes don't toggle the page-level loading spinner —
+  // only the initial mount does (loading is already true at that point).
+  // Calling setLoading(true) inside loadNodes used to trip
+  // react-hooks/set-state-in-effect because the effect below kicks it off
+  // synchronously.
+  const loadNodes = useCallback(() => {
     Promise.all([
       api.getClusterStatus(),
       api.getClusterNodes().catch(() => ({ nodes: [], local_id: '', is_leader: false })),
@@ -38,7 +42,7 @@ export default function ClusterNodes() {
       setLocalId(data.local_id)
       if (overview?.metrics) setMetrics(overview.metrics)
     }).finally(() => setLoading(false))
-  }
+  }, [])
 
   useEffect(() => {
     loadNodes()
@@ -49,7 +53,7 @@ export default function ClusterNodes() {
       clearInterval(interval)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [])
+  }, [loadNodes])
 
   const handleRemove = async (nodeId: string, nodeName: string) => {
     if (!confirm(t('cluster.nodes.confirmRemove', { name: nodeName }))) return

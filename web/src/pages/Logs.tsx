@@ -181,6 +181,9 @@ export default function Logs() {
   // Fetch log sources on mount
   useEffect(() => {
     loadSources()
+    // We intentionally only run loadSources on mount; including it as a dep
+    // would cause re-fetches every render because the function is redefined.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function loadSources() {
@@ -208,6 +211,8 @@ export default function Logs() {
     if (selectedSource) {
       loadLog(selectedSource, lineCount)
     }
+    // loadLog isn't memoized; including it would re-fire on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSource, lineCount])
 
   async function loadLog(source: string, lines: number) {

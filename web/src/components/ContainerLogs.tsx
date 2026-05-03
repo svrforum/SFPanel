@@ -273,7 +273,8 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
-                  e.shiftKey ? handleSearchPrev() : handleSearchNext()
+                  if (e.shiftKey) handleSearchPrev()
+                  else handleSearchNext()
                 } else if (e.key === 'Escape') {
                   setSearchOpen(false)
                   setSearchQuery('')
