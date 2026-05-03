@@ -388,6 +388,33 @@ func updatePanel() {
 	if err != nil {
 		log.Fatalf("Checksum read failed: %v", err)
 	}
+
+	// Mirror the HTTP handler's Sigstore verification: trust checksums.txt
+	// only after the cert chain + identity check pass. Older releases that
+	// lack .sig/.pem fall through to SHA-256-only.
+	sigURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.sig")
+	certURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.pem")
+	if sigURL != "" && certURL != "" {
+		fmt.Println("Verifying release signature (Sigstore keyless)...")
+		sigResp, sigErr := dlClient.Get(sigURL)
+		if sigErr != nil {
+			log.Fatalf("Signature download failed: %v", sigErr)
+		}
+		sigBody, _ := io.ReadAll(sigResp.Body)
+		sigResp.Body.Close()
+		certResp, certErr := dlClient.Get(certURL)
+		if certErr != nil {
+			log.Fatalf("Cert download failed: %v", certErr)
+		}
+		certBody, _ := io.ReadAll(certResp.Body)
+		certResp.Body.Close()
+		if vErr := release.VerifyCosignBlob(checksumBody, sigBody, certBody, release.SFPanelReleaseIdentity()); vErr != nil {
+			log.Fatalf("Signature verification failed: %v", vErr)
+		}
+	} else {
+		fmt.Println("Release predates Sigstore signing; using SHA-256 only.")
+	}
+
 	expectedSHA256, err := release.ParseExpectedSHA256(checksumBody, archiveName)
 	if err != nil {
 		log.Fatalf("Checksum verification failed: %v", err)

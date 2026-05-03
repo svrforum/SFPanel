@@ -91,6 +91,28 @@ implicitly requires a restart — there is no hot-reload path for the CA.
 - Archives are streamed to a temp file (`os.MkdirTemp`) and hashed via
   `TeeReader` so memory-constrained nodes (256 MB cluster nodes) can still
   receive a 200 MiB tarball without OOM.
+- `checksums.txt` is verified against a Sigstore keyless cosign signature
+  (`checksums.txt.sig` + `checksums.txt.pem`) before any hash inside it is
+  trusted. The Fulcio cert's SAN URI must start with
+  `https://github.com/svrforum/SFPanel/.github/workflows/release.yml@refs/tags/v`
+  and the OIDC issuer extension must be GitHub Actions
+  (`https://token.actions.githubusercontent.com`). See
+  `internal/release/cosign.go` for the verification path. Releases that
+  predate the signing pipeline (no .sig/.pem assets) fall back to plain
+  SHA-256 with a notice in the SSE stream.
+
+### Auto-rollback watchdog
+
+Self-update spawns a detached watchdog process from the BACKUP binary
+(`/usr/local/bin/sfpanel.bak`) before triggering `systemctl restart`. The
+watchdog polls `http://127.0.0.1:<port>/api/v1/system/info` for 90 s. If
+the new binary never responds, the watchdog `rename(2)`s `.bak` back over
+`sfpanel` and restarts the service. See `cmd/sfpanel/watchdog.go`.
+
+This is a forward-only feature: pre-watchdog binaries used as `.bak`
+don't know the `watchdog-update` subcommand and exit 2 immediately. Once
+a node has updated *to* a watchdog-aware binary, every subsequent update
+inherits the rollback safety net.
 
 If a follower fails its update, rolling mode stops and reports the failed
 node. Simultaneous mode is best-effort — failed nodes are reported but the
