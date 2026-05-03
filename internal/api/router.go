@@ -112,7 +112,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 
 	var dockerHandler *featureDocker.Handler
 	if dockerClient != nil {
-		dockerHandler = &featureDocker.Handler{Docker: dockerClient}
+		dockerHandler = &featureDocker.Handler{Docker: dockerClient, DB: database}
 	}
 
 	// Initialize Compose manager — scans cfg.Server.StacksPath for compose projects
