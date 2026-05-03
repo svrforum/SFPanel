@@ -444,6 +444,15 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 		dk.POST("/containers/:id/unpause", dockerHandler.UnpauseContainer)
 		dk.DELETE("/containers/:id", dockerHandler.RemoveContainer)
 
+		// Observability (theme F — metrics history + events timeline)
+		obs := &featureDocker.ObservabilityHandler{
+			DB:                   database,
+			ObservabilityEnabled: cfg.Docker.Observability.IsEnabled(),
+		}
+		dk.GET("/containers/:id/metrics", obs.GetMetrics)
+		dk.GET("/containers/:id/events", obs.GetEvents)
+		dk.GET("/events/recent", obs.GetRecentEvents)
+
 		// Images
 		dk.GET("/images", dockerHandler.ListImages)
 		dk.POST("/images/pull", dockerHandler.PullImage)
