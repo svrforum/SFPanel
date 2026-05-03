@@ -128,6 +128,10 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	v1.POST("/auth/login", authHandler.Login)
 	v1.GET("/auth/setup-status", authHandler.GetSetupStatus)
 	v1.POST("/auth/setup", authHandler.SetupAdmin)
+	// Refresh is public (consumed by clients holding a refresh token, not
+	// an access JWT). The token itself is the credential; auth is the
+	// presence of a matching DB row.
+	v1.POST("/auth/refresh", authHandler.Refresh)
 
 	// Cluster handler — created here so it can be referenced by the proxy
 	// middleware's getter below. Route registration happens further down.

@@ -36,6 +36,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
 	featureAlert "github.com/svrforum/SFPanel/internal/feature/alert"
+	featureauth "github.com/svrforum/SFPanel/internal/feature/auth"
 	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	"github.com/svrforum/SFPanel/internal/monitor"
@@ -231,6 +232,7 @@ func main() {
 	// on independent tickers so a panel that's quiet for hours still trims.
 	middleware.StartAuditRetention(bgCtx, database)
 	featureAlert.StartHistoryRetention(bgCtx, database)
+	featureauth.StartRefreshTokenRetention(bgCtx, database)
 
 	// Start terminal session cleanup (timeout from settings, 0 = never)
 	featureTerminal.CleanupTerminalSessions(bgCtx, database)

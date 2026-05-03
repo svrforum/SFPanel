@@ -109,6 +109,17 @@ var migrations = []migration{
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`},
 	{ID: 13, Up: `CREATE INDEX IF NOT EXISTS idx_alert_history_created_at ON alert_history(created_at)`},
+	// Refresh-token store. token_hash is sha256(token) — the raw token only
+	// exists on the wire and in the client's memory; the DB only sees the
+	// hash. Rotation deletes the old row and inserts a new one in the same
+	// transaction.
+	{ID: 14, Up: `CREATE TABLE IF NOT EXISTS refresh_tokens (
+		token_hash TEXT PRIMARY KEY,
+		username   TEXT NOT NULL,
+		expires_at DATETIME NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`},
+	{ID: 15, Up: `CREATE INDEX IF NOT EXISTS idx_refresh_tokens_username ON refresh_tokens(username)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been

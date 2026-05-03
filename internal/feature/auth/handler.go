@@ -157,9 +157,21 @@ func (h *Handler) Login(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTokenError, "Failed to generate token")
 	}
 
+	// Issue a refresh token alongside the access JWT. Failure here only
+	// disables silent re-auth — the access token still works, so the user
+	// just has to log in again when it expires. Logged for diagnostics.
+	refreshTok, refreshErr := issueRefreshToken(h.DB, req.Username)
+	if refreshErr != nil {
+		slog.Warn("refresh token issuance failed", "username", req.Username, "error", refreshErr)
+	}
+
 	loginAttempts.Delete(ip)
 	h.recordLoginEvent(req.Username, ip, http.StatusOK, "success")
-	return response.OK(c, map[string]string{"token": token})
+	return response.OK(c, map[string]interface{}{
+		"token":         token,
+		"refresh_token": refreshTok,
+		"expires_in":    int(expiry.Seconds()),
+	})
 }
 
 // recordLoginEvent appends a row to audit_logs for login outcomes. The audit
@@ -485,7 +497,16 @@ func (h *Handler) SetupAdmin(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTokenError, "Admin created but failed to generate token")
 	}
 
-	return response.OK(c, map[string]string{"token": token})
+	refreshTok, refreshErr := issueRefreshToken(h.DB, req.Username)
+	if refreshErr != nil {
+		slog.Warn("refresh token issuance failed (setup)", "username", req.Username, "error", refreshErr)
+	}
+
+	return response.OK(c, map[string]interface{}{
+		"token":         token,
+		"refresh_token": refreshTok,
+		"expires_in":    int(expiry.Seconds()),
+	})
 }
 
 // getClusterAccount returns an account from the cluster FSM, or nil if cluster is not active.
