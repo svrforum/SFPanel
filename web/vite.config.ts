@@ -46,13 +46,37 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'ui-vendor': ['class-variance-authority', 'clsx', 'tailwind-merge'],
-          'xterm': ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-search', '@xterm/addon-unicode11', '@xterm/addon-web-links'],
-          'i18n': ['i18next', 'react-i18next', 'i18next-browser-languagedetector'],
-          'uplot': ['uplot'],
-          'monaco': ['monaco-editor'],
+        // Function form (rather than object form) is required by vite 8's
+        // narrower TypeScript types and works identically in vite 7 — keeping
+        // the same chunk groupings as before.
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/react-router-dom/') ||
+            id.includes('node_modules/react-router/')
+          ) {
+            return 'react-vendor'
+          }
+          if (
+            id.includes('node_modules/class-variance-authority/') ||
+            id.includes('node_modules/clsx/') ||
+            id.includes('node_modules/tailwind-merge/')
+          ) {
+            return 'ui-vendor'
+          }
+          if (id.includes('node_modules/@xterm/')) return 'xterm'
+          if (
+            id.includes('node_modules/i18next/') ||
+            id.includes('node_modules/react-i18next/') ||
+            id.includes('node_modules/i18next-browser-languagedetector/')
+          ) {
+            return 'i18n'
+          }
+          if (id.includes('node_modules/uplot/')) return 'uplot'
+          if (id.includes('node_modules/monaco-editor/')) return 'monaco'
+          return undefined
         },
       },
     },
