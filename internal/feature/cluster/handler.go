@@ -772,13 +772,23 @@ func (h *Handler) DisbandCluster(c echo.Context) error {
 	// fires performDisband (in its own goroutine), which wipes local state
 	// and exits — including on this leader. Single, unified cleanup path.
 	if err := mgr.Disband(10 * time.Second); err != nil {
-		slog.Warn("cluster-wide Disband broadcast failed, falling back to local-only cleanup", "component", "cluster", "error", err)
-		// Fallback: fire performDisband directly for this node so the
-		// operator isn't left with a half-disbanded leader. Followers (if
-		// any) will go Offline via heartbeats and need manual leave.
+		// Fallback gate: if the originator lost leadership / quorum mid-Apply,
+		// firing a local-only performDisband splits the cluster — this node
+		// destroys itself while the surviving majority elects a new leader
+		// and continues. Refuse the fallback unless the operator explicitly
+		// passes ?force=true, accepting the split.
+		force := c.QueryParam("force") == "true"
+		if !force {
+			slog.Warn("cluster-wide Disband broadcast failed; refusing local-only fallback (set ?force=true to proceed)",
+				"component", "cluster", "error", err)
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError,
+				"Disband broadcast failed (likely lost majority). Pass ?force=true to disband this node only — surviving nodes will keep running and require manual cleanup.")
+		}
+		slog.Warn("forced local-only disband (operator-initiated split)",
+			"component", "cluster", "broadcast_error", err)
 		go h.performDisband(mgr.LocalNodeID())
 		return response.OK(c, map[string]string{
-			"message": "Disband broadcast failed; leader is cleaning up locally. Follower nodes require manual 'cluster leave'.",
+			"message": "Forced local-only disband. Follower nodes (if any) require manual 'cluster leave'.",
 		})
 	}
 
