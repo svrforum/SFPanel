@@ -456,9 +456,22 @@ func (h *Handler) GetStatus(c echo.Context) error {
 		})
 	}
 
+	stale := false
 	if !mgr.IsLeader() {
+		// Follower: try to proxy to leader. On failure fall back to local
+		// FSM but flag the response as stale — the UI renders a banner so
+		// operators know they're looking at potentially-out-of-date data
+		// rather than confidently trusting what they see.
 		if resp, err := h.proxyToLeader(c); err == nil {
 			return h.returnWithLocalID(c, resp)
+		}
+		stale = true
+	} else {
+		// Leader: confirm we're still leader-of-quorum *now*. Without this,
+		// a stale leader on a minority partition cheerfully serves its own
+		// FSM as authoritative until its lease eventually times out.
+		if err := mgr.GetRaft().VerifyLeader(2 * time.Second); err != nil {
+			stale = true
 		}
 	}
 
@@ -470,6 +483,7 @@ func (h *Handler) GetStatus(c echo.Context) error {
 		"leader_id":  overview.LeaderID,
 		"local_id":   mgr.LocalNodeID(),
 		"is_leader":  mgr.IsLeader(),
+		"stale":      stale,
 	})
 }
 
