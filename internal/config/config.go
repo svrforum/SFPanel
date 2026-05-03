@@ -53,10 +53,25 @@ type DockerConfig struct {
 // ObservabilityConfig controls the per-container metrics + events feature
 // (theme F). Disabled means the collector / events listener / pruners do
 // not start; new endpoints return empty arrays + observability_disabled flag.
+//
+// Enabled is a pointer so we can distinguish three states in YAML:
+//   - field absent (nil)        → default-on (IsEnabled() = true)
+//   - explicit `enabled: false` → off
+//   - explicit `enabled: true`  → on
+//
+// A plain bool would collapse "absent" and "false" to the same zero value,
+// which would silently re-enable observability for an operator who set
+// `enabled: false` without also overriding the retention strings.
 type ObservabilityConfig struct {
-	Enabled          bool   `yaml:"enabled"`
+	Enabled          *bool  `yaml:"enabled"`
 	MetricsRetention string `yaml:"metrics_retention"` // "6h" | "24h" | "72h"
 	EventsRetention  string `yaml:"events_retention"`  // "7d" | "30d" | "90d"
+}
+
+// IsEnabled returns true when the operator hasn't explicitly disabled
+// observability. Default-on: nil (block absent) → true. Explicitly false → false.
+func (o ObservabilityConfig) IsEnabled() bool {
+	return o.Enabled == nil || *o.Enabled
 }
 
 var (
@@ -98,13 +113,17 @@ func (c *Config) Validate() error {
 	if len(c.Auth.JWTSecret) < 32 {
 		return fmt.Errorf("auth.jwt_secret must be at least 32 characters (HS256 256-bit minimum)")
 	}
-	if c.Docker.Observability.Enabled {
-		if !allowedMetricsRetentions[c.Docker.Observability.MetricsRetention] {
-			return fmt.Errorf("docker.observability.metrics_retention must be one of 6h/24h/72h, got %q", c.Docker.Observability.MetricsRetention)
-		}
-		if !allowedEventsRetentions[c.Docker.Observability.EventsRetention] {
-			return fmt.Errorf("docker.observability.events_retention must be one of 7d/30d/90d, got %q", c.Docker.Observability.EventsRetention)
-		}
+	// Validate retention values whenever they're set, regardless of IsEnabled.
+	// A typo like `metrics_retention: garbge` should fail at config-write time,
+	// not silently lurk until the operator flips enabled and restarts. The
+	// empty-string allowance is fine because Load() always fills defaults
+	// before Validate() runs; it only matters for tests that build Config{}
+	// by hand without going through Load().
+	if r := c.Docker.Observability.MetricsRetention; r != "" && !allowedMetricsRetentions[r] {
+		return fmt.Errorf("docker.observability.metrics_retention must be one of 6h/24h/72h, got %q", r)
+	}
+	if r := c.Docker.Observability.EventsRetention; r != "" && !allowedEventsRetentions[r] {
+		return fmt.Errorf("docker.observability.events_retention must be one of 7d/30d/90d, got %q", r)
 	}
 	return nil
 }
@@ -158,12 +177,10 @@ func Load(path string) (*Config, error) {
 	if cfg.Server.StacksPath == "" {
 		cfg.Server.StacksPath = "/opt/stacks"
 	}
-	// docker.observability defaults: enabled=true unless explicitly set false.
-	// Existing config files have no observability block; presence of the
-	// block (operator opted in to retention strings) signals explicit config.
-	if cfg.Docker.Observability.MetricsRetention == "" && cfg.Docker.Observability.EventsRetention == "" {
-		cfg.Docker.Observability.Enabled = true
-	}
+	// docker.observability is default-on. Enabled is *bool so a missing block
+	// (nil) means "use default-on" via IsEnabled(); only an explicit
+	// `enabled: false` disables it. Fill missing retention strings here so
+	// downstream code (and Validate's empty-string allowance) sees real values.
 	if cfg.Docker.Observability.MetricsRetention == "" {
 		cfg.Docker.Observability.MetricsRetention = "24h"
 	}
