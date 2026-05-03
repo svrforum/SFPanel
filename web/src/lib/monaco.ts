@@ -3,7 +3,7 @@ import * as monaco from 'monaco-editor'
 
 // Override worker factory to skip TypeScript worker (saves ~7MB)
 // We only need basic syntax highlighting, not full intellisense
-;(globalThis as any).MonacoEnvironment = {
+;(globalThis as { MonacoEnvironment?: monaco.Environment }).MonacoEnvironment = {
   getWorker(_moduleId: string, label: string) {
     switch (label) {
       case 'json':

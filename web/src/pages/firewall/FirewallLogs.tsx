@@ -116,6 +116,8 @@ export default function FirewallLogs() {
   // Fetch logs
   useEffect(() => {
     loadLog(selectedSource, lineCount)
+    // loadLog is a function declaration redefined per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSource, lineCount])
 
   async function loadLog(source: string, lines: number) {
@@ -225,14 +227,17 @@ export default function FirewallLogs() {
     setTotalLines(0)
   }
 
-  // Search
-  const searchLower = searchQuery.toLowerCase()
-  const matchingLines = searchQuery
-    ? logLines.reduce<number[]>((acc, line, i) => {
-        if (line.toLowerCase().includes(searchLower)) acc.push(i)
-        return acc
-      }, [])
-    : []
+  // Search — wrapped in useMemo so matchingLines has a stable identity per
+  // (logLines, searchQuery), preventing the useCallback below from being
+  // re-derived on every render.
+  const matchingLines = useMemo(() => {
+    if (!searchQuery) return [] as number[]
+    const searchLower = searchQuery.toLowerCase()
+    return logLines.reduce<number[]>((acc, line, i) => {
+      if (line.toLowerCase().includes(searchLower)) acc.push(i)
+      return acc
+    }, [])
+  }, [logLines, searchQuery])
 
   const scrollToLine = useCallback((lineIndex: number) => {
     const container = logContainerRef.current

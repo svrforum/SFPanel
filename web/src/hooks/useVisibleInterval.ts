@@ -6,7 +6,11 @@ import { useEffect, useRef } from 'react'
  */
 export function useVisibleInterval(callback: () => void, intervalMs: number) {
   const savedCallback = useRef(callback)
-  savedCallback.current = callback
+  // Sync the ref inside an effect — assigning during render trips the
+  // react-hooks/refs rule because the rule treats render as pure.
+  useEffect(() => {
+    savedCallback.current = callback
+  }, [callback])
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | null = null

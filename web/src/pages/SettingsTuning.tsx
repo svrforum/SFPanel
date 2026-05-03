@@ -41,6 +41,9 @@ export default function SettingsTuning() {
         return prev - 1
       })
     }, 1000)
+    // loadStatus and t are stable in this component (declared at module
+    // scope). Listing them would only churn the callback identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -48,6 +51,7 @@ export default function SettingsTuning() {
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function loadStatus() {

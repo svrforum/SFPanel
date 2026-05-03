@@ -95,9 +95,9 @@ export default function Dashboard() {
   // Fetch primary IP address
   useEffect(() => {
     api.getNetworkInterfaces().then((interfaces) => {
-      const defaultIf = interfaces.find((i: any) => i.is_default && i.state === 'up')
+      const defaultIf = interfaces.find((i) => i.is_default && i.state === 'up')
       if (defaultIf && defaultIf.addresses.length > 0) {
-        const ipv4 = defaultIf.addresses.find((a: any) => a.family === 'ipv4')
+        const ipv4 = defaultIf.addresses.find((a) => a.family === 'ipv4')
         if (ipv4) setPrimaryIP(ipv4.address)
       }
     }).catch(() => {})
@@ -175,15 +175,22 @@ export default function Dashboard() {
     onMessage,
   })
 
+  // Derive 'now' from the latest data point's timestamp — the metrics WS
+  // sends a fresh sample every second, so anchoring the rolling window to
+  // the newest point is visually identical to Date.now(). Avoids the
+  // react-hooks/purity violation of calling Date.now() inside useMemo.
+  // Empty chart fallback uses 0; the chart is empty before the first sample
+  // anyway, so the X domain doesn't matter visually.
+  const now = chartData.length > 0 ? chartData[chartData.length - 1].ts : 0
+
   const filteredChartData = useMemo(() => {
-    const now = Date.now()
     const cutoff = now - CHART_RANGE_MS[chartRange]
     return chartData.filter((pt) => pt.ts >= cutoff)
-  }, [chartData, chartRange])
+  }, [chartData, chartRange, now])
 
   const chartXDomain = useMemo<[number, number]>(() => {
-    return [Date.now() - CHART_RANGE_MS[chartRange], Date.now()]
-  }, [chartRange, chartData])
+    return [now - CHART_RANGE_MS[chartRange], now]
+  }, [chartRange, now])
 
   const runningContainers = containers.filter((c) => c.State === 'running').length
   const stoppedContainers = containers.length - runningContainers

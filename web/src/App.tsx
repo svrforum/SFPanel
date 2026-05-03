@@ -65,21 +65,21 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 let setupChecked = false
 
-// Exported so the Setup page can reset the cache after a successful reset
-// (e.g. `sfpanel reset` run remotely) puts the server back into setup mode.
-export function invalidateSetupCache() {
-  setupChecked = false
-}
-
 function SetupGuard({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()
-  const [checking, setChecking] = useState(!setupChecked)
+  // Compute the initial 'checking' state from the path so the effect below
+  // doesn't have to setState(false) synchronously for special routes —
+  // react-hooks/set-state-in-effect flags that pattern as a cascading-render risk.
+  const [checking, setChecking] = useState(() => {
+    if (setupChecked) return false
+    if (location.pathname === '/setup' || location.pathname === '/connect') return false
+    return true
+  })
 
   useEffect(() => {
     if (setupChecked || location.pathname === '/setup' || location.pathname === '/connect') {
-      setChecking(false)
       return
     }
 

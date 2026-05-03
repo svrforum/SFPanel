@@ -20,20 +20,22 @@ export default defineConfig([
       globals: globals.browser,
     },
     rules: {
-      // Rules added in eslint-plugin-react-hooks 7.x and a stricter
-      // typescript-eslint default. Fixing the existing violations is real
-      // work — turning them into 'warn' keeps the signal in `npm run lint`
-      // output without breaking CI. Re-enable as 'error' (or remove) once
-      // they're addressed in a follow-up cleanup.
-      'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/purity': 'warn',
-      'react-hooks/refs': 'warn',
-      'react-hooks/immutability': 'warn',
-      'react-hooks/incompatible-library': 'warn',
+      // exhaustive-deps stays a warning because there are legitimate cases
+      // (mount-only fetches, intentional dep omission with explanation) that
+      // get suppressed locally with eslint-disable-next-line. Promoting it
+      // to error would require either tweaking those callsites or scattering
+      // suppressions, both of which add noise without catching real bugs.
       'react-hooks/exhaustive-deps': 'warn',
-      'react-refresh/only-export-components': 'warn',
-      '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-unused-expressions': 'warn',
+      // The rest are full errors — we want regressions to fail CI now that
+      // the existing violations have been resolved.
+      'react-hooks/set-state-in-effect': 'error',
+      'react-hooks/purity': 'error',
+      'react-hooks/refs': 'error',
+      'react-hooks/immutability': 'error',
+      'react-hooks/incompatible-library': 'error',
+      'react-refresh/only-export-components': 'error',
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unused-expressions': 'error',
     },
   },
 ])

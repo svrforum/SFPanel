@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { Terminal as TerminalIcon, Plus, X, Minus, Search, Eraser } from 'lucide-react'
@@ -75,6 +75,17 @@ function loadFontSize(): number {
 
 function saveFontSize(size: number) {
   localStorage.setItem(FONT_SIZE_KEY, String(size))
+}
+
+// Each TerminalSession imperatively attaches its xterm instance, websocket
+// ref, and search addon to its DOM container so the parent (which renders
+// many sessions and reaches into the active one for search/clear/key
+// forwarding) can find them by querying the DOM. This sidesteps lifting a
+// dynamic list of refs to the parent.
+interface TerminalSessionElement extends HTMLElement {
+  __searchAddon?: SearchAddon
+  __termRef?: RefObject<XTerm | null>
+  __wsRef?: RefObject<WebSocket | null>
 }
 
 function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; active: boolean; fontSize: number }) {
@@ -215,16 +226,11 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
 
   // Expose search addon and ws for parent access
   useEffect(() => {
-    const el = containerRef.current
-    if (el && searchAddonRef.current) {
-      (el as any).__searchAddon = searchAddonRef.current
-    }
-    if (el) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const elAny = el as any
-      elAny.__wsRef = wsRef
-      elAny.__termRef = termRef
-    }
+    const el = containerRef.current as TerminalSessionElement | null
+    if (!el) return
+    if (searchAddonRef.current) el.__searchAddon = searchAddonRef.current
+    el.__wsRef = wsRef
+    el.__termRef = termRef
   }, [])
 
   return (
@@ -332,8 +338,20 @@ function MobileTerminalBar({ onSendKey }: { onSendKey: (data: string) => void })
 
 export default function TerminalPage() {
   const { t } = useTranslation()
-  const [tabs, setTabs] = useState<Tab[]>(() => loadTabs())
-  const [activeTab, setActiveTab] = useState<string>(() => loadActiveTab())
+  // Make sure there's always at least one tab on first render — guarantees
+  // the rest of the page can safely assume tabs[0] exists, and removes the
+  // setState-in-effect pattern that used to call addTab() during mount.
+  const [tabs, setTabs] = useState<Tab[]>(() => {
+    const persisted = loadTabs()
+    if (persisted.length > 0) return persisted
+    return [{ id: generateTabId(), title: `Terminal ${tabCounter}` }]
+  })
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const persisted = loadActiveTab()
+    if (persisted) return persisted
+    // Use the same id we just minted above so first-render is consistent.
+    return ''
+  })
   const [fontSize, setFontSize] = useState(() => loadFontSize())
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
   const [editingTabName, setEditingTabName] = useState('')
@@ -401,7 +419,7 @@ export default function TerminalPage() {
     // Find the active terminal's search addon
     const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
     termContainers.forEach(el => {
-      const addon = (el as any).__searchAddon
+      const addon = (el as TerminalSessionElement).__searchAddon
       if (addon && query) {
         addon.findNext(query)
       }
@@ -411,7 +429,7 @@ export default function TerminalPage() {
   const handleSearchNext = useCallback(() => {
     const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
     termContainers.forEach(el => {
-      const addon = (el as any).__searchAddon
+      const addon = (el as TerminalSessionElement).__searchAddon
       if (addon && searchQuery) addon.findNext(searchQuery)
     })
   }, [searchQuery])
@@ -419,7 +437,7 @@ export default function TerminalPage() {
   const handleSearchPrev = useCallback(() => {
     const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
     termContainers.forEach(el => {
-      const addon = (el as any).__searchAddon
+      const addon = (el as TerminalSessionElement).__searchAddon
       if (addon && searchQuery) addon.findPrevious(searchQuery)
     })
   }, [searchQuery])
@@ -427,8 +445,8 @@ export default function TerminalPage() {
   const clearTerminal = useCallback(() => {
     const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
     termContainers.forEach(el => {
-      const termRef = (el as any).__termRef
-      const wsRef = (el as any).__wsRef
+      const termRef = (el as TerminalSessionElement).__termRef
+      const wsRef = (el as TerminalSessionElement).__wsRef
       if (termRef?.current) termRef.current.clear()
       if (wsRef?.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(new TextEncoder().encode('clear\r'))
@@ -456,8 +474,8 @@ export default function TerminalPage() {
   const sendKeyToActiveTerminal = useCallback((data: string) => {
     const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
     termContainers.forEach(el => {
-      const wsRef = (el as any).__wsRef
-      const termRef = (el as any).__termRef
+      const wsRef = (el as TerminalSessionElement).__wsRef
+      const termRef = (el as TerminalSessionElement).__termRef
       if (wsRef?.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(new TextEncoder().encode(data))
       }
@@ -465,14 +483,18 @@ export default function TerminalPage() {
     })
   }, [])
 
-  // Create initial tab if none exist
+  // Set the active tab to the first tab when activeTab is empty or stale.
+  // The initial tab is seeded by useState so we never need to call addTab()
+  // from inside an effect, but a one-time activeTab realignment is still
+  // needed (persistedActive may not match a seeded tab after a localStorage
+  // reset). The setState here only fires when tabs/activeTab actually
+  // disagree, so cascading-render risk is bounded.
   useEffect(() => {
-    if (tabs.length === 0) {
-      addTab()
-    } else if (!activeTab || !tabs.find(t => t.id === activeTab)) {
+    if (tabs.length > 0 && (!activeTab || !tabs.find(t => t.id === activeTab))) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTab(tabs[0].id)
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tabs, activeTab])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

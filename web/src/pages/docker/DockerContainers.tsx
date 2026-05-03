@@ -5,7 +5,11 @@ import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryS
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
-import type { Container, ContainerStatsResult } from '@/types/api'
+import type { Container, ContainerStatsResult, ContainerInspectDetail, ContainerInspectPort, ContainerInspectMount, ContainerInspectNetwork } from '@/types/api'
+
+// Single-container stats endpoint returns the same metric shape as the
+// batch endpoint minus the id discriminator.
+type SingleContainerStats = Omit<ContainerStatsResult, 'id'>
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -93,9 +97,9 @@ function ContainerStatsCell({ stats, state }: { stats?: ContainerStatsResult; st
 // Container inspect detail panel
 function ContainerInspect({ containerId }: { containerId: string }) {
   const { t } = useTranslation()
-  const [data, setData] = useState<any>(null)
+  const [data, setData] = useState<ContainerInspectDetail | null>(null)
   const [loading, setLoading] = useState(true)
-  const [stats, setStats] = useState<any>(null)
+  const [stats, setStats] = useState<SingleContainerStats | null>(null)
   const statsInterval = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -117,8 +121,8 @@ function ContainerInspect({ containerId }: { containerId: string }) {
             } catch { /* ignore */ }
           }, 3000)
         }
-      } catch (err: any) {
-        if (!cancelled) toast.error(err.message || t('docker.containers.fetchFailed'))
+      } catch (err) {
+        if (!cancelled) toast.error(err instanceof Error ? err.message : t('docker.containers.fetchFailed'))
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -222,7 +226,7 @@ function ContainerInspect({ containerId }: { containerId: string }) {
                 </tr>
               </thead>
               <tbody>
-                {data.ports.map((p: any, i: number) => (
+                {data.ports.map((p: ContainerInspectPort, i: number) => (
                   <tr key={i} className="border-b last:border-0">
                     <td className="px-3 py-1 font-mono text-xs">{p.host_port ? `${p.host_ip || '0.0.0.0'}:${p.host_port}` : '-'}</td>
                     <td className="px-3 py-1"><ChevronRight className="h-3 w-3 text-muted-foreground" /></td>
@@ -244,7 +248,7 @@ function ContainerInspect({ containerId }: { containerId: string }) {
             {t('docker.containers.volumes')} ({data.mounts.length})
           </h4>
           <div className="space-y-1">
-            {data.mounts.map((m: any, i: number) => (
+            {data.mounts.map((m: ContainerInspectMount, i: number) => (
               <div key={i} className="bg-muted/30 rounded-lg px-3 py-2 text-xs font-mono flex items-center gap-2">
                 <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border shrink-0">{m.type}</span>
                 <span className="truncate" title={m.source}>{m.source}</span>
@@ -267,7 +271,7 @@ function ContainerInspect({ containerId }: { containerId: string }) {
             {t('docker.containers.networkInfo')} ({data.networks.length})
           </h4>
           <div className="space-y-1">
-            {data.networks.map((n: any, i: number) => (
+            {data.networks.map((n: ContainerInspectNetwork, i: number) => (
               <div key={i} className="bg-muted/30 rounded-lg px-3 py-2 text-xs flex items-center gap-4">
                 <span className="font-medium">{n.name}</span>
                 <span className="font-mono text-muted-foreground">IP: {n.ip_address || '-'}</span>

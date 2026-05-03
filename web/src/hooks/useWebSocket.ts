@@ -15,6 +15,10 @@ export function useWebSocket<T = unknown>({ url, onMessage, autoReconnect = true
   const isCleanedUpRef = useRef(false)
   const retryCountRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Holds the latest connect callback so the reconnect closure inside
+  // ws.onclose can call it without referencing the function inside its own
+  // initializer (which trips react-hooks/immutability).
+  const connectRef = useRef<() => void>(() => {})
 
   // Keep onMessage ref in sync without triggering reconnects
   useEffect(() => {
@@ -39,7 +43,7 @@ export function useWebSocket<T = unknown>({ url, onMessage, autoReconnect = true
       if (autoReconnect && !isCleanedUpRef.current) {
         const delay = Math.min(reconnectInterval * Math.pow(2, retryCountRef.current), 30000)
         retryCountRef.current += 1
-        reconnectTimerRef.current = setTimeout(connect, delay)
+        reconnectTimerRef.current = setTimeout(() => connectRef.current(), delay)
       }
     }
     ws.onmessage = (event) => {
@@ -53,6 +57,13 @@ export function useWebSocket<T = unknown>({ url, onMessage, autoReconnect = true
 
     wsRef.current = ws
   }, [url, autoReconnect, reconnectInterval])
+
+  // Sync the latest connect into the ref so the close-handler closure
+  // always reaches the freshest version (deps may have changed since
+  // the original WebSocket instance was created).
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
 
   useEffect(() => {
     isCleanedUpRef.current = false
