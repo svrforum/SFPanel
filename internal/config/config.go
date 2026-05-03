@@ -46,8 +46,23 @@ type AuthConfig struct {
 }
 
 type DockerConfig struct {
-	Socket string `yaml:"socket"`
+	Socket        string              `yaml:"socket"`
+	Observability ObservabilityConfig `yaml:"observability"`
 }
+
+// ObservabilityConfig controls the per-container metrics + events feature
+// (theme F). Disabled means the collector / events listener / pruners do
+// not start; new endpoints return empty arrays + observability_disabled flag.
+type ObservabilityConfig struct {
+	Enabled          bool   `yaml:"enabled"`
+	MetricsRetention string `yaml:"metrics_retention"` // "6h" | "24h" | "72h"
+	EventsRetention  string `yaml:"events_retention"`  // "7d" | "30d" | "90d"
+}
+
+var (
+	allowedMetricsRetentions = map[string]bool{"6h": true, "24h": true, "72h": true}
+	allowedEventsRetentions  = map[string]bool{"7d": true, "30d": true, "90d": true}
+)
 
 type LogConfig struct {
 	Level string `yaml:"level"`
@@ -82,6 +97,14 @@ func (c *Config) Validate() error {
 	// trips on manually-set short secrets.
 	if len(c.Auth.JWTSecret) < 32 {
 		return fmt.Errorf("auth.jwt_secret must be at least 32 characters (HS256 256-bit minimum)")
+	}
+	if c.Docker.Observability.Enabled {
+		if !allowedMetricsRetentions[c.Docker.Observability.MetricsRetention] {
+			return fmt.Errorf("docker.observability.metrics_retention must be one of 6h/24h/72h, got %q", c.Docker.Observability.MetricsRetention)
+		}
+		if !allowedEventsRetentions[c.Docker.Observability.EventsRetention] {
+			return fmt.Errorf("docker.observability.events_retention must be one of 7d/30d/90d, got %q", c.Docker.Observability.EventsRetention)
+		}
 	}
 	return nil
 }
@@ -134,6 +157,18 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Server.StacksPath == "" {
 		cfg.Server.StacksPath = "/opt/stacks"
+	}
+	// docker.observability defaults: enabled=true unless explicitly set false.
+	// Existing config files have no observability block; presence of the
+	// block (operator opted in to retention strings) signals explicit config.
+	if cfg.Docker.Observability.MetricsRetention == "" && cfg.Docker.Observability.EventsRetention == "" {
+		cfg.Docker.Observability.Enabled = true
+	}
+	if cfg.Docker.Observability.MetricsRetention == "" {
+		cfg.Docker.Observability.MetricsRetention = "24h"
+	}
+	if cfg.Docker.Observability.EventsRetention == "" {
+		cfg.Docker.Observability.EventsRetention = "30d"
 	}
 	cfg.ApplyEnvOverrides()
 	if err := cfg.Validate(); err != nil {
