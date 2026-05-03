@@ -1,12 +1,15 @@
 package featuredocker
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/docker"
@@ -14,8 +17,24 @@ import (
 
 // Handler holds a Docker client and exposes REST handlers for
 // container, image, volume, and network management.
+//
+// DB is optional. When set, ListContainers augments each row with
+// 1-hour averages from container_metrics_history. When nil (e.g. in
+// tests or when observability is disabled), the averages are omitted
+// (marshalled as null) and the handler still works.
 type Handler struct {
 	Docker *docker.Client
+	DB     *sql.DB
+}
+
+// containerWithMetrics wraps a container.Summary with optional
+// 1-hour CPU/memory averages. The embedded Summary preserves all the
+// JSON tags from the Docker SDK (Id, Names, Image, State, ...), so
+// existing clients see the same shape with two extra fields appended.
+type containerWithMetrics struct {
+	container.Summary
+	CPUAvg1h *float64 `json:"cpu_avg_1h"`
+	MemAvg1h *float64 `json:"mem_avg_1h"`
 }
 
 // safeLen returns the length of a string slice, safely handling nil.
@@ -26,13 +45,45 @@ func safeLen[T any](s []T) int {
 // ---------- Containers ----------
 
 // ListContainers returns all containers (running and stopped).
+//
+// When the Handler has a DB attached, each row is augmented with
+// cpu_avg_1h / mem_avg_1h computed from container_metrics_history
+// over the last hour. Containers with no recent samples report null
+// for both fields. Failure to query the metrics table is non-fatal —
+// the row is returned without averages rather than failing the whole
+// list.
 func (h *Handler) ListContainers(c echo.Context) error {
 	ctx := c.Request().Context()
 	containers, err := h.Docker.ListContainers(ctx)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
-	return response.OK(c, containers)
+
+	out := make([]containerWithMetrics, 0, len(containers))
+	cutoff := time.Now().Add(-1 * time.Hour).UnixMilli()
+	for _, summary := range containers {
+		row := containerWithMetrics{Summary: summary}
+		if h.DB != nil {
+			var cpuAvg, memAvg sql.NullFloat64
+			if err := h.DB.QueryRowContext(ctx,
+				`SELECT AVG(cpu_percent), AVG(mem_percent)
+                   FROM container_metrics_history
+                  WHERE container_id = ? AND ts >= ?`,
+				summary.ID, cutoff,
+			).Scan(&cpuAvg, &memAvg); err == nil {
+				if cpuAvg.Valid {
+					v := cpuAvg.Float64
+					row.CPUAvg1h = &v
+				}
+				if memAvg.Valid {
+					v := memAvg.Float64
+					row.MemAvg1h = &v
+				}
+			}
+		}
+		out = append(out, row)
+	}
+	return response.OK(c, out)
 }
 
 // StartContainer starts a container by ID.
