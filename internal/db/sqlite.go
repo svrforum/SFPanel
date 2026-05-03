@@ -38,3 +38,15 @@ func Open(path string) (*sql.DB, error) {
 	}
 	return db, nil
 }
+
+// CheckpointWAL forces SQLite to merge the -wal sidecar back into the main
+// database file (TRUNCATE mode also reclaims the wal). Called before
+// snapshot operations like the pre-update DB backup so the .bak is a
+// complete, restorable copy — without this, copying just sfpanel.db while
+// uncommitted pages live in sfpanel.db-wal would yield a stale snapshot.
+func CheckpointWAL(db *sql.DB) error {
+	if _, err := db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		return fmt.Errorf("wal_checkpoint(TRUNCATE): %w", err)
+	}
+	return nil
+}

@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/release"
 )
 
@@ -38,6 +40,10 @@ const maxUpdateArchiveBytes int64 = 200 * 1024 * 1024
 
 type Handler struct {
 	Version     string
+	// DB is the live SQLite connection — used to force a WAL checkpoint
+	// before copying the DB file to .bak so the snapshot is not stale.
+	// Nil-safe: pre-update backup falls back to a plain file copy.
+	DB          *sql.DB
 	DBPath      string
 	ConfigPath  string
 	ComposePath string
@@ -312,6 +318,15 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		_ = os.WriteFile(backupPath, data, 0755)
 	}
 
+	// Force WAL pages back into the main DB file so the .bak we're about
+	// to write is a complete snapshot. Without this the live process's
+	// pending writes would still live in sfpanel.db-wal, and rolling
+	// back to .bak would silently drop them.
+	if h.DB != nil {
+		if cpErr := sfdb.CheckpointWAL(h.DB); cpErr != nil {
+			slog.Warn("WAL checkpoint failed before DB backup; .bak may be stale", "error", cpErr)
+		}
+	}
 	if data, readErr := os.ReadFile(h.DBPath); readErr == nil {
 		_ = os.WriteFile(h.DBPath+".bak", data, 0600)
 	}
@@ -355,6 +370,8 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 			execPath,
 			fmt.Sprintf("http://127.0.0.1:%d/api/v1/system/info", h.Port),
 			"90",
+			h.DBPath+".bak",
+			h.DBPath,
 		)
 		watchdogCmd.SysProcAttr = detachAttr() // platform-specific: detach so systemctl restart can't kill it
 		watchdogCmd.Stdout = nil
