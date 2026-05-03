@@ -11,13 +11,6 @@ import (
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 )
 
-// fakeReleaseServer returns a GitHub-shaped JSON describing whatever tag the
-// caller asks for. Tests use it to drive RunUpdate without hitting the real
-// api.github.com.
-type fakeReleaseServer struct {
-	tag string
-}
-
 // newHandler wires a Handler against the fake release server. We reach into
 // it by setting the GitHub URL via a substitute http.RoundTripper would be
 // cleaner long-term, but RunUpdate hard-codes the URL, so for these tests

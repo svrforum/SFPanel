@@ -2,7 +2,6 @@ package sfpanel
 
 import (
 	"embed"
-	"fmt"
 )
 
 //go:embed all:web/dist
@@ -19,6 +18,6 @@ var webDistIndex []byte
 
 func init() {
 	if len(webDistIndex) == 0 {
-		panic(fmt.Sprintf("web/dist/index.html is empty — run `cd web && npm ci && npm run build` before `go build`"))
+		panic("web/dist/index.html is empty — run `cd web && npm ci && npm run build` before `go build`")
 	}
 }

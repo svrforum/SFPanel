@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	types "github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 )
 
 var validProjectName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
@@ -466,7 +466,7 @@ func (m *ComposeManager) GetProjectServices(ctx context.Context, name string) ([
 		return nil, fmt.Errorf("list containers: %w", err)
 	}
 
-	var containers []types.Container
+	var containers []container.Summary
 	for _, c := range allContainers {
 		workingDir := c.Labels["com.docker.compose.project.working_dir"]
 		if workingDir == dir || strings.HasPrefix(workingDir, dirPrefix) {
