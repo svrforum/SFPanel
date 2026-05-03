@@ -17,6 +17,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/config"
@@ -686,6 +687,9 @@ func (h *Handler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
 	proxySecret := mgr.ProxySecret()
 	headers := make(map[string]string)
 	if proxySecret != "" {
+		// v1 stays alongside v2 so a not-yet-upgraded peer keeps accepting
+		// the request. Fully drop v1 once every node ships a release that
+		// understands v2 — currently there's no harm in carrying both.
 		headers["X-SFPanel-Internal-Proxy"] = proxySecret
 	}
 
@@ -697,6 +701,11 @@ func (h *Handler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
 	proxyPath := c.Request().URL.Path
 	if rawQuery := c.Request().URL.RawQuery; rawQuery != "" {
 		proxyPath += "?" + rawQuery
+	}
+
+	// v2 signature binds method + path so a captured header can't be re-targeted.
+	if v2 := auth.SignProxyRequestV2(c.Request().Method, proxyPath); v2 != "" {
+		headers[auth.InternalProxyHeaderV2] = v2
 	}
 
 	resp, err := client.ProxyRequest(ctx, &pb.APIRequest{
@@ -931,6 +940,9 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		if secret := mgr.ProxySecret(); secret != "" {
 			proxyHeaders["X-SFPanel-Internal-Proxy"] = secret
 		}
+		if v2 := auth.SignProxyRequestV2("POST", "/api/v1/system/update"); v2 != "" {
+			proxyHeaders[auth.InternalProxyHeaderV2] = v2
+		}
 
 		resp, err := client.ProxyRequest(ctx, &pb.APIRequest{
 			Method:  "POST",
@@ -1031,6 +1043,9 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 			req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/api/v1/system/update", h.Config.Server.Port), nil)
 			if secret := proxySecret; secret != "" {
 				req.Header.Set("X-SFPanel-Internal-Proxy", secret)
+			}
+			if v2 := auth.SignProxyRequestV2("POST", "/api/v1/system/update"); v2 != "" {
+				req.Header.Set(auth.InternalProxyHeaderV2, v2)
 			}
 			client.Do(req)
 		}()
