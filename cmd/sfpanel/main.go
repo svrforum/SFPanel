@@ -35,6 +35,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
+	featureAlert "github.com/svrforum/SFPanel/internal/feature/alert"
 	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	"github.com/svrforum/SFPanel/internal/monitor"
@@ -224,6 +225,12 @@ func main() {
 
 	// Start background metrics history collector (60s interval, 24h rolling window)
 	monitor.StartHistoryCollector(bgCtx, database)
+
+	// Background retention pruners — previously rode on inserts via a CAS,
+	// which left tables growing unbounded during idle periods. Now both run
+	// on independent tickers so a panel that's quiet for hours still trims.
+	middleware.StartAuditRetention(bgCtx, database)
+	featureAlert.StartHistoryRetention(bgCtx, database)
 
 	// Start terminal session cleanup (timeout from settings, 0 = never)
 	featureTerminal.CleanupTerminalSessions(bgCtx, database)

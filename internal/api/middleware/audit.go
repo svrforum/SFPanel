@@ -1,18 +1,16 @@
 package middleware
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v4"
 )
 
 const auditMaxRows = 50000
-
-var lastCleanup atomic.Int64
 
 // AuditMiddleware logs all state-changing API requests (POST, PUT, DELETE)
 // to the audit_logs table after the handler has executed successfully.
@@ -44,24 +42,43 @@ func AuditMiddleware(db *sql.DB) echo.MiddlewareFunc {
 				); dbErr != nil {
 					slog.Error("audit log write failed", "error", dbErr)
 				}
-
-				// Periodic cleanup: keep at most auditMaxRows. CompareAndSwap
-				// guarantees only one goroutine per 5-minute window runs the
-				// DELETE, and the single statement keeps count+prune atomic so
-				// two concurrent middlewares can't double-delete.
-				now := time.Now().Unix()
-				prev := lastCleanup.Load()
-				if now-prev > 300 && lastCleanup.CompareAndSwap(prev, now) {
-					if _, dbErr := db.Exec(
-						"DELETE FROM audit_logs WHERE id IN (SELECT id FROM audit_logs ORDER BY id DESC LIMIT -1 OFFSET ?)",
-						auditMaxRows,
-					); dbErr != nil {
-						slog.Warn("audit log cleanup failed", "error", dbErr)
-					}
-				}
 			}()
 
 			return err
 		}
+	}
+}
+
+// StartAuditRetention runs a background goroutine that prunes audit_logs
+// down to auditMaxRows every 5 minutes. The previous design piggybacked on
+// inserts via a CAS — if the panel was idle for hours, nothing pruned and
+// the table grew unbounded after a bursty period.
+//
+// Returns when ctx is cancelled. Caller is expected to wire ctx to the
+// shared bgCtx from main.go so retention stops cleanly on shutdown.
+func StartAuditRetention(ctx context.Context, db *sql.DB) {
+	go func() {
+		// Run once on startup so a host that was offline for a long time
+		// catches up before waiting another 5 minutes.
+		pruneAuditLogs(db)
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				pruneAuditLogs(db)
+			}
+		}
+	}()
+}
+
+func pruneAuditLogs(db *sql.DB) {
+	if _, err := db.Exec(
+		"DELETE FROM audit_logs WHERE id IN (SELECT id FROM audit_logs ORDER BY id DESC LIMIT -1 OFFSET ?)",
+		auditMaxRows,
+	); err != nil {
+		slog.Warn("audit log retention prune failed", "error", err)
 	}
 }

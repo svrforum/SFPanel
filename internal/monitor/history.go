@@ -45,6 +45,12 @@ func StartHistoryCollector(ctx context.Context, db *sql.DB) {
 			ticker := time.NewTicker(historyInterval)
 			defer ticker.Stop()
 
+			// Hourly retention sweep — drops rows older than 24h. Previously
+			// only ran at boot, so a host that ran for weeks had a slowly-
+			// growing tail of stale rows past the rolling window.
+			retention := time.NewTicker(1 * time.Hour)
+			defer retention.Stop()
+
 			// Collect first point immediately
 			collectPoint()
 
@@ -54,10 +60,25 @@ func StartHistoryCollector(ctx context.Context, db *sql.DB) {
 					return
 				case <-ticker.C:
 					collectPoint()
+				case <-retention.C:
+					pruneHistory()
 				}
 			}
 		}()
 	})
+}
+
+// pruneHistory deletes metrics_history rows older than 24h. Called on a
+// 1h tick from the collector goroutine so a long-running process doesn't
+// rely on a restart to reclaim space.
+func pruneHistory() {
+	if historyDB == nil {
+		return
+	}
+	cutoff := time.Now().Add(-24 * time.Hour).UnixMilli()
+	if _, err := historyDB.Exec("DELETE FROM metrics_history WHERE time <= ?", cutoff); err != nil {
+		slog.Warn("metrics history retention prune failed", "error", err)
+	}
 }
 
 func loadHistoryFromDB() {

@@ -74,6 +74,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 
 	systemHandler := &featureSystem.Handler{
 		Version:     version,
+		DB:          database,
 		DBPath:      cfg.Database.Path,
 		ConfigPath:  cfgPath,
 		ComposePath: cfg.Server.StacksPath,
