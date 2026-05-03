@@ -50,7 +50,7 @@ func (c *cache[T]) set(data T, ttl time.Duration) {
 type Client struct {
 	cli *client.Client
 
-	containersCache cache[[]types.Container]
+	containersCache cache[[]container.Summary]
 	imagesCache     cache[[]ImageWithUsage]
 }
 
@@ -70,14 +70,14 @@ func NewClient(host string) (*Client, error) {
 // ---------- Containers ----------
 
 // ListContainers returns all containers (running and stopped).
-func (c *Client) ListContainers(ctx context.Context) ([]types.Container, error) {
+func (c *Client) ListContainers(ctx context.Context) ([]container.Summary, error) {
 	return c.cli.ContainerList(ctx, container.ListOptions{All: true})
 }
 
 const containersCacheTTL = 5 * time.Second
 
 // ListContainersCached returns containers from cache or fetches fresh data.
-func (c *Client) ListContainersCached(ctx context.Context) ([]types.Container, error) {
+func (c *Client) ListContainersCached(ctx context.Context) ([]container.Summary, error) {
 	if data, ok := c.containersCache.get(); ok {
 		return data, nil
 	}
@@ -90,7 +90,7 @@ func (c *Client) ListContainersCached(ctx context.Context) ([]types.Container, e
 }
 
 // GetContainer inspects a single container by ID or name.
-func (c *Client) GetContainer(ctx context.Context, id string) (types.ContainerJSON, error) {
+func (c *Client) GetContainer(ctx context.Context, id string) (container.InspectResponse, error) {
 	return c.cli.ContainerInspect(ctx, id)
 }
 
@@ -288,7 +288,7 @@ func (c *Client) ContainerStatsBatch(ctx context.Context) ([]ContainerStatsResul
 	}
 
 	// Filter running containers.
-	var running []types.Container
+	var running []container.Summary
 	for _, ct := range containers {
 		if ct.State == "running" {
 			running = append(running, ct)
@@ -381,9 +381,8 @@ func (c *Client) RemoveImage(ctx context.Context, id string) error {
 }
 
 // InspectImage returns detailed information about an image.
-func (c *Client) InspectImage(ctx context.Context, id string) (types.ImageInspect, error) {
-	resp, _, err := c.cli.ImageInspectWithRaw(ctx, id)
-	return resp, err
+func (c *Client) InspectImage(ctx context.Context, id string) (image.InspectResponse, error) {
+	return c.cli.ImageInspect(ctx, id)
 }
 
 // ImageUpdateStatus holds update check result for a single image.
@@ -398,7 +397,7 @@ type ImageUpdateStatus struct {
 func (c *Client) CheckImageUpdate(ctx context.Context, imageRef string) (*ImageUpdateStatus, error) {
 	status := &ImageUpdateStatus{Image: imageRef}
 
-	localInspect, _, err := c.cli.ImageInspectWithRaw(ctx, imageRef)
+	localInspect, err := c.cli.ImageInspect(ctx, imageRef)
 	if err != nil {
 		status.Error = fmt.Sprintf("inspect: %v", err)
 		return status, nil
@@ -546,7 +545,7 @@ func (c *Client) ListImagesWithUsage(ctx context.Context) ([]ImageWithUsage, err
 }
 
 // listImagesWithContainers returns all images with usage info derived from the provided containers.
-func (c *Client) listImagesWithContainers(ctx context.Context, containers []types.Container) ([]ImageWithUsage, error) {
+func (c *Client) listImagesWithContainers(ctx context.Context, containers []container.Summary) ([]ImageWithUsage, error) {
 	images, err := c.ListImages(ctx)
 	if err != nil {
 		return nil, err
@@ -596,7 +595,7 @@ func (c *Client) ListVolumesWithUsage(ctx context.Context) ([]VolumeWithUsage, e
 }
 
 // listVolumesWithContainers returns all volumes with usage info derived from the provided containers.
-func (c *Client) listVolumesWithContainers(ctx context.Context, containers []types.Container) ([]VolumeWithUsage, error) {
+func (c *Client) listVolumesWithContainers(ctx context.Context, containers []container.Summary) ([]VolumeWithUsage, error) {
 	volumes, err := c.ListVolumes(ctx)
 	if err != nil {
 		return nil, err
@@ -653,7 +652,7 @@ func (c *Client) ListNetworksWithUsage(ctx context.Context) ([]NetworkWithUsage,
 }
 
 // listNetworksWithContainers returns all networks with usage info derived from the provided containers.
-func (c *Client) listNetworksWithContainers(ctx context.Context, containers []types.Container) ([]NetworkWithUsage, error) {
+func (c *Client) listNetworksWithContainers(ctx context.Context, containers []container.Summary) ([]NetworkWithUsage, error) {
 	networks, err := c.ListNetworks(ctx)
 	if err != nil {
 		return nil, err
@@ -695,14 +694,14 @@ func (c *Client) listNetworksWithContainers(ctx context.Context, containers []ty
 // ---------- Compose Project Containers ----------
 
 // ListContainersByComposeProject returns containers belonging to a specific compose project.
-func (c *Client) ListContainersByComposeProject(ctx context.Context, project string) ([]types.Container, error) {
+func (c *Client) ListContainersByComposeProject(ctx context.Context, project string) ([]container.Summary, error) {
 	f := filters.NewArgs()
 	f.Add("label", fmt.Sprintf("com.docker.compose.project=%s", project))
 	return c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
 }
 
 // ListContainersByComposeWorkingDir returns containers belonging to a compose project by working directory.
-func (c *Client) ListContainersByComposeWorkingDir(ctx context.Context, workingDir string) ([]types.Container, error) {
+func (c *Client) ListContainersByComposeWorkingDir(ctx context.Context, workingDir string) ([]container.Summary, error) {
 	f := filters.NewArgs()
 	f.Add("label", fmt.Sprintf("com.docker.compose.project.working_dir=%s", workingDir))
 	return c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})

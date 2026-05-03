@@ -42,9 +42,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
       - run: cd web && npm ci && npm run build
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          # Pin to a v2.x release built against Go 1.25.x. The 'latest' tag
+          # on the v6 action resolved to a v1.x binary built with Go 1.24,
+          # which refused to load against go.mod's go 1.25.0 directive.
+          version: v2.12.1
 
   go-build:
     runs-on: ubuntu-latest

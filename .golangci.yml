@@ -1,19 +1,30 @@
+# golangci-lint v2 config schema. Migrated from v1 alongside the linter
+# bump to support Go 1.25; v1 syntax (top-level `linters.enable/disable`,
+# `issues.exclude-rules`) is unsupported in v2.
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
-  disable:
-    - errcheck
+  default: none
   enable:
+    # Default + standard analysis suite. errcheck is intentionally off —
+    # half the codebase relies on best-effort error suppression with
+    # explicit `_ =` patterns, and bulk-enabling errcheck would generate
+    # hundreds of warnings without catching real bugs.
+    # gosimple was merged into staticcheck in v2; typecheck is now a
+    # built-in compilation check (not a separate linter).
     - govet
     - staticcheck
     - unused
-    - gosimple
     - ineffassign
-    - typecheck
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
+  exclusions:
+    paths:
+      # node_modules contains vendored Go fixtures from npm packages
+      # (e.g. flatted) that we don't own and aren't part of the build.
+      - web/node_modules
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck

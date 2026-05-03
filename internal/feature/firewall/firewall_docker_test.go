@@ -20,8 +20,6 @@ num  target     prot opt source               destination
 4    RETURN     all  --  0.0.0.0/0            0.0.0.0/0
 `
 
-const dockerPsFixture = ``
-
 func TestGetDockerPublishedPorts(t *testing.T) {
 	mock := exec.NewMockCommander()
 	mock.SetOutput("iptables", iptablesNatDockerFixture, nil)
