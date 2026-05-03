@@ -46,6 +46,15 @@ func parseSemver(v string) ([3]int, error) {
 	if v == "" {
 		return [3]int{}, fmt.Errorf("empty version")
 	}
+	// Strip semver pre-release / build metadata suffix. `git describe`
+	// produces values like "0.11.1-19-g2a7258c" for dev builds which would
+	// otherwise fail strict parsing and break `sfpanel update` locally.
+	// For comparison purposes a pre-release (or commits-ahead) is treated
+	// as equal to its base version — release.yml only emits clean tags so
+	// this only matters when an operator runs an interim build.
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
 	parts := strings.Split(v, ".")
 	if len(parts) != 3 {
 		return [3]int{}, fmt.Errorf("expected MAJOR.MINOR.PATCH, got %d segments", len(parts))
