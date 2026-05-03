@@ -49,11 +49,18 @@ const API_PATH = '/api/v1'
 
 class ApiClient {
   private token: string | null = null
+  private refreshToken: string | null = null
   private _currentNode: string | null = null
   private _serverUrl: string | null = null
+  // refreshPromise dedupes concurrent 401s into a single /auth/refresh call.
+  // Without this, ten parallel requests racing into the unauthorized branch
+  // would each fire their own POST /auth/refresh — the first one rotates
+  // and the others find the token gone.
+  private refreshPromise: Promise<boolean> | null = null
 
   constructor() {
     this.token = localStorage.getItem('token')
+    this.refreshToken = localStorage.getItem('refresh_token')
     this._currentNode = localStorage.getItem('sfpanel_current_node')
     this._serverUrl = localStorage.getItem('sfpanel_server_url')
   }
@@ -76,9 +83,30 @@ class ApiClient {
     localStorage.setItem('token', token)
   }
 
+  setRefreshToken(token: string | null) {
+    this.refreshToken = token
+    if (token) {
+      localStorage.setItem('refresh_token', token)
+    } else {
+      localStorage.removeItem('refresh_token')
+    }
+  }
+
+  // setTokenPair stores both access and refresh tokens from a login /
+  // setup / refresh response. Refresh tokens are optional in the response
+  // shape (older servers won't return one) — null is fine.
+  setTokenPair(token: string, refreshToken?: string | null) {
+    this.setToken(token)
+    if (refreshToken !== undefined) {
+      this.setRefreshToken(refreshToken)
+    }
+  }
+
   clearToken() {
     this.token = null
+    this.refreshToken = null
     localStorage.removeItem('token')
+    localStorage.removeItem('refresh_token')
   }
 
   getToken(): string | null {
@@ -114,8 +142,8 @@ class ApiClient {
     return !this.isTauri || !!this._serverUrl
   }
 
-  async request<T>(path: string, options: RequestInit & { local?: boolean; timeout?: number } = {}): Promise<T> {
-    const { local, timeout = 30000, ...fetchOptions } = options
+  async request<T>(path: string, options: RequestInit & { local?: boolean; timeout?: number; _retried?: boolean } = {}): Promise<T> {
+    const { local, timeout = 30000, _retried, ...fetchOptions } = options
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...((fetchOptions.headers as Record<string, string>) || {}),
@@ -151,6 +179,15 @@ class ApiClient {
     }
 
     if (res.status === 401 && !path.startsWith('/auth/')) {
+      // Try silent refresh once. _retried guards against an infinite loop if
+      // the new access token also gets 401 immediately (e.g. user deleted
+      // mid-refresh).
+      if (!_retried && this.refreshToken) {
+        const ok = await this.tryRefresh()
+        if (ok) {
+          return this.request<T>(path, { ...options, _retried: true })
+        }
+      }
       this.clearToken()
       window.location.href = this.isTauri ? '/connect' : '/login'
       throw new Error('Session expired')
@@ -165,9 +202,40 @@ class ApiClient {
     return json.data as T
   }
 
+  // tryRefresh exchanges the current refresh token for a fresh access +
+  // refresh pair. Concurrent 401s share a single in-flight refresh via
+  // refreshPromise. Returns true on success; false on any failure (caller
+  // should treat as "session ended").
+  private tryRefresh(): Promise<boolean> {
+    if (this.refreshPromise) return this.refreshPromise
+    if (!this.refreshToken) return Promise.resolve(false)
+
+    this.refreshPromise = (async () => {
+      try {
+        const res = await fetch(`${this.apiBase}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: this.refreshToken }),
+        })
+        if (!res.ok) return false
+        const json = await res.json()
+        if (!json.success) return false
+        const data = json.data as { token: string; refresh_token?: string }
+        if (!data?.token) return false
+        this.setTokenPair(data.token, data.refresh_token ?? null)
+        return true
+      } catch {
+        return false
+      } finally {
+        this.refreshPromise = null
+      }
+    })()
+    return this.refreshPromise
+  }
+
   // Auth
   login(username: string, password: string, totpCode?: string) {
-    return this.request<{ token: string }>('/auth/login', {
+    return this.request<{ token: string; refresh_token?: string; expires_in?: number }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password, totp_code: totpCode }),
     })
@@ -178,7 +246,7 @@ class ApiClient {
   }
 
   setupAdmin(username: string, password: string) {
-    return this.request<{ token: string }>('/auth/setup', {
+    return this.request<{ token: string; refresh_token?: string; expires_in?: number }>('/auth/setup', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     })

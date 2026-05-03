@@ -23,7 +23,7 @@ export default function Login() {
 
     try {
       const result = await api.login(username, password, showTotp ? totpCode : undefined)
-      api.setToken(result.token)
+      api.setTokenPair(result.token, result.refresh_token ?? null)
       navigate('/dashboard')
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Login failed'
