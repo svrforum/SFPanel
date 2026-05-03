@@ -113,6 +113,32 @@ func TestCollectOnce_SkipsStoppedContainer(t *testing.T) {
 	}
 }
 
+func TestComputeCPUPercent_UnderflowGuard(t *testing.T) {
+	// CPUUsage.TotalUsage prev > current — counter reset (e.g. container
+	// restart). uint64 subtraction would underflow into a huge positive
+	// value; guard must short-circuit to 0.
+	cpuReset := &container.StatsResponse{}
+	cpuReset.CPUStats.CPUUsage.TotalUsage = 100
+	cpuReset.PreCPUStats.CPUUsage.TotalUsage = 1000
+	cpuReset.CPUStats.SystemUsage = 2000
+	cpuReset.PreCPUStats.SystemUsage = 1000
+	cpuReset.CPUStats.OnlineCPUs = 1
+	if got := computeCPUPercent(cpuReset); got != 0 {
+		t.Errorf("cpu underflow: got %v, want 0", got)
+	}
+
+	// SystemUsage prev > current — same shape on the other field.
+	sysReset := &container.StatsResponse{}
+	sysReset.CPUStats.CPUUsage.TotalUsage = 2000
+	sysReset.PreCPUStats.CPUUsage.TotalUsage = 1000
+	sysReset.CPUStats.SystemUsage = 100
+	sysReset.PreCPUStats.SystemUsage = 1000
+	sysReset.CPUStats.OnlineCPUs = 1
+	if got := computeCPUPercent(sysReset); got != 0 {
+		t.Errorf("system underflow: got %v, want 0", got)
+	}
+}
+
 // fakeStats builds a container.StatsResponse with the given CPU% intent and
 // memory usage/limit. Math: cpu_pct = (cpu_delta / system_delta) * cpus * 100.
 // Picking cpus=1, system_delta=100, cpu_delta=cpuPct yields exactly cpuPct.
