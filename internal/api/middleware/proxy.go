@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	authpkg "github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 )
@@ -51,7 +52,12 @@ func newRemoteHTTPClient(timeout time.Duration, mgr *cluster.Manager) *http.Clie
 // setAuthHeaders sets internal proxy or bearer auth headers for remote requests.
 func setAuthHeaders(httpReq *http.Request, origReq *http.Request, mgr *cluster.Manager) {
 	if secret := mgr.ProxySecret(); secret != "" {
-		httpReq.Header.Set("X-SFPanel-Internal-Proxy", secret)
+		// v1 stays for back-compat with not-yet-upgraded peers; v2 makes the
+		// request replay-resistant when both sides support it.
+		httpReq.Header.Set(authpkg.InternalProxyHeader, secret)
+		if v2 := authpkg.SignProxyRequestV2(origReq.Method, origReq.URL.Path); v2 != "" {
+			httpReq.Header.Set(authpkg.InternalProxyHeaderV2, v2)
+		}
 	} else if auth := origReq.Header.Get("Authorization"); auth != "" {
 		httpReq.Header.Set("Authorization", auth)
 	}
