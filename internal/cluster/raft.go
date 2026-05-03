@@ -133,6 +133,28 @@ func (rn *RaftNode) Barrier(timeout time.Duration) error {
 	return f.Error()
 }
 
+// VerifyLeader confirms this node is still the leader of a quorum-acked
+// cluster *right now*. Read-side analogue of Barrier — used by GetStatus /
+// GetNodes / GetOverview to refuse serving stale data when the local
+// Raft thinks it's leader but lease/quorum has actually lapsed
+// (e.g. mid-partition before the lease timeout fires). Sub-200ms in
+// healthy clusters; errors out at `timeout` when partitioned.
+func (rn *RaftNode) VerifyLeader(timeout time.Duration) error {
+	if rn.raft.State() != raft.Leader {
+		return ErrNotLeader
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- rn.raft.VerifyLeader().Error()
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(timeout):
+		return ErrNotLeader
+	}
+}
+
 // AddVoter adds a new voter node to the Raft cluster.
 func (rn *RaftNode) AddVoter(nodeID, address string) error {
 	if rn.raft.State() != raft.Leader {

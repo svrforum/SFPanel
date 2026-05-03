@@ -114,6 +114,14 @@ export default function ClusterOverview() {
 
   return (
     <div className="space-y-6">
+      {/* Stale-data banner: backend flagged this response as served from a
+          local FSM without leader confirmation. Likely partition or
+          mid-election; numbers below may not reflect the real cluster state. */}
+      {status.stale && (
+        <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/40 rounded-xl px-4 py-2 text-[12px] text-amber-800 dark:text-amber-200">
+          {t('cluster.overview.staleData')}
+        </div>
+      )}
       {/* Cluster info */}
       <div className="bg-card rounded-2xl p-5 card-shadow">
         <div className="flex items-center justify-between">

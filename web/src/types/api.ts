@@ -824,6 +824,12 @@ export interface ClusterStatus {
   leader_id?: string
   local_id?: string
   is_leader?: boolean
+  // True when the response served local-FSM data without leader confirmation.
+  // The backend sets this when (a) a follower's proxy-to-leader failed and
+  // we fell back to local, or (b) the local leader's VerifyLeader timed out
+  // (indicating a partition / lost quorum). UI surfaces a "stale data"
+  // badge so operators know not to fully trust the numbers.
+  stale?: boolean
 }
 
 export interface ClusterNodesResponse {

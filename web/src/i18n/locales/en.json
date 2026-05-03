@@ -616,7 +616,8 @@
       "simultaneousUpdate": "Simultaneous Update",
       "confirmUpdate": "Start cluster-wide update?",
       "updating": "Updating...",
-      "updateProgress": "Update Progress"
+      "updateProgress": "Update Progress",
+      "staleData": "Showing last-known cluster data — leader unreachable or partition in progress. Numbers may be out of date."
     },
     "events": {
       "node_joined": "joined the cluster",
