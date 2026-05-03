@@ -60,13 +60,16 @@ func evaluateRestartLoop(restartTimesMillis []int64, threshold, windowSec int) b
 	return count >= threshold
 }
 
-// AlertFire is the payload handed to the channel dispatcher (existing
-// alert manager).
+// AlertFire is the complete payload handed to ChannelDispatcher.Fire so it
+// can enforce cooldown, route to channels, and write alert_history.
 type AlertFire struct {
-	RuleName string
-	Type     string
-	Severity string
-	Message  string
+	RuleID     int
+	RuleName   string
+	Type       string // alert rule type, e.g. "container_down"
+	Severity   string
+	Message    string
+	ChannelIDs string // raw JSON from alert_rules.channel_ids
+	Cooldown   int    // seconds
 }
 
 // ChannelDispatcher is implemented by the existing alert manager. We
@@ -98,16 +101,16 @@ func NewContainerDispatcher(db *sql.DB, ch ChannelDispatcher) *ContainerDispatch
 
 // Dispatch is the entry point — translates the event to alert evaluation.
 func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEvent) {
-	rows, err := d.db.Query(`SELECT id, name, type, condition, severity FROM alert_rules WHERE enabled=1 AND type IN ('container_down','container_oom','container_restart_loop')`)
+	rows, err := d.db.Query(`SELECT id, name, type, condition, channel_ids, severity, cooldown FROM alert_rules WHERE enabled=1 AND type IN ('container_down','container_oom','container_restart_loop')`)
 	if err != nil {
 		slog.Warn("container alert rules query failed", "error", err)
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id int
-		var name, typ, condStr, sev string
-		if err := rows.Scan(&id, &name, &typ, &condStr, &sev); err != nil {
+		var id, cooldown int
+		var name, typ, condStr, channelIDs, sev string
+		if err := rows.Scan(&id, &name, &typ, &condStr, &channelIDs, &sev, &cooldown); err != nil {
 			continue
 		}
 		var cond struct {
@@ -115,13 +118,19 @@ func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEv
 			ThresholdCount   int    `json:"threshold_count"`
 			WindowSeconds    int    `json:"window_seconds"`
 		}
-		_ = json.Unmarshal([]byte(condStr), &cond)
+		if err := json.Unmarshal([]byte(condStr), &cond); err != nil {
+			slog.Warn("invalid container alert condition JSON", "rule", name, "error", err)
+			continue
+		}
 		if !matchContainerPattern(cond.ContainerPattern, ev.Name) {
 			continue
 		}
 		switch typ {
 		case "container_down":
-			if ev.Type != "die" && ev.Type != "oom" {
+			// Only fire on `die`. Docker emits `oom` immediately followed
+			// by `die` for OOM-kills, so accepting only `die` covers both
+			// causes without producing duplicate fires.
+			if ev.Type != "die" {
 				continue
 			}
 		case "container_oom":
@@ -140,10 +149,13 @@ func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEv
 		}
 		if d.chDsp != nil {
 			d.chDsp.Fire(ctx, AlertFire{
-				RuleName: name,
-				Type:     typ,
-				Severity: sev,
-				Message:  formatAlertMessage(typ, ev),
+				RuleID:     id,
+				RuleName:   name,
+				Type:       typ,
+				Severity:   sev,
+				Message:    formatAlertMessage(typ, ev),
+				ChannelIDs: channelIDs,
+				Cooldown:   cooldown,
 			})
 		}
 	}

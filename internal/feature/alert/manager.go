@@ -73,14 +73,6 @@ func (m *Manager) evaluate() {
 			continue
 		}
 
-		// Check cooldown
-		m.mu.RLock()
-		lastSent, hasCooldown := m.lastSent[r.ID]
-		m.mu.RUnlock()
-		if hasCooldown && time.Since(lastSent) < time.Duration(r.Cooldown)*time.Second {
-			continue
-		}
-
 		// Parse condition
 		var cond ruleCondition
 		if err := json.Unmarshal([]byte(r.Condition), &cond); err != nil {
@@ -134,66 +126,91 @@ func (m *Manager) evaluate() {
 		}
 
 		message := fmt.Sprintf("%s usage is %s (threshold: %s %.0f%%)", r.Type, valueLabel, cond.Operator, cond.Threshold)
-		title := fmt.Sprintf("SFPanel Alert: %s", r.Name)
 
-		// Send to channels
-		var channelIDs []int
-		json.Unmarshal([]byte(r.ChannelIDs), &channelIDs)
+		// evaluate() doesn't take a context; pass Background for now.
+		m.Fire(context.Background(), AlertFire{
+			RuleID:     r.ID,
+			RuleName:   r.Name,
+			Type:       r.Type,
+			Severity:   r.Severity,
+			Message:    message,
+			ChannelIDs: r.ChannelIDs,
+			Cooldown:   r.Cooldown,
+		})
+	}
+}
 
-		sentChannelNames := make([]string, 0)
-		for _, chID := range channelIDs {
-			var ch AlertChannel
-			var chEnabled int
-			err := m.db.QueryRow("SELECT id, type, name, config, enabled FROM alert_channels WHERE id=?", chID).
-				Scan(&ch.ID, &ch.Type, &ch.Name, &ch.Config, &chEnabled)
-			if err != nil || chEnabled != 1 {
-				continue
+// Fire delivers an AlertFire through cooldown gate → channel routing →
+// alert_history insert. Returns silently if cooldown blocks the fire.
+// Used by ContainerDispatcher and by Manager.evaluate after refactor.
+func (m *Manager) Fire(_ context.Context, f AlertFire) {
+	// Cooldown gate
+	m.mu.RLock()
+	lastSent, hasCooldown := m.lastSent[f.RuleID]
+	m.mu.RUnlock()
+	if hasCooldown && time.Since(lastSent) < time.Duration(f.Cooldown)*time.Second {
+		return
+	}
+
+	title := fmt.Sprintf("SFPanel Alert: %s", f.RuleName)
+
+	// Channel routing
+	var channelIDs []int
+	if err := json.Unmarshal([]byte(f.ChannelIDs), &channelIDs); err != nil {
+		logger.Warn("invalid channel_ids JSON", "rule", f.RuleName, "error", err)
+		return
+	}
+
+	sentChannelNames := make([]string, 0, len(channelIDs))
+	for _, chID := range channelIDs {
+		var ch AlertChannel
+		var chEnabled int
+		err := m.db.QueryRow("SELECT id, type, name, config, enabled FROM alert_channels WHERE id=?", chID).
+			Scan(&ch.ID, &ch.Type, &ch.Name, &ch.Config, &chEnabled)
+		if err != nil || chEnabled != 1 {
+			continue
+		}
+
+		var sendErr error
+		switch ch.Type {
+		case "discord":
+			var cfg struct {
+				WebhookURL string `json:"webhook_url"`
 			}
-
-			var sendErr error
-			switch ch.Type {
-			case "discord":
-				var cfg struct {
-					WebhookURL string `json:"webhook_url"`
-				}
-				if err := json.Unmarshal([]byte(ch.Config), &cfg); err == nil && cfg.WebhookURL != "" {
-					sendErr = channels.SendDiscord(cfg.WebhookURL, title, message, r.Severity)
-				}
-			case "telegram":
-				var cfg struct {
-					BotToken string `json:"bot_token"`
-					ChatID   string `json:"chat_id"`
-				}
-				if err := json.Unmarshal([]byte(ch.Config), &cfg); err == nil && cfg.BotToken != "" && cfg.ChatID != "" {
-					sendErr = channels.SendTelegram(cfg.BotToken, cfg.ChatID, title, message, r.Severity)
-				}
+			if err := json.Unmarshal([]byte(ch.Config), &cfg); err == nil && cfg.WebhookURL != "" {
+				sendErr = channels.SendDiscord(cfg.WebhookURL, title, f.Message, f.Severity)
 			}
-
-			if sendErr != nil {
-				logger.Warn("send failed", "channel", ch.Name, "error", sendErr)
-			} else {
-				sentChannelNames = append(sentChannelNames, ch.Name)
+		case "telegram":
+			var cfg struct {
+				BotToken string `json:"bot_token"`
+				ChatID   string `json:"chat_id"`
+			}
+			if err := json.Unmarshal([]byte(ch.Config), &cfg); err == nil && cfg.BotToken != "" && cfg.ChatID != "" {
+				sendErr = channels.SendTelegram(cfg.BotToken, cfg.ChatID, title, f.Message, f.Severity)
 			}
 		}
 
-		// Record cooldown only if at least one channel send succeeded
-		if len(sentChannelNames) > 0 {
-			m.mu.Lock()
-			m.lastSent[r.ID] = time.Now()
-			m.mu.Unlock()
-		}
-
-		// Store in history only if at least one channel send succeeded
-		if len(sentChannelNames) > 0 {
-			sentJSON, _ := json.Marshal(sentChannelNames)
-			_, err := m.db.Exec("INSERT INTO alert_history (rule_id, rule_name, type, severity, message, node_id, sent_channels) VALUES (?,?,?,?,?,?,?)",
-				r.ID, r.Name, r.Type, r.Severity, message, "", string(sentJSON))
-			if err != nil {
-				logger.Warn("failed to record history", "error", err)
-			}
-			logger.Info("triggered", "rule", r.Name, "type", r.Type, "value", valueLabel, "severity", r.Severity)
+		if sendErr != nil {
+			logger.Warn("send failed", "channel", ch.Name, "error", sendErr)
 		} else {
-			logger.Warn("all channel sends failed, skipping history", "rule", r.Name, "type", r.Type)
+			sentChannelNames = append(sentChannelNames, ch.Name)
 		}
+	}
+
+	// Cooldown + history (only if at least one channel succeeded)
+	if len(sentChannelNames) > 0 {
+		m.mu.Lock()
+		m.lastSent[f.RuleID] = time.Now()
+		m.mu.Unlock()
+
+		sentJSON, _ := json.Marshal(sentChannelNames)
+		_, err := m.db.Exec("INSERT INTO alert_history (rule_id, rule_name, type, severity, message, node_id, sent_channels) VALUES (?,?,?,?,?,?,?)",
+			f.RuleID, f.RuleName, f.Type, f.Severity, f.Message, "", string(sentJSON))
+		if err != nil {
+			logger.Warn("failed to record history", "error", err)
+		}
+		logger.Info("triggered", "rule", f.RuleName, "type", f.Type, "severity", f.Severity)
+	} else {
+		logger.Warn("all channel sends failed, skipping history", "rule", f.RuleName, "type", f.Type)
 	}
 }
