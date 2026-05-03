@@ -120,6 +120,19 @@ func (rn *RaftNode) Apply(cmd Command, timeout time.Duration) error {
 	return nil
 }
 
+// Barrier blocks until all preceding leader operations have replicated to
+// followers. Used by sensitive multi-step Apply chains (HandleJoin, Disband)
+// to fail-fast when leadership has silently lapsed: if the local node is
+// no longer leader-of-quorum, Barrier returns the underlying Raft error
+// rather than letting the caller proceed with stale state.
+func (rn *RaftNode) Barrier(timeout time.Duration) error {
+	if rn.raft.State() != raft.Leader {
+		return ErrNotLeader
+	}
+	f := rn.raft.Barrier(timeout)
+	return f.Error()
+}
+
 // AddVoter adds a new voter node to the Raft cluster.
 func (rn *RaftNode) AddVoter(nodeID, address string) error {
 	if rn.raft.State() != raft.Leader {

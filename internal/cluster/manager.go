@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +31,11 @@ type Manager struct {
 	nodeID    string
 	nodeName  string
 	version   string
+
+	// promoteAttempts records the last attempted ConfirmJoin per node so
+	// PromoteOnHeartbeatIfPending can rate-limit. Guarded by promoteMu.
+	promoteMu       sync.Mutex
+	promoteAttempts map[string]time.Time
 }
 
 // SetVersion sets the panel version for heartbeat reporting.
@@ -285,6 +291,14 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		return nil, nil, nil, nil, ErrNotLeader
 	}
 
+	// Barrier: confirm we still have quorum before issuing certs and
+	// committing config changes. Without this, a stale-leader call to
+	// HandleJoin during a partition would issue a cert that the rejoining
+	// majority's leader has no record of.
+	if err := m.raft.Barrier(2 * time.Second); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("leader barrier failed: %w", err)
+	}
+
 	if err := m.tokens.Validate(token); err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -343,7 +357,10 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		if rmErr := m.raft.RemoveServer(nodeID); rmErr != nil {
 			slog.Debug("rollback RemoveServer ignored", "component", "cluster", "node_id", nodeID, "error", rmErr)
 		}
-		m.raft.Apply(Command{Type: CmdRemoveNode, Key: nodeID}, 5*time.Second)
+		if rmFsmErr := m.raft.Apply(Command{Type: CmdRemoveNode, Key: nodeID}, 5*time.Second); rmFsmErr != nil {
+			slog.Warn("rollback FSM remove failed (stale-leader suspect)",
+				"component", "cluster", "node_id", nodeID, "error", rmFsmErr)
+		}
 		m.tokens.RestoreToken(token)
 		return nil, nil, nil, nil, fmt.Errorf("add nonvoter: %w", addErr)
 	}
@@ -410,6 +427,10 @@ func (m *Manager) ConfirmJoin(nodeID string) error {
 // when not leader, when the node is already a voter, or when the node isn't
 // in the FSM. Errors are logged but never bubbled — heartbeats must keep
 // flowing even if the FSM is mid-migration.
+//
+// Rate-limited per nodeID: at most one promotion attempt every 5 s for any
+// given node. A misbehaving (or malicious) heartbeat flood with a forged
+// nodeID can no longer churn Raft config-change entries on the leader.
 func (m *Manager) PromoteOnHeartbeatIfPending(nodeID string) {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return
@@ -419,9 +440,37 @@ func (m *Manager) PromoteOnHeartbeatIfPending(nodeID string) {
 	if !ok || node.Role == RoleVoter {
 		return
 	}
+	if !m.promoteRateLimit(nodeID) {
+		return
+	}
 	if err := m.ConfirmJoin(nodeID); err != nil {
 		slog.Warn("non-voter promotion deferred", "component", "cluster", "node_id", nodeID, "error", err)
 	}
+}
+
+// promoteRateLimit returns true if promotion for nodeID is allowed now;
+// false if the previous attempt was within the cooldown.
+func (m *Manager) promoteRateLimit(nodeID string) bool {
+	const cooldown = 5 * time.Second
+	m.promoteMu.Lock()
+	defer m.promoteMu.Unlock()
+	if m.promoteAttempts == nil {
+		m.promoteAttempts = make(map[string]time.Time)
+	}
+	now := time.Now()
+	last, seen := m.promoteAttempts[nodeID]
+	if seen && now.Sub(last) < cooldown {
+		return false
+	}
+	m.promoteAttempts[nodeID] = now
+	// Best-effort GC: drop entries older than 1m so the map can't grow
+	// unbounded if a partition flips many distinct nodeIDs.
+	for k, t := range m.promoteAttempts {
+		if now.Sub(t) > 1*time.Minute {
+			delete(m.promoteAttempts, k)
+		}
+	}
+	return true
 }
 
 // HandlePreFlight validates a token without consuming it (for pre-flight checks).
@@ -1050,10 +1099,17 @@ func (m *Manager) onNodeStatusChange(nodeID string, status NodeStatus) {
 
 	update := Node{ID: nodeID, Status: status}
 	data, _ := json.Marshal(update)
-	m.raft.Apply(Command{
+	if applyErr := m.raft.Apply(Command{
 		Type:  CmdUpdateNode,
 		Value: data,
-	}, 5*time.Second)
+	}, 5*time.Second); applyErr != nil {
+		// Lost leadership during the apply, or FSM rejected. Either way the
+		// status update never replicated — log loudly so an operator can
+		// reconcile manually if needed (the heartbeat manager will retry
+		// next time the same node flips state).
+		slog.Warn("status-change apply failed (stale-leader suspect)",
+			"component", "cluster", "node_id", nodeID, "status", status, "error", applyErr)
+	}
 
 	// Emit event for status transitions
 	nodeName := ""
