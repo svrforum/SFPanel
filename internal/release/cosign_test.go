@@ -17,6 +17,36 @@ import (
 	"time"
 )
 
+// TestVerifyCosignBlob_GoldenPath_Base64Cert proves that base64-wrapped
+// cert PEM (cosign v2 --output-certificate default) is unwrapped before
+// chain validation. Catches the regression where a real cosign-signed
+// release would fail verification because the cert wasn't decoded.
+func TestVerifyCosignBlob_GoldenPath_Base64Cert(t *testing.T) {
+	blob := []byte("artifact body")
+	const subject = "https://github.com/svrforum/SFPanel/.github/workflows/release.yml@refs/tags/v0.11.2"
+	const issuer = "https://token.actions.githubusercontent.com"
+
+	caPEM, caKey := mintTestCA(t)
+	original := fulcioBundle
+	fulcioBundle = caPEM
+	defer func() { fulcioBundle = original }()
+
+	leafPEM, leafKey := mintTestLeaf(t, caKey, caPEM, subject, issuer)
+	digest := sha256.Sum256(blob)
+	sigDER, _ := ecdsa.SignASN1(rand.Reader, leafKey, digest[:])
+	sigB64 := []byte(base64.StdEncoding.EncodeToString(sigDER))
+
+	// Wrap the cert PEM in another base64 layer (mimics cosign v2 output).
+	leafPEMb64 := []byte(base64.StdEncoding.EncodeToString(leafPEM))
+
+	if err := VerifyCosignBlob(blob, sigB64, leafPEMb64, CosignIdentity{
+		SubjectPrefix: "https://github.com/svrforum/SFPanel/.github/workflows/release.yml@refs/tags/v",
+		Issuer:        issuer,
+	}); err != nil {
+		t.Fatalf("VerifyCosignBlob with base64-wrapped cert: %v", err)
+	}
+}
+
 // TestVerifyCosignBlob_GoldenPath synthesises a Fulcio-shaped cert chain
 // (self-signed CA → leaf with the right SAN URI + OIDC issuer extension)
 // and proves VerifyCosignBlob accepts a correctly-signed blob.
