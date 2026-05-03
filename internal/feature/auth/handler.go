@@ -92,6 +92,13 @@ func (h *Handler) Login(c echo.Context) error {
 	if req.Username == "" || req.Password == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Username and password are required")
 	}
+	// Bound the size of credential fields so a multi-megabyte payload can't
+	// stretch the bcrypt verifier or exhaust memory before the rate limit
+	// even fires. Bcrypt itself caps at 72 bytes; longer passwords are
+	// silently truncated, which is fine.
+	if !validCredentialBounds(req.Username, req.Password, req.TOTPCode) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Credential field exceeds bounds")
+	}
 
 	// Atomically check rate limit and pre-increment before expensive bcrypt check.
 	// This prevents concurrent requests from bypassing the limiter.
@@ -429,6 +436,9 @@ func (h *Handler) SetupAdmin(c echo.Context) error {
 
 	if req.Username == "" || req.Password == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Username and password are required")
+	}
+	if !validCredentialBounds(req.Username, req.Password, "") {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Username or password exceeds bounds")
 	}
 
 	if len(req.Password) < 8 {
