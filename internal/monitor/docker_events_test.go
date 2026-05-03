@@ -6,6 +6,8 @@ import (
 	"io"
 	"path/filepath"
 	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -104,10 +106,13 @@ func (f *fakeEventsClient) Events(ctx context.Context, _ events.ListOptions) (<-
 }
 
 type fakeDispatcher struct {
+	mu  sync.Mutex
 	got []*ContainerEvent
 }
 
 func (d *fakeDispatcher) Dispatch(_ context.Context, ev *ContainerEvent) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.got = append(d.got, ev)
 }
 
@@ -141,6 +146,19 @@ func TestStreamOnce_PersistsAndDispatches(t *testing.T) {
 			Time: 1714742410, TimeNano: 1714742410_000_000_000,
 			Actor: events.Actor{ID: "a", Attributes: map[string]string{"name": "x", "exitCode": "0"}},
 		}
+		// Both msgs/errs channels are buffered, so without a sync point
+		// streamOnce's select can race between picking the next msg vs
+		// returning EOF. Wait until the dispatcher records both events
+		// before signalling stream end.
+		for {
+			disp.mu.Lock()
+			n := len(disp.got)
+			disp.mu.Unlock()
+			if n >= 2 {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
 		fc.errs <- io.EOF
 	}()
 
@@ -153,7 +171,215 @@ func TestStreamOnce_PersistsAndDispatches(t *testing.T) {
 	if n != 2 {
 		t.Errorf("persisted: got %d, want 2", n)
 	}
-	if len(disp.got) != 2 {
-		t.Errorf("dispatched: got %d, want 2", len(disp.got))
+	disp.mu.Lock()
+	dispatched := len(disp.got)
+	disp.mu.Unlock()
+	if dispatched != 2 {
+		t.Errorf("dispatched: got %d, want 2", dispatched)
+	}
+}
+
+// scriptedEventsClient produces a different (msgs, errs) pair per call to
+// Events(), driven by a per-connection callback. This lets a single
+// runEventsListener loop see distinct stream lifetimes (e.g. healthy stream,
+// then immediate EOF) without sharing channels across reconnects.
+type scriptedEventsClient struct {
+	scripts []func(msgs chan<- events.Message, errs chan<- error)
+	calls   atomic.Int32
+}
+
+func (s *scriptedEventsClient) Events(ctx context.Context, _ events.ListOptions) (<-chan events.Message, <-chan error) {
+	msgs := make(chan events.Message, 4)
+	errs := make(chan error, 1)
+	idx := int(s.calls.Add(1) - 1)
+	if idx >= len(s.scripts) {
+		// No more scripted behavior — block until ctx ends, then EOF.
+		go func() {
+			<-ctx.Done()
+			errs <- io.EOF
+		}()
+		return msgs, errs
+	}
+	go s.scripts[idx](msgs, errs)
+	return msgs, errs
+}
+
+func TestRunEventsListener_BackoffResetsAfterSuccess(t *testing.T) {
+	// Override tunables so the test runs in well under a second. The reset
+	// threshold is 100ms — far above any scheduling jitter we expect on CI
+	// — and the initial backoff is 10ms so a "reset" reconnect completes
+	// quickly while a "doubled" reconnect (20ms after the first 10ms) is
+	// still measurable.
+	prevInitial, prevMax, prevThreshold := eventsListenerInitialBackoff, eventsListenerMaxBackoff, eventsListenerSuccessThreshold
+	eventsListenerInitialBackoff = 10 * time.Millisecond
+	eventsListenerMaxBackoff = 200 * time.Millisecond
+	eventsListenerSuccessThreshold = 100 * time.Millisecond
+	t.Cleanup(func() {
+		eventsListenerInitialBackoff = prevInitial
+		eventsListenerMaxBackoff = prevMax
+		eventsListenerSuccessThreshold = prevThreshold
+	})
+
+	db := openTestDBForEvents(t)
+
+	// Record the wall-clock time at which Events() is called for each
+	// reconnect. The gap between call N and call N+1 = (stream N run-time)
+	// + (sleep before reconnect). For our success-after-long-stream test
+	// to pass, the gap between calls 2 and 3 must be ≈ initial backoff
+	// (10ms), not doubled (20ms+) — proving the reset happened.
+	var callTimesMu sync.Mutex
+	var callTimes []time.Time
+	recordCall := func() {
+		callTimesMu.Lock()
+		callTimes = append(callTimes, time.Now())
+		callTimesMu.Unlock()
+	}
+
+	healthyStream := func(msgs chan<- events.Message, errs chan<- error) {
+		recordCall()
+		msgs <- events.Message{
+			Type: events.ContainerEventType, Action: "start",
+			Time: 1714742400, TimeNano: 1714742400_000_000_000,
+			Actor: events.Actor{ID: "a", Attributes: map[string]string{"name": "x"}},
+		}
+		// Stay "up" longer than the success threshold.
+		time.Sleep(150 * time.Millisecond)
+		errs <- io.EOF
+	}
+	immediateEOF := func(_ chan<- events.Message, errs chan<- error) {
+		recordCall()
+		errs <- io.EOF
+	}
+
+	sc := &scriptedEventsClient{
+		scripts: []func(chan<- events.Message, chan<- error){
+			immediateEOF,  // call 0: short stream — backoff doubles to 20ms
+			healthyStream, // call 1: long stream (≥ 100ms) — backoff resets after this
+			immediateEOF,  // call 2: short stream after healthy one — sleep should be 10ms
+			immediateEOF,  // call 3: stop here
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		runEventsListener(ctx, db, sc, nil)
+		close(done)
+	}()
+
+	// Wait for at least 4 Events() calls or context expiry.
+	deadline := time.Now().Add(800 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if sc.calls.Load() >= 4 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	callTimesMu.Lock()
+	snapshot := append([]time.Time(nil), callTimes...)
+	callTimesMu.Unlock()
+	if len(snapshot) < 4 {
+		t.Fatalf("expected ≥ 4 Events() calls, got %d", len(snapshot))
+	}
+
+	// After the healthy stream (call index 1), backoff resets to 10ms. The
+	// stream at call 2 EOF's immediately, so the gap from call-2-start to
+	// call-3-start should be ≈ initial backoff (10ms). With doubling (no
+	// reset) it would be ≥ 40ms (10→20→40 across the three short streams).
+	// Allow ample slack for scheduler jitter under -race.
+	gapAfterHealthy := snapshot[3].Sub(snapshot[2])
+	if gapAfterHealthy > 25*time.Millisecond {
+		t.Errorf("backoff did not reset: gap after healthy stream = %v, want ≤ ~25ms (initial backoff is 10ms)", gapAfterHealthy)
+	}
+}
+
+// panickingDispatcher panics on its first Dispatch call, then records all
+// subsequent events. Used to verify safeDispatch isolates the panic.
+type panickingDispatcher struct {
+	mu    sync.Mutex
+	calls int
+	got   []*ContainerEvent
+}
+
+func (d *panickingDispatcher) Dispatch(_ context.Context, ev *ContainerEvent) {
+	d.mu.Lock()
+	d.calls++
+	calls := d.calls
+	d.mu.Unlock()
+	if calls == 1 {
+		panic("synthetic dispatcher panic")
+	}
+	d.mu.Lock()
+	d.got = append(d.got, ev)
+	d.mu.Unlock()
+}
+
+func (d *panickingDispatcher) snapshot() (int, []*ContainerEvent) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.calls, append([]*ContainerEvent(nil), d.got...)
+}
+
+func TestStreamOnce_DispatcherPanicDoesNotKillListener(t *testing.T) {
+	db := openTestDBForEvents(t)
+	fc := &fakeEventsClient{msgs: make(chan events.Message, 4), errs: make(chan error, 1)}
+	disp := &panickingDispatcher{}
+
+	go func() {
+		fc.msgs <- events.Message{
+			Type: events.ContainerEventType, Action: "start",
+			Time: 1714742400, TimeNano: 1714742400_000_000_000,
+			Actor: events.Actor{ID: "a", Attributes: map[string]string{"name": "x"}},
+		}
+		fc.msgs <- events.Message{
+			Type: events.ContainerEventType, Action: "die",
+			Time: 1714742410, TimeNano: 1714742410_000_000_000,
+			Actor: events.Actor{ID: "a", Attributes: map[string]string{"name": "x", "exitCode": "1"}},
+		}
+		// Block EOF until streamOnce has actually delivered both messages
+		// to the dispatcher; otherwise the select can race between picking
+		// the next msg vs returning EOF (both channels are buffered).
+		for {
+			calls, _ := disp.snapshot()
+			if calls >= 2 {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+		fc.errs <- io.EOF
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// If the panic propagates, this call would panic and fail the test.
+	err := streamOnce(ctx, db, fc, disp)
+	if err != io.EOF {
+		t.Errorf("expected io.EOF after stream end, got %v", err)
+	}
+
+	calls, got := disp.snapshot()
+	if calls != 2 {
+		t.Errorf("dispatcher called %d times, want 2", calls)
+	}
+	// First call panicked → not recorded. Second call should be recorded.
+	if len(got) != 1 {
+		t.Fatalf("expected 1 recorded event after panic recovery, got %d", len(got))
+	}
+	if got[0].EventType != "die" {
+		t.Errorf("recorded event type = %q, want %q", got[0].EventType, "die")
+	}
+
+	// Both events should still have been persisted (persistence runs before
+	// dispatch, so the panic doesn't affect the DB row).
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM container_events`).Scan(&n)
+	if n != 2 {
+		t.Errorf("persisted: got %d, want 2", n)
 	}
 }

@@ -93,16 +93,32 @@ func StartDockerEventsListener(ctx context.Context, db *sql.DB, client DockerEve
 	go runEventsListener(ctx, db, client, disp)
 }
 
+// Tunables for the events listener reconnect loop. These are vars (not consts)
+// so tests can override them to keep run-time short. Production code never
+// mutates them.
+var (
+	eventsListenerInitialBackoff   = 1 * time.Second
+	eventsListenerMaxBackoff       = 5 * time.Minute
+	eventsListenerSuccessThreshold = 1 * time.Minute
+)
+
 func runEventsListener(ctx context.Context, db *sql.DB, client DockerEventsClient, disp EventDispatcher) {
-	const maxBackoff = 5 * time.Minute
-	backoff := 1 * time.Second
+	backoff := eventsListenerInitialBackoff
 	for {
 		if ctx.Err() != nil {
 			return
 		}
+		started := time.Now()
 		err := streamOnce(ctx, db, client, disp)
 		if ctx.Err() != nil {
 			return
+		}
+		// If the stream stayed up long enough to be considered "healthy",
+		// reset the backoff so the next reconnect is fast — otherwise a
+		// burst of early failures would leave us at the 5-minute cap even
+		// after hours of successful operation.
+		if time.Since(started) >= eventsListenerSuccessThreshold {
+			backoff = eventsListenerInitialBackoff
 		}
 		slog.Warn("docker events: stream ended, reconnecting", "error", err, "backoff", backoff)
 		select {
@@ -111,8 +127,8 @@ func runEventsListener(ctx context.Context, db *sql.DB, client DockerEventsClien
 		case <-time.After(backoff):
 		}
 		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
+		if backoff > eventsListenerMaxBackoff {
+			backoff = eventsListenerMaxBackoff
 		}
 	}
 }
@@ -137,10 +153,21 @@ func streamOnce(ctx context.Context, db *sql.DB, client DockerEventsClient, disp
 			}
 			persistEvent(db, ev)
 			if disp != nil {
-				disp.Dispatch(ctx, ev)
+				safeDispatch(ctx, disp, ev)
 			}
 		}
 	}
+}
+
+// safeDispatch isolates dispatcher panics so a buggy alert rule (Tasks 8–10
+// will plug into this hook) cannot kill the events listener goroutine.
+func safeDispatch(ctx context.Context, disp EventDispatcher, ev *ContainerEvent) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("docker events: dispatcher panicked", "panic", r, "container", ev.ContainerID, "event", ev.EventType)
+		}
+	}()
+	disp.Dispatch(ctx, ev)
 }
 
 func persistEvent(db *sql.DB, ev *ContainerEvent) {
