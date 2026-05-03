@@ -1,10 +1,16 @@
 package monitor
 
 import (
+	"context"
+	"database/sql"
+	"io"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/docker/docker/api/types/events"
+	_ "modernc.org/sqlite"
 )
 
 func TestParseDockerEvent_Lifecycle(t *testing.T) {
@@ -87,3 +93,67 @@ func TestParseDockerEvent_NonContainerTypeDropped(t *testing.T) {
 }
 
 func ptrInt(n int) *int { return &n }
+
+type fakeEventsClient struct {
+	msgs chan events.Message
+	errs chan error
+}
+
+func (f *fakeEventsClient) Events(ctx context.Context, _ events.ListOptions) (<-chan events.Message, <-chan error) {
+	return f.msgs, f.errs
+}
+
+type fakeDispatcher struct {
+	got []*ContainerEvent
+}
+
+func (d *fakeDispatcher) Dispatch(_ context.Context, ev *ContainerEvent) {
+	d.got = append(d.got, ev)
+}
+
+func openTestDBForEvents(t *testing.T) *sql.DB {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, _ := sql.Open("sqlite", dbPath)
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	db.Exec(`CREATE TABLE container_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		container_id TEXT NOT NULL, container_name TEXT NOT NULL,
+		ts INTEGER NOT NULL, event_type TEXT NOT NULL,
+		exit_code INTEGER, detail TEXT)`)
+	return db
+}
+
+func TestStreamOnce_PersistsAndDispatches(t *testing.T) {
+	db := openTestDBForEvents(t)
+	fc := &fakeEventsClient{msgs: make(chan events.Message, 4), errs: make(chan error, 1)}
+	disp := &fakeDispatcher{}
+
+	go func() {
+		fc.msgs <- events.Message{
+			Type: events.ContainerEventType, Action: "start",
+			Time: 1714742400, TimeNano: 1714742400_000_000_000,
+			Actor: events.Actor{ID: "a", Attributes: map[string]string{"name": "x"}},
+		}
+		fc.msgs <- events.Message{
+			Type: events.ContainerEventType, Action: "die",
+			Time: 1714742410, TimeNano: 1714742410_000_000_000,
+			Actor: events.Actor{ID: "a", Attributes: map[string]string{"name": "x", "exitCode": "0"}},
+		}
+		fc.errs <- io.EOF
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = streamOnce(ctx, db, fc, disp)
+
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM container_events`).Scan(&n)
+	if n != 2 {
+		t.Errorf("persisted: got %d, want 2", n)
+	}
+	if len(disp.got) != 2 {
+		t.Errorf("dispatched: got %d, want 2", len(disp.got))
+	}
+}

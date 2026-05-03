@@ -1,8 +1,12 @@
 package monitor
 
 import (
+	"context"
+	"database/sql"
+	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/docker/docker/api/types/events"
 )
@@ -66,4 +70,92 @@ func normalizeAction(action string) string {
 		}
 	}
 	return ""
+}
+
+// DockerEventsClient is the small subset of the Docker SDK that the events
+// listener needs. Subset of moby/client.Client.Events. Defined here as a
+// named interface for the same mocking reasons as DockerStatsClient.
+type DockerEventsClient interface {
+	Events(ctx context.Context, opts events.ListOptions) (<-chan events.Message, <-chan error)
+}
+
+// EventDispatcher is the bridge to the alert pipeline. Each successfully-
+// persisted event is also handed to dispatcher so alert rules can fire.
+// nil dispatcher = persistence only (used in tests).
+type EventDispatcher interface {
+	Dispatch(ctx context.Context, ev *ContainerEvent)
+}
+
+// StartDockerEventsListener runs the long-lived event stream listener in a
+// goroutine. Reconnects on stream error with exponential backoff capped at
+// 5 minutes. Stops when ctx is cancelled.
+func StartDockerEventsListener(ctx context.Context, db *sql.DB, client DockerEventsClient, disp EventDispatcher) {
+	go runEventsListener(ctx, db, client, disp)
+}
+
+func runEventsListener(ctx context.Context, db *sql.DB, client DockerEventsClient, disp EventDispatcher) {
+	const maxBackoff = 5 * time.Minute
+	backoff := 1 * time.Second
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		err := streamOnce(ctx, db, client, disp)
+		if ctx.Err() != nil {
+			return
+		}
+		slog.Warn("docker events: stream ended, reconnecting", "error", err, "backoff", backoff)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+// streamOnce opens a single events stream and runs until it closes.
+// Returns the underlying stream error so runEventsListener can decide
+// whether to reconnect (it always does, with backoff).
+func streamOnce(ctx context.Context, db *sql.DB, client DockerEventsClient, disp EventDispatcher) error {
+	streamCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	msgs, errs := client.Events(streamCtx, events.ListOptions{})
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case err := <-errs:
+			return err
+		case m := <-msgs:
+			ev := parseDockerEvent(m)
+			if ev == nil {
+				continue
+			}
+			persistEvent(db, ev)
+			if disp != nil {
+				disp.Dispatch(ctx, ev)
+			}
+		}
+	}
+}
+
+func persistEvent(db *sql.DB, ev *ContainerEvent) {
+	var detail interface{}
+	if ev.Detail != "" {
+		detail = ev.Detail
+	}
+	var exitCode interface{}
+	if ev.ExitCode != nil {
+		exitCode = *ev.ExitCode
+	}
+	if _, err := db.Exec(
+		`INSERT INTO container_events (container_id, container_name, ts, event_type, exit_code, detail) VALUES (?, ?, ?, ?, ?, ?)`,
+		ev.ContainerID, ev.ContainerName, ev.TS, ev.EventType, exitCode, detail,
+	); err != nil {
+		slog.Warn("docker events: persist failed", "error", err)
+	}
 }
