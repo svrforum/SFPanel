@@ -1,6 +1,7 @@
 package release
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -146,6 +147,17 @@ func VerifyCosignBlob(blob, signature, certPEM []byte, expected CosignIdentity) 
 }
 
 func parseCosignCertChain(certPEM []byte) (leaf *x509.Certificate, intermediates *x509.CertPool, err error) {
+	// cosign v2's `sign-blob --output-certificate` writes the PEM cert
+	// base64-encoded one extra time. Detect by leading bytes — raw PEM
+	// starts with "-----BEGIN", otherwise try base64-decode once.
+	trimmed := bytes.TrimSpace(certPEM)
+	if !bytes.HasPrefix(trimmed, []byte("-----BEGIN")) {
+		decoded, decErr := base64.StdEncoding.DecodeString(string(trimmed))
+		if decErr == nil && bytes.HasPrefix(bytes.TrimSpace(decoded), []byte("-----BEGIN")) {
+			certPEM = decoded
+		}
+	}
+
 	intermediates = x509.NewCertPool()
 	rest := certPEM
 	for {
