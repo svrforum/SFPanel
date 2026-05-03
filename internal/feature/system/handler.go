@@ -188,6 +188,34 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		return nil
 	}
 
+	// Cosign keyless signature verification of checksums.txt before we trust
+	// any hash inside it. The cert pins the upload to release.yml on the
+	// canonical repo for a tagged version — so if the GitHub releases page
+	// is compromised but the workflow isn't, this catches it. We surface
+	// missing-asset errors as warnings (older releases won't have .sig/.pem)
+	// but cryptographic failures are fatal.
+	sigURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.sig")
+	certURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.pem")
+	if sigURL != "" && certURL != "" {
+		sendEvent("verifying", "Verifying release signature (Sigstore keyless)...")
+		sigBytes, sigErr := fetchBytes(dlClient, sigURL)
+		if sigErr != nil {
+			sendEvent("error", fmt.Sprintf("Signature download failed: %v", sigErr))
+			return nil
+		}
+		certBytes, certErr := fetchBytes(dlClient, certURL)
+		if certErr != nil {
+			sendEvent("error", fmt.Sprintf("Cert download failed: %v", certErr))
+			return nil
+		}
+		if vErr := release.VerifyCosignBlob(checksumBody, sigBytes, certBytes, release.SFPanelReleaseIdentity()); vErr != nil {
+			sendEvent("error", fmt.Sprintf("Signature verification failed: %v", vErr))
+			return nil
+		}
+	} else {
+		sendEvent("verifying", "Release predates Sigstore signing; falling back to SHA-256 only")
+	}
+
 	expectedSHA256, err := release.ParseExpectedSHA256(checksumBody, archiveName)
 	if err != nil {
 		sendEvent("error", err.Error())
@@ -353,6 +381,21 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		}()
 	}
 	return nil
+}
+
+// fetchBytes is a small helper that GETs a URL and reads the body into memory.
+// Used for the small (<10 KB) signature + cert assets — the archive itself
+// goes through io.Copy to a temp file, see the main update path.
+func fetchBytes(client *http.Client, url string) ([]byte, error) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 }
 
 // CreateBackup creates a tar.gz archive of DB + config and sends it as download.
