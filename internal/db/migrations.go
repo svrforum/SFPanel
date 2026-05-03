@@ -120,6 +120,26 @@ var migrations = []migration{
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`},
 	{ID: 15, Up: `CREATE INDEX IF NOT EXISTS idx_refresh_tokens_username ON refresh_tokens(username)`},
+	{ID: 16, Up: `CREATE TABLE IF NOT EXISTS container_metrics_history (
+		container_id   TEXT    NOT NULL,
+		container_name TEXT    NOT NULL,
+		ts             INTEGER NOT NULL,
+		cpu_percent    REAL    NOT NULL,
+		mem_percent    REAL    NOT NULL,
+		mem_bytes      INTEGER NOT NULL,
+		PRIMARY KEY (container_id, ts)
+	)`},
+	{ID: 17, Up: `CREATE TABLE IF NOT EXISTS container_events (
+		id             INTEGER PRIMARY KEY AUTOINCREMENT,
+		container_id   TEXT    NOT NULL,
+		container_name TEXT    NOT NULL,
+		ts             INTEGER NOT NULL,
+		event_type     TEXT    NOT NULL,
+		exit_code      INTEGER,
+		detail         TEXT
+	)`},
+	{ID: 18, Up: `CREATE INDEX IF NOT EXISTS idx_container_events_container_ts ON container_events(container_id, ts DESC)`},
+	{ID: 19, Up: `CREATE INDEX IF NOT EXISTS idx_container_events_ts ON container_events(ts DESC)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been
