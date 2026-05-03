@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/composex"
 	"github.com/svrforum/SFPanel/internal/docker"
 )
 
@@ -43,6 +44,13 @@ func (h *Handler) CreateProject(c echo.Context) error {
 	}
 	if req.Name == "" || req.YAML == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Name and yaml are required")
+	}
+	// Same compose-safety gate the App Store one-click installer uses —
+	// blocks privileged, host-namespace, dangerous-cap, /-bind, docker.sock,
+	// device-passthrough patterns. An operator who needs those for legit
+	// reasons can still get them via shell access.
+	if err := composex.ValidateAdvancedCompose(req.YAML); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, err.Error())
 	}
 
 	ctx := c.Request().Context()
@@ -86,6 +94,9 @@ func (h *Handler) UpdateProject(c echo.Context) error {
 	}
 	if req.YAML == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "YAML content is required")
+	}
+	if err := composex.ValidateAdvancedCompose(req.YAML); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, err.Error())
 	}
 
 	ctx := c.Request().Context()

@@ -573,6 +573,16 @@ func (h *Handler) UploadFile(c echo.Context) error {
 			fmt.Sprintf("Uploading to '%s' is not allowed: critical system path", destPath))
 	}
 
+	// Per-extension blocklist for known web-serving directories. The intent
+	// is to keep an operator from accidentally dropping an executable script
+	// into a path the host serves (Apache/Nginx will then run it). Outside
+	// these prefixes there's no restriction — operators frequently upload
+	// .sh files into /opt/* or /home/* for legitimate use.
+	if isWebServedPath(destPath) && hasWebExecutableExtension(filename) {
+		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath,
+			fmt.Sprintf("Refusing to upload server-executable file (%s) into a web-served directory", filename))
+	}
+
 	// Atomic upload: write to temp file then rename into place.
 	tmpPath := destPath + ".sfpanel.tmp"
 
