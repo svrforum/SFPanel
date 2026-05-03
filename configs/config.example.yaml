@@ -2,6 +2,17 @@
 server:
   host: "0.0.0.0"
   port: 19443
+  # Reverse-proxy deployments: list the proxy's source IP/CIDR here so
+  # X-Forwarded-For is honoured only from those upstreams. Without this
+  # an arbitrary client could spoof their source IP and bypass the per-IP
+  # login rate limiter. Default (when empty) is localhost-only.
+  # trusted_proxies:
+  #   - "127.0.0.0/8"
+  #   - "::1/128"
+  #   - "10.0.0.5"
+  # Additional CORS origins (the dev server + Tauri origins are always allowed).
+  # allowed_origins:
+  #   - "https://panel.example.com"
   # tls:
   #   cert: "/etc/sfpanel/cert.pem"
   #   key: "/etc/sfpanel/key.pem"
@@ -10,7 +21,11 @@ database:
   path: "/var/lib/sfpanel/sfpanel.db"
 
 auth:
-  jwt_secret: "CHANGE_ME_TO_RANDOM_SECRET"
+  # 32-character minimum (HS256 256-bit). install.sh generates a 64-hex-char
+  # secret automatically; only set this manually if you have a reason.
+  jwt_secret: "CHANGE_ME_TO_RANDOM_SECRET_AT_LEAST_32_CHARS"
+  # Access-token lifetime. Refresh tokens are valid for 7 days regardless,
+  # so shortening this enables faster credential revocation.
   token_expiry: "24h"
 
 docker:
