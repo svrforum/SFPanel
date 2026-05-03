@@ -17,6 +17,11 @@ func TestCompareVersions(t *testing.T) {
 		// Tolerate optional "v" prefix on either side.
 		{"v1.2.3", "1.2.3", 0},
 		{"1.2.3", "v1.2.3", 0},
+		// Pre-release / build-metadata suffixes from `git describe`.
+		// Treated as the base version for comparison purposes.
+		{"v0.11.1-19-g2a7258c", "0.11.1", 0},
+		{"0.11.1+build.42", "0.11.1", 0},
+		{"v0.11.1-rc.1", "v0.11.2", -1},
 	}
 	for _, tt := range tests {
 		got, err := CompareVersions(tt.a, tt.b)
