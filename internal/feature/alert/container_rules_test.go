@@ -1,8 +1,13 @@
 package alert
 
 import (
+	"context"
+	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestMatchContainerPattern(t *testing.T) {
@@ -72,4 +77,39 @@ func TestRestartLoopEvaluator(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestContainerDispatcher_FiresContainerDown(t *testing.T) {
+	db := openAlertTestDB(t)
+	db.Exec(`INSERT INTO alert_rules (name,type,condition,channel_ids,severity,cooldown,node_scope,node_ids,enabled) VALUES
+		('down-all', 'container_down', '{"container_pattern":"*"}', '[]', 'warning', 0, 'all', '[]', 1)`)
+
+	chDisp := &fakeChannelDispatcher{}
+	disp := NewContainerDispatcher(db, chDisp)
+	disp.Dispatch(context.Background(), &AlertContainerEvent{
+		ID: "abc", Name: "nginx-app", Type: "die", TS: 1714742400000,
+	})
+
+	if chDisp.count != 1 {
+		t.Errorf("expected 1 alert fire, got %d", chDisp.count)
+	}
+}
+
+type fakeChannelDispatcher struct{ count int }
+
+func (f *fakeChannelDispatcher) Fire(_ context.Context, _ AlertFire) { f.count++ }
+
+func openAlertTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, _ := sql.Open("sqlite", dbPath)
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	db.Exec(`CREATE TABLE alert_rules (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, type TEXT, condition TEXT,
+		channel_ids TEXT, severity TEXT, cooldown INTEGER, node_scope TEXT, node_ids TEXT, enabled INTEGER)`)
+	db.Exec(`CREATE TABLE container_events (id INTEGER PRIMARY KEY AUTOINCREMENT,
+		container_id TEXT, container_name TEXT, ts INTEGER, event_type TEXT,
+		exit_code INTEGER, detail TEXT)`)
+	return db
 }
