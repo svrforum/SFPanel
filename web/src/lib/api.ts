@@ -46,6 +46,8 @@ import type {
   ContainerMetricPoint,
   ContainerEvent,
   RecentContainerEvent,
+  DiffResult,
+  ImportRequest,
 } from '@/types/api'
 
 const API_PATH = '/api/v1'
@@ -725,6 +727,20 @@ class ApiClient {
 
   hasRollback(project: string) {
     return this.request<import('@/types/api').RollbackInfo>(`/docker/compose/${encodeURIComponent(project)}/has-rollback`)
+  }
+
+  diffStack(name: string, yaml: string) {
+    return this.request<DiffResult>(`/docker/compose/${encodeURIComponent(name)}/diff`, {
+      method: 'POST',
+      body: JSON.stringify({ yaml }),
+    })
+  }
+
+  importFromGit(req: ImportRequest) {
+    return this.request<{ project_name: string }>(`/docker/compose/import`, {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
   }
 
   // File Manager
