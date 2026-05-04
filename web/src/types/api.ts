@@ -867,3 +867,31 @@ export interface ClusterInitResponse {
   restart: boolean
 }
 
+// Docker observability — container metrics, events, alert rule kinds
+export interface ContainerMetricPoint {
+  ts: number // unix millis
+  cpu_percent: number
+  mem_percent: number
+  mem_bytes: number
+}
+
+export interface ContainerEvent {
+  ts: number
+  event_type: 'start' | 'stop' | 'die' | 'oom' | 'kill' | 'restart' | 'healthy' | 'unhealthy'
+  exit_code: number | null
+  detail: string | null
+}
+
+export interface RecentContainerEvent extends ContainerEvent {
+  container_id: string
+  container_name: string
+}
+
+export type AlertRuleType =
+  | 'host_cpu_high'
+  | 'host_memory_high'
+  | 'host_disk_full'
+  | 'container_down'
+  | 'container_oom'
+  | 'container_restart_loop'
+
