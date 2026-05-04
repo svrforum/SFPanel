@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -164,4 +165,19 @@ func TestComputeDiff_ServiceAddedAndRemoved(t *testing.T) {
 	require.Equal(t, 1, got.Summary.Added)
 	require.Equal(t, 1, got.Summary.Removed)
 	require.Equal(t, 0, got.Summary.Modified)
+}
+
+func TestComputeDiff_RawDiffPopulated(t *testing.T) {
+	deployed := "services:\n  web:\n    image: nginx:1.24\n"
+	proposed := "services:\n  web:\n    image: nginx:1.25\n"
+	got, err := ComputeDiff(deployed, proposed)
+	require.NoError(t, err)
+	require.Contains(t, got.RawDiff, "nginx:1.24")
+	require.Contains(t, got.RawDiff, "nginx:1.25")
+	require.True(t, strings.HasPrefix(got.RawDiff, "--- deployed") || strings.Contains(got.RawDiff, "@@"))
+}
+
+func TestComputeDiff_InvalidProposedYAML(t *testing.T) {
+	_, err := ComputeDiff("services: {}", "this is not yaml: [unclosed")
+	require.Error(t, err)
 }

@@ -3,6 +3,7 @@ package compose
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -174,7 +175,66 @@ func ComputeDiff(deployedYAML, proposedYAML string) (*DiffResult, error) {
 	res.Summary.Removed = len(removedSvcs)
 	res.Summary.Modified = len(modified)
 
+	res.RawDiff = rawLineDiff(deployedYAML, proposedYAML)
+
 	return res, nil
+}
+
+// rawLineDiff returns a tiny line-level diff of the form
+//
+//	--- deployed
+//	+++ proposed
+//	@@ -i +i @@
+//	- old line
+//	+ new line
+//
+// It's not a real unified diff (no context), but enough for the
+// frontend's "원본 텍스트" tab where Monaco DiffEditor is doing the
+// real rendering. We just need *something* the operator can copy.
+func rawLineDiff(deployed, proposed string) string {
+	if deployed == proposed {
+		return ""
+	}
+	dLines := splitLines(deployed)
+	pLines := splitLines(proposed)
+	var b strings.Builder
+	b.WriteString("--- deployed\n+++ proposed\n")
+	n := len(dLines)
+	if len(pLines) > n {
+		n = len(pLines)
+	}
+	for i := 0; i < n; i++ {
+		var dl, pl string
+		if i < len(dLines) {
+			dl = dLines[i]
+		}
+		if i < len(pLines) {
+			pl = pLines[i]
+		}
+		if dl == pl {
+			continue
+		}
+		fmt.Fprintf(&b, "@@ -%d +%d @@\n", i+1, i+1)
+		if i < len(dLines) {
+			fmt.Fprintf(&b, "-%s\n", dl)
+		}
+		if i < len(pLines) {
+			fmt.Fprintf(&b, "+%s\n", pl)
+		}
+	}
+	return b.String()
+}
+
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	out := strings.Split(s, "\n")
+	// Trim trailing empty caused by terminal newline — keeps diff symmetric.
+	if len(out) > 0 && out[len(out)-1] == "" {
+		out = out[:len(out)-1]
+	}
+	return out
 }
 
 // setDiff returns one SetChange per service whose extract() differs.
