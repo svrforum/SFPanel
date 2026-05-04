@@ -63,3 +63,6 @@ desktop/src-tauri/icons/ios/
 # Public repo — 개발자 전용 Claude 가이드는 깃에 올리지 않음.
 # 로컬 파일은 유지되지만 새로 추적되지 않도록 차단.
 /CLAUDE.md
+
+# Visual brainstorm session files (per-developer, ephemeral)
+/.superpowers/
