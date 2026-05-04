@@ -1,11 +1,14 @@
 package compose
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -388,6 +391,70 @@ func (h *Handler) DiffStack(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidYAML, response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, res)
+}
+
+// ImportFromGit clones a GitHub repo (one-shot, no persistent link),
+// reads the compose YAML at the requested path, and creates a stack.
+// POST /api/v1/docker/compose/import
+func (h *Handler) ImportFromGit(c echo.Context) error {
+	var req ImportRequest
+	if err := c.Bind(&req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "invalid request body")
+	}
+	if req.Branch == "" {
+		req.Branch = "main"
+	}
+	if req.Path == "" {
+		req.Path = "docker-compose.yml"
+	}
+	if err := validateImportRequest(req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, err.Error())
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), importCloneTimeout)
+	defer cancel()
+
+	repo, err := cloneShallow(ctx, req.URL, req.Branch, req.Token)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrAuthFailed):
+			return response.Fail(c, http.StatusUnauthorized, response.ErrGitAuthFailed,
+				"인증 실패. PAT가 필요한 private 저장소입니다.")
+		case errors.Is(err, ErrRepoNotFound):
+			return response.Fail(c, http.StatusNotFound, response.ErrGitRepoNotFound,
+				"저장소를 찾을 수 없습니다.")
+		default:
+			return response.Fail(c, http.StatusInternalServerError, response.ErrGitCloneFailed,
+				response.SanitizeOutput(err.Error()))
+		}
+	}
+
+	yamlBody, err := readComposeFromRepo(ctx, repo, req.Branch, req.Path)
+	if err != nil {
+		if errors.Is(err, ErrPathNotFound) {
+			return response.Fail(c, http.StatusNotFound, response.ErrGitPathNotFound,
+				"해당 경로의 파일이 없습니다.")
+		}
+		return response.Fail(c, http.StatusInternalServerError, response.ErrGitCloneFailed,
+			response.SanitizeOutput(err.Error()))
+	}
+
+	if err := composex.ValidateAdvancedCompose(yamlBody); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidYAML, err.Error())
+	}
+
+	project, err := h.Compose.CreateProject(ctx, req.Name, yamlBody)
+	if err != nil {
+		// CreateProject's error path includes "already exists" for collisions.
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			return response.Fail(c, http.StatusConflict, response.ErrStackAlreadyExists,
+				"이미 존재하는 스택 이름입니다.")
+		}
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError,
+			response.SanitizeOutput(err.Error()))
+	}
+
+	return response.OK(c, map[string]string{"project_name": project.Name})
 }
 
 // ServiceLogs returns the last N lines of logs for a service.
