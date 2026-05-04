@@ -234,6 +234,29 @@ func main() {
 	featureAlert.StartHistoryRetention(bgCtx, database)
 	featureauth.StartRefreshTokenRetention(bgCtx, database)
 
+	// Alert manager owns rule evaluation + Fire-side dispatch. Lifted out of
+	// NewRouter so the docker observability container dispatcher (below) can
+	// share the same instance via featureAlert.NewContainerDispatcher.
+	alertManager := featureAlert.NewManager(database)
+	go alertManager.Start(bgCtx)
+
+	// Docker observability: per-container metrics history, daemon events
+	// listener, and retention pruners. Default-on; opt-out via config.
+	if cfg.Docker.Observability.IsEnabled() {
+		dockerCli, dockerErr := docker.NewClient(cfg.Docker.Socket)
+		if dockerErr != nil {
+			slog.Warn("docker observability: client init failed; feature disabled", "error", dockerErr)
+		} else {
+			containerDisp := featureAlert.NewContainerDispatcher(database, alertManager)
+			monitor.StartDockerHistoryCollector(bgCtx, database, dockerCli)
+			monitor.StartDockerEventsListener(bgCtx, database, dockerCli, &dispShim{c: containerDisp})
+			metricsRet, _ := parseObservabilityRetention(cfg.Docker.Observability.MetricsRetention)
+			eventsRet, _ := parseObservabilityRetention(cfg.Docker.Observability.EventsRetention)
+			monitor.StartDockerMetricsRetention(bgCtx, database, metricsRet)
+			monitor.StartDockerEventsRetention(bgCtx, database, eventsRet)
+		}
+	}
+
 	// Start terminal session cleanup (timeout from settings, 0 = never)
 	featureTerminal.CleanupTerminalSessions(bgCtx, database)
 
@@ -243,7 +266,7 @@ func main() {
 	// Start background update checker (polls GitHub every hour)
 	monitor.StartUpdateChecker(version)
 
-	e, routerCleanup := api.NewRouter(database, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate)
+	e, routerCleanup := api.NewRouter(database, alertManager, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate)
 	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -514,4 +537,42 @@ func printHelp() {
 	fmt.Println("  sfpanel reset            Delete database and reset to setup wizard")
 	fmt.Println("  sfpanel cluster <cmd>    Cluster management (init/join/leave/status/token/remove)")
 	fmt.Println("  sfpanel help             Show this help")
+}
+
+// dispShim adapts featureAlert.ContainerDispatcher to monitor.EventDispatcher,
+// translating the monitor.ContainerEvent shape to the alert package's
+// AlertContainerEvent without coupling the two packages.
+type dispShim struct {
+	c *featureAlert.ContainerDispatcher
+}
+
+func (s *dispShim) Dispatch(ctx context.Context, ev *monitor.ContainerEvent) {
+	s.c.Dispatch(ctx, &featureAlert.AlertContainerEvent{
+		ID:       ev.ContainerID,
+		Name:     ev.ContainerName,
+		Type:     ev.EventType,
+		TS:       ev.TS,
+		ExitCode: ev.ExitCode,
+	})
+}
+
+// parseObservabilityRetention maps the small set of allowed retention strings
+// to durations. Validation already happens in config.Load; this is a
+// best-effort fallback that uses 24h on unrecognized values.
+func parseObservabilityRetention(s string) (time.Duration, error) {
+	switch s {
+	case "6h":
+		return 6 * time.Hour, nil
+	case "24h":
+		return 24 * time.Hour, nil
+	case "72h":
+		return 72 * time.Hour, nil
+	case "7d":
+		return 7 * 24 * time.Hour, nil
+	case "30d":
+		return 30 * 24 * time.Hour, nil
+	case "90d":
+		return 90 * 24 * time.Hour, nil
+	}
+	return 24 * time.Hour, nil
 }
