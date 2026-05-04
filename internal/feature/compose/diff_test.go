@@ -33,3 +33,72 @@ func TestComputeDiff_ImageChange(t *testing.T) {
 	require.Equal(t, "nginx:1.24", images[0].From)
 	require.Equal(t, "nginx:1.25", images[0].To)
 }
+
+func TestComputeDiff_PortsAddedAndRemoved(t *testing.T) {
+	deployed := `services:
+  api:
+    image: api:1
+    ports:
+      - "8080:80"
+      - "8443:443"
+`
+	proposed := `services:
+  api:
+    image: api:1
+    ports:
+      - "8081:80"
+      - "8443:443"
+`
+	got, err := ComputeDiff(deployed, proposed)
+	require.NoError(t, err)
+	ports, ok := got.ByCategory["ports"].([]SetChange)
+	require.True(t, ok)
+	require.Len(t, ports, 1)
+	require.Equal(t, "api", ports[0].Service)
+	require.Equal(t, []string{"8081:80"}, ports[0].Added)
+	require.Equal(t, []string{"8080:80"}, ports[0].Removed)
+}
+
+func TestComputeDiff_VolumesUnchanged_NotInOutput(t *testing.T) {
+	deployed := `services:
+  db:
+    image: pg:16
+    volumes:
+      - db-data:/var/lib/postgresql/data
+`
+	proposed := `services:
+  db:
+    image: pg:16
+    volumes:
+      - db-data:/var/lib/postgresql/data
+`
+	got, err := ComputeDiff(deployed, proposed)
+	require.NoError(t, err)
+	require.Empty(t, got.ByCategory["volumes"])
+}
+
+func TestComputeDiff_EnvMapAndListForms(t *testing.T) {
+	// docker-compose accepts both list and map env. Treat both as map.
+	deployed := `services:
+  app:
+    image: app:1
+    environment:
+      LOG_LEVEL: info
+      DEBUG: "false"
+`
+	proposed := `services:
+  app:
+    image: app:1
+    environment:
+      - LOG_LEVEL=debug
+      - DEBUG=false
+`
+	got, err := ComputeDiff(deployed, proposed)
+	require.NoError(t, err)
+	env, ok := got.ByCategory["env"].([]SetChange)
+	require.True(t, ok)
+	require.Len(t, env, 1)
+	require.Equal(t, "app", env[0].Service)
+	require.Equal(t, []string{"LOG_LEVEL=debug"}, env[0].Added)
+	require.Equal(t, []string{"LOG_LEVEL=info"}, env[0].Removed)
+}

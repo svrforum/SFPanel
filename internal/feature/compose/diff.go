@@ -2,6 +2,7 @@ package compose
 
 import (
 	"fmt"
+	"sort"
 
 	"gopkg.in/yaml.v3"
 )
@@ -84,28 +85,145 @@ func ComputeDiff(deployedYAML, proposedYAML string) (*DiffResult, error) {
 		},
 	}
 
-	// Image diff
+	// Track per-service modification flag — increments Summary.Modified once
+	// per service regardless of how many categories changed inside it.
+	modified := map[string]bool{}
+	addedSvcs := map[string]bool{}
+	removedSvcs := map[string]bool{}
+	for name := range proposed.Services {
+		if _, ok := deployed.Services[name]; !ok {
+			addedSvcs[name] = true
+		}
+	}
+	for name := range deployed.Services {
+		if _, ok := proposed.Services[name]; !ok {
+			removedSvcs[name] = true
+		}
+	}
+
+	// Image
 	imgs := []ImageChange{}
-	for name, p := range proposed.Services {
+	for _, name := range sortedKeys(proposed.Services) {
+		p := proposed.Services[name]
 		d, existed := deployed.Services[name]
 		if existed && d.Image != p.Image {
 			imgs = append(imgs, ImageChange{Service: name, From: d.Image, To: p.Image})
+			modified[name] = true
 		}
 	}
 	if len(imgs) > 0 {
 		res.ByCategory["image"] = imgs
 	}
 
-	// Service-level summary (only counts services that exist in both with at least one change).
-	for name, p := range proposed.Services {
-		d, existed := deployed.Services[name]
+	// Ports / Volumes — both are []any of strings; canonicalize to []string.
+	ports := setDiff(deployed.Services, proposed.Services, func(s composeService) []string {
+		return toStringSlice(s.Ports)
+	}, modified)
+	if len(ports) > 0 {
+		res.ByCategory["ports"] = ports
+	}
+	volumes := setDiff(deployed.Services, proposed.Services, func(s composeService) []string {
+		return toStringSlice(s.Volumes)
+	}, modified)
+	if len(volumes) > 0 {
+		res.ByCategory["volumes"] = volumes
+	}
+
+	// Environment — accept map or list, normalize to KEY=VAL form.
+	env := setDiff(deployed.Services, proposed.Services, func(s composeService) []string {
+		return normalizeEnv(s.Environment)
+	}, modified)
+	if len(env) > 0 {
+		res.ByCategory["env"] = env
+	}
+
+	res.Summary.Added = len(addedSvcs)
+	res.Summary.Removed = len(removedSvcs)
+	res.Summary.Modified = len(modified)
+
+	return res, nil
+}
+
+// setDiff returns one SetChange per service whose extract() differs.
+// Output is sorted by service name for deterministic ordering.
+func setDiff(deployed, proposed map[string]composeService, extract func(composeService) []string, modified map[string]bool) []SetChange {
+	out := []SetChange{}
+	for _, name := range sortedKeys(proposed) {
+		p := proposed[name]
+		d, existed := deployed[name]
 		if !existed {
 			continue
 		}
-		if d.Image != p.Image {
-			res.Summary.Modified++
+		ds := stringSet(extract(d))
+		ps := stringSet(extract(p))
+		added, removed := []string{}, []string{}
+		for v := range ps {
+			if !ds[v] {
+				added = append(added, v)
+			}
+		}
+		for v := range ds {
+			if !ps[v] {
+				removed = append(removed, v)
+			}
+		}
+		if len(added) == 0 && len(removed) == 0 {
+			continue
+		}
+		out = append(out, SetChange{Service: name, Added: sorted(added), Removed: sorted(removed)})
+		modified[name] = true
+	}
+	return out
+}
+
+// sortedKeys returns the keys of m in alphabetical order.
+func sortedKeys(m map[string]composeService) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func toStringSlice(v []any) []string {
+	out := make([]string, 0, len(v))
+	for _, item := range v {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
 		}
 	}
+	return out
+}
 
-	return res, nil
+func normalizeEnv(env any) []string {
+	out := []string{}
+	switch e := env.(type) {
+	case map[string]any:
+		for k, v := range e {
+			out = append(out, fmt.Sprintf("%s=%v", k, v))
+		}
+	case []any:
+		for _, item := range e {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
+
+func stringSet(items []string) map[string]bool {
+	m := make(map[string]bool, len(items))
+	for _, s := range items {
+		m[s] = true
+	}
+	return m
+}
+
+func sorted(items []string) []string {
+	out := make([]string, len(items))
+	copy(out, items)
+	sort.Strings(out)
+	return out
 }
