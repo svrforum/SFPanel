@@ -895,3 +895,37 @@ export type AlertRuleType =
   | 'container_oom'
   | 'container_restart_loop'
 
+export interface DiffSummary {
+  added: number
+  modified: number
+  removed: number
+}
+
+export interface DiffImageChange { service: string; from: string; to: string }
+export interface DiffSetChange   { service: string; added: string[]; removed: string[] }
+export interface DiffScalarChange { service: string; from: string; to: string }
+export interface DiffHealthcheckChange { service: string; from: string; to: string }
+
+export interface DiffByCategory {
+  image:       DiffImageChange[]
+  ports:       DiffSetChange[]
+  volumes:     DiffSetChange[]
+  env:         DiffSetChange[]
+  restart:     DiffScalarChange[]
+  healthcheck: DiffHealthcheckChange[]
+}
+
+export interface DiffResult {
+  summary: DiffSummary
+  by_category: DiffByCategory
+  raw_diff: string
+}
+
+export interface ImportRequest {
+  url: string
+  branch?: string
+  path?: string
+  token?: string
+  name: string
+}
+
