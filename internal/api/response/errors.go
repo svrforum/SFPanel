@@ -48,6 +48,12 @@ const (
 	ErrDockerError         = "DOCKER_ERROR"
 	ErrDockerFirewallError = "DOCKER_FIREWALL_ERROR"
 	ErrComposeError        = "COMPOSE_ERROR"
+	ErrInvalidYAML         = "INVALID_YAML"
+	ErrGitAuthFailed       = "GIT_AUTH_FAILED"
+	ErrGitRepoNotFound     = "GIT_REPO_NOT_FOUND"
+	ErrGitPathNotFound     = "GIT_PATH_NOT_FOUND"
+	ErrGitCloneFailed      = "GIT_CLONE_FAILED"
+	ErrStackAlreadyExists  = "STACK_ALREADY_EXISTS"
 )
 
 // File error codes
