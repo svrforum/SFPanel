@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"database/sql"
 	"embed"
 	"io"
@@ -45,7 +44,7 @@ import (
 // cleanup function. The cleanup function must be called by the caller during
 // graceful shutdown to stop background goroutines (e.g. the alert manager)
 // before the DB is closed.
-func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc) (*echo.Echo, func()) {
+func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc) (*echo.Echo, func()) {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -218,10 +217,8 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	authorized.DELETE("/audit/logs", auditHandler.ClearAuditLogs)
 
 	// Alert system. The manager owns a background goroutine that periodically
-	// evaluates rules; it's stopped via the cleanup closure returned by
-	// NewRouter so main.go can wind it down before closing the DB.
-	alertManager := featureAlert.NewManager(database)
-	go alertManager.Start(context.Background())
+	// evaluates rules; it's owned by main.go (started/stopped there) so the
+	// docker observability dispatcher can share the same instance.
 	alertHandler := &featureAlert.Handler{DB: database, Manager: alertManager}
 	alerts := authorized.Group("/alerts")
 	alerts.GET("/channels", alertHandler.ListChannels)
@@ -520,9 +517,7 @@ func NewRouter(database *sql.DB, cfg *config.Config, webFS embed.FS, version str
 	// SPA static file serving — catch-all AFTER all API and WS routes
 	e.GET("/*", spaHandler(webFS))
 
-	cleanup := func() {
-		alertManager.Stop()
-	}
+	cleanup := func() {}
 	return e, cleanup
 }
 

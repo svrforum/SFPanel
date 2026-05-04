@@ -11,6 +11,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
@@ -202,6 +203,12 @@ func (c *Client) ExecResize(ctx context.Context, execID string, cols, rows int) 
 		Width:  uint(cols),
 		Height: uint(rows),
 	})
+}
+
+// Events streams Docker daemon events. Thin wrapper exposing cli.Events for
+// the monitor package's events listener, mirroring ContainerStats.
+func (c *Client) Events(ctx context.Context, opts events.ListOptions) (<-chan events.Message, <-chan error) {
+	return c.cli.Events(ctx, opts)
 }
 
 // ContainerStats returns a one-shot stats snapshot for the given container.
