@@ -83,16 +83,15 @@ function ContainerStatsCell({ containerId, stats, state }: { containerId: string
   }
 
   return (
-    <div className="flex items-center gap-3 text-xs">
-      <span className="flex items-center gap-1">
+    <div className="flex items-center gap-2 text-xs whitespace-nowrap pr-2">
+      <span className="inline-flex items-center gap-1">
         <Cpu className="h-3 w-3 text-blue-500" />
         <span className={stats.cpu_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.cpu_percent.toFixed(1)}%</span>
-        <ContainerSparkline containerId={containerId} metric="cpu" />
       </span>
-      <span className="flex items-center gap-1">
+      <ContainerSparkline containerId={containerId} metric="cpu" width={40} height={16} />
+      <span className="inline-flex items-center gap-1">
         <MemoryStick className="h-3 w-3 text-purple-500" />
         <span className={stats.mem_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.mem_percent.toFixed(1)}%</span>
-        <ContainerSparkline containerId={containerId} metric="mem" />
       </span>
     </div>
   )
