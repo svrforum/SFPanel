@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Network, HardDrive, Variable, Globe, Plus, Layers, Pause, CheckSquare, Loader2 } from 'lucide-react'
+import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Network, HardDrive, Variable, Globe, Plus, Layers, Pause, CheckSquare, Loader2, Activity } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
@@ -32,6 +32,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import ContainerLogs from '@/components/ContainerLogs'
 import ContainerShell from '@/components/ContainerShell'
+import { ContainerSparkline } from '@/components/ContainerSparkline'
+import { ContainerHistoryTab } from '@/components/ContainerHistoryTab'
 
 function formatPorts(ports: Container['Ports']): string {
   if (!ports || ports.length === 0) return '-'
@@ -75,7 +77,7 @@ function statusBadge(state: string) {
 }
 
 // Container stats display in table rows — receives stats from batch polling
-function ContainerStatsCell({ stats, state }: { stats?: ContainerStatsResult; state: string }) {
+function ContainerStatsCell({ containerId, stats, state }: { containerId: string; stats?: ContainerStatsResult; state: string }) {
   if (state !== 'running' || !stats) {
     return <span className="text-muted-foreground text-xs">-</span>
   }
@@ -85,10 +87,12 @@ function ContainerStatsCell({ stats, state }: { stats?: ContainerStatsResult; st
       <span className="flex items-center gap-1">
         <Cpu className="h-3 w-3 text-blue-500" />
         <span className={stats.cpu_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.cpu_percent.toFixed(1)}%</span>
+        <ContainerSparkline containerId={containerId} metric="cpu" />
       </span>
       <span className="flex items-center gap-1">
         <MemoryStick className="h-3 w-3 text-purple-500" />
         <span className={stats.mem_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.mem_percent.toFixed(1)}%</span>
+        <ContainerSparkline containerId={containerId} metric="mem" />
       </span>
     </div>
   )
@@ -372,7 +376,7 @@ function ContainerRow({
       </TableCell>
       <TableCell>{statusBadge(c.State)}</TableCell>
       <TableCell>
-        <ContainerStatsCell stats={statsMap[c.Id]} state={c.State} />
+        <ContainerStatsCell containerId={c.Id} stats={statsMap[c.Id]} state={c.State} />
       </TableCell>
       <TableCell className="text-muted-foreground text-xs font-mono max-w-[160px] truncate" title={formatPorts(c.Ports)}>
         {formatPorts(c.Ports)}
@@ -1207,6 +1211,10 @@ export default function DockerContainers() {
                   <Info className="h-3.5 w-3.5 mr-1" />
                   {t('docker.containers.inspect')}
                 </TabsTrigger>
+                <TabsTrigger value="history">
+                  <Activity className="h-3.5 w-3.5 mr-1" />
+                  History
+                </TabsTrigger>
                 <TabsTrigger value="logs">
                   <Terminal className="h-3.5 w-3.5 mr-1" />
                   {t('docker.containers.logs')}
@@ -1218,6 +1226,9 @@ export default function DockerContainers() {
               </TabsList>
               <TabsContent value="inspect">
                 <ContainerInspect containerId={selectedContainer.Id} />
+              </TabsContent>
+              <TabsContent value="history">
+                <ContainerHistoryTab containerId={selectedContainer.Id} />
               </TabsContent>
               <TabsContent value="logs">
                 <ContainerLogs containerId={selectedContainer.Id} />
