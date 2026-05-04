@@ -4,7 +4,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Plus, Play, Square, RotateCw, ArrowUp, RefreshCw,
   Trash2, Terminal, ScrollText, FileText, FileCode, Save, Loader2,
-  CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft,
+  CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft, Eye,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -33,6 +33,7 @@ import ComposeEditor from '@/components/ComposeEditor'
 import ComposeLogs from '@/components/ComposeLogs'
 import ContainerLogs from '@/components/ContainerLogs'
 import ContainerShell from '@/components/ContainerShell'
+import { DiffSheet } from '@/components/compose/DiffSheet'
 
 const DEFAULT_COMPOSE = `services:
   app:
@@ -92,6 +93,7 @@ export default function DockerStacks() {
   const [envSaving, setEnvSaving] = useState(false)
   const [validating, setValidating] = useState(false)
   const [validationResult, setValidationResult] = useState<{ valid: boolean; message: string } | null>(null)
+  const [diffOpen, setDiffOpen] = useState(false)
 
   // Delete dialog
   const [deleteTarget, setDeleteTarget] = useState<ComposeProjectWithStatus | null>(null)
@@ -951,6 +953,16 @@ export default function DockerStacks() {
                         </Button>
                         <Button
                           variant="outline"
+                          onClick={() => setDiffOpen(true)}
+                          disabled={!editYaml.trim()}
+                          className="rounded-xl"
+                          title={!editYaml.trim() ? 'YAML을 입력해주세요' : '변경사항 미리보기'}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          변경사항 미리보기
+                        </Button>
+                        <Button
+                          variant="outline"
                           onClick={handleSaveYaml}
                           disabled={editSaving || !editYaml.trim()}
                           className="rounded-xl"
@@ -1146,6 +1158,20 @@ export default function DockerStacks() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Diff preview sheet */}
+      {selectedName && (
+        <DiffSheet
+          open={diffOpen}
+          onOpenChange={setDiffOpen}
+          projectName={selectedName}
+          proposedYaml={editYaml}
+          onApply={() => {
+            setDiffOpen(false)
+            handleDeploy()
+          }}
+        />
+      )}
     </div>
   )
 }
