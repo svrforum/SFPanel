@@ -1,9 +1,16 @@
 package compose
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"github.com/go-git/go-billy/v5/memfs"
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	httpauth "github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/stretchr/testify/require"
 )
 
@@ -95,4 +102,53 @@ func TestBuildCloneOptions(t *testing.T) {
 		require.Equal(t, "x-access-token", basic.Username)
 		require.Equal(t, "ghp_secret", basic.Password)
 	})
+}
+
+// makeFakeRepo returns a *git.Repository in memory containing the
+// given file at the given path on the default branch (HEAD = main).
+func makeFakeRepo(t *testing.T, path, content string) *git.Repository {
+	t.Helper()
+	fs := memfs.New()
+	storer := memory.NewStorage()
+	r, err := git.InitWithOptions(storer, fs, git.InitOptions{DefaultBranch: plumbing.Main})
+	require.NoError(t, err)
+
+	w, err := r.Worktree()
+	require.NoError(t, err)
+
+	f, err := fs.Create(path)
+	require.NoError(t, err)
+	_, err = f.Write([]byte(content))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	_, err = w.Add(path)
+	require.NoError(t, err)
+
+	_, err = w.Commit("seed", &git.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "t@x", When: time.Now()},
+	})
+	require.NoError(t, err)
+	return r
+}
+
+func TestReadComposeFromRepo_HappyPath(t *testing.T) {
+	yaml := "services:\n  web:\n    image: nginx:1.25\n"
+	r := makeFakeRepo(t, "docker-compose.yml", yaml)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got, err := readComposeFromRepo(ctx, r, "main", "docker-compose.yml")
+	require.NoError(t, err)
+	require.Equal(t, yaml, got)
+}
+
+func TestReadComposeFromRepo_PathNotFound(t *testing.T) {
+	r := makeFakeRepo(t, "docker-compose.yml", "services: {}\n")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := readComposeFromRepo(ctx, r, "main", "missing.yml")
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrPathNotFound)
 }
