@@ -137,6 +137,39 @@ func ComputeDiff(deployedYAML, proposedYAML string) (*DiffResult, error) {
 		res.ByCategory["env"] = env
 	}
 
+	// Restart
+	rs := []ScalarChange{}
+	for _, name := range sortedKeys(proposed.Services) {
+		p := proposed.Services[name]
+		d, existed := deployed.Services[name]
+		if existed && d.Restart != p.Restart {
+			rs = append(rs, ScalarChange{Service: name, From: d.Restart, To: p.Restart})
+			modified[name] = true
+		}
+	}
+	if len(rs) > 0 {
+		res.ByCategory["restart"] = rs
+	}
+
+	// Healthcheck — compare via marshaled form (cheap deep-equal).
+	hcs := []HealthcheckChange{}
+	for _, name := range sortedKeys(proposed.Services) {
+		p := proposed.Services[name]
+		d, existed := deployed.Services[name]
+		if !existed {
+			continue
+		}
+		dStr := marshalBlock(d.Healthcheck)
+		pStr := marshalBlock(p.Healthcheck)
+		if dStr != pStr {
+			hcs = append(hcs, HealthcheckChange{Service: name, From: dStr, To: pStr})
+			modified[name] = true
+		}
+	}
+	if len(hcs) > 0 {
+		res.ByCategory["healthcheck"] = hcs
+	}
+
 	res.Summary.Added = len(addedSvcs)
 	res.Summary.Removed = len(removedSvcs)
 	res.Summary.Modified = len(modified)
@@ -226,4 +259,15 @@ func sorted(items []string) []string {
 	copy(out, items)
 	sort.Strings(out)
 	return out
+}
+
+func marshalBlock(m map[string]any) string {
+	if len(m) == 0 {
+		return ""
+	}
+	out, err := yaml.Marshal(m)
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }
