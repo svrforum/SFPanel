@@ -483,6 +483,7 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 		compose.POST("", composeHandler.CreateProject)
 		compose.GET("/:project", composeHandler.GetProject)
 		compose.PUT("/:project", composeHandler.UpdateProject)
+		compose.POST("/:project/diff", composeHandler.DiffStack)
 		compose.DELETE("/:project", composeHandler.DeleteProject)
 		compose.POST("/:project/up", composeHandler.ProjectUp)
 		compose.POST("/:project/up-stream", composeHandler.ProjectUpStream)

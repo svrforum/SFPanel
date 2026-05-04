@@ -359,6 +359,37 @@ func (h *Handler) UpdateStackStream(c echo.Context) error {
 	return nil
 }
 
+// DiffStack returns a categorized diff between the deployed compose YAML
+// for :project and the YAML supplied in the request body.
+// POST /api/v1/docker/compose/:project/diff   {"yaml": "..."}
+func (h *Handler) DiffStack(c echo.Context) error {
+	name := c.Param("project")
+	if name == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "project name required")
+	}
+	var req struct {
+		YAML string `json:"yaml"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "invalid request body")
+	}
+	if req.YAML == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "yaml required")
+	}
+
+	ctx := c.Request().Context()
+	deployedYAML, _, err := h.Compose.GetProjectYAML(ctx, name)
+	if err != nil {
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, response.SanitizeOutput(err.Error()))
+	}
+
+	res, err := ComputeDiff(deployedYAML, req.YAML)
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidYAML, response.SanitizeOutput(err.Error()))
+	}
+	return response.OK(c, res)
+}
+
 // ServiceLogs returns the last N lines of logs for a service.
 func (h *Handler) ServiceLogs(c echo.Context) error {
 	project := c.Param("project")
