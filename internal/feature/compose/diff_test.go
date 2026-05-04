@@ -102,3 +102,66 @@ func TestComputeDiff_EnvMapAndListForms(t *testing.T) {
 	require.Equal(t, []string{"LOG_LEVEL=debug"}, env[0].Added)
 	require.Equal(t, []string{"LOG_LEVEL=info"}, env[0].Removed)
 }
+
+func TestComputeDiff_RestartPolicy(t *testing.T) {
+	deployed := `services:
+  web:
+    image: nginx:1
+`
+	proposed := `services:
+  web:
+    image: nginx:1
+    restart: unless-stopped
+`
+	got, err := ComputeDiff(deployed, proposed)
+	require.NoError(t, err)
+	rs, ok := got.ByCategory["restart"].([]ScalarChange)
+	require.True(t, ok)
+	require.Len(t, rs, 1)
+	require.Equal(t, "web", rs[0].Service)
+	require.Equal(t, "", rs[0].From)
+	require.Equal(t, "unless-stopped", rs[0].To)
+}
+
+func TestComputeDiff_HealthcheckAdded(t *testing.T) {
+	deployed := `services:
+  web:
+    image: nginx:1
+`
+	proposed := `services:
+  web:
+    image: nginx:1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 30s
+      retries: 3
+`
+	got, err := ComputeDiff(deployed, proposed)
+	require.NoError(t, err)
+	hcs, ok := got.ByCategory["healthcheck"].([]HealthcheckChange)
+	require.True(t, ok)
+	require.Len(t, hcs, 1)
+	require.Equal(t, "web", hcs[0].Service)
+	require.Equal(t, "", hcs[0].From)
+	require.NotEmpty(t, hcs[0].To)
+}
+
+func TestComputeDiff_ServiceAddedAndRemoved(t *testing.T) {
+	deployed := `services:
+  web:
+    image: nginx:1
+  legacy:
+    image: legacy:1
+`
+	proposed := `services:
+  web:
+    image: nginx:1
+  cache:
+    image: redis:7
+`
+	got, err := ComputeDiff(deployed, proposed)
+	require.NoError(t, err)
+	require.Equal(t, 1, got.Summary.Added)
+	require.Equal(t, 1, got.Summary.Removed)
+	require.Equal(t, 0, got.Summary.Modified)
+}
