@@ -7,16 +7,66 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/go-git/go-billy/v5/memfs"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	httpauth "github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/storage/memory"
 )
 
 // ErrPathNotFound is returned when the repo cloned but the requested
 // compose file path does not exist in the resolved tree.
 var ErrPathNotFound = errors.New("compose path not found in repo")
+
+// ErrAuthFailed / ErrRepoNotFound are typed errors returned by
+// cloneShallow so the handler can map them to specific HTTP codes
+// without parsing string contents.
+var (
+	ErrAuthFailed   = errors.New("git auth failed")
+	ErrRepoNotFound = errors.New("git repo not found")
+)
+
+// importCloneTimeout bounds the clone step. Most GitHub repos clone in <2s
+// at depth=1; 30s gives slow networks and large compose mono-repos a margin.
+const importCloneTimeout = 30 * time.Second
+
+// cloneShallow clones the given URL (depth=1) into an in-memory
+// repository. Returns one of ErrAuthFailed / ErrRepoNotFound for
+// the two cases the handler maps to specific HTTP statuses.
+func cloneShallow(ctx context.Context, url, branch, token string) (*git.Repository, error) {
+	opts := &git.CloneOptions{
+		URL:          url,
+		Depth:        1,
+		SingleBranch: true,
+	}
+	if branch != "" {
+		opts.ReferenceName = plumbing.NewBranchReferenceName(branch)
+	}
+	if token != "" {
+		opts.Auth = &httpauth.BasicAuth{Username: "x-access-token", Password: token}
+	}
+	r, err := git.CloneContext(ctx, memory.NewStorage(), memfs.New(), opts)
+	if err != nil {
+		// go-git surfaces auth and not-found errors with text bodies.
+		// Inspect to map cleanly without leaking transport details.
+		msg := strings.ToLower(err.Error())
+		switch {
+		case strings.Contains(msg, "authentication required"),
+			strings.Contains(msg, "authorization failed"),
+			strings.Contains(msg, "401"):
+			return nil, ErrAuthFailed
+		case strings.Contains(msg, "repository not found"),
+			strings.Contains(msg, "not found"),
+			strings.Contains(msg, "404"):
+			return nil, ErrRepoNotFound
+		}
+		return nil, fmt.Errorf("clone: %w", err)
+	}
+	return r, nil
+}
 
 // ImportRequest is the payload for POST /api/v1/compose/import.
 // Token is used once to clone and is never persisted.

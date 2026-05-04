@@ -34,3 +34,21 @@ func TestDiffStack_EmptyYAML_Returns400(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, false, resp["success"])
 }
+
+// TestImportFromGit_RejectsBadURL covers the validation gate on the
+// import endpoint: a non-github HTTPS URL must be rejected with 400
+// before the handler attempts any network I/O.
+func TestImportFromGit_RejectsBadURL(t *testing.T) {
+	body := bytes.NewBufferString(`{"url":"http://example.com/foo.git","name":"x"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/compose/import", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	e := echo.New()
+	c := e.NewContext(req, rec)
+
+	h := &Handler{}
+	_ = h.ImportFromGit(c)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
