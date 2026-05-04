@@ -888,9 +888,9 @@ export interface RecentContainerEvent extends ContainerEvent {
 }
 
 export type AlertRuleType =
-  | 'host_cpu_high'
-  | 'host_memory_high'
-  | 'host_disk_full'
+  | 'cpu'
+  | 'memory'
+  | 'disk'
   | 'container_down'
   | 'container_oom'
   | 'container_restart_loop'
