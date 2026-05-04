@@ -47,11 +47,17 @@ const RULE_TYPES = [
   { value: 'cpu', label: 'CPU' },
   { value: 'memory', label: '메모리' },
   { value: 'disk', label: '디스크' },
-  { value: 'container', label: '컨테이너' },
+  { value: 'container_down', label: '컨테이너 종료' },
+  { value: 'container_oom', label: '컨테이너 OOM kill' },
+  { value: 'container_restart_loop', label: '컨테이너 재시작 루프' },
   { value: 'service', label: '서비스' },
   { value: 'login', label: '로그인' },
   { value: 'package', label: '패키지' },
 ]
+
+// Rule types that operate on containers (not host metrics) and use a JSON
+// `condition` payload instead of the simple `threshold` percentage.
+const CONTAINER_RULE_TYPES = new Set(['container_down', 'container_oom', 'container_restart_loop'])
 
 const SEVERITY_OPTIONS = [
   { value: 'info', label: 'Info', color: 'bg-[#3182f6]/10 text-[#3182f6]' },
@@ -81,6 +87,10 @@ export default function AlertSettings() {
     name: '', type: 'cpu', threshold: 90, severity: 'warning' as 'info' | 'warning' | 'critical',
     cooldown: 300, channels: [] as number[], node_scope: 'all', nodes: [] as string[],
   })
+  // Container-rule extra inputs (only used when ruleForm.type is a CONTAINER_RULE_TYPES member)
+  const [containerPattern, setContainerPattern] = useState('*')
+  const [thresholdCount, setThresholdCount] = useState(3)
+  const [windowSeconds, setWindowSeconds] = useState(300)
   const [ruleLoading, setRuleLoading] = useState(false)
 
   // History state
@@ -187,6 +197,24 @@ export default function AlertSettings() {
     }
   }
 
+  // Build the JSON `condition` payload the backend expects per rule type.
+  // Host metric rules (cpu/memory/disk) use {operator,threshold}; container
+  // rules use a pattern + optional restart-loop window. Returns a JSON string.
+  function buildConditionForSubmit(type: string): string {
+    if (type === 'container_down' || type === 'container_oom') {
+      return JSON.stringify({ container_pattern: containerPattern || '*' })
+    }
+    if (type === 'container_restart_loop') {
+      return JSON.stringify({
+        container_pattern: containerPattern || '*',
+        threshold_count: thresholdCount || 3,
+        window_seconds: windowSeconds || 300,
+      })
+    }
+    // Host types: cpu/memory/disk — server-side evaluator reads operator+threshold.
+    return JSON.stringify({ operator: '>', threshold: ruleForm.threshold })
+  }
+
   // Rule handlers
   async function handleAddRule() {
     if (!ruleForm.name.trim()) { toast.error('규칙 이름을 입력하세요'); return }
@@ -195,11 +223,24 @@ export default function AlertSettings() {
     try {
       await api.request('/alerts/rules', {
         method: 'POST',
-        body: JSON.stringify({ ...ruleForm, enabled: true }),
+        body: JSON.stringify({
+          name: ruleForm.name,
+          type: ruleForm.type,
+          condition: buildConditionForSubmit(ruleForm.type),
+          channel_ids: JSON.stringify(ruleForm.channels),
+          severity: ruleForm.severity,
+          cooldown: ruleForm.cooldown,
+          node_scope: ruleForm.node_scope,
+          node_ids: JSON.stringify(ruleForm.nodes),
+          enabled: true,
+        }),
       })
       toast.success('규칙이 추가되었습니다')
       setShowAddRule(false)
       setRuleForm({ name: '', type: 'cpu', threshold: 90, severity: 'warning', cooldown: 300, channels: [], node_scope: 'all', nodes: [] })
+      setContainerPattern('*')
+      setThresholdCount(3)
+      setWindowSeconds(300)
       loadRules()
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : '규칙 추가 실패')
@@ -212,7 +253,7 @@ export default function AlertSettings() {
     try {
       await api.request(`/alerts/rules/${rule.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ ...rule, enabled: !rule.enabled }),
+        body: JSON.stringify({ enabled: !rule.enabled }),
       })
       loadRules()
     } catch { /* ignore */ }
@@ -434,7 +475,8 @@ export default function AlertSettings() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Host metric rules: percentage threshold. Hidden for container_* types. */}
+            {!CONTAINER_RULE_TYPES.has(ruleForm.type) && (
               <div className="space-y-1.5">
                 <Label className="text-[13px]">임계값 (%)</Label>
                 <Input
@@ -446,6 +488,45 @@ export default function AlertSettings() {
                   className="rounded-xl"
                 />
               </div>
+            )}
+            {/* Container rules: container name pattern (wildcard, e.g. * or nginx-*) */}
+            {CONTAINER_RULE_TYPES.has(ruleForm.type) && (
+              <div className="space-y-1.5">
+                <Label className="text-[13px]">컨테이너 패턴 (와일드카드)</Label>
+                <Input
+                  value={containerPattern}
+                  onChange={e => setContainerPattern(e.target.value)}
+                  placeholder="* | nginx-* | exact-name"
+                  className="rounded-xl"
+                />
+              </div>
+            )}
+            {/* Restart loop only: count threshold + observation window */}
+            {ruleForm.type === 'container_restart_loop' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-[13px]">재시작 임계 횟수</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={thresholdCount}
+                    onChange={e => setThresholdCount(parseInt(e.target.value || '3', 10))}
+                    className="rounded-xl"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[13px]">윈도우 (초)</Label>
+                  <Input
+                    type="number"
+                    min={30}
+                    value={windowSeconds}
+                    onChange={e => setWindowSeconds(parseInt(e.target.value || '300', 10))}
+                    className="rounded-xl"
+                  />
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-[13px]">심각도</Label>
                 <Select value={ruleForm.severity} onValueChange={v => setRuleForm(f => ({ ...f, severity: v as 'info' | 'warning' | 'critical' }))}>
@@ -522,7 +603,9 @@ export default function AlertSettings() {
                     {rule.severity}
                   </span>
                   <span className="text-[11px] text-muted-foreground">
-                    임계값: {rule.threshold}% | 쿨다운: {rule.cooldown}초
+                    {CONTAINER_RULE_TYPES.has(rule.type)
+                      ? `쿨다운: ${rule.cooldown}초`
+                      : `임계값: ${rule.threshold}% | 쿨다운: ${rule.cooldown}초`}
                   </span>
                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
                     rule.enabled ? 'bg-[#00c471]/10 text-[#00c471]' : 'bg-secondary text-muted-foreground'
