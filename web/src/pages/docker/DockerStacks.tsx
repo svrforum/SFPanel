@@ -34,6 +34,7 @@ import ComposeLogs from '@/components/ComposeLogs'
 import ContainerLogs from '@/components/ContainerLogs'
 import ContainerShell from '@/components/ContainerShell'
 import { DiffSheet } from '@/components/compose/DiffSheet'
+import { GitImportForm } from '@/components/compose/GitImportForm'
 
 const DEFAULT_COMPOSE = `services:
   app:
@@ -1020,28 +1021,44 @@ export default function DockerStacks() {
             <DialogTitle>{t('docker.compose.createTitle')}</DialogTitle>
             <DialogDescription>{t('docker.stacks.createDescription')}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="project-name">{t('docker.compose.projectName')}</Label>
-              <Input id="project-name" placeholder="e.g., my-project" value={newName}
-                onChange={(e) => setNewName(e.target.value)} />
-              <p className="text-[11px] text-muted-foreground">
-                {t('docker.stacks.createPathHint', { path: `/opt/stacks/${newName || '{name}'}` })}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label>{t('docker.compose.composeFile')}</Label>
-              <div className="rounded-md overflow-hidden border">
-                <ComposeEditor value={newYaml} onChange={setNewYaml} />
+          <Tabs defaultValue="manual" className="w-full">
+            <TabsList>
+              <TabsTrigger value="manual">수동 작성</TabsTrigger>
+              <TabsTrigger value="git">git에서 가져오기</TabsTrigger>
+            </TabsList>
+            <TabsContent value="manual" className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="project-name">{t('docker.compose.projectName')}</Label>
+                <Input id="project-name" placeholder="e.g., my-project" value={newName}
+                  onChange={(e) => setNewName(e.target.value)} />
+                <p className="text-[11px] text-muted-foreground">
+                  {t('docker.stacks.createPathHint', { path: `/opt/stacks/${newName || '{name}'}` })}
+                </p>
               </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>{t('common.cancel')}</Button>
-            <Button onClick={handleCreate} disabled={creating || !newName.trim() || !newYaml.trim()}>
-              {creating ? t('common.creating') : t('common.create')}
-            </Button>
-          </DialogFooter>
+              <div className="space-y-2">
+                <Label>{t('docker.compose.composeFile')}</Label>
+                <div className="rounded-md overflow-hidden border">
+                  <ComposeEditor value={newYaml} onChange={setNewYaml} />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCreateOpen(false)}>{t('common.cancel')}</Button>
+                <Button onClick={handleCreate} disabled={creating || !newName.trim() || !newYaml.trim()}>
+                  {creating ? t('common.creating') : t('common.create')}
+                </Button>
+              </DialogFooter>
+            </TabsContent>
+            <TabsContent value="git" className="pt-2">
+              <GitImportForm
+                onSuccess={(projectName) => {
+                  setCreateOpen(false)
+                  void fetchProjects()
+                  navigate(`/docker/stacks/${projectName}`)
+                }}
+                onCancel={() => setCreateOpen(false)}
+              />
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 
