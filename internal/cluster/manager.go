@@ -657,6 +657,13 @@ func (m *Manager) GetNodes() []*Node {
 		}
 		if status, ok := health[n.ID]; ok {
 			cp.Status = status
+		} else {
+			// No heartbeat ever recorded since this leader booted —
+			// treat as offline. Without this we'd show the stale
+			// FSM-persisted Status (typically "online" from the join
+			// moment), which misrepresents a node that's been silent
+			// across leader restarts.
+			cp.Status = StatusOffline
 		}
 		nodes = append(nodes, &cp)
 	}
@@ -680,6 +687,8 @@ func (m *Manager) GetNode(nodeID string) *Node {
 	health := m.heartbeat.CheckHealth()
 	if status, ok := health[cp.ID]; ok {
 		cp.Status = status
+	} else {
+		cp.Status = StatusOffline
 	}
 	return &cp
 }
@@ -701,6 +710,8 @@ func (m *Manager) GetOverview() *ClusterOverview {
 		}
 		if status, ok := health[n.ID]; ok {
 			cp.Status = status
+		} else {
+			cp.Status = StatusOffline
 		}
 		nodes = append(nodes, &cp)
 	}
