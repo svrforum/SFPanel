@@ -1,14 +1,22 @@
 package compose
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	httpauth "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
+
+// ErrPathNotFound is returned when the repo cloned but the requested
+// compose file path does not exist in the resolved tree.
+var ErrPathNotFound = errors.New("compose path not found in repo")
 
 // ImportRequest is the payload for POST /api/v1/compose/import.
 // Token is used once to clone and is never persisted.
@@ -67,4 +75,53 @@ func buildCloneOptions(req ImportRequest) *git.CloneOptions {
 		}
 	}
 	return opts
+}
+
+// readComposeFromRepo extracts the file at `path` on `branch` from an
+// already-opened git.Repository. Branch defaults to HEAD if empty,
+// path defaults to "docker-compose.yml" if empty.
+func readComposeFromRepo(ctx context.Context, r *git.Repository, branch, path string) (string, error) {
+	if path == "" {
+		path = "docker-compose.yml"
+	}
+	var ref *plumbing.Reference
+	var err error
+	if branch == "" {
+		ref, err = r.Head()
+	} else {
+		// Try local branch first; fall back to remote branch (for cloned repos).
+		ref, err = r.Reference(plumbing.NewBranchReferenceName(branch), true)
+		if err != nil {
+			ref, err = r.Reference(plumbing.NewRemoteReferenceName("origin", branch), true)
+		}
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve branch %q: %w", branch, err)
+	}
+	commit, err := r.CommitObject(ref.Hash())
+	if err != nil {
+		return "", fmt.Errorf("commit object: %w", err)
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return "", fmt.Errorf("commit tree: %w", err)
+	}
+	file, err := tree.File(path)
+	if err != nil {
+		if errors.Is(err, object.ErrFileNotFound) {
+			return "", ErrPathNotFound
+		}
+		return "", fmt.Errorf("tree.File: %w", err)
+	}
+	rdr, err := file.Reader()
+	if err != nil {
+		return "", fmt.Errorf("file reader: %w", err)
+	}
+	defer rdr.Close()
+	body, err := io.ReadAll(rdr)
+	if err != nil {
+		return "", fmt.Errorf("read body: %w", err)
+	}
+	_ = ctx // ctx not used by go-git tree walk; reserved for future cancel
+	return string(body), nil
 }
