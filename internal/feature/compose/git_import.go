@@ -37,17 +37,11 @@ const importCloneTimeout = 30 * time.Second
 // repository. Returns one of ErrAuthFailed / ErrRepoNotFound for
 // the two cases the handler maps to specific HTTP statuses.
 func cloneShallow(ctx context.Context, url, branch, token string) (*git.Repository, error) {
-	opts := &git.CloneOptions{
-		URL:          url,
-		Depth:        1,
-		SingleBranch: true,
-	}
-	if branch != "" {
-		opts.ReferenceName = plumbing.NewBranchReferenceName(branch)
-	}
-	if token != "" {
-		opts.Auth = &httpauth.BasicAuth{Username: "x-access-token", Password: token}
-	}
+	opts := buildCloneOptions(ImportRequest{
+		URL:    url,
+		Branch: branch,
+		Token:  token,
+	})
 	r, err := git.CloneContext(ctx, memory.NewStorage(), memfs.New(), opts)
 	if err != nil {
 		// go-git surfaces auth and not-found errors with text bodies.
