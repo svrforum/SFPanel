@@ -43,6 +43,9 @@ import type {
   ClusterEventsResponse,
   ClusterInterfacesResponse,
   ClusterInitResponse,
+  ContainerMetricPoint,
+  ContainerEvent,
+  RecentContainerEvent,
 } from '@/types/api'
 
 const API_PATH = '/api/v1'
@@ -468,6 +471,23 @@ class ApiClient {
 
   unpauseContainer(id: string) {
     return this.request(`/docker/containers/${encodeURIComponent(id)}/unpause`, { method: 'POST' })
+  }
+
+  getContainerMetrics(id: string, range: '1h' | '6h' | '24h' = '1h') {
+    return this.request<ContainerMetricPoint[]>(`/docker/containers/${id}/metrics?range=${range}`)
+  }
+
+  getContainerEvents(id: string, opts: { limit?: number; before?: number } = {}) {
+    const qs = new URLSearchParams()
+    if (opts.limit) qs.set('limit', String(opts.limit))
+    if (opts.before) qs.set('before', String(opts.before))
+    return this.request<ContainerEvent[]>(`/docker/containers/${id}/events?${qs.toString()}`)
+  }
+
+  getRecentEvents(opts: { limit?: number } = {}) {
+    const qs = new URLSearchParams()
+    if (opts.limit) qs.set('limit', String(opts.limit))
+    return this.request<RecentContainerEvent[]>(`/docker/events/recent?${qs.toString()}`)
   }
 
   // Docker Images
