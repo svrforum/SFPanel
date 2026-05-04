@@ -47,8 +47,8 @@ export function ContainerSparkline({ containerId, metric, width = 80, height = 2
   }, [data, metric, width, height])
 
   if (!data || data.length === 0) {
-    return <span className="inline-block text-muted-foreground text-[10px] align-middle" style={{ width, height, lineHeight: `${height}px`, textAlign: 'center' }}>—</span>
+    return <span className="inline-block flex-shrink-0 text-muted-foreground text-[10px] align-middle" style={{ width, height, lineHeight: `${height}px`, textAlign: 'center' }}>—</span>
   }
 
-  return <div ref={ref} className="inline-block align-middle" style={{ width, height }} />
+  return <div ref={ref} className="inline-block flex-shrink-0 align-middle overflow-hidden" style={{ width, height }} />
 }

@@ -71,6 +71,46 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 
 	fsm := NewFSM()
 
+	// peers.json recovery: HashiCorp Raft does NOT auto-read peers.json on
+	// startup. Operators drop a peers.json into the data dir to manually
+	// recover from quorum loss (e.g. one of two voters permanently offline).
+	// We honor that convention here: if the file exists, run RecoverCluster
+	// against the on-disk Raft state, then rename it to peers.info so the
+	// next boot doesn't apply it again.
+	peersPath := filepath.Join(cfg.DataDir, "peers.json")
+	if data, readErr := os.ReadFile(peersPath); readErr == nil {
+		var peers []struct {
+			ID       string `json:"id"`
+			Address  string `json:"address"`
+			NonVoter bool   `json:"non_voter"`
+		}
+		if jsonErr := json.Unmarshal(data, &peers); jsonErr != nil {
+			return nil, fmt.Errorf("parse peers.json: %w", jsonErr)
+		}
+		servers := make([]raft.Server, 0, len(peers))
+		for _, p := range peers {
+			suffrage := raft.Voter
+			if p.NonVoter {
+				suffrage = raft.Nonvoter
+			}
+			servers = append(servers, raft.Server{
+				Suffrage: suffrage,
+				ID:       raft.ServerID(p.ID),
+				Address:  raft.ServerAddress(p.Address),
+			})
+		}
+		slog.Warn("Raft peers.json detected — running RecoverCluster",
+			"component", "cluster", "peer_count", len(servers))
+		if recErr := raft.RecoverCluster(raftCfg, fsm, logStore, stableStore, snapshotStore, transport,
+			raft.Configuration{Servers: servers}); recErr != nil {
+			return nil, fmt.Errorf("recover cluster from peers.json: %w", recErr)
+		}
+		// Rename so it doesn't run again. peers.info is purely informational.
+		_ = os.Rename(peersPath, filepath.Join(cfg.DataDir, "peers.info"))
+		slog.Info("Raft RecoverCluster complete; peers.json renamed to peers.info",
+			"component", "cluster")
+	}
+
 	r, err := raft.NewRaft(raftCfg, fsm, logStore, stableStore, snapshotStore, transport)
 	if err != nil {
 		return nil, fmt.Errorf("create raft: %w", err)
