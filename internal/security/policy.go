@@ -79,6 +79,134 @@ func SavePolicy(c *cluster.Manager, p Policy) error {
 	return c.SetConfig(configKey, string(data))
 }
 
+// MatchRule returns the first Rule matching ref, or (Rule{}, false). Pattern
+// uses glob: `*` matches a single segment, `**` matches multiple. Implicit
+// docker.io/library/ prefix is normalized before matching so that "postgres"
+// matches "docker.io/library/postgres:*".
+func (p Policy) MatchRule(ref string) (Rule, bool) {
+	full := normalizeRef(ref)
+	for _, r := range p.Rules {
+		if matchGlob(r.Pattern, full) || matchGlob(normalizeRef(r.Pattern), full) {
+			return r, true
+		}
+	}
+	return Rule{}, false
+}
+
+// normalizeRef expands shorthand to a fully-qualified reference:
+//
+//	"postgres"          → "docker.io/library/postgres:latest"
+//	"myuser/img:1"      → "docker.io/myuser/img:1"
+//	"ghcr.io/x/y:tag"   → unchanged
+//	"ghcr.io/x/y"       → "ghcr.io/x/y:latest"
+//	"x:tag@sha256:..."  → "x:tag@sha256:..." (digest preserved)
+func normalizeRef(ref string) string {
+	atIdx := strings.Index(ref, "@")
+	digest := ""
+	if atIdx >= 0 {
+		digest = ref[atIdx:]
+		ref = ref[:atIdx]
+	}
+	hasRegistry := false
+	if i := strings.Index(ref, "/"); i >= 0 {
+		first := ref[:i]
+		if first == "localhost" || strings.ContainsAny(first, ".:") {
+			hasRegistry = true
+		}
+	}
+	if !hasRegistry {
+		if strings.Contains(ref, "/") {
+			ref = "docker.io/" + ref
+		} else {
+			ref = "docker.io/library/" + ref
+		}
+	}
+	lastSlash := strings.LastIndex(ref, "/")
+	tagPart := ref[lastSlash+1:]
+	if !strings.Contains(tagPart, ":") {
+		ref += ":latest"
+	}
+	return ref + digest
+}
+
+// matchGlob splits pattern + s into path/tag halves and compares each.
+// Pattern segments are separated by `/`; `*` matches one segment, `**`
+// matches zero or more. Within a segment, `*` is a wildcard for any run
+// of non-`/` characters.
+func matchGlob(pattern, s string) bool {
+	pPath, pTag := splitTag(pattern)
+	sPath, sTag := splitTag(s)
+	if !globPath(pPath, sPath) {
+		return false
+	}
+	if pTag == "" || pTag == "*" {
+		return true
+	}
+	return globSegment(pTag, sTag)
+}
+
+// splitTag returns (path, tag-or-digest). Tag includes everything after the
+// LAST colon AFTER the last slash (so registry:port doesn't split).
+func splitTag(s string) (string, string) {
+	lastSlash := strings.LastIndex(s, "/")
+	rest := s[lastSlash+1:]
+	colon := strings.Index(rest, ":")
+	if colon < 0 {
+		return s, ""
+	}
+	return s[:lastSlash+1] + rest[:colon], rest[colon+1:]
+}
+
+func globPath(pattern, s string) bool {
+	return globSegments(strings.Split(pattern, "/"), strings.Split(s, "/"))
+}
+
+func globSegments(p, s []string) bool {
+	for i, seg := range p {
+		if seg == "**" {
+			rest := p[i+1:]
+			for j := 0; j <= len(s); j++ {
+				if globSegments(rest, s[j:]) {
+					return true
+				}
+			}
+			return false
+		}
+		if i >= len(s) {
+			return false
+		}
+		if !globSegment(seg, s[i]) {
+			return false
+		}
+	}
+	return len(p) == len(s)
+}
+
+// globSegment — `*` wildcard, no slashes. Greedy substring split.
+func globSegment(pattern, s string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if !strings.Contains(pattern, "*") {
+		return pattern == s
+	}
+	parts := strings.Split(pattern, "*")
+	idx := 0
+	if !strings.HasPrefix(s, parts[0]) {
+		return false
+	}
+	idx += len(parts[0])
+	for i := 1; i < len(parts)-1; i++ {
+		j := strings.Index(s[idx:], parts[i])
+		if j < 0 {
+			return false
+		}
+		idx += j + len(parts[i])
+	}
+	last := parts[len(parts)-1]
+	return strings.HasSuffix(s[idx:], last)
+}
+
 // Validate reports input mistakes that would corrupt the FSM if applied.
 func (p Policy) Validate() error {
 	switch p.Mode {
