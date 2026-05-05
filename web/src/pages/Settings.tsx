@@ -14,6 +14,7 @@ import { Download, Upload, RefreshCw, AlertCircle, Trash2, ChevronLeft, ChevronR
 import { QRCodeSVG } from 'qrcode.react'
 import SettingsTuning from '@/pages/SettingsTuning'
 import AlertSettings from '@/pages/settings/AlertSettings'
+import ImageSignatureSettings from '@/pages/settings/ImageSignatureSettings'
 
 const VALID_TABS = ['general', 'security', 'system', 'tuning', 'alerts', 'audit']
 
@@ -590,6 +591,8 @@ export default function Settings() {
           </div>
         )}
       </div>
+
+      <ImageSignatureSettings />
 
         </TabsContent>
 

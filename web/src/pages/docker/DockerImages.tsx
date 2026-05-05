@@ -5,7 +5,24 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes, formatDate } from '@/lib/utils'
 import DockerHubSearch from '@/components/DockerHubSearch'
-import type { DockerImage, ImageUpdateStatus } from '@/types/api'
+import type { DockerImage, ImageUpdateStatus, ImageSignature } from '@/types/api'
+
+function SignatureBadge({ sig }: { sig?: ImageSignature }) {
+  if (!sig) {
+    return <span className="text-muted-foreground text-[11px]" title="아직 검증되지 않음 (정책 끔 또는 캐시 만료)">⏳</span>
+  }
+  if (sig.status === 'verified') {
+    const tip = `subject: ${sig.identity_subject ?? '-'} | issuer: ${sig.identity_issuer ?? '-'} | ${sig.verified_at ? new Date(sig.verified_at).toLocaleString() : ''}`
+    return <span title={tip} className="text-[#00c471]">✓</span>
+  }
+  if (sig.status === 'unsigned') {
+    return <span title={sig.error_message || '이 이미지에 cosign 서명이 없습니다'} className="text-[#f59e0b]">⚠️</span>
+  }
+  if (sig.status === 'failed') {
+    return <span title={sig.error_message || '검증 실패'} className="text-[#f04452]">❌</span>
+  }
+  return <span className="text-muted-foreground">⏳</span>
+}
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
@@ -213,13 +230,14 @@ export default function DockerImages() {
             <TableHead>{t('common.status')}</TableHead>
             <TableHead>{t('docker.images.size')}</TableHead>
             <TableHead>{t('common.created')}</TableHead>
+            <TableHead>검증</TableHead>
             <TableHead className="text-right">{t('common.actions')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {images.length === 0 && !loading && (
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+              <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                 {t('docker.images.empty')}
               </TableCell>
             </TableRow>
@@ -255,6 +273,7 @@ export default function DockerImages() {
               </TableCell>
               <TableCell className="text-muted-foreground">{formatBytes(img.Size)}</TableCell>
               <TableCell className="text-muted-foreground">{formatDate(img.Created)}</TableCell>
+              <TableCell><SignatureBadge sig={img.signature} /></TableCell>
               <TableCell className="text-right">
                 <Button
                     variant="ghost"

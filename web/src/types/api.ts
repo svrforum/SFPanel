@@ -103,6 +103,7 @@ export interface DockerImage {
   Created: number
   in_use: boolean
   used_by: string[]
+  signature?: ImageSignature
 }
 
 export interface DockerVolume {
