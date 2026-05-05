@@ -21,7 +21,9 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/docker"
 )
 
 // ---------------------------------------------------------------------------
@@ -135,6 +137,8 @@ type Handler struct {
 	DB          *sql.DB
 	ComposePath string
 	Cmd         exec.Commander
+	ClusterMgr  *cluster.Manager
+	Compose     *docker.ComposeManager
 
 	mu         sync.RWMutex
 	categories []AppStoreCategory
