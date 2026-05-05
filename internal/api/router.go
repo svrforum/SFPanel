@@ -31,6 +31,7 @@ import (
 	featureMonitor "github.com/svrforum/SFPanel/internal/feature/monitor"
 	featureNetwork "github.com/svrforum/SFPanel/internal/feature/network"
 	featurePackages "github.com/svrforum/SFPanel/internal/feature/packages"
+	"github.com/svrforum/SFPanel/internal/feature/portmap"
 	featureProcess "github.com/svrforum/SFPanel/internal/feature/process"
 	featureServices "github.com/svrforum/SFPanel/internal/feature/services"
 	featureSettings "github.com/svrforum/SFPanel/internal/feature/settings"
@@ -114,6 +115,9 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 		dockerHandler = &featureDocker.Handler{Docker: dockerClient, DB: database}
 	}
 
+	// Unified port map handler — Cmd for ufw/ss, Docker (nil-safe) for DNAT.
+	portmapHandler := &portmap.Handler{Cmd: cmd, Docker: dockerClient}
+
 	// Initialize Compose manager — scans cfg.Server.StacksPath for compose projects
 	composeManager := docker.NewComposeManager(cfg.Server.StacksPath, dockerClient)
 	composeHandler := &featureCompose.Handler{Compose: composeManager, DB: database}
@@ -191,6 +195,7 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	authorized.POST("/system/update", systemHandler.RunUpdate)
 	authorized.POST("/system/backup", systemHandler.CreateBackup)
 	authorized.POST("/system/restore", systemHandler.RestoreBackup)
+	authorized.GET("/system/portmap", portmapHandler.GetPortMap)
 
 	// Cluster management (handler already created above so the proxy
 	// middleware can reference it for dynamic manager resolution)
