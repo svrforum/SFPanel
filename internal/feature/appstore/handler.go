@@ -139,6 +139,7 @@ type Handler struct {
 	Cmd         exec.Commander
 	ClusterMgr  *cluster.Manager
 	Compose     *docker.ComposeManager
+	Verifier    docker.ImageVerifier // nil → install path skips verify
 
 	mu         sync.RWMutex
 	categories []AppStoreCategory
@@ -686,6 +687,19 @@ func (h *Handler) InstallApp(c echo.Context) error {
 	// the HTTP client disconnects (SSE writes will silently fail on closed conn)
 	installCtx, installCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer installCancel()
+
+	// Theme C: per-image cosign verify before docker compose pull touches
+	// the daemon. Aborts install on require-mode policy violations.
+	if h.Verifier != nil {
+		composeBytes, _ := os.ReadFile(composePath)
+		for _, ref := range extractImageRefs(string(composeBytes)) {
+			if err := h.Verifier.VerifyImage(installCtx, ref); err != nil {
+				send("verify", fmt.Sprintf("%s ✗ %s", ref, err.Error()), true, false)
+				return nil
+			}
+			send("verify", fmt.Sprintf("%s ✓ ok", ref), false, true)
+		}
+	}
 
 	send("pull", "Pulling images...", false, true)
 	h.streamCommand(installCtx, w, flusher, "pull", "docker", "compose", "-f", composePath, "pull")

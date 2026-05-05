@@ -429,6 +429,21 @@ func (m *ComposeManager) UpdateStackStream(ctx context.Context, name string, onL
 		os.WriteFile(rbPath, rbData, 0600)
 	}
 
+	// Theme C: per-service cosign verify before any pull touches the daemon.
+	// Aborts the update on require-mode policy violations.
+	if m.dockerClient.Verifier != nil {
+		for _, svc := range services {
+			if svc.Image == "" {
+				continue
+			}
+			if err := m.dockerClient.Verifier.VerifyImage(ctx, svc.Image); err != nil {
+				onLine(fmt.Sprintf("[verify] %s ✗ %s", svc.Image, err.Error()))
+				return fmt.Errorf("verify %s: %w", svc.Image, err)
+			}
+			onLine(fmt.Sprintf("[verify] %s ✓ ok", svc.Image))
+		}
+	}
+
 	onLine("[pull] Pulling latest images...")
 	if err := m.runComposeStream(ctx, name, func(line string) {
 		onLine("[pull] " + line)
@@ -754,6 +769,18 @@ func (m *ComposeManager) UpdateStack(ctx context.Context, name string) (string, 
 		rbData, _ := json.Marshal(rollback)
 		rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
 		os.WriteFile(rbPath, rbData, 0600)
+	}
+
+	// Theme C: per-service cosign verify before pulling.
+	if m.dockerClient.Verifier != nil {
+		for _, svc := range services {
+			if svc.Image == "" {
+				continue
+			}
+			if err := m.dockerClient.Verifier.VerifyImage(ctx, svc.Image); err != nil {
+				return "", fmt.Errorf("verify %s: %w", svc.Image, err)
+			}
+		}
 	}
 
 	// Pull latest images
