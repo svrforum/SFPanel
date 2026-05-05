@@ -368,13 +368,32 @@ func (h *Handler) CheckImageUpdates(c echo.Context) error {
 // ---------- Volumes ----------
 
 // ListVolumes returns all Docker volumes with usage information.
+//
+// When the Handler has a DB attached, each row is augmented with
+// size_bytes / size_measured_at from the docker_volume_usage cache
+// populated by the background collector. Volumes with no cached
+// measurement report null for both fields. A query failure is
+// non-fatal — the row is returned without size rather than failing
+// the whole list.
 func (h *Handler) ListVolumes(c echo.Context) error {
 	ctx := c.Request().Context()
 	volumes, err := h.Docker.ListVolumesWithUsage(ctx)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
-	return response.OK(c, volumes)
+	usage := h.loadVolumeUsageMap()
+	out := make([]volumeWithSize, 0, len(volumes))
+	for _, v := range volumes {
+		row := volumeWithSize{VolumeWithUsage: v}
+		if u, ok := usage[v.Name]; ok {
+			sz := u.Size
+			ts := u.MeasuredAt
+			row.SizeBytes = &sz
+			row.SizeMeasuredAt = &ts
+		}
+		out = append(out, row)
+	}
+	return response.OK(c, out)
 }
 
 // CreateVolume creates a volume. Accepts JSON body: {"name": "myvolume"}.
@@ -639,4 +658,44 @@ func (h *Handler) SearchImages(c echo.Context) error {
 	}
 
 	return response.OK(c, items)
+}
+
+// volumeWithSize embeds VolumeWithUsage and adds size cache fields.
+// Pointers so JSON marshals null when no measurement exists.
+type volumeWithSize struct {
+	docker.VolumeWithUsage
+	SizeBytes      *int64 `json:"size_bytes"`
+	SizeMeasuredAt *int64 `json:"size_measured_at"`
+}
+
+// loadVolumeUsageMap returns a map[volumeName] → (size, measuredAt). Empty
+// map on error; the augmentation is graceful — missing data renders as null.
+func (h *Handler) loadVolumeUsageMap() map[string]struct {
+	Size       int64
+	MeasuredAt int64
+} {
+	out := map[string]struct {
+		Size       int64
+		MeasuredAt int64
+	}{}
+	if h.DB == nil {
+		return out
+	}
+	rows, err := h.DB.Query(`SELECT volume_name, size_bytes, measured_at FROM docker_volume_usage`)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		var sz, ts int64
+		if err := rows.Scan(&name, &sz, &ts); err != nil {
+			continue
+		}
+		out[name] = struct {
+			Size       int64
+			MeasuredAt int64
+		}{Size: sz, MeasuredAt: ts}
+	}
+	return out
 }
