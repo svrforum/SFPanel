@@ -3,7 +3,6 @@ package security
 import (
 	"database/sql"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -50,16 +49,22 @@ func (h *Handler) PutPolicy(c echo.Context) error {
 	return response.OK(c, map[string]string{"status": "saved"})
 }
 
-// CosignStatus reports the binary state on the local node.
+// CosignStatus reports the binary state on the local node. Resolves the
+// cosign path via Installer.LocateCosign so that an apt-installed binary
+// at /usr/bin/cosign is reported correctly (not just the canonical
+// /var/lib/sfpanel/bin/cosign location).
 func (h *Handler) CosignStatus(c echo.Context) error {
 	path := security.DefaultCosignPath
 	installed := false
 	version := ""
-	if _, err := os.Stat(path); err == nil {
-		installed = true
-		if h.Installer != nil && h.Installer.Cmd != nil {
-			if out, err := h.Installer.Cmd.RunWithTimeout(5*time.Second, path, "version"); err == nil {
-				version = out
+	if h.Installer != nil {
+		if p := h.Installer.LocateCosign(); p != "" {
+			path = p
+			installed = true
+			if h.Installer.Cmd != nil {
+				if out, err := h.Installer.Cmd.RunWithTimeout(5*time.Second, path, "version"); err == nil {
+					version = out
+				}
 			}
 		}
 	}
