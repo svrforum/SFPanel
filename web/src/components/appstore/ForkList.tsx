@@ -112,7 +112,7 @@ export function ForkList({ search = '', category = '' }: Props) {
               {f.description || ' '}
             </p>
             <Button asChild size="sm" className="mt-auto">
-              <Link to={`/appstore/${f.id}`}>
+              <Link to={`/appstore?app=${encodeURIComponent(f.id)}`}>
                 <Download className="h-3.5 w-3.5 mr-1" />
                 설치
               </Link>

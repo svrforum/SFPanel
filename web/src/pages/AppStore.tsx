@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Search, RotateCcw, Loader2, Package, Info, ChevronDown, ChevronUp } from 'lucide-react'
 import { toast } from 'sonner'
@@ -23,6 +24,12 @@ export default function AppStore() {
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null)
   const [showGuide, setShowGuide] = useState(false)
   const [failedIcons, setFailedIcons] = useState<Set<string>>(new Set())
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  useEffect(() => {
+    const appParam = searchParams.get('app')
+    if (appParam) setSelectedAppId(appParam)
+  }, [searchParams])
 
   const loadData = useCallback(async (category?: string) => {
     try {
@@ -267,7 +274,13 @@ export default function AppStore() {
       <AppStoreDetailModal
         appId={selectedAppId}
         open={selectedAppId !== null}
-        onClose={() => setSelectedAppId(null)}
+        onClose={() => {
+          setSelectedAppId(null)
+          if (searchParams.has('app')) {
+            searchParams.delete('app')
+            setSearchParams(searchParams, { replace: true })
+          }
+        }}
         onInstalled={() => loadData(selectedCategory)}
       />
     </div>
