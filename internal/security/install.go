@@ -145,9 +145,16 @@ func (i *Installer) LocateCosign() string {
 	return ""
 }
 
-// cosignVersionOK runs `<path> version` and reports whether the major.minor
-// is >= MinCosignVersion. (false, nil) for any IO/exec error so callers can
-// treat "missing" and "broken" the same way.
+// cosignVersionOK runs `<path> version` and reports whether the binary
+// is usable. Strict version parsing is best-effort: apt-built cosign on
+// Ubuntu reports `GitVersion: devel` (no ldflags), so we accept any
+// binary that:
+//   - is at least MinCosignVersion if the version string parses, OR
+//   - prints recognizable cosign output (banner / "GitVersion:" line /
+//     "cosign version" line) when the version string is non-numeric.
+//
+// (false, nil) for any IO/exec error so callers treat "missing" and
+// "broken" the same way.
 func (i *Installer) cosignVersionOK(path string) (bool, error) {
 	if path == "" {
 		return false, errors.New("empty path")
@@ -162,11 +169,16 @@ func (i *Installer) cosignVersionOK(path string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("exec %s version: %w", path, err)
 	}
-	v, err := parseCosignVersion(out)
-	if err != nil {
-		return false, err
+	if v, perr := parseCosignVersion(out); perr == nil {
+		return versionAtLeast(v, MinCosignVersion), nil
 	}
-	return versionAtLeast(v, MinCosignVersion), nil
+	// Version unparseable but cosign ran: accept if output looks like
+	// cosign's own banner/help (apt builds without ldflags hit this).
+	low := strings.ToLower(out)
+	if strings.Contains(low, "cosign") && (strings.Contains(low, "gitversion") || strings.Contains(low, "container signing")) {
+		return true, nil
+	}
+	return false, fmt.Errorf("could not recognize cosign output: %q", strings.TrimSpace(out))
 }
 
 // cosignVersionRE matches the major.minor.patch in `cosign version` output.
