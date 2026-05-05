@@ -981,3 +981,34 @@ export interface ForkUpdateInput {
   category?: string
 }
 
+export type SecurityMode = 'off' | 'warn' | 'require'
+
+export interface SecurityIdentity {
+  subject_prefix: string
+  issuer: string
+}
+
+export interface SecurityRule {
+  pattern: string
+  identity: SecurityIdentity
+}
+
+export interface SecurityPolicy {
+  mode: SecurityMode
+  rules: SecurityRule[]
+}
+
+export interface CosignStatus {
+  installed: boolean
+  version: string
+  path: string
+}
+
+export interface ImageSignature {
+  status: 'verified' | 'unsigned' | 'failed'
+  identity_subject?: string
+  identity_issuer?: string
+  error_message?: string
+  verified_at?: number
+}
+
