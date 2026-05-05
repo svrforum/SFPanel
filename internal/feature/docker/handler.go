@@ -271,14 +271,54 @@ func (h *Handler) ContainerStatsBatch(c echo.Context) error {
 
 // ---------- Images ----------
 
-// ListImages returns all local Docker images with usage information.
+// imageSignature mirrors the relevant columns of image_signatures for
+// the API response. Pointer fields stay nil-on-empty so the JSON omits
+// blank values.
+type imageSignature struct {
+	Status         string `json:"status"`
+	IdentitySubject string `json:"identity_subject,omitempty"`
+	IdentityIssuer  string `json:"identity_issuer,omitempty"`
+	ErrorMessage   string `json:"error_message,omitempty"`
+	VerifiedAt     int64  `json:"verified_at,omitempty"`
+}
+
+type imageWithSignature struct {
+	docker.ImageWithUsage
+	Signature *imageSignature `json:"signature,omitempty"`
+}
+
+// ListImages returns all local Docker images with usage information and,
+// when present, the cached cosign signature verification result.
 func (h *Handler) ListImages(c echo.Context) error {
 	ctx := c.Request().Context()
 	images, err := h.Docker.ListImagesWithUsage(ctx)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
-	return response.OK(c, images)
+
+	// Build digest → signature map in one query.
+	sigs := map[string]*imageSignature{}
+	if h.DB != nil && len(images) > 0 {
+		rows, qErr := h.DB.Query(`SELECT digest, status, COALESCE(identity_subject,''), COALESCE(identity_issuer,''),
+			COALESCE(error_message,''), verified_at FROM image_signatures`)
+		if qErr == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var s imageSignature
+				var digest string
+				if err := rows.Scan(&digest, &s.Status, &s.IdentitySubject, &s.IdentityIssuer, &s.ErrorMessage, &s.VerifiedAt); err == nil {
+					sCopy := s
+					sigs[digest] = &sCopy
+				}
+			}
+		}
+	}
+
+	out := make([]imageWithSignature, len(images))
+	for i, img := range images {
+		out[i] = imageWithSignature{ImageWithUsage: img, Signature: sigs[img.ID]}
+	}
+	return response.OK(c, out)
 }
 
 // PullImage pulls an image by reference with SSE streaming progress.
