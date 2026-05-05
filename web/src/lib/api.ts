@@ -38,6 +38,8 @@ import type {
   Fork,
   ForkCreateInput,
   ForkUpdateInput,
+  SecurityPolicy,
+  CosignStatus,
   ProcessInfo,
   ClusterStatus,
   ClusterOverview,
@@ -1554,6 +1556,29 @@ class ApiClient {
   deleteFork(id: string) {
     return this.request<{ id: string }>(`/appstore/forks/${encodeURIComponent(id)}`, {
       method: 'DELETE',
+    })
+  }
+
+  // Security (Theme C Phase 1)
+  getSecurityPolicy() {
+    return this.request<SecurityPolicy>('/security/policy')
+  }
+
+  updateSecurityPolicy(policy: SecurityPolicy) {
+    return this.request<{ status: string }>('/security/policy', {
+      method: 'PUT',
+      body: JSON.stringify(policy),
+    })
+  }
+
+  getCosignStatus() {
+    return this.request<CosignStatus>('/security/cosign-status')
+  }
+
+  verifyImage(ref: string, skipCache = false) {
+    return this.request<{ status: string }>('/security/verify-image', {
+      method: 'POST',
+      body: JSON.stringify({ ref, skip_cache: skipCache }),
     })
   }
 
