@@ -4,6 +4,7 @@ import { HardDrive, Activity, ThermometerSun, RefreshCw, ChevronRight, Info, Ale
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
+import { DockerVolumeUsageCard } from '@/components/disk/DockerVolumeUsageCard'
 import { Button } from '@/components/ui/button'
 import {
   Table,
@@ -155,6 +156,7 @@ export default function DiskOverview() {
 
   return (
     <div className="space-y-4 mt-4">
+      <DockerVolumeUsageCard />
       {/* Smartmontools Install Banner */}
       {smartmontoolsInstalled === false && (
         <div className="flex items-center gap-3 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-2xl px-5 py-3.5" role="alert">

@@ -2,19 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { api } from '@/lib/api'
+import { formatBytes } from '@/lib/utils'
 import type { DockerVolume } from '@/types/api'
-
-function humanBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  const units = ['KB', 'MB', 'GB', 'TB']
-  let v = n / 1024
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
-  }
-  return `${v.toFixed(1)} ${units[i]}`
-}
 
 export function DockerVolumeUsageCard() {
   const [vols, setVols] = useState<DockerVolume[]>([])
@@ -66,13 +55,13 @@ export function DockerVolumeUsageCard() {
               {top10.map((v) => (
                 <div key={v.Name} className="flex justify-between">
                   <span className="truncate flex-1 mr-2">{v.Name}</span>
-                  <span className="font-mono text-muted-foreground">{humanBytes(v.size_bytes ?? 0)}</span>
+                  <span className="font-mono text-muted-foreground">{formatBytes(v.size_bytes ?? 0)}</span>
                 </div>
               ))}
             </div>
             <div className="mt-2 pt-2 border-t text-[11px] text-muted-foreground flex justify-between">
               <span>
-                합계: {humanBytes(total)} · {sized.length}개 볼륨
+                합계: {formatBytes(total)} · {sized.length}개 볼륨
               </span>
               {newest > 0 && now > 0 && <span>{Math.round((now - newest) / 60000)}분 전 측정</span>}
             </div>
