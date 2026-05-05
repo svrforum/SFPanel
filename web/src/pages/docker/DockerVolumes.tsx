@@ -3,7 +3,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { Trash2, RefreshCw, Plus, Sparkles, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import { formatDate } from '@/lib/utils'
+import { formatDate, formatBytes } from '@/lib/utils'
 import type { DockerVolume } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -159,6 +159,7 @@ export default function DockerVolumes() {
             <TableHead>{t('common.status')}</TableHead>
             <TableHead>{t('docker.volumes.driver')}</TableHead>
             <TableHead>{t('docker.volumes.mountpoint')}</TableHead>
+            <TableHead className="text-right">크기</TableHead>
             <TableHead>{t('common.created')}</TableHead>
             <TableHead className="text-right">{t('common.actions')}</TableHead>
           </TableRow>
@@ -166,7 +167,7 @@ export default function DockerVolumes() {
         <TableBody>
           {volumes.length === 0 && !loading && (
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+              <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                 {t('docker.volumes.empty')}
               </TableCell>
             </TableRow>
@@ -193,6 +194,13 @@ export default function DockerVolumes() {
               <TableCell className="text-muted-foreground">{v.Driver}</TableCell>
               <TableCell className="text-muted-foreground text-xs font-mono max-w-[300px] truncate">
                 {v.Mountpoint}
+              </TableCell>
+              <TableCell className="text-right font-mono text-xs">
+                {typeof v.size_bytes === 'number' && v.size_bytes !== null ? (
+                  formatBytes(v.size_bytes)
+                ) : (
+                  <span className="text-muted-foreground">측정 중…</span>
+                )}
               </TableCell>
               <TableCell className="text-muted-foreground">{formatDate(v.CreatedAt)}</TableCell>
               <TableCell className="text-right">
