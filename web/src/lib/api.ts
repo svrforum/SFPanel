@@ -35,6 +35,9 @@ import type {
   AppStoreApp,
   AppStoreAppDetail,
   AppStoreInstalledApp,
+  Fork,
+  ForkCreateInput,
+  ForkUpdateInput,
   ProcessInfo,
   ClusterStatus,
   ClusterOverview,
@@ -1524,6 +1527,34 @@ class ApiClient {
 
   refreshAppStore() {
     return this.request<{ message: string; apps: number; categories: number }>('/appstore/refresh', { method: 'POST' })
+  }
+
+  listForks() {
+    return this.request<Fork[]>('/appstore/forks')
+  }
+
+  getFork(id: string) {
+    return this.request<Fork>(`/appstore/forks/${encodeURIComponent(id)}`)
+  }
+
+  createFork(input: ForkCreateInput) {
+    return this.request<{ id: string }>('/appstore/forks', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    })
+  }
+
+  updateFork(id: string, input: ForkUpdateInput) {
+    return this.request<{ id: string }>(`/appstore/forks/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    })
+  }
+
+  deleteFork(id: string) {
+    return this.request<{ id: string }>(`/appstore/forks/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
   }
 
   // Cluster

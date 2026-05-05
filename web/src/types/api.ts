@@ -957,3 +957,27 @@ export interface PortMapRow {
   process:   PortMapProcessInfo   | null
 }
 
+export interface Fork {
+  id: string
+  name: string
+  description: string
+  category: string
+  compose: string
+  meta: unknown
+  created_at: number
+  created_by: string
+}
+
+export interface ForkCreateInput {
+  stack_name: string
+  name: string
+  description?: string
+  category?: string
+}
+
+export interface ForkUpdateInput {
+  name?: string
+  description?: string
+  category?: string
+}
+
