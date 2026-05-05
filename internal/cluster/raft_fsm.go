@@ -217,13 +217,27 @@ func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 	return &fsmSnapshot{data: data}, nil
 }
 
-// Restore restores the FSM from a snapshot.
+// Restore restores the FSM from a snapshot. Maps absent from older snapshots
+// (e.g. Forks pre-Theme E) are initialized so subsequent Apply branches can
+// write to them without nil-map panics.
 func (f *FSM) Restore(rc io.ReadCloser) error {
 	defer rc.Close()
 
 	var state ClusterState
 	if err := json.NewDecoder(rc).Decode(&state); err != nil {
 		return err
+	}
+	if state.Nodes == nil {
+		state.Nodes = make(map[string]*Node)
+	}
+	if state.Config == nil {
+		state.Config = make(map[string]string)
+	}
+	if state.Accounts == nil {
+		state.Accounts = make(map[string]*AdminAccount)
+	}
+	if state.Forks == nil {
+		state.Forks = make(map[string]*ForkRecord)
 	}
 
 	f.mu.Lock()
