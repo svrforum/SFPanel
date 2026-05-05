@@ -5,7 +5,9 @@ import {
   Plus, Play, Square, RotateCw, ArrowUp, RefreshCw,
   Trash2, Terminal, ScrollText, FileText, FileCode, Save, Loader2,
   CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft, Eye,
+  BookmarkPlus,
 } from 'lucide-react'
+import { ForkCreateDialog } from '@/components/appstore/ForkCreateDialog'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck, RollbackInfo } from '@/types/api'
@@ -106,6 +108,7 @@ export default function DockerStacks() {
   const [checkingUpdates, setCheckingUpdates] = useState(false)
   const [rollingBack, setRollingBack] = useState(false)
   const [rollbackInfo, setRollbackInfo] = useState<RollbackInfo | null>(null)
+  const [forkOpen, setForkOpen] = useState(false)
 
   // Progress modal
   const [progressOpen, setProgressOpen] = useState(false)
@@ -697,6 +700,14 @@ export default function DockerStacks() {
                   </div>
                 )}
                 <Button
+                  variant="outline" size="sm" className="rounded-xl"
+                  onClick={() => setForkOpen(true)}
+                  title="Template으로 저장"
+                >
+                  <BookmarkPlus className="h-3.5 w-3.5" />
+                  Template으로 저장
+                </Button>
+                <Button
                   variant="ghost" size="icon-xs"
                   onClick={() => setDeleteTarget(selectedProject || null)}
                 >
@@ -1187,6 +1198,15 @@ export default function DockerStacks() {
             setDiffOpen(false)
             handleDeploy()
           }}
+        />
+      )}
+
+      {/* Fork (Template으로 저장) dialog */}
+      {selectedName && (
+        <ForkCreateDialog
+          open={forkOpen}
+          onOpenChange={setForkOpen}
+          stackName={selectedName}
         />
       )}
     </div>
