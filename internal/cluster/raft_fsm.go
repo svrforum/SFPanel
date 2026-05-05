@@ -170,6 +170,36 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 		}
 		return nil
 
+	case CmdForkCreate:
+		var rec ForkRecord
+		if err := json.Unmarshal(cmd.Value, &rec); err != nil {
+			return err
+		}
+		f.state.Forks[rec.ID] = &rec
+		return nil
+
+	case CmdForkUpdate:
+		var patch ForkRecord
+		if err := json.Unmarshal(cmd.Value, &patch); err != nil {
+			return err
+		}
+		existing, ok := f.state.Forks[cmd.Key]
+		if !ok {
+			return fmt.Errorf("fork not found: %s", cmd.Key)
+		}
+		// Metadata-only update: never overwrite Compose / Meta / CreatedAt / CreatedBy / ID.
+		if patch.Name != "" {
+			existing.Name = patch.Name
+		}
+		// Description and Category may be intentionally cleared, so apply unconditionally.
+		existing.Description = patch.Description
+		existing.Category = patch.Category
+		return nil
+
+	case CmdForkDelete:
+		delete(f.state.Forks, cmd.Key)
+		return nil
+
 	default:
 		return fmt.Errorf("unknown command type: %d", cmd.Type)
 	}
@@ -221,11 +251,17 @@ func (f *FSM) GetState() ClusterState {
 		a := *v
 		accounts[k] = &a
 	}
+	forks := make(map[string]*ForkRecord, len(f.state.Forks))
+	for k, v := range f.state.Forks {
+		fr := *v
+		forks[k] = &fr
+	}
 	return ClusterState{
 		Name:     f.state.Name,
 		Nodes:    nodes,
 		Config:   config,
 		Accounts: accounts,
+		Forks:    forks,
 	}
 }
 
