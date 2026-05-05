@@ -182,7 +182,13 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	authorized.POST("/system/tuning/reset", tuningHandler.ResetTuning)
 
 	// App Store
-	appStoreHandler := &featureAppstore.Handler{DB: database, ComposePath: cfg.Server.StacksPath, Cmd: cmd}
+	appStoreHandler := &featureAppstore.Handler{
+		DB:          database,
+		ComposePath: cfg.Server.StacksPath,
+		Cmd:         cmd,
+		ClusterMgr:  clusterMgr,
+		Compose:     composeManager,
+	}
 	appStore := authorized.Group("/appstore")
 	appStore.GET("/categories", appStoreHandler.GetCategories)
 	appStore.GET("/apps", appStoreHandler.ListApps)
@@ -190,6 +196,11 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	appStore.POST("/apps/:id/install", appStoreHandler.InstallApp)
 	appStore.GET("/installed", appStoreHandler.GetInstalled)
 	appStore.POST("/refresh", appStoreHandler.RefreshCache)
+	appStore.GET("/forks", appStoreHandler.ListForks)
+	appStore.GET("/forks/:id", appStoreHandler.GetFork)
+	appStore.POST("/forks", appStoreHandler.CreateFork)
+	appStore.PATCH("/forks/:id", appStoreHandler.UpdateFork)
+	appStore.DELETE("/forks/:id", appStoreHandler.DeleteFork)
 
 	authorized.GET("/system/update-check", systemHandler.CheckUpdate)
 	authorized.POST("/system/update", systemHandler.RunUpdate)
