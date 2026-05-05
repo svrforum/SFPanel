@@ -38,6 +38,33 @@ func TestPolicy_DefaultIsOff(t *testing.T) {
 	}
 }
 
+func TestPolicy_MatchRule(t *testing.T) {
+	cases := []struct {
+		name    string
+		pattern string
+		ref     string
+		want    bool
+	}{
+		{"exact", "ghcr.io/foo/bar:1.0", "ghcr.io/foo/bar:1.0", true},
+		{"single-star segment", "ghcr.io/foo/*", "ghcr.io/foo/bar:1.0", true},
+		{"single-star segment too greedy", "ghcr.io/foo/*", "ghcr.io/foo/bar/baz:1.0", false},
+		{"double-star multi-segment", "ghcr.io/foo/**", "ghcr.io/foo/bar/baz:1.0", true},
+		{"double-star top", "**", "ghcr.io/anything", true},
+		{"docker.io implicit library", "docker.io/library/postgres:*", "postgres:15", true},
+		{"docker.io implicit user repo", "docker.io/myuser/img:*", "myuser/img:1", true},
+		{"no match", "ghcr.io/myorg/*", "quay.io/other/x:1", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := Policy{Rules: []Rule{{Pattern: tc.pattern, Identity: Identity{SubjectPrefix: "x", Issuer: "y"}}}}
+			_, ok := p.MatchRule(tc.ref)
+			if ok != tc.want {
+				t.Fatalf("pattern %q ref %q: got %v want %v", tc.pattern, tc.ref, ok, tc.want)
+			}
+		})
+	}
+}
+
 func TestPolicy_Validate(t *testing.T) {
 	cases := []struct {
 		name    string
