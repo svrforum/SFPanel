@@ -5,16 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
 
-// fakeCmd is a tiny Commander stub that returns whatever the matcher
-// function says. We need this because MockCommander returns the same
-// output for a given command name regardless of args, but our tests
-// need to differentiate `cosign version` from other invocations and to
-// simulate stat-vs-exec behavior cleanly.
+// fakeCmd is a tiny Commander stub. MockCommander only configures one
+// fixed response per command name; our tests need per-call behavior
+// based on (name, args). Implements all five Commander methods.
 type fakeCmd struct {
 	handle func(name string, args []string) (string, error)
 }
@@ -33,9 +30,8 @@ func (f *fakeCmd) RunWithInput(_ string, name string, args ...string) (string, e
 }
 func (f *fakeCmd) Exists(_ string) bool { return true }
 
-// TestInstaller_AlreadyInstalledShortCircuits — when a binary already
-// exists at the canonical path AND `cosign version` reports >= 2.x, return
-// that path without any network or verify work.
+// TestInstaller_AlreadyInstalledShortCircuits — a binary at i.Path with
+// a >= 2.x version short-circuits before any apt call.
 func TestInstaller_AlreadyInstalledShortCircuits(t *testing.T) {
 	dir := t.TempDir()
 	binPath := filepath.Join(dir, "cosign")
@@ -50,14 +46,7 @@ func TestInstaller_AlreadyInstalledShortCircuits(t *testing.T) {
 		t.Fatalf("unexpected exec: %s %v", name, args)
 		return "", errors.New("unexpected")
 	}}
-	i := &Installer{
-		Cmd:  cmd,
-		Path: binPath,
-		Get: func(ctx context.Context, url string) ([]byte, error) {
-			t.Fatal("network should not be hit")
-			return nil, nil
-		},
-	}
+	i := &Installer{Cmd: cmd, Path: binPath}
 	got, err := i.EnsureCosign(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -67,11 +56,11 @@ func TestInstaller_AlreadyInstalledShortCircuits(t *testing.T) {
 	}
 }
 
-// TestInstaller_FallbackWhenNetworkFails — primary download fails,
-// /etc/sfpanel/cosign is used as fallback.
-func TestInstaller_FallbackWhenNetworkFails(t *testing.T) {
+// TestInstaller_FallbackWhenPrimaryMissing — primary path empty,
+// FallbackPath used (air-gapped operator placement).
+func TestInstaller_FallbackUsedWhenPrimaryMissing(t *testing.T) {
 	dir := t.TempDir()
-	primaryPath := filepath.Join(dir, "primary-cosign")
+	primaryPath := filepath.Join(dir, "primary-missing")
 	fallbackDir := t.TempDir()
 	fallbackPath := filepath.Join(fallbackDir, "cosign")
 	if err := os.WriteFile(fallbackPath, []byte("#!/bin/sh\necho 'cosign version v2.4.1'"), 0o755); err != nil {
@@ -79,19 +68,12 @@ func TestInstaller_FallbackWhenNetworkFails(t *testing.T) {
 	}
 
 	cmd := &fakeCmd{handle: func(name string, args []string) (string, error) {
-		if strings.HasSuffix(name, "/cosign") || strings.HasSuffix(name, "primary-cosign") {
+		if name == fallbackPath && len(args) > 0 && args[0] == "version" {
 			return "cosign version v2.4.1\n", nil
 		}
 		return "", errors.New("unexpected: " + name)
 	}}
-	i := &Installer{
-		Cmd:          cmd,
-		Path:         primaryPath,
-		FallbackPath: fallbackPath,
-		Get: func(ctx context.Context, url string) ([]byte, error) {
-			return nil, errors.New("simulated network failure")
-		},
-	}
+	i := &Installer{Cmd: cmd, Path: primaryPath, FallbackPath: fallbackPath}
 	got, err := i.EnsureCosign(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -101,23 +83,20 @@ func TestInstaller_FallbackWhenNetworkFails(t *testing.T) {
 	}
 }
 
-// TestInstaller_BothFailReturnsSentinel — total failure should wrap
-// ErrCosignInstallFailed so callers can errors.Is-detect it.
-func TestInstaller_BothFailReturnsSentinel(t *testing.T) {
+// TestInstaller_AptInstallFailsReturnsSentinel — primary, fallback, and
+// system PATH all miss; apt-get install errors → wrapped
+// ErrCosignInstallFailed.
+func TestInstaller_AptInstallFailsReturnsSentinel(t *testing.T) {
 	dir := t.TempDir()
 	primaryPath := filepath.Join(dir, "missing-cosign")
 	fallbackPath := filepath.Join(dir, "also-missing")
 	cmd := &fakeCmd{handle: func(name string, args []string) (string, error) {
+		if name == "apt-get" {
+			return "E: Unable to locate package cosign", errors.New("exit 100")
+		}
 		return "", errors.New("not installed")
 	}}
-	i := &Installer{
-		Cmd:          cmd,
-		Path:         primaryPath,
-		FallbackPath: fallbackPath,
-		Get: func(ctx context.Context, url string) ([]byte, error) {
-			return nil, errors.New("network down")
-		},
-	}
+	i := &Installer{Cmd: cmd, Path: primaryPath, FallbackPath: fallbackPath}
 	_, err := i.EnsureCosign(context.Background())
 	if !errors.Is(err, ErrCosignInstallFailed) {
 		t.Fatalf("got %v want ErrCosignInstallFailed", err)
