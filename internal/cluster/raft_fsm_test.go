@@ -1,7 +1,9 @@
 package cluster
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"testing"
 	"time"
 
@@ -125,5 +127,44 @@ func TestFSMApply_ForkUpdate_MetadataOnly(t *testing.T) {
 	}
 	if got.Compose != "services: {}" {
 		t.Errorf("compose was overwritten: %q", got.Compose)
+	}
+}
+
+// fakeSink discards Cancel/Close + collects bytes written (raft.SnapshotSink).
+type fakeSink struct {
+	buf bytes.Buffer
+	id  string
+}
+
+func (s *fakeSink) Write(p []byte) (int, error) { return s.buf.Write(p) }
+func (s *fakeSink) Close() error                { return nil }
+func (s *fakeSink) ID() string                  { return s.id }
+func (s *fakeSink) Cancel() error               { return nil }
+
+func TestFSM_SnapshotRestore_PreservesForks(t *testing.T) {
+	fsm := NewFSM()
+	fsm.state.Forks["fork-a"] = &ForkRecord{ID: "fork-a", Name: "A", Compose: "services: a"}
+	fsm.state.Forks["fork-b"] = &ForkRecord{ID: "fork-b", Name: "B", Compose: "services: b"}
+
+	snap, err := fsm.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &fakeSink{}
+	if err := snap.Persist(sink); err != nil {
+		t.Fatal(err)
+	}
+
+	// Restore into a fresh FSM and confirm both forks survive.
+	other := NewFSM()
+	if err := other.Restore(io.NopCloser(bytes.NewReader(sink.buf.Bytes()))); err != nil {
+		t.Fatal(err)
+	}
+	got := other.GetState()
+	if len(got.Forks) != 2 {
+		t.Fatalf("forks: got %d want 2", len(got.Forks))
+	}
+	if got.Forks["fork-a"].Name != "A" || got.Forks["fork-b"].Name != "B" {
+		t.Errorf("names mismatched: %+v", got.Forks)
 	}
 }
