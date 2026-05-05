@@ -48,6 +48,7 @@ import type {
   RecentContainerEvent,
   DiffResult,
   ImportRequest,
+  PortMapRow,
 } from '@/types/api'
 
 const API_PATH = '/api/v1'
@@ -427,6 +428,10 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ signal }),
     })
+  }
+
+  getPortMap() {
+    return this.request<PortMapRow[]>(`/system/portmap`)
   }
 
   // Docker Containers
