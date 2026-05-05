@@ -27,6 +27,9 @@ const (
 	// local cleanup (wiping cluster material, flipping config, exiting).
 	// cmd.Key carries the node ID that initiated the disband.
 	CmdDisband
+	CmdForkCreate
+	CmdForkUpdate
+	CmdForkDelete
 )
 
 // AdminAccount represents a cluster-synced user account.
@@ -60,6 +63,7 @@ func NewFSM() *FSM {
 			Nodes:    make(map[string]*Node),
 			Config:   make(map[string]string),
 			Accounts: make(map[string]*AdminAccount),
+			Forks:    make(map[string]*ForkRecord),
 		},
 	}
 }
