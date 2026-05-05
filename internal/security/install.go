@@ -118,6 +118,33 @@ func (i *Installer) systemCosign() string {
 	return p
 }
 
+// LocateCosign returns the path to a usable cosign binary WITHOUT
+// triggering an install. Used by status endpoints to report what the
+// next call to EnsureCosign would resolve. Returns "" if no cosign is
+// currently locatable.
+func (i *Installer) LocateCosign() string {
+	path := i.Path
+	if path == "" {
+		path = DefaultCosignPath
+	}
+	fallback := i.FallbackPath
+	if fallback == "" {
+		fallback = FallbackCosignPath
+	}
+	if ok, _ := i.cosignVersionOK(path); ok {
+		return path
+	}
+	if ok, _ := i.cosignVersionOK(fallback); ok {
+		return fallback
+	}
+	if sys := i.systemCosign(); sys != "" {
+		if ok, _ := i.cosignVersionOK(sys); ok {
+			return sys
+		}
+	}
+	return ""
+}
+
 // cosignVersionOK runs `<path> version` and reports whether the major.minor
 // is >= MinCosignVersion. (false, nil) for any IO/exec error so callers can
 // treat "missing" and "broken" the same way.
