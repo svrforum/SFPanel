@@ -112,6 +112,8 @@ export interface DockerVolume {
   CreatedAt: string
   in_use: boolean
   used_by: string[]
+  size_bytes: number | null
+  size_measured_at: number | null  // unix millis
 }
 
 export interface DockerNetwork {
@@ -927,5 +929,31 @@ export interface ImportRequest {
   path?: string
   token?: string
   name: string
+}
+
+// Port map — listening/bound TCP/UDP ports correlated with firewall rules,
+// container port bindings, and host process ownership.
+export interface PortMapFirewallInfo {
+  action: string   // "ALLOW" | "DENY" | "REJECT" | "LIMIT"
+  scope: string
+  rule_id: number
+  source: string   // "ufw"
+}
+export interface PortMapContainerInfo {
+  id: string
+  name: string
+  stack: string
+}
+export interface PortMapProcessInfo {
+  pid: number
+  name: string
+}
+export interface PortMapRow {
+  port: number
+  proto: string    // "tcp" | "udp"
+  state: string    // "listening" | "bound"
+  firewall:  PortMapFirewallInfo  | null
+  container: PortMapContainerInfo | null
+  process:   PortMapProcessInfo   | null
 }
 
