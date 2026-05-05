@@ -1165,3 +1165,65 @@ func (m *Manager) UpdateNodeAddress(nodeID, apiAddr, grpcAddr string) error {
 	return nil
 }
 
+// CreateFork applies a CmdForkCreate via Raft. Caller serializes the
+// ForkRecord and provides it as cmd.Value via this helper.
+func (m *Manager) CreateFork(rec *ForkRecord, timeout time.Duration) error {
+	if m.raft == nil {
+		return fmt.Errorf("raft not initialized")
+	}
+	val, err := json.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("marshal fork: %w", err)
+	}
+	return m.raft.Apply(Command{Type: CmdForkCreate, Value: val}, timeout)
+}
+
+// UpdateFork applies a CmdForkUpdate (metadata-only) via Raft.
+func (m *Manager) UpdateFork(id string, patch *ForkRecord, timeout time.Duration) error {
+	if m.raft == nil {
+		return fmt.Errorf("raft not initialized")
+	}
+	val, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("marshal fork patch: %w", err)
+	}
+	return m.raft.Apply(Command{Type: CmdForkUpdate, Key: id, Value: val}, timeout)
+}
+
+// DeleteFork applies a CmdForkDelete via Raft.
+func (m *Manager) DeleteFork(id string, timeout time.Duration) error {
+	if m.raft == nil {
+		return fmt.Errorf("raft not initialized")
+	}
+	return m.raft.Apply(Command{Type: CmdForkDelete, Key: id}, timeout)
+}
+
+// GetFork returns a copy of the named fork from FSM state (read-only,
+// safe on followers). Returns nil if not found.
+func (m *Manager) GetFork(id string) *ForkRecord {
+	if m.raft == nil {
+		return nil
+	}
+	state := m.raft.GetFSM().GetState()
+	rec, ok := state.Forks[id]
+	if !ok {
+		return nil
+	}
+	cp := *rec
+	return &cp
+}
+
+// ListForks returns a snapshot copy of all forks in FSM state.
+func (m *Manager) ListForks() []*ForkRecord {
+	if m.raft == nil {
+		return nil
+	}
+	state := m.raft.GetFSM().GetState()
+	out := make([]*ForkRecord, 0, len(state.Forks))
+	for _, rec := range state.Forks {
+		cp := *rec
+		out = append(out, &cp)
+	}
+	return out
+}
+
