@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/svrforum/SFPanel/internal/common/exec"
@@ -22,6 +24,17 @@ const (
 	// dockerInspectTimeout caps the local docker query. The CLI is
 	// near-instant for already-pulled images; 5s is generous.
 	dockerInspectTimeout = 5 * time.Second
+
+	// cosignVerifyTimeout caps a single `cosign verify` invocation. The
+	// keyless flow does a Rekor + Fulcio round trip, which can be slow
+	// from a cold cache; 30s gives headroom without leaving deploys
+	// hanging on a broken Rekor endpoint.
+	cosignVerifyTimeout = 30 * time.Second
+
+	// cosignErrMsgMax bounds the error_message column write so a chatty
+	// stderr can't bloat a row. The truncation isn't security — it's
+	// hygiene.
+	cosignErrMsgMax = 1024
 )
 
 // status values stored in image_signatures.status. Centralised here so
@@ -103,17 +116,85 @@ func (v *Verifier) VerifyImage(ctx context.Context, ref string) error {
 	return v.runCosignVerify(ctx, policy, rule, digest, ref)
 }
 
-// runCosignVerify is the placeholder for Task 7. Task 8 replaces this
-// stub with a real cosign exec. Documenting it as a separate method
-// keeps the surrounding flow readable.
-func (v *Verifier) runCosignVerify(_ context.Context, policy Policy, _ Rule, digest, ref string) error {
-	v.cacheStore(digest, ref, statusFailed, "", "", "cosign integration not wired", failCacheTTL)
-	if policy.Mode == ModeRequire {
-		return fmt.Errorf("%w: cosign not wired (ref=%s)", ErrPolicyViolation, ref)
+// runCosignVerify shells out to cosign and caches+dispatches on the
+// outcome. Caller has already matched a rule and resolved a digest.
+//
+//   - exit 0           → cache verified, return nil.
+//   - exit non-zero    → cache failed; require → ErrPolicyViolation,
+//     warn → log + nil.
+//   - cosign unavailable → cache failed; require → ErrPolicyViolation,
+//     warn → log + nil.
+//
+// The trailing `.*` on --certificate-identity-regexp accommodates
+// per-tag suffixes like `@refs/tags/v1.2.3` that pad a literal subject
+// prefix at sign time.
+func (v *Verifier) runCosignVerify(ctx context.Context, policy Policy, rule Rule, digest, ref string) error {
+	if v.Cosign == nil {
+		v.cacheStore(digest, ref, statusFailed, "", "", "cosign installer not configured", failCacheTTL)
+		if policy.Mode == ModeRequire {
+			return fmt.Errorf("%w: cosign unavailable (ref=%s)", ErrPolicyViolation, ref)
+		}
+		slog.Warn("security: cosign installer not configured; allowing under warn mode",
+			"component", "security", "ref", ref)
+		return nil
 	}
-	slog.Warn("security: cosign not wired; allowing under warn mode",
-		"component", "security", "ref", ref)
+
+	cosignPath, err := v.Cosign.EnsureCosign(ctx)
+	if err != nil {
+		errMsg := truncateErrMsg(fmt.Sprintf("ensure cosign: %v", err))
+		v.cacheStore(digest, ref, statusFailed, "", "", errMsg, failCacheTTL)
+		if policy.Mode == ModeRequire {
+			return fmt.Errorf("%w: cosign install failed (ref=%s)", ErrPolicyViolation, ref)
+		}
+		slog.Warn("security: cosign install failed; allowing under warn mode",
+			"component", "security", "ref", ref, "error", err)
+		return nil
+	}
+
+	out, vErr := v.Cmd.RunWithTimeout(cosignVerifyTimeout, cosignPath, "verify",
+		"--certificate-identity-regexp="+regexpEscape(rule.Identity.SubjectPrefix)+".*",
+		"--certificate-oidc-issuer="+rule.Identity.Issuer,
+		ref,
+	)
+	if vErr == nil {
+		v.cacheStore(digest, ref, statusVerified, rule.Identity.SubjectPrefix, rule.Identity.Issuer, "", cacheTTL)
+		slog.Info("security: image verified",
+			"component", "security", "ref", ref, "digest", digest)
+		return nil
+	}
+
+	// cosign exited non-zero. Capture the (sanitised-by-truncation)
+	// stderr+stdout combined output; SanitizeOutput is a higher layer's
+	// concern — at this layer we just keep the row tidy.
+	errMsg := truncateErrMsg(strings.TrimSpace(out))
+	if errMsg == "" {
+		errMsg = truncateErrMsg(vErr.Error())
+	}
+	v.cacheStore(digest, ref, statusFailed, "", "", errMsg, failCacheTTL)
+	if policy.Mode == ModeRequire {
+		return fmt.Errorf("%w: cosign verify failed (ref=%s)", ErrPolicyViolation, ref)
+	}
+	slog.Warn("security: cosign verify failed; allowing under warn mode",
+		"component", "security", "ref", ref, "error", vErr)
 	return nil
+}
+
+// regexpEscape escapes regexp metacharacters in s. We can't use
+// regexp.QuoteMeta directly with the trailing `.*` we need, so callers
+// concatenate; this helper just walks the meta set. Equivalent in
+// behaviour to regexp.QuoteMeta but kept inline so the dependency on
+// "regexp" stays purpose-clear at the call site.
+func regexpEscape(s string) string {
+	return regexp.QuoteMeta(s)
+}
+
+// truncateErrMsg bounds an error message to cosignErrMsgMax bytes so a
+// runaway cosign stderr can't bloat the row.
+func truncateErrMsg(s string) string {
+	if len(s) <= cosignErrMsgMax {
+		return s
+	}
+	return s[:cosignErrMsgMax]
 }
 
 // handleUnsigned dispatches a cached "unsigned" record (no matching
