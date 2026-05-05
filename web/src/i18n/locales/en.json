@@ -1670,6 +1670,7 @@
     "tabs": {
       "rules": "UFW Rules",
       "ports": "Open Ports",
+      "portmap": "Port Map",
       "fail2ban": "Fail2ban",
       "docker": "Docker Ports",
       "logs": "Logs"

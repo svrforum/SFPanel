@@ -1669,6 +1669,7 @@
     "tabs": {
       "rules": "UFW 규칙",
       "ports": "열린 포트",
+      "portmap": "포트 맵",
       "fail2ban": "Fail2ban",
       "docker": "Docker 포트",
       "logs": "로그"
