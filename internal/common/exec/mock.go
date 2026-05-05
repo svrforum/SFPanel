@@ -1,9 +1,15 @@
 package exec
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // MockCommander records calls and returns configured responses.
+// Safe for concurrent use: handlers that fan out subprocess calls across
+// goroutines (e.g. portmap) can share a single mock instance.
 type MockCommander struct {
+	mu       sync.Mutex
 	Calls    []MockCall
 	Outputs  map[string]MockResult
 	Fallback MockResult
@@ -26,10 +32,14 @@ func NewMockCommander() *MockCommander {
 }
 
 func (m *MockCommander) SetOutput(name string, output string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Outputs[name] = MockResult{Output: output, Err: err}
 }
 
 func (m *MockCommander) record(name string, args ...string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Name: name, Args: args})
 	if r, ok := m.Outputs[name]; ok {
 		return r.Output, r.Err
@@ -54,6 +64,8 @@ func (m *MockCommander) RunWithInput(_ string, name string, args ...string) (str
 }
 
 func (m *MockCommander) Exists(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Calls = append(m.Calls, MockCall{Name: "exists:" + name})
 	_, ok := m.Outputs["exists:"+name]
 	return ok
