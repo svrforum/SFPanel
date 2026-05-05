@@ -76,6 +76,9 @@ func (h *Handler) CosignStatus(c echo.Context) error {
 }
 
 // VerifyImage forces re-verification of a single ref, ignoring cache.
+// Returns the actual cached status (verified/unsigned/failed) — not just
+// "did the API call succeed". Operator UI uses this to show truthful
+// feedback after a manual re-verify.
 func (h *Handler) VerifyImage(c echo.Context) error {
 	var req struct {
 		Ref       string `json:"ref"`
@@ -94,5 +97,26 @@ func (h *Handler) VerifyImage(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrPolicyViolation,
 			response.SanitizeOutput(err.Error()))
 	}
-	return response.OK(c, map[string]string{"status": "verified"})
+
+	// Read back the cached row to return the actual status.
+	resp := map[string]any{"status": "unknown"}
+	if h.DB != nil {
+		var status, identitySubject, identityIssuer, errMsg string
+		err := h.DB.QueryRow(`SELECT status, COALESCE(identity_subject,''), COALESCE(identity_issuer,''),
+			COALESCE(error_message,'') FROM image_signatures WHERE ref = ? ORDER BY verified_at DESC LIMIT 1`, req.Ref).
+			Scan(&status, &identitySubject, &identityIssuer, &errMsg)
+		if err == nil {
+			resp["status"] = status
+			if identitySubject != "" {
+				resp["identity_subject"] = identitySubject
+			}
+			if identityIssuer != "" {
+				resp["identity_issuer"] = identityIssuer
+			}
+			if errMsg != "" {
+				resp["error_message"] = errMsg
+			}
+		}
+	}
+	return response.OK(c, resp)
 }
