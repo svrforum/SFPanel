@@ -19,11 +19,10 @@ function humanBytes(n: number): string {
 export function DockerVolumeUsageCard() {
   const [vols, setVols] = useState<DockerVolume[]>([])
   const [loading, setLoading] = useState(true)
-  const [now, setNow] = useState(0)
+  const [now] = useState(() => Date.now())
 
   useEffect(() => {
     let cancelled = false
-    setNow(Date.now())
     api
       .getVolumes()
       .then((data) => {
