@@ -257,6 +257,12 @@ func main() {
 		}
 	}
 
+	// Docker volume usage cache (Theme B Phase 1) — independent of the
+	// observability flag. 5-min ticker measures `du -sb` per volume.
+	if dockerCli, dockerErr := docker.NewClient(cfg.Docker.Socket); dockerErr == nil {
+		monitor.StartVolumeUsageCollector(bgCtx, database, dockerCli)
+	}
+
 	// Start terminal session cleanup (timeout from settings, 0 = never)
 	featureTerminal.CleanupTerminalSessions(bgCtx, database)
 
