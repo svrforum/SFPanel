@@ -168,3 +168,33 @@ func TestFSM_SnapshotRestore_PreservesForks(t *testing.T) {
 		t.Errorf("names mismatched: %+v", got.Forks)
 	}
 }
+
+// TestFSM_RestoreLegacySnapshot_NoForksField guards against the production
+// crash where pre-Theme-E snapshots have no Forks field — Restore must
+// initialize the map so subsequent CmdForkCreate doesn't panic on nil-map
+// assignment (raft_fsm.go:178). This was a real production crash on
+// upgrade.
+func TestFSM_RestoreLegacySnapshot_NoForksField(t *testing.T) {
+	// Hand-craft a JSON blob that pre-dates the Forks field — the field
+	// is simply missing from the document, so Decode leaves it nil.
+	legacy := []byte(`{"nodes":{},"config":{"k":"v"},"accounts":{}}`)
+
+	fsm := NewFSM()
+	if err := fsm.Restore(io.NopCloser(bytes.NewReader(legacy))); err != nil {
+		t.Fatal(err)
+	}
+
+	// Apply a fork-create on the restored FSM. Pre-fix: panics with
+	// "assignment to entry in nil map". Post-fix: no-op write succeeds.
+	rec := ForkRecord{ID: "fork-x", Name: "X"}
+	val, _ := json.Marshal(&rec)
+	cmd, _ := json.Marshal(Command{Type: CmdForkCreate, Value: val})
+	if r := fsm.Apply(&raft.Log{Data: cmd}); r != nil {
+		if err, ok := r.(error); ok && err != nil {
+			t.Fatalf("apply: %v", err)
+		}
+	}
+	if got := fsm.GetState().Forks["fork-x"]; got == nil || got.Name != "X" {
+		t.Fatalf("fork not stored after legacy restore: %+v", got)
+	}
+}
