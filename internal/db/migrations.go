@@ -140,6 +140,11 @@ var migrations = []migration{
 	)`},
 	{ID: 18, Up: `CREATE INDEX IF NOT EXISTS idx_container_events_container_ts ON container_events(container_id, ts DESC)`},
 	{ID: 19, Up: `CREATE INDEX IF NOT EXISTS idx_container_events_ts ON container_events(ts DESC)`},
+	{ID: 20, Up: `CREATE TABLE IF NOT EXISTS docker_volume_usage (
+		volume_name TEXT PRIMARY KEY,
+		size_bytes  INTEGER NOT NULL,
+		measured_at INTEGER NOT NULL
+	)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been
