@@ -145,6 +145,18 @@ var migrations = []migration{
 		size_bytes  INTEGER NOT NULL,
 		measured_at INTEGER NOT NULL
 	)`},
+	{ID: 21, Up: `CREATE TABLE IF NOT EXISTS image_signatures (
+		digest           TEXT PRIMARY KEY,
+		ref              TEXT NOT NULL,
+		status           TEXT NOT NULL,
+		identity_subject TEXT,
+		identity_issuer  TEXT,
+		error_message    TEXT,
+		verified_at      INTEGER NOT NULL,
+		expires_at       INTEGER NOT NULL
+	)`},
+	{ID: 22, Up: `CREATE INDEX IF NOT EXISTS idx_image_signatures_ref ON image_signatures(ref)`},
+	{ID: 23, Up: `CREATE INDEX IF NOT EXISTS idx_image_signatures_expires ON image_signatures(expires_at)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been
