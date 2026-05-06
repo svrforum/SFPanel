@@ -614,6 +614,75 @@ func (h *Handler) ApplyHealthcheck(c echo.Context) error {
 	})
 }
 
+// TestHealthcheck runs the supplied healthcheck command inside the
+// running container for a service and returns the exit code, stdout,
+// stderr, and duration. Read-only — never writes to disk, never
+// modifies the container.
+func (h *Handler) TestHealthcheck(c echo.Context) error {
+	project := c.Param("project")
+	service := c.Param("service")
+	if project == "" || service == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "project and service required")
+	}
+
+	var spec HealthcheckSpec
+	if err := c.Bind(&spec); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
+	}
+	if spec.TestType == "NONE" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "NONE has no command to test")
+	}
+	if err := spec.validate(); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, err.Error())
+	}
+
+	if h.Compose == nil {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "compose manager not configured")
+	}
+
+	services, err := h.Compose.GetProjectServices(c.Request().Context(), project)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, response.SanitizeOutput(err.Error()))
+	}
+	var containerID string
+	for _, svc := range services {
+		if svc.Name == service && svc.State == "running" {
+			containerID = svc.ContainerID
+			break
+		}
+	}
+	if containerID == "" {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError,
+			"service not running — start it first to test the healthcheck")
+	}
+
+	var cmd []string
+	switch spec.TestType {
+	case "CMD-SHELL":
+		cmd = []string{"sh", "-c", spec.TestValue}
+	case "CMD":
+		cmd = strings.Split(spec.TestValue, "|")
+	default:
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "unsupported test_type for testing")
+	}
+
+	docker := h.Compose.DockerClient()
+	if docker == nil {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "docker client not available")
+	}
+	res, err := docker.RunOneShotExec(c.Request().Context(), containerID, cmd)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, response.SanitizeOutput(err.Error()))
+	}
+
+	return response.OK(c, map[string]any{
+		"exit_code":   res.ExitCode,
+		"stdout":      response.SanitizeOutput(res.Stdout),
+		"stderr":      response.SanitizeOutput(res.Stderr),
+		"duration_ms": res.DurationMS,
+	})
+}
+
 // RemoveHealthcheck deletes the healthcheck block from the named
 // service. Implements the same five stability guarantees as
 // ApplyHealthcheck (sha256 precondition, backup, pre-flight re-parse,

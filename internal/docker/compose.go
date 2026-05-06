@@ -86,6 +86,13 @@ func NewComposeManager(baseDir string, dockerClient *Client) *ComposeManager {
 	return &ComposeManager{baseDir: baseDir, dockerClient: dockerClient}
 }
 
+// DockerClient returns the underlying docker client (read-only access).
+// Used by feature handlers that need to invoke docker SDK helpers
+// directly (e.g. healthcheck Test now → RunOneShotExec).
+func (m *ComposeManager) DockerClient() *Client {
+	return m.dockerClient
+}
+
 // findComposeFile returns the compose filename found in the given directory, or empty string if none.
 func findComposeFile(dir string) string {
 	for _, name := range composeFileNames {
