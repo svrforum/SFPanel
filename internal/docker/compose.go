@@ -46,12 +46,13 @@ type ComposeProject struct {
 
 // ComposeService represents a single service within a compose project with its runtime state.
 type ComposeService struct {
-	Name        string `json:"name"`
-	ContainerID string `json:"container_id"`
-	Image       string `json:"image"`
-	State       string `json:"state"`
-	Status      string `json:"status"`
-	Ports       string `json:"ports"`
+	Name           string `json:"name"`
+	ContainerID    string `json:"container_id"`
+	Image          string `json:"image"`
+	State          string `json:"state"`
+	Status         string `json:"status"`
+	Ports          string `json:"ports"`
+	HasHealthcheck bool   `json:"has_healthcheck"`
 }
 
 // ComposeProjectWithStatus extends ComposeProject with runtime service counts.
@@ -538,7 +539,54 @@ func (m *ComposeManager) GetProjectServices(ctx context.Context, name string) ([
 			Ports:       ports,
 		})
 	}
+
+	// Theme D Phase 2.1: stamp HasHealthcheck so the UI can show a
+	// per-service indicator without each row making its own round-trip.
+	if yamlPath, _ := m.resolveComposeFilePath(ctx, name); yamlPath != "" {
+		if data, err := os.ReadFile(yamlPath); err == nil {
+			yamlStr := string(data)
+			for i := range services {
+				if hasComposeHealthcheck(yamlStr, services[i].Name) {
+					services[i].HasHealthcheck = true
+				}
+			}
+		}
+	}
+
 	return services, nil
+}
+
+// hasComposeHealthcheck reports whether services.<name>.healthcheck is
+// present in the compose YAML. Lightweight string scan; for stamping
+// the UI indicator we don't need full Node-API parsing.
+func hasComposeHealthcheck(yamlStr, service string) bool {
+	lines := strings.Split(yamlStr, "\n")
+	inService := false
+	svcIndent := -1
+	for _, line := range lines {
+		indent := 0
+		for indent < len(line) && line[indent] == ' ' {
+			indent++
+		}
+		trimmed := strings.TrimSpace(line)
+		if !inService {
+			if trimmed == service+":" {
+				inService = true
+				svcIndent = indent
+			}
+			continue
+		}
+		if trimmed == "" {
+			continue
+		}
+		if indent <= svcIndent {
+			return false
+		}
+		if strings.HasPrefix(trimmed, "healthcheck:") {
+			return true
+		}
+	}
+	return false
 }
 
 // ListProjectsWithStatus returns all compose projects with real-time service status.
