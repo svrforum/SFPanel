@@ -560,6 +560,14 @@ export interface ComposeService {
   state: string
   status: string
   ports: string
+  has_healthcheck?: boolean
+}
+
+export interface HealthcheckTestResult {
+  exit_code: number
+  stdout: string
+  stderr: string
+  duration_ms: number
 }
 
 // Docker - Image Update Status

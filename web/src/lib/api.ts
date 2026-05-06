@@ -41,6 +41,7 @@ import type {
   SecurityPolicy,
   CosignStatus,
   HealthcheckSpec,
+  HealthcheckTestResult,
   ProcessInfo,
   ClusterStatus,
   ClusterOverview,
@@ -643,10 +644,30 @@ class ApiClient {
     baseYamlSha256: string,
   ) {
     return this.request<{ yaml: string; backup_path: string }>(
-      `/compose/${encodeURIComponent(project)}/healthcheck/${encodeURIComponent(service)}`,
+      `/docker/compose/${encodeURIComponent(project)}/healthcheck/${encodeURIComponent(service)}`,
       {
         method: 'PUT',
         body: JSON.stringify({ ...spec, replace, base_yaml_sha256: baseYamlSha256 }),
+      },
+    )
+  }
+
+  removeHealthcheck(project: string, service: string, baseYamlSha256: string) {
+    return this.request<{ yaml: string; backup_path: string }>(
+      `/docker/compose/${encodeURIComponent(project)}/healthcheck/${encodeURIComponent(service)}`,
+      {
+        method: 'DELETE',
+        body: JSON.stringify({ base_yaml_sha256: baseYamlSha256 }),
+      },
+    )
+  }
+
+  testHealthcheck(project: string, service: string, spec: HealthcheckSpec) {
+    return this.request<HealthcheckTestResult>(
+      `/docker/compose/${encodeURIComponent(project)}/healthcheck/${encodeURIComponent(service)}/test`,
+      {
+        method: 'POST',
+        body: JSON.stringify(spec),
       },
     )
   }
