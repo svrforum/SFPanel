@@ -34,13 +34,11 @@ import (
 	"github.com/svrforum/SFPanel/internal/feature/portmap"
 	featureProcess "github.com/svrforum/SFPanel/internal/feature/process"
 	featureServices "github.com/svrforum/SFPanel/internal/feature/services"
-	featureSecurity "github.com/svrforum/SFPanel/internal/feature/security"
 	featureSettings "github.com/svrforum/SFPanel/internal/feature/settings"
 	featureSystem "github.com/svrforum/SFPanel/internal/feature/system"
 	featureAlert "github.com/svrforum/SFPanel/internal/feature/alert"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	featureWS "github.com/svrforum/SFPanel/internal/feature/websocket"
-	"github.com/svrforum/SFPanel/internal/security"
 )
 
 // NewRouter wires the HTTP server and returns both the Echo instance and a
@@ -124,26 +122,6 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	composeManager := docker.NewComposeManager(cfg.Server.StacksPath, dockerClient)
 	composeHandler := &featureCompose.Handler{Compose: composeManager, DB: database}
 
-	// Theme C Phase 1: cosign image verification.
-	cosignInstaller := &security.Installer{Cmd: cmd}
-	imageVerifier := &security.Verifier{
-		Cmd:    cmd,
-		DB:     database,
-		Cosign: cosignInstaller,
-		LoadPolicy: func() (security.Policy, error) {
-			return security.LoadPolicy(clusterMgr)
-		},
-	}
-	if dockerClient != nil {
-		dockerClient.Verifier = imageVerifier
-	}
-	securityHandler := &featureSecurity.Handler{
-		DB:        database,
-		Cluster:   clusterMgr,
-		Verifier:  imageVerifier,
-		Installer: cosignInstaller,
-	}
-
 	v1 := e.Group("/api/v1")
 
 	// Public routes
@@ -208,7 +186,6 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 		DB:          database,
 		ComposePath: cfg.Server.StacksPath,
 		Cmd:         cmd,
-		Verifier:    imageVerifier,
 	}
 	appStore := authorized.Group("/appstore")
 	appStore.GET("/categories", appStoreHandler.GetCategories)
@@ -217,13 +194,6 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	appStore.POST("/apps/:id/install", appStoreHandler.InstallApp)
 	appStore.GET("/installed", appStoreHandler.GetInstalled)
 	appStore.POST("/refresh", appStoreHandler.RefreshCache)
-
-	// Security (Theme C Phase 1)
-	sec := authorized.Group("/security")
-	sec.GET("/policy", securityHandler.GetPolicy)
-	sec.PUT("/policy", securityHandler.PutPolicy)
-	sec.GET("/cosign-status", securityHandler.CosignStatus)
-	sec.POST("/verify-image", securityHandler.VerifyImage)
 
 	authorized.GET("/system/update-check", systemHandler.CheckUpdate)
 	authorized.POST("/system/update", systemHandler.RunUpdate)
