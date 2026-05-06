@@ -49,6 +49,11 @@ const PRESETS: Preset[] = [
 ]
 
 async function sha256Hex(s: string): Promise<string> {
+  // crypto.subtle is only available in secure contexts (HTTPS or localhost).
+  // SFPanel is commonly accessed over plain HTTP on a LAN, so we degrade
+  // gracefully: empty hash → backend skips the concurrent-edit precondition.
+  // Trade-off: stability guarantee #4 is best-effort in non-secure contexts.
+  if (typeof crypto === 'undefined' || !crypto.subtle) return ''
   const buf = new TextEncoder().encode(s)
   const hash = await crypto.subtle.digest('SHA-256', buf)
   return Array.from(new Uint8Array(hash))
