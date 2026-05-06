@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 // cache holds a generic cached result with expiration.
@@ -206,6 +208,62 @@ func (c *Client) ContainerExec(ctx context.Context, id string, cmd []string) (ty
 	}
 
 	return resp, exec.ID, nil
+}
+
+// ExecResult captures the outcome of a one-shot exec inside a container.
+// Used by feature handlers (e.g. healthcheck Test now) to validate
+// commands without modifying container state.
+type ExecResult struct {
+	ExitCode   int
+	Stdout     string
+	Stderr     string
+	DurationMS int64
+}
+
+// RunOneShotExec executes cmd in container id, captures stdout+stderr
+// (demuxed via stdcopy because Docker's exec stream is multiplexed when
+// TTY is false), and returns the exit code.
+//
+// 30-second timeout matches healthcheck conventions; long-hanging
+// healthchecks are themselves bugs.
+func (c *Client) RunOneShotExec(ctx context.Context, id string, cmd []string) (ExecResult, error) {
+	if len(cmd) == 0 {
+		return ExecResult{}, fmt.Errorf("empty command")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	exec, err := c.cli.ContainerExecCreate(ctx, id, container.ExecOptions{
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+		Tty:          false, // multiplexed stream → stdcopy
+	})
+	if err != nil {
+		return ExecResult{}, fmt.Errorf("exec create: %w", err)
+	}
+	resp, err := c.cli.ContainerExecAttach(ctx, exec.ID, container.ExecAttachOptions{Tty: false})
+	if err != nil {
+		return ExecResult{}, fmt.Errorf("exec attach: %w", err)
+	}
+	defer resp.Close()
+
+	var stdout, stderr bytes.Buffer
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, resp.Reader); err != nil {
+		return ExecResult{}, fmt.Errorf("read stream: %w", err)
+	}
+
+	inspect, err := c.cli.ContainerExecInspect(ctx, exec.ID)
+	if err != nil {
+		return ExecResult{}, fmt.Errorf("exec inspect: %w", err)
+	}
+	return ExecResult{
+		ExitCode:   inspect.ExitCode,
+		Stdout:     stdout.String(),
+		Stderr:     stderr.String(),
+		DurationMS: time.Since(start).Milliseconds(),
+	}, nil
 }
 
 // ExecResize resizes the TTY of a running exec instance.
