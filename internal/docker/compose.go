@@ -135,6 +135,14 @@ func (m *ComposeManager) resolveComposeFilePath(ctx context.Context, name string
 	return "", projectDir
 }
 
+// ResolveComposeFile is the public entry to find the compose YAML file
+// for a project. Returns ("", "") if the project directory contains no
+// recognizable compose file. Used by feature handlers that need to
+// read+write compose YAML directly (Theme D Phase 2 healthcheck composer).
+func (m *ComposeManager) ResolveComposeFile(ctx context.Context, name string) (yamlPath string, dir string) {
+	return m.resolveComposeFilePath(ctx, name)
+}
+
 // ListProjects scans the base directory for subdirectories containing a compose file.
 func (m *ComposeManager) ListProjects(_ context.Context) ([]ComposeProject, error) {
 	entries, err := os.ReadDir(m.baseDir)
