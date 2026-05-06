@@ -845,7 +845,7 @@ export default function DockerStacks() {
                               </Button>
                               <Button variant="ghost" size="icon-xs" title="Healthcheck"
                                 onClick={() => setHealthcheckTarget(svc)}>
-                                <HeartPulse className="h-3.5 w-3.5" />
+                                <HeartPulse className={`h-3.5 w-3.5 ${svc.has_healthcheck ? 'text-[#00c471]' : ''}`} />
                               </Button>
                               <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')}
                                 onClick={() => setLogService(svc)}>
@@ -906,7 +906,7 @@ export default function DockerStacks() {
                         </Button>
                         <Button variant="ghost" size="icon-xs" title="Healthcheck"
                           onClick={() => setHealthcheckTarget(svc)}>
-                          <HeartPulse className="h-3.5 w-3.5" />
+                          <HeartPulse className={`h-3.5 w-3.5 ${svc.has_healthcheck ? 'text-[#00c471]' : ''}`} />
                         </Button>
                         <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')}
                           onClick={() => setLogService(svc)}>
