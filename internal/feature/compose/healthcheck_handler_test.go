@@ -72,6 +72,38 @@ func TestRemoveHealthcheckHandler_RejectsSHA256Mismatch(t *testing.T) {
 	}
 }
 
+func TestTestHealthcheckHandler_RejectsNONE(t *testing.T) {
+	body := bytes.NewBufferString(`{"test_type":"NONE"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/docker/compose/foo/healthcheck/svc/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("project", "service")
+	c.SetParamValues("foo", "svc")
+	h := &Handler{}
+	_ = h.TestHealthcheck(c)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d want 400", rec.Code)
+	}
+}
+
+func TestTestHealthcheckHandler_RejectsBadDuration(t *testing.T) {
+	body := bytes.NewBufferString(`{"test_type":"CMD-SHELL","test_value":"x","interval":"30","timeout":"10s","retries":3,"start_period":"30s"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/docker/compose/foo/healthcheck/svc/test", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("project", "service")
+	c.SetParamValues("foo", "svc")
+	h := &Handler{}
+	_ = h.TestHealthcheck(c)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d want 400", rec.Code)
+	}
+}
+
 func TestPruneHealthcheckBackups_KeepsLastN(t *testing.T) {
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "docker-compose.yml")
