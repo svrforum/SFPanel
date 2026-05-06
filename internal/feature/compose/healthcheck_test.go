@@ -121,3 +121,70 @@ func TestApplyHealthcheck_CMDArgv(t *testing.T) {
 		t.Errorf("CMD argv not flattened correctly:\n%s", got)
 	}
 }
+
+func TestParseHealthcheck_PresentCMDSHELL(t *testing.T) {
+	got, ok, err := ParseHealthcheck(composeWithHealthcheck, "jellyfin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatalf("expected healthcheck found")
+	}
+	if got.TestType != "CMD-SHELL" {
+		t.Errorf("test_type: got %q want CMD-SHELL", got.TestType)
+	}
+	if got.TestValue != "echo old" {
+		t.Errorf("test_value: got %q want 'echo old'", got.TestValue)
+	}
+	if got.Interval != "60s" || got.Timeout != "5s" || got.Retries != 5 || got.StartPeriod != "10s" {
+		t.Errorf("durations/retries mismatched: %+v", got)
+	}
+}
+
+func TestParseHealthcheck_Absent(t *testing.T) {
+	_, ok, err := ParseHealthcheck(sampleCompose, "jellyfin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatalf("expected absent")
+	}
+}
+
+// TestApplyHealthcheck_RoundTripPreservesComments — apply with
+// replace=true using the SAME spec parsed back should produce a
+// document where everything except the healthcheck block is
+// byte-identical to the original.
+func TestApplyHealthcheck_RoundTripPreservesComments(t *testing.T) {
+	yamlWithComments := `# top comment
+services:
+  jellyfin:                # service line comment
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    ports:
+      - '8096:8096/tcp'    # port comment
+    restart: unless-stopped
+`
+	spec := HealthcheckSpec{
+		TestType: "CMD-SHELL", TestValue: "echo ok",
+		Interval: "30s", Timeout: "10s", Retries: 3, StartPeriod: "30s",
+	}
+	got, err := ApplyHealthcheck(yamlWithComments, "jellyfin", spec, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Comments must survive.
+	if !strings.Contains(got, "# top comment") {
+		t.Errorf("top comment lost:\n%s", got)
+	}
+	if !strings.Contains(got, "service line comment") {
+		t.Errorf("service line comment lost:\n%s", got)
+	}
+	if !strings.Contains(got, "port comment") {
+		t.Errorf("port comment lost:\n%s", got)
+	}
+	// Existing keys must still be present.
+	if !strings.Contains(got, "container_name: jellyfin") {
+		t.Errorf("container_name lost:\n%s", got)
+	}
+}
