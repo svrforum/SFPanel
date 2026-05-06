@@ -8,8 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +23,44 @@ import (
 	"github.com/svrforum/SFPanel/internal/docker"
 	"gopkg.in/yaml.v3"
 )
+
+const healthcheckBackupKeep = 5
+
+// pruneHealthcheckBackups deletes oldest .bak.healthcheck.* files in dir,
+// keeping at most `keep` most-recent (by mtime). Best-effort — errors
+// are logged but never propagated; the freshest backup (the one we just
+// wrote) is always preserved by the sort.
+//
+// We glob on the prefix "<file>.bak.healthcheck." rather than just
+// "*.bak*" so we never touch backups created by other tools (e.g. an
+// editor's swap files).
+func pruneHealthcheckBackups(yamlPath string, keep int) {
+	pattern := yamlPath + ".bak.healthcheck.*"
+	entries, err := filepath.Glob(pattern)
+	if err != nil || len(entries) <= keep {
+		return
+	}
+	type entry struct {
+		path  string
+		mtime time.Time
+	}
+	rows := make([]entry, 0, len(entries))
+	for _, p := range entries {
+		info, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		rows = append(rows, entry{p, info.ModTime()})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].mtime.After(rows[j].mtime)
+	})
+	for _, r := range rows[keep:] {
+		if err := os.Remove(r.path); err != nil {
+			slog.Warn("failed to prune healthcheck backup", "component", "compose", "path", r.path, "error", err)
+		}
+	}
+}
 
 // Handler exposes REST handlers for Docker Compose project management.
 type Handler struct {
@@ -564,6 +605,86 @@ func (h *Handler) ApplyHealthcheck(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWriteError,
 			response.SanitizeOutput(err.Error()))
 	}
+
+	pruneHealthcheckBackups(yamlPath, healthcheckBackupKeep)
+
+	return response.OK(c, map[string]any{
+		"yaml":        newYAML,
+		"backup_path": backupPath,
+	})
+}
+
+// RemoveHealthcheck deletes the healthcheck block from the named
+// service. Implements the same five stability guarantees as
+// ApplyHealthcheck (sha256 precondition, backup, pre-flight re-parse,
+// atomic write, no auto-deploy) plus backup retention.
+func (h *Handler) RemoveHealthcheck(c echo.Context) error {
+	project := c.Param("project")
+	service := c.Param("service")
+	if project == "" || service == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "project and service required")
+	}
+
+	var req struct {
+		BaseYAMLSHA256 string `json:"base_yaml_sha256"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
+	}
+
+	if h.Compose == nil {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "compose manager not configured")
+	}
+
+	yamlPath, _ := h.Compose.ResolveComposeFile(c.Request().Context(), project)
+	if yamlPath == "" {
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "compose file not found for project")
+	}
+	original, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrReadError, response.SanitizeOutput(err.Error()))
+	}
+
+	if req.BaseYAMLSHA256 != "" {
+		sum := sha256.Sum256(original)
+		if hex.EncodeToString(sum[:]) != req.BaseYAMLSHA256 {
+			return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists,
+				"compose file changed externally — reload before removing healthcheck")
+		}
+	}
+
+	newYAML, err := RemoveHealthcheck(string(original), service)
+	switch {
+	case errors.Is(err, ErrServiceNotFound):
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, err.Error())
+	case err != nil:
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, response.SanitizeOutput(err.Error()))
+	}
+
+	var sanity yaml.Node
+	if err := yaml.Unmarshal([]byte(newYAML), &sanity); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError,
+			"healthcheck removal produced unparseable YAML: "+response.SanitizeOutput(err.Error()))
+	}
+
+	backupPath := yamlPath + ".bak.healthcheck." + strconv.FormatInt(time.Now().UnixMilli(), 10)
+	if err := os.WriteFile(backupPath, original, 0o644); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrWriteError,
+			"backup failed: "+response.SanitizeOutput(err.Error()))
+	}
+
+	tmp := yamlPath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(newYAML), 0o644); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrWriteError,
+			response.SanitizeOutput(err.Error()))
+	}
+	if err := os.Rename(tmp, yamlPath); err != nil {
+		_ = os.Remove(tmp)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrWriteError,
+			response.SanitizeOutput(err.Error()))
+	}
+
+	pruneHealthcheckBackups(yamlPath, healthcheckBackupKeep)
 
 	return response.OK(c, map[string]any{
 		"yaml":        newYAML,
