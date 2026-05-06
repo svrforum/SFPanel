@@ -188,3 +188,67 @@ services:
 		t.Errorf("container_name lost:\n%s", got)
 	}
 }
+
+func TestRemoveHealthcheck_RemovesExisting(t *testing.T) {
+	got, err := RemoveHealthcheck(composeWithHealthcheck, "jellyfin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "healthcheck:") {
+		t.Fatalf("healthcheck key still present:\n%s", got)
+	}
+	if !strings.Contains(got, "image: jellyfin/jellyfin:latest") {
+		t.Errorf("other keys clobbered:\n%s", got)
+	}
+}
+
+func TestRemoveHealthcheck_AbsentIsIdempotent(t *testing.T) {
+	got, err := RemoveHealthcheck(sampleCompose, "jellyfin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "image: jellyfin/jellyfin:latest") {
+		t.Errorf("structural keys missing:\n%s", got)
+	}
+	if strings.Contains(got, "healthcheck:") {
+		t.Errorf("healthcheck appeared from nowhere:\n%s", got)
+	}
+}
+
+func TestRemoveHealthcheck_ServiceMissing(t *testing.T) {
+	_, err := RemoveHealthcheck(sampleCompose, "nonexistent")
+	if !errors.Is(err, ErrServiceNotFound) {
+		t.Fatalf("got %v want ErrServiceNotFound", err)
+	}
+}
+
+func TestRemoveHealthcheck_PreservesComments(t *testing.T) {
+	yamlWithComments := `# top comment
+services:
+  jellyfin:                # service line comment
+    image: jellyfin/jellyfin:latest
+    healthcheck:
+      test: ["CMD-SHELL", "echo old"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped # restart comment
+`
+	got, err := RemoveHealthcheck(yamlWithComments, "jellyfin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "healthcheck:") {
+		t.Fatalf("healthcheck not removed:\n%s", got)
+	}
+	if !strings.Contains(got, "# top comment") {
+		t.Errorf("top comment lost:\n%s", got)
+	}
+	if !strings.Contains(got, "service line comment") {
+		t.Errorf("service line comment lost:\n%s", got)
+	}
+	if !strings.Contains(got, "restart comment") {
+		t.Errorf("restart comment lost:\n%s", got)
+	}
+}
