@@ -101,7 +101,7 @@ func NewContainerDispatcher(db *sql.DB, ch ChannelDispatcher) *ContainerDispatch
 
 // Dispatch is the entry point — translates the event to alert evaluation.
 func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEvent) {
-	rows, err := d.db.Query(`SELECT id, name, type, condition, channel_ids, severity, cooldown FROM alert_rules WHERE enabled=1 AND type IN ('container_down','container_oom','container_restart_loop')`)
+	rows, err := d.db.Query(`SELECT id, name, type, condition, channel_ids, severity, cooldown FROM alert_rules WHERE enabled=1 AND type IN ('container_down','container_oom','container_restart_loop','container_unhealthy')`)
 	if err != nil {
 		slog.Warn("container alert rules query failed", "error", err)
 		return
@@ -144,6 +144,14 @@ func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEv
 			}
 			times, qerr := d.recentRestartTimes(ev.ID, cond.WindowSeconds)
 			if qerr != nil || !evaluateRestartLoop(times, cond.ThresholdCount, cond.WindowSeconds) {
+				continue
+			}
+		case "container_unhealthy":
+			// Docker emits `health_status: unhealthy` (parsed to "unhealthy"
+			// by monitor/docker_events.go) when a container's healthcheck
+			// transitions from healthy/starting to unhealthy. Recovery emits
+			// "healthy" — we don't fire on that.
+			if ev.Type != "unhealthy" {
 				continue
 			}
 		}
@@ -192,6 +200,8 @@ func formatAlertMessage(typ string, ev *AlertContainerEvent) string {
 		return "Container " + ev.Name + " was OOM-killed"
 	case "container_restart_loop":
 		return "Container " + ev.Name + " is restart-looping"
+	case "container_unhealthy":
+		return "Container " + ev.Name + " healthcheck failed (unhealthy)"
 	}
 	return "Container " + ev.Name + " event: " + typ
 }

@@ -141,6 +141,42 @@ func TestContainerDispatcher_OOM_OverridesSeverityToCritical(t *testing.T) {
 	}
 }
 
+func TestContainerDispatcher_FiresUnhealthy(t *testing.T) {
+	db := openAlertTestDB(t)
+	db.Exec(`INSERT INTO alert_rules (name,type,condition,channel_ids,severity,cooldown,node_scope,node_ids,enabled) VALUES
+		('unhealthy-all', 'container_unhealthy', '{"container_pattern":"*"}', '[]', 'warning', 0, 'all', '[]', 1)`)
+
+	chDisp := &fakeChannelDispatcher{}
+	disp := NewContainerDispatcher(db, chDisp)
+	disp.Dispatch(context.Background(), &AlertContainerEvent{
+		ID: "abc", Name: "nginx-app", Type: "unhealthy", TS: 1714742400000,
+	})
+
+	if chDisp.count != 1 {
+		t.Fatalf("expected 1 alert fire, got %d", chDisp.count)
+	}
+	if chDisp.lastFire.Type != "container_unhealthy" {
+		t.Errorf("expected type container_unhealthy, got %q", chDisp.lastFire.Type)
+	}
+}
+
+func TestContainerDispatcher_HealthyDoesNotFireUnhealthyRule(t *testing.T) {
+	db := openAlertTestDB(t)
+	db.Exec(`INSERT INTO alert_rules (name,type,condition,channel_ids,severity,cooldown,node_scope,node_ids,enabled) VALUES
+		('unhealthy-all', 'container_unhealthy', '{"container_pattern":"*"}', '[]', 'warning', 0, 'all', '[]', 1)`)
+
+	chDisp := &fakeChannelDispatcher{}
+	disp := NewContainerDispatcher(db, chDisp)
+	// Recovery to healthy must NOT fire the unhealthy rule.
+	disp.Dispatch(context.Background(), &AlertContainerEvent{
+		ID: "abc", Name: "nginx-app", Type: "healthy", TS: 1714742400000,
+	})
+
+	if chDisp.count != 0 {
+		t.Errorf("expected 0 fires on healthy event, got %d", chDisp.count)
+	}
+}
+
 func TestContainerDispatcher_DownDoesNotFireOnOOM(t *testing.T) {
 	db := openAlertTestDB(t)
 	// Only a container_down rule; no container_oom. Docker emits `oom`

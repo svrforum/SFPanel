@@ -50,6 +50,7 @@ const RULE_TYPES = [
   { value: 'container_down', label: '컨테이너 종료' },
   { value: 'container_oom', label: '컨테이너 OOM kill' },
   { value: 'container_restart_loop', label: '컨테이너 재시작 루프' },
+  { value: 'container_unhealthy', label: '컨테이너 healthcheck 실패' },
   { value: 'service', label: '서비스' },
   { value: 'login', label: '로그인' },
   { value: 'package', label: '패키지' },
@@ -57,7 +58,7 @@ const RULE_TYPES = [
 
 // Rule types that operate on containers (not host metrics) and use a JSON
 // `condition` payload instead of the simple `threshold` percentage.
-const CONTAINER_RULE_TYPES = new Set(['container_down', 'container_oom', 'container_restart_loop'])
+const CONTAINER_RULE_TYPES = new Set(['container_down', 'container_oom', 'container_restart_loop', 'container_unhealthy'])
 
 const SEVERITY_OPTIONS = [
   { value: 'info', label: 'Info', color: 'bg-[#3182f6]/10 text-[#3182f6]' },
@@ -201,7 +202,7 @@ export default function AlertSettings() {
   // Host metric rules (cpu/memory/disk) use {operator,threshold}; container
   // rules use a pattern + optional restart-loop window. Returns a JSON string.
   function buildConditionForSubmit(type: string): string {
-    if (type === 'container_down' || type === 'container_oom') {
+    if (type === 'container_down' || type === 'container_oom' || type === 'container_unhealthy') {
       return JSON.stringify({ container_pattern: containerPattern || '*' })
     }
     if (type === 'container_restart_loop') {
