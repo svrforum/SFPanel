@@ -93,6 +93,7 @@ export default function DockerStacks() {
   const [editYaml, setEditYaml] = useState('')
   const [editEnv, setEditEnv] = useState('')
   const [editorTab, setEditorTab] = useState<'compose' | 'env'>('compose')
+  const [mainTab, setMainTab] = useState<'services' | 'editor' | 'logs'>('services')
   const [editSaving, setEditSaving] = useState(false)
   const [envSaving, setEnvSaving] = useState(false)
   const [validating, setValidating] = useState(false)
@@ -775,7 +776,7 @@ export default function DockerStacks() {
             )}
 
             {/* Tabs */}
-            <Tabs defaultValue="services">
+            <Tabs value={mainTab} onValueChange={(v) => setMainTab(v as 'services' | 'editor' | 'logs')}>
               <TabsList className="bg-secondary/50 rounded-xl p-1">
                 <TabsTrigger value="services" className="rounded-lg text-[13px] data-[state=active]:text-[#00c471]">
                   <Play className="h-3.5 w-3.5 mr-1" />
@@ -1230,6 +1231,7 @@ export default function DockerStacks() {
           baseYaml={editYaml}
           onApplied={(newYaml) => {
             setEditYaml(newYaml)
+            setMainTab('editor')
             setEditorTab('compose')
             setHealthcheckTarget(null)
           }}
