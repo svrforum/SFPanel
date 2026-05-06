@@ -40,6 +40,7 @@ import type {
   ForkUpdateInput,
   SecurityPolicy,
   CosignStatus,
+  HealthcheckSpec,
   ProcessInfo,
   ClusterStatus,
   ClusterOverview,
@@ -632,6 +633,22 @@ class ApiClient {
 
   composeUp(project: string) {
     return this.request(`/docker/compose/${project}/up`, { method: 'POST' })
+  }
+
+  applyHealthcheck(
+    project: string,
+    service: string,
+    spec: HealthcheckSpec,
+    replace: boolean,
+    baseYamlSha256: string,
+  ) {
+    return this.request<{ yaml: string; backup_path: string }>(
+      `/compose/${encodeURIComponent(project)}/healthcheck/${encodeURIComponent(service)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ ...spec, replace, base_yaml_sha256: baseYamlSha256 }),
+      },
+    )
   }
 
   async composeUpStream(

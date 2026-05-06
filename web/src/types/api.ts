@@ -1014,3 +1014,14 @@ export interface ImageSignature {
   verified_at?: number
 }
 
+export type HealthcheckTestType = 'CMD-SHELL' | 'CMD' | 'NONE'
+
+export interface HealthcheckSpec {
+  test_type: HealthcheckTestType
+  test_value: string
+  interval: string
+  timeout: string
+  retries: number
+  start_period: string
+}
+
