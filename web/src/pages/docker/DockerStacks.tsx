@@ -5,9 +5,10 @@ import {
   Plus, Play, Square, RotateCw, ArrowUp, RefreshCw,
   Trash2, Terminal, ScrollText, FileText, FileCode, Save, Loader2,
   CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft, Eye,
-  BookmarkPlus,
+  BookmarkPlus, HeartPulse,
 } from 'lucide-react'
 import { ForkCreateDialog } from '@/components/appstore/ForkCreateDialog'
+import { HealthcheckComposerDialog } from '@/components/compose/HealthcheckComposerDialog'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck, RollbackInfo } from '@/types/api'
@@ -109,6 +110,7 @@ export default function DockerStacks() {
   const [rollingBack, setRollingBack] = useState(false)
   const [rollbackInfo, setRollbackInfo] = useState<RollbackInfo | null>(null)
   const [forkOpen, setForkOpen] = useState(false)
+  const [healthcheckTarget, setHealthcheckTarget] = useState<ComposeService | null>(null)
 
   // Progress modal
   const [progressOpen, setProgressOpen] = useState(false)
@@ -841,6 +843,10 @@ export default function DockerStacks() {
                                 onClick={() => handleServiceAction('restart', svc.name)}>
                                 {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
                               </Button>
+                              <Button variant="ghost" size="icon-xs" title="Healthcheck"
+                                onClick={() => setHealthcheckTarget(svc)}>
+                                <HeartPulse className="h-3.5 w-3.5" />
+                              </Button>
                               <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')}
                                 onClick={() => setLogService(svc)}>
                                 <ScrollText className="h-3.5 w-3.5" />
@@ -897,6 +903,10 @@ export default function DockerStacks() {
                           disabled={actionLoading === svc.name}
                           onClick={() => handleServiceAction('restart', svc.name)}>
                           {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
+                        </Button>
+                        <Button variant="ghost" size="icon-xs" title="Healthcheck"
+                          onClick={() => setHealthcheckTarget(svc)}>
+                          <HeartPulse className="h-3.5 w-3.5" />
                         </Button>
                         <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')}
                           onClick={() => setLogService(svc)}>
@@ -1207,6 +1217,22 @@ export default function DockerStacks() {
           open={forkOpen}
           onOpenChange={setForkOpen}
           stackName={selectedName}
+        />
+      )}
+
+      {/* Healthcheck composer */}
+      {selectedName && healthcheckTarget && (
+        <HealthcheckComposerDialog
+          open={!!healthcheckTarget}
+          onOpenChange={(open) => !open && setHealthcheckTarget(null)}
+          project={selectedName}
+          service={healthcheckTarget.name}
+          baseYaml={editYaml}
+          onApplied={(newYaml) => {
+            setEditYaml(newYaml)
+            setEditorTab('compose')
+            setHealthcheckTarget(null)
+          }}
         />
       )}
     </div>
