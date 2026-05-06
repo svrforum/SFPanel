@@ -897,6 +897,7 @@ export type AlertRuleType =
   | 'container_down'
   | 'container_oom'
   | 'container_restart_loop'
+  | 'container_unhealthy'
 
 export interface DiffSummary {
   added: number
