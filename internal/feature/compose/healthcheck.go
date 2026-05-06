@@ -84,6 +84,46 @@ func ApplyHealthcheck(yamlContent string, service string, spec HealthcheckSpec, 
 	return buf.String(), nil
 }
 
+// RemoveHealthcheck removes the healthcheck block from the named service.
+// Idempotent: returns the input unchanged (no error) when no healthcheck
+// is present. Returns ErrServiceNotFound if the service is missing.
+//
+// Like ApplyHealthcheck, this uses the yaml.v3 Node API so anchors,
+// comments, and key ordering on sibling fields survive untouched.
+func RemoveHealthcheck(yamlContent string, service string) (string, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte(yamlContent), &root); err != nil {
+		return "", fmt.Errorf("parse compose: %w", err)
+	}
+	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 {
+		return "", errors.New("empty compose document")
+	}
+
+	svcNode, err := findServiceNode(&root, service)
+	if err != nil {
+		return "", err
+	}
+
+	// Walk Content slice; healthcheck mapping is two adjacent entries
+	// [keyNode, valueNode]. Splice them out together.
+	for i := 0; i+1 < len(svcNode.Content); i += 2 {
+		k := svcNode.Content[i]
+		if k.Kind == yaml.ScalarNode && k.Value == "healthcheck" {
+			svcNode.Content = append(svcNode.Content[:i], svcNode.Content[i+2:]...)
+			break
+		}
+	}
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&root); err != nil {
+		return "", fmt.Errorf("encode compose: %w", err)
+	}
+	enc.Close()
+	return buf.String(), nil
+}
+
 // validate rejects malformed input before it touches the YAML tree.
 func (s HealthcheckSpec) validate() error {
 	switch s.TestType {
