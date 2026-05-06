@@ -21,7 +21,6 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
-	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/docker"
 )
@@ -137,8 +136,6 @@ type Handler struct {
 	DB          *sql.DB
 	ComposePath string
 	Cmd         exec.Commander
-	ClusterMgr  *cluster.Manager
-	Compose     *docker.ComposeManager
 	Verifier    docker.ImageVerifier // nil → install path skips verify
 
 	mu         sync.RWMutex
@@ -383,45 +380,6 @@ func (h *Handler) GetApp(c echo.Context) error {
 	id := c.Param("id")
 	if !validAppID.MatchString(id) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid app ID")
-	}
-
-	if strings.HasPrefix(id, "fork-") {
-		if h.ClusterMgr == nil {
-			return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "fork not found")
-		}
-		rec := h.ClusterMgr.GetFork(id)
-		if rec == nil {
-			return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "fork not found")
-		}
-		var meta AppStoreMeta
-		if err := json.Unmarshal(rec.Meta, &meta); err != nil {
-			return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "fork metadata corrupt")
-		}
-		ports := make([]portStatus, 0)
-		for _, p := range meta.Ports {
-			ps := portStatus{Port: p, InUse: h.isPortInUse(p)}
-			if ps.InUse {
-				ps.Suggested = h.findFreePort(p)
-			}
-			ports = append(ports, ps)
-		}
-		for _, env := range meta.Env {
-			if env.Type == "port" && env.Default != "" {
-				if port := parsePort(env.Default); port > 0 {
-					ps := portStatus{Port: port, InUse: h.isPortInUse(port)}
-					if ps.InUse {
-						ps.Suggested = h.findFreePort(port)
-					}
-					ports = append(ports, ps)
-				}
-			}
-		}
-		return response.OK(c, appStoreAppDetail{
-			App:        meta,
-			Compose:    rec.Compose,
-			Installed:  h.isInstalled(id),
-			PortStatus: ports,
-		})
 	}
 
 	if err := h.ensureCache(); err != nil {

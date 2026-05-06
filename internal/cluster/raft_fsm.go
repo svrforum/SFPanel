@@ -27,9 +27,6 @@ const (
 	// local cleanup (wiping cluster material, flipping config, exiting).
 	// cmd.Key carries the node ID that initiated the disband.
 	CmdDisband
-	CmdForkCreate
-	CmdForkUpdate
-	CmdForkDelete
 )
 
 // AdminAccount represents a cluster-synced user account.
@@ -63,7 +60,6 @@ func NewFSM() *FSM {
 			Nodes:    make(map[string]*Node),
 			Config:   make(map[string]string),
 			Accounts: make(map[string]*AdminAccount),
-			Forks:    make(map[string]*ForkRecord),
 		},
 	}
 }
@@ -170,36 +166,6 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 		}
 		return nil
 
-	case CmdForkCreate:
-		var rec ForkRecord
-		if err := json.Unmarshal(cmd.Value, &rec); err != nil {
-			return err
-		}
-		f.state.Forks[rec.ID] = &rec
-		return nil
-
-	case CmdForkUpdate:
-		var patch ForkRecord
-		if err := json.Unmarshal(cmd.Value, &patch); err != nil {
-			return err
-		}
-		existing, ok := f.state.Forks[cmd.Key]
-		if !ok {
-			return fmt.Errorf("fork not found: %s", cmd.Key)
-		}
-		// Metadata-only update: never overwrite Compose / Meta / CreatedAt / CreatedBy / ID.
-		if patch.Name != "" {
-			existing.Name = patch.Name
-		}
-		// Description and Category may be intentionally cleared, so apply unconditionally.
-		existing.Description = patch.Description
-		existing.Category = patch.Category
-		return nil
-
-	case CmdForkDelete:
-		delete(f.state.Forks, cmd.Key)
-		return nil
-
 	default:
 		return fmt.Errorf("unknown command type: %d", cmd.Type)
 	}
@@ -218,8 +184,8 @@ func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 }
 
 // Restore restores the FSM from a snapshot. Maps absent from older snapshots
-// (e.g. Forks pre-Theme E) are initialized so subsequent Apply branches can
-// write to them without nil-map panics.
+// are initialized so subsequent Apply branches can write to them without
+// nil-map panics.
 func (f *FSM) Restore(rc io.ReadCloser) error {
 	defer rc.Close()
 
@@ -235,9 +201,6 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	}
 	if state.Accounts == nil {
 		state.Accounts = make(map[string]*AdminAccount)
-	}
-	if state.Forks == nil {
-		state.Forks = make(map[string]*ForkRecord)
 	}
 
 	f.mu.Lock()
@@ -265,17 +228,11 @@ func (f *FSM) GetState() ClusterState {
 		a := *v
 		accounts[k] = &a
 	}
-	forks := make(map[string]*ForkRecord, len(f.state.Forks))
-	for k, v := range f.state.Forks {
-		fr := *v
-		forks[k] = &fr
-	}
 	return ClusterState{
 		Name:     f.state.Name,
 		Nodes:    nodes,
 		Config:   config,
 		Accounts: accounts,
-		Forks:    forks,
 	}
 }
 
