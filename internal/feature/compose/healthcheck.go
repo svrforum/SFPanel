@@ -198,3 +198,58 @@ func buildTestNode(s HealthcheckSpec) *yaml.Node {
 func scalar(v string) *yaml.Node {
 	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v}
 }
+
+// ParseHealthcheck reads the existing healthcheck for a service. Returns
+// (zero-value, false, nil) if the service has no healthcheck block.
+func ParseHealthcheck(yamlContent string, service string) (HealthcheckSpec, bool, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte(yamlContent), &root); err != nil {
+		return HealthcheckSpec{}, false, fmt.Errorf("parse compose: %w", err)
+	}
+	if root.Kind != yaml.DocumentNode || len(root.Content) == 0 {
+		return HealthcheckSpec{}, false, nil
+	}
+	svc, err := findServiceNode(&root, service)
+	if err != nil {
+		return HealthcheckSpec{}, false, err
+	}
+	_, hc := findChild(svc, "healthcheck")
+	if hc == nil || hc.Kind != yaml.MappingNode {
+		return HealthcheckSpec{}, false, nil
+	}
+
+	var spec HealthcheckSpec
+	_, testNode := findChild(hc, "test")
+	if testNode != nil && testNode.Kind == yaml.SequenceNode && len(testNode.Content) > 0 {
+		head := testNode.Content[0].Value
+		switch head {
+		case "NONE":
+			spec.TestType = "NONE"
+		case "CMD-SHELL":
+			spec.TestType = "CMD-SHELL"
+			if len(testNode.Content) >= 2 {
+				spec.TestValue = testNode.Content[1].Value
+			}
+		case "CMD":
+			spec.TestType = "CMD"
+			parts := make([]string, 0, len(testNode.Content)-1)
+			for _, n := range testNode.Content[1:] {
+				parts = append(parts, n.Value)
+			}
+			spec.TestValue = strings.Join(parts, "|")
+		}
+	}
+	if _, n := findChild(hc, "interval"); n != nil {
+		spec.Interval = n.Value
+	}
+	if _, n := findChild(hc, "timeout"); n != nil {
+		spec.Timeout = n.Value
+	}
+	if _, n := findChild(hc, "retries"); n != nil {
+		fmt.Sscanf(n.Value, "%d", &spec.Retries)
+	}
+	if _, n := findChild(hc, "start_period"); n != nil {
+		spec.StartPeriod = n.Value
+	}
+	return spec, true, nil
+}
