@@ -44,7 +44,6 @@ const ClusterOverview = lazy(() => import('@/pages/cluster/ClusterOverview'))
 const ClusterNodes = lazy(() => import('@/pages/cluster/ClusterNodes'))
 const ClusterTokens = lazy(() => import('@/pages/cluster/ClusterTokens'))
 const AppStore = lazy(() => import('@/pages/AppStore'))
-const AppStoreForkDetail = lazy(() => import('@/pages/AppStoreForkDetail'))
 const Packages = lazy(() => import('@/pages/Packages'))
 const Settings = lazy(() => import('@/pages/Settings'))
 const Terminal = lazy(() => import('@/pages/Terminal'))
@@ -153,7 +152,6 @@ export default function App() {
                   <Route path="nodes" element={<ClusterNodes />} />
                   <Route path="tokens" element={<ClusterTokens />} />
                 </Route>
-                <Route path="appstore/forks/:id" element={<AppStoreForkDetail />} />
                 <Route path="appstore" element={<AppStore />} />
                 <Route path="files" element={<Files />} />
                 <Route path="cron" element={<CronJobs />} />

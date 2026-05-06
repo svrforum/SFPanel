@@ -208,8 +208,6 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 		DB:          database,
 		ComposePath: cfg.Server.StacksPath,
 		Cmd:         cmd,
-		ClusterMgr:  clusterMgr,
-		Compose:     composeManager,
 		Verifier:    imageVerifier,
 	}
 	appStore := authorized.Group("/appstore")
@@ -219,11 +217,6 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	appStore.POST("/apps/:id/install", appStoreHandler.InstallApp)
 	appStore.GET("/installed", appStoreHandler.GetInstalled)
 	appStore.POST("/refresh", appStoreHandler.RefreshCache)
-	appStore.GET("/forks", appStoreHandler.ListForks)
-	appStore.GET("/forks/:id", appStoreHandler.GetFork)
-	appStore.POST("/forks", appStoreHandler.CreateFork)
-	appStore.PATCH("/forks/:id", appStoreHandler.UpdateFork)
-	appStore.DELETE("/forks/:id", appStoreHandler.DeleteFork)
 
 	// Security (Theme C Phase 1)
 	sec := authorized.Group("/security")

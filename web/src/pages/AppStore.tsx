@@ -1,13 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Search, RotateCcw, Loader2, Package, Info, ChevronDown, ChevronUp } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ForkList } from '@/components/appstore/ForkList'
 import AppStoreDetailModal from '@/pages/AppStoreDetail'
 import type { AppStoreCategory, AppStoreApp } from '@/types/api'
 
@@ -24,12 +21,6 @@ export default function AppStore() {
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null)
   const [showGuide, setShowGuide] = useState(false)
   const [failedIcons, setFailedIcons] = useState<Set<string>>(new Set())
-  const [searchParams, setSearchParams] = useSearchParams()
-
-  useEffect(() => {
-    const appParam = searchParams.get('app')
-    if (appParam) setSelectedAppId(appParam)
-  }, [searchParams])
 
   const loadData = useCallback(async (category?: string) => {
     try {
@@ -166,121 +157,102 @@ export default function AppStore() {
         </div>
       </div>
 
-      <Tabs defaultValue="marketplace" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="marketplace">Marketplace</TabsTrigger>
-          <TabsTrigger value="forks">내 Templates</TabsTrigger>
-        </TabsList>
+      {/* Category filter */}
+      <div className="flex gap-2 flex-wrap">
+        <button
+          onClick={() => handleCategoryClick('')}
+          className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+            selectedCategory === ''
+              ? 'bg-primary text-white'
+              : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+          }`}
+        >
+          {t('appStore.all')}
+        </button>
+        {categories.map((cat) => (
+          <button
+            key={cat.id}
+            onClick={() => handleCategoryClick(cat.id)}
+            className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+              selectedCategory === cat.id
+                ? 'bg-primary text-white'
+                : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+            }`}
+          >
+            {cat.name[lang] || cat.name['en']}
+          </button>
+        ))}
+      </div>
 
-        <TabsContent value="marketplace" className="space-y-4">
-          {/* Category filter */}
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => handleCategoryClick('')}
-              className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
-                selectedCategory === ''
-                  ? 'bg-primary text-white'
-                  : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
-              }`}
+      {/* App Grid */}
+      {loading ? (
+        <div className="flex items-center justify-center h-32">
+          <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : filteredApps.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+          <Package className="h-10 w-10 mb-3 opacity-40" />
+          <p className="text-[13px]">{t('appStore.noApps')}</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredApps.map((app) => (
+            <div
+              key={app.id}
+              onClick={() => setSelectedAppId(app.id)}
+              className="bg-card rounded-2xl p-5 card-shadow hover:card-shadow-hover cursor-pointer transition-all group"
             >
-              {t('appStore.all')}
-            </button>
-            {categories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => handleCategoryClick(cat.id)}
-                className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
-                  selectedCategory === cat.id
-                    ? 'bg-primary text-white'
-                    : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
-                }`}
-              >
-                {cat.name[lang] || cat.name['en']}
-              </button>
-            ))}
-          </div>
-
-          {/* App Grid */}
-          {loading ? (
-            <div className="flex items-center justify-center h-32">
-              <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : filteredApps.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <Package className="h-10 w-10 mb-3 opacity-40" />
-              <p className="text-[13px]">{t('appStore.noApps')}</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredApps.map((app) => (
-                <div
-                  key={app.id}
-                  onClick={() => setSelectedAppId(app.id)}
-                  className="bg-card rounded-2xl p-5 card-shadow hover:card-shadow-hover cursor-pointer transition-all group"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="h-12 w-12 rounded-xl bg-secondary/30 p-1.5 flex items-center justify-center overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
-                      {failedIcons.has(app.id) ? (
-                        <div className="flex items-center justify-center h-full w-full text-primary">
-                          <Package className="h-6 w-6" />
-                        </div>
-                      ) : (
-                        <img
-                          src={getIconUrl(app)}
-                          alt={app.name}
-                          className="h-full w-full object-contain"
-                          onError={() => setFailedIcons(prev => new Set(prev).add(app.id))}
-                        />
-                      )}
+              <div className="flex items-start gap-4">
+                <div className="h-12 w-12 rounded-xl bg-secondary/30 p-1.5 flex items-center justify-center overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
+                  {failedIcons.has(app.id) ? (
+                    <div className="flex items-center justify-center h-full w-full text-primary">
+                      <Package className="h-6 w-6" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <h3 className="text-[15px] font-semibold truncate">{app.name}</h3>
-                        {app.installed ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471] shrink-0">
-                            {t('appStore.installed')}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary shrink-0">
-                            {t('appStore.install')}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[12px] text-muted-foreground mt-1 line-clamp-2">
-                        {app.description[lang] || app.description['en'] || ''}
-                      </p>
-                      <div className="flex items-center gap-2 mt-2">
-                        <span className="text-[11px] text-muted-foreground">v{app.version}</span>
-                        {app.ports.length > 0 && (
-                          <span className="text-[11px] text-muted-foreground">
-                            {t('appStore.port')}: {app.ports.join(', ')}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                  ) : (
+                    <img
+                      src={getIconUrl(app)}
+                      alt={app.name}
+                      className="h-full w-full object-contain"
+                      onError={() => setFailedIcons(prev => new Set(prev).add(app.id))}
+                    />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-[15px] font-semibold truncate">{app.name}</h3>
+                    {app.installed ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471] shrink-0">
+                        {t('appStore.installed')}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary shrink-0">
+                        {t('appStore.install')}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[12px] text-muted-foreground mt-1 line-clamp-2">
+                    {app.description[lang] || app.description['en'] || ''}
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-[11px] text-muted-foreground">v{app.version}</span>
+                    {app.ports.length > 0 && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {t('appStore.port')}: {app.ports.join(', ')}
+                      </span>
+                    )}
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="forks">
-          <ForkList search={search} />
-        </TabsContent>
-      </Tabs>
+          ))}
+        </div>
+      )}
 
       {/* Detail Modal */}
       <AppStoreDetailModal
         appId={selectedAppId}
         open={selectedAppId !== null}
-        onClose={() => {
-          setSelectedAppId(null)
-          if (searchParams.has('app')) {
-            searchParams.delete('app')
-            setSearchParams(searchParams, { replace: true })
-          }
-        }}
+        onClose={() => setSelectedAppId(null)}
         onInstalled={() => loadData(selectedCategory)}
       />
     </div>
