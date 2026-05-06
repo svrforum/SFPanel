@@ -48,21 +48,10 @@ func (c *cache[T]) set(data T, ttl time.Duration) {
 	c.expires = time.Now().Add(ttl)
 }
 
-// ImageVerifier gates image pulls against an operator policy. Implemented
-// by internal/security.Verifier; declared here to avoid a docker→security
-// import cycle.
-type ImageVerifier interface {
-	VerifyImage(ctx context.Context, ref string) error
-}
-
 // Client wraps the Docker SDK client with convenience methods for
 // container, image, volume, and network management.
 type Client struct {
 	cli *client.Client
-
-	// Verifier, when non-nil, is consulted before every PullImage. Wired
-	// in router.go after both docker.Client and security.Verifier exist.
-	Verifier ImageVerifier
 
 	containersCache cache[[]container.Summary]
 	imagesCache     cache[[]ImageWithUsage]
@@ -445,15 +434,8 @@ func (c *Client) ListImages(ctx context.Context) ([]image.Summary, error) {
 }
 
 // PullImage pulls an image by reference (e.g. "nginx:latest") and
-// returns a progress reader. When a Verifier is configured, the image is
-// checked against the security policy BEFORE the pull is requested —
-// pulls of policy-rejected images never reach the daemon.
+// returns a progress reader.
 func (c *Client) PullImage(ctx context.Context, ref string) (io.ReadCloser, error) {
-	if c.Verifier != nil {
-		if err := c.Verifier.VerifyImage(ctx, ref); err != nil {
-			return nil, err
-		}
-	}
 	return c.cli.ImagePull(ctx, ref, image.PullOptions{})
 }
 

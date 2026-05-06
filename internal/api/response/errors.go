@@ -23,11 +23,6 @@ const (
 	ErrMissingPath     = "MISSING_PATH"
 	ErrPermissionDenied = "PERMISSION_DENIED"
 	ErrSSEError        = "SSE_ERROR"
-
-	// Security (Theme C Phase 1)
-	ErrPolicyViolation     = "POLICY_VIOLATION"
-	ErrCosignInstallFailed = "COSIGN_INSTALL_FAILED"
-	ErrInvalidPolicy       = "INVALID_POLICY"
 )
 
 // Auth error codes

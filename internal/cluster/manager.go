@@ -763,17 +763,6 @@ func (m *Manager) SetConfig(key, value string) error {
 	}, 5*time.Second)
 }
 
-// GetConfigValue reads a value from the FSM Config map. Returns empty
-// string when the key is unset or Raft is not yet initialized — callers
-// must treat empty as "no value" (the FSM never stores empty strings on
-// purpose).
-func (m *Manager) GetConfigValue(key string) string {
-	if m.raft == nil {
-		return ""
-	}
-	return m.raft.GetFSM().GetState().Config[key]
-}
-
 // Disband is invoked by the leader to dissolve the cluster. It applies a
 // replicated CmdDisband log entry; every node's FSM.Apply then fires the
 // registered onDisband callback to perform local cleanup and exit. Returns

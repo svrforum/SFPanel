@@ -35,8 +35,6 @@ import type {
   AppStoreApp,
   AppStoreAppDetail,
   AppStoreInstalledApp,
-  SecurityPolicy,
-  CosignStatus,
   HealthcheckSpec,
   HealthcheckTestResult,
   ProcessInfo,
@@ -1564,29 +1562,6 @@ class ApiClient {
 
   refreshAppStore() {
     return this.request<{ message: string; apps: number; categories: number }>('/appstore/refresh', { method: 'POST' })
-  }
-
-  // Security (Theme C Phase 1)
-  getSecurityPolicy() {
-    return this.request<SecurityPolicy>('/security/policy')
-  }
-
-  updateSecurityPolicy(policy: SecurityPolicy) {
-    return this.request<{ status: string }>('/security/policy', {
-      method: 'PUT',
-      body: JSON.stringify(policy),
-    })
-  }
-
-  getCosignStatus() {
-    return this.request<CosignStatus>('/security/cosign-status')
-  }
-
-  verifyImage(ref: string, skipCache = false) {
-    return this.request<{ status: string }>('/security/verify-image', {
-      method: 'POST',
-      body: JSON.stringify({ ref, skip_cache: skipCache }),
-    })
   }
 
   // Cluster
