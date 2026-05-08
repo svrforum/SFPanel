@@ -27,13 +27,57 @@ func isStreamingEndpoint(path string) bool {
 		(strings.Contains(path, "/appstore/apps/") && strings.HasSuffix(path, "/install"))
 }
 
-// isBinaryRelayEndpoint identifies routes whose responses are large binary
-// payloads. The default gRPC proxy buffers the whole response body to fit
-// it inside one APIResponse message, which breaks past the 4 MB default
-// MaxRecvMsgSize. We forward these via plain HTTP and io.Copy so the
-// transfer streams without sitting in memory on the proxying node.
+// isBinaryRelayEndpoint identifies routes that ship large binary payloads
+// in either direction (request body, response body, or both). The default
+// gRPC proxy buffers the whole body into one APIResponse message and
+// fails past the 4 MB default MaxRecvMsgSize. These routes are forwarded
+// via plain HTTP with io.Copy so the transfer streams without sitting in
+// memory on the proxying node.
 func isBinaryRelayEndpoint(path string) bool {
-	return strings.HasSuffix(path, "/files/download")
+	return strings.HasSuffix(path, "/files/download") ||
+		strings.HasSuffix(path, "/files/upload") ||
+		strings.HasSuffix(path, "/system/backup") ||
+		strings.HasSuffix(path, "/system/restore")
+}
+
+// hopByHopHeaders are headers that must not be forwarded across HTTP
+// proxies per RFC 7230 §6.1. Forwarding them confuses the next hop's
+// connection management and Transfer-Encoding handling.
+var hopByHopHeaders = map[string]bool{
+	"Connection":          true,
+	"Keep-Alive":          true,
+	"Proxy-Authenticate":  true,
+	"Proxy-Authorization": true,
+	"Te":                  true,
+	"Trailer":             true,
+	"Transfer-Encoding":   true,
+	"Upgrade":             true,
+}
+
+// copyEndToEndHeaders copies headers from src to dst skipping hop-by-hop
+// entries. Use for both request- and response-header forwarding.
+func copyEndToEndHeaders(dst, src http.Header) {
+	for k, v := range src {
+		if hopByHopHeaders[http.CanonicalHeaderKey(k)] {
+			continue
+		}
+		for _, vv := range v {
+			dst.Add(k, vv)
+		}
+	}
+}
+
+// buildRelayURL composes the absolute URL for a remote node forwarding
+// request, dropping the local "node=" param so we don't loop.
+func buildRelayURL(req *http.Request, targetNode *cluster.Node) string {
+	baseURL := nodeBaseURL(targetNode.APIAddress)
+	query := req.URL.Query()
+	query.Del("node")
+	url := baseURL + req.URL.Path
+	if encoded := query.Encode(); encoded != "" {
+		url += "?" + encoded
+	}
+	return url
 }
 
 // newRemoteHTTPClient creates an HTTP client for remote node communication.
@@ -101,18 +145,13 @@ func nodeBaseURL(apiAddr string) string {
 	return "http://" + apiAddr
 }
 
-// relayBinary streams a binary HTTP response from a remote node back to the
-// client without buffering. Used for large file downloads where the gRPC
-// unary path can't carry the payload.
-func relayBinary(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
+// relayHTTP forwards an HTTP request to a remote node and streams the
+// response back to the original client. Both request body and response
+// body are streamed via io.Copy so multi-GB transfers don't sit in
+// memory. Used for large binary endpoints (file download/upload, system
+// backup/restore) where the default gRPC proxy can't carry the payload.
+func relayHTTP(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
 	req := c.Request()
-	baseURL := nodeBaseURL(targetNode.APIAddress)
-	query := req.URL.Query()
-	query.Del("node")
-	queryStr := ""
-	if encoded := query.Encode(); encoded != "" {
-		queryStr = "?" + encoded
-	}
 
 	// 30-minute window covers downloads up to a few GB on a slow LAN and
 	// matches the upper bound for the rest of the cluster relay paths.
@@ -120,27 +159,31 @@ func relayBinary(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager)
 	defer cancel()
 	client := newRemoteHTTPClient(30*time.Minute, mgr)
 
-	url := baseURL + req.URL.Path + queryStr
-	httpReq, err := http.NewRequestWithContext(ctx, req.Method, url, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, req.Method, buildRelayURL(req, targetNode), req.Body)
 	if err != nil {
-		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Failed to create download request")
+		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Failed to create relay request")
 	}
+	// Forward original request headers so things like Content-Type,
+	// Range, If-None-Match reach the target. Drop Authorization first —
+	// setAuthHeaders re-adds the cluster-internal proxy secret instead,
+	// which the target trusts more than a forwarded user JWT.
+	copyEndToEndHeaders(httpReq.Header, req.Header)
+	httpReq.Header.Del("Authorization")
 	setAuthHeaders(httpReq, req, mgr)
+	if req.ContentLength > 0 {
+		httpReq.ContentLength = req.ContentLength
+	}
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Download relay failed: "+err.Error())
+		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Relay failed: "+err.Error())
 	}
 	defer resp.Body.Close()
 
-	// Forward headers verbatim — Content-Disposition (filename) and
-	// Content-Length matter to the browser; without them the download
-	// loses its filename and progress indicator.
-	for k, v := range resp.Header {
-		if len(v) > 0 {
-			c.Response().Header().Set(k, v[0])
-		}
-	}
+	// Forward response headers verbatim — Content-Disposition (filename),
+	// Content-Length, Content-Type all matter to the browser. Strip
+	// hop-by-hop entries so we don't confuse our caller's connection.
+	copyEndToEndHeaders(c.Response().Header(), resp.Header)
 	c.Response().WriteHeader(resp.StatusCode)
 	_, copyErr := io.Copy(c.Response().Writer, resp.Body)
 	return copyErr
@@ -212,20 +255,24 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 		return nil
 	}
 
-	// Remote returned non-SSE response (e.g. JSON error from pre-flight check)
-	// Pass it through to the client as-is
+	// Remote returned non-SSE response (e.g. JSON error from pre-flight
+	// check, or someone routed a binary-shaped path here). Stream it
+	// through directly — io.Copy avoids buffering an entire response
+	// body in memory if the payload turned out to be larger than we
+	// expected for an "SSE" route.
 	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
 
-	// If it's a JSON error response, forward directly
 	if !strings.Contains(ct, "text/event-stream") {
-		for k, v := range resp.Header {
-			if len(v) > 0 {
-				c.Response().Header().Set(k, v[0])
-			}
-		}
-		return c.Blob(resp.StatusCode, ct, respBody)
+		copyEndToEndHeaders(c.Response().Header(), resp.Header)
+		c.Response().WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(c.Response().Writer, resp.Body)
+		return nil
 	}
+
+	// SSE-but-broken status (e.g. 4xx with content-type still set):
+	// drain the body and fall through to the legacy non-streaming fallback
+	// for compose deploy paths.
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	// Fallback: try non-streaming endpoint (/up-stream → /up, /update-stream → /update)
 	if strings.Contains(req.URL.Path, "-stream") {
@@ -346,9 +393,10 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 				return relaySSE(c, targetNode, mgr)
 			}
 
-			// Binary file responses: io.Copy past the gRPC 4 MB ceiling.
+			// Binary file routes: io.Copy past the gRPC 4 MB ceiling in
+			// both directions (request body and response body).
 			if isBinaryRelayEndpoint(c.Request().URL.Path) {
-				return relayBinary(c, targetNode, mgr)
+				return relayHTTP(c, targetNode, mgr)
 			}
 
 			// Build gRPC request
