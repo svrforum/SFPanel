@@ -150,6 +150,20 @@ class ApiClient {
     return !this.isTauri || !!this._serverUrl
   }
 
+  // withNode builds an absolute API URL and appends the cluster ?node=
+  // parameter when one is selected. Use this for fetch/XHR calls that
+  // can't go through request() (binary blobs, multipart uploads, SSE
+  // streams) — without it, calls land on the local node even though the
+  // user is browsing a remote one.
+  withNode(path: string): string {
+    let url = `${this.apiBase}${path}`
+    if (this._currentNode) {
+      const sep = url.includes('?') ? '&' : '?'
+      url += `${sep}node=${encodeURIComponent(this._currentNode)}`
+    }
+    return url
+  }
+
   async request<T>(path: string, options: RequestInit & { local?: boolean; timeout?: number; _retried?: boolean } = {}): Promise<T> {
     const { local, timeout = 30000, _retried, ...fetchOptions } = options
     const headers: Record<string, string> = {
@@ -366,7 +380,7 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const res = await fetch(`${this.apiBase}/system/update`, {
+    const res = await fetch(this.withNode('/system/update'), {
       method: 'POST',
       headers,
     })
@@ -395,7 +409,7 @@ class ApiClient {
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`
     }
-    const res = await fetch(`${this.apiBase}/system/backup`, {
+    const res = await fetch(this.withNode('/system/backup'), {
       method: 'POST',
       headers,
     })
@@ -410,7 +424,7 @@ class ApiClient {
     }
     const formData = new FormData()
     formData.append('backup', file)
-    const res = await fetch(`${this.apiBase}/system/restore`, {
+    const res = await fetch(this.withNode('/system/restore'), {
       method: 'POST',
       headers,
       body: formData,
@@ -515,7 +529,7 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const res = await fetch(`${this.apiBase}/docker/images/pull`, {
+    const res = await fetch(this.withNode('/docker/images/pull'), {
       method: 'POST',
       headers,
       body: JSON.stringify({ image: imageName }),
@@ -823,7 +837,7 @@ class ApiClient {
   uploadFile(destPath: string, file: File, onProgress?: (percent: number) => void): Promise<void> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
-      xhr.open('POST', `${this.apiBase}/files/upload`)
+      xhr.open('POST', this.withNode('/files/upload'))
 
       if (this.token) {
         xhr.setRequestHeader('Authorization', `Bearer ${this.token}`)
@@ -862,21 +876,10 @@ class ApiClient {
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`
     }
-
-    // downloadFile bypasses request() because it handles a Blob, but it still
-    // needs the cluster ?node= param so downloads of files on a remote node
-    // don't 404 against the local filesystem.
-    let url = `${this.apiBase}/files/download?path=${encodeURIComponent(path)}`
-    if (this._currentNode) {
-      url += `&node=${encodeURIComponent(this._currentNode)}`
-    }
-
-    const res = await fetch(url, { headers })
-
+    const res = await fetch(this.withNode(`/files/download?path=${encodeURIComponent(path)}`), { headers })
     if (!res.ok) {
       throw new Error(`Download failed (${res.status})`)
     }
-
     return res.blob()
   }
 
