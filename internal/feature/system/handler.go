@@ -89,10 +89,11 @@ func (h *Handler) CheckUpdate(c echo.Context) error {
 	}
 
 	latest := strings.TrimPrefix(ghRelease.TagName, "v")
+	current := strings.TrimPrefix(h.Version, "v")
 	return response.OK(c, UpdateCheckResponse{
-		CurrentVersion:  h.Version,
+		CurrentVersion:  current,
 		LatestVersion:   latest,
-		UpdateAvailable: latest != h.Version,
+		UpdateAvailable: latest != current,
 		ReleaseNotes:    ghRelease.Body,
 		PublishedAt:     ghRelease.PublishedAt,
 	})
@@ -123,17 +124,18 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUpdateFailed, "Failed to parse release")
 	}
 	latest := strings.TrimPrefix(ghRelease.TagName, "v")
-	if latest == h.Version {
+	current := strings.TrimPrefix(h.Version, "v")
+	if latest == current {
 		return response.OK(c, map[string]string{"status": "up_to_date"})
 	}
 	// Block downgrades: a poisoned upstream response that returns a known-vulnerable
 	// older tag would otherwise silently roll the binary backwards.
-	if forward, vErr := release.IsForwardUpdate(h.Version, latest); vErr != nil {
+	if forward, vErr := release.IsForwardUpdate(current, latest); vErr != nil {
 		return response.Fail(c, http.StatusBadGateway, response.ErrUpdateFailed,
 			fmt.Sprintf("Cannot compare versions: %v", vErr))
 	} else if !forward {
 		return response.Fail(c, http.StatusConflict, response.ErrUpdateDowngrade,
-			fmt.Sprintf("Refusing to downgrade %s → %s", h.Version, latest))
+			fmt.Sprintf("Refusing to downgrade %s → %s", current, latest))
 	}
 
 	// SSE setup
