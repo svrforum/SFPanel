@@ -3,6 +3,7 @@ import { DiffEditor } from '@monaco-editor/react'
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -66,6 +67,9 @@ export function DiffSheet({ open, onOpenChange, projectName, proposedYaml, onApp
       >
         <SheetHeader>
           <SheetTitle className="text-[14px]">변경사항 미리보기</SheetTitle>
+          <SheetDescription className="text-[12px]">
+            현재 디스크의 docker-compose.yml과 제안된 변경사항을 비교합니다.
+          </SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-auto px-4 py-2 space-y-3">

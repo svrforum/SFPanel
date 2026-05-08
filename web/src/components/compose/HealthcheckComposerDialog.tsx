@@ -164,7 +164,7 @@ export function HealthcheckComposerDialog({
     try {
       const baseHash = await sha256Hex(baseYaml)
       const res = await api.applyHealthcheck(project, service, spec, replace || hasExisting, baseHash)
-      toast.success('Healthcheck inserted — review and Save & Deploy')
+      toast.success('compose YAML에 healthcheck 적용됨 — 배포 버튼으로 컨테이너에 반영하세요')
       onApplied(res.yaml)
       onOpenChange(false)
     } catch (err) {
@@ -195,7 +195,7 @@ export function HealthcheckComposerDialog({
     try {
       const baseHash = await sha256Hex(baseYaml)
       const res = await api.removeHealthcheck(project, service, baseHash)
-      toast.success('Healthcheck removed — review and Save & Deploy')
+      toast.success('compose YAML에서 healthcheck 제거됨 — 배포 버튼으로 컨테이너에 반영하세요')
       onApplied(res.yaml)
       onOpenChange(false)
     } catch (err) {
