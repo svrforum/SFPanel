@@ -57,14 +57,18 @@ type UpdateInfo struct {
 }
 
 // GetUpdateInfo returns cached update status.
+// currentVersion may be ldflags-injected as "v0.13.0" while cachedLatest is
+// already stripped to "0.13.0"; normalize before comparing so a node running
+// the latest release doesn't claim the same release is "available".
 func GetUpdateInfo(currentVersion string) UpdateInfo {
 	updateMu.RLock()
 	defer updateMu.RUnlock()
 	if cachedLatest == "" {
 		return UpdateInfo{}
 	}
+	current := strings.TrimPrefix(currentVersion, "v")
 	return UpdateInfo{
-		UpdateAvailable: cachedLatest != currentVersion,
+		UpdateAvailable: cachedLatest != current,
 		LatestVersion:   cachedLatest,
 	}
 }
