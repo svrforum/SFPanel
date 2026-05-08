@@ -179,7 +179,11 @@ func WrapEchoWSHandler(getMgr func() *Manager, handler func(c echo.Context) erro
 		if node == nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "node not found"})
 		}
-		if node.Status == StatusOffline {
+		// Only the leader has authoritative health (it receives heartbeats
+		// from every node). On a follower, sibling-follower status is always
+		// offline from this view, so we'd reject WS relay to a healthy peer.
+		// Let the actual TCP dial fail instead.
+		if mgr.IsLeader() && node.Status == StatusOffline {
 			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "node is offline"})
 		}
 

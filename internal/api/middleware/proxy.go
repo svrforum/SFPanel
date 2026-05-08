@@ -271,7 +271,14 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Node not found: "+nodeID)
 			}
 
-			if targetNode.Status != cluster.StatusOnline {
+			// Only fail-fast on the leader — its CheckHealth is authoritative
+			// because the leader receives heartbeats from every node. On a
+			// follower, CheckHealth only reflects the leader→this-node link,
+			// so other followers always look offline from this view. Trusting
+			// that here would 503 routes to a perfectly healthy peer.
+			// On follower we let the gRPC call (30 s timeout) be the source of
+			// truth; a real outage still surfaces, just one round-trip later.
+			if mgr.IsLeader() && targetNode.Status != cluster.StatusOnline {
 				return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "Node is offline: "+targetNode.Name)
 			}
 
