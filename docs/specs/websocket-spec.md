@@ -1,8 +1,10 @@
 # SFPanel WebSocket 스펙
 
-> 마지막 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/ws-inventory.md`
+> 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/ws-inventory.md`
 >
 > WebSocket 6개 + SSE(Server-Sent Events) 8개. SSE 섹션은 문서 하단 참조.
+>
+> v0.10.0 이후 추가된 SSE 엔드포인트(예: `/system/update`, `/appstore/.../install`, `/compose/.../up-stream`, `/compose/.../update-stream`)는 본 문서에 부분적으로만 반영되어 있습니다. 권한 있는 출처는 `internal/api/router.go` + `internal/api/middleware/proxy.go`(스트리밍 엔드포인트 화이트리스트). 변경 요약은 `CHANGELOG.md`를 참조하세요.
 
 ## 개요
 

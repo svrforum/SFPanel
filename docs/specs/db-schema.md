@@ -1,8 +1,8 @@
 # SFPanel DB 스키마
 
-> 마지막 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/db-inventory.md`
+> 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/db-inventory.md`
 >
-> 10개 테이블(+ `sqlite_sequence`). 마이그레이션 13단계. 백업/복구 자동화는 아직 미구현.
+> **이 문서의 테이블별 컬럼 정의는 v0.9.0 시점**입니다. v0.10.0 이후 추가/변경된 항목은 `internal/db/migrations.go`(ID 8–23)와 본 문서 하단 § 마이그레이션 이력의 "v4 이후" 단락을 참조하세요. 권한 있는 출처는 코드입니다.
 
 ## 개요
 
@@ -306,6 +306,18 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - `alert_rules` 테이블 생성 (조건 기반 알림 규칙)
 - `alert_history` 테이블 생성 (알림 발송 이력)
 - `idx_alert_history_created_at` 인덱스 생성
+
+### v4 이후 (migrations.go ID 8 – 23, v0.11.x – v0.13.0)
+
+권한 있는 출처는 `internal/db/migrations.go`. 본 단락은 변경 이력 요약입니다.
+
+- **ID 8–9** — `audit_logs` 인덱스 + 보존(retention) 보강
+- **ID 10–13** — 알림 시스템 인덱스 보강 (`idx_alert_history_created_at` 등)
+- **ID 14–15** — `refresh_tokens` 테이블 + `idx_refresh_tokens_username` (v0.11.2 refresh-token 회전)
+- **ID 16** — `container_metrics_history` (v0.12.0 Theme F: 컨테이너별 CPU/메모리 30초 샘플 × 24시간 보존)
+- **ID 17–19** — `container_events` 테이블 + `(container_id, ts DESC)`, `(ts DESC)` 인덱스 (v0.12.0 Theme F: 도커 이벤트 타임라인, 8개 이벤트 타입)
+- **ID 20** — `docker_volume_usage` (Theme B Phase 1: 볼륨×디스크 사용량 캐시)
+- **ID 21–23** — `image_signatures` 테이블 + 2개 인덱스. **데드 스키마**: v0.13.0에서 Cosign 이미지 검증 기능을 제거했지만, append-only 마이그레이션 정책에 따라 테이블은 그대로 유지. 읽기/쓰기 모두 없음. 새로운 검증 계열 기능을 추가할 경우 별도 테이블을 사용할 것.
 
 ---
 

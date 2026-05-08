@@ -1,6 +1,8 @@
 # SFPanel API 스펙
 
-> 마지막 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/api-inventory.md`
+> 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/api-inventory.md`
+>
+> v0.10.0 이후 추가/변경된 라우트는 본 문서에 미반영입니다. 권한 있는 출처는 `internal/api/router.go`이며, 변경 요약은 `CHANGELOG.md`를 참조하세요. 본 문서가 코드와 어긋날 경우 코드를 우선시합니다.
 
 ## 개요
 
