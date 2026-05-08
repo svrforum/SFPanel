@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -151,25 +152,50 @@ func nodeBaseURL(apiAddr string) string {
 // memory. Used for large binary endpoints (file download/upload, system
 // backup/restore) where the default gRPC proxy can't carry the payload.
 func relayHTTP(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
-	req := c.Request()
-
 	// 30-minute window covers downloads up to a few GB on a slow LAN and
 	// matches the upper bound for the rest of the cluster relay paths.
-	ctx, cancel := context.WithTimeout(req.Context(), 30*time.Minute)
-	defer cancel()
 	client := newRemoteHTTPClient(30*time.Minute, mgr)
+	addAuth := func(httpReq *http.Request) {
+		setAuthHeaders(httpReq, c.Request(), mgr)
+	}
+	return executeHTTPRelay(c, buildRelayURL(c.Request(), targetNode), client, addAuth, 30*time.Minute)
+}
 
-	httpReq, err := http.NewRequestWithContext(ctx, req.Method, buildRelayURL(req, targetNode), req.Body)
+// executeHTTPRelay carries the manager-free body of relayHTTP. Splitting it
+// out lets tests drive the relay against an httptest.Server target with a
+// stubbed authMutator, without having to construct a real cluster.Manager
+// (which pulls in raft, mTLS, the FSM, etc.).
+//
+// Lifecycle expectations:
+//   - The caller has already decided routing and target URL.
+//   - Request body, response body, and connection lifetime are all bound to
+//     c.Request().Context(); a client disconnect cancels the upstream call.
+//   - Any error that surfaces *after* WriteHeader can no longer flip the
+//     status code — we log it so partial transfers don't fail silently.
+func executeHTTPRelay(
+	c echo.Context,
+	targetURL string,
+	client *http.Client,
+	authMutator func(*http.Request),
+	timeout time.Duration,
+) error {
+	req := c.Request()
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+
+	httpReq, err := http.NewRequestWithContext(ctx, req.Method, targetURL, req.Body)
 	if err != nil {
 		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Failed to create relay request")
 	}
-	// Forward original request headers so things like Content-Type,
-	// Range, If-None-Match reach the target. Drop Authorization first —
-	// setAuthHeaders re-adds the cluster-internal proxy secret instead,
-	// which the target trusts more than a forwarded user JWT.
+	// Forward original request headers so things like Content-Type, Range,
+	// If-None-Match reach the target. Drop Authorization first — the auth
+	// mutator re-adds the cluster-internal proxy secret instead, which the
+	// target trusts more than a forwarded user JWT.
 	copyEndToEndHeaders(httpReq.Header, req.Header)
 	httpReq.Header.Del("Authorization")
-	setAuthHeaders(httpReq, req, mgr)
+	if authMutator != nil {
+		authMutator(httpReq)
+	}
 	if req.ContentLength > 0 {
 		httpReq.ContentLength = req.ContentLength
 	}
@@ -186,6 +212,16 @@ func relayHTTP(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) e
 	copyEndToEndHeaders(c.Response().Header(), resp.Header)
 	c.Response().WriteHeader(resp.StatusCode)
 	_, copyErr := io.Copy(c.Response().Writer, resp.Body)
+	if copyErr != nil && ctx.Err() == nil {
+		// ctx.Err() != nil means the client went away — that's normal and
+		// not actionable. Anything else is an upstream truncation we need
+		// in the logs to debug stalled or partial transfers.
+		slog.Warn("relay copy interrupted",
+			"component", "cluster",
+			"path", req.URL.Path,
+			"status", resp.StatusCode,
+			"error", copyErr.Error())
+	}
 	return copyErr
 }
 

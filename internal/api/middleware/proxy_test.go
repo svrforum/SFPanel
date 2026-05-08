@@ -1,11 +1,18 @@
 package middleware
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/cluster"
 )
 
@@ -147,5 +154,183 @@ func TestBuildRelayURL_HonorsHTTPSPrefix(t *testing.T) {
 	got := buildRelayURL(req, target)
 	if !strings.HasPrefix(got, "https://") {
 		t.Errorf("https prefix lost: %s", got)
+	}
+}
+
+// runRelay drives executeHTTPRelay against an httptest target server.
+// Returns the recorded client-facing response.
+func runRelay(t *testing.T, method, path string, body []byte, headers http.Header, target *httptest.Server, authMutator func(*http.Request)) *httptest.ResponseRecorder {
+	t.Helper()
+	e := echo.New()
+	var bodyReader io.Reader
+	if body != nil {
+		bodyReader = bytes.NewReader(body)
+	}
+	req := httptest.NewRequest(method, path, bodyReader)
+	for k, vs := range headers {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
+	}
+	if body != nil {
+		req.ContentLength = int64(len(body))
+	}
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	client := target.Client()
+	if err := executeHTTPRelay(c, target.URL+path, client, authMutator, 30*time.Second); err != nil {
+		t.Logf("executeHTTPRelay returned non-fatal error: %v", err)
+	}
+	return rec
+}
+
+// TestRelayDownload_StreamsLargeBodyAndHeaders proves the response path
+// — what /files/download and /system/backup ride on. The 8 MB body is
+// chosen to exceed the gRPC unary 4 MB ceiling that motivated this
+// whole code path; if the relay ever silently buffers, that's also where
+// memory pressure first shows up.
+func TestRelayDownload_StreamsLargeBodyAndHeaders(t *testing.T) {
+	const size = 8 * 1024 * 1024
+	payload := make([]byte, size)
+	for i := range payload {
+		payload[i] = byte(i % 251)
+	}
+	want := sha256.Sum256(payload)
+
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", `attachment; filename="big.bin"`)
+		w.Header().Set("Content-Length", "8388608")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer target.Close()
+
+	rec := runRelay(t, "GET", "/api/v1/files/download?path=/tmp/big.bin", nil, http.Header{}, target, nil)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Disposition"); got != `attachment; filename="big.bin"` {
+		t.Errorf("Content-Disposition not forwarded: %q", got)
+	}
+	if got := rec.Header().Get("Content-Length"); got != "8388608" {
+		t.Errorf("Content-Length not forwarded: %q", got)
+	}
+	gotSum := sha256.Sum256(rec.Body.Bytes())
+	if gotSum != want {
+		t.Errorf("body sha256 mismatch: got %s, want %s", hex.EncodeToString(gotSum[:]), hex.EncodeToString(want[:]))
+	}
+	if rec.Body.Len() != size {
+		t.Errorf("relayed body size = %d, want %d", rec.Body.Len(), size)
+	}
+}
+
+// TestRelayUpload_StreamsRequestBody proves the request path —
+// /files/upload and /system/restore — actually streams the multipart
+// body to the target. Pre-refactor this used the gRPC unary path which
+// would have blown up at 4 MB.
+func TestRelayUpload_StreamsRequestBody(t *testing.T) {
+	const size = 6 * 1024 * 1024
+	payload := make([]byte, size)
+	for i := range payload {
+		payload[i] = byte((i * 31) % 251)
+	}
+	want := sha256.Sum256(payload)
+
+	var got [32]byte
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "want POST", http.StatusBadRequest)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		got = sha256.Sum256(body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer target.Close()
+
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/octet-stream")
+	rec := runRelay(t, "POST", "/api/v1/files/upload", payload, headers, target, nil)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	if got != want {
+		t.Errorf("upstream did not receive intact body: got %s, want %s",
+			hex.EncodeToString(got[:]), hex.EncodeToString(want[:]))
+	}
+}
+
+// TestRelayHopByHopHeaderStripping verifies both directions: hop-by-hop
+// headers from the client must not reach the target, and hop-by-hop
+// headers from the target must not reach the client.
+func TestRelayHopByHopHeaderStripping(t *testing.T) {
+	var receivedHopByHop string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Bug if our relay forwards the client's Connection: close header.
+		if v := r.Header.Get("Connection"); v != "" {
+			receivedHopByHop = "Connection: " + v
+		}
+		if v := r.Header.Get("Proxy-Authorization"); v != "" {
+			receivedHopByHop = "Proxy-Authorization: " + v
+		}
+		// Send back a hop-by-hop header that we expect the relay to strip.
+		w.Header().Set("Keep-Alive", "timeout=300")
+		w.Header().Set("X-App-Version", "1.0")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer target.Close()
+
+	headers := http.Header{}
+	headers.Set("Connection", "close")
+	headers.Set("Proxy-Authorization", "leaked-secret")
+	headers.Set("X-Custom-OK", "preserved")
+
+	rec := runRelay(t, "GET", "/api/v1/files/download?path=/x", nil, headers, target, nil)
+
+	if receivedHopByHop != "" {
+		t.Errorf("hop-by-hop header reached target: %s", receivedHopByHop)
+	}
+	if got := rec.Header().Get("Keep-Alive"); got != "" {
+		t.Errorf("hop-by-hop header reached client: Keep-Alive=%q", got)
+	}
+	if got := rec.Header().Get("X-App-Version"); got != "1.0" {
+		t.Errorf("end-to-end header dropped: X-App-Version=%q", got)
+	}
+}
+
+// TestRelayAuthRewrite verifies that the client's Authorization header is
+// stripped and replaced with whatever the auth mutator decides — that's
+// how the cluster avoids forwarding user JWTs to peer nodes.
+func TestRelayAuthRewrite(t *testing.T) {
+	var sawAuth, sawProxy string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawAuth = r.Header.Get("Authorization")
+		sawProxy = r.Header.Get("X-SFPanel-Internal-Proxy")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer user-jwt-do-not-forward")
+
+	mutator := func(req *http.Request) {
+		req.Header.Set("X-SFPanel-Internal-Proxy", "shared-cluster-secret")
+	}
+	runRelay(t, "GET", "/api/v1/files/download?path=/x", nil, headers, target, mutator)
+
+	if sawAuth != "" {
+		t.Errorf("user JWT leaked across cluster boundary: %q", sawAuth)
+	}
+	if sawProxy != "shared-cluster-secret" {
+		t.Errorf("proxy secret not set: %q", sawProxy)
 	}
 }
