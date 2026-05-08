@@ -1,9 +1,11 @@
 # SFPanel 기술 스택 & 기능 스펙
 
-> 마지막 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/features-inventory.md`
+> 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/features-inventory.md`
 >
 > 경량 서버 관리 웹 패널. 개인 서버 관리자 및 DevOps 팀을 위한 Docker 중심 관리 도구.
 > 올인원 Go 바이너리 아키텍처 — React SPA를 `go:embed`로 포함하여 단일 실행 파일로 배포.
+>
+> v0.10.0 이후 추가된 기능(Theme B/D/F 시리즈 — Port Map, 헬스체크 컴포저, 컨테이너 관측성 등)은 본 문서에 미반영입니다. 변경 요약은 `CHANGELOG.md`를, 설계 의도는 `docs/superpowers/specs/`의 테마별 디자인 문서를 참조하세요.
 
 ---
 
