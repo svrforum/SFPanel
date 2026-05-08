@@ -183,7 +183,7 @@ export default function Settings() {
       const data = await api.getSystemInfo()
       setSystemInfo(data)
       if (data.version) {
-        setPanelVersion(`v${data.version}`)
+        setPanelVersion(data.version)
       }
     } catch {
       // ignore
@@ -604,7 +604,7 @@ export default function Settings() {
         <div className="flex items-center gap-6 mb-4">
           <div className="space-y-1">
             <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.currentVersion')}</p>
-            <p className="text-[13px] font-medium">{panelVersion}</p>
+            <p className="text-[13px] font-medium">v{panelVersion}</p>
           </div>
           {updateInfo?.update_available && (
             <div className="space-y-1">
@@ -715,7 +715,7 @@ export default function Settings() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1">
             <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.version')}</p>
-            <p className="text-[13px] font-medium">{panelVersion}</p>
+            <p className="text-[13px] font-medium">v{panelVersion}</p>
           </div>
           {systemInfo?.host && (
             <>
