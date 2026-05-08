@@ -188,6 +188,16 @@ export default function Files() {
   }
 
   const handleFileClick = (entry: FileEntry) => {
+    // Server caps /files/read at 5 MB. If the user clicks a larger file the
+    // editor open path produces a confusing 400 even after the size warning;
+    // route them to download instead — that's almost always what they meant.
+    if (entry.size > editMaxBytes) {
+      const ok = window.confirm(
+        `이 파일은 ${Math.round(entry.size / 1024 / 1024)} MB로 편집기에서 열 수 없습니다 (최대 5 MB). 다운로드할까요?`,
+      )
+      if (ok) handleDownload(entry)
+      return
+    }
     handleEditFile(entry)
   }
 
@@ -195,16 +205,14 @@ export default function Files() {
   const editAbortRef = useRef<AbortController | null>(null)
   const editMaxBytes = 5 * 1024 * 1024 // 5 MB; server also enforces similar cap
   const handleEditFile = async (entry: FileEntry) => {
-    // Guard against opening huge files in Monaco — multi-MB text loads can
-    // freeze the tab even though the fetch succeeds.
+    // Defensive: if a code path bypasses handleFileClick (context menu, etc.)
+    // and tries to open a too-large file, send it to download too.
     if (entry.size > editMaxBytes) {
       const ok = window.confirm(
-        t('files.largeFileWarning', {
-          size: Math.round(entry.size / 1024 / 1024),
-        }) ||
-          `This file is ${Math.round(entry.size / 1024 / 1024)} MB and may freeze the editor. Open anyway?`,
+        `이 파일은 ${Math.round(entry.size / 1024 / 1024)} MB로 편집기에서 열 수 없습니다 (최대 5 MB). 다운로드할까요?`,
       )
-      if (!ok) return
+      if (ok) handleDownload(entry)
+      return
     }
     editAbortRef.current?.abort()
     const controller = new AbortController()
