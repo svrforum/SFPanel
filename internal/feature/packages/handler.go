@@ -942,16 +942,18 @@ func findNVMDir() string {
 }
 
 // findBinaryPath searches for a binary in PATH and common user-local directories.
+// When multiple candidates exist (e.g. /root/.local/bin/claude AND
+// /home/dalso/.local/bin/claude), pick the most-recently-modified one — without
+// this, an old root install would shadow a fresh user install and the version
+// shown in the UI would be stale.
 func findBinaryPath(name string) string {
 	if p, err := osExec.LookPath(name); err == nil && p != "" {
 		return p
 	}
-	// Check common locations: /root/.local/bin, /home/*/.local/bin, /usr/local/bin
 	candidates := []string{
 		"/root/.local/bin/" + name,
 		"/usr/local/bin/" + name,
 	}
-	// Also check all home directories
 	if entries, err := os.ReadDir("/home"); err == nil {
 		for _, e := range entries {
 			if e.IsDir() {
@@ -959,12 +961,20 @@ func findBinaryPath(name string) string {
 			}
 		}
 	}
+
+	var bestPath string
+	var bestMtime time.Time
 	for _, p := range candidates {
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
-			return p
+		info, err := os.Stat(p)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		if info.ModTime().After(bestMtime) {
+			bestMtime = info.ModTime()
+			bestPath = p
 		}
 	}
-	return ""
+	return bestPath
 }
 
 // GetClaudeStatus checks whether Claude Code CLI is installed.
