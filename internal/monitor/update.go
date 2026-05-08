@@ -60,6 +60,11 @@ type UpdateInfo struct {
 // currentVersion may be ldflags-injected as "v0.13.0" while cachedLatest is
 // already stripped to "0.13.0"; normalize before comparing so a node running
 // the latest release doesn't claim the same release is "available".
+//
+// Dev builds carry a "-N-gHASH" suffix from `git describe` (e.g.
+// "0.13.0-8-g61f85c0"). They're commits *past* cachedLatest, so don't
+// flag them as needing an update — that's noise for anyone running off
+// of a personal build.
 func GetUpdateInfo(currentVersion string) UpdateInfo {
 	updateMu.RLock()
 	defer updateMu.RUnlock()
@@ -67,8 +72,11 @@ func GetUpdateInfo(currentVersion string) UpdateInfo {
 		return UpdateInfo{}
 	}
 	current := strings.TrimPrefix(currentVersion, "v")
+	if current == cachedLatest || strings.HasPrefix(current, cachedLatest+"-") {
+		return UpdateInfo{}
+	}
 	return UpdateInfo{
-		UpdateAvailable: cachedLatest != current,
+		UpdateAvailable: true,
 		LatestVersion:   cachedLatest,
 	}
 }
