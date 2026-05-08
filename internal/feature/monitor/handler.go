@@ -2,6 +2,7 @@ package featuremonitor
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/labstack/echo/v4"
@@ -27,7 +28,10 @@ func (h *Handler) GetSystemInfo(c echo.Context) error {
 	return response.OK(c, map[string]interface{}{
 		"host":    hostInfo,
 		"metrics": metrics,
-		"version": h.Version,
+		// Strip the "v" prefix that ldflags injects so the frontend can prefix
+		// it once at render. Without this, every consumer that wraps this in
+		// `v${version}` produces "vv0.13.0".
+		"version": strings.TrimPrefix(h.Version, "v"),
 	})
 }
 
@@ -90,7 +94,7 @@ func (h *Handler) GetOverview(c echo.Context) error {
 	return response.OK(c, DashboardOverview{
 		Host:           hostInfo,
 		Metrics:        metrics,
-		Version:        h.Version,
+		Version:        strings.TrimPrefix(h.Version, "v"),
 		MetricsHistory: metricsHistory,
 		UpdateInfo:     &updateInfo,
 	})
