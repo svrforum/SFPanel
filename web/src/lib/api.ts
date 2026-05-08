@@ -863,7 +863,15 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
-    const res = await fetch(`${this.apiBase}/files/download?path=${encodeURIComponent(path)}`, { headers })
+    // downloadFile bypasses request() because it handles a Blob, but it still
+    // needs the cluster ?node= param so downloads of files on a remote node
+    // don't 404 against the local filesystem.
+    let url = `${this.apiBase}/files/download?path=${encodeURIComponent(path)}`
+    if (this._currentNode) {
+      url += `&node=${encodeURIComponent(this._currentNode)}`
+    }
+
+    const res = await fetch(url, { headers })
 
     if (!res.ok) {
       throw new Error(`Download failed (${res.status})`)
