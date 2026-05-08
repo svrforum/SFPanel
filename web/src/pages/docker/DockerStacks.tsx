@@ -142,15 +142,22 @@ export default function DockerStacks() {
     }
   }, [t])
 
+  // Tracks the latest stack the user is looking at, so that in-flight fetches for
+  // a previously-selected stack don't overwrite the services list when they resolve
+  // late (rapid stack switching produced a visible mix of two stacks' services).
+  const latestSelectedRef = useRef<string>('')
+
   const fetchServices = useCallback(async (name: string) => {
     try {
       setServicesLoading(true)
       const data = await api.getComposeServices(name)
+      if (latestSelectedRef.current !== name) return
       setServices(data || [])
     } catch {
+      if (latestSelectedRef.current !== name) return
       setServices([])
     } finally {
-      setServicesLoading(false)
+      if (latestSelectedRef.current === name) setServicesLoading(false)
     }
   }, [])
 
@@ -167,6 +174,10 @@ export default function DockerStacks() {
 
   useEffect(() => {
     if (selectedName) {
+      latestSelectedRef.current = selectedName
+      // Clear stale services from a previously-selected stack so the row doesn't
+      // briefly show another stack's services during the new fetch.
+      setServices([])
       fetchServices(selectedName)
       // Load YAML
       api.getComposeProject(selectedName).then(data => {
@@ -176,6 +187,8 @@ export default function DockerStacks() {
       api.getComposeEnv(selectedName).then(data => {
         setEditEnv(data.content)
       }).catch(() => {})
+    } else {
+      latestSelectedRef.current = ''
     }
   }, [selectedName, fetchServices])
 
@@ -1215,6 +1228,8 @@ export default function DockerStacks() {
             setMainTab('editor')
             setEditorTab('compose')
             setHealthcheckTarget(null)
+            // Refresh services so the HeartPulse indicator color reflects the new state.
+            void fetchServices(selectedName)
           }}
         />
       )}
