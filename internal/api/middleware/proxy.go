@@ -27,6 +27,15 @@ func isStreamingEndpoint(path string) bool {
 		(strings.Contains(path, "/appstore/apps/") && strings.HasSuffix(path, "/install"))
 }
 
+// isBinaryRelayEndpoint identifies routes whose responses are large binary
+// payloads. The default gRPC proxy buffers the whole response body to fit
+// it inside one APIResponse message, which breaks past the 4 MB default
+// MaxRecvMsgSize. We forward these via plain HTTP and io.Copy so the
+// transfer streams without sitting in memory on the proxying node.
+func isBinaryRelayEndpoint(path string) bool {
+	return strings.HasSuffix(path, "/files/download")
+}
+
 // newRemoteHTTPClient creates an HTTP client for remote node communication.
 // It uses the cluster's mTLS configuration so remote traffic is authenticated
 // via the shared CA instead of being blanket-trusted. If the TLS manager
@@ -90,6 +99,51 @@ func nodeBaseURL(apiAddr string) string {
 		return apiAddr
 	}
 	return "http://" + apiAddr
+}
+
+// relayBinary streams a binary HTTP response from a remote node back to the
+// client without buffering. Used for large file downloads where the gRPC
+// unary path can't carry the payload.
+func relayBinary(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
+	req := c.Request()
+	baseURL := nodeBaseURL(targetNode.APIAddress)
+	query := req.URL.Query()
+	query.Del("node")
+	queryStr := ""
+	if encoded := query.Encode(); encoded != "" {
+		queryStr = "?" + encoded
+	}
+
+	// 30-minute window covers downloads up to a few GB on a slow LAN and
+	// matches the upper bound for the rest of the cluster relay paths.
+	ctx, cancel := context.WithTimeout(req.Context(), 30*time.Minute)
+	defer cancel()
+	client := newRemoteHTTPClient(30*time.Minute, mgr)
+
+	url := baseURL + req.URL.Path + queryStr
+	httpReq, err := http.NewRequestWithContext(ctx, req.Method, url, nil)
+	if err != nil {
+		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Failed to create download request")
+	}
+	setAuthHeaders(httpReq, req, mgr)
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Download relay failed: "+err.Error())
+	}
+	defer resp.Body.Close()
+
+	// Forward headers verbatim — Content-Disposition (filename) and
+	// Content-Length matter to the browser; without them the download
+	// loses its filename and progress indicator.
+	for k, v := range resp.Header {
+		if len(v) > 0 {
+			c.Response().Header().Set(k, v[0])
+		}
+	}
+	c.Response().WriteHeader(resp.StatusCode)
+	_, copyErr := io.Copy(c.Response().Writer, resp.Body)
+	return copyErr
 }
 
 func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
@@ -290,6 +344,11 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 			// SSE streaming endpoints: relay via direct HTTP for real-time output
 			if isStreamingEndpoint(c.Request().URL.Path) {
 				return relaySSE(c, targetNode, mgr)
+			}
+
+			// Binary file responses: io.Copy past the gRPC 4 MB ceiling.
+			if isBinaryRelayEndpoint(c.Request().URL.Path) {
+				return relayBinary(c, targetNode, mgr)
 			}
 
 			// Build gRPC request
