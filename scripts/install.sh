@@ -211,6 +211,13 @@ setup_dirs() {
   chmod 700 "$DATA_DIR"
   # /etc/sfpanel holds config.yaml (JWT secret).
   chmod 700 "$CONFIG_DIR"
+  # /etc/sfpanel/cluster/ holds the CA private key + node cert/key after
+  # `cluster init`. The cluster code creates this dir itself, but if it
+  # already exists from a prior install make sure the perms are tight.
+  if [ -d "${CONFIG_DIR}/cluster" ]; then
+    chmod 700 "${CONFIG_DIR}/cluster"
+    find "${CONFIG_DIR}/cluster" -type f -name "*.key" -exec chmod 600 {} \; 2>/dev/null || true
+  fi
 }
 
 # generate_jwt_secret returns 64 hex characters (32 bytes of /dev/urandom).
@@ -406,6 +413,12 @@ print_success() {
   echo ""
   if [ "$mode" = "install" ]; then
     echo -e "  ${YELLOW}First visit: Set up admin account in the browser${NC}"
+    echo ""
+    echo -e "  ${CYAN}Recommended next steps (do these before exposing the panel):${NC}"
+    echo -e "    1. Enable 2FA in Settings → Security after first login."
+    echo -e "    2. Front the panel with TLS (Caddy / nginx / Cloudflare Tunnel)."
+    echo -e "       The bundled HTTP listener is plain — never expose ${port} to the public Internet."
+    echo -e "    3. Restrict ${port} to LAN/VPN only (ufw default deny + allow from trusted CIDR)."
     echo ""
     echo -e "  ${CYAN}Tips:${NC}"
     echo -e "    Change port:  Edit ${CONFIG_DIR}/config.yaml → server.port"
