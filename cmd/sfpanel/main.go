@@ -51,8 +51,13 @@ var (
 )
 
 func main() {
-	// Optimize Go runtime for low resource usage
-	runtime.GOMAXPROCS(2)
+	// Optimize Go runtime for low resource usage. The defaults (2 cores,
+	// GOGC=50) are tuned for a small homeserver — operators running
+	// cluster fanout on 8+ core hosts can override via stock Go env vars
+	// (GOMAXPROCS, GOGC) without rebuilding.
+	if os.Getenv("GOMAXPROCS") == "" {
+		runtime.GOMAXPROCS(2)
+	}
 	if os.Getenv("GOGC") == "" {
 		debug.SetGCPercent(50)
 	}
