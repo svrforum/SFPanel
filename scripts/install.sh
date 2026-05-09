@@ -326,11 +326,28 @@ ExecStart=${INSTALL_DIR}/sfpanel ${CONFIG_DIR}/config.yaml
 # the panel down. See internal/feature/cluster/handler.go.
 Restart=always
 RestartSec=5
-LimitNOFILE=65536
 
-# SFPanel needs full system access for firewall (ufw), packages (apt),
-# disk management, and other system administration tasks.
+# Resource limits: panel + monitor goroutines + cluster fanout typically
+# stay under 200 MB; MemoryHigh keeps a runaway leak from squeezing the
+# host without OOM-killing legitimate spikes. TasksMax bounds the worst
+# case for the process tree (terminal PTYs, compose subprocs).
+LimitNOFILE=65536
+MemoryHigh=1G
+TasksMax=4096
+
+# Hardening: SFPanel needs full system access for firewall (ufw),
+# packages (apt), disk management, terminal, sysctl tuning, and other
+# admin tasks — so most sandboxing flags can't be enabled without
+# breaking features. The few that *are* safe:
+# - PrivateTmp: panel doesn't share /tmp with other services
+# - RestrictSUIDSGID: panel never creates suid/sgid files
+# Notably NOT enabled:
+# - ProtectKernelTunables: would break the system tuning feature
+#   (sysctl -p)
+# - ProtectHome: would break the files browser for $HOME of other users
 NoNewPrivileges=false
+PrivateTmp=true
+RestrictSUIDSGID=true
 
 [Install]
 WantedBy=multi-user.target
