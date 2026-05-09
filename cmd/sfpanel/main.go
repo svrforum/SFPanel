@@ -200,9 +200,23 @@ func main() {
 			defer clusterMgr.Shutdown()
 			slog.Info("cluster mode active", "component", "cluster", "name", cfg.Cluster.Name, "node_id", cfg.Cluster.NodeID)
 
-			// Leader-only: sync JWT secret and admin account to FSM
+			// Leader-only: sync JWT secret and admin account to FSM. The previous
+			// implementation slept 5s blindly, which is both too long on a fresh
+			// single-node cluster (leader is elected in <1s) and too short on a
+			// loaded host. Poll IsLeader() instead and bail after 30s — followers
+			// don't need to sync because the leader's FSM state replicates back.
 			go func() {
-				time.Sleep(5 * time.Second)
+				deadline := time.Now().Add(30 * time.Second)
+				for time.Now().Before(deadline) {
+					if clusterMgr.IsLeader() {
+						break
+					}
+					time.Sleep(200 * time.Millisecond)
+				}
+				if !clusterMgr.IsLeader() {
+					slog.Debug("cluster sync skipped: not leader within 30s")
+					return
+				}
 				var username, passwordHash string
 				var totpSecret sql.NullString
 				if err := database.QueryRow("SELECT username, password, totp_secret FROM admin LIMIT 1").Scan(&username, &passwordHash, &totpSecret); err == nil {
@@ -215,7 +229,9 @@ func main() {
 					}
 				}
 				if cfg.Auth.JWTSecret != "" {
-					clusterMgr.SetConfig("jwt_secret", cfg.Auth.JWTSecret)
+					if cErr := clusterMgr.SetConfig("jwt_secret", cfg.Auth.JWTSecret); cErr != nil {
+						slog.Debug("jwt_secret cluster sync skipped", "error", cErr)
+					}
 				}
 			}()
 		}
