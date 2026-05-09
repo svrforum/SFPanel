@@ -501,7 +501,7 @@ func saveConfig(path string, cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	return config.AtomicWriteFile(path, data, 0644)
+	return config.AtomicWriteFile(path, data, 0600)
 }
 
 func printClusterHelp() {
