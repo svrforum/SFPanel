@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"strings"
 
 	"syscall"
@@ -505,6 +506,14 @@ func updatePanel() {
 		log.Fatalf("Failed to write new binary: %v", err)
 	}
 
+	// Snapshot the DB before the point-of-no-return rename. If a new
+	// migration corrupts the schema, the operator can stop sfpanel and
+	// `cp <bak> sfpanel.db` to roll back without re-installing the old
+	// binary.
+	if err := snapshotDBForUpgrade(); err != nil {
+		log.Printf("DB snapshot skipped: %v (continuing — upgrade not blocked)", err)
+	}
+
 	if err := os.Rename(tmpPath, execPath); err != nil {
 		os.Remove(tmpPath)
 		log.Fatalf("Failed to replace binary: %v", err)
@@ -532,6 +541,78 @@ func updatePanel() {
 			fmt.Println("Service restarted.")
 		}
 	}
+}
+
+// snapshotDBForUpgrade copies the live SQLite DB to a timestamped backup so a
+// bad migration in the new binary doesn't strand the operator. The service is
+// still running here, so it's a hot copy — the WAL keeps it recoverable.
+// We retain the 3 most recent snapshots and prune older ones.
+func snapshotDBForUpgrade() error {
+	cfgPath := defaultCfgPath
+	if envPath := os.Getenv("SFPANEL_CONFIG"); envPath != "" {
+		cfgPath = envPath
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	dbPath := cfg.Database.Path
+	if dbPath == "" {
+		return fmt.Errorf("database.path empty in config")
+	}
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return nil // fresh install, nothing to snapshot
+	} else if err != nil {
+		return fmt.Errorf("stat db: %w", err)
+	}
+
+	ts := time.Now().Format("20060102-150405")
+	bakPath := fmt.Sprintf("%s.bak-%s", dbPath, ts)
+	if err := copyFileMode(dbPath, bakPath, 0600); err != nil {
+		return fmt.Errorf("copy db: %w", err)
+	}
+	fmt.Printf("DB snapshot saved: %s\n", bakPath)
+
+	// Prune all but the 3 newest snapshots.
+	entries, err := filepath.Glob(dbPath + ".bak-*")
+	if err != nil || len(entries) <= 3 {
+		return nil
+	}
+	type entryInfo struct {
+		path string
+		mod  time.Time
+	}
+	infos := make([]entryInfo, 0, len(entries))
+	for _, p := range entries {
+		st, statErr := os.Stat(p)
+		if statErr != nil {
+			continue
+		}
+		infos = append(infos, entryInfo{path: p, mod: st.ModTime()})
+	}
+	sort.Slice(infos, func(i, j int) bool { return infos[i].mod.After(infos[j].mod) })
+	for _, old := range infos[3:] {
+		_ = os.Remove(old.path)
+	}
+	return nil
+}
+
+func copyFileMode(src, dst string, perm os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	return out.Close()
 }
 
 func printHelp() {
