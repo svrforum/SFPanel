@@ -168,9 +168,40 @@ download_binary() {
     systemctl stop "$SERVICE_NAME"
   fi
 
+  # With the service stopped (or fresh install — no service yet), the SQLite
+  # WAL has been checkpointed and we can take a clean snapshot before any
+  # new migration touches the schema. Roll back via:
+  #   systemctl stop sfpanel && cp <bak> /var/lib/sfpanel/sfpanel.db && systemctl start sfpanel
+  backup_db
+
   install -m 755 "${tmp_dir}/sfpanel" "${INSTALL_DIR}/sfpanel"
   rm -rf "$tmp_dir"
   log_info "Binary installed to ${INSTALL_DIR}/sfpanel"
+}
+
+# backup_db snapshots sfpanel.db before a binary upgrade so a bad migration
+# doesn't strand the operator. Keeps the 3 most recent snapshots; older ones
+# are pruned automatically.
+backup_db() {
+  local db="${DATA_DIR}/sfpanel.db"
+  if [ ! -f "$db" ]; then
+    return 0
+  fi
+  local ts bak
+  ts=$(date +%Y%m%d-%H%M%S)
+  bak="${DATA_DIR}/sfpanel.db.bak-${ts}"
+  if cp -p "$db" "$bak"; then
+    chmod 600 "$bak"
+    log_info "DB snapshot saved: ${bak}"
+  else
+    log_warn "DB snapshot failed (continuing — upgrade is not blocked)"
+    return 0
+  fi
+  # Retain the 3 newest .bak files; prune the rest. ls -t sorts newest-first.
+  local old
+  while IFS= read -r old; do
+    [ -n "$old" ] && rm -f "$old"
+  done < <(ls -1t "${DATA_DIR}"/sfpanel.db.bak-* 2>/dev/null | tail -n +4)
 }
 
 setup_dirs() {
