@@ -1674,8 +1674,15 @@ class ApiClient {
     })
   }
 
-  // Build a WebSocket URL with auth token and optional node parameter
-  buildWsUrl(path: string, extraParams?: Record<string, string>): string {
+  // Build a WebSocket URL using a short-lived single-use ticket instead of
+  // putting the JWT directly in the query string. Backend POST /auth/ws-ticket
+  // mints a 60s ticket on demand; that ticket lands in the URL, never the
+  // JWT. Callers must await.
+  //
+  // Falls back to the legacy ?token= path if the ticket endpoint is
+  // unreachable (older backend / network blip) so existing flows don't break
+  // mid-upgrade.
+  async buildWsUrl(path: string, extraParams?: Record<string, string>): Promise<string> {
     let host: string
     let protocol: string
     if (this._serverUrl) {
@@ -1687,7 +1694,13 @@ class ApiClient {
       protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     }
     const params = new URLSearchParams()
-    if (this.token) params.set('token', this.token)
+    try {
+      const t = await this.request<{ ticket: string }>('/auth/ws-ticket', { method: 'POST' })
+      if (t?.ticket) params.set('ticket', t.ticket)
+      else if (this.token) params.set('token', this.token)
+    } catch {
+      if (this.token) params.set('token', this.token)
+    }
     if (this._currentNode) params.set('node', this._currentNode)
     if (extraParams) {
       for (const [k, v] of Object.entries(extraParams)) {

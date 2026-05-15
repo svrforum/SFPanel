@@ -79,6 +79,75 @@ func TestPruneRefreshTokens_DropsExpired(t *testing.T) {
 	}
 }
 
+// TestIssueRefreshToken_AssignsFamilyID guards the OWASP token-reuse plumbing:
+// each issued token must carry a fresh family_id so the rotation handler can
+// revoke a captured chain wholesale.
+func TestIssueRefreshToken_AssignsFamilyID(t *testing.T) {
+	db := openTestDB(t)
+	_, err := issueRefreshToken(db, "alice")
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	var family string
+	if err := db.QueryRow(
+		`SELECT family_id FROM refresh_tokens WHERE username = ?`, "alice",
+	).Scan(&family); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(family) != 32 {
+		t.Errorf("family_id len = %d, want 32 hex chars", len(family))
+	}
+
+	// Two separate logins must produce two separate families.
+	_, _ = issueRefreshToken(db, "alice")
+	var distinct int
+	if err := db.QueryRow(
+		`SELECT COUNT(DISTINCT family_id) FROM refresh_tokens WHERE username = ?`, "alice",
+	).Scan(&distinct); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if distinct != 2 {
+		t.Errorf("distinct family_id count = %d, want 2 (one per login)", distinct)
+	}
+}
+
+// TestPruneRefreshTokens_DropsOldTombstones confirms consumed tombstones older
+// than the 24h grace window are reaped, but recent ones stay around to catch
+// replays.
+func TestPruneRefreshTokens_DropsOldTombstones(t *testing.T) {
+	db := openTestDB(t)
+
+	freshAt := time.Now().Add(1 * time.Hour).UTC().Format(time.RFC3339)
+	oldConsumed := time.Now().Add(-25 * time.Hour).UTC().Format(time.RFC3339)
+	recentConsumed := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
+
+	if _, err := db.Exec(
+		`INSERT INTO refresh_tokens (token_hash, username, expires_at, consumed_at) VALUES
+			(?, ?, ?, ?),
+			(?, ?, ?, ?),
+			(?, ?, ?, NULL)`,
+		"oldtomb", "alice", freshAt, oldConsumed,
+		"newtomb", "alice", freshAt, recentConsumed,
+		"live", "alice", freshAt,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	pruneRefreshTokens(db)
+
+	rows, _ := db.Query(`SELECT token_hash FROM refresh_tokens ORDER BY token_hash`)
+	defer rows.Close()
+	got := []string{}
+	for rows.Next() {
+		var h string
+		_ = rows.Scan(&h)
+		got = append(got, h)
+	}
+	if len(got) != 2 || got[0] != "live" || got[1] != "newtomb" {
+		t.Errorf("rows after prune = %v, want [live newtomb]", got)
+	}
+}
+
 func TestValidCredentialBounds(t *testing.T) {
 	cases := []struct {
 		name                       string

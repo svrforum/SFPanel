@@ -34,14 +34,10 @@ func authenticateWS(c echo.Context, jwtSecret string) error {
 	if auth.IsInternalProxyRequest(c.Request()) {
 		return nil
 	}
-	token := c.QueryParam("token")
-	if token == "" {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+	if user := auth.AuthenticateWSRequest(c.Request(), jwtSecret); user != "" {
+		return nil
 	}
-	if _, err := auth.ParseToken(token, jwtSecret); err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
-	}
-	return nil
+	return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 }
 
 // ringBuffer is a fixed-size circular byte buffer that keeps the most recent

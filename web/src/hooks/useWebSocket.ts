@@ -31,31 +31,42 @@ export function useWebSocket<T = unknown>({ url, onMessage, autoReconnect = true
     const token = api.getToken()
     if (!token) return
 
-    const wsUrl = api.buildWsUrl(url)
-    const ws = new WebSocket(wsUrl)
+    // buildWsUrl is async (mints a single-use ticket so the JWT never lands
+    // in the URL). Resolve, then check the cleanup flag again — the user
+    // may have unmounted during the await.
+    api.buildWsUrl(url).then((wsUrl) => {
+      if (isCleanedUpRef.current) return
+      const ws = new WebSocket(wsUrl)
 
-    ws.onopen = () => {
-      setConnected(true)
-      retryCountRef.current = 0
-    }
-    ws.onclose = () => {
-      setConnected(false)
+      ws.onopen = () => {
+        setConnected(true)
+        retryCountRef.current = 0
+      }
+      ws.onclose = () => {
+        setConnected(false)
+        if (autoReconnect && !isCleanedUpRef.current) {
+          const delay = Math.min(reconnectInterval * Math.pow(2, retryCountRef.current), 30000)
+          retryCountRef.current += 1
+          reconnectTimerRef.current = setTimeout(() => connectRef.current(), delay)
+        }
+      }
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data) as T
+          onMessageRef.current?.(data)
+        } catch {
+          onMessageRef.current?.(event.data as T)
+        }
+      }
+
+      wsRef.current = ws
+    }).catch(() => {
+      // Ticket mint failed and no token fallback — silently skip; the
+      // reconnect timer (if enabled) will retry.
       if (autoReconnect && !isCleanedUpRef.current) {
-        const delay = Math.min(reconnectInterval * Math.pow(2, retryCountRef.current), 30000)
-        retryCountRef.current += 1
-        reconnectTimerRef.current = setTimeout(() => connectRef.current(), delay)
+        reconnectTimerRef.current = setTimeout(() => connectRef.current(), reconnectInterval)
       }
-    }
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data) as T
-        onMessageRef.current?.(data)
-      } catch {
-        onMessageRef.current?.(event.data as T)
-      }
-    }
-
-    wsRef.current = ws
+    })
   }, [url, autoReconnect, reconnectInterval])
 
   // Sync the latest connect into the ref so the close-handler closure

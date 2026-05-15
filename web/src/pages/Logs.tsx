@@ -250,39 +250,41 @@ export default function Logs() {
       wsRef.current = null
     }
 
-    const wsUrl = api.buildWsUrl('/ws/logs', { source })
-    const ws = new WebSocket(wsUrl)
+    void (async () => {
+      const wsUrl = await api.buildWsUrl('/ws/logs', { source })
+      const ws = new WebSocket(wsUrl)
 
-    ws.onopen = () => setWsConnected(true)
+      ws.onopen = () => setWsConnected(true)
 
-    ws.onmessage = (event) => {
-      // Accumulate into batch buffer
-      try {
-        const data = JSON.parse(event.data)
-        if (data.line !== undefined) {
-          wsBatchRef.current.push(data.line)
-        } else if (data.lines && Array.isArray(data.lines)) {
-          wsBatchRef.current.push(...data.lines)
+      ws.onmessage = (event) => {
+        // Accumulate into batch buffer
+        try {
+          const data = JSON.parse(event.data)
+          if (data.line !== undefined) {
+            wsBatchRef.current.push(data.line)
+          } else if (data.lines && Array.isArray(data.lines)) {
+            wsBatchRef.current.push(...data.lines)
+          }
+        } catch {
+          if (typeof event.data === 'string' && event.data.trim()) {
+            wsBatchRef.current.push(event.data)
+          }
         }
-      } catch {
-        if (typeof event.data === 'string' && event.data.trim()) {
-          wsBatchRef.current.push(event.data)
+        // Schedule a single flush per animation frame
+        if (wsRafRef.current === null) {
+          wsRafRef.current = requestAnimationFrame(flushWsBatch)
         }
       }
-      // Schedule a single flush per animation frame
-      if (wsRafRef.current === null) {
-        wsRafRef.current = requestAnimationFrame(flushWsBatch)
+
+      ws.onerror = () => {
+        setWsConnected(false)
+        toast.error(t('logs.wsError'))
       }
-    }
 
-    ws.onerror = () => {
-      setWsConnected(false)
-      toast.error(t('logs.wsError'))
-    }
+      ws.onclose = () => setWsConnected(false)
 
-    ws.onclose = () => setWsConnected(false)
-
-    wsRef.current = ws
+      wsRef.current = ws
+    })()
   }, [t, flushWsBatch])
 
   const disconnectWebSocket = useCallback(() => {

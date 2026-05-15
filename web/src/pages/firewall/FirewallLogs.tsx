@@ -143,38 +143,40 @@ export default function FirewallLogs() {
       wsRef.current = null
     }
 
-    const wsUrl = api.buildWsUrl('/ws/logs', { source })
-    const ws = new WebSocket(wsUrl)
+    void (async () => {
+      const wsUrl = await api.buildWsUrl('/ws/logs', { source })
+      const ws = new WebSocket(wsUrl)
 
-    ws.onopen = () => {
-      setWsConnected(true)
-    }
+      ws.onopen = () => {
+        setWsConnected(true)
+      }
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data)
-        if (data.line !== undefined) {
-          setLogLines((prev) => [...prev, data.line])
-        } else if (data.lines && Array.isArray(data.lines)) {
-          setLogLines((prev) => [...prev, ...data.lines])
-        }
-      } catch {
-        if (typeof event.data === 'string' && event.data.trim()) {
-          setLogLines((prev) => [...prev, event.data])
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (data.line !== undefined) {
+            setLogLines((prev) => [...prev, data.line])
+          } else if (data.lines && Array.isArray(data.lines)) {
+            setLogLines((prev) => [...prev, ...data.lines])
+          }
+        } catch {
+          if (typeof event.data === 'string' && event.data.trim()) {
+            setLogLines((prev) => [...prev, event.data])
+          }
         }
       }
-    }
 
-    ws.onerror = () => {
-      setWsConnected(false)
-      toast.error(t('logs.wsError'))
-    }
+      ws.onerror = () => {
+        setWsConnected(false)
+        toast.error(t('logs.wsError'))
+      }
 
-    ws.onclose = () => {
-      setWsConnected(false)
-    }
+      ws.onclose = () => {
+        setWsConnected(false)
+      }
 
-    wsRef.current = ws
+      wsRef.current = ws
+    })()
   }, [t])
 
   const disconnectWebSocket = useCallback(() => {
