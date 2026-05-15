@@ -135,11 +135,17 @@ func (h *Handler) Refresh(c echo.Context) error {
 
 	// Verify the user still exists. If the admin account was deleted (rare
 	// but possible during cluster account ops), the refresh chain dies.
-	var exists int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM admin WHERE username = ?`, username).Scan(&exists); err != nil || exists == 0 {
-		_, _ = tx.Exec(`DELETE FROM refresh_tokens WHERE token_hash = ?`, hashHex)
-		_ = tx.Commit()
-		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidToken, "User no longer exists")
+	// Match the Login path's lookup order: cluster FSM first (cluster-only
+	// accounts live there and never reach the local admin table), then local
+	// DB. Without the FSM fallback, every refresh on a cluster-only admin
+	// hits "User no longer exists" and bricks the session.
+	if h.getClusterAccount(username) == nil {
+		var exists int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM admin WHERE username = ?`, username).Scan(&exists); err != nil || exists == 0 {
+			_, _ = tx.Exec(`DELETE FROM refresh_tokens WHERE token_hash = ?`, hashHex)
+			_ = tx.Commit()
+			return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidToken, "User no longer exists")
+		}
 	}
 
 	// Backward-compat: rows created before migration 24 carry family_id=''.
