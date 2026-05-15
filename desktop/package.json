@@ -1,11 +1,15 @@
 {
   "name": "sfpanel-desktop",
   "private": true,
-  "version": "0.6.2",
+  "version": "0.13.5",
   "scripts": {
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-updater": "^2"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
