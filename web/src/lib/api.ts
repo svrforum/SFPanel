@@ -67,8 +67,23 @@ class ApiClient {
   private refreshPromise: Promise<boolean> | null = null
 
   constructor() {
-    this.token = localStorage.getItem('token')
-    this.refreshToken = localStorage.getItem('refresh_token')
+    // Tokens live in sessionStorage so a closed tab → fresh login. XSS still
+    // gets the token of an *open* tab, but the impact window shrinks from
+    // "indefinite background tab" to "active session". One-time migration
+    // from the old localStorage location so existing logins survive the
+    // upgrade.
+    const migrate = (k: string) => {
+      const legacy = localStorage.getItem(k)
+      if (legacy !== null && sessionStorage.getItem(k) === null) {
+        sessionStorage.setItem(k, legacy)
+        localStorage.removeItem(k)
+      }
+    }
+    migrate('token')
+    migrate('refresh_token')
+
+    this.token = sessionStorage.getItem('token')
+    this.refreshToken = sessionStorage.getItem('refresh_token')
     this._currentNode = localStorage.getItem('sfpanel_current_node')
     this._serverUrl = localStorage.getItem('sfpanel_server_url')
   }
@@ -88,15 +103,15 @@ class ApiClient {
 
   setToken(token: string) {
     this.token = token
-    localStorage.setItem('token', token)
+    sessionStorage.setItem('token', token)
   }
 
   setRefreshToken(token: string | null) {
     this.refreshToken = token
     if (token) {
-      localStorage.setItem('refresh_token', token)
+      sessionStorage.setItem('refresh_token', token)
     } else {
-      localStorage.removeItem('refresh_token')
+      sessionStorage.removeItem('refresh_token')
     }
   }
 
@@ -113,6 +128,10 @@ class ApiClient {
   clearToken() {
     this.token = null
     this.refreshToken = null
+    sessionStorage.removeItem('token')
+    sessionStorage.removeItem('refresh_token')
+    // Also wipe the legacy localStorage entries in case the migration missed
+    // them (e.g. logout immediately after upgrade).
     localStorage.removeItem('token')
     localStorage.removeItem('refresh_token')
   }
