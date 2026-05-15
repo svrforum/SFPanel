@@ -1,7 +1,10 @@
 # SFPanel Configuration
 server:
   host: "0.0.0.0"
-  port: 19443
+  # Default trio: 3628 HTTP / 3629 cluster gRPC / 3630 Raft (gRPC+1).
+  # Picked to avoid the crowded 9xxx range. Change here + restart if
+  # another service on the host already owns 3628.
+  port: 3628
   # Reverse-proxy deployments: list the proxy's source IP/CIDR here so
   # X-Forwarded-For is honoured only from those upstreams. Without this
   # an arbitrary client could spoof their source IP and bypass the per-IP
@@ -42,7 +45,7 @@ log:
 #   name: ""
 #   node_id: ""
 #   node_name: ""
-#   grpc_port: 9443
+#   grpc_port: 3629    # Raft transport auto-binds to grpc_port + 1 (3630)
 #   data_dir: /var/lib/sfpanel/cluster
 #   cert_dir: /etc/sfpanel/cluster
 #   advertise_address: ""

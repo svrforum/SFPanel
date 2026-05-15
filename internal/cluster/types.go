@@ -72,9 +72,13 @@ type ClusterOverview struct {
 	Metrics   []*NodeMetrics `json:"metrics,omitempty"`
 }
 
-// Default ports and timeouts
+// Default ports and timeouts.
+//
+// DefaultGRPCPort is informational — config.go is the authoritative source
+// for the default (3629), and `Load()` in that package fills the field on
+// fresh configs. Raft transport binds to GRPCPort+1.
 const (
-	DefaultGRPCPort          = 9443
+	DefaultGRPCPort          = 3629
 	DefaultHeartbeatInterval = 60 * time.Second
 	DefaultHeartbeatTimeout  = 180 * time.Second
 	DefaultTokenTTL          = 24 * time.Hour

@@ -243,7 +243,7 @@ func clusterInit(args []string) {
 	fmt.Println("\nNext steps:")
 	fmt.Println("  1. Restart sfpanel: sudo systemctl restart sfpanel")
 	fmt.Println("  2. Create a join token: sfpanel cluster token")
-	fmt.Println("  3. On other nodes: sfpanel cluster join <this-ip>:9444 <token>")
+	fmt.Printf("  3. On other nodes: sfpanel cluster join <this-ip>:%d <token>\n", cfg.Cluster.GRPCPort)
 }
 
 func clusterJoin(args []string) {

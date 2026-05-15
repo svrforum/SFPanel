@@ -39,7 +39,7 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 		apiAddr = strings.TrimPrefix(apiAddr, "http://")
 	}
 	if !strings.Contains(apiAddr, ":") {
-		apiAddr += ":19443"
+		apiAddr += ":3628"
 	}
 
 	remoteURL := url.URL{
