@@ -64,7 +64,7 @@ export default function ClusterOverview() {
             return
           }
           fetch(`${api.apiBase}/cluster/status`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+            headers: { 'Authorization': `Bearer ${api.getToken()}` },
           })
             .then((r) => { if (r.ok) { clearInterval(check); window.location.reload() } })
             .catch(() => {})
@@ -357,7 +357,7 @@ function ClusterInitForm() {
       setTimeout(() => {
         const check = setInterval(() => {
           fetch(`${api.apiBase}/cluster/status`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+            headers: { 'Authorization': `Bearer ${api.getToken()}` },
           })
             .then((r) => {
               if (r.ok) {
@@ -384,7 +384,7 @@ function ClusterInitForm() {
       setTimeout(() => {
         const check = setInterval(() => {
           fetch(`${api.apiBase}/cluster/status`, {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+            headers: { 'Authorization': `Bearer ${api.getToken()}` },
           })
             .then((r) => {
               if (r.ok) {
