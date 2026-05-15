@@ -3793,20 +3793,28 @@ data: {"overall":"complete","success_count":3,"fail_count":0}
 
 REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개의 SSE 스트리밍 엔드포인트가 존재 (REST 숫자에 포함). Docker 소켓 미사용 시 `/api/v1/docker/*` 26개는 미등록. 실제 등록 라우트는 서버 시작 로그 또는 `internal/api/router.go`에서 확인.
 
-### 인증/설정 (10개)
+### 인증/설정 (13개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/health` | X | 헬스체크 |
-| POST | `/api/v1/auth/login` | X | 로그인 |
+| POST | `/api/v1/auth/login` | X | 로그인 (refresh + CSRF 쿠키 발급, v0.13.3+) |
 | GET | `/api/v1/auth/setup-status` | X | 셋업 필요 여부 |
 | POST | `/api/v1/auth/setup` | X | 초기 관리자 생성 |
+| POST | `/api/v1/auth/refresh` | X | 액세스 토큰 갱신 (쿠키 우선, body fallback) |
+| POST | `/api/v1/auth/logout` | O | 로그아웃 — 쿠키 만료 + DB row 삭제 (v0.13.3+) |
 | GET | `/api/v1/auth/2fa/status` | O | 2FA 상태 확인 |
 | POST | `/api/v1/auth/2fa/setup` | O | 2FA 시크릿 생성 |
 | POST | `/api/v1/auth/2fa/verify` | O | 2FA 활성화 |
 | POST | `/api/v1/auth/change-password` | O | 비밀번호 변경 |
+| POST | `/api/v1/auth/ws-ticket` | O | WebSocket 단발성 ticket 발급 (v0.13.2+) |
 | GET | `/api/v1/settings` | O | 설정 조회 |
 | PUT | `/api/v1/settings` | O | 설정 업데이트 |
+
+**v0.13.3 보안 흐름**:
+- 로그인 성공 시 `sfpanel_refresh`(HttpOnly + Secure + SameSite=Strict, Path=`/api/v1/auth`)와 `sfpanel_csrf`(JS-readable) 쿠키가 함께 발급됩니다.
+- 모든 POST/PUT/PATCH/DELETE 요청에 `X-CSRF-Token: <sfpanel_csrf 값>` 헤더 필수 (`CSRFProtect` 미들웨어가 검증). 로그인/Setup/Refresh 경로 및 mTLS 클러스터 프록시는 자동 면제.
+- WebSocket 인증은 `/auth/ws-ticket`에서 60초짜리 ticket을 받아 `?ticket=` 쿼리로 사용. 레거시 `?token=` JWT 경로는 한 릴리스(v0.14.0까지) 호환성 유지.
 
 ### 시스템 (18개)
 
