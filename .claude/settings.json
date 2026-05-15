@@ -1,0 +1,23 @@
+{
+  "$comment": "Project-wide Claude Code guardrails. Per-developer Bash allowlists belong in .claude/settings.local.json (gitignored). Patterns here are minimal-by-design: they only block edits to files Claude should never touch, not 'opinion' deny rules.",
+  "permissions": {
+    "deny": [
+      "Edit(web/node_modules/**)",
+      "Write(web/node_modules/**)",
+      "Edit(web/dist/**)",
+      "Write(web/dist/**)",
+      "Edit(internal/cluster/proto/*.pb.go)",
+      "Write(internal/cluster/proto/*.pb.go)",
+      "Edit(**/*.bak)",
+      "Write(**/*.bak)",
+      "Edit(**/*.bak.*)",
+      "Write(**/*.bak.*)",
+      "Edit(**/sfpanel.db)",
+      "Write(**/sfpanel.db)",
+      "Edit(**/sfpanel.db-wal)",
+      "Edit(**/sfpanel.db-shm)",
+      "Edit(.git/**)",
+      "Write(.git/**)"
+    ]
+  }
+}

@@ -62,7 +62,15 @@ desktop/src-tauri/icons/ios/
 
 # Public repo — 개발자 전용 Claude 가이드는 깃에 올리지 않음.
 # 로컬 파일은 유지되지만 새로 추적되지 않도록 차단.
-/CLAUDE.md
+# Subdirectory CLAUDE.md(internal/api/middleware/, internal/cluster/ 등)도
+# 같은 정책으로 처리 — Claude Code가 working dir에서 자동으로 읽지만,
+# 공개 저장소에는 노출되지 않음.
+**/CLAUDE.md
+
+# Claude Code per-developer settings — 개인 Bash allowlist + 스케줄러 lock.
+# .claude/settings.json(프로젝트 공통 deny 규칙)만 커밋되고 나머지는 무시.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Visual brainstorm session files (per-developer, ephemeral)
 /.superpowers/
