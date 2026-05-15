@@ -6,22 +6,66 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
-## [Unreleased]
+## [0.13.4] – 2026-05-15
+
+Authentication bug-fix release. Three independent paths conspired to
+push cluster-mode operators into a login loop where every fresh login
+bounced back to /login within a couple of seconds; each is documented
+below.
 
 ### Fixed
-- **Login loop on cluster followers (FSM-only admin accounts).**
-  `Refresh` and the four admin-management handlers
-  (`Get2FAStatus` / `Verify2FA` / `Disable2FA` / `ChangePassword`) read
-  and wrote only the local `admin` table. On a node whose authenticated
-  account had been replicated in from another node's FSM (no row in
-  local DB), every refresh attempt hit "User no longer exists" + wiped
-  the refresh token, and every account-management call either lied
-  ("2FA disabled" when the FSM said otherwise) or silently no-op'd.
-  The fix mirrors `Login`'s lookup order (FSM first, local DB fallback)
-  across all five handlers. Writes route back to wherever the account
-  came from — FSM accounts go through Raft (returns 503 with a leader
-  hint on followers), local accounts UPDATE the admin table and sync
-  to Raft afterwards.
+- **Refresh handler ignored the cluster FSM when verifying account
+  existence.** Account replicated only in the FSM (no row in the local
+  `admin` table) had every refresh attempt 401 with "User no longer
+  exists" and the refresh-token row tombstone-deleted — guaranteeing
+  the next access-token expiry kicked the user back to /login.
+  `Refresh` now mirrors `Login`'s lookup order (FSM first, local DB
+  fallback).
+- **Four admin-management handlers carried the same FSM-blindness.**
+  `Get2FAStatus`, `Verify2FA`, `Disable2FA`, and `ChangePassword` read
+  / wrote only the local `admin` table. On a cluster-only account
+  these either lied ("2FA disabled" when the FSM said otherwise) or
+  silently no-op'd the UPDATE so the user got a "success" response
+  while no state actually changed. New `loadAdminAccount` /
+  `persistAdminAccount` helpers route reads through FSM-first lookup
+  and route writes back to wherever the account lives (FSM goes via
+  Raft Apply with a 503 + leader hint on followers; local goes UPDATE
+  + Raft sync). 
+- **v2 internal-proxy validator silently rejected every URL with a
+  query string.** Signers feed path-with-query into
+  `SignProxyRequestV2` so a captured header cannot be re-targeted to
+  a different endpoint / query params, but the validator was checking
+  the MAC against `r.URL.Path` (path component only) — so any
+  forwarded request whose URL carried a query string flunked v2
+  validation, the JWT middleware then looked for a Bearer token,
+  found none (the loopback proxy strips Authorization in favour of
+  v1/v2 headers), and returned 401 "Authorization header is required".
+  Dashboard's `/logs/read?source=syslog&lines=8` was the visible
+  casualty: when a browser had `current_node` pinned to a peer, those
+  401s were the third path into the login loop. Validator now uses
+  `r.URL.RequestURI()` so it sees exactly what the signer signed.
+
+### Tests
+- 8 new cases — 2 refresh handler (happy + truly-missing-user), 4
+  admin-account helpers (local read, missing returns ErrNoRows, local
+  update including NULL-totp, cluster-without-manager refusal), 2 v2
+  proxy validator (round-trip with query, query-param rebinding
+  rejected). FSM-positive paths for the cross-cluster flows are
+  covered by the loopback integration probe in the deployment
+  runbook; stubbing the concrete `*cluster.Manager` would require
+  a wider refactor than this fix warrants.
+
+### Operator notes
+- **Mixed-version clusters need every node updated** for cross-node
+  `?node=<peer>` proxy to validate query-string'd URLs. A
+  follower-only or single-node deployment (or any deployment that
+  doesn't pin `current_node` to a peer in the browser) is unaffected
+  by the proxy half of the bug.
+- **Browsers stuck in the loop pre-upgrade**: clear
+  `localStorage["sfpanel_current_node"]` (DevTools → Application →
+  Local Storage, or `localStorage.removeItem('sfpanel_current_node');
+  location.reload()` in the Console) to break out without waiting
+  for the binary update to land on every node.
 
 ### Changed
 - **Default listening ports moved off the 9xxx block.** New installs
