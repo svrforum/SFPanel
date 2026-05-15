@@ -105,3 +105,40 @@ func TestSignProxyRequestV2_NoSecretReturnsEmpty(t *testing.T) {
 		t.Error("no secret configured → empty signature")
 	}
 }
+
+// TestSignAndValidateV2_WithQueryString — regression guard. Every cluster
+// proxy signer (grpc_server.go:297, feature/cluster/handler.go:707) signs
+// path-with-query so a captured header can't be re-targeted to different
+// query params. The validator previously fed `r.URL.Path` (path component
+// only) into the MAC check, producing a mismatch and silently rejecting
+// every proxied request whose URL carried a query string. Dashboard's
+// `/logs/read?source=syslog&lines=8` was the first user-visible casualty —
+// after a cluster proxy hop those 401s pushed the SPA back to /login.
+func TestSignAndValidateV2_WithQueryString(t *testing.T) {
+	resetForTest("test-secret-32-bytes-long-enough!!")
+
+	header := SignProxyRequestV2("GET", "/api/v1/logs/read?source=syslog&lines=8")
+	if header == "" {
+		t.Fatal("SignProxyRequestV2 returned empty")
+	}
+
+	r, _ := http.NewRequest("GET", "http://localhost/api/v1/logs/read?source=syslog&lines=8", nil)
+	r.Header.Set(InternalProxyHeaderV2, header)
+	if !IsInternalProxyRequest(r) {
+		t.Error("freshly-signed v2 header should validate when URL carries a query string")
+	}
+}
+
+// TestValidateV2_QueryParamRebinding — flipping a query param on the
+// receiver side must invalidate the MAC. Same security goal as the
+// path-rebinding test above, just for query string tampering.
+func TestValidateV2_QueryParamRebinding(t *testing.T) {
+	resetForTest("test-secret-32-bytes-long-enough!!")
+
+	header := SignProxyRequestV2("GET", "/api/v1/logs/read?source=syslog&lines=8")
+	r, _ := http.NewRequest("GET", "http://localhost/api/v1/logs/read?source=auth&lines=5000", nil)
+	r.Header.Set(InternalProxyHeaderV2, header)
+	if IsInternalProxyRequest(r) {
+		t.Error("v2 header signed for one query must not validate against a different query")
+	}
+}
