@@ -268,7 +268,7 @@
 - **설명**: Proxmox 스타일 대칭 클러스터. 2~32대 노드를 하나의 클러스터로 통합 관리
 - **주요 기능**:
   - **Raft 합의 엔진**: `hashicorp/raft` + BoltDB 스토어 (임베디드, 외부 의존 없음). FSM이 JWT 시크릿, 클러스터 이름, 노드 목록(역할/주소/상태), 어드민 계정을 복제
-  - **gRPC + mTLS**: 노드 간 제어 채널 (포트 9444), TLS 1.3 상호 인증, ECDSA P-256 자체 CA, 노드 인증서 자동 발급
+  - **gRPC + mTLS**: 노드 간 제어 채널 (포트 3629), TLS 1.3 상호 인증, ECDSA P-256 자체 CA, 노드 인증서 자동 발급
   - **참가 토큰**: HMAC-SHA256 서명, 1회용, 시간제한 (기본 24시간, 메모리 저장으로 리더 재시작 시 소실)
   - **하트비트 모니터링**: 2초 간격, 3단계 상태 판정 (online → suspect → offline)
   - **JoinEngine 파이프라인** (`internal/cluster/join.go`): 리더→조인노드 파이프라인을 `PreFlight` / `Execute` 두 단계로 분리
@@ -415,7 +415,7 @@
 | 섹션 | 키 | 기본값 | 설명 |
 |------|-----|--------|------|
 | `server.host` | host | `0.0.0.0` | 바인딩 호스트 주소 |
-| `server.port` | port | `19443` | 서버 포트 |
+| `server.port` | port | `3628` | 서버 포트 |
 | `database.path` | path | `./sfpanel.db` | SQLite 데이터베이스 파일 경로 |
 | `auth.jwt_secret` | jwt_secret | (없음) | JWT 서명 시크릿 (반드시 변경 필요) |
 | `auth.token_expiry` | token_expiry | `24h` | JWT 토큰 만료 시간 (Go duration 형식) |
@@ -426,7 +426,7 @@
 | `cluster.name` | name | (없음) | 클러스터 이름 |
 | `cluster.node_id` | node_id | (없음) | 노드 UUID (자동 생성) |
 | `cluster.node_name` | node_name | (없음) | 노드 표시 이름 |
-| `cluster.grpc_port` | grpc_port | `9444` | gRPC 통신 포트 |
+| `cluster.grpc_port` | grpc_port | `3629` | gRPC 통신 포트 |
 | `cluster.data_dir` | data_dir | `/var/lib/sfpanel/cluster` | Raft 데이터 저장 경로 |
 | `cluster.cert_dir` | cert_dir | `/etc/sfpanel/cluster` | mTLS 인증서 저장 경로 |
 | `cluster.advertise_address` | advertise_address | (없음) | 다른 노드가 접근할 IP |
@@ -722,8 +722,8 @@ make build
 # 2. go build -ldflags="-s -w" -trimpath -o sfpanel ./cmd/sfpanel  → 바이너리 생성 (~16MB)
 
 # 개발 모드
-make dev-api   # Go 백엔드 (:19443)
-make dev-web   # Vite 프론트엔드 (:5173, API 프록시 → :19443)
+make dev-api   # Go 백엔드 (:3628)
+make dev-web   # Vite 프론트엔드 (:5173, API 프록시 → :3628)
 
 # 린트
 make lint      # golangci-lint + eslint

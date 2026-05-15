@@ -249,7 +249,7 @@ generate_config() {
 # SFPanel Configuration
 server:
   host: "0.0.0.0"
-  port: 19443
+  port: 3628
 
 database:
   path: "${DATA_DIR}/sfpanel.db"
@@ -389,7 +389,7 @@ print_success() {
   local mode="$2"
   local port
   port=$(read_config_port)
-  : "${port:=19443}"
+  : "${port:=3628}"
 
   echo ""
   echo -e "${CYAN}============================================${NC}"

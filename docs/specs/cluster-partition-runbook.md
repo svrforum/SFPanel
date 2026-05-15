@@ -40,7 +40,7 @@ Compare across nodes. Symptoms:
 | Some nodes report `leader: <id>` and others report `leader: ""` | Partition; the empty-leader side is the minority |
 | All nodes report different `node_count` for the same cluster | Replicated FSM diverged → split-brain (rare; see Recovery) |
 | `journalctl -u sfpanel \| grep "stale-leader suspect"` shows entries | Discarded Apply errors (D.3 logging) — leadership flipped during a write |
-| `requestVote RPC: ... connect: connection refused` repeating on one node | That node can't reach a peer; check the peer's listener (port 9444 + Raft 9445) |
+| `requestVote RPC: ... connect: connection refused` repeating on one node | That node can't reach a peer; check the peer's listener (port 3629 + Raft 3630) |
 
 Healthy state: every node sees the same `leader`, the same `node_count`,
 and `cluster status` returns within ~50 ms.

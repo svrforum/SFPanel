@@ -147,13 +147,17 @@ func (c *Config) ApplyEnvOverrides() {
 
 func Load(path string) (*Config, error) {
 	cfg := &Config{
-		Server:   ServerConfig{Host: "0.0.0.0", Port: 19443, StacksPath: "/opt/stacks"},
+		Server:   ServerConfig{Host: "0.0.0.0", Port: 3628, StacksPath: "/opt/stacks"},
 		Database: DatabaseConfig{Path: "./sfpanel.db"},
 		Auth:     AuthConfig{TokenExpiry: "24h"},
 		Docker:   DockerConfig{Socket: "unix:///var/run/docker.sock"},
 		Log:      LogConfig{Level: "info"},
 		Cluster: ClusterConfig{
-			GRPCPort: 9444,
+			// Raft transport binds to GRPCPort+1 (manager.go:122), so the
+			// default trio is 3628 HTTP / 3629 gRPC / 3630 Raft. Picked to
+			// avoid the common 9xxx range that JupyterHub, Plausible,
+			// Postgres-bouncer, et al. claim on a typical homeserver.
+			GRPCPort: 3629,
 			DataDir:  "/var/lib/sfpanel/cluster",
 			CertDir:  "/etc/sfpanel/cluster",
 		},

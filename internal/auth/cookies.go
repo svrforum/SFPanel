@@ -41,7 +41,7 @@ func GenerateCSRFToken() string {
 // `secure` should be true when the request arrived over TLS (either direct
 // HTTPS or X-Forwarded-Proto=https behind a reverse proxy). Setting Secure
 // over plain HTTP causes browsers to silently drop the cookie, which would
-// brick login on the default `:9443` HTTP listener.
+// brick login on the default `:3628` HTTP listener.
 func SetRefreshCookie(w http.ResponseWriter, refreshToken string, maxAge time.Duration, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     RefreshCookieName,

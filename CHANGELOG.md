@@ -6,6 +6,53 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Login loop on cluster followers (FSM-only admin accounts).**
+  `Refresh` and the four admin-management handlers
+  (`Get2FAStatus` / `Verify2FA` / `Disable2FA` / `ChangePassword`) read
+  and wrote only the local `admin` table. On a node whose authenticated
+  account had been replicated in from another node's FSM (no row in
+  local DB), every refresh attempt hit "User no longer exists" + wiped
+  the refresh token, and every account-management call either lied
+  ("2FA disabled" when the FSM said otherwise) or silently no-op'd.
+  The fix mirrors `Login`'s lookup order (FSM first, local DB fallback)
+  across all five handlers. Writes route back to wherever the account
+  came from — FSM accounts go through Raft (returns 503 with a leader
+  hint on followers), local accounts UPDATE the admin table and sync
+  to Raft afterwards.
+
+### Changed
+- **Default listening ports moved off the 9xxx block.** New installs
+  bind 3628 HTTP, 3629 cluster gRPC, and 3630 Raft (gRPC + 1). The
+  earlier defaults (19443 / 9444 / 9445) collided with common
+  homeserver workloads. Existing operators see no change unless they
+  remove the relevant lines from `config.yaml` — `config.go` only
+  fills in the defaults when the field is absent.
+
+#### Migration for existing operators
+
+Operators upgrading via `sfpanel update` keep their current ports.
+To switch to the new defaults:
+
+```yaml
+# /etc/sfpanel/config.yaml
+server:
+  port: 3628          # was 19443 (or whatever was set)
+
+cluster:
+  grpc_port: 3629     # was 9444; Raft transport auto-binds to 3630
+```
+
+Then `sudo systemctl restart sfpanel`. For **clustered** deployments
+roll one node at a time with ≥ 10s between each (same constraint as
+any restart sequence — see CLAUDE.md "Simultaneous restart of all
+voters"). Update any reverse-proxy / firewall rules to match before
+restarting the front-most node.
+
+---
+
 ## [0.13.3] – 2026-05-15
 
 Security hardening (F1 full). XSS-resistant session model and CSRF
