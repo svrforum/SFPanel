@@ -78,9 +78,17 @@ func IsInternalProxyRequest(r *http.Request) bool {
 		return false
 	}
 
-	// Prefer v2.
+	// Prefer v2. Bind the MAC against the full request-URI (path + query) —
+	// every signer (cluster gRPC proxy, sub-handler relays in
+	// feature/cluster/handler.go) feeds the path-with-query into
+	// SignProxyRequestV2 so a captured header can't be re-targeted to a
+	// different endpoint or different query params. Stripping the query
+	// here would silently reject any forwarded request whose URL carries
+	// one (e.g. /logs/read?source=syslog), leaving the receiving JWT
+	// middleware to 401 the request because the proxy bypass never
+	// activated.
 	if v2 := r.Header.Get(InternalProxyHeaderV2); v2 != "" {
-		return validateV2(secret, v2, r.Method, r.URL.Path)
+		return validateV2(secret, v2, r.Method, r.URL.RequestURI())
 	}
 
 	// v1 fallback.
