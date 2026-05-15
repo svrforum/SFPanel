@@ -70,14 +70,24 @@ func newFamilyID() (string, error) {
 //
 // Returns ErrInvalidRefreshToken when the token doesn't exist or is expired.
 func (h *Handler) Refresh(c echo.Context) error {
-	var req struct {
-		RefreshToken string `json:"refresh_token"`
+	// Prefer the httpOnly cookie. Fall back to the JSON body for older
+	// clients that haven't picked up the cookie-based flow yet.
+	var refreshTokenRaw string
+	if cookie, err := c.Request().Cookie(auth.RefreshCookieName); err == nil && cookie.Value != "" {
+		refreshTokenRaw = cookie.Value
+	} else {
+		var req struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		if err := c.Bind(&req); err == nil {
+			refreshTokenRaw = req.RefreshToken
+		}
 	}
-	if err := c.Bind(&req); err != nil || req.RefreshToken == "" {
+	if refreshTokenRaw == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Missing refresh_token")
 	}
 
-	hash := sha256.Sum256([]byte(req.RefreshToken))
+	hash := sha256.Sum256([]byte(refreshTokenRaw))
 	hashHex := hex.EncodeToString(hash[:])
 
 	tx, err := h.DB.Begin()
@@ -177,6 +187,12 @@ func (h *Handler) Refresh(c echo.Context) error {
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Failed to issue access token")
 	}
+
+	// Refresh the cookies on rotation so the cookie always carries the
+	// latest refresh token; older cookie-based clients otherwise keep
+	// presenting the now-consumed value and would trigger theft detection
+	// on next call.
+	h.writeAuthCookies(c, newTok)
 
 	return response.OK(c, map[string]interface{}{
 		"token":         accessTok,

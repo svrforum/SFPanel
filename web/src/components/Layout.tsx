@@ -85,7 +85,9 @@ export default function Layout() {
   }, [])
 
   const handleLogout = () => {
-    api.clearToken()
+    // Fire-and-forget — even if the server is unreachable we still want to
+    // navigate away. api.logout() clears local state on its own.
+    void api.logout()
     navigate('/login')
   }
 

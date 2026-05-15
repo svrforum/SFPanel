@@ -1,7 +1,9 @@
 package featureauth
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -165,6 +167,11 @@ func (h *Handler) Login(c echo.Context) error {
 		slog.Warn("refresh token issuance failed", "username", req.Username, "error", refreshErr)
 	}
 
+	// Plant the refresh token in an httpOnly+SameSite=Strict cookie so XSS
+	// can't reach it from JS. Also issue a CSRF token (JS-readable cookie)
+	// that the client must echo via X-CSRF-Token on state-changing requests.
+	h.writeAuthCookies(c, refreshTok)
+
 	loginAttempts.Delete(ip)
 	h.recordLoginEvent(req.Username, ip, http.StatusOK, "success")
 	return response.OK(c, map[string]interface{}{
@@ -172,6 +179,44 @@ func (h *Handler) Login(c echo.Context) error {
 		"refresh_token": refreshTok,
 		"expires_in":    int(expiry.Seconds()),
 	})
+}
+
+// writeAuthCookies sets the refresh + CSRF cookies on the response. Centralised
+// so Login, Setup, and Refresh produce identical cookies. Secure flag is
+// derived from the request scheme (works on both plain HTTP and TLS-fronted
+// deployments).
+func (h *Handler) writeAuthCookies(c echo.Context, refreshTok string) {
+	if refreshTok == "" {
+		return
+	}
+	secure := auth.IsSecureRequest(c.Request())
+	w := c.Response().Writer
+	auth.SetRefreshCookie(w, refreshTok, 7*24*time.Hour, secure)
+	if csrf := auth.GenerateCSRFToken(); csrf != "" {
+		auth.SetCSRFCookie(w, csrf, 7*24*time.Hour, secure)
+	}
+}
+
+// Logout clears the refresh + CSRF cookies and revokes the refresh token in
+// the DB so a captured cookie can't be replayed even if the browser ignores
+// the Max-Age=-1.
+func (h *Handler) Logout(c echo.Context) error {
+	if cookie, err := c.Request().Cookie(auth.RefreshCookieName); err == nil && cookie.Value != "" {
+		// Hash the cookie value and delete the matching row. Best-effort —
+		// if the token isn't in the DB (already rotated, expired, etc.)
+		// nothing to do.
+		hashed := sha256Hex(cookie.Value)
+		_, _ = h.DB.Exec(`DELETE FROM refresh_tokens WHERE token_hash = ?`, hashed)
+	}
+	auth.ClearAuthCookies(c.Response().Writer, auth.IsSecureRequest(c.Request()))
+	return response.OK(c, map[string]string{"message": "logged out"})
+}
+
+// sha256Hex hashes the input and returns hex — same algorithm refresh.go
+// uses on storage so the lookup matches the persisted row.
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }
 
 // recordLoginEvent appends a row to audit_logs for login outcomes. The audit
@@ -501,6 +546,8 @@ func (h *Handler) SetupAdmin(c echo.Context) error {
 	if refreshErr != nil {
 		slog.Warn("refresh token issuance failed (setup)", "username", req.Username, "error", refreshErr)
 	}
+
+	h.writeAuthCookies(c, refreshTok)
 
 	return response.OK(c, map[string]interface{}{
 		"token":         token,
