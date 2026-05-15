@@ -1,6 +1,6 @@
 {
   "productName": "SFPanel",
-  "version": "0.6.2",
+  "version": "0.13.5",
   "identifier": "com.sfpanel.desktop",
   "build": {
     "frontendDist": "../../web/dist",
@@ -26,6 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -33,5 +34,15 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/svrforum/SFPanel/releases/latest/download/latest.json"
+      ],
+      "dialog": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZFQUNDOUQyQTU3QUREOUUKUldTZTNYcWwwc21zYmhRakd3YkVJR0lDL2RTYmJGd3dJZjQzTyt5SzBSMnltUlFTM3JtbTVLVlEK"
+    }
   }
 }
