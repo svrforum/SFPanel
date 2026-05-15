@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -252,6 +253,98 @@ func TestRefresh_RejectsUserMissingFromLocalDBAndFSM(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("dangling row count = %d, want 0 (handler must delete the orphan)", n)
+	}
+}
+
+// TestLoadAdminAccount_LocalDB confirms the local DB fallback path works when
+// the cluster manager is unset (single-node deployments take this branch on
+// every call).
+func TestLoadAdminAccount_LocalDB(t *testing.T) {
+	h, db := newRefreshHandler(t)
+	if _, err := db.Exec(`INSERT INTO admin (username, password, totp_secret) VALUES (?, ?, ?)`, "alice", "phash", "tsecret"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	pw, totp, fromCluster, err := h.loadAdminAccount("alice")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if pw != "phash" {
+		t.Errorf("password = %q, want phash", pw)
+	}
+	if totp != "tsecret" {
+		t.Errorf("totp = %q, want tsecret", totp)
+	}
+	if fromCluster {
+		t.Errorf("fromCluster = true, want false (no cluster manager)")
+	}
+}
+
+// TestLoadAdminAccount_MissingReturnsErrNoRows confirms callers can switch on
+// sql.ErrNoRows to distinguish "user truly absent" from "infrastructure
+// failure". This contract is load-bearing for ChangePassword / Verify2FA /
+// Disable2FA which translate ErrNoRows into 404.
+func TestLoadAdminAccount_MissingReturnsErrNoRows(t *testing.T) {
+	h, _ := newRefreshHandler(t)
+	_, _, _, err := h.loadAdminAccount("ghost")
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("err = %v, want sql.ErrNoRows", err)
+	}
+}
+
+// TestPersistAdminAccount_LocalUpdate exercises the local-DB write path.
+// Cluster-only persistence is covered by the integration probe (the concrete
+// cluster.Manager is not test-stubbable without a wider refactor).
+func TestPersistAdminAccount_LocalUpdate(t *testing.T) {
+	h, db := newRefreshHandler(t)
+	if _, err := db.Exec(`INSERT INTO admin (username, password, totp_secret) VALUES (?, ?, ?)`, "alice", "old", "oldtotp"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if err := h.persistAdminAccount("alice", "newhash", "newtotp", false); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+
+	var pw, totp string
+	if err := db.QueryRow(`SELECT password, totp_secret FROM admin WHERE username = ?`, "alice").Scan(&pw, &totp); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if pw != "newhash" || totp != "newtotp" {
+		t.Errorf("after persist: pw=%q totp=%q, want newhash/newtotp", pw, totp)
+	}
+
+	// totpSecret="" must NULL the column (used by Disable2FA path).
+	if err := h.persistAdminAccount("alice", "newhash", "", false); err != nil {
+		t.Fatalf("persist nil totp: %v", err)
+	}
+	var ts sql.NullString
+	if err := db.QueryRow(`SELECT totp_secret FROM admin WHERE username = ?`, "alice").Scan(&ts); err != nil {
+		t.Fatalf("verify null: %v", err)
+	}
+	if ts.Valid {
+		t.Errorf("totp_secret valid after empty persist; want NULL")
+	}
+}
+
+// TestPersistAdminAccount_ClusterOnlyWithoutManagerFails — refuse rather than
+// silently INSERT into local DB when the account claims FSM origin but the
+// cluster manager has gone away (shouldn't happen in practice but the
+// alternative is corrupting two stores).
+func TestPersistAdminAccount_ClusterOnlyWithoutManagerFails(t *testing.T) {
+	h, db := newRefreshHandler(t)
+
+	err := h.persistAdminAccount("alice", "h", "t", true)
+	if err == nil {
+		t.Fatalf("persist with fromCluster=true and nil manager: want error, got nil")
+	}
+
+	// And the local table stays empty (we did NOT silently insert).
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM admin WHERE username = ?`, "alice").Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("local admin rows = %d, want 0 (must not silently INSERT)", n)
 	}
 }
 
