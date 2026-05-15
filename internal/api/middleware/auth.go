@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"crypto/subtle"
 	"net/http"
 	"strings"
 
@@ -36,17 +35,18 @@ func allowsQueryToken(path string) bool {
 func JWTMiddleware(secret string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			// Trust cluster-internal proxy requests (authenticated via mTLS)
-			proxySecret := auth.ClusterProxySecret()
-			if proxyToken := c.Request().Header.Get(InternalProxyHeader); proxyToken != "" && proxySecret != "" {
-				if subtle.ConstantTimeCompare([]byte(proxyToken), []byte(proxySecret)) == 1 {
-					username := c.Request().Header.Get("X-SFPanel-Original-User")
-					if username == "" {
-						username = "admin"
-					}
-					c.Set("username", username)
-					return next(c)
+			// Trust cluster-internal proxy requests (authenticated via mTLS).
+			// Delegates to auth.IsInternalProxyRequest so v2 (HMAC + timestamp
+			// + nonce, replay-resistant) is preferred. v1 fallback handled
+			// inside. The previous inline check accepted v1 only, leaving
+			// captured headers replayable forever.
+			if auth.IsInternalProxyRequest(c.Request()) {
+				username := c.Request().Header.Get("X-SFPanel-Original-User")
+				if username == "" {
+					username = "admin"
 				}
+				c.Set("username", username)
+				return next(c)
 			}
 
 			header := c.Request().Header.Get("Authorization")
