@@ -124,11 +124,12 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 - 업그레이드 시 자동 DB 스냅샷 (`sfpanel.db.bak-<ts>`, 최근 3개 보관)
 
 설치 후:
-1. `http://<서버IP>:3628` 접속
-2. 셋업 위저드에서 관리자 계정 생성
-3. **설정 → 2단계 인증 → 2FA 활성화** (권장)
-4. 프로덕션이라면 reverse proxy + TLS로 패널 앞단을 감싸고, 방화벽으로 3628을 LAN/VPN으로만 제한
-5. 설정 파일 수정이 필요하면: `/etc/sfpanel/config.yaml` (변경 후 `systemctl restart sfpanel`)
+1. 서비스가 떴는지 확인: `curl http://localhost:3628/api/v1/health` → `{"success":true,"data":{"status":"ok"}}`
+2. `http://<서버IP>:3628` 접속
+3. 셋업 위저드에서 관리자 계정 생성
+4. **설정 → 2단계 인증 → 2FA 활성화** (권장)
+5. 프로덕션이라면 reverse proxy + TLS로 패널 앞단을 감싸고, 방화벽으로 3628을 LAN/VPN으로만 제한
+6. 설정 파일 수정이 필요하면: `/etc/sfpanel/config.yaml` (변경 후 `systemctl restart sfpanel`)
 
 ### 수동 설치
 
@@ -292,6 +293,24 @@ sudo systemctl start sfpanel
 - `compose/*` — Docker Compose 프로젝트 파일 (docker-compose.yml, .env)
 
 > Docker 데이터(볼륨, 이미지, 컨테이너)는 백업에 포함되지 않습니다.
+
+## 데스크탑 앱 (Tauri)
+
+서버 바이너리와 별개로, **Windows / macOS / Linux 데스크탑 앱**도 같은 릴리스에 함께 제공됩니다. 이 앱은 단순한 WebView 래퍼 — 서버를 따로 띄우지 않고, 이미 운영 중인 SFPanel 인스턴스 주소(`http://<서버IP>:3628`)를 입력하면 그 패널을 데스크탑 창으로 띄워줍니다. 브라우저 탭과 기능 차이는 없고, 별도 창으로 보고 싶을 때 또는 OS-네이티브 알림/단축키와 함께 쓰고 싶을 때 유용합니다.
+
+[Releases 페이지](https://github.com/svrforum/SFPanel/releases/latest) 의 자산:
+
+| OS | 자산 | 비고 |
+|----|------|------|
+| Windows | `SFPanel_<ver>_x64_en-US.msi` | 표준 MSI 설치 |
+| Windows | `SFPanel_<ver>_x64-setup.exe` | NSIS 설치 마법사 |
+| Windows | `SFPanel_portable_windows_amd64.exe` | 포터블 (설치 불필요) |
+| macOS | `SFPanel_<ver>_aarch64.dmg` | Apple Silicon (M1/M2/M3) |
+| Linux | `SFPanel_<ver>_amd64.deb` | Debian/Ubuntu |
+| Linux | `SFPanel-<ver>-1.x86_64.rpm` | RHEL/Fedora |
+| Linux | `SFPanel_<ver>_amd64.AppImage` | 배포판 무관 (chmod +x 후 실행) |
+
+> 데스크탑 앱은 현재 자체 서명/자동 업데이트가 비활성화돼 있어 새 버전이 나오면 위 페이지에서 직접 받아 재설치하셔야 합니다. 데스크탑 앱과 서버는 **별도 버전 라인**으로 운영됩니다 (서버 `0.13.x` ↔ 데스크탑 `0.6.x`).
 
 ## 클러스터
 
