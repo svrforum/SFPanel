@@ -60,39 +60,54 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
       return () => { term.dispose() }
     }
 
-    const wsUrl = api.buildWsUrl(`/ws/docker/containers/${containerId}/exec`)
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
+    // Async because buildWsUrl mints a ws-ticket so the JWT stays out of
+    // the URL; defer the actual WebSocket() construction until the URL
+    // resolves and unmount-safety holds.
+    let disposed = false
+    let wsCleanup: (() => void) | null = null
 
-    ws.onopen = () => {
-      setConnected(true)
-      term.focus()
-    }
+    void (async () => {
+      const wsUrl = await api.buildWsUrl(`/ws/docker/containers/${containerId}/exec`)
+      if (disposed) return
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
 
-    ws.onmessage = (event) => {
-      term.write(event.data)
-    }
-
-    ws.onerror = () => {
-      term.writeln(`\r\n\x1b[31m${t('terminal.wsError')}\x1b[0m`)
-    }
-
-    ws.onclose = () => {
-      setConnected(false)
-      term.writeln(`\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`)
-    }
-
-    const onDataDisposable = term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(data)
+      ws.onopen = () => {
+        setConnected(true)
+        term.focus()
       }
-    })
 
-    const onResizeDisposable = term.onResize(({ cols, rows }) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+      ws.onmessage = (event) => {
+        term.write(event.data)
       }
-    })
+
+      ws.onerror = () => {
+        term.writeln(`\r\n\x1b[31m${t('terminal.wsError')}\x1b[0m`)
+      }
+
+      ws.onclose = () => {
+        setConnected(false)
+        term.writeln(`\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`)
+      }
+
+      const onDataDisposable = term.onData((data) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(data)
+        }
+      })
+
+      const onResizeDisposable = term.onResize(({ cols, rows }) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+        }
+      })
+
+      wsCleanup = () => {
+        onDataDisposable.dispose()
+        onResizeDisposable.dispose()
+        ws.close()
+      }
+    })()
 
     const handleResize = () => {
       fitAddon.fit()
@@ -100,10 +115,9 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
     window.addEventListener('resize', handleResize)
 
     return () => {
+      disposed = true
       window.removeEventListener('resize', handleResize)
-      onDataDisposable.dispose()
-      onResizeDisposable.dispose()
-      ws.close()
+      wsCleanup?.()
       term.dispose()
     }
   }, [containerId, t])

@@ -152,45 +152,59 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
       return
     }
 
-    const wsUrl = api.buildWsUrl('/ws/terminal', { session_id: sessionId })
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
+    // WS setup is async (ticket mint) so wrap in IIFE and let the cleanup
+    // ref tear down whatever got allocated even if we unmount mid-await.
+    let disposed = false
+    let wsCleanup: (() => void) | null = null
 
-    ws.binaryType = 'arraybuffer'
+    void (async () => {
+      const wsUrl = await api.buildWsUrl('/ws/terminal', { session_id: sessionId })
+      if (disposed) return
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
 
-    ws.onopen = () => {
-      term.focus()
-      const { cols, rows } = term
-      ws.send(JSON.stringify({ type: 'resize', cols, rows }))
-    }
+      ws.binaryType = 'arraybuffer'
 
-    ws.onmessage = (event) => {
-      if (event.data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(event.data))
-      } else {
-        term.write(event.data)
-      }
-    }
-
-    ws.onerror = () => {
-      term.writeln('\r\n\x1b[31mWebSocket error\x1b[0m')
-    }
-
-    ws.onclose = () => {
-      term.writeln('\r\n\x1b[33mConnection closed\x1b[0m')
-    }
-
-    const onDataDisposable = term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(new TextEncoder().encode(data))
-      }
-    })
-
-    const onResizeDisposable = term.onResize(({ cols, rows }) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      ws.onopen = () => {
+        term.focus()
+        const { cols, rows } = term
         ws.send(JSON.stringify({ type: 'resize', cols, rows }))
       }
-    })
+
+      ws.onmessage = (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          term.write(new Uint8Array(event.data))
+        } else {
+          term.write(event.data)
+        }
+      }
+
+      ws.onerror = () => {
+        term.writeln('\r\n\x1b[31mWebSocket error\x1b[0m')
+      }
+
+      ws.onclose = () => {
+        term.writeln('\r\n\x1b[33mConnection closed\x1b[0m')
+      }
+
+      const onDataDisposable = term.onData((data) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(new TextEncoder().encode(data))
+        }
+      })
+
+      const onResizeDisposable = term.onResize(({ cols, rows }) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+        }
+      })
+
+      wsCleanup = () => {
+        onDataDisposable.dispose()
+        onResizeDisposable.dispose()
+        ws.close()
+      }
+    })()
 
     const handleResize = () => {
       fitAddon.fit()
@@ -198,10 +212,9 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     window.addEventListener('resize', handleResize)
 
     return () => {
+      disposed = true
       window.removeEventListener('resize', handleResize)
-      onDataDisposable.dispose()
-      onResizeDisposable.dispose()
-      ws.close()
+      wsCleanup?.()
       term.dispose()
     }
   }, [sessionId]) // eslint-disable-line react-hooks/exhaustive-deps

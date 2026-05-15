@@ -170,6 +170,7 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	authorized.POST("/auth/2fa/verify", authHandler.Verify2FA)
 	authorized.DELETE("/auth/2fa", authHandler.Disable2FA)
 	authorized.POST("/auth/change-password", authHandler.ChangePassword)
+	authorized.POST("/auth/ws-ticket", authHandler.MintWSTicket)
 	authorized.GET("/system/info", dashboardHandler.GetSystemInfo)
 	authorized.GET("/system/metrics-history", dashboardHandler.GetMetricsHistory)
 	authorized.GET("/system/overview", dashboardHandler.GetOverview)

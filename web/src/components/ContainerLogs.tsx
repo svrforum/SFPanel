@@ -120,28 +120,35 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
     if (stream !== 'all') params.set('stream', stream)
     if (since !== 'all') params.set('since', since)
     const qs = params.toString()
-    const wsUrl = api.buildWsUrl(`/ws/docker/containers/${containerId}/logs${qs ? '?' + qs : ''}`)
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
+    let disposed = false
+    let wsRefLocal: WebSocket | null = null
 
-    ws.onopen = () => {
-      setConnected(true)
-    }
+    void (async () => {
+      const wsUrl = await api.buildWsUrl(`/ws/docker/containers/${containerId}/logs${qs ? '?' + qs : ''}`)
+      if (disposed) return
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
+      wsRefLocal = ws
 
-    ws.onmessage = (event) => {
-      const data = event.data as string
-      logLinesRef.current.push(data.replace(/\n$/, ''))
-      term.write(highlightLogLevel(data))
-    }
+      ws.onopen = () => {
+        setConnected(true)
+      }
 
-    ws.onerror = () => {
-      term.writeln(`\r\n\x1b[31m${t('terminal.wsError')}\x1b[0m`)
-    }
+      ws.onmessage = (event) => {
+        const data = event.data as string
+        logLinesRef.current.push(data.replace(/\n$/, ''))
+        term.write(highlightLogLevel(data))
+      }
 
-    ws.onclose = () => {
-      setConnected(false)
-      term.writeln(`\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`)
-    }
+      ws.onerror = () => {
+        term.writeln(`\r\n\x1b[31m${t('terminal.wsError')}\x1b[0m`)
+      }
+
+      ws.onclose = () => {
+        setConnected(false)
+        term.writeln(`\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`)
+      }
+    })()
 
     const handleResize = () => {
       fitAddon.fit()
@@ -149,8 +156,9 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
     window.addEventListener('resize', handleResize)
 
     return () => {
+      disposed = true
       window.removeEventListener('resize', handleResize)
-      ws.close()
+      wsRefLocal?.close()
       term.dispose()
     }
   }, [containerId, t, tail, stream, timestamps, since])

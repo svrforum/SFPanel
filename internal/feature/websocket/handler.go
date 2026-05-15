@@ -47,20 +47,18 @@ func (w *safeWSWriter) WriteJSON(v interface{}) error {
 	return w.conn.WriteJSON(v)
 }
 
-// AuthenticateWS validates a WebSocket request via JWT token query param
-// or internal cluster proxy header. Returns nil on success, error response on failure.
+// AuthenticateWS validates a WebSocket request via a single-use ticket
+// (preferred — JWT never lands in the URL/access log) or, for back-compat
+// with older JS clients, via the ?token= JWT path. Internal cluster proxy
+// requests authenticated by mTLS bypass both. Returns nil on success.
 func AuthenticateWS(c echo.Context, jwtSecret string) error {
 	if auth.IsInternalProxyRequest(c.Request()) {
 		return nil
 	}
-	token := c.QueryParam("token")
-	if token == "" {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+	if user := auth.AuthenticateWSRequest(c.Request(), jwtSecret); user != "" {
+		return nil
 	}
-	if _, err := auth.ParseToken(token, jwtSecret); err != nil {
-		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
-	}
-	return nil
+	return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 }
 
 // MetricsWS handles WebSocket connections for real-time metrics streaming.

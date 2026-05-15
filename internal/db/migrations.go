@@ -157,6 +157,15 @@ var migrations = []migration{
 	)`},
 	{ID: 22, Up: `CREATE INDEX IF NOT EXISTS idx_image_signatures_ref ON image_signatures(ref)`},
 	{ID: 23, Up: `CREATE INDEX IF NOT EXISTS idx_image_signatures_expires ON image_signatures(expires_at)`},
+	// family_id ties every refresh token in a login chain together. consumed_at
+	// turns a rotated row into a tombstone instead of deleting it outright —
+	// if an attacker who captured the pre-rotation token later presents it,
+	// the row will still exist with consumed_at != NULL, and the rotation
+	// handler can fire OWASP-style "theft detected → revoke entire family"
+	// instead of letting the attacker chain into the next access token.
+	{ID: 24, Up: `ALTER TABLE refresh_tokens ADD COLUMN family_id TEXT NOT NULL DEFAULT ''`},
+	{ID: 25, Up: `ALTER TABLE refresh_tokens ADD COLUMN consumed_at DATETIME`},
+	{ID: 26, Up: `CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family ON refresh_tokens(family_id)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been

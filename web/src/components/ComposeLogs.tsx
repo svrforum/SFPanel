@@ -100,28 +100,35 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
     if (tail > 0) extraParams.tail = String(tail)
     if (selectedService) extraParams.service = selectedService
 
-    const wsUrl = api.buildWsUrl(wsPath, extraParams)
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
+    let disposed = false
+    let wsRefLocal: WebSocket | null = null
 
-    ws.onopen = () => {
-      setConnected(true)
-    }
+    void (async () => {
+      const wsUrl = await api.buildWsUrl(wsPath, extraParams)
+      if (disposed) return
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
+      wsRefLocal = ws
 
-    ws.onmessage = (event) => {
-      const data = event.data as string
-      logLinesRef.current.push(data.replace(/\n$/, ''))
-      term.write(data)
-    }
+      ws.onopen = () => {
+        setConnected(true)
+      }
 
-    ws.onerror = () => {
-      term.writeln(`\r\n\x1b[31m${t('terminal.wsError')}\x1b[0m`)
-    }
+      ws.onmessage = (event) => {
+        const data = event.data as string
+        logLinesRef.current.push(data.replace(/\n$/, ''))
+        term.write(data)
+      }
 
-    ws.onclose = () => {
-      setConnected(false)
-      term.writeln(`\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`)
-    }
+      ws.onerror = () => {
+        term.writeln(`\r\n\x1b[31m${t('terminal.wsError')}\x1b[0m`)
+      }
+
+      ws.onclose = () => {
+        setConnected(false)
+        term.writeln(`\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`)
+      }
+    })()
 
     const handleResize = () => {
       fitAddon.fit()
@@ -129,8 +136,9 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
     window.addEventListener('resize', handleResize)
 
     return () => {
+      disposed = true
       window.removeEventListener('resize', handleResize)
-      ws.close()
+      wsRefLocal?.close()
       term.dispose()
     }
   }, [project, selectedService, tail, t])
