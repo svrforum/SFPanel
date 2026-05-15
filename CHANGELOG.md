@@ -6,6 +6,51 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.13.5] – 2026-05-15
+
+Desktop tooling release. Server code is identical to 0.13.4; the
+changes are confined to the desktop bundle so the version bump is
+visible to operators on the release page (the desktop side has been
+drifting behind the server for a long time).
+
+### Changed
+- **Desktop bundle now tracks the server version (lockstep).** The
+  three desktop manifests (`desktop/package.json`,
+  `desktop/src-tauri/Cargo.toml`,
+  `desktop/src-tauri/tauri.conf.json`) all jumped from 0.6.2 → 0.13.5.
+  Going forward, every release tag produces matching server tarballs
+  and desktop bundles.
+
+### Added
+- **Signed auto-update for the desktop app.** Wired in
+  `tauri-plugin-updater` with a freshly generated ed25519 minisign
+  key pair. The public key is embedded in `tauri.conf.json`; the
+  private key + (empty) password live in GitHub Secrets
+  (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`).
+  The release workflow now produces `.sig` + updater archive pairs
+  for every OS, and a new `manifest` job composes a single
+  `latest.json` against
+  `releases/latest/download/latest.json`. Desktop clients poll that
+  URL, GitHub redirects to the current tag's manifest, and the
+  built-in updater dialog prompts the user before applying the
+  signed update. **First release where this is live** — existing
+  ≤0.6.2 installs still need a one-time manual re-download because
+  the pre-update build has no embedded public key.
+
+### Operator notes
+- The desktop release page entry will look different starting now:
+  installer artefacts use the `0.13.5` prefix (same as the server
+  tarballs) instead of the historical `0.6.2`.
+- `latest.json` is a release asset alongside checksums and bundles.
+  Don't delete it — it's the auto-update manifest.
+- Key recovery: if you ever need to rotate the signing key, stage
+  a "transition release" first that ships both old and new
+  signatures. Replacing the public key in `tauri.conf.json`
+  without that step will leave fielded clients unable to verify
+  the next update and they'll have to re-install manually.
+
+---
+
 ## [0.13.4] – 2026-05-15
 
 Authentication bug-fix release. Three independent paths conspired to
