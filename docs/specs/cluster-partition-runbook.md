@@ -130,6 +130,122 @@ recovery flow above.
 
 ---
 
+## Port migration on a live cluster
+
+Use case: the operator wants to move HTTP / cluster gRPC / Raft ports
+to different numbers on an already-running cluster. The default trio
+moved from 19443 / 9444 / 9445 to 3628 / 3629 / 3630 in v0.13.4; the
+same procedure works for any operator-chosen ports.
+
+The work splits cleanly along risk lines. Run them as two separate
+phases, NOT one combined window — Phase 1 has a rollback path that
+Phase 2 doesn't.
+
+### Phase 1 — HTTP port (rolling, low risk)
+
+Cluster gRPC + Raft stay on their current ports. HTTP can be flipped
+one node at a time; the cluster keeps a leader throughout.
+
+```bash
+# on each node, one at a time, with ≥ 10s gap between nodes:
+sudo cp /etc/sfpanel/config.yaml /etc/sfpanel/config.yaml.bak-portmig-$(date +%Y%m%d-%H%M%S)
+sudo sed -i 's/^\(\s*\)port: <OLD>\b/\1port: <NEW>/' /etc/sfpanel/config.yaml
+sudo systemctl restart sfpanel
+```
+
+After each node restarts, the FSM-stored `api_address` (used by other
+nodes when proxying back to this one) is stale. `verifySelfAddress()`
+only auto-corrects on the leader (see `internal/cluster/CLAUDE.md`),
+so a follower's address must be PATCHed explicitly from the current
+leader:
+
+```bash
+JWT=<bearer-from-fresh-login>
+LEADER_ID=<current-leader-uuid>
+NODE_ID=<this-follower-uuid>
+CSRF_VAL=$(openssl rand -hex 16)
+curl -X PATCH "http://<leader-host>:<leader-port>/api/v1/cluster/nodes/${NODE_ID}/address" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: $CSRF_VAL" \
+  -H "Cookie: sfpanel_csrf=$CSRF_VAL" \
+  -d '{"api_address":"<follower-ip>:<NEW>","grpc_address":"<follower-ip>:<grpc-port>"}'
+```
+
+### Phase 2 — cluster gRPC + Raft (synchronised, higher risk)
+
+Raft transport auto-binds to `cluster.grpc_port + 1`, so flipping the
+gRPC port also moves the Raft port. The Raft membership (BoltDB log,
+in `/var/lib/sfpanel/cluster/raft-log.db`) holds peer addresses
+pinned at the old Raft port — those need to be rewritten via
+`peers.json` + `RecoverCluster()`, which is the same mechanism
+documented for quorum-loss recovery. The difference: every node must
+read peers.json at the same boot, so every node needs the file
+dropped before its restart.
+
+1. **Prepare** (sfpanel can stay running for this step):
+   ```bash
+   # on every node:
+   sudo cp /etc/sfpanel/config.yaml /etc/sfpanel/config.yaml.bak-portmig2-$(date +%Y%m%d-%H%M%S)
+   sudo sed -i 's/^\(\s*\)grpc_port: <OLD>\b/\1grpc_port: <NEW>/' /etc/sfpanel/config.yaml
+   # write peers.json with the NEW Raft port for every voter:
+   sudo tee /var/lib/sfpanel/cluster/peers.json > /dev/null <<'EOF'
+   [
+     {"id":"<node-uuid-1>","address":"<ip-1>:<NEW_RAFT_PORT>","non_voter":false},
+     {"id":"<node-uuid-2>","address":"<ip-2>:<NEW_RAFT_PORT>","non_voter":false}
+   ]
+   EOF
+   ```
+
+2. **Restart every node within a few seconds** (rolling does NOT work —
+   if one node is on the new gRPC port and the other is on the old,
+   mTLS handshake fails on both sides):
+   ```bash
+   # in parallel, e.g. via parallel ssh:
+   sudo systemctl restart sfpanel
+   ```
+
+3. **Watch for the recovery trace** on each node:
+   ```
+   Raft peers.json detected — running RecoverCluster
+   Raft RecoverCluster complete; peers.json renamed to peers.info
+   gRPC server listening addr=0.0.0.0:<NEW>
+   ```
+
+4. Leader election runs against the new Raft port. Within ~5 s a
+   leader appears (`election won: term=<N> tally=2`).
+
+5. **PATCH every node's `grpc_address`** in the FSM (same PATCH as
+   Phase 1, this time setting `grpc_address`):
+   ```bash
+   curl -X PATCH ... -d '{"api_address":"<ip>:<HTTP>","grpc_address":"<ip>:<NEW_GRPC>"}'
+   ```
+   Repeat for every node ID. After this the `/cluster/nodes` FSM
+   view shows the new gRPC ports and cross-node `?node=<peer>` proxy
+   works again.
+
+### What can go wrong
+
+- **Asymmetric Phase 2 restart**: if one node restarts with the new
+  gRPC port and another hasn't, they cannot dial each other. Symptom:
+  `dial tcp <peer>:<NEW>: connect: connection refused` and the node
+  with the old port reports `leader_id=""`. Recovery: bring the
+  laggard up on the new port and the cluster re-converges.
+- **peers.json on only one node**: only that node rewrites its Raft
+  membership. The other still has the old peer addresses. Symptom:
+  one side becomes leader of a single-node cluster; the other side
+  can't establish quorum. Recovery: drop the matching peers.json on
+  the other node and restart it too.
+- **Forgetting the FSM PATCH after Phase 2**: cross-node proxy
+  continues to dial the old gRPC port and 504s. The `/cluster/nodes`
+  view shows the cause (`grpc_address` still pointing at the old
+  port). Run the PATCH.
+
+Backups created during the procedure (`config.yaml.bak-portmig*`,
+`peers.info`) are kept as the rollback path.
+
+---
+
 ## Useful commands
 
 ```
