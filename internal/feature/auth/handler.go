@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -303,12 +304,17 @@ func (h *Handler) Verify2FA(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidTOTP, "Invalid 2FA code")
 	}
 
-	_, err := h.DB.Exec("UPDATE admin SET totp_secret = ? WHERE username = ?", req.Secret, username)
+	passwordHash, _, fromCluster, err := h.loadAdminAccount(username)
+	if errors.Is(err, sql.ErrNoRows) {
+		return response.Fail(c, http.StatusNotFound, response.ErrUserNotFound, "User not found")
+	}
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to save 2FA secret")
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
 	}
 
-	h.syncAccountToCluster(username)
+	if err := h.persistAdminAccount(username, passwordHash, req.Secret, fromCluster); err != nil {
+		return h.failClusterPersist(c, err)
+	}
 
 	return response.OK(c, map[string]string{"message": "2FA enabled successfully"})
 }
@@ -319,17 +325,15 @@ func (h *Handler) Get2FAStatus(c echo.Context) error {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
 	}
 
-	var totpSecret sql.NullString
-	err := h.DB.QueryRow("SELECT totp_secret FROM admin WHERE username = ?", username).Scan(&totpSecret)
-	if err == sql.ErrNoRows {
+	_, totpSecret, _, err := h.loadAdminAccount(username)
+	if errors.Is(err, sql.ErrNoRows) {
 		return response.OK(c, map[string]bool{"enabled": false})
 	}
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
 	}
 
-	enabled := totpSecret.Valid && totpSecret.String != ""
-	return response.OK(c, map[string]bool{"enabled": enabled})
+	return response.OK(c, map[string]bool{"enabled": totpSecret != ""})
 }
 
 func (h *Handler) Disable2FA(c echo.Context) error {
@@ -356,12 +360,10 @@ func (h *Handler) Disable2FA(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Password is required")
 	}
 
-	var passwordHash string
-	var totpSecret sql.NullString
-	err := h.DB.QueryRow(
-		"SELECT password, totp_secret FROM admin WHERE username = ?",
-		username,
-	).Scan(&passwordHash, &totpSecret)
+	passwordHash, totpSecret, fromCluster, err := h.loadAdminAccount(username)
+	if errors.Is(err, sql.ErrNoRows) {
+		return response.Fail(c, http.StatusNotFound, response.ErrUserNotFound, "User not found")
+	}
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
 	}
@@ -373,21 +375,19 @@ func (h *Handler) Disable2FA(c echo.Context) error {
 	// If 2FA is currently active, require a valid current TOTP code. This
 	// prevents a session-only attacker (stolen JWT + stolen password but
 	// no physical device) from downgrading the account to password-only.
-	if totpSecret.Valid && totpSecret.String != "" {
+	if totpSecret != "" {
 		if req.TOTPCode == "" {
 			return response.Fail(c, http.StatusBadRequest, response.ErrTOTPRequired, "Current 2FA code is required to disable 2FA")
 		}
-		if !auth.ValidateCode(totpSecret.String, req.TOTPCode) {
+		if !auth.ValidateCode(totpSecret, req.TOTPCode) {
 			return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidTOTP, "Invalid 2FA code")
 		}
 	}
 
-	_, err = h.DB.Exec("UPDATE admin SET totp_secret = NULL WHERE username = ?", username)
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to disable 2FA")
+	if err := h.persistAdminAccount(username, passwordHash, "", fromCluster); err != nil {
+		return h.failClusterPersist(c, err)
 	}
 
-	h.syncAccountToCluster(username)
 	// Clear the limiter on success so the legitimate user isn't locked out.
 	loginAttempts.Delete(ip)
 	return response.OK(c, map[string]string{"message": "2FA disabled successfully"})
@@ -419,9 +419,8 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
 	}
 
-	var passwordHash string
-	err := h.DB.QueryRow("SELECT password FROM admin WHERE username = ?", username).Scan(&passwordHash)
-	if err == sql.ErrNoRows {
+	passwordHash, totpSecret, fromCluster, err := h.loadAdminAccount(username)
+	if errors.Is(err, sql.ErrNoRows) {
 		return response.Fail(c, http.StatusNotFound, response.ErrUserNotFound, "User not found")
 	}
 	if err != nil {
@@ -437,13 +436,9 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrHashError, "Failed to hash new password")
 	}
 
-	_, err = h.DB.Exec("UPDATE admin SET password = ? WHERE username = ?", newHash, username)
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to update password")
+	if err := h.persistAdminAccount(username, newHash, totpSecret, fromCluster); err != nil {
+		return h.failClusterPersist(c, err)
 	}
-
-	// Sync to cluster
-	h.syncAccountToCluster(username)
 
 	// Successful change — clear rate-limit counter for this IP.
 	loginAttempts.Delete(ip)
@@ -589,4 +584,81 @@ func (h *Handler) syncAccountToCluster(username string) {
 	if err := mgr.SyncAccountFromDB(username, passwordHash, totp); err != nil {
 		slog.Warn("failed to sync account to cluster", "username", username, "error", err)
 	}
+}
+
+// loadAdminAccount returns an account's current state and indicates whether
+// it came from the cluster FSM. Mirrors Login's lookup order (FSM first,
+// local DB fallback) so handlers that mutate the account stay consistent
+// with how Login authenticated it.
+//
+// Returns (sql.ErrNoRows-compatible) error when the username exists in
+// neither store.
+func (h *Handler) loadAdminAccount(username string) (passwordHash, totpSecret string, fromCluster bool, err error) {
+	if acct := h.getClusterAccount(username); acct != nil {
+		return acct.Password, acct.TOTPSecret, true, nil
+	}
+	var ts sql.NullString
+	err = h.DB.QueryRow("SELECT password, totp_secret FROM admin WHERE username = ?", username).Scan(&passwordHash, &ts)
+	if err != nil {
+		return "", "", false, err
+	}
+	if ts.Valid {
+		totpSecret = ts.String
+	}
+	return passwordHash, totpSecret, false, nil
+}
+
+// persistAdminAccount writes the desired account state back to whichever
+// store the account came from. Cluster-only accounts go through Raft
+// (leader-only); local accounts UPDATE the admin table and best-effort
+// sync to the cluster afterwards.
+//
+// Returns cluster.ErrNotLeader when called on a follower for a cluster-only
+// account — caller is responsible for translating that to a user-facing
+// hint about switching to the leader node.
+func (h *Handler) persistAdminAccount(username, passwordHash, totpSecret string, fromCluster bool) error {
+	if fromCluster {
+		mgr := h.getClusterMgr()
+		if mgr == nil {
+			// Account claimed it came from FSM but manager is gone — refuse
+			// rather than silently corrupting state by falling back to a
+			// local INSERT.
+			return errors.New("cluster account requires an active cluster manager")
+		}
+		return mgr.SetAccount(cluster.AdminAccount{
+			Username:   username,
+			Password:   passwordHash,
+			TOTPSecret: totpSecret,
+		})
+	}
+	var totp interface{}
+	if totpSecret != "" {
+		totp = totpSecret
+	}
+	if _, err := h.DB.Exec(
+		"UPDATE admin SET password = ?, totp_secret = ? WHERE username = ?",
+		passwordHash, totp, username,
+	); err != nil {
+		return err
+	}
+	h.syncAccountToCluster(username)
+	return nil
+}
+
+// failClusterPersist maps persistAdminAccount errors to a useful HTTP
+// response. ErrNotLeader gets a 503 + leader hint so the user can switch
+// to the leader node in the UI.
+func (h *Handler) failClusterPersist(c echo.Context, err error) error {
+	if errors.Is(err, cluster.ErrNotLeader) {
+		hint := "Account changes for cluster admins must run on the leader node."
+		if mgr := h.getClusterMgr(); mgr != nil {
+			if raft := mgr.GetRaft(); raft != nil {
+				if leaderID := raft.LeaderID(); leaderID != "" {
+					hint += " Switch to node " + leaderID + " and retry."
+				}
+			}
+		}
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, hint)
+	}
+	return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to persist account changes")
 }
