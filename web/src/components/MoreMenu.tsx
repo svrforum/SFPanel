@@ -94,7 +94,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
   }
 
   const handleLogout = () => {
-    api.clearToken()
+    void api.logout()
     onOpenChange(false)
     navigate('/login')
   }

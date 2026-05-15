@@ -153,6 +153,7 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	// Protected routes
 	authorized := v1.Group("")
 	authorized.Use(mw.JWTMiddleware(cfg.Auth.JWTSecret))
+	authorized.Use(mw.CSRFProtect())
 	// Resolve the cluster manager dynamically so init-at-runtime becomes
 	// effective without a service restart. The clusterHandler keeps the
 	// authoritative live pointer; we route all middleware reads through it.
@@ -171,6 +172,7 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	authorized.DELETE("/auth/2fa", authHandler.Disable2FA)
 	authorized.POST("/auth/change-password", authHandler.ChangePassword)
 	authorized.POST("/auth/ws-ticket", authHandler.MintWSTicket)
+	authorized.POST("/auth/logout", authHandler.Logout)
 	authorized.GET("/system/info", dashboardHandler.GetSystemInfo)
 	authorized.GET("/system/metrics-history", dashboardHandler.GetMetricsHistory)
 	authorized.GET("/system/overview", dashboardHandler.GetOverview)

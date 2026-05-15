@@ -55,6 +55,21 @@ import type {
 
 const API_PATH = '/api/v1'
 
+// readCookie returns the value of a non-httpOnly cookie by name. Only used
+// for sfpanel_csrf (the refresh cookie is httpOnly and never reachable from
+// JS — that's the point). Returns null when the cookie isn't set so the
+// caller can skip CSRF header injection on the very first request.
+function readCookie(name: string): string | null {
+  const target = `${name}=`
+  for (const part of document.cookie.split(';')) {
+    const trimmed = part.trim()
+    if (trimmed.startsWith(target)) {
+      return decodeURIComponent(trimmed.slice(target.length))
+    }
+  }
+  return null
+}
+
 class ApiClient {
   private token: string | null = null
   private refreshToken: string | null = null
@@ -136,6 +151,18 @@ class ApiClient {
     localStorage.removeItem('refresh_token')
   }
 
+  // logout asks the backend to revoke the refresh cookie and clear the CSRF
+  // cookie, then wipes any local state. Best-effort — even if the backend
+  // is unreachable, local state is cleared so the UI returns to login.
+  async logout(): Promise<void> {
+    try {
+      await this.request('/auth/logout', { method: 'POST' })
+    } catch {
+      // ignore — clearing local state below is the important part
+    }
+    this.clearToken()
+  }
+
   getToken(): string | null {
     return this.token
   }
@@ -194,6 +221,16 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`
     }
 
+    // Double-submit CSRF: every state-changing request echoes the
+    // sfpanel_csrf cookie via X-CSRF-Token. The backend middleware compares
+    // the two; a cross-site attacker can't read the cookie so can't forge
+    // the header.
+    const method = (fetchOptions.method || 'GET').toUpperCase()
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+      const csrf = readCookie('sfpanel_csrf')
+      if (csrf) headers['X-CSRF-Token'] = csrf
+    }
+
     let url = `${this.apiBase}${path}`
     if (this._currentNode && !local) {
       const separator = url.includes('?') ? '&' : '?'
@@ -208,6 +245,10 @@ class ApiClient {
       res = await fetch(url, {
         ...fetchOptions,
         headers,
+        // Send cookies so the refresh + CSRF cookies plant by the server
+        // arrive on subsequent requests. credentials:'include' is needed
+        // when the dev proxy or reverse-proxy crosses origins.
+        credentials: 'include',
         signal: controller.signal,
       })
     } catch (err) {

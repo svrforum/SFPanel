@@ -41,6 +41,8 @@ const (
 	ErrNoUser             = "NO_USER"
 	ErrUserNotFound       = "USER_NOT_FOUND"
 	ErrRateLimited        = "RATE_LIMITED"
+	ErrCSRFTokenMissing   = "CSRF_TOKEN_MISSING"
+	ErrCSRFTokenMismatch  = "CSRF_TOKEN_MISMATCH"
 )
 
 // Docker error codes
