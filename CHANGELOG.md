@@ -6,6 +6,147 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.13.3] – 2026-05-15
+
+Security hardening (F1 full). XSS-resistant session model and CSRF
+protection on every state-changing request.
+
+### Added
+- **httpOnly refresh cookie + CSRF double-submit** — refresh tokens
+  now live in a `HttpOnly`, `SameSite=Strict`, `Path=/api/v1/auth`
+  cookie that JS cannot read. A separate `sfpanel_csrf` cookie
+  (JS-readable) is echoed on every POST/PUT/PATCH/DELETE via
+  `X-CSRF-Token` — a cross-site attacker who tricks a victim's browser
+  into POSTing to the panel cannot read the cookie cross-origin and
+  cannot forge the header.
+- `POST /api/v1/auth/logout` — revokes the refresh token in the DB
+  and clears both cookies.
+- `Secure` cookie flag derived per-request (`X-Forwarded-Proto` /
+  `r.TLS`) so the default `:9443` plain-HTTP listener doesn't
+  silently drop cookies but reverse-proxy-fronted TLS deployments
+  get the strictest setting.
+
+### Tests
+- 12 new cases — 6 CSRF middleware (safe-method exempt, bootstrap
+  exempt, mismatch rejected, header match accepted, internal proxy
+  bypass), 6 cookie helpers (hardened flags, Secure tracks scheme,
+  CSRF cookie JS-readable, ClearAuthCookies MaxAge=-1, entropy +
+  uniqueness).
+
+### Compatibility
+- Refresh handler still accepts the legacy JSON body fallback for one
+  release so in-flight v0.13.2 sessions don't break on upgrade. Will
+  be removed in v0.14.0 after the cookie path has baked.
+
+---
+
+## [0.13.2] – 2026-05-15
+
+Comprehensive security audit + stability patches across cluster proxy
+auth, refresh token theft detection, CSP, WebSocket auth, and Go/npm
+dependency lines.
+
+### Security
+- **Cluster proxy v2 header now enforced on HTTP routes** —
+  `JWTMiddleware` delegates to `auth.IsInternalProxyRequest` so v2
+  (HMAC + timestamp + nonce) is preferred over v1 static-secret.
+  Previously WS endpoints used v2 but HTTP fell back to v1, leaving
+  captured headers replayable indefinitely.
+- **Refresh token theft detection (OWASP)** — `refresh_tokens` gains
+  `family_id` + `consumed_at`. Each login starts a new family; each
+  rotation tombstones the consumed row. A later replay of the
+  tombstone triggers "theft detected → revoke entire family" so the
+  attacker's chain dies. Migrations 24–26.
+- **WebSocket auth via single-use ticket** — `POST /api/v1/auth/ws-ticket`
+  mints a 60s opaque ticket; the JWT no longer lands in WS URLs (and
+  thus no longer in browser history / reverse-proxy access logs).
+  Eight WS call sites migrated (Terminal, ContainerShell,
+  ContainerLogs, ComposeLogs, FirewallLogs, Logs, useWebSocket hook).
+  Legacy `?token=` path kept for back-compat one release.
+- **`SecurityHeaders` middleware** — emits Content-Security-Policy,
+  X-Content-Type-Options=nosniff, X-Frame-Options=DENY,
+  Referrer-Policy=strict-origin-when-cross-origin,
+  Permissions-Policy on every response. Inline scripts forbidden;
+  jsdelivr font CDN allowed. HSTS deliberately not set (panel binds
+  plain HTTP by design — operator's reverse proxy emits HSTS).
+- **Pretendard CDN SRI** — `<link>` pins SHA-384 hash, blocking
+  silent CSS injection if the CDN is compromised.
+- **JWT moved from localStorage to sessionStorage** — closing the tab
+  clears the session; XSS surface shrinks from indefinite background
+  tab to active session only. One-time migration from legacy
+  localStorage location.
+- **Proxy header hardening** — `ClusterProxyMiddleware` (outbound)
+  and `cluster/grpc_server.go ProxyRequest` (inbound) both skip
+  `Authorization` / `X-SFPanel-Original-User` /
+  `X-SFPanel-Internal-Proxy*` when copying inbound request headers,
+  then re-set trusted values explicitly. Defense in depth against
+  a compromised cluster peer or an attacker who reaches a node
+  directly with a forged claim header.
+- **fail2ban `..` path traversal check** — template-override branch
+  was missing the substring guard that the custom-jail branch
+  already had.
+
+### Updated
+- `github.com/labstack/echo/v4` v4.15.1 → **v4.15.2** (Context.Scheme()
+  header validation patch).
+- `golang.org/x/crypto` v0.50.0 → **v0.51.0**.
+- `google.golang.org/grpc` v1.80.0 → **v1.81.0** (current line; the
+  critical GHSA-p77j-4mvh-x3m3 authz bypass was already patched at
+  v1.79.3).
+- npm: minor versions for `tailwindcss`, `react-router-dom`,
+  `vite-plugin-pwa`, `tailwind-merge` (caret range). `npm audit`
+  reports 0 vulnerabilities.
+
+### Notes — deferred
+- **Docker SDK v28 → v29** remains on v28.5.2+incompatible. moby/moby
+  has shipped `github.com/docker/docker/v2` but only at
+  `v2.0.0-beta.13` as of 2026-05-14 — production migration waits
+  for GA.
+
+---
+
+## [0.13.1] – 2026-05-09
+
+Stability + smooth-install patch series. No new user-facing features.
+
+### Fixed
+- **`saveConfig` permission leak** (`cmd/sfpanel/cluster_commands.go`)
+  — `cluster init` / `cluster leave` were clobbering
+  `/etc/sfpanel/config.yaml` to `0644`, exposing the JWT secret.
+  Now writes `0600` matching every other write site. Test guards
+  against regression.
+- **Cluster boot-time FSM sync race** — replaced the fixed 5-second
+  sleep with `IsLeader()` polling (200 ms tick, 30 s ceiling). Faster
+  on fresh single-node clusters, more reliable on loaded hosts.
+
+### Added
+- **Pre-upgrade DB snapshot** — both `scripts/install.sh` (reinstall
+  path) and `sfpanel update` (CLI) now write
+  `<dbpath>.bak-<YYYYmmdd-HHMMSS>` before the binary swap. Retains the
+  3 most recent snapshots; older ones pruned automatically.
+- **systemd unit hardening** — `MemoryHigh=1G`, `TasksMax=4096`,
+  `PrivateTmp=true`, `RestrictSUIDSGID=true` in the bundled
+  `sfpanel.service`.
+- **`GOMAXPROCS` / `GOGC` env override** honored — operators on
+  larger cluster hosts can bump runtime concurrency without
+  rebuilding.
+- **`install.sh` cluster directory perm enforcement** — re-running
+  install now forces `/etc/sfpanel/cluster/` to `0700` and `*.key`
+  files to `0600`.
+- **`print_success` operator guidance** — first-install banner now
+  prompts to enable 2FA, front the panel with TLS, and restrict
+  the listener port to LAN/VPN.
+
+### Documentation
+- README install / upgrade / cluster sections refreshed: `sudo bash`
+  in every install snippet, cosign + SHA-256 dual verification
+  documented, auto DB snapshot path + rollback recipe, rolling-restart
+  guidance, `peers.json` quorum-loss recovery, TLS cert lifetime
+  table, security section split into operator-applied vs
+  automatic items.
+
+---
+
 ## [0.13.0] – 2026-05-06
 
 Healthcheck composer for Docker Compose stacks, plus a focused cleanup of two over-engineered features that didn't pay off in a home-server context.

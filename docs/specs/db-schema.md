@@ -2,7 +2,7 @@
 
 > 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/db-inventory.md`
 >
-> **이 문서의 테이블별 컬럼 정의는 v0.9.0 시점**입니다. v0.10.0 이후 추가/변경된 항목은 `internal/db/migrations.go`(ID 8–23)와 본 문서 하단 § 마이그레이션 이력의 "v4 이후" 단락을 참조하세요. 권한 있는 출처는 코드입니다.
+> **이 문서의 테이블별 컬럼 정의는 v0.9.0 시점**입니다. v0.10.0 이후 추가/변경된 항목은 `internal/db/migrations.go`(ID 8–26)와 본 문서 하단 § 마이그레이션 이력의 "v4 이후" 단락을 참조하세요. 권한 있는 출처는 코드입니다.
 
 ## 개요
 
@@ -307,7 +307,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - `alert_history` 테이블 생성 (알림 발송 이력)
 - `idx_alert_history_created_at` 인덱스 생성
 
-### v4 이후 (migrations.go ID 8 – 23, v0.11.x – v0.13.0)
+### v4 이후 (migrations.go ID 8 – 26, v0.11.x – v0.13.2)
 
 권한 있는 출처는 `internal/db/migrations.go`. 본 단락은 변경 이력 요약입니다.
 
@@ -318,6 +318,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - **ID 17–19** — `container_events` 테이블 + `(container_id, ts DESC)`, `(ts DESC)` 인덱스 (v0.12.0 Theme F: 도커 이벤트 타임라인, 8개 이벤트 타입)
 - **ID 20** — `docker_volume_usage` (Theme B Phase 1: 볼륨×디스크 사용량 캐시)
 - **ID 21–23** — `image_signatures` 테이블 + 2개 인덱스. **데드 스키마**: v0.13.0에서 Cosign 이미지 검증 기능을 제거했지만, append-only 마이그레이션 정책에 따라 테이블은 그대로 유지. 읽기/쓰기 모두 없음. 새로운 검증 계열 기능을 추가할 경우 별도 테이블을 사용할 것.
+- **ID 24–26** — `refresh_tokens.family_id TEXT NOT NULL DEFAULT ''` + `refresh_tokens.consumed_at DATETIME` + `idx_refresh_tokens_family` 인덱스 (v0.13.2 OWASP 토큰 재사용 탐지). `family_id`는 로그인마다 발급되는 32-hex 식별자로 한 체인 안의 회전을 묶음. `consumed_at`은 소비된 토큰의 tombstone 타임스탬프 — `Refresh` 핸들러가 tombstone에 대한 재사용을 보면 같은 `family_id`의 모든 토큰을 삭제(전 세션 무효화). 24시간이 지난 tombstone은 `pruneRefreshTokens`가 자동 정리.
 
 ---
 
