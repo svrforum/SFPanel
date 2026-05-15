@@ -419,9 +419,17 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 				return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "Node is offline: "+targetNode.Name)
 			}
 
-			// Propagate the authenticated username for cluster-internal requests
+			// Propagate the authenticated username for cluster-internal requests.
+			// .Set() replaces any attacker-supplied value, so the JWT-derived
+			// username is authoritative. Defense-in-depth: the copy loop below
+			// further skips this header before populating gRPC Headers.
 			if username, ok := c.Get("username").(string); ok && username != "" {
 				c.Request().Header.Set("X-SFPanel-Original-User", username)
+			} else {
+				// JWT middleware should have populated username, but if not,
+				// strip any attacker-supplied header rather than letting it
+				// flow through.
+				c.Request().Header.Del("X-SFPanel-Original-User")
 			}
 
 			// SSE streaming endpoints: relay via direct HTTP for real-time output
@@ -443,11 +451,27 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 				req.Body.Close()
 			}
 
+			// Build the gRPC Headers map but exclude auth-sensitive keys from
+			// the blanket copy. Authorization is sent separately via AuthToken
+			// below, and X-SFPanel-Original-User must come from c.Get("username")
+			// not from the inbound request — otherwise an attacker who reaches
+			// any node directly could inject a claimed username and have it
+			// fan out cluster-wide.
 			headers := make(map[string]string)
 			for k, v := range req.Header {
-				if len(v) > 0 {
-					headers[k] = v[0]
+				if len(v) == 0 {
+					continue
 				}
+				switch http.CanonicalHeaderKey(k) {
+				case "Authorization", "X-Sfpanel-Original-User",
+					"X-Sfpanel-Internal-Proxy", "X-Sfpanel-Internal-Proxy-V2":
+					continue
+				}
+				headers[k] = v[0]
+			}
+			// Re-add the trusted username if present in echo context.
+			if username, ok := c.Get("username").(string); ok && username != "" {
+				headers["X-SFPanel-Original-User"] = username
 			}
 
 			authToken := ""

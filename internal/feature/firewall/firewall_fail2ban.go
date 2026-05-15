@@ -632,7 +632,7 @@ func (h *Handler) CreateJail(c echo.Context) error {
 			findTime = req.FindTime
 		}
 		if req.LogPath != "" {
-			if !validLogPath.MatchString(req.LogPath) {
+			if !validLogPath.MatchString(req.LogPath) || strings.Contains(req.LogPath, "..") {
 				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidLogPath,
 					"Log path contains invalid characters")
 			}

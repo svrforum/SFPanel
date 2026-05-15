@@ -69,6 +69,7 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	e.IPExtractor = echo.ExtractIPFromXFFHeader(trustOpts...)
 
 	e.Use(echoMw.Recover())
+	e.Use(mw.SecurityHeaders())
 	e.Use(echoMw.GzipWithConfig(echoMw.GzipConfig{
 		Level:   5,
 		MinLength: 1024,
