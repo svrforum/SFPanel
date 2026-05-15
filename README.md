@@ -346,7 +346,9 @@ EOF
 sudo systemctl restart sfpanel
 ```
 
-부팅 시 Raft가 파일을 감지해 `RecoverCluster()`로 로컬 구성을 재작성하고, 다음 부팅에서 재적용되지 않도록 `peers.info`로 이름을 바꿉니다. 정상적인 노드 제거에는 `sudo sfpanel cluster remove <node-id>`를 사용하세요. peers.json은 **쿼럼 손실 한정 비상 절차**입니다.
+부팅 시 Raft가 파일을 감지해 `RecoverCluster()`로 로컬 구성을 재작성하고, 다음 부팅에서 재적용되지 않도록 `peers.info`로 이름을 바꿉니다. 정상적인 노드 제거에는 `sudo sfpanel cluster remove <node-id>`를 사용하세요.
+
+peers.json 은 쿼럼 손실 외에 **운영 중 클러스터의 Raft 전송 포트 변경**에도 사용됩니다 (`grpc_port` 를 옮기면 Raft 포트가 `grpc_port + 1` 로 자동 따라가는데, 기존 멤버십에 박힌 peer 주소를 새 포트로 재작성해야 함). 두 가지 다 잘못 쓰면 멤버십이 깨질 수 있으니 [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md) 의 "Port migration on a live cluster" 절차를 따라 진행하세요.
 
 ## 제거
 
@@ -421,6 +423,7 @@ cd e2e && npm run test:headed   # 브라우저 UI
 | [docs/specs/websocket-spec.md](docs/specs/websocket-spec.md) | WebSocket 6개 + SSE 8개 메시지 스키마 + 클러스터 릴레이 |
 | [docs/specs/db-schema.md](docs/specs/db-schema.md) | SQLite 15+개 테이블 + 보존 정책 + 마이그레이션 |
 | [docs/specs/frontend-spec.md](docs/specs/frontend-spec.md) | 페이지/컴포넌트/라우팅/상태/빌드 |
+| [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md) | 클러스터 운영자 런북: 파티션 감지·복구, 강제 disband, 포트 마이그레이션 절차 |
 | [CHANGELOG.md](CHANGELOG.md) | 릴리스 노트 |
 | [CLAUDE.md](CLAUDE.md) | 기여자 가이드 (코드 규약, 테스트 범위, 클러스터 인지) |
 
