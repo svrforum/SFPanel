@@ -6,6 +6,34 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.13.6] – 2026-05-16
+
+Build fix for the v0.13.5 desktop release. Server code is identical
+to 0.13.4/0.13.5; only the desktop bundle's npm dependency pins
+changed.
+
+### Fixed
+- **Desktop build now succeeds.** The 0.13.5 `Release Desktop`
+  workflow failed on all three platforms (Linux/Windows/macOS) with
+  *"Found version mismatched Tauri packages"*: Cargo resolved
+  `tauri = "2"` to `v2.10.3` while npm's `^2` slid forward to
+  `@tauri-apps/api v2.11.0`. The Tauri bundler refuses to build
+  when the npm and Rust crate minors disagree.
+  Pinned `@tauri-apps/api`, `@tauri-apps/plugin-updater`, and
+  `@tauri-apps/cli` to `~2.10.0` in `desktop/package.json` and
+  regenerated `desktop/package-lock.json` so CI's `npm ci` resolves
+  to 2.10.1 (matching the Cargo side). Any future minor bump now
+  needs to be done on both sides at once.
+
+### Operator notes
+- v0.13.5's release page has only the server tarballs — no desktop
+  installers, no `latest.json`. Operators who installed 0.13.5 via
+  the server `.tar.gz` are fine. Desktop users should pull v0.13.6.
+- `latest.json` (the auto-update manifest introduced in 0.13.5) ships
+  for the first time as part of this release.
+
+---
+
 ## [0.13.5] – 2026-05-15
 
 Desktop tooling release. Server code is identical to 0.13.4; the
