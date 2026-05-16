@@ -6,6 +6,37 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.13.7] – 2026-05-16
+
+Second build fix for the desktop pipeline. Server code is identical
+to 0.13.4–0.13.6; only `.github/workflows/release-desktop.yml`
+changed.
+
+### Fixed
+- **`latest.json` manifest job now publishes successfully.**
+  The 0.13.6 desktop builds all succeeded, but the manifest job
+  bailed with *"Missing Linux signature"*. Two patterns in the
+  workflow were stale against Tauri 2.10's actual artefact naming:
+  - Linux: Tauri 2.10 signs the AppImage directly (e.g.
+    `SFPanel_0.13.7_amd64.AppImage.sig`) — there is no
+    `.AppImage.tar.gz` wrapper anymore. Updated the collect step
+    to copy `*.AppImage.sig` and the manifest to point at
+    `.AppImage` as the updater URL.
+  - macOS: bundle is named `SFPanel.app.tar.gz` (no version, no
+    arch infix). Loosened the manifest's signature glob to
+    `*app.tar.gz.sig` and pointed the URL at `SFPanel.app.tar.gz`.
+
+### Operator notes
+- v0.13.6 release page is missing `latest.json` and the Linux
+  AppImage signature — operators who installed the Linux AppImage
+  from 0.13.6 won't see auto-update prompts until they re-install
+  from 0.13.7.
+- Existing 0.13.5/0.13.6 installs of Windows/macOS bundles will
+  still get the auto-update prompt against 0.13.7 once `latest.json`
+  is published (this release).
+
+---
+
 ## [0.13.6] – 2026-05-16
 
 Build fix for the v0.13.5 desktop release. Server code is identical

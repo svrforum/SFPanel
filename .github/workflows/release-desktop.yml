@@ -81,9 +81,8 @@ jobs:
           cp desktop/src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb dist/ 2>/dev/null || true
           cp desktop/src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm dist/ 2>/dev/null || true
           cp desktop/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage dist/ 2>/dev/null || true
-          # Updater artefacts — used by tauri-plugin-updater on the client
-          cp desktop/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.tar.gz dist/ 2>/dev/null || true
-          cp desktop/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.tar.gz.sig dist/ 2>/dev/null || true
+          # Updater artefact (Tauri 2.10+ signs the .AppImage directly — no .tar.gz wrapper)
+          cp desktop/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage.sig dist/ 2>/dev/null || true
 
       - name: Collect artifacts (Windows)
         if: contains(matrix.platform, 'windows')
@@ -164,9 +163,11 @@ jobs:
             fi
           }
 
-          LINUX_SIG=$(read_sig "*amd64.AppImage.tar.gz.sig")
+          # Tauri 2.10 naming: AppImage signs the bundle directly (no .tar.gz wrapper);
+          # macOS bundle has no version/arch infix.
+          LINUX_SIG=$(read_sig "*amd64.AppImage.sig")
           WINDOWS_SIG=$(read_sig "*x64-setup.exe.sig")
-          MACOS_SIG=$(read_sig "*aarch64.app.tar.gz.sig")
+          MACOS_SIG=$(read_sig "*app.tar.gz.sig")
 
           # If any signature is missing, fail loudly — half-signed manifest is worse
           # than no manifest at all (Tauri would skip platforms silently).
@@ -187,7 +188,7 @@ jobs:
             "platforms": {
               "linux-x86_64": {
                 "signature": "$LINUX_SIG",
-                "url": "$BASE/SFPanel_${VERSION}_amd64.AppImage.tar.gz"
+                "url": "$BASE/SFPanel_${VERSION}_amd64.AppImage"
               },
               "windows-x86_64": {
                 "signature": "$WINDOWS_SIG",
@@ -195,7 +196,7 @@ jobs:
               },
               "darwin-aarch64": {
                 "signature": "$MACOS_SIG",
-                "url": "$BASE/SFPanel_${VERSION}_aarch64.app.tar.gz"
+                "url": "$BASE/SFPanel.app.tar.gz"
               }
             }
           }
