@@ -6,6 +6,60 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.13.8] – 2026-05-17
+
+Cluster observability hardening. Motivated by a real 2-day outage on
+the author's homelab where two voters held diverged uncommitted entries
+at the same Raft term and oscillated Follower↔Candidate forever
+without any high-priority log line for the operator to alarm on.
+
+### Added
+- **`LeaderWatcher` emits ERROR-level `cluster has no leader` once the
+  cluster has gone 60 s without a leader, repeating every 5 min while
+  the condition persists.** Pure struct with TDD coverage; a goroutine
+  in `Manager.Start`/`Init` pumps it on a 15 s tick and exits via the
+  heartbeat manager's stop channel. External monitoring
+  (systemd `OnFailure=`, Alertmanager, etc.) finally has something
+  worth paging on — the underlying `hashicorp/raft` library only emits
+  WARN-level per-election failures that operators learn to ignore.
+- **`sfpanel cluster list`** prints a table of every cluster member
+  with live role, status, API and gRPC addresses. Requires the local
+  server to be running (the FSM lives behind raft; a second process
+  would conflict on the port).
+- **`sfpanel cluster status` shows live cluster info when the server
+  is running** — Raft role (Leader / Follower / Candidate), current
+  leader ID, peer count broken down by online/suspect/offline. The
+  previous output (local config only) is preserved as the fallback
+  for when the server is down.
+
+### Fixed
+- **Runbook now documents the 2-voter deadlock recovery procedure.**
+  `docs/specs/cluster-partition-runbook.md` gains a "Recovery — deadlock
+  from log divergence" section: identify the newer log via
+  `last-term=N` vs `last-candidate-term=N-1` in pre-vote rejection
+  lines, stop both services, start the newer-log node first, the
+  older-log node catches up via `appendEntries rejected, sending older
+  logs` truncation. ~10–15 s downtime, no data loss (the diverged
+  entries were uncommitted, so nothing applied to either FSM).
+
+### Operator notes
+- The new ERROR line is `level=ERROR component=cluster
+  msg="cluster has no leader" seconds_without_leader=N`. Hook it from
+  Loki / promtail / journald-exporter with a `level=ERROR
+  component=cluster` filter.
+- `sfpanel cluster list` is the canonical "is the cluster healthy"
+  command going forward. The HTTP API (`/cluster/overview`) has had
+  this data all along; the CLI just couldn't surface it.
+
+### Internal
+- `internal/cluster/CLAUDE.md` sub-guide corrected — the previous
+  "Heartbeat EOF noise is normal" note conflated two different log
+  sources (raft library `requestVote` errors vs our application
+  heartbeat warning); the latter is actually a symptom of cluster
+  trouble.
+
+---
+
 ## [0.13.7] – 2026-05-16
 
 Second build fix for the desktop pipeline. Server code is identical
