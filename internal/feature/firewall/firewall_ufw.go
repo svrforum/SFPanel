@@ -167,9 +167,13 @@ func parseUFWRules(output string) []UFWRule {
 
 		rule := UFWRule{Number: number}
 
-		// Extract comment (after #)
-		if commentIdx := strings.LastIndex(rest, "#"); commentIdx >= 0 {
-			rule.Comment = strings.TrimSpace(rest[commentIdx+1:])
+		// Extract comment. UFW formats the comment as " # text" — split on
+		// that exact "space-hash-space" sequence rather than the last '#'.
+		// LastIndex on '#' would mis-split rules like 'ALLOW IN' from
+		// '203.0.113.5 # comment with # in it', and was also fragile if a
+		// non-panel actor inserted a UFW rule with no space before '#'.
+		if commentIdx := strings.Index(rest, " # "); commentIdx >= 0 {
+			rule.Comment = strings.TrimSpace(rest[commentIdx+3:])
 			rest = strings.TrimSpace(rest[:commentIdx])
 		}
 

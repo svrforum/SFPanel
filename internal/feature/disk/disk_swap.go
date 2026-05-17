@@ -188,6 +188,20 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 
 		sizeMB := strconv.FormatInt(req.SizeMB, 10)
 
+		// Refuse to dd-zero an existing file at req.Path — a typo'd path
+		// would silently overwrite a regular file with zeros, then mkswap
+		// it. The operator has no way to recover the original content.
+		// If the operator genuinely wants to recreate an existing swap
+		// file, they can DeleteSwap first.
+		if info, err := os.Stat(req.Path); err == nil {
+			if info.Mode().IsRegular() {
+				return response.Fail(c, http.StatusConflict, response.ErrInvalidPath,
+					fmt.Sprintf("Refusing to overwrite existing file at %s — delete it first if you really want to recreate the swap", req.Path))
+			}
+			return response.Fail(c, http.StatusConflict, response.ErrInvalidPath,
+				fmt.Sprintf("Path %s exists and is not a regular file", req.Path))
+		}
+
 		// Create the swap file with dd
 		ddOut, err := h.Cmd.Run("dd", "if=/dev/zero", "of="+req.Path,
 			"bs=1M", "count="+sizeMB)
