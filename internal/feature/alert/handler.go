@@ -51,6 +51,74 @@ type AlertHistoryEntry struct {
 	CreatedAt    string `json:"created_at"`
 }
 
+// secretConfigKeys are the JSON object keys whose values must be masked
+// before returning channel configs in list responses. The set is the
+// union of every field name the alert channels package reads as a secret
+// (Discord webhook URL, Telegram bot token / chat ID), plus generic
+// catch-alls that operators commonly use for custom integrations.
+var secretConfigKeys = map[string]struct{}{
+	"webhook_url": {},
+	"bot_token":   {},
+	"chat_id":     {},
+	"token":       {},
+	"api_key":     {},
+	"apikey":      {},
+	"secret":      {},
+	"password":    {},
+	"auth_token":  {},
+}
+
+// maskChannelConfig returns a JSON string equivalent to the input but with
+// known-secret values replaced by "***<last4>" (or just "***" when the
+// secret is shorter than 8 characters — preserving any of a short value
+// would leak too much).
+//
+// Non-object JSON (strings, arrays, numbers) is returned unchanged on the
+// theory that no caller stores secrets there. Malformed JSON returns a
+// fixed "***" sentinel rather than the original — better to break the UI
+// row than risk leaking a token from a corrupted row.
+func maskChannelConfig(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
+		// Could be a non-object (string/array) — pass those through; only
+		// truly malformed JSON falls into the sentinel branch.
+		var probe any
+		if perr := json.Unmarshal([]byte(raw), &probe); perr == nil {
+			return raw
+		}
+		return `"***"`
+	}
+	for k, v := range obj {
+		if _, isSecret := secretConfigKeys[k]; !isSecret {
+			continue
+		}
+		s, ok := v.(string)
+		if !ok {
+			obj[k] = "***"
+			continue
+		}
+		obj[k] = maskTail(s)
+	}
+	out, err := json.Marshal(obj)
+	if err != nil {
+		return `"***"`
+	}
+	return string(out)
+}
+
+// maskTail keeps the last 4 characters of secrets longer than 8 chars so
+// operators can still tell two channels apart in the UI without exposing
+// enough of the secret to be useful to an attacker.
+func maskTail(s string) string {
+	if len(s) < 8 {
+		return "***"
+	}
+	return "***" + s[len(s)-4:]
+}
+
 // --- Channel CRUD ---
 
 func (h *Handler) ListChannels(c echo.Context) error {
@@ -68,6 +136,12 @@ func (h *Handler) ListChannels(c echo.Context) error {
 			continue
 		}
 		ch.Enabled = enabled == 1
+		// Mask known secret keys before exposing config in the list response.
+		// Operators previously had to rotate credentials after a captured
+		// browser session or leaked log because the raw webhook URL / bot
+		// token was returned verbatim. Edit-time flows do not currently read
+		// this field, so masking here is safe.
+		ch.Config = maskChannelConfig(ch.Config)
 		list = append(list, ch)
 	}
 	if list == nil {

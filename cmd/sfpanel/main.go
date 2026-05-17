@@ -259,7 +259,18 @@ func main() {
 	// Alert manager owns rule evaluation + Fire-side dispatch. Lifted out of
 	// NewRouter so the docker observability container dispatcher (below) can
 	// share the same instance via featureAlert.NewContainerDispatcher.
-	alertManager := featureAlert.NewManager(database)
+	//
+	// Cluster identity is threaded through so rules tagged with
+	// `node_scope="specific"` only fire on the nodes listed in `node_ids`.
+	// In single-node mode (clusterMgr==nil) every rule applies. nil is a
+	// valid NodeIdentity here because the interface is satisfied implicitly
+	// only when the underlying *cluster.Manager is non-nil; passing a typed
+	// nil would defeat the interface-nil check, so guard explicitly.
+	var alertIdentity featureAlert.NodeIdentity
+	if clusterMgr != nil {
+		alertIdentity = clusterMgr
+	}
+	alertManager := featureAlert.NewManagerWithIdentity(database, alertIdentity)
 	go alertManager.Start(bgCtx)
 
 	// Docker observability: per-container metrics history, daemon events
@@ -269,7 +280,7 @@ func main() {
 		if dockerErr != nil {
 			slog.Warn("docker observability: client init failed; feature disabled", "error", dockerErr)
 		} else {
-			containerDisp := featureAlert.NewContainerDispatcher(database, alertManager)
+			containerDisp := featureAlert.NewContainerDispatcherWithIdentity(database, alertManager, alertIdentity)
 			monitor.StartDockerHistoryCollector(bgCtx, database, dockerCli)
 			monitor.StartDockerEventsListener(bgCtx, database, dockerCli, &dispShim{c: containerDisp})
 			metricsRet, _ := parseObservabilityRetention(cfg.Docker.Observability.MetricsRetention)

@@ -91,17 +91,25 @@ type AlertContainerEvent struct {
 // container event is observed. Implements monitor.EventDispatcher via
 // the Dispatch shim wired in main.go.
 type ContainerDispatcher struct {
-	db    *sql.DB
-	chDsp ChannelDispatcher
+	db       *sql.DB
+	chDsp    ChannelDispatcher
+	identity NodeIdentity // nil in single-node mode
 }
 
 func NewContainerDispatcher(db *sql.DB, ch ChannelDispatcher) *ContainerDispatcher {
 	return &ContainerDispatcher{db: db, chDsp: ch}
 }
 
+// NewContainerDispatcherWithIdentity wires the cluster node identity so
+// container event rules respect the per-rule node_scope/node_ids the same
+// way the periodic Manager.evaluate path does.
+func NewContainerDispatcherWithIdentity(db *sql.DB, ch ChannelDispatcher, identity NodeIdentity) *ContainerDispatcher {
+	return &ContainerDispatcher{db: db, chDsp: ch, identity: identity}
+}
+
 // Dispatch is the entry point — translates the event to alert evaluation.
 func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEvent) {
-	rows, err := d.db.Query(`SELECT id, name, type, condition, channel_ids, severity, cooldown FROM alert_rules WHERE enabled=1 AND type IN ('container_down','container_oom','container_restart_loop','container_unhealthy')`)
+	rows, err := d.db.Query(`SELECT id, name, type, condition, channel_ids, severity, cooldown, node_scope, node_ids FROM alert_rules WHERE enabled=1 AND type IN ('container_down','container_oom','container_restart_loop','container_unhealthy')`)
 	if err != nil {
 		slog.Warn("container alert rules query failed", "error", err)
 		return
@@ -109,8 +117,11 @@ func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEv
 	defer rows.Close()
 	for rows.Next() {
 		var id, cooldown int
-		var name, typ, condStr, channelIDs, sev string
-		if err := rows.Scan(&id, &name, &typ, &condStr, &channelIDs, &sev, &cooldown); err != nil {
+		var name, typ, condStr, channelIDs, sev, nodeScope, nodeIDs string
+		if err := rows.Scan(&id, &name, &typ, &condStr, &channelIDs, &sev, &cooldown, &nodeScope, &nodeIDs); err != nil {
+			continue
+		}
+		if !ruleAppliesToNode(d.identity, nodeScope, nodeIDs) {
 			continue
 		}
 		var cond struct {
