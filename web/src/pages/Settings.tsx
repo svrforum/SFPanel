@@ -233,6 +233,25 @@ export default function Settings() {
     }
   }
 
+  async function handleDisable2FA() {
+    // Confirm + collect password — destructive action that loosens auth.
+    if (!window.confirm(t('settings.confirmDisable2FA'))) return
+    const password = window.prompt(t('settings.disable2FAPasswordPrompt'))
+    if (!password) return
+
+    setTwoFALoading(true)
+    try {
+      await api.disable2FA(password)
+      toast.success(t('settings.twoFADisabled'))
+      setTwoFAEnabled(false)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('settings.twoFADisableFailed')
+      toast.error(message)
+    } finally {
+      setTwoFALoading(false)
+    }
+  }
+
   async function handleVerify2FA(e: FormEvent) {
     e.preventDefault()
     if (!twoFACode || twoFACode.length !== 6) {
@@ -538,9 +557,21 @@ export default function Settings() {
         </div>
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.twoFADescription')}</p>
         {!showTwoFASetup ? (
-          <Button onClick={handleSetup2FA} disabled={twoFALoading} className="rounded-xl">
-            {getTwoFAButtonLabel()}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={handleSetup2FA} disabled={twoFALoading} className="rounded-xl">
+              {getTwoFAButtonLabel()}
+            </Button>
+            {twoFAEnabled && (
+              <Button
+                variant="destructive"
+                onClick={handleDisable2FA}
+                disabled={twoFALoading}
+                className="rounded-xl"
+              >
+                {t('settings.disable2FA')}
+              </Button>
+            )}
+          </div>
         ) : (
           <div className="space-y-4 max-w-md">
             <div className="bg-secondary/30 p-4 rounded-xl space-y-3">
