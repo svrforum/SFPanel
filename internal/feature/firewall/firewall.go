@@ -11,6 +11,11 @@ import (
 // Handler exposes REST handlers for UFW firewall and Fail2ban management.
 type Handler struct {
 	Cmd exec.Commander
+	// PanelPort is the HTTP port sfpanel listens on (cfg.Server.Port).
+	// Used by the SSH-lockout guard so deleting an ALLOW rule for this
+	// port — or enabling UFW with no allow rule for either SSH or this
+	// port — requires explicit force=true confirmation.
+	PanelPort int
 }
 
 // aptEnv returns the standard environment variables for non-interactive apt operations.

@@ -70,7 +70,23 @@ func parseUFWStatus(output string) UFWStatus {
 
 // EnableUFW enables the UFW firewall.
 // POST /firewall/enable
+// Lockout guard: refuses to enable when the current rule set has no ALLOW
+// for SSH or the panel port, because UFW's default-incoming-deny flip will
+// then immediately disconnect the operator (and the panel itself).
+// Pass ?force=true to override.
 func (h *Handler) EnableUFW(c echo.Context) error {
+	if c.QueryParam("force") != "true" {
+		// Best-effort precheck — if ufw status itself fails (e.g. not
+		// installed) we let the enable attempt surface the real error.
+		if out, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "status", "numbered"); err == nil {
+			rules := parseUFWRules(out)
+			if !hasAccessRule(rules, h.PanelPort) {
+				return response.Fail(c, http.StatusConflict, response.ErrUFWEnableError,
+					"Enabling UFW with no ALLOW rule for SSH (port 22) or the panel port would lock you out. "+
+						"Add an allow rule first, or pass ?force=true to confirm.")
+			}
+		}
+	}
 	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "--force", "enable")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWEnableError,
@@ -313,12 +329,40 @@ func buildUFWAddArgs(req AddRuleRequest) []string {
 
 // DeleteRule deletes a UFW rule by its number.
 // DELETE /firewall/rules/:number
+// Lockout guard: refuses to delete an ALLOW rule for SSH (22) or the panel
+// port if removing it would leave no other access rule. Pass ?force=true
+// to override.
 func (h *Handler) DeleteRule(c echo.Context) error {
 	numberStr := c.Param("number")
 	number, err := strconv.Atoi(numberStr)
 	if err != nil || number < 1 {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRuleNumber,
 			"Rule number must be a positive integer")
+	}
+
+	if c.QueryParam("force") != "true" {
+		if out, listErr := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "status", "numbered"); listErr == nil {
+			rules := parseUFWRules(out)
+			// Find the target rule. Build the "what remains if we delete this"
+			// list and re-check access — that way deleting one of two
+			// redundant SSH allows is fine, but deleting the only one isn't.
+			var target *UFWRule
+			remaining := make([]UFWRule, 0, len(rules))
+			for i := range rules {
+				if rules[i].Number == number {
+					target = &rules[i]
+					continue
+				}
+				remaining = append(remaining, rules[i])
+			}
+			if target != nil &&
+				(ruleAllowsPort(*target, SSHPort) || ruleAllowsPort(*target, h.PanelPort)) &&
+				!hasAccessRule(remaining, h.PanelPort) {
+				return response.Fail(c, http.StatusConflict, response.ErrUFWDeleteError,
+					"Deleting this rule would leave no ALLOW for SSH or the panel port — you'd be locked out. "+
+						"Pass ?force=true to confirm.")
+			}
+		}
 	}
 
 	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "--force", "delete", strconv.Itoa(number))
