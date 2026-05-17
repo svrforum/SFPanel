@@ -51,6 +51,20 @@ func TestIsStreamingEndpoint(t *testing.T) {
 		{"/api/v1/docker/compose/foo/update-stream", true},
 		{"/api/v1/system/update", true},
 		{"/api/v1/appstore/apps/jellyfin/install", true},
+		// Long-running package installs — SSE handlers that would otherwise
+		// fall through to gRPC unary (30s + 4MB cap) on remote-node calls.
+		{"/api/v1/packages/install-docker", true},
+		{"/api/v1/packages/install-node", true},
+		{"/api/v1/packages/install-claude", true},
+		{"/api/v1/packages/install-codex", true},
+		{"/api/v1/packages/install-gemini", true},
+		{"/api/v1/packages/node-install-version", true},
+		{"/api/v1/packages/upgrade", true},
+		// Long-running docker image pull (SSE).
+		{"/api/v1/docker/images/pull", true},
+		// Sync POSTs that intentionally stay unary.
+		{"/api/v1/packages/install", false},
+		{"/api/v1/packages/remove", false},
 		{"/api/v1/files/download", false},
 		{"/api/v1/system/backup", false},
 		{"/api/v1/cluster/nodes", false},
