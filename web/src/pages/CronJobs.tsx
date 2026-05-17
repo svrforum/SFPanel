@@ -138,6 +138,10 @@ export default function CronJobs() {
 
   const handleSave = async () => {
     if (!formSchedule.trim() || !formCommand.trim()) return
+    if (!isPlausibleCronSchedule(formSchedule.trim())) {
+      toast.error(t('cron.invalidSchedule'))
+      return
+    }
     setSaving(true)
     try {
       if (editingJob) {
@@ -155,6 +159,19 @@ export default function CronJobs() {
     } finally {
       setSaving(false)
     }
+  }
+
+  // isPlausibleCronSchedule does a lightweight shape check so the most
+  // common typos ('every 5 minutes' typed into the field, three-field
+  // entries, etc.) get a clear error before round-tripping to the server.
+  // The server still validates strictly — this is just to short-circuit
+  // obvious garbage with a faster, localized error.
+  function isPlausibleCronSchedule(s: string): boolean {
+    if (s.startsWith('@')) {
+      return /^@(reboot|yearly|annually|monthly|weekly|daily|midnight|hourly)$/.test(s)
+    }
+    const fields = s.split(/\s+/)
+    return fields.length === 5
   }
 
   const handleToggleEnabled = async (job: CronJob) => {

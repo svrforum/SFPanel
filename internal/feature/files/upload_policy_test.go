@@ -29,6 +29,13 @@ func TestHasWebExecutableExtension(t *testing.T) {
 		{"shell.php", true}, {"x.PHP", true}, {"x.phtml", true},
 		{"foo.jsp", true}, {"foo.aspx", true}, {"x.cgi", true},
 		{"backup.sh", true}, {"setup.bash", true},
+		// Java web containers.
+		{"app.war", true}, {"app.ear", true},
+		// Basename rules (no real extension).
+		{".htaccess", true}, {".HTACCESS", true},
+		{".htpasswd", true},
+		{"web.config", true}, {"Web.Config", true},
+		// Innocuous.
 		{"image.png", false}, {"data.json", false},
 		{"noext", false}, {".hidden", false},
 	}
