@@ -1153,19 +1153,40 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		// leaves the TLSManager intact so ProxySecret() still works, but
 		// relying on that is fragile — if a future change cleans up the
 		// TLS state during shutdown, this call would start returning "".
+		// Sign the v2 header NOW too — we can't rely on the sig path
+		// remaining alive past Shutdown.
 		proxySecret := mgr.ProxySecret()
+		v2Sig := auth.SignProxyRequestV2("POST", "/api/v1/system/update")
+		port := h.Config.Server.Port
 		go func() {
 			time.Sleep(1 * time.Second)
 			mgr.Shutdown()
-			client := &http.Client{Timeout: 5 * time.Minute}
-			req, _ := http.NewRequest("POST", fmt.Sprintf("http://127.0.0.1:%d/api/v1/system/update", h.Config.Server.Port), nil)
-			if secret := proxySecret; secret != "" {
-				req.Header.Set("X-SFPanel-Internal-Proxy", secret)
+			// Bind the in-flight self-update HTTP call to an explicit
+			// 5-min context so it can't pin indefinitely on a hung
+			// loopback connection mid-shutdown.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+			url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/system/update", port)
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+			if err != nil {
+				slog.Error("leader self-update: build request", "component", "cluster", "error", err)
+				return
 			}
-			if v2 := auth.SignProxyRequestV2("POST", "/api/v1/system/update"); v2 != "" {
-				req.Header.Set(auth.InternalProxyHeaderV2, v2)
+			if proxySecret != "" {
+				req.Header.Set("X-SFPanel-Internal-Proxy", proxySecret)
 			}
-			client.Do(req)
+			if v2Sig != "" {
+				req.Header.Set(auth.InternalProxyHeaderV2, v2Sig)
+			}
+			resp, err := (&http.Client{}).Do(req)
+			if err != nil {
+				slog.Error("leader self-update: request failed", "component", "cluster", "error", err)
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode >= 400 {
+				slog.Error("leader self-update: non-2xx response", "component", "cluster", "status", resp.StatusCode)
+			}
 		}()
 	}
 
