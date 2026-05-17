@@ -25,6 +25,21 @@ export function useWebSocket<T = unknown>({ url, onMessage, autoReconnect = true
     onMessageRef.current = onMessage
   }, [onMessage])
 
+  // armReconnect clears any pending reconnect timer before scheduling a new
+  // one. Without this guard the previous timer leaks (and can double-fire)
+  // when onclose runs twice — e.g. browser-initiated close followed by a
+  // server-side close, or the buildWsUrl catch path firing after a stale
+  // close handler already scheduled a retry.
+  const armReconnect = useCallback((delay: number) => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+    }
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null
+      connectRef.current()
+    }, delay)
+  }, [])
+
   const connect = useCallback(() => {
     if (isCleanedUpRef.current) return
 
@@ -47,7 +62,7 @@ export function useWebSocket<T = unknown>({ url, onMessage, autoReconnect = true
         if (autoReconnect && !isCleanedUpRef.current) {
           const delay = Math.min(reconnectInterval * Math.pow(2, retryCountRef.current), 30000)
           retryCountRef.current += 1
-          reconnectTimerRef.current = setTimeout(() => connectRef.current(), delay)
+          armReconnect(delay)
         }
       }
       ws.onmessage = (event) => {
@@ -64,10 +79,10 @@ export function useWebSocket<T = unknown>({ url, onMessage, autoReconnect = true
       // Ticket mint failed and no token fallback — silently skip; the
       // reconnect timer (if enabled) will retry.
       if (autoReconnect && !isCleanedUpRef.current) {
-        reconnectTimerRef.current = setTimeout(() => connectRef.current(), reconnectInterval)
+        armReconnect(reconnectInterval)
       }
     })
-  }, [url, autoReconnect, reconnectInterval])
+  }, [url, autoReconnect, reconnectInterval, armReconnect])
 
   // Sync the latest connect into the ref so the close-handler closure
   // always reaches the freshest version (deps may have changed since
