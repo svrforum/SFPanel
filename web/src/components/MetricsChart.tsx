@@ -204,11 +204,13 @@ export default function MetricsChart({ data, title, headerAction, xDomain }: Met
       chart.destroy()
       chartRef.current = null
     }
-    // Re-create chart when xDomain changes (theme could also change)
+    // uPlot's value is being recreate-free; range-tab clicks should not
+    // tear down and rebuild the whole chart. We mount once (deps [])
+    // and the second effect below handles range changes via setScale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [xDomain])
+  }, [])
 
-  // Update data without recreating chart
+  // Update data + range without recreating chart
   useEffect(() => {
     const chart = chartRef.current
     if (!chart) return

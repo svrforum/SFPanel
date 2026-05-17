@@ -128,9 +128,12 @@ export default function Dashboard() {
   useEffect(() => {
     api.getTopProcesses().then(setProcesses).catch(() => {})
     api.getContainers().then((data) => setContainers(data || [])).catch(() => setContainers([]))
-    api.readLog('syslog', 8).then((data) => setRecentLogs(data.lines.slice(-8))).catch(() => {})
+    // Go's JSON serializer turns an empty []string into null; defaulting to
+    // [] before slicing prevents a TypeError that .catch(() => {}) can't see
+    // because it's thrown inside the .then.
+    api.readLog('syslog', 8).then((data) => setRecentLogs((data.lines ?? []).slice(-8))).catch(() => {})
     api.readLog('firewall', 50).then((data) => {
-      const parsed = data.lines.slice(-50)
+      const parsed = (data.lines ?? []).slice(-50)
         .map(parseFirewallLine)
         .filter((e): e is FirewallLogEntry => e.parsed)
         .slice(-15)
@@ -515,8 +518,13 @@ export default function Dashboard() {
                       const ts = entry.timestamp.includes('T')
                         ? entry.timestamp.replace(/\d{4}-(\d{2}-\d{2})T(\d{2}:\d{2}:\d{2}).*/, '$1 $2')
                         : entry.timestamp
+                      // Logs prepend new rows; using i alone re-keys every
+                      // existing row on each refresh, wiping hover state.
+                      // Composite key from timestamp + source + port stays
+                      // stable across the slide-window updates.
+                      const stableKey = `${entry.timestamp}-${entry.sourceIP}-${entry.destPort}-${i}`
                       return (
-                        <tr key={i} className="border-b border-border/50 hover:bg-secondary/30">
+                        <tr key={stableKey} className="border-b border-border/50 hover:bg-secondary/30">
                           <td className="py-1.5 pr-3 font-mono text-muted-foreground whitespace-nowrap">{ts}</td>
                           <td className="py-1.5 pr-3">
                             <span
@@ -556,7 +564,9 @@ export default function Dashboard() {
             ) : (
               <div className="bg-[#191f28] rounded-xl p-3 font-mono text-[11px] text-[#8b95a1] space-y-0.5 overflow-x-auto max-h-[320px]">
                 {recentLogs.map((line, i) => (
-                  <div key={i} className="whitespace-pre leading-5 hover:bg-white/5 px-1.5 rounded-lg">
+                  // Composite key — line content + position survives the
+                  // sliding-window update that re-keys index-only.
+                  <div key={`${i}-${line.slice(0, 40)}`} className="whitespace-pre leading-5 hover:bg-white/5 px-1.5 rounded-lg">
                     {line}
                   </div>
                 ))}
