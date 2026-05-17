@@ -48,6 +48,15 @@ func (c *cache[T]) set(data T, ttl time.Duration) {
 	c.expires = time.Now().Add(ttl)
 }
 
+// invalidate clears the cache so the next get() misses. Use after a
+// mutating op that changed the underlying state — without this, the UI
+// shows a stale list for up to TTL after the operator clicked Start/Stop.
+func (c *cache[T]) invalidate() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.expires = time.Time{}
+}
+
 // Client wraps the Docker SDK client with convenience methods for
 // container, image, volume, and network management.
 type Client struct {
@@ -99,33 +108,39 @@ func (c *Client) GetContainer(ctx context.Context, id string) (container.Inspect
 
 // StartContainer starts a stopped container.
 func (c *Client) StartContainer(ctx context.Context, id string) error {
+	defer c.containersCache.invalidate()
 	return c.cli.ContainerStart(ctx, id, container.StartOptions{})
 }
 
 // StopContainer gracefully stops a container with a 10-second timeout.
 func (c *Client) StopContainer(ctx context.Context, id string) error {
+	defer c.containersCache.invalidate()
 	timeout := 10
 	return c.cli.ContainerStop(ctx, id, container.StopOptions{Timeout: &timeout})
 }
 
 // RestartContainer restarts a container with a 10-second timeout.
 func (c *Client) RestartContainer(ctx context.Context, id string) error {
+	defer c.containersCache.invalidate()
 	timeout := 10
 	return c.cli.ContainerRestart(ctx, id, container.StopOptions{Timeout: &timeout})
 }
 
 // RemoveContainer forcefully removes a container.
 func (c *Client) RemoveContainer(ctx context.Context, id string) error {
+	defer c.containersCache.invalidate()
 	return c.cli.ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
 }
 
 // PauseContainer pauses a running container.
 func (c *Client) PauseContainer(ctx context.Context, id string) error {
+	defer c.containersCache.invalidate()
 	return c.cli.ContainerPause(ctx, id)
 }
 
 // UnpauseContainer unpauses a paused container.
 func (c *Client) UnpauseContainer(ctx context.Context, id string) error {
+	defer c.containersCache.invalidate()
 	return c.cli.ContainerUnpause(ctx, id)
 }
 
