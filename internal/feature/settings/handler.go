@@ -19,6 +19,21 @@ var settingDefaults = map[string]string{
 	"max_upload_size":  "1024",
 }
 
+// userSettableKeys is the explicit allowlist of keys writable via
+// PUT /settings. Other modules (e.g. appstore writes appstore_cache) own
+// their own keys and write directly via DB; that path stays open.
+//
+// Without an allowlist here, an admin (or XSS riding their session) could
+// poison appstore_cache (subsequent unmarshal is unchecked), overwrite
+// terminal_timeout=99999999 (DoS), or grow the settings table unbounded
+// with arbitrary garbage keys. The list is intentionally short — adding a
+// new user-settable setting should be a deliberate code change, not a
+// dynamic API surface.
+var userSettableKeys = map[string]bool{
+	"terminal_timeout": true,
+	"max_upload_size":  true,
+}
+
 func (h *Handler) GetSettings(c echo.Context) error {
 	result := make(map[string]string)
 
@@ -59,12 +74,12 @@ func (h *Handler) UpdateSettings(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrEmptySettings, "No settings provided")
 	}
 
-	// Validate setting values (max length) — keys are not restricted because
-	// other modules (e.g., appstore) also write dynamic keys to the settings table
+	// Validate all keys against the user-settable allowlist BEFORE writing
+	// anything, so a mixed-valid batch fails atomically (no partial state).
 	for key, value := range req.Settings {
-		if len(key) > 200 {
+		if !userSettableKeys[key] {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
-				fmt.Sprintf("Setting key %q exceeds maximum length of 200 characters", key))
+				fmt.Sprintf("Setting key %q is not user-settable via this endpoint", key))
 		}
 		if len(value) > 1000 {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
