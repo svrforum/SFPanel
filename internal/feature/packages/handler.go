@@ -34,6 +34,13 @@ type Handler struct {
 // validPackageName matches only safe package name characters.
 var validPackageName = regexp.MustCompile(`^[a-zA-Z0-9._+\-]+$`)
 
+// validNodeVersion accepts MAJOR, MAJOR.MINOR, or MAJOR.MINOR.PATCH with an
+// optional leading 'v'. Previously the regex was ^v?\d+(\.\d+)*$ which
+// accepted 'v1' (too coarse to act on) and 'v1.2.3.4.5' (not a real
+// Node version). Tightening to at most three segments matches every Node
+// release nvm understands.
+var validNodeVersion = regexp.MustCompile(`^v?\d+(\.\d+){0,2}$`)
+
 // validSearchQuery is a deliberately wider character set than package names —
 // users routinely search with multi-word phrases ("redis server", "python
 // async") that the package-name validator would reject. apt-cache search
@@ -837,7 +844,7 @@ func (h *Handler) SwitchNodeVersion(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "version is required")
 	}
 
-	if !regexp.MustCompile(`^v?\d+(\.\d+)*$`).MatchString(body.Version) {
+	if !validNodeVersion.MatchString(body.Version) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid version format")
 	}
 
@@ -875,7 +882,7 @@ func (h *Handler) InstallNodeVersion(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "version is required")
 	}
 
-	if !regexp.MustCompile(`^v?\d+(\.\d+)*$`).MatchString(body.Version) {
+	if !validNodeVersion.MatchString(body.Version) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid version format")
 	}
 
@@ -950,7 +957,7 @@ func (h *Handler) UninstallNodeVersion(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "version is required")
 	}
 
-	if !regexp.MustCompile(`^v?\d+(\.\d+)*$`).MatchString(body.Version) {
+	if !validNodeVersion.MatchString(body.Version) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid version format")
 	}
 
