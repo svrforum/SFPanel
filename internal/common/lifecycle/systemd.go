@@ -13,6 +13,28 @@ import (
 // than a const so tests can point MigrateRestartPolicy at a temp file.
 var unitPath = "/etc/systemd/system/sfpanel.service"
 
+// systemdRuntimePath is created by PID-1 systemd on boot. Its presence is
+// the canonical signal that this process is running under systemd — see
+// `sd_booted(3)`. It's a var so tests can point IsSystemdActive at a temp
+// directory.
+var systemdRuntimePath = "/run/systemd/system"
+
+// IsSystemdActive reports whether the current host is being managed by
+// systemd (i.e. systemd is PID 1 and has set up its runtime directory).
+//
+// Used by update/restore handlers to decide between `systemctl restart`
+// (systemd hosts) and a self-exit fallback (Docker containers, manual
+// bare-process runs, supervisord-backed installs, etc.) where invoking
+// systemctl would either fail outright or return success against the
+// host's systemd rather than the container's process tree.
+func IsSystemdActive() bool {
+	st, err := os.Stat(systemdRuntimePath)
+	if err != nil {
+		return false
+	}
+	return st.IsDir()
+}
+
 // MigrateRestartPolicy rewrites an existing sfpanel systemd unit so the
 // Restart= directive is "always" instead of "on-failure".
 //

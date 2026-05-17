@@ -89,6 +89,46 @@ func TestMigrateRestartPolicy_MissingUnitIsNoop(t *testing.T) {
 	}
 }
 
+// withSystemdRuntimePath temporarily points the package-level
+// systemdRuntimePath at p for the duration of a single test.
+func withSystemdRuntimePath(t *testing.T, p string) {
+	t.Helper()
+	prev := systemdRuntimePath
+	systemdRuntimePath = p
+	t.Cleanup(func() { systemdRuntimePath = prev })
+}
+
+func TestIsSystemdActive_DirectoryPresent(t *testing.T) {
+	dir := t.TempDir()
+	withSystemdRuntimePath(t, dir)
+	if !IsSystemdActive() {
+		t.Error("expected IsSystemdActive=true when runtime dir exists")
+	}
+}
+
+func TestIsSystemdActive_Missing(t *testing.T) {
+	dir := t.TempDir()
+	withSystemdRuntimePath(t, filepath.Join(dir, "does-not-exist"))
+	if IsSystemdActive() {
+		t.Error("expected IsSystemdActive=false when runtime dir is absent")
+	}
+}
+
+func TestIsSystemdActive_FileNotDir(t *testing.T) {
+	// A file at /run/systemd/system would be very unusual but should not
+	// be treated as a live systemd — sd_booted explicitly checks for a
+	// directory.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "imposter")
+	if err := os.WriteFile(path, []byte("not systemd"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	withSystemdRuntimePath(t, path)
+	if IsSystemdActive() {
+		t.Error("expected IsSystemdActive=false when path is a regular file")
+	}
+}
+
 func TestMigrateRestartPolicy_UnknownRestartValueLeftAlone(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sfpanel.service")

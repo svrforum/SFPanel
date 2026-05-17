@@ -33,6 +33,26 @@ import (
 // and end up renaming a half-written temp file over /usr/local/bin/sfpanel.
 var updateMu sync.Mutex
 
+// releaseAPIURL is the GitHub Releases endpoint we poll for new versions.
+// Exposed as a package-level var (rather than a const) so tests can point
+// CheckUpdate / RunUpdate at an httptest server without making outbound
+// network calls.
+var releaseAPIURL = "https://api.github.com/repos/svrforum/SFPanel/releases/latest"
+
+// exitProcess is the function the no-systemd restart fallback calls after
+// flushing its response. It's a var so unit tests can swap in a no-op and
+// avoid actually killing the test process when they drive RestoreBackup /
+// RunUpdate through to the supervisor-less branch.
+var exitProcess = func() { os.Exit(0) }
+
+// isSystemdActive is the systemd-presence probe used by RunUpdate and
+// RestoreBackup. It's a var (default = lifecycle.IsSystemdActive) so unit
+// tests can force either branch without relying on whether the host the
+// test is running on happens to have /run/systemd/system — dev workstations
+// running the panel as `go run` against a real systemd host would otherwise
+// produce different test outcomes than CI.
+var isSystemdActive = lifecycle.IsSystemdActive
+
 // maxUpdateArchiveBytes caps the downloaded archive at 200 MiB. Keeping the
 // limit on the wire (LimitReader) and on disk (size check) prevents a
 // compromised release host from filling the disk during the verify step.
@@ -72,7 +92,7 @@ type UpdateCheckResponse struct {
 // CheckUpdate queries GitHub releases API and returns version comparison.
 func (h *Handler) CheckUpdate(c echo.Context) error {
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get("https://api.github.com/repos/svrforum/SFPanel/releases/latest")
+	resp, err := client.Get(releaseAPIURL)
 	if err != nil {
 		return response.Fail(c, http.StatusBadGateway, response.ErrUpdateCheckFailed, "Failed to check for updates")
 	}
@@ -109,7 +129,7 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	defer updateMu.Unlock()
 
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get("https://api.github.com/repos/svrforum/SFPanel/releases/latest")
+	resp, err := client.Get(releaseAPIURL)
 	if err != nil {
 		return response.Fail(c, http.StatusBadGateway, response.ErrUpdateFailed, "Failed to check for updates")
 	}
@@ -391,14 +411,38 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	// SIGTERM almost immediately after `systemctl restart`, so without this
 	// pause the SSE consumer sees a connection reset mid-stream and cannot tell
 	// success from failure. Mirrors the cluster leave/disband pattern.
-	sendEvent("complete", fmt.Sprintf("Updated to v%s. Restarting...", latest))
-	if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
-		go func() {
-			time.Sleep(2 * time.Second)
-			// Use exec.Command.Start() to restart without blocking — the current process will be replaced.
-			_ = exec.Command("systemctl", "restart", "sfpanel").Start()
-		}()
+	//
+	// Branch on supervisor presence: under systemd we ask systemctl to cycle the
+	// service; on bare/Docker installs (no /run/systemd/system) systemctl would
+	// either be missing or — worse, in a Docker container — talk to the host's
+	// systemd. In that case we self-exit with code 0 instead, leaning on the
+	// container entrypoint or external supervisor to bring the panel back up.
+	// Operators running the binary by hand see the panel stop and must restart
+	// it themselves; the SSE message says so.
+	if isSystemdActive() {
+		if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
+			sendEvent("complete", fmt.Sprintf("Updated to v%s. Restarting...", latest))
+			go func() {
+				time.Sleep(2 * time.Second)
+				// Use exec.Command.Start() to restart without blocking — the current process will be replaced.
+				_ = exec.Command("systemctl", "restart", "sfpanel").Start()
+			}()
+			return nil
+		}
+		// systemd is running but the sfpanel unit isn't active (manual `go run`
+		// on a systemd host, or a renamed service). Fall through to the no-supervisor
+		// message — we don't know what to ask systemctl to restart.
 	}
+	// Watchdog (if spawned above) was started with detachAttr/Setsid so it
+	// runs in its own session and survives this process exit on Linux —
+	// otherwise the no-systemd path would have no rollback if the new binary
+	// failed health checks.
+	sendEvent("complete", fmt.Sprintf("Updated to v%s. Process is exiting — your supervisor (Docker entrypoint, etc.) must restart sfpanel to load the new binary.", latest))
+	go func() {
+		time.Sleep(2 * time.Second)
+		slog.Info("update complete, exiting for external supervisor restart", "component", "system", "version", latest)
+		exitProcess()
+	}()
 	return nil
 }
 
@@ -607,10 +651,27 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 		}
 	}
 
-	if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
-		// Use exec.Command.Start() to restart without blocking — the current process will be replaced.
-		_ = exec.Command("systemctl", "restart", "sfpanel").Start()
+	// Restart strategy mirrors RunUpdate: under systemd, ask systemctl to cycle
+	// the unit so the new DB/config are loaded with a fresh connection pool;
+	// elsewhere, exit so the container entrypoint / external supervisor can
+	// bring us back up. Continuing to serve with the old *sql.DB handle pointed
+	// at a freshly-overwritten file is undefined-behaviour territory in SQLite —
+	// better to terminate than to corrupt.
+	if isSystemdActive() {
+		if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
+			// Use exec.Command.Start() to restart without blocking — the current process will be replaced.
+			_ = exec.Command("systemctl", "restart", "sfpanel").Start()
+			return response.OK(c, map[string]string{"message": "Backup restored. Service restarting..."})
+		}
 	}
 
-	return response.OK(c, map[string]string{"message": "Backup restored. Service restarting..."})
+	// No supervisor we can drive: schedule self-exit after the response flushes
+	// so the operator's HTTP client sees the success payload before the socket
+	// drops. The user-facing message is explicit that the process is going away.
+	go func() {
+		time.Sleep(2 * time.Second)
+		slog.Info("backup restored, exiting for external supervisor restart", "component", "system")
+		exitProcess()
+	}()
+	return response.OK(c, map[string]string{"message": "Backup restored. The panel process is exiting — your supervisor (Docker entrypoint, etc.) must restart sfpanel to load the new database."})
 }
