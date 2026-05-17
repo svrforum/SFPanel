@@ -155,7 +155,7 @@ export default function Layout() {
           {collapsed ? (
             <div className="flex flex-col items-center gap-1.5">
               <button
-                onClick={() => navigate('/settings')}
+                onClick={() => navigate('/settings?scope=node&tab=system')}
                 title={panelVersion ? `v${panelVersion}` : 'SFPanel'}
                 className="flex flex-col items-center gap-1 w-full"
               >
@@ -192,7 +192,7 @@ export default function Layout() {
           ) : (
             <div className="space-y-2">
               <button
-                onClick={() => navigate('/settings')}
+                onClick={() => navigate('/settings?scope=node&tab=system')}
                 className="flex items-center justify-between w-full group"
               >
                 <div>

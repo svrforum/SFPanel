@@ -221,7 +221,7 @@ export default function Dashboard() {
             {t('dashboard.updateBanner', { version: updateAvailable })}
           </span>
           <button
-            onClick={() => navigate('/settings')}
+            onClick={() => navigate('/settings?scope=node&tab=system')}
             className="text-[13px] font-medium text-[#3182f6] hover:underline flex items-center gap-1"
           >
             {t('dashboard.updateBannerAction')}
