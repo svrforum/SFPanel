@@ -6,6 +6,88 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.13.11] – 2026-05-17
+
+Hardening pass across alerting, auth, audit, and settings, plus
+two structural changes: the `RunUpdate`/`RestoreBackup` restart
+path now degrades gracefully on hosts without systemd (Docker
+containers, bare-process installs), and the monolithic Settings
+page was split into per-tab lazy modules.
+
+### Alerts
+
+- **Per-rule `node_scope` enforced at evaluate time.** Rules
+  scoped to a specific node now skip evaluation entirely on
+  other nodes instead of evaluating-then-discarding; the leader
+  also stops fanning out per-rule notifications to nodes that
+  aren't in scope. Channel secrets (`token`, `password`,
+  `webhook_url`, etc.) are masked on `GET /alert/channels` so
+  the operator UI never echoes them back in plaintext.
+- **`AlertSettings.tsx` toggle preserves channel secrets.**
+  Flipping `enabled` on a channel previously sent the masked
+  secret back to the server, blanking the real value. The
+  toggle now merges the patch with the existing channel record
+  client-side and skips any field whose value is the mask
+  placeholder. Missing Korean conntrack-fill alert label added
+  to `i18n/ko.json`.
+- **`AlertSettings.tsx` migrated to i18n keys.** ~80 hardcoded
+  Korean strings (rule list, channel cards, modal labels) moved
+  to `t('alerts.*')` for English parity.
+
+### Auth
+
+- **Security events recorded for password change + 2FA setup,
+  verify, and disable.** Each writes an `audit_log` row tagged
+  `event_type=security` so the audit tab shows a tamper-evident
+  trail of credential mutations. Previously these went through
+  unaudited and only the JWT-revocation side-effect was visible.
+
+### Audit
+
+- **`audit_log_cleared` rows preserved across clears via a
+  `protected` column.** `DELETE /audit/logs` (clear-all and
+  range-delete) now skips rows with `protected=1`, so the
+  "audit log was cleared by X" entry survives subsequent
+  clears. Range-delete support added: `?before=&after=` now
+  bounds the delete instead of always wiping everything.
+
+### Settings
+
+- **Cluster-mode tab parity preserved across split.** Per-node
+  settings (system / tuning / audit) only render when
+  `?scope=node` is set in cluster mode; global settings
+  (general / security / alerts) render in the default view.
+  Single-node deployments see all tabs.
+- **`Settings.tsx` split into lazy-loaded per-tab modules.**
+  The 891-line monolith became a 33-line shell plus six
+  per-tab files under `pages/settings/` (General, Security,
+  Maintenance, Performance, Audit, AlertSettings). Each tab's
+  state + handlers ship in their own chunk via `React.lazy`,
+  cutting the initial settings bundle. New shared helpers
+  `useApiAction` (loading + toast boilerplate) and
+  `saveSetting` cover the common patterns.
+
+### System
+
+- **`RunUpdate` / `RestoreBackup` degrade gracefully without
+  systemd.** Both handlers previously assumed `systemctl
+  restart sfpanel` would work, which fails (or — worse, in a
+  Docker container — talks to the *host's* systemd) on
+  non-systemd hosts. New `lifecycle.IsSystemdActive()` helper
+  (checks `/run/systemd/system` per `sd_booted(3)`) branches
+  the restart strategy: under systemd, keep cycling the unit;
+  elsewhere, self-exit with code 0 after flushing the response
+  so the container entrypoint or external supervisor picks up
+  the new binary / freshly-restored DB. The supervisor-less
+  message tells the operator the process is going away.
+
+### Docs
+
+- **Dropped stale `healthcheck-composer-polish` plan**
+  (features shipped in 0.13.0–0.13.7).
+
+---
+
 ## [0.13.10] – 2026-05-16
 
 Second-pass sweep on top of 0.13.9 — Opus 4.7 re-reviewed every
