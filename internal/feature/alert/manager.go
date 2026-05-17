@@ -15,16 +15,39 @@ import (
 
 var logger = slog.Default().With("component", "alert")
 
+// NodeIdentity supplies the local cluster node ID so the manager can filter
+// rules whose `node_scope` restricts them to a subset of voters. Pass nil
+// from main.go when the cluster feature is disabled — the manager then
+// treats every rule as "apply here" (single-node behavior).
+//
+// *cluster.Manager already satisfies this with its LocalNodeID() method, so
+// nothing in cmd/sfpanel/main.go needs an adapter. The interface exists to
+// keep this package free of the heavyweight cluster import (and to make
+// table-driven tests trivial — see fakeNodeIdentity in manager_test.go).
+type NodeIdentity interface {
+	LocalNodeID() string
+}
+
 type Manager struct {
 	db       *sql.DB
+	identity NodeIdentity
 	mu       sync.RWMutex
 	lastSent map[int]time.Time // rule_id -> last sent time (cooldown)
 	cancel   context.CancelFunc
 }
 
+// NewManager constructs a single-node alert manager (no cluster filtering).
 func NewManager(db *sql.DB) *Manager {
+	return NewManagerWithIdentity(db, nil)
+}
+
+// NewManagerWithIdentity wires the cluster node identity so rules tagged
+// with `node_scope="specific"` only fire on nodes whose ID appears in
+// `node_ids`. Pass nil for single-node deployments.
+func NewManagerWithIdentity(db *sql.DB, identity NodeIdentity) *Manager {
 	return &Manager{
 		db:       db,
+		identity: identity,
 		lastSent: make(map[int]time.Time),
 	}
 }
@@ -70,6 +93,13 @@ func (m *Manager) evaluate() {
 		var r AlertRule
 		var enabled int
 		if err := rows.Scan(&r.ID, &r.Name, &r.Type, &r.Condition, &r.ChannelIDs, &r.Severity, &r.Cooldown, &r.NodeScope, &r.NodeIDs, &enabled); err != nil {
+			continue
+		}
+
+		// Cluster node-scope filter. In single-node mode (identity==nil)
+		// every rule applies. In cluster mode, "specific" scope requires
+		// the local node ID to appear in the rule's node_ids JSON array.
+		if !ruleAppliesToNode(m.identity, r.NodeScope, r.NodeIDs) {
 			continue
 		}
 
@@ -212,5 +242,45 @@ func (m *Manager) Fire(_ context.Context, f AlertFire) {
 		logger.Info("triggered", "rule", f.RuleName, "type", f.Type, "severity", f.Severity)
 	} else {
 		logger.Warn("all channel sends failed, skipping history", "rule", f.RuleName, "type", f.Type)
+	}
+}
+
+// ruleAppliesToNode decides whether a rule with the given node_scope /
+// node_ids should be evaluated on the local node.
+//
+// Semantics (mirrors the schema default node_scope="all"):
+//   - identity == nil          → single-node mode, always true
+//   - scope == "" or "all"     → every node evaluates
+//   - scope == "specific"      → only nodes whose ID appears in nodeIDsJSON
+//   - any other scope value    → conservatively skip (fail-closed)
+//
+// Malformed nodeIDsJSON fails closed (skip) so a misconfigured rule can't
+// silently fan out to every node. The router-side handler already
+// normalizes empty input to "[]" on create/update, so this only fires for
+// hand-edited DB rows.
+func ruleAppliesToNode(identity NodeIdentity, scope, nodeIDsJSON string) bool {
+	if identity == nil {
+		return true
+	}
+	switch scope {
+	case "", "all":
+		return true
+	case "specific":
+		local := identity.LocalNodeID()
+		if local == "" {
+			return false
+		}
+		var ids []string
+		if err := json.Unmarshal([]byte(nodeIDsJSON), &ids); err != nil {
+			return false
+		}
+		for _, id := range ids {
+			if id == local {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
 	}
 }
