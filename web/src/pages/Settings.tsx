@@ -328,6 +328,14 @@ export default function Settings() {
   }
 
   async function handleDownloadBackup() {
+    // In cluster mode the local SQLite snapshot is not a complete picture:
+    // admin + jwt_secret + cluster_node state live in the Raft FSM and
+    // restoring this backup on a leader would rewind replicated state,
+    // on a follower it would desync immediately. Warn loudly before
+    // letting the operator proceed.
+    if (clusterEnabled && !window.confirm(t('settings.backupClusterWarn'))) {
+      return
+    }
     setBackupLoading(true)
     try {
       const blob = await api.downloadBackup()
@@ -352,23 +360,43 @@ export default function Settings() {
       e.target.value = ''
       return
     }
+    // Same cluster caveat as download — restoring a single-node backup
+    // onto a cluster member desyncs replicated state.
+    if (clusterEnabled && !window.confirm(t('settings.restoreClusterWarn'))) {
+      e.target.value = ''
+      return
+    }
     setRestoreLoading(true)
     try {
       await api.restoreBackup(file)
       toast.success(t('settings.restoreSuccess'))
+      // Poll until the panel comes back, but cap at 60 attempts (≈2 min)
+      // so a corrupted DB doesn't leave the user staring at a spinner
+      // forever with no error.
       setTimeout(() => {
+        let attempts = 0
+        const maxAttempts = 60
         const check = setInterval(() => {
+          attempts++
           fetch(`${api.apiBase}/auth/setup-status`)
             .then(() => { clearInterval(check); window.location.reload() })
-            .catch(() => {})
+            .catch(() => {
+              if (attempts >= maxAttempts) {
+                clearInterval(check)
+                toast.error(t('settings.restoreNoReturn'))
+                setRestoreLoading(false)
+              }
+            })
         }, 2000)
       }, 3000)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('settings.restoreFailed')
       toast.error(message)
     } finally {
-      setRestoreLoading(false)
       e.target.value = ''
+      // Don't clear restoreLoading here — the polling loop is still in
+      // flight. The catch path inside the poll clears it on timeout;
+      // success reloads the page so the state is moot.
     }
   }
 

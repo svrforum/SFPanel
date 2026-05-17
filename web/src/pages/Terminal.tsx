@@ -462,7 +462,13 @@ export default function TerminalPage() {
       const wsRef = (el as TerminalSessionElement).__wsRef
       if (termRef?.current) termRef.current.clear()
       if (wsRef?.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(new TextEncoder().encode('clear\r'))
+        // Send Ctrl-L (0x0c) — the universal "clear screen" terminal
+        // signal that any TUI (vim/less/mysql) intercepts correctly.
+        // The previous literal 'clear\r' executed as a shell command
+        // only when the cursor was at a $ prompt and was meaningless
+        // (or actively harmful, e.g. typing 'clear' inside an editor)
+        // anywhere else.
+        wsRef.current.send(new TextEncoder().encode('\x0c'))
       }
     })
   }, [])
