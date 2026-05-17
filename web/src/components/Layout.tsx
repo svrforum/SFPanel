@@ -74,13 +74,15 @@ export default function Layout() {
   }, [collapsed])
 
   useEffect(() => {
-    api.getSystemInfo()
+    // The dashboard overview already carries panel version + update info,
+    // so this one call covers what Layout used to do with two: getSystemInfo
+    // + checkUpdate. Eliminates one GitHub round-trip per dashboard mount
+    // (checkUpdate hits the release index).
+    api.getDashboardOverview()
       .then((data) => {
         if (data.version) setPanelVersion(data.version)
+        if (data.update_info) setUpdateAvailable(data.update_info.update_available)
       })
-      .catch(() => {})
-    api.checkUpdate()
-      .then((data) => setUpdateAvailable(data.update_available))
       .catch(() => {})
   }, [])
 

@@ -24,7 +24,9 @@ export default function MetricsCard({ title, value, percent, icon, subLabel, sub
         <span className="text-[13px] font-medium text-muted-foreground">{title}</span>
       </div>
       <div className="text-xl font-bold tracking-tight mb-3">{value}</div>
-      {clampedPercent > 0 && (
+      {clampedPercent >= 0 && (
+        // Always render the track so a 0% reading (fresh VM, idle CPU) still
+        // shows a faint bar — hiding it on '> 0' made new hosts look broken.
         <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-700 ease-out ${getBarColor(clampedPercent)}`}

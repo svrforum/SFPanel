@@ -1,6 +1,7 @@
 package featuremonitor
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -82,11 +83,16 @@ func (h *Handler) GetOverview(c echo.Context) error {
 
 	wg.Wait()
 
+	// Don't return 500 when ONE of the three sources fails — the dashboard
+	// is the operator's first hint that something is wrong, so partial
+	// data + null fields beats a blank page with a 500. The UI already
+	// guards against null fields. Errors get logged at WARN so they're
+	// still discoverable.
 	if hostErr != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrHostInfoError, "Failed to get host info")
+		slog.Warn("dashboard overview: host info unavailable", "component", "monitor", "error", hostErr)
 	}
 	if metricsErr != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrMetricsError, "Failed to get system metrics")
+		slog.Warn("dashboard overview: metrics unavailable", "component", "monitor", "error", metricsErr)
 	}
 
 	updateInfo := monitor.GetUpdateInfo(h.Version)

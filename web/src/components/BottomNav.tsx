@@ -39,7 +39,10 @@ export default function BottomNav({ onMorePress }: BottomNavProps) {
             className={({ isActive }) =>
               cn(
                 'flex flex-col items-center justify-center gap-0.5 flex-1 h-full active:opacity-70 transition-colors',
-                (isActive || location.pathname.startsWith(tab.to))
+                // Require exact match OR a trailing-slash boundary so e.g.
+                // '/dashboard' doesn't highlight on a hypothetical
+                // '/dashboard-foo' route.
+                (isActive || location.pathname === tab.to || location.pathname.startsWith(tab.to + '/'))
                   ? 'text-[#3182f6]'
                   : 'text-muted-foreground'
               )
