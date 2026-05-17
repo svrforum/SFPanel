@@ -83,13 +83,17 @@ func (eb *EventBus) Recent(limit int) []ClusterEvent {
 	return result
 }
 
-// Since returns events after the given ID, newest first.
+// Since returns events after the given ID, newest first, capped at
+// maxEvents. A long-polling client that paused for a while (laptop sleep)
+// would otherwise pull every event accumulated since — uncapped. The cap
+// matches the ring-buffer size so the worst-case payload is bounded
+// regardless of how stale the caller's afterID is.
 func (eb *EventBus) Since(afterID int) []ClusterEvent {
 	eb.mu.RLock()
 	defer eb.mu.RUnlock()
 
-	var result []ClusterEvent
-	for i := len(eb.events) - 1; i >= 0; i-- {
+	result := make([]ClusterEvent, 0, maxEvents)
+	for i := len(eb.events) - 1; i >= 0 && len(result) < maxEvents; i-- {
 		if eb.events[i].ID <= afterID {
 			break
 		}

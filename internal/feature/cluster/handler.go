@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -413,14 +414,30 @@ func (h *Handler) GetOverview(c echo.Context) error {
 		return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
 	}
 
+	// Confirm leadership of quorum before serving — without VerifyLeader a
+	// partitioned-but-still-thinks-it's-leader node cheerfully returns
+	// stale data with no indication. Same pattern as GetStatus.
+	stale := false
+	if err := mgr.GetRaft().VerifyLeader(2 * time.Second); err != nil {
+		stale = true
+	}
+
 	overview := mgr.GetOverview()
 	if overview == nil {
 		return response.OK(c, map[string]interface{}{
 			"name": "", "node_count": 0, "leader_id": "",
 			"nodes": []interface{}{}, "metrics": []interface{}{},
+			"stale": stale,
 		})
 	}
-	return response.OK(c, overview)
+	return response.OK(c, map[string]interface{}{
+		"name":       overview.Name,
+		"node_count": overview.NodeCount,
+		"leader_id":  overview.LeaderID,
+		"nodes":      overview.Nodes,
+		"metrics":    overview.Metrics,
+		"stale":      stale,
+	})
 }
 
 func (h *Handler) GetNodes(c echo.Context) error {
@@ -441,11 +458,16 @@ func (h *Handler) GetNodes(c echo.Context) error {
 		return h.returnWithLocalID(c, resp)
 	}
 
+	stale := false
+	if err := mgr.GetRaft().VerifyLeader(2 * time.Second); err != nil {
+		stale = true
+	}
 	nodes := mgr.GetNodes()
 	return response.OK(c, map[string]interface{}{
 		"nodes":     nodes,
 		"local_id":  mgr.LocalNodeID(),
 		"is_leader": mgr.IsLeader(),
+		"stale":     stale,
 	})
 }
 
@@ -536,9 +558,15 @@ func (h *Handler) CreateToken(c echo.Context) error {
 		return clusterErrResponse(c, err)
 	}
 
+	// Include the cluster's gRPC port + advertise address so the UI can
+	// render an exact-paste join command without hardcoding the legacy
+	// 9443 port that no longer matches the default install (3629).
+	cfg := mgr.GetConfig()
 	return response.OK(c, map[string]interface{}{
-		"token":      token.Token,
-		"expires_at": token.ExpiresAt,
+		"token":             token.Token,
+		"expires_at":        token.ExpiresAt,
+		"grpc_port":         cfg.GRPCPort,
+		"advertise_address": cfg.AdvertiseAddress,
 	})
 }
 
@@ -588,6 +616,37 @@ func wouldDropBelowQuorum(mgr *cluster.Manager, nodeID string) (string, bool) {
 	}
 	return checkQuorumAfterRemoval(nodeID, voters)
 }
+
+// validateLabels enforces a small bounded schema on user-supplied node
+// labels — without this, the FSM Apply path persisted whatever the caller
+// sent (including multi-MB strings) into the Raft log forever. Following
+// k8s conventions: 63 chars max per key/value, key starts with alnum,
+// allowed chars [A-Za-z0-9._-]. Caps total label count at 32 per node.
+func validateLabels(labels map[string]string) error {
+	if len(labels) > 32 {
+		return fmt.Errorf("too many labels (max 32)")
+	}
+	for k, v := range labels {
+		if len(k) == 0 || len(k) > 63 {
+			return fmt.Errorf("label key %q must be 1..63 chars", k)
+		}
+		if !labelKeyRE.MatchString(k) {
+			return fmt.Errorf("label key %q has invalid characters (allowed: alnum + .-_)", k)
+		}
+		if len(v) > 63 {
+			return fmt.Errorf("label value for %q exceeds 63 chars", k)
+		}
+		if !labelValueRE.MatchString(v) {
+			return fmt.Errorf("label value for %q has invalid characters", k)
+		}
+	}
+	return nil
+}
+
+var (
+	labelKeyRE   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+	labelValueRE = regexp.MustCompile(`^[a-zA-Z0-9._-]*$`)
+)
 
 // checkQuorumAfterRemoval is the pure math behind the guard, split out so
 // the boundary cases (1, 2, 3, 5 voters) are testable without standing up
@@ -656,6 +715,9 @@ func (h *Handler) UpdateNodeLabels(c echo.Context) error {
 	}
 	if err := c.Bind(&body); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	if err := validateLabels(body.Labels); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, err.Error())
 	}
 
 	if err := mgr.UpdateNodeLabels(nodeID, body.Labels); err != nil {
