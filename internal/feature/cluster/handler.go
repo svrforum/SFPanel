@@ -521,6 +521,15 @@ func (h *Handler) CreateToken(c echo.Context) error {
 			ttl = d
 		}
 	}
+	// Clamp to MaxTokenTTL so a typo (8760h = 1y, 99999h = ~11y) or a
+	// careless operator can't mint long-lived bearer credentials.
+	if ttl > cluster.MaxTokenTTL {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
+			fmt.Sprintf("ttl exceeds maximum of %s", cluster.MaxTokenTTL))
+	}
+	if ttl <= 0 {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "ttl must be positive")
+	}
 
 	token, err := mgr.CreateJoinToken(ttl)
 	if err != nil {
@@ -544,11 +553,58 @@ func (h *Handler) RemoveNode(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Node ID required")
 	}
 
+	// Quorum guard: refuse to drop the cluster below quorum unless the
+	// caller explicitly asks for it via ?force=true. Same pattern as
+	// disband — a single fat-fingered click on a 2-voter cluster's "remove"
+	// button would otherwise leave a 1-voter cluster with no fault
+	// tolerance, and from there the next click bricks the whole thing.
+	if c.QueryParam("force") != "true" {
+		if msg, blocked := wouldDropBelowQuorum(mgr, nodeID); blocked {
+			return response.Fail(c, http.StatusConflict, response.ErrInvalidRequest, msg+
+				" — pass ?force=true to confirm")
+		}
+	}
+
 	if err := mgr.RemoveNode(nodeID); err != nil {
 		return clusterErrResponse(c, err)
 	}
 
 	return response.OK(c, map[string]string{"removed": nodeID})
+}
+
+// wouldDropBelowQuorum returns a human-readable reason + true when removing
+// the named voter would leave the cluster with fewer voters than the
+// current Raft quorum (N/2 + 1). Non-voter removal is always safe.
+func wouldDropBelowQuorum(mgr *cluster.Manager, nodeID string) (string, bool) {
+	target := mgr.GetNode(nodeID)
+	if target == nil || target.Role != cluster.RoleVoter {
+		return "", false
+	}
+	voters := 0
+	for _, n := range mgr.GetNodes() {
+		if n.Role == cluster.RoleVoter {
+			voters++
+		}
+	}
+	return checkQuorumAfterRemoval(nodeID, voters)
+}
+
+// checkQuorumAfterRemoval is the pure math behind the guard, split out so
+// the boundary cases (1, 2, 3, 5 voters) are testable without standing up
+// a real Manager+Raft. Returns true when removing one voter from a cluster
+// of `voters` total would leave fewer than N/2+1 voters remaining.
+func checkQuorumAfterRemoval(targetID string, voters int) (string, bool) {
+	if voters <= 0 {
+		return "", false
+	}
+	postRemoval := voters - 1
+	quorum := voters/2 + 1
+	if postRemoval < quorum {
+		return fmt.Sprintf(
+			"removing voter %q would drop the cluster below quorum (%d/%d voters; quorum %d)",
+			targetID, postRemoval, voters, quorum), true
+	}
+	return "", false
 }
 
 func (h *Handler) GetEvents(c echo.Context) error {
