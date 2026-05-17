@@ -447,8 +447,19 @@ func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 
 		// Block until the client disconnects.
 		<-done
-		// Also wait for the scanner goroutine before returning, so the
-		// handler's defer closes the WS only after the writer has exited.
+		// Kill the subprocess(es) FIRST so their stdout pipe closes — this
+		// unblocks scanner.Scan() in the goroutine below. Without this kick,
+		// `tail -F` never returns EOF on its own and the goroutine (plus the
+		// whole subprocess tree) leaks for the lifetime of the panel on every
+		// client disconnect. The deferred Process.Kill+Wait at the top of the
+		// handler still runs and reaps the zombie cleanly.
+		_ = cmd.Process.Kill()
+		if tailCmd != nil && tailCmd != cmd {
+			// Filtered path: also stop the upstream tail so grep's stdin EOFs.
+			_ = tailCmd.Process.Kill()
+		}
+		// Now wait for the scanner goroutine to drain, so the handler's
+		// outer ws.Close() can't race an in-flight write.
 		<-scanDone
 		return nil
 	}
