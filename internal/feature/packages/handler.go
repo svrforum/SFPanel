@@ -166,18 +166,23 @@ func parseUpgradableLine(line string) *PackageInfo {
 // ---------- UpgradePackages ----------
 
 // UpgradePackages runs apt-get update followed by apt-get upgrade for all or
-// specific packages. This is a potentially long-running operation.
+// specific packages. The previous synchronous version used Commander.RunWithEnv
+// which caps subprocesses at 5 minutes — a real-world distro upgrade exceeds
+// that routinely, returning 500 mid-run with the dpkg lock still held. SSE
+// streams output as it arrives and binds to the request context so client
+// disconnect kills the apt subprocess and releases the lock.
 // POST /packages/upgrade
 // JSON body: { "packages": ["pkg1", "pkg2"] } (optional; empty upgrades all)
 func (h *Handler) UpgradePackages(c echo.Context) error {
+	// Phase 1: validate body BEFORE switching to SSE so we can return a
+	// structured 400. After SSE headers are set the response is committed
+	// to text/event-stream.
 	var req struct {
 		Packages []string `json:"packages"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
-
-	// Validate all package names if specific packages were requested.
 	for _, pkg := range req.Packages {
 		if !validatePackageName(pkg) {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPackageName,
@@ -185,35 +190,63 @@ func (h *Handler) UpgradePackages(c echo.Context) error {
 		}
 	}
 
-	env := exec.AptEnv()
-
-	// Step 1: apt-get update
-	updateOutput, err := h.Cmd.RunWithEnv(env, "apt-get", "update")
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
-			"Failed to update package lists: "+err.Error())
+	// Phase 2: stream output via SSE.
+	c.Response().Header().Set("Content-Type", "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().Header().Set("Connection", "keep-alive")
+	c.Response().WriteHeader(http.StatusOK)
+	flusher, ok := c.Response().Writer.(http.Flusher)
+	if !ok {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrSSEError, "Streaming not supported")
+	}
+	sendLine := func(line string) {
+		fmt.Fprintf(c.Response(), "data: %s\n\n", line)
+		flusher.Flush()
 	}
 
-	// Step 2: apt-get upgrade
+	runStreaming := func(label string, args ...string) error {
+		sendLine(">>> " + label)
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Minute)
+		defer cancel()
+		cmd := osExec.CommandContext(ctx, "apt-get", args...)
+		cmd.Env = append(cmd.Environ(), exec.AptEnv()...)
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return err
+		}
+		cmd.Stderr = cmd.Stdout
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			sendLine(scanner.Text())
+		}
+		return cmd.Wait()
+	}
+
+	if err := runStreaming("apt-get update", "update"); err != nil {
+		sendLine("ERROR: apt-get update failed: " + err.Error())
+		sendLine("[DONE]")
+		return nil
+	}
+
 	var upgradeArgs []string
 	if len(req.Packages) > 0 {
-		// Upgrade specific packages via install (upgrade only works on all)
 		upgradeArgs = append([]string{"install", "--only-upgrade", "-y"}, req.Packages...)
 	} else {
 		upgradeArgs = []string{"upgrade", "-y"}
 	}
-
-	upgradeOutput, err := h.Cmd.RunWithEnv(env, "apt-get", upgradeArgs...)
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpgradeError,
-			"Failed to upgrade packages: "+err.Error())
+	if err := runStreaming("apt-get "+strings.Join(upgradeArgs, " "), upgradeArgs...); err != nil {
+		sendLine("ERROR: apt-get upgrade failed: " + err.Error())
+		sendLine("[DONE]")
+		return nil
 	}
 
-	return response.OK(c, map[string]interface{}{
-		"message":        "Packages upgraded successfully",
-		"update_output":  response.SanitizeOutput(updateOutput),
-		"upgrade_output": response.SanitizeOutput(upgradeOutput),
-	})
+	sendLine(">>> Packages upgraded successfully")
+	sendLine("[DONE]")
+	return nil
 }
 
 // ---------- InstallPackage ----------
@@ -446,7 +479,7 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 	sendLine(">>> Downloading Docker install script from https://get.docker.com ...")
 
 	// Step 1: Download get-docker.sh (30s timeout)
-	dlCtx, dlCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	dlCtx, dlCancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 	defer dlCancel()
 	dlCmd := osExec.CommandContext(dlCtx, "curl", "-fsSL", "https://get.docker.com", "-o", "/tmp/get-docker.sh")
 	dlOut, err := dlCmd.CombinedOutput()
@@ -466,7 +499,7 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 	sendLine(">>> Running install script (this may take a few minutes) ...")
 
 	// Step 2: Run the install script with real-time output streaming
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Minute)
 	defer cancel()
 
 	cmd := osExec.CommandContext(ctx, "sh", "/tmp/get-docker.sh")
@@ -590,7 +623,7 @@ func (h *Handler) InstallNode(c echo.Context) error {
 	if _, err := os.Stat(nvmDir + "/nvm.sh"); os.IsNotExist(err) {
 		sendLine(">>> Installing NVM (Node Version Manager) ...")
 
-		dlCtx, dlCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		dlCtx, dlCancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 		defer dlCancel()
 		dlCmd := osExec.CommandContext(dlCtx, "curl", "-fsSL", "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh", "-o", "/tmp/install-nvm.sh")
 		dlOut, err := dlCmd.CombinedOutput()
@@ -607,7 +640,7 @@ func (h *Handler) InstallNode(c echo.Context) error {
 			return nil
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Minute)
 		defer cancel()
 
 		cmd := osExec.CommandContext(ctx, "bash", "/tmp/install-nvm.sh")
@@ -645,7 +678,7 @@ func (h *Handler) InstallNode(c echo.Context) error {
 	// Step 2: Install Node.js LTS via NVM
 	sendLine(">>> Installing Node.js LTS via NVM ...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
 	defer cancel()
 
 	// Source nvm and install LTS in a single bash invocation
@@ -681,7 +714,7 @@ func (h *Handler) InstallNode(c echo.Context) error {
 	// Step 3: Symlink node/npm/npx to /usr/local/bin so they're in global PATH
 	sendLine(">>> Creating symlinks in /usr/local/bin ...")
 	linkScript := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && NODE_PATH=$(which node) && NODE_DIR=$(dirname "$NODE_PATH") && ln -sf "$NODE_DIR/node" /usr/local/bin/node && ln -sf "$NODE_DIR/npm" /usr/local/bin/npm && ln -sf "$NODE_DIR/npx" /usr/local/bin/npx && echo "Linked: $(node --version), npm $(npm --version)"`, nvmDir)
-	linkCtx, linkCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	linkCtx, linkCancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
 	defer linkCancel()
 	linkCmd := osExec.CommandContext(linkCtx, "bash", "-c", linkScript)
 	linkCmd.Env = append(os.Environ(), "HOME="+homeDir, "NVM_DIR="+nvmDir)
@@ -870,7 +903,7 @@ func (h *Handler) InstallNodeVersion(c echo.Context) error {
 	sendLine(fmt.Sprintf(">>> Installing Node.js %s ...", body.Version))
 
 	script := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm install %s`, nvmDir, body.Version)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
 	defer cancel()
 
 	cmd := osExec.CommandContext(ctx, "bash", "-c", script)
@@ -1041,7 +1074,7 @@ func (h *Handler) InstallClaude(c echo.Context) error {
 
 	sendLine(">>> Installing Claude Code CLI ...")
 
-	dlCtx, dlCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	dlCtx, dlCancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 	defer dlCancel()
 	dlCmd := osExec.CommandContext(dlCtx, "curl", "-fsSL", "https://claude.ai/install.sh", "-o", "/tmp/install-claude.sh")
 	dlOut, err := dlCmd.CombinedOutput()
@@ -1058,7 +1091,7 @@ func (h *Handler) InstallClaude(c echo.Context) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
 	defer cancel()
 
 	cmd := osExec.CommandContext(ctx, "bash", "/tmp/install-claude.sh")
@@ -1149,7 +1182,7 @@ func (h *Handler) InstallCodex(c echo.Context) error {
 
 	sendLine(">>> Installing OpenAI Codex CLI via npm ...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
 	defer cancel()
 
 	cmd := osExec.CommandContext(ctx, "npm", "install", "-g", "@openai/codex")
@@ -1237,7 +1270,7 @@ func (h *Handler) InstallGemini(c echo.Context) error {
 
 	sendLine(">>> Installing Google Gemini CLI via npm ...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
 	defer cancel()
 
 	cmd := osExec.CommandContext(ctx, "npm", "install", "-g", "@google/gemini-cli")
