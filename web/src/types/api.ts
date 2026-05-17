@@ -851,6 +851,8 @@ export interface ClusterNodesResponse {
 export interface ClusterTokenResponse {
   token: string
   expires_at: string
+  grpc_port?: number
+  advertise_address?: string
 }
 
 export interface ClusterEvent {

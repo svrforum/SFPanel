@@ -12,6 +12,8 @@ export default function ClusterTokens() {
   const [generating, setGenerating] = useState(false)
   const [token, setToken] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
+  const [grpcPort, setGrpcPort] = useState<number>(3629)
+  const [advertise, setAdvertise] = useState<string>('<leader-ip>')
   const [copied, setCopied] = useState(false)
 
   const handleGenerate = async () => {
@@ -20,6 +22,8 @@ export default function ClusterTokens() {
       const result = await api.createClusterToken(ttl)
       setToken(result.token)
       setExpiresAt(result.expires_at)
+      if (result.grpc_port) setGrpcPort(result.grpc_port)
+      if (result.advertise_address) setAdvertise(result.advertise_address)
     } catch (err) {
       toast.error(String(err))
     } finally {
@@ -104,10 +108,10 @@ export default function ClusterTokens() {
             </label>
             <div className="relative">
               <div className="bg-secondary/50 rounded-xl p-4 pr-12 font-mono text-[12px]">
-                sudo sfpanel cluster join &lt;leader-ip&gt;:9443 {token}
+                sudo sfpanel cluster join {advertise}:{grpcPort} {token}
               </div>
               <button
-                onClick={() => handleCopy(`sudo sfpanel cluster join <leader-ip>:9443 ${token}`)}
+                onClick={() => handleCopy(`sudo sfpanel cluster join ${advertise}:${grpcPort} ${token}`)}
                 className="absolute right-3 top-3 p-1.5 rounded-lg hover:bg-accent transition-colors"
               >
                 <Copy className="h-4 w-4 text-muted-foreground" />
