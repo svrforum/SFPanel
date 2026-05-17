@@ -524,8 +524,12 @@ func (h *Handler) InstallApp(c echo.Context) error {
 
 	stackDir := filepath.Join(h.ComposePath, id)
 
-	if _, err := os.Stat(stackDir); err == nil {
-		return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, "Stack directory already exists: "+stackDir)
+	// Ensure parent ComposePath exists so the os.Mkdir below isn't a
+	// stat+create race: two concurrent installs for the same id would
+	// otherwise both pass an os.Stat check and both succeed in MkdirAll.
+	// os.Mkdir (non-recursive) is atomic and fails with EEXIST.
+	if err := os.MkdirAll(h.ComposePath, 0755); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError, "Failed to ensure compose dir: "+err.Error())
 	}
 
 	conflicts := h.checkPortConflicts(found, req.Env)
@@ -555,8 +559,16 @@ func (h *Handler) InstallApp(c echo.Context) error {
 	}
 
 	send("prepare", "Creating directory: "+stackDir, false, true)
-	if err := os.MkdirAll(stackDir, 0755); err != nil {
-		send("prepare", "Failed to create directory: "+err.Error(), true, false)
+	// os.Mkdir + EEXIST as the atomic race-free conflict check. A second
+	// install request for the same id during the install window now gets
+	// a clear "already in progress / installed" error instead of silently
+	// racing on docker compose up.
+	if err := os.Mkdir(stackDir, 0755); err != nil {
+		if os.IsExist(err) {
+			send("prepare", "Stack directory already exists (concurrent install?): "+stackDir, true, false)
+		} else {
+			send("prepare", "Failed to create directory: "+err.Error(), true, false)
+		}
 		return nil
 	}
 

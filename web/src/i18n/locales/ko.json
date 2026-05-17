@@ -961,6 +961,7 @@
     "createSuccess": "크론 작업이 생성되었습니다",
     "updateSuccess": "크론 작업이 수정되었습니다",
     "saveFailed": "크론 작업 저장 실패",
+    "invalidSchedule": "스케줄 형식이 올바르지 않습니다. @reboot/@daily/@weekly/@hourly 또는 5개 필드(분 시 일 월 요일)를 입력하세요.",
     "fetchFailed": "크론 작업 목록을 가져올 수 없습니다",
     "enabled": "작업이 활성화되었습니다",
     "disabled": "작업이 비활성화되었습니다",

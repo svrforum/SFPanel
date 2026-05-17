@@ -962,6 +962,7 @@
     "createSuccess": "Cron job created",
     "updateSuccess": "Cron job updated",
     "saveFailed": "Failed to save cron job",
+    "invalidSchedule": "Invalid schedule. Use @reboot/@daily/@weekly/@hourly or 5 fields (min hour day month dow).",
     "fetchFailed": "Failed to load cron jobs",
     "enabled": "Job enabled",
     "disabled": "Job disabled",

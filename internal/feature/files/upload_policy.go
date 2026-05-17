@@ -44,6 +44,18 @@ var webExecutableExts = map[string]bool{
 	".rb":    true,
 	".sh":    true,
 	".bash":  true,
+	// Java web containers
+	".war": true,
+	".ear": true,
+}
+
+// webBlocklistBasenames covers filenames (not just extensions) that change
+// Apache/Nginx behaviour or expose attack surface even when the file
+// content itself is innocuous.
+var webBlocklistBasenames = map[string]bool{
+	".htaccess":  true, // Apache override — can enable PHP, redirects, etc.
+	".htpasswd":  true, // password store
+	"web.config": true, // IIS equivalent
 }
 
 func isWebServedPath(p string) bool {
@@ -57,5 +69,11 @@ func isWebServedPath(p string) bool {
 }
 
 func hasWebExecutableExtension(filename string) bool {
-	return webExecutableExts[strings.ToLower(filepath.Ext(filename))]
+	if webExecutableExts[strings.ToLower(filepath.Ext(filename))] {
+		return true
+	}
+	// Match by basename too — .htaccess has no "extension" per
+	// filepath.Ext (it's all extension), and operators who drag-and-drop
+	// these into /var/www routinely don't realize they'll be live.
+	return webBlocklistBasenames[strings.ToLower(filepath.Base(filename))]
 }
