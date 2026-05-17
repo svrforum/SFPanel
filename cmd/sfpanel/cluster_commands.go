@@ -445,11 +445,14 @@ func clusterStatus(args []string) {
 		return
 	}
 
-	role := "Follower"
-	if env.Data.LeaderID == cfg.Cluster.NodeID {
+	var role string
+	switch env.Data.LeaderID {
+	case cfg.Cluster.NodeID:
 		role = "Leader"
-	} else if env.Data.LeaderID == "" {
+	case "":
 		role = "Candidate / no leader"
+	default:
+		role = "Follower"
 	}
 
 	fmt.Println()
