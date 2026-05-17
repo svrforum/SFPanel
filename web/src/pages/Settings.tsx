@@ -28,13 +28,19 @@ export default function Settings() {
       .catch(() => {})
   }, [])
 
-  // In cluster mode: filter tabs based on context
-  // ?scope=node → show only system/tuning (node-specific)
-  // otherwise → show only global tabs (general, security, alerts, audit)
+  // In cluster mode: filter tabs based on context.
+  //   ?scope=node → tabs that hit per-node SQLite (system/tuning/audit).
+  //                 Terminal timeout + max upload size now live on the
+  //                 tuning tab because those rows are also per-node (the
+  //                 settings table isn't FSM-replicated).
+  //   otherwise   → tabs that are truly cluster-global (replicated FSM
+  //                 state or browser-local): general (language), security
+  //                 (password/2FA hit the FSM admin row), alerts.
+  // Single-node deployments show everything since there's no scope split.
   const scope = searchParams.get('scope')
   const isNodeScope = clusterEnabled && scope === 'node'
   const visibleTabs = clusterEnabled
-    ? (isNodeScope ? ['system', 'tuning'] : ['general', 'security', 'alerts', 'audit'])
+    ? (isNodeScope ? ['system', 'tuning', 'audit'] : ['general', 'security', 'alerts'])
     : VALID_TABS
 
   const defaultTab = visibleTabs[0]
@@ -467,58 +473,6 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Terminal */}
-      <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold">{t('settings.terminal')}</h3>
-        <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.terminalDescription')}</p>
-        <form onSubmit={handleSaveTerminalTimeout} className="space-y-4 max-w-md">
-          <div className="space-y-2">
-            <Label htmlFor="terminal-timeout" className="text-[13px]">{t('settings.terminalTimeout')}</Label>
-            <div className="flex items-center gap-2">
-              <Input
-                id="terminal-timeout"
-                type="number"
-                min="0"
-                value={terminalTimeout}
-                onChange={(e) => setTerminalTimeout(e.target.value)}
-                className="w-24 rounded-xl"
-              />
-              <span className="text-[13px] text-muted-foreground">{t('settings.minutes')}</span>
-            </div>
-            <p className="text-[11px] text-muted-foreground">{t('settings.terminalTimeoutHint')}</p>
-          </div>
-          <Button type="submit" disabled={terminalTimeoutLoading} className="rounded-xl">
-            {terminalTimeoutLoading ? t('common.saving') : t('common.save')}
-          </Button>
-        </form>
-      </div>
-
-      {/* File Upload */}
-      <div className="bg-card rounded-2xl p-6 card-shadow">
-        <h3 className="text-[15px] font-semibold">{t('settings.fileUpload')}</h3>
-        <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.fileUploadDescription')}</p>
-        <form onSubmit={handleSaveMaxUploadSize} className="space-y-4 max-w-md">
-          <div className="space-y-2">
-            <Label htmlFor="max-upload-size" className="text-[13px]">{t('settings.maxUploadSize')}</Label>
-            <div className="flex items-center gap-2">
-              <Input
-                id="max-upload-size"
-                type="number"
-                min="1"
-                value={maxUploadSize}
-                onChange={(e) => setMaxUploadSize(e.target.value)}
-                className="w-24 rounded-xl"
-              />
-              <span className="text-[13px] text-muted-foreground">MB</span>
-            </div>
-            <p className="text-[11px] text-muted-foreground">{t('settings.maxUploadSizeHint')}</p>
-          </div>
-          <Button type="submit" disabled={maxUploadSizeLoading} className="rounded-xl">
-            {maxUploadSizeLoading ? t('common.saving') : t('common.save')}
-          </Button>
-        </form>
-      </div>
-
         </TabsContent>
 
         {/* ===== Security Tab ===== */}
@@ -809,7 +763,60 @@ export default function Settings() {
         </TabsContent>
 
         {/* ===== Tuning Tab ===== */}
-        <TabsContent value="tuning" className="mt-6">
+        <TabsContent value="tuning" className="space-y-6 mt-6">
+
+      {/* Terminal — per-node (settings table is local SQLite, not FSM) */}
+      <div className="bg-card rounded-2xl p-6 card-shadow">
+        <h3 className="text-[15px] font-semibold">{t('settings.terminal')}</h3>
+        <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.terminalDescription')}</p>
+        <form onSubmit={handleSaveTerminalTimeout} className="space-y-4 max-w-md">
+          <div className="space-y-2">
+            <Label htmlFor="terminal-timeout" className="text-[13px]">{t('settings.terminalTimeout')}</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="terminal-timeout"
+                type="number"
+                min="0"
+                value={terminalTimeout}
+                onChange={(e) => setTerminalTimeout(e.target.value)}
+                className="w-24 rounded-xl"
+              />
+              <span className="text-[13px] text-muted-foreground">{t('settings.minutes')}</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground">{t('settings.terminalTimeoutHint')}</p>
+          </div>
+          <Button type="submit" disabled={terminalTimeoutLoading} className="rounded-xl">
+            {terminalTimeoutLoading ? t('common.saving') : t('common.save')}
+          </Button>
+        </form>
+      </div>
+
+      {/* File Upload — per-node */}
+      <div className="bg-card rounded-2xl p-6 card-shadow">
+        <h3 className="text-[15px] font-semibold">{t('settings.fileUpload')}</h3>
+        <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.fileUploadDescription')}</p>
+        <form onSubmit={handleSaveMaxUploadSize} className="space-y-4 max-w-md">
+          <div className="space-y-2">
+            <Label htmlFor="max-upload-size" className="text-[13px]">{t('settings.maxUploadSize')}</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="max-upload-size"
+                type="number"
+                min="1"
+                value={maxUploadSize}
+                onChange={(e) => setMaxUploadSize(e.target.value)}
+                className="w-24 rounded-xl"
+              />
+              <span className="text-[13px] text-muted-foreground">MB</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground">{t('settings.maxUploadSizeHint')}</p>
+          </div>
+          <Button type="submit" disabled={maxUploadSizeLoading} className="rounded-xl">
+            {maxUploadSizeLoading ? t('common.saving') : t('common.save')}
+          </Button>
+        </form>
+      </div>
+
           <SettingsTuning />
         </TabsContent>
 
