@@ -47,6 +47,48 @@ func (w *safeWSWriter) WriteJSON(v interface{}) error {
 	return w.conn.WriteJSON(v)
 }
 
+const (
+	// wsReadDeadline gives the client wsPingInterval + slack to send a pong.
+	// If we don't see one within this window the read goroutine errors,
+	// which is what we want — it propagates to ctx.Cancel and tears the
+	// session down. Without this, a half-open WS (router/NAT timeout, lid
+	// closed) leaves the docker exec session and its goroutines alive.
+	wsReadDeadline = 60 * time.Second
+	wsPingInterval = 25 * time.Second
+)
+
+// startWSKeepalive arms a read deadline + pong handler on the WS and starts
+// a goroutine that pings the client every wsPingInterval. The ping goroutine
+// exits when ctx is cancelled (parent handler tearing down). Returns a
+// no-op cleanup function for symmetry with defer patterns.
+//
+// The pattern is the standard gorilla/websocket keepalive recipe. We need
+// it on every long-lived WS handler — without it, a half-open connection
+// (browser tab crashes mid-flight, NAT entry expires) leaves the read
+// goroutine parked indefinitely on ReadMessage and the entire session tree
+// alive: docker exec process, log scanner, bridge goroutines.
+func startWSKeepalive(ctx context.Context, ws *websocket.Conn, writer *safeWSWriter) {
+	_ = ws.SetReadDeadline(time.Now().Add(wsReadDeadline))
+	ws.SetPongHandler(func(string) error {
+		_ = ws.SetReadDeadline(time.Now().Add(wsReadDeadline))
+		return nil
+	})
+	go func() {
+		ticker := time.NewTicker(wsPingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := writer.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
+			}
+		}
+	}()
+}
+
 // AuthenticateWS validates a WebSocket request via a single-use ticket
 // (preferred — JWT never lands in the URL/access log) or, for back-compat
 // with older JS clients, via the ?token= JWT path. Internal cluster proxy
@@ -154,6 +196,7 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		}()
 
 		writer := &safeWSWriter{conn: ws}
+		startWSKeepalive(ctx, ws, writer)
 
 		scanDone := make(chan struct{})
 		go func() {
@@ -286,6 +329,7 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		defer hijacked.Close()
 
 		writer := &safeWSWriter{conn: ws}
+		startWSKeepalive(ctx, ws, writer)
 
 		// Close hijacked connection when context is cancelled (from either goroutine)
 		// This unblocks hijacked.Reader.Read() in the Docker reader goroutine
