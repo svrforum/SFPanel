@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -43,17 +44,18 @@ interface AlertHistoryEntry {
   created_at: string
 }
 
-const RULE_TYPES = [
-  { value: 'cpu', label: 'CPU' },
-  { value: 'memory', label: '메모리' },
-  { value: 'disk', label: '디스크' },
-  { value: 'container_down', label: '컨테이너 종료' },
-  { value: 'container_oom', label: '컨테이너 OOM kill' },
-  { value: 'container_restart_loop', label: '컨테이너 재시작 루프' },
-  { value: 'container_unhealthy', label: '컨테이너 healthcheck 실패' },
-  { value: 'service', label: '서비스' },
-  { value: 'login', label: '로그인' },
-  { value: 'package', label: '패키지' },
+// Rule type value <-> i18n key mapping. Labels are resolved via t() at render time.
+const RULE_TYPES: { value: string; i18nKey: string }[] = [
+  { value: 'cpu', i18nKey: 'settings.alerts.ruleType.cpu' },
+  { value: 'memory', i18nKey: 'settings.alerts.ruleType.memory' },
+  { value: 'disk', i18nKey: 'settings.alerts.ruleType.disk' },
+  { value: 'container_down', i18nKey: 'settings.alerts.ruleType.containerDown' },
+  { value: 'container_oom', i18nKey: 'settings.alerts.ruleType.containerOom' },
+  { value: 'container_restart_loop', i18nKey: 'settings.alerts.ruleType.containerRestartLoop' },
+  { value: 'container_unhealthy', i18nKey: 'settings.alerts.ruleType.containerUnhealthy' },
+  { value: 'service', i18nKey: 'settings.alerts.ruleType.service' },
+  { value: 'login', i18nKey: 'settings.alerts.ruleType.login' },
+  { value: 'package', i18nKey: 'settings.alerts.ruleType.package' },
 ]
 
 // Rule types that operate on containers (not host metrics) and use a JSON
@@ -71,6 +73,8 @@ function getSeverityStyle(severity: string) {
 }
 
 export default function AlertSettings() {
+  const { t } = useTranslation()
+
   // Channel state
   const [channels, setChannels] = useState<AlertChannel[]>([])
   const [showAddChannel, setShowAddChannel] = useState(false)
@@ -134,16 +138,16 @@ export default function AlertSettings() {
   // Channel handlers
   async function handleAddChannel() {
     if (!channelForm.name.trim()) {
-      toast.error('채널 이름을 입력하세요')
+      toast.error(t('settings.alerts.channels.errorNameRequired'))
       return
     }
     const config: Record<string, string> = {}
     if (channelForm.type === 'discord') {
-      if (!channelForm.webhook_url.trim()) { toast.error('Webhook URL을 입력하세요'); return }
+      if (!channelForm.webhook_url.trim()) { toast.error(t('settings.alerts.channels.errorWebhookRequired')); return }
       config.webhook_url = channelForm.webhook_url
     } else {
       if (!channelForm.bot_token.trim() || !channelForm.chat_id.trim()) {
-        toast.error('Bot Token과 Chat ID를 입력하세요'); return
+        toast.error(t('settings.alerts.channels.errorTelegramRequired')); return
       }
       config.bot_token = channelForm.bot_token
       config.chat_id = channelForm.chat_id
@@ -154,12 +158,12 @@ export default function AlertSettings() {
         method: 'POST',
         body: JSON.stringify({ name: channelForm.name, type: channelForm.type, config, enabled: true }),
       })
-      toast.success('채널이 추가되었습니다')
+      toast.success(t('settings.alerts.channels.successAdded'))
       setShowAddChannel(false)
       setChannelForm({ name: '', type: 'discord', webhook_url: '', bot_token: '', chat_id: '' })
       loadChannels()
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : '채널 추가 실패')
+      toast.error(err instanceof Error ? err.message : t('settings.alerts.channels.errorAddFailed'))
     } finally {
       setChannelLoading(false)
     }
@@ -176,13 +180,13 @@ export default function AlertSettings() {
   }
 
   async function handleDeleteChannel(id: number) {
-    if (!window.confirm('이 채널을 삭제하시겠습니까?')) return
+    if (!window.confirm(t('settings.alerts.channels.confirmDelete'))) return
     try {
       await api.request(`/alerts/channels/${id}`, { method: 'DELETE' })
-      toast.success('채널이 삭제되었습니다')
+      toast.success(t('settings.alerts.channels.successDeleted'))
       loadChannels()
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : '삭제 실패')
+      toast.error(err instanceof Error ? err.message : t('settings.alerts.channels.errorDeleteFailed'))
     }
   }
 
@@ -190,9 +194,9 @@ export default function AlertSettings() {
     setTestingId(id)
     try {
       await api.request(`/alerts/channels/${id}/test`, { method: 'POST' })
-      toast.success('테스트 알림이 전송되었습니다')
+      toast.success(t('settings.alerts.channels.successTested'))
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : '테스트 실패')
+      toast.error(err instanceof Error ? err.message : t('settings.alerts.channels.errorTestFailed'))
     } finally {
       setTestingId(null)
     }
@@ -218,8 +222,8 @@ export default function AlertSettings() {
 
   // Rule handlers
   async function handleAddRule() {
-    if (!ruleForm.name.trim()) { toast.error('규칙 이름을 입력하세요'); return }
-    if (ruleForm.channels.length === 0) { toast.error('알림 채널을 선택하세요'); return }
+    if (!ruleForm.name.trim()) { toast.error(t('settings.alerts.rules.errorNameRequired')); return }
+    if (ruleForm.channels.length === 0) { toast.error(t('settings.alerts.rules.errorChannelsRequired')); return }
     setRuleLoading(true)
     try {
       await api.request('/alerts/rules', {
@@ -236,7 +240,7 @@ export default function AlertSettings() {
           enabled: true,
         }),
       })
-      toast.success('규칙이 추가되었습니다')
+      toast.success(t('settings.alerts.rules.successAdded'))
       setShowAddRule(false)
       setRuleForm({ name: '', type: 'cpu', threshold: 90, severity: 'warning', cooldown: 300, channels: [], node_scope: 'all', nodes: [] })
       setContainerPattern('*')
@@ -244,7 +248,7 @@ export default function AlertSettings() {
       setWindowSeconds(300)
       loadRules()
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : '규칙 추가 실패')
+      toast.error(err instanceof Error ? err.message : t('settings.alerts.rules.errorAddFailed'))
     } finally {
       setRuleLoading(false)
     }
@@ -261,22 +265,22 @@ export default function AlertSettings() {
   }
 
   async function handleDeleteRule(id: number) {
-    if (!window.confirm('이 규칙을 삭제하시겠습니까?')) return
+    if (!window.confirm(t('settings.alerts.rules.confirmDelete'))) return
     try {
       await api.request(`/alerts/rules/${id}`, { method: 'DELETE' })
-      toast.success('규칙이 삭제되었습니다')
+      toast.success(t('settings.alerts.rules.successDeleted'))
       loadRules()
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : '삭제 실패')
+      toast.error(err instanceof Error ? err.message : t('settings.alerts.rules.errorDeleteFailed'))
     }
   }
 
   // History handlers
   async function handleClearHistory() {
-    if (!window.confirm('알림 히스토리를 모두 삭제하시겠습니까?')) return
+    if (!window.confirm(t('settings.alerts.history.confirmClear'))) return
     try {
       await api.request('/alerts/history', { method: 'DELETE' })
-      toast.success('히스토리가 삭제되었습니다')
+      toast.success(t('settings.alerts.history.successCleared'))
       setHistory([])
       setHistoryTotal(0)
       setHistoryPage(1)
@@ -299,8 +303,8 @@ export default function AlertSettings() {
       <div className="bg-card rounded-2xl p-6 card-shadow">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-[15px] font-semibold">채널 관리</h3>
-            <p className="text-[13px] text-muted-foreground mt-1">알림을 받을 Discord / Telegram 채널을 설정합니다</p>
+            <h3 className="text-[15px] font-semibold">{t('settings.alerts.channels.title')}</h3>
+            <p className="text-[13px] text-muted-foreground mt-1">{t('settings.alerts.channels.description')}</p>
           </div>
           <Button
             variant="outline"
@@ -309,7 +313,7 @@ export default function AlertSettings() {
             onClick={() => setShowAddChannel(!showAddChannel)}
           >
             {showAddChannel ? <X className="h-3.5 w-3.5 mr-1.5" /> : <Plus className="h-3.5 w-3.5 mr-1.5" />}
-            {showAddChannel ? '취소' : '채널 추가'}
+            {showAddChannel ? t('common.cancel') : t('settings.alerts.channels.addButton')}
           </Button>
         </div>
 
@@ -318,16 +322,16 @@ export default function AlertSettings() {
           <div className="bg-secondary/30 rounded-xl p-4 mb-4 space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-[13px]">채널 이름</Label>
+                <Label className="text-[13px]">{t('settings.alerts.channels.formNameLabel')}</Label>
                 <Input
                   value={channelForm.name}
                   onChange={e => setChannelForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="예: 운영팀 Discord"
+                  placeholder={t('settings.alerts.channels.formNamePlaceholder')}
                   className="rounded-xl"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-[13px]">타입</Label>
+                <Label className="text-[13px]">{t('settings.alerts.channels.formTypeLabel')}</Label>
                 <Select value={channelForm.type} onValueChange={v => setChannelForm(f => ({ ...f, type: v as 'discord' | 'telegram' }))}>
                   <SelectTrigger className="rounded-xl w-full">
                     <SelectValue />
@@ -341,45 +345,45 @@ export default function AlertSettings() {
             </div>
             {channelForm.type === 'discord' ? (
               <div className="space-y-1.5">
-                <Label className="text-[13px]">Webhook URL</Label>
+                <Label className="text-[13px]">{t('settings.alerts.channels.formWebhookLabel')}</Label>
                 <Input
                   value={channelForm.webhook_url}
                   onChange={e => setChannelForm(f => ({ ...f, webhook_url: e.target.value }))}
-                  placeholder="https://discord.com/api/webhooks/..."
+                  placeholder={t('settings.alerts.channels.formWebhookPlaceholder')}
                   className="rounded-xl"
                 />
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-[13px]">Bot Token</Label>
+                  <Label className="text-[13px]">{t('settings.alerts.channels.formBotTokenLabel')}</Label>
                   <Input
                     value={channelForm.bot_token}
                     onChange={e => setChannelForm(f => ({ ...f, bot_token: e.target.value }))}
-                    placeholder="123456:ABC-DEF..."
+                    placeholder={t('settings.alerts.channels.formBotTokenPlaceholder')}
                     className="rounded-xl"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-[13px]">Chat ID</Label>
+                  <Label className="text-[13px]">{t('settings.alerts.channels.formChatIdLabel')}</Label>
                   <Input
                     value={channelForm.chat_id}
                     onChange={e => setChannelForm(f => ({ ...f, chat_id: e.target.value }))}
-                    placeholder="-1001234567890"
+                    placeholder={t('settings.alerts.channels.formChatIdPlaceholder')}
                     className="rounded-xl"
                   />
                 </div>
               </div>
             )}
             <Button onClick={handleAddChannel} disabled={channelLoading} className="rounded-xl">
-              {channelLoading ? '추가 중...' : '채널 추가'}
+              {channelLoading ? t('settings.alerts.channels.addInProgress') : t('settings.alerts.channels.addButton')}
             </Button>
           </div>
         )}
 
         {/* Channel list */}
         {channels.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground py-4">설정된 채널이 없습니다</p>
+          <p className="text-[13px] text-muted-foreground py-4">{t('settings.alerts.channels.empty')}</p>
         ) : (
           <div className="space-y-2">
             {channels.map(ch => (
@@ -394,7 +398,7 @@ export default function AlertSettings() {
                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
                     ch.enabled ? 'bg-[#00c471]/10 text-[#00c471]' : 'bg-secondary text-muted-foreground'
                   }`}>
-                    {ch.enabled ? '활성' : '비활성'}
+                    {ch.enabled ? t('common.active') : t('common.disabled')}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -404,7 +408,7 @@ export default function AlertSettings() {
                     className="rounded-xl h-7 px-2 text-[11px]"
                     onClick={() => handleToggleChannel(ch)}
                   >
-                    {ch.enabled ? '비활성화' : '활성화'}
+                    {ch.enabled ? t('settings.alerts.channels.actionDisable') : t('settings.alerts.channels.actionEnable')}
                   </Button>
                   <Button
                     variant="outline"
@@ -414,7 +418,7 @@ export default function AlertSettings() {
                     disabled={testingId === ch.id}
                   >
                     <Send className="h-3 w-3 mr-1" />
-                    {testingId === ch.id ? '전송 중...' : '테스트'}
+                    {testingId === ch.id ? t('settings.alerts.channels.actionTesting') : t('settings.alerts.channels.actionTest')}
                   </Button>
                   <Button
                     variant="outline"
@@ -435,8 +439,8 @@ export default function AlertSettings() {
       <div className="bg-card rounded-2xl p-6 card-shadow">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-[15px] font-semibold">규칙 관리</h3>
-            <p className="text-[13px] text-muted-foreground mt-1">알림 트리거 조건을 설정합니다</p>
+            <h3 className="text-[15px] font-semibold">{t('settings.alerts.rules.title')}</h3>
+            <p className="text-[13px] text-muted-foreground mt-1">{t('settings.alerts.rules.description')}</p>
           </div>
           <Button
             variant="outline"
@@ -445,7 +449,7 @@ export default function AlertSettings() {
             onClick={() => setShowAddRule(!showAddRule)}
           >
             {showAddRule ? <X className="h-3.5 w-3.5 mr-1.5" /> : <Plus className="h-3.5 w-3.5 mr-1.5" />}
-            {showAddRule ? '취소' : '규칙 추가'}
+            {showAddRule ? t('common.cancel') : t('settings.alerts.rules.addButton')}
           </Button>
         </div>
 
@@ -454,23 +458,23 @@ export default function AlertSettings() {
           <div className="bg-secondary/30 rounded-xl p-4 mb-4 space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-[13px]">규칙 이름</Label>
+                <Label className="text-[13px]">{t('settings.alerts.rules.formNameLabel')}</Label>
                 <Input
                   value={ruleForm.name}
                   onChange={e => setRuleForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="예: CPU 과부하 경고"
+                  placeholder={t('settings.alerts.rules.formNamePlaceholder')}
                   className="rounded-xl"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-[13px]">타입</Label>
+                <Label className="text-[13px]">{t('settings.alerts.rules.formTypeLabel')}</Label>
                 <Select value={ruleForm.type} onValueChange={v => setRuleForm(f => ({ ...f, type: v }))}>
                   <SelectTrigger className="rounded-xl w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {RULE_TYPES.map(rt => (
-                      <SelectItem key={rt.value} value={rt.value}>{rt.label}</SelectItem>
+                      <SelectItem key={rt.value} value={rt.value}>{t(rt.i18nKey)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -479,7 +483,7 @@ export default function AlertSettings() {
             {/* Host metric rules: percentage threshold. Hidden for container_* types. */}
             {!CONTAINER_RULE_TYPES.has(ruleForm.type) && (
               <div className="space-y-1.5">
-                <Label className="text-[13px]">임계값 (%)</Label>
+                <Label className="text-[13px]">{t('settings.alerts.rules.formThresholdLabel')}</Label>
                 <Input
                   type="number"
                   min={0}
@@ -493,11 +497,11 @@ export default function AlertSettings() {
             {/* Container rules: container name pattern (wildcard, e.g. * or nginx-*) */}
             {CONTAINER_RULE_TYPES.has(ruleForm.type) && (
               <div className="space-y-1.5">
-                <Label className="text-[13px]">컨테이너 패턴 (와일드카드)</Label>
+                <Label className="text-[13px]">{t('settings.alerts.rules.formContainerPatternLabel')}</Label>
                 <Input
                   value={containerPattern}
                   onChange={e => setContainerPattern(e.target.value)}
-                  placeholder="* | nginx-* | exact-name"
+                  placeholder={t('settings.alerts.rules.formContainerPatternPlaceholder')}
                   className="rounded-xl"
                 />
               </div>
@@ -506,7 +510,7 @@ export default function AlertSettings() {
             {ruleForm.type === 'container_restart_loop' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-[13px]">재시작 임계 횟수</Label>
+                  <Label className="text-[13px]">{t('settings.alerts.rules.formRestartCountLabel')}</Label>
                   <Input
                     type="number"
                     min={1}
@@ -516,7 +520,7 @@ export default function AlertSettings() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-[13px]">윈도우 (초)</Label>
+                  <Label className="text-[13px]">{t('settings.alerts.rules.formWindowLabel')}</Label>
                   <Input
                     type="number"
                     min={30}
@@ -529,7 +533,7 @@ export default function AlertSettings() {
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-[13px]">심각도</Label>
+                <Label className="text-[13px]">{t('settings.alerts.rules.formSeverityLabel')}</Label>
                 <Select value={ruleForm.severity} onValueChange={v => setRuleForm(f => ({ ...f, severity: v as 'info' | 'warning' | 'critical' }))}>
                   <SelectTrigger className="rounded-xl w-full">
                     <SelectValue />
@@ -542,7 +546,7 @@ export default function AlertSettings() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label className="text-[13px]">쿨다운 (초)</Label>
+                <Label className="text-[13px]">{t('settings.alerts.rules.formCooldownLabel')}</Label>
                 <Input
                   type="number"
                   min={0}
@@ -553,9 +557,9 @@ export default function AlertSettings() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[13px]">알림 채널</Label>
+              <Label className="text-[13px]">{t('settings.alerts.rules.formChannelsLabel')}</Label>
               {channels.length === 0 ? (
-                <p className="text-[12px] text-muted-foreground">먼저 채널을 추가하세요</p>
+                <p className="text-[12px] text-muted-foreground">{t('settings.alerts.rules.formChannelsEmpty')}</p>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {channels.map(ch => (
@@ -571,47 +575,49 @@ export default function AlertSettings() {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[13px]">노드 범위</Label>
+              <Label className="text-[13px]">{t('settings.alerts.rules.formNodeScopeLabel')}</Label>
               <Select value={ruleForm.node_scope} onValueChange={v => setRuleForm(f => ({ ...f, node_scope: v }))}>
                 <SelectTrigger className="rounded-xl w-full max-w-[200px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">전체 노드</SelectItem>
-                  <SelectItem value="specific">특정 노드</SelectItem>
+                  <SelectItem value="all">{t('settings.alerts.rules.nodeScopeAll')}</SelectItem>
+                  <SelectItem value="specific">{t('settings.alerts.rules.nodeScopeSpecific')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <Button onClick={handleAddRule} disabled={ruleLoading} className="rounded-xl">
-              {ruleLoading ? '추가 중...' : '규칙 추가'}
+              {ruleLoading ? t('settings.alerts.rules.addInProgress') : t('settings.alerts.rules.addButton')}
             </Button>
           </div>
         )}
 
         {/* Rule list */}
         {rules.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground py-4">설정된 규칙이 없습니다</p>
+          <p className="text-[13px] text-muted-foreground py-4">{t('settings.alerts.rules.empty')}</p>
         ) : (
           <div className="space-y-2">
-            {rules.map(rule => (
+            {rules.map(rule => {
+              const ruleTypeEntry = RULE_TYPES.find(rt => rt.value === rule.type)
+              return (
               <div key={rule.id} className="flex items-center justify-between bg-secondary/30 rounded-xl px-4 py-3">
                 <div className="flex items-center gap-3 flex-wrap">
                   <span className="text-[13px] font-medium">{rule.name}</span>
                   <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground">
-                    {RULE_TYPES.find(rt => rt.value === rule.type)?.label || rule.type}
+                    {ruleTypeEntry ? t(ruleTypeEntry.i18nKey) : rule.type}
                   </span>
                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${getSeverityStyle(rule.severity)}`}>
                     {rule.severity}
                   </span>
                   <span className="text-[11px] text-muted-foreground">
                     {CONTAINER_RULE_TYPES.has(rule.type)
-                      ? `쿨다운: ${rule.cooldown}초`
-                      : `임계값: ${rule.threshold}% | 쿨다운: ${rule.cooldown}초`}
+                      ? t('settings.alerts.rules.summaryCooldown', { cooldown: rule.cooldown })
+                      : t('settings.alerts.rules.summaryThresholdCooldown', { threshold: rule.threshold, cooldown: rule.cooldown })}
                   </span>
                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
                     rule.enabled ? 'bg-[#00c471]/10 text-[#00c471]' : 'bg-secondary text-muted-foreground'
                   }`}>
-                    {rule.enabled ? '활성' : '비활성'}
+                    {rule.enabled ? t('common.active') : t('common.disabled')}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -621,7 +627,7 @@ export default function AlertSettings() {
                     className="rounded-xl h-7 px-2 text-[11px]"
                     onClick={() => handleToggleRule(rule)}
                   >
-                    {rule.enabled ? '비활성화' : '활성화'}
+                    {rule.enabled ? t('settings.alerts.rules.actionDisable') : t('settings.alerts.rules.actionEnable')}
                   </Button>
                   <Button
                     variant="outline"
@@ -633,7 +639,8 @@ export default function AlertSettings() {
                   </Button>
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
@@ -642,8 +649,8 @@ export default function AlertSettings() {
       <div className="bg-card rounded-2xl p-6 card-shadow">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-[15px] font-semibold">알림 히스토리</h3>
-            <p className="text-[13px] text-muted-foreground mt-1">발생한 알림 기록을 확인합니다</p>
+            <h3 className="text-[15px] font-semibold">{t('settings.alerts.history.title')}</h3>
+            <p className="text-[13px] text-muted-foreground mt-1">{t('settings.alerts.history.description')}</p>
           </div>
           {history.length > 0 && (
             <Button
@@ -653,36 +660,38 @@ export default function AlertSettings() {
               onClick={handleClearHistory}
             >
               <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-              기록 삭제
+              {t('settings.alerts.history.clearButton')}
             </Button>
           )}
         </div>
 
         {history.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground py-4">알림 기록이 없습니다</p>
+          <p className="text-[13px] text-muted-foreground py-4">{t('settings.alerts.history.empty')}</p>
         ) : (
           <>
             <div className="bg-card rounded-2xl card-shadow overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-[11px]">시간</TableHead>
-                    <TableHead className="text-[11px]">타입</TableHead>
-                    <TableHead className="text-[11px]">심각도</TableHead>
-                    <TableHead className="text-[11px]">메시지</TableHead>
-                    <TableHead className="text-[11px]">노드</TableHead>
-                    <TableHead className="text-[11px]">상태</TableHead>
+                    <TableHead className="text-[11px]">{t('settings.alerts.history.colTime')}</TableHead>
+                    <TableHead className="text-[11px]">{t('settings.alerts.history.colType')}</TableHead>
+                    <TableHead className="text-[11px]">{t('settings.alerts.history.colSeverity')}</TableHead>
+                    <TableHead className="text-[11px]">{t('settings.alerts.history.colMessage')}</TableHead>
+                    <TableHead className="text-[11px]">{t('settings.alerts.history.colNode')}</TableHead>
+                    <TableHead className="text-[11px]">{t('settings.alerts.history.colStatus')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {history.map(entry => (
+                  {history.map(entry => {
+                    const ruleTypeEntry = RULE_TYPES.find(rt => rt.value === entry.type)
+                    return (
                     <TableRow key={entry.id}>
                       <TableCell className="text-[12px] text-muted-foreground whitespace-nowrap">
                         {new Date(entry.created_at).toLocaleString()}
                       </TableCell>
                       <TableCell>
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground">
-                          {RULE_TYPES.find(rt => rt.value === entry.type)?.label || entry.type}
+                          {ruleTypeEntry ? t(ruleTypeEntry.i18nKey) : entry.type}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -702,14 +711,15 @@ export default function AlertSettings() {
                         </span>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>
             {historyTotal > historyLimit && (
               <div className="flex items-center justify-between mt-3">
                 <span className="text-[12px] text-muted-foreground">
-                  {historyPage} / {Math.ceil(historyTotal / historyLimit)} 페이지
+                  {t('settings.alerts.history.pageIndicator', { page: historyPage, total: Math.ceil(historyTotal / historyLimit) })}
                 </span>
                 <div className="flex gap-1.5">
                   <Button

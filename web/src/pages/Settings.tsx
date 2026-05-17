@@ -419,7 +419,7 @@ export default function Settings() {
           {visibleTabs.includes('security') && <TabsTrigger value="security" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSecurity')}</TabsTrigger>}
           {visibleTabs.includes('system') && <TabsTrigger value="system" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabSystem')}</TabsTrigger>}
           {visibleTabs.includes('tuning') && <TabsTrigger value="tuning" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabTuning')}</TabsTrigger>}
-          {visibleTabs.includes('alerts') && <TabsTrigger value="alerts" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAlerts', { defaultValue: '알림' })}</TabsTrigger>}
+          {visibleTabs.includes('alerts') && <TabsTrigger value="alerts" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAlerts')}</TabsTrigger>}
           {visibleTabs.includes('audit') && <TabsTrigger value="audit" className="rounded-lg text-[13px] px-4 py-2">{t('settings.tabAuditLog')}</TabsTrigger>}
         </TabsList>
 
