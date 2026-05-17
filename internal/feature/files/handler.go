@@ -65,7 +65,15 @@ type Handler struct {
 
 // ---------- helpers ----------
 
-// validatePath ensures the path is absolute and contains no traversal sequences.
+// validatePath ensures the path is absolute and free of traversal / redundant
+// segments. The previous implementation used strings.Contains(p, "..") which
+// produced false positives on legitimate filenames like "app..log" while
+// missing edge cases like "/etc/./shadow" and "//etc/passwd".
+//
+// The rule we actually want is: the cleaned form of the path equals the input
+// (modulo trailing slash). filepath.Clean normalizes "..", ".", and "//" but
+// leaves filenames containing literal ".." intact, because path-segment
+// processing operates on /-separated tokens.
 func validatePath(p string) error {
 	if p == "" {
 		return fmt.Errorf("path is required")
@@ -73,8 +81,15 @@ func validatePath(p string) error {
 	if !filepath.IsAbs(p) {
 		return fmt.Errorf("path must be absolute")
 	}
-	if strings.Contains(p, "..") {
-		return fmt.Errorf("path must not contain '..'")
+	cleaned := filepath.Clean(p)
+	// Allow a trailing slash on the input — Clean strips it, but operators
+	// commonly type "/etc/" when listing a directory.
+	trimmed := strings.TrimRight(p, "/")
+	if trimmed == "" {
+		trimmed = "/"
+	}
+	if cleaned != trimmed {
+		return fmt.Errorf("path contains traversal or redundant segments")
 	}
 	return nil
 }
@@ -126,36 +141,72 @@ func isCriticalPath(p string) bool {
 }
 
 // readProtectedPaths are files that must not be readable via the file API.
+// These are exact-match entries; prefix-based rules live in isReadProtectedPath.
 var readProtectedPaths = map[string]bool{
-	"/etc/shadow":  true,
-	"/etc/gshadow": true,
+	"/etc/shadow":              true,
+	"/etc/gshadow":             true,
+	"/etc/sudoers":             true,
+	"/etc/sfpanel/config.yaml": true,
+	// SFPanel SQLite live DB + WAL/SHM — exposing these to /files/read would
+	// leak admin password hashes, JWT secret, refresh tokens, and audit logs.
+	"/var/lib/sfpanel/sfpanel.db":     true,
+	"/var/lib/sfpanel/sfpanel.db-wal": true,
+	"/var/lib/sfpanel/sfpanel.db-shm": true,
 }
 
-// isReadProtectedPath returns true if the resolved path is a read-protected file.
-// It resolves symlinks before checking to prevent bypass via symlink indirection.
+// readProtectedPrefixes block every file underneath one of these roots.
+// Use when the protection applies to a whole subtree (TLS certs, sudoers
+// fragments, root's home directory).
+var readProtectedPrefixes = []string{
+	"/etc/sfpanel/cluster/", // TLS CA + node certs and keys
+	"/etc/sudoers.d/",       // sudoers fragments — same impact as /etc/sudoers
+	"/root/.ssh/",           // root's SSH keys + authorized_keys
+}
+
+// isReadProtectedPath returns true if the (symlink-resolved) path is one we
+// refuse to serve via the file API. Resolution prevents the classic bypass
+// where an attacker who can write a symlink in a permissive directory
+// (e.g. /tmp) points it at a sensitive target.
+//
+// Resolution is best-effort: if EvalSymlinks fails (broken symlink, ENOENT
+// at intermediate component) we fall back to the literal cleaned path, which
+// still blocks attempts to read sensitive paths directly. That is the more
+// permissive direction — a non-existent path can't leak data anyway, so a
+// false negative on EvalSymlinks is acceptable; the false-positive direction
+// (blocking a legitimate read) is what we avoid.
 func isReadProtectedPath(p string) bool {
 	resolved, err := filepath.EvalSymlinks(p)
 	if err != nil {
-		// If we can't resolve, check the literal path.
 		resolved = filepath.Clean(p)
 	}
 
 	if readProtectedPaths[resolved] {
 		return true
 	}
-
-	// Block config files under /etc/sfpanel/
-	if strings.HasPrefix(resolved, "/etc/sfpanel/") {
-		// Block TLS certificates directory
-		if strings.HasPrefix(resolved, "/etc/sfpanel/cluster/") {
-			return true
-		}
-		// Block config.yaml files
-		if resolved == "/etc/sfpanel/config.yaml" {
+	for _, prefix := range readProtectedPrefixes {
+		if strings.HasPrefix(resolved, prefix) {
 			return true
 		}
 	}
-
+	// Generic /etc/ssh/*_key (private host keys). The .pub variants are
+	// public and remain readable so operators can inspect/copy them.
+	if strings.HasPrefix(resolved, "/etc/ssh/") &&
+		strings.HasSuffix(resolved, "_key") {
+		return true
+	}
+	// Generic /home/<user>/.ssh/<anything>. We protect the whole subtree
+	// the same way as /root/.ssh — id_*, authorized_keys, known_hosts all
+	// have sensitive content (or footprints) we don't expose.
+	if strings.HasPrefix(resolved, "/home/") {
+		// "/home/<user>/.ssh/..." — the ".ssh" segment must follow the
+		// username and be inside that user's home root.
+		rest := strings.TrimPrefix(resolved, "/home/")
+		if idx := strings.Index(rest, "/"); idx > 0 {
+			if strings.HasPrefix(rest[idx:], "/.ssh/") || rest[idx:] == "/.ssh" {
+				return true
+			}
+		}
+	}
 	return false
 }
 
