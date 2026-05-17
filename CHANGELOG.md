@@ -6,6 +6,114 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.13.9] – 2026-05-17
+
+Security + stability sweep across 15 issues surfaced by the per-area
+review of every sidebar feature. Each item has its own commit with a
+focused regression test where applicable; this entry summarises the
+batch.
+
+### Security
+
+- **Files API: tightened path validation + expanded read-protection.**
+  `validatePath` no longer rejects legitimate filenames containing
+  `..` (`/var/log/app..log` previously 400'd) and no longer accepts
+  redundant segments like `/etc/./hostname` or `//etc/passwd` that
+  the old `strings.Contains(p, "..")` check let through. Read-protection
+  was previously narrow (`/etc/shadow`, `/etc/gshadow`,
+  `/etc/sfpanel/`); the admin (or XSS riding their session) could
+  read `/root/.ssh/id_rsa`, `/etc/sudoers`,
+  `/var/lib/sfpanel/sfpanel.db` (admin password hashes + JWT secret).
+  Added entries for sudoers/sudoers.d, SQLite live DB + WAL/SHM, and
+  prefix rules for `/root/.ssh/`, `/etc/ssh/*_key`, `/home/*/.ssh/`.
+- **Settings: allowlist on `PUT /settings` keys.** The endpoint
+  accepted any key — admin/XSS could poison `appstore_cache`
+  (unmarshal is unchecked), grow the settings table unbounded, or
+  overwrite operator-tunable values past sane bounds. Restricted to
+  `terminal_timeout` and `max_upload_size`; other modules already
+  write their own keys via direct DB calls.
+- **Cluster join tokens: 30-day max TTL.** `POST /cluster/token`
+  previously accepted any `time.ParseDuration` value (`8760h` →
+  1 year, `99999h` → ~11 years) and persisted the result.
+- **UFW: SSH-lockout guard on enable + rule delete.** `EnableUFW`
+  refused to flip default-incoming-deny without an existing ALLOW
+  for SSH (22) or the panel port; `DeleteRule` simulates the
+  post-delete state and refuses if removing the targeted rule
+  leaves no access. Pass `?force=true` to override either.
+- **Disk LVM/RAID: device-name regex no longer allows `/`.**
+  The previous regex permitted `sda/anything`, which then became
+  `/dev/sda/anything` — pointing `mdadm` / `pvcreate` / `pvremove`
+  at unrelated kernel devices. Added `verifyBlockDevice` stat check
+  that confirms `/dev/<name>` is actually a block device before
+  invoking destructive tooling.
+
+### Stability / resource leaks
+
+- **Logs WS: kill subprocess on client disconnect.** The handler
+  waited on the scanner goroutine after the client gone, but
+  `scanner.Scan()` blocks on `tail -F`'s pipe — which never EOFs.
+  Every tab close leaked a `tail -F` (and `grep` in filtered mode)
+  for the lifetime of the panel. Now kills the primary subprocess
+  inline, which closes the pipe → scanner exits → cleanup runs.
+- **WebSocket exec/logs: ping/pong keepalive.** Half-open WS
+  connections (browser tab crash, NAT timeout) left the docker
+  exec session and bridge goroutines alive forever waiting on a
+  `ReadMessage` that would never return. Added a 60s read deadline
+  with a 25s ping ticker.
+- **useWebSocket hook: clear pending reconnect timer before
+  re-arming.** Two close paths could schedule reconnects without
+  clearing the previous handle, leaking timers and double-firing.
+- **Docker client cache: invalidate on mutating ops.** The 5 s
+  containers-list cache went stale across Start/Stop/Restart/Remove/
+  Pause/Unpause; the UI's ListProjectsWithStatus lagged visibly.
+- **Cluster RemoveNode: quorum guard.** Removing a voter from a
+  1- or 2-voter cluster previously took one click. Now requires
+  `?force=true` when removal would drop the cluster below current
+  Raft quorum (N/2 + 1).
+- **Packages /upgrade: SSE instead of synchronous.** The old path
+  used Commander's 5-minute timeout — a real distro upgrade
+  routinely exceeded that, returning 500 mid-run with the dpkg
+  lock still held. Now streams output and binds the apt subprocess
+  to the request context so client disconnect kills it cleanly.
+- **Packages install handlers: bind subprocess to request context.**
+  All 11 sites in `packages/handler.go` swapped
+  `context.WithTimeout(context.Background, …)` →
+  `context.WithTimeout(c.Request().Context(), …)`. Client disconnect
+  now propagates SIGTERM instead of letting the install run to
+  completion against a closed pipe.
+
+### Cluster correctness
+
+- **Cluster proxy classifier: packages installs + docker images/pull
+  marked as streaming.** Seven `/packages/install-*` routes plus
+  `/packages/upgrade` and `/docker/images/pull` were falling through
+  to the unary gRPC path (30 s timeout, 4 MB recv cap) when invoked
+  with `?node=remote`. Clicking 'Install Docker' on a remote node
+  silently timed out half-way.
+
+### UX
+
+- **Settings: Disable 2FA button.** The API and i18n strings shipped
+  earlier, but the UI only ever offered Reconfigure — once 2FA was
+  on, operators had no way to turn it off short of editing the
+  database. Added a destructive button alongside Reconfigure.
+- **Terminal: resolve PTY home directory at runtime.** Previously
+  hardcoded `/root` — on non-root systemd installs the PTY chdir
+  failed and the shell exited before the operator saw a prompt.
+  Now prefers `HOME` env, then `os.UserHomeDir()`, then `/tmp`.
+- **Packages search: allow multi-word queries.** The previous
+  package-name regex rejected spaces, so 'redis server' got a 400.
+  Split into a wider `validateSearchQuery` (apt-cache takes args
+  via argv so no injection surface).
+- **Docker healthcheck composer: SHA against on-disk YAML.** The
+  composer dialog hashed the Monaco editor's buffer for the
+  precondition check, so any unsaved edits in the editor made
+  the server-side SHA mismatch with a misleading 'compose file
+  changed externally' error. Split out a `diskYaml` state that
+  mirrors what the server will read.
+
+---
+
 ## [0.13.8] – 2026-05-17
 
 Cluster observability hardening. Motivated by a real 2-day outage on
