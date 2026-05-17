@@ -34,11 +34,30 @@ type Handler struct {
 // validPackageName matches only safe package name characters.
 var validPackageName = regexp.MustCompile(`^[a-zA-Z0-9._+\-]+$`)
 
+// validSearchQuery is a deliberately wider character set than package names —
+// users routinely search with multi-word phrases ("redis server", "python
+// async") that the package-name validator would reject. apt-cache search
+// takes its query via argv (not a shell), so command injection is structurally
+// absent; the validator only needs to keep out characters that confuse
+// apt-cache itself (tabs, newlines, glob wildcards) and the obvious
+// shell-ish forms that would clearly be a typo or paste accident.
+var validSearchQuery = regexp.MustCompile(`^[a-zA-Z0-9._+\- ]+$`)
+
 // ---------- Helpers ----------
 
 // validatePackageName checks that a package name contains only allowed characters.
 func validatePackageName(name string) bool {
 	return validPackageName.MatchString(name)
+}
+
+// validateSearchQuery accepts a wider set than validatePackageName: spaces
+// are permitted (multi-word queries) but no shell metacharacters or
+// whitespace other than space. apt-cache search treats the query as a regex
+// over package descriptions; we don't try to validate it as a regex (let
+// apt-cache surface its own error) — only block what looks like an injection
+// attempt or a paste accident.
+func validateSearchQuery(q string) bool {
+	return validSearchQuery.MatchString(q)
 }
 
 // ---------- CheckUpdates ----------
@@ -270,9 +289,9 @@ func (h *Handler) SearchPackages(c echo.Context) error {
 	if query == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingQuery, "Query parameter 'q' is required")
 	}
-	if !validatePackageName(query) {
+	if !validateSearchQuery(query) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidQuery,
-			"Search query contains invalid characters (allowed: a-zA-Z0-9._+-)")
+			"Search query contains invalid characters (allowed: a-zA-Z0-9._+- and spaces)")
 	}
 
 	env := append(exec.AptEnv(), "LANG=C")
