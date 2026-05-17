@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.13.12] – 2026-05-17
+
+Hotfix on top of 0.13.11.
+
+### Settings
+
+- **"Update available" navigation lands on the correct tab in
+  cluster mode.** The dashboard update banner and the sidebar
+  version button both routed to a bare `/settings`, which in
+  cluster mode hides system/tuning/audit behind `?scope=node`
+  and falls back to the General tab — so clicking "Go to
+  Settings" from a new-version banner showed the language
+  picker and no update UI. All three nav sites now use
+  `/settings?scope=node&tab=system`; in single-node mode the
+  `scope=node` is ignored and only `tab=system` takes effect,
+  preserving the existing single-node behaviour.
+
+---
+
 ## [0.13.11] – 2026-05-17
 
 Hardening pass across alerting, auth, audit, and settings, plus
