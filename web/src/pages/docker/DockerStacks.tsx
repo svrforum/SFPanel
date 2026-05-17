@@ -90,6 +90,12 @@ export default function DockerStacks() {
 
   // Editor state
   const [editYaml, setEditYaml] = useState('')
+  // diskYaml mirrors what's actually on disk — kept separate from the
+  // Monaco buffer so server-side SHA preconditions (e.g. the healthcheck
+  // composer) hash the same content the server will read with os.ReadFile.
+  // Using editYaml here would fail the precondition whenever the operator
+  // has unsaved edits in the editor.
+  const [diskYaml, setDiskYaml] = useState('')
   const [editEnv, setEditEnv] = useState('')
   const [editorTab, setEditorTab] = useState<'compose' | 'env'>('compose')
   const [mainTab, setMainTab] = useState<'services' | 'editor' | 'logs'>('services')
@@ -182,6 +188,7 @@ export default function DockerStacks() {
       // Load YAML
       api.getComposeProject(selectedName).then(data => {
         setEditYaml(data.yaml)
+        setDiskYaml(data.yaml)
       }).catch(() => {})
       // Load .env
       api.getComposeEnv(selectedName).then(data => {
@@ -1222,9 +1229,10 @@ export default function DockerStacks() {
           onOpenChange={(open) => !open && setHealthcheckTarget(null)}
           project={selectedName}
           service={healthcheckTarget.name}
-          baseYaml={editYaml}
+          baseYaml={diskYaml}
           onApplied={(newYaml) => {
             setEditYaml(newYaml)
+            setDiskYaml(newYaml)
             setMainTab('editor')
             setEditorTab('compose')
             setHealthcheckTarget(null)
