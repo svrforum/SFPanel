@@ -225,16 +225,51 @@ func sha256Hex(s string) string {
 // only path that produces a login trail; never include the password here.
 // The `reason` goes into the path column so breach investigations can filter
 // by success/invalid_password/invalid_totp without a schema change.
+//
+// Thin wrapper over insertSecurityAuditRow so the original signature stays
+// stable for the Login handler while the richer recordSecurityEvent below
+// covers the post-auth handlers.
 func (h *Handler) recordLoginEvent(username, ip string, status int, reason string) {
+	h.insertSecurityAuditRow(username, ip, "login", reason, "POST", status)
+}
+
+// recordSecurityEvent appends a row to audit_logs annotating a security-
+// relevant state change (password rotation, 2FA enable/disable, 2FA verify).
+// Mirrors recordLoginEvent's path format — /api/v1/auth/<action>#<reason> —
+// so a single audit query can filter every auth-flow outcome by reason.
+//
+// The audit middleware skips /api/v1/auth/2fa and /api/v1/auth/change-password
+// so the row this writes is the canonical record for the request; without
+// that skip there'd be two rows per call (one plain, one reasoned).
+//
+// Username and IP come from the echo context so callers don't have to
+// thread them through. Status is passed explicitly because it must match
+// what response.Fail / response.OK returns, not whatever Echo has set on
+// the writer when this function fires (the goroutine may race the writer).
+func (h *Handler) recordSecurityEvent(c echo.Context, action, reason string, status int) {
+	username, _ := c.Get("username").(string)
+	ip := c.RealIP()
+	method := "POST"
+	if c.Request() != nil && c.Request().Method != "" {
+		method = c.Request().Method
+	}
+	h.insertSecurityAuditRow(username, ip, action, reason, method, status)
+}
+
+// insertSecurityAuditRow is the shared write path. Stays internal so both
+// public helpers produce identical row shapes.
+func (h *Handler) insertSecurityAuditRow(username, ip, action, reason, method string, status int) {
 	if h.DB == nil {
 		return
 	}
-	path := "/api/v1/auth/login#" + reason
+	path := "/api/v1/auth/" + action + "#" + reason
 	go func() {
-		_, _ = h.DB.Exec(
+		if _, err := h.DB.Exec(
 			"INSERT INTO audit_logs (username, method, path, status, ip, node_id) VALUES (?, ?, ?, ?, ?, ?)",
-			username, "POST", path, status, ip, "",
-		)
+			username, method, path, status, ip, "",
+		); err != nil {
+			slog.Warn("security audit insert failed", "component", "auth", "action", action, "reason", reason, "error", err)
+		}
 	}()
 }
 
@@ -279,6 +314,7 @@ func (h *Handler) Setup2FA(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTOTPError, "Failed to generate 2FA secret")
 	}
 
+	h.recordSecurityEvent(c, "2fa_setup", "success", http.StatusOK)
 	return response.OK(c, setup2FAResponse{
 		Secret: key.Secret(),
 		URL:    key.URL(),
@@ -301,11 +337,13 @@ func (h *Handler) Verify2FA(c echo.Context) error {
 	}
 
 	if !auth.ValidateCode(req.Secret, req.Code) {
+		h.recordSecurityEvent(c, "2fa_verify", "invalid_code", http.StatusBadRequest)
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidTOTP, "Invalid 2FA code")
 	}
 
 	passwordHash, _, fromCluster, err := h.loadAdminAccount(username)
 	if errors.Is(err, sql.ErrNoRows) {
+		h.recordSecurityEvent(c, "2fa_verify", "user_not_found", http.StatusNotFound)
 		return response.Fail(c, http.StatusNotFound, response.ErrUserNotFound, "User not found")
 	}
 	if err != nil {
@@ -316,6 +354,7 @@ func (h *Handler) Verify2FA(c echo.Context) error {
 		return h.failClusterPersist(c, err)
 	}
 
+	h.recordSecurityEvent(c, "2fa_verify", "success", http.StatusOK)
 	return response.OK(c, map[string]string{"message": "2FA enabled successfully"})
 }
 
@@ -369,6 +408,7 @@ func (h *Handler) Disable2FA(c echo.Context) error {
 	}
 
 	if !auth.CheckPassword(req.Password, passwordHash) {
+		h.recordSecurityEvent(c, "2fa_disable", "invalid_password", http.StatusUnauthorized)
 		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidPassword, "Invalid password")
 	}
 
@@ -377,9 +417,11 @@ func (h *Handler) Disable2FA(c echo.Context) error {
 	// no physical device) from downgrading the account to password-only.
 	if totpSecret != "" {
 		if req.TOTPCode == "" {
+			h.recordSecurityEvent(c, "2fa_disable", "totp_required", http.StatusBadRequest)
 			return response.Fail(c, http.StatusBadRequest, response.ErrTOTPRequired, "Current 2FA code is required to disable 2FA")
 		}
 		if !auth.ValidateCode(totpSecret, req.TOTPCode) {
+			h.recordSecurityEvent(c, "2fa_disable", "invalid_totp", http.StatusUnauthorized)
 			return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidTOTP, "Invalid 2FA code")
 		}
 	}
@@ -390,6 +432,7 @@ func (h *Handler) Disable2FA(c echo.Context) error {
 
 	// Clear the limiter on success so the legitimate user isn't locked out.
 	loginAttempts.Delete(ip)
+	h.recordSecurityEvent(c, "2fa_disable", "success", http.StatusOK)
 	return response.OK(c, map[string]string{"message": "2FA disabled successfully"})
 }
 
@@ -428,6 +471,7 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 	}
 
 	if !auth.CheckPassword(req.CurrentPassword, passwordHash) {
+		h.recordSecurityEvent(c, "password_change", "invalid_password", http.StatusUnauthorized)
 		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidPassword, "Current password is incorrect")
 	}
 
@@ -442,6 +486,7 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 
 	// Successful change — clear rate-limit counter for this IP.
 	loginAttempts.Delete(ip)
+	h.recordSecurityEvent(c, "password_change", "success", http.StatusOK)
 	return response.OK(c, map[string]string{"message": "Password changed successfully"})
 }
 
