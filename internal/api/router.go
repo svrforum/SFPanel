@@ -388,7 +388,7 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	swap.PUT("/resize", diskHandler.ResizeSwap)
 
 	// Firewall management (UFW)
-	firewallHandler := &featureFirewall.Handler{Cmd: cmd}
+	firewallHandler := &featureFirewall.Handler{Cmd: cmd, PanelPort: cfg.Server.Port}
 	fw := authorized.Group("/firewall")
 	fw.GET("/status", firewallHandler.GetUFWStatus)
 	fw.POST("/enable", firewallHandler.EnableUFW)
