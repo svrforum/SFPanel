@@ -800,7 +800,8 @@
         "network": "네트워크",
         "memory": "메모리",
         "filesystem": "파일시스템",
-        "security": "보안 강화"
+        "security": "보안 강화",
+        "conntrack": "연결 추적"
       },
       "catDesc": {
         "network": "BBR, TCP 버퍼, 연결 최적화, Docker 브리지, 스트리밍(WS/SSE) 튜닝",
