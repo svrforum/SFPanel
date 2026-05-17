@@ -176,6 +176,7 @@ func (m *Manager) Init(clusterName string) error {
 	}
 
 	m.heartbeat.StartMonitor(m.onNodeStatusChange)
+	go m.watchLeader()
 	m.events.Emit(EventNodeJoined, m.nodeID, m.nodeName, "cluster initialized as leader")
 
 	slog.Info("cluster initialized", "component", "cluster", "name", clusterName, "node_id", m.nodeID)
@@ -212,12 +213,44 @@ func (m *Manager) Start() error {
 	m.raft = raftNode
 
 	m.heartbeat.StartMonitor(m.onNodeStatusChange)
+	go m.watchLeader()
 
 	// Auto-fix own node address if it doesn't match config
 	go m.verifySelfAddress()
 
 	slog.Info("cluster node started", "component", "cluster", "node_id", m.nodeID)
 	return nil
+}
+
+// watchLeader emits ERROR-level logs when the cluster has been without a
+// leader long enough to indicate quorum loss (default 60 s, repeating every
+// 5 min while the condition persists). External monitoring can hook these
+// to page when raft is wedged — the underlying raft library only emits
+// WARN/DEBUG for the per-election failures, so a higher-level summary is
+// the only signal an operator can sensibly alarm on. See LeaderWatcher for
+// the threshold logic and the cluster CLAUDE.md "Deadlock recovery" section
+// for the recovery procedure operators reach for after such an alert.
+func (m *Manager) watchLeader() {
+	w := &LeaderWatcher{}
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if m.raft == nil {
+				continue
+			}
+			if alert, since := w.Tick(time.Now(), m.raft.IsLeader(), m.raft.LeaderID()); alert {
+				slog.Error("cluster has no leader",
+					"component", "cluster",
+					"seconds_without_leader", since,
+					"recovery", "see internal/cluster/CLAUDE.md § Deadlock recovery",
+				)
+			}
+		case <-m.heartbeat.Done():
+			return
+		}
+	}
 }
 
 // verifySelfAddress checks if this node's registered addresses in the FSM

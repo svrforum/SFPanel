@@ -90,6 +90,44 @@ witnesses to break ties, which is out of scope.
 
 ---
 
+## Recovery — deadlock from log divergence (2-voter clusters)
+
+When two voters each accept candidate-state log entries during overlapping
+elections but neither succeeds in committing (because 2-voter quorum needs
+both votes), they end up with diverged uncommitted entries. Pre-vote
+rejects each other's log as "older" and the cluster oscillates
+Follower → Candidate → Follower indefinitely. Signals:
+
+- Periodic `WARN raft: rejecting pre-vote request since our last term is
+  greater: ...` lines on both nodes
+- `heartbeat send failed component=cluster error=EOF` every ~60 s
+- `ERROR cluster has no leader seconds_without_leader=N` from the
+  `LeaderWatcher` once `N` crosses 60 s (logs again every 5 min while the
+  condition persists)
+- Raft term increments slowly (~1/min) but no `election won` ever lands
+
+No data is lost — quorum-of-2 means none of the diverged entries can have
+applied to either FSM. Recovery:
+
+1. Identify which node has the newer log: in either node's journal find
+   `last-term=X` (local) and `last-candidate-term=Y` (peer) on the
+   pre-vote rejection line. The higher number wins.
+2. Stop both `sfpanel` services.
+3. Wait 2 s for clean shutdown.
+4. Start the newer-log node first. It is briefly a single-node candidate.
+5. Start the older-log node within ~10 s. It joins, sees a higher leader
+   term, truncates its diverged entries via `appendEntries rejected,
+   sending older logs: next=N`, then `pipelining replication`.
+6. Confirm with `sfpanel cluster status` — `Role: Leader` on one and
+   `Role: Follower` with the leader ID on the other.
+
+Total downtime: ~10–15 s. If you cannot tell which log is newer, picking
+either side is acceptable — the chosen side becomes leader and its
+diverged entries (if any) become canonical. Since none committed, this
+does not change observable FSM state.
+
+---
+
 ## Stale-leader writes during the 2 s window
 
 For most write paths the Apply timeout (5 s) plus Raft's quorum requirement

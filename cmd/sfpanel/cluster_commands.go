@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/svrforum/SFPanel/internal/auth"
@@ -125,6 +126,8 @@ func clusterCommand(args []string) {
 		clusterRemove(args[1:])
 	case "reissue-cert":
 		clusterReissueCert(args[1:])
+	case "list":
+		clusterList(args[1:])
 	default:
 		fmt.Printf("Unknown cluster command: %s\n", args[0])
 		printClusterHelp()
@@ -387,6 +390,25 @@ func clusterLeave(args []string) {
 	fmt.Println("Cluster left. Restart sfpanel to run in standalone mode: sudo systemctl restart sfpanel")
 }
 
+// clusterOverviewEnvelope mirrors the /cluster/overview response. /cluster/status
+// is leaner (no nodes[]) so we always call /overview for CLI presentation.
+type clusterOverviewEnvelope struct {
+	Success bool `json:"success"`
+	Data    struct {
+		Name      string `json:"name"`
+		NodeCount int    `json:"node_count"`
+		LeaderID  string `json:"leader_id"`
+		Nodes     []struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			Status      string `json:"status"`
+			APIAddress  string `json:"api_address"`
+			GRPCAddress string `json:"grpc_address"`
+			Role        string `json:"role"`
+		} `json:"nodes"`
+	} `json:"data"`
+}
+
 func clusterStatus(args []string) {
 	cfgPath, _ := parseCfgFlag(args)
 	cfg := loadCfgForCLI(cfgPath)
@@ -402,6 +424,113 @@ func clusterStatus(args []string) {
 	fmt.Printf("gRPC Port: %d\n", cfg.Cluster.GRPCPort)
 	fmt.Printf("Data Dir: %s\n", cfg.Cluster.DataDir)
 	fmt.Printf("Advertise: %s\n", cfg.Cluster.AdvertiseAddress)
+
+	// If the server is running, query live raft role + leader + peer count
+	// from /cluster/status. The CLI cannot open Raft itself without
+	// conflicting on the port, so a server outage just degrades to the
+	// config-only output above with a one-line note.
+	if !isServerRunning(cfg.Server.Port) {
+		fmt.Println("\n(Server not running — live role/leader/peer info unavailable.)")
+		return
+	}
+
+	raw, err := callLocalAPI(cfg, http.MethodGet, "/api/v1/cluster/overview", nil)
+	if err != nil {
+		fmt.Printf("\n(Could not fetch live status: %v)\n", err)
+		return
+	}
+	var env clusterOverviewEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		fmt.Printf("\n(Could not parse live status: %v)\n", err)
+		return
+	}
+
+	role := "Follower"
+	if env.Data.LeaderID == cfg.Cluster.NodeID {
+		role = "Leader"
+	} else if env.Data.LeaderID == "" {
+		role = "Candidate / no leader"
+	}
+
+	fmt.Println()
+	fmt.Printf("Role: %s\n", role)
+	if env.Data.LeaderID != "" {
+		fmt.Printf("Current leader: %s\n", env.Data.LeaderID)
+	} else {
+		fmt.Println("Current leader: <none> — quorum lost or election in progress")
+	}
+
+	online, suspect, offline := 0, 0, 0
+	for _, n := range env.Data.Nodes {
+		switch n.Status {
+		case "online":
+			online++
+		case "suspect":
+			suspect++
+		case "offline":
+			offline++
+		}
+	}
+	fmt.Printf("Peers: %d total (online=%d, suspect=%d, offline=%d)\n",
+		env.Data.NodeCount, online, suspect, offline)
+	fmt.Println("\n(Use 'sfpanel cluster list' for per-peer detail.)")
+}
+
+// clusterList prints a table of all cluster members with live role + health.
+// Requires the local server to be running — the FSM state lives in the Raft
+// log and cannot be safely read by a second process holding the same port.
+func clusterList(args []string) {
+	cfgPath, _ := parseCfgFlag(args)
+	cfg := loadCfgForCLI(cfgPath)
+	if !cfg.Cluster.Enabled {
+		log.Fatal("Cluster not configured (standalone mode).")
+	}
+	if !isServerRunning(cfg.Server.Port) {
+		log.Fatal("Local sfpanel server is not running — 'cluster list' needs the live FSM.")
+	}
+
+	raw, err := callLocalAPI(cfg, http.MethodGet, "/api/v1/cluster/overview", nil)
+	if err != nil {
+		log.Fatalf("Fetch cluster status: %v", err)
+	}
+	var env clusterOverviewEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		log.Fatalf("Parse cluster status: %v", err)
+	}
+
+	leaderID := env.Data.LeaderID
+	fmt.Printf("Cluster: %s (leader=%s)\n\n", env.Data.Name, abbrevOrDash(leaderID))
+	fmt.Printf("%-38s  %-22s  %-9s  %-8s  %-22s  %-22s\n",
+		"NODE ID", "NAME", "ROLE", "STATUS", "API", "GRPC")
+	fmt.Println(strings.Repeat("-", 130))
+	for _, n := range env.Data.Nodes {
+		role := "follower"
+		if n.ID == leaderID {
+			role = "LEADER"
+		} else if n.Role == "nonvoter" {
+			role = "nonvoter"
+		}
+		fmt.Printf("%-38s  %-22s  %-9s  %-8s  %-22s  %-22s\n",
+			n.ID, truncate(n.Name, 22), role, n.Status,
+			truncate(n.APIAddress, 22), truncate(n.GRPCAddress, 22))
+	}
+}
+
+func abbrevOrDash(id string) string {
+	if id == "" {
+		return "<none>"
+	}
+	if len(id) > 8 {
+		return id[:8] + "…"
+	}
+	return id
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
 }
 
 func clusterToken(args []string) {
@@ -510,7 +639,8 @@ func printClusterHelp() {
 	fmt.Println("  sfpanel cluster init [--name NAME]        Initialize a new cluster")
 	fmt.Println("  sfpanel cluster token [--ttl DURATION]    Create a join token")
 	fmt.Println("  sfpanel cluster join ADDR:PORT TOKEN      Join an existing cluster")
-	fmt.Println("  sfpanel cluster status                    Show cluster status")
+	fmt.Println("  sfpanel cluster status                    Show cluster status (live role + leader if server running)")
+	fmt.Println("  sfpanel cluster list                      List all cluster members with role + health")
 	fmt.Println("  sfpanel cluster remove NODE_ID            Remove a node")
 	fmt.Println("  sfpanel cluster leave                     Leave the cluster")
 	fmt.Println("  sfpanel cluster reissue-cert              Re-issue this node's cluster cert (hot reload)")
