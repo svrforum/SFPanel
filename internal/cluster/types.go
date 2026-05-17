@@ -82,6 +82,12 @@ const (
 	DefaultHeartbeatInterval = 60 * time.Second
 	DefaultHeartbeatTimeout  = 180 * time.Second
 	DefaultTokenTTL          = 24 * time.Hour
+	// MaxTokenTTL caps user-requested join token lifetimes. A join token is
+	// a bearer credential that grants membership in the cluster; an unbounded
+	// TTL means a leaked token from a year ago is still usable. 30 days
+	// covers any reasonable operator workflow without leaving long-lived
+	// credentials lying around indefinitely.
+	MaxTokenTTL = 30 * 24 * time.Hour
 	DefaultDataDir           = "/var/lib/sfpanel/cluster"
 	DefaultCertDir           = "/etc/sfpanel/cluster"
 	MaxNodes                 = 32
