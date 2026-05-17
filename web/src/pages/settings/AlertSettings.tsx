@@ -171,9 +171,13 @@ export default function AlertSettings() {
 
   async function handleToggleChannel(ch: AlertChannel) {
     try {
+      // Send only `enabled` — UpdateChannel uses NULLIF/COALESCE so empty
+      // fields preserve existing DB values. Round-tripping `ch.config`
+      // would overwrite Discord webhooks / Telegram bot tokens with the
+      // masked values returned by ListChannels (`***xxxx`).
       await api.request(`/alerts/channels/${ch.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ ...ch, enabled: !ch.enabled }),
+        body: JSON.stringify({ enabled: !ch.enabled }),
       })
       loadChannels()
     } catch { /* ignore */ }
