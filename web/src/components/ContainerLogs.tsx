@@ -72,14 +72,15 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
     return line
   }
 
+  // Two separate effects so changing tail / stream / timestamps / since
+  // doesn't tear down the entire xterm.Terminal — losing scroll history,
+  // selection, and search highlight. The terminal is created once per
+  // containerId; only the WebSocket reconnects when options change.
+
+  // Effect 1: create + dispose the terminal. Depends only on containerId
+  // (and t for the auth-failed message — fine, locale rarely changes).
   useEffect(() => {
     if (!terminalRef.current) return
-
-    // Clear previous logs on reconnect
-    if (termRef.current) {
-      termRef.current.clear()
-      logLinesRef.current = []
-    }
 
     const term = new Terminal({
       cursorBlink: false,
@@ -96,7 +97,6 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
       convertEol: true,
       scrollback: 5000,
     })
-
     const fitAddon = new FitAddon()
     const searchAddon = new SearchAddon()
     term.loadAddon(fitAddon)
@@ -108,10 +108,33 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
     searchAddonRef.current = searchAddon
     logLinesRef.current = []
 
+    const handleResize = () => fitAddon.fit()
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      term.dispose()
+      termRef.current = null
+      fitAddonRef.current = null
+      searchAddonRef.current = null
+    }
+  }, [containerId])
+
+  // Effect 2: connect + reconnect the WebSocket. Re-runs when option
+  // toggles change, but the terminal above stays put.
+  useEffect(() => {
+    if (!termRef.current) return
+    const term = termRef.current
+
+    // Clear previous logs on every (re)connect — the new stream's tail
+    // would otherwise stack on top of the previous one.
+    term.clear()
+    logLinesRef.current = []
+
     const token = api.getToken()
     if (!token) {
       term.writeln(`\x1b[31m${t('terminal.notAuthenticated')}\x1b[0m`)
-      return () => { term.dispose() }
+      return
     }
 
     const params = new URLSearchParams()
@@ -130,36 +153,24 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
       wsRef.current = ws
       wsRefLocal = ws
 
-      ws.onopen = () => {
-        setConnected(true)
-      }
-
+      ws.onopen = () => setConnected(true)
       ws.onmessage = (event) => {
         const data = event.data as string
         logLinesRef.current.push(data.replace(/\n$/, ''))
         term.write(highlightLogLevel(data))
       }
-
       ws.onerror = () => {
         term.writeln(`\r\n\x1b[31m${t('terminal.wsError')}\x1b[0m`)
       }
-
       ws.onclose = () => {
         setConnected(false)
         term.writeln(`\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`)
       }
     })()
 
-    const handleResize = () => {
-      fitAddon.fit()
-    }
-    window.addEventListener('resize', handleResize)
-
     return () => {
       disposed = true
-      window.removeEventListener('resize', handleResize)
       wsRefLocal?.close()
-      term.dispose()
     }
   }, [containerId, t, tail, stream, timestamps, since])
 

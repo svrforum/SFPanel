@@ -70,6 +70,11 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
       const wsUrl = await api.buildWsUrl(`/ws/docker/containers/${containerId}/exec`)
       if (disposed) return
       const ws = new WebSocket(wsUrl)
+      // Default binaryType is 'blob' which xterm.js handles, but we
+      // explicitly pick 'arraybuffer' to avoid the async Blob.text()
+      // path and to ensure non-UTF8 bytes from the PTY (binary tools,
+      // ANSI escape sequences with high bytes) reach xterm intact.
+      ws.binaryType = 'arraybuffer'
       wsRef.current = ws
 
       ws.onopen = () => {

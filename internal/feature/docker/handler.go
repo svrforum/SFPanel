@@ -59,26 +59,48 @@ func (h *Handler) ListContainers(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
 	}
 
-	out := make([]containerWithMetrics, 0, len(containers))
 	cutoff := time.Now().Add(-1 * time.Hour).UnixMilli()
+
+	// Single GROUP BY query instead of N queries (one per container).
+	// On a host with 100 containers and a 5 s polling UI this is a 100×
+	// reduction in DB round-trips. SQLite errors stay non-fatal.
+	type avgRow struct {
+		cpu, mem float64
+		cpuV     bool
+		memV     bool
+	}
+	avgs := make(map[string]avgRow, len(containers))
+	if h.DB != nil && len(containers) > 0 {
+		rows, err := h.DB.QueryContext(ctx,
+			`SELECT container_id, AVG(cpu_percent), AVG(mem_percent)
+               FROM container_metrics_history
+              WHERE ts >= ?
+              GROUP BY container_id`,
+			cutoff,
+		)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var id string
+				var cpu, mem sql.NullFloat64
+				if err := rows.Scan(&id, &cpu, &mem); err == nil {
+					avgs[id] = avgRow{cpu: cpu.Float64, mem: mem.Float64, cpuV: cpu.Valid, memV: mem.Valid}
+				}
+			}
+		}
+	}
+
+	out := make([]containerWithMetrics, 0, len(containers))
 	for _, summary := range containers {
 		row := containerWithMetrics{Summary: summary}
-		if h.DB != nil {
-			var cpuAvg, memAvg sql.NullFloat64
-			if err := h.DB.QueryRowContext(ctx,
-				`SELECT AVG(cpu_percent), AVG(mem_percent)
-                   FROM container_metrics_history
-                  WHERE container_id = ? AND ts >= ?`,
-				summary.ID, cutoff,
-			).Scan(&cpuAvg, &memAvg); err == nil {
-				if cpuAvg.Valid {
-					v := cpuAvg.Float64
-					row.CPUAvg1h = &v
-				}
-				if memAvg.Valid {
-					v := memAvg.Float64
-					row.MemAvg1h = &v
-				}
+		if a, ok := avgs[summary.ID]; ok {
+			if a.cpuV {
+				v := a.cpu
+				row.CPUAvg1h = &v
+			}
+			if a.memV {
+				v := a.mem
+				row.MemAvg1h = &v
 			}
 		}
 		out = append(out, row)
