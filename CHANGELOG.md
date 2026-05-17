@@ -6,6 +6,168 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.13.10] – 2026-05-16
+
+Second-pass sweep on top of 0.13.9 — Opus 4.7 re-reviewed every
+sidebar area for the Important + Improvement items that were
+deferred from the critical-fix batch. Seven area commits, each
+self-contained; this entry summarises the batch.
+
+### Cluster
+
+- **Stale-read indicator on `/cluster/overview` and `/cluster/nodes`.**
+  Both endpoints now call `raft.VerifyLeader(2s)` and tag the response
+  with `stale: true` when the leader can't confirm it's still the
+  leader (e.g. mid-failover). The UI keeps rendering — better stale
+  than nothing — but operators see a warning band so they don't act
+  on snapshot data during a partition.
+- **`POST /cluster/token` returns real grpc_port + advertise_address.**
+  Previously the join URL hardcoded the panel's HTTP port (9443), so
+  copy-pasting the token into `sfpanel cluster join` against a
+  cluster on the non-default 3629 grpc port failed silently. The
+  token response now reflects the actual values from
+  `cluster.grpc_port` and `cluster.advertise_address` in
+  `config.yaml`; the React token panel reuses them instead of guessing.
+- **Cluster events ring: cap `Since()` at `maxEvents`.** A long-lived
+  follower polling `/cluster/events?since=…` after a panel restart
+  could request an unbounded slice that allocated several MB.
+  Result set is now capped at the same `maxEvents` (256) the buffer
+  itself uses.
+- **30-day TTL ceiling on join tokens (constant).** The 0.13.9 fix
+  hardcoded `30*24*time.Hour`; this release lifts that to a named
+  `MaxTokenTTL` constant in `internal/cluster/types.go` so the limit
+  is visible in one place.
+- **Node label validation (Kubernetes-style).** `PUT /cluster/nodes/:id`
+  now rejects label keys/values that violate the K8s
+  `[a-z0-9A-Z]([-._a-z0-9A-Z]*[a-z0-9A-Z])?` shape; previously any
+  string was accepted and rendered with broken CSS in the UI.
+- **Leader self-update HTTP: explicit context + signed v2 header
+  snapshot before `Shutdown`.** `ClusterUpdate` on the leader used
+  to call `client.Do(req)` with no context and write the v2 header
+  *after* `srv.Shutdown` had begun, racing the listener close. Both
+  fixed; the self-update path is now deterministic.
+- **`sfpanel cluster leader-transfer`** — graceful Raft leadership
+  hand-off CLI for planned voter restarts. Wraps `raft.LeadershipTransfer`
+  with a 30 s timeout; previous workflow required killing the leader
+  and waiting for election.
+- **Lint: staticcheck QF1003 tagged-switch on `env.Data.LeaderID`.**
+  Cleanup of the chained `if`/`else if` in `cluster_commands.go:449`.
+
+### Dashboard
+
+- **Null-safe log slicing.** `data.lines.slice(-8)` crashed the
+  dashboard when the SSE pushed an empty payload during agent
+  reconnect. Now `(data.lines ?? []).slice(-8)`.
+- **Composite stable keys for log rows.** React was warning about
+  duplicate keys when the same logline arrived twice in a streaming
+  burst; now keyed on `${timestamp}-${index}-${first 32 chars}`.
+- **Single `getDashboardOverview` call** in `Layout.tsx` instead of
+  `getSystemInfo` + `checkUpdate` round-trips on every render — the
+  backend already merged these in 0.13.7.
+- **Exact prefix match for `BottomNav` active state.** `/files` no
+  longer highlights when `/files-anything-else` is the route. The
+  test is `pathname === to || pathname.startsWith(to + '/')`.
+- **`MetricsCard`: always render the track.** `clampedPercent > 0`
+  let 0% bars vanish entirely; switched to `>= 0` so the empty
+  state is still visible.
+- **`MetricsChart`: chart created once.** uPlot was being torn down
+  and rebuilt on every `xDomain` change — fine for correctness, an
+  eyesore on slower machines. The `useEffect` now depends only on
+  mount; `setData` handles in-place updates.
+- **Monitor handler: partial OK instead of 500.** When `psutil`-style
+  collection failed on one of host/CPU/memory, the whole endpoint
+  returned 500. Now logs a WARN with `component=monitor` and returns
+  the partial payload — the UI degrades gracefully to "N/A" cells.
+
+### Docker
+
+- **`ListContainers`: single GROUP BY query** instead of N+1 — for
+  each project the loop used to issue one `SELECT … WHERE project = ?`
+  per container. On a host with 30+ containers the projects view
+  blocked for ~600 ms; now one query, one parse pass.
+- **`ContainerLogs.tsx`: separate effects for terminal vs WS.** A
+  single useEffect was reinitialising xterm.js on every WS reconnect,
+  losing scrollback. Split into terminal-lifecycle (mount/unmount)
+  and ws-lifecycle (open/close/reconnect) effects.
+- **`ContainerShell.tsx`: `ws.binaryType = 'arraybuffer'`.** Without
+  this, browsers default to `Blob`, which Chrome on iOS Safari handles
+  inconsistently — occasional empty frames in the PTY stream.
+
+### AppStore + Files + Cron
+
+- **`appstore` install: atomic project directory creation.** Replaced
+  `MkdirAll` (idempotent — silently accepts existing directories) with
+  parent-`MkdirAll` + project-`Mkdir`. Two concurrent
+  install clicks on the same template no longer race into the same
+  directory and produce a corrupt half-install.
+- **Upload basename blocklist.** The 0.13.9 fix added `.war`/`.ear`
+  to the extension blocklist; this release adds a basename-level
+  list (`.htaccess`, `.htpasswd`, `web.config`) — files with no
+  extension or with the extension stripped that still constitute
+  RCE on a misconfigured reverse proxy.
+- **`CronJobs.tsx`: client-side `isPlausibleCronSchedule`.** Saves
+  a round-trip on obviously broken schedules (`* * *` etc.) and
+  removes the 800 ms toast delay operators saw when typing.
+
+### Logs + Processes
+
+- **`process/handler.go`: per-Handler cache.** The 60 s
+  `top -bn1` cache lived in a package-scope variable, so all unit
+  tests shared state and the cluster proxy's local-handler dispatch
+  would occasionally see stale data from a previous test's
+  `MockCommander` output. Moved onto the `Handler` struct.
+- **`Logs.tsx`: debounced search (150 ms).** Typing in the filter
+  box used to re-run the regex against the full 5500-line buffer
+  on every keystroke. Now debounced.
+- **`Logs.tsx`: slack-window slice.** Buffer slice threshold
+  raised from 5000 to 5500 to avoid a full-array re-render every
+  new line at steady-state.
+
+### Network + Disk + Firewall
+
+- **`disk_swap.go`: precheck `req.Path`, refuse to overwrite regular
+  files.** The previous handler would happily `mkswap` a regular
+  file, silently corrupting its contents. Now `os.Stat` first and
+  rejects unless the path doesn't exist or is already a swap file.
+- **`firewall_ufw.go`: split rule comment on `" # "` instead of last
+  `'#'`.** Comments that legitimately contain `#` (e.g.
+  `# allow webhook callback from #channel`) were being truncated.
+- **`network/tailscale.go`: comment fix.** The block comment claimed
+  the `tailscale up` subprocess was backgrounded; in fact it runs
+  attached and blocks until the user authenticates. Comment now
+  matches the code.
+
+### Packages + Terminal + Settings
+
+- **Node version regex tightening.** `^v?\d+(\.\d+)*$` accepted `v1`
+  (too coarse — npm wouldn't resolve a major-only version against
+  nvm) and `v1.2.3.4.5` (not a real release). Hoisted into a
+  package-level `validNodeVersion` with `^v?\d+(\.\d+){0,2}$`.
+- **Terminal "Clear" sends Ctrl-L (`\x0c`)** instead of literal
+  `clear\r`. The previous behaviour was either harmless-but-noisy
+  (typing `clear` inside vim) or actively wrong (typing `clear`
+  inside `mysql` REPL, which then ran the SQL `clear` keyword and
+  reset query history). `\x0c` is the universal terminal clear signal
+  that every TUI handles correctly.
+- **Cluster mode backup + restore warning prompts.** Both
+  `handleDownloadBackup` and `handleRestoreBackup` in Settings.tsx
+  now `window.confirm` with cluster-aware copy explaining that
+  the single-node SQLite snapshot doesn't capture FSM state
+  (admin/JWT secret/cluster_node).
+- **Backup restore polling cap.** Previous restore flow polled
+  `/auth/setup-status` forever; if the restore left the DB
+  corrupt, the operator stared at an indefinite spinner. Now
+  capped at 60 attempts (≈2 minutes) with a `restoreNoReturn`
+  toast pointing to `journalctl -u sfpanel`.
+
+### Operator notes
+
+- This release is a pure code-cleanup pass. No schema changes, no
+  new endpoints (beyond the `cluster leader-transfer` CLI), no
+  config additions. Upgrade in place; no migrations.
+
+---
+
 ## [0.13.9] – 2026-05-17
 
 Security + stability sweep across 15 issues surfaced by the per-area
