@@ -2,6 +2,7 @@ package disk
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -275,9 +276,13 @@ type DiskUsageRequest struct {
 
 // ---------- Validation ----------
 
-// validDeviceName matches safe device names: alphanumeric, hyphens, underscores, forward slashes.
-// Examples: sda, sda1, nvme0n1p1, md0, dm-0, vg0/lv0
-var validDeviceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9/_-]*$`)
+// validDeviceName matches plain kernel block-device names: a single segment
+// of alphanumerics, underscores, or hyphens. Every caller in this package
+// prepends "/dev/" before invoking mkfs / mdadm / lvm, so allowing '/'
+// inside the name would let a request like sda/anything pivot the tool
+// onto an unrelated kernel device. LVM volume names use validateLVMName.
+// Examples: sda, sda1, nvme0n1p1, md0, dm-0
+var validDeviceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
 // validLVMName matches safe LVM names (VG and LV names).
 var validLVMName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
@@ -286,6 +291,8 @@ var validLVMName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 var validDiskPath = regexp.MustCompile(`^[a-zA-Z0-9/._-]+$`)
 
 // validateDeviceName checks that a device name is safe for use in commands.
+// It only validates the *shape* of the name; verifyBlockDevice confirms the
+// resolved /dev/<name> is actually a block device on this host.
 func validateDeviceName(name string) error {
 	if name == "" {
 		return fmt.Errorf("device name is required")
@@ -293,9 +300,32 @@ func validateDeviceName(name string) error {
 	if !validDeviceName.MatchString(name) {
 		return fmt.Errorf("invalid device name: %s", name)
 	}
-	// Reject path traversal attempts
+	// Defense-in-depth: the regex already excludes '.', but a future regex
+	// loosening should not silently re-enable traversal.
 	if strings.Contains(name, "..") {
 		return fmt.Errorf("invalid device name: path traversal not allowed")
+	}
+	return nil
+}
+
+// verifyBlockDevice confirms that the given /dev/<name> path resolves to a
+// real block device on this host. Use this in destructive-action handlers
+// (CreateRAID, CreatePV, RemovePV, AddRAIDDisk, FormatPartition, …) so a
+// regex-valid but non-existent or wrong-type name can't be passed to
+// mdadm / pvcreate / mkfs by accident.
+func verifyBlockDevice(devPath string) error {
+	info, err := os.Stat(devPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("device not found: %s", devPath)
+		}
+		return fmt.Errorf("stat %s: %w", devPath, err)
+	}
+	// Block devices set ModeDevice and clear ModeCharDevice; character
+	// devices (e.g. /dev/null) set both.
+	mode := info.Mode()
+	if mode&os.ModeDevice == 0 || mode&os.ModeCharDevice != 0 {
+		return fmt.Errorf("not a block device: %s", devPath)
 	}
 	return nil
 }

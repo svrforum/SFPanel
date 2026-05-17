@@ -203,6 +203,9 @@ func (h *Handler) CreatePV(c echo.Context) error {
 	}
 
 	devPath := "/dev/" + req.Device
+	if err := verifyBlockDevice(devPath); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
+	}
 	out, err := h.Cmd.Run("pvcreate", devPath)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
@@ -314,6 +317,9 @@ func (h *Handler) RemovePV(c echo.Context) error {
 	}
 
 	devPath := "/dev/" + name
+	if err := verifyBlockDevice(devPath); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
+	}
 	out, err := h.Cmd.Run("pvremove", devPath)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,

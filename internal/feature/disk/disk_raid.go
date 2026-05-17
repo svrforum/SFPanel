@@ -243,7 +243,8 @@ func (h *Handler) CreateRAID(c echo.Context) error {
 			"At least two devices are required for RAID")
 	}
 
-	// Validate all device names and build device paths
+	// Validate all device names, build device paths, and verify each one
+	// is a real block device on this host before invoking mdadm.
 	devPaths := make([]string, 0, len(req.Devices))
 	for _, dev := range req.Devices {
 		if err := validateDeviceName(dev); err != nil {
@@ -253,6 +254,9 @@ func (h *Handler) CreateRAID(c echo.Context) error {
 		devPath := dev
 		if !strings.HasPrefix(dev, "/dev/") {
 			devPath = "/dev/" + dev
+		}
+		if err := verifyBlockDevice(devPath); err != nil {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 		}
 		devPaths = append(devPaths, devPath)
 	}
@@ -334,6 +338,12 @@ func (h *Handler) AddRAIDDisk(c echo.Context) error {
 
 	raidDev := "/dev/" + name
 	diskDev := "/dev/" + req.Device
+	if err := verifyBlockDevice(raidDev); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
+	}
+	if err := verifyBlockDevice(diskDev); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
+	}
 
 	out, err := h.Cmd.Run("mdadm", "--add", raidDev, diskDev)
 	if err != nil {
