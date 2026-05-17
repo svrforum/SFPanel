@@ -166,6 +166,13 @@ var migrations = []migration{
 	{ID: 24, Up: `ALTER TABLE refresh_tokens ADD COLUMN family_id TEXT NOT NULL DEFAULT ''`},
 	{ID: 25, Up: `ALTER TABLE refresh_tokens ADD COLUMN consumed_at DATETIME`},
 	{ID: 26, Up: `CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family ON refresh_tokens(family_id)`},
+	// protected marks audit_logs rows that must survive operator-initiated
+	// "clear all" — currently only the "audit_log_cleared" tombstone the
+	// clear handler inserts before it runs DELETE, so an attacker who wipes
+	// their tracks still leaves the wipe itself behind. The clear handler
+	// scopes its DELETE to WHERE protected = 0; the retention pruner does
+	// likewise so background trimming can't silently erase these either.
+	{ID: 27, Up: `ALTER TABLE audit_logs ADD COLUMN protected INTEGER NOT NULL DEFAULT 0`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been

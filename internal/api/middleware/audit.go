@@ -82,8 +82,19 @@ func StartAuditRetention(ctx context.Context, db *sql.DB) {
 }
 
 func pruneAuditLogs(db *sql.DB) {
+	// Only consider unprotected rows for the row-count cap. Protected rows
+	// (audit_log_cleared tombstones, today) are excluded both from the cap
+	// and from the deletion target, so a flood of normal traffic can't
+	// silently push old clear-events past the retention window.
 	if _, err := db.Exec(
-		"DELETE FROM audit_logs WHERE id IN (SELECT id FROM audit_logs ORDER BY id DESC LIMIT -1 OFFSET ?)",
+		`DELETE FROM audit_logs
+		   WHERE protected = 0
+		     AND id IN (
+		         SELECT id FROM audit_logs
+		           WHERE protected = 0
+		           ORDER BY id DESC
+		           LIMIT -1 OFFSET ?
+		     )`,
 		auditMaxRows,
 	); err != nil {
 		slog.Warn("audit log retention prune failed", "error", err)
