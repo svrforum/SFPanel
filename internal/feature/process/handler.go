@@ -26,11 +26,15 @@ type ProcessInfo struct {
 	Command string  `json:"command"`
 }
 
-type Handler struct{}
+// Handler holds the per-instance process cache. The cache used to be a
+// package-level var which broke parallel tests (state leaked between them)
+// and prevented two router instances from coexisting. Moving it onto the
+// Handler keeps the same single-process semantics but lets tests scope it.
+type Handler struct {
+	cache processCache
+}
 
-// processCache holds a cached snapshot of process data so that the expensive
-// 200ms CPU measurement is not repeated on every HTTP request.
-var processCache struct {
+type processCache struct {
 	sync.RWMutex
 	data      []ProcessInfo
 	updatedAt time.Time
@@ -39,24 +43,24 @@ var processCache struct {
 const processCacheTTL = 3 * time.Second
 
 // cachedProcesses returns the cached process list, refreshing it when stale.
-func cachedProcesses() ([]ProcessInfo, error) {
-	processCache.RLock()
-	if time.Since(processCache.updatedAt) < processCacheTTL && processCache.data != nil {
-		result := make([]ProcessInfo, len(processCache.data))
-		copy(result, processCache.data)
-		processCache.RUnlock()
+func (h *Handler) cachedProcesses() ([]ProcessInfo, error) {
+	h.cache.RLock()
+	if time.Since(h.cache.updatedAt) < processCacheTTL && h.cache.data != nil {
+		result := make([]ProcessInfo, len(h.cache.data))
+		copy(result, h.cache.data)
+		h.cache.RUnlock()
 		return result, nil
 	}
-	processCache.RUnlock()
+	h.cache.RUnlock()
 
 	// Cache miss — collect fresh data
-	processCache.Lock()
-	defer processCache.Unlock()
+	h.cache.Lock()
+	defer h.cache.Unlock()
 
 	// Double-check after acquiring write lock (another goroutine may have refreshed)
-	if time.Since(processCache.updatedAt) < processCacheTTL && processCache.data != nil {
-		result := make([]ProcessInfo, len(processCache.data))
-		copy(result, processCache.data)
+	if time.Since(h.cache.updatedAt) < processCacheTTL && h.cache.data != nil {
+		result := make([]ProcessInfo, len(h.cache.data))
+		copy(result, h.cache.data)
 		return result, nil
 	}
 
@@ -64,8 +68,8 @@ func cachedProcesses() ([]ProcessInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	processCache.data = infos
-	processCache.updatedAt = time.Now()
+	h.cache.data = infos
+	h.cache.updatedAt = time.Now()
 
 	result := make([]ProcessInfo, len(infos))
 	copy(result, infos)
@@ -74,7 +78,7 @@ func cachedProcesses() ([]ProcessInfo, error) {
 
 // TopProcesses returns the top 10 processes by CPU usage (for dashboard).
 func (h *Handler) TopProcesses(c echo.Context) error {
-	infos, err := cachedProcesses()
+	infos, err := h.cachedProcesses()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrProcessError, "Failed to list processes")
 	}
@@ -93,7 +97,7 @@ func (h *Handler) TopProcesses(c echo.Context) error {
 // ListProcesses returns all processes. Filtering and sorting is handled client-side.
 // GET /system/processes/list
 func (h *Handler) ListProcesses(c echo.Context) error {
-	infos, err := cachedProcesses()
+	infos, err := h.cachedProcesses()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrProcessError, "Failed to list processes")
 	}
@@ -157,9 +161,9 @@ func (h *Handler) KillProcess(c echo.Context) error {
 	}
 
 	// Invalidate cache after kill so the next fetch reflects the change
-	processCache.Lock()
-	processCache.updatedAt = time.Time{}
-	processCache.Unlock()
+	h.cache.Lock()
+	h.cache.updatedAt = time.Time{}
+	h.cache.Unlock()
 
 	return response.OK(c, map[string]interface{}{
 		"message": fmt.Sprintf("Signal %s sent to process %d", strings.ToUpper(req.Signal), pid),

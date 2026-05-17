@@ -239,7 +239,10 @@ export default function Logs() {
     wsBatchRef.current = []
     setLogLines((prev) => {
       const next = prev.concat(batch)
-      return next.length > 5000 ? next.slice(-5000) : next
+      // Slack window: only slice when we're well past the cap so the
+      // allocation amortises across many batches instead of running on
+      // every flush during sustained high log rates.
+      return next.length > 5500 ? next.slice(-5000) : next
     })
   }, [])
 
@@ -391,15 +394,24 @@ export default function Logs() {
     }
   }
 
+  // Debounce searchQuery so typing in the search box doesn't trigger an
+  // O(N) scan over 5000 log lines on every keystroke. 150ms feels
+  // instant while keeping the scan rate ~7/sec at worst.
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedQuery(searchQuery), 150)
+    return () => clearTimeout(id)
+  }, [searchQuery])
+
   // Memoized search: matching line indices + Set for O(1) lookup
   const matchingLines = useMemo(() => {
-    if (!searchQuery) return []
-    const q = searchQuery.toLowerCase()
+    if (!debouncedQuery) return []
+    const q = debouncedQuery.toLowerCase()
     return logLines.reduce<number[]>((acc, line, i) => {
       if (line.toLowerCase().includes(q)) acc.push(i)
       return acc
     }, [])
-  }, [searchQuery, logLines])
+  }, [debouncedQuery, logLines])
 
   const matchingSet = useMemo(() => new Set(matchingLines), [matchingLines])
 
