@@ -20,12 +20,32 @@ import (
 )
 
 // isStreamingEndpoint checks if the request path is an SSE streaming endpoint
-// that should be relayed via direct HTTP instead of gRPC.
+// that should be relayed via direct HTTP instead of gRPC. The default gRPC
+// proxy buffers the whole response into one APIResponse with a 4 MB recv cap
+// and a 30 s unary timeout — fine for JSON CRUD, fatal for multi-minute
+// installs or megabyte-scale output. Add new long-running POSTs here.
 func isStreamingEndpoint(path string) bool {
-	return strings.HasSuffix(path, "/up-stream") ||
-		strings.HasSuffix(path, "/update-stream") ||
-		strings.HasSuffix(path, "/system/update") ||
-		(strings.Contains(path, "/appstore/apps/") && strings.HasSuffix(path, "/install"))
+	switch {
+	case strings.HasSuffix(path, "/up-stream"),
+		strings.HasSuffix(path, "/update-stream"),
+		strings.HasSuffix(path, "/system/update"):
+		return true
+	case strings.Contains(path, "/appstore/apps/") && strings.HasSuffix(path, "/install"):
+		return true
+	// Long-running package installs (SSE, may take minutes).
+	case strings.HasSuffix(path, "/packages/upgrade"),
+		strings.HasSuffix(path, "/packages/install-docker"),
+		strings.HasSuffix(path, "/packages/install-node"),
+		strings.HasSuffix(path, "/packages/install-claude"),
+		strings.HasSuffix(path, "/packages/install-codex"),
+		strings.HasSuffix(path, "/packages/install-gemini"),
+		strings.HasSuffix(path, "/packages/node-install-version"):
+		return true
+	// Docker image pull (SSE progress events from the daemon).
+	case strings.HasSuffix(path, "/docker/images/pull"):
+		return true
+	}
+	return false
 }
 
 // isBinaryRelayEndpoint identifies routes that ship large binary payloads
