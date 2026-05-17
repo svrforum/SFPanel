@@ -430,11 +430,15 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 				"auth_url":   tsStatus.AuthURL,
 			})
 		}
-		// Timeout but no auth URL found — the command is still running in background
+		// Timeout but no auth URL surfaced yet. osExec.CommandContext
+		// kills the child on context cancellation, so 'tailscale up' is
+		// terminated when the deferred cancel fires after this return —
+		// it is NOT still running in the background. The operator needs
+		// to re-trigger via the UI after grabbing the auth URL.
 		return response.OK(c, map[string]interface{}{
 			"needs_auth": true,
 			"auth_url":   "",
-			"message":    "Authentication required. Check Tailscale status for the auth URL.",
+			"message":    "Authentication required. Re-trigger Tailscale Up after authenticating to surface the auth URL.",
 		})
 	}
 
