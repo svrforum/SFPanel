@@ -128,6 +128,8 @@ func clusterCommand(args []string) {
 		clusterReissueCert(args[1:])
 	case "list":
 		clusterList(args[1:])
+	case "leader-transfer":
+		clusterLeaderTransfer(args[1:])
 	default:
 		fmt.Printf("Unknown cluster command: %s\n", args[0])
 		printClusterHelp()
@@ -519,6 +521,34 @@ func clusterList(args []string) {
 	}
 }
 
+// clusterLeaderTransfer asks the current leader to hand off to the target.
+// Useful for rolling-restart workflows: drain a node before restarting it
+// instead of relying on raft election to figure it out (a noisy 15-20 s
+// gap with no leader).
+func clusterLeaderTransfer(args []string) {
+	cfgPath, rest := parseCfgFlag(args)
+	if len(rest) < 1 {
+		fmt.Println("Usage: sfpanel cluster leader-transfer <target-node-id> [--config PATH]")
+		os.Exit(1)
+	}
+	targetID := rest[0]
+
+	cfg := loadCfgForCLI(cfgPath)
+	if !cfg.Cluster.Enabled {
+		log.Fatal("Cluster not configured (standalone mode).")
+	}
+	if !isServerRunning(cfg.Server.Port) {
+		log.Fatal("Local sfpanel server is not running — leader-transfer needs the live raft loop.")
+	}
+
+	body := map[string]string{"target_node_id": targetID}
+	raw, err := callLocalAPI(cfg, http.MethodPost, "/api/v1/cluster/leader-transfer", body)
+	if err != nil {
+		log.Fatalf("leader-transfer failed: %v", err)
+	}
+	fmt.Println(string(raw))
+}
+
 func abbrevOrDash(id string) string {
 	if id == "" {
 		return "<none>"
@@ -644,6 +674,7 @@ func printClusterHelp() {
 	fmt.Println("  sfpanel cluster join ADDR:PORT TOKEN      Join an existing cluster")
 	fmt.Println("  sfpanel cluster status                    Show cluster status (live role + leader if server running)")
 	fmt.Println("  sfpanel cluster list                      List all cluster members with role + health")
+	fmt.Println("  sfpanel cluster leader-transfer NODE_ID   Hand off leadership to NODE_ID (for graceful drains)")
 	fmt.Println("  sfpanel cluster remove NODE_ID            Remove a node")
 	fmt.Println("  sfpanel cluster leave                     Leave the cluster")
 	fmt.Println("  sfpanel cluster reissue-cert              Re-issue this node's cluster cert (hot reload)")
