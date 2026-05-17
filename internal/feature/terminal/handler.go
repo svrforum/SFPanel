@@ -183,6 +183,27 @@ func findShell() string {
 	return "/bin/sh"
 }
 
+// terminalHome resolves the directory the PTY session should chdir into and
+// expose as HOME. Previously this was hardcoded to "/root", which broke
+// installs where sfpanel runs under a non-root systemd unit (the chdir
+// fails and the shell exits immediately with a cryptic error). We prefer
+// the calling process's HOME (set by systemd via User= or by the operator's
+// shell), then fall back to os.UserHomeDir(), then /tmp as a last resort
+// so the PTY at least starts somewhere writable.
+func terminalHome() string {
+	if h := os.Getenv("HOME"); h != "" {
+		if _, err := os.Stat(h); err == nil {
+			return h
+		}
+	}
+	if h, err := os.UserHomeDir(); err == nil && h != "" {
+		if _, err := os.Stat(h); err == nil {
+			return h
+		}
+	}
+	return "/tmp"
+}
+
 // TerminalWS creates a new PTY session or reconnects to an existing one
 // and bridges it over a WebSocket. Authentication via query param token.
 // Query param session_id identifies the session; on reconnect the scrollback
@@ -253,12 +274,13 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			// Create new PTY session
 			shell := findShell()
 			cmd := exec.Command(shell)
-			cmd.Dir = "/root"
+			home := terminalHome()
+			cmd.Dir = home
 			cmd.Env = append(os.Environ(),
 				"TERM=xterm-256color",
 				"LANG=ko_KR.UTF-8",
 				"LC_ALL=ko_KR.UTF-8",
-				"HOME=/root",
+				"HOME="+home,
 			)
 
 			ptmx, err := pty.Start(cmd)
