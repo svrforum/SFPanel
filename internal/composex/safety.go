@@ -35,7 +35,11 @@ func ValidateAdvancedCompose(content string) error {
 		if priv, _ := svc["privileged"].(bool); priv {
 			return fmt.Errorf("service %q sets privileged: true", svcName)
 		}
-		for _, hostModeKey := range []string{"pid", "network", "ipc", "uts", "userns_mode"} {
+		for _, hostModeKey := range []string{
+			"pid", "network", "ipc", "uts",
+			// Long-form aliases. Compose accepts both shapes; we must too.
+			"pid_mode", "network_mode", "ipc_mode", "userns_mode",
+		} {
 			if v, ok := svc[hostModeKey].(string); ok && strings.EqualFold(v, "host") {
 				return fmt.Errorf("service %q sets %s: host", svcName, hostModeKey)
 			}
@@ -43,9 +47,26 @@ func ValidateAdvancedCompose(content string) error {
 		if caps, ok := svc["cap_add"].([]interface{}); ok {
 			for _, c := range caps {
 				s, _ := c.(string)
-				upper := strings.ToUpper(strings.TrimSpace(s))
-				if upper == "ALL" || upper == "SYS_ADMIN" || upper == "SYS_MODULE" || upper == "SYS_PTRACE" {
-					return fmt.Errorf("service %q requests disallowed capability %s", svcName, upper)
+				// Strip optional CAP_ prefix — Docker accepts both "SYS_ADMIN"
+				// and "CAP_SYS_ADMIN" (the kernel-canonical form). Compare on
+				// the bare form so canonical names can't bypass the blocklist.
+				canon := strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(s)), "CAP_")
+				if canon == "ALL" || canon == "SYS_ADMIN" || canon == "SYS_MODULE" || canon == "SYS_PTRACE" {
+					return fmt.Errorf("service %q requests disallowed capability %s", svcName, canon)
+				}
+			}
+		}
+		if groups, ok := svc["group_add"].([]interface{}); ok {
+			for _, g := range groups {
+				s, _ := g.(string)
+				name := strings.ToLower(strings.TrimSpace(s))
+				// Reject membership in groups that gate sensitive host
+				// resources: docker socket (docker), raw disks (disk),
+				// sudoers (sudo/wheel), uid-0 (root), kernel virtualisation
+				// (kvm). Numeric GIDs and unknown names pass through.
+				switch name {
+				case "docker", "disk", "sudo", "wheel", "root", "kvm":
+					return fmt.Errorf("service %q joins host group %q via group_add", svcName, name)
 				}
 			}
 		}
