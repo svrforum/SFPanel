@@ -20,6 +20,10 @@ const actionAuditLogCleared = "audit_log_cleared"
 
 type Handler struct {
 	DB *sql.DB
+	// LocalNodeIDFn returns this cluster node's ID, used to stamp the
+	// audit_log_cleared tombstone. nil-safe — left unset on non-cluster
+	// installs, in which case the tombstone's node_id stays empty.
+	LocalNodeIDFn func() string
 }
 
 type AuditLogEntry struct {
@@ -128,7 +132,14 @@ func (h *Handler) ClearAuditLogs(c echo.Context) error {
 
 	username, _ := c.Get("username").(string)
 	ip := c.RealIP()
-	nodeID := c.QueryParam("node")
+	// Stamp the tombstone with the LOCAL node ID. The previous read from
+	// c.QueryParam("node") was always empty because the cluster proxy strips
+	// `?node=` before reaching the handler. Reviewers couldn't tell which
+	// node's audit log was wiped.
+	nodeID := ""
+	if h.LocalNodeIDFn != nil {
+		nodeID = h.LocalNodeIDFn()
+	}
 	// Encode the scope into the path column so an investigator can tell at a
 	// glance whether the wipe was scoped or full. The fragment grammar
 	// matches what recordLoginEvent uses (path#detail) so existing UI parsers

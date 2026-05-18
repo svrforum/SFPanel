@@ -14,7 +14,14 @@ const auditMaxRows = 50000
 
 // AuditMiddleware logs all state-changing API requests (POST, PUT, DELETE)
 // to the audit_logs table after the handler has executed successfully.
-func AuditMiddleware(db *sql.DB) echo.MiddlewareFunc {
+//
+// localNodeIDFn returns the cluster node ID this row should be stamped with.
+// Resolved per-request (not captured at boot) so that cluster
+// initialisation-at-runtime takes effect — a node that started standalone
+// and later joined a cluster starts emitting non-empty node_ids without a
+// restart. Pass nil or a function returning "" for non-cluster deployments;
+// the column then stays empty as before.
+func AuditMiddleware(db *sql.DB, localNodeIDFn func() string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			err := next(c)
@@ -40,7 +47,15 @@ func AuditMiddleware(db *sql.DB) echo.MiddlewareFunc {
 			status := c.Response().Status
 			username, _ := c.Get("username").(string)
 			ip := c.RealIP()
-			nodeID := c.QueryParam("node")
+			// Stamp the row with the LOCAL node that processed the request.
+			// The previous read from `c.QueryParam("node")` was always empty
+			// because the cluster proxy middleware strips `?node=` before the
+			// handler chain proceeds. Forensic reviewers were unable to tell
+			// which cluster node served a given write.
+			nodeID := ""
+			if localNodeIDFn != nil {
+				nodeID = localNodeIDFn()
+			}
 
 			go func() {
 				if _, dbErr := db.Exec(
