@@ -6,6 +6,41 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.13.15] – 2026-05-18
+
+Follow-up to 0.13.14 — closes two issues that had been flagged as
+"deferred to follow-up" in the previous release notes.
+
+### Audit
+
+- **`audit_logs.node_id` now stamps the local processing node** instead
+  of the empty `c.QueryParam("node")` it used to read. The cluster
+  proxy middleware strips `?node=` before the handler chain proceeds,
+  so the previous read produced an empty `node_id` on every cluster-
+  routed write — forensic reviewers could not tell which node served
+  a given audit row. Both `AuditMiddleware` and `ClearAuditLogs` now
+  read from a `func() string` resolved per-request against
+  `mgr.LocalNodeID()`, so a node that joined a cluster mid-process
+  starts stamping correctly without a restart.
+
+### Cluster
+
+- **Cluster status proxy retries once on stale connections.** The
+  follower's per-minute poll of `/cluster/nodes` (and other read-side
+  proxy-to-leader endpoints in the cluster handler) was alternating
+  503/200 whenever the pooled gRPC connection died between calls.
+  Confirmed in journal logs: every minute around the connection's
+  idle timeout, one request 503'd before the next succeeded — leaving
+  the UI to render "leader unreachable" banners on a perfectly
+  healthy cluster. `h.proxyToLeader` now mirrors `proxyToNodeGRPC`'s
+  retry path: on first failure, drop the dead conn, reconnect, retry
+  once. Added matching `slog component=cluster` lines so operators
+  can correlate transient 502/504s against the journal. Verified by
+  hammering `/cluster/nodes` 30× from a follower post-fix — all 30
+  returned 200.
+
+---
+
 ## [0.13.14] – 2026-05-18
 
 Hardening pass on the v0.13.13 follower auto-forward, plus extension
