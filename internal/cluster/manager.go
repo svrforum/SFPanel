@@ -765,6 +765,30 @@ func (m *Manager) GetLeaderGRPCAddress() string {
 	return m.raft.LeaderGRPCAddress()
 }
 
+// LeaderNode returns the cluster node currently serving as Raft leader, or
+// nil if the local node is the leader, the cluster has no leader, or the
+// leader is not registered in the cluster_node table. Use this to decide
+// whether to auto-forward an FSM-write request to the leader instead of
+// returning ErrNotLeader to the caller.
+func (m *Manager) LeaderNode() *Node {
+	if m.raft == nil {
+		return nil
+	}
+	if m.IsLeader() {
+		return nil
+	}
+	leaderID := m.raft.LeaderID()
+	if leaderID == "" {
+		return nil
+	}
+	for _, n := range m.GetNodes() {
+		if n.ID == leaderID {
+			return n
+		}
+	}
+	return nil
+}
+
 // GetTLS returns the TLS manager (for gRPC server setup).
 func (m *Manager) GetTLS() *TLSManager {
 	return m.tls
