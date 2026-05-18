@@ -473,9 +473,15 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 // ClusterProxyMiddleware delegates here after deciding routing; FSM-write
 // handlers call ProxyToLeader which in turn calls here with the leader as
 // target. Header trust rules — strip Authorization / X-SFPanel-Original-User /
-// X-SFPanel-Internal-Proxy* from the inbound copy, re-set username from the
-// JWT-derived c.Get("username") — are uniform across both call sites; see
-// middleware/CLAUDE.md for the rationale.
+// X-SFPanel-Original-Node / X-SFPanel-Internal-Proxy* from the inbound copy,
+// re-set them from this-node-authoritative sources — are uniform across
+// both call sites; see middleware/CLAUDE.md for the rationale.
+//
+// Side effect: drains c.Request().Body into bodyBytes. Callers must NOT
+// expect the body to be re-readable after this returns. The current call
+// sites (ClusterProxyMiddleware, ProxyToLeader) all treat the proxy as
+// terminal — they return the relay response directly and never fall back
+// to a local handler that would need the body.
 func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
 	req := c.Request()
 	var bodyBytes []byte
@@ -490,7 +496,7 @@ func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Mana
 			continue
 		}
 		switch http.CanonicalHeaderKey(k) {
-		case "Authorization", "X-Sfpanel-Original-User",
+		case "Authorization", "X-Sfpanel-Original-User", "X-Sfpanel-Original-Node",
 			"X-Sfpanel-Internal-Proxy", "X-Sfpanel-Internal-Proxy-V2":
 			continue
 		}
@@ -498,6 +504,29 @@ func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Mana
 	}
 	if username, ok := c.Get("username").(string); ok && username != "" {
 		headers["X-SFPanel-Original-User"] = username
+	}
+	// X-SFPanel-Original-Node carries the cluster ID of the node that
+	// initiated the forward. The leader's audit / security-event writers
+	// stamp the row with this ID so a forensic reviewer can attribute the
+	// action to the node where the user actually authenticated, not the
+	// leader where it landed. mgr is non-nil at every call site (the
+	// middleware's getMgr nil-check and ProxyToLeader's mgr-nil check both
+	// gate this code), so dereferencing is safe.
+	if nid := mgr.LocalNodeID(); nid != "" {
+		headers["X-SFPanel-Original-Node"] = nid
+	}
+	// X-Forwarded-For preserves the original client IP across the
+	// follower→leader hop. Without this, the leader's c.RealIP() returns
+	// 127.0.0.1 for every forwarded request (the gRPC→loopback HTTP hop's
+	// source address), collapsing the per-IP rate limiter onto one bucket
+	// and letting a single attacker on one follower lock out all admin
+	// auth across the cluster. Echo's IPExtractor trusts loopback by
+	// default (router.go ExtractIPFromXFFHeader with 127.0.0.0/8) so the
+	// XFF chain we set here propagates to the handler's c.RealIP().
+	if existing := req.Header.Get("X-Forwarded-For"); existing != "" {
+		headers["X-Forwarded-For"] = existing + ", " + c.RealIP()
+	} else {
+		headers["X-Forwarded-For"] = c.RealIP()
 	}
 
 	authToken := ""
@@ -529,18 +558,30 @@ func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Mana
 	pool := mgr.GetConnPool()
 	client, err := pool.Get(targetNode.GRPCAddress)
 	if err != nil {
+		slog.Error("cluster proxy: connect failed", "component", "cluster",
+			"target", targetNode.Name, "addr", targetNode.GRPCAddress,
+			"path", req.URL.Path, "error", err)
 		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Failed to connect to node: "+targetNode.Name)
 	}
 
 	resp, err := client.ProxyRequest(ctx, apiReq)
 	if err != nil {
+		slog.Warn("cluster proxy: first attempt failed, retrying",
+			"component", "cluster", "target", targetNode.Name,
+			"addr", targetNode.GRPCAddress, "path", req.URL.Path, "error", err)
 		pool.Remove(targetNode.GRPCAddress)
 		client, err = pool.Get(targetNode.GRPCAddress)
 		if err != nil {
+			slog.Error("cluster proxy: reconnect failed", "component", "cluster",
+				"target", targetNode.Name, "addr", targetNode.GRPCAddress,
+				"path", req.URL.Path, "error", err)
 			return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "Failed to reconnect to node: "+targetNode.Name)
 		}
 		resp, err = client.ProxyRequest(ctx, apiReq)
 		if err != nil {
+			slog.Error("cluster proxy: retry failed", "component", "cluster",
+				"target", targetNode.Name, "addr", targetNode.GRPCAddress,
+				"path", req.URL.Path, "error", err)
 			pool.Remove(targetNode.GRPCAddress)
 			return response.Fail(c, http.StatusGatewayTimeout, response.ErrInternalError, "Proxy request failed: "+err.Error())
 		}
@@ -549,35 +590,41 @@ func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Mana
 	for k, v := range resp.Headers {
 		c.Response().Header().Set(k, v)
 	}
-	return c.Blob(int(resp.StatusCode), "application/json", resp.Body)
+	// Propagate the target's Content-Type instead of hard-coding JSON.
+	// Defaults to application/json when the target didn't set one, matching
+	// the prior behaviour for the only call sites at the time of this
+	// refactor (auth FSM endpoints).
+	contentType := resp.Headers["Content-Type"]
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	return c.Blob(int(resp.StatusCode), contentType, resp.Body)
 }
-
-// ForwardedToLeaderHeader marks a request that was auto-forwarded from a
-// follower to the leader. Targets that see it must NOT re-forward, so a
-// brief leadership-flap during the call can't ping-pong the request between
-// two nodes that each think the other is leader.
-const ForwardedToLeaderHeader = "X-SFPanel-Forwarded-To-Leader"
 
 // ProxyToLeader transparently forwards the current request to the cluster
 // leader via gRPC and returns (true, err) once the response is written.
 // Returns (false, nil) when the local node is itself the leader, when
-// cluster mode is disabled, or when the request was already forwarded
-// (anti-loop guard) — in all those cases the caller should proceed with
-// normal in-process handling.
+// cluster mode is disabled, or when the request already arrived from
+// another peer via the internal-proxy auth (anti-loop guard) — in all
+// those cases the caller should proceed with normal in-process handling.
 //
 // FSM-write handlers (admin account changes, etc.) call this at the top so
 // followers don't surface "must run on leader" errors to the user. If no
 // leader is currently elected, returns (true, 503) so the user sees a
 // retry-friendly message instead of a stale routing hint.
+//
+// The anti-loop signal is the cluster-internal proxy authentication
+// (X-SFPanel-Internal-Proxy + V2 HMAC) — not a forge-able plain header.
+// During a leadership flap the leader-as-of-the-forward may have lost
+// leadership by the time the gRPC request lands; its handler then sees a
+// proxy-authenticated request and skips re-forward, letting the local
+// path surface ErrNotLeader. Strictly better than ping-ponging the request
+// between two peers that each think the other is leader.
 func ProxyToLeader(c echo.Context, mgr *cluster.Manager) (handled bool, err error) {
 	if mgr == nil || mgr.IsLeader() {
 		return false, nil
 	}
-	// Anti-loop: if this request was already forwarded to us as "the leader",
-	// don't re-forward even if we now think someone else is leader. Letting
-	// the handler proceed will produce the ErrNotLeader → 503 hint, which is
-	// strictly better than ping-ponging the request mid-election.
-	if c.Request().Header.Get(ForwardedToLeaderHeader) != "" {
+	if authpkg.IsInternalProxyRequest(c.Request()) {
 		return false, nil
 	}
 	leader := mgr.LeaderNode()
@@ -585,6 +632,5 @@ func ProxyToLeader(c echo.Context, mgr *cluster.Manager) (handled bool, err erro
 		return true, response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError,
 			"No cluster leader available — retry in a few seconds")
 	}
-	c.Request().Header.Set(ForwardedToLeaderHeader, "1")
 	return true, proxyToNodeGRPC(c, leader, mgr)
 }

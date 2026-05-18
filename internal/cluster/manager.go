@@ -781,6 +781,15 @@ func (m *Manager) LeaderNode() *Node {
 	if leaderID == "" {
 		return nil
 	}
+	// Defense against a step-down race where IsLeader() flipped to false a
+	// few ms ago but LeaderID() still points at us. Returning the local node
+	// would cause ProxyToLeader to gRPC-self-call — the request would loop
+	// back through the loopback HTTP hop, hit IsInternalProxyRequest, skip
+	// the re-forward and proceed locally, eventually surfacing ErrNotLeader.
+	// Functionally safe but wastes a round-trip and obscures logs.
+	if leaderID == m.LocalNodeID() {
+		return nil
+	}
 	for _, n := range m.GetNodes() {
 		if n.ID == leaderID {
 			return n
