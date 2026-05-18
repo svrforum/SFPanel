@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
@@ -322,6 +323,13 @@ func (h *Handler) Setup2FA(c echo.Context) error {
 }
 
 func (h *Handler) Verify2FA(c echo.Context) error {
+	// Cluster admin row is replicated via Raft FSM, so only the leader can
+	// Apply the change. Followers transparently forward the request to the
+	// leader instead of surfacing ErrNotLeader to the operator.
+	if handled, err := middleware.ProxyToLeader(c, h.getClusterMgr()); handled {
+		return err
+	}
+
 	username, _ := c.Get("username").(string)
 	if username == "" {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrNoUser, "No authenticated user")
@@ -376,6 +384,14 @@ func (h *Handler) Get2FAStatus(c echo.Context) error {
 }
 
 func (h *Handler) Disable2FA(c echo.Context) error {
+	// Followers forward to the leader before doing local work — the FSM
+	// SetAccount call below would otherwise return ErrNotLeader and the
+	// rate-limit ledger on the follower would still tick for a request
+	// that ultimately ran on the leader.
+	if handled, err := middleware.ProxyToLeader(c, h.getClusterMgr()); handled {
+		return err
+	}
+
 	// Gate behind the per-IP rate limiter so the bcrypt compare below
 	// can't be used as a CPU DoS by a session-hijacked attacker.
 	ip := c.RealIP()
@@ -437,6 +453,14 @@ func (h *Handler) Disable2FA(c echo.Context) error {
 }
 
 func (h *Handler) ChangePassword(c echo.Context) error {
+	// Followers forward to the leader. The admin row replicates via Raft
+	// FSM and only the leader can Apply; without this hop the operator
+	// would see "must run on leader node" no matter which node they happen
+	// to be logged into.
+	if handled, err := middleware.ProxyToLeader(c, h.getClusterMgr()); handled {
+		return err
+	}
+
 	// Rate-limit per-IP to prevent the bcrypt verify below being used for
 	// sustained CPU DoS against an admin session.
 	ip := c.RealIP()
