@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
@@ -532,6 +533,10 @@ func (h *Handler) CreateToken(c echo.Context) error {
 	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
+	// FSM-write — only leader can mint tokens. Followers auto-forward.
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
+	}
 
 	ttl := cluster.DefaultTokenTTL
 
@@ -574,6 +579,11 @@ func (h *Handler) RemoveNode(c echo.Context) error {
 	mgr := h.getManager()
 	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	// raft.RemoveServer is leader-only. Followers auto-forward so the
+	// operator can remove a node from whichever node they're logged into.
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
 	}
 
 	nodeID := c.Param("id")
@@ -704,6 +714,10 @@ func (h *Handler) UpdateNodeLabels(c echo.Context) error {
 	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
 	}
+	// Labels live in the FSM cluster_node table — leader-only Apply.
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
+	}
 
 	nodeID := c.Param("id")
 	if nodeID == "" {
@@ -734,6 +748,12 @@ func (h *Handler) UpdateNodeAddress(c echo.Context) error {
 	mgr := h.getManager()
 	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	// Per cluster/CLAUDE.md "verifySelfAddress is leader-only", this PATCH
+	// is the load-bearing path for changing a node's advertised address
+	// after boot. Auto-forwarding lets operators run it from any node.
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
 	}
 
 	nodeID := c.Param("id")
@@ -767,6 +787,12 @@ func (h *Handler) TransferLeadership(c echo.Context) error {
 	mgr := h.getManager()
 	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	// raft.TransferLeadership runs on the current leader and hands off to
+	// the target. Forwarding from a follower means "ask the current leader
+	// to hand off to this target" — exactly the operator's intent.
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
 	}
 
 	var body struct {

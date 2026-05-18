@@ -231,7 +231,10 @@ func sha256Hex(s string) string {
 // stable for the Login handler while the richer recordSecurityEvent below
 // covers the post-auth handlers.
 func (h *Handler) recordLoginEvent(username, ip string, status int, reason string) {
-	h.insertSecurityAuditRow(username, ip, "login", reason, "POST", status)
+	// Login never auto-forwards (the login endpoint is in the CSRF bootstrap
+	// list and runs on whichever node the user actually hit), so origin node
+	// is just the local node and we leave it empty for the row.
+	h.insertSecurityAuditRow(username, ip, "login", reason, "POST", status, "")
 }
 
 // recordSecurityEvent appends a row to audit_logs annotating a security-
@@ -254,12 +257,23 @@ func (h *Handler) recordSecurityEvent(c echo.Context, action, reason string, sta
 	if c.Request() != nil && c.Request().Method != "" {
 		method = c.Request().Method
 	}
-	h.insertSecurityAuditRow(username, ip, action, reason, method, status)
+	// Origin node is set by the follower's proxyToNodeGRPC when an admin
+	// action was auto-forwarded; lets a forensic reviewer attribute the
+	// row to the node where the user actually authenticated, not the
+	// leader where the action landed. Empty when the request ran locally.
+	originNode := ""
+	if c.Request() != nil {
+		originNode = c.Request().Header.Get("X-SFPanel-Original-Node")
+	}
+	h.insertSecurityAuditRow(username, ip, action, reason, method, status, originNode)
 }
 
 // insertSecurityAuditRow is the shared write path. Stays internal so both
-// public helpers produce identical row shapes.
-func (h *Handler) insertSecurityAuditRow(username, ip, action, reason, method string, status int) {
+// public helpers produce identical row shapes. nodeID stamps the cluster
+// node where the user initiated the action (empty for non-cluster or
+// locally-handled requests); callers pull it from the X-SFPanel-Original-Node
+// header that the follower-side auto-forward sets in proxyToNodeGRPC.
+func (h *Handler) insertSecurityAuditRow(username, ip, action, reason, method string, status int, nodeID string) {
 	if h.DB == nil {
 		return
 	}
@@ -267,7 +281,7 @@ func (h *Handler) insertSecurityAuditRow(username, ip, action, reason, method st
 	go func() {
 		if _, err := h.DB.Exec(
 			"INSERT INTO audit_logs (username, method, path, status, ip, node_id) VALUES (?, ?, ?, ?, ?, ?)",
-			username, method, path, status, ip, "",
+			username, method, path, status, ip, nodeID,
 		); err != nil {
 			slog.Warn("security audit insert failed", "component", "auth", "action", action, "reason", reason, "error", err)
 		}
