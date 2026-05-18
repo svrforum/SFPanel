@@ -2,7 +2,9 @@ package logs
 
 import (
 	"bufio"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -54,4 +56,58 @@ func TestProcessKillUnblocksScanner(t *testing.T) {
 	}
 
 	_ = cmd.Wait()
+}
+
+// TestValidateCustomSourcePath_RejectsSymlinkToSensitive exercises P0-13:
+// a symlink inside an allowlisted dir pointing OUTSIDE the allowlist must
+// be rejected — the literal-prefix check alone misses this bypass.
+func TestValidateCustomSourcePath_RejectsSymlinkToSensitive(t *testing.T) {
+	tmp := t.TempDir()
+	sensitive := filepath.Join(tmp, "sensitive.txt")
+	if err := os.WriteFile(sensitive, []byte("secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	allowed := filepath.Join(tmp, "allowed")
+	if err := os.MkdirAll(allowed, 0755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(allowed, "alias.log")
+	if err := os.Symlink(sensitive, link); err != nil {
+		t.Fatal(err)
+	}
+	err := validateCustomSourcePath(link, []string{allowed + "/"})
+	if err == nil {
+		t.Fatalf("validateCustomSourcePath accepted symlink leaving allowlisted dir; want rejection")
+	}
+}
+
+// TestValidateCustomSourcePath_AllowsBenignInAllowlistSymlink: don't over-block.
+func TestValidateCustomSourcePath_AllowsBenignInAllowlistSymlink(t *testing.T) {
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "real.log")
+	if err := os.WriteFile(target, []byte("x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(tmp, "alias.log")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCustomSourcePath(link, []string{tmp + "/"}); err != nil {
+		t.Fatalf("validateCustomSourcePath rejected benign in-allowlist symlink: %v", err)
+	}
+}
+
+// TestValidateCustomSourcePath_RejectsNonAbsolute + traversal.
+func TestValidateCustomSourcePath_RejectsBadInputs(t *testing.T) {
+	cases := []string{
+		"",
+		"relative/path",
+		"/var/log/../etc/shadow",
+		"/etc/shadow", // not in allowlist
+	}
+	for _, p := range cases {
+		if err := validateCustomSourcePath(p, []string{"/var/log/"}); err == nil {
+			t.Errorf("validateCustomSourcePath(%q) accepted; want rejection", p)
+		}
+	}
 }

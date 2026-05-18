@@ -28,6 +28,47 @@ type logSourceInfo struct {
 	Filter string // optional grep filter pattern applied when reading
 }
 
+// validateCustomSourcePath enforces the absolute-path + traversal-free +
+// allowlist rules on a candidate log source path. After the literal-path
+// check, the path is EvalSymlinks'd (if the target exists) and the resolved
+// target is re-validated against the same allowlist — this closes the
+// symlink bypass where an attacker places a symlink inside an allowlisted
+// dir pointing at /etc/shadow.
+func validateCustomSourcePath(p string, allowedPrefixes []string) error {
+	if p == "" {
+		return fmt.Errorf("path is required")
+	}
+	if !filepath.IsAbs(p) {
+		return fmt.Errorf("path must be absolute")
+	}
+	if strings.Contains(p, "..") {
+		return fmt.Errorf("path must not contain '..'")
+	}
+	clean := filepath.Clean(p)
+	if !hasAllowedPrefix(clean, allowedPrefixes) {
+		return fmt.Errorf("custom log path is not in the allowlist")
+	}
+	if _, err := os.Lstat(clean); err == nil {
+		resolved, rerr := filepath.EvalSymlinks(clean)
+		if rerr != nil {
+			return fmt.Errorf("cannot resolve symlink: %w", rerr)
+		}
+		if !hasAllowedPrefix(resolved, allowedPrefixes) {
+			return fmt.Errorf("path resolves outside the allowlist via symlink")
+		}
+	}
+	return nil
+}
+
+func hasAllowedPrefix(p string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // builtinLogSources is the template for the per-Handler built-in log source
 // map. Each Handler clones this at construction and then optionally points
 // the "sfpanel" entry at the configured log path via SetSFPanelLogPath.
@@ -483,28 +524,14 @@ func (h *Handler) AddCustomSource(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Both 'name' and 'path' are required")
 	}
 
-	// Security: absolute path required, no path traversal, must be under /var/log or /opt
-	if !filepath.IsAbs(req.Path) {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "Path must be absolute")
-	}
-	if strings.Contains(req.Path, "..") {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "Path must not contain '..'")
-	}
-	cleanPath := filepath.Clean(req.Path)
 	// Restricted to /var/log and /opt. /home and /tmp were previously permitted
 	// but contained user-private material (SSH keys, .env, .bash_history) and
 	// tmpfs indirection that made path canonicalization unreliable.
 	allowedPrefixes := []string{"/var/log/", "/opt/"}
-	allowed := false
-	for _, prefix := range allowedPrefixes {
-		if strings.HasPrefix(cleanPath, prefix) {
-			allowed = true
-			break
-		}
+	if err := validateCustomSourcePath(req.Path, allowedPrefixes); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
-	if !allowed {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "Custom log path must be under /var/log or /opt")
-	}
+	cleanPath := filepath.Clean(req.Path)
 
 	// Generate source_id from name: lowercase, replace spaces with hyphens
 	sourceID := strings.ToLower(strings.ReplaceAll(req.Name, " ", "-"))

@@ -131,3 +131,73 @@ func TestIsReadProtectedPath_SymlinkBypassBlocked(t *testing.T) {
 		t.Errorf("/root/.ssh/* must be read-protected")
 	}
 }
+
+// TestIsCriticalPath_TableDriven is the regression fence for the 2026-04-19
+// P0 R3 N-01 fix that switched isCriticalPath from exact-match to prefix-match.
+// Any future "optimization" that re-introduces exact-match must fail these.
+func TestIsCriticalPath_TableDriven(t *testing.T) {
+	rejects := []string{
+		// Exact matches of every entry in criticalPaths
+		"/", "/etc", "/usr", "/bin", "/sbin", "/var", "/boot",
+		"/proc", "/sys", "/dev", "/home", "/root", "/lib",
+		"/lib64", "/opt", "/run", "/srv",
+		// 2026-04-19 attack vectors (must be rejected via prefix)
+		"/etc/cron.d/backdoor",
+		"/etc/sudoers.d/zz_pwn",
+		"/etc/systemd/system/evil.service",
+		"/usr/local/bin/sfpanel",
+		"/etc/init.d/evil",
+		"/etc/profile.d/evil.sh",
+		"/root/.ssh/authorized_keys",
+	}
+	for _, p := range rejects {
+		if !isCriticalPath(p) {
+			t.Errorf("isCriticalPath(%q) = false, want true", p)
+		}
+	}
+	accepts := []string{
+		"/tmp/file",
+		"/tmp",
+		"/mnt/storage/x",
+		"/data/x",
+		"/etcd-config", // looks like /etc but isn't
+	}
+	for _, p := range accepts {
+		if isCriticalPath(p) {
+			t.Errorf("isCriticalPath(%q) = true, want false", p)
+		}
+	}
+}
+
+// TestValidatePathForWrite_RejectsSymlinkLeafToCritical exercises P0-11:
+// UploadFile + MkDir pass destDir as the validated path. If destDir IS a
+// symlink to /etc/cron.d, validatePathForWrite must reject — otherwise
+// MkdirAll/os.Create follow the symlink into a protected tree.
+func TestValidatePathForWrite_RejectsSymlinkLeafToCritical(t *testing.T) {
+	tmp := t.TempDir()
+	link := filepath.Join(tmp, "sneaky")
+	if err := os.Symlink("/etc/cron.d", link); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+	err := validatePathForWrite(link)
+	if err == nil {
+		t.Fatalf("validatePathForWrite(%q) accepted symlink to /etc/cron.d; want rejection", link)
+	}
+}
+
+// TestValidatePathForWrite_AllowsSymlinkLeafToBenign verifies the new
+// symlink check doesn't over-block legitimate symlinks.
+func TestValidatePathForWrite_AllowsSymlinkLeafToBenign(t *testing.T) {
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "real")
+	if err := os.MkdirAll(target, 0755); err != nil {
+		t.Fatalf("mkdir real: %v", err)
+	}
+	link := filepath.Join(tmp, "alias")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+	if err := validatePathForWrite(link); err != nil {
+		t.Fatalf("validatePathForWrite(%q) rejected benign symlink: %v", link, err)
+	}
+}
