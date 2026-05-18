@@ -6,6 +6,28 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.13.13] – 2026-05-18
+
+### Cluster
+
+- **FSM-write endpoints auto-forward from follower to leader.** Admin
+  password change, 2FA verify, and 2FA disable previously returned
+  `503 "Account changes for cluster admins must run on the leader node.
+  Switch to node X and retry"` when the operator happened to be logged
+  into a follower — they had to manually pick the leader from the node
+  selector and retry. The handler now transparently forwards the request
+  to the leader via the existing gRPC proxy infrastructure and returns
+  the leader's response, so any node accepts the request. Includes an
+  `X-SFPanel-Forwarded-To-Leader` anti-loop guard so a brief leadership
+  flap during the forward can't ping-pong the request between two peers
+  that each think the other is leader. New `cluster.Manager.LeaderNode()`
+  helper and reusable `middleware.ProxyToLeader()` for any future
+  FSM-write endpoints. The pre-existing `failClusterPersist` 503
+  fallback is retained for the rare case where no leader is currently
+  elected (e.g. mid-election).
+
+---
+
 ## [0.13.12] – 2026-05-17
 
 Hotfix on top of 0.13.11.
