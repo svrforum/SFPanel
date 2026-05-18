@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/release"
 )
 
 // TailscaleHandler exposes REST handlers for Tailscale VPN management.
@@ -282,6 +283,15 @@ func (h *TailscaleHandler) Install(c echo.Context) error {
 	if err != nil {
 		sendLine("ERROR: Failed to download install script: " + err.Error())
 		sendLine("[DONE]")
+		return nil
+	}
+
+	// Step 1.5: Verify SHA-256 if operator pinned one. Soft-pass when env
+	// var unset (matches CLAUDE.md "track-latest by default" stance).
+	if err := release.VerifyInstaller("/tmp/tailscale-install.sh", "SFPANEL_TAILSCALE_INSTALLER_SHA256", "tailscale"); err != nil {
+		sendLine("ERROR: " + response.SanitizeOutput(err.Error()))
+		sendLine("[DONE]")
+		os.Remove("/tmp/tailscale-install.sh")
 		return nil
 	}
 
