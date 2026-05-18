@@ -116,6 +116,19 @@ func validatePathForWrite(p string) error {
 	if isCriticalPath(realDir) {
 		return fmt.Errorf("writing inside critical system directory is not allowed")
 	}
+	// Leaf-symlink check: if p itself is a symlink (e.g. /tmp/sneaky ->
+	// /etc/cron.d), MkdirAll/os.Create would follow it into a critical path
+	// even though parent + literal-resolved checks above pass. Resolve the
+	// symlink chain and re-check the final target.
+	if info, lerr := os.Lstat(p); lerr == nil && info.Mode()&os.ModeSymlink != 0 {
+		target, terr := filepath.EvalSymlinks(p)
+		if terr != nil {
+			return fmt.Errorf("cannot resolve symlink target: %w", terr)
+		}
+		if isCriticalPath(target) {
+			return fmt.Errorf("path resolves to a critical system path via symlink")
+		}
+	}
 	return nil
 }
 
