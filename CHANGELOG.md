@@ -6,6 +6,66 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.13.14] – 2026-05-18
+
+Hardening pass on the v0.13.13 follower auto-forward, plus extension
+to five more cluster admin endpoints. Three independent code reviews
+(security-focused, backend-focused, endpoint-survey) drove the fixes.
+
+### Cluster
+
+- **`X-Forwarded-For` propagated across follower→leader hop.** Before,
+  every forwarded admin request appeared on the leader as `127.0.0.1`
+  (the gRPC→loopback HTTP hop's source). The leader's per-IP rate
+  limiter (`preRecordLoginAttempt`) collapsed every cluster admin
+  auth onto one bucket, letting a single attacker on one follower
+  lock out admin authentication cluster-wide. Now `proxyToNodeGRPC`
+  appends `c.RealIP()` to the existing XFF chain; Echo's IPExtractor
+  trusts loopback (already in the default trust list), so the
+  leader's `c.RealIP()` returns the real client IP and the per-IP
+  ledger keys correctly.
+- **Anti-loop guard switched from a forge-able magic header to the
+  cluster-internal proxy authentication.** Removed
+  `X-SFPanel-Forwarded-To-Leader`; `ProxyToLeader` now checks
+  `auth.IsInternalProxyRequest()` (mTLS / proxy-secret authenticated),
+  so an external client can't disable the anti-loop with a spoofed
+  header.
+- **`LeaderNode()` returns nil when `LeaderID()` still points at the
+  local node mid-step-down.** Defense against a brief race where
+  `IsLeader()` flips to false a few ms before `LeaderID()` updates;
+  otherwise the helper would return the local node and the forwarder
+  would gRPC-self-call.
+- **Cluster proxy failures now log `component=cluster` with target,
+  address, path, and error.** Operators no longer have to correlate
+  503/504s against an empty log.
+- **`X-SFPanel-Original-Node` propagated** so the leader's audit /
+  security_event row stamps the cluster node where the user actually
+  authenticated, not the leader where the change landed. Empty when
+  the request ran locally. Follows the same trust-boundary pattern
+  as `X-SFPanel-Original-User` (stripped from external requests,
+  re-set fresh from `mgr.LocalNodeID()` on the follower→leader hop).
+- **Content-Type propagated from the proxied response** instead of
+  hard-coded `application/json` — needed when future FSM-write
+  endpoints return other media types.
+- **Auto-forward extended to five more cluster admin endpoints**:
+  `POST /cluster/token` (CreateToken), `DELETE /cluster/nodes/:id`
+  (RemoveNode), `PATCH /cluster/nodes/:id/labels` (UpdateNodeLabels),
+  `PATCH /cluster/nodes/:id/address` (UpdateNodeAddress — the
+  load-bearing port-migration path), and `POST /cluster/leader-transfer`
+  (TransferLeadership). All were previously returning 503 / "not the
+  cluster leader" when called from a follower.
+
+### Known issue (not fixed in this release)
+
+- The `audit_logs.node_id` field written by the audit middleware
+  (not the security_event writer) and by `ClearAuditLogs` still
+  pulls from `c.QueryParam("node")`, which is always empty after
+  the proxy middleware strips it. Cleanest fix is to inject the
+  cluster manager into the audit handler / middleware — defer to a
+  follow-up release.
+
+---
+
 ## [0.13.13] – 2026-05-18
 
 ### Cluster
