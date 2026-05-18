@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/release"
 )
 
 // PackageInfo represents a system package with version and architecture details.
@@ -503,6 +504,15 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 		return nil
 	}
 
+	// Step 1.5: Verify SHA-256 if operator pinned one. Soft-pass when env
+	// var unset (matches CLAUDE.md "track-latest by default" stance).
+	if err := release.VerifyInstaller("/tmp/get-docker.sh", "SFPANEL_DOCKER_INSTALLER_SHA256", "docker"); err != nil {
+		sendLine("ERROR: " + response.SanitizeOutput(err.Error()))
+		sendLine("[DONE]")
+		os.Remove("/tmp/get-docker.sh")
+		return nil
+	}
+
 	sendLine(">>> Running install script (this may take a few minutes) ...")
 
 	// Step 2: Run the install script with real-time output streaming
@@ -644,6 +654,14 @@ func (h *Handler) InstallNode(c echo.Context) error {
 		if err != nil {
 			sendLine("ERROR: Failed to download NVM install script: " + err.Error())
 			sendLine("[DONE]")
+			return nil
+		}
+
+		// Verify SHA-256 if operator pinned one. Soft-pass when env unset.
+		if err := release.VerifyInstaller("/tmp/install-nvm.sh", "SFPANEL_NVM_INSTALLER_SHA256", "nvm"); err != nil {
+			sendLine("ERROR: " + response.SanitizeOutput(err.Error()))
+			sendLine("[DONE]")
+			os.Remove("/tmp/install-nvm.sh")
 			return nil
 		}
 
@@ -1095,6 +1113,14 @@ func (h *Handler) InstallClaude(c echo.Context) error {
 	if err != nil {
 		sendLine("ERROR: Failed to download Claude install script: " + err.Error())
 		sendLine("[DONE]")
+		return nil
+	}
+
+	// Verify SHA-256 if operator pinned one. Soft-pass when env unset.
+	if err := release.VerifyInstaller("/tmp/install-claude.sh", "SFPANEL_CLAUDE_INSTALLER_SHA256", "claude"); err != nil {
+		sendLine("ERROR: " + response.SanitizeOutput(err.Error()))
+		sendLine("[DONE]")
+		os.Remove("/tmp/install-claude.sh")
 		return nil
 	}
 
