@@ -34,6 +34,12 @@ func (c *SystemCommander) Run(name string, args ...string) (string, error) {
 }
 
 func (c *SystemCommander) RunWithTimeout(timeout time.Duration, name string, args ...string) (string, error) {
+	if timeout <= 0 {
+		// Zero or negative timeout would deadline immediately — easy footgun
+		// when a config field carrying a timeout defaults to a zero-value
+		// time.Duration. Fall back to DefaultTimeout instead.
+		timeout = DefaultTimeout
+	}
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

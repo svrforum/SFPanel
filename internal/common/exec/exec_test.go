@@ -59,3 +59,19 @@ func TestSystemCommander_Timeout(t *testing.T) {
 		t.Fatal("expected timeout error")
 	}
 }
+
+func TestSystemCommander_RunWithTimeout_ZeroOrNegativeUsesDefault(t *testing.T) {
+	// timeout=0 must NOT instantly time out — it must run the command and succeed.
+	// Same for negative timeouts (defensive).
+	cmd := NewCommander()
+
+	for _, tc := range []time.Duration{0, -1 * time.Second} {
+		out, err := cmd.RunWithTimeout(tc, "echo", "hi")
+		if err != nil {
+			t.Fatalf("timeout=%v: unexpected error: %v", tc, err)
+		}
+		if out != "hi\n" {
+			t.Fatalf("timeout=%v: expected 'hi\\n', got %q", tc, out)
+		}
+	}
+}

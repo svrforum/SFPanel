@@ -67,6 +67,49 @@ func requireClientCertInterceptor(ctx context.Context, req any, info *grpc.Unary
 	return handler(ctx, req)
 }
 
+// requireClientCertStreamInterceptor mirrors requireClientCertInterceptor for
+// streaming RPCs. Without this, grpc.UnaryInterceptor alone leaves the
+// streaming surface (Heartbeat) reachable without a verified peer cert
+// because tls.VerifyClientCertIfGiven accepts handshakes with no client cert.
+func requireClientCertStreamInterceptor(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	if unauthenticatedMethods[info.FullMethod] {
+		return handler(srv, ss)
+	}
+	p, ok := peer.FromContext(ss.Context())
+	if !ok {
+		return status.Error(codes.Unauthenticated, "missing peer info")
+	}
+	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok || len(tlsInfo.State.VerifiedChains) == 0 {
+		return status.Error(codes.Unauthenticated, "client certificate required for this method")
+	}
+	return handler(srv, ss)
+}
+
+// recvResult is the message shape pushed onto the heartbeat recv channel.
+type recvResult struct {
+	ping *pb.HeartbeatPing
+	err  error
+}
+
+// runHeartbeatRecvLoop reads from a heartbeat stream and pushes each result
+// onto recvCh. Exits when the recv callback returns an error OR when ctx is
+// cancelled — the ctx.Done() arm prevents leaks when the parent stops
+// consuming (channel buffer full + no reader would otherwise block forever).
+func runHeartbeatRecvLoop(ctx context.Context, recv func() (*pb.HeartbeatPing, error), recvCh chan<- recvResult) {
+	for {
+		ping, err := recv()
+		select {
+		case recvCh <- recvResult{ping, err}:
+		case <-ctx.Done():
+			return
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
 // NewGRPCServer creates and configures the gRPC server with mTLS.
 // localPort is the HTTP server port for proxying requests locally.
 func NewGRPCServer(mgr *Manager, localPort int) (*GRPCServer, error) {
@@ -79,6 +122,7 @@ func NewGRPCServer(mgr *Manager, localPort int) (*GRPCServer, error) {
 	server := grpc.NewServer(
 		grpc.Creds(creds),
 		grpc.UnaryInterceptor(requireClientCertInterceptor),
+		grpc.StreamInterceptor(requireClientCertStreamInterceptor),
 	)
 
 	// Derive proxy secret from CA cert (shared across all cluster nodes)
@@ -193,22 +237,11 @@ func (s *GRPCServer) Leave(ctx context.Context, req *pb.LeaveRequest) (*pb.Leave
 func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 	const idleTimeout = 30 * time.Second
 
-	type recvResult struct {
-		ping *pb.HeartbeatPing
-		err  error
-	}
-
-	// Single goroutine for receiving — avoids goroutine leak per iteration
+	// Single goroutine for receiving — the runHeartbeatRecvLoop helper also
+	// drops out on stream.Context().Done() so it doesn't leak when this
+	// outer select exits via timeout/done while the channel buffer is full.
 	recvCh := make(chan recvResult, 1)
-	go func() {
-		for {
-			ping, err := stream.Recv()
-			recvCh <- recvResult{ping, err}
-			if err != nil {
-				return
-			}
-		}
-	}()
+	go runHeartbeatRecvLoop(stream.Context(), stream.Recv, recvCh)
 
 	timer := time.NewTimer(idleTimeout)
 	defer timer.Stop()
