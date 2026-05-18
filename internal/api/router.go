@@ -160,7 +160,17 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	authorized.Use(mw.ClusterProxyMiddleware(func() *cluster.Manager {
 		return clusterHandler.GetManager()
 	}))
-	authorized.Use(mw.AuditMiddleware(database))
+	// Resolve the local node ID lazily so a node that joined a cluster mid-
+	// process (after the middleware chain was built) starts stamping
+	// audit rows correctly without a restart. Mirrors the same dynamic-
+	// resolution pattern as ClusterProxyMiddleware above.
+	localNodeIDFn := func() string {
+		if m := clusterHandler.GetManager(); m != nil {
+			return m.LocalNodeID()
+		}
+		return ""
+	}
+	authorized.Use(mw.AuditMiddleware(database, localNodeIDFn))
 	// Settings
 	settingsHandler := &featureSettings.Handler{DB: database}
 	authorized.GET("/settings", settingsHandler.GetSettings)
@@ -225,7 +235,7 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 	clusterGroup.POST("/update", clusterHandler.ClusterUpdate)
 
 	// Audit logs
-	auditHandler := &featureAudit.Handler{DB: database}
+	auditHandler := &featureAudit.Handler{DB: database, LocalNodeIDFn: localNodeIDFn}
 	authorized.GET("/audit/logs", auditHandler.ListAuditLogs)
 	authorized.DELETE("/audit/logs", auditHandler.ClearAuditLogs)
 

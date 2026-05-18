@@ -852,15 +852,37 @@ func (h *Handler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
 		headers[auth.InternalProxyHeaderV2] = v2
 	}
 
-	resp, err := client.ProxyRequest(ctx, &pb.APIRequest{
+	apiReq := &pb.APIRequest{
 		Method:  c.Request().Method,
 		Path:    proxyPath,
 		Headers: headers,
 		Body:    bodyBytes,
-	})
+	}
+	resp, err := client.ProxyRequest(ctx, apiReq)
 	if err != nil {
+		// First attempt may have hit a stale pooled connection (peer restart,
+		// idle-timeout, ephemeral RST). Mirror the proxyToNodeGRPC retry path:
+		// drop the dead conn, reconnect, retry once. Without this the cluster
+		// status poll every 60s alternates 503/200 whenever the pool's cached
+		// connection died between calls — the UI showed the cluster as
+		// "leader unreachable" repeatedly even on a perfectly healthy peer.
+		slog.Warn("cluster proxy: first attempt failed, retrying",
+			"component", "cluster", "addr", leaderAddr,
+			"path", proxyPath, "error", err)
 		pool.Remove(leaderAddr)
-		return nil, fmt.Errorf("proxy: %w", err)
+		client, dialErr := pool.Get(leaderAddr)
+		if dialErr != nil {
+			slog.Error("cluster proxy: reconnect failed", "component", "cluster",
+				"addr", leaderAddr, "path", proxyPath, "error", dialErr)
+			return nil, fmt.Errorf("proxy reconnect: %w", dialErr)
+		}
+		resp, err = client.ProxyRequest(ctx, apiReq)
+		if err != nil {
+			slog.Error("cluster proxy: retry failed", "component", "cluster",
+				"addr", leaderAddr, "path", proxyPath, "error", err)
+			pool.Remove(leaderAddr)
+			return nil, fmt.Errorf("proxy: %w", err)
+		}
 	}
 	return resp, nil
 }
