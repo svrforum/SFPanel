@@ -16,6 +16,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/cluster"
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/config"
+	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
 	featureAudit "github.com/svrforum/SFPanel/internal/feature/audit"
 	featureCron "github.com/svrforum/SFPanel/internal/feature/cron"
@@ -45,7 +46,10 @@ import (
 // cleanup function. The cleanup function must be called by the caller during
 // graceful shutdown to stop background goroutines (e.g. the alert manager)
 // before the DB is closed.
-func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc) (*echo.Echo, func()) {
+//
+// auditWriter is the shared *db.AsyncWriter used by the audit middleware and
+// auth security-events to serialise INSERTs onto one background drain.
+func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *featureAlert.Manager, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc) (*echo.Echo, func()) {
 	e := echo.New()
 	e.HideBanner = true
 
@@ -90,7 +94,7 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 
 	cmd := commonExec.NewCommander()
 
-	authHandler := &featureAuth.Handler{DB: database, Config: cfg, ClusterMgr: clusterMgr}
+	authHandler := &featureAuth.Handler{DB: database, Config: cfg, ClusterMgr: clusterMgr, AuditWriter: auditWriter}
 	dashboardHandler := &featureMonitor.Handler{Version: version}
 
 	systemHandler := &featureSystem.Handler{
@@ -171,7 +175,7 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 		}
 		return ""
 	}
-	authorized.Use(mw.AuditMiddleware(database, localNodeIDFn))
+	authorized.Use(mw.AuditMiddleware(auditWriter, localNodeIDFn))
 	// Settings
 	settingsHandler := &featureSettings.Handler{DB: database}
 	authorized.GET("/settings", settingsHandler.GetSettings)
