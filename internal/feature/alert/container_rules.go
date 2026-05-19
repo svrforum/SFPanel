@@ -8,7 +8,19 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+)
+
+// containerPatternCache memoises shell-glob → *regexp.Regexp translations.
+// matchContainerPattern is called per (rule × event), so on a busy docker
+// host with N alert rules and bursty container churn the per-call
+// regexp.Compile dominated CPU under load. The cache key is the raw
+// operator pattern; size is bounded by the number of distinct patterns
+// across all alert_rules rows, which is small.
+var (
+	containerPatternCacheMu sync.RWMutex
+	containerPatternCache   = map[string]*regexp.Regexp{}
 )
 
 // matchContainerPattern matches shell-style wildcards (* and ?) against a
@@ -22,22 +34,31 @@ func matchContainerPattern(pattern, name string) bool {
 	if pattern == "" {
 		return false
 	}
-	var b strings.Builder
-	b.WriteByte('^')
-	for _, r := range pattern {
-		switch r {
-		case '*':
-			b.WriteString(".*")
-		case '?':
-			b.WriteByte('.')
-		default:
-			b.WriteString(regexp.QuoteMeta(string(r)))
+	containerPatternCacheMu.RLock()
+	re, ok := containerPatternCache[pattern]
+	containerPatternCacheMu.RUnlock()
+	if !ok {
+		var b strings.Builder
+		b.WriteByte('^')
+		for _, r := range pattern {
+			switch r {
+			case '*':
+				b.WriteString(".*")
+			case '?':
+				b.WriteByte('.')
+			default:
+				b.WriteString(regexp.QuoteMeta(string(r)))
+			}
 		}
-	}
-	b.WriteByte('$')
-	re, err := regexp.Compile(b.String())
-	if err != nil {
-		return false
+		b.WriteByte('$')
+		compiled, err := regexp.Compile(b.String())
+		if err != nil {
+			return false
+		}
+		containerPatternCacheMu.Lock()
+		containerPatternCache[pattern] = compiled
+		containerPatternCacheMu.Unlock()
+		re = compiled
 	}
 	return re.MatchString(name)
 }
