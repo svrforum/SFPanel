@@ -118,6 +118,32 @@ func TestBroadcast_SlowClientDoesNotBlockOthers(t *testing.T) {
 	}
 }
 
+func TestRingBuffer_Write_WrapAndOverflow(t *testing.T) {
+	rb := newRingBuffer(8)
+
+	// Partial write that fits in tail.
+	rb.Write([]byte("abc"))
+	if got := string(rb.Bytes()); got != "abc" {
+		t.Errorf("after 'abc': got %q, want %q", got, "abc")
+	}
+
+	// Write that crosses the boundary.
+	rb.Write([]byte("defghi")) // total 9 bytes into cap=8; "a" gets evicted
+	if got := string(rb.Bytes()); got != "bcdefghi" {
+		t.Errorf("after wrap: got %q, want %q", got, "bcdefghi")
+	}
+
+	// Write larger than the whole ring: only the tail survives.
+	rb.Write([]byte("123456789ABC"))
+	if got := string(rb.Bytes()); got != "23456789ABC"[len("23456789ABC")-8:] {
+		t.Errorf("after oversized: got %q, want %q", got, "456789ABC"[1:])
+	}
+
+	// Sanity: cap=0 must not panic.
+	empty := newRingBuffer(0)
+	empty.Write([]byte("anything"))
+}
+
 // TestStartReader_IsIdempotent verifies P0-18: two concurrent calls to
 // startReader on the same session must spawn only one PTY-reader goroutine.
 // We can't drive a real PTY in a unit test, so we wrap startOnce directly.
