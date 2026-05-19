@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -250,8 +251,20 @@ func (h *Handler) ListDir(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
+	// Cap the number of entries we materialise. /var/lib/docker/overlay2,
+	// /tmp on a busy system, or accidentally-shared cache directories can
+	// contain millions of entries; allocating them all into one JSON
+	// response stalls the panel UI and OOM-risks the panel process.
+	// 10000 covers every legitimate operator workflow (the UI paginates
+	// after that anyway) without DoSing on pathological inputs.
+	const listDirCap = 10000
 	filesList := make([]FileEntry, 0, len(entries))
+	truncated := false
 	for _, entry := range entries {
+		if len(filesList) >= listDirCap {
+			truncated = true
+			break
+		}
 		info, err := entry.Info()
 		if err != nil {
 			// Skip entries whose metadata cannot be read.
@@ -282,6 +295,10 @@ func (h *Handler) ListDir(c echo.Context) error {
 		return strings.ToLower(filesList[i].Name) < strings.ToLower(filesList[j].Name)
 	})
 
+	if truncated {
+		slog.Warn("ListDir truncated — directory exceeds entry cap",
+			"component", "files", "path", dirPath, "limit", listDirCap)
+	}
 	return response.OK(c, filesList)
 }
 
