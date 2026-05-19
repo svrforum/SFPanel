@@ -85,7 +85,7 @@ func (h *Handler) CheckUpdates(c echo.Context) error {
 	env := exec.AptEnv()
 	if _, err := h.Cmd.RunWithEnv(env, "apt-get", "update"); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
-			"Failed to update package lists: "+err.Error())
+			"Failed to update package lists: "+response.SanitizeOutput(err.Error()))
 	}
 
 	output, err := h.Cmd.RunWithEnv(env, "apt", "list", "--upgradable")
@@ -93,7 +93,7 @@ func (h *Handler) CheckUpdates(c echo.Context) error {
 		// apt list --upgradable may return exit code 0 even with warnings;
 		// only fail if output is completely empty.
 		if strings.TrimSpace(output) == "" {
-			return response.Fail(c, http.StatusInternalServerError, response.ErrAPTError, "Failed to check updates: "+err.Error())
+			return response.Fail(c, http.StatusInternalServerError, response.ErrAPTError, "Failed to check updates: "+response.SanitizeOutput(err.Error()))
 		}
 	}
 
@@ -290,7 +290,7 @@ func (h *Handler) InstallPackage(c echo.Context) error {
 	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "install", "-y", "--", req.Name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTInstallError,
-			"Failed to install package: "+err.Error())
+			"Failed to install package: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -322,7 +322,7 @@ func (h *Handler) RemovePackage(c echo.Context) error {
 	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "remove", "-y", "--", req.Name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTRemoveError,
-			"Failed to remove package: "+err.Error())
+			"Failed to remove package: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -350,7 +350,7 @@ func (h *Handler) SearchPackages(c echo.Context) error {
 	output, err := h.Cmd.RunWithEnv(env, "apt-cache", "search", query)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTSearchError,
-			"Failed to search packages: "+err.Error())
+			"Failed to search packages: "+response.SanitizeOutput(err.Error()))
 	}
 
 	packages := parseSearchResults(output, 50)

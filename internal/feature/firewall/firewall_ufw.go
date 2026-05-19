@@ -22,7 +22,7 @@ func (h *Handler) GetUFWStatus(c echo.Context) error {
 	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "status", "verbose")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWError,
-			"Failed to get UFW status: "+err.Error())
+			"Failed to get UFW status: "+response.SanitizeOutput(err.Error()))
 	}
 
 	status := parseUFWStatus(output)
@@ -93,7 +93,7 @@ func (h *Handler) EnableUFW(c echo.Context) error {
 	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "--force", "enable")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWEnableError,
-			"Failed to enable UFW: "+err.Error())
+			"Failed to enable UFW: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -111,7 +111,7 @@ func (h *Handler) DisableUFW(c echo.Context) error {
 	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "disable")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWDisableError,
-			"Failed to disable UFW: "+err.Error())
+			"Failed to disable UFW: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -132,7 +132,7 @@ func (h *Handler) ListRules(c echo.Context) error {
 	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "status", "numbered")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWError,
-			"Failed to list UFW rules: "+err.Error())
+			"Failed to list UFW rules: "+response.SanitizeOutput(err.Error()))
 	}
 
 	rules := parseUFWRules(output)
@@ -303,7 +303,7 @@ func (h *Handler) AddRule(c echo.Context) error {
 	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWAddRuleError,
-			"Failed to add rule: "+err.Error())
+			"Failed to add rule: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -396,7 +396,7 @@ func (h *Handler) DeleteRule(c echo.Context) error {
 	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "--force", "delete", strconv.Itoa(number))
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWDeleteError,
-			"Failed to delete rule: "+err.Error())
+			"Failed to delete rule: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -417,14 +417,14 @@ func (h *Handler) ListPorts(c echo.Context) error {
 	tcpOutput, err := h.Cmd.Run("ss", "-tlnp")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSSError,
-			"Failed to list TCP ports: "+err.Error())
+			"Failed to list TCP ports: "+response.SanitizeOutput(err.Error()))
 	}
 
 	// Get UDP listening ports
 	udpOutput, err := h.Cmd.Run("ss", "-ulnp")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSSError,
-			"Failed to list UDP ports: "+err.Error())
+			"Failed to list UDP ports: "+response.SanitizeOutput(err.Error()))
 	}
 
 	ports := parseSSOutput(tcpOutput, "tcp")

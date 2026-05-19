@@ -360,7 +360,7 @@ func (h *Handler) AddDockerUserRule(c echo.Context) error {
 	_, err := h.Cmd.Run("iptables", args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrIPTablesError,
-			"Failed to add DOCKER-USER rule: "+err.Error())
+			"Failed to add DOCKER-USER rule: "+response.SanitizeOutput(err.Error()))
 	}
 
 	// Add LOG rule before DROP so blocked traffic is recorded in kern.log
@@ -423,7 +423,7 @@ func (h *Handler) DeleteDockerUserRule(c echo.Context) error {
 	_, err = h.Cmd.Run("iptables", "-D", "DOCKER-USER", strconv.Itoa(number))
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrIPTablesError,
-			"Failed to delete DOCKER-USER rule: "+err.Error())
+			"Failed to delete DOCKER-USER rule: "+response.SanitizeOutput(err.Error()))
 	}
 
 	// Persist rules

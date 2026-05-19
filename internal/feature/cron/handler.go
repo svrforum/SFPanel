@@ -58,7 +58,7 @@ func (h *Handler) ListJobs(c echo.Context) error {
 		if strings.Contains(err.Error(), "no crontab for") || strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no such file") {
 			return response.OK(c, []CronJob{})
 		}
-		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+response.SanitizeOutput(err.Error()))
 	}
 
 	lines := strings.Split(content, "\n")
@@ -102,7 +102,7 @@ func (h *Handler) CreateJob(c echo.Context) error {
 		if strings.Contains(err.Error(), "no crontab for") {
 			content = ""
 		} else {
-			return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+err.Error())
+			return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+response.SanitizeOutput(err.Error()))
 		}
 	}
 
@@ -115,7 +115,7 @@ func (h *Handler) CreateJob(c echo.Context) error {
 	content += newLine + "\n"
 
 	if err := writeCrontab(h.Cmd, content); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to write crontab: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to write crontab: "+response.SanitizeOutput(err.Error()))
 	}
 
 	// Determine the index of the newly added line
@@ -155,7 +155,7 @@ func (h *Handler) UpdateJob(c echo.Context) error {
 
 	content, err := readCrontab(h.Cmd)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+response.SanitizeOutput(err.Error()))
 	}
 
 	lines := strings.Split(content, "\n")
@@ -180,7 +180,7 @@ func (h *Handler) UpdateJob(c echo.Context) error {
 	lines[id] = newLine
 
 	if err := writeCrontab(h.Cmd, strings.Join(lines, "\n")+"\n"); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to write crontab: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to write crontab: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, parseCronLine(newLine, id))
@@ -197,7 +197,7 @@ func (h *Handler) DeleteJob(c echo.Context) error {
 
 	content, err := readCrontab(h.Cmd)
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to read crontab: "+response.SanitizeOutput(err.Error()))
 	}
 
 	lines := strings.Split(content, "\n")
@@ -213,7 +213,7 @@ func (h *Handler) DeleteJob(c echo.Context) error {
 	lines = append(lines[:id], lines[id+1:]...)
 
 	if err := writeCrontab(h.Cmd, strings.Join(lines, "\n")+"\n"); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to write crontab: "+err.Error())
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError, "Failed to write crontab: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]string{"message": "job deleted"})

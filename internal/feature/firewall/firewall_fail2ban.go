@@ -47,14 +47,14 @@ func (h *Handler) InstallFail2ban(c echo.Context) error {
 	_, err := h.Cmd.RunWithEnv(aptEnv(), "apt-get", "update")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
-			"Failed to update package lists: "+err.Error())
+			"Failed to update package lists: "+response.SanitizeOutput(err.Error()))
 	}
 
 	// Step 2: install fail2ban
 	output, err := h.Cmd.RunWithEnv(aptEnv(), "apt-get", "install", "-y", "fail2ban")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_INSTALL_ERROR",
-			"Failed to install fail2ban: "+err.Error())
+			"Failed to install fail2ban: "+response.SanitizeOutput(err.Error()))
 	}
 
 	// Step 3: enable and start fail2ban
@@ -62,7 +62,7 @@ func (h *Handler) InstallFail2ban(c echo.Context) error {
 	startOutput, err := h.Cmd.Run("systemctl", "start", "fail2ban")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_START_ERROR",
-			"Fail2ban installed but failed to start: "+err.Error())
+			"Fail2ban installed but failed to start: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -81,7 +81,7 @@ func (h *Handler) ListJails(c echo.Context) error {
 	output, err := h.Cmd.Run("fail2ban-client", "status")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFail2banError,
-			"Failed to get fail2ban status: "+err.Error())
+			"Failed to get fail2ban status: "+response.SanitizeOutput(err.Error()))
 	}
 
 	jailNames := parseFail2banJailList(output)
@@ -237,7 +237,7 @@ func (h *Handler) GetJailDetail(c echo.Context) error {
 	output, err := h.Cmd.Run("fail2ban-client", "status", name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_JAIL_ERROR",
-			"Failed to get jail status: "+err.Error())
+			"Failed to get jail status: "+response.SanitizeOutput(err.Error()))
 	}
 
 	jail := Fail2banJail{
@@ -268,7 +268,7 @@ func (h *Handler) EnableJail(c echo.Context) error {
 	output, err := h.Cmd.Run("fail2ban-client", "start", name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_ENABLE_ERROR",
-			"Failed to enable jail: "+err.Error())
+			"Failed to enable jail: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -295,7 +295,7 @@ func (h *Handler) DisableJail(c echo.Context) error {
 	output, err := h.Cmd.Run("fail2ban-client", "stop", name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_DISABLE_ERROR",
-			"Failed to disable jail: "+err.Error())
+			"Failed to disable jail: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -339,7 +339,7 @@ func (h *Handler) UpdateJailConfig(c echo.Context) error {
 		_, err := h.Cmd.Run("fail2ban-client", "set", name, "maxretry", strconv.Itoa(*req.MaxRetry))
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_CONFIG_ERROR",
-				"Failed to set maxretry: "+err.Error())
+				"Failed to set maxretry: "+response.SanitizeOutput(err.Error()))
 		}
 	}
 
@@ -352,7 +352,7 @@ func (h *Handler) UpdateJailConfig(c echo.Context) error {
 		_, err := h.Cmd.Run("fail2ban-client", "set", name, "bantime", *req.BanTime)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_CONFIG_ERROR",
-				"Failed to set bantime: "+err.Error())
+				"Failed to set bantime: "+response.SanitizeOutput(err.Error()))
 		}
 	}
 
@@ -365,7 +365,7 @@ func (h *Handler) UpdateJailConfig(c echo.Context) error {
 		_, err := h.Cmd.Run("fail2ban-client", "set", name, "findtime", *req.FindTime)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_CONFIG_ERROR",
-				"Failed to set findtime: "+err.Error())
+				"Failed to set findtime: "+response.SanitizeOutput(err.Error()))
 		}
 	}
 
@@ -394,7 +394,7 @@ func (h *Handler) UpdateJailConfig(c echo.Context) error {
 					_, err := h.Cmd.Run("fail2ban-client", "set", name, "addignoreip", ip)
 					if err != nil {
 						return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_CONFIG_ERROR",
-							"Failed to set ignoreip: "+err.Error())
+							"Failed to set ignoreip: "+response.SanitizeOutput(err.Error()))
 					}
 				}
 			}
@@ -439,7 +439,7 @@ func (h *Handler) UnbanIP(c echo.Context) error {
 	output, err := h.Cmd.Run("fail2ban-client", "set", name, "unbanip", req.IP)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_UNBAN_ERROR",
-			"Failed to unban IP: "+err.Error())
+			"Failed to unban IP: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -692,14 +692,14 @@ findtime = %d
 	configPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.local", jailName)
 	if err := writeFile(configPath, configContent); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFileWriteError,
-			"Failed to write jail config: "+err.Error())
+			"Failed to write jail config: "+response.SanitizeOutput(err.Error()))
 	}
 
 	// Reload fail2ban
 	_, err := h.Cmd.Run("fail2ban-client", "reload")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_RELOAD_ERROR",
-			"Failed to reload fail2ban: "+err.Error())
+			"Failed to reload fail2ban: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -732,13 +732,13 @@ enabled = false
 `, name)
 		if writeErr := writeFile(configPath, configContent); writeErr != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrFileWriteError,
-				"Failed to disable jail: "+writeErr.Error())
+				"Failed to disable jail: "+response.SanitizeOutput(writeErr.Error()))
 		}
 	} else {
 		// Remove the .local file
 		if _, err := h.Cmd.Run("rm", configPath); err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrFileDeleteError,
-				"Failed to remove jail config: "+err.Error())
+				"Failed to remove jail config: "+response.SanitizeOutput(err.Error()))
 		}
 	}
 
@@ -746,7 +746,7 @@ enabled = false
 	_, err := h.Cmd.Run("fail2ban-client", "reload")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, "FAIL2BAN_RELOAD_ERROR",
-			"Failed to reload fail2ban: "+err.Error())
+			"Failed to reload fail2ban: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
