@@ -101,8 +101,9 @@ func NewRouter(database *sql.DB, alertManager *featureAlert.Manager, cfg *config
 		ComposePath: cfg.Server.StacksPath,
 		// Port lets the update flow point its rollback watchdog at the
 		// local health endpoint after a binary swap.
-		Port: cfg.Server.Port,
-		Cmd:  cmd,
+		Port:       cfg.Server.Port,
+		Cmd:        cmd,
+		ClusterMgr: clusterMgr,
 	}
 
 	// Initialize Docker client

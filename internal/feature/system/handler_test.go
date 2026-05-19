@@ -721,3 +721,46 @@ func TestRestoreBackup_SystemdPresentButUnitInactive(t *testing.T) {
 		}
 	}
 }
+
+func TestComputeUpdateQuorum(t *testing.T) {
+	cases := []struct {
+		name         string
+		onlineVoters int
+		wantRefuse   bool
+		wantSurvivors int
+		wantQuorum   int
+	}{
+		// Standalone or near-standalone: nothing to lose.
+		{"standalone single node", 1, false, 0, 0},
+		{"zero (treated as standalone)", 0, false, 0, 0},
+
+		// Two-voter cluster (already fragile per CLAUDE.md): losing one
+		// leaves a single survivor, quorum is 2, so we refuse.
+		{"two voters — refuse", 2, true, 1, 2},
+
+		// Three-voter cluster: losing one leaves two survivors, quorum
+		// is still 2, so we allow.
+		{"three voters — allow (rolling-style)", 3, false, 2, 2},
+
+		// Four-voter cluster: losing one leaves three survivors, quorum
+		// is 3, allowed.
+		{"four voters — allow", 4, false, 3, 3},
+
+		// Five-voter cluster: losing one leaves four, quorum is 3.
+		{"five voters — allow", 5, false, 4, 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			refuse, survivors, quorum := computeUpdateQuorum(tc.onlineVoters)
+			if refuse != tc.wantRefuse {
+				t.Errorf("refuse: got %v, want %v", refuse, tc.wantRefuse)
+			}
+			if survivors != tc.wantSurvivors {
+				t.Errorf("survivors: got %d, want %d", survivors, tc.wantSurvivors)
+			}
+			if quorum != tc.wantQuorum {
+				t.Errorf("quorum: got %d, want %d", quorum, tc.wantQuorum)
+			}
+		})
+	}
+}

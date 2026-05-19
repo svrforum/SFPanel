@@ -24,6 +24,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/cluster"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/release"
 )
@@ -72,6 +73,12 @@ type Handler struct {
 	// watchdog rollback" (gracefully degrades to the pre-watchdog behavior).
 	Port int
 	Cmd  commonExec.Commander
+	// ClusterMgr is the cluster manager when this node is part of a Raft
+	// cluster; nil in standalone mode. RunUpdate consults it to enforce a
+	// quorum guard before taking the node offline, so an operator running
+	// `for n in nodes; ssh $n sudo sfpanel update`-style fan-out can't
+	// inadvertently take every voter down at once.
+	ClusterMgr *cluster.Manager
 }
 
 type GitHubRelease struct {
@@ -127,6 +134,17 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		return response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress, "Another update is already running")
 	}
 	defer updateMu.Unlock()
+
+	// Cluster quorum guard. Without this, fanning out
+	// `for n in nodes; ssh $n sudo curl ... /system/update` takes every
+	// voter offline at the same time and Raft loses quorum until the
+	// slowest node's download + restart finishes — minutes-long blackout
+	// on a slow link. ClusterUpdate orchestrates a rolling restart with
+	// its own quorum check; this guard is the second line of defense for
+	// when an operator bypasses the orchestrator.
+	if err := h.clusterUpdateQuorumGuard(c); err != nil {
+		return err
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Get(releaseAPIURL)
@@ -444,6 +462,68 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		exitProcess()
 	}()
 	return nil
+}
+
+// clusterUpdateQuorumGuard returns a structured 409 when running this update
+// would knock the cluster below Raft quorum. In standalone mode (no manager)
+// it's a no-op. The check counts only currently-online voters (heartbeat
+// status == StatusOnline); peers already offline are not eligible for the
+// survivor count, which matches Raft's own view.
+//
+// ?force=true bypasses for the operator who genuinely wants to update a
+// stranded node without waiting for the cluster to heal.
+func (h *Handler) clusterUpdateQuorumGuard(c echo.Context) error {
+	if h.ClusterMgr == nil {
+		return nil
+	}
+	if c.QueryParam("force") == "true" {
+		return nil
+	}
+	hb := h.ClusterMgr.GetHeartbeat()
+	if hb == nil {
+		return nil
+	}
+	local := h.ClusterMgr.LocalNodeID()
+	health := hb.CheckHealth()
+	// Total voters = this node + every other online voter. A node whose
+	// heartbeat says "offline" or "suspect" is treated as already down,
+	// so taking another voter offline must still leave a quorum among
+	// the survivors that Raft can see.
+	onlineVoters := 1 // ourselves
+	for id, status := range health {
+		if id == local {
+			continue
+		}
+		if status == cluster.StatusOnline {
+			onlineVoters++
+		}
+	}
+	refuse, survivors, quorum := computeUpdateQuorum(onlineVoters)
+	if !refuse {
+		return nil
+	}
+	slog.Warn("refusing single-node update — would break quorum",
+		"component", "system",
+		"local", local,
+		"online_voters", onlineVoters,
+		"survivors_if_we_leave", survivors,
+		"quorum", quorum,
+		"remote_ip", c.RealIP())
+	return response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress,
+		fmt.Sprintf("Refusing update: %d/%d voters would remain online (quorum=%d). Use /cluster/update for a coordinated rolling update, or pass ?force=true to override.", survivors, onlineVoters, quorum))
+}
+
+// computeUpdateQuorum returns whether taking one more voter offline would
+// drop the cluster below Raft quorum, along with the survivor count and
+// quorum threshold for diagnostics. Pulled out as a pure helper so the
+// math gets unit coverage without instantiating a real cluster.Manager.
+func computeUpdateQuorum(onlineVoters int) (refuse bool, survivors, quorum int) {
+	if onlineVoters <= 1 {
+		return false, 0, 0
+	}
+	survivors = onlineVoters - 1
+	quorum = onlineVoters/2 + 1
+	return survivors < quorum, survivors, quorum
 }
 
 // fetchBytes is a small helper that GETs a URL and reads the body into memory.
