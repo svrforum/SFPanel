@@ -1,6 +1,14 @@
 package services
 
-import "testing"
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/labstack/echo/v4"
+	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
+)
 
 func TestIsProtectedServiceUnit(t *testing.T) {
 	// Panel's own systemd unit is protected against stop/restart/disable.
@@ -50,5 +58,48 @@ func TestValidServiceName(t *testing.T) {
 		if validServiceName.MatchString(n) {
 			t.Errorf("validServiceName(%q) = true, want false", n)
 		}
+	}
+}
+
+// TestListServices_GracefulEmptyWhenSystemctlAbsent locks in C5: when the
+// systemctl binary is missing (minimal containers, follower nodes the
+// operator reaches via ?node=) ListServices returns an empty list instead
+// of 500. Without this regression test someone could re-tighten the
+// handler and unknowingly break remote-node Service tab rendering.
+func TestListServices_GracefulEmptyWhenSystemctlAbsent(t *testing.T) {
+	mock := commonExec.NewMockCommander()
+	// Don't register "exists:systemctl" — MockCommander.Exists returns
+	// false for anything not in the Outputs map.
+	h := &Handler{Cmd: mock}
+
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/system/services", nil)
+	c := e.NewContext(req, rec)
+
+	if err := h.ListServices(c); err != nil {
+		t.Fatalf("ListServices: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var got struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Services []interface{} `json:"services"`
+			Total    int           `json:"total"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v — body=%s", err, rec.Body.String())
+	}
+	if !got.Success {
+		t.Errorf("response success=false: %s", rec.Body.String())
+	}
+	if got.Data.Total != 0 {
+		t.Errorf("total=%d, want 0", got.Data.Total)
+	}
+	if len(got.Data.Services) != 0 {
+		t.Errorf("len(services)=%d, want 0", len(got.Data.Services))
 	}
 }

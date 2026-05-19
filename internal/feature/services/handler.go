@@ -71,7 +71,18 @@ const serviceCacheTTL = 3 * time.Second
 
 // ListServices returns all systemd services.
 // GET /system/services
+//
+// Returns an empty list (not 500) when systemctl is missing — common on
+// minimal container hosts and on cluster follower nodes the operator
+// reaches via ?node=. The frontend renders "no services found" rather
+// than a stack trace.
 func (h *Handler) ListServices(c echo.Context) error {
+	if !h.Cmd.Exists("systemctl") {
+		return response.OK(c, map[string]interface{}{
+			"services": []interface{}{},
+			"total":    0,
+		})
+	}
 	services, err := getCachedServices(h.Cmd)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrServiceError, "Failed to list services")
