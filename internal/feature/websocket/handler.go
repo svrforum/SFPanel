@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/auth"
+	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/docker"
 	"github.com/svrforum/SFPanel/internal/monitor"
 )
@@ -228,6 +229,7 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		go func() {
 			defer close(scanDone)
 			scanner := bufio.NewScanner(logReader)
+			commonExec.PrepareScanner(scanner)
 			for scanner.Scan() {
 				select {
 				case <-ctx.Done():

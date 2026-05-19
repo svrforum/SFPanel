@@ -320,6 +320,7 @@ func (h *TailscaleHandler) Install(c echo.Context) error {
 	}
 
 	scanner := bufio.NewScanner(stdout)
+	exec.PrepareScanner(scanner)
 	for scanner.Scan() {
 		sendLine(scanner.Text())
 	}
