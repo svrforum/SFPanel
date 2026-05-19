@@ -16,12 +16,25 @@ var (
 )
 
 // StartUpdateChecker polls GitHub releases every hour in background.
-func StartUpdateChecker(currentVersion string) {
+//
+// isLeaderFn is consulted on each tick; when it returns false the tick is
+// skipped. In standalone mode (nil), every tick proceeds. The leader-only
+// gate prevents an N-node cluster from hammering api.github.com from every
+// node on every hourly tick — a 5-node panel without this would do 5x the
+// requests against the same shared upstream, and the rate-limit / 403
+// behaviour from github.com is visible per-token-per-IP so this isn't
+// theoretical.
+func StartUpdateChecker(currentVersion string, isLeaderFn func() bool) {
 	safe.Go("monitor-update-checker", func() {
-		checkUpdate(currentVersion)
+		if isLeaderFn == nil || isLeaderFn() {
+			checkUpdate(currentVersion)
+		}
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
+			if isLeaderFn != nil && !isLeaderFn() {
+				continue
+			}
 			checkUpdate(currentVersion)
 		}
 	})
