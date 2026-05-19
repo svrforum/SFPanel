@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/svrforum/SFPanel/internal/common/safe"
 )
 
 var (
@@ -15,14 +17,14 @@ var (
 
 // StartUpdateChecker polls GitHub releases every hour in background.
 func StartUpdateChecker(currentVersion string) {
-	go func() {
+	safe.Go("monitor-update-checker", func() {
 		checkUpdate(currentVersion)
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
 			checkUpdate(currentVersion)
 		}
-	}()
+	})
 }
 
 func checkUpdate(currentVersion string) {

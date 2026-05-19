@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/svrforum/SFPanel/internal/common/safe"
 )
 
 // MetricsPoint is a single time-series data point for the history buffer.
@@ -41,7 +43,7 @@ func StartHistoryCollector(ctx context.Context, db *sql.DB) {
 		// Load existing history from DB (up to 24h)
 		loadHistoryFromDB()
 
-		go func() {
+		safe.Go("monitor-history", func() {
 			ticker := time.NewTicker(historyInterval)
 			defer ticker.Stop()
 
@@ -64,7 +66,7 @@ func StartHistoryCollector(ctx context.Context, db *sql.DB) {
 					pruneHistory()
 				}
 			}
-		}()
+		})
 	})
 }
 

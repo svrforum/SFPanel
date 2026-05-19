@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/common/safe"
 )
 
 // refreshTokenLifetime is how long a refresh token is valid before it must
@@ -244,7 +245,7 @@ func (h *Handler) tokenExpiry() time.Duration {
 // Same shape as the audit/alert retention starters in the cmd/sfpanel
 // boot sequence.
 func StartRefreshTokenRetention(ctx context.Context, db *sql.DB) {
-	go func() {
+	safe.Go("auth-refresh-retention", func() {
 		pruneRefreshTokens(db)
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
@@ -256,7 +257,7 @@ func StartRefreshTokenRetention(ctx context.Context, db *sql.DB) {
 				pruneRefreshTokens(db)
 			}
 		}
-	}()
+	})
 }
 
 func pruneRefreshTokens(db *sql.DB) {

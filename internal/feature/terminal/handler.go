@@ -18,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/common/safe"
 )
 
 const scrollbackBufSize = 256 * 1024 // 256 KB ring buffer per session
@@ -437,7 +438,7 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 // The goroutine stops when ctx is cancelled (main.go wires this to the
 // graceful shutdown signal).
 func CleanupTerminalSessions(ctx context.Context, db *sql.DB) {
-	go func() {
+	safe.Go("terminal-cleanup", func() {
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
 		for {
@@ -486,5 +487,5 @@ func CleanupTerminalSessions(ctx context.Context, db *sql.DB) {
 				e.sess.cmd.Wait()
 			}
 		}
-	}()
+	})
 }

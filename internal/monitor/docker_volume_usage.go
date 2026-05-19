@@ -11,6 +11,7 @@ import (
 	"github.com/docker/docker/api/types/volume"
 
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/safe"
 	"github.com/svrforum/SFPanel/internal/docker"
 )
 
@@ -31,7 +32,7 @@ func StartVolumeUsageCollector(ctx context.Context, db *sql.DB, dockerCli *docke
 		slog.Warn("volume usage collector: docker client nil; not starting")
 		return
 	}
-	go func() {
+	safe.Go("monitor-volume-usage", func() {
 		select {
 		case <-ctx.Done():
 			return
@@ -59,7 +60,7 @@ func StartVolumeUsageCollector(ctx context.Context, db *sql.DB, dockerCli *docke
 				measureVolumeUsageOnce(db, cmd, lister)
 			}
 		}
-	}()
+	})
 }
 
 // measureVolumeUsageOnce performs one tick: enumerates volumes, runs `du -sb`
