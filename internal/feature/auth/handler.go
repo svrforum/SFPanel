@@ -1,6 +1,7 @@
 package featureauth
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
+	"github.com/svrforum/SFPanel/internal/common/safe"
 	"github.com/svrforum/SFPanel/internal/config"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 )
@@ -300,6 +302,50 @@ func (h *Handler) insertSecurityAuditRow(username, ip, action, reason, method st
 	// queue was full. A short-lived goroutine here preserves the
 	// non-blocking behavior callers expect from recordSecurityEvent.
 	go insert(h.DB)
+}
+
+// StartLoginAttemptRetention prunes loginAttempts entries that have been
+// idle past the rate-limit window AND any block has expired. Without
+// this the sync.Map grows linearly with the count of distinct IPs that
+// ever hit /auth/login — a public-facing panel with a few months of
+// uptime accumulates tens of thousands of stale entries, each holding
+// a small struct + mutex.
+//
+// Runs at 1h tick; entries idle for >2x rateLimitWindow AND past
+// blockedUntil are eligible.
+func StartLoginAttemptRetention(ctx context.Context) {
+	safe.Go("auth-loginattempts-retention", func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				pruneLoginAttempts()
+			}
+		}
+	})
+}
+
+func pruneLoginAttempts() {
+	now := time.Now()
+	idleCutoff := 2 * rateLimitWindow
+	loginAttempts.Range(func(k, v any) bool {
+		attempt, ok := v.(*loginAttempt)
+		if !ok {
+			loginAttempts.Delete(k)
+			return true
+		}
+		attempt.mu.Lock()
+		eligible := now.Sub(attempt.firstAt) > idleCutoff &&
+			now.After(attempt.blockedUntil)
+		attempt.mu.Unlock()
+		if eligible {
+			loginAttempts.Delete(k)
+		}
+		return true
+	})
 }
 
 // preRecordLoginAttempt atomically checks the rate limit and pre-increments the
