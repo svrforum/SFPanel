@@ -36,6 +36,12 @@ type Manager struct {
 	// PromoteOnHeartbeatIfPending can rate-limit. Guarded by promoteMu.
 	promoteMu       sync.Mutex
 	promoteAttempts map[string]time.Time
+
+	// proxySecretCache caches the sha256(CA cert) derivation. Invalidated
+	// implicitly on cert-rotate via the TLSManager's stat-based reload —
+	// callers refresh on TLS error responses; nothing else mutates the CA.
+	proxySecretMu    sync.RWMutex
+	proxySecretCache string
 }
 
 // SetVersion sets the panel version for heartbeat reporting.
@@ -622,12 +628,31 @@ func (m *Manager) Leave() error {
 		}
 	} else {
 		// Follower (original, or post-transfer): ask the leader to drop us.
+		// gRPC Leave is the only path — there is no HTTP fallback, so a
+		// broken mTLS handshake or unreachable leader leaves this node
+		// stranded in the cluster's view (its raft config entry survives).
+		// Operator-facing diagnostics matter here because Leave is a
+		// one-shot user-initiated action; silent failure used to require
+		// digging through journald to learn why the unit didn't drop out.
 		leaderAddr := m.raft.LeaderGRPCAddress()
-		if leaderAddr != "" && m.connPool != nil {
+		switch {
+		case leaderAddr == "":
+			slog.Warn("cluster leave: no leader known — local Raft shutdown only; leader will need `sfpanel cluster remove` to evict this node",
+				"component", "cluster", "node_id", m.nodeID)
+		case m.connPool == nil:
+			slog.Warn("cluster leave: no connection pool — local Raft shutdown only",
+				"component", "cluster", "node_id", m.nodeID, "leader_addr", leaderAddr)
+		default:
 			client, err := m.connPool.Get(leaderAddr)
-			if err == nil {
+			if err != nil {
+				slog.Warn("cluster leave: gRPC dial to leader failed — local Raft shutdown only; leader will need `sfpanel cluster remove` to evict this node",
+					"component", "cluster", "node_id", m.nodeID, "leader_addr", leaderAddr, "error", err)
+			} else {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				_, _ = client.client.Leave(ctx, &pb.LeaveRequest{NodeId: m.nodeID})
+				if _, leaveErr := client.client.Leave(ctx, &pb.LeaveRequest{NodeId: m.nodeID}); leaveErr != nil {
+					slog.Warn("cluster leave: leader rejected/dropped Leave RPC — local Raft shutdown only; verify with `sfpanel cluster nodes` on the leader",
+						"component", "cluster", "node_id", m.nodeID, "leader_addr", leaderAddr, "error", leaveErr)
+				}
 				cancel()
 			}
 		}
@@ -805,16 +830,35 @@ func (m *Manager) GetTLS() *TLSManager {
 
 // ProxySecret returns the cluster-internal proxy authentication secret
 // derived from the CA certificate hash. Returns empty if TLS is not configured.
+//
+// Cached after the first successful derivation. The proxy middleware hits
+// this on every cross-node request — the previous implementation read
+// the CA cert off disk and SHA256'd it on every call, adding two
+// allocations and one syscall per proxied request. The CA changes only
+// on operator-initiated rotation (10-year default; see TLSManager); a
+// stale cache entry post-rotation is fine because the peer's TLS handshake
+// would reject the mismatched cert anyway, surfacing the rotation through
+// a different path.
 func (m *Manager) ProxySecret() string {
 	if m.tls == nil {
 		return ""
+	}
+	m.proxySecretMu.RLock()
+	cached := m.proxySecretCache
+	m.proxySecretMu.RUnlock()
+	if cached != "" {
+		return cached
 	}
 	caCert, err := m.tls.LoadCACert()
 	if err != nil {
 		return ""
 	}
 	hash := sha256.Sum256(caCert)
-	return hex.EncodeToString(hash[:])
+	derived := hex.EncodeToString(hash[:])
+	m.proxySecretMu.Lock()
+	m.proxySecretCache = derived
+	m.proxySecretMu.Unlock()
+	return derived
 }
 
 // SetConfig stores a key-value pair in the Raft FSM config.

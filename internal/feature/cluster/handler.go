@@ -13,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -1121,7 +1122,18 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		}
 
 		if resp.StatusCode >= 400 {
-			sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": fmt.Sprintf("Update failed (HTTP %d)", resp.StatusCode)})
+			// Surface the remote node's response body so the operator
+			// gets the actual reason ("Refusing update: 1/2 voters
+			// would remain online…", "version downgrade refused", etc.)
+			// instead of just an HTTP status. Body is bounded by the
+			// gRPC 4 MB recv cap which is the proxy ceiling anyway.
+			detail := response.SanitizeOutput(strings.TrimSpace(string(resp.Body)))
+			if detail == "" {
+				detail = fmt.Sprintf("HTTP %d", resp.StatusCode)
+			} else {
+				detail = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, detail)
+			}
+			sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Update failed: " + detail})
 			return false
 		}
 
