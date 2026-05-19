@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,13 +18,26 @@ import (
 	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
-var Upgrader = websocket.Upgrader{
-	// CheckOrigin allows all origins because auth uses explicit JWT token
-	// in query params, not cookies. CSWSH is not a risk since credentials
-	// are never sent automatically by the browser.
-	CheckOrigin: func(r *http.Request) bool {
+// sameOriginOrEmpty allows WS upgrades from the same Host as the request
+// (the panel UI in a normal browser) and from non-browser clients that omit
+// the Origin header entirely (curl, websocat, the desktop wrapper). Anything
+// else — a foreign Origin set by a malicious page — is rejected, defending
+// against CSWSH even though the ?ticket=/?token= path doesn't ride cookies.
+func sameOriginOrEmpty(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
 		return true
-	},
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	// Compare host:port; gorilla normalizes Request.Host the same way.
+	return strings.EqualFold(u.Host, r.Host)
+}
+
+var Upgrader = websocket.Upgrader{
+	CheckOrigin: sameOriginOrEmpty,
 }
 
 // safeWSWriter wraps websocket.Conn with a mutex for concurrent write safety.
@@ -116,6 +131,18 @@ func MetricsWS(jwtSecret string) echo.HandlerFunc {
 		}
 		defer ws.Close()
 
+		ctx, cancel := context.WithCancel(c.Request().Context())
+		defer cancel()
+
+		writer := &safeWSWriter{conn: ws}
+		// Without keepalive a half-open WS (laptop lid closed, NAT entry
+		// expired) leaves the reader goroutine parked on ReadMessage and
+		// this loop pushing 2-second JSON payloads into a socket that
+		// never drains until the TCP RTO catches up — minutes, not
+		// seconds. The pong-driven read deadline kicks the reader so the
+		// done channel closes and we tear down promptly.
+		startWSKeepalive(ctx, ws, writer)
+
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
@@ -126,7 +153,6 @@ func MetricsWS(jwtSecret string) echo.HandlerFunc {
 			}
 		}()
 
-		writer := &safeWSWriter{conn: ws}
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 
