@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"log/slog"
 	"time"
+
+	"github.com/svrforum/SFPanel/internal/common/safe"
 )
 
 // alertHistoryMaxAge bounds how long alert_history rows are kept by the
@@ -19,7 +21,7 @@ const alertHistoryMaxRows = 50000
 // StartHistoryRetention runs a background goroutine that prunes
 // alert_history every hour. Same shape as middleware.StartAuditRetention.
 func StartHistoryRetention(ctx context.Context, db *sql.DB) {
-	go func() {
+	safe.Go("alert-history-retention", func() {
 		// Run once at startup so a returning-from-downtime panel catches up
 		// before waiting another hour.
 		pruneAlertHistory(db)
@@ -33,7 +35,7 @@ func StartHistoryRetention(ctx context.Context, db *sql.DB) {
 				pruneAlertHistory(db)
 			}
 		}
-	}()
+	})
 }
 
 func pruneAlertHistory(db *sql.DB) {

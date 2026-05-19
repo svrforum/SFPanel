@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"log/slog"
 	"time"
+
+	"github.com/svrforum/SFPanel/internal/common/safe"
 )
 
 const containerEventsPerContainerCap = 5000
@@ -12,7 +14,7 @@ const containerEventsPerContainerCap = 5000
 // StartDockerMetricsRetention runs an hourly pruner. Caller passes
 // `retention` from the parsed config (6h/24h/72h → time.Duration).
 func StartDockerMetricsRetention(ctx context.Context, db *sql.DB, retention time.Duration) {
-	go func() {
+	safe.Go("monitor-docker-metrics-retention", func() {
 		pruneMetrics(db, retention)
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
@@ -24,13 +26,13 @@ func StartDockerMetricsRetention(ctx context.Context, db *sql.DB, retention time
 				pruneMetrics(db, retention)
 			}
 		}
-	}()
+	})
 }
 
 // StartDockerEventsRetention runs an hourly pruner. Enforces both an age
 // cap (from config) and a per-container row cap (hardcoded).
 func StartDockerEventsRetention(ctx context.Context, db *sql.DB, retention time.Duration) {
-	go func() {
+	safe.Go("monitor-docker-events-retention", func() {
 		pruneEvents(db, retention, containerEventsPerContainerCap)
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
@@ -42,7 +44,7 @@ func StartDockerEventsRetention(ctx context.Context, db *sql.DB, retention time.
 				pruneEvents(db, retention, containerEventsPerContainerCap)
 			}
 		}
-	}()
+	})
 }
 
 func pruneMetrics(db *sql.DB, retention time.Duration) {

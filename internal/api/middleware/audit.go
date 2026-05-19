@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/common/safe"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 )
 
@@ -87,7 +88,7 @@ func AuditMiddleware(writer *sfdb.AsyncWriter, localNodeIDFn func() string) echo
 // Returns when ctx is cancelled. Caller is expected to wire ctx to the
 // shared bgCtx from main.go so retention stops cleanly on shutdown.
 func StartAuditRetention(ctx context.Context, db *sql.DB) {
-	go func() {
+	safe.Go("audit-retention", func() {
 		// Run once on startup so a host that was offline for a long time
 		// catches up before waiting another 5 minutes.
 		pruneAuditLogs(db)
@@ -101,7 +102,7 @@ func StartAuditRetention(ctx context.Context, db *sql.DB) {
 				pruneAuditLogs(db)
 			}
 		}
-	}()
+	})
 }
 
 func pruneAuditLogs(db *sql.DB) {

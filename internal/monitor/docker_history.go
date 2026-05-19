@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/svrforum/SFPanel/internal/common/safe"
 )
 
 const (
@@ -18,7 +19,7 @@ const (
 // StartDockerHistoryCollector runs the metrics polling loop in a goroutine.
 // Returns immediately. The goroutine stops cleanly when ctx is cancelled.
 func StartDockerHistoryCollector(ctx context.Context, db *sql.DB, client DockerStatsClient) {
-	go func() {
+	safe.Go("monitor-docker-history", func() {
 		ticker := time.NewTicker(dockerCollectInterval)
 		defer ticker.Stop()
 		for {
@@ -29,7 +30,7 @@ func StartDockerHistoryCollector(ctx context.Context, db *sql.DB, client DockerS
 				collectOnce(ctx, client, db)
 			}
 		}
-	}()
+	})
 }
 
 // collectOnce performs one round of stats collection across all running
