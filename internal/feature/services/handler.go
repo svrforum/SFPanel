@@ -16,6 +16,32 @@ import (
 
 var validServiceName = regexp.MustCompile(`^[a-zA-Z0-9@._:-]+\.service$`)
 
+// protectedServiceUnits lists systemd units that must not be stopped /
+// restarted / disabled via the panel API — stopping sfpanel.service mid-
+// response would kill the very process serving the response. CLAUDE.md
+// reserves `os.Exit` to a small documented set of handlers; this denylist
+// is the inverse: handlers that must NOT participate in any path leading
+// to a self-kill of the panel.
+var protectedServiceUnits = map[string]bool{
+	"sfpanel.service": true,
+}
+
+// isProtectedServiceUnit returns true if the (case-insensitive) unit name
+// is in protectedServiceUnits.
+func isProtectedServiceUnit(name string) bool {
+	return protectedServiceUnits[strings.ToLower(name)]
+}
+
+// refuseProtectedUnit returns a 403 response if the given unit is protected
+// from the given operation. Returns nil if the operation may proceed.
+func refuseProtectedUnit(c echo.Context, name, op string) error {
+	if isProtectedServiceUnit(name) {
+		return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied,
+			fmt.Sprintf("Refusing to %s protected unit %q via the panel API", op, name))
+	}
+	return nil
+}
+
 type Handler struct {
 	Cmd exec.Commander
 }
@@ -81,6 +107,9 @@ func (h *Handler) StopService(c echo.Context) error {
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
+	if err := refuseProtectedUnit(c, name, "stop"); err != nil {
+		return err
+	}
 
 	if out, err := h.Cmd.Run("systemctl", "stop", name); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrStopFailed,
@@ -97,6 +126,9 @@ func (h *Handler) RestartService(c echo.Context) error {
 	name := c.Param("name")
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
+	}
+	if err := refuseProtectedUnit(c, name, "restart"); err != nil {
+		return err
 	}
 
 	if out, err := h.Cmd.Run("systemctl", "restart", name); err != nil {
@@ -131,6 +163,9 @@ func (h *Handler) DisableService(c echo.Context) error {
 	name := c.Param("name")
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
+	}
+	if err := refuseProtectedUnit(c, name, "disable"); err != nil {
+		return err
 	}
 
 	if out, err := h.Cmd.Run("systemctl", "disable", name); err != nil {

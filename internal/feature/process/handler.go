@@ -2,6 +2,7 @@ package process
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"sort"
@@ -164,6 +165,18 @@ func (h *Handler) KillProcess(c echo.Context) error {
 	h.cache.Lock()
 	h.cache.updatedAt = time.Time{}
 	h.cache.Unlock()
+
+	// Enriched audit trail: the audit middleware writes an audit_logs row
+	// capturing path/method/status/user/node_id but NOT the request body,
+	// so the signal that was actually sent never lands in audit_logs. Emit
+	// a structured slog event so ops logs retain the full picture.
+	username, _ := c.Get("username").(string)
+	slog.Info("process killed via panel API",
+		"component", "process",
+		"pid", pid,
+		"signal", strings.ToUpper(req.Signal),
+		"username", username,
+	)
 
 	return response.OK(c, map[string]interface{}{
 		"message": fmt.Sprintf("Signal %s sent to process %d", strings.ToUpper(req.Signal), pid),
