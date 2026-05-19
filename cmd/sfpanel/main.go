@@ -309,8 +309,16 @@ func main() {
 	// Restore DOCKER-USER firewall rules if previously saved
 	featureFirewall.RestoreDockerUserRules(commonExec.NewCommander())
 
-	// Start background update checker (polls GitHub every hour)
-	monitor.StartUpdateChecker(version)
+	// Start background update checker (polls GitHub every hour).
+	// In cluster mode only the leader polls so an N-node cluster doesn't
+	// fan out N concurrent requests against api.github.com on every tick;
+	// standalone deployments (nil manager) check unconditionally.
+	var isLeaderFn func() bool
+	if clusterMgr != nil {
+		mgr := clusterMgr
+		isLeaderFn = func() bool { return mgr.IsLeader() }
+	}
+	monitor.StartUpdateChecker(version, isLeaderFn)
 
 	e, routerCleanup := api.NewRouter(database, auditWriter, alertManager, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate)
 	e.Logger.SetOutput(log.Writer())
