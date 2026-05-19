@@ -1,6 +1,7 @@
 package exec
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -60,6 +61,10 @@ func (m *MockCommander) RunWithEnv(_ []string, name string, args ...string) (str
 }
 
 func (m *MockCommander) RunWithInput(_ string, name string, args ...string) (string, error) {
+	return m.record(name, args...)
+}
+
+func (m *MockCommander) RunCtx(_ context.Context, name string, args ...string) (string, error) {
 	return m.record(name, args...)
 }
 
