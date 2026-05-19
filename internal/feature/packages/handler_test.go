@@ -54,3 +54,38 @@ func TestValidatePackageName_StillStrict(t *testing.T) {
 		t.Error("validatePackageName(redis-server) should accept")
 	}
 }
+
+func TestValidatePackageName_RejectsFlagShape(t *testing.T) {
+	// Regression: a leading hyphen turns the "package name" into an apt-get
+	// flag (e.g. `--reinstall`, `-y`). Even though every install/remove path
+	// now passes `--` before the package list, the validator is the first
+	// guard and must not accept the flag shape on its own.
+	flagShape := []string{
+		"--reinstall",
+		"-y",
+		"--allow-downgrades",
+		"-",
+		".hidden",  // dpkg names start with [a-z0-9]
+		"+plus",    // + is allowed mid-name but not leading
+	}
+	for _, name := range flagShape {
+		if validatePackageName(name) {
+			t.Errorf("validatePackageName(%q) should be rejected — leading punctuation is flag-shaped", name)
+		}
+	}
+
+	// Confirm well-formed names still pass.
+	good := []string{
+		"nginx",
+		"redis-server",
+		"libc6",
+		"python3.11",
+		"g++",
+		"lib32stdc++6",
+	}
+	for _, name := range good {
+		if !validatePackageName(name) {
+			t.Errorf("validatePackageName(%q) should be accepted", name)
+		}
+	}
+}

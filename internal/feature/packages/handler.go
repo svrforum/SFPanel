@@ -33,7 +33,14 @@ type Handler struct {
 }
 
 // validPackageName matches only safe package name characters.
-var validPackageName = regexp.MustCompile(`^[a-zA-Z0-9._+\-]+$`)
+//
+// Anchored to require an alphanumeric first character: a leading `-` would
+// be parsed by apt-get as a flag (e.g. `--reinstall`, `-y`, `--force-yes`),
+// turning a "install pkg" call into "install --reinstall" — even though
+// every install/remove/upgrade path now also passes `--` before the package
+// name, the validator is the first line of defense and must not accept the
+// shape on its own.
+var validPackageName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._+\-]*$`)
 
 // validNodeVersion accepts MAJOR, MAJOR.MINOR, or MAJOR.MINOR.PATCH with an
 // optional leading 'v'. Previously the regex was ^v?\d+(\.\d+)*$ which
@@ -242,7 +249,10 @@ func (h *Handler) UpgradePackages(c echo.Context) error {
 
 	var upgradeArgs []string
 	if len(req.Packages) > 0 {
-		upgradeArgs = append([]string{"install", "--only-upgrade", "-y"}, req.Packages...)
+		// `--` separates apt-get's own flags from the positional package list,
+		// so a name that somehow slipped past validatePackageName still cannot
+		// be reinterpreted as a flag.
+		upgradeArgs = append([]string{"install", "--only-upgrade", "-y", "--"}, req.Packages...)
 	} else {
 		upgradeArgs = []string{"upgrade", "-y"}
 	}
@@ -277,7 +287,7 @@ func (h *Handler) InstallPackage(c echo.Context) error {
 			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
 
-	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "install", "-y", req.Name)
+	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "install", "-y", "--", req.Name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTInstallError,
 			"Failed to install package: "+err.Error())
@@ -309,7 +319,7 @@ func (h *Handler) RemovePackage(c echo.Context) error {
 			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
 
-	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "remove", "-y", req.Name)
+	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "remove", "-y", "--", req.Name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTRemoveError,
 			"Failed to remove package: "+err.Error())
