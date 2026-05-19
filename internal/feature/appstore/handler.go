@@ -21,6 +21,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
@@ -329,6 +330,46 @@ func sendSSE(w io.Writer, flusher http.Flusher, event sseEvent) {
 	}
 }
 
+// verifyAdvancedReAuth requires the caller to re-prove their password
+// before InstallApp will accept arbitrary compose YAML. A stolen JWT
+// (XSS, leaked from a non-loopback ?token= URL, exfiltrated cookie) alone
+// must not be sufficient to escalate to host root via a compose file with
+// privileged: true / pid: host / hostfs binds — the bcrypt verify here is
+// the second factor for that escalation path.
+//
+// Username comes from c.Get("username") which the JWT middleware sets;
+// the password hash comes from the local admin row (replicated from the
+// FSM in cluster mode). The bcrypt compare is intentionally slow and
+// sits behind the global IP-based login rate limiter applied at the
+// middleware layer, so unlimited password guessing against this endpoint
+// is no faster than against /auth/login.
+func (h *Handler) verifyAdvancedReAuth(c echo.Context, password string) error {
+	username, _ := c.Get("username").(string)
+	if username == "" {
+		slog.Warn("advanced install missing authenticated username", "component", "appstore")
+		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials, "Re-authentication required for advanced install")
+	}
+	if password == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields,
+			"Password is required for advanced install")
+	}
+	var hash string
+	err := h.DB.QueryRow("SELECT password FROM admin WHERE username = ?", username).Scan(&hash)
+	if err != nil {
+		slog.Warn("advanced install: failed to load admin row",
+			"component", "appstore", "username", username, "error", err)
+		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials,
+			"Re-authentication required for advanced install")
+	}
+	if !auth.CheckPassword(password, hash) {
+		slog.Warn("advanced install: bad password",
+			"component", "appstore", "username", username, "remote_ip", c.RealIP())
+		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidPassword,
+			"Incorrect password")
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Endpoints
 // ---------------------------------------------------------------------------
@@ -488,9 +529,22 @@ func (h *Handler) InstallApp(c echo.Context) error {
 		Compose  string            `json:"compose"`
 		EnvRaw   string            `json:"env_raw"`
 		Advanced bool              `json:"advanced"`
+		// Password is the operator's current password; required when
+		// Advanced=true because that branch lets the operator submit
+		// arbitrary compose YAML — a host-root primitive that already
+		// validateAdvancedCompose gates structurally, but step-up
+		// re-auth blocks the case where an attacker has merely stolen
+		// the JWT (XSS, cookie exfil) without the credential itself.
+		Password string `json:"password,omitempty"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "Invalid request body")
+	}
+
+	if req.Advanced {
+		if err := h.verifyAdvancedReAuth(c, req.Password); err != nil {
+			return err
+		}
 	}
 
 	if err := h.ensureCache(); err != nil {

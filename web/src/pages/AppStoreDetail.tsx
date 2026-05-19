@@ -273,6 +273,21 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
 
   const handleInstall = async () => {
     if (!detail) return
+
+    // Advanced mode requires step-up re-auth: the same JWT that loaded the
+    // page is not sufficient to push arbitrary compose YAML through to
+    // docker compose up. validateAdvancedCompose blocks obvious host-escape
+    // shapes (privileged, pid: host, etc.), but a fresh password confirms
+    // it is the operator at the keyboard, not a borrowed session.
+    let advancedPassword = ''
+    if (installMode === 'advanced') {
+      const entered = window.prompt(t('appStore.advancedReAuthPrompt'))
+      if (entered === null || entered === '') {
+        return
+      }
+      advancedPassword = entered
+    }
+
     setInstalling(true)
     setShowProgress(true)
     setProgressLogs([])
@@ -295,7 +310,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
         },
         body: JSON.stringify(
           installMode === 'advanced'
-            ? { advanced: true, compose: customCompose, env_raw: customEnv }
+            ? { advanced: true, compose: customCompose, env_raw: customEnv, password: advancedPassword }
             : { env: envValues }
         ),
         signal: controller.signal,

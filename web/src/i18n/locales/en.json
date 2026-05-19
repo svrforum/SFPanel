@@ -1998,6 +1998,7 @@
     "guideManage": "Post-install",
     "simpleMode": "Simple",
     "advancedMode": "Advanced",
+    "advancedReAuthPrompt": "Advanced mode applies arbitrary docker-compose.yml and can escalate to host root. Please re-enter your password to confirm:",
     "portConflict": "Port already in use",
     "portInUse": "⚠️ Port {{port}} in use → auto-changed to {{suggested}}",
     "containerConflict": "Container name already exists",
