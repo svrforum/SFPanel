@@ -357,6 +357,10 @@ func main() {
 	// when bgCtx cancels — Wait() blocks here until the in-flight INSERTs
 	// hit disk so an audit row written one ms before SIGTERM is not lost.
 	auditWriter.Wait()
+	// PRAGMA optimize lets SQLite persist learned index-usage stats so
+	// the next process boot reads them back and skips warm-up cost on
+	// the audit_logs / alert_history append-only tables.
+	db.OptimizeOnShutdown(database)
 	slog.Info("server stopped")
 }
 
