@@ -21,7 +21,20 @@ func Open(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
+	// MaxOpenConns was historically pinned to 1 for "we never want to
+	// fight SQLite on locking". With journal_mode=WAL (set above) the
+	// reader/writer constraint is one-writer plus any-number-of-readers,
+	// not one-connection-total — pinning to 1 serialised every read
+	// behind every preceding read.
+	//
+	// Widening to 4 lets concurrent dashboard refreshes (each fans out
+	// ~6 SELECTs across audit/alert/metrics/docker tables) run in
+	// parallel readers while keeping write serialisation natural via
+	// the modernc.org/sqlite per-conn lock. The full reader/writer pool
+	// split (separate read/write *sql.DB handles per D1) is deferred
+	// pending benchmark-driven sizing — this widening is the cheap step.
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
