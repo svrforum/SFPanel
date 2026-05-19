@@ -62,6 +62,10 @@ func TestIsStreamingEndpoint(t *testing.T) {
 		{"/api/v1/packages/upgrade", true},
 		// Long-running docker image pull (SSE).
 		{"/api/v1/docker/images/pull", true},
+		// Long-running Tailscale install (SSE).
+		{"/api/v1/network/tailscale/install", true},
+		// Cluster orchestrated rolling update (SSE on the leader).
+		{"/api/v1/cluster/update", true},
 		// Sync POSTs that intentionally stay unary.
 		{"/api/v1/packages/install", false},
 		{"/api/v1/packages/remove", false},
@@ -72,6 +76,47 @@ func TestIsStreamingEndpoint(t *testing.T) {
 	for _, tc := range cases {
 		if got := isStreamingEndpoint(tc.path); got != tc.want {
 			t.Errorf("isStreamingEndpoint(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+// TestStreamingAllowlist_KnownSSEHandlers locks in the contract that every
+// path which sets Content-Type: text/event-stream must classify as a
+// streaming endpoint. If a new SSE handler ships without an allowlist
+// entry, remote-node calls hit the 4 MB / 30 s unary gRPC ceiling and
+// fail mid-stream; this test catches the omission at CI time.
+//
+// Update both this list and isStreamingEndpoint() when adding a new
+// SSE route. If you intentionally serve an SSE response synchronously
+// (never callable with ?node=remote), document the exception inline.
+func TestStreamingAllowlist_KnownSSEHandlers(t *testing.T) {
+	sseRoutes := []string{
+		// system
+		"/api/v1/system/update",
+		// docker
+		"/api/v1/docker/images/pull",
+		// appstore (id-templated)
+		"/api/v1/appstore/apps/jellyfin/install",
+		"/api/v1/appstore/apps/foo-bar/install",
+		// packages (every installer is SSE)
+		"/api/v1/packages/upgrade",
+		"/api/v1/packages/install-docker",
+		"/api/v1/packages/install-node",
+		"/api/v1/packages/install-claude",
+		"/api/v1/packages/install-codex",
+		"/api/v1/packages/install-gemini",
+		"/api/v1/packages/node-install-version",
+		// compose (project-templated)
+		"/api/v1/docker/compose/myproj/up-stream",
+		"/api/v1/docker/compose/myproj/update-stream",
+		// network
+		"/api/v1/network/tailscale/install",
+		// cluster orchestrator
+		"/api/v1/cluster/update",
+	}
+	for _, p := range sseRoutes {
+		if !isStreamingEndpoint(p) {
+			t.Errorf("SSE handler %q is missing from isStreamingEndpoint allowlist — remote-node calls will fail at the 4MB gRPC ceiling", p)
 		}
 	}
 }
