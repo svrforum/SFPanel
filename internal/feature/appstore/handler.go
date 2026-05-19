@@ -757,6 +757,7 @@ func (h *Handler) streamCommand(ctx context.Context, w io.Writer, flusher http.F
 	}
 
 	scanner := bufio.NewScanner(pipe)
+	exec.PrepareScanner(scanner)
 	for scanner.Scan() {
 		sendSSE(w, flusher, sseEvent{Stage: stage, Message: scanner.Text(), Done: false, Success: true})
 	}

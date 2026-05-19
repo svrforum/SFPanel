@@ -549,6 +549,7 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 
 	// Stream output line by line
 	scanner := bufio.NewScanner(stdout)
+	exec.PrepareScanner(scanner)
 	for scanner.Scan() {
 		sendLine(scanner.Text())
 	}
@@ -695,6 +696,7 @@ func (h *Handler) InstallNode(c echo.Context) error {
 		}
 
 		scanner := bufio.NewScanner(stdout)
+		exec.PrepareScanner(scanner)
 		for scanner.Scan() {
 			sendLine(scanner.Text())
 		}
@@ -736,6 +738,7 @@ func (h *Handler) InstallNode(c echo.Context) error {
 	}
 
 	scanner := bufio.NewScanner(stdout)
+	exec.PrepareScanner(scanner)
 	for scanner.Scan() {
 		sendLine(scanner.Text())
 	}
@@ -958,6 +961,7 @@ func (h *Handler) InstallNodeVersion(c echo.Context) error {
 	}
 
 	scanner := bufio.NewScanner(stdout)
+	exec.PrepareScanner(scanner)
 	for scanner.Scan() {
 		sendLine(scanner.Text())
 	}
@@ -1154,6 +1158,7 @@ func (h *Handler) InstallClaude(c echo.Context) error {
 	}
 
 	scanner := bufio.NewScanner(stdout)
+	exec.PrepareScanner(scanner)
 	for scanner.Scan() {
 		sendLine(scanner.Text())
 	}
@@ -1244,6 +1249,7 @@ func (h *Handler) InstallCodex(c echo.Context) error {
 	}
 
 	scanner := bufio.NewScanner(stdout)
+	exec.PrepareScanner(scanner)
 	for scanner.Scan() {
 		sendLine(scanner.Text())
 	}
@@ -1332,6 +1338,7 @@ func (h *Handler) InstallGemini(c echo.Context) error {
 	}
 
 	scanner := bufio.NewScanner(stdout)
+	exec.PrepareScanner(scanner)
 	for scanner.Scan() {
 		sendLine(scanner.Text())
 	}
