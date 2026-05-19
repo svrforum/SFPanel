@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,14 +22,31 @@ import (
 
 const scrollbackBufSize = 256 * 1024 // 256 KB ring buffer per session
 const maxTerminalSessions = 20       // Maximum concurrent terminal sessions
+// readerSendQueue bounds the per-reader buffer. With typical PTY payloads
+// of 1–4 KB the queue holds ~64–256 KB of in-flight output before broadcast
+// declares the client too slow and tears it down — well above the 10s
+// SetWriteDeadline window so a transient stall doesn't trigger a kick,
+// well below the point at which one slow client could starve the host.
+const readerSendQueue = 64
+
+// sameOriginOrEmpty mirrors websocket/handler.go's CheckOrigin: accept
+// when Origin is absent (curl/websocat/desktop wrapper) or its host
+// matches the request host. Anything else is a foreign Origin from a
+// CSWSH attempt and the upgrade is refused.
+func sameOriginOrEmpty(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
+}
 
 var Upgrader = websocket.Upgrader{
-	// CheckOrigin allows all origins because auth uses explicit JWT token
-	// in query params, not cookies. CSWSH is not a risk since credentials
-	// are never sent automatically by the browser.
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+	CheckOrigin: sameOriginOrEmpty,
 }
 
 func authenticateWS(c echo.Context, jwtSecret string) error {
@@ -80,87 +99,161 @@ type terminalSession struct {
 	lastUse    time.Time
 	scrollback *ringBuffer
 	writeMu    sync.Mutex // protects ptmx.Write and pty.Setsize (both write to the PTY fd)
-	// readers keeps track of connected WebSocket clients so the
-	// background PTY reader goroutine can fan-out output.
-	readers   map[*websocket.Conn]struct{}
+	// readers maps each connected WebSocket to its per-reader send state
+	// so broadcast can fan-out output without holding up the PTY reader
+	// on any one slow client.
+	readers   map[*websocket.Conn]*readerState
 	readersMu sync.Mutex
-	started   bool // whether the background reader is running
+	startOnce sync.Once // ensures the PTY-reader goroutine starts exactly once
 }
 
-func (s *terminalSession) addReader(ws *websocket.Conn) {
+// readerState wires one WebSocket to a bounded send queue drained by a
+// per-reader writer goroutine. broadcast pushes a (copied) payload onto
+// send with a non-blocking select; on overflow it closes done, which the
+// writer's select arm picks up and tears the connection down. The PTY
+// reader therefore never blocks behind a stalled client, and the slow
+// client is dropped rather than head-of-line-blocking the session.
+type readerState struct {
+	send      chan []byte
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+func (rs *readerState) kick() {
+	rs.closeOnce.Do(func() { close(rs.done) })
+}
+
+func (s *terminalSession) addReader(ws *websocket.Conn) *readerState {
+	state := &readerState{
+		send: make(chan []byte, readerSendQueue),
+		done: make(chan struct{}),
+	}
 	s.readersMu.Lock()
-	s.readers[ws] = struct{}{}
+	s.readers[ws] = state
 	s.readersMu.Unlock()
+	return state
 }
 
 func (s *terminalSession) removeReader(ws *websocket.Conn) {
 	s.readersMu.Lock()
-	delete(s.readers, ws)
+	if state, ok := s.readers[ws]; ok {
+		state.kick()
+		delete(s.readers, ws)
+	}
 	s.readersMu.Unlock()
 }
 
-// broadcast sends data to all connected WebSocket readers and also saves
-// it to the scrollback buffer.
+// writeLoop drains the per-reader send queue and writes to the WebSocket.
+// Exits on done close (broadcast declared the client too slow), on
+// channel close, or on WriteMessage error (transport gone). On any exit
+// the connection is closed and the readers-map entry is removed.
+func (s *terminalSession) writeLoop(ws *websocket.Conn, state *readerState) {
+	defer func() {
+		_ = ws.Close()
+		s.readersMu.Lock()
+		if cur, ok := s.readers[ws]; ok && cur == state {
+			delete(s.readers, ws)
+		}
+		s.readersMu.Unlock()
+	}()
+	for {
+		select {
+		case <-state.done:
+			return
+		case data, ok := <-state.send:
+			if !ok {
+				return
+			}
+			_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := ws.WriteMessage(websocket.BinaryMessage, data); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// broadcast records output in scrollback and enqueues it for every
+// connected reader. A non-blocking send keeps the PTY reader off the
+// critical path of any individual writer goroutine; overflow on a
+// reader's queue means the client is so slow it has fallen >=64 frames
+// behind, at which point we kick it.
 func (s *terminalSession) broadcast(data []byte) {
 	s.mu.Lock()
 	s.scrollback.Write(data)
 	s.mu.Unlock()
 
+	// data is the PTY read buffer reused on the next iteration; the
+	// writer goroutine will hand the same slice to ws.WriteMessage on a
+	// different goroutine, so we must copy before enqueuing.
+	payload := make([]byte, len(data))
+	copy(payload, data)
+
 	s.readersMu.Lock()
-	for ws := range s.readers {
-		_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		if err := ws.WriteMessage(websocket.BinaryMessage, data); err != nil {
-			delete(s.readers, ws)
+	for _, state := range s.readers {
+		select {
+		case state.send <- payload:
+		default:
+			state.kick()
 		}
 	}
 	s.readersMu.Unlock()
 }
 
-// writeToReader writes to a specific reader under the same readersMu that
-// broadcast holds, so scrollback replay on reconnect can't interleave with
-// a simultaneous broadcast and tear the frame.
+// writeToReader enqueues data into one specific reader's queue (used by
+// scrollback replay on reconnect). Same non-blocking semantics as
+// broadcast — if the new reader can't drain even the historical buffer
+// we treat them as too slow and disconnect rather than stalling here.
 func (s *terminalSession) writeToReader(ws *websocket.Conn, data []byte) {
 	s.readersMu.Lock()
-	defer s.readersMu.Unlock()
-	if _, ok := s.readers[ws]; !ok {
+	state, ok := s.readers[ws]
+	s.readersMu.Unlock()
+	if !ok {
 		return
 	}
-	_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := ws.WriteMessage(websocket.BinaryMessage, data); err != nil {
-		delete(s.readers, ws)
+	payload := make([]byte, len(data))
+	copy(payload, data)
+	select {
+	case state.send <- payload:
+	default:
+		state.kick()
 	}
 }
 
-// startReader spawns a goroutine that reads from the PTY and broadcasts
-// to all connected WebSocket clients. It runs for the lifetime of the session.
-// When the PTY closes (e.g. user types 'exit'), the session is automatically
-// cleaned up from the global sessions map.
+// startReader spawns the PTY-reader goroutine exactly once per session.
+// Two concurrent reconnections to the same sessionID used to both pass
+// the unsynchronized `started` flag check and both start a reader,
+// double-consuming PTY output and corrupting the session.
 func (s *terminalSession) startReader(sessionID string) {
-	if s.started {
-		return
-	}
-	s.started = true
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := s.ptmx.Read(buf)
-			if err != nil {
-				// PTY closed (shell exited) — clean up session
-				sessionsMu.Lock()
-				if sessions[sessionID] == s {
-					s.ptmx.Close()
-					if s.cmd.Process != nil {
-						s.cmd.Process.Kill()
+	s.startOnce.Do(func() {
+		go func() {
+			buf := make([]byte, 4096)
+			for {
+				n, err := s.ptmx.Read(buf)
+				if err != nil {
+					// PTY closed (shell exited) — clean up session
+					sessionsMu.Lock()
+					if sessions[sessionID] == s {
+						s.ptmx.Close()
+						if s.cmd.Process != nil {
+							s.cmd.Process.Kill()
+						}
+						s.cmd.Wait()
+						delete(sessions, sessionID)
 					}
-					s.cmd.Wait()
-					delete(sessions, sessionID)
+					sessionsMu.Unlock()
+					// Kick any remaining readers so their writer
+					// goroutines stop blocking on the empty queue.
+					s.readersMu.Lock()
+					for _, state := range s.readers {
+						state.kick()
+					}
+					s.readersMu.Unlock()
+					return
 				}
-				sessionsMu.Unlock()
-				return
+				s.broadcast(buf[:n])
 			}
-			s.broadcast(buf[:n])
-		}
-	}()
+		}()
+	})
 }
 
 var (
@@ -246,19 +339,15 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			// Otherwise a PTY write arriving between snapshot and addReader
 			// would be lost: the broadcast goroutine wouldn't find this conn
 			// in readers, and the replay path wouldn't include it.
-			sess.addReader(ws)
+			state := sess.addReader(ws)
 			defer sess.removeReader(ws)
+			go sess.writeLoop(ws, state)
 
 			// Replay scrollback buffer so the reconnected client sees history.
 			sess.mu.Lock()
 			history := sess.scrollback.Bytes()
 			sess.mu.Unlock()
 			if len(history) > 0 {
-				// Go through broadcast's mutex path indirectly by using the
-				// session's readers-map write: a dedicated write wouldn't race
-				// broadcast on this conn because broadcast holds readersMu
-				// around its iteration, and addReader above is under the same
-				// mutex.
 				sess.writeToReader(ws, history)
 			}
 		} else {
@@ -295,13 +384,14 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 				cmd:        cmd,
 				lastUse:    time.Now(),
 				scrollback: newRingBuffer(scrollbackBufSize),
-				readers:    make(map[*websocket.Conn]struct{}),
+				readers:    make(map[*websocket.Conn]*readerState),
 			}
 			sessions[sessionID] = sess
 			sessionsMu.Unlock()
 
-			sess.addReader(ws)
+			state := sess.addReader(ws)
 			defer sess.removeReader(ws)
+			go sess.writeLoop(ws, state)
 
 			// Start the background PTY reader
 			sess.startReader(sessionID)
