@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -45,11 +47,23 @@ func (h *Handler) parseAllRAIDArrays() ([]RAIDArray, error) {
 
 	arrays := parseMdstat(string(mdstatData))
 
-	// Enrich with mdadm --detail for each array
+	// Enrich with mdadm --detail in parallel. Each invocation takes
+	// 100-400 ms (process startup + /sys/block read) and used to run
+	// serially, so a host with 4 arrays stalled ListRAID for ~1.5 s
+	// before the first byte hit the wire. Cap concurrency at
+	// GOMAXPROCS to avoid fork-bombing on hosts with dozens of arrays.
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
 	for i := range arrays {
-		detail, err := h.getMdadmDetail(arrays[i].Name)
-		if err == nil && detail != nil {
-			// Merge detail data into the array
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			detail, err := h.getMdadmDetail(arrays[i].Name)
+			if err != nil || detail == nil {
+				return
+			}
 			if detail.Level != "" {
 				arrays[i].Level = detail.Level
 			}
@@ -66,8 +80,9 @@ func (h *Handler) parseAllRAIDArrays() ([]RAIDArray, error) {
 			arrays[i].Total = detail.Total
 			arrays[i].Failed = detail.Failed
 			arrays[i].Spare = detail.Spare
-		}
+		}(i)
 	}
+	wg.Wait()
 
 	return arrays, nil
 }
