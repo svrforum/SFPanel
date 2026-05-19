@@ -73,14 +73,39 @@ func newRingBuffer(size int) *ringBuffer {
 }
 
 func (r *ringBuffer) Write(p []byte) {
-	for _, b := range p {
-		r.buf[r.pos] = b
-		r.pos++
-		if r.pos >= len(r.buf) {
+	// The byte-by-byte loop was O(len(p)) function calls + branches.
+	// PTY reads land in 4 KB chunks at minimum and broadcast pushes the
+	// same chunk into the scrollback for every payload; on a noisy app
+	// (tail -f, build log) this was a measurable CPU hotspot. Bulk-copy
+	// handles the common case (payload fits in the remaining tail) with
+	// one builtin copy(), and the wraparound case with at most two.
+	n := len(p)
+	cap := len(r.buf)
+	if cap == 0 {
+		return
+	}
+	// If incoming data is bigger than the whole ring, only the last
+	// `cap` bytes can ever survive — skip the prefix.
+	if n >= cap {
+		copy(r.buf, p[n-cap:])
+		r.pos = 0
+		r.full = true
+		return
+	}
+	tail := cap - r.pos
+	if n <= tail {
+		copy(r.buf[r.pos:], p)
+		r.pos += n
+		if r.pos == cap {
 			r.pos = 0
 			r.full = true
 		}
+		return
 	}
+	copy(r.buf[r.pos:], p[:tail])
+	copy(r.buf, p[tail:])
+	r.pos = n - tail
+	r.full = true
 }
 
 func (r *ringBuffer) Bytes() []byte {
