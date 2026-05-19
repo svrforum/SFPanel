@@ -44,6 +44,15 @@ func isStreamingEndpoint(path string) bool {
 	// Docker image pull (SSE progress events from the daemon).
 	case strings.HasSuffix(path, "/docker/images/pull"):
 		return true
+	// Tailscale's upstream installer can take 30s-2min depending on
+	// network and is SSE-streamed for live feedback.
+	case strings.HasSuffix(path, "/network/tailscale/install"):
+		return true
+	// /cluster/update runs on the leader and is itself SSE — proxying it
+	// via gRPC would buffer the rolling-update event stream into one
+	// 4 MB unary response.
+	case strings.HasSuffix(path, "/cluster/update"):
+		return true
 	}
 	return false
 }
