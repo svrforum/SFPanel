@@ -398,6 +398,12 @@ func (h *Handler) ListApps(c echo.Context) error {
 	allApps := h.apps
 	h.mu.RUnlock()
 
+	// Bulk-load installed-state in a single query instead of per-app
+	// (N+1 against the settings table). isInstalled also stat()s the
+	// compose file path; we mirror that fallback here to keep the
+	// stale-entry cleanup behaviour intact.
+	installed := h.installedSet()
+
 	var result []appStoreAppListItem
 	for _, app := range allApps {
 		if category != "" && app.Category != category {
@@ -405,7 +411,7 @@ func (h *Handler) ListApps(c echo.Context) error {
 		}
 		result = append(result, appStoreAppListItem{
 			AppStoreMeta: app,
-			Installed:    h.isInstalled(app.ID),
+			Installed:    installed[app.ID],
 		})
 	}
 
@@ -414,6 +420,42 @@ func (h *Handler) ListApps(c echo.Context) error {
 	}
 
 	return response.OK(c, result)
+}
+
+// installedSet returns a set of app IDs currently installed. Replaces the
+// N+1 isInstalled-per-app pattern in ListApps with a single SELECT plus
+// per-row stat-check. The stat check matches isInstalled's behaviour: a
+// settings-row that points at a missing compose file is treated as not
+// installed AND the row is GC'd.
+func (h *Handler) installedSet() map[string]bool {
+	out := map[string]bool{}
+	rows, err := h.DB.Query("SELECT key FROM settings WHERE key LIKE 'appstore_installed_%'")
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	const prefix = "appstore_installed_"
+	stale := []string{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			continue
+		}
+		appID := strings.TrimPrefix(key, prefix)
+		if appID == key {
+			continue
+		}
+		composePath := filepath.Join(h.ComposePath, appID, "docker-compose.yml")
+		if _, err := os.Stat(composePath); os.IsNotExist(err) {
+			stale = append(stale, key)
+			continue
+		}
+		out[appID] = true
+	}
+	for _, k := range stale {
+		_, _ = h.DB.Exec("DELETE FROM settings WHERE key = ?", k)
+	}
+	return out
 }
 
 func (h *Handler) GetApp(c echo.Context) error {
@@ -524,6 +566,14 @@ func (h *Handler) InstallApp(c echo.Context) error {
 	if !validAppID.MatchString(id) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid app ID")
 	}
+
+	// Cap the request body. Advanced installs carry user-submitted
+	// compose YAML + env raw text; a malicious or buggy client otherwise
+	// could push a 100 MB body and force the panel to buffer it before
+	// validation runs. 1 MB is several orders of magnitude past any
+	// legitimate compose file (the entire docker-compose spec fits in
+	// well under 100 KB) and forecloses the DoS shape.
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 1<<20)
 
 	var req struct {
 		Env      map[string]string `json:"env"`
