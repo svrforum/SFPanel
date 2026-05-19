@@ -75,6 +75,9 @@ func parseUFWStatus(output string) UFWStatus {
 // then immediately disconnect the operator (and the panel itself).
 // Pass ?force=true to override.
 func (h *Handler) EnableUFW(c echo.Context) error {
+	if err := requireTool(c, h.Cmd, "ufw"); err != nil {
+		return err
+	}
 	if c.QueryParam("force") != "true" {
 		// Best-effort precheck — if ufw status itself fails (e.g. not
 		// installed) we let the enable attempt surface the real error.
@@ -102,6 +105,9 @@ func (h *Handler) EnableUFW(c echo.Context) error {
 // DisableUFW disables the UFW firewall.
 // POST /firewall/disable
 func (h *Handler) DisableUFW(c echo.Context) error {
+	if err := requireTool(c, h.Cmd, "ufw"); err != nil {
+		return err
+	}
 	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "disable")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWDisableError,
@@ -277,6 +283,20 @@ func (h *Handler) AddRule(c echo.Context) error {
 			"Comment contains invalid characters")
 	}
 
+	if err := requireTool(c, h.Cmd, "ufw"); err != nil {
+		return err
+	}
+
+	// Lockout preflight: a deny/reject/limit on SSH or the panel port
+	// inserted ahead of any existing allow rule would self-lock the
+	// operator (UFW's `iptables -I` puts new rules at the top of the
+	// chain). EnableUFW and DeleteRule already enforce the inverse —
+	// keep AddRule consistent.
+	if c.QueryParam("force") != "true" && wouldLockOutOnAdd(req, h.PanelPort) {
+		return response.Fail(c, http.StatusConflict, response.ErrUFWAddRuleError,
+			fmt.Sprintf("Refusing to %s port %s — this would block remote admin access (SSH 22 or panel %d). Pass ?force=true to confirm.", req.Action, req.Port, h.PanelPort))
+	}
+
 	// Build the UFW command
 	args := buildUFWAddArgs(req)
 
@@ -344,6 +364,10 @@ func (h *Handler) DeleteRule(c echo.Context) error {
 			"Rule number must be a positive integer")
 	}
 
+	if err := requireTool(c, h.Cmd, "ufw"); err != nil {
+		return err
+	}
+
 	if c.QueryParam("force") != "true" {
 		if out, listErr := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "status", "numbered"); listErr == nil {
 			rules := parseUFWRules(out)
@@ -386,6 +410,9 @@ func (h *Handler) DeleteRule(c echo.Context) error {
 // ListPorts returns all listening TCP and UDP ports on the system.
 // GET /firewall/ports
 func (h *Handler) ListPorts(c echo.Context) error {
+	if err := requireTool(c, h.Cmd, "ss"); err != nil {
+		return err
+	}
 	// Get TCP listening ports
 	tcpOutput, err := h.Cmd.Run("ss", "-tlnp")
 	if err != nil {

@@ -1,10 +1,14 @@
 package firewall
 
 import (
+	"fmt"
 	"net"
+	"net/http"
 	"regexp"
 	"strings"
 
+	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
@@ -21,6 +25,20 @@ type Handler struct {
 // aptEnv returns the standard environment variables for non-interactive apt operations.
 func aptEnv() []string {
 	return []string{"DEBIAN_FRONTEND=noninteractive"}
+}
+
+// requireTool returns a structured "not installed" response when the named
+// tool is missing from PATH. Mutation handlers call this at entry to keep
+// remote cluster nodes (which may legitimately lack ufw / fail2ban /
+// iptables) from returning a raw 500 — the proxied UI relies on
+// ErrToolNotInstalled being recognizable so it can show an actionable hint
+// instead of a stack trace.
+func requireTool(c echo.Context, cmd exec.Commander, tool string) error {
+	if cmd.Exists(tool) {
+		return nil
+	}
+	return response.Fail(c, http.StatusNotImplemented, response.ErrToolNotInstalled,
+		fmt.Sprintf("%s is not installed on this node", tool))
 }
 
 // ---------- Types ----------

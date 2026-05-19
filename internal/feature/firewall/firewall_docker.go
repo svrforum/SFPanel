@@ -296,6 +296,9 @@ func (h *Handler) getDockerUserRules() ([]DockerUserRule, error) {
 // AddDockerUserRule adds a rule to the DOCKER-USER iptables chain.
 // POST /firewall/docker/rules
 func (h *Handler) AddDockerUserRule(c echo.Context) error {
+	if err := requireTool(c, h.Cmd, "iptables"); err != nil {
+		return err
+	}
 	var req AddDockerRuleRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -390,6 +393,9 @@ func (h *Handler) AddDockerUserRule(c echo.Context) error {
 // DeleteDockerUserRule removes a rule from the DOCKER-USER chain by number.
 // DELETE /firewall/docker/rules/:number
 func (h *Handler) DeleteDockerUserRule(c echo.Context) error {
+	if err := requireTool(c, h.Cmd, "iptables"); err != nil {
+		return err
+	}
 	numberStr := c.Param("number")
 	number, err := strconv.Atoi(numberStr)
 	if err != nil || number < 1 {
