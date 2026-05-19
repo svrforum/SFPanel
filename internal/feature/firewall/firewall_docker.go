@@ -44,7 +44,13 @@ type AddDockerRuleRequest struct {
 }
 
 // dockerUserRulesFile is the path for persisting DOCKER-USER rules.
-const dockerUserRulesFile = "/etc/sfpanel/docker-user.rules"
+// Lives under /var/lib (mutable runtime state) rather than /etc/sfpanel
+// (config) because it's updated by every iptables add/delete and the
+// /etc tree should stay quiescent — operators back up /etc with the
+// expectation that it doesn't change under their feet. 0600 perms
+// match the rest of the per-node state under /var/lib/sfpanel.
+const dockerUserRulesFile = "/var/lib/sfpanel/docker-user.rules"
+const dockerUserRulesFileLegacy = "/etc/sfpanel/docker-user.rules"
 
 // validDockerAction matches allowed DOCKER-USER rule actions.
 var validDockerAction = regexp.MustCompile(`^(drop|accept)$`)
@@ -468,6 +474,7 @@ func (h *Handler) saveDockerUserRules() error {
 	if !inDockerUser {
 		// Remove file if no rules exist
 		os.Remove(dockerUserRulesFile)
+		os.Remove(dockerUserRulesFileLegacy)
 		return nil
 	}
 
@@ -475,25 +482,41 @@ func (h *Handler) saveDockerUserRules() error {
 	content := strings.Join(lines, "\n") + "\n"
 
 	// Ensure directory exists
-	if err := os.MkdirAll("/etc/sfpanel", 0755); err != nil {
-		return fmt.Errorf("mkdir /etc/sfpanel: %w", err)
+	if err := os.MkdirAll("/var/lib/sfpanel", 0755); err != nil {
+		return fmt.Errorf("mkdir /var/lib/sfpanel: %w", err)
 	}
 
-	return writeFile(dockerUserRulesFile, content)
+	// 0600 — rule list isn't a secret per se, but it's per-node mutable
+	// runtime state with no need for other users on the box to read.
+	if err := os.WriteFile(dockerUserRulesFile, []byte(content), 0600); err != nil {
+		return fmt.Errorf("write %s: %w", dockerUserRulesFile, err)
+	}
+	// Clean up the legacy /etc/sfpanel copy so a subsequent
+	// RestoreDockerUserRules doesn't have two sources of truth.
+	_ = os.Remove(dockerUserRulesFileLegacy)
+	return nil
 }
 
 // RestoreDockerUserRules restores DOCKER-USER rules from the persisted file.
 // Called at SFPanel startup. Silently skips if no file exists.
+//
+// Tries the new /var/lib/sfpanel path first; falls back to the legacy
+// /etc/sfpanel location so installations that haven't yet hit
+// saveDockerUserRules (which migrates the path) still restore on boot.
 func RestoreDockerUserRules(cmd exec.Commander) {
-	if _, err := os.Stat(dockerUserRulesFile); os.IsNotExist(err) {
-		return
+	source := dockerUserRulesFile
+	if _, err := os.Stat(source); os.IsNotExist(err) {
+		if _, err := os.Stat(dockerUserRulesFileLegacy); os.IsNotExist(err) {
+			return
+		}
+		source = dockerUserRulesFileLegacy
 	}
 
-	output, err := cmd.Run("iptables-restore", "-n", "--", dockerUserRulesFile)
+	output, err := cmd.Run("iptables-restore", "-n", "--", source)
 	if err != nil {
 		slog.Warn("failed to restore DOCKER-USER rules", "component", "firewall", "error", err, "output", output)
 		return
 	}
 
-	slog.Info("restored DOCKER-USER firewall rules", "component", "firewall", "file", dockerUserRulesFile)
+	slog.Info("restored DOCKER-USER firewall rules", "component", "firewall", "file", source)
 }
