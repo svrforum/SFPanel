@@ -6,6 +6,135 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.14.0] – 2026-05-19
+
+End-to-end module hardening pass — closes every P0 from the 2026-05-18 review
+(25/25), lands all 8 Phase B systemic sweeps, all 15 Phase C module
+correctness items, both Phase D refactor steps, and the Phase E hygiene
+sweep. 37 commits, no API breakage besides the documented `portmap` JSON
+shape change (`container` → `containers []`).
+
+### Security
+
+- **firewall** — `AddRule` now refuses deny/reject/limit on SSH (22) or the
+  panel port unless `?force=true`, mirroring the existing `EnableUFW`/
+  `DeleteRule` lockout guards. Every UFW/fail2ban/iptables/ss mutator runs
+  `requireTool` at entry so missing tooling on a cluster follower returns
+  `501 TOOL_NOT_INSTALLED` instead of an opaque 500.
+- **packages** — `validPackageName` now anchors to an alphanumeric leading
+  character, blocking `--reinstall`/`-y`/`--allow-downgrades`-shaped values.
+  Every `apt-get install/remove/upgrade` call also passes the `--` end-of-
+  options separator as a second-line defense.
+- **websocket** — `MetricsWS` arms keepalive (pong-driven read deadline +
+  ping ticker) so half-open connections tear down in seconds instead of
+  minutes. `Upgrader.CheckOrigin` enforces same-origin (or empty
+  `Origin` for non-browser tooling). Legacy `?token=` WS auth is now
+  loopback-only — long-lived JWTs in URLs leaked into access/proxy/shell
+  logs; the modern `?ticket=` (single-use, 60s TTL) flow is the only path
+  for remote clients.
+- **appstore** — Advanced install now requires `{password}` in the body and
+  re-verifies it against the admin row via bcrypt before writing the
+  user-submitted compose YAML. Body capped at 1 MB. A stolen JWT alone is
+  no longer enough to escalate to host root through this endpoint.
+- **terminal** — Same-origin guard on the Upgrader. Per-reader bounded
+  send queue replaces the synchronous fan-out so one slow client can't
+  head-of-line-block the PTY reader or peer readers (P0-17). PTY reader
+  goroutine wrapped in `sync.Once` to fix the racy `started` flag (P0-18).
+- **auth** — `refresh.go` now logs `slog.Error` on tx.Commit failures and
+  surfaces 500 (instead of "Session revoked") when the OWASP theft-
+  detection family-revoke didn't actually persist. `loginAttempts`
+  sync.Map now drained on a 1h tick so a panel hit by months of internet
+  scanning doesn't accumulate stale per-IP attempt records.
+- **process / services** — `services.Stop/Restart/Disable` refuses to act
+  on `sfpanel.service` itself unless `?force=true`. `process.KillProcess`
+  writes structured audit lines with pid/signal/username/path.
+
+### Reliability
+
+- **cluster** — `Manager.ProxySecret()` now caches the sha256(CA cert)
+  derivation; the proxy middleware hit it on every cross-node request
+  with a per-call disk read + hash. `ClusterUpdate` SSE now includes the
+  remote node's response body in the per-node "Update failed" event so
+  the operator sees the quorum-guard refusal / downgrade refusal text
+  instead of just an HTTP status. `Leave` logs the specific failure mode
+  (no leader / dial failed / RPC rejected) and points at
+  `sfpanel cluster remove` for recovery.
+- **system** — `RunUpdate` refuses to take a node offline when doing so
+  would drop the cluster below Raft quorum. Heartbeat-based check is the
+  second line of defense for operators who fan out `/system/update`
+  directly (Ansible, parallel ssh) instead of routing through the
+  rolling-update orchestrator.
+- **portmap** — `PortBinding.Proto` is now plumbed through from Docker;
+  UDP-only services (DNS, WireGuard, syslog) no longer disappear or pun
+  onto an unrelated TCP listener. `PortMapRow.Containers` is a slice so
+  two containers publishing the same host port both surface instead of
+  last-write-wins.
+- **files** — `UploadFile`/`MkDir`/`WriteFile` validate symlink leaves
+  via `Lstat` + `EvalSymlinks` so a `/tmp → /etc/sfpanel` symlink can
+  no longer bypass `isCriticalPath`. `logs.AddCustomSource` is the same
+  shape. `ListDir` now caps at 10000 entries.
+- **netplan** — `saveNetplanFile` writes atomically via temp file +
+  fsync + rename; a power loss mid-write can no longer leave a half-
+  YAML that `netplan-generate` refuses to parse.
+- **settings** — `UpdateSettings` wraps the whole batch in a
+  transaction; partial application on the third write of five can no
+  longer leave settings half-applied. Per-key value validators
+  (`terminal_timeout 0..24h`, `max_upload_size 1..1024 MB`) now reject
+  out-of-range values before any write starts.
+- **safe.Go** — New `internal/common/safe` package wraps every
+  long-lived background goroutine (history collectors, retention
+  pruners, terminal cleanup, update checker) with `recover()` + slog
+  panic logging. A nil deref inside a background loop no longer takes
+  the whole panel down.
+
+### Performance
+
+- **db** — 4 hot-path indexes added (`audit_logs(username,created_at)`,
+  `audit_logs(protected,created_at)`, `container_metrics_history(ts)`,
+  `alert_history(rule_id,created_at)`). `temp_store=MEMORY` PRAGMA
+  added — retention pruners no longer hit /var/tmp. `PRAGMA optimize`
+  on shutdown so the next boot reads back learned index-usage stats.
+  `MaxOpenConns` widened 1 → 4 (WAL-aware step short of full pool
+  split). New `db.AsyncWriter` drains audit_logs INSERTs through one
+  bounded queue instead of per-request `go func()` spawns.
+- **firewall** — `ListJails` runs `fail2ban-client status <jail>` in
+  parallel up to GOMAXPROCS; an 8-jail host's panel refresh drops from
+  ~800 ms to the slowest single jail.
+- **appstore** — `ListApps` bulk-loads installed-state in one query
+  instead of N+1; `findFreePort` reads `ss -tlnH` once into a port set
+  and checks candidates against the set (was 100 subprocess calls
+  worst case).
+- **alert** — Compiled container-pattern regex cached across calls;
+  the per-event-per-rule path no longer pays a fresh `regexp.Compile`.
+- **disk** — `mdadm --detail` runs in parallel per array (was
+  sequential at ~200 ms/array).
+- **terminal** — `ringBuffer.Write` switched from byte-by-byte to
+  bulk-copy with at most two `copy()` calls per write.
+
+### Hygiene
+
+- **proxy** — `/network/tailscale/install` and `/cluster/update` added
+  to the streaming-endpoint allowlist. New
+  `TestStreamingAllowlist_KnownSSEHandlers` CI test enumerates every
+  SSE handler and asserts each is recognized.
+- **exec** — New `Commander.RunCtx` accepts a caller-supplied context
+  so handlers can propagate `c.Request().Context()` and have a client
+  disconnect kill the subprocess. New `exec.PrepareScanner` helper
+  sizes `bufio.Scanner` buffers to 64 KB initial / 1 MB max (was the
+  default 64 KB ceiling that silently truncated long log lines).
+- **request logger** — `/health`, `/system/info`,
+  `/monitor/metrics`, and all `/ws/*` paths now skip the request log.
+  An idle panel left open in a browser stops emitting 50k+ noise
+  lines/day.
+
+### Breaking
+
+- `GET /api/v1/system/portmap` — `container` field renamed to
+  `containers` and changed from object to array. Frontend updated in
+  the same release.
+
+---
+
 ## [0.13.15] – 2026-05-18
 
 Follow-up to 0.13.14 — closes two issues that had been flagged as
