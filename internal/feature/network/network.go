@@ -947,14 +947,50 @@ func loadNetplanFile(path string) (*netplanData, error) {
 	return &np, nil
 }
 
-// saveNetplanFile writes a netplanData struct back to the file.
+// saveNetplanFile writes a netplanData struct back to the file atomically.
+//
+// The previous os.WriteFile call rewrote the target in place, leaving a
+// window where a power loss or a panicking handler could persist a
+// half-written YAML file. netplan-generate's parser then refused the
+// truncated file and the next boot came up with no network configuration.
+// We now write to <path>.<pid>.tmp in the same directory (so the rename
+// is atomic across the filesystem boundary) and rename over the target.
 func saveNetplanFile(path string, np *netplanData) error {
 	data, err := yaml.Marshal(np)
 	if err != nil {
 		return fmt.Errorf("marshal netplan: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".netplan-")
+	if err != nil {
+		return fmt.Errorf("create temp in %s: %w", dir, err)
+	}
+	tmpPath := tmp.Name()
+	// Make sure the temp file is removed if anything below fails before
+	// the successful rename.
+	cleanup := func() { _ = os.Remove(tmpPath) }
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		cleanup()
+		return fmt.Errorf("write temp: %w", err)
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		cleanup()
+		return fmt.Errorf("chmod temp: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		cleanup()
+		return fmt.Errorf("fsync temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return fmt.Errorf("close temp: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		cleanup()
+		return fmt.Errorf("rename %s -> %s: %w", tmpPath, path, err)
 	}
 	return nil
 }
