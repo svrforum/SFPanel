@@ -65,3 +65,48 @@ func hasAccessRule(rules []UFWRule, panelPort int) bool {
 	}
 	return false
 }
+
+// wouldLockOutOnAdd reports whether adding the proposed rule would block
+// remote admin access to SSH (port 22) or the panel port. Mirrors
+// ruleAllowsPort's reverse: if the rule is deny/reject/limit AND its
+// destination port matches SSH or panelPort, the answer is yes.
+//
+// Used by AddRule with the same ?force=true override pattern as
+// EnableUFW and DeleteRule — the guard is opt-out, not absolute.
+func wouldLockOutOnAdd(req AddRuleRequest, panelPort int) bool {
+	action := strings.ToLower(strings.TrimSpace(req.Action))
+	switch action {
+	case "deny", "reject", "limit":
+	default:
+		return false
+	}
+	port := strings.TrimSpace(req.Port)
+	if port == "" {
+		return false
+	}
+	// Strip optional /proto (UFW accepts both "22" and "22/tcp" here, but
+	// our request model splits port and protocol — defensive trim only).
+	if i := strings.Index(port, "/"); i >= 0 {
+		port = port[:i]
+	}
+	// App profile names that map to SSH.
+	switch port {
+	case "OpenSSH", "SSH":
+		return true
+	}
+	// Port range like "20:25".
+	if i := strings.Index(port, ":"); i >= 0 {
+		lo, errLo := strconv.Atoi(port[:i])
+		hi, errHi := strconv.Atoi(port[i+1:])
+		if errLo != nil || errHi != nil {
+			return false
+		}
+		return (SSHPort >= lo && SSHPort <= hi) || (panelPort >= lo && panelPort <= hi)
+	}
+	// Bare port number.
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		return false
+	}
+	return n == SSHPort || n == panelPort
+}

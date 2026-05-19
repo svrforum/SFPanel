@@ -47,3 +47,36 @@ func TestHasAccessRule(t *testing.T) {
 		t.Error("Both rules present should pass")
 	}
 }
+
+func TestWouldLockOutOnAdd(t *testing.T) {
+	const panelPort = 9443
+	cases := []struct {
+		name string
+		req  AddRuleRequest
+		want bool
+	}{
+		{"allow ssh", AddRuleRequest{Action: "allow", Port: "22"}, false},
+		{"deny ssh", AddRuleRequest{Action: "deny", Port: "22"}, true},
+		{"reject ssh", AddRuleRequest{Action: "reject", Port: "22"}, true},
+		{"limit ssh", AddRuleRequest{Action: "limit", Port: "22"}, true},
+		{"deny ssh with tcp proto in port", AddRuleRequest{Action: "deny", Port: "22/tcp"}, true},
+		{"deny panel port", AddRuleRequest{Action: "deny", Port: "9443"}, true},
+		{"deny other port", AddRuleRequest{Action: "deny", Port: "8080"}, false},
+		{"deny range covering 22", AddRuleRequest{Action: "deny", Port: "20:30"}, true},
+		{"deny range covering panel", AddRuleRequest{Action: "deny", Port: "9000:9500"}, true},
+		{"deny range missing both", AddRuleRequest{Action: "deny", Port: "8000:8080"}, false},
+		{"deny OpenSSH app profile", AddRuleRequest{Action: "deny", Port: "OpenSSH"}, true},
+		{"allow with range", AddRuleRequest{Action: "allow", Port: "20:30"}, false},
+		{"empty action benign", AddRuleRequest{Port: "22"}, false},
+		{"deny empty port", AddRuleRequest{Action: "deny", Port: ""}, false},
+		{"deny garbage port", AddRuleRequest{Action: "deny", Port: "abc"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := wouldLockOutOnAdd(tc.req, panelPort)
+			if got != tc.want {
+				t.Errorf("wouldLockOutOnAdd(%+v) = %v, want %v", tc.req, got, tc.want)
+			}
+		})
+	}
+}

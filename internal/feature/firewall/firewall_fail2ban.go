@@ -75,6 +75,9 @@ func (h *Handler) InstallFail2ban(c echo.Context) error {
 // ListJails returns all fail2ban jails with their status.
 // GET /fail2ban/jails
 func (h *Handler) ListJails(c echo.Context) error {
+	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+		return err
+	}
 	output, err := h.Cmd.Run("fail2ban-client", "status")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFail2banError,
@@ -227,6 +230,9 @@ func (h *Handler) GetJailDetail(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidJailName,
 			"Jail name contains invalid characters (allowed: a-zA-Z0-9_-)")
 	}
+	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+		return err
+	}
 
 	output, err := h.Cmd.Run("fail2ban-client", "status", name)
 	if err != nil {
@@ -255,6 +261,9 @@ func (h *Handler) EnableJail(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidJailName,
 			"Jail name contains invalid characters (allowed: a-zA-Z0-9_-)")
 	}
+	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+		return err
+	}
 
 	output, err := h.Cmd.Run("fail2ban-client", "start", name)
 	if err != nil {
@@ -271,6 +280,9 @@ func (h *Handler) EnableJail(c echo.Context) error {
 // DisableJail stops a fail2ban jail.
 // POST /fail2ban/jails/:name/disable
 func (h *Handler) DisableJail(c echo.Context) error {
+	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+		return err
+	}
 	name := c.Param("name")
 	if name == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
@@ -296,6 +308,9 @@ func (h *Handler) DisableJail(c echo.Context) error {
 // PUT /fail2ban/jails/:name/config
 // JSON body: { "max_retry": 5, "ban_time": "600", "find_time": "600" }
 func (h *Handler) UpdateJailConfig(c echo.Context) error {
+	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+		return err
+	}
 	name := c.Param("name")
 	if name == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
@@ -395,6 +410,9 @@ func (h *Handler) UpdateJailConfig(c echo.Context) error {
 // POST /fail2ban/jails/:name/unban
 // JSON body: { "ip": "192.168.1.100" }
 func (h *Handler) UnbanIP(c echo.Context) error {
+	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+		return err
+	}
 	name := c.Param("name")
 	if name == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
@@ -551,6 +569,9 @@ var validIgnoreIP = regexp.MustCompile(`^[a-fA-F0-9.:/ ]+$`)
 // CreateJail creates a new fail2ban jail from a template or custom config.
 // POST /fail2ban/jails
 func (h *Handler) CreateJail(c echo.Context) error {
+	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+		return err
+	}
 	var req CreateJailRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -689,6 +710,9 @@ findtime = %d
 // DeleteJail removes a fail2ban jail by deleting its config file and reloading.
 // DELETE /fail2ban/jails/:name
 func (h *Handler) DeleteJail(c echo.Context) error {
+	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+		return err
+	}
 	name := c.Param("name")
 	if name == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingJailName, "Jail name is required")
