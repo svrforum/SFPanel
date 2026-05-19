@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	sfdb "github.com/svrforum/SFPanel/internal/db"
 )
 
 const auditMaxRows = 50000
@@ -15,13 +16,20 @@ const auditMaxRows = 50000
 // AuditMiddleware logs all state-changing API requests (POST, PUT, DELETE)
 // to the audit_logs table after the handler has executed successfully.
 //
+// writer is the shared *db.AsyncWriter that drains audit rows on a single
+// background goroutine. Each request used to spawn its own `go func()` for
+// the INSERT, which under a burst (CI rerun, deploy, mass restart) created
+// hundreds of goroutines competing for the (MaxOpenConns=1) writer
+// connection. The bounded queue caps that fan-out and lets shutdown drain
+// pending rows.
+//
 // localNodeIDFn returns the cluster node ID this row should be stamped with.
 // Resolved per-request (not captured at boot) so that cluster
 // initialisation-at-runtime takes effect — a node that started standalone
 // and later joined a cluster starts emitting non-empty node_ids without a
 // restart. Pass nil or a function returning "" for non-cluster deployments;
 // the column then stays empty as before.
-func AuditMiddleware(db *sql.DB, localNodeIDFn func() string) echo.MiddlewareFunc {
+func AuditMiddleware(writer *sfdb.AsyncWriter, localNodeIDFn func() string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			err := next(c)
@@ -57,14 +65,14 @@ func AuditMiddleware(db *sql.DB, localNodeIDFn func() string) echo.MiddlewareFun
 				nodeID = localNodeIDFn()
 			}
 
-			go func() {
+			writer.Submit(func(db *sql.DB) {
 				if _, dbErr := db.Exec(
 					"INSERT INTO audit_logs (username, method, path, status, ip, node_id) VALUES (?, ?, ?, ?, ?, ?)",
 					username, method, path, status, ip, nodeID,
 				); dbErr != nil {
 					slog.Error("audit log write failed", "error", dbErr)
 				}
-			}()
+			})
 
 			return err
 		}

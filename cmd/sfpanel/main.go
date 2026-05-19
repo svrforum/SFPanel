@@ -249,6 +249,12 @@ func main() {
 	// Start background metrics history collector (60s interval, 24h rolling window)
 	monitor.StartHistoryCollector(bgCtx, database)
 
+	// Single drain for all audit_logs INSERTs (request middleware + auth
+	// security events). Per-request goroutines used to fan out unbounded
+	// under burst traffic; the bounded queue caps concurrent writers and
+	// the shared drain ordering keeps row ids monotonic with arrival.
+	auditWriter := db.NewAsyncWriter(bgCtx, database, "audit", 256)
+
 	// Background retention pruners — previously rode on inserts via a CAS,
 	// which left tables growing unbounded during idle periods. Now both run
 	// on independent tickers so a panel that's quiet for hours still trims.
@@ -305,7 +311,7 @@ func main() {
 	// Start background update checker (polls GitHub every hour)
 	monitor.StartUpdateChecker(version)
 
-	e, routerCleanup := api.NewRouter(database, alertManager, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate)
+	e, routerCleanup := api.NewRouter(database, auditWriter, alertManager, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate)
 	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -338,6 +344,10 @@ func main() {
 	// Cancel long-running background collectors (metrics history, terminal
 	// cleanup) so they exit before main returns and the process dies.
 	bgCancel()
+	// Drain the async-audit queue. The writer's run loop already exits
+	// when bgCtx cancels — Wait() blocks here until the in-flight INSERTs
+	// hit disk so an audit row written one ms before SIGTERM is not lost.
+	auditWriter.Wait()
 	slog.Info("server stopped")
 }
 

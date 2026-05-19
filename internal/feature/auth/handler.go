@@ -16,6 +16,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
+	sfdb "github.com/svrforum/SFPanel/internal/db"
 )
 
 type loginAttempt struct {
@@ -43,6 +44,12 @@ type Handler struct {
 	Config     *config.Config
 	clusterMu  sync.RWMutex
 	ClusterMgr *cluster.Manager // nil when cluster not active
+	// AuditWriter serializes security-event INSERTs onto the shared
+	// background drain. Nil-safe: insertSecurityAuditRow falls back to a
+	// direct synchronous INSERT (preserving today's behavior) so tests
+	// that construct Handler{} bare don't deadlock waiting for an async
+	// drain that was never started.
+	AuditWriter *sfdb.AsyncWriter
 }
 
 // SetClusterMgr updates the cluster manager reference at runtime.
@@ -278,14 +285,21 @@ func (h *Handler) insertSecurityAuditRow(username, ip, action, reason, method st
 		return
 	}
 	path := "/api/v1/auth/" + action + "#" + reason
-	go func() {
-		if _, err := h.DB.Exec(
+	insert := func(db *sql.DB) {
+		if _, err := db.Exec(
 			"INSERT INTO audit_logs (username, method, path, status, ip, node_id) VALUES (?, ?, ?, ?, ?, ?)",
 			username, method, path, status, ip, nodeID,
 		); err != nil {
 			slog.Warn("security audit insert failed", "component", "auth", "action", action, "reason", reason, "error", err)
 		}
-	}()
+	}
+	if h.AuditWriter != nil && h.AuditWriter.Submit(insert) {
+		return
+	}
+	// Fallback: AuditWriter not wired (tests construct Handler{} bare) or
+	// queue was full. A short-lived goroutine here preserves the
+	// non-blocking behavior callers expect from recordSecurityEvent.
+	go insert(h.DB)
 }
 
 // preRecordLoginAttempt atomically checks the rate limit and pre-increments the
