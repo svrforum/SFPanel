@@ -1,6 +1,8 @@
 package exec
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -73,5 +75,41 @@ func TestSystemCommander_RunWithTimeout_ZeroOrNegativeUsesDefault(t *testing.T) 
 		if out != "hi\n" {
 			t.Fatalf("timeout=%v: expected 'hi\\n', got %q", tc, out)
 		}
+	}
+}
+
+func TestRunCtx_HonorsCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := NewCommander()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := cmd.RunCtx(ctx, "sleep", "10")
+		done <- err
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("RunCtx should have returned an error after cancel")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunCtx did not return within 2s after cancel — context not propagated")
+	}
+}
+
+func TestRunCtx_DefaultsTimeoutWhenNoDeadline(t *testing.T) {
+	// No deadline on ctx → DefaultTimeout (5 min) applies; we just verify
+	// a short successful command runs through without error.
+	cmd := NewCommander()
+	out, err := cmd.RunCtx(context.Background(), "echo", "hi")
+	if err != nil {
+		t.Fatalf("RunCtx echo: %v", err)
+	}
+	if !strings.HasPrefix(out, "hi") {
+		t.Errorf("unexpected output: %q", out)
 	}
 }
