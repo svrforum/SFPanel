@@ -116,11 +116,24 @@ func (h *Handler) Refresh(c echo.Context) error {
 	// and revoke every token in the family so the attacker's chain dies.
 	if consumedAt.Valid {
 		if familyID != "" {
-			_, _ = tx.Exec(`DELETE FROM refresh_tokens WHERE family_id = ?`, familyID)
+			if _, dbErr := tx.Exec(`DELETE FROM refresh_tokens WHERE family_id = ?`, familyID); dbErr != nil {
+				slog.Error("refresh token reuse detected but family revoke DELETE failed",
+					"username", username, "family_id", familyID, "error", dbErr)
+			}
 		} else {
-			_, _ = tx.Exec(`DELETE FROM refresh_tokens WHERE username = ?`, username)
+			if _, dbErr := tx.Exec(`DELETE FROM refresh_tokens WHERE username = ?`, username); dbErr != nil {
+				slog.Error("refresh token reuse detected but per-user revoke DELETE failed",
+					"username", username, "error", dbErr)
+			}
 		}
-		_ = tx.Commit()
+		if commitErr := tx.Commit(); commitErr != nil {
+			// Critical: revoke didn't persist. Surface a 500 so the attacker
+			// doesn't see "Session revoked" while their stolen token chain
+			// stays alive in the DB. Operator can rotate the secret manually.
+			slog.Error("refresh token reuse detected but commit failed",
+				"username", username, "family_id", familyID, "error", commitErr)
+			return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
+		}
 		slog.Warn("refresh token reuse detected — revoked family",
 			"username", username, "family_id", familyID)
 		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidToken, "Session revoked")
@@ -128,9 +141,15 @@ func (h *Handler) Refresh(c echo.Context) error {
 
 	expiresAt, parseErr := time.Parse(time.RFC3339, expiresStr)
 	if parseErr != nil || time.Now().After(expiresAt) {
-		// Expired — drop and reject.
-		_, _ = tx.Exec(`DELETE FROM refresh_tokens WHERE token_hash = ?`, hashHex)
-		_ = tx.Commit()
+		// Expired — drop and reject. Commit failure here is not security-
+		// critical (the row would still expire on the retention pass) but
+		// is worth logging so a chronic DB outage doesn't go unnoticed.
+		if _, dbErr := tx.Exec(`DELETE FROM refresh_tokens WHERE token_hash = ?`, hashHex); dbErr != nil {
+			slog.Warn("expired refresh token DELETE failed", "username", username, "error", dbErr)
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			slog.Warn("expired refresh token commit failed", "username", username, "error", commitErr)
+		}
 		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidToken, "Refresh token expired")
 	}
 
@@ -143,8 +162,12 @@ func (h *Handler) Refresh(c echo.Context) error {
 	if h.getClusterAccount(username) == nil {
 		var exists int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM admin WHERE username = ?`, username).Scan(&exists); err != nil || exists == 0 {
-			_, _ = tx.Exec(`DELETE FROM refresh_tokens WHERE token_hash = ?`, hashHex)
-			_ = tx.Commit()
+			if _, dbErr := tx.Exec(`DELETE FROM refresh_tokens WHERE token_hash = ?`, hashHex); dbErr != nil {
+				slog.Warn("user-missing refresh DELETE failed", "username", username, "error", dbErr)
+			}
+			if commitErr := tx.Commit(); commitErr != nil {
+				slog.Warn("user-missing refresh commit failed", "username", username, "error", commitErr)
+			}
 			return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidToken, "User no longer exists")
 		}
 	}

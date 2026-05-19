@@ -261,6 +261,7 @@ func main() {
 	middleware.StartAuditRetention(bgCtx, database)
 	featureAlert.StartHistoryRetention(bgCtx, database)
 	featureauth.StartRefreshTokenRetention(bgCtx, database)
+	featureauth.StartLoginAttemptRetention(bgCtx)
 
 	// Alert manager owns rule evaluation + Fire-side dispatch. Lifted out of
 	// NewRouter so the docker observability container dispatcher (below) can
