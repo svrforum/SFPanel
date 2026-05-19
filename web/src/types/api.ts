@@ -963,9 +963,9 @@ export interface PortMapRow {
   port: number
   proto: string    // "tcp" | "udp"
   state: string    // "listening" | "bound"
-  firewall:  PortMapFirewallInfo  | null
-  container: PortMapContainerInfo | null
-  process:   PortMapProcessInfo   | null
+  firewall:   PortMapFirewallInfo  | null
+  containers: PortMapContainerInfo[]
+  process:    PortMapProcessInfo   | null
 }
 
 export type HealthcheckTestType = 'CMD-SHELL' | 'CMD' | 'NONE'
