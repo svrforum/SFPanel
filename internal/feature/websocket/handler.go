@@ -184,6 +184,13 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		containerID := c.Param("id")
 
 		tail := c.QueryParam("tail")
+		// Cap tail at 10000 lines so a misbehaving client (or an XSS
+		// payload riding the operator's session) can't ask for "all"
+		// against a container with weeks of logs and force the docker
+		// daemon to read megabytes off disk into a single WS write.
+		if n, err := parseInt(tail); err == nil && n > 10000 {
+			tail = "10000"
+		}
 		timestamps := c.QueryParam("timestamps") == "true"
 		stream := c.QueryParam("stream")
 		since := c.QueryParam("since")
@@ -197,7 +204,7 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 
 		ws, err := Upgrader.Upgrade(c.Response(), c.Request(), nil)
 		if err != nil {
-			return err
+			return fmt.Errorf("ws upgrade for container %s logs: %w", containerID, err)
 		}
 		defer ws.Close()
 
@@ -269,6 +276,10 @@ func ComposeLogsWS(composeManager *docker.ComposeManager, jwtSecret string) echo
 			if v, err := parseInt(t); err == nil && v > 0 {
 				tail = v
 			}
+		}
+		// Same upper bound as ContainerLogsWS — see comment there.
+		if tail > 10000 {
+			tail = 10000
 		}
 		service := c.QueryParam("service")
 
