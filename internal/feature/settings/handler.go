@@ -4,10 +4,45 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 )
+
+// settingValidator returns nil when the value is acceptable for the key,
+// or a human-readable error otherwise. The previous handler enforced only
+// the allowlist + max length — terminal_timeout could be -1 (negative
+// duration silently disables the cleanup pruner), max_upload_size could
+// be 999999 (1 TB upload buffer allocation). Per-key validators put the
+// rule next to the setting, where the next reader sees it.
+type settingValidator func(value string) error
+
+var settingValidators = map[string]settingValidator{
+	"terminal_timeout": func(v string) error {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("must be an integer")
+		}
+		// 0 = never expire (operator decision); otherwise minimum 1 minute
+		// to avoid pinning the cleanup ticker hot.
+		if n < 0 || n > 24*60 {
+			return fmt.Errorf("must be 0 (never) or 1..%d minutes", 24*60)
+		}
+		return nil
+	},
+	"max_upload_size": func(v string) error {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("must be an integer")
+		}
+		// MB units; 1 GB ceiling matches what /files/upload streams to disk.
+		if n < 1 || n > 1024 {
+			return fmt.Errorf("must be 1..1024 MB")
+		}
+		return nil
+	},
+}
 
 type Handler struct {
 	DB *sql.DB
@@ -85,16 +120,36 @@ func (h *Handler) UpdateSettings(c echo.Context) error {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
 				fmt.Sprintf("Value for %q exceeds maximum length of 1000 characters", key))
 		}
+		if v, ok := settingValidators[key]; ok {
+			if err := v(value); err != nil {
+				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
+					fmt.Sprintf("Invalid value for %q: %s", key, err.Error()))
+			}
+		}
 	}
 
+	// Wrap the batch in a transaction so a mid-loop write failure rolls
+	// back every preceding upsert. The previous implementation committed
+	// each row independently — a batch of {a, b, c} where the third write
+	// failed left {a, b} half-applied with a 500 response that gave the
+	// operator no way to know which keys actually changed.
+	tx, err := h.DB.Begin()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to begin transaction")
+	}
+	defer tx.Rollback()
+
 	for key, value := range req.Settings {
-		_, err := h.DB.Exec(
+		if _, err := tx.Exec(
 			"INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
 			key, value,
-		)
-		if err != nil {
+		); err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to save settings")
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to commit settings")
 	}
 
 	return response.OK(c, map[string]string{"message": "Settings updated"})
