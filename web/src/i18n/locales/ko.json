@@ -1998,6 +1998,7 @@
     "guideManage": "설치 후 관리",
     "simpleMode": "간편 설치",
     "advancedMode": "고급 설치",
+    "advancedReAuthPrompt": "고급 모드에서는 임의의 docker-compose.yml 을 적용하므로 호스트 권한 상승이 가능합니다. 현재 계정 비밀번호를 다시 입력해 주세요:",
     "portConflict": "포트가 이미 사용 중입니다",
     "portInUse": "⚠️ 포트 {{port}} 사용 중 → {{suggested}}로 자동 변경됨",
     "containerConflict": "같은 이름의 컨테이너가 이미 존재합니다",
