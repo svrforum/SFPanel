@@ -15,6 +15,7 @@ import (
 	osExec "os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -791,8 +792,9 @@ func (h *Handler) checkPortConflicts(meta *AppStoreMeta, envVals map[string]stri
 	}
 
 	conflicts := make([]string, 0)
+	used := h.portsInUseSnapshot()
 	for port := range portsToCheck {
-		if h.isPortInUse(port) {
+		if _, taken := used[port]; taken {
 			conflicts = append(conflicts, fmt.Sprintf("%d", port))
 		}
 	}
@@ -807,6 +809,36 @@ func parsePort(s string) int {
 	return 0
 }
 
+// portsInUseSnapshot runs `ss -tlnH` once and returns a set of TCP ports
+// currently listening on any interface. The previous isPortInUse fired
+// one subprocess per port; checkPortConflicts then ran it for every
+// declared port of the app + findFreePort up to 100 more times before
+// declaring failure, so installing one app could fan out 100+ ss calls.
+// One pass is O(open ports) regardless of how many candidates we test.
+func (h *Handler) portsInUseSnapshot() map[int]struct{} {
+	used := map[int]struct{}{}
+	out, err := h.Cmd.Run("ss", "-tlnH")
+	if err != nil {
+		return used
+	}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		// `ss -tlnH` rows look like:
+		//   LISTEN 0  511  0.0.0.0:80  0.0.0.0:*
+		// Local Address:Port is column index 3 in the no-header output.
+		if len(fields) < 4 {
+			continue
+		}
+		addr := fields[3]
+		if i := strings.LastIndex(addr, ":"); i >= 0 {
+			if p, err := strconv.Atoi(addr[i+1:]); err == nil {
+				used[p] = struct{}{}
+			}
+		}
+	}
+	return used
+}
+
 func (h *Handler) isPortInUse(port int) bool {
 	out, err := h.Cmd.Run("ss", "-tlnH", "sport", "=", fmt.Sprintf(":%d", port))
 	if err != nil {
@@ -815,17 +847,27 @@ func (h *Handler) isPortInUse(port int) bool {
 	return len(strings.TrimSpace(out)) > 0
 }
 
-func (h *Handler) findFreePort(from int) int {
+// findFreePortInUsed scans candidates [from+1, from+100] against the
+// pre-built set, returning the first unused port or 0 if every candidate
+// is taken. Splitting the snapshot from the search lets checkPortConflicts
+// reuse it across all of an app's declared ports.
+func (h *Handler) findFreePortInUsed(from int, used map[int]struct{}) int {
 	for i := 1; i <= 100; i++ {
 		candidate := from + i
 		if candidate > 65535 {
 			break
 		}
-		if !h.isPortInUse(candidate) {
+		if _, taken := used[candidate]; !taken {
 			return candidate
 		}
 	}
 	return 0
+}
+
+// findFreePort retained for callers that don't pre-build the set; one
+// snapshot per call is still O(1) subprocesses instead of O(N).
+func (h *Handler) findFreePort(from int) int {
+	return h.findFreePortInUsed(from, h.portsInUseSnapshot())
 }
 
 func (h *Handler) checkContainerNameConflicts(composeData []byte) []string {

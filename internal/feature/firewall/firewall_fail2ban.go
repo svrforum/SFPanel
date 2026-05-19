@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -85,12 +87,25 @@ func (h *Handler) ListJails(c echo.Context) error {
 	}
 
 	jailNames := parseFail2banJailList(output)
-	jails := make([]Fail2banJail, 0, len(jailNames))
+	jails := make([]Fail2banJail, len(jailNames))
 
-	for _, name := range jailNames {
-		jail := h.getJailInfo(name)
-		jails = append(jails, jail)
+	// fail2ban-client status <jail> runs per-jail in the order the daemon
+	// IPC returns. A host with 8 jails used to issue 8 sequential
+	// subprocess calls (each ~50-150 ms with fail2ban-client startup);
+	// the ListJails latency stacked linearly. Parallel up to GOMAXPROCS
+	// so a list with N jails finishes in O(max) instead of O(sum).
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
+	for i, name := range jailNames {
+		wg.Add(1)
+		go func(i int, name string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			jails[i] = h.getJailInfo(name)
+		}(i, name)
 	}
+	wg.Wait()
 
 	return response.OK(c, map[string]interface{}{
 		"jails": jails,
