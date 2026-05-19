@@ -123,3 +123,51 @@ func TestIsCronField(t *testing.T) {
 		}
 	}
 }
+
+func TestIsValidSchedule(t *testing.T) {
+	cases := []struct {
+		schedule string
+		want     bool
+	}{
+		// Predefined keywords
+		{"@reboot", true},
+		{"@hourly", true},
+		{"@daily", true},
+		{"@weekly", true},
+		{"@monthly", true},
+		{"@yearly", true},
+		{"@annually", true},
+		{"@midnight", true},
+		// Case-insensitivity on predefined keywords
+		{"@Daily", true},
+		{"@MIDNIGHT", true},
+		// Unknown predefined keyword
+		{"@bogus", false},
+		// 5-field schedules
+		{"* * * * *", true},
+		{"0 9 * * 1-5", true},
+		{"*/5 * * * *", true},
+		{"15,45 8-17 * * *", true},
+		// Wrong number of fields
+		{"* * * *", false},
+		{"* * * * * *", false},
+		// Empty / whitespace
+		{"", false},
+		{"   ", false},
+		// Embedded newline rejection — a schedule containing \n could
+		// inject a fresh crontab entry when writeCrontab pipes the
+		// composed text back to `crontab -`. isCronField already rejects
+		// non-numeric content per-field, but defense-in-depth check at
+		// the top-level matters because writeCrontab trusts the validated
+		// string.
+		{"* * * * *\nrm -rf /", false},
+		// Shell metacharacters in a field
+		{"* * * * `id`", false},
+	}
+	for _, c := range cases {
+		got := isValidSchedule(c.schedule)
+		if got != c.want {
+			t.Errorf("isValidSchedule(%q) = %v; want %v", c.schedule, got, c.want)
+		}
+	}
+}
