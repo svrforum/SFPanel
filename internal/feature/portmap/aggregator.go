@@ -5,13 +5,13 @@ import (
 )
 
 // Aggregate merges UFW firewall info, Docker port bindings, and listener
-// entries into one sorted []PortMapRow keyed by port.
+// entries into one sorted []PortMapRow keyed by (port, proto).
 //
 // ufwByPort: map from port number → firewall info (caller pre-indexes
 // because UFW rules can match multiple ports via ranges; the caller is
 // responsible for expansion).
 //
-// dnat: Docker port bindings (HostPort).
+// dnat: Docker port bindings, each carrying its own protocol.
 //
 // ss: listener entries from `ParseSs`. Multiple entries on same port
 // collapse into one row (first-seen wins for Process; in practice
@@ -34,19 +34,25 @@ func Aggregate(ufwByPort map[int]FirewallInfo, dnat []PortBinding, ss []SsEntry)
 
 	// Docker DNAT → at least "bound" (overrides to "listening" if ss already
 	// flagged it — DNAT containers always have docker-proxy listening).
+	// Bindings carry their own proto: UDP services (DNS, WireGuard) no
+	// longer pun as TCP. Multiple containers on the same host port are
+	// appended rather than last-write-wins; two replicas of the same
+	// stack and two unrelated stacks colliding on a port both surface.
 	for _, b := range dnat {
-		// Docker bindings are tcp by default; we treat all as tcp here. UDP
-		// bindings are rare and surface via ss.
-		k := portKey{Port: b.HostPort, Proto: "tcp"}
+		proto := b.Proto
+		if proto == "" {
+			proto = "tcp"
+		}
+		k := portKey{Port: b.HostPort, Proto: proto}
 		if _, ok := rows[k]; !ok {
-			rows[k] = &PortMapRow{Port: b.HostPort, Proto: "tcp", State: "bound"}
+			rows[k] = &PortMapRow{Port: b.HostPort, Proto: proto, State: "bound"}
 		}
 		row := rows[k]
-		row.Container = &ContainerInfo{
+		row.Containers = append(row.Containers, ContainerInfo{
 			ID:    b.ContainerID,
 			Name:  b.ContainerName,
 			Stack: b.Stack,
-		}
+		})
 	}
 
 	// UFW → attach to whichever row uses this port. UFW rules without a

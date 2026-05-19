@@ -67,8 +67,9 @@ export function PortMapTable() {
             </TableRow>
           )}
           {rows.map((r, i) => {
-            const externalRisk = r.firewall && r.firewall.scope === 'Anywhere' && r.container
-            const exposedNoRule = !r.firewall && !r.container && r.process
+            const hasContainer = r.containers && r.containers.length > 0
+            const externalRisk = r.firewall && r.firewall.scope === 'Anywhere' && hasContainer
+            const exposedNoRule = !r.firewall && !hasContainer && r.process
             const borderClass = externalRisk
               ? 'border-l-2 border-amber-500'
               : exposedNoRule
@@ -109,17 +110,22 @@ export function PortMapTable() {
                   )}
                 </TableCell>
                 <TableCell className="text-[12px]">
-                  {r.container ? (
-                    <Link
-                      to={`/docker/containers?selected=${encodeURIComponent(r.container.id)}`}
-                      className="inline-flex items-center gap-1 hover:text-primary"
-                    >
-                      <span className="font-medium">{r.container.name}</span>
-                      {r.container.stack && (
-                        <span className="text-muted-foreground">({r.container.stack})</span>
-                      )}
-                      <ExternalLink className="h-3 w-3" />
-                    </Link>
+                  {r.containers && r.containers.length > 0 ? (
+                    <div className="flex flex-col gap-0.5">
+                      {r.containers.map((c, idx) => (
+                        <Link
+                          key={`${c.id}-${idx}`}
+                          to={`/docker/containers?selected=${encodeURIComponent(c.id)}`}
+                          className="inline-flex items-center gap-1 hover:text-primary"
+                        >
+                          <span className="font-medium">{c.name}</span>
+                          {c.stack && (
+                            <span className="text-muted-foreground">({c.stack})</span>
+                          )}
+                          <ExternalLink className="h-3 w-3" />
+                        </Link>
+                      ))}
+                    </div>
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}

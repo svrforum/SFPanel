@@ -188,8 +188,13 @@ func collectDockerBindings(ctx context.Context, dc *docker.Client) ([]PortBindin
 			if p.PublicPort == 0 {
 				continue
 			}
+			proto := strings.ToLower(p.Type)
+			if proto == "" {
+				proto = "tcp"
+			}
 			out = append(out, PortBinding{
 				HostPort:      int(p.PublicPort),
+				Proto:         proto,
 				ContainerID:   c.ID,
 				ContainerName: name,
 				Stack:         stack,

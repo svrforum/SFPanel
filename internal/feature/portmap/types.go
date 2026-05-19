@@ -1,14 +1,17 @@
 package portmap
 
 // PortMapRow is the canonical row returned by GET /api/v1/system/portmap.
-// Each non-nil pointer reflects one of the three data sources.
+// Firewall + Process stay singular (at most one rule, at most one host
+// listener per port/proto). Containers is a slice so a stack that publishes
+// the same host port from multiple replicas — or two stacks colliding on
+// the same port — surfaces every owner instead of last-write-winning.
 type PortMapRow struct {
-	Port      int            `json:"port"`
-	Proto     string         `json:"proto"` // "tcp" | "udp"
-	State     string         `json:"state"` // "listening" | "bound"
-	Firewall  *FirewallInfo  `json:"firewall"`
-	Container *ContainerInfo `json:"container"`
-	Process   *ProcessInfo   `json:"process"`
+	Port       int             `json:"port"`
+	Proto      string          `json:"proto"` // "tcp" | "udp"
+	State      string          `json:"state"` // "listening" | "bound"
+	Firewall   *FirewallInfo   `json:"firewall"`
+	Containers []ContainerInfo `json:"containers"`
+	Process    *ProcessInfo    `json:"process"`
 }
 
 // FirewallInfo captures the UFW rule that affects this port.
@@ -42,8 +45,13 @@ type SsEntry struct {
 }
 
 // PortBinding is the simplified Docker DNAT mapping passed to Aggregate.
+// Proto is "tcp" or "udp"; before plumbing it through, every binding was
+// silently aggregated as tcp, so UDP-only services (DNS, WireGuard, syslog)
+// either dropped off the table entirely or collided with an unrelated tcp
+// row that happened to share the same host port.
 type PortBinding struct {
 	HostPort      int
+	Proto         string
 	ContainerID   string
 	ContainerName string
 	Stack         string
