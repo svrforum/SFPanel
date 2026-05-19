@@ -173,6 +173,16 @@ var migrations = []migration{
 	// scopes its DELETE to WHERE protected = 0; the retention pruner does
 	// likewise so background trimming can't silently erase these either.
 	{ID: 27, Up: `ALTER TABLE audit_logs ADD COLUMN protected INTEGER NOT NULL DEFAULT 0`},
+	// Hot-path indexes the audit + retention + per-rule alert detail
+	// queries hit on every refresh. None of them changes write throughput
+	// noticeably — audit_logs and alert_history are append-only and the
+	// container_metrics_history rate is 1 row/container/minute. Without
+	// these the retention pruners and any non-trivial filter scan the
+	// full table once the DB grows past a few thousand rows.
+	{ID: 28, Up: `CREATE INDEX IF NOT EXISTS idx_audit_logs_username_created_at ON audit_logs(username, created_at DESC)`},
+	{ID: 29, Up: `CREATE INDEX IF NOT EXISTS idx_audit_logs_protected_created_at ON audit_logs(protected, created_at)`},
+	{ID: 30, Up: `CREATE INDEX IF NOT EXISTS idx_container_metrics_history_ts ON container_metrics_history(ts)`},
+	{ID: 31, Up: `CREATE INDEX IF NOT EXISTS idx_alert_history_rule_id_created_at ON alert_history(rule_id, created_at DESC)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been
