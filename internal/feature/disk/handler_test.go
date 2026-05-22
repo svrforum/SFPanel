@@ -8,6 +8,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
@@ -29,7 +30,7 @@ func TestMountFilesystem_RefusesProtectedPath(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status=%d, want 400", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "INVALID_MOUNTPOINT") {
+	if !strings.Contains(rec.Body.String(), response.ErrInvalidMountpoint) {
 		t.Errorf("response did not signal invalid mountpoint: %s", rec.Body.String())
 	}
 }
@@ -49,5 +50,44 @@ func TestUnmountFilesystem_RefusesProtectedPath(t *testing.T) {
 	_ = h.UnmountFilesystem(c)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status=%d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), response.ErrInvalidMountpoint) {
+		t.Errorf("response did not signal invalid mountpoint: %s", rec.Body.String())
+	}
+}
+
+// TestFormatPartition_RefusesDeviceMountedAtProtectedPath exercises the
+// FormatPartition guard composition (findDeviceMountpoint + isProtectedMountpoint).
+// The mount lookup is overridden so the test does not depend on /proc/mounts.
+func TestFormatPartition_RefusesDeviceMountedAtProtectedPath(t *testing.T) {
+	orig := findDeviceMountpoint
+	findDeviceMountpoint = func(devPath string) (string, error) {
+		if devPath == "/dev/sdb1" {
+			return "/etc", nil
+		}
+		return "", nil
+	}
+	t.Cleanup(func() { findDeviceMountpoint = orig })
+
+	h := &Handler{Cmd: exec.NewMockCommander()}
+	body := `{"device":"sdb1","fs_type":"ext4","label":"data"}`
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/disk/format", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	_ = h.FormatPartition(c)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status=%d, want 400", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), response.ErrInvalidDevice) {
+		t.Errorf("response did not signal invalid device: %s", rec.Body.String())
+	}
+	// Asserting on the guard-specific message distinguishes this branch from
+	// the os.Stat "device does not exist" failure that also returns
+	// ErrInvalidDevice on hosts without /dev/sdb1.
+	if !strings.Contains(rec.Body.String(), "protected system path") {
+		t.Errorf("response was not the protected-path rejection: %s", rec.Body.String())
 	}
 }

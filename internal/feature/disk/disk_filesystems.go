@@ -17,6 +17,13 @@ import (
 // validLabel matches safe filesystem labels (alphanumeric, spaces, underscores, dots, hyphens; max 16 chars).
 var validLabel = regexp.MustCompile(`^[a-zA-Z0-9 _.-]{0,16}$`)
 
+// findDeviceMountpoint is the indirection used by FormatPartition's protected-
+// path check. It is overridable in tests so the /proc/mounts dependency is
+// not required to exercise the guard.
+var findDeviceMountpoint = func(devPath string) (string, error) {
+	return findMountPoint(devPath)
+}
+
 // ---------- 4. Filesystems ----------
 
 // ListFilesystems returns all mounted filesystems with usage information.
@@ -515,7 +522,7 @@ func (h *Handler) FormatPartition(c echo.Context) error {
 	// system path (e.g., wiping /dev/sda1 while it backs /boot would brick
 	// the host). findMountPoint returns "" when not mounted; in that case
 	// the format proceeds normally.
-	if mp, err := findMountPoint("/dev/" + req.Device); err == nil && mp != "" {
+	if mp, err := findDeviceMountpoint("/dev/" + req.Device); err == nil && mp != "" {
 		if isProtectedMountpoint(mp) {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
 				"device is mounted at a protected system path")
