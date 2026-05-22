@@ -32,7 +32,7 @@ func (h *Handler) ListFilesystems(c echo.Context) error {
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "df", "-B1", "--output=source,fstype,size,used,avail,pcent,target")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
-			fmt.Sprintf("df failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("df failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	filesystems, err := parseDfOutput(out)
@@ -52,7 +52,7 @@ func (h *Handler) CheckExpandable(c echo.Context) error {
 	out, err := h.Cmd.RunCtx(ctx, "df", "-B1", "--output=source,fstype,size,used,avail,pcent,target")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
-			fmt.Sprintf("df failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("df failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 	filesystems, err := parseDfOutput(out)
 	if err != nil {
@@ -251,7 +251,7 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 						gpMsg := strings.TrimSpace(gpOut)
 						if err != nil && !strings.Contains(gpMsg, "NOCHANGE") {
 							return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
-								fmt.Sprintf("growpart failed: %s", gpMsg))
+								fmt.Sprintf("growpart failed: %s", response.SanitizeOutput(gpMsg)))
 						}
 						executedSteps = append(executedSteps, "growpart "+parentDisk+" "+partNum)
 					}
@@ -261,7 +261,7 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 						pvOut, err := h.Cmd.RunCtx(ctx, "pvresize", pvDevice)
 						if err != nil {
 							return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
-								fmt.Sprintf("pvresize failed: %s", strings.TrimSpace(pvOut)))
+								fmt.Sprintf("pvresize failed: %s", response.SanitizeOutput(strings.TrimSpace(pvOut))))
 						}
 						executedSteps = append(executedSteps, "pvresize "+pvDevice)
 					}
@@ -278,7 +278,7 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 					!strings.Contains(strings.ToLower(errMsg), "unchanged") &&
 					!strings.Contains(strings.ToLower(errMsg), "no free") {
 					return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
-						fmt.Sprintf("lvextend failed: %s", errMsg))
+						fmt.Sprintf("lvextend failed: %s", response.SanitizeOutput(errMsg)))
 				}
 			} else {
 				executedSteps = append(executedSteps, "lvextend -l +100%FREE "+req.Source)
@@ -294,7 +294,7 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 				gpMsg := strings.TrimSpace(gpOut)
 				if err != nil && !strings.Contains(gpMsg, "NOCHANGE") {
 					return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
-						fmt.Sprintf("growpart failed: %s", gpMsg))
+						fmt.Sprintf("growpart failed: %s", response.SanitizeOutput(gpMsg)))
 				}
 				executedSteps = append(executedSteps, "growpart "+parentDisk+" "+partNum)
 			}
@@ -329,7 +329,7 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 
 	if resErr != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
-			fmt.Sprintf("filesystem resize failed: %s", strings.TrimSpace(resOut)))
+			fmt.Sprintf("filesystem resize failed: %s", response.SanitizeOutput(strings.TrimSpace(resOut))))
 	}
 	executedSteps = append(executedSteps, resizeCmd+" "+req.Source)
 
@@ -637,7 +637,7 @@ func (h *Handler) FormatPartition(c echo.Context) error {
 	out, err := h.Cmd.RunCtx(c.Request().Context(), mkfsName, mkfsArgs...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFormatError,
-			fmt.Sprintf("format failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("format failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -692,7 +692,7 @@ func (h *Handler) MountFilesystem(c echo.Context) error {
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "mount", args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrMountError,
-			fmt.Sprintf("mount failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("mount failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -718,7 +718,7 @@ func (h *Handler) UnmountFilesystem(c echo.Context) error {
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "umount", req.MountPoint)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUnmountError,
-			fmt.Sprintf("umount failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("umount failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -752,7 +752,7 @@ func (h *Handler) ResizeFilesystem(c echo.Context) error {
 					!strings.Contains(strings.ToLower(errMsg), "unchanged") &&
 					!strings.Contains(strings.ToLower(errMsg), "no free") {
 					return response.Fail(c, http.StatusInternalServerError, response.ErrResizeError,
-						fmt.Sprintf("lvextend failed: %s", errMsg))
+						fmt.Sprintf("lvextend failed: %s", response.SanitizeOutput(errMsg)))
 				}
 			}
 		}
@@ -811,7 +811,7 @@ func (h *Handler) ResizeFilesystem(c echo.Context) error {
 
 	if resizeErr != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrResizeError,
-			fmt.Sprintf("resize failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("resize failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{

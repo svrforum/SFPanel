@@ -57,7 +57,7 @@ func (h *Handler) getCachedDiskData(ctx context.Context) ([]BlockDevice, []IOSta
 	outStr, err := h.Cmd.RunCtx(ctx, "lsblk", "-J", "-b", "-o",
 		"NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR")
 	if err != nil {
-		return nil, nil, fmt.Errorf("lsblk failed: %s", strings.TrimSpace(outStr))
+		return nil, nil, fmt.Errorf("lsblk failed: %s", response.SanitizeOutput(strings.TrimSpace(outStr)))
 	}
 	devices, err := parseLsblkJSON([]byte(outStr))
 	if err != nil {
@@ -95,7 +95,7 @@ func (h *Handler) InstallSmartmontools(c echo.Context) error {
 	output := strings.TrimSpace(out)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInstallError,
-			fmt.Sprintf("apt install failed: %s", output))
+			fmt.Sprintf("apt install failed: %s", response.SanitizeOutput(output)))
 	}
 	return response.OK(c, map[string]interface{}{
 		"message": "smartmontools installed successfully",
@@ -249,7 +249,7 @@ func (h *Handler) GetSmartInfo(c echo.Context) error {
 		// we still try to parse the JSON output.
 		if len(outStr) == 0 {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSMARTError,
-				fmt.Sprintf("smartctl failed: %v", err))
+				"smartctl failed: "+response.SanitizeOutput(err.Error()))
 		}
 	}
 

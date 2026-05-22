@@ -317,7 +317,7 @@ func (h *Handler) ReadLog(c echo.Context) error {
 		var err2 error
 		output, err2 = cmd.Output()
 		if err2 != nil {
-			return response.Fail(c, http.StatusInternalServerError, response.ErrReadError, fmt.Sprintf("Failed to read log: %v", err2))
+			return response.Fail(c, http.StatusInternalServerError, response.ErrReadError, "Failed to read log: "+response.SanitizeOutput(err2.Error()))
 		}
 	}
 

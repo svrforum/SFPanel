@@ -186,3 +186,28 @@ func TestFormatPartition_RefusesDeviceMountedAtProtectedPath(t *testing.T) {
 		t.Errorf("response was not the protected-path rejection: %s", rec.Body.String())
 	}
 }
+
+// TestMountFilesystem_SanitizesStderrInResponse is the regression test for
+// Task 3.2: when mount(8) fails with ANSI-coloured stderr, the message
+// surfaced in response.Fail must be routed through response.SanitizeOutput
+// so the JSON body delivered to the operator never contains raw terminal
+// control bytes. Pre-task disk handlers passed strings.TrimSpace(out)
+// directly into fmt.Sprintf — leaving any \x1b[…m sequences intact.
+func TestMountFilesystem_SanitizesStderrInResponse(t *testing.T) {
+	mock := exec.NewMockCommander()
+	mock.SetOutput("mount", "\x1b[31mmount: /mnt/data: special device /dev/sdb1 does not exist.\x1b[0m\n", fmt.Errorf("mount failed"))
+
+	h := &Handler{Cmd: mock}
+	body := `{"device":"sdb1","mount_point":"/mnt/data"}`
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/disk/mount", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	_ = h.MountFilesystem(c)
+
+	if strings.Contains(rec.Body.String(), "\x1b[") {
+		t.Errorf("response leaks ANSI sequences: %q", rec.Body.String())
+	}
+}

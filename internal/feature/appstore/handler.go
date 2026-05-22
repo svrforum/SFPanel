@@ -823,14 +823,14 @@ func (h *Handler) streamCommand(ctx context.Context, w io.Writer, flusher http.F
 	cmd.Stderr = cmd.Stdout
 
 	if err := cmd.Start(); err != nil {
-		sendSSE(w, flusher, sseEvent{Stage: stage, Message: "Command failed to start: " + err.Error(), Done: false, Success: false})
+		sendSSE(w, flusher, sseEvent{Stage: stage, Message: "Command failed to start: " + response.SanitizeOutput(err.Error()), Done: false, Success: false})
 		return -1
 	}
 
 	scanner := bufio.NewScanner(pipe)
 	exec.PrepareScanner(scanner)
 	for scanner.Scan() {
-		sendSSE(w, flusher, sseEvent{Stage: stage, Message: scanner.Text(), Done: false, Success: true})
+		sendSSE(w, flusher, sseEvent{Stage: stage, Message: response.SanitizeOutput(scanner.Text()), Done: false, Success: true})
 	}
 
 	if err := cmd.Wait(); err != nil {

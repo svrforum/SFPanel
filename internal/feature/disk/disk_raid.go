@@ -146,7 +146,7 @@ func (h *Handler) getMdadmDetail(ctx context.Context, name string) (*RAIDArray, 
 	devPath := "/dev/" + name
 	out, err := h.Cmd.RunCtx(ctx, "mdadm", "--detail", devPath)
 	if err != nil {
-		return nil, fmt.Errorf("mdadm --detail failed: %s", strings.TrimSpace(out))
+		return nil, fmt.Errorf("mdadm --detail failed: %s", response.SanitizeOutput(strings.TrimSpace(out)))
 	}
 
 	array := &RAIDArray{
@@ -294,7 +294,7 @@ func (h *Handler) CreateRAID(c echo.Context) error {
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "mdadm", args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --create failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("mdadm --create failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -320,7 +320,7 @@ func (h *Handler) DeleteRAID(c echo.Context) error {
 	stopOut, err := h.Cmd.RunCtx(c.Request().Context(), "mdadm", "--stop", devPath)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --stop failed: %s", strings.TrimSpace(stopOut)))
+			fmt.Sprintf("mdadm --stop failed: %s", response.SanitizeOutput(strings.TrimSpace(stopOut))))
 	}
 
 	// Remove the array
@@ -368,7 +368,7 @@ func (h *Handler) AddRAIDDisk(c echo.Context) error {
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "mdadm", "--add", raidDev, diskDev)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --add failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("mdadm --add failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -404,14 +404,14 @@ func (h *Handler) RemoveRAIDDisk(c echo.Context) error {
 	failOut, err := h.Cmd.RunCtx(c.Request().Context(), "mdadm", "--fail", raidDev, diskDev)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --fail failed: %s", strings.TrimSpace(failOut)))
+			fmt.Sprintf("mdadm --fail failed: %s", response.SanitizeOutput(strings.TrimSpace(failOut))))
 	}
 
 	// Then remove it
 	removeOut, err := h.Cmd.RunCtx(c.Request().Context(), "mdadm", "--remove", raidDev, diskDev)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --remove failed: %s", strings.TrimSpace(removeOut)))
+			fmt.Sprintf("mdadm --remove failed: %s", response.SanitizeOutput(strings.TrimSpace(removeOut))))
 	}
 
 	return response.OK(c, map[string]string{

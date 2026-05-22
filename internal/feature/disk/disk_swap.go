@@ -131,14 +131,14 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 		mkswapOut, err := h.Cmd.RunCtx(c.Request().Context(), "mkswap", devPath)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-				fmt.Sprintf("mkswap failed: %s", strings.TrimSpace(mkswapOut)))
+				fmt.Sprintf("mkswap failed: %s", response.SanitizeOutput(strings.TrimSpace(mkswapOut))))
 		}
 
 		// Enable the swap
 		swaponOut, err := h.Cmd.RunCtx(c.Request().Context(), "swapon", devPath)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-				fmt.Sprintf("swapon failed: %s", strings.TrimSpace(swaponOut)))
+				fmt.Sprintf("swapon failed: %s", response.SanitizeOutput(strings.TrimSpace(swaponOut))))
 		}
 
 		return response.OK(c, map[string]string{
@@ -213,7 +213,7 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 		ddCancel()
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-				fmt.Sprintf("dd failed: %s", strings.TrimSpace(ddOut)))
+				fmt.Sprintf("dd failed: %s", response.SanitizeOutput(strings.TrimSpace(ddOut))))
 		}
 
 		// Set permissions
@@ -226,14 +226,14 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 		mkswapOut, err := h.Cmd.RunCtx(c.Request().Context(), "mkswap", req.Path)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-				fmt.Sprintf("mkswap failed: %s", strings.TrimSpace(mkswapOut)))
+				fmt.Sprintf("mkswap failed: %s", response.SanitizeOutput(strings.TrimSpace(mkswapOut))))
 		}
 
 		// Enable the swap
 		swaponOut, err := h.Cmd.RunCtx(c.Request().Context(), "swapon", req.Path)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-				fmt.Sprintf("swapon failed: %s", strings.TrimSpace(swaponOut)))
+				fmt.Sprintf("swapon failed: %s", response.SanitizeOutput(strings.TrimSpace(swaponOut))))
 		}
 
 		return response.OK(c, map[string]string{
@@ -259,7 +259,7 @@ func (h *Handler) RemoveSwap(c echo.Context) error {
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "swapoff", req.Path)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-			fmt.Sprintf("swapoff failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("swapoff failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -283,7 +283,7 @@ func (h *Handler) SetSwappiness(c echo.Context) error {
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "sysctl", "-w", valStr)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-			fmt.Sprintf("sysctl failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("sysctl failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -401,10 +401,10 @@ func (h *Handler) ResizeSwap(c echo.Context) error {
 	// Step 1: swapoff
 	swapoffOut, err := h.Cmd.RunCtx(c.Request().Context(), "swapoff", req.Path)
 	if err != nil {
-		steps = append(steps, stepResult{"swapoff", "failed", strings.TrimSpace(swapoffOut)})
+		steps = append(steps, stepResult{"swapoff", "failed", response.SanitizeOutput(strings.TrimSpace(swapoffOut))})
 		return response.OK(c, map[string]interface{}{"success": false, "steps": steps})
 	}
-	steps = append(steps, stepResult{"swapoff", "success", strings.TrimSpace(swapoffOut)})
+	steps = append(steps, stepResult{"swapoff", "success", response.SanitizeOutput(strings.TrimSpace(swapoffOut))})
 
 	// Step 2: dd (create file with new size). Bound to 5 minutes so a stuck
 	// disk surfaces as a step failure instead of pinning the request thread.
@@ -414,14 +414,14 @@ func (h *Handler) ResizeSwap(c echo.Context) error {
 		"bs=1M", "count="+sizeMB)
 	ddCancel()
 	if err != nil {
-		steps = append(steps, stepResult{"dd", "failed", strings.TrimSpace(ddOut)})
+		steps = append(steps, stepResult{"dd", "failed", response.SanitizeOutput(strings.TrimSpace(ddOut))})
 		// The swap file is now in an inconsistent state after a partial dd write.
 		// Do NOT attempt mkswap+swapon on a corrupted file as it could cause data issues.
 		steps = append(steps, stepResult{"rollback", "skipped",
 			"swap file is in an inconsistent state; please manually recreate the swap file"})
 		return response.OK(c, map[string]interface{}{"success": false, "steps": steps})
 	}
-	steps = append(steps, stepResult{"dd", "success", strings.TrimSpace(ddOut)})
+	steps = append(steps, stepResult{"dd", "success", response.SanitizeOutput(strings.TrimSpace(ddOut))})
 
 	// Step 3: chmod
 	if err := os.Chmod(req.Path, 0600); err != nil {
@@ -433,18 +433,18 @@ func (h *Handler) ResizeSwap(c echo.Context) error {
 	// Step 4: mkswap
 	mkswapOut, err := h.Cmd.RunCtx(c.Request().Context(), "mkswap", req.Path)
 	if err != nil {
-		steps = append(steps, stepResult{"mkswap", "failed", strings.TrimSpace(mkswapOut)})
+		steps = append(steps, stepResult{"mkswap", "failed", response.SanitizeOutput(strings.TrimSpace(mkswapOut))})
 		return response.OK(c, map[string]interface{}{"success": false, "steps": steps})
 	}
-	steps = append(steps, stepResult{"mkswap", "success", strings.TrimSpace(mkswapOut)})
+	steps = append(steps, stepResult{"mkswap", "success", response.SanitizeOutput(strings.TrimSpace(mkswapOut))})
 
 	// Step 5: swapon
 	swaponOut, err := h.Cmd.RunCtx(c.Request().Context(), "swapon", req.Path)
 	if err != nil {
-		steps = append(steps, stepResult{"swapon", "failed", strings.TrimSpace(swaponOut)})
+		steps = append(steps, stepResult{"swapon", "failed", response.SanitizeOutput(strings.TrimSpace(swaponOut))})
 		return response.OK(c, map[string]interface{}{"success": false, "steps": steps})
 	}
-	steps = append(steps, stepResult{"swapon", "success", strings.TrimSpace(swaponOut)})
+	steps = append(steps, stepResult{"swapon", "success", response.SanitizeOutput(strings.TrimSpace(swaponOut))})
 
 	return response.OK(c, map[string]interface{}{
 		"success": true,

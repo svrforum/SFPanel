@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/docker"
@@ -213,7 +214,7 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 
 		logReader, err := dockerClient.ContainerLogs(ctx, containerID, opts)
 		if err != nil {
-			ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
+			_ = ws.WriteMessage(websocket.TextMessage, []byte("error: "+response.SanitizeOutput(err.Error())))
 			return nil
 		}
 		defer logReader.Close()
@@ -314,7 +315,7 @@ func ComposeLogsWS(composeManager *docker.ComposeManager, jwtSecret string) echo
 				}
 			})
 			if err != nil {
-				writer.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()+"\n"))
+				_ = writer.WriteMessage(websocket.TextMessage, []byte("error: "+response.SanitizeOutput(err.Error())+"\n"))
 			}
 		}()
 
@@ -362,7 +363,7 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 
 		hijacked, execID, err := dockerClient.ContainerExec(ctx, containerID, []string{"/bin/sh"})
 		if err != nil {
-			ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
+			_ = ws.WriteMessage(websocket.TextMessage, []byte("error: "+response.SanitizeOutput(err.Error())))
 			return nil
 		}
 		defer hijacked.Close()
