@@ -1,6 +1,86 @@
 package cron
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
+)
+
+// TestCreateJob_GracefulWhenCrontabMissing is the regression test for Task
+// 3.3: on a node without crontab installed, the mutating endpoints must
+// return 503 with an explanatory message rather than wrapping the
+// exec.LookPath failure into a generic 500. The MockCommander's Exists
+// returns false for unseeded binaries, simulating the missing-binary case.
+func TestCreateJob_GracefulWhenCrontabMissing(t *testing.T) {
+	h := &Handler{Cmd: exec.NewMockCommander()}
+	body := `{"schedule":"@daily","command":"/usr/bin/true"}`
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/cron/jobs", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	_ = h.CreateJob(c)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status=%d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), response.ErrCronError) {
+		t.Errorf("response did not signal ErrCronError: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "not installed") {
+		t.Errorf("response did not explain the missing-binary cause: %s", rec.Body.String())
+	}
+}
+
+// TestUpdateJob_GracefulWhenCrontabMissing — UpdateJob requires a valid id
+// param and a non-empty body, both of which must pass before the guard
+// fires. Schedule "@daily" + command "/usr/bin/true" reach the Exists
+// check at the top of the handler.
+func TestUpdateJob_GracefulWhenCrontabMissing(t *testing.T) {
+	h := &Handler{Cmd: exec.NewMockCommander()}
+	body := `{"schedule":"@daily","command":"/usr/bin/true"}`
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPut, "/cron/jobs/0", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("0")
+
+	_ = h.UpdateJob(c)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status=%d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), response.ErrCronError) {
+		t.Errorf("response did not signal ErrCronError: %s", rec.Body.String())
+	}
+}
+
+// TestDeleteJob_GracefulWhenCrontabMissing — DeleteJob takes no body, just
+// the id param. The guard must trip before readCrontab is even called.
+func TestDeleteJob_GracefulWhenCrontabMissing(t *testing.T) {
+	h := &Handler{Cmd: exec.NewMockCommander()}
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodDelete, "/cron/jobs/0", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("0")
+
+	_ = h.DeleteJob(c)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("status=%d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), response.ErrCronError) {
+		t.Errorf("response did not signal ErrCronError: %s", rec.Body.String())
+	}
+}
 
 func TestParseCronLine_StandardJob(t *testing.T) {
 	job := parseCronLine("0 3 * * * /usr/bin/backup.sh", 0)

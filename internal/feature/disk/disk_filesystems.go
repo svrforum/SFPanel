@@ -29,6 +29,12 @@ var findDeviceMountpoint = func(devPath string) (string, error) {
 
 // ListFilesystems returns all mounted filesystems with usage information.
 func (h *Handler) ListFilesystems(c echo.Context) error {
+	// Remote cluster nodes reached via ?node= may lack coreutils' df (most
+	// commonly on busybox-based minimal images). Return an empty list
+	// rather than a 500 so the UI can degrade gracefully on that node.
+	if !h.Cmd.Exists("df") {
+		return response.OK(c, []Filesystem{})
+	}
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "df", "-B1", "--output=source,fstype,size,used,avail,pcent,target")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,

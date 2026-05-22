@@ -187,6 +187,68 @@ func TestFormatPartition_RefusesDeviceMountedAtProtectedPath(t *testing.T) {
 	}
 }
 
+// TestListDisks_GracefulWhenLsblkMissing is the regression test for Task
+// 3.3: on minimal containers (and any remote node reached via ?node= that
+// lacks lsblk), ListDisks must return an empty array rather than a 500.
+// The MockCommander's Exists returns true only for binaries pre-seeded
+// with SetOutput("exists:<name>", …); not seeding "exists:lsblk" therefore
+// simulates a missing binary. Pre-task the handler always called RunCtx,
+// which on the mock returns "" — JSON unmarshal of "" then fails and the
+// handler emits ErrDiskError 500.
+func TestListDisks_GracefulWhenLsblkMissing(t *testing.T) {
+	// Reset the package-level cache so a previously-cached fixture from
+	// another test cannot leak in and mask the missing-binary path.
+	diskCache.Lock()
+	diskCache.devices = nil
+	diskCache.iostats = nil
+	diskCache.updatedAt = time.Time{}
+	diskCache.Unlock()
+
+	h := &Handler{Cmd: exec.NewMockCommander()}
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/disk/disks", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.ListDisks(c); err != nil {
+		t.Fatalf("ListDisks returned err=%v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("status=%d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"data":[]`) {
+		t.Errorf("expected empty array data, got %s", rec.Body.String())
+	}
+}
+
+// TestListFilesystems_GracefulWhenDfMissing mirrors the ListDisks case but
+// for df. The mock is primed with a df-failed error to simulate what the
+// real SystemCommander returns when exec.LookPath fails for a missing
+// binary; without the Exists guard the handler would surface that as a
+// 500 FS_ERROR. Note: the empty-output happy path also parses to []
+// because parseDfOutput returns an empty slice for short input — the
+// SetOutput("df", …, err) below is what distinguishes the "missing-binary"
+// regression from that incidental empty-success case.
+func TestListFilesystems_GracefulWhenDfMissing(t *testing.T) {
+	mock := exec.NewMockCommander()
+	mock.SetOutput("df", "", fmt.Errorf("exec: \"df\": executable file not found in $PATH"))
+	h := &Handler{Cmd: mock}
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/disk/filesystems", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.ListFilesystems(c); err != nil {
+		t.Fatalf("ListFilesystems returned err=%v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("status=%d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"data":[]`) {
+		t.Errorf("expected empty array data, got %s", rec.Body.String())
+	}
+}
+
 // TestMountFilesystem_SanitizesStderrInResponse is the regression test for
 // Task 3.2: when mount(8) fails with ANSI-coloured stderr, the message
 // surfaced in response.Fail must be routed through response.SanitizeOutput

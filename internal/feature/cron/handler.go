@@ -51,6 +51,13 @@ var envLinePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 
 // ListJobs returns all entries from the root crontab.
 func (h *Handler) ListJobs(c echo.Context) error {
+	// Remote cluster nodes reached via ?node= may not have crontab
+	// installed at all (containerised hosts, distroless images). Short-
+	// circuit to an empty list instead of relying on the downstream
+	// "not found" string match against the exec.LookPath error.
+	if !h.Cmd.Exists("crontab") {
+		return response.OK(c, []CronJob{})
+	}
 	content, err := readCrontab(h.Cmd)
 	if err != nil {
 		// crontab -l returns exit code 1 when no crontab is installed,
@@ -77,6 +84,13 @@ func (h *Handler) ListJobs(c echo.Context) error {
 // CreateJob appends a new cron job to the crontab.
 // Accepts JSON body: {"schedule": "...", "command": "..."}.
 func (h *Handler) CreateJob(c echo.Context) error {
+	// Mutating crontab operations must fail explicitly when crontab(1) is
+	// not installed — silently returning "ok" would mislead the operator,
+	// and 503 with a clear message lets the UI render an actionable hint.
+	if !h.Cmd.Exists("crontab") {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrCronError,
+			"crontab is not installed on this node")
+	}
 	crontabMu.Lock()
 	defer crontabMu.Unlock()
 	var req struct {
@@ -128,6 +142,10 @@ func (h *Handler) CreateJob(c echo.Context) error {
 // UpdateJob modifies an existing crontab entry by line index.
 // Accepts JSON body: {"schedule": "...", "command": "...", "enabled": true/false}.
 func (h *Handler) UpdateJob(c echo.Context) error {
+	if !h.Cmd.Exists("crontab") {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrCronError,
+			"crontab is not installed on this node")
+	}
 	crontabMu.Lock()
 	defer crontabMu.Unlock()
 	id, err := strconv.Atoi(c.Param("id"))
@@ -188,6 +206,10 @@ func (h *Handler) UpdateJob(c echo.Context) error {
 
 // DeleteJob removes a crontab entry by line index.
 func (h *Handler) DeleteJob(c echo.Context) error {
+	if !h.Cmd.Exists("crontab") {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrCronError,
+			"crontab is not installed on this node")
+	}
 	crontabMu.Lock()
 	defer crontabMu.Unlock()
 	id, err := strconv.Atoi(c.Param("id"))

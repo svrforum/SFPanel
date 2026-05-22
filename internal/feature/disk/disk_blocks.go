@@ -107,6 +107,12 @@ func (h *Handler) InstallSmartmontools(c echo.Context) error {
 
 // ListDisks returns all block devices with their hierarchy.
 func (h *Handler) ListDisks(c echo.Context) error {
+	// Remote cluster nodes reached via ?node= may be minimal containers
+	// without util-linux installed. Return an empty list rather than a 500
+	// so the UI can render "no disks on this node" instead of an error.
+	if !h.Cmd.Exists("lsblk") {
+		return response.OK(c, []BlockDevice{})
+	}
 	devices, _, err := h.getCachedDiskData(c.Request().Context())
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError, err.Error())
