@@ -12,24 +12,18 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/sysguard"
 )
 
 var validServiceName = regexp.MustCompile(`^[a-zA-Z0-9@._:-]+\.service$`)
 
-// protectedServiceUnits lists systemd units that must not be stopped /
-// restarted / disabled via the panel API — stopping sfpanel.service mid-
-// response would kill the very process serving the response. CLAUDE.md
-// reserves `os.Exit` to a small documented set of handlers; this denylist
-// is the inverse: handlers that must NOT participate in any path leading
-// to a self-kill of the panel.
-var protectedServiceUnits = map[string]bool{
-	"sfpanel.service": true,
-}
-
-// isProtectedServiceUnit returns true if the (case-insensitive) unit name
-// is in protectedServiceUnits.
+// isProtectedServiceUnit delegates to sysguard so the deny-list lives in
+// one place. The local function name is kept so existing call sites stay
+// untouched; new modules should call sysguard.IsProtectedSystemdUnit
+// directly. See internal/common/sysguard/sysguard.go for the canonical
+// list (currently sfpanel/dbus/systemd-journald).
 func isProtectedServiceUnit(name string) bool {
-	return protectedServiceUnits[strings.ToLower(name)]
+	return sysguard.IsProtectedSystemdUnit(name)
 }
 
 // refuseProtectedUnit returns a 403 response if the given unit is protected
