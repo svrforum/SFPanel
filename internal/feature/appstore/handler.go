@@ -323,6 +323,23 @@ func generatePassword(length int) string {
 	return hex.EncodeToString(b)[:length]
 }
 
+// writeFileAtomic writes data to path via a temp file + rename so a crash
+// between the compose write and the .env write doesn't leave the staging
+// directory in a partial state (compose present, .env missing). Without this,
+// the next install retry would hit EEXIST on os.Mkdir(stackDir) and fail to
+// recover cleanly. The temp file inherits the requested mode; rename keeps it.
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	tmp := path + ".sfpanel.tmp"
+	if err := os.WriteFile(tmp, data, mode); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
 func sendSSE(w io.Writer, flusher http.Flusher, event sseEvent) {
 	jsonData, _ := json.Marshal(event)
 	fmt.Fprintf(w, "data: %s\n\n", jsonData)
@@ -702,7 +719,10 @@ func (h *Handler) InstallApp(c echo.Context) error {
 			return nil
 		}
 		send("prepare", "Writing custom docker-compose.yml...", false, true)
-		if err := os.WriteFile(composePath, []byte(req.Compose), 0644); err != nil {
+		// 0o600: compose YAML can carry inline secrets (environment: blocks).
+		// Atomic write closes the crash window between compose + .env writes
+		// that would otherwise leave a half-staged stackDir.
+		if err := writeFileAtomic(composePath, []byte(req.Compose), 0o600); err != nil {
 			cleanup()
 			send("prepare", "Failed to write compose file: "+err.Error(), true, false)
 			return nil
@@ -711,7 +731,7 @@ func (h *Handler) InstallApp(c echo.Context) error {
 
 		if strings.TrimSpace(req.EnvRaw) != "" {
 			envPath := filepath.Join(stackDir, ".env")
-			if err := os.WriteFile(envPath, []byte(req.EnvRaw), 0600); err != nil {
+			if err := writeFileAtomic(envPath, []byte(req.EnvRaw), 0o600); err != nil {
 				cleanup()
 				send("prepare", "Failed to write .env file: "+err.Error(), true, false)
 				return nil
@@ -721,7 +741,7 @@ func (h *Handler) InstallApp(c echo.Context) error {
 	} else {
 		send("fetch", "docker-compose.yml ready", false, true)
 
-		if err := os.WriteFile(composePath, composeData, 0644); err != nil {
+		if err := writeFileAtomic(composePath, composeData, 0o600); err != nil {
 			cleanup()
 			send("prepare", "Failed to write compose file: "+err.Error(), true, false)
 			return nil
@@ -747,7 +767,7 @@ func (h *Handler) InstallApp(c echo.Context) error {
 		if len(envLines) > 0 {
 			envPath := filepath.Join(stackDir, ".env")
 			envContent := strings.Join(envLines, "\n") + "\n"
-			if err := os.WriteFile(envPath, []byte(envContent), 0600); err != nil {
+			if err := writeFileAtomic(envPath, []byte(envContent), 0o600); err != nil {
 				cleanup()
 				send("prepare", "Failed to write .env file: "+err.Error(), true, false)
 				return nil
