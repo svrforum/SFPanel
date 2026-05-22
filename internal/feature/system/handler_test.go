@@ -722,6 +722,83 @@ func TestRestoreBackup_SystemdPresentButUnitInactive(t *testing.T) {
 	}
 }
 
+// TestRestoreBackup_RefusesConcurrentInvocations confirms restoreMu rejects
+// a second restore while one is in flight. We take the lock manually from
+// the test (simulating an in-flight restore) and expect the next caller to
+// receive 409 / RESTORE_FAILED with the "Another restore is in progress"
+// body, without touching any files on disk.
+//
+// This is the load-bearing safety property of Fix 1: without the lock, two
+// concurrent restores would race on h.DBPath+".new" and h.DBPath+".bak" and
+// produce a hybrid DB.
+func TestRestoreBackup_RefusesConcurrentInvocations(t *testing.T) {
+	h, _ := restoreHandler(t)
+	originalDB, _ := os.ReadFile(h.DBPath)
+
+	// Hold the lock for the duration of the request. The handler should
+	// TryLock, fail, and return 409 before any disk operations.
+	restoreMu.Lock()
+	defer restoreMu.Unlock()
+
+	archive := buildTarGz(t, []tarEntry{
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: []byte("new-db")},
+	})
+
+	rec := runRestore(t, h, archive)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Another restore is in progress") {
+		t.Errorf("expected lock-conflict message, body: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "RESTORE_FAILED") {
+		t.Errorf("expected RESTORE_FAILED error code, body: %s", rec.Body.String())
+	}
+	// DB must not have been touched.
+	got, _ := os.ReadFile(h.DBPath)
+	if !bytes.Equal(got, originalDB) {
+		t.Errorf("DB was modified despite 409: got %q want %q", got, originalDB)
+	}
+	// No staging or .bak/.new files should have been created either.
+	for _, leftover := range []string{h.DBPath + ".new", h.DBPath + ".bak"} {
+		if _, err := os.Stat(leftover); err == nil {
+			t.Errorf("file %q was created despite 409 short-circuit", leftover)
+		}
+	}
+}
+
+// TestRestoreBackup_PreservesEnvFilePermissions confirms Fix 3: a `.env`
+// file inside the archive lands at 0o600 on disk, not the old hard-coded
+// 0o644. The header carries explicit mode bits, and the handler is
+// expected to honour them (with a 0o600 default for secret-bearing files
+// when the header omits the mode).
+//
+// We assert mode 0o600 specifically because .env files in backups contain
+// compose-stack secrets and must not become world-readable on restore.
+func TestRestoreBackup_PreservesEnvFilePermissions(t *testing.T) {
+	h, _ := restoreHandler(t)
+	archive := buildTarGz(t, []tarEntry{
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: []byte("db")},
+		// Explicit 0o600 in the header. Without Fix 3, the handler would
+		// write at 0o644 and lose the protection.
+		{name: "compose/app/.env", typeflag: tar.TypeReg, mode: 0o600, body: []byte("SECRET=hunter2\n")},
+	})
+
+	rec := runRestore(t, h, archive)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	dest := filepath.Join(h.ComposePath, "app", ".env")
+	info, err := os.Stat(dest)
+	if err != nil {
+		t.Fatalf(".env not restored at %s: %v", dest, err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf(".env restored at mode %o, want 0600 (secret protection stripped)", perm)
+	}
+}
+
 func TestComputeUpdateQuorum(t *testing.T) {
 	cases := []struct {
 		name         string

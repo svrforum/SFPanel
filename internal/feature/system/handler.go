@@ -34,6 +34,12 @@ import (
 // and end up renaming a half-written temp file over /usr/local/bin/sfpanel.
 var updateMu sync.Mutex
 
+// restoreMu serialises in-process restore operations. Concurrent restores
+// would race on the .new/.bak filenames and produce inconsistent state.
+// Distinct from updateMu so the two operations have independent 409 paths:
+// a restore that fires during an update is refused on its own merits.
+var restoreMu sync.Mutex
+
 // releaseAPIURL is the GitHub Releases endpoint we poll for new versions.
 // Exposed as a package-level var (rather than a const) so tests can point
 // CheckUpdate / RunUpdate at an httptest server without making outbound
@@ -612,6 +618,18 @@ func addFileToTar(tw *tar.Writer, filePath, nameInArchive string) error {
 }
 
 // RestoreBackup receives a tar.gz upload, validates contents, and restores DB + config.
+//
+// Hardening notes (2026-05-22):
+//   - Concurrent calls refused with 409 via restoreMu (distinct from updateMu).
+//   - Tar entries are streamed to per-entry temp files under a staging dir
+//     (sibling of the DB) rather than buffered in a map[string][]byte. This
+//     keeps RAM bounded on 256 MB cluster nodes that previously OOM-killed
+//     when restoring archives with many compose projects.
+//   - Compose-file modes preserved from the tar header (with 0o600 default
+//     for `.env` / db / config). The old 0o644 hard-code stripped .env's
+//     secret-bearing protection.
+//   - WAL is checkpointed before the DB file is replaced, so the swap can't
+//     leave pending pages stranded against a freshly-renamed inode.
 func (h *Handler) RestoreBackup(c echo.Context) error {
 	file, err := c.FormFile("backup")
 	if err != nil {
@@ -630,10 +648,41 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 	}
 	defer gzr.Close()
 
-	const maxEntrySize = 100 * 1024 * 1024
+	// Fix 1: serialise restore. Two concurrent callers would race on .bak/.new
+	// filenames and produce inconsistent state. Distinct from updateMu so the
+	// 409 is attributable to the restore path specifically.
+	if !restoreMu.TryLock() {
+		return response.Fail(c, http.StatusConflict, response.ErrRestoreFailed,
+			"Another restore is in progress")
+	}
+	defer restoreMu.Unlock()
+
+	const (
+		maxEntrySize int64 = 100 * 1024 * 1024       // per-entry cap (unchanged)
+		maxTotalSize int64 = 2 * 1024 * 1024 * 1024  // 2 GiB cumulative cap
+	)
+
+	// Fix 2: stream entries to disk in a staging directory rather than
+	// buffering every entry in memory. Sibling of the DB so the final
+	// os.Rename steps are same-filesystem (and therefore atomic).
+	stagingDir, err := os.MkdirTemp(filepath.Dir(h.DBPath), ".sfpanel-restore-*")
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to create staging directory")
+	}
+	// Best-effort cleanup. The DB/config rename paths move files OUT of
+	// this dir; what's left after success is just compose files (already
+	// written to their final location via Rename) and any unused entries.
+	defer os.RemoveAll(stagingDir)
+
+	type stagedEntry struct {
+		relName string      // canonical archive-relative name, e.g. "compose/app/.env"
+		path    string      // absolute path under stagingDir
+		mode    os.FileMode // sanitised mode bits, see derivation below
+	}
+	var staged []stagedEntry
+	var totalBytes int64
 
 	tr := tar.NewReader(gzr)
-	files := make(map[string][]byte)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -647,8 +696,8 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 		}
 		// Refuse non-regular entries outright. A crafted archive could embed
 		// a symlink like "compose/app/docker-compose.yml -> /etc/cron.d/evil";
-		// we only want plain files here so later os.WriteFile calls land
-		// exactly where we expect. Modern archive/tar maps the legacy
+		// we only want plain files here so later os.WriteFile/Rename calls
+		// land exactly where we expect. Modern archive/tar maps the legacy
 		// '\x00' regular-file typeflag to TypeReg on read, so this single
 		// comparison covers both old and new archive formats.
 		if hdr.Typeflag != tar.TypeReg {
@@ -658,55 +707,119 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
 			continue
 		}
-		if clean == "sfpanel.db" || clean == "config.yaml" || strings.HasPrefix(clean, "compose/") {
-			data, readErr := io.ReadAll(io.LimitReader(tr, maxEntrySize))
-			if readErr != nil {
-				return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to read archive entry")
-			}
-			files[clean] = data
+		if clean != "sfpanel.db" && clean != "config.yaml" && !strings.HasPrefix(clean, "compose/") {
+			continue
 		}
+
+		// Stream this entry to a uniquely-named temp file under stagingDir.
+		// "/" is replaced with "__" so nested compose paths flatten into a
+		// single directory level — we keep the original relName on the side
+		// for the final Rename destination calculation.
+		safeName := strings.ReplaceAll(clean, "/", "__")
+		tmpPath := filepath.Join(stagingDir, safeName)
+		f, openErr := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if openErr != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to create staging file")
+		}
+		// LimitReader at maxEntrySize+1 so a written count > maxEntrySize
+		// proves the entry exceeded the cap (LimitReader at exactly the cap
+		// would not let us distinguish "exactly cap" from "overflowed").
+		written, copyErr := io.Copy(f, io.LimitReader(tr, maxEntrySize+1))
+		_ = f.Close()
+		if copyErr != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to read archive entry")
+		}
+		if written > maxEntrySize {
+			return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed, "Archive entry exceeds size cap")
+		}
+		totalBytes += written
+		if totalBytes > maxTotalSize {
+			return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed, "Archive total size exceeds cap")
+		}
+
+		// Fix 3: derive the destination mode from the tar header rather than
+		// hard-coding 0o644. Tar's Mode field is the POSIX mode; we mask to
+		// the perm bits and fall back to a secure default if the header
+		// omitted it (some tar producers write Mode=0 for "use defaults").
+		mode := os.FileMode(hdr.Mode & 0o777)
+		if mode == 0 {
+			if strings.HasSuffix(clean, ".env") || clean == "sfpanel.db" || clean == "config.yaml" {
+				mode = 0o600
+			} else {
+				mode = 0o644
+			}
+		}
+		staged = append(staged, stagedEntry{relName: clean, path: tmpPath, mode: mode})
 	}
 
-	if _, ok := files["sfpanel.db"]; !ok {
+	// Build a lookup so the rename-by-name steps below stay readable.
+	stagedByName := make(map[string]stagedEntry, len(staged))
+	for _, e := range staged {
+		stagedByName[e.relName] = e
+	}
+
+	if _, ok := stagedByName["sfpanel.db"]; !ok {
 		return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed, "Backup must contain sfpanel.db")
 	}
 
-	// Create backups of current files
+	// Create backups of current files (copy via ReadFile is fine — these are
+	// small; the staged uploads above are what we worry about for RAM).
 	if data, readErr := os.ReadFile(h.DBPath); readErr == nil {
-		if err := os.WriteFile(h.DBPath+".bak", data, 0600); err != nil {
+		if err := os.WriteFile(h.DBPath+".bak", data, 0o600); err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to create database backup")
 		}
 	}
 	if data, readErr := os.ReadFile(h.ConfigPath); readErr == nil {
-		if err := os.WriteFile(h.ConfigPath+".bak", data, 0600); err != nil {
+		if err := os.WriteFile(h.ConfigPath+".bak", data, 0o600); err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to create config backup")
 		}
 	}
 
-	// Write new files to .new first (atomic swap)
-	if dbData, ok := files["sfpanel.db"]; ok {
-		newPath := h.DBPath + ".new"
-		if err := os.WriteFile(newPath, dbData, 0600); err != nil {
-			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to write database")
-		}
-		if err := os.Rename(newPath, h.DBPath); err != nil {
-			os.Remove(newPath)
-			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to restore database")
+	// Fix 4: force WAL pages back into the main DB file before we yank the
+	// inode out from under the live *sql.DB handle. Without this, any
+	// uncommitted-to-main pages in sfpanel.db-wal would be paired with the
+	// FRESH inode after rename — which SQLite would either treat as
+	// corruption or, worse, silently apply WAL frames to the wrong DB.
+	//
+	// Nil-safe for the unit-test handler, which has no real DB connection.
+	// Best-effort: if the checkpoint fails we proceed anyway — the next
+	// process startup will rebuild WAL state from the restored DB, and
+	// the existing -wal file will be discarded as belonging to a different
+	// generation of the database.
+	if h.DB != nil {
+		if _, cpErr := h.DB.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); cpErr != nil {
+			slog.Warn("wal checkpoint before restore failed (continuing)",
+				"component", "system", "err", cpErr)
 		}
 	}
-	if cfgData, ok := files["config.yaml"]; ok {
-		newPath := h.ConfigPath + ".new"
-		if err := os.WriteFile(newPath, cfgData, 0600); err != nil {
-			// Rollback DB
+
+	// Rename the staged DB into place. Same-filesystem rename is atomic.
+	dbEntry := stagedByName["sfpanel.db"]
+	dbNewPath := h.DBPath + ".new"
+	if err := os.Rename(dbEntry.path, dbNewPath); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to stage database")
+	}
+	// DB is always 0o600 regardless of header mode.
+	_ = os.Chmod(dbNewPath, 0o600)
+	if err := os.Rename(dbNewPath, h.DBPath); err != nil {
+		_ = os.Remove(dbNewPath)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to restore database")
+	}
+
+	if cfgEntry, ok := stagedByName["config.yaml"]; ok {
+		cfgNewPath := h.ConfigPath + ".new"
+		if err := os.Rename(cfgEntry.path, cfgNewPath); err != nil {
+			// Rollback DB to the .bak we made above.
 			if bakData, bakErr := os.ReadFile(h.DBPath + ".bak"); bakErr == nil {
-				_ = os.WriteFile(h.DBPath, bakData, 0600)
+				_ = os.WriteFile(h.DBPath, bakData, 0o600)
 			}
-			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to write config")
+			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to stage config")
 		}
-		if err := os.Rename(newPath, h.ConfigPath); err != nil {
-			os.Remove(newPath)
+		_ = os.Chmod(cfgNewPath, 0o600)
+		if err := os.Rename(cfgNewPath, h.ConfigPath); err != nil {
+			_ = os.Remove(cfgNewPath)
 			if bakData, bakErr := os.ReadFile(h.DBPath + ".bak"); bakErr == nil {
-				_ = os.WriteFile(h.DBPath, bakData, 0600)
+				_ = os.WriteFile(h.DBPath, bakData, 0o600)
 			}
 			return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to restore config")
 		}
@@ -714,20 +827,27 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 
 	if h.ComposePath != "" {
 		composePath := filepath.Clean(h.ComposePath)
-		for name, data := range files {
-			if !strings.HasPrefix(name, "compose/") {
+		for _, e := range staged {
+			if !strings.HasPrefix(e.relName, "compose/") {
 				continue
 			}
-			relPath := strings.TrimPrefix(name, "compose/")
+			relPath := strings.TrimPrefix(e.relName, "compose/")
 			destPath := filepath.Join(composePath, relPath)
 			if !strings.HasPrefix(filepath.Clean(destPath), composePath+string(os.PathSeparator)) {
 				continue
 			}
 			destDir := filepath.Dir(destPath)
-			if err := os.MkdirAll(destDir, 0755); err != nil {
+			if err := os.MkdirAll(destDir, 0o755); err != nil {
 				continue
 			}
-			_ = os.WriteFile(destPath, data, 0644)
+			// Rename from staging (same FS) into the destination, then chmod
+			// to the header-derived mode. Rename over an existing file is
+			// atomic on POSIX, so an interrupted restore can't leave a
+			// half-written compose file in place.
+			if err := os.Rename(e.path, destPath); err != nil {
+				continue
+			}
+			_ = os.Chmod(destPath, e.mode)
 		}
 	}
 
