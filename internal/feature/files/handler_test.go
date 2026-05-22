@@ -256,6 +256,31 @@ func TestReadFile_RefusesLeafSymlinkToProtectedPath(t *testing.T) {
 	}
 }
 
+// TestReadFile_RefusesLeafSymlinkRegardlessOfTarget is the load-bearing
+// regression fence for the O_NOFOLLOW change. Unlike the companion test
+// above (which would pass even without O_NOFOLLOW because isReadProtectedPath
+// catches the protected target), this test points the symlink at a benign
+// file inside a tempdir. The static read-protection check has no reason to
+// reject it, so the only thing that can return 400 is O_NOFOLLOW returning
+// ELOOP at open time.
+func TestReadFile_RefusesLeafSymlinkRegardlessOfTarget(t *testing.T) {
+	dir := t.TempDir()
+	realFile := filepath.Join(dir, "real.txt")
+	if err := os.WriteFile(realFile, []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(realFile, link); err != nil {
+		t.Skip("cannot create symlink:", err)
+	}
+	h := &Handler{}
+	rec := callReadFile(t, h, link)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status=%d body=%q, want 400 (refusing symlink via O_NOFOLLOW)",
+			rec.Code, rec.Body.String())
+	}
+}
+
 // TestWriteFile_FailedWriteDoesNotDestroyOriginal exercises the copy-first
 // backup semantics. Previously the rename-based backup moved the original
 // out of the way before writing, so any post-backup write failure left only
