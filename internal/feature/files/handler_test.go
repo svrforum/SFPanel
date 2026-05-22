@@ -1,10 +1,45 @@
 package files
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v4"
 )
+
+// callReadFile invokes ReadFile via the echo context with ?path=<path>.
+func callReadFile(t *testing.T, h *Handler, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/files/read?path="+url.QueryEscape(path), nil)
+	rec := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	_ = h.ReadFile(c)
+	return rec
+}
+
+// callWriteFile invokes WriteFile with a JSON body containing {path, content}.
+func callWriteFile(t *testing.T, h *Handler, path, content string) *httptest.ResponseRecorder {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{"path": path, "content": content})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/files/write", bytes.NewReader(body))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	_ = h.WriteFile(c)
+	return rec
+}
 
 func TestValidatePath_AcceptsLegitimate(t *testing.T) {
 	cases := []string{
@@ -199,5 +234,84 @@ func TestValidatePathForWrite_AllowsSymlinkLeafToBenign(t *testing.T) {
 	}
 	if err := validatePathForWrite(link); err != nil {
 		t.Fatalf("validatePathForWrite(%q) rejected benign symlink: %v", link, err)
+	}
+}
+
+// TestReadFile_RefusesLeafSymlinkToProtectedPath exercises the leaf-symlink
+// TOCTOU defense on the read path. Without O_NOFOLLOW, an attacker who can
+// create a symlink under a writable directory can swap its target to a
+// protected file (e.g. /etc/shadow) between isReadProtectedPath() and the
+// subsequent open. Refusing leaf symlinks at open time closes the race.
+func TestReadFile_RefusesLeafSymlinkToProtectedPath(t *testing.T) {
+	dir := t.TempDir()
+	target := "/etc/shadow"
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip("cannot create symlink:", err)
+	}
+	h := &Handler{}
+	rec := callReadFile(t, h, link)
+	if rec.Code != http.StatusForbidden && rec.Code != http.StatusBadRequest {
+		t.Errorf("status=%d, want 4xx (Forbidden or BadRequest) refusing symlink", rec.Code)
+	}
+}
+
+// TestWriteFile_FailedWriteDoesNotDestroyOriginal exercises the copy-first
+// backup semantics. Previously the rename-based backup moved the original
+// out of the way before writing, so any post-backup write failure left only
+// the .bak as recovery. With copy-first backup the original must remain
+// intact when the temp-file write fails.
+//
+// We engineer a deterministic failure: place a directory at
+// "<path>.sfpanel.tmp" so os.WriteFile on the temp path fails with EISDIR.
+// Under the old rename-based backup this leaves the original at .bak and
+// req.Path missing. Under copy-first backup, the original stays put.
+func TestWriteFile_FailedWriteDoesNotDestroyOriginal(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.txt")
+	if err := os.WriteFile(path, []byte("original-content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Pre-create a directory at the tmp path so os.WriteFile returns EISDIR.
+	if err := os.Mkdir(path+".sfpanel.tmp", 0755); err != nil {
+		t.Fatalf("setup tmp dir: %v", err)
+	}
+
+	h := &Handler{}
+	rec := callWriteFile(t, h, path, "new-content")
+	if rec.Code == http.StatusOK {
+		t.Fatalf("expected write failure (tmp path is a directory), got 200")
+	}
+
+	// The original must still exist with original content.
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("original lost after failed write: %v", err)
+	}
+	if string(b) != "original-content" {
+		t.Errorf("original mutated: got %q, want %q", string(b), "original-content")
+	}
+}
+
+// TestWriteFile_OversizeBodyRejectedBeforeMutation guards a separate
+// invariant: an oversize request body must be refused before any disk
+// mutation, so the original file is untouched.
+func TestWriteFile_OversizeBodyRejectedBeforeMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "doc.txt")
+	if err := os.WriteFile(path, []byte("original-content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{}
+	rec := callWriteFile(t, h, path, strings.Repeat("x", maxWriteSize+1))
+	if rec.Code == http.StatusOK {
+		t.Fatal("expected write failure (oversize body)")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("original lost: %v", err)
+	}
+	if string(b) != "original-content" {
+		t.Errorf("original mutated: got %q, want %q", string(b), "original-content")
 	}
 }

@@ -2,6 +2,7 @@ package files
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -339,11 +341,30 @@ func (h *Handler) ReadFile(c echo.Context) error {
 			fmt.Sprintf("File size %d bytes exceeds the maximum of %d bytes", info.Size(), maxReadSize))
 	}
 
-	content, err := os.ReadFile(filePath)
+	// Open with O_NOFOLLOW to refuse a leaf symlink. isReadProtectedPath
+	// above resolves symlinks at *check* time, but a local attacker can swap
+	// the symlink target between the check and the open (TOCTOU). O_NOFOLLOW
+	// closes that race by refusing to traverse a final-component symlink at
+	// kernel level. Note: only the LAST component is protected — intermediate
+	// symlinks (e.g. /var/log being a symlink to /data/log) are still followed,
+	// which matches the read-path's intent.
+	f, err := os.OpenFile(filePath, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
+		if errors.Is(err, syscall.ELOOP) {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath,
+				"refusing to follow symlink")
+		}
+		if os.IsNotExist(err) {
+			return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "File not found")
+		}
 		if os.IsPermission(err) {
 			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
+	}
+	defer f.Close()
+	content, err := io.ReadAll(io.LimitReader(f, maxReadSize))
+	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
@@ -388,19 +409,22 @@ func (h *Handler) WriteFile(c echo.Context) error {
 	if info, err := os.Stat(req.Path); err == nil {
 		fileMode = info.Mode().Perm()
 
-		// Create .bak backup of existing file (preserve original permissions).
+		// Copy-first backup: read original and write to .bak, keeping the
+		// original in place. The previous rename-based approach moved the
+		// original away first, so any subsequent write failure left the user
+		// with only .bak as recovery. With copy-first, a write failure leaves
+		// both the original and the .bak intact.
 		backupPath := req.Path + ".bak"
-		_ = os.Remove(backupPath)
-		if err := os.Rename(req.Path, backupPath); err != nil {
-			// Cross-device fallback: copy content.
-			data, readErr := os.ReadFile(req.Path)
-			if readErr == nil {
-				_ = os.WriteFile(backupPath, data, fileMode)
-			}
+		if data, readErr := os.ReadFile(req.Path); readErr == nil {
+			// Best-effort: a backup failure must not prevent the write itself.
+			_ = os.Remove(backupPath)
+			_ = os.WriteFile(backupPath, data, fileMode)
 		}
 	}
 
-	// Atomic write: write to temp file then rename.
+	// Atomic write: write to temp file then rename into place. The original
+	// is untouched until the rename succeeds, so a failure in WriteFile
+	// (e.g. ENOSPC, EISDIR on the tmp path) preserves the original.
 	tmpPath := req.Path + ".sfpanel.tmp"
 	if err := os.WriteFile(tmpPath, []byte(req.Content), fileMode); err != nil {
 		if os.IsPermission(err) {
@@ -409,7 +433,7 @@ func (h *Handler) WriteFile(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 	if err := os.Rename(tmpPath, req.Path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		if os.IsPermission(err) {
 			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
@@ -565,6 +589,15 @@ func (h *Handler) DownloadFile(c echo.Context) error {
 
 	if isReadProtectedPath(filePath) {
 		return response.Fail(c, http.StatusForbidden, response.ErrReadProtected, "Access to this file is not allowed")
+	}
+
+	// Refuse a leaf symlink before handing off to c.File / http.ServeContent.
+	// Same TOCTOU rationale as ReadFile: an attacker who can swap the link
+	// target between isReadProtectedPath and the file open would otherwise
+	// leak a protected path's content via the download endpoint.
+	if linfo, err := os.Lstat(filePath); err == nil && linfo.Mode()&os.ModeSymlink != 0 {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath,
+			"refusing to follow symlink")
 	}
 
 	info, err := os.Stat(filePath)
