@@ -2,6 +2,7 @@ package disk
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -28,7 +29,7 @@ var findDeviceMountpoint = func(devPath string) (string, error) {
 
 // ListFilesystems returns all mounted filesystems with usage information.
 func (h *Handler) ListFilesystems(c echo.Context) error {
-	out, err := h.Cmd.Run("df", "-B1", "--output=source,fstype,size,used,avail,pcent,target")
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "df", "-B1", "--output=source,fstype,size,used,avail,pcent,target")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
 			fmt.Sprintf("df failed: %s", strings.TrimSpace(out)))
@@ -46,8 +47,9 @@ func (h *Handler) ListFilesystems(c echo.Context) error {
 // CheckExpandable analyzes all filesystems and returns candidates that can be expanded.
 // It detects the full VM expansion chain: disk free space -> growpart -> pvresize -> lvextend -> resize_fs.
 func (h *Handler) CheckExpandable(c echo.Context) error {
+	ctx := c.Request().Context()
 	// Get current filesystems
-	out, err := h.Cmd.Run("df", "-B1", "--output=source,fstype,size,used,avail,pcent,target")
+	out, err := h.Cmd.RunCtx(ctx, "df", "-B1", "--output=source,fstype,size,used,avail,pcent,target")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
 			fmt.Sprintf("df failed: %s", strings.TrimSpace(out)))
@@ -89,17 +91,17 @@ func (h *Handler) CheckExpandable(c echo.Context) error {
 
 		if candidate.IsLVM && h.Cmd.Exists("lvs") {
 			// LVM path: check VG free, then trace back to PV -> disk for growpart
-			vgName, vgFree := h.getVGInfoForLV(fs.Source)
+			vgName, vgFree := h.getVGInfoForLV(ctx, fs.Source)
 			if vgName == "" {
 				continue // not actually an LV
 			}
 
 			// Check if the disk behind the PV has unallocated space
-			pvDevice := h.getPVDeviceForVG(vgName)
+			pvDevice := h.getPVDeviceForVG(ctx, vgName)
 			if pvDevice != "" {
 				parentDisk, partNum := getParentDisk(pvDevice)
 				if parentDisk != "" && partNum != "" {
-					diskFree := h.getDiskFreeBytes(parentDisk)
+					diskFree := h.getDiskFreeBytes(ctx, parentDisk)
 					if diskFree > 0 {
 						totalFree += diskFree
 						if h.Cmd.Exists("growpart") {
@@ -147,7 +149,7 @@ func (h *Handler) CheckExpandable(c echo.Context) error {
 			// Non-LVM path: check if partition's parent disk has free space
 			parentDisk, partNum := getParentDisk(fs.Source)
 			if parentDisk != "" && partNum != "" {
-				diskFree := h.getDiskFreeBytes(parentDisk)
+				diskFree := h.getDiskFreeBytes(ctx, parentDisk)
 				if diskFree > 0 {
 					totalFree = diskFree
 					if h.Cmd.Exists("growpart") {
@@ -189,6 +191,7 @@ func (h *Handler) CheckExpandable(c echo.Context) error {
 
 // ExpandFilesystem executes the full expansion chain for a given filesystem source.
 func (h *Handler) ExpandFilesystem(c echo.Context) error {
+	ctx := c.Request().Context()
 	var req struct {
 		Source string `json:"source"` // full path like /dev/mapper/ubuntu--vg-ubuntu--lv or /dev/sda2
 	}
@@ -211,7 +214,7 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 	}
 
 	// Detect filesystem type
-	blkOut, err := h.Cmd.Run("blkid", "-o", "value", "-s", "TYPE", req.Source)
+	blkOut, err := h.Cmd.RunCtx(ctx, "blkid", "-o", "value", "-s", "TYPE", req.Source)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
 			"failed to detect filesystem type")
@@ -231,20 +234,20 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 	executedSteps := make([]string, 0)
 
 	if isLVM && h.Cmd.Exists("lvs") {
-		vgName, _ := h.getVGInfoForLV(req.Source)
+		vgName, _ := h.getVGInfoForLV(ctx, req.Source)
 		if vgName == "" {
 			return response.Fail(c, http.StatusBadRequest, response.ErrExpandError, "not an LVM logical volume")
 		}
 
-		pvDevice := h.getPVDeviceForVG(vgName)
+		pvDevice := h.getPVDeviceForVG(ctx, vgName)
 		if pvDevice != "" {
 			parentDisk, partNum := getParentDisk(pvDevice)
 			if parentDisk != "" && partNum != "" {
-				diskFree := h.getDiskFreeBytes(parentDisk)
+				diskFree := h.getDiskFreeBytes(ctx, parentDisk)
 				if diskFree > 0 {
 					// Step 1: growpart
 					if h.Cmd.Exists("growpart") {
-						gpOut, err := h.Cmd.Run("growpart", parentDisk, partNum)
+						gpOut, err := h.Cmd.RunCtx(ctx, "growpart", parentDisk, partNum)
 						gpMsg := strings.TrimSpace(gpOut)
 						if err != nil && !strings.Contains(gpMsg, "NOCHANGE") {
 							return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
@@ -255,7 +258,7 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 
 					// Step 2: pvresize
 					if h.Cmd.Exists("pvresize") {
-						pvOut, err := h.Cmd.Run("pvresize", pvDevice)
+						pvOut, err := h.Cmd.RunCtx(ctx, "pvresize", pvDevice)
 						if err != nil {
 							return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
 								fmt.Sprintf("pvresize failed: %s", strings.TrimSpace(pvOut)))
@@ -268,7 +271,7 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 
 		// Step 3: lvextend
 		if h.Cmd.Exists("lvextend") {
-			lvOut, err := h.Cmd.Run("lvextend", "-l", "+100%FREE", req.Source)
+			lvOut, err := h.Cmd.RunCtx(ctx, "lvextend", "-l", "+100%FREE", req.Source)
 			if err != nil {
 				errMsg := strings.TrimSpace(lvOut)
 				if !strings.Contains(strings.ToLower(errMsg), "insufficient") &&
@@ -285,9 +288,9 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 		// Non-LVM: growpart then resize
 		parentDisk, partNum := getParentDisk(req.Source)
 		if parentDisk != "" && partNum != "" {
-			diskFree := h.getDiskFreeBytes(parentDisk)
+			diskFree := h.getDiskFreeBytes(ctx, parentDisk)
 			if diskFree > 0 && h.Cmd.Exists("growpart") {
-				gpOut, err := h.Cmd.Run("growpart", parentDisk, partNum)
+				gpOut, err := h.Cmd.RunCtx(ctx, "growpart", parentDisk, partNum)
 				gpMsg := strings.TrimSpace(gpOut)
 				if err != nil && !strings.Contains(gpMsg, "NOCHANGE") {
 					return response.Fail(c, http.StatusInternalServerError, response.ErrExpandError,
@@ -309,19 +312,19 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 	var resErr error
 	switch fsType {
 	case "ext2", "ext3", "ext4":
-		resOut, resErr = h.Cmd.Run("resize2fs", req.Source)
+		resOut, resErr = h.Cmd.RunCtx(ctx, "resize2fs", req.Source)
 	case "xfs":
 		mp, mpErr := findMountPoint(req.Source)
 		if mpErr != nil || mp == "" {
 			return response.Fail(c, http.StatusBadRequest, response.ErrExpandError, "XFS must be mounted")
 		}
-		resOut, resErr = h.Cmd.Run("xfs_growfs", mp)
+		resOut, resErr = h.Cmd.RunCtx(ctx, "xfs_growfs", mp)
 	case "btrfs":
 		mp, mpErr := findMountPoint(req.Source)
 		if mpErr != nil || mp == "" {
 			return response.Fail(c, http.StatusBadRequest, response.ErrExpandError, "Btrfs must be mounted")
 		}
-		resOut, resErr = h.Cmd.Run("btrfs", "filesystem", "resize", "max", mp)
+		resOut, resErr = h.Cmd.RunCtx(ctx, "btrfs", "filesystem", "resize", "max", mp)
 	}
 
 	if resErr != nil {
@@ -337,8 +340,9 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 }
 
 // getVGInfoForLV returns the VG name and free space (bytes) for an LV device path.
-func (h *Handler) getVGInfoForLV(lvDevice string) (vgName string, vgFree int64) {
-	out, err := h.Cmd.Run("lvs", "--noheadings", "--nosuffix", "--units", "b",
+// ctx is propagated to the lvs subprocess so caller cancellation kills the work.
+func (h *Handler) getVGInfoForLV(ctx context.Context, lvDevice string) (vgName string, vgFree int64) {
+	out, err := h.Cmd.RunCtx(ctx, "lvs", "--noheadings", "--nosuffix", "--units", "b",
 		"-o", "vg_name,vg_free", lvDevice)
 	if err != nil {
 		return "", 0
@@ -355,14 +359,15 @@ func (h *Handler) getVGInfoForLV(lvDevice string) (vgName string, vgFree int64) 
 }
 
 // getPVDeviceForVG returns the first PV device path for a given VG name.
-func (h *Handler) getPVDeviceForVG(vgName string) string {
+// ctx is propagated to the pvs subprocess so caller cancellation kills the work.
+func (h *Handler) getPVDeviceForVG(ctx context.Context, vgName string) string {
 	if !h.Cmd.Exists("pvs") {
 		return ""
 	}
 	if err := validateLVMName(vgName); err != nil {
 		return ""
 	}
-	out, err := h.Cmd.Run("pvs", "--noheadings", "-o", "pv_name",
+	out, err := h.Cmd.RunCtx(ctx, "pvs", "--noheadings", "-o", "pv_name",
 		"-S", fmt.Sprintf("vg_name=%s", vgName))
 	if err != nil {
 		return ""
@@ -406,12 +411,13 @@ func getParentDisk(partDevice string) (disk string, partNum string) {
 }
 
 // getDiskFreeBytes returns the total unallocated space (bytes) on a disk device.
-func (h *Handler) getDiskFreeBytes(disk string) int64 {
+// ctx is propagated to the sfdisk subprocess so caller cancellation kills the work.
+func (h *Handler) getDiskFreeBytes(ctx context.Context, disk string) int64 {
 	if !h.Cmd.Exists("sfdisk") {
 		return 0
 	}
 	// sfdisk --list-free outputs free regions; we parse total free space
-	out, err := h.Cmd.Run("sfdisk", "--list-free", "-o", "size", "--bytes", disk)
+	out, err := h.Cmd.RunCtx(ctx, "sfdisk", "--list-free", "-o", "size", "--bytes", disk)
 	if err != nil {
 		return 0
 	}
@@ -628,7 +634,7 @@ func (h *Handler) FormatPartition(c echo.Context) error {
 			fmt.Sprintf("unsupported filesystem type: %s", req.FsType))
 	}
 
-	out, err := h.Cmd.Run(mkfsName, mkfsArgs...)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), mkfsName, mkfsArgs...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFormatError,
 			fmt.Sprintf("format failed: %s", strings.TrimSpace(out)))
@@ -683,7 +689,7 @@ func (h *Handler) MountFilesystem(c echo.Context) error {
 			fmt.Sprintf("failed to create mount point directory: %v", err))
 	}
 
-	out, err := h.Cmd.Run("mount", args...)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "mount", args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrMountError,
 			fmt.Sprintf("mount failed: %s", strings.TrimSpace(out)))
@@ -709,7 +715,7 @@ func (h *Handler) UnmountFilesystem(c echo.Context) error {
 			"refusing to unmount system mountpoint")
 	}
 
-	out, err := h.Cmd.Run("umount", req.MountPoint)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "umount", req.MountPoint)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUnmountError,
 			fmt.Sprintf("umount failed: %s", strings.TrimSpace(out)))
@@ -722,6 +728,7 @@ func (h *Handler) UnmountFilesystem(c echo.Context) error {
 
 // ResizeFilesystem resizes a filesystem on a given device.
 func (h *Handler) ResizeFilesystem(c echo.Context) error {
+	ctx := c.Request().Context()
 	var req ResizeFilesystemRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -736,8 +743,8 @@ func (h *Handler) ResizeFilesystem(c echo.Context) error {
 	// For LVM devices: extend LV to use all available VG free space first
 	if strings.HasPrefix(devPath, "/dev/mapper/") && h.Cmd.Exists("lvextend") {
 		// Verify it's actually an LV (lvs will fail for non-LV mapper devices)
-		if _, err := h.Cmd.Run("lvs", "--noheadings", devPath); err == nil {
-			lvOut, err := h.Cmd.Run("lvextend", "-l", "+100%FREE", devPath)
+		if _, err := h.Cmd.RunCtx(ctx, "lvs", "--noheadings", devPath); err == nil {
+			lvOut, err := h.Cmd.RunCtx(ctx, "lvextend", "-l", "+100%FREE", devPath)
 			if err != nil {
 				errMsg := strings.TrimSpace(lvOut)
 				// "insufficient free space" or "unchanged" are expected when VG is full
@@ -755,7 +762,7 @@ func (h *Handler) ResizeFilesystem(c echo.Context) error {
 	fsType := req.FsType
 	if fsType == "" {
 		// Auto-detect using blkid
-		blkOut, err := h.Cmd.Run("blkid", "-o", "value", "-s", "TYPE", devPath)
+		blkOut, err := h.Cmd.RunCtx(ctx, "blkid", "-o", "value", "-s", "TYPE", devPath)
 		if err != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrResizeError,
 				"failed to detect filesystem type; please specify fs_type")
@@ -771,7 +778,7 @@ func (h *Handler) ResizeFilesystem(c echo.Context) error {
 			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
 				"resize2fs is not installed. Install e2fsprogs: apt install e2fsprogs")
 		}
-		out, resizeErr = h.Cmd.Run("resize2fs", devPath)
+		out, resizeErr = h.Cmd.RunCtx(ctx, "resize2fs", devPath)
 
 	case "xfs":
 		if !h.Cmd.Exists("xfs_growfs") {
@@ -783,7 +790,7 @@ func (h *Handler) ResizeFilesystem(c echo.Context) error {
 			return response.Fail(c, http.StatusBadRequest, response.ErrResizeError,
 				"XFS filesystem must be mounted before resizing. Could not find mount point.")
 		}
-		out, resizeErr = h.Cmd.Run("xfs_growfs", mountPoint)
+		out, resizeErr = h.Cmd.RunCtx(ctx, "xfs_growfs", mountPoint)
 
 	case "btrfs":
 		if !h.Cmd.Exists("btrfs") {
@@ -795,7 +802,7 @@ func (h *Handler) ResizeFilesystem(c echo.Context) error {
 			return response.Fail(c, http.StatusBadRequest, response.ErrResizeError,
 				"Btrfs filesystem must be mounted before resizing. Could not find mount point.")
 		}
-		out, resizeErr = h.Cmd.Run("btrfs", "filesystem", "resize", "max", mountPoint)
+		out, resizeErr = h.Cmd.RunCtx(ctx, "btrfs", "filesystem", "resize", "max", mountPoint)
 
 	default:
 		return response.Fail(c, http.StatusBadRequest, response.ErrResizeError,

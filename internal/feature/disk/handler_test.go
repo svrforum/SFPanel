@@ -1,16 +1,111 @@
 package disk
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
 )
+
+// cancelObservingCommander is a Commander whose RunCtx delegates to a
+// caller-supplied closure so the test can observe ctx propagation. The
+// non-ctx Run/RunWithTimeout variants intentionally return an error so a
+// regression that drops back to a non-cancellable call surfaces as a
+// failed assertion rather than a hung handler.
+type cancelObservingCommander struct {
+	mu         sync.Mutex
+	runCtxImpl func(ctx context.Context, name string, args ...string) (string, error)
+	runCtxHits int
+	runHits    int
+}
+
+func (m *cancelObservingCommander) Run(name string, args ...string) (string, error) {
+	m.mu.Lock()
+	m.runHits++
+	m.mu.Unlock()
+	return "", fmt.Errorf("handler must use RunCtx, not Run (cmd=%s)", name)
+}
+func (m *cancelObservingCommander) RunWithTimeout(_ time.Duration, name string, args ...string) (string, error) {
+	m.mu.Lock()
+	m.runHits++
+	m.mu.Unlock()
+	return "", fmt.Errorf("handler must use RunCtx, not RunWithTimeout (cmd=%s)", name)
+}
+func (m *cancelObservingCommander) RunWithEnv(_ []string, name string, args ...string) (string, error) {
+	return "", nil
+}
+func (m *cancelObservingCommander) RunWithInput(_ string, name string, args ...string) (string, error) {
+	return "", nil
+}
+func (m *cancelObservingCommander) RunCtx(ctx context.Context, name string, args ...string) (string, error) {
+	m.mu.Lock()
+	m.runCtxHits++
+	m.mu.Unlock()
+	if m.runCtxImpl != nil {
+		return m.runCtxImpl(ctx, name, args...)
+	}
+	return "", nil
+}
+func (m *cancelObservingCommander) Exists(name string) bool { return true }
+
+// TestGetSmartInfo_HonorsRequestContext is the regression test for Task
+// 3.1.B: when a client disconnects mid-request the handler must propagate
+// that cancellation to smartctl rather than leaking the subprocess for
+// the full 5-minute default timeout. Pre-migration GetSmartInfo called
+// h.Cmd.Run which derives its own context.Background — the mock's Run
+// returns an error immediately, so the assertion below ("ctx was used")
+// fails until the handler is migrated to RunCtx.
+func TestGetSmartInfo_HonorsRequestContext(t *testing.T) {
+	mock := &cancelObservingCommander{
+		runCtxImpl: func(ctx context.Context, name string, args ...string) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		},
+	}
+	h := &Handler{Cmd: mock}
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/disk/smart/sda", nil)
+	ctx, cancel := context.WithCancel(req.Context())
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("device")
+	c.SetParamValues("sda")
+
+	done := make(chan struct{})
+	go func() {
+		_ = h.GetSmartInfo(c)
+		close(done)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+		// OK — handler returned promptly after the request context was
+		// cancelled.
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not return after request context cancelled")
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if mock.runHits != 0 {
+		t.Errorf("handler bypassed RunCtx (Run/RunWithTimeout hits=%d) — request context cannot be propagated through those entry points", mock.runHits)
+	}
+	if mock.runCtxHits == 0 {
+		t.Errorf("handler never called RunCtx — cancellation propagation cannot be verified")
+	}
+}
 
 // TestMountFilesystem_RefusesProtectedPath verifies that an authenticated
 // operator cannot point a mount over a system path such as /etc. Before the

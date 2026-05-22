@@ -1,6 +1,7 @@
 package disk
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -24,7 +25,11 @@ var diskCache struct {
 
 const diskCacheTTL = 5 * time.Second
 
-func (h *Handler) getCachedDiskData() ([]BlockDevice, []IOStat, error) {
+// getCachedDiskData returns cached lsblk + iostat data, refreshing on miss.
+// ctx is threaded into the lsblk subprocess so a client abort during a
+// cache-miss request kills the work; cache hits short-circuit without
+// touching ctx.
+func (h *Handler) getCachedDiskData(ctx context.Context) ([]BlockDevice, []IOStat, error) {
 	diskCache.RLock()
 	if time.Since(diskCache.updatedAt) < diskCacheTTL {
 		devices := make([]BlockDevice, len(diskCache.devices))
@@ -49,7 +54,7 @@ func (h *Handler) getCachedDiskData() ([]BlockDevice, []IOStat, error) {
 	}
 
 	// Fetch lsblk
-	outStr, err := h.Cmd.Run("lsblk", "-J", "-b", "-o",
+	outStr, err := h.Cmd.RunCtx(ctx, "lsblk", "-J", "-b", "-o",
 		"NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR")
 	if err != nil {
 		return nil, nil, fmt.Errorf("lsblk failed: %s", strings.TrimSpace(outStr))
@@ -86,7 +91,7 @@ func (h *Handler) CheckSmartmontools(c echo.Context) error {
 
 // InstallSmartmontools installs smartmontools via apt.
 func (h *Handler) InstallSmartmontools(c echo.Context) error {
-	out, err := h.Cmd.Run("apt-get", "install", "-y", "smartmontools")
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "apt-get", "install", "-y", "smartmontools")
 	output := strings.TrimSpace(out)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInstallError,
@@ -102,7 +107,7 @@ func (h *Handler) InstallSmartmontools(c echo.Context) error {
 
 // ListDisks returns all block devices with their hierarchy.
 func (h *Handler) ListDisks(c echo.Context) error {
-	devices, _, err := h.getCachedDiskData()
+	devices, _, err := h.getCachedDiskData(c.Request().Context())
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError, err.Error())
 	}
@@ -238,7 +243,7 @@ func (h *Handler) GetSmartInfo(c echo.Context) error {
 	}
 
 	devPath := "/dev/" + device
-	outStr, err := h.Cmd.Run("smartctl", "-j", "-a", devPath)
+	outStr, err := h.Cmd.RunCtx(c.Request().Context(), "smartctl", "-j", "-a", devPath)
 	if err != nil {
 		// smartctl returns non-zero exit codes for various SMART statuses;
 		// we still try to parse the JSON output.
