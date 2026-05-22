@@ -57,17 +57,23 @@ func SendDiscord(webhookURL, title, message, severity string) error {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal discord payload: %w", err)
+		return fmt.Errorf("%w: marshal payload", ErrChannelDelivery)
 	}
+	return sendDiscordTo(webhookURL, body)
+}
 
+// sendDiscordTo posts a pre-built JSON payload to the given Discord webhook URL.
+// Errors are wrapped with ErrChannelDelivery and a fixed phrase so the
+// caller-visible message never includes the webhook secret path.
+func sendDiscordTo(webhookURL string, body []byte) error {
 	resp, err := alertHTTPClient.Post(webhookURL, "application/json", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("discord webhook: %w", err)
+		return fmt.Errorf("%w: transport error", ErrChannelDelivery)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("discord webhook returned %d", resp.StatusCode)
+		return fmt.Errorf("%w: status %d", ErrChannelDelivery, resp.StatusCode)
 	}
 	return nil
 }

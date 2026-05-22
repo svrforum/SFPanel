@@ -2,6 +2,7 @@ package disk
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -24,7 +25,7 @@ func (h *Handler) ListRAID(c echo.Context) error {
 			"mdadm is not installed. Install it: apt install mdadm")
 	}
 
-	arrays, err := h.parseAllRAIDArrays()
+	arrays, err := h.parseAllRAIDArrays(c.Request().Context())
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
 			fmt.Sprintf("failed to list RAID arrays: %v", err))
@@ -34,7 +35,10 @@ func (h *Handler) ListRAID(c echo.Context) error {
 }
 
 // parseAllRAIDArrays parses /proc/mdstat and enriches with mdadm --detail --scan.
-func (h *Handler) parseAllRAIDArrays() ([]RAIDArray, error) {
+// ctx propagates request cancellation into each mdadm --detail subprocess so
+// a client abort kills the work instead of letting GOMAXPROCS workers run to
+// the default 5-minute timeout.
+func (h *Handler) parseAllRAIDArrays(ctx context.Context) ([]RAIDArray, error) {
 	// Read /proc/mdstat for basic info
 	mdstatData, err := os.ReadFile("/proc/mdstat")
 	if err != nil {
@@ -60,7 +64,7 @@ func (h *Handler) parseAllRAIDArrays() ([]RAIDArray, error) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			detail, err := h.getMdadmDetail(arrays[i].Name)
+			detail, err := h.getMdadmDetail(ctx, arrays[i].Name)
 			if err != nil || detail == nil {
 				return
 			}
@@ -137,11 +141,12 @@ func parseMdstat(data string) []RAIDArray {
 }
 
 // getMdadmDetail runs mdadm --detail on a specific array and parses the output.
-func (h *Handler) getMdadmDetail(name string) (*RAIDArray, error) {
+// ctx is propagated so caller cancellation kills the subprocess.
+func (h *Handler) getMdadmDetail(ctx context.Context, name string) (*RAIDArray, error) {
 	devPath := "/dev/" + name
-	out, err := h.Cmd.Run("mdadm", "--detail", devPath)
+	out, err := h.Cmd.RunCtx(ctx, "mdadm", "--detail", devPath)
 	if err != nil {
-		return nil, fmt.Errorf("mdadm --detail failed: %s", strings.TrimSpace(out))
+		return nil, fmt.Errorf("mdadm --detail failed: %s", response.SanitizeOutput(strings.TrimSpace(out)))
 	}
 
 	array := &RAIDArray{
@@ -226,7 +231,7 @@ func (h *Handler) GetRAIDDetail(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
-	detail, err := h.getMdadmDetail(name)
+	detail, err := h.getMdadmDetail(c.Request().Context(), name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
 			fmt.Sprintf("failed to get RAID detail: %v", err))
@@ -286,10 +291,10 @@ func (h *Handler) CreateRAID(c echo.Context) error {
 	}
 	args = append(args, devPaths...)
 
-	out, err := h.Cmd.Run("mdadm", args...)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "mdadm", args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --create failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("mdadm --create failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -312,14 +317,14 @@ func (h *Handler) DeleteRAID(c echo.Context) error {
 	devPath := "/dev/" + name
 
 	// Stop the array
-	stopOut, err := h.Cmd.Run("mdadm", "--stop", devPath)
+	stopOut, err := h.Cmd.RunCtx(c.Request().Context(), "mdadm", "--stop", devPath)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --stop failed: %s", strings.TrimSpace(stopOut)))
+			fmt.Sprintf("mdadm --stop failed: %s", response.SanitizeOutput(strings.TrimSpace(stopOut))))
 	}
 
 	// Remove the array
-	removeOut, err := h.Cmd.Run("mdadm", "--remove", devPath)
+	removeOut, err := h.Cmd.RunCtx(c.Request().Context(), "mdadm", "--remove", devPath)
 	if err != nil {
 		// --remove may fail if already stopped/removed; this is not fatal
 		_ = removeOut
@@ -360,10 +365,10 @@ func (h *Handler) AddRAIDDisk(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
-	out, err := h.Cmd.Run("mdadm", "--add", raidDev, diskDev)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "mdadm", "--add", raidDev, diskDev)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --add failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("mdadm --add failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -396,17 +401,17 @@ func (h *Handler) RemoveRAIDDisk(c echo.Context) error {
 	diskDev := "/dev/" + req.Device
 
 	// First mark the device as faulty
-	failOut, err := h.Cmd.Run("mdadm", "--fail", raidDev, diskDev)
+	failOut, err := h.Cmd.RunCtx(c.Request().Context(), "mdadm", "--fail", raidDev, diskDev)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --fail failed: %s", strings.TrimSpace(failOut)))
+			fmt.Sprintf("mdadm --fail failed: %s", response.SanitizeOutput(strings.TrimSpace(failOut))))
 	}
 
 	// Then remove it
-	removeOut, err := h.Cmd.Run("mdadm", "--remove", raidDev, diskDev)
+	removeOut, err := h.Cmd.RunCtx(c.Request().Context(), "mdadm", "--remove", raidDev, diskDev)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrRAIDError,
-			fmt.Sprintf("mdadm --remove failed: %s", strings.TrimSpace(removeOut)))
+			fmt.Sprintf("mdadm --remove failed: %s", response.SanitizeOutput(strings.TrimSpace(removeOut))))
 	}
 
 	return response.OK(c, map[string]string{

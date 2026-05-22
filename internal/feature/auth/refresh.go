@@ -27,6 +27,14 @@ const refreshTokenLifetime = 7 * 24 * time.Hour
 // 32 bytes (256 bits) matches the sha256 hash size.
 const refreshTokenBytes = 32
 
+// generateAccessToken is the seam Refresh uses to mint the access JWT. A
+// package var (instead of calling auth.GenerateToken directly) so tests can
+// inject a forced failure and exercise the rotation rollback path. The
+// jwt-v5 HMAC signer accepts any []byte key including empty, so there's no
+// realistic way to make GenerateToken fail at the input layer without a
+// seam like this.
+var generateAccessToken = auth.GenerateToken
+
 // issueRefreshToken creates a new opaque refresh token, persists its hash
 // against the username with a fresh family_id, and returns the raw token to
 // the client. Each login starts a new family — rotations within that family
@@ -182,6 +190,17 @@ func (h *Handler) Refresh(c echo.Context) error {
 		familyID = fid
 	}
 
+	// Issue access JWT BEFORE the rotation writes. Doing this first means a
+	// signer failure rolls back automatically (no UPDATE/INSERT has run, the
+	// deferred tx.Rollback() handles cleanup), so the old refresh token
+	// stays valid for a client retry instead of being consumed and tripping
+	// the family-revoke path above on the next request.
+	accessExpiry := h.tokenExpiry()
+	accessTok, err := generateAccessToken(username, h.Config.Auth.JWTSecret, accessExpiry)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Failed to issue access token")
+	}
+
 	// Rotate: tombstone the consumed token (so a later replay triggers theft
 	// detection above) and mint a fresh one in the same family.
 	if _, err := tx.Exec(
@@ -209,13 +228,6 @@ func (h *Handler) Refresh(c echo.Context) error {
 
 	if err := tx.Commit(); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
-	}
-
-	// Issue access JWT — same parser/validator the login flow uses.
-	accessExpiry := h.tokenExpiry()
-	accessTok, err := auth.GenerateToken(username, h.Config.Auth.JWTSecret, accessExpiry)
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Failed to issue access token")
 	}
 
 	// Refresh the cookies on rotation so the cookie always carries the

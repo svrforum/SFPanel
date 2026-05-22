@@ -1,8 +1,17 @@
 package firewall
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/labstack/echo/v4"
 )
 
 // Real captured output from `ufw status numbered` covering IPv4, IPv6, comments,
@@ -134,5 +143,158 @@ func TestParseAddressPort_Wildcard(t *testing.T) {
 	addr, port := parseAddressPort("*:22")
 	if addr != "*" || port != 22 {
 		t.Errorf("got (%q,%d); want (\"*\",22)", addr, port)
+	}
+}
+
+// ---- args-aware Commander for EnableUFW tests ----
+//
+// MockCommander keys outputs only on the binary name, so `ufw status
+// numbered` and `ufw show added` collide. For the EnableUFW lockout
+// precheck we need to return different output per sub-command — hence
+// this small test-local Commander that dispatches on the joined args.
+
+type ufwArgsCommander struct {
+	mu       sync.Mutex
+	outputs  map[string]string // key: name + " " + args
+	errs     map[string]error
+	exists   map[string]bool
+	calls    []string
+}
+
+func newUFWArgsCommander() *ufwArgsCommander {
+	return &ufwArgsCommander{
+		outputs: make(map[string]string),
+		errs:    make(map[string]error),
+		exists:  make(map[string]bool),
+	}
+}
+
+func (m *ufwArgsCommander) set(cmdline, out string, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.outputs[cmdline] = out
+	if err != nil {
+		m.errs[cmdline] = err
+	}
+}
+
+func (m *ufwArgsCommander) setExists(name string, ok bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.exists[name] = ok
+}
+
+func (m *ufwArgsCommander) record(name string, args ...string) (string, error) {
+	key := strings.TrimSpace(name + " " + strings.Join(args, " "))
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, key)
+	return m.outputs[key], m.errs[key]
+}
+
+func (m *ufwArgsCommander) Run(name string, args ...string) (string, error) {
+	return m.record(name, args...)
+}
+func (m *ufwArgsCommander) RunWithTimeout(_ time.Duration, name string, args ...string) (string, error) {
+	return m.record(name, args...)
+}
+func (m *ufwArgsCommander) RunWithEnv(_ []string, name string, args ...string) (string, error) {
+	return m.record(name, args...)
+}
+func (m *ufwArgsCommander) RunWithInput(_ string, name string, args ...string) (string, error) {
+	return m.record(name, args...)
+}
+func (m *ufwArgsCommander) RunCtx(_ context.Context, name string, args ...string) (string, error) {
+	return m.record(name, args...)
+}
+func (m *ufwArgsCommander) Exists(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.exists[name]
+}
+
+// TestEnableUFW_AllowsWhenStagedRulesCoverSSH: regression for Task 4.7.
+// `ufw status` says inactive but `ufw show added` lists `ufw allow 22/tcp`
+// — the precheck must consult the staged-rules list and let enable proceed.
+func TestEnableUFW_AllowsWhenStagedRulesCoverSSH(t *testing.T) {
+	m := newUFWArgsCommander()
+	m.setExists("ufw", true)
+	m.set("ufw status numbered", "Status: inactive\n", nil)
+	m.set("ufw show added", "Added user rules (see 'ufw status' for running firewall):\nufw allow 22/tcp\n", nil)
+	m.set("ufw --force enable", "Firewall is active and enabled on system startup\n", nil)
+
+	h := &Handler{Cmd: m, PanelPort: 9443}
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/firewall/enable", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.EnableUFW(c); err != nil {
+		t.Fatalf("EnableUFW: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	// Confirm `ufw --force enable` was actually invoked — proves the
+	// precheck saw the staged allow and let enable proceed.
+	calledEnable := false
+	for _, c := range m.calls {
+		if c == "ufw --force enable" {
+			calledEnable = true
+			break
+		}
+	}
+	if !calledEnable {
+		t.Errorf("expected `ufw --force enable` to be called; got %v", m.calls)
+	}
+}
+
+// TestEnableUFW_RefusesWhenInactiveAndNoStagedSSH: the inverse — UFW
+// inactive AND no staged ALLOW for SSH/panel → 409 with the lockout
+// message, no enable invocation.
+func TestEnableUFW_RefusesWhenInactiveAndNoStagedSSH(t *testing.T) {
+	m := newUFWArgsCommander()
+	m.setExists("ufw", true)
+	m.set("ufw status numbered", "Status: inactive\n", nil)
+	m.set("ufw show added", "Added user rules (see 'ufw status' for running firewall):\n", nil)
+
+	h := &Handler{Cmd: m, PanelPort: 9443}
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/firewall/enable", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := h.EnableUFW(c); err != nil {
+		t.Fatalf("EnableUFW: %v", err)
+	}
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Success bool `json:"success"`
+		Error   struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v — body=%s", err, rec.Body.String())
+	}
+	if resp.Success {
+		t.Errorf("expected success=false, got %+v", resp)
+	}
+	if resp.Error.Code != "UFW_ENABLE_ERROR" {
+		t.Errorf("expected code UFW_ENABLE_ERROR, got %q", resp.Error.Code)
+	}
+	if !strings.Contains(resp.Error.Message, "lock you out") {
+		t.Errorf("expected lockout message, got %q", resp.Error.Message)
+	}
+	// Make sure we did NOT invoke enable.
+	for _, c := range m.calls {
+		if c == "ufw --force enable" {
+			t.Errorf("enable was invoked despite lockout precheck failure: %v", m.calls)
+		}
 	}
 }

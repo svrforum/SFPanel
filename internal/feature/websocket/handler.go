@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/docker"
@@ -213,7 +214,7 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 
 		logReader, err := dockerClient.ContainerLogs(ctx, containerID, opts)
 		if err != nil {
-			ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
+			_ = ws.WriteMessage(websocket.TextMessage, []byte("error: "+response.SanitizeOutput(err.Error())))
 			return nil
 		}
 		defer logReader.Close()
@@ -314,7 +315,7 @@ func ComposeLogsWS(composeManager *docker.ComposeManager, jwtSecret string) echo
 				}
 			})
 			if err != nil {
-				writer.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()+"\n"))
+				_ = writer.WriteMessage(websocket.TextMessage, []byte("error: "+response.SanitizeOutput(err.Error())+"\n"))
 			}
 		}()
 
@@ -362,7 +363,7 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 
 		hijacked, execID, err := dockerClient.ContainerExec(ctx, containerID, []string{"/bin/sh"})
 		if err != nil {
-			ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))
+			_ = ws.WriteMessage(websocket.TextMessage, []byte("error: "+response.SanitizeOutput(err.Error())))
 			return nil
 		}
 		defer hijacked.Close()
@@ -395,11 +396,13 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		}()
 
 		// WS -> Docker: read from WebSocket and forward to exec session
+		wsReadDone := make(chan struct{})
 		go func() {
+			defer close(wsReadDone)
+			defer cancel() // ensure ctx is cancelled if WS read errors, mirroring the reader goroutine
 			for {
 				_, msg, err := ws.ReadMessage()
 				if err != nil {
-					cancel()
 					return
 				}
 				var resizeMsg struct {
@@ -427,7 +430,11 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 			}
 		}()
 
+		// Wait for both goroutines to finish before returning. ws.Close() and
+		// hijacked.Close() (deferred above) tear down the connections, which
+		// unblocks both goroutines' Read calls.
 		<-done
+		<-wsReadDone
 		return nil
 	}
 }

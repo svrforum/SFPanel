@@ -1,6 +1,12 @@
 package packages
 
-import "testing"
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+)
 
 func TestValidateSearchQuery_AllowsMultiWord(t *testing.T) {
 	ok := []string{
@@ -88,4 +94,69 @@ func TestValidatePackageName_RejectsFlagShape(t *testing.T) {
 			t.Errorf("validatePackageName(%q) should be accepted", name)
 		}
 	}
+}
+
+// TestDpkgLockHeld_FalseWhenUnlocked confirms an empty, un-flocked lock
+// file is reported as available — this is the happy path before any apt
+// run starts.
+func TestDpkgLockHeld_FalseWhenUnlocked(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "lock-frontend")
+	if err := os.WriteFile(lockPath, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if dpkgLockHeldAt(lockPath) {
+		t.Error("dpkgLockHeldAt = true, want false for unlocked file")
+	}
+}
+
+// TestDpkgLockHeld_FalseWhenFileMissing confirms that on non-Debian systems
+// (or anywhere the path doesn't exist), we report "not held" so apt can
+// produce the real error rather than us preempting it with a misleading 409.
+func TestDpkgLockHeld_FalseWhenFileMissing(t *testing.T) {
+	if dpkgLockHeldAt("/nonexistent/sfpanel-test/path") {
+		t.Error("dpkgLockHeldAt = true for missing file, want false (let apt report)")
+	}
+}
+
+// TestDpkgLockHeld_TrueWhenAnotherProcessHoldsLock spawns a child `flock`
+// process that takes an exclusive lock on a tempfile and verifies
+// dpkgLockHeldAt observes EWOULDBLOCK. Skipped if the `flock` binary is
+// unavailable (Linux-only and not always installed in minimal CI images).
+//
+// Same-process Linux flock is effectively reentrant for the same fd, so an
+// in-process test wouldn't reliably trigger EWOULDBLOCK; a separate process
+// is the only way to exercise the held-by-another-process path honestly.
+func TestDpkgLockHeld_TrueWhenAnotherProcessHoldsLock(t *testing.T) {
+	flockBin, err := exec.LookPath("flock")
+	if err != nil {
+		t.Skip("flock binary not available; skipping held-lock test")
+	}
+
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "lock-frontend")
+	if err := os.WriteFile(lockPath, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// `flock -x <path> -c "sleep 5"` takes an exclusive lock for 5 s.
+	cmd := exec.Command(flockBin, "-x", lockPath, "-c", "sleep 5")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start flock child: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	})
+
+	// Give the child a moment to actually acquire the lock before we probe.
+	// flock(2) is fast but the process needs to exec; poll briefly.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if dpkgLockHeldAt(lockPath) {
+			return // success
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Error("dpkgLockHeldAt = false, want true while child holds LOCK_EX")
 }

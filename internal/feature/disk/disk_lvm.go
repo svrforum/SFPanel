@@ -20,11 +20,11 @@ func (h *Handler) ListPVs(c echo.Context) error {
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
-	out, err := h.Cmd.Run("pvs", "--reportformat", "json",
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "pvs", "--reportformat", "json",
 		"-o", "pv_name,vg_name,pv_size,pv_free,pv_attr")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
-			fmt.Sprintf("pvs failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("pvs failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	pvs, err := parsePVsJSON([]byte(out))
@@ -75,11 +75,11 @@ func (h *Handler) ListVGs(c echo.Context) error {
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
-	out, err := h.Cmd.Run("vgs", "--reportformat", "json",
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "vgs", "--reportformat", "json",
 		"-o", "vg_name,vg_size,vg_free,pv_count,lv_count,vg_attr")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
-			fmt.Sprintf("vgs failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("vgs failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	vgs, err := parseVGsJSON([]byte(out))
@@ -134,11 +134,11 @@ func (h *Handler) ListLVs(c echo.Context) error {
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
-	out, err := h.Cmd.Run("lvs", "--reportformat", "json",
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "lvs", "--reportformat", "json",
 		"-o", "lv_name,vg_name,lv_size,lv_attr,lv_path,pool_lv,data_percent")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
-			fmt.Sprintf("lvs failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("lvs failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	lvs, err := parseLVsJSON([]byte(out))
@@ -206,10 +206,10 @@ func (h *Handler) CreatePV(c echo.Context) error {
 	if err := verifyBlockDevice(devPath); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
-	out, err := h.Cmd.Run("pvcreate", devPath)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "pvcreate", devPath)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
-			fmt.Sprintf("pvcreate failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("pvcreate failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -260,10 +260,10 @@ func (h *Handler) CreateVG(c echo.Context) error {
 	}
 
 	args := append([]string{req.Name}, pvPaths...)
-	out, err := h.Cmd.Run("vgcreate", args...)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "vgcreate", args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
-			fmt.Sprintf("vgcreate failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("vgcreate failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -293,10 +293,10 @@ func (h *Handler) CreateLV(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSize, err.Error())
 	}
 
-	out, err := h.Cmd.Run("lvcreate", "-L", req.Size, "-n", req.Name, req.VG)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "lvcreate", "-L", req.Size, "-n", req.Name, req.VG)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
-			fmt.Sprintf("lvcreate failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("lvcreate failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -320,10 +320,10 @@ func (h *Handler) RemovePV(c echo.Context) error {
 	if err := verifyBlockDevice(devPath); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
-	out, err := h.Cmd.Run("pvremove", devPath)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "pvremove", devPath)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
-			fmt.Sprintf("pvremove failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("pvremove failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -343,10 +343,10 @@ func (h *Handler) RemoveVG(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, err.Error())
 	}
 
-	out, err := h.Cmd.Run("vgremove", name)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "vgremove", name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
-			fmt.Sprintf("vgremove failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("vgremove failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -371,10 +371,10 @@ func (h *Handler) RemoveLV(c echo.Context) error {
 	}
 
 	lvPath := vg + "/" + name
-	out, err := h.Cmd.Run("lvremove", "-f", lvPath)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "lvremove", "-f", lvPath)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
-			fmt.Sprintf("lvremove failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("lvremove failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -405,10 +405,10 @@ func (h *Handler) ResizeLV(c echo.Context) error {
 	}
 
 	lvPath := "/dev/" + req.VG + "/" + req.Name
-	out, err := h.Cmd.Run("lvresize", "-L", req.Size, lvPath)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "lvresize", "-L", req.Size, lvPath)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
-			fmt.Sprintf("lvresize failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("lvresize failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{

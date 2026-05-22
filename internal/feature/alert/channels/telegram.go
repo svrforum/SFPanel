@@ -28,6 +28,14 @@ func SendTelegram(botToken, chatID, title, message, severity string) error {
 
 	text := fmt.Sprintf("%s <b>%s</b>\n\n%s", emoji, html.EscapeString(title), html.EscapeString(message))
 
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+	return sendTelegramTo(url, chatID, text)
+}
+
+// sendTelegramTo posts a pre-built text payload to the given Telegram API URL.
+// Errors are wrapped with ErrChannelDelivery and a fixed phrase so that the
+// caller-visible message never includes the bot token embedded in the URL.
+func sendTelegramTo(url, chatID, text string) error {
 	payload := TelegramPayload{
 		ChatID:    chatID,
 		Text:      text,
@@ -36,18 +44,17 @@ func SendTelegram(botToken, chatID, title, message, severity string) error {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal telegram payload: %w", err)
+		return fmt.Errorf("%w: marshal payload", ErrChannelDelivery)
 	}
 
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
 	resp, err := alertHTTPClient.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("telegram api: %w", err)
+		return fmt.Errorf("%w: transport error", ErrChannelDelivery)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("telegram api returned %d", resp.StatusCode)
+		return fmt.Errorf("%w: status %d", ErrChannelDelivery, resp.StatusCode)
 	}
 	return nil
 }

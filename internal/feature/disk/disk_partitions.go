@@ -21,12 +21,12 @@ func (h *Handler) ListPartitions(c echo.Context) error {
 	}
 
 	devPath := "/dev/" + device
-	out, err := h.Cmd.Run("lsblk", "-J", "-b", "-o",
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "lsblk", "-J", "-b", "-o",
 		"NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,PARTLABEL,PARTUUID",
 		devPath)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
-			fmt.Sprintf("lsblk failed for %s: %s", device, strings.TrimSpace(out)))
+			fmt.Sprintf("lsblk failed for %s: %s", device, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	var raw struct {
@@ -77,11 +77,11 @@ func (h *Handler) CreatePartition(c echo.Context) error {
 	}
 
 	devPath := "/dev/" + device
-	out, err := h.Cmd.Run("parted", "-s", devPath,
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "parted", "-s", devPath,
 		"mkpart", "primary", fsType, req.Start, req.End)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionError,
-			fmt.Sprintf("parted mkpart failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("parted mkpart failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
@@ -108,10 +108,10 @@ func (h *Handler) DeletePartition(c echo.Context) error {
 	}
 
 	devPath := "/dev/" + device
-	out, err := h.Cmd.Run("parted", "-s", devPath, "rm", number)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "parted", "-s", devPath, "rm", number)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionError,
-			fmt.Sprintf("parted rm failed: %s", strings.TrimSpace(out)))
+			fmt.Sprintf("parted rm failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{

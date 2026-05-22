@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,6 +23,14 @@ import (
 	"github.com/svrforum/SFPanel/internal/common/safe"
 )
 
+// errUnauthenticatedWS is returned by authenticateWS when the upgrade should
+// be refused. The 401 response is already written; the caller need only
+// propagate err so Echo treats the request as terminal. Without this sentinel
+// the previous "return c.JSON(401, …)" form returned nil on a successful
+// header write, leaving the caller to proceed with username == "" and
+// reopening the per-user binding hijack that authenticateWS exists to close.
+var errUnauthenticatedWS = errors.New("terminal: WebSocket not authenticated")
+
 const scrollbackBufSize = 256 * 1024 // 256 KB ring buffer per session
 const maxTerminalSessions = 20       // Maximum concurrent terminal sessions
 // readerSendQueue bounds the per-reader buffer. With typical PTY payloads
@@ -29,6 +39,13 @@ const maxTerminalSessions = 20       // Maximum concurrent terminal sessions
 // SetWriteDeadline window so a transient stall doesn't trigger a kick,
 // well below the point at which one slow client could starve the host.
 const readerSendQueue = 64
+
+// idleReapAfter is how long a session sits with zero readers before the
+// cleanup goroutine reaps it, regardless of the operator-configured
+// terminal_timeout. Without this guard a user who closes a browser tab on
+// a long-running command (tail -f, apt upgrade) keeps the PTY alive for
+// the full terminal_timeout window (default 30m) with no observer.
+const idleReapAfter = 5 * time.Minute
 
 // sameOriginOrEmpty mirrors websocket/handler.go's CheckOrigin: accept
 // when Origin is absent (curl/websocat/desktop wrapper) or its host
@@ -50,14 +67,42 @@ var Upgrader = websocket.Upgrader{
 	CheckOrigin: sameOriginOrEmpty,
 }
 
-func authenticateWS(c echo.Context, jwtSecret string) error {
+// authenticateWS verifies the WebSocket upgrade and returns the authenticated
+// username so the caller can bind per-user state (e.g. PTY session key).
+//
+// For direct requests the username comes from the ticket/JWT verified by
+// auth.AuthenticateWSRequest. For cluster-internal forwards (gated by the
+// HMAC-validated X-SFPanel-Internal-Proxy headers) the originating node has
+// already authenticated the operator and stamps the verified username into
+// X-SFPanel-Original-User; the proxy middleware strips any caller-supplied
+// copy of that header before re-setting it from the JWT-derived username, so
+// it is authoritative here.
+func authenticateWS(c echo.Context, jwtSecret string) (string, error) {
 	if auth.IsInternalProxyRequest(c.Request()) {
-		return nil
+		// Defence-in-depth: the proxy middleware already strips and rewrites
+		// X-SFPanel-Original-User from the JWT-derived username, so this
+		// header should never be empty here. If it ever is, refuse rather
+		// than letting buildSessionKey("", id) yield a key that collides
+		// across every empty-username request — the exact hijack defect
+		// this binding was added to close. We can't fall back to "admin"
+		// the way the JWT middleware does for non-terminal handlers,
+		// because that would shadow a real admin's PTY sessions.
+		user := c.Request().Header.Get("X-SFPanel-Original-User")
+		if user == "" {
+			_ = c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return "", errUnauthenticatedWS
+		}
+		return user, nil
 	}
 	if user := auth.AuthenticateWSRequest(c.Request(), jwtSecret); user != "" {
-		return nil
+		return user, nil
 	}
-	return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	// c.JSON returns nil on a successful write — propagating that would
+	// leave the caller's err-check passing and the handler proceeding
+	// with an empty username. Always return a non-nil error so empty
+	// username can never reach buildSessionKey.
+	_ = c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	return "", errUnauthenticatedWS
 }
 
 // ringBuffer is a fixed-size circular byte buffer that keeps the most recent
@@ -119,12 +164,13 @@ func (r *ringBuffer) Bytes() []byte {
 }
 
 type terminalSession struct {
-	mu         sync.Mutex
-	ptmx       *os.File
-	cmd        *exec.Cmd
-	lastUse    time.Time
-	scrollback *ringBuffer
-	writeMu    sync.Mutex // protects ptmx.Write and pty.Setsize (both write to the PTY fd)
+	mu               sync.Mutex
+	ptmx             *os.File
+	cmd              *exec.Cmd
+	lastUse          time.Time
+	lastReaderLeftAt time.Time // set when the last reader leaves; zero while readers attached
+	scrollback       *ringBuffer
+	writeMu          sync.Mutex // protects ptmx.Write and pty.Setsize (both write to the PTY fd)
 	// readers maps each connected WebSocket to its per-reader send state
 	// so broadcast can fan-out output without holding up the PTY reader
 	// on any one slow client.
@@ -157,6 +203,13 @@ func (s *terminalSession) addReader(ws *websocket.Conn) *readerState {
 	s.readersMu.Lock()
 	s.readers[ws] = state
 	s.readersMu.Unlock()
+
+	// Clear the idle stamp — a new reader is attached so the "no readers"
+	// reaper branch doesn't apply.
+	s.mu.Lock()
+	s.lastReaderLeftAt = time.Time{}
+	s.mu.Unlock()
+
 	return state
 }
 
@@ -166,7 +219,14 @@ func (s *terminalSession) removeReader(ws *websocket.Conn) {
 		state.kick()
 		delete(s.readers, ws)
 	}
+	empty := len(s.readers) == 0
 	s.readersMu.Unlock()
+
+	if empty {
+		s.mu.Lock()
+		s.lastReaderLeftAt = time.Now()
+		s.mu.Unlock()
+	}
 }
 
 // writeLoop drains the per-reader send queue and writes to the WebSocket.
@@ -180,7 +240,13 @@ func (s *terminalSession) writeLoop(ws *websocket.Conn, state *readerState) {
 		if cur, ok := s.readers[ws]; ok && cur == state {
 			delete(s.readers, ws)
 		}
+		empty := len(s.readers) == 0
 		s.readersMu.Unlock()
+		if empty {
+			s.mu.Lock()
+			s.lastReaderLeftAt = time.Now()
+			s.mu.Unlock()
+		}
 	}()
 	for {
 		select {
@@ -246,10 +312,10 @@ func (s *terminalSession) writeToReader(ws *websocket.Conn, data []byte) {
 }
 
 // startReader spawns the PTY-reader goroutine exactly once per session.
-// Two concurrent reconnections to the same sessionID used to both pass
+// Two concurrent reconnections to the same session key used to both pass
 // the unsynchronized `started` flag check and both start a reader,
 // double-consuming PTY output and corrupting the session.
-func (s *terminalSession) startReader(sessionID string) {
+func (s *terminalSession) startReader(sessionKey string) {
 	s.startOnce.Do(func() {
 		go func() {
 			buf := make([]byte, 4096)
@@ -258,13 +324,13 @@ func (s *terminalSession) startReader(sessionID string) {
 				if err != nil {
 					// PTY closed (shell exited) — clean up session
 					sessionsMu.Lock()
-					if sessions[sessionID] == s {
+					if sessions[sessionKey] == s {
 						s.ptmx.Close()
 						if s.cmd.Process != nil {
 							s.cmd.Process.Kill()
 						}
 						s.cmd.Wait()
-						delete(sessions, sessionID)
+						delete(sessions, sessionKey)
 					}
 					sessionsMu.Unlock()
 					// Kick any remaining readers so their writer
@@ -329,7 +395,8 @@ func terminalHome() string {
 // buffer is replayed so the user sees previous output.
 func TerminalWS(jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if err := authenticateWS(c, jwtSecret); err != nil {
+		username, err := authenticateWS(c, jwtSecret)
+		if err != nil {
 			return err
 		}
 
@@ -339,18 +406,23 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 		}
 		defer ws.Close()
 
-		sessionID := c.QueryParam("session_id")
-		if sessionID == "" {
-			sessionID = "default"
-		}
+		sessionKey := buildSessionKey(username, c.QueryParam("session_id"))
+
+		// Audit the session open. Log the original operator-facing session_id
+		// (not the composed key, which embeds a NUL byte) so the username
+		// alone is the actor identifier.
+		slog.Info("terminal session opened",
+			"component", "terminal",
+			"user", username,
+			"session_id", c.QueryParam("session_id"))
 
 		sessionsMu.Lock()
-		sess, exists := sessions[sessionID]
+		sess, exists := sessions[sessionKey]
 		if exists {
 			// Check if the process is still alive
 			if sess.cmd.ProcessState != nil {
 				sess.ptmx.Close()
-				delete(sessions, sessionID)
+				delete(sessions, sessionKey)
 				exists = false
 			}
 		}
@@ -412,7 +484,7 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 				scrollback: newRingBuffer(scrollbackBufSize),
 				readers:    make(map[*websocket.Conn]*readerState),
 			}
-			sessions[sessionID] = sess
+			sessions[sessionKey] = sess
 			sessionsMu.Unlock()
 
 			state := sess.addReader(ws)
@@ -420,7 +492,7 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			go sess.writeLoop(ws, state)
 
 			// Start the background PTY reader
-			sess.startReader(sessionID)
+			sess.startReader(sessionKey)
 		}
 
 		// WebSocket -> PTY (runs until the WebSocket closes)
@@ -458,8 +530,40 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 	}
 }
 
+// isReadyForReap reports whether the session should be cleaned up at `now`.
+// If there are zero readers attached, the session is reaped after
+// idleReapAfter regardless of the per-input timeout. If readers are
+// attached, the legacy lastUse + perInputTimeout semantics apply.
+//
+// The zero-readers branch fires even when perInputTimeout == 0 (operator
+// set terminal_timeout=0 for never-expire). That's intentional: a tab
+// close on a long-running command must not be allowed to leak a PTY
+// forever just because the operator opted out of the per-input timeout.
+//
+// The caller must hold no locks on sess — this helper takes them itself.
+func isReadyForReap(sess *terminalSession, now time.Time, perInputTimeout time.Duration) bool {
+	sess.readersMu.Lock()
+	readerCount := len(sess.readers)
+	sess.readersMu.Unlock()
+
+	sess.mu.Lock()
+	lastUse := sess.lastUse
+	lastLeft := sess.lastReaderLeftAt
+	sess.mu.Unlock()
+
+	if readerCount == 0 {
+		return !lastLeft.IsZero() && now.Sub(lastLeft) > idleReapAfter
+	}
+	if perInputTimeout == 0 {
+		return false // 0 = never expire
+	}
+	return now.Sub(lastUse) > perInputTimeout
+}
+
 // CleanupTerminalSessions removes idle terminal sessions based on the
-// terminal_timeout setting (in minutes). A value of 0 means never expire.
+// terminal_timeout setting (in minutes). A value of 0 means never expire
+// for the per-input branch; sessions with zero readers are still reaped
+// after idleReapAfter (see isReadyForReap).
 // The goroutine stops when ctx is cancelled (main.go wires this to the
 // graceful shutdown signal).
 func CleanupTerminalSessions(ctx context.Context, db *sql.DB) {
@@ -482,23 +586,22 @@ func CleanupTerminalSessions(ctx context.Context, db *sql.DB) {
 			if err != nil || timeoutMin < 0 {
 				timeoutMin = 30
 			}
-			if timeoutMin == 0 {
-				continue // 0 = never expire
-			}
 
+			// timeout = 0 means "never expire" for the per-input branch.
+			// The zero-readers branch inside isReadyForReap still applies,
+			// so this pass continues rather than `continue`-ing.
 			timeout := time.Duration(timeoutMin) * time.Minute
+
 			// Collect expired sessions under lock, clean up outside lock
 			type expired struct {
 				id   string
 				sess *terminalSession
 			}
 			var toClean []expired
+			now := time.Now()
 			sessionsMu.Lock()
 			for id, sess := range sessions {
-				sess.mu.Lock()
-				idle := time.Since(sess.lastUse) > timeout
-				sess.mu.Unlock()
-				if idle {
+				if isReadyForReap(sess, now, timeout) {
 					delete(sessions, id)
 					toClean = append(toClean, expired{id, sess})
 				}

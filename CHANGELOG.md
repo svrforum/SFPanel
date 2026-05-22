@@ -6,6 +6,133 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.15.0] – 2026-05-22
+
+Module-hardening follow-up. The 2026-05-22 branch-level review surfaced
+25 issues — one P0 (cluster `GetStatus` nil panic during raft init), the
+rest a mix of self-protection gaps, leaked secrets, context-leaks, and
+graceful-empty regressions on minimal nodes. All 25 landed as
+self-contained commits; this entry summarises the batch. No API breakage.
+
+### Security
+
+- **terminal** — PTY session keys are now bound to the authenticated
+  user. A cross-user `session_id` (guessed or copy-pasted from another
+  operator's tab) can no longer attach to a PTY the other operator
+  started. Empty proxy usernames rejected up front so two cross-node
+  sessions can't collide on an empty-string key. WS relay propagates the
+  authenticated username through the cluster proxy with the HMAC-signed
+  v2 header.
+- **alert** — Telegram and Discord delivery errors no longer interpolate
+  the bot token or webhook URL into the returned error string. New
+  `ErrChannelError` code; `TestChannel` returns the generic
+  `"channel delivery failed; check channel configuration"` regardless of
+  the underlying transport failure.
+- **disk** — `Mount`, `Unmount`, and `FormatPartition` now refuse system
+  mountpoints (`/`, `/etc`, `/var`, `/var/lib/sfpanel`, `/home/*`,
+  `/boot`, etc.). The lookup is mockable so tests cover the guard.
+- **files** — `ReadFile` and `DownloadFile` open with `O_NOFOLLOW` and
+  refuse leaf symlinks; the previous symlink-aware check only ran on
+  writes. Write path now uses copy-first backup so a crash mid-write
+  leaves the original intact.
+- **compose** — `ResolveComposeFile` validates the project name (no
+  path separators, no `..`) before composing the on-disk path; closes
+  the traversal vector that healthcheck and backup endpoints exposed.
+  Backup and tmp files are written at `0o600`.
+- **appstore** — Compose YAML now written at `0o600` (was the umask
+  default `0o644`) and the write is atomic via temp + rename so a
+  half-installed stack can't be picked up by `docker compose`.
+- **system** — `RestoreBackup` serialises concurrent calls behind a
+  mutex, streams archive entries instead of loading the whole tarball
+  into RAM, runs a WAL checkpoint before swap, and preserves the
+  original file modes (was clobbering everything to `0o644`).
+- **auth** — Access JWT is now generated *before* the refresh token is
+  marked consumed. A transient JWT-signing failure on retry can no
+  longer trip the OWASP family-revoke path and lock the operator out
+  while their refresh chain looks valid client-side.
+- **cluster** — `GetStatus` no longer dereferences a nil overview
+  during raft init. A `/cluster/status` poll racing the first FSM apply
+  used to crash the node mid-boot.
+
+### Changed
+
+- **terminal** — Orphaned PTY sessions (zero readers attached) are now
+  reaped 5 minutes after the last reader leaves, regardless of the
+  operator-tunable `terminal_timeout` setting. The previous behaviour
+  let a terminal opened and forgotten with no reader keep its PTY alive
+  for the full inactivity window.
+- **disk** — `lsblk`, `smartctl`, `parted`, `mdadm`, and `dd` now honor
+  `c.Request().Context()`. Client disconnect (browser close, NAT
+  timeout) kills the subprocess inside ~200 ms instead of letting it
+  run to the 5-minute Commander timeout.
+- **packages** — `install`, `remove`, and `upgrade` now check for the
+  `dpkg-lock-frontend` holder up front and return `409 Conflict`
+  immediately with the PID + process name of whatever is holding the
+  lock. The old behaviour blocked silently inside `apt-get` for as long
+  as the other process took.
+- **firewall** — `EnableUFW`'s lockout precheck now consults
+  `ufw show added` when UFW is inactive (instead of assuming "no rules
+  configured = lockout"). Operators who correctly added an SSH ALLOW
+  before enabling UFW no longer hit a spurious 409.
+- **docker** — `PullImage` validates the image reference against the
+  Docker name grammar and rejects refs longer than 512 chars before
+  invoking the daemon, so a typo-by-XSS can't trigger an arbitrary
+  HTTP fetch through the docker socket.
+- **compose** — Backup files and tmp files are written at `0o600`
+  (mirroring the appstore change).
+- **alert** — `TestChannel` returns the generic message
+  `"channel delivery failed; check channel configuration"` with code
+  `CHANNEL_ERROR` regardless of the underlying transport failure.
+
+### Added
+
+- **`internal/common/sysguard/`** — new package centralising the
+  self-protection deny-lists: `IsProtectedSystemdUnit` (units that
+  must never be stopped/disabled/masked through the panel API),
+  `IsProtectedPID` (PIDs 0/1/2 and the panel process itself), and
+  `IsPanelChildPID` (pgid-based check for subprocesses sfpanel itself
+  spawned — apt, docker compose, terminal PTYs). `services` and
+  `process` migrated; new module deny-list rules go here.
+- **`services` self-protection extended** — `dbus.service` and
+  `systemd-journald.service` join `sfpanel.service` on the no-touch
+  list. Both are panel-critical: dbus is required for systemctl IPC,
+  journald is the only path through which the panel reads service logs.
+- **`process.KillProcess` refuses any PID in the panel's process
+  group** — apt, docker compose, terminal PTYs, and anything else
+  sfpanel spawned share the panel's pgid. The pgid check catches them
+  in one shot; the existing PID-not-found path covers PIDs that have
+  already exited.
+
+### Fixed
+
+- **disk, cron** — `ListDisks`, `ListFilesystems`, and the cron handlers
+  return a graceful empty result (or `503 TOOL_NOT_INSTALLED` for the
+  cron mutator paths) when the underlying binary is missing. Minimal
+  cluster followers without `lsblk`/`smartctl`/`crontab` no longer 500
+  on these list endpoints.
+- **logs** — Scanner-drain wait on subprocess teardown is now bounded
+  by a 2-second deadline. A wedged scanner goroutine can no longer keep
+  the response open indefinitely while holding the upstream `tail -F`
+  pipe.
+- **websocket** — `ContainerExecWS` synchronises its two relay
+  goroutines (stdin→docker, docker→stdout) before the handler returns,
+  closing the race where the response writer was reused after one
+  goroutine had already started the next request's frame.
+- **network/tailscale** — `install` and `up` parent their subprocess
+  context on `c.Request().Context()`. A client disconnect during
+  Tailscale install no longer leaves a 10-minute `apt-get install
+  tailscale` running in the background against a closed pipe.
+- **`response.SanitizeOutput`** — now actually strips ANSI escape
+  sequences. The previous implementation pattern-matched a subset of
+  the format and was a no-op for the most common CSI sequences;
+  command output containing colour escapes was passing through to the
+  client verbatim. Disk, logs, appstore, and websocket call sites
+  switched to the helper.
+
+Plan reference: `docs/superpowers/plans/2026-05-22-module-hardening-followup.md`.
+
+---
+
 ## [0.14.0] – 2026-05-19
 
 End-to-end module hardening pass — closes every P0 from the 2026-05-18 review

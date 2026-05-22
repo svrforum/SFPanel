@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/shirou/gopsutil/v4/process"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/sysguard"
 )
 
 type ProcessInfo struct {
@@ -117,11 +117,18 @@ func (h *Handler) KillProcess(c echo.Context) error {
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPID, "Invalid PID")
 	}
-	if pid <= 2 {
-		return response.Fail(c, http.StatusForbidden, response.ErrInvalidPID, "Cannot send signal to PID 0, 1 (init), or 2 (kthreadd)")
+	if sysguard.IsProtectedPID(int(pid)) {
+		return response.Fail(c, http.StatusForbidden, response.ErrInvalidPID,
+			"Cannot send signal to protected PID (init, kthreadd, or sfpanel itself)")
 	}
-	if int(pid) == os.Getpid() {
-		return response.Fail(c, http.StatusForbidden, response.ErrInvalidPID, "Cannot send signal to the SFPanel process itself")
+	// Refuse any subprocess the panel itself spawned (apt, docker compose,
+	// terminal PTYs, etc.). They share the panel's process group by default,
+	// so the pgid check catches them all in one shot. If the PID has already
+	// disappeared (err != nil) we fall through to the existing process.NewProcess
+	// path which returns the standard "not found" 404.
+	if isChild, err := sysguard.IsPanelChildPID(int(pid)); err == nil && isChild {
+		return response.Fail(c, http.StatusForbidden, response.ErrInvalidPID,
+			"Refusing to kill panel-spawned subprocess")
 	}
 
 	var req struct {

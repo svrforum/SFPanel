@@ -1,6 +1,8 @@
 package firewall
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestRuleAllowsPort(t *testing.T) {
 	cases := []struct {
@@ -78,5 +80,66 @@ func TestWouldLockOutOnAdd(t *testing.T) {
 				t.Errorf("wouldLockOutOnAdd(%+v) = %v, want %v", tc.req, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestParseUFWAddedOutput_ExtractsAllowPorts: the lockout precheck on an
+// inactive UFW falls back to `ufw show added`, so we need to parse its
+// output well enough to feed hasAccessRule. Verifies port + port/proto
+// extraction, and that `allow from <CIDR>` (no port) is skipped — it
+// wouldn't help against lockout, and feeding the CIDR text to
+// ruleAllowsPort would be misleading.
+func TestParseUFWAddedOutput_ExtractsAllowPorts(t *testing.T) {
+	sample := `Added user rules (see 'ufw status' for running firewall):
+ufw allow 22/tcp
+ufw allow 8443/tcp
+ufw allow from 192.168.1.0/24
+`
+	rules := parseUFWAddedOutput(sample)
+	if len(rules) != 2 {
+		t.Fatalf("expected 2 rules, got %d: %+v", len(rules), rules)
+	}
+	havePort := func(p string) bool {
+		for _, r := range rules {
+			if r.To == p && r.Action == "ALLOW" {
+				return true
+			}
+		}
+		return false
+	}
+	if !havePort("22") {
+		t.Errorf("missing port 22 in %+v", rules)
+	}
+	if !havePort("8443") {
+		t.Errorf("missing port 8443 in %+v", rules)
+	}
+}
+
+// TestParseUFWAddedOutput_AppProfile: `ufw allow OpenSSH` must yield a
+// rule whose .To is the profile name so ruleAllowsPort's profile branch
+// can match it against SSHPort.
+func TestParseUFWAddedOutput_AppProfile(t *testing.T) {
+	sample := `Added user rules (see 'ufw status' for running firewall):
+ufw allow OpenSSH
+`
+	rules := parseUFWAddedOutput(sample)
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d: %+v", len(rules), rules)
+	}
+	if rules[0].To != "OpenSSH" || rules[0].Action != "ALLOW" {
+		t.Errorf("got %+v, want ALLOW/OpenSSH", rules[0])
+	}
+	if !ruleAllowsPort(rules[0], SSHPort) {
+		t.Errorf("ruleAllowsPort should match OpenSSH profile to port 22")
+	}
+}
+
+// TestParseUFWAddedOutput_Empty: an inactive UFW with no staged rules
+// emits just the header line. We must return an empty slice, never nil
+// in a way that crashes the caller.
+func TestParseUFWAddedOutput_Empty(t *testing.T) {
+	rules := parseUFWAddedOutput("Added user rules (see 'ufw status' for running firewall):\n")
+	if len(rules) != 0 {
+		t.Errorf("expected 0 rules, got %d: %+v", len(rules), rules)
 	}
 }

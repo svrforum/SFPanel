@@ -271,7 +271,7 @@ func (h *TailscaleHandler) Install(c echo.Context) error {
 
 	// Step 1: Download install script
 	// Streaming command — cannot use Commander (needs live stdout pipe)
-	dlCmd := osExec.CommandContext(context.Background(), "curl", "-fsSL", "https://tailscale.com/install.sh", "-o", "/tmp/tailscale-install.sh")
+	dlCmd := osExec.CommandContext(c.Request().Context(), "curl", "-fsSL", "https://tailscale.com/install.sh", "-o", "/tmp/tailscale-install.sh")
 	dlOut, err := dlCmd.CombinedOutput()
 	if len(dlOut) > 0 {
 		for _, line := range strings.Split(string(dlOut), "\n") {
@@ -298,7 +298,7 @@ func (h *TailscaleHandler) Install(c echo.Context) error {
 	sendLine(">>> Running install script (this may take a few minutes)...")
 
 	// Step 2: Run install script with real-time output
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Minute)
 	defer cancel()
 
 	// Streaming command — cannot use Commander (needs live stdout pipe)
@@ -388,7 +388,8 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 
 	// Without auth key: `tailscale up` blocks waiting for browser auth.
 	// Run it in background with a short timeout to capture the auth URL from stderr output.
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	// Parented on request context so a client disconnect cancels the subprocess.
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 8*time.Second)
 	defer cancel()
 
 	args := []string{"up"}
