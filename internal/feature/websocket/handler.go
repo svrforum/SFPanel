@@ -396,11 +396,13 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		}()
 
 		// WS -> Docker: read from WebSocket and forward to exec session
+		wsReadDone := make(chan struct{})
 		go func() {
+			defer close(wsReadDone)
+			defer cancel() // ensure ctx is cancelled if WS read errors, mirroring the reader goroutine
 			for {
 				_, msg, err := ws.ReadMessage()
 				if err != nil {
-					cancel()
 					return
 				}
 				var resizeMsg struct {
@@ -428,7 +430,11 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 			}
 		}()
 
+		// Wait for both goroutines to finish before returning. ws.Close() and
+		// hijacked.Close() (deferred above) tear down the connections, which
+		// unblocks both goroutines' Read calls.
 		<-done
+		<-wsReadDone
 		return nil
 	}
 }
