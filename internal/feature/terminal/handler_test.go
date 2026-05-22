@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -9,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/auth"
 )
 
 func TestTerminalHome_PrefersHOMEEnv(t *testing.T) {
@@ -165,6 +168,41 @@ func TestSessionKey_EmptySessionIDStillBindsToUser(t *testing.T) {
 	k2 := buildSessionKey("bob", "")
 	if k1 == k2 {
 		t.Errorf("default session key collides across users")
+	}
+}
+
+// TestAuthenticateWS_RefusesEmptyProxyUsername verifies the defence-in-depth
+// guard: when a request comes in with valid internal-proxy credentials but
+// the X-SFPanel-Original-User header is empty (which the proxy middleware
+// should never emit, but we don't trust it absolutely), authenticateWS must
+// refuse rather than letting buildSessionKey("", id) yield a key that
+// collides across every empty-username request.
+func TestAuthenticateWS_RefusesEmptyProxyUsername(t *testing.T) {
+	// Configure a proxy secret so IsInternalProxyRequest can validate the
+	// v1 header path. Restore the previous value when the test ends so we
+	// don't leak global state across tests.
+	prev := auth.ClusterProxySecret()
+	auth.SetClusterProxySecret("test-secret")
+	t.Cleanup(func() { auth.SetClusterProxySecret(prev) })
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/terminal/ws", nil)
+	req.Header.Set(auth.InternalProxyHeader, "test-secret")
+	// Intentionally do NOT set X-SFPanel-Original-User. The v1 path will
+	// authenticate the proxy hop, but the username must be absent.
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+
+	user, _ := authenticateWS(c, "irrelevant-jwt-secret")
+	if user != "" {
+		t.Errorf("authenticateWS user = %q, want \"\" so buildSessionKey is never called with the colliding empty-username key", user)
+	}
+	// c.JSON returns nil on a successful write, mirroring the existing
+	// JWT-fail branch — Echo treats handler nil-return as "I already
+	// wrote the response", so the operative assertion is that a 401 was
+	// emitted (headers committed, subsequent Upgrader.Upgrade will fail)
+	// and the empty username never propagates to the caller.
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("response status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 }
 

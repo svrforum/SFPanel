@@ -63,7 +63,19 @@ var Upgrader = websocket.Upgrader{
 // it is authoritative here.
 func authenticateWS(c echo.Context, jwtSecret string) (string, error) {
 	if auth.IsInternalProxyRequest(c.Request()) {
-		return c.Request().Header.Get("X-SFPanel-Original-User"), nil
+		// Defence-in-depth: the proxy middleware already strips and rewrites
+		// X-SFPanel-Original-User from the JWT-derived username, so this
+		// header should never be empty here. If it ever is, refuse rather
+		// than letting buildSessionKey("", id) yield a key that collides
+		// across every empty-username request — the exact hijack defect
+		// this binding was added to close. We can't fall back to "admin"
+		// the way the JWT middleware does for non-terminal handlers,
+		// because that would shadow a real admin's PTY sessions.
+		user := c.Request().Header.Get("X-SFPanel-Original-User")
+		if user == "" {
+			return "", c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		}
+		return user, nil
 	}
 	if user := auth.AuthenticateWSRequest(c.Request(), jwtSecret); user != "" {
 		return user, nil
