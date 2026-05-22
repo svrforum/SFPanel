@@ -205,6 +205,15 @@ func (h *Handler) UpgradePackages(c echo.Context) error {
 		}
 	}
 
+	// Refuse early if another package-manager run holds the dpkg front-end
+	// lock — otherwise apt-get would block on it for the full streaming
+	// timeout (30 min) before either acquiring or failing with a noisy
+	// stderr message. See dpkg_lock.go for the race-vs-friendliness tradeoff.
+	if dpkgLockHeld() {
+		return response.Fail(c, http.StatusConflict, response.ErrAPTUpgradeError,
+			"Another package manager operation is in progress; try again shortly")
+	}
+
 	// Phase 2: stream output via SSE.
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
@@ -287,6 +296,14 @@ func (h *Handler) InstallPackage(c echo.Context) error {
 			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
 
+	// Pre-check the dpkg front-end lock so we can return 409 instantly
+	// rather than blocking apt-get on the lock for the full 5-min Commander
+	// timeout. See dpkg_lock.go.
+	if dpkgLockHeld() {
+		return response.Fail(c, http.StatusConflict, response.ErrAPTInstallError,
+			"Another package manager operation is in progress; try again shortly")
+	}
+
 	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "install", "-y", "--", req.Name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTInstallError,
@@ -317,6 +334,14 @@ func (h *Handler) RemovePackage(c echo.Context) error {
 	if !validatePackageName(req.Name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPackageName,
 			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
+	}
+
+	// Pre-check the dpkg front-end lock so we can return 409 instantly
+	// rather than blocking apt-get on the lock for the full 5-min Commander
+	// timeout. See dpkg_lock.go.
+	if dpkgLockHeld() {
+		return response.Fail(c, http.StatusConflict, response.ErrAPTRemoveError,
+			"Another package manager operation is in progress; try again shortly")
 	}
 
 	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "remove", "-y", "--", req.Name)
