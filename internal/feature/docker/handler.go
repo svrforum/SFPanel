@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,16 @@ import (
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/docker"
 )
+
+// validImageRef matches the character set used by every legitimate
+// docker pull invocation an operator would issue through the panel:
+// registry path components, tag and digest delimiters, nothing else.
+// It is intentionally stricter than the OCI distribution spec — shell
+// metacharacters, whitespace, and quoting all get rejected before the
+// daemon sees the request.
+var validImageRef = regexp.MustCompile(`^[a-zA-Z0-9._/:@\-]+$`)
+
+const maxImageRefLen = 512
 
 // Handler holds a Docker client and exposes REST handlers for
 // container, image, volume, and network management.
@@ -315,6 +326,17 @@ func (h *Handler) PullImage(c echo.Context) error {
 	if req.Image == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Image reference is required")
 	}
+	if len(req.Image) > maxImageRefLen {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
+			"Image reference too long")
+	}
+	// Strict ref pattern: registry path components + tag/digest delimiters only.
+	// More restrictive than the OCI spec, but matches every legitimate
+	// docker pull invocation an operator would use through the panel.
+	if !validImageRef.MatchString(req.Image) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
+			"Image reference contains invalid characters")
+	}
 
 	ctx := c.Request().Context()
 	reader, err := h.Docker.PullImage(ctx, req.Image)
@@ -332,6 +354,13 @@ func (h *Handler) PullImage(c echo.Context) error {
 	decoder := json.NewDecoder(reader)
 	flusher := c.Response()
 	for {
+		select {
+		case <-ctx.Done():
+			// Client disconnected; daemon will receive cancel via the shared
+			// ctx passed to PullImage above. Stop streaming.
+			return nil
+		default:
+		}
 		var event map[string]interface{}
 		if err := decoder.Decode(&event); err != nil {
 			break

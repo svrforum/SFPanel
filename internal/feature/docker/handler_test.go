@@ -4,11 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/labstack/echo/v4"
 	_ "modernc.org/sqlite"
 )
 
@@ -152,5 +157,42 @@ func TestContainerWithMetrics_JSONShape(t *testing.T) {
 	}
 	if got["mem_avg_1h"] != nil {
 		t.Errorf("mem_avg_1h: got %v, want null", got["mem_avg_1h"])
+	}
+}
+
+// TestPullImage_RejectsInvalidImageRef ensures that an image reference
+// containing characters outside the strict allowlist (registry path
+// components + tag/digest delimiters) is rejected before the daemon is
+// asked to do anything. Docker is left nil to assert the handler short-
+// circuits — if validation ever regresses, this test will nil-panic
+// instead of silently passing.
+func TestPullImage_RejectsInvalidImageRef(t *testing.T) {
+	h := &Handler{Docker: nil} // not reached
+	body := `{"image":"; rm -rf /"}`
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/docker/images/pull", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	_ = h.PullImage(c)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status=%d, want 400", rec.Code)
+	}
+}
+
+// TestPullImage_RejectsOversizedRef enforces a 512-byte cap on the
+// image reference. Same rationale as above — the handler must reject
+// before touching the daemon.
+func TestPullImage_RejectsOversizedRef(t *testing.T) {
+	h := &Handler{Docker: nil}
+	body := fmt.Sprintf(`{"image":%q}`, strings.Repeat("a", 513))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/docker/images/pull", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	_ = h.PullImage(c)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status=%d, want 400", rec.Code)
 	}
 }
