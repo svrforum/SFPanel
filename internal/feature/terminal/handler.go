@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -50,14 +51,24 @@ var Upgrader = websocket.Upgrader{
 	CheckOrigin: sameOriginOrEmpty,
 }
 
-func authenticateWS(c echo.Context, jwtSecret string) error {
+// authenticateWS verifies the WebSocket upgrade and returns the authenticated
+// username so the caller can bind per-user state (e.g. PTY session key).
+//
+// For direct requests the username comes from the ticket/JWT verified by
+// auth.AuthenticateWSRequest. For cluster-internal forwards (gated by the
+// HMAC-validated X-SFPanel-Internal-Proxy headers) the originating node has
+// already authenticated the operator and stamps the verified username into
+// X-SFPanel-Original-User; the proxy middleware strips any caller-supplied
+// copy of that header before re-setting it from the JWT-derived username, so
+// it is authoritative here.
+func authenticateWS(c echo.Context, jwtSecret string) (string, error) {
 	if auth.IsInternalProxyRequest(c.Request()) {
-		return nil
+		return c.Request().Header.Get("X-SFPanel-Original-User"), nil
 	}
 	if user := auth.AuthenticateWSRequest(c.Request(), jwtSecret); user != "" {
-		return nil
+		return user, nil
 	}
-	return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	return "", c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 }
 
 // ringBuffer is a fixed-size circular byte buffer that keeps the most recent
@@ -246,10 +257,10 @@ func (s *terminalSession) writeToReader(ws *websocket.Conn, data []byte) {
 }
 
 // startReader spawns the PTY-reader goroutine exactly once per session.
-// Two concurrent reconnections to the same sessionID used to both pass
+// Two concurrent reconnections to the same session key used to both pass
 // the unsynchronized `started` flag check and both start a reader,
 // double-consuming PTY output and corrupting the session.
-func (s *terminalSession) startReader(sessionID string) {
+func (s *terminalSession) startReader(sessionKey string) {
 	s.startOnce.Do(func() {
 		go func() {
 			buf := make([]byte, 4096)
@@ -258,13 +269,13 @@ func (s *terminalSession) startReader(sessionID string) {
 				if err != nil {
 					// PTY closed (shell exited) — clean up session
 					sessionsMu.Lock()
-					if sessions[sessionID] == s {
+					if sessions[sessionKey] == s {
 						s.ptmx.Close()
 						if s.cmd.Process != nil {
 							s.cmd.Process.Kill()
 						}
 						s.cmd.Wait()
-						delete(sessions, sessionID)
+						delete(sessions, sessionKey)
 					}
 					sessionsMu.Unlock()
 					// Kick any remaining readers so their writer
@@ -329,7 +340,8 @@ func terminalHome() string {
 // buffer is replayed so the user sees previous output.
 func TerminalWS(jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if err := authenticateWS(c, jwtSecret); err != nil {
+		username, err := authenticateWS(c, jwtSecret)
+		if err != nil {
 			return err
 		}
 
@@ -339,18 +351,23 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 		}
 		defer ws.Close()
 
-		sessionID := c.QueryParam("session_id")
-		if sessionID == "" {
-			sessionID = "default"
-		}
+		sessionKey := buildSessionKey(username, c.QueryParam("session_id"))
+
+		// Audit the session open. Log the original operator-facing session_id
+		// (not the composed key, which embeds a NUL byte) so the username
+		// alone is the actor identifier.
+		slog.Info("terminal session opened",
+			"component", "terminal",
+			"user", username,
+			"session_id", c.QueryParam("session_id"))
 
 		sessionsMu.Lock()
-		sess, exists := sessions[sessionID]
+		sess, exists := sessions[sessionKey]
 		if exists {
 			// Check if the process is still alive
 			if sess.cmd.ProcessState != nil {
 				sess.ptmx.Close()
-				delete(sessions, sessionID)
+				delete(sessions, sessionKey)
 				exists = false
 			}
 		}
@@ -412,7 +429,7 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 				scrollback: newRingBuffer(scrollbackBufSize),
 				readers:    make(map[*websocket.Conn]*readerState),
 			}
-			sessions[sessionID] = sess
+			sessions[sessionKey] = sess
 			sessionsMu.Unlock()
 
 			state := sess.addReader(ws)
@@ -420,7 +437,7 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			go sess.writeLoop(ws, state)
 
 			// Start the background PTY reader
-			sess.startReader(sessionID)
+			sess.startReader(sessionKey)
 		}
 
 		// WebSocket -> PTY (runs until the WebSocket closes)

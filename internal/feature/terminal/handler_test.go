@@ -144,6 +144,30 @@ func TestRingBuffer_Write_WrapAndOverflow(t *testing.T) {
 	empty.Write([]byte("anything"))
 }
 
+func TestSessionKey_DifferentUsersNeverCollide(t *testing.T) {
+	k1 := buildSessionKey("alice", "ssh-1")
+	k2 := buildSessionKey("bob", "ssh-1")
+	if k1 == k2 {
+		t.Errorf("session keys collided across users: %q == %q", k1, k2)
+	}
+}
+
+func TestSessionKey_StableForSameUser(t *testing.T) {
+	k1 := buildSessionKey("alice", "ssh-1")
+	k2 := buildSessionKey("alice", "ssh-1")
+	if k1 != k2 {
+		t.Errorf("session key not stable: %q vs %q", k1, k2)
+	}
+}
+
+func TestSessionKey_EmptySessionIDStillBindsToUser(t *testing.T) {
+	k1 := buildSessionKey("alice", "")
+	k2 := buildSessionKey("bob", "")
+	if k1 == k2 {
+		t.Errorf("default session key collides across users")
+	}
+}
+
 // TestStartReader_IsIdempotent verifies P0-18: two concurrent calls to
 // startReader on the same session must spawn only one PTY-reader goroutine.
 // We can't drive a real PTY in a unit test, so we wrap startOnce directly.
