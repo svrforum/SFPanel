@@ -111,3 +111,27 @@ func TestValidateCustomSourcePath_RejectsBadInputs(t *testing.T) {
 		}
 	}
 }
+
+// TestLogStreamDrain_TimesOutOnWedgedScanner documents the drain pattern used
+// in LogStreamWS: after killing the subprocess, we wait at most 2 seconds for
+// the scanner goroutine to exit. If the scanner is wedged (e.g. SIGKILL race
+// where the child was already reaped, or a non-cancellable syscall), we
+// abandon it rather than blocking the handler — the goroutine will eventually
+// exit when its read errors out. This is a pattern test, not an exercise of
+// the full WS handler, but mirrors the select inline.
+func TestLogStreamDrain_TimesOutOnWedgedScanner(t *testing.T) {
+	scanDone := make(chan struct{})
+	// Never close scanDone — simulate the wedged scanner.
+
+	start := time.Now()
+	select {
+	case <-scanDone:
+		t.Fatal("scanDone closed unexpectedly")
+	case <-time.After(2 * time.Second):
+		// expected
+	}
+	elapsed := time.Since(start)
+	if elapsed < 1500*time.Millisecond || elapsed > 2500*time.Millisecond {
+		t.Errorf("elapsed=%v, want ~2s", elapsed)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -500,8 +501,16 @@ func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 			_ = tailCmd.Process.Kill()
 		}
 		// Now wait for the scanner goroutine to drain, so the handler's
-		// outer ws.Close() can't race an in-flight write.
-		<-scanDone
+		// outer ws.Close() can't race an in-flight write. Bounded by a 2s
+		// deadline so a wedged scanner (SIGKILL race, non-cancellable syscall)
+		// can't keep the WS open indefinitely. The goroutine will eventually
+		// exit when its read errors out; we just don't block on it.
+		select {
+		case <-scanDone:
+		case <-time.After(2 * time.Second):
+			slog.Warn("logs: scanner drain timeout, abandoning goroutine",
+				"component", "logs")
+		}
 		return nil
 	}
 }
