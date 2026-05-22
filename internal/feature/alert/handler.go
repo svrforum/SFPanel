@@ -3,6 +3,7 @@ package alert
 import (
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -268,7 +269,16 @@ func (h *Handler) TestChannel(c echo.Context) error {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "invalid discord config: webhook_url required")
 		}
 		if err := channels.SendDiscord(cfg.WebhookURL, title, message, "info"); err != nil {
-			return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, err.Error())
+			// err wraps ErrChannelDelivery and never contains the webhook URL
+			// — safe to log, but the client must still see a generic phrase
+			// so an API consumer with no log access cannot probe webhook
+			// validity.
+			slog.Warn("test channel failed",
+				"component", "alert",
+				"channel_id", ch.ID,
+				"channel_type", ch.Type,
+				"err", err)
+			return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "channel delivery failed; check channel configuration")
 		}
 	case "telegram":
 		var cfg struct {
@@ -279,7 +289,13 @@ func (h *Handler) TestChannel(c echo.Context) error {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "invalid telegram config: bot_token and chat_id required")
 		}
 		if err := channels.SendTelegram(cfg.BotToken, cfg.ChatID, title, message, "info"); err != nil {
-			return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, err.Error())
+			// Same reasoning as the discord branch above.
+			slog.Warn("test channel failed",
+				"component", "alert",
+				"channel_id", ch.ID,
+				"channel_type", ch.Type,
+				"err", err)
+			return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "channel delivery failed; check channel configuration")
 		}
 	default:
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "unsupported channel type")
