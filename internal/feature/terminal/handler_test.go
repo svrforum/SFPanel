@@ -283,6 +283,91 @@ func TestTerminalWS_EmptyUsernameDoesNotCreateSession(t *testing.T) {
 	}
 }
 
+// TestReadyReaper_NoReadersReapsAfterIdleWindow exercises both branches of
+// isReadyForReap: the zero-readers branch (reap after idleReapAfter regardless
+// of lastUse) and the has-readers branch (legacy lastUse + perInputTimeout).
+// Together these close the orphaned-PTY hole where a user fires a long-running
+// command, closes the browser tab, and the PTY survives until terminal_timeout
+// elapses (default 30m) because lastUse was bumped on the last input.
+func TestReadyReaper_NoReadersReapsAfterIdleWindow(t *testing.T) {
+	base := time.Now()
+
+	// No readers, just past idleReapAfter — should reap.
+	sess := &terminalSession{
+		readers:          map[*websocket.Conn]*readerState{},
+		lastUse:          base, // recent input, but no readers anymore
+		lastReaderLeftAt: base.Add(-idleReapAfter - 1*time.Second),
+	}
+	if !isReadyForReap(sess, base, 30*time.Minute) {
+		t.Error("no readers + past idle window: want reap=true")
+	}
+
+	// No readers, within idleReapAfter — should NOT reap.
+	sess2 := &terminalSession{
+		readers:          map[*websocket.Conn]*readerState{},
+		lastUse:          base,
+		lastReaderLeftAt: base.Add(-1 * time.Minute),
+	}
+	if isReadyForReap(sess2, base, 30*time.Minute) {
+		t.Error("no readers + within idle window: want reap=false")
+	}
+
+	// Has readers, but lastUse is past per-input timeout — should reap (existing semantics).
+	fakeReader := &websocket.Conn{} // never used; just non-nil sentinel
+	sess3 := &terminalSession{
+		readers: map[*websocket.Conn]*readerState{
+			fakeReader: {send: make(chan []byte), done: make(chan struct{})},
+		},
+		lastUse: base.Add(-31 * time.Minute),
+	}
+	if !isReadyForReap(sess3, base, 30*time.Minute) {
+		t.Error("has readers + lastUse past timeout: want reap=true")
+	}
+
+	// Has readers, lastUse recent — should NOT reap.
+	sess4 := &terminalSession{
+		readers: map[*websocket.Conn]*readerState{
+			fakeReader: {send: make(chan []byte), done: make(chan struct{})},
+		},
+		lastUse: base.Add(-1 * time.Minute),
+	}
+	if isReadyForReap(sess4, base, 30*time.Minute) {
+		t.Error("has readers + lastUse recent: want reap=false")
+	}
+}
+
+func TestRemoveReader_StampsLastReaderLeftAt(t *testing.T) {
+	fakeReader := &websocket.Conn{}
+	sess := &terminalSession{
+		readers: map[*websocket.Conn]*readerState{
+			fakeReader: {send: make(chan []byte, 1), done: make(chan struct{})},
+		},
+	}
+	before := time.Now()
+	sess.removeReader(fakeReader)
+	after := time.Now()
+	sess.mu.Lock()
+	stamp := sess.lastReaderLeftAt
+	sess.mu.Unlock()
+	if stamp.Before(before) || stamp.After(after) {
+		t.Errorf("lastReaderLeftAt = %v, want in [%v, %v]", stamp, before, after)
+	}
+}
+
+func TestAddReader_ClearsLastReaderLeftAt(t *testing.T) {
+	sess := &terminalSession{
+		readers:          map[*websocket.Conn]*readerState{},
+		lastReaderLeftAt: time.Now().Add(-1 * time.Hour),
+	}
+	sess.addReader(&websocket.Conn{})
+	sess.mu.Lock()
+	stamp := sess.lastReaderLeftAt
+	sess.mu.Unlock()
+	if !stamp.IsZero() {
+		t.Errorf("lastReaderLeftAt = %v, want zero time after new reader join", stamp)
+	}
+}
+
 // TestStartReader_IsIdempotent verifies P0-18: two concurrent calls to
 // startReader on the same session must spawn only one PTY-reader goroutine.
 // We can't drive a real PTY in a unit test, so we wrap startOnce directly.

@@ -40,6 +40,13 @@ const maxTerminalSessions = 20       // Maximum concurrent terminal sessions
 // well below the point at which one slow client could starve the host.
 const readerSendQueue = 64
 
+// idleReapAfter is how long a session sits with zero readers before the
+// cleanup goroutine reaps it, regardless of the operator-configured
+// terminal_timeout. Without this guard a user who closes a browser tab on
+// a long-running command (tail -f, apt upgrade) keeps the PTY alive for
+// the full terminal_timeout window (default 30m) with no observer.
+const idleReapAfter = 5 * time.Minute
+
 // sameOriginOrEmpty mirrors websocket/handler.go's CheckOrigin: accept
 // when Origin is absent (curl/websocat/desktop wrapper) or its host
 // matches the request host. Anything else is a foreign Origin from a
@@ -157,12 +164,13 @@ func (r *ringBuffer) Bytes() []byte {
 }
 
 type terminalSession struct {
-	mu         sync.Mutex
-	ptmx       *os.File
-	cmd        *exec.Cmd
-	lastUse    time.Time
-	scrollback *ringBuffer
-	writeMu    sync.Mutex // protects ptmx.Write and pty.Setsize (both write to the PTY fd)
+	mu               sync.Mutex
+	ptmx             *os.File
+	cmd              *exec.Cmd
+	lastUse          time.Time
+	lastReaderLeftAt time.Time // set when the last reader leaves; zero while readers attached
+	scrollback       *ringBuffer
+	writeMu          sync.Mutex // protects ptmx.Write and pty.Setsize (both write to the PTY fd)
 	// readers maps each connected WebSocket to its per-reader send state
 	// so broadcast can fan-out output without holding up the PTY reader
 	// on any one slow client.
@@ -195,6 +203,13 @@ func (s *terminalSession) addReader(ws *websocket.Conn) *readerState {
 	s.readersMu.Lock()
 	s.readers[ws] = state
 	s.readersMu.Unlock()
+
+	// Clear the idle stamp — a new reader is attached so the "no readers"
+	// reaper branch doesn't apply.
+	s.mu.Lock()
+	s.lastReaderLeftAt = time.Time{}
+	s.mu.Unlock()
+
 	return state
 }
 
@@ -204,7 +219,14 @@ func (s *terminalSession) removeReader(ws *websocket.Conn) {
 		state.kick()
 		delete(s.readers, ws)
 	}
+	empty := len(s.readers) == 0
 	s.readersMu.Unlock()
+
+	if empty {
+		s.mu.Lock()
+		s.lastReaderLeftAt = time.Now()
+		s.mu.Unlock()
+	}
 }
 
 // writeLoop drains the per-reader send queue and writes to the WebSocket.
@@ -218,7 +240,13 @@ func (s *terminalSession) writeLoop(ws *websocket.Conn, state *readerState) {
 		if cur, ok := s.readers[ws]; ok && cur == state {
 			delete(s.readers, ws)
 		}
+		empty := len(s.readers) == 0
 		s.readersMu.Unlock()
+		if empty {
+			s.mu.Lock()
+			s.lastReaderLeftAt = time.Now()
+			s.mu.Unlock()
+		}
 	}()
 	for {
 		select {
@@ -502,8 +530,40 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 	}
 }
 
+// isReadyForReap reports whether the session should be cleaned up at `now`.
+// If there are zero readers attached, the session is reaped after
+// idleReapAfter regardless of the per-input timeout. If readers are
+// attached, the legacy lastUse + perInputTimeout semantics apply.
+//
+// The zero-readers branch fires even when perInputTimeout == 0 (operator
+// set terminal_timeout=0 for never-expire). That's intentional: a tab
+// close on a long-running command must not be allowed to leak a PTY
+// forever just because the operator opted out of the per-input timeout.
+//
+// The caller must hold no locks on sess — this helper takes them itself.
+func isReadyForReap(sess *terminalSession, now time.Time, perInputTimeout time.Duration) bool {
+	sess.readersMu.Lock()
+	readerCount := len(sess.readers)
+	sess.readersMu.Unlock()
+
+	sess.mu.Lock()
+	lastUse := sess.lastUse
+	lastLeft := sess.lastReaderLeftAt
+	sess.mu.Unlock()
+
+	if readerCount == 0 {
+		return !lastLeft.IsZero() && now.Sub(lastLeft) > idleReapAfter
+	}
+	if perInputTimeout == 0 {
+		return false // 0 = never expire
+	}
+	return now.Sub(lastUse) > perInputTimeout
+}
+
 // CleanupTerminalSessions removes idle terminal sessions based on the
-// terminal_timeout setting (in minutes). A value of 0 means never expire.
+// terminal_timeout setting (in minutes). A value of 0 means never expire
+// for the per-input branch; sessions with zero readers are still reaped
+// after idleReapAfter (see isReadyForReap).
 // The goroutine stops when ctx is cancelled (main.go wires this to the
 // graceful shutdown signal).
 func CleanupTerminalSessions(ctx context.Context, db *sql.DB) {
@@ -526,23 +586,22 @@ func CleanupTerminalSessions(ctx context.Context, db *sql.DB) {
 			if err != nil || timeoutMin < 0 {
 				timeoutMin = 30
 			}
-			if timeoutMin == 0 {
-				continue // 0 = never expire
-			}
 
+			// timeout = 0 means "never expire" for the per-input branch.
+			// The zero-readers branch inside isReadyForReap still applies,
+			// so this pass continues rather than `continue`-ing.
 			timeout := time.Duration(timeoutMin) * time.Minute
+
 			// Collect expired sessions under lock, clean up outside lock
 			type expired struct {
 				id   string
 				sess *terminalSession
 			}
 			var toClean []expired
+			now := time.Now()
 			sessionsMu.Lock()
 			for id, sess := range sessions {
-				sess.mu.Lock()
-				idle := time.Since(sess.lastUse) > timeout
-				sess.mu.Unlock()
-				if idle {
+				if isReadyForReap(sess, now, timeout) {
 					delete(sessions, id)
 					toClean = append(toClean, expired{id, sess})
 				}
