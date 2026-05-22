@@ -501,6 +501,14 @@ func (h *Handler) GetStatus(c echo.Context) error {
 	}
 
 	overview := mgr.GetOverview()
+	if overview == nil {
+		return response.OK(c, map[string]interface{}{
+			"enabled":   true,
+			"stale":     true,
+			"local_id":  mgr.LocalNodeID(),
+			"is_leader": mgr.IsLeader(),
+		})
+	}
 	return response.OK(c, map[string]interface{}{
 		"enabled":    true,
 		"name":       overview.Name,
