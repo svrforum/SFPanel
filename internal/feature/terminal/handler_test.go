@@ -176,7 +176,10 @@ func TestSessionKey_EmptySessionIDStillBindsToUser(t *testing.T) {
 // the X-SFPanel-Original-User header is empty (which the proxy middleware
 // should never emit, but we don't trust it absolutely), authenticateWS must
 // refuse rather than letting buildSessionKey("", id) yield a key that
-// collides across every empty-username request.
+// collides across every empty-username request. The empty-username branch
+// must also return a non-nil error — c.JSON returns nil on a successful
+// write, and the previous "return c.JSON(...)" form let the caller's
+// err == nil check pass and continue with username == "".
 func TestAuthenticateWS_RefusesEmptyProxyUsername(t *testing.T) {
 	// Configure a proxy secret so IsInternalProxyRequest can validate the
 	// v1 header path. Restore the previous value when the test ends so we
@@ -192,17 +195,91 @@ func TestAuthenticateWS_RefusesEmptyProxyUsername(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)
 
-	user, _ := authenticateWS(c, "irrelevant-jwt-secret")
+	user, err := authenticateWS(c, "irrelevant-jwt-secret")
 	if user != "" {
 		t.Errorf("authenticateWS user = %q, want \"\" so buildSessionKey is never called with the colliding empty-username key", user)
 	}
-	// c.JSON returns nil on a successful write, mirroring the existing
-	// JWT-fail branch — Echo treats handler nil-return as "I already
-	// wrote the response", so the operative assertion is that a 401 was
-	// emitted (headers committed, subsequent Upgrader.Upgrade will fail)
-	// and the empty username never propagates to the caller.
+	if err == nil {
+		t.Error("authenticateWS err = nil, want non-nil so TerminalWS aborts before Upgrader.Upgrade")
+	}
+	// A 401 must also have been written so any client that ignores the
+	// response and tries to upgrade anyway sees the rejection on the wire.
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("response status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestAuthenticateWS_RefusesMissingJWT verifies the JWT-fail branch returns a
+// non-nil error. Same contract as the proxy-username branch: empty username
+// must never coincide with err == nil, or the caller proceeds past the
+// security guard.
+func TestAuthenticateWS_RefusesMissingJWT(t *testing.T) {
+	// No proxy secret configured — the request must be evaluated via the
+	// JWT path, which has no credentials and must fail.
+	prev := auth.ClusterProxySecret()
+	auth.SetClusterProxySecret("")
+	t.Cleanup(func() { auth.SetClusterProxySecret(prev) })
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/terminal/ws", nil)
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+
+	user, err := authenticateWS(c, "any-secret")
+	if user != "" {
+		t.Errorf("authenticateWS user = %q, want \"\"", user)
+	}
+	if err == nil {
+		t.Error("authenticateWS err = nil, want non-nil")
+	}
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("response status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestTerminalWS_EmptyUsernameDoesNotCreateSession is the regression test
+// requested by the reviewer: with proxy auth valid but the original-user
+// header empty, TerminalWS must NOT proceed to create a PTY session keyed on
+// "\x00default" (the collision key). We can't drive a real WS upgrade here
+// without a much larger harness, so the test exercises the authenticateWS
+// contract directly and asserts the sessions map is unchanged. Combined with
+// the call-site (TerminalWS line 355-358) which aborts on err != nil, this
+// proves an empty-username request can never reach buildSessionKey.
+func TestTerminalWS_EmptyUsernameDoesNotCreateSession(t *testing.T) {
+	prev := auth.ClusterProxySecret()
+	auth.SetClusterProxySecret("test-secret")
+	t.Cleanup(func() { auth.SetClusterProxySecret(prev) })
+
+	// Snapshot the sessions map length before the call.
+	sessionsMu.Lock()
+	before := len(sessions)
+	sessionsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/terminal/ws?session_id=hijack", nil)
+	req.Header.Set(auth.InternalProxyHeader, "test-secret")
+	// Deliberately omit X-SFPanel-Original-User to trigger the guard.
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+
+	user, err := authenticateWS(c, "any-secret")
+	if user != "" || err == nil {
+		t.Fatalf("authenticateWS = (%q, %v), want (\"\", non-nil)", user, err)
+	}
+
+	// The TerminalWS handler returns immediately on err != nil, BEFORE
+	// touching the sessions map. Verify the map is unchanged.
+	sessionsMu.Lock()
+	after := len(sessions)
+	sessionsMu.Unlock()
+	if after != before {
+		t.Errorf("sessions map size changed: before=%d after=%d (empty-username request must not create a session)", before, after)
+	}
+
+	// And no session was registered under the collision key.
+	sessionsMu.Lock()
+	_, collided := sessions[buildSessionKey("", "hijack")]
+	sessionsMu.Unlock()
+	if collided {
+		t.Error("a session was created under the empty-username collision key — the hijack vector is open")
 	}
 }
 

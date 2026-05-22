@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -21,6 +22,14 @@ import (
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/common/safe"
 )
+
+// errUnauthenticatedWS is returned by authenticateWS when the upgrade should
+// be refused. The 401 response is already written; the caller need only
+// propagate err so Echo treats the request as terminal. Without this sentinel
+// the previous "return c.JSON(401, …)" form returned nil on a successful
+// header write, leaving the caller to proceed with username == "" and
+// reopening the per-user binding hijack that authenticateWS exists to close.
+var errUnauthenticatedWS = errors.New("terminal: WebSocket not authenticated")
 
 const scrollbackBufSize = 256 * 1024 // 256 KB ring buffer per session
 const maxTerminalSessions = 20       // Maximum concurrent terminal sessions
@@ -73,14 +82,20 @@ func authenticateWS(c echo.Context, jwtSecret string) (string, error) {
 		// because that would shadow a real admin's PTY sessions.
 		user := c.Request().Header.Get("X-SFPanel-Original-User")
 		if user == "" {
-			return "", c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			_ = c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return "", errUnauthenticatedWS
 		}
 		return user, nil
 	}
 	if user := auth.AuthenticateWSRequest(c.Request(), jwtSecret); user != "" {
 		return user, nil
 	}
-	return "", c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	// c.JSON returns nil on a successful write — propagating that would
+	// leave the caller's err-check passing and the handler proceeding
+	// with an empty username. Always return a non-nil error so empty
+	// username can never reach buildSessionKey.
+	_ = c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	return "", errUnauthenticatedWS
 }
 
 // ringBuffer is a fixed-size circular byte buffer that keeps the most recent
