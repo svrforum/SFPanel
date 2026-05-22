@@ -36,13 +36,14 @@ func TestTelegram_ErrorDoesNotLeakToken(t *testing.T) {
 }
 
 func TestDiscord_ErrorDoesNotLeakWebhook(t *testing.T) {
-	const webhook = "https://discord.example.invalid/api/webhooks/123/SECRETPATH"
-	err := sendDiscordTo(makeBrokenServer(t)+"/webhooks/123/SECRETPATH", "msg")
+	err := sendDiscordTo(makeBrokenServer(t)+"/webhooks/123/SECRETPATH", []byte(`{"content":"msg"}`))
 	if err == nil {
 		t.Fatal("expected error")
 	}
 	if strings.Contains(err.Error(), "SECRETPATH") {
 		t.Errorf("error leaks webhook secret: %q", err.Error())
 	}
-	_ = webhook // referenced for readability
+	if !errors.Is(err, ErrChannelDelivery) {
+		t.Errorf("error is not classified as delivery: %v", err)
+	}
 }

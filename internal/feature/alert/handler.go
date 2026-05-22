@@ -278,7 +278,7 @@ func (h *Handler) TestChannel(c echo.Context) error {
 				"channel_id", ch.ID,
 				"channel_type", ch.Type,
 				"err", err)
-			return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "channel delivery failed; check channel configuration")
+			return response.Fail(c, http.StatusBadGateway, response.ErrChannelError, "channel delivery failed; check channel configuration")
 		}
 	case "telegram":
 		var cfg struct {
@@ -295,7 +295,7 @@ func (h *Handler) TestChannel(c echo.Context) error {
 				"channel_id", ch.ID,
 				"channel_type", ch.Type,
 				"err", err)
-			return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, "channel delivery failed; check channel configuration")
+			return response.Fail(c, http.StatusBadGateway, response.ErrChannelError, "channel delivery failed; check channel configuration")
 		}
 	default:
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "unsupported channel type")

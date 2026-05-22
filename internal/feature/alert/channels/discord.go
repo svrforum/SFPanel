@@ -59,18 +59,14 @@ func SendDiscord(webhookURL, title, message, severity string) error {
 	if err != nil {
 		return fmt.Errorf("%w: marshal payload", ErrChannelDelivery)
 	}
-	return sendDiscordTo(webhookURL, string(body))
+	return sendDiscordTo(webhookURL, body)
 }
 
 // sendDiscordTo posts a pre-built JSON payload to the given Discord webhook URL.
 // Errors are wrapped with ErrChannelDelivery and a fixed phrase so the
 // caller-visible message never includes the webhook secret path.
-//
-// The second argument is the marshaled JSON payload as a string; the helper
-// must not introduce the URL into the error path. For the test helper the
-// payload value is irrelevant — the transport fails before the body is parsed.
-func sendDiscordTo(webhookURL, jsonBody string) error {
-	resp, err := alertHTTPClient.Post(webhookURL, "application/json", bytes.NewReader([]byte(jsonBody)))
+func sendDiscordTo(webhookURL string, body []byte) error {
+	resp, err := alertHTTPClient.Post(webhookURL, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("%w: transport error", ErrChannelDelivery)
 	}
