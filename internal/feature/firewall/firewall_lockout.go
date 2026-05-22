@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -109,4 +110,91 @@ func wouldLockOutOnAdd(req AddRuleRequest, panelPort int) bool {
 		return false
 	}
 	return n == SSHPort || n == panelPort
+}
+
+// loadUFWRulesForLockoutCheck returns the rule set that would apply if UFW
+// were enabled. `ufw status numbered` only lists the live ruleset; when UFW
+// is inactive that output is empty even if the operator has pre-staged
+// `ufw allow 22` (those rules live in /etc/ufw/user.rules regardless of
+// UFW's enabled state). For the lockout precheck on EnableUFW we need to
+// see those staged rules, so we fall back to `ufw show added` — which
+// lists pre-staged ALLOW/DENY rules as `ufw allow …` lines — and parse
+// that instead.
+func (h *Handler) loadUFWRulesForLockoutCheck() ([]UFWRule, error) {
+	out, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "status", "numbered")
+	if err != nil {
+		return nil, err
+	}
+	if !strings.Contains(strings.ToLower(out), "status: inactive") {
+		return parseUFWRules(out), nil
+	}
+	// Inactive: try `ufw show added` for pre-staged rules. If it fails for
+	// any reason, fall back to the (empty) parsed status output — the
+	// caller will refuse to enable, which is the safer default; the
+	// operator can still pass force=true.
+	addedOut, addedErr := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "show", "added")
+	if addedErr != nil {
+		return parseUFWRules(out), nil
+	}
+	return parseUFWAddedOutput(addedOut), nil
+}
+
+// ufwAddedLineRe matches lines like "ufw allow 22/tcp" or
+// "ufw allow from 192.168.1.0/24" emitted by `ufw show added`.
+var ufwAddedLineRe = regexp.MustCompile(`^ufw allow\s+(.+)$`)
+
+// ufwAddedPortRe matches a bare port token, optionally suffixed with
+// /tcp or /udp — the only forms the lockout check needs to recognize.
+var ufwAddedPortRe = regexp.MustCompile(`^(\d+)(?:/(?:tcp|udp))?$`)
+
+// parseUFWAddedOutput parses `ufw show added` into UFWRule entries
+// sufficient for hasAccessRule. Only ALLOW rules with a numeric port are
+// returned — DENY rules don't help against lockout, and rules without a
+// port (e.g. "allow from <CIDR>") are skipped because hasAccessRule
+// matches on the .To port. App-profile names like "OpenSSH" are also
+// preserved verbatim in .To so ruleAllowsPort's profile branch fires.
+func parseUFWAddedOutput(out string) []UFWRule {
+	rules := make([]UFWRule, 0)
+	for _, raw := range strings.Split(out, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "Added user rules") {
+			continue
+		}
+		m := ufwAddedLineRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		spec := strings.TrimSpace(m[1])
+		tokens := strings.Fields(spec)
+		if len(tokens) == 0 {
+			continue
+		}
+		first := tokens[0]
+		// Skip clauses that don't lead with a port — `from <addr>`,
+		// `to <addr>`, `in on <iface>`, etc. ruleAllowsPort can't match
+		// these against a port number anyway.
+		if first == "from" || first == "to" || first == "in" || first == "out" || first == "on" {
+			continue
+		}
+		// App-profile name (e.g. "OpenSSH") — pass through so
+		// ruleAllowsPort's profile mapping handles it.
+		if portMatch := ufwAddedPortRe.FindStringSubmatch(first); portMatch != nil {
+			port, err := strconv.Atoi(portMatch[1])
+			if err != nil {
+				continue
+			}
+			rules = append(rules, UFWRule{
+				Action: "ALLOW",
+				To:     strconv.Itoa(port),
+			})
+			continue
+		}
+		// Non-numeric leading token: treat as an app-profile name and
+		// hand it to ruleAllowsPort verbatim.
+		rules = append(rules, UFWRule{
+			Action: "ALLOW",
+			To:     first,
+		})
+	}
+	return rules
 }

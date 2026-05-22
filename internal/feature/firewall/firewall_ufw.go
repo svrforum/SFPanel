@@ -81,8 +81,11 @@ func (h *Handler) EnableUFW(c echo.Context) error {
 	if c.QueryParam("force") != "true" {
 		// Best-effort precheck — if ufw status itself fails (e.g. not
 		// installed) we let the enable attempt surface the real error.
-		if out, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "status", "numbered"); err == nil {
-			rules := parseUFWRules(out)
+		// When UFW is inactive, loadUFWRulesForLockoutCheck falls back to
+		// `ufw show added` so pre-staged rules (the typical "I ran
+		// `ufw allow 22` before flipping enable" workflow) satisfy the
+		// guard instead of triggering a false-positive 409.
+		if rules, err := h.loadUFWRulesForLockoutCheck(); err == nil {
 			if !hasAccessRule(rules, h.PanelPort) {
 				return response.Fail(c, http.StatusConflict, response.ErrUFWEnableError,
 					"Enabling UFW with no ALLOW rule for SSH (port 22) or the panel port would lock you out. "+
