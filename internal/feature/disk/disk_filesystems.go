@@ -511,6 +511,16 @@ func (h *Handler) FormatPartition(c echo.Context) error {
 	if err := validateDeviceName(req.Device); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
+	// Refuse to format a device that is currently mounted at a protected
+	// system path (e.g., wiping /dev/sda1 while it backs /boot would brick
+	// the host). findMountPoint returns "" when not mounted; in that case
+	// the format proceeds normally.
+	if mp, err := findMountPoint("/dev/" + req.Device); err == nil && mp != "" {
+		if isProtectedMountpoint(mp) {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
+				"device is mounted at a protected system path")
+		}
+	}
 	if err := validateFsType(req.FsType); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFSType, err.Error())
 	}
@@ -635,14 +645,12 @@ func (h *Handler) MountFilesystem(c echo.Context) error {
 	if err := validateDiskPath(req.MountPoint); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidMountpoint, err.Error())
 	}
+	if isProtectedMountpoint(req.MountPoint) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidMountpoint,
+			"mountpoint is a system path and cannot be used")
+	}
 
 	devPath := "/dev/" + req.Device
-
-	// Ensure mount point directory exists
-	if err := os.MkdirAll(req.MountPoint, 0755); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrMountError,
-			fmt.Sprintf("failed to create mount point directory: %v", err))
-	}
 
 	args := []string{}
 	if req.FsType != "" {
@@ -660,6 +668,13 @@ func (h *Handler) MountFilesystem(c echo.Context) error {
 		args = append(args, "-o", req.Options)
 	}
 	args = append(args, devPath, req.MountPoint)
+
+	// Ensure mount point directory exists. Done after every validation so
+	// a request rejected on FsType/Options doesn't leave an empty dir behind.
+	if err := os.MkdirAll(req.MountPoint, 0755); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrMountError,
+			fmt.Sprintf("failed to create mount point directory: %v", err))
+	}
 
 	out, err := h.Cmd.Run("mount", args...)
 	if err != nil {
@@ -681,6 +696,10 @@ func (h *Handler) UnmountFilesystem(c echo.Context) error {
 
 	if err := validateDiskPath(req.MountPoint); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidMountpoint, err.Error())
+	}
+	if isProtectedMountpoint(req.MountPoint) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidMountpoint,
+			"refusing to unmount system mountpoint")
 	}
 
 	out, err := h.Cmd.Run("umount", req.MountPoint)
