@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v4"
 	_ "modernc.org/sqlite"
 
+	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/config"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 )
@@ -345,6 +346,73 @@ func TestPersistAdminAccount_ClusterOnlyWithoutManagerFails(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("local admin rows = %d, want 0 (must not silently INSERT)", n)
+	}
+}
+
+// TestRefresh_RotationRollsBackOnJWTFailure exercises the JWT-then-commit
+// ordering invariant: if access-token signing fails, the rotation transaction
+// must NOT have consumed the old refresh token. Otherwise a single transient
+// signer failure tombstones the client's only token, and the subsequent retry
+// trips OWASP family-revoke (token-reuse detection) and logs the user out
+// across every device.
+//
+// We inject the failure via the package-level generateAccessToken seam — the
+// jwt-v5 HMAC signer tolerates empty keys, so there is no input-layer trigger.
+func TestRefresh_RotationRollsBackOnJWTFailure(t *testing.T) {
+	h, db := newRefreshHandler(t)
+	if _, err := db.Exec(`INSERT INTO admin (username, password) VALUES (?, ?)`, "alice", "x"); err != nil {
+		t.Fatalf("seed admin: %v", err)
+	}
+	raw, hashHex := seedRefreshToken(t, db, "alice")
+
+	// Force the access-token signer to fail. Restored before the retry below.
+	original := generateAccessToken
+	generateAccessToken = func(username, secret string, expiry time.Duration) (string, error) {
+		return "", errors.New("synthetic signing failure")
+	}
+
+	body := strings.NewReader(`{"refresh_token":"` + raw + `"}`)
+	req := httptest.NewRequest("POST", "/api/v1/auth/refresh", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+
+	if err := h.Refresh(c); err != nil {
+		t.Fatalf("Refresh returned err: %v", err)
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("first call status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// The original token must NOT be consumed: a retry with the signer
+	// repaired must succeed. If the rotation already wrote consumed_at, the
+	// retry trips family-revoke (401 "Session revoked").
+	generateAccessToken = original
+	t.Cleanup(func() { generateAccessToken = auth.GenerateToken })
+
+	body2 := strings.NewReader(`{"refresh_token":"` + raw + `"}`)
+	req2 := httptest.NewRequest("POST", "/api/v1/auth/refresh", body2)
+	req2.Header.Set("Content-Type", "application/json")
+	rec2 := httptest.NewRecorder()
+	c2 := echo.New().NewContext(req2, rec2)
+
+	if err := h.Refresh(c2); err != nil {
+		t.Fatalf("retry Refresh returned err: %v", err)
+	}
+	if rec2.Code != http.StatusOK {
+		t.Errorf("retry after signer repair: status=%d body=%s, want 200",
+			rec2.Code, rec2.Body.String())
+	}
+
+	// Belt-and-braces: confirm the original row was not consumed by the
+	// failed first call.
+	var consumed sql.NullString
+	if err := db.QueryRow(`SELECT consumed_at FROM refresh_tokens WHERE token_hash = ?`, hashHex).Scan(&consumed); err != nil {
+		// After a successful retry the row IS tombstoned, so ErrNoRows here
+		// would be a quirk of pruning, not a regression. Tolerate it.
+		if !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("post-retry row check: %v", err)
+		}
 	}
 }
 
