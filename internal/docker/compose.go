@@ -108,6 +108,9 @@ func findComposeFile(dir string) string {
 // It first checks running containers' config_files label (which points to the
 // real compose file used during deployment), then falls back to findComposeFile.
 func (m *ComposeManager) resolveComposeFilePath(ctx context.Context, name string) (yamlPath string, dir string) {
+	if err := m.validateProjectName(name); err != nil {
+		return "", ""
+	}
 	projectDir := filepath.Join(m.baseDir, name)
 
 	// Try to find the actual config file from running containers
@@ -144,10 +147,18 @@ func (m *ComposeManager) resolveComposeFilePath(ctx context.Context, name string
 }
 
 // ResolveComposeFile is the public entry to find the compose YAML file
-// for a project. Returns ("", "") if the project directory contains no
-// recognizable compose file. Used by feature handlers that need to
-// read+write compose YAML directly (Theme D Phase 2 healthcheck composer).
+// for a project. Returns ("", "") if the project name is invalid or
+// the project directory contains no recognizable compose file. Used by
+// feature handlers that need to read+write compose YAML directly
+// (Theme D Phase 2 healthcheck composer). The project-name validation
+// matches the gate used by every other public method on
+// ComposeManager — a traversal-bearing :project URL parameter
+// (e.g. "../etc") yields the empty sentinel that handlers already
+// treat as 404.
 func (m *ComposeManager) ResolveComposeFile(ctx context.Context, name string) (yamlPath string, dir string) {
+	if err := m.validateProjectName(name); err != nil {
+		return "", ""
+	}
 	return m.resolveComposeFilePath(ctx, name)
 }
 

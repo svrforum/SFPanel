@@ -590,13 +590,13 @@ func (h *Handler) ApplyHealthcheck(c echo.Context) error {
 	}
 
 	backupPath := yamlPath + ".bak.healthcheck." + strconv.FormatInt(time.Now().UnixMilli(), 10)
-	if err := os.WriteFile(backupPath, original, 0o644); err != nil {
+	if err := os.WriteFile(backupPath, original, 0o600); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWriteError,
 			"backup failed: "+response.SanitizeOutput(err.Error()))
 	}
 
 	tmp := yamlPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(newYAML), 0o644); err != nil {
+	if err := os.WriteFile(tmp, []byte(newYAML), 0o600); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWriteError,
 			response.SanitizeOutput(err.Error()))
 	}
@@ -737,13 +737,13 @@ func (h *Handler) RemoveHealthcheck(c echo.Context) error {
 	}
 
 	backupPath := yamlPath + ".bak.healthcheck." + strconv.FormatInt(time.Now().UnixMilli(), 10)
-	if err := os.WriteFile(backupPath, original, 0o644); err != nil {
+	if err := os.WriteFile(backupPath, original, 0o600); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWriteError,
 			"backup failed: "+response.SanitizeOutput(err.Error()))
 	}
 
 	tmp := yamlPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(newYAML), 0o644); err != nil {
+	if err := os.WriteFile(tmp, []byte(newYAML), 0o600); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWriteError,
 			response.SanitizeOutput(err.Error()))
 	}
