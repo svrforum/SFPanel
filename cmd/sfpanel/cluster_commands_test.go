@@ -1,12 +1,81 @@
 package main
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/config"
 )
+
+// attachCSRFIfNeeded synthesizes a same-value cookie+header pair so
+// CLI-issued state-changing calls satisfy CSRFProtect middleware. Tested
+// here so a future refactor that breaks the same-value invariant — or
+// drops the cookie on the safe-method path — is caught early. The
+// middleware-side reception is covered by TestCSRFProtect_HeaderMatchAccepted
+// in internal/api/middleware/csrf_test.go.
+
+func TestAttachCSRFIfNeeded_AttachesSameValueOnPOST(t *testing.T) {
+	req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:3628/api/v1/cluster/leader-transfer", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	if err := attachCSRFIfNeeded(req); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	cookie, err := req.Cookie(auth.CSRFCookieName)
+	if err != nil {
+		t.Fatalf("CSRF cookie missing: %v", err)
+	}
+	header := req.Header.Get(auth.CSRFHeaderName)
+	if header == "" {
+		t.Fatalf("CSRF header missing")
+	}
+	if cookie.Value != header {
+		t.Errorf("cookie %q != header %q (middleware does constant-time compare)", cookie.Value, header)
+	}
+	if len(cookie.Value) < 16 {
+		t.Errorf("token too short: %d chars, want >=16 hex", len(cookie.Value))
+	}
+}
+
+func TestAttachCSRFIfNeeded_SkipsSafeMethods(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodOptions} {
+		t.Run(method, func(t *testing.T) {
+			req, err := http.NewRequest(method, "http://127.0.0.1:3628/api/v1/cluster/status", nil)
+			if err != nil {
+				t.Fatalf("new request: %v", err)
+			}
+			if err := attachCSRFIfNeeded(req); err != nil {
+				t.Fatalf("attach: %v", err)
+			}
+			if _, err := req.Cookie(auth.CSRFCookieName); err == nil {
+				t.Errorf("%s should not carry CSRF cookie (safe method bypasses middleware)", method)
+			}
+			if req.Header.Get(auth.CSRFHeaderName) != "" {
+				t.Errorf("%s should not carry CSRF header", method)
+			}
+		})
+	}
+}
+
+func TestAttachCSRFIfNeeded_TokensAreUnique(t *testing.T) {
+	req1, _ := http.NewRequest(http.MethodPost, "/x", nil)
+	req2, _ := http.NewRequest(http.MethodPost, "/x", nil)
+	if err := attachCSRFIfNeeded(req1); err != nil {
+		t.Fatal(err)
+	}
+	if err := attachCSRFIfNeeded(req2); err != nil {
+		t.Fatal(err)
+	}
+	c1, _ := req1.Cookie(auth.CSRFCookieName)
+	c2, _ := req2.Cookie(auth.CSRFCookieName)
+	if c1.Value == c2.Value {
+		t.Errorf("two attach calls produced identical tokens: %q (rand should diverge)", c1.Value)
+	}
+}
 
 // TestSaveConfigWritesRestrictivePerms guards against accidentally widening
 // config.yaml perms — the file holds the JWT secret and must stay 0600.

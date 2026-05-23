@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -55,6 +57,27 @@ func loadCfgForCLI(cfgPath string) *config.Config {
 	return cfg
 }
 
+// attachCSRFIfNeeded synthesizes a matching CSRF cookie+header pair on
+// state-changing requests so CLI calls satisfy CSRFProtect middleware
+// (internal/api/middleware/csrf.go). The middleware only checks that the
+// two values are equal, so a same-value pair is sufficient — the CLI has
+// no browser session to carry a real CSRF cookie. Safe methods (GET/HEAD/
+// OPTIONS) bypass CSRF entirely and need no token.
+func attachCSRFIfNeeded(req *http.Request) error {
+	switch req.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return nil
+	}
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Errorf("mint csrf token: %w", err)
+	}
+	token := hex.EncodeToString(buf)
+	req.AddCookie(&http.Cookie{Name: auth.CSRFCookieName, Value: token})
+	req.Header.Set(auth.CSRFHeaderName, token)
+	return nil
+}
+
 // callLocalAPI issues an authenticated HTTP request to the local running
 // sfpanel server, using a short-lived JWT minted from the config's jwt_secret.
 // This is how CLI commands that need LIVE cluster state (token, remove, …)
@@ -82,6 +105,10 @@ func callLocalAPI(cfg *config.Config, method, path string, body interface{}) ([]
 	req.Header.Set("Authorization", "Bearer "+jwt)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+
+	if err := attachCSRFIfNeeded(req); err != nil {
+		return nil, err
 	}
 
 	client := &http.Client{Timeout: 15 * time.Second}

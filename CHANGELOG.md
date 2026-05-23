@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.15.1] – 2026-05-23
+
+CLI bugfix. `sudo sfpanel cluster <state-changing-op>` (leader-transfer,
+token, init, join, leave, remove) all returned 403 `CSRF_TOKEN_MISSING`
+because the CLI's `callLocalAPI` helper sent only the Bearer JWT — the
+browser flow's CSRF cookie+header pair was missing. Discovered when
+trying to drain leadership before a rolling cluster upgrade.
+
+### Fixed
+
+- **cmd/sfpanel** — `callLocalAPI` now attaches a synthetic same-value
+  CSRF cookie+header pair on state-changing methods so CLI calls satisfy
+  `CSRFProtect` middleware. Safe methods (GET/HEAD/OPTIONS) continue to
+  bypass CSRF entirely. Implementation lives in a new
+  `attachCSRFIfNeeded` helper with three unit tests in
+  `cluster_commands_test.go`.
+
+---
+
 ## [0.15.0] – 2026-05-22
 
 Module-hardening follow-up. The 2026-05-22 branch-level review surfaced
