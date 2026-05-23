@@ -153,14 +153,33 @@ func validateV2(secret, header, method, path string) bool {
 	return true
 }
 
+// sameRequestWindow is the grace period within which a repeated nonce is
+// treated as a same-request re-check (e.g. JWT middleware then CSRF
+// middleware on the same inbound request) rather than a replay attack.
+// JWT middleware validates → registers nonce → returns control to echo;
+// echo dispatches the next middleware (CSRF) which calls
+// IsInternalProxyRequest again on the SAME request. Without this grace
+// window the second call would see the nonce in the cache and reject
+// the request as a replay, breaking every cross-node POST that wants
+// the internal-proxy bypass. The window is small enough that a network
+// replay attacker (with at least one RTT of delay between capturing and
+// replaying the nonce) cannot fit inside it on any realistic link.
+const sameRequestWindow = 50 * time.Millisecond
+
 // registerNonce returns true when the nonce hasn't been seen recently and
 // records it. Returns false on replay. Periodically GCs expired entries.
+// A nonce seen again within sameRequestWindow is accepted as a same-
+// request re-check; outside that window it's treated as a replay.
 func registerNonce(nonce string) bool {
 	nonceCacheMu.Lock()
 	defer nonceCacheMu.Unlock()
 
 	now := time.Now()
 	if seen, exists := nonceCache[nonce]; exists {
+		if now.Sub(seen) <= sameRequestWindow {
+			// Same-request middleware re-check; allow.
+			return true
+		}
 		if now.Sub(seen) <= nonceCacheTTL {
 			return false // replay
 		}

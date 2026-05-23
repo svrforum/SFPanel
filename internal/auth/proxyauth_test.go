@@ -45,10 +45,17 @@ func TestValidateV2_RejectsReplay(t *testing.T) {
 		t.Fatal("first use should validate")
 	}
 
+	// Wait past the sameRequestWindow grace period. Within the window a
+	// repeated nonce is accepted as a same-request re-check (JWT then
+	// CSRF middleware on the same inbound request); outside it must be
+	// rejected as a genuine replay — a network replay attacker can't
+	// fit a captured-then-replayed request inside the window.
+	time.Sleep(sameRequestWindow + 10*time.Millisecond)
+
 	r2, _ := http.NewRequest("POST", "http://localhost/api/v1/system/update", nil)
 	r2.Header.Set(InternalProxyHeaderV2, header)
 	if IsInternalProxyRequest(r2) {
-		t.Error("replay (same nonce, same path) should be rejected")
+		t.Error("replay (same nonce, same path) outside grace window should be rejected")
 	}
 }
 
@@ -140,5 +147,30 @@ func TestValidateV2_QueryParamRebinding(t *testing.T) {
 	r.Header.Set(InternalProxyHeaderV2, header)
 	if IsInternalProxyRequest(r) {
 		t.Error("v2 header signed for one query must not validate against a different query")
+	}
+}
+
+// TestIsInternalProxyRequest_RepeatedCallsWithinRequest pins the
+// sameRequestWindow grace period. JWT middleware and CSRF middleware
+// each call IsInternalProxyRequest on the same inbound request; before
+// the grace window the second call hit the nonce-replay cache and
+// reject, breaking every cross-node POST that relied on the
+// internal-proxy bypass. Two middleware re-checks happen in microseconds
+// — well under sameRequestWindow — so both should accept.
+func TestIsInternalProxyRequest_RepeatedCallsWithinRequest(t *testing.T) {
+	resetForTest("test-secret-32-bytes-long-enough!!")
+
+	v2 := SignProxyRequestV2("POST", "/api/v1/system/update")
+	if v2 == "" {
+		t.Fatal("SignProxyRequestV2 returned empty")
+	}
+	req, _ := http.NewRequest("POST", "http://localhost/api/v1/system/update", nil)
+	req.Header.Set(InternalProxyHeaderV2, v2)
+
+	if !IsInternalProxyRequest(req) {
+		t.Fatal("first call returned false")
+	}
+	if !IsInternalProxyRequest(req) {
+		t.Errorf("second call returned false — same-request re-check by JWT+CSRF would fail (regression)")
 	}
 }

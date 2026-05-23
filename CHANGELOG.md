@@ -6,6 +6,49 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.15.2] – 2026-05-24
+
+Cluster-update orchestrator bugfix. The v2 internal-proxy nonce cache
+treated the JWT middleware → CSRF middleware re-check on the same
+inbound request as a "replay", rejecting every cross-node POST that
+relied on the internal-proxy bypass. `/cluster/update` was the headline
+casualty: peers returned `HTTP 403 CSRF_TOKEN_MISSING` even though the
+v1+v2 headers were correctly minted by the gRPC proxy.
+
+Symptoms before the fix:
+- GET via cluster proxy (`?node=<id>`) worked, because CSRF middleware
+  skips safe methods so `IsInternalProxyRequest` was called only once
+  (from JWT middleware).
+- POST via cluster proxy returned 403 — JWT consumed the nonce,
+  CSRF re-validated, the cache saw it as a replay.
+- Web-based "Rolling Update" / "Simultaneous Update" failed for every
+  cluster topology.
+
+### Fixed
+
+- **internal/auth/proxyauth.go** — `registerNonce` now accepts a
+  repeated nonce within a 50 ms grace window as a same-request middleware
+  re-check, rather than rejecting it as a replay. Outside the window it
+  still rejects (network-replay attackers cannot fit a captured-then-
+  replayed request inside 50 ms on any realistic link). Added two unit
+  tests:
+  - `TestIsInternalProxyRequest_RepeatedCallsWithinRequest` — pins the
+    same-request bypass that JWT+CSRF re-check depends on.
+  - `TestIsInternalProxyRequest_ReplayAfterWindowRejected` — pins the
+    genuine-replay rejection outside the window.
+- Existing replay-rejection tests updated to sleep past the grace
+  window before the replay attempt.
+
+### Operator note
+
+For the immediate upgrade from a pre-0.15.2 follower, the orchestrator
+path still hits the bug on the follower's side until the follower is
+running 0.15.2. Upgrade one follower manually once via the GitHub
+Release tarball (or `gh release download`); subsequent cluster updates
+from the web UI work as designed.
+
+---
+
 ## [0.15.1] – 2026-05-23
 
 CLI bugfix. `sudo sfpanel cluster <state-changing-op>` (leader-transfer,

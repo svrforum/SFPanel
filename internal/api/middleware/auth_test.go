@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/auth"
@@ -69,6 +70,11 @@ func TestJWTMiddleware_RejectsReplayedV2(t *testing.T) {
 	if rec1.Code != http.StatusOK {
 		t.Fatalf("first call: status = %d, want 200", rec1.Code)
 	}
+
+	// Wait past the same-request grace window so the cache treats the
+	// next call as a genuine replay rather than a JWT→CSRF re-check on
+	// the same inbound request.
+	time.Sleep(60 * time.Millisecond)
 
 	// Replay rejected by nonce cache → falls through to JWT auth → 401
 	req2 := httptest.NewRequest("GET", "/api/v1/test", nil)
