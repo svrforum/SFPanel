@@ -2,13 +2,17 @@ package featurecluster
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 func TestCheckQuorumAfterRemoval(t *testing.T) {
@@ -47,6 +51,83 @@ func TestCheckQuorumAfterRemoval(t *testing.T) {
 func newNilOverviewStub(t *testing.T) *cluster.Manager {
 	t.Helper()
 	return cluster.NewManager(&config.ClusterConfig{NodeID: "stub-node"})
+}
+
+// TestRollbackInit_FlipsConfigDisabledAndReturns500 covers the post-Init
+// failure helper directly. We cannot drive a real SetConfig failure into the
+// rollback without a live mgr.Init() (CA gen + Raft bootstrap + filesystem),
+// which is far too heavy/stateful for a unit test and there's no Raft unit
+// harness. So we exercise the helper in isolation with mgr=nil (Shutdown must
+// be nil-safe) and assert the two contracts that matter:
+//   (a) HTTP 500 with code INTERNAL_ERROR
+//   (b) the on-disk config now has Cluster.Enabled=false
+func TestRollbackInit_FlipsConfigDisabledAndReturns500(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+
+	cfg := &config.Config{}
+	cfg.Cluster.Enabled = true
+	cfg.Cluster.DataDir = filepath.Join(dir, "data")
+	cfg.Cluster.CertDir = filepath.Join(dir, "certs")
+
+	// Seed the on-disk config so we can prove rollbackInit rewrites it.
+	seed, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("seed marshal: %v", err)
+	}
+	if err := os.WriteFile(cfgPath, seed, 0600); err != nil {
+		t.Fatalf("seed write: %v", err)
+	}
+
+	h := &Handler{Config: cfg, ConfigPath: cfgPath}
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/cluster/init", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	// mgr=nil exercises the nil-safe Shutdown guard.
+	if err := h.rollbackInit(c, nil, errors.New("boom")); err != nil {
+		t.Fatalf("rollbackInit returned error: %v", err)
+	}
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	var body struct {
+		Success bool `json:"success"`
+		Error   struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("parse body: %v", err)
+	}
+	if body.Success {
+		t.Errorf("success=true, want false")
+	}
+	if body.Error.Code != "INTERNAL_ERROR" {
+		t.Errorf("error code = %q, want INTERNAL_ERROR", body.Error.Code)
+	}
+
+	// In-memory config flipped to disabled.
+	if h.Config.Cluster.Enabled {
+		t.Errorf("in-memory Cluster.Enabled=true, want false")
+	}
+
+	// On-disk config flipped to disabled.
+	raw, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read back config: %v", err)
+	}
+	var got config.Config
+	if err := yaml.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	if got.Cluster.Enabled {
+		t.Errorf("on-disk Cluster.Enabled=true, want false")
+	}
 }
 
 func TestGetStatus_NilOverviewReturnsStaleEnabled(t *testing.T) {

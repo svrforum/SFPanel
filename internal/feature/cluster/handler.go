@@ -139,6 +139,56 @@ func (h *Handler) performDisband(fromNodeID string) {
 	})
 }
 
+// rollbackInit cleans up a partially-initialised cluster after a post-Init
+// failure: shuts the manager down, removes the on-disk Raft/TLS material,
+// forces config back to Enabled=false (in memory + on disk, best-effort), and
+// returns a 500. Keeping config Enabled=false means the supervisor restarts
+// the node cleanly in standalone mode rather than as a half-formed member.
+//
+// mgr may be nil — Shutdown is invoked only when it isn't (Manager.Shutdown
+// dereferences struct fields without a receiver-nil guard).
+func (h *Handler) rollbackInit(c echo.Context, mgr *cluster.Manager, err error) error {
+	slog.Error("cluster init rolled back", "component", "cluster", "error", err)
+
+	if mgr != nil {
+		mgr.Shutdown()
+	}
+
+	h.configMu.Lock()
+	dataDir := h.Config.Cluster.DataDir
+	certDir := h.Config.Cluster.CertDir
+	h.configMu.Unlock()
+
+	// Removing the Raft/TLS material matters for a clean retry: a leftover
+	// DataDir trips ErrCantBootstrap on the next init (see L-01). Log on
+	// failure rather than swallow, mirroring performDisband.
+	if dataDir != "" {
+		if rmErr := os.RemoveAll(dataDir); rmErr != nil {
+			slog.Warn("cluster init rollback: failed to remove data dir", "component", "cluster", "path", dataDir, "error", rmErr)
+		}
+	}
+	if certDir != "" {
+		if rmErr := os.RemoveAll(certDir); rmErr != nil {
+			slog.Warn("cluster init rollback: failed to remove cert dir", "component", "cluster", "path", certDir, "error", rmErr)
+		}
+	}
+
+	// Force config back to standalone (in memory + on disk, best-effort).
+	h.configMu.Lock()
+	h.Config.Cluster.Enabled = false
+	data, marshalErr := yaml.Marshal(h.Config)
+	h.configMu.Unlock()
+	if marshalErr != nil {
+		slog.Warn("cluster init rollback: failed to marshal standalone config", "component", "cluster", "error", marshalErr)
+	} else if h.ConfigPath != "" {
+		if wErr := config.AtomicWriteFile(h.ConfigPath, data, 0600); wErr != nil {
+			slog.Warn("cluster init rollback: failed to persist standalone config", "component", "cluster", "error", wErr)
+		}
+	}
+
+	return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Cluster init failed: "+err.Error())
+}
+
 func (h *Handler) InitCluster(c echo.Context) error {
 	// Prevent concurrent init/join operations
 	if !h.joiningMu.TryLock() {
@@ -223,9 +273,13 @@ func (h *Handler) InitCluster(c echo.Context) error {
 	// happy path; a crash before the config write simply means Enabled=false
 	// on reboot (clean state).
 	if h.Config.Auth.JWTSecret != "" {
-		mgr.SetConfig("jwt_secret", h.Config.Auth.JWTSecret)
+		if err := mgr.SetConfig("jwt_secret", h.Config.Auth.JWTSecret); err != nil {
+			return h.rollbackInit(c, mgr, fmt.Errorf("persist jwt secret: %w", err))
+		}
 	}
-	mgr.SetConfig("raft_tls", "true")
+	if err := mgr.SetConfig("raft_tls", "true"); err != nil {
+		return h.rollbackInit(c, mgr, fmt.Errorf("persist raft_tls flag: %w", err))
+	}
 	if h.DB != nil {
 		var username, passwordHash string
 		var totpSecret sql.NullString
