@@ -6,6 +6,60 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.15.3] – 2026-05-24
+
+Security hot-fix. Closes the 4 most operator-impacting Critical findings
+from the 2026-05-24 four-domain review (fresh install / single-node
+update / cluster lifecycle / cluster runtime). Phase 1 of
+`docs/superpowers/plans/2026-05-24-cluster-and-update-hardening.md`.
+
+### Fixed
+
+- **internal/api/middleware/proxy.go** (C1) — `setAuthHeaders` signed the
+  v2 internal-proxy HMAC over `URL.Path` (path only) while the receiver
+  in `internal/auth/proxyauth.go` verifies against `URL.RequestURI()`
+  (path + query). Every cross-node HTTP relay carrying a query string
+  failed the v2 check and was rejected 401 — `?node=<id>` on
+  `/files/download?path=…`, `/files/upload?path=…`, `/logs/read?source=…`,
+  query-bearing `/system/restore`. Now signs over `RequestURI()` so the
+  signer and verifier consume identical bytes. Pinned by
+  `TestSetAuthHeaders_V2SignsPathPlusQuery`.
+- **internal/feature/auth/handler.go** (C2) — `GetSetupStatus` and
+  `SetupAdmin` decided "setup required" from the local SQLite `admin`
+  table only. A node that joined an existing cluster has an empty local
+  table (admin lives in the Raft FSM), so the bootstrap endpoint stayed
+  open and would accept an attacker-supplied admin that could overwrite
+  FSM admin on a later leadership term. Both endpoints now consult the
+  cluster FSM first and refuse with 409 when an admin already exists.
+  Single-node installs are unaffected (cluster manager is nil and the
+  check short-circuits). The test-only `ClusterAccountsFn` seam doc was
+  tightened to spell out it MUST NOT be set in production.
+- **internal/feature/system/handler.go + internal/release/version.go**
+  (C3) — the update verifier fell through to SHA-256-only when a release
+  omitted `checksums.txt.sig` / `.pem`, letting an attacker who controls
+  the GitHub release page strip the signature assets and ship a malicious
+  tarball under matching checksums. A new `SignatureRequiredSince =
+  "0.13.0"` constant makes any update targeting v0.13.0 or later abort
+  unless both signature assets are present. Pre-v0.13.0 targets keep the
+  SHA-256 fallback (preserves the one-time upgrade path from unsigned
+  releases).
+- **internal/feature/system/handler.go** (C4) — the decompressed sfpanel
+  binary entry was read with an unbounded `io.ReadAll(tr)`; the on-wire
+  200 MiB cap does not bound decompression, so a high-ratio gzip bomb
+  could OOM the host. Capped at 256 MiB (`maxBinaryEntryBytes`, 5× the
+  real binary) via `io.LimitReader`, aborting cleanly past the cap.
+
+### Operator note
+
+Deploy to both cluster nodes sequentially (transfer leadership between
+them), not simultaneously — a fanned-out restart of all voters can delay
+leader re-election by ~15–20 s. The C1 fix restores cross-node file
+download / log read / restore through `?node=<id>`; the C3 fix means a
+self-built release without a Sigstore signature will now refuse to
+self-update at v0.13.0+, which is intentional.
+
+---
+
 ## [0.15.2] – 2026-05-24
 
 Cluster-update orchestrator bugfix. The v2 internal-proxy nonce cache
