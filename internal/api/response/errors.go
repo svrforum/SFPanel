@@ -241,3 +241,11 @@ const (
 const (
 	ErrCommandTimeout = "COMMAND_TIMEOUT"
 )
+
+// Cluster error codes
+const (
+	// ErrClusterQuorum is returned (HTTP 409) when an operation would drop the
+	// surviving voters below Raft quorum — e.g. leaving a cluster whose only
+	// other voter is unreachable. Callers pass http.StatusConflict explicitly.
+	ErrClusterQuorum = "CLUSTER_QUORUM"
+)

@@ -907,6 +907,18 @@ func (h *Handler) LeaveCluster(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Config path not available")
 	}
 
+	// Quorum guard: refuse to leave when the surviving voters could not form
+	// quorum afterwards, based on *live* heartbeat health (not stale FSM
+	// status). The orphan case this catches: a 2-voter cluster whose peer is
+	// already offline — leaving strands a lone voter that can neither elect
+	// nor commit. ?force=true bypasses for an emergency drain.
+	if c.QueryParam("force") != "true" {
+		if reason, blocked := mgr.WouldDropBelowQuorumOnLeave(); blocked {
+			return response.Fail(c, http.StatusConflict, response.ErrClusterQuorum,
+				"Leave refused: "+reason+"; pass ?force=true to override")
+		}
+	}
+
 	dataDir := h.Config.Cluster.DataDir
 	certDir := h.Config.Cluster.CertDir
 
