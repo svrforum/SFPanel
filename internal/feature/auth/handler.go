@@ -52,6 +52,10 @@ type Handler struct {
 	// that construct Handler{} bare don't deadlock waiting for an async
 	// drain that was never started.
 	AuditWriter *sfdb.AsyncWriter
+	// ClusterAccountsFn is a test seam for clusterHasAdmin: tests inject a
+	// stub here so they can simulate "FSM holds an admin" without spinning
+	// up Raft. Nil in production — the real path consults the manager.
+	ClusterAccountsFn func() map[string]*cluster.AdminAccount
 }
 
 // SetClusterMgr updates the cluster manager reference at runtime.
@@ -66,6 +70,23 @@ func (h *Handler) getClusterMgr() *cluster.Manager {
 	h.clusterMu.RLock()
 	defer h.clusterMu.RUnlock()
 	return h.ClusterMgr
+}
+
+// clusterHasAdmin reports whether the cluster FSM already holds at least one
+// admin account. Used by /auth/setup to refuse a bootstrap attempt on a node
+// that joined an existing cluster (its local admin table is empty but the
+// cluster's authoritative state is not). Returns false when cluster mode is
+// disabled or the manager has no raft yet — single-node installs take this
+// branch on every call.
+func (h *Handler) clusterHasAdmin() bool {
+	if h.ClusterAccountsFn != nil {
+		return len(h.ClusterAccountsFn()) > 0
+	}
+	mgr := h.getClusterMgr()
+	if mgr == nil {
+		return false
+	}
+	return len(mgr.GetAccounts()) > 0
 }
 
 type loginRequest struct {
@@ -589,12 +610,18 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 }
 
 func (h *Handler) GetSetupStatus(c echo.Context) error {
+	// Cluster mode: FSM is the source of truth for admin presence. A node
+	// that joined an existing cluster has an empty local admin table but
+	// the cluster already has an admin in the FSM; setup must NOT be
+	// required for that node, otherwise a bootstrap attacker could plant
+	// a second admin that the next leadership term would replicate.
+	if h.clusterHasAdmin() {
+		return response.OK(c, map[string]bool{"setup_required": false})
+	}
 	var count int
-	err := h.DB.QueryRow("SELECT COUNT(*) FROM admin").Scan(&count)
-	if err != nil {
+	if err := h.DB.QueryRow("SELECT COUNT(*) FROM admin").Scan(&count); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
 	}
-
 	return response.OK(c, map[string]bool{"setup_required": count == 0})
 }
 
@@ -638,6 +665,16 @@ func (h *Handler) SetupAdmin(c echo.Context) error {
 
 	if len(req.Password) < 8 {
 		return response.Fail(c, http.StatusBadRequest, response.ErrWeakPassword, "Password must be at least 8 characters")
+	}
+
+	// Cluster mode: refuse to bootstrap when the FSM already holds an admin.
+	// The local admin table is empty on a freshly-joined node but the cluster
+	// is already configured — accepting a new admin row here would let the
+	// next leadership term replicate attacker-controlled credentials over
+	// the real account.
+	if h.clusterHasAdmin() {
+		return response.Fail(c, http.StatusConflict, response.ErrAlreadySetup,
+			"Cluster admin already configured; this node cannot bootstrap a separate admin")
 	}
 
 	hash, err := auth.HashPassword(req.Password)
