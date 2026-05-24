@@ -13,7 +13,6 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
-	"database/sql"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -211,33 +210,7 @@ func main() {
 			// loaded host. Poll IsLeader() instead and bail after 30s — followers
 			// don't need to sync because the leader's FSM state replicates back.
 			go func() {
-				deadline := time.Now().Add(30 * time.Second)
-				for time.Now().Before(deadline) {
-					if clusterMgr.IsLeader() {
-						break
-					}
-					time.Sleep(200 * time.Millisecond)
-				}
-				if !clusterMgr.IsLeader() {
-					slog.Debug("cluster sync skipped: not leader within 30s")
-					return
-				}
-				var username, passwordHash string
-				var totpSecret sql.NullString
-				if err := database.QueryRow("SELECT username, password, totp_secret FROM admin LIMIT 1").Scan(&username, &passwordHash, &totpSecret); err == nil {
-					totp := ""
-					if totpSecret.Valid {
-						totp = totpSecret.String
-					}
-					if syncErr := clusterMgr.SyncAccountFromDB(username, passwordHash, totp); syncErr != nil {
-						slog.Debug("account cluster sync skipped", "error", syncErr)
-					}
-				}
-				if cfg.Auth.JWTSecret != "" {
-					if cErr := clusterMgr.SetConfig("jwt_secret", cfg.Auth.JWTSecret); cErr != nil {
-						slog.Debug("jwt_secret cluster sync skipped", "error", cErr)
-					}
-				}
+				syncBootstrapState(clusterMgr, database, cfg.Auth.JWTSecret, 30*time.Second)
 			}()
 		}
 	}

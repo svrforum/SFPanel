@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
+	"github.com/svrforum/SFPanel/internal/db"
 )
 
 // attachCSRFIfNeeded synthesizes a same-value cookie+header pair so
@@ -74,6 +77,58 @@ func TestAttachCSRFIfNeeded_TokensAreUnique(t *testing.T) {
 	c2, _ := req2.Cookie(auth.CSRFCookieName)
 	if c1.Value == c2.Value {
 		t.Errorf("two attach calls produced identical tokens: %q (rand should diverge)", c1.Value)
+	}
+}
+
+// TestSyncBootstrapState_NotLeaderBailsFast pins the deadline-bail path of the
+// shared bootstrap-sync helper. A Manager with a nil raft (never Init'd) reports
+// IsLeader()==false, so syncBootstrapState must poll until leaderWait elapses,
+// then return promptly without ever touching SetConfig (which would error, not
+// panic, on a nil raft). We assert it returns well under 1s for a 50ms wait and
+// does not panic. The happy-path FSM write needs a live Raft leader and is only
+// reachable via integration, not this unit harness.
+func TestSyncBootstrapState_NotLeaderBailsFast(t *testing.T) {
+	mgr := cluster.NewManager(&config.ClusterConfig{NodeID: "t"})
+
+	dir := t.TempDir()
+	database, err := db.Open(filepath.Join(dir, "sfpanel.db"))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer database.Close()
+
+	start := time.Now()
+	syncBootstrapState(mgr, database, "secret", 50*time.Millisecond)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("not-leader bail took %v, want < 1s (leaderWait was 50ms)", elapsed)
+	}
+}
+
+// TestSyncBootstrapState_NotLeaderWithAdminRowBailsFast is the same bail path
+// but with an admin row present in the DB. The helper must still bail on
+// leadership before running the admin SELECT, so the row is never read and the
+// function returns fast without panic.
+func TestSyncBootstrapState_NotLeaderWithAdminRowBailsFast(t *testing.T) {
+	mgr := cluster.NewManager(&config.ClusterConfig{NodeID: "t"})
+
+	dir := t.TempDir()
+	database, err := db.Open(filepath.Join(dir, "sfpanel.db"))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer database.Close()
+
+	if _, err := database.Exec(
+		"INSERT INTO admin (username, password, totp_secret) VALUES (?, ?, ?)",
+		"admin", "hash", nil,
+	); err != nil {
+		t.Fatalf("seed admin row: %v", err)
+	}
+
+	start := time.Now()
+	syncBootstrapState(mgr, database, "secret", 50*time.Millisecond)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("not-leader bail took %v, want < 1s (leaderWait was 50ms)", elapsed)
 	}
 }
 

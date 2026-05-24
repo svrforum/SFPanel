@@ -17,6 +17,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
+	"github.com/svrforum/SFPanel/internal/db"
 	"gopkg.in/yaml.v3"
 )
 
@@ -266,6 +267,22 @@ func clusterInit(args []string) {
 	cfg.Cluster = *mgr.GetConfig()
 	if err := saveConfig(cfgPath, cfg); err != nil {
 		log.Printf("Warning: failed to save config: %v", err)
+	}
+
+	// Sync the admin account + JWT secret into the Raft FSM inline, before
+	// shutting the manager down. Without this, the FSM only gets the state from
+	// the boot-time goroutine after the next systemd restart — a race. The
+	// server isn't running in this branch so the DB file is free to open;
+	// db.Open runs idempotent migrations, so the admin table always exists
+	// (a fresh node with no admin yet → SELECT returns ErrNoRows → skip). For a
+	// fresh single-node bootstrap, leadership is acquired in <1s. Best-effort:
+	// if db.Open fails, warn and proceed to Shutdown (the boot goroutine remains
+	// a backstop) rather than aborting the init.
+	if database, dbErr := db.Open(cfg.Database.Path); dbErr != nil {
+		log.Printf("Warning: failed to open database for cluster sync: %v", dbErr)
+	} else {
+		syncBootstrapState(mgr, database, cfg.Auth.JWTSecret, 30*time.Second)
+		database.Close()
 	}
 
 	mgr.Shutdown()
