@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -890,6 +891,92 @@ func TestRestoreBackup_PreservesEnvFilePermissions(t *testing.T) {
 	}
 	if perm := info.Mode().Perm(); perm != 0o600 {
 		t.Errorf(".env restored at mode %o, want 0600 (secret protection stripped)", perm)
+	}
+}
+
+// TestRunUpdate_CancelAbortsDownload pins Task 3.1: the asset download must
+// be bound to the request context so cancelling it (operator navigates away,
+// or the server begins shutdown) unwinds the handler instead of leaving a
+// multi-minute download running detached.
+//
+// The fake release server's /archive handler blocks until its own request
+// context is done — i.e. it never returns a body on its own. With the GET
+// built via http.NewRequestWithContext(c.Request().Context(), ...), cancelling
+// the echo request's context propagates to the server-side request, the
+// client's dlClient.Do(dlReq) returns a context error, and RunUpdate emits an
+// SSE error and returns. Without the context threading, the download would
+// hang until dlClient's 5-minute timeout and the test would hit its deadline.
+func TestRunUpdate_CancelAbortsDownload(t *testing.T) {
+	const (
+		archiveName   = "sfpanel_0.12.5_linux_amd64.tar.gz"
+		checksumsName = "checksums.txt"
+		releaseTag    = "v0.12.5"
+	)
+
+	// Signal so the test knows the blocking download handler was actually
+	// reached (otherwise a passing test could be a false negative if the flow
+	// bailed earlier).
+	reached := make(chan struct{})
+	var reachedOnce sync.Once
+
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
+		reachedOnce.Do(func() { close(reached) })
+		// Block until the request context is cancelled. If context threading
+		// is missing this never unblocks within the test window and the
+		// client only gives up at its 5-minute timeout.
+		<-r.Context().Done()
+	})
+	mux.HandleFunc("/checksums", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, fmt.Sprintf("%s  %s\n", strings.Repeat("0", 64), archiveName))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(GitHubRelease{
+			TagName: releaseTag,
+			Assets: []release.Asset{
+				{Name: archiveName, BrowserDownloadURL: srv.URL + "/archive"},
+				{Name: checksumsName, BrowserDownloadURL: srv.URL + "/checksums"},
+			},
+		})
+	})
+	srv = httptest.NewServer(mux)
+	defer srv.Close()
+	withReleaseAPI(t, srv.URL+"/")
+
+	if !strings.Contains(archiveName, "_"+runtime.GOARCH+".") {
+		t.Skipf("test fixture assumes amd64 asset naming, host is %s", runtime.GOARCH)
+	}
+
+	h := newHandler("0.12.4")
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil).WithContext(cancelCtx)
+	ctx := e.NewContext(req, rec)
+
+	done := make(chan error, 1)
+	go func() { done <- h.RunUpdate(ctx) }()
+
+	// Wait until the blocking download handler is actually entered, then
+	// cancel the request context.
+	select {
+	case <-reached:
+	case <-time.After(3 * time.Second):
+		t.Fatal("download handler was never reached; flow bailed before the asset GET")
+	}
+	cancel()
+
+	// The handler must unwind promptly once the context is cancelled —
+	// well before dlClient's 5-minute timeout.
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunUpdate returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunUpdate did not return within 2s of context cancel — download not bound to request context")
 	}
 }
 

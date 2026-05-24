@@ -3,6 +3,7 @@ package system
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -120,7 +121,11 @@ type UpdateCheckResponse struct {
 // CheckUpdate queries GitHub releases API and returns version comparison.
 func (h *Handler) CheckUpdate(c echo.Context) error {
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(releaseAPIURL)
+	req, reqErr := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, releaseAPIURL, nil)
+	if reqErr != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrUpdateCheckFailed, "Failed to build update check request")
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return response.Fail(c, http.StatusBadGateway, response.ErrUpdateCheckFailed, "Failed to check for updates")
 	}
@@ -167,8 +172,19 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		return err
 	}
 
+	// Capture the request context once so every GET in the update path
+	// (release lookup, asset download, checksums, signature + cert) is bound
+	// to the request lifecycle. Cancelling the client request — operator
+	// navigates away, or the server begins shutdown — then aborts the
+	// in-flight multi-minute download instead of leaving it running detached.
+	ctx := c.Request().Context()
+
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(releaseAPIURL)
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, releaseAPIURL, nil)
+	if reqErr != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrUpdateFailed, "Failed to build update request")
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return response.Fail(c, http.StatusBadGateway, response.ErrUpdateFailed, "Failed to check for updates")
 	}
@@ -226,7 +242,12 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	sendEvent("downloading", fmt.Sprintf("Downloading v%s (%s)...", latest, arch))
 
 	dlClient := &http.Client{Timeout: 5 * time.Minute}
-	dlResp, err := dlClient.Get(url)
+	dlReq, dlReqErr := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if dlReqErr != nil {
+		sendEvent("error", fmt.Sprintf("Download request build failed: %v", dlReqErr))
+		return nil
+	}
+	dlResp, err := dlClient.Do(dlReq)
 	if err != nil {
 		sendEvent("error", fmt.Sprintf("Download failed: %v", err))
 		return nil
@@ -238,7 +259,12 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	}
 
 	sendEvent("verifying", "Downloading checksums...")
-	checksumResp, err := dlClient.Get(checksumsURL)
+	checksumReq, checksumReqErr := http.NewRequestWithContext(ctx, http.MethodGet, checksumsURL, nil)
+	if checksumReqErr != nil {
+		sendEvent("error", fmt.Sprintf("Checksum request build failed: %v", checksumReqErr))
+		return nil
+	}
+	checksumResp, err := dlClient.Do(checksumReq)
 	if err != nil {
 		sendEvent("error", fmt.Sprintf("Checksum download failed: %v", err))
 		return nil
@@ -278,12 +304,12 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		sendEvent("verifying", "Release predates Sigstore signing; falling back to SHA-256 only")
 	} else {
 		sendEvent("verifying", "Verifying release signature (Sigstore keyless)...")
-		sigBytes, sigErr := fetchBytes(dlClient, sigURL)
+		sigBytes, sigErr := fetchBytes(ctx, dlClient, sigURL)
 		if sigErr != nil {
 			sendEvent("error", fmt.Sprintf("Signature download failed: %v", sigErr))
 			return nil
 		}
-		certBytes, certErr := fetchBytes(dlClient, certURL)
+		certBytes, certErr := fetchBytes(ctx, dlClient, certURL)
 		if certErr != nil {
 			sendEvent("error", fmt.Sprintf("Cert download failed: %v", certErr))
 			return nil
@@ -578,9 +604,14 @@ func computeUpdateQuorum(onlineVoters int) (refuse bool, survivors, quorum int) 
 
 // fetchBytes is a small helper that GETs a URL and reads the body into memory.
 // Used for the small (<10 KB) signature + cert assets — the archive itself
-// goes through io.Copy to a temp file, see the main update path.
-func fetchBytes(client *http.Client, url string) ([]byte, error) {
-	resp, err := client.Get(url)
+// goes through io.Copy to a temp file, see the main update path. The ctx is
+// the request context so a cancelled update aborts these GETs too.
+func fetchBytes(ctx context.Context, client *http.Client, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
