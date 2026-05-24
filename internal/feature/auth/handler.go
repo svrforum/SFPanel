@@ -52,9 +52,10 @@ type Handler struct {
 	// that construct Handler{} bare don't deadlock waiting for an async
 	// drain that was never started.
 	AuditWriter *sfdb.AsyncWriter
-	// ClusterAccountsFn is a test seam for clusterHasAdmin: tests inject a
-	// stub here so they can simulate "FSM holds an admin" without spinning
-	// up Raft. Nil in production — the real path consults the manager.
+	// ClusterAccountsFn is a test-only seam for clusterHasAdmin: tests inject
+	// a stub here so they can simulate "FSM holds an admin" without spinning
+	// up Raft. Production code MUST NOT set this — the real path consults the
+	// cluster manager.
 	ClusterAccountsFn func() map[string]*cluster.AdminAccount
 }
 
