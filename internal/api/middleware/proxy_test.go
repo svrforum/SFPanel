@@ -8,12 +8,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
+	"github.com/svrforum/SFPanel/internal/config"
 )
 
 func TestIsBinaryRelayEndpoint(t *testing.T) {
@@ -413,6 +417,62 @@ func TestProxyToLeader_NilManagerPassesThrough(t *testing.T) {
 	}
 	if rec.Body.Len() != 0 {
 		t.Errorf("expected no response body, got %q", rec.Body.String())
+	}
+}
+
+// newTestManagerWithProxySecret builds a minimal cluster.Manager whose
+// ProxySecret() returns non-empty by dropping a stub ca.crt into a tempdir
+// (LoadCACert just reads bytes and sha256s them; no x509 parsing). Keeps
+// setAuthHeaders' real gate intact instead of stubbing it.
+func newTestManagerWithProxySecret(t *testing.T, secretSeed string) *cluster.Manager {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), []byte(secretSeed), 0o600); err != nil {
+		t.Fatalf("write fake ca.crt: %v", err)
+	}
+	return cluster.NewManager(&config.ClusterConfig{CertDir: dir, DataDir: dir})
+}
+
+// TestSetAuthHeaders_V2SignsPathPlusQuery locks in C1 from
+// docs/superpowers/plans/2026-05-24-cluster-and-update-hardening.md.
+//
+// Bug: setAuthHeaders used to sign the v2 MAC over origReq.URL.Path (path
+// only) while the receiver in internal/auth/proxyauth.go validates against
+// r.URL.RequestURI() (path + query). Any cross-node HTTP relay carrying a
+// query string ( /files/download?path=…, /logs/read?source=syslog&lines=8,
+// etc.) failed v2 validation, and because v1 is short-circuited when v2 is
+// present the request 401'd at the receiving JWT middleware.
+//
+// Fix: sign over RequestURI() so signer and verifier agree.
+func TestSetAuthHeaders_V2SignsPathPlusQuery(t *testing.T) {
+	// SignProxyRequestV2 reads the auth-package global; the gate inside
+	// setAuthHeaders reads mgr.ProxySecret(). In production both derive from
+	// the same CA hash and are set together at startup; the test mirrors
+	// that by configuring both sides.
+	mgr := newTestManagerWithProxySecret(t, "test-ca-bytes-for-v2-sig-roundtrip")
+	auth.SetClusterProxySecret(mgr.ProxySecret())
+	t.Cleanup(func() { auth.SetClusterProxySecret("") })
+
+	// Inbound request carries a query string — typical of cross-node file
+	// download, log read, etc.
+	orig := httptest.NewRequest("GET", "/api/v1/logs/read?source=syslog&lines=8", nil)
+
+	// setAuthHeaders mutates this outbound request.
+	out, err := http.NewRequest("GET", "http://peer:3628/api/v1/logs/read?source=syslog&lines=8", nil)
+	if err != nil {
+		t.Fatalf("build outbound request: %v", err)
+	}
+
+	setAuthHeaders(out, orig, mgr)
+
+	if v2 := out.Header.Get(auth.InternalProxyHeaderV2); v2 == "" {
+		t.Fatal("v2 header not set — mgr.ProxySecret() gate did not fire")
+	}
+	// Replay the outbound on the receiver — IsInternalProxyRequest reads
+	// r.URL.RequestURI() (path+query) for validation. If the signer used
+	// path-only, validation fails.
+	if !auth.IsInternalProxyRequest(out) {
+		t.Errorf("receiver rejected v2 sig — signer used path-only but verifier uses path+query")
 	}
 }
 

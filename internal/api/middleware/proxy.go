@@ -138,7 +138,7 @@ func setAuthHeaders(httpReq *http.Request, origReq *http.Request, mgr *cluster.M
 		// v1 stays for back-compat with not-yet-upgraded peers; v2 makes the
 		// request replay-resistant when both sides support it.
 		httpReq.Header.Set(authpkg.InternalProxyHeader, secret)
-		if v2 := authpkg.SignProxyRequestV2(origReq.Method, origReq.URL.Path); v2 != "" {
+		if v2 := authpkg.SignProxyRequestV2(origReq.Method, origReq.URL.RequestURI()); v2 != "" {
 			httpReq.Header.Set(authpkg.InternalProxyHeaderV2, v2)
 		}
 	} else if auth := origReq.Header.Get("Authorization"); auth != "" {
