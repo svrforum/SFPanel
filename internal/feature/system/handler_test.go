@@ -926,3 +926,120 @@ func TestComputeUpdateQuorum(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Update flow: gzip-bomb defence. A malicious release tarball can declare
+// (and stream) a multi-GB `sfpanel` entry that gzips to a few hundred KB —
+// without a decompressed-size cap the receiver io.ReadAll-s the entry into
+// memory and OOMs. The cap mirrors the per-entry cap RestoreBackup already
+// applies (handler.go ~line 672 / maxEntrySize).
+// ---------------------------------------------------------------------------
+
+// makeOversizedSfpanelTarball returns a gzipped tar containing a single
+// `sfpanel` entry of `size` zero bytes. Streamed through the tar writer so
+// we never materialise the full payload in memory — a 300 MiB entry
+// produces a ~300 KB on-disk archive (mostly zeros gzip down to ~1000:1).
+func makeOversizedSfpanelTarball(t *testing.T, size int) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	hdr := &tar.Header{
+		Name:     "sfpanel",
+		Mode:     0755,
+		Size:     int64(size),
+		Typeflag: tar.TypeReg,
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		t.Fatal(err)
+	}
+	// Stream zeros — never allocate the full payload in memory.
+	zeros := make([]byte, 64*1024)
+	remaining := size
+	for remaining > 0 {
+		n := len(zeros)
+		if n > remaining {
+			n = remaining
+		}
+		if _, err := tw.Write(zeros[:n]); err != nil {
+			t.Fatal(err)
+		}
+		remaining -= n
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// TestRunUpdate_RejectsOversizedBinaryEntry pins C4: a malicious release
+// archive can pack a high-compression-ratio `sfpanel` entry (e.g., 300 MiB
+// of zeros compresses to a few hundred KB). Without the decompressed-size
+// cap, the receiver io.ReadAll-s the entry into memory and OOMs. Verify
+// the cap rejects with an SSE error event mentioning the size cap.
+//
+// Uses a pre-cutoff target version (0.12.5) so the post-v0.13.0 signature
+// requirement (Task 1.3) doesn't refuse the release before the size cap
+// gets a chance to run.
+func TestRunUpdate_RejectsOversizedBinaryEntry(t *testing.T) {
+	const (
+		archiveName   = "sfpanel_0.12.5_linux_amd64.tar.gz"
+		checksumsName = "checksums.txt"
+		releaseTag    = "v0.12.5"
+	)
+
+	// 300 MiB > 256 MiB cap. Streamed through gzip so the on-disk archive
+	// is a few hundred KB — well within reach of any test machine.
+	archiveBytes := makeOversizedSfpanelTarball(t, 300*1024*1024)
+	realHash := sha256.Sum256(archiveBytes)
+	checksumsBody := fmt.Sprintf("%s  %s\n", hex.EncodeToString(realHash[:]), archiveName)
+
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(archiveBytes)
+	})
+	mux.HandleFunc("/checksums", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, checksumsBody)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(GitHubRelease{
+			TagName: releaseTag,
+			Assets: []release.Asset{
+				{Name: archiveName, BrowserDownloadURL: srv.URL + "/archive"},
+				{Name: checksumsName, BrowserDownloadURL: srv.URL + "/checksums"},
+			},
+		})
+	})
+	srv = httptest.NewServer(mux)
+	defer srv.Close()
+	withReleaseAPI(t, srv.URL+"/")
+
+	if !strings.Contains(archiveName, "_"+runtime.GOARCH+".") {
+		t.Skipf("test fixture assumes amd64 asset naming, host is %s", runtime.GOARCH)
+	}
+
+	// Current version < releaseTag so the downgrade guard doesn't fire.
+	h := newHandler("0.12.4")
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil)
+	ctx := e.NewContext(req, rec)
+
+	if err := h.RunUpdate(ctx); err != nil {
+		t.Fatalf("RunUpdate returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("SSE handler returns 200 first then emits error events; got status=%d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"step":"error"`) {
+		t.Errorf("expected step:error in SSE body, got %q", body)
+	}
+	if !strings.Contains(body, "size cap") {
+		t.Errorf("expected refusal mentioning 'size cap', got %q", body)
+	}
+}

@@ -65,6 +65,14 @@ var isSystemdActive = lifecycle.IsSystemdActive
 // compromised release host from filling the disk during the verify step.
 const maxUpdateArchiveBytes int64 = 200 * 1024 * 1024
 
+// maxBinaryEntryBytes caps the decompressed size of the sfpanel binary
+// inside the update tarball. A malicious archive can compress 1000:1
+// (mostly zeros), so the on-wire 200 MiB cap doesn't bound decompression.
+// 256 MiB is ~5× the real binary size (~50 MB) and well below typical free
+// RAM. RestoreBackup applies the same kind of cap per entry (see
+// maxEntrySize below, shipped in v0.15.0 hardening Task 2.5).
+const maxBinaryEntryBytes int64 = 256 * 1024 * 1024
+
 type Handler struct {
 	Version     string
 	// DB is the live SQLite connection — used to force a WAL checkpoint
@@ -349,9 +357,19 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 			return nil
 		}
 		if hdr.Name == "sfpanel" || strings.HasSuffix(hdr.Name, "/sfpanel") {
-			binaryData, err = io.ReadAll(tr)
+			// LimitReader at cap+1 so a result length > cap proves the
+			// entry overflowed (LimitReader at exactly the cap can't
+			// distinguish "fits exactly" from "truncated"). A malicious
+			// tarball can pack 1000:1-compressing zero payloads to
+			// trigger an OOM here — refuse anything larger than the cap.
+			limited := io.LimitReader(tr, maxBinaryEntryBytes+1)
+			binaryData, err = io.ReadAll(limited)
 			if err != nil {
 				sendEvent("error", fmt.Sprintf("Binary read failed: %v", err))
+				return nil
+			}
+			if int64(len(binaryData)) > maxBinaryEntryBytes {
+				sendEvent("error", fmt.Sprintf("binary exceeds size cap (%d bytes)", maxBinaryEntryBytes))
 				return nil
 			}
 			break
