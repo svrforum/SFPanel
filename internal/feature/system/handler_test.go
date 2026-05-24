@@ -980,6 +980,163 @@ func TestRunUpdate_CancelAbortsDownload(t *testing.T) {
 	}
 }
 
+// TestRunUpdate_AbortsWhenWatchdogDies pins Task 3.2: after the binary swap,
+// the auto-rollback watchdog is spawned from the BACKUP binary. watchdogCmd.Start()
+// returning nil only means fork/exec succeeded — the watchdog can immediately exit
+// (crash, or a bad backup binary), leaving the operator with FALSE rollback
+// confidence while the restart proceeds into an unprotected binary. The handler
+// now liveness-probes the watchdog ~200ms after Start(); if it's gone, the update
+// is aborted (binary restored, error event) rather than restarted.
+//
+// We force the Start()-succeeds-but-dies shape by pointing osExecutable at a COPY
+// of /bin/false. The backup step copies it to <execPath>.bak (= /bin/false). The
+// swap writes the new binary to execPath. The watchdog then execs
+// <execPath>.bak ("watchdog-update" ...) → /bin/false ignores the args and exits
+// immediately → the probe finds it gone → abort.
+//
+// Pre-cutoff target (0.12.5) so the post-v0.13.0 signature requirement doesn't
+// refuse the release before the swap+watchdog step runs.
+func TestRunUpdate_AbortsWhenWatchdogDies(t *testing.T) {
+	const (
+		archiveName   = "sfpanel_0.12.5_linux_amd64.tar.gz"
+		checksumsName = "checksums.txt"
+		releaseTag    = "v0.12.5"
+	)
+
+	// A small, valid tarball with a real "sfpanel" entry that passes the
+	// checksum and size-cap checks so execution reaches the swap + watchdog.
+	var archiveBuf bytes.Buffer
+	gw := gzip.NewWriter(&archiveBuf)
+	tw := tar.NewWriter(gw)
+	newBinary := []byte("NEW sfpanel binary payload (no watchdog support)")
+	_ = tw.WriteHeader(&tar.Header{Name: "sfpanel", Size: int64(len(newBinary)), Mode: 0755, Typeflag: tar.TypeReg})
+	_, _ = tw.Write(newBinary)
+	_ = tw.Close()
+	_ = gw.Close()
+
+	realHash := sha256.Sum256(archiveBuf.Bytes())
+	checksumsBody := fmt.Sprintf("%s  %s\n", hex.EncodeToString(realHash[:]), archiveName)
+
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(archiveBuf.Bytes())
+	})
+	mux.HandleFunc("/checksums", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, checksumsBody)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(GitHubRelease{
+			TagName: releaseTag,
+			Assets: []release.Asset{
+				{Name: archiveName, BrowserDownloadURL: srv.URL + "/archive"},
+				{Name: checksumsName, BrowserDownloadURL: srv.URL + "/checksums"},
+			},
+		})
+	})
+	srv = httptest.NewServer(mux)
+	defer srv.Close()
+	withReleaseAPI(t, srv.URL+"/")
+
+	if !strings.Contains(archiveName, "_"+runtime.GOARCH+".") {
+		t.Skipf("test fixture assumes amd64 asset naming, host is %s", runtime.GOARCH)
+	}
+
+	// A real, fast-exiting executable used as the "current" binary. The backup
+	// step copies it to <execPath>.bak, which the watchdog then execs — so the
+	// watchdog process exits immediately and the liveness probe must fail.
+	fastExit := "/bin/false"
+	if _, err := os.Stat(fastExit); err != nil {
+		// Fall back to a tiny shell script that exits immediately.
+		fastExit = filepath.Join(t.TempDir(), "fastexit")
+		if werr := os.WriteFile(fastExit, []byte("#!/bin/sh\nexit 0\n"), 0755); werr != nil {
+			t.Fatalf("writing fallback fast-exit script: %v", werr)
+		}
+	}
+	originalBinary, err := os.ReadFile(fastExit)
+	if err != nil {
+		t.Fatalf("reading fast-exit binary %s: %v", fastExit, err)
+	}
+
+	dir := t.TempDir()
+	execPath := filepath.Join(dir, "sfpanel")
+	if err := os.WriteFile(execPath, originalBinary, 0755); err != nil {
+		t.Fatalf("staging fake current binary: %v", err)
+	}
+	withExecutable(t, execPath)
+
+	h := newHandler("0.12.4")
+	// h.Port > 0 so the watchdog block runs. /bin/false won't actually serve;
+	// it exits before the watchdog could ever poll the health URL.
+	h.Port = 65000
+	h.DBPath = filepath.Join(dir, "sfpanel.db")
+	h.ConfigPath = filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(h.DBPath, []byte("db"), 0600); err != nil {
+		t.Fatalf("staging db: %v", err)
+	}
+	if err := os.WriteFile(h.ConfigPath, []byte("cfg"), 0600); err != nil {
+		t.Fatalf("staging config: %v", err)
+	}
+
+	before := exitCount.Load()
+
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil)
+	ctx := e.NewContext(req, rec)
+
+	if err := h.RunUpdate(ctx); err != nil {
+		t.Fatalf("RunUpdate returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("SSE handler returns 200 first then emits error events; got status=%d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"step":"error"`) {
+		t.Errorf("expected step:error in SSE body, got %q", body)
+	}
+	if !strings.Contains(strings.ToLower(body), "watchdog") {
+		t.Errorf("expected error message mentioning the watchdog, got %q", body)
+	}
+	// The update must NOT have completed — a dead watchdog means no rollback
+	// protection, so we abort rather than restart.
+	if strings.Contains(body, `"step":"complete"`) {
+		t.Errorf("update completed despite dead watchdog — restarted into an unprotected binary: %q", body)
+	}
+
+	// The self-exit / restart must NOT have been scheduled. The exit goroutine
+	// sleeps 2s before calling exitProcess; give it a margin and assert the
+	// counter never moved.
+	time.Sleep(300 * time.Millisecond)
+	if got := exitCount.Load(); got != before {
+		t.Errorf("exitProcess was scheduled despite dead watchdog (before=%d, now=%d) — restart fired", before, got)
+	}
+
+	// The MockCommander must show no `systemctl restart` (defence in depth; the
+	// real restart uses exec.Command directly, but assert nothing leaked here).
+	for _, c := range h.Cmd.(*commonExec.MockCommander).Calls {
+		if c.Name == "systemctl" && len(c.Args) >= 1 && c.Args[0] == "restart" {
+			t.Errorf("systemctl restart was issued despite dead watchdog: %+v", c)
+		}
+	}
+
+	// Binary-restore on abort: the swap is undone, so execPath holds the
+	// ORIGINAL (fast-exit) bytes, not the new no-watchdog binary. Otherwise the
+	// next restart would load the unverified binary — the same false-confidence
+	// gap, merely deferred.
+	got, err := os.ReadFile(execPath)
+	if err != nil {
+		t.Fatalf("reading execPath after aborted update: %v", err)
+	}
+	if !bytes.Equal(got, originalBinary) {
+		t.Errorf("execPath was not restored after abort: binary still holds the staged update, rollback copy not honoured")
+	}
+	if bytes.Equal(got, newBinary) {
+		t.Errorf("execPath holds the NEW binary after abort — swap was not reverted")
+	}
+}
+
 func TestComputeUpdateQuorum(t *testing.T) {
 	cases := []struct {
 		name         string

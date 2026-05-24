@@ -81,6 +81,13 @@ const maxUpdateArchiveBytes int64 = 200 * 1024 * 1024
 // maxEntrySize below, shipped in v0.15.0 hardening Task 2.5).
 const maxBinaryEntryBytes int64 = 256 * 1024 * 1024
 
+// watchdogLivenessDelay is how long we wait after watchdogCmd.Start() before
+// probing the watchdog with signal 0. Start() returning nil only proves
+// fork/exec succeeded; a bad backup binary can exit immediately. The delay
+// gives a crash-on-start enough time to actually exit so the probe can catch
+// it, while staying short enough not to noticeably extend the update flow.
+const watchdogLivenessDelay = 200 * time.Millisecond
+
 type Handler struct {
 	Version     string
 	// DB is the live SQLite connection — used to force a WAL checkpoint
@@ -422,15 +429,19 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	}
 
 	backupPath := execPath + ".bak"
-	if data, readErr := os.ReadFile(execPath); readErr == nil {
-		// A failed .bak write must abort the update: without it, an update
-		// that later fails has no rollback copy and the panel is bricked.
-		if err := os.WriteFile(backupPath, data, 0755); err != nil {
-			sendEvent("error", fmt.Sprintf("Backup failed: %v", err))
-			return nil
-		}
-	} else {
+	// backupData keeps the pre-update binary bytes in memory so the watchdog
+	// abort path can revert the swap from a source we know is intact, rather
+	// than re-reading .bak off disk (which the watchdog or a racing process
+	// could have touched).
+	backupData, readErr := os.ReadFile(execPath)
+	if readErr != nil {
 		sendEvent("error", fmt.Sprintf("Cannot read current binary for backup: %v", readErr))
+		return nil
+	}
+	// A failed .bak write must abort the update: without it, an update
+	// that later fails has no rollback copy and the panel is bricked.
+	if err := os.WriteFile(backupPath, backupData, 0755); err != nil {
+		sendEvent("error", fmt.Sprintf("Backup failed: %v", err))
 		return nil
 	}
 
@@ -476,10 +487,21 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	// restarts sfpanel — without this, a botched update leaves systemd
 	// in a Restart=always loop on a broken binary forever.
 	//
-	// Forward-only: spawning is best-effort. Pre-watchdog binaries used as
-	// .bak don't know the subcommand and will exit 2 — the rollback path
-	// still works as long as either bound is the new code, which is the
-	// common case after this lands.
+	// Mandatory, not best-effort: the watchdog is our only rollback safety net,
+	// so we refuse to restart into the new binary unless the watchdog is
+	// confirmed alive. Start() returning nil only proves fork/exec succeeded —
+	// the process can crash immediately (e.g. a corrupt .bak), which would leave
+	// the operator with FALSE rollback confidence while we proceed into an
+	// unprotected binary. So after Start() we wait watchdogLivenessDelay and
+	// probe with signal 0; if the watchdog is gone (or Start() itself failed),
+	// we abort: revert the binary swap so execPath is back on the verified-good
+	// previous binary, emit an error, and return WITHOUT restarting. The running
+	// process stays on the old binary (still in memory) and execPath is reverted,
+	// so the panel is fully back to its pre-update state.
+	//
+	// The watchdog-update subcommand shipped before this policy, so any
+	// currently-deployed node's .bak knows the subcommand and stays alive — the
+	// probe only fails for genuine watchdog failures, not the normal upgrade path.
 	if h.Port > 0 {
 		watchdogCmd := exec.Command(backupPath, "watchdog-update",
 			backupPath,
@@ -493,11 +515,28 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		watchdogCmd.Stdout = nil
 		watchdogCmd.Stderr = nil
 		watchdogCmd.Stdin = nil
-		if wdErr := watchdogCmd.Start(); wdErr != nil {
-			slog.Warn("update watchdog failed to start; proceeding without rollback safety", "error", wdErr)
-		} else {
-			slog.Info("update watchdog spawned", "pid", watchdogCmd.Process.Pid, "grace_s", 90)
+
+		wdErr := watchdogCmd.Start()
+		alive := wdErr == nil
+		if alive {
+			time.Sleep(watchdogLivenessDelay)
+			alive = watchdogAlive(watchdogCmd.Process)
 		}
+		if !alive {
+			// No rollback protection — abort rather than restart. Revert the
+			// swap so the unverified binary isn't left staged for the next
+			// restart (which would re-open the same false-confidence gap).
+			slog.Error("update watchdog not alive after spawn; aborting update",
+				"component", "system", "start_error", wdErr)
+			restoreErr := os.WriteFile(execPath, backupData, 0755)
+			if restoreErr != nil {
+				sendEvent("error", fmt.Sprintf("Watchdog failed to start; aborting update, and restoring the previous binary failed: %v", restoreErr))
+				return nil
+			}
+			sendEvent("error", "Watchdog failed to start; aborting update")
+			return nil
+		}
+		slog.Info("update watchdog spawned", "pid", watchdogCmd.Process.Pid, "grace_s", 90)
 	}
 
 	// Send the SSE 'complete' event *before* triggering systemctl restart, then
