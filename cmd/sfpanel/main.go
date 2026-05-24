@@ -32,6 +32,7 @@ import (
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/common/lifecycle"
 	"github.com/svrforum/SFPanel/internal/common/logging"
+	"github.com/svrforum/SFPanel/internal/common/safe"
 	"github.com/svrforum/SFPanel/internal/config"
 	"github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
@@ -193,6 +194,12 @@ func main() {
 		return mgr, nil
 	})
 
+	// Context for long-lived background goroutines. Cancelled on SIGTERM
+	// below so they stop cleanly before the DB closes. Declared before the
+	// cluster block so the bootstrap-sync goroutine can bind to it.
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	defer bgCancel()
+
 	// Start cluster manager if enabled
 	var clusterMgr *cluster.Manager
 	if cfg.Cluster.Enabled {
@@ -209,15 +216,13 @@ func main() {
 			// single-node cluster (leader is elected in <1s) and too short on a
 			// loaded host. Poll IsLeader() instead and bail after 30s — followers
 			// don't need to sync because the leader's FSM state replicates back.
-			go func() {
-				syncBootstrapState(clusterMgr, database, cfg.Auth.JWTSecret, 30*time.Second)
-			}()
+			// Bound to bgCtx so a SIGTERM during the poll stops it promptly
+			// rather than outliving the DB it reads.
+			safe.Go("cluster-bootstrap-sync", func() {
+				syncBootstrapState(bgCtx, clusterMgr, database, cfg.Auth.JWTSecret, 30*time.Second)
+			})
 		}
 	}
-	// Context for long-lived background goroutines. Cancelled on SIGTERM
-	// below so they stop cleanly before the DB closes.
-	bgCtx, bgCancel := context.WithCancel(context.Background())
-	defer bgCancel()
 
 	// Start background metrics history collector (60s interval, 24h rolling window)
 	monitor.StartHistoryCollector(bgCtx, database)

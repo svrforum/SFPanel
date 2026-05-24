@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -281,7 +282,9 @@ func clusterInit(args []string) {
 	if database, dbErr := db.Open(cfg.Database.Path); dbErr != nil {
 		log.Printf("Warning: failed to open database for cluster sync: %v", dbErr)
 	} else {
-		syncBootstrapState(mgr, database, cfg.Auth.JWTSecret, 30*time.Second)
+		// CLI is short-lived with no shutdown signal; the leaderWait deadline
+		// still caps the wait, so a plain background context is correct here.
+		syncBootstrapState(context.Background(), mgr, database, cfg.Auth.JWTSecret, 30*time.Second)
 		database.Close()
 	}
 

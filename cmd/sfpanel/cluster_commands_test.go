@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -98,7 +99,7 @@ func TestSyncBootstrapState_NotLeaderBailsFast(t *testing.T) {
 	defer database.Close()
 
 	start := time.Now()
-	syncBootstrapState(mgr, database, "secret", 50*time.Millisecond)
+	syncBootstrapState(context.Background(), mgr, database, "secret", 50*time.Millisecond)
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("not-leader bail took %v, want < 1s (leaderWait was 50ms)", elapsed)
 	}
@@ -126,9 +127,35 @@ func TestSyncBootstrapState_NotLeaderWithAdminRowBailsFast(t *testing.T) {
 	}
 
 	start := time.Now()
-	syncBootstrapState(mgr, database, "secret", 50*time.Millisecond)
+	syncBootstrapState(context.Background(), mgr, database, "secret", 50*time.Millisecond)
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("not-leader bail took %v, want < 1s (leaderWait was 50ms)", elapsed)
+	}
+}
+
+// TestSyncBootstrapState_ContextCancelExitsPromptly pins the C9 shutdown path:
+// when the supplied context is already cancelled, the helper must abandon its
+// leadership wait immediately rather than running the full leaderWait deadline.
+// A nil-raft Manager reports IsLeader()==false forever, so without ctx-cancel
+// this would block for the whole 30s. We assert it returns well under a second.
+func TestSyncBootstrapState_ContextCancelExitsPromptly(t *testing.T) {
+	mgr := cluster.NewManager(&config.ClusterConfig{NodeID: "t"})
+
+	dir := t.TempDir()
+	database, err := db.Open(filepath.Join(dir, "sfpanel.db"))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer database.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	syncBootstrapState(ctx, mgr, database, "", 30*time.Second)
+	elapsed := time.Since(start)
+	if elapsed > time.Second {
+		t.Fatalf("cancelled-ctx exit took %v, want < 1s (leaderWait was 30s; shutdown must interrupt the wait)", elapsed)
 	}
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 	"time"
@@ -23,17 +24,27 @@ const leaderPollInterval = 200 * time.Millisecond
 // cluster_commands.go (run synchronously before mgr.Shutdown(), so the FSM
 // holds the admin+JWT state before the next systemd restart rather than racing
 // the boot goroutine).
-func syncBootstrapState(mgr *cluster.Manager, database *sql.DB, jwtSecret string, leaderWait time.Duration) {
+//
+// ctx cancels the leadership wait: the boot goroutine passes the long-lived
+// background context so a SIGTERM during the up-to-leaderWait poll stops it
+// promptly instead of outliving the DB it reads. The CLI passes
+// context.Background() (short-lived, no shutdown signal); the leaderWait
+// deadline still caps it.
+func syncBootstrapState(ctx context.Context, mgr *cluster.Manager, database *sql.DB, jwtSecret string, leaderWait time.Duration) {
+	ticker := time.NewTicker(leaderPollInterval)
+	defer ticker.Stop()
 	deadline := time.Now().Add(leaderWait)
-	for time.Now().Before(deadline) {
-		if mgr.IsLeader() {
-			break
+	for !mgr.IsLeader() {
+		select {
+		case <-ctx.Done():
+			slog.Debug("cluster sync skipped: shutdown before leadership")
+			return
+		case <-ticker.C:
 		}
-		time.Sleep(leaderPollInterval)
-	}
-	if !mgr.IsLeader() {
-		slog.Debug("cluster sync skipped: not leader", "wait", leaderWait)
-		return
+		if time.Now().After(deadline) {
+			slog.Debug("cluster sync skipped: not leader", "wait", leaderWait)
+			return
+		}
 	}
 	var username, passwordHash string
 	var totpSecret sql.NullString
