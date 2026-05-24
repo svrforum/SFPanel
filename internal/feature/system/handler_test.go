@@ -269,9 +269,14 @@ func TestRunUpdateRejectsChecksumMismatch(t *testing.T) {
 	// Real hash, for the parallel sanity check at the end.
 	realHash := sha256.Sum256(archiveBuf.Bytes())
 
+	// Pre-cutoff target (< release.SignatureRequiredSince) so this test
+	// exercises the pure SHA-only path. Post-cutoff targets without
+	// sig/pem are now refused before the hash check runs — that's
+	// TestRunUpdate_RejectsMissingSignatureForRecentTarget's job.
 	const (
-		archiveName   = "sfpanel_0.14.0_linux_amd64.tar.gz"
+		archiveName   = "sfpanel_0.12.5_linux_amd64.tar.gz"
 		checksumsName = "checksums.txt"
+		releaseTag    = "v0.12.5"
 	)
 	checksumsBody := fmt.Sprintf("%s  %s\n", wrongHash, archiveName)
 
@@ -290,7 +295,7 @@ func TestRunUpdateRejectsChecksumMismatch(t *testing.T) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// Serve the GitHub release JSON at root.
 		_ = json.NewEncoder(w).Encode(GitHubRelease{
-			TagName: "v0.14.0",
+			TagName: releaseTag,
 			Assets: []release.Asset{
 				{Name: archiveName, BrowserDownloadURL: srv.URL + "/archive"},
 				{Name: checksumsName, BrowserDownloadURL: srv.URL + "/checksums"},
@@ -310,7 +315,9 @@ func TestRunUpdateRejectsChecksumMismatch(t *testing.T) {
 		t.Skipf("test fixture assumes amd64 asset naming, host is %s", runtime.GOARCH)
 	}
 
-	h := newHandler("0.13.10")
+	// Current version must be < releaseTag so the downgrade guard doesn't
+	// fire — we want the SHA-256 mismatch to be what stops the update.
+	h := newHandler("0.12.4")
 	e := echo.New()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil)
@@ -330,6 +337,84 @@ func TestRunUpdateRejectsChecksumMismatch(t *testing.T) {
 	// to keep the test honest if someone refactors the fixture builder.
 	if hex.EncodeToString(realHash[:]) == wrongHash {
 		t.Fatalf("fixture programming error: real hash collides with wrongHash")
+	}
+}
+
+// TestRunUpdate_RejectsMissingSignatureForRecentTarget pins C3: a release
+// at v0.13.0 or later that omits checksums.txt.sig / checksums.txt.pem must
+// be refused, not silently fall through to SHA-256-only verification. Before
+// the fix an attacker who controlled the GitHub Release page could bypass
+// cosign verification by deleting the two signature assets.
+func TestRunUpdate_RejectsMissingSignatureForRecentTarget(t *testing.T) {
+	// Build a tiny valid-looking tar.gz with a "sfpanel" entry. The actual
+	// bytes don't matter — we expect the handler to refuse before extracting.
+	var archiveBuf bytes.Buffer
+	gw := gzip.NewWriter(&archiveBuf)
+	tw := tar.NewWriter(gw)
+	body := []byte("fake binary payload")
+	_ = tw.WriteHeader(&tar.Header{Name: "sfpanel", Size: int64(len(body)), Mode: 0755, Typeflag: tar.TypeReg})
+	_, _ = tw.Write(body)
+	_ = tw.Close()
+	_ = gw.Close()
+
+	realHash := sha256.Sum256(archiveBuf.Bytes())
+
+	const (
+		archiveName   = "sfpanel_0.15.4_linux_amd64.tar.gz"
+		checksumsName = "checksums.txt"
+	)
+	checksumsBody := fmt.Sprintf("%s  %s\n", hex.EncodeToString(realHash[:]), archiveName)
+
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(archiveBuf.Bytes())
+	})
+	mux.HandleFunc("/checksums", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, checksumsBody)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Release manifest declares v0.15.4 (post-cutoff) with archive +
+		// checksums but deliberately NO checksums.txt.sig / .pem. That's
+		// the supply-chain-downgrade shape we want to refuse.
+		_ = json.NewEncoder(w).Encode(GitHubRelease{
+			TagName: "v0.15.4",
+			Assets: []release.Asset{
+				{Name: archiveName, BrowserDownloadURL: srv.URL + "/archive"},
+				{Name: checksumsName, BrowserDownloadURL: srv.URL + "/checksums"},
+			},
+		})
+	})
+	srv = httptest.NewServer(mux)
+	defer srv.Close()
+	withReleaseAPI(t, srv.URL+"/")
+
+	if !strings.Contains(archiveName, "_"+runtime.GOARCH+".") {
+		t.Skipf("test fixture assumes amd64 asset naming, host is %s", runtime.GOARCH)
+	}
+
+	h := newHandler("0.13.10")
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil)
+	ctx := e.NewContext(req, rec)
+
+	if err := h.RunUpdate(ctx); err != nil {
+		t.Fatalf("RunUpdate returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("SSE handler returns 200 first then emits error events; got status=%d", rec.Code)
+	}
+	body2 := rec.Body.String()
+	if !strings.Contains(body2, `"step":"error"`) {
+		t.Errorf("expected step:error in SSE body, got %q", body2)
+	}
+	if !strings.Contains(body2, "Signature required") {
+		t.Errorf("expected refusal message mentioning 'Signature required', got %q", body2)
+	}
+	// And: the old fallback message must NOT appear — that's the bypass shape.
+	if strings.Contains(body2, "predates Sigstore") {
+		t.Errorf("post-cutoff release fell through to SHA-256-only path: %s", body2)
 	}
 }
 

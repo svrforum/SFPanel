@@ -120,6 +120,28 @@ a1b2c3d4e5f60718293a4b5c6d7e8f9012345678901234567890123456789012  sfpanel_0.11.2
 	}
 }
 
+func TestSignatureRequiredFor(t *testing.T) {
+	cases := []struct {
+		version  string
+		expected bool
+	}{
+		{"v0.13.0", true},
+		{"0.13.0", true},
+		{"v0.13.1", true},
+		{"v0.15.3", true},
+		{"v1.0.0", true},
+		{"v0.12.9", false},
+		{"v0.5.0", false},
+		{"garbage", false}, // parse failure → not required (SHA still gates)
+	}
+	for _, c := range cases {
+		got := SignatureRequiredFor(c.version)
+		if got != c.expected {
+			t.Errorf("SignatureRequiredFor(%q) = %v, want %v", c.version, got, c.expected)
+		}
+	}
+}
+
 func TestIsForwardUpdate(t *testing.T) {
 	if ok, _ := IsForwardUpdate("0.11.1", "0.11.2"); !ok {
 		t.Error("0.11.1 -> 0.11.2 should be forward")

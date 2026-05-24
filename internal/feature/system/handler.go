@@ -243,12 +243,25 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	// Cosign keyless signature verification of checksums.txt before we trust
 	// any hash inside it. The cert pins the upload to release.yml on the
 	// canonical repo for a tagged version — so if the GitHub releases page
-	// is compromised but the workflow isn't, this catches it. We surface
-	// missing-asset errors as warnings (older releases won't have .sig/.pem)
-	// but cryptographic failures are fatal.
+	// is compromised but the workflow isn't, this catches it.
+	//
+	// Releases at or after release.SignatureRequiredSince MUST carry both
+	// signature assets — missing them aborts the update to prevent a
+	// supply-chain downgrade where an attacker who controls the GitHub
+	// Release simply deletes the .sig/.pem to fall through to SHA-only
+	// (which is no defence at all when they can also rewrite checksums.txt).
+	// Pre-cutoff targets fall back to SHA-256 only so the one-time upgrade
+	// path from old unsigned releases still works.
 	sigURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.sig")
 	certURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.pem")
-	if sigURL != "" && certURL != "" {
+	if sigURL == "" || certURL == "" {
+		if release.SignatureRequiredFor(latest) {
+			sendEvent("error", fmt.Sprintf(
+				"Signature required: release %s is missing checksums.txt.sig or checksums.txt.pem (refusing update to prevent supply-chain downgrade)", latest))
+			return nil
+		}
+		sendEvent("verifying", "Release predates Sigstore signing; falling back to SHA-256 only")
+	} else {
 		sendEvent("verifying", "Verifying release signature (Sigstore keyless)...")
 		sigBytes, sigErr := fetchBytes(dlClient, sigURL)
 		if sigErr != nil {
@@ -264,8 +277,6 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 			sendEvent("error", fmt.Sprintf("Signature verification failed: %v", vErr))
 			return nil
 		}
-	} else {
-		sendEvent("verifying", "Release predates Sigstore signing; falling back to SHA-256 only")
 	}
 
 	expectedSHA256, err := release.ParseExpectedSHA256(checksumBody, archiveName)

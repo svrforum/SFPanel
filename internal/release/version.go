@@ -6,6 +6,29 @@ import (
 	"strings"
 )
 
+// SignatureRequiredSince is the first SFPanel release that ships a Sigstore
+// signature (checksums.txt.sig + checksums.txt.pem). Updates targeting this
+// version or later MUST carry both signature assets — missing them aborts
+// the update to prevent a supply-chain downgrade where an attacker who
+// controls the GitHub Release deletes the .sig/.pem to bypass cosign
+// verification. Older targets (pre-v0.13.0) fall back to SHA-256 only,
+// preserving the one-time upgrade path from pre-signed releases.
+const SignatureRequiredSince = "0.13.0"
+
+// SignatureRequiredFor reports whether the release at `targetVersion` must
+// carry a Sigstore signature. Anything at or after SignatureRequiredSince
+// is required; anything older (or unparseable) falls back to the old SHA-256
+// only behaviour for backward compatibility. Errors from CompareVersions
+// (malformed input) default to "not required" — the SHA check still runs
+// independently and refuses on mismatch.
+func SignatureRequiredFor(targetVersion string) bool {
+	cmp, err := CompareVersions(targetVersion, SignatureRequiredSince)
+	if err != nil {
+		return false
+	}
+	return cmp >= 0
+}
+
 // CompareVersions compares two MAJOR.MINOR.PATCH version strings.
 // Returns -1 if a < b, 0 if equal, 1 if a > b.
 // A leading "v" on either side is tolerated. Pre-release / build suffixes
