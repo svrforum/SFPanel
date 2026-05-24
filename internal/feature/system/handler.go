@@ -60,6 +60,13 @@ var exitProcess = func() { os.Exit(0) }
 // produce different test outcomes than CI.
 var isSystemdActive = lifecycle.IsSystemdActive
 
+// osExecutable resolves the running binary's path during the update swap.
+// It's a var (default = os.Executable) so tests can point the .bak/.new
+// staging at a controlled directory — e.g. to force the .bak backup write
+// to fail and assert the update aborts rather than swapping the binary
+// without a rollback copy on disk.
+var osExecutable = os.Executable
+
 // maxUpdateArchiveBytes caps the downloaded archive at 200 MiB. Keeping the
 // limit on the wire (LimitReader) and on disk (size check) prevents a
 // compromised release host from filling the disk during the verify step.
@@ -382,7 +389,7 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 
 	// Replace binary
 	sendEvent("replacing", "Replacing binary...")
-	execPath, err := os.Executable()
+	execPath, err := osExecutable()
 	if err != nil {
 		sendEvent("error", fmt.Sprintf("Cannot find binary path: %v", err))
 		return nil
@@ -390,7 +397,15 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 
 	backupPath := execPath + ".bak"
 	if data, readErr := os.ReadFile(execPath); readErr == nil {
-		_ = os.WriteFile(backupPath, data, 0755)
+		// A failed .bak write must abort the update: without it, an update
+		// that later fails has no rollback copy and the panel is bricked.
+		if err := os.WriteFile(backupPath, data, 0755); err != nil {
+			sendEvent("error", fmt.Sprintf("Backup failed: %v", err))
+			return nil
+		}
+	} else {
+		sendEvent("error", fmt.Sprintf("Cannot read current binary for backup: %v", readErr))
+		return nil
 	}
 
 	// Force WAL pages back into the main DB file so the .bak we're about

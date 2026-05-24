@@ -140,6 +140,15 @@ func withReleaseAPI(t *testing.T, u string) {
 	t.Cleanup(func() { releaseAPIURL = prev })
 }
 
+// withExecutable temporarily overrides osExecutable so RunUpdate stages its
+// .bak/.new files under a controlled path instead of the real test binary.
+func withExecutable(t *testing.T, path string) {
+	t.Helper()
+	prev := osExecutable
+	osExecutable = func() (string, error) { return path, nil }
+	t.Cleanup(func() { osExecutable = prev })
+}
+
 // fakeReleaseServer returns an httptest.Server that responds with a minimal
 // GitHub Releases JSON document — enough for CheckUpdate / RunUpdate to
 // decode and run version comparison.
@@ -1041,5 +1050,112 @@ func TestRunUpdate_RejectsOversizedBinaryEntry(t *testing.T) {
 	}
 	if !strings.Contains(body, "size cap") {
 		t.Errorf("expected refusal mentioning 'size cap', got %q", body)
+	}
+}
+
+// TestRunUpdate_AbortsWhenBackupWriteFails pins C5: if the execPath+".bak"
+// backup write fails, the update must abort with an SSE error event and must
+// NOT proceed to swap the binary — otherwise a later-failing update has no
+// .bak to roll back to and the panel is bricked. We point osExecutable at a
+// fake binary under a temp dir and pre-create <execPath>.bak as a *directory*
+// so os.WriteFile fails (EISDIR). The original binary must be left untouched
+// and no 'complete' event may fire.
+//
+// Pre-cutoff target (0.12.5) so the post-v0.13.0 signature requirement
+// doesn't refuse the release before the backup step runs.
+func TestRunUpdate_AbortsWhenBackupWriteFails(t *testing.T) {
+	const (
+		archiveName   = "sfpanel_0.12.5_linux_amd64.tar.gz"
+		checksumsName = "checksums.txt"
+		releaseTag    = "v0.12.5"
+	)
+
+	// A small, valid tarball with a real "sfpanel" entry that passes the
+	// checksum and size-cap checks so execution reaches the backup step.
+	var archiveBuf bytes.Buffer
+	gw := gzip.NewWriter(&archiveBuf)
+	tw := tar.NewWriter(gw)
+	newBinary := []byte("new sfpanel binary payload")
+	_ = tw.WriteHeader(&tar.Header{Name: "sfpanel", Size: int64(len(newBinary)), Mode: 0755, Typeflag: tar.TypeReg})
+	_, _ = tw.Write(newBinary)
+	_ = tw.Close()
+	_ = gw.Close()
+
+	realHash := sha256.Sum256(archiveBuf.Bytes())
+	checksumsBody := fmt.Sprintf("%s  %s\n", hex.EncodeToString(realHash[:]), archiveName)
+
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(archiveBuf.Bytes())
+	})
+	mux.HandleFunc("/checksums", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, checksumsBody)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(GitHubRelease{
+			TagName: releaseTag,
+			Assets: []release.Asset{
+				{Name: archiveName, BrowserDownloadURL: srv.URL + "/archive"},
+				{Name: checksumsName, BrowserDownloadURL: srv.URL + "/checksums"},
+			},
+		})
+	})
+	srv = httptest.NewServer(mux)
+	defer srv.Close()
+	withReleaseAPI(t, srv.URL+"/")
+
+	if !strings.Contains(archiveName, "_"+runtime.GOARCH+".") {
+		t.Skipf("test fixture assumes amd64 asset naming, host is %s", runtime.GOARCH)
+	}
+
+	// Stage a fake current binary, then make <execPath>.bak un-writable by
+	// pre-creating it as a directory. os.WriteFile then fails with EISDIR.
+	dir := t.TempDir()
+	execPath := filepath.Join(dir, "sfpanel")
+	const originalBinary = "ORIGINAL sfpanel binary"
+	if err := os.WriteFile(execPath, []byte(originalBinary), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(execPath+".bak", 0755); err != nil {
+		t.Fatal(err)
+	}
+	withExecutable(t, execPath)
+
+	h := newHandler("0.12.4")
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil)
+	ctx := e.NewContext(req, rec)
+
+	if err := h.RunUpdate(ctx); err != nil {
+		t.Fatalf("RunUpdate returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("SSE handler returns 200 first then emits error events; got status=%d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"step":"error"`) {
+		t.Errorf("expected step:error in SSE body, got %q", body)
+	}
+	if !strings.Contains(body, "Backup failed") {
+		t.Errorf("expected refusal mentioning 'Backup failed', got %q", body)
+	}
+	// The update must NOT have completed — no swap, so no 'complete' event.
+	if strings.Contains(body, `"step":"complete"`) {
+		t.Errorf("update completed despite failed backup — binary was swapped without a rollback copy: %q", body)
+	}
+	// The original binary must be left byte-for-byte intact (no rename over it).
+	got, err := os.ReadFile(execPath)
+	if err != nil {
+		t.Fatalf("reading execPath after aborted update: %v", err)
+	}
+	if string(got) != originalBinary {
+		t.Errorf("binary was swapped despite failed backup: got %q want %q", got, originalBinary)
+	}
+	// No .new staging file should be left renamed into place either.
+	if _, err := os.Stat(execPath + ".new"); err == nil {
+		t.Errorf("%s.new was left behind — swap path partially executed", execPath)
 	}
 }
