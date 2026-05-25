@@ -61,6 +61,11 @@ var exitProcess = func() { os.Exit(0) }
 // produce different test outcomes than CI.
 var isSystemdActive = lifecycle.IsSystemdActive
 
+// restartFlushDelay is the pause between emitting the SSE 'complete' event and
+// triggering the restart, giving the kernel time to flush the event to the
+// client before systemd SIGTERMs us. A package var so tests can shrink it.
+var restartFlushDelay = 2 * time.Second
+
 // osExecutable resolves the running binary's path during the update swap.
 // It's a var (default = os.Executable) so tests can point the .bak/.new
 // staging at a controlled directory — e.g. to force the .bak backup write
@@ -556,9 +561,15 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
 			sendEvent("complete", fmt.Sprintf("Updated to v%s. Restarting...", latest))
 			go func() {
-				time.Sleep(2 * time.Second)
-				// Use exec.Command.Start() to restart without blocking — the current process will be replaced.
-				_ = exec.Command("systemctl", "restart", "sfpanel").Start()
+				time.Sleep(restartFlushDelay)
+				// Run (not Start) so a failed restart surfaces instead of being silently
+				// swallowed. On success systemd SIGTERMs us mid-Run and this never returns;
+				// on failure we self-exit so Restart=always reloads the freshly-staged binary.
+				if _, rErr := h.Cmd.Run("systemctl", "restart", "sfpanel"); rErr != nil {
+					slog.Error("systemctl restart failed after update; self-exiting for supervisor restart",
+						"component", "system", "error", rErr)
+					exitProcess()
+				}
 			}()
 			return nil
 		}
@@ -572,7 +583,7 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	// failed health checks.
 	sendEvent("complete", fmt.Sprintf("Updated to v%s. Process is exiting — your supervisor (Docker entrypoint, etc.) must restart sfpanel to load the new binary.", latest))
 	go func() {
-		time.Sleep(2 * time.Second)
+		time.Sleep(restartFlushDelay)
 		slog.Info("update complete, exiting for external supervisor restart", "component", "system", "version", latest)
 		exitProcess()
 	}()

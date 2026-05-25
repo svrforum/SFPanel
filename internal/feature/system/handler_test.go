@@ -1403,3 +1403,238 @@ func TestRunUpdate_AbortsWhenBackupWriteFails(t *testing.T) {
 		t.Errorf("%s.new was left behind — swap path partially executed", execPath)
 	}
 }
+
+// withRestartFlushDelay shrinks the SSE-flush pause before the systemd restart
+// fires so the restart goroutine runs within the test rather than after a 2s
+// real-clock wait. Restored via t.Cleanup.
+func withRestartFlushDelay(t *testing.T, d time.Duration) {
+	t.Helper()
+	prev := restartFlushDelay
+	restartFlushDelay = d
+	t.Cleanup(func() { restartFlushDelay = prev })
+}
+
+// restartFailCommander makes `systemctl restart sfpanel` return a configured
+// error while every other call (notably `systemctl is-active --quiet sfpanel`)
+// succeeds. MockCommander keys configured outputs by command *name* only, so a
+// plain SetOutput("systemctl", …) cannot distinguish is-active from restart;
+// this arg-aware wrapper does.
+//
+// It also keeps its OWN mutex-guarded record of whether the restart fired,
+// rather than reading the embedded MockCommander's unexported-mutex-protected
+// Calls slice from the test goroutine — the restart runs in a background
+// goroutine, so a direct read of that slice while the goroutine appends to it
+// is a data race the test seam must not introduce.
+type restartFailCommander struct {
+	*commonExec.MockCommander
+	restartErr error
+
+	mu         sync.Mutex
+	sawRestart bool
+}
+
+func (c *restartFailCommander) Run(name string, args ...string) (string, error) {
+	// Record via the embedded mock for completeness, then derive the
+	// args-aware result and our own guarded restart flag.
+	out, err := c.MockCommander.Run(name, args...)
+	if name == "systemctl" && len(args) >= 2 && args[0] == "restart" && args[1] == "sfpanel" {
+		c.mu.Lock()
+		c.sawRestart = true
+		c.mu.Unlock()
+		if c.restartErr != nil {
+			return "", c.restartErr
+		}
+	}
+	return out, err
+}
+
+// restartRan reports, under its own lock, whether `systemctl restart sfpanel`
+// went through this Commander — safe to poll from the test goroutine while the
+// restart runs in the background.
+func (c *restartFailCommander) restartRan() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sawRestart
+}
+
+// buildRunUpdateToRestartHarness stands up the full RunUpdate scaffolding —
+// fake release server with a real tarball, a long-lived "current" binary whose
+// .bak copy keeps the spawned watchdog alive past the liveness probe, and the
+// staged DB/config — so execution reaches the systemd restart branch. It
+// returns the wired Handler and the recorded-call accessor.
+//
+// The current binary is a shell script that sleeps; its .bak copy is what the
+// watchdog execs, so the watchdog process stays alive long enough for
+// watchdogAlive() to report true and the handler to proceed to the restart.
+func buildRunUpdateToRestartHarness(t *testing.T, cmd commonExec.Commander) *Handler {
+	t.Helper()
+
+	const (
+		archiveName   = "sfpanel_0.12.5_linux_amd64.tar.gz"
+		checksumsName = "checksums.txt"
+		releaseTag    = "v0.12.5"
+	)
+
+	if !strings.Contains(archiveName, "_"+runtime.GOARCH+".") {
+		t.Skipf("test fixture assumes amd64 asset naming, host is %s", runtime.GOARCH)
+	}
+
+	var archiveBuf bytes.Buffer
+	gw := gzip.NewWriter(&archiveBuf)
+	tw := tar.NewWriter(gw)
+	newBinary := []byte("NEW sfpanel binary payload")
+	if err := tw.WriteHeader(&tar.Header{Name: "sfpanel", Size: int64(len(newBinary)), Mode: 0755, Typeflag: tar.TypeReg}); err != nil {
+		t.Fatalf("writing tar header: %v", err)
+	}
+	if _, err := tw.Write(newBinary); err != nil {
+		t.Fatalf("writing tar body: %v", err)
+	}
+	_ = tw.Close()
+	_ = gw.Close()
+
+	realHash := sha256.Sum256(archiveBuf.Bytes())
+	checksumsBody := fmt.Sprintf("%s  %s\n", hex.EncodeToString(realHash[:]), archiveName)
+
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(archiveBuf.Bytes())
+	})
+	mux.HandleFunc("/checksums", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, checksumsBody)
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(GitHubRelease{
+			TagName: releaseTag,
+			Assets: []release.Asset{
+				{Name: archiveName, BrowserDownloadURL: srv.URL + "/archive"},
+				{Name: checksumsName, BrowserDownloadURL: srv.URL + "/checksums"},
+			},
+		})
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	withReleaseAPI(t, srv.URL+"/")
+
+	// A long-lived "current" binary: a shell script that sleeps. The backup step
+	// copies it to <execPath>.bak; the watchdog execs that .bak, so the watchdog
+	// process stays alive across the liveness probe (unlike /bin/false, which
+	// exits immediately).
+	dir := t.TempDir()
+	execPath := filepath.Join(dir, "sfpanel")
+	if err := os.WriteFile(execPath, []byte("#!/bin/sh\nsleep 5\n"), 0755); err != nil {
+		t.Fatalf("staging long-lived fake current binary: %v", err)
+	}
+	withExecutable(t, execPath)
+
+	h := newHandler("0.12.4")
+	h.Cmd = cmd
+	// Port > 0 so the watchdog block runs; the sleeping watchdog never actually
+	// polls the URL, it just needs to stay alive for the liveness probe.
+	h.Port = 65000
+	h.DBPath = filepath.Join(dir, "sfpanel.db")
+	h.ConfigPath = filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(h.DBPath, []byte("db"), 0600); err != nil {
+		t.Fatalf("staging db: %v", err)
+	}
+	if err := os.WriteFile(h.ConfigPath, []byte("cfg"), 0600); err != nil {
+		t.Fatalf("staging config: %v", err)
+	}
+	return h
+}
+
+// TestRunUpdate_SystemdRestartFailureSelfExits pins Task 3.3: the self-update
+// systemd restart now runs synchronously through the injected Commander
+// (h.Cmd.Run) instead of fire-and-forget exec.Command(...).Start(). The OLD
+// code's raw exec never touched h.Cmd, so the MockCommander recorded no
+// `systemctl restart` — these assertions fail RED against it. The new code
+// records the call and, on a restart FAILURE, self-exits so Restart=always
+// reloads the freshly-staged binary.
+func TestRunUpdate_SystemdRestartFailureSelfExits(t *testing.T) {
+	withSystemdActive(t, true)
+	withRestartFlushDelay(t, 5*time.Millisecond)
+
+	cmd := &restartFailCommander{
+		MockCommander: commonExec.NewMockCommander(),
+		restartErr:    errors.New("Failed to restart sfpanel.service: Unit sfpanel.service is masked."),
+	}
+	h := buildRunUpdateToRestartHarness(t, cmd)
+
+	before := exitCount.Load()
+
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil)
+	ctx := e.NewContext(req, rec)
+
+	if err := h.RunUpdate(ctx); err != nil {
+		t.Fatalf("RunUpdate returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected SSE 200, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"step":"complete"`) {
+		t.Errorf("expected step:complete (restart branch reached), got %q", body)
+	}
+
+	// Poll for the restart goroutine: it sleeps restartFlushDelay (5ms here),
+	// runs `systemctl restart` (errors), then calls exitProcess().
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if cmd.restartRan() && exitCount.Load() > before {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if !cmd.restartRan() {
+		t.Fatalf("systemctl restart was not recorded by the Commander — restart did not go through h.Cmd.Run")
+	}
+	if got := exitCount.Load(); got <= before {
+		t.Errorf("expected exitProcess to fire on restart failure (before=%d, now=%d) — self-exit safety net did not run", before, got)
+	}
+}
+
+// TestRunUpdate_SystemdRestartSuccessNoSelfExit is the success counterpart: when
+// `systemctl restart` returns nil, the call is still recorded (proving it went
+// through the Commander) but exitProcess is NOT invoked — on a real host systemd
+// SIGTERMs the process mid-Run; with a mock that returns success the Run simply
+// returns and the goroutine exits without self-killing.
+func TestRunUpdate_SystemdRestartSuccessNoSelfExit(t *testing.T) {
+	withSystemdActive(t, true)
+	withRestartFlushDelay(t, 5*time.Millisecond)
+
+	// No restartErr → systemctl restart returns the mock's nil-error default.
+	cmd := &restartFailCommander{MockCommander: commonExec.NewMockCommander()}
+	h := buildRunUpdateToRestartHarness(t, cmd)
+
+	before := exitCount.Load()
+
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil)
+	ctx := e.NewContext(req, rec)
+
+	if err := h.RunUpdate(ctx); err != nil {
+		t.Fatalf("RunUpdate returned error: %v", err)
+	}
+
+	// Poll for the restart goroutine to record the call.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if cmd.restartRan() {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if !cmd.restartRan() {
+		t.Fatalf("systemctl restart was not recorded by the Commander on the success path")
+	}
+	// Give the goroutine a beat past the recorded restart to ensure no late exit.
+	time.Sleep(50 * time.Millisecond)
+	if got := exitCount.Load(); got != before {
+		t.Errorf("exitProcess fired on a successful restart (before=%d, now=%d) — should only self-exit on failure", before, got)
+	}
+}
