@@ -117,45 +117,45 @@
   - 터미널 리사이즈 (PTY 동기화)
   - 폰트 크기 조절 (10~24px)
   - 터미널 내 텍스트 검색 (SearchAddon)
-  - 웹 링크 자동 감지 및 클릭 (WebLinksAddon)
-  - Tokyo Night 컬러 테마
-  - 유휴 세션 자동 정리 (설정 가능한 타임아웃, 기본 30분, 0=무제한)
+  - 웹 링크 자동 감지 및 클릭 (WebLinksAddon), Unicode11 폭 처리 (CJK)
+  - Tokyo Night 컬러 테마, 클리어 버튼 (Ctrl-L 전송)
+  - 모바일 특수키 바 (Esc/Tab/Ctrl/Alt 토글, 방향키, Ctrl+C/D/Z)
+  - 유휴 세션 자동 정리 (설정 가능한 타임아웃, 기본 30분, 0=무제한) + **빈-리더 세션 5분 강제 회수** (탭 종료 후 PTY 누수 방지)
+  - 최대 20 동시 세션, WS keepalive (30초 ping / 70초 read deadline), 사용자별 세션 키 바인딩, HOME 동적 해석(비-root 유닛 지원)
   - 키보드 단축키 (Ctrl+F 검색)
-- **관련 기술**: creack/pty, gorilla/websocket, xterm.js v6, xterm addons
+  - WS 인증: 단발성 ws-ticket(`POST /auth/ws-ticket`) 우선, 레거시 `?token=` fallback
+- **관련 기술**: creack/pty, gorilla/websocket, xterm.js v6, xterm addons (Search/WebLinks/Unicode11)
 
 ### 4. 파일 관리자
 
 - **설명**: 서버 파일시스템을 웹 UI에서 탐색하고 편집하는 파일 매니저
 - **주요 기능**:
   - 디렉토리 탐색 (브레드크럼 네비게이션, 직접 경로 입력)
-  - 파일 읽기 (최대 5MB, Monaco 에디터로 구문 강조 표시)
-  - 파일 생성/쓰기/저장
+  - 파일 읽기 (최대 5MB, Monaco 에디터; 초과 시 다운로드로 안내), 쓰기 최대 10MB, 다운로드 최대 2GB
+  - 파일 생성/쓰기/저장 (`.bak` 백업은 스트리밍 복사)
   - 디렉토리 생성 (중첩 경로 자동 생성)
-  - 파일/디렉토리 삭제 (시스템 중요 경로 보호: /, /etc, /usr, /bin, /sbin, /var, /boot, /proc, /sys, /dev)
-  - 파일/디렉토리 이름 변경 (이동)
-  - 파일 다운로드
-  - 파일 업로드 (multipart, 최대 100MB)
-  - 경로 유효성 검증 (절대 경로 필수, 디렉토리 트래버설 차단)
-  - 파일 목록 정렬 (디렉토리 우선, 알파벳순)
-  - 파일 타입별 아이콘 표시
-  - 권한(mode), 크기, 수정 시간 표시
+  - 파일/디렉토리 삭제 (시스템 중요 경로 17개 보호: /, /etc, /usr, /bin, /sbin, /var, /boot, /proc, /sys, /dev, /home, /root, /lib, /lib64, /opt, /run, /srv)
+  - **읽기 차단 경로(read-protected)**: /root/.ssh, 사용자 홈의 SSH 키/authorized_keys/known_hosts 등 → 403
+  - **업로드 정책**: 웹 서빙 디렉토리(/var/www 등)에는 실행 확장자(.php/.sh/.cgi/.jsp 등) 및 .htaccess/.htpasswd/web.config 업로드 차단
+  - 파일/디렉토리 이름 변경 (이동), 다운로드
+  - 파일 업로드 (multipart, 상한은 설정값 `max_upload_size`)
+  - 경로 유효성 검증 (절대 경로 필수, `filepath.Clean` 동등성으로 트래버설 차단, 심볼릭 링크 해석 재검증)
+  - 우클릭 컨텍스트 메뉴 (행 + 빈 영역), 목록 정렬(디렉토리 우선), 타입별 아이콘, 권한/크기/수정시간 표시
 - **관련 기술**: Go os 패키지, Monaco Editor, 30+ 프로그래밍 언어 구문 강조
 
 ### 5. 로그 뷰어
 
 - **설명**: 시스템 및 애플리케이션 로그를 웹에서 조회하고 실시간 스트리밍하는 뷰어
 - **주요 기능**:
-  - 8개 사전 정의 로그 소스: System Log, Auth Log, Kernel Log, Nginx Access/Error, SFPanel, Package Manager (dpkg), Firewall (UFW)
+  - 7개 사전 정의 로그 소스: System Log, Auth Log, Kernel Log, SFPanel, Package Manager (dpkg), Firewall (UFW/DOCKER-USER — kern.log grep 필터), Fail2ban
   - **커스텀 로그 소스 추가/삭제** (이름 + 파일 경로 지정, SQLite `custom_log_sources` 테이블에 저장)
-  - 로그 소스별 파일 존재 여부 및 크기 표시
+  - **구조화된 파싱 뷰** (Firewall/Auth/Fail2ban/SFPanel — 원시/파싱 토글, 컬럼 테이블)
   - 줄 수 선택 (100, 500, 1000, 5000줄)
-  - 실시간 스트리밍 모드 (WebSocket + `tail -f`, Live 토글)
+  - 실시간 스트리밍 모드 (WebSocket + `tail -F` — logrotate 자동 추적, Live 토글)
   - 로그 레벨 감지 및 색상 구분 (ERROR/FATAL=빨강, WARN=노랑, INFO=파랑, DEBUG=회색)
-  - 로그 내 텍스트 검색 (하이라이트, 이전/다음 매치 탐색, Ctrl+F 단축키)
-  - 자동 스크롤 토글
-  - 로그 파일 다운로드 (.log 파일)
-  - 줄 번호 표시
-  - 허용 목록 기반 접근 제어 (사전 정의 소스 + 커스텀 소스만 접근 가능)
+  - 로그 내 텍스트 검색 (하이라이트, 이전/다음 매치, Ctrl+F), 자동 스크롤 토글, 가상 스크롤
+  - 로그 다운로드 (클라이언트 Blob), 줄 번호 표시
+  - 커스텀 소스 경로 허용 목록: **`/var/log/` · `/opt/` 만** (세그먼트 경계 매칭 + 심볼릭 링크 해석 재검증; `/home`·`/tmp` 제외)
 - **관련 기술**: tail 명령어, gorilla/websocket, WebSocket 기반 실시간 스트리밍
 
 ### 6. 프로세스 관리
@@ -166,10 +166,11 @@
   - 프로세스 검색 (이름, 명령어, 사용자, PID로 필터링)
   - 정렬 (CPU, 메모리, PID, 이름)
   - 프로세스 종료 (SIGTERM, SIGKILL, SIGHUP, SIGINT 시그널 선택)
-  - 5초 간격 자동 갱신
-  - 실시간 시스템 리소스 요약 (CPU/메모리/Swap 사용률 바)
-  - Top 10 프로세스 (대시보드용 API)
-- **관련 기술**: gopsutil/v4 process, syscall 시그널
+  - **sysguard 자기-보호**: 보호 PID(init/kthreadd/sfpanel) 및 패널이 직접 띄운 자식 프로세스(apt/docker compose/터미널 PTY 등, pgid 기준) 시그널 전송 거부 (403)
+  - 15초 간격 자동 갱신 (탭 비활성 시 일시정지), 대용량 목록 가상 스크롤
+  - 실시간 시스템 리소스 요약 (CPU/메모리/Swap 사용률 바, `/ws/metrics`)
+  - Top 프로세스 (대시보드용 별도 API `/system/processes`)
+- **관련 기술**: gopsutil/v4 process, syscall 시그널, common/sysguard
 
 ### 7. Cron 작업 관리
 
@@ -182,8 +183,10 @@
   - 작업 활성화/비활성화 토글 (주석 처리 방식)
   - 스케줄 프리셋 (매분, 매시, 매일, 매주, 매월)
   - 스케줄 설명 자동 생성 ("Every 5 minutes", "@reboot" 등)
-  - 스케줄 유효성 검증 (5-필드 형식 + @키워드)
+  - 스케줄 유효성 검증 (5-필드 형식 + @키워드, 클라이언트 사전 검증 + 개행 문자 거부)
   - 전체 타입 표시 모드 (env, comment 포함)
+  - **낙관적 동시성 가드(`expected_raw`)**: 라인 인덱스 시프트로 다른 작업이 수정/삭제되는 것을 방지, 불일치 시 409 (`CRON_CONFLICT`)
+  - crontab 미설치 노드: 목록은 빈 배열, 생성/수정/삭제는 503. `crontabMu`로 read-modify-write 직렬화
 - **관련 기술**: crontab CLI (`crontab -l`, `crontab -`), 정규식 파싱
 
 ### 8. 패키지 관리
@@ -192,26 +195,26 @@
 - **주요 기능**:
   - **Docker 상태 확인**: 설치 여부, 버전, 실행 상태, Docker Compose 사용 가능 여부
   - **Docker 원클릭 설치**: get.docker.com 스크립트 실행, SSE(Server-Sent Events)로 실시간 출력 스트리밍
+  - **개발 도구 설치**: Node.js(NVM/LTS — 설치·버전 전환·삭제, LTS 원격 목록), Claude Code(claude.ai), Codex(`@openai/codex`), Gemini CLI(`@google/gemini-cli`) — 전부 SSE 스트리밍, Node 미설치 시 Codex/Gemini 버튼 비활성화
   - **시스템 업데이트 확인**: `apt list --upgradable` 파싱 (패키지명, 현재/신규 버전, 아키텍처)
-  - **패키지 업그레이드**: 전체 또는 선택적 업그레이드 (`apt-get upgrade`)
-  - **패키지 설치**: 이름으로 패키지 설치 (`apt-get install`)
-  - **패키지 제거**: 이름으로 패키지 제거 (`apt-get remove`)
-  - **패키지 검색**: `apt-cache search` 결과 표시 (최대 50건)
-  - 패키지 이름 유효성 검증 (인젝션 방지)
-  - 작업 출력 실시간 표시 다이얼로그
-- **관련 기술**: apt/apt-get/apt-cache CLI, SSE 스트리밍, 5분 명령 타임아웃
+  - **패키지 업그레이드**: 전체 또는 선택적 업그레이드 (`apt-get upgrade`, **SSE 스트리밍**)
+  - **패키지 설치/제거**: 이름으로 설치/제거 (`apt-get install`/`remove`)
+  - **패키지 검색**: `apt-cache search` 결과 표시 (최대 50건, 설치 상태 표시)
+  - 패키지 이름 유효성 검증 (인젝션 방지), **dpkg 프런트엔드 락 사전 점검 → 점유 시 즉시 409**
+  - 업스트림 설치 스크립트 SHA-256 핀(옵션, `SFPANEL_*_INSTALLER_SHA256` env; 기본 track-latest)
+- **관련 기술**: apt/apt-get/apt-cache CLI, nvm/npm, SSE 스트리밍, 5분 명령 타임아웃
 
 ### 9. 네트워크 / VPN 관리
 
 - **설명**: 서버 네트워크 인터페이스, DNS, 라우팅, 본딩 및 VPN 클라이언트(WireGuard, Tailscale)를 웹 UI에서 관리
 - **주요 기능**:
-  - **인터페이스**: 네트워크 인터페이스 목록 (이름/상태/IP/MAC/속도/MTU), 인터페이스 상세 정보, DHCP/Static 설정 변경, **물리/가상/Docker 인터페이스 분류** (물리적 인터페이스 우선 표시, Docker 네트워크 접이식 분리)
+  - **인터페이스**: 네트워크 인터페이스 목록 (이름/상태/IP/MAC/속도/MTU), 인터페이스 상세 정보, DHCP/Static 설정 변경, **물리/가상/루프백/Docker 인터페이스 분류** (Docker 그룹 접이식), 단일 집계 조회 `getNetworkStatus()`(interfaces+routes+dns)
   - **DNS**: DNS 서버 및 검색 도메인 조회
   - **라우팅**: 시스템 라우팅 테이블 조회
   - **본딩**: 네트워크 본드 목록, 생성 (모드/슬레이브/프라이머리 설정), 삭제
   - **Netplan**: 네트워크 설정 적용 (`netplan apply`)
   - **WireGuard VPN**: 설치 상태 확인 및 원클릭 설치, 인터페이스 목록/상세 (피어 정보 포함), 인터페이스 활성화/비활성화 (`wg-quick up/down`), 설정 파일 CRUD (생성/조회/수정/삭제), `.conf` 파일 업로드 지원, PrivateKey 마스킹
-  - **Tailscale VPN**: 설치 상태 확인 및 원클릭 설치 (공식 install.sh), 연결/해제/로그아웃, Auth Key 입력 또는 브라우저 인증 URL, 자기 노드 정보 (Hostname/IP/Tailnet/MagicDNS), 피어 목록 (호스트명/IP/OS/온라인 상태/트래픽), Exit Node 선택/해제
+  - **Tailscale VPN**: 설치 상태 확인 및 **SSE 스트리밍 설치 출력** (공식 install.sh), 연결/해제/로그아웃, Auth Key 입력 또는 브라우저 인증 URL 자동 오픈, 자기 노드 정보 (Hostname/IPv4·IPv6/OS/Tailnet/MagicDNS), 피어 목록 (호스트명/IP/OS/온라인/트래픽), Exit Node 선택/해제, **Accept Routes / Advertise Exit Node 토글**, 버전 확인 및 업데이트 체크
 - **관련 기술**: Netplan CLI, ip/networkctl, wg/wg-quick, tailscale CLI
 
 ### 10. 디스크 관리
@@ -221,7 +224,7 @@
   - **디스크 개요**: 디스크 목록 (이름/크기/모델/시리얼), I/O 통계, 디스크 사용량 분석 (경로/깊이별)
   - **SMART 모니터링**: smartmontools 설치 상태 확인 및 원클릭 설치, 디스크별 SMART 정보 조회
   - **파티션**: 디스크별 파티션 목록, 파티션 생성 (시작/끝/파일시스템 타입), 파티션 삭제
-  - **파일시스템**: 마운트된 파일시스템 목록, 파티션 포맷 (ext4/xfs/btrfs 등), 마운트/언마운트, 파일시스템 리사이즈
+  - **파일시스템**: 마운트된 파일시스템 목록, 파티션 포맷 (ext4/xfs/btrfs 등), 마운트/언마운트, 파일시스템 리사이즈, 확장 가능 여부 사전 검사 및 확장(expand-check/expand; LVM `/dev/mapper` 타깃 지원)
   - **LVM**: PV/VG/LV 목록 및 생성/삭제, LV 리사이즈
   - **RAID**: mdadm RAID 배열 목록 및 상세 정보, RAID 생성 (레벨/디바이스 선택), RAID 삭제, 디스크 추가/제거
   - **Swap**: 스왑 정보 조회, 스왑 파일/파티션 생성/삭제, swappiness 설정, 스왑 리사이즈 (안전성 사전 검사)
@@ -233,9 +236,11 @@
 - **주요 기능**:
   - **UFW 방화벽**: 활성화/비활성화 토글, 규칙 목록 조회 (번호/대상/동작/소스/코멘트/IPv6 구분), 규칙 추가 (action/port/protocol/from/to/comment), 규칙 삭제
   - **리스닝 포트**: `ss` 명령어로 TCP/UDP 리스닝 포트 조회 (프로토콜/주소/포트/PID/프로세스), 포트에서 직접 UFW 규칙 추가 지원
-  - **Fail2ban**: 설치 상태 확인 및 원클릭 설치 (`apt-get install -y fail2ban`), **jail 템플릿** (사전 정의된 보호 규칙 — SSH, Nginx 등), jail 생성/삭제, jail 목록 및 상태 조회, jail 활성화/비활성화, jail 설정 변경 (maxretry/bantime/findtime), 차단 IP 해제 (unban)
-  - **Docker 방화벽**: DOCKER-USER 체인 규칙 관리 (iptables), Docker 네트워크 트래픽 제어
-  - **방화벽 로그**: UFW + Docker-USER 패킷 로그 뷰어
+  - **포트 맵**: 호스트 포트별로 UFW 규칙 + Docker DNAT 컨테이너 + 호스트 프로세스를 단일 표로 통합 조회 (`GET /system/portmap`), 상태(listening/bound) 및 외부 노출 위험 하이라이트
+  - **Fail2ban**: 설치 상태 확인 및 원클릭 설치, **jail 템플릿** (SSH 등 사전 정의), jail 생성/삭제(설정은 원자적 temp+rename 기록)/목록·상태/활성화·비활성화/설정 변경 (maxretry/bantime/findtime)/차단 IP 해제 (unban)
+  - **Docker 방화벽**: DOCKER-USER 체인 규칙 관리 (iptables; 동시 편집 직렬화), Docker 발행 포트 표 + DNAT 매핑
+  - **방화벽 로그**: UFW + Docker-USER, Fail2ban 로그 뷰어 (공유 로그 소스)
+  - **잠금 방지 가드**: UFW 활성화/규칙 추가/규칙 삭제 시 SSH(22) 또는 패널 포트 접근이 차단되는 변경을 사전 감지하여 HTTP 409로 거부 (`?force=true`로 우회; 비활성 상태에선 `ufw show added`로 스테이징 규칙까지 검사)
   - 입력값 검증: 포트 번호/범위, IP/CIDR 주소, 프로토콜, action, jail 이름 등 서버 측 정규식 검증
 - **관련 기술**: UFW CLI (`ufw`), Fail2ban CLI (`fail2ban-client`), iptables, ss 명령어
 
@@ -243,11 +248,12 @@
 
 - **설명**: 시스템 서비스(systemd unit)를 웹 UI에서 모니터링하고 제어
 - **주요 기능**:
-  - 서비스 목록 조회 (이름, 상태, 활성화 여부, 설명)
-  - 서비스 시작/중지/재시작
-  - 서비스 활성화/비활성화 (부팅 시 자동 시작)
-  - 서비스 로그 조회 (journalctl)
-- **관련 기술**: systemctl CLI, journalctl
+  - 서비스 목록 조회 (이름/active_state·sub_state/enabled(enabled·disabled·static·masked)/설명), 검색 + 상태 필터(all/running/failed/inactive)
+  - 서비스 시작/중지/재시작, 활성화/비활성화 (부팅 시 자동 시작)
+  - 서비스 로그 조회 (journalctl) + 의존성 정보 (required_by/requires/wanted_by) 동시 표시
+  - **보호 유닛 가드**: sfpanel/dbus/systemd-journald 등 보호 유닛의 중지·재시작·비활성화 거부 (403, sysguard)
+  - 15초 간격 자동 갱신 (탭 비활성 시 일시정지)
+- **관련 기술**: systemctl CLI, journalctl, common/sysguard
 
 ### 14. 앱스토어 (App Store)
 
@@ -258,12 +264,14 @@
   - 원클릭 설치: Compose YAML 자동 생성 + 환경변수 폼 + `docker compose up -d`
   - 동적 환경변수 설정 (포트, 비밀번호 등 앱별 커스텀)
   - 자동 비밀번호 생성 (`crypto/rand`, 32바이트 hex)
-  - SQLite 기반 캐시 (1시간 TTL, 5개 동시 HTTP 요청으로 백그라운드 갱신)
-  - 설치된 앱은 Docker Compose Stacks에서 관리 가능
-  - 설치 모드: 심플 모드 (환경변수 폼) / 고급 모드 (docker-compose.yml + .env 직접 편집)
-  - 포트/컨테이너 이름 충돌 자동 감지 및 대체 포트 제안
-  - SSE 기반 설치 진행률 스트리밍 (fetch → prepare → pull → start → done)
-- **관련 기술**: GitHub Raw API, Docker Compose, crypto/rand, net/http, SSE 스트리밍
+  - 캐시 영속화: SQLite `settings.appstore_cache` (1시간 TTL, 5개 동시 HTTP 요청 갱신) — 재시작 후 GitHub 재조회 없이 복원
+  - 설치된 앱은 Docker Compose Stacks에서 관리 가능. 설치 경로 `<stacks_path>/<app-id>/`
+  - 설치 모드: 심플 모드 (환경변수 폼) / **고급 모드** (docker-compose.yml + .env 직접 편집)
+  - **고급 모드 보안**: 설치 시 비밀번호 재인증(bcrypt) + 위험 compose(privileged/pid:host/hostfs/docker.sock) 차단 (도난 JWT만으로 호스트 루트 탈취 방지), 1MB 요청 바디 캡
+  - 앱 상세: README 렌더링(브랜치 자동 탐색) + 포트 사용 현황/대체 포트 제안
+  - 포트/컨테이너 이름 충돌 자동 감지(409) 및 대체 포트 제안, 설치 레이스 가드(atomic mkdir) + 실패 시 자동 롤백(compose down -v)
+  - SSE 기반 설치 진행률 스트리밍 (prepare/fetch → pull → start → done)
+- **관련 기술**: GitHub Raw API, Docker Compose, crypto/rand, bcrypt, net/http, SSE 스트리밍
 
 ### 15. 클러스터 관리
 
@@ -287,12 +295,14 @@
 - **WebSocket 릴레이** (`internal/cluster/ws_relay.go`): `WrapEchoWSHandler`로 터미널/로그/메트릭/Docker exec 등 모든 WS를 원격 노드로 양방향 포워딩. 메시지 타입(바이너리/텍스트) 보존, 한쪽 종료 시 전파
 - **내부 프록시 인증**: CA 인증서 SHA-256 해시 기반, `X-SFPanel-Internal-Proxy` 헤더 상수시간 비교 (JWT 비의존). `X-SFPanel-Original-User` 헤더로 원본 사용자 전파
 - **동시성 보호**: `Manager.joiningMu`(Init/Join 중복 방지), `Config.configMu`(Cluster 필드 보호), `Handler.mu` RWMutex(Manager 포인터 동기화), `Handler.OnManagerActivated` 콜백(다른 핸들러가 Manager 활성화 시 갱신)
-- **노드 선택 UI**: 사이드바 NodeSelector 컴포넌트, localStorage `sfpanel_current_node` 지속, 노드 전환 시 페이지 즉시 갱신
+- **클러스터 UI (좌측 트리)**: 클러스터 모드에서 표준 사이드바를 2단 트리로 대체 (`ClusterSidebar` = `TreePanel` + `ContextMenu`). TreePanel은 데이터센터(클러스터) 루트 + 노드 목록(상태 점/리더 왕관/local 태그, 로컬 우선 정렬)을, ContextMenu는 선택 범위에 따라 메뉴를 렌더 — **데이터센터 범위**: 개요/노드/토큰/설정, **노드 범위**: 해당 노드의 전체 모듈 메뉴. 선택·접힘 상태 localStorage 지속. 노드 선택 시 `api.setCurrentNode`로 `?node=` 전역 주입, 데이터센터 선택 시 해제. (기존 `NodeSelector`는 비클러스터 폴백 전용)
+- **데이터센터 개요** (`/cluster/overview`): 노드별 메트릭 집계 (평균 CPU/메모리/디스크, 총 컨테이너, online/total), 15초 폴링, 팔로워 stale 응답 시 경고 배너, 최근 이벤트, 리더 전용 롤링/동시 업데이트 버튼(SSE 진행률). 미초기화 시 `ClusterInitForm`(init/join) 렌더
+- **클러스터 업데이트 가드**: 동시 모드는 정족수를 깨는 경우(투표자 ≥2) 사전 거부, 롤링은 첫 실패 시 중단. 리더는 자기 업데이트 전에 리더십을 온라인 팔로워로 이전
 - **Graceful 누락 처리**: 원격 노드에 ufw/crontab/rsyslog 미설치 시 500 대신 빈 결과 반환
 - **알려진 제약**:
   - 토큰은 메모리에만 저장 (리더 재시작 시 기존 토큰 소실)
   - 비클러스터 → 클러스터 마이그레이션 경로 없음 (Init/Join 신규만 지원)
-  - TLS 갱신 미자동화 (1년 TTL, 만료 감시 없음, 수동 갱신 필요)
+  - TLS: CA 10년 / 노드 인증서 5년 TTL, 만료 자동 감시는 없음. 노드 인증서는 `sfpanel cluster reissue-cert`로 무중단 재발급 가능, CA 회전은 전 노드 동시 재시작 필요
   - 네트워크 분할 시 Raft 안전성만 보장 (분할 뇌 자체는 막지 않음)
 - **설계 문서**: `docs/superpowers/specs/2026-04-13-cluster-join-redesign.md` (조인 재설계), `docs/superpowers/research/2026-04-19-docs-overhaul/cluster-inventory.md` (인벤토리)
 - **관련 기술**: hashicorp/raft, raft-boltdb, gRPC, protobuf, crypto/x509
@@ -301,7 +311,7 @@
 
 - **설명**: 커널 매개변수(sysctl)를 웹 UI에서 조회하고 권장값으로 적용하는 시스템 성능 최적화 도구
 - **주요 기능**:
-  - **튜닝 상태 조회**: 4개 카테고리(네트워크/메모리/파일시스템/보안) 37개 sysctl 매개변수의 현재값 vs 권장값 비교
+  - **튜닝 상태 조회**: 네트워크/메모리/파일시스템/보안 4개 기본 카테고리 + conntrack 모듈 탑재 시 conntrack 카테고리 추가, 각 sysctl 매개변수의 현재값 vs 동적 권장값 비교
   - **동적 권장값 계산**: CPU 코어 수, RAM 용량에 따라 버퍼 크기/백로그/swappiness 등 자동 조정
   - **카테고리별 적용**: 네트워크(BBR, TCP 버퍼, 커넥션 백로그), 메모리(swappiness, dirty ratio, cache pressure), 파일시스템(file-max, inotify), 보안(SYN 쿠키, RP 필터, ICMP 제한) 선택 적용
   - **안전한 적용/확인/롤백 워크플로우**: 적용 후 60초 내 확인하지 않으면 자동 롤백 (이전 sysctl 값 + 설정 파일 복원)
@@ -314,22 +324,23 @@
 - **설명**: 모든 상태 변경 API 요청(POST, PUT, DELETE)을 자동으로 기록하는 감사 추적 시스템
 - **주요 기능**:
   - **자동 기록**: AuditMiddleware가 모든 상태 변경 요청을 비동기로 `audit_logs` 테이블에 기록
-  - **기록 항목**: 사용자명, HTTP 메서드, 경로, 응답 상태 코드, 클라이언트 IP, 노드 ID, 생성 시각
-  - **클러스터 지원**: `?node=X` 파라미터로 원격 노드 요청 시 노드 ID 자동 추적
-  - **감사 로그 조회**: 페이지네이션 지원 (page/limit 파라미터, 기본 50건, 최대 100건)
-  - **감사 로그 삭제**: 전체 감사 로그 일괄 삭제
-  - **보안 예외**: 로그인/셋업 엔드포인트는 비밀번호 노출 방지를 위해 기록 제외
-- **관련 기술**: Echo 미들웨어, SQLite, 비동기 INSERT (goroutine)
+  - **기록 항목**: 사용자명, HTTP 메서드, 경로, 응답 상태 코드, 클라이언트 IP, 노드 ID, **보호 플래그(protected)**, 생성 시각
+  - **클러스터 지원**: `?node=X` 원격 요청 시 노드 ID 자동 추적
+  - **감사 로그 조회**: 페이지네이션 (page/limit, 기본 50건, 최대 100건)
+  - **범위 삭제 + Tombstone**: `?days=N`(N일 이전) 또는 `?before=ISO8601|YYYY-MM-DD` 선택 삭제(둘 다 지정 시 400). 삭제 행위를 먼저 `protected=1` 행으로 기록(수행자/IP/노드/건수, 단일 트랜잭션) → `DELETE … WHERE protected=0`으로 보호·tombstone 행은 면역 (공격자가 흔적 제거 불가). tombstone node_id는 로컬 노드 ID 스탬프
+  - **로그인 실패 기록**: 비밀번호 오류뿐 아니라 존재하지 않는 계정 시도(unknown_user)도 기록(자격증명 스프레이 추적). 비밀번호는 절대 미기록
+  - **보안 예외**: 로그인/셋업 엔드포인트 본문은 기록 제외
+- **관련 기술**: Echo 미들웨어, SQLite, 비동기 AsyncWriter(큐 full 시 드롭+경고)
 
 ### 18. 시스템 백업/복원
 
 - **설명**: SFPanel 설정 데이터를 백업하고 복원하는 재해 복구 기능
 - **주요 기능**:
-  - **백업 생성**: SQLite DB + config.yaml + Docker Compose 프로젝트 파일을 tar.gz 아카이브로 다운로드
-  - **Compose 파일 포함**: `/opt/stacks/` 하위 모든 프로젝트의 docker-compose.yml, compose.yaml, .env 파일 자동 수집
+  - **백업 구성**: `sfpanel.db` + `config.yaml` + 스택 루트(`stacks_path`, 기본 `/opt/stacks`) 하위 각 프로젝트의 compose 파일(docker-compose.yml/compose.yaml/.env)을 `.tar.gz`로 다운로드. **컨테이너 데이터/볼륨은 미포함**
   - **백업 파일 복원**: tar.gz 업로드 → DB/설정/Compose 파일 복원, 기존 파일 자동 .bak 백업
   - **필수 파일 검증**: sfpanel.db 미포함 시 복원 거부
-  - **서비스 자동 재시작**: 복원 완료 후 systemd 서비스 활성 상태이면 자동 재시작
+  - **서비스 자동 재시작**: 복원 완료 후 재시작을 `Commander`로 동기 실행, 실패 시 self-exit하여 supervisor가 새 DB로 재기동 (stale DB 핸들로 계속 서빙 방지)
+  - **클러스터 경고**: 클러스터 모드에서 백업/복원은 FSM 복제 상태(admin·jwt_secret·cluster_node)와 desync 위험 → UI에서 추가 확인 후 진행
 - **관련 기술**: archive/tar, compress/gzip, multipart 업로드, systemctl
 
 ### 19. AI 도구 설치
@@ -347,8 +358,8 @@
 
 - **설명**: 크로스플랫폼 데스크톱 앱으로 원격 SFPanel 서버에 접속하여 관리
 - **주요 기능**:
-  - **서버 접속**: URL 입력 후 health check API로 연결 가능 여부 확인
-  - **연결 진단**: 접속 실패 시 포트/방화벽/DNS 등 문제 진단 기능
+  - **서버 접속**: URL 입력 → `GET /api/v1/health`(5초) 검증 → `sfpanel_server_url` 저장 후 `/login` 이동
+  - **연결 진단**: 환경(Tauri/Web)/대상/요청·응답·본문을 로깅하고 CORS·버전·타임아웃·주소 힌트를 분류 출력
   - **언어 선택**: Connect 페이지에서 한국어/영어 전환
   - **TauriGuard**: 서버 URL 미설정 시 자동으로 /connect 페이지로 리다이렉트
   - **크로스플랫폼**: macOS, Windows, Linux 지원 (Tauri v2)
@@ -358,27 +369,29 @@
 
 - **설명**: 시스템 리소스 임계치 기반 자동 알림 발송. `internal/feature/alert/` 하위 `handler.go`(REST CRUD) + `manager.go`(백그라운드 평가) + `channels/discord.go`, `channels/telegram.go`(채널 구현).
 - **주요 기능**:
-  - **모니터링 대상**: CPU 사용률, 메모리 사용률, 디스크 사용률
-  - **알림 규칙** (`alert_rules` 테이블): 조건 JSON `{"operator":">","threshold":90}` (연산자 `>`/`>=`/`<`/`<=`, threshold float 0~100), 쿨다운 (기본 300초, 동일 규칙 재발송 억제, 메모리 상태)
+  - **규칙 타입**: 호스트 임계치형 `cpu`/`memory`/`disk` (threshold %) + 컨테이너형 `container_down`/`container_oom`/`container_restart_loop`/`container_unhealthy` (JSON condition: 패턴·count·window 초) + 이벤트형 `service`/`login`/`package`
+  - **알림 규칙** (`alert_rules` 테이블): 호스트형 조건 JSON `{"operator":">","threshold":90}` (연산자 `>`/`>=`/`<`/`<=`), 쿨다운(기본 300초, 동일 규칙 재발송 억제 — 원자적 예약으로 동시 중복 발송 차단)
   - **알림 채널** (`alert_channels` 테이블): Discord (`{"webhook_url":"..."}`), Telegram (`{"bot_token":"...","chat_id":"..."}`). 채널 `enabled` 플래그로 토글
   - **클러스터 지원**: `node_scope` = `all` 또는 `specific`, `node_scope=specific` 시 `node_ids` JSON 배열로 대상 노드 지정
   - **심각도 수준**: info, warning, critical (`severity` 컬럼)
   - **알림 이력** (`alert_history` 테이블): 발송 시 INSERT (실제 전송 성공 채널 ID 배열만 `sent_channels`에 저장). 규칙 삭제 후에도 보존 (`rule_name` 스냅샷). 자동 정리 없음, 관리자가 UI에서 수동 삭제
-  - **평가 주기**: `manager.go`가 60초 간격 ticker로 `WHERE enabled=1` 활성 규칙을 평가, 조건 충족 + 쿨다운 만료 시 매칭 채널에 병렬 발송
+  - **평가 주기**: `manager.go`가 60초 ticker로 `WHERE enabled=1` 규칙 평가 + 컨테이너 이벤트(`internal/monitor/docker_events.go`) 구독. 발송은 **bounded 비동기 워커 큐**로 분리 — 느린 webhook이 평가 ticker나 docker 이벤트 리스너를 막지 않음
   - **채널 테스트**: 채널 생성/편집 후 테스트 알림 발송 엔드포인트 제공
 - **관련 기술**: net/http (Discord/Telegram API), database/sql, 고루틴 (백그라운드 평가)
 - **설계 문서**: `docs/superpowers/specs/2026-04-07-alert-system-design.md`
 
 ### 22. 설정
 
-- **설명**: 패널 설정 및 사용자 계정 관리
+- **설명**: 패널/계정/시스템 설정을 묶은 **6-탭 허브** (일반/보안/시스템/튜닝/알림/감사). 단일 노드는 전체 탭, 클러스터에서는 스코프로 분기.
 - **주요 기능**:
-  - **언어 설정**: 영어/한국어 전환 (i18next 브라우저 언어 감지)
-  - **터미널 타임아웃**: 유휴 터미널 세션 자동 종료 시간 (분 단위, 0=무제한)
-  - **비밀번호 변경**: 현재 비밀번호 검증 후 변경 (최소 8자)
-  - **2단계 인증(2FA)**: TOTP 설정/활성화 (QR 코드 표시, 시크릿 키 표시, 6자리 코드 검증)
-  - **시스템 정보**: 버전 (API에서 제공), 호스트명, OS, 커널, 업타임 표시
-  - 키-값 설정 저장 (SQLite `settings` 테이블, UPSERT 패턴)
+  - **일반**: 영어/한국어 전환 (i18next, 클라이언트 전용; Tauri는 연결 서버 해제 블록)
+  - **보안**: 비밀번호 변경(최소 8자, 확인 일치); 2FA(TOTP) — 설정 시작 → **QR(qrcode.react 클라이언트 렌더링)** + 시크릿 → 6자리 검증 → 활성화, **비활성화(비밀번호 재확인, `DELETE /auth/2fa`)**
+  - **시스템**: 패널 업데이트(체크 + SSE 스트리밍 실행, Sigstore 서명 검증), 백업 다운로드/복원, 시스템 정보(버전/호스트/OS/커널/업타임)
+  - **튜닝**: 터미널 유휴 타임아웃(분), 최대 업로드 크기(MB) — per-node `settings`; sysctl 튜닝(적용/확인/리셋, 60초 자동 롤백)
+  - **알림**: 채널(Discord/Telegram) CRUD + 테스트, 규칙 CRUD, 이력 조회/삭제
+  - **감사**: 감사 로그 조회/삭제 (§17)
+  - **클러스터 스코프 분기**: `scope=node` 시 per-node 탭(시스템·튜닝·감사)만, 그 외 클러스터 전역 탭(일반·보안·알림)만 노출. 보안(비밀번호/2FA)은 FSM 복제 admin 행에 반영
+  - 키-값 설정 저장 (SQLite `settings` 테이블, UPSERT)
 - **관련 기술**: i18next, bcrypt, TOTP (pquerna/otp), SQLite
 
 ---
