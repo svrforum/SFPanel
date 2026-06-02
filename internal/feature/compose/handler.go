@@ -368,7 +368,7 @@ func (h *Handler) ProjectUpStream(c echo.Context) error {
 	})
 
 	if err != nil {
-		sendEvent("error", err.Error())
+		sendEvent("error", response.SanitizeOutput(err.Error()))
 	} else {
 		sendEvent("complete", "Deployment completed successfully")
 	}
@@ -400,7 +400,7 @@ func (h *Handler) UpdateStackStream(c echo.Context) error {
 	})
 
 	if err != nil {
-		sendEvent("error", err.Error())
+		sendEvent("error", response.SanitizeOutput(err.Error()))
 	} else {
 		sendEvent("complete", "Update completed successfully")
 	}

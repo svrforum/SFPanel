@@ -407,19 +407,17 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 		return response.OK(c, map[string]string{"message": "Tailscale connected"})
 	}
 
-	// Extract auth URL from output (tailscale up prints it to stderr)
+	// Extract auth URL from output (tailscale up prints it to stderr). Match
+	// only the control-server host: an incidental https link in a warning line
+	// must not be surfaced to the operator as the login URL.
+	const authURLPrefix = "https://login.tailscale.com/"
 	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.Contains(line, "https://login.tailscale.com/") || strings.Contains(line, "https://") {
-			// Extract just the URL
-			parts := strings.Fields(line)
-			for _, part := range parts {
-				if strings.HasPrefix(part, "https://") {
-					return response.OK(c, map[string]interface{}{
-						"needs_auth": true,
-						"auth_url":   part,
-					})
-				}
+		for _, part := range strings.Fields(strings.TrimSpace(line)) {
+			if strings.HasPrefix(part, authURLPrefix) {
+				return response.OK(c, map[string]interface{}{
+					"needs_auth": true,
+					"auth_url":   part,
+				})
 			}
 		}
 	}
@@ -488,7 +486,7 @@ func (h *TailscaleHandler) ListPeers(c echo.Context) error {
 	tsStatus, err := h.getTailscaleStatusJSON()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTSPeersError,
-			"Failed to get peers: "+err.Error())
+			"Failed to get peers: "+response.SanitizeOutput(err.Error()))
 	}
 
 	peers := make([]TailscalePeer, 0, len(tsStatus.Peer))

@@ -237,7 +237,7 @@ func (h *WireGuardHandler) ListInterfaces(c echo.Context) error {
 	names, err := listWGConfigNames()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWGListError,
-			"Failed to list WireGuard configs: "+err.Error())
+			"Failed to list WireGuard configs: "+response.SanitizeOutput(err.Error()))
 	}
 
 	interfaces := make([]WireGuardInterface, 0, len(names))
@@ -375,12 +375,12 @@ func (h *WireGuardHandler) CreateConfig(c echo.Context) error {
 	// Ensure directory exists
 	if err := os.MkdirAll(wgConfigDir, 0700); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDirError,
-			"Failed to create config directory: "+err.Error())
+			"Failed to create config directory: "+response.SanitizeOutput(err.Error()))
 	}
 
 	if err := atomicWriteFile(confPath, []byte(req.Content), 0600); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWriteError,
-			"Failed to write config file: "+err.Error())
+			"Failed to write config file: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]string{
@@ -415,7 +415,7 @@ func (h *WireGuardHandler) GetConfig(c echo.Context) error {
 			return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Config not found")
 		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrReadError,
-			"Failed to read config: "+err.Error())
+			"Failed to read config: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]string{
@@ -455,7 +455,7 @@ func (h *WireGuardHandler) UpdateConfig(c echo.Context) error {
 
 	if err := atomicWriteFile(confPath, []byte(req.Content), 0600); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWriteError,
-			"Failed to update config: "+err.Error())
+			"Failed to update config: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("Config %s updated", name)})
@@ -481,7 +481,7 @@ func (h *WireGuardHandler) DeleteConfig(c echo.Context) error {
 
 	if err := os.Remove(confPath); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDeleteError,
-			"Failed to delete config: "+err.Error())
+			"Failed to delete config: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("Config %s deleted", name)})

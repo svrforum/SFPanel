@@ -119,10 +119,11 @@ func loadHistoryFromDB() {
 
 	slog.Info("loaded metrics history", "points", len(points))
 
-	// Clean up old entries beyond 24h
-	go func() {
+	// Clean up old entries beyond 24h. Use safe.Go so a panic (e.g. DB closed
+	// during shutdown) is recovered and logged rather than crashing the process.
+	safe.Go("monitor-history-cleanup", func() {
 		_, _ = historyDB.Exec("DELETE FROM metrics_history WHERE time <= ?", cutoff)
-	}()
+	})
 }
 
 func collectPoint() {
