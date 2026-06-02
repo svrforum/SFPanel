@@ -1022,6 +1022,29 @@ cron 작업 삭제 (crontab에서 해당 줄 제거).
 
 ---
 
+### POST /api/v1/logs/custom-sources
+커스텀 로그 소스 추가. `custom_log_sources` 테이블에 저장, source_id는 `custom-<slug>`.
+
+- **인증 필요**: 예
+- **Request Body**: `{ "name": "string", "path": "/absolute/path.log" }`
+- **경로 제약**: 절대 경로 + 허용 루트(`/var/log/`·`/opt/`)의 세그먼트 경계 내, 심볼릭 링크 해석 재검증.
+
+**Response (200):** `{ "id": <int>, "source": "custom-<slug>" }`
+
+**에러:** `INVALID_PATH`(400) 허용 목록 밖 또는 비절대 경로.
+
+---
+
+### DELETE /api/v1/logs/custom-sources/:id
+커스텀 로그 소스 삭제 (built-in 소스는 삭제 불가).
+
+- **인증 필요**: 예
+- **Path**: `id` — 커스텀 소스 행 ID
+
+**Response (200):** `{ "message": "deleted" }`
+
+---
+
 ## 패키지 관리 API (`/api/v1/packages`)
 
 ### GET /api/v1/packages/updates
@@ -1066,24 +1089,13 @@ cron 작업 삭제 (crontab에서 해당 줄 제거).
 |------|------|------|------|
 | `packages` | string[] | 아니오 | 업그레이드할 패키지 목록. 비어있으면 전체 업그레이드 |
 
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "message": "Packages upgraded successfully",
-    "update_output": "...",
-    "upgrade_output": "..."
-  }
-}
-```
+**응답은 SSE(`text/event-stream`)** 스트림입니다 — `apt-get` 출력이 `data:` 라인으로 실시간 전달되고 완료 시 `[DONE]`. (이전 버전의 unary JSON 응답에서 변경됨.)
 
-**에러 응답:**
+**사전 실패 (스트림 시작 전):**
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `INVALID_PACKAGE_NAME` | 400 | 패키지 이름에 허용되지 않는 문자 포함 |
-| `APT_UPDATE_ERROR` | 500 | apt-get update 실패 |
-| `APT_UPGRADE_ERROR` | 500 | apt-get upgrade 실패 |
+| `CONFLICT` | 409 | dpkg 프런트엔드 락 점유 중 |
 
 ---
 
@@ -2367,9 +2379,10 @@ Fail2ban jail 중지 (비활성화).
 ---
 
 ### GET /api/v1/appstore/apps/:id
-앱 상세 정보 및 Compose YAML 조회.
+앱 상세 정보 + Compose YAML + README + 포트 상태 조회.
 
 - **인증 필요**: 예
+- **응답 추가 필드**: `compose`(docker-compose.yml), `readme`(브랜치 main/master/develop 자동 탐색), `readme_base_url`(README 상대 링크 기준), `port_status[]`(`{port, in_use, suggested}` — 선언 포트 및 env `type:"port"` 기본값의 사용 여부와 대체 포트 제안).
 
 **Path Parameters:**
 | 이름 | 설명 |
@@ -2439,17 +2452,18 @@ Fail2ban jail 중지 (비활성화).
 
 - **인증 필요**: 예
 
-**Response (200):**
+**Response (200):** `data`는 평탄(flat)한 설치 기록 배열 (`settings.appstore_installed_<id>` 기반):
 ```json
 {
   "success": true,
   "data": [
     {
       "id": "uptime-kuma",
-      "details": {
-        "version": "1",
-        "installed_at": "2026-03-10T12:00:00Z"
-      }
+      "version": "1",
+      "installed_at": "2026-03-10T12:00:00Z",
+      "name": "Uptime Kuma",
+      "description": "...",
+      "icon": "..."
     }
   ]
 }
@@ -4244,6 +4258,11 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | DELETE | `/api/v1/alerts/rules/:id` | O | 규칙 삭제 |
 | GET | `/api/v1/alerts/history` | O | 알림 발송 이력 |
 | DELETE | `/api/v1/alerts/history` | O | 이력 전체 삭제 |
+
+**스키마 요약:**
+- **채널** (`alert_channels`): `{ id, type:"discord"|"telegram", name, config, enabled }`. `config`는 Discord `{"webhook_url":"…"}` / Telegram `{"bot_token":"…","chat_id":"…"}`. `…/test`는 해당 채널로 테스트 알림 1건 발송.
+- **규칙** (`alert_rules`): `{ id, name, type, condition(JSON), channel_ids(JSON 배열), severity:"info"|"warning"|"critical", cooldown(초), node_scope:"all"|"specific", node_ids(JSON), enabled }`. `type`은 호스트형(`cpu`/`memory`/`disk`)이면 `condition={"operator":">","threshold":90}`, 컨테이너형(`container_down`/`container_oom`/`container_restart_loop`/`container_unhealthy`)이면 `condition={"container_pattern":"*","threshold_count":N,"window_seconds":N}`.
+- **이력** (`alert_history`): `GET`은 `?page=&limit=` 페이지네이션 → `{items[], total, page, limit}`. 각 항목 `{ rule_id, rule_name, type, severity, message, sent_channels(JSON), created_at }`. `DELETE`는 전체 삭제.
 
 ### SSE 스트리밍 (8개)
 

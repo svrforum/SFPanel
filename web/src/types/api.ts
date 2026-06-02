@@ -621,6 +621,9 @@ export interface AuditLogEntry {
   path: string
   status: number
   ip: string
+  node_id: string
+  // protected rows (e.g. audit-clear tombstones) are immune to wipes
+  protected: boolean
   created_at: string
 }
 
