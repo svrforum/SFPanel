@@ -6,6 +6,28 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.18.0] – 2026-06-03
+
+Per-feature improvement pass, round 2 (deepening existing modules).
+
+### Added
+
+- **disk** — a **Disk Usage explorer** tab: click-to-drill, largest-first size
+  bars, path bar. Backed by the existing `du` handler (which gains `-x` so
+  pointing it at `/` stays on one filesystem). The endpoint shipped earlier but
+  had no UI.
+- **audit** — **filter** the log by user (substring), HTTP method, and status
+  class (2xx/4xx/5xx/≥400), and show the **node** column. Parameterized queries
+  (injection-safe, tested).
+- **alert** — a **node multi-select** for `specific`-scope rules; previously such
+  rules couldn't target any node from the UI so they never fired.
+
+### Fixed
+
+- **alert** — the history table's Node/Status columns always rendered blank
+  because the frontend read `node`/`status` while the API returns
+  `node_id`/`sent_channels`; aligned the type and derive a delivered status.
+
 ## [0.17.0] – 2026-06-03
 
 Feature/UX improvements from the 2026-06-02 per-feature review (round 1 of an
