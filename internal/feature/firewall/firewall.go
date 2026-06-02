@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -20,6 +21,12 @@ type Handler struct {
 	// port — or enabling UFW with no allow rule for either SSH or this
 	// port — requires explicit force=true confirmation.
 	PanelPort int
+	// dockerRuleMu serializes DOCKER-USER chain mutations. iptables rules are
+	// addressed by line number, so a concurrent add/delete that renumbers the
+	// chain mid-operation can delete the wrong rule (the companion-LOG cleanup
+	// in DeleteDockerUserRule adjusts indices by hand). Serializing add/delete
+	// keeps the numbering stable for the duration of each operation.
+	dockerRuleMu sync.Mutex
 }
 
 // aptEnv returns the standard environment variables for non-interactive apt operations.

@@ -157,13 +157,20 @@ func (h *Handler) buildContainerIPMap() map[string]string {
 	}
 
 	ids := strings.Fields(strings.TrimSpace(output))
-	for _, id := range ids {
-		inspectOut, err := h.Cmd.Run("docker", "inspect",
-			"--format", "{{.Name}} {{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}", id)
-		if err != nil {
-			continue
-		}
-		fields := strings.Fields(strings.TrimSpace(inspectOut))
+	if len(ids) == 0 {
+		return ipMap
+	}
+	// Inspect all containers in a single docker call (it accepts multiple IDs
+	// and emits one formatted line each) rather than spawning one subprocess
+	// per container.
+	args := append([]string{"inspect",
+		"--format", "{{.Name}} {{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}"}, ids...)
+	inspectOut, err := h.Cmd.Run("docker", args...)
+	if err != nil {
+		return ipMap
+	}
+	for _, line := range strings.Split(strings.TrimSpace(inspectOut), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
 		if len(fields) < 2 {
 			continue
 		}
@@ -188,22 +195,19 @@ func (h *Handler) lookupDNATMapping(hostPort int, protocol string) (containerIP 
 	}
 
 	// Match: DNAT  tcp  --  0.0.0.0/0  0.0.0.0/0  tcp dpt:3310 to:172.18.0.5:3306
-	dnatRe := regexp.MustCompile(`DNAT\s+(?:tcp|udp|6|17)\s+--\s+\S+\s+\S+\s+(?:tcp|udp)\s+dpt:(\d+)\s+to:(\d+\.\d+\.\d+\.\d+):(\d+)`)
+	// Capture the rule protocol (the tcp|udp before dpt:) directly rather than
+	// substring-scanning the whole line for "udp", which would misclassify a
+	// tcp rule whose line happened to contain that substring elsewhere.
+	dnatRe := regexp.MustCompile(`DNAT\s+(?:tcp|udp|6|17)\s+--\s+\S+\s+\S+\s+(tcp|udp)\s+dpt:(\d+)\s+to:(\d+\.\d+\.\d+\.\d+):(\d+)`)
 	for _, line := range strings.Split(output, "\n") {
 		matches := dnatRe.FindStringSubmatch(line)
 		if matches == nil {
 			continue
 		}
-		hp, _ := strconv.Atoi(matches[1])
-		if hp == hostPort {
-			lineProto := "tcp"
-			if strings.Contains(line, "udp") {
-				lineProto = "udp"
-			}
-			if lineProto == protocol {
-				cp, _ := strconv.Atoi(matches[3])
-				return matches[2], cp, true
-			}
+		hp, _ := strconv.Atoi(matches[2])
+		if hp == hostPort && matches[1] == protocol {
+			cp, _ := strconv.Atoi(matches[4])
+			return matches[3], cp, true
 		}
 	}
 	return "", 0, false
@@ -218,19 +222,16 @@ func (h *Handler) buildReverseDNATMap() map[string]int {
 		return result
 	}
 
-	dnatRe := regexp.MustCompile(`DNAT\s+(?:tcp|udp|6|17)\s+--\s+\S+\s+\S+\s+(?:tcp|udp)\s+dpt:(\d+)\s+to:(\d+\.\d+\.\d+\.\d+):(\d+)`)
+	dnatRe := regexp.MustCompile(`DNAT\s+(?:tcp|udp|6|17)\s+--\s+\S+\s+\S+\s+(tcp|udp)\s+dpt:(\d+)\s+to:(\d+\.\d+\.\d+\.\d+):(\d+)`)
 	for _, line := range strings.Split(output, "\n") {
 		matches := dnatRe.FindStringSubmatch(line)
 		if matches == nil {
 			continue
 		}
-		hostPort, _ := strconv.Atoi(matches[1])
-		containerIP := matches[2]
-		containerPort := matches[3]
-		proto := "tcp"
-		if strings.Contains(line, "udp") {
-			proto = "udp"
-		}
+		proto := matches[1]
+		hostPort, _ := strconv.Atoi(matches[2])
+		containerIP := matches[3]
+		containerPort := matches[4]
 		key := containerIP + ":" + containerPort + "/" + proto
 		result[key] = hostPort
 	}
@@ -305,6 +306,9 @@ func (h *Handler) AddDockerUserRule(c echo.Context) error {
 	if err := requireTool(c, h.Cmd, "iptables"); err != nil {
 		return err
 	}
+	// Serialize chain mutations so line-number addressing stays stable.
+	h.dockerRuleMu.Lock()
+	defer h.dockerRuleMu.Unlock()
 	var req AddDockerRuleRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -402,6 +406,9 @@ func (h *Handler) DeleteDockerUserRule(c echo.Context) error {
 	if err := requireTool(c, h.Cmd, "iptables"); err != nil {
 		return err
 	}
+	// Serialize chain mutations so line-number addressing stays stable.
+	h.dockerRuleMu.Lock()
+	defer h.dockerRuleMu.Unlock()
 	numberStr := c.Param("number")
 	number, err := strconv.Atoi(numberStr)
 	if err != nil || number < 1 {
