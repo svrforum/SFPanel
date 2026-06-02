@@ -6,6 +6,34 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.16.1] – 2026-06-02
+
+Frontend serving hot-fix. A live UI walkthrough (desktop + mobile) found that an
+already-open tab breaks after a panel upgrade: it requests old lazy-chunk hashes,
+the SPA fallback served `index.html` (200 `text/html`) for the missing `.js`,
+tripping strict MIME checking, and the whole app died behind a generic
+ErrorBoundary that a plain refresh couldn't always clear.
+
+### Fixed
+
+- **internal/api/router.go** — `spaHandler` now returns `404` for a missing
+  concrete asset (a path whose last segment has an extension) instead of falling
+  back to `index.html`; extensionless client routes still fall back. `index.html`
+  is served `Cache-Control: no-cache` and hashed `/assets/*` `immutable` so an
+  upgrade takes effect immediately while assets stay long-cached. Pinned by
+  `internal/api/spa_handler_test.go`.
+- **web/src/main.tsx + components/ErrorBoundary.tsx** — reload once on
+  `vite:preloadError` (and on a chunk-load error reaching the ErrorBoundary),
+  guarded to at most one reload per 10s so a genuinely missing chunk can't loop.
+- **web/vite.config.ts** — PWA `registerType: 'autoUpdate'` so a new service
+  worker takes over on the next load instead of waiting on a prompt the app never
+  surfaced (which had left upgraded panels serving a stale precached shell).
+- **web/index.html** — add the standard `mobile-web-app-capable` meta (the
+  `apple-` one is deprecated and warned on every page).
+- **web/src/components/cluster/TreePanel.tsx** — sort the sidebar node list
+  stably (local node first, then by name) instead of the random Go-map order that
+  reshuffled it between pages.
+
 ## [0.16.0] – 2026-06-02
 
 Module hardening sweep. Stability, security, and optimization fixes across ~20
