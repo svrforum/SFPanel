@@ -1,9 +1,10 @@
 import { useTranslation } from 'react-i18next'
 import { NavLink, Outlet } from 'react-router-dom'
-import { HardDrive, LayoutGrid, Layers, Database, Server, MemoryStick } from 'lucide-react'
+import { HardDrive, LayoutGrid, Layers, Database, Server, MemoryStick, PieChart } from 'lucide-react'
 
 const navItems = [
   { to: '/disk/overview', icon: LayoutGrid, label: 'disk.tabs.overview' },
+  { to: '/disk/usage', icon: PieChart, label: 'disk.tabs.usage' },
   { to: '/disk/partitions', icon: HardDrive, label: 'disk.tabs.partitions' },
   { to: '/disk/filesystems', icon: Database, label: 'disk.tabs.filesystems' },
   { to: '/disk/lvm', icon: Layers, label: 'disk.tabs.lvm' },

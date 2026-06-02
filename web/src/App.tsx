@@ -27,6 +27,7 @@ const NetworkWireGuard = lazy(() => import('@/pages/network/NetworkWireGuard'))
 const NetworkTailscale = lazy(() => import('@/pages/network/NetworkTailscale'))
 const Disk = lazy(() => import('@/pages/Disk'))
 const DiskOverview = lazy(() => import('@/pages/disk/DiskOverview'))
+const DiskUsage = lazy(() => import('@/pages/disk/DiskUsage'))
 const DiskPartitions = lazy(() => import('@/pages/disk/DiskPartitions'))
 const DiskFilesystems = lazy(() => import('@/pages/disk/DiskFilesystems'))
 const DiskLVM = lazy(() => import('@/pages/disk/DiskLVM'))
@@ -167,6 +168,7 @@ export default function App() {
                 <Route path="disk" element={<Disk />}>
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<DiskOverview />} />
+                  <Route path="usage" element={<DiskUsage />} />
                   <Route path="partitions" element={<DiskPartitions />} />
                   <Route path="filesystems" element={<DiskFilesystems />} />
                   <Route path="lvm" element={<DiskLVM />} />

@@ -576,7 +576,9 @@ func (h *Handler) GetDiskUsage(c echo.Context) error {
 	}
 
 	depthStr := strconv.Itoa(depth)
-	out, err := h.Cmd.RunCtx(c.Request().Context(), "du", "-b", "--max-depth="+depthStr, req.Path)
+	// -x stays on one filesystem so pointing the explorer at / doesn't descend
+	// into mounted volumes, /proc-adjacent trees, or network mounts.
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "du", "-b", "-x", "--max-depth="+depthStr, req.Path)
 	if err != nil {
 		// du may return non-zero on permission errors but still produce useful output
 		if len(out) == 0 {

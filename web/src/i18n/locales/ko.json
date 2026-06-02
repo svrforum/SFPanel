@@ -1505,11 +1505,18 @@
     "title": "디스크 관리",
     "tabs": {
       "overview": "개요",
+      "usage": "사용량",
       "partitions": "파티션",
       "filesystems": "파일시스템",
       "lvm": "LVM",
       "raid": "RAID",
       "swap": "스왑"
+    },
+    "usage": {
+      "title": "디스크 사용량",
+      "description": "무엇이 공간을 쓰는지 확인 — 폴더를 클릭해 파고드세요",
+      "up": "상위로",
+      "empty": "하위 디렉토리 없음"
     },
     "overview": {
       "title": "디스크 개요",

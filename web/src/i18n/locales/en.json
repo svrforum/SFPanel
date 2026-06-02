@@ -1505,11 +1505,18 @@
     "title": "Disk Management",
     "tabs": {
       "overview": "Overview",
+      "usage": "Usage",
       "partitions": "Partitions",
       "filesystems": "Filesystems",
       "lvm": "LVM",
       "raid": "RAID",
       "swap": "Swap"
+    },
+    "usage": {
+      "title": "Disk Usage",
+      "description": "Find what's using space — click a folder to drill in",
+      "up": "Up one level",
+      "empty": "No subdirectories"
     },
     "overview": {
       "title": "Disk Overview",
