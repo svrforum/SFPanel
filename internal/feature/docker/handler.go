@@ -1,6 +1,7 @@
 package featuredocker
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -402,16 +404,44 @@ func (h *Handler) CheckImageUpdates(c echo.Context) error {
 		}
 	}
 
-	var results []docker.ImageUpdateStatus
+	// Check each unique image concurrently with a per-image timeout. Each
+	// CheckImageUpdate makes a registry round-trip, so the previous serial loop
+	// stalled for the sum of all round-trips and had no bound if one hung.
+	images := make([]string, 0, len(imageSet))
 	for img := range imageSet {
-		status, err := h.Docker.CheckImageUpdate(ctx, img)
-		if err != nil {
-			continue
-		}
-		results = append(results, *status)
+		images = append(images, img)
 	}
-	if results == nil {
-		results = []docker.ImageUpdateStatus{}
+
+	const checkConcurrency = 5
+	const perImageTimeout = 15 * time.Second
+	resultsCh := make(chan *docker.ImageUpdateStatus, len(images))
+	sem := make(chan struct{}, checkConcurrency)
+	var wg sync.WaitGroup
+	for _, img := range images {
+		wg.Add(1)
+		go func(image string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			ictx, cancel := context.WithTimeout(ctx, perImageTimeout)
+			defer cancel()
+			status, err := h.Docker.CheckImageUpdate(ictx, image)
+			if err != nil {
+				resultsCh <- nil
+				return
+			}
+			resultsCh <- status
+		}(img)
+	}
+	wg.Wait()
+	close(resultsCh)
+
+	results := make([]docker.ImageUpdateStatus, 0, len(images))
+	for status := range resultsCh {
+		if status != nil {
+			results = append(results, *status)
+		}
 	}
 	return response.OK(c, results)
 }
