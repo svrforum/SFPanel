@@ -1455,6 +1455,7 @@
     "removeFailed": "Failed to remove {{name}}",
     "error": "Error",
     "operationComplete": "Operation completed",
+    "operationFailed": "Operation failed — check the log below",
     "operationRunning": "Operation in progress...",
     "waitingForOutput": "Waiting for output...",
     "close": "Close",

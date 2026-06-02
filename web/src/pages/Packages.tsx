@@ -70,6 +70,14 @@ interface OutputDialog {
   title: string
   output: string
   done: boolean
+  error?: boolean
+}
+
+// SSE installers emit "ERROR: …" lines then [DONE] even on failure, so the
+// "done" flag alone can't tell success from failure. Scan the streamed output
+// for an error marker to render the right state.
+function outputHasError(output: string): boolean {
+  return /(^|\n)\s*(ERROR:|error:|E:\s|fatal:)/m.test(output)
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +166,7 @@ export default function Packages() {
   }, [])
 
   const finishOutput = useCallback(() => {
-    setOutputDialog((prev) => ({ ...prev, done: true }))
+    setOutputDialog((prev) => ({ ...prev, done: true, error: outputHasError(prev.output) }))
   }, [])
 
   // Auto-scroll output to bottom
@@ -1532,15 +1540,20 @@ export default function Packages() {
               {!outputDialog.done && (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               )}
-              {outputDialog.done && (
+              {outputDialog.done && outputDialog.error && (
+                <AlertCircle className="h-4 w-4 text-[#f04452]" aria-hidden="true" />
+              )}
+              {outputDialog.done && !outputDialog.error && (
                 <CheckCircle2 className="h-4 w-4 text-[#00c471]" aria-hidden="true" />
               )}
               {outputDialog.title}
             </DialogTitle>
             <DialogDescription>
-              {outputDialog.done
-                ? t('packages.operationComplete')
-                : t('packages.operationRunning')}
+              {!outputDialog.done
+                ? t('packages.operationRunning')
+                : outputDialog.error
+                  ? t('packages.operationFailed')
+                  : t('packages.operationComplete')}
             </DialogDescription>
           </DialogHeader>
           <div

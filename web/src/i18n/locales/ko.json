@@ -1455,6 +1455,7 @@
     "removeFailed": "{{name}} 제거 실패",
     "error": "오류",
     "operationComplete": "작업이 완료되었습니다",
+    "operationFailed": "작업 실패 — 아래 로그를 확인하세요",
     "operationRunning": "작업 진행 중...",
     "waitingForOutput": "출력 대기 중...",
     "close": "닫기",
