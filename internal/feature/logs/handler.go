@@ -381,7 +381,11 @@ func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
 			return c.String(http.StatusBadRequest, fmt.Sprintf("unknown log source: %s", sourceKey))
 		}
 		if _, err := os.Stat(info.Path); os.IsNotExist(err) {
-			return response.OK(c, map[string]interface{}{
+			// This is a WebSocket endpoint: a 200 here is read by the browser as
+			// a failed handshake (it expected 101) with no usable payload. Return
+			// a real error status — consistent with the 400s above — so the client
+			// sees "unavailable" rather than a generic socket failure.
+			return c.JSON(http.StatusNotFound, map[string]interface{}{
 				"source":    sourceKey,
 				"lines":     []string{},
 				"available": false,

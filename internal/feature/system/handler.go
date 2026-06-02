@@ -984,8 +984,19 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 	// better to terminate than to corrupt.
 	if isSystemdActive() {
 		if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
-			// Use exec.Command.Start() to restart without blocking — the current process will be replaced.
-			_ = exec.Command("systemctl", "restart", "sfpanel").Start()
+			// Restart after the response flushes, mirroring RunUpdate. Run (not
+			// Start) through the Commander so a failed restart surfaces: on
+			// success systemd SIGTERMs us mid-Run; on failure self-exit so
+			// Restart=always cycles us rather than continuing to serve on the
+			// stale *sql.DB pointed at the freshly-overwritten file.
+			go func() {
+				time.Sleep(restartFlushDelay)
+				if _, rErr := h.Cmd.Run("systemctl", "restart", "sfpanel"); rErr != nil {
+					slog.Error("systemctl restart failed after restore; self-exiting for supervisor restart",
+						"component", "system", "error", rErr)
+					exitProcess()
+				}
+			}()
 			return response.OK(c, map[string]string{"message": "Backup restored. Service restarting..."})
 		}
 	}

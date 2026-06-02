@@ -415,10 +415,17 @@ func (h *Handler) WriteFile(c echo.Context) error {
 		// with only .bak as recovery. With copy-first, a write failure leaves
 		// both the original and the .bak intact.
 		backupPath := req.Path + ".bak"
-		if data, readErr := os.ReadFile(req.Path); readErr == nil {
+		// Stream the copy rather than ReadFile-into-memory: the incoming body is
+		// bounded, but the existing on-disk file is not, so a multi-GB original
+		// would OOM the panel. io.Copy uses a small fixed buffer.
+		if src, openErr := os.Open(req.Path); openErr == nil {
 			// Best-effort: a backup failure must not prevent the write itself.
 			_ = os.Remove(backupPath)
-			_ = os.WriteFile(backupPath, data, fileMode)
+			if dst, createErr := os.OpenFile(backupPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fileMode); createErr == nil {
+				_, _ = io.Copy(dst, src)
+				_ = dst.Close()
+			}
+			_ = src.Close()
 		}
 	}
 
