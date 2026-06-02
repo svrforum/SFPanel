@@ -42,8 +42,17 @@ const (
 )
 
 type Handler struct {
-	DB         *sql.DB
-	Config     *config.Config
+	DB     *sql.DB
+	Config *config.Config
+	// refreshMu serializes refresh-token rotations. The rotation reads the
+	// token row then writes (tombstone + new row); under WAL with multiple
+	// open connections two concurrent rotations of the same token can both
+	// read the un-consumed row then collide on the write with
+	// SQLITE_BUSY_SNAPSHOT (which busy_timeout cannot resolve), surfacing a
+	// spurious 500. The rotation is a sub-millisecond, low-frequency path, so
+	// a process-wide mutex serializes it cleanly: the loser then observes the
+	// tombstone and takes the normal token-reuse path instead of deadlocking.
+	refreshMu  sync.Mutex
 	clusterMu  sync.RWMutex
 	ClusterMgr *cluster.Manager // nil when cluster not active
 	// AuditWriter serializes security-event INSERTs onto the shared

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -188,6 +189,69 @@ func seedRefreshToken(t *testing.T, db *sql.DB, username string) (raw string, ha
 
 // TestRefresh_AcceptsUserInLocalAdmin — happy path. Token rotates, old row
 // tombstoned, new row issued, response 200.
+// TestRefresh_ConcurrentSameToken_NoDeadlock fires many simultaneous refreshes
+// of the SAME token against a multi-connection WAL DB (production uses up to 4
+// conns; the shared openTestDB caps at 1 and would mask the race). Without the
+// rotation mutex, two rotations that both read the un-consumed row collide on
+// the write with SQLITE_BUSY_SNAPSHOT and return a 500. The fix must yield
+// exactly one successful rotation and no 5xx — the losers take the normal
+// token-reuse (401) path.
+func TestRefresh_ConcurrentSameToken_NoDeadlock(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "concurrent.db")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	db.SetMaxOpenConns(4)
+	t.Cleanup(func() { db.Close() })
+	if err := sfdb.RunMigrations(db); err != nil {
+		t.Fatalf("migrations: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO admin (username, password) VALUES (?, ?)`, "alice", "x"); err != nil {
+		t.Fatalf("seed admin: %v", err)
+	}
+	raw, _ := seedRefreshToken(t, db, "alice")
+
+	h := &Handler{DB: db, Config: &config.Config{Auth: config.AuthConfig{JWTSecret: "test-secret-not-for-prod", TokenExpiry: "1h"}}}
+
+	const N = 8
+	codes := make([]int, N)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			body := strings.NewReader(`{"refresh_token":"` + raw + `"}`)
+			req := httptest.NewRequest("POST", "/api/v1/auth/refresh", body)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			_ = h.Refresh(echo.New().NewContext(req, rec))
+			codes[i] = rec.Code
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	var ok, other int
+	for _, code := range codes {
+		switch code {
+		case http.StatusOK:
+			ok++
+		case http.StatusUnauthorized:
+		default:
+			other++
+		}
+	}
+	if ok != 1 {
+		t.Errorf("expected exactly 1 successful rotation, got %d (codes=%v)", ok, codes)
+	}
+	if other != 0 {
+		t.Errorf("expected no 5xx responses (deadlock-free), got %d (codes=%v)", other, codes)
+	}
+}
+
 func TestRefresh_AcceptsUserInLocalAdmin(t *testing.T) {
 	h, db := newRefreshHandler(t)
 	if _, err := db.Exec(`INSERT INTO admin (username, password) VALUES (?, ?)`, "alice", "x"); err != nil {

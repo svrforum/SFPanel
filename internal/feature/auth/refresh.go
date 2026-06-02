@@ -99,6 +99,11 @@ func (h *Handler) Refresh(c echo.Context) error {
 	hash := sha256.Sum256([]byte(refreshTokenRaw))
 	hashHex := hex.EncodeToString(hash[:])
 
+	// Serialize rotations so concurrent refreshes of the same token can't
+	// read-then-write-collide under WAL (see Handler.refreshMu).
+	h.refreshMu.Lock()
+	defer h.refreshMu.Unlock()
+
 	tx, err := h.DB.Begin()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
