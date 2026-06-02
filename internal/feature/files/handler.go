@@ -581,6 +581,185 @@ func (h *Handler) RenamePath(c echo.Context) error {
 	})
 }
 
+// ---------- CopyPath ----------
+
+// copyRecursive copies src to dst. Directories are recreated and their regular
+// file contents copied; non-regular files (symlinks, devices, sockets) are
+// skipped rather than dereferenced, so a copy can't be tricked into reading
+// through a symlink to a critical path.
+func copyRecursive(src, dst string, info os.FileInfo) error {
+	if info.IsDir() {
+		if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
+			return err
+		}
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			ci, err := e.Info()
+			if err != nil {
+				return err
+			}
+			if err := copyRecursive(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name()), ci); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if !info.Mode().IsRegular() {
+		return nil // skip symlinks/devices/etc.
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}
+
+// CopyPath copies a file or directory tree to a new location.
+// POST /files/copy  JSON body: { src: string, dst: string }
+func (h *Handler) CopyPath(c echo.Context) error {
+	var req struct {
+		Src string `json:"src"`
+		Dst string `json:"dst"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	if err := validatePath(req.Src); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, fmt.Sprintf("src: %s", err.Error()))
+	}
+	if err := validatePathForWrite(req.Dst); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, fmt.Sprintf("dst: %s", err.Error()))
+	}
+	req.Src = filepath.Clean(req.Src)
+	req.Dst = filepath.Clean(req.Dst)
+
+	if isCriticalPath(req.Dst) {
+		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath,
+			fmt.Sprintf("Copying to '%s' is not allowed: critical system path", req.Dst))
+	}
+
+	srcInfo, err := os.Stat(req.Src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Source path not found")
+		}
+		if os.IsPermission(err) {
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
+		}
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
+	}
+	// Refuse to clobber: copy must not overwrite an existing destination.
+	if _, err := os.Stat(req.Dst); err == nil {
+		return response.Fail(c, http.StatusConflict, response.ErrInvalidRequest, "Destination already exists")
+	}
+	// Block copying a directory into its own subtree (would recurse forever).
+	if srcInfo.IsDir() && strings.HasPrefix(req.Dst+string(filepath.Separator), req.Src+string(filepath.Separator)) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cannot copy a directory into itself")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(req.Dst), 0755); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
+	}
+	if err := copyRecursive(req.Src, req.Dst, srcInfo); err != nil {
+		if os.IsPermission(err) {
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
+		}
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
+	}
+
+	return response.OK(c, map[string]string{"message": "path copied", "src": req.Src, "dst": req.Dst})
+}
+
+// ---------- SearchFiles ----------
+
+const maxSearchResults = 1000
+const maxSearchDuration = 10 * time.Second
+
+// SearchFiles recursively searches under a root directory for entries whose
+// name contains the query (case-insensitive). Bounded by a result cap and a
+// wall-clock deadline so a search rooted at a huge tree can't hang the request
+// or exhaust memory; the response flags whether it was truncated.
+// GET /files/search?path=/root&q=needle&limit=200
+func (h *Handler) SearchFiles(c echo.Context) error {
+	root := c.QueryParam("path")
+	query := strings.TrimSpace(c.QueryParam("q"))
+	if err := validatePath(root); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
+	}
+	if query == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "search query is required")
+	}
+	limit := 200
+	if l, err := strconv.Atoi(c.QueryParam("limit")); err == nil && l > 0 {
+		limit = l
+	}
+	if limit > maxSearchResults {
+		limit = maxSearchResults
+	}
+	root = filepath.Clean(root)
+
+	info, err := os.Stat(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Path not found")
+		}
+		if os.IsPermission(err) {
+			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
+		}
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
+	}
+	if !info.IsDir() {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Search path must be a directory")
+	}
+
+	needle := strings.ToLower(query)
+	deadline := time.Now().Add(maxSearchDuration)
+	results := make([]FileEntry, 0, limit)
+	truncated := false
+
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil // skip dirs/files we can't read rather than aborting
+		}
+		if len(results) >= limit || time.Now().After(deadline) {
+			truncated = true
+			return filepath.SkipAll
+		}
+		if p == root {
+			return nil
+		}
+		if strings.Contains(strings.ToLower(d.Name()), needle) {
+			if fi, ierr := d.Info(); ierr == nil {
+				results = append(results, FileEntry{
+					Name:    d.Name(),
+					Path:    p,
+					Size:    fi.Size(),
+					Mode:    fi.Mode().String(),
+					ModTime: fi.ModTime(),
+					IsDir:   d.IsDir(),
+				})
+			}
+		}
+		return nil
+	})
+
+	return response.OK(c, map[string]interface{}{
+		"results":   results,
+		"count":     len(results),
+		"truncated": truncated,
+	})
+}
+
 // ---------- DownloadFile ----------
 
 // DownloadFile serves a file as an attachment download.

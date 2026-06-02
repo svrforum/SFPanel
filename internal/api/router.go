@@ -295,6 +295,8 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	files.POST("/mkdir", filesHandler.MkDir)
 	files.DELETE("", filesHandler.DeletePath)
 	files.POST("/rename", filesHandler.RenamePath)
+	files.POST("/copy", filesHandler.CopyPath)
+	files.GET("/search", filesHandler.SearchFiles)
 	files.GET("/download", filesHandler.DownloadFile)
 	files.POST("/upload", filesHandler.UploadFile)
 

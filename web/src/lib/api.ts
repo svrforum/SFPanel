@@ -903,6 +903,19 @@ class ApiClient {
     })
   }
 
+  copyPath(src: string, dst: string) {
+    return this.request<{ message: string; src: string; dst: string }>('/files/copy', {
+      method: 'POST',
+      body: JSON.stringify({ src, dst }),
+    })
+  }
+
+  searchFiles(path: string, q: string, limit = 200) {
+    return this.request<{ results: FileEntry[]; count: number; truncated: boolean }>(
+      `/files/search?path=${encodeURIComponent(path)}&q=${encodeURIComponent(q)}&limit=${limit}`
+    )
+  }
+
   uploadFile(destPath: string, file: File, onProgress?: (percent: number) => void): Promise<void> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()

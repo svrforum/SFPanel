@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.21.0] – 2026-06-03
+
+Per-feature improvement pass, round 5 — deepening the **files** module.
+
+### Added
+
+- **files** — **recursive name search** (`GET /files/search`) under the current
+  directory, bounded by a result cap and a wall-clock deadline (the response
+  flags truncation); **copy** of a file or directory tree (`POST /files/copy`,
+  refuses to clobber, copy-into-self, or write a critical path, and skips
+  non-regular files so it can't be tricked through a symlink); and
+  **multi-select delete** in the UI (per-row checkboxes + bulk delete with a
+  per-item result summary). Copy/search path handling and the copy guards are
+  tested.
+
 ## [0.20.0] – 2026-06-03
 
 Per-feature improvement pass, round 4 — deepening the **process** module.

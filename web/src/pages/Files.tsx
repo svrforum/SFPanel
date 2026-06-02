@@ -15,6 +15,9 @@ import {
   Home,
   Loader2,
   Save,
+  Search,
+  Copy,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import Editor from '@monaco-editor/react'
@@ -23,6 +26,7 @@ import { formatBytes, formatDate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Table,
   TableBody,
@@ -146,6 +150,24 @@ export default function Files() {
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<{ fileName: string; percent: number } | null>(null)
 
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchActive, setSearchActive] = useState(false)
+  const [searchResults, setSearchResults] = useState<FileEntry[]>([])
+  const [searchTruncated, setSearchTruncated] = useState(false)
+  const [searchCount, setSearchCount] = useState(0)
+  const [searchLoading, setSearchLoading] = useState(false)
+
+  // Copy dialog state
+  const [copyTarget, setCopyTarget] = useState<FileEntry | null>(null)
+  const [copyDest, setCopyDest] = useState('')
+  const [copyLoading, setCopyLoading] = useState(false)
+
+  // Multi-select state
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+
   const fetchFiles = useCallback(async () => {
     try {
       setLoading(true)
@@ -163,6 +185,121 @@ export default function Files() {
   useEffect(() => {
     fetchFiles()
   }, [fetchFiles])
+
+  // Clear selection and exit search mode whenever the directory changes
+  useEffect(() => {
+    setSelectedPaths(new Set())
+    setSearchActive(false)
+    setSearchResults([])
+  }, [currentPath])
+
+  // Search
+  const exitSearch = () => {
+    setSearchActive(false)
+    setSearchQuery('')
+    setSearchResults([])
+    setSearchTruncated(false)
+    setSearchCount(0)
+    setSelectedPaths(new Set())
+  }
+
+  const handleSearch = async () => {
+    const q = searchQuery.trim()
+    if (!q) {
+      exitSearch()
+      return
+    }
+    setSearchLoading(true)
+    setSelectedPaths(new Set())
+    const pathAtStart = currentPathRef.current
+    try {
+      const data = await api.searchFiles(pathAtStart, q)
+      if (currentPathRef.current !== pathAtStart) return
+      setSearchResults(data.results || [])
+      setSearchCount(data.count || 0)
+      setSearchTruncated(!!data.truncated)
+      setSearchActive(true)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('files.searchFailed')
+      toast.error(message)
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
+  // Copy
+  const openCopyDialog = (entry: FileEntry) => {
+    const dir = entry.path.replace(/\/[^/]*$/, '') || '/'
+    const dotIndex = entry.isDir ? -1 : entry.name.lastIndexOf('.')
+    const suggested =
+      dotIndex > 0
+        ? `${entry.name.slice(0, dotIndex)}-copy${entry.name.slice(dotIndex)}`
+        : `${entry.name}-copy`
+    setCopyTarget(entry)
+    setCopyDest(joinPath(dir, suggested))
+  }
+
+  const handleCopy = async () => {
+    if (!copyTarget || !copyDest.trim()) return
+    setCopyLoading(true)
+    const pathAtStart = currentPathRef.current
+    try {
+      await api.copyPath(copyTarget.path, copyDest.trim())
+      toast.success(t('files.copySuccess'))
+      setCopyTarget(null)
+      setCopyDest('')
+      if (searchActive) {
+        await handleSearch()
+      } else if (currentPathRef.current === pathAtStart) {
+        await fetchFiles()
+      }
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status
+      if (status === 409) {
+        toast.error(t('files.copyExists'))
+      } else {
+        const message = err instanceof Error ? err.message : t('files.copyFailed')
+        toast.error(message)
+      }
+    } finally {
+      setCopyLoading(false)
+    }
+  }
+
+  // Multi-select helpers
+  const toggleSelected = (path: string) => {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }
+
+  const handleBulkDelete = async () => {
+    const paths = Array.from(selectedPaths)
+    if (paths.length === 0) return
+    setBulkDeleting(true)
+    let succeeded = 0
+    let failed = 0
+    for (const p of paths) {
+      try {
+        await api.deletePath(p)
+        succeeded += 1
+      } catch {
+        failed += 1
+      }
+    }
+    setBulkDeleting(false)
+    setBulkDeleteOpen(false)
+    setSelectedPaths(new Set())
+    toast.success(t('files.bulkDeleteResult', { succeeded, failed }))
+    if (searchActive) {
+      await handleSearch()
+    } else {
+      await fetchFiles()
+    }
+  }
 
   // Breadcrumb segments
   const pathSegments = currentPath
@@ -416,6 +553,29 @@ export default function Files() {
       return a.name.localeCompare(b.name)
     }), [files])
 
+  // Rows currently shown: search results when searching, otherwise the directory listing.
+  const displayedFiles = searchActive ? searchResults : sortedFiles
+
+  // Resolve the absolute path of a displayed entry. Search results carry a full
+  // `path`; normal listing entries are relative to currentPath.
+  const entryPath = useCallback(
+    (entry: FileEntry) => (searchActive ? entry.path : joinPath(currentPath, entry.name)),
+    [searchActive, currentPath],
+  )
+
+  // Open a search-result row: navigate into dirs, edit files (parent dir + editor).
+  const handleSearchResultClick = (entry: FileEntry) => {
+    if (entry.isDir) {
+      const path = entry.path
+      exitSearch()
+      navigateTo(path)
+      return
+    }
+    const dir = entry.path.replace(/\/[^/]*$/, '') || '/'
+    exitSearch()
+    navigateTo(dir)
+  }
+
   return (
     <div className="space-y-4">
       <h1 className="text-[22px] font-bold tracking-tight">{t('files.title')}</h1>
@@ -466,10 +626,37 @@ export default function Files() {
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
-          {t('files.count', { count: files.length })}
-        </span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary shrink-0">
+            {searchActive
+              ? t('files.searchResultCount', { count: searchCount })
+              : t('files.count', { count: files.length })}
+          </span>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSearch()
+                else if (e.key === 'Escape' && searchActive) exitSearch()
+              }}
+              placeholder={t('files.searchPlaceholder')}
+              className="h-8 w-56 pl-8 pr-8 text-sm"
+            />
+            {(searchActive || searchQuery) && (
+              <button
+                type="button"
+                onClick={exitSearch}
+                title={t('files.searchClear')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {searchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+              </button>
+            )}
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -524,11 +711,51 @@ export default function Files() {
         </div>
       </div>
 
+      {searchActive && searchTruncated && (
+        <p className="text-[13px] text-muted-foreground">
+          {t('files.searchTruncated', { count: searchResults.length })}
+        </p>
+      )}
+
+      {/* Bulk action bar */}
+      {selectedPaths.size > 0 && (
+        <div className="flex items-center justify-between rounded-lg border bg-secondary/40 px-3 py-2">
+          <span className="text-[13px] font-medium">
+            {t('files.selectedCount', { count: selectedPaths.size })}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setSelectedPaths(new Set())}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
+              <Trash2 />
+              {t('files.deleteSelected')}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* File listing table */}
       <div className="bg-card rounded-2xl card-shadow overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-10">
+              <Checkbox
+                checked={
+                  displayedFiles.length > 0 &&
+                  displayedFiles.every((e) => selectedPaths.has(entryPath(e)))
+                }
+                onCheckedChange={(checked) => {
+                  if (checked) {
+                    setSelectedPaths(new Set(displayedFiles.map((e) => entryPath(e))))
+                  } else {
+                    setSelectedPaths(new Set())
+                  }
+                }}
+                aria-label={t('files.selectAll')}
+              />
+            </TableHead>
             <TableHead>{t('files.name')}</TableHead>
             <TableHead className="w-28">{t('files.size')}</TableHead>
             <TableHead className="w-44">{t('files.modified')}</TableHead>
@@ -537,16 +764,16 @@ export default function Files() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {sortedFiles.length === 0 && !loading && (
+          {displayedFiles.length === 0 && !loading && !searchLoading && (
             <TableRow>
-              <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                {t('files.empty')}
+              <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                {searchActive ? t('files.searchEmpty') : t('files.empty')}
               </TableCell>
             </TableRow>
           )}
           {loading && files.length === 0 && (
             <TableRow>
-              <TableCell colSpan={5} className="text-center py-8">
+              <TableCell colSpan={6} className="text-center py-8">
                 <div className="flex items-center justify-center gap-2 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {t('files.loading')}
@@ -554,17 +781,28 @@ export default function Files() {
               </TableCell>
             </TableRow>
           )}
-          {sortedFiles.map((entry) => (
-            <ContextMenu key={entry.name}>
+          {displayedFiles.map((entry) => {
+            const rowPath = entryPath(entry)
+            return (
+            <ContextMenu key={rowPath}>
               <ContextMenuTrigger asChild>
                 <TableRow
                   className="cursor-pointer hover:bg-secondary/50"
                   onClick={() =>
-                    entry.isDir
-                      ? handleDirectoryClick(entry)
-                      : handleFileClick(entry)
+                    searchActive
+                      ? handleSearchResultClick(entry)
+                      : entry.isDir
+                        ? handleDirectoryClick(entry)
+                        : handleFileClick(entry)
                   }
                 >
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      checked={selectedPaths.has(rowPath)}
+                      onCheckedChange={() => toggleSelected(rowPath)}
+                      aria-label={entry.name}
+                    />
+                  </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
                       {entry.isDir ? (
@@ -574,7 +812,12 @@ export default function Files() {
                       ) : (
                         <File className="h-4 w-4 text-muted-foreground shrink-0" />
                       )}
-                      <span className="truncate">{entry.name}</span>
+                      <div className="min-w-0">
+                        <span className="truncate block">{entry.name}</span>
+                        {searchActive && (
+                          <span className="truncate block text-xs text-muted-foreground font-mono">{entry.path}</span>
+                        )}
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
@@ -588,7 +831,7 @@ export default function Files() {
                   </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
-                      {!entry.isDir && (
+                      {!searchActive && !entry.isDir && (
                         <Button
                           variant="ghost"
                           size="icon-xs"
@@ -598,7 +841,7 @@ export default function Files() {
                           <Pencil />
                         </Button>
                       )}
-                      {!entry.isDir && (
+                      {!searchActive && !entry.isDir && (
                         <Button
                           variant="ghost"
                           size="icon-xs"
@@ -611,22 +854,34 @@ export default function Files() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        title={t('files.rename')}
-                        onClick={() => {
-                          setRenameTarget(entry)
-                          setRenameNewName(entry.name)
-                        }}
+                        title={t('files.copy')}
+                        onClick={() => openCopyDialog(entry)}
                       >
-                        <Pencil className="h-3 w-3" />
+                        <Copy />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        title={t('common.delete')}
-                        onClick={() => setDeleteTarget(entry)}
-                      >
-                        <Trash2 />
-                      </Button>
+                      {!searchActive && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          title={t('files.rename')}
+                          onClick={() => {
+                            setRenameTarget(entry)
+                            setRenameNewName(entry.name)
+                          }}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      )}
+                      {!searchActive && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          title={t('common.delete')}
+                          onClick={() => setDeleteTarget(entry)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -634,9 +889,11 @@ export default function Files() {
               <ContextMenuContent>
                 <ContextMenuItem
                   onClick={() =>
-                    entry.isDir
-                      ? handleDirectoryClick(entry)
-                      : handleFileClick(entry)
+                    searchActive
+                      ? handleSearchResultClick(entry)
+                      : entry.isDir
+                        ? handleDirectoryClick(entry)
+                        : handleFileClick(entry)
                   }
                 >
                   {entry.isDir ? (
@@ -648,32 +905,41 @@ export default function Files() {
                     ? t('files.contextMenu.open')
                     : t('files.contextMenu.edit')}
                 </ContextMenuItem>
-                {!entry.isDir && (
+                {!searchActive && !entry.isDir && (
                   <ContextMenuItem onClick={() => handleDownload(entry)}>
                     <Download className="h-4 w-4" />
                     {t('files.contextMenu.download')}
                   </ContextMenuItem>
                 )}
                 <ContextMenuSeparator />
-                <ContextMenuItem
-                  onClick={() => {
-                    setRenameTarget(entry)
-                    setRenameNewName(entry.name)
-                  }}
-                >
-                  <Pencil className="h-4 w-4" />
-                  {t('files.contextMenu.rename')}
+                <ContextMenuItem onClick={() => openCopyDialog(entry)}>
+                  <Copy className="h-4 w-4" />
+                  {t('files.copy')}
                 </ContextMenuItem>
-                <ContextMenuItem
-                  variant="destructive"
-                  onClick={() => setDeleteTarget(entry)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  {t('files.contextMenu.delete')}
-                </ContextMenuItem>
+                {!searchActive && (
+                  <ContextMenuItem
+                    onClick={() => {
+                      setRenameTarget(entry)
+                      setRenameNewName(entry.name)
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />
+                    {t('files.contextMenu.rename')}
+                  </ContextMenuItem>
+                )}
+                {!searchActive && (
+                  <ContextMenuItem
+                    variant="destructive"
+                    onClick={() => setDeleteTarget(entry)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {t('files.contextMenu.delete')}
+                  </ContextMenuItem>
+                )}
               </ContextMenuContent>
             </ContextMenu>
-          ))}
+            )
+          })}
         </TableBody>
       </Table>
       </div>
@@ -925,6 +1191,78 @@ export default function Files() {
                 </>
               ) : (
                 t('files.renameAction')
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Copy dialog */}
+      <Dialog open={!!copyTarget} onOpenChange={(open) => !open && setCopyTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('files.copyTitle')}</DialogTitle>
+            <DialogDescription>
+              {copyTarget?.path}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="copy-dest">{t('files.copyDestination')}</Label>
+            <Input
+              id="copy-dest"
+              className="font-mono text-sm"
+              value={copyDest}
+              onChange={(e) => setCopyDest(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleCopy()
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCopyTarget(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={handleCopy}
+              disabled={copyLoading || !copyDest.trim() || copyDest.trim() === copyTarget?.path}
+            >
+              {copyLoading ? (
+                <>
+                  <Loader2 className="animate-spin" />
+                  {t('common.loading')}
+                </>
+              ) : (
+                <>
+                  <Copy />
+                  {t('files.copy')}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk delete confirmation dialog */}
+      <Dialog open={bulkDeleteOpen} onOpenChange={(open) => !open && setBulkDeleteOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('files.deleteSelected')}</DialogTitle>
+            <DialogDescription>
+              {t('files.deleteSelectedConfirm', { count: selectedPaths.size })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDeleteOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="destructive" onClick={handleBulkDelete} disabled={bulkDeleting}>
+              {bulkDeleting ? (
+                <>
+                  <Loader2 className="animate-spin" />
+                  {t('files.deleting')}
+                </>
+              ) : (
+                t('common.delete')
               )}
             </Button>
           </DialogFooter>
