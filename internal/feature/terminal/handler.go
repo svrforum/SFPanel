@@ -47,6 +47,15 @@ const readerSendQueue = 64
 // the full terminal_timeout window (default 30m) with no observer.
 const idleReapAfter = 5 * time.Minute
 
+// terminalWSPingInterval / terminalWSReadDeadline detect a half-open client
+// (laptop sleep, NAT/router drop) on the WS->PTY input loop, which otherwise
+// parks on ReadMessage until TCP RTO fires (minutes). The reader arms a read
+// deadline and re-arms it on every pong; writeLoop pings on the interval. The
+// deadline must exceed the interval so a live-but-idle client always pongs in
+// time (gorilla auto-replies to pings).
+const terminalWSPingInterval = 30 * time.Second
+const terminalWSReadDeadline = 70 * time.Second
+
 // sameOriginOrEmpty mirrors websocket/handler.go's CheckOrigin: accept
 // when Origin is absent (curl/websocat/desktop wrapper) or its host
 // matches the request host. Anything else is a foreign Origin from a
@@ -248,10 +257,20 @@ func (s *terminalSession) writeLoop(ws *websocket.Conn, state *readerState) {
 			s.mu.Unlock()
 		}
 	}()
+	ticker := time.NewTicker(terminalWSPingInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-state.done:
 			return
+		case <-ticker.C:
+			// writeLoop owns all writes to ws, so the keepalive ping is sent
+			// here rather than from a separate goroutine (gorilla conns are not
+			// safe for concurrent writes).
+			_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := ws.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		case data, ok := <-state.send:
 			if !ok {
 				return
@@ -494,6 +513,14 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			// Start the background PTY reader
 			sess.startReader(sessionKey)
 		}
+
+		// Arm a read deadline so a half-open client is detected within
+		// ~terminalWSReadDeadline; writeLoop pings and the pong re-arms it.
+		_ = ws.SetReadDeadline(time.Now().Add(terminalWSReadDeadline))
+		ws.SetPongHandler(func(string) error {
+			_ = ws.SetReadDeadline(time.Now().Add(terminalWSReadDeadline))
+			return nil
+		})
 
 		// WebSocket -> PTY (runs until the WebSocket closes)
 		for {
