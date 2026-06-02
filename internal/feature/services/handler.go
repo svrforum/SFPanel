@@ -38,6 +38,10 @@ func refuseProtectedUnit(c echo.Context, name, op string) error {
 
 type Handler struct {
 	Cmd exec.Commander
+	// cache holds the per-Handler service list. Per-Handler (not package
+	// global) so parallel tests and two router instances don't share state —
+	// mirrors the process module's cache placement.
+	cache serviceCacheData
 }
 
 type ServiceInfo struct {
@@ -55,7 +59,7 @@ type ServiceDeps struct {
 	WantedBy   []string `json:"wanted_by,omitempty"`
 }
 
-var serviceCache struct {
+type serviceCacheData struct {
 	sync.RWMutex
 	services []ServiceInfo
 	fetched  time.Time
@@ -77,7 +81,7 @@ func (h *Handler) ListServices(c echo.Context) error {
 			"total":    0,
 		})
 	}
-	services, err := getCachedServices(h.Cmd)
+	services, err := h.getCachedServices()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrServiceError, "Failed to list services")
 	}
@@ -101,7 +105,7 @@ func (h *Handler) StartService(c echo.Context) error {
 			fmt.Sprintf("Failed to start %s: %s", name, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
-	invalidateServiceCache()
+	h.invalidateServiceCache()
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("Service %s started", name)})
 }
 
@@ -121,7 +125,7 @@ func (h *Handler) StopService(c echo.Context) error {
 			fmt.Sprintf("Failed to stop %s: %s", name, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
-	invalidateServiceCache()
+	h.invalidateServiceCache()
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("Service %s stopped", name)})
 }
 
@@ -141,7 +145,7 @@ func (h *Handler) RestartService(c echo.Context) error {
 			fmt.Sprintf("Failed to restart %s: %s", name, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
-	invalidateServiceCache()
+	h.invalidateServiceCache()
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("Service %s restarted", name)})
 }
 
@@ -158,7 +162,7 @@ func (h *Handler) EnableService(c echo.Context) error {
 			fmt.Sprintf("Failed to enable %s: %s", name, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
-	invalidateServiceCache()
+	h.invalidateServiceCache()
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("Service %s enabled", name)})
 }
 
@@ -178,7 +182,7 @@ func (h *Handler) DisableService(c echo.Context) error {
 			fmt.Sprintf("Failed to disable %s: %s", name, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
-	invalidateServiceCache()
+	h.invalidateServiceCache()
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("Service %s disabled", name)})
 }
 
@@ -266,42 +270,39 @@ func filterDeps(items []string) []string {
 	return result
 }
 
-func getCachedServices(cmd exec.Commander) ([]ServiceInfo, error) {
-	serviceCache.RLock()
-	if time.Since(serviceCache.fetched) < serviceCacheTTL && serviceCache.services != nil {
-		result := make([]ServiceInfo, len(serviceCache.services))
-		copy(result, serviceCache.services)
-		serviceCache.RUnlock()
+func (h *Handler) getCachedServices() ([]ServiceInfo, error) {
+	h.cache.RLock()
+	if time.Since(h.cache.fetched) < serviceCacheTTL && h.cache.services != nil {
+		result := make([]ServiceInfo, len(h.cache.services))
+		copy(result, h.cache.services)
+		h.cache.RUnlock()
 		return result, nil
 	}
-	serviceCache.RUnlock()
+	h.cache.RUnlock()
 
-	serviceCache.Lock()
-	defer serviceCache.Unlock()
-
-	if time.Since(serviceCache.fetched) < serviceCacheTTL && serviceCache.services != nil {
-		result := make([]ServiceInfo, len(serviceCache.services))
-		copy(result, serviceCache.services)
-		return result, nil
-	}
-
-	svcs, err := fetchAllServices(cmd)
+	// Cache miss — fetch WITHOUT holding the lock. fetchAllServices runs two
+	// systemctl execs; holding the write lock across them would serialize every
+	// concurrent list caller behind that multi-hundred-ms pair. Concurrent
+	// misses may each fetch (bounded by the 3s TTL); we lock only to publish.
+	svcs, err := fetchAllServices(h.Cmd)
 	if err != nil {
 		return nil, err
 	}
 
-	serviceCache.services = svcs
-	serviceCache.fetched = time.Now()
+	h.cache.Lock()
+	h.cache.services = svcs
+	h.cache.fetched = time.Now()
+	h.cache.Unlock()
 
 	result := make([]ServiceInfo, len(svcs))
 	copy(result, svcs)
 	return result, nil
 }
 
-func invalidateServiceCache() {
-	serviceCache.Lock()
-	serviceCache.fetched = time.Time{}
-	serviceCache.Unlock()
+func (h *Handler) invalidateServiceCache() {
+	h.cache.Lock()
+	h.cache.fetched = time.Time{}
+	h.cache.Unlock()
 }
 
 func fetchAllServices(cmd exec.Commander) ([]ServiceInfo, error) {

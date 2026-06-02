@@ -54,23 +54,20 @@ func (h *Handler) cachedProcesses() ([]ProcessInfo, error) {
 	}
 	h.cache.RUnlock()
 
-	// Cache miss — collect fresh data
-	h.cache.Lock()
-	defer h.cache.Unlock()
-
-	// Double-check after acquiring write lock (another goroutine may have refreshed)
-	if time.Since(h.cache.updatedAt) < processCacheTTL && h.cache.data != nil {
-		result := make([]ProcessInfo, len(h.cache.data))
-		copy(result, h.cache.data)
-		return result, nil
-	}
-
+	// Cache miss — collect fresh data WITHOUT holding any lock. collectProcesses
+	// enumerates /proc and sleeps ~200ms; holding the write lock across it would
+	// block every concurrent dashboard reader for that whole window. Concurrent
+	// misses may each collect (bounded and rare given the 3s TTL); we take the
+	// write lock only to publish.
 	infos, err := collectProcesses()
 	if err != nil {
 		return nil, err
 	}
+
+	h.cache.Lock()
 	h.cache.data = infos
 	h.cache.updatedAt = time.Now()
+	h.cache.Unlock()
 
 	result := make([]ProcessInfo, len(infos))
 	copy(result, infos)
