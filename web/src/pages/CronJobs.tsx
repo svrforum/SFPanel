@@ -10,6 +10,10 @@ import {
   Info,
   ChevronDown,
   ChevronUp,
+  Zap,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -74,6 +78,11 @@ export default function CronJobs() {
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
   const [showAllTypes, setShowAllTypes] = useState(false)
+
+  // Run-now output dialog
+  const [runJob, setRunJob] = useState<CronJob | null>(null)
+  const [runResult, setRunResult] = useState<{ output: string; success: boolean; error?: string } | null>(null)
+  const [runLoading, setRunLoading] = useState(false)
 
   // Create/Edit dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -172,6 +181,20 @@ export default function CronJobs() {
     }
     const fields = s.split(/\s+/)
     return fields.length === 5
+  }
+
+  const handleRunNow = async (job: CronJob) => {
+    setRunJob(job)
+    setRunResult(null)
+    setRunLoading(true)
+    try {
+      const res = await api.runCronJob(job.id)
+      setRunResult(res)
+    } catch (err: unknown) {
+      setRunResult({ output: '', success: false, error: err instanceof Error ? err.message : t('common.error') })
+    } finally {
+      setRunLoading(false)
+    }
   }
 
   const handleToggleEnabled = async (job: CronJob) => {
@@ -341,6 +364,15 @@ export default function CronJobs() {
                       ) : (
                         <Pause className="h-4 w-4 text-muted-foreground" />
                       )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      title={t('cron.runNow')}
+                      disabled={actionLoading === job.id}
+                      onClick={() => handleRunNow(job)}
+                    >
+                      <Zap className="h-4 w-4 text-amber-500" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -561,6 +593,33 @@ export default function CronJobs() {
       </Dialog>
 
       {/* Delete confirmation dialog */}
+      {/* Run-now output dialog */}
+      <Dialog open={!!runJob} onOpenChange={(open) => !open && setRunJob(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {runLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {!runLoading && runResult?.success && <CheckCircle2 className="h-4 w-4 text-[#00c471]" />}
+              {!runLoading && runResult && !runResult.success && <AlertCircle className="h-4 w-4 text-[#f04452]" />}
+              {t('cron.runNow')}
+            </DialogTitle>
+            <DialogDescription className="font-mono text-[11px] break-all">{runJob?.command}</DialogDescription>
+          </DialogHeader>
+          <div className="bg-zinc-950 text-zinc-100 rounded-xl p-4 max-h-80 overflow-y-auto">
+            <pre className="text-xs font-mono whitespace-pre-wrap break-words">
+              {runLoading
+                ? t('cron.running')
+                : (runResult?.output || '') + (runResult?.error ? `\n${runResult.error}` : '') || t('cron.noOutput')}
+            </pre>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setRunJob(null)}>
+              {t('common.close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>

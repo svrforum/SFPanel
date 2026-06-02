@@ -1019,6 +1019,9 @@
   "cron": {
     "title": "크론 작업",
     "subtitle": "시스템 예약 작업을 관리합니다",
+    "runNow": "지금 실행",
+    "running": "실행 중...",
+    "noOutput": "(출력 없음)",
     "count": "{{count}}개 작업",
     "showAll": "모든 항목 보기",
     "newJob": "새 작업",

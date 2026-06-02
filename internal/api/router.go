@@ -298,6 +298,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	cron.POST("", cronHandler.CreateJob)
 	cron.PUT("/:id", cronHandler.UpdateJob)
 	cron.DELETE("/:id", cronHandler.DeleteJob)
+	cron.POST("/:id/run", cronHandler.RunJob)
 
 	// Log viewer routes
 	logsHandler := &featureLogs.Handler{DB: database}

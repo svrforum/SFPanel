@@ -994,6 +994,10 @@ class ApiClient {
     return this.request(`/cron/${id}`, { method: 'DELETE' })
   }
 
+  runCronJob(id: number) {
+    return this.request<{ output: string; success: boolean; error?: string }>(`/cron/${id}/run`, { method: 'POST' })
+  }
+
   // Network
   getNetworkStatus() {
     return this.request<NetworkStatus>('/network/status')

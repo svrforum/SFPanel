@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -254,6 +255,49 @@ func (h *Handler) DeleteJob(c echo.Context) error {
 	}
 
 	return response.OK(c, map[string]string{"message": "job deleted"})
+}
+
+// RunJob executes a crontab entry's command immediately (out of schedule) and
+// returns the captured output. The command runs via `sh -c` under the panel's
+// privilege (root) — the same context cron would use on schedule — so this adds
+// no new privilege, only on-demand timing for testing a job.
+func (h *Handler) RunJob(c echo.Context) error {
+	if !h.Cmd.Exists("crontab") {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrCronError,
+			"crontab is not installed on this node")
+	}
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid job ID")
+	}
+
+	content, err := readCrontab(h.Cmd)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrCronError,
+			"Failed to read crontab: "+response.SanitizeOutput(err.Error()))
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if id < 0 || id >= len(lines) {
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Job not found")
+	}
+
+	job := parseCronLine(lines[id], id)
+	if job.Type != "job" || strings.TrimSpace(job.Command) == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrCronError, "Selected line is not a runnable job")
+	}
+
+	out, runErr := h.Cmd.RunWithTimeout(5*time.Minute, "sh", "-c", job.Command)
+	resp := map[string]interface{}{
+		"output":  response.SanitizeOutput(out),
+		"success": runErr == nil,
+	}
+	if runErr != nil {
+		resp["error"] = response.SanitizeOutput(runErr.Error())
+	}
+	return response.OK(c, resp)
 }
 
 // readCrontab executes `crontab -l` and returns its output.

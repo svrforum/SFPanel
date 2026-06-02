@@ -1019,6 +1019,9 @@
   "cron": {
     "title": "Cron Jobs",
     "subtitle": "Manage system scheduled tasks",
+    "runNow": "Run now",
+    "running": "Running...",
+    "noOutput": "(no output)",
     "count": "{{count}} jobs",
     "showAll": "Show all entries",
     "newJob": "New Job",
