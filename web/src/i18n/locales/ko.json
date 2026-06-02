@@ -896,6 +896,7 @@
         "formNodeScopeLabel": "노드 범위",
         "nodeScopeAll": "전체 노드",
         "nodeScopeSpecific": "특정 노드",
+        "noNodes": "다른 노드 없음 (단일 노드)",
         "summaryCooldown": "쿨다운: {{cooldown}}초",
         "summaryThresholdCooldown": "임계값: {{threshold}}% | 쿨다운: {{cooldown}}초",
         "actionEnable": "활성화",

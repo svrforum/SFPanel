@@ -109,6 +109,14 @@ export default function AlertSettings() {
   const [thresholdCount, setThresholdCount] = useState(3)
   const [windowSeconds, setWindowSeconds] = useState(300)
   const [ruleLoading, setRuleLoading] = useState(false)
+  // Cluster nodes for the specific-scope multi-select (empty in single-node mode).
+  const [clusterNodes, setClusterNodes] = useState<{ id: string; name: string }[]>([])
+
+  useEffect(() => {
+    api.getClusterNodes()
+      .then((res) => setClusterNodes((res.nodes ?? []).map((n) => ({ id: n.id, name: n.name || n.id }))))
+      .catch(() => setClusterNodes([]))
+  }, [])
 
   // History state
   const [history, setHistory] = useState<AlertHistoryEntry[]>([])
@@ -601,6 +609,30 @@ export default function AlertSettings() {
                   <SelectItem value="specific">{t('settings.alerts.rules.nodeScopeSpecific')}</SelectItem>
                 </SelectContent>
               </Select>
+              {ruleForm.node_scope === 'specific' && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {clusterNodes.length === 0 ? (
+                    <span className="text-[12px] text-muted-foreground">{t('settings.alerts.rules.noNodes')}</span>
+                  ) : (
+                    clusterNodes.map((n) => {
+                      const selected = ruleForm.nodes.includes(n.id)
+                      return (
+                        <button
+                          key={n.id}
+                          type="button"
+                          onClick={() => setRuleForm((f) => ({
+                            ...f,
+                            nodes: selected ? f.nodes.filter((x) => x !== n.id) : [...f.nodes, n.id],
+                          }))}
+                          className={`px-2 py-1 rounded-lg text-[12px] border transition-colors ${selected ? 'bg-primary/10 border-primary/40 text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}
+                        >
+                          {n.name}
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              )}
             </div>
             <Button onClick={handleAddRule} disabled={ruleLoading} className="rounded-xl">
               {ruleLoading ? t('settings.alerts.rules.addInProgress') : t('settings.alerts.rules.addButton')}

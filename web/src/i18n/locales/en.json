@@ -896,6 +896,7 @@
         "formNodeScopeLabel": "Node Scope",
         "nodeScopeAll": "All Nodes",
         "nodeScopeSpecific": "Specific Nodes",
+        "noNodes": "No other nodes (single-node)",
         "summaryCooldown": "Cooldown: {{cooldown}}s",
         "summaryThresholdCooldown": "Threshold: {{threshold}}% | Cooldown: {{cooldown}}s",
         "actionEnable": "Enable",
