@@ -210,6 +210,21 @@ class ApiClient {
     return url
   }
 
+  // streamHeaders builds request headers for the raw fetch/XHR call sites that
+  // bypass request() (SSE streams, binary blobs, multipart uploads). Those code
+  // paths still need the same auth the normal client sends: the Bearer token AND
+  // the CSRF double-submit token. CSRFProtect rejects any non-GET without an
+  // X-CSRF-Token header with 403 — so streaming POSTs that omit it (system
+  // update, backup/restore, image pull, compose deploy, installs, uploads) fail
+  // before reaching the handler. Always route streaming headers through here.
+  streamHeaders(base: Record<string, string> = {}): Record<string, string> {
+    const headers = { ...base }
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`
+    const csrf = readCookie('sfpanel_csrf')
+    if (csrf) headers['X-CSRF-Token'] = csrf
+    return headers
+  }
+
   async request<T>(path: string, options: RequestInit & { local?: boolean; timeout?: number; _retried?: boolean } = {}): Promise<T> {
     const { local, timeout = 30000, _retried, ...fetchOptions } = options
     const headers: Record<string, string> = {
@@ -444,16 +459,9 @@ class ApiClient {
   async runUpdateStream(
     onProgress: (event: { step: string; message: string }) => void
   ): Promise<void> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`
-    }
-
     const res = await fetch(this.withNode('/system/update'), {
       method: 'POST',
-      headers,
+      headers: this.streamHeaders({ 'Content-Type': 'application/json' }),
     })
     if (!res.ok) throw new Error('Update failed')
     const reader = res.body?.getReader()
@@ -476,28 +484,20 @@ class ApiClient {
 
   // System backup/restore
   async downloadBackup(): Promise<Blob> {
-    const headers: Record<string, string> = {}
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`
-    }
     const res = await fetch(this.withNode('/system/backup'), {
       method: 'POST',
-      headers,
+      headers: this.streamHeaders(),
     })
     if (!res.ok) throw new Error(`Backup failed (${res.status})`)
     return res.blob()
   }
 
   async restoreBackup(file: File): Promise<void> {
-    const headers: Record<string, string> = {}
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`
-    }
     const formData = new FormData()
     formData.append('backup', file)
     const res = await fetch(this.withNode('/system/restore'), {
       method: 'POST',
-      headers,
+      headers: this.streamHeaders(),
       body: formData,
     })
     const json = await res.json()
@@ -593,16 +593,9 @@ class ApiClient {
     imageName: string,
     onProgress: (event: { status: string; progress?: string; id?: string }) => void
   ): Promise<void> {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`
-    }
-
     const res = await fetch(this.withNode('/docker/images/pull'), {
       method: 'POST',
-      headers,
+      headers: this.streamHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ image: imageName }),
     })
     if (!res.ok) throw new Error('Pull failed')
@@ -757,10 +750,8 @@ class ApiClient {
     onEvent: (event: { phase: string; line: string }) => void
   ): Promise<void> {
     const nodeParam = this._currentNode ? `?node=${this._currentNode}` : ''
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (this.token) headers['Authorization'] = `Bearer ${this.token}`
     const res = await fetch(`${this.apiBase}/docker/compose/${encodeURIComponent(project)}/up-stream${nodeParam}`, {
-      method: 'POST', headers,
+      method: 'POST', headers: this.streamHeaders({ 'Content-Type': 'application/json' }),
     })
     if (!res.ok) throw new Error('Deploy failed')
     await this.readSSEStream(res, onEvent)
@@ -771,10 +762,8 @@ class ApiClient {
     onEvent: (event: { phase: string; line: string }) => void
   ): Promise<void> {
     const nodeParam = this._currentNode ? `?node=${this._currentNode}` : ''
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (this.token) headers['Authorization'] = `Bearer ${this.token}`
     const res = await fetch(`${this.apiBase}/docker/compose/${encodeURIComponent(project)}/update-stream${nodeParam}`, {
-      method: 'POST', headers,
+      method: 'POST', headers: this.streamHeaders({ 'Content-Type': 'application/json' }),
     })
     if (!res.ok) throw new Error('Update failed')
     await this.readSSEStream(res, onEvent)
@@ -910,8 +899,8 @@ class ApiClient {
       const xhr = new XMLHttpRequest()
       xhr.open('POST', this.withNode('/files/upload'))
 
-      if (this.token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${this.token}`)
+      for (const [k, v] of Object.entries(this.streamHeaders())) {
+        xhr.setRequestHeader(k, v)
       }
 
       xhr.upload.onprogress = (e) => {

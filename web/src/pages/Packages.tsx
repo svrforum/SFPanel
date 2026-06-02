@@ -196,10 +196,9 @@ export default function Packages() {
     setLoadingKey('dockerInstall', true)
     openOutput(t('packages.installingDocker'))
     try {
-      const token = api.getToken()
       const res = await fetch(`${api.apiBase}/packages/install-docker`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: api.streamHeaders(),
       })
 
       if (!res.ok || !res.body) {
@@ -305,11 +304,10 @@ export default function Packages() {
     setLoadingKey(loadingKey, true as LoadingState[typeof loadingKey])
     openOutput(title)
     try {
-      const token = api.getToken()
       const nodeParam = api.currentNode ? `?node=${encodeURIComponent(api.currentNode)}` : ''
       const res = await fetch(`${api.apiBase}${url}${nodeParam}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: api.streamHeaders(),
       })
       if (!res.ok || !res.body) throw new Error('Failed to start installation')
 
@@ -405,10 +403,9 @@ export default function Packages() {
     setNodeInstallingVersion(version)
     openOutput(t('packages.installingNodeVersion', { version }))
     try {
-      const token = api.getToken()
       const res = await fetch(`${api.apiBase}/packages/node-install-version`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: api.streamHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ version }),
       })
       if (!res.ok || !res.body) throw new Error('Failed to start installation')
@@ -493,13 +490,9 @@ export default function Packages() {
         // /packages/upgrade streams via SSE — a full distro upgrade routinely
         // runs longer than the legacy 5 min unary cap. Consume the response
         // body line by line like the install handlers do.
-        const token = api.getToken()
         const res = await fetch(`${api.apiBase}/packages/upgrade`, {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
+          headers: api.streamHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ packages: packages ?? [] }),
         })
         if (!res.ok || !res.body) {

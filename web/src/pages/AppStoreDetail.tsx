@@ -300,14 +300,10 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
       const controller = new AbortController()
       abortRef.current = controller
 
-      const token = api.getToken()
       const nodeParam = api.currentNode ? `?node=${encodeURIComponent(api.currentNode)}` : ''
       const res = await fetch(`${api.apiBase}/appstore/apps/${detail.app.id}/install${nodeParam}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: api.streamHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(
           installMode === 'advanced'
             ? { advanced: true, compose: customCompose, env_raw: customEnv, password: advancedPassword }
