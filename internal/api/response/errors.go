@@ -201,6 +201,7 @@ const (
 const (
 	ErrCronError       = "CRON_ERROR"
 	ErrInvalidSchedule = "INVALID_SCHEDULE"
+	ErrCronConflict    = "CRON_CONFLICT" // line at the given index no longer matches expected_raw
 )
 
 // Settings error codes

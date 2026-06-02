@@ -157,6 +157,10 @@ func (h *Handler) UpdateJob(c echo.Context) error {
 		Schedule string `json:"schedule"`
 		Command  string `json:"command"`
 		Enabled  *bool  `json:"enabled"`
+		// ExpectedRaw, when set, is the raw crontab line the client believes sits
+		// at this index. The server verifies it before mutating so a concurrent
+		// add/remove (which shifts indices) can't silently rewrite the wrong job.
+		ExpectedRaw string `json:"expected_raw"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -184,6 +188,10 @@ func (h *Handler) UpdateJob(c echo.Context) error {
 
 	if id < 0 || id >= len(lines) {
 		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Job not found")
+	}
+	if req.ExpectedRaw != "" && lines[id] != req.ExpectedRaw {
+		return response.Fail(c, http.StatusConflict, response.ErrCronConflict,
+			"Crontab changed since it was loaded; refresh and retry")
 	}
 
 	newLine := req.Schedule + " " + req.Command
@@ -230,6 +238,13 @@ func (h *Handler) DeleteJob(c echo.Context) error {
 
 	if id < 0 || id >= len(lines) {
 		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Job not found")
+	}
+	// Optional optimistic-concurrency guard: if the client passes the raw line
+	// it intends to delete, verify the index still points at it (a concurrent
+	// add/remove shifts indices and would otherwise delete the wrong job).
+	if expected := c.QueryParam("expected_raw"); expected != "" && lines[id] != expected {
+		return response.Fail(c, http.StatusConflict, response.ErrCronConflict,
+			"Crontab changed since it was loaded; refresh and retry")
 	}
 
 	lines = append(lines[:id], lines[id+1:]...)
