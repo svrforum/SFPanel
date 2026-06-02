@@ -2,6 +2,7 @@ package logs
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -313,14 +314,21 @@ func (h *Handler) ReadLog(c echo.Context) error {
 	// Use tail (optionally piped through grep) to read the last N lines.
 	// #nosec G204 — info.Path is validated against the allowlist above.
 	var output []byte
+	totalLines := 0
 	if info.Filter != "" {
 		// grep filter + tail: grep first to filter, then tail for line count
 		// #nosec G204 — info.Filter is from the hardcoded allowlist, not user input.
 		cmd := exec.CommandContext(c.Request().Context(), "grep", "-E", info.Filter, info.Path)
 		filtered, _ := cmd.Output() // grep returns exit 1 if no matches — that's fine
 		if len(filtered) > 0 {
+			// The full filtered set is already in memory; count from it rather
+			// than a second whole-file `grep -c` pass.
+			totalLines = bytes.Count(filtered, []byte{'\n'})
+			if filtered[len(filtered)-1] != '\n' {
+				totalLines++
+			}
 			tailCmd := exec.CommandContext(c.Request().Context(), "tail", "-n", strconv.Itoa(lines))
-			tailCmd.Stdin = strings.NewReader(string(filtered))
+			tailCmd.Stdin = bytes.NewReader(filtered)
 			output, _ = tailCmd.Output()
 		}
 	} else {
@@ -330,6 +338,8 @@ func (h *Handler) ReadLog(c echo.Context) error {
 		if err2 != nil {
 			return response.Fail(c, http.StatusInternalServerError, response.ErrReadError, "Failed to read log: "+response.SanitizeOutput(err2.Error()))
 		}
+		// tail only returns the last N lines; wc -l the file for the true total.
+		totalLines = countFileLines(c.Request().Context(), info.Path, "")
 	}
 
 	// Split output into individual lines, trimming the trailing empty entry
@@ -342,9 +352,8 @@ func (h *Handler) ReadLog(c echo.Context) error {
 		logLines = strings.Split(raw, "\n")
 	}
 
-	// Count total lines in the file (or filtered matches) so the UI can
-	// indicate how much of the log is being displayed.
-	totalLines := countFileLines(c.Request().Context(), info.Path, info.Filter)
+	// totalLines (computed per-branch above) tells the UI how much of the log
+	// is being displayed; never report fewer than what we're returning.
 	if totalLines < len(logLines) {
 		totalLines = len(logLines)
 	}
