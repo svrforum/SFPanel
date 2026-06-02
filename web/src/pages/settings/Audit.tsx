@@ -4,31 +4,40 @@ import { api } from '@/lib/api'
 import type { AuditLogEntry } from '@/types/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const AUDIT_LIMIT = 20
+const selectCls = 'h-8 rounded-lg border border-border bg-card px-2 text-[12px]'
 
 export default function Audit() {
   const { t } = useTranslation()
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
   const [auditTotal, setAuditTotal] = useState(0)
   const [auditPage, setAuditPage] = useState(1)
+  // Filters: method/status apply immediately; user applies on submit.
+  const [userInput, setUserInput] = useState('')
+  const [appliedUser, setAppliedUser] = useState('')
+  const [filterMethod, setFilterMethod] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
 
   const loadAuditLogs = useCallback(async (page: number) => {
     try {
-      const data = await api.getAuditLogs(page, AUDIT_LIMIT)
+      const data = await api.getAuditLogs(page, AUDIT_LIMIT, {
+        user: appliedUser || undefined,
+        method: filterMethod || undefined,
+        status: filterStatus || undefined,
+      })
       setAuditLogs(data.logs)
       setAuditTotal(data.total)
     } catch { /* ignore */ }
-  }, [])
+  }, [appliedUser, filterMethod, filterStatus])
 
-  // Initial fetch — loadAuditLogs is memoized via useCallback, so this
-  // runs once on mount. setState happens inside loadAuditLogs (after the
-  // await), which is exactly what set-state-in-effect is supposed to
-  // allow, but the lint can't see through the async indirection.
+  // Reload on mount and whenever an applied filter changes (resets to page 1).
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAuditPage(1)
     loadAuditLogs(1)
   }, [loadAuditLogs])
 
@@ -61,6 +70,34 @@ export default function Audit() {
             </Button>
           )}
         </div>
+        {/* Filter bar */}
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <form
+            onSubmit={(e) => { e.preventDefault(); setAppliedUser(userInput.trim()) }}
+            className="flex-1 min-w-[160px]"
+          >
+            <Input
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              placeholder={t('settings.auditUser')}
+              className="h-8 rounded-lg text-[12px]"
+            />
+          </form>
+          <select className={selectCls} value={filterMethod} onChange={(e) => setFilterMethod(e.target.value)}>
+            <option value="">{t('settings.auditMethod')}</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="PATCH">PATCH</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+          <select className={selectCls} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+            <option value="">{t('settings.auditStatus')}</option>
+            <option value="2xx">2xx</option>
+            <option value="4xx">4xx</option>
+            <option value="5xx">5xx</option>
+            <option value="err">≥ 400</option>
+          </select>
+        </div>
         {auditLogs.length === 0 ? (
           <p className="text-[13px] text-muted-foreground py-4">{t('settings.auditLogEmpty')}</p>
         ) : (
@@ -75,6 +112,7 @@ export default function Audit() {
                     <TableHead className="text-[11px]">{t('settings.auditPath')}</TableHead>
                     <TableHead className="text-[11px]">{t('settings.auditStatus')}</TableHead>
                     <TableHead className="text-[11px]">{t('settings.auditIP')}</TableHead>
+                    <TableHead className="text-[11px]">{t('settings.alerts.history.colNode')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -100,6 +138,7 @@ export default function Audit() {
                         </span>
                       </TableCell>
                       <TableCell className="text-[12px] text-muted-foreground">{log.ip}</TableCell>
+                      <TableCell className="text-[12px] text-muted-foreground">{log.node_id || '-'}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

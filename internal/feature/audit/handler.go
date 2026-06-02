@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -63,14 +64,40 @@ func (h *Handler) ListAuditLogs(c echo.Context) error {
 	}
 	offset := (page - 1) * limit
 
+	// Optional filters — all parameterized to avoid injection.
+	var where []string
+	var args []interface{}
+	if u := strings.TrimSpace(c.QueryParam("user")); u != "" {
+		where = append(where, "username LIKE ?")
+		args = append(args, "%"+u+"%")
+	}
+	if m := strings.TrimSpace(c.QueryParam("method")); m != "" {
+		where = append(where, "method = ?")
+		args = append(args, strings.ToUpper(m))
+	}
+	switch c.QueryParam("status") {
+	case "2xx":
+		where = append(where, "status >= 200 AND status < 300")
+	case "4xx":
+		where = append(where, "status >= 400 AND status < 500")
+	case "5xx":
+		where = append(where, "status >= 500")
+	case "err":
+		where = append(where, "status >= 400")
+	}
+	whereClause := ""
+	if len(where) > 0 {
+		whereClause = " WHERE " + strings.Join(where, " AND ")
+	}
+
 	var total int
-	if err := h.DB.QueryRow("SELECT COUNT(*) FROM audit_logs").Scan(&total); err != nil {
+	if err := h.DB.QueryRow("SELECT COUNT(*) FROM audit_logs"+whereClause, args...).Scan(&total); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to count audit logs")
 	}
 
 	rows, err := h.DB.Query(
-		"SELECT id, username, method, path, status, ip, node_id, protected, created_at FROM audit_logs ORDER BY id DESC LIMIT ? OFFSET ?",
-		limit, offset,
+		"SELECT id, username, method, path, status, ip, node_id, protected, created_at FROM audit_logs"+whereClause+" ORDER BY id DESC LIMIT ? OFFSET ?",
+		append(args, limit, offset)...,
 	)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to query audit logs")

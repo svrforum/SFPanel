@@ -382,12 +382,17 @@ class ApiClient {
   }
 
   // Audit Logs
-  getAuditLogs(page = 1, limit = 50) {
-    return this.request<AuditLogsResponse>(`/audit/logs?page=${page}&limit=${limit}`)
+  getAuditLogs(page = 1, limit = 50, filters: { user?: string; method?: string; status?: string } = {}) {
+    const qs = new URLSearchParams({ page: String(page), limit: String(limit) })
+    if (filters.user) qs.set('user', filters.user)
+    if (filters.method) qs.set('method', filters.method)
+    if (filters.status) qs.set('status', filters.status)
+    return this.request<AuditLogsResponse>(`/audit/logs?${qs.toString()}`)
   }
 
-  clearAuditLogs() {
-    return this.request('/audit/logs', { method: 'DELETE' })
+  clearAuditLogs(scope: { days?: number } = {}) {
+    const qs = scope.days ? `?days=${scope.days}` : ''
+    return this.request(`/audit/logs${qs}`, { method: 'DELETE' })
   }
 
   // System
