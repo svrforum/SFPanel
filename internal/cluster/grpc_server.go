@@ -352,6 +352,19 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 		}, nil
 	}
 
+	// The whole body ships in one unary APIResponse, which gRPC caps at its
+	// 4 MiB default receive size on the requesting node. A response over that
+	// would fail with a cryptic transport error; return an actionable one
+	// instead. Large/streaming routes are expected to use the HTTP relay (a
+	// -stream suffix or the proxy allowlist), not this unary path.
+	const maxUnaryProxyBodyBytes = 4*1024*1024 - 64*1024 // headroom under the 4 MiB cap
+	if len(respBody) > maxUnaryProxyBodyBytes {
+		return &pb.APIResponse{
+			StatusCode: 502,
+			Body:       []byte(`{"success":false,"error":{"code":"PROXY_RESPONSE_TOO_LARGE","message":"response too large for the cross-node unary proxy; route it through the streaming relay"}}`),
+		}, nil
+	}
+
 	// Collect response headers
 	respHeaders := make(map[string]string)
 	for k, v := range httpResp.Header {
