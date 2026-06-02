@@ -55,6 +55,7 @@ export interface MetricsPoint {
   time: number
   cpu: number
   mem_percent: number
+  disk_percent: number
 }
 
 export interface UpdateInfo {

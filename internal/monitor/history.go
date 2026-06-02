@@ -12,9 +12,10 @@ import (
 
 // MetricsPoint is a single time-series data point for the history buffer.
 type MetricsPoint struct {
-	Time       int64   `json:"time"`
-	CPU        float64 `json:"cpu"`
-	MemPercent float64 `json:"mem_percent"`
+	Time        int64   `json:"time"`
+	CPU         float64 `json:"cpu"`
+	MemPercent  float64 `json:"mem_percent"`
+	DiskPercent float64 `json:"disk_percent"`
 }
 
 const (
@@ -90,7 +91,7 @@ func loadHistoryFromDB() {
 
 	cutoff := time.Now().Add(-24 * time.Hour).UnixMilli()
 	rows, err := historyDB.Query(
-		"SELECT time, cpu, mem_percent FROM metrics_history WHERE time > ? ORDER BY time ASC",
+		"SELECT time, cpu, mem_percent, disk_percent FROM metrics_history WHERE time > ? ORDER BY time ASC",
 		cutoff,
 	)
 	if err != nil {
@@ -102,7 +103,7 @@ func loadHistoryFromDB() {
 	var points []MetricsPoint
 	for rows.Next() {
 		var pt MetricsPoint
-		if err := rows.Scan(&pt.Time, &pt.CPU, &pt.MemPercent); err != nil {
+		if err := rows.Scan(&pt.Time, &pt.CPU, &pt.MemPercent, &pt.DiskPercent); err != nil {
 			continue
 		}
 		points = append(points, pt)
@@ -139,9 +140,10 @@ func collectPoint() {
 	}
 
 	pt := MetricsPoint{
-		Time:       time.Now().UnixMilli(),
-		CPU:        m.CPU,
-		MemPercent: m.MemPercent,
+		Time:        time.Now().UnixMilli(),
+		CPU:         m.CPU,
+		MemPercent:  m.MemPercent,
+		DiskPercent: m.DiskPercent, // 0 on the GetCoreMetrics fallback path
 	}
 
 	historyMu.Lock()
@@ -151,7 +153,7 @@ func collectPoint() {
 	}
 	historyMu.Unlock()
 
-	// Persist to DB (single write per 30s — negligible for SQLite)
+	// Persist to DB (single write per 60s — negligible for SQLite)
 	saveToDB(pt)
 }
 
@@ -160,8 +162,8 @@ func saveToDB(pt MetricsPoint) {
 		return
 	}
 	if _, err := historyDB.Exec(
-		"INSERT OR REPLACE INTO metrics_history (time, cpu, mem_percent) VALUES (?, ?, ?)",
-		pt.Time, pt.CPU, pt.MemPercent,
+		"INSERT OR REPLACE INTO metrics_history (time, cpu, mem_percent, disk_percent) VALUES (?, ?, ?, ?)",
+		pt.Time, pt.CPU, pt.MemPercent, pt.DiskPercent,
 	); err != nil {
 		slog.Warn("failed to persist metrics point", "error", err)
 	}

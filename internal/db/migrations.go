@@ -183,6 +183,10 @@ var migrations = []migration{
 	{ID: 29, Up: `CREATE INDEX IF NOT EXISTS idx_audit_logs_protected_created_at ON audit_logs(protected, created_at)`},
 	{ID: 30, Up: `CREATE INDEX IF NOT EXISTS idx_container_metrics_history_ts ON container_metrics_history(ts)`},
 	{ID: 31, Up: `CREATE INDEX IF NOT EXISTS idx_alert_history_rule_id_created_at ON alert_history(rule_id, created_at DESC)`},
+	// metrics_history previously stored only cpu + mem_percent; add disk so the
+	// dashboard chart can plot root-disk usage over time. Existing rows default
+	// to 0 (no disk history before this migration).
+	{ID: 32, Up: `ALTER TABLE metrics_history ADD COLUMN disk_percent REAL NOT NULL DEFAULT 0`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been

@@ -83,7 +83,7 @@ export default function Dashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [netRate, setNetRate] = useState<{ sent: number; recv: number }>({ sent: 0, recv: 0 })
   const [, setPrevNet] = useState<{ sent: number; recv: number; ts: number } | null>(null)
-  const [chartData, setChartData] = useState<Array<{ ts: number; cpu: number; memory: number }>>([])
+  const [chartData, setChartData] = useState<Array<{ ts: number; cpu: number; memory: number; disk: number }>>([])
   const [chartRange, setChartRange] = useState<ChartRange>('1h')
   const [processes, setProcesses] = useState<ProcessInfo[]>([])
   const [containers, setContainers] = useState<ContainerSummary[]>([])
@@ -115,6 +115,7 @@ export default function Dashboard() {
           ts: pt.time,
           cpu: pt.cpu,
           memory: pt.mem_percent,
+          disk: pt.disk_percent ?? 0,
         }))
         setChartData(points)
       }
@@ -165,7 +166,7 @@ export default function Dashboard() {
       return { sent: data.net_bytes_sent, recv: data.net_bytes_recv, ts: data.timestamp }
     })
     setChartData((prev) => {
-      const next = [...prev, { ts: Date.now(), cpu: data.cpu, memory: data.mem_percent }]
+      const next = [...prev, { ts: Date.now(), cpu: data.cpu, memory: data.mem_percent, disk: data.disk_percent }]
       if (next.length > MAX_CHART_POINTS) {
         return next.slice(next.length - MAX_CHART_POINTS)
       }
@@ -179,7 +180,7 @@ export default function Dashboard() {
   })
 
   // Derive 'now' from the latest data point's timestamp — the metrics WS
-  // sends a fresh sample every second, so anchoring the rolling window to
+  // sends a fresh sample every ~2s, so anchoring the rolling window to
   // the newest point is visually identical to Date.now(). Avoids the
   // react-hooks/purity violation of calling Date.now() inside useMemo.
   // Empty chart fallback uses 0; the chart is empty before the first sample

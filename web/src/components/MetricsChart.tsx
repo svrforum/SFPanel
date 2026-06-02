@@ -3,11 +3,13 @@ import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 
 interface MetricsChartProps {
-  data: Array<{ ts: number; cpu: number; memory: number }>
+  data: Array<{ ts: number; cpu: number; memory: number; disk: number }>
   title: string
   headerAction?: React.ReactNode
   xDomain?: [number, number]
 }
+
+const DISK_COLOR = '#f59e0b'
 
 function isDark(): boolean {
   return document.documentElement.classList.contains('dark')
@@ -35,11 +37,22 @@ function fmtTimeFull(ts: number): string {
   return d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
+function tooltipRow(text: string, color: string, textColor: string, marginTop = 0): HTMLDivElement {
+  const div = document.createElement('div')
+  div.style.cssText = `display:flex;align-items:center;gap:6px;font-size:12px;color:${textColor}${marginTop ? `;margin-top:${marginTop}px` : ''}`
+  const dot = document.createElement('span')
+  dot.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;background:${color}`
+  div.appendChild(dot)
+  div.appendChild(document.createTextNode(text))
+  return div
+}
+
 function buildTooltipContent(
   container: HTMLDivElement,
   ts: number,
   cpu: number,
   mem: number,
+  disk: number,
 ): void {
   const c = getColors()
   // Clear previous content
@@ -51,23 +64,9 @@ function buildTooltipContent(
   tsDiv.textContent = fmtTimeFull(ts)
   container.appendChild(tsDiv)
 
-  // CPU line
-  const cpuDiv = document.createElement('div')
-  cpuDiv.style.cssText = `display:flex;align-items:center;gap:6px;font-size:12px;color:${c.tooltipText}`
-  const cpuDot = document.createElement('span')
-  cpuDot.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;background:#3182f6'
-  cpuDiv.appendChild(cpuDot)
-  cpuDiv.appendChild(document.createTextNode(`CPU: ${cpu.toFixed(1)}%`))
-  container.appendChild(cpuDiv)
-
-  // Memory line
-  const memDiv = document.createElement('div')
-  memDiv.style.cssText = `display:flex;align-items:center;gap:6px;font-size:12px;color:${c.tooltipText};margin-top:2px`
-  const memDot = document.createElement('span')
-  memDot.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;background:#00c471'
-  memDiv.appendChild(memDot)
-  memDiv.appendChild(document.createTextNode(`Memory: ${mem.toFixed(1)}%`))
-  container.appendChild(memDiv)
+  container.appendChild(tooltipRow(`CPU: ${cpu.toFixed(1)}%`, '#3182f6', c.tooltipText))
+  container.appendChild(tooltipRow(`Memory: ${mem.toFixed(1)}%`, '#00c471', c.tooltipText, 2))
+  container.appendChild(tooltipRow(`Disk: ${disk.toFixed(1)}%`, DISK_COLOR, c.tooltipText, 2))
 }
 
 export default function MetricsChart({ data, title, headerAction, xDomain }: MetricsChartProps) {
@@ -77,16 +76,18 @@ export default function MetricsChart({ data, title, headerAction, xDomain }: Met
 
   // Convert data to uPlot format: [timestamps[], cpu[], memory[]]
   const uData = useMemo((): uPlot.AlignedData => {
-    if (data.length === 0) return [new Float64Array(0), new Float64Array(0), new Float64Array(0)]
+    if (data.length === 0) return [new Float64Array(0), new Float64Array(0), new Float64Array(0), new Float64Array(0)]
     const timestamps = new Float64Array(data.length)
     const cpuArr = new Float64Array(data.length)
     const memArr = new Float64Array(data.length)
+    const diskArr = new Float64Array(data.length)
     for (let i = 0; i < data.length; i++) {
       timestamps[i] = data[i].ts / 1000 // uPlot uses seconds
       cpuArr[i] = data[i].cpu
       memArr[i] = data[i].memory
+      diskArr[i] = data[i].disk
     }
-    return [timestamps, cpuArr, memArr]
+    return [timestamps, cpuArr, memArr, diskArr]
   }, [data])
 
   // Build chart options
@@ -152,6 +153,13 @@ export default function MetricsChart({ data, title, headerAction, xDomain }: Met
           fill: 'rgba(0,196,113,0.06)',
           points: { show: false },
         },
+        {
+          label: 'Disk',
+          stroke: DISK_COLOR,
+          width: 2,
+          fill: 'rgba(245,158,11,0.05)',
+          points: { show: false },
+        },
       ],
       hooks: {
         setCursor: [
@@ -168,9 +176,10 @@ export default function MetricsChart({ data, title, headerAction, xDomain }: Met
             const ts = u.data[0][idx] as number
             const cpu = (u.data[1][idx] ?? 0) as number
             const mem = (u.data[2][idx] ?? 0) as number
+            const disk = (u.data[3][idx] ?? 0) as number
             const c = getColors()
 
-            buildTooltipContent(tooltip, ts, cpu, mem)
+            buildTooltipContent(tooltip, ts, cpu, mem, disk)
 
             tooltip.style.display = 'block'
             tooltip.style.background = c.tooltipBg
@@ -251,6 +260,10 @@ export default function MetricsChart({ data, title, headerAction, xDomain }: Met
             <div className="flex items-center gap-1.5">
               <span className="inline-block w-2 h-2 rounded-full" style={{ background: '#00c471' }} />
               <span className="text-[11px] text-muted-foreground">Memory</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-2 h-2 rounded-full" style={{ background: DISK_COLOR }} />
+              <span className="text-[11px] text-muted-foreground">Disk</span>
             </div>
           </div>
         </div>
