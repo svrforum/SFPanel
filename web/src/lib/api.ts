@@ -278,7 +278,13 @@ class ApiClient {
     const json = await res.json()
 
     if (!json.success) {
-      throw new Error(json.error?.message || 'Unknown error')
+      // Attach HTTP status + error code so callers can react to specific
+      // conditions (e.g. a 409 firewall-lockout guard) without parsing the
+      // message. Reading `.message` still works as before.
+      const err = new Error(json.error?.message || 'Unknown error') as Error & { status?: number; code?: string }
+      err.status = res.status
+      err.code = json.error?.code
+      throw err
     }
 
     return json.data as T
@@ -1466,8 +1472,8 @@ class ApiClient {
     return this.request<{ active: boolean; default_incoming: string; default_outgoing: string }>('/firewall/status')
   }
 
-  enableFirewall() {
-    return this.request<{ message: string }>('/firewall/enable', { method: 'POST' })
+  enableFirewall(force = false) {
+    return this.request<{ message: string }>(`/firewall/enable${force ? '?force=true' : ''}`, { method: 'POST' })
   }
 
   disableFirewall() {
@@ -1478,15 +1484,15 @@ class ApiClient {
     return this.request<{ rules: Array<{ number: number; to: string; action: string; from: string; comment: string; v6: boolean }>; total: number }>('/firewall/rules')
   }
 
-  addFirewallRule(data: { action: string; port: string; protocol: string; from: string; to: string; comment: string }) {
-    return this.request<{ message: string; output: string }>('/firewall/rules', {
+  addFirewallRule(data: { action: string; port: string; protocol: string; from: string; to: string; comment: string }, force = false) {
+    return this.request<{ message: string; output: string }>(`/firewall/rules${force ? '?force=true' : ''}`, {
       method: 'POST',
       body: JSON.stringify(data),
     })
   }
 
-  deleteFirewallRule(number: number) {
-    return this.request<{ message: string }>(`/firewall/rules/${number}`, { method: 'DELETE' })
+  deleteFirewallRule(number: number, force = false) {
+    return this.request<{ message: string }>(`/firewall/rules/${number}${force ? '?force=true' : ''}`, { method: 'DELETE' })
   }
 
   getListeningPorts() {

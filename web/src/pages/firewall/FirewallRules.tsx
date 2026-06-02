@@ -175,6 +175,9 @@ export default function FirewallRules() {
   const [statusLoading, setStatusLoading] = useState(true)
   const [toggling, setToggling] = useState(false)
   const [toggleConfirmOpen, setToggleConfirmOpen] = useState(false)
+  // Lockout-guard override: set when the backend refuses an enable/add/delete
+  // with 409 because it would block SSH/panel access. retry() re-runs with force.
+  const [lockout, setLockout] = useState<{ message: string; busy: boolean; retry: () => Promise<void> } | null>(null)
 
   // Rules state
   const [rules, setRules] = useState<FirewallRule[]>([])
@@ -227,25 +230,39 @@ export default function FirewallRules() {
     fetchRules()
   }, [fetchStatus, fetchRules])
 
-  const handleToggleFirewall = async () => {
+  // handleLockoutError returns true if it consumed a 409 lockout-guard error by
+  // opening the force-override prompt; callers should toast only when it's false.
+  const handleLockoutError = (err: unknown, retry: () => Promise<void>): boolean => {
+    const e = err as Error & { status?: number }
+    if (e?.status === 409) {
+      setLockout({ message: e.message, busy: false, retry })
+      return true
+    }
+    return false
+  }
+
+  const runToggleFirewall = async (force: boolean) => {
     if (!status) return
     setToggling(true)
     try {
       if (status.active) {
         await api.disableFirewall()
       } else {
-        await api.enableFirewall()
+        await api.enableFirewall(force)
       }
       await fetchStatus()
       await fetchRules()
+      setLockout(null)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('common.error')
-      toast.error(message)
+      if (!handleLockoutError(err, () => runToggleFirewall(true))) {
+        toast.error(err instanceof Error ? err.message : t('common.error'))
+      }
     } finally {
       setToggling(false)
       setToggleConfirmOpen(false)
     }
   }
+  const handleToggleFirewall = () => runToggleFirewall(false)
 
   const isFormValid = (form: RuleForm): boolean => {
     if (!form.port.trim() || !validatePort(form.port)) return false
@@ -253,7 +270,7 @@ export default function FirewallRules() {
     return true
   }
 
-  const handleAddRule = async () => {
+  const runAddRule = async (force: boolean) => {
     if (!isFormValid(addForm)) return
     setAdding(true)
     try {
@@ -264,32 +281,38 @@ export default function FirewallRules() {
         from: addForm.from.trim() || 'any',
         to: '',
         comment: addForm.comment.trim(),
-      })
+      }, force)
       setAddOpen(false)
       setAddForm(initialRuleForm)
       await fetchRules()
+      setLockout(null)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('common.error')
-      toast.error(message)
+      if (!handleLockoutError(err, () => runAddRule(true))) {
+        toast.error(err instanceof Error ? err.message : t('common.error'))
+      }
     } finally {
       setAdding(false)
     }
   }
+  const handleAddRule = () => runAddRule(false)
 
-  const handleDeleteRule = async () => {
+  const runDeleteRule = async (force: boolean) => {
     if (!deleteTarget) return
     setDeleting(true)
     try {
-      await api.deleteFirewallRule(deleteTarget.number)
+      await api.deleteFirewallRule(deleteTarget.number, force)
       setDeleteTarget(null)
       await fetchRules()
+      setLockout(null)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('common.error')
-      toast.error(message)
+      if (!handleLockoutError(err, () => runDeleteRule(true))) {
+        toast.error(err instanceof Error ? err.message : t('common.error'))
+      }
     } finally {
       setDeleting(false)
     }
   }
+  const handleDeleteRule = () => runDeleteRule(false)
 
   const parseRuleTo = (to: string): { port: string; protocol: string } => {
     const match = to.match(/^(.+)\/(tcp|udp)$/i)
@@ -521,6 +544,42 @@ export default function FirewallRules() {
             >
               {toggling && <Loader2 className="h-4 w-4 animate-spin" />}
               {status?.active ? t('firewall.status.disable') : t('firewall.status.enable')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Lockout-guard force-override Dialog */}
+      <Dialog open={!!lockout} onOpenChange={(open) => !open && setLockout(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-[#f04452]">{t('firewall.lockout.title')}</DialogTitle>
+            <DialogDescription className="whitespace-pre-line">
+              {lockout?.message}
+              {'\n\n'}
+              {t('firewall.lockout.warning')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setLockout(null)} className="rounded-xl">
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={lockout?.busy}
+              onClick={async () => {
+                if (!lockout) return
+                setLockout((l) => (l ? { ...l, busy: true } : l))
+                try {
+                  await lockout.retry()
+                } finally {
+                  setLockout((l) => (l ? { ...l, busy: false } : l))
+                }
+              }}
+              className="rounded-xl"
+            >
+              {lockout?.busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('firewall.lockout.proceed')}
             </Button>
           </DialogFooter>
         </DialogContent>
