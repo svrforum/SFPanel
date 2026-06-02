@@ -214,8 +214,13 @@ func (d *ContainerDispatcher) recentRestartTimes(containerID string, windowSec i
 	var out []int64
 	for rows.Next() {
 		var t int64
-		rows.Scan(&t)
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
 		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

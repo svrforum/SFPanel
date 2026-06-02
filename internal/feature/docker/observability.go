@@ -122,6 +122,9 @@ func (h *ObservabilityHandler) GetEvents(c echo.Context) error {
 		}
 		out = append(out, row)
 	}
+	if err := rows.Err(); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "events query failed")
+	}
 	return response.OK(c, out)
 }
 
@@ -150,7 +153,9 @@ func (h *ObservabilityHandler) GetRecentEvents(c echo.Context) error {
 		var ts int64
 		var exitCode sql.NullInt64
 		var detail sql.NullString
-		rows.Scan(&id, &name, &ts, &eventType, &exitCode, &detail)
+		if err := rows.Scan(&id, &name, &ts, &eventType, &exitCode, &detail); err != nil {
+			continue
+		}
 		row := map[string]any{
 			"container_id":   id,
 			"container_name": name,
@@ -166,6 +171,9 @@ func (h *ObservabilityHandler) GetRecentEvents(c echo.Context) error {
 			row["detail"] = detail.String
 		}
 		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "events query failed")
 	}
 	return response.OK(c, out)
 }

@@ -87,6 +87,9 @@ func (h *Handler) ListAuditLogs(c echo.Context) error {
 		entry.Protected = protectedInt != 0
 		logs = append(logs, entry)
 	}
+	if err := rows.Err(); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to query audit logs")
+	}
 	if logs == nil {
 		logs = []AuditLogEntry{}
 	}

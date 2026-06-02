@@ -91,6 +91,9 @@ func (h *Handler) GetSettings(c echo.Context) error {
 		}
 		result[key] = value
 	}
+	if err := rows.Err(); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to read settings")
+	}
 
 	return response.OK(c, result)
 }

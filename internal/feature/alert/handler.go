@@ -488,7 +488,9 @@ func (h *Handler) ListHistory(c echo.Context) error {
 	offset := (page - 1) * limit
 
 	var total int
-	h.DB.QueryRow("SELECT COUNT(*) FROM alert_history").Scan(&total)
+	if err := h.DB.QueryRow("SELECT COUNT(*) FROM alert_history").Scan(&total); err != nil {
+		logger.Warn("alert history count failed, total may be inaccurate", "error", err)
+	}
 
 	rows, err := h.DB.Query("SELECT id, rule_id, rule_name, type, severity, message, node_id, sent_channels, created_at FROM alert_history ORDER BY id DESC LIMIT ? OFFSET ?", limit, offset)
 	if err != nil {
@@ -503,6 +505,9 @@ func (h *Handler) ListHistory(c echo.Context) error {
 			continue
 		}
 		list = append(list, e)
+	}
+	if err := rows.Err(); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "failed to list history")
 	}
 	if list == nil {
 		list = []AlertHistoryEntry{}
