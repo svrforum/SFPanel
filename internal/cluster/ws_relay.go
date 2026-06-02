@@ -124,6 +124,10 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 				remoteWS.WriteMessage(websocket.CloseMessage,
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 				remoteMu.Unlock()
+				// Close the peer conn so the Remote→Client goroutine's blocking
+				// ReadMessage returns at once instead of waiting out its 60s
+				// read deadline.
+				remoteWS.Close()
 				return
 			}
 			remoteMu.Lock()
@@ -148,6 +152,10 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 				clientWS.WriteMessage(websocket.CloseMessage,
 					websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 				clientMu.Unlock()
+				// Close the client conn so the Client→Remote goroutine's blocking
+				// ReadMessage returns at once instead of waiting out its 60s
+				// read deadline.
+				clientWS.Close()
 				return
 			}
 			clientMu.Lock()

@@ -1161,7 +1161,11 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 			return true
 		}
 
-		node, ok := state.Nodes[ni.ID]
+		// Re-fetch from the live FSM rather than the snapshot captured at the
+		// top of the handler: a rolling update runs for minutes, during which a
+		// node may be removed or its gRPC address changed, and the stale snapshot
+		// would target the wrong address or miss the removal.
+		node, ok := mgr.GetRaft().GetFSM().GetState().Nodes[ni.ID]
 		if !ok {
 			sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Node not found"})
 			return false

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -109,11 +110,15 @@ type ConnPool struct {
 }
 
 type poolEntry struct {
-	client  *GRPCClient
-	created time.Time
+	client *GRPCClient
+	// lastUsed is the UnixNano of the most recent Get. Expiry is idle-based so
+	// a continuously-used healthy connection isn't torn down and re-dialed
+	// (re-incurring the mTLS handshake) every connIdleTimeout. gRPC's transport
+	// already heals broken connections, so age-based rotation was pure churn.
+	lastUsed atomic.Int64
 }
 
-const connMaxAge = 5 * time.Minute
+const connIdleTimeout = 5 * time.Minute
 
 // NewConnPool creates a connection pool.
 func NewConnPool(tlsMgr *TLSManager) *ConnPool {
@@ -130,7 +135,8 @@ func NewConnPool(tlsMgr *TLSManager) *ConnPool {
 // Get returns a cached or new connection to the given address.
 func (p *ConnPool) Get(address string) (*GRPCClient, error) {
 	p.mu.RLock()
-	if entry, ok := p.conns[address]; ok && time.Since(entry.created) < connMaxAge {
+	if entry, ok := p.conns[address]; ok && time.Since(time.Unix(0, entry.lastUsed.Load())) < connIdleTimeout {
+		entry.lastUsed.Store(time.Now().UnixNano())
 		p.mu.RUnlock()
 		return entry.client, nil
 	}
@@ -147,7 +153,9 @@ func (p *ConnPool) Get(address string) (*GRPCClient, error) {
 	if old, ok := p.conns[address]; ok {
 		old.client.Close()
 	}
-	p.conns[address] = &poolEntry{client: client, created: time.Now()}
+	entry := &poolEntry{client: client}
+	entry.lastUsed.Store(time.Now().UnixNano())
+	p.conns[address] = entry
 	p.mu.Unlock()
 
 	return client, nil
@@ -189,10 +197,10 @@ func (p *ConnPool) cleanup() {
 		}
 		p.mu.Lock()
 		for addr, entry := range p.conns {
-			if time.Since(entry.created) > connMaxAge {
+			if time.Since(time.Unix(0, entry.lastUsed.Load())) > connIdleTimeout {
 				entry.client.Close()
 				delete(p.conns, addr)
-				slog.Debug("pool: closed stale conn", "component", "cluster", "addr", addr)
+				slog.Debug("pool: closed idle conn", "component", "cluster", "addr", addr)
 			}
 		}
 		p.mu.Unlock()
