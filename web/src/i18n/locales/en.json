@@ -919,6 +919,7 @@
         "colMessage": "Message",
         "colNode": "Node",
         "colStatus": "Status",
+        "sent": "Sent ({{count}})",
         "pageIndicator": "Page {{page}} / {{total}}",
         "confirmClear": "Clear all alert history?",
         "successCleared": "History cleared"

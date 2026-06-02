@@ -36,12 +36,24 @@ interface AlertRule {
 
 interface AlertHistoryEntry {
   id: number
+  rule_name: string
   type: string
   severity: string
   message: string
-  node: string
-  status: string
+  node_id: string
+  sent_channels: string // JSON array of channel names that received the alert
   created_at: string
+}
+
+// Parse the sent_channels JSON array; history rows are only stored when at
+// least one channel succeeded, so a non-empty list means "delivered".
+function parseSentChannels(raw: string): string[] {
+  try {
+    const v = JSON.parse(raw || '[]')
+    return Array.isArray(v) ? v.map(String) : []
+  } catch {
+    return []
+  }
 }
 
 // Rule type value <-> i18n key mapping. Labels are resolved via t() at render time.
@@ -704,15 +716,18 @@ export default function AlertSettings() {
                         </span>
                       </TableCell>
                       <TableCell className="text-[12px] max-w-[300px] truncate">{entry.message}</TableCell>
-                      <TableCell className="text-[12px] text-muted-foreground">{entry.node || '-'}</TableCell>
+                      <TableCell className="text-[12px] text-muted-foreground">{entry.node_id || '-'}</TableCell>
                       <TableCell>
-                        <span className={`text-[12px] ${
-                          entry.status === 'resolved' ? 'text-[#00c471]' :
-                          entry.status === 'fired' ? 'text-[#f04452]' :
-                          'text-muted-foreground'
-                        }`}>
-                          {entry.status}
-                        </span>
+                        {(() => {
+                          const chans = parseSentChannels(entry.sent_channels)
+                          return chans.length > 0 ? (
+                            <span className="text-[12px] text-[#00c471]" title={chans.join(', ')}>
+                              {t('settings.alerts.history.sent', { count: chans.length })}
+                            </span>
+                          ) : (
+                            <span className="text-[12px] text-muted-foreground">-</span>
+                          )
+                        })()}
                       </TableCell>
                     </TableRow>
                     )

@@ -919,6 +919,7 @@
         "colMessage": "메시지",
         "colNode": "노드",
         "colStatus": "상태",
+        "sent": "전송됨 ({{count}})",
         "pageIndicator": "{{page}} / {{total}} 페이지",
         "confirmClear": "알림 히스토리를 모두 삭제하시겠습니까?",
         "successCleared": "히스토리가 삭제되었습니다"
