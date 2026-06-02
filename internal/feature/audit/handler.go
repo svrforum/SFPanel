@@ -122,6 +122,16 @@ func (h *Handler) ClearAuditLogs(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, err.Error())
 	}
 
+	// Count, tombstone, and delete in one transaction so the recorded count
+	// can't diverge from what was actually deleted (rows inserted between a
+	// separate count and delete, or a delete that fails after the tombstone
+	// commits, would otherwise leave a tombstone claiming a wrong count).
+	tx, err := h.DB.Begin()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
+	}
+	defer tx.Rollback()
+
 	// Count target rows *before* deletion so the tombstone records what the
 	// operator actually erased, not zero.
 	countSQL := "SELECT COUNT(*) FROM audit_logs WHERE protected = 0"
@@ -129,7 +139,7 @@ func (h *Handler) ClearAuditLogs(c echo.Context) error {
 		countSQL += " AND " + whereClause
 	}
 	var target int64
-	if err := h.DB.QueryRow(countSQL, args...).Scan(&target); err != nil {
+	if err := tx.QueryRow(countSQL, args...).Scan(&target); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to count target audit rows")
 	}
 
@@ -153,7 +163,7 @@ func (h *Handler) ClearAuditLogs(c echo.Context) error {
 	}
 	tombstonePath := fmt.Sprintf("/api/v1/audit/logs#%s:%s:deleted=%d", actionAuditLogCleared, scopeMarker, target)
 
-	res, err := h.DB.Exec(
+	res, err := tx.Exec(
 		"INSERT INTO audit_logs (username, method, path, status, ip, node_id, protected) VALUES (?, ?, ?, ?, ?, ?, 1)",
 		username, http.MethodDelete, tombstonePath, http.StatusOK, ip, nodeID,
 	)
@@ -166,11 +176,15 @@ func (h *Handler) ClearAuditLogs(c echo.Context) error {
 	if whereClause != "" {
 		deleteSQL += " AND " + whereClause
 	}
-	delRes, err := h.DB.Exec(deleteSQL, args...)
+	delRes, err := tx.Exec(deleteSQL, args...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to clear audit logs")
 	}
 	deleted, _ := delRes.RowsAffected()
+
+	if err := tx.Commit(); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Failed to clear audit logs")
+	}
 
 	return response.OK(c, ClearAuditLogsResponse{
 		Message:     "Audit logs cleared",

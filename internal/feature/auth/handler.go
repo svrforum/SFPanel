@@ -164,6 +164,11 @@ func (h *Handler) Login(c echo.Context) error {
 			req.Username,
 		).Scan(new(int), &passwordHash, &totpSecret)
 		if err == sql.ErrNoRows {
+			// Record the failure so credential-spray / username-enumeration
+			// against nonexistent accounts leaves an audit trail too (the
+			// invalid-password branch already records one). Only the username
+			// is stored, never the password.
+			h.recordLoginEvent(req.Username, ip, http.StatusUnauthorized, "unknown_user")
 			return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials, "Invalid username or password")
 		}
 		if err != nil {
