@@ -19,9 +19,12 @@ import (
 
 type ProcessInfo struct {
 	PID     int32   `json:"pid"`
+	PPID    int32   `json:"ppid"`
 	Name    string  `json:"name"`
 	CPU     float64 `json:"cpu"`
 	Memory  float64 `json:"memory"`
+	RSS     uint64  `json:"rss"` // resident set size in bytes (absolute, not %)
+	Nice    int32   `json:"nice"`
 	Status  string  `json:"status"`
 	User    string  `json:"user"`
 	Command string  `json:"command"`
@@ -149,9 +152,13 @@ func (h *Handler) KillProcess(c echo.Context) error {
 		sig = syscall.SIGHUP
 	case "INT", "2":
 		sig = syscall.SIGINT
+	case "STOP", "19":
+		sig = syscall.SIGSTOP
+	case "CONT", "18":
+		sig = syscall.SIGCONT
 	default:
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidSignal,
-			"Supported signals: TERM, KILL, HUP, INT")
+			"Supported signals: TERM, KILL, HUP, INT, STOP, CONT")
 	}
 
 	p, err := process.NewProcess(int32(pid))
@@ -189,6 +196,68 @@ func (h *Handler) KillProcess(c echo.Context) error {
 	})
 }
 
+// ReniceProcess changes a process's scheduling priority (nice value).
+// POST /system/processes/:pid/renice  body: { nice: -20..19 }
+// Lowering nice (toward -20) raises priority and needs privilege; the panel
+// runs as root so it's allowed, but the same protected-PID guards as kill
+// apply — you can't renice init/kthreadd/the panel or a panel-spawned child.
+func (h *Handler) ReniceProcess(c echo.Context) error {
+	pidStr := c.Param("pid")
+	pid, err := strconv.ParseInt(pidStr, 10, 32)
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPID, "Invalid PID")
+	}
+	if sysguard.IsProtectedPID(int(pid)) {
+		return response.Fail(c, http.StatusForbidden, response.ErrInvalidPID,
+			"Cannot renice protected PID (init, kthreadd, or sfpanel itself)")
+	}
+	if isChild, err := sysguard.IsPanelChildPID(int(pid)); err == nil && isChild {
+		return response.Fail(c, http.StatusForbidden, response.ErrInvalidPID,
+			"Refusing to renice panel-spawned subprocess")
+	}
+
+	var req struct {
+		Nice *int `json:"nice"`
+	}
+	if err := c.Bind(&req); err != nil || req.Nice == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "nice value required")
+	}
+	if *req.Nice < -20 || *req.Nice > 19 {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
+			"nice must be between -20 and 19")
+	}
+
+	// Confirm the process exists first so a stale PID yields a clean 404 rather
+	// than Setpriority's bare ESRCH.
+	if _, err := process.NewProcess(int32(pid)); err != nil {
+		return response.Fail(c, http.StatusNotFound, response.ErrProcessNotFound,
+			fmt.Sprintf("Process %d not found", pid))
+	}
+
+	if err := syscall.Setpriority(syscall.PRIO_PROCESS, int(pid), *req.Nice); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError,
+			fmt.Sprintf("Failed to renice process %d: %s", pid, err.Error()))
+	}
+
+	h.cache.Lock()
+	h.cache.updatedAt = time.Time{}
+	h.cache.Unlock()
+
+	username, _ := c.Get("username").(string)
+	slog.Info("process reniced via panel API",
+		"component", "process",
+		"pid", pid,
+		"nice", *req.Nice,
+		"username", username,
+	)
+
+	return response.OK(c, map[string]interface{}{
+		"message": fmt.Sprintf("Process %d reniced to %d", pid, *req.Nice),
+		"pid":     pid,
+		"nice":    *req.Nice,
+	})
+}
+
 // collectProcesses gathers information about all running processes.
 // It calls CPUPercent() twice with a 200ms interval to get accurate CPU usage,
 // since the first call to gopsutil's CPUPercent() returns a value over the
@@ -216,6 +285,16 @@ func collectProcesses() ([]ProcessInfo, error) {
 		status, _ := p.Status()
 		username, _ := p.Username()
 		cmdline, _ := p.Cmdline()
+		ppid, _ := p.Ppid()
+		nice, _ := p.Nice()
+
+		// Absolute resident memory complements the percentage: on a 64 GB host
+		// "1.2%" hides a 780 MB process. MemoryInfo can fail for a process that
+		// exited mid-scan; leave RSS 0 in that case rather than dropping the row.
+		var rss uint64
+		if mi, err := p.MemoryInfo(); err == nil && mi != nil {
+			rss = mi.RSS
+		}
 
 		statusStr := ""
 		if len(status) > 0 {
@@ -228,9 +307,12 @@ func collectProcesses() ([]ProcessInfo, error) {
 
 		infos = append(infos, ProcessInfo{
 			PID:     p.Pid,
+			PPID:    ppid,
 			Name:    name,
 			CPU:     cpuPct,
 			Memory:  float64(memPct),
+			RSS:     rss,
+			Nice:    nice,
 			Status:  statusStr,
 			User:    username,
 			Command: cmdline,

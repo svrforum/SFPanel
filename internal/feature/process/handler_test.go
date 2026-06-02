@@ -102,14 +102,14 @@ func TestKillProcess_RefusesOwnPgidSibling(t *testing.T) {
 }
 
 func TestSignalMap_KnownSignals(t *testing.T) {
-	// The signal switch in KillProcess covers TERM/KILL/HUP/INT plus
-	// numeric aliases 9/15/1/2. Anything else should be rejected.
-	accepts := []string{"TERM", "term", "KILL", "kill", "HUP", "INT", "9", "15", "1", "2"}
-	rejects := []string{"USR1", "STOP", "QUIT", "", "asdf", "16"}
+	// The signal switch in KillProcess covers TERM/KILL/HUP/INT/STOP/CONT plus
+	// numeric aliases 15/9/1/2/19/18. Anything else should be rejected.
+	accepts := []string{"TERM", "term", "KILL", "kill", "HUP", "INT", "STOP", "stop", "CONT", "9", "15", "1", "2", "19", "18"}
+	rejects := []string{"USR1", "QUIT", "", "asdf", "16", "20"}
 
 	accepted := func(s string) bool {
 		switch strings.ToUpper(s) {
-		case "KILL", "9", "TERM", "15", "HUP", "1", "INT", "2":
+		case "KILL", "9", "TERM", "15", "HUP", "1", "INT", "2", "STOP", "19", "CONT", "18":
 			return true
 		}
 		return false
@@ -123,5 +123,42 @@ func TestSignalMap_KnownSignals(t *testing.T) {
 		if accepted(s) {
 			t.Errorf("signal %q should be rejected", s)
 		}
+	}
+}
+
+// TestReniceProcess_Validation locks the renice guards: protected PIDs are
+// refused (403) and out-of-range nice values are rejected (400) before any
+// Setpriority call touches the process.
+func TestReniceProcess_Validation(t *testing.T) {
+	h := &Handler{}
+	e := echo.New()
+
+	call := func(pid, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/system/processes/"+pid+"/renice", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.SetParamNames("pid")
+		c.SetParamValues(pid)
+		if err := h.ReniceProcess(c); err != nil {
+			t.Fatalf("ReniceProcess err: %v", err)
+		}
+		return rec
+	}
+
+	// PID 1 (init) is protected → 403, regardless of a valid body.
+	if rec := call("1", `{"nice":5}`); rec.Code != http.StatusForbidden {
+		t.Errorf("renice init: status = %d, want 403 — body=%s", rec.Code, rec.Body.String())
+	}
+	// Out-of-range nice on a non-protected PID → 400 before Setpriority runs.
+	if rec := call("12345", `{"nice":50}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("renice nice=50: status = %d, want 400 — body=%s", rec.Code, rec.Body.String())
+	}
+	if rec := call("12345", `{"nice":-30}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("renice nice=-30: status = %d, want 400 — body=%s", rec.Code, rec.Body.String())
+	}
+	// Missing nice field → 400.
+	if rec := call("12345", `{}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("renice no nice: status = %d, want 400 — body=%s", rec.Code, rec.Body.String())
 	}
 }

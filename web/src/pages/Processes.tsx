@@ -10,6 +10,12 @@ import {
   Cpu,
   MemoryStick,
   HardDrive,
+  Pause,
+  Play,
+  Gauge,
+  List,
+  ListTree,
+  CornerDownRight,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -38,7 +44,11 @@ import {
 } from '@/components/ui/dialog'
 
 type SortField = 'cpu' | 'memory' | 'pid' | 'name'
+type ViewMode = 'list' | 'tree'
 const ROW_HEIGHT = 44
+
+// A process plus its computed tree depth (for flattened-DFS tree rendering).
+type TreeRow = { proc: ProcessInfo; depth: number }
 
 export default function Processes() {
   const { t } = useTranslation()
@@ -49,6 +59,10 @@ export default function Processes() {
   const [sortField, setSortField] = useState<SortField>('cpu')
   const [killTarget, setKillTarget] = useState<ProcessInfo | null>(null)
   const [killing, setKilling] = useState(false)
+  const [reniceTarget, setReniceTarget] = useState<ProcessInfo | null>(null)
+  const [reniceValue, setReniceValue] = useState(0)
+  const [renicing, setRenicing] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [sysMetrics, setSysMetrics] = useState<Metrics | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const rowHeight = isMobile ? 68 : ROW_HEIGHT
@@ -119,6 +133,35 @@ export default function Processes() {
     return arr
   }, [filtered, sortField])
 
+  // Tree view: build a flattened depth-first parent→child ordering from the
+  // (already search-filtered) set. Roots are processes whose ppid is not present
+  // in the filtered set, or whose ppid is <= 1 (init/kernel). Children inherit
+  // the active sort order among siblings.
+  const treeRows = useMemo<TreeRow[]>(() => {
+    if (viewMode !== 'tree') return []
+    const present = new Set(filtered.map((p) => p.pid))
+    const childrenByPpid = new Map<number, ProcessInfo[]>()
+    for (const p of sorted) {
+      const arr = childrenByPpid.get(p.ppid)
+      if (arr) arr.push(p)
+      else childrenByPpid.set(p.ppid, [p])
+    }
+    const roots = sorted.filter((p) => p.ppid <= 1 || !present.has(p.ppid))
+    const rows: TreeRow[] = []
+    const seen = new Set<number>()
+    const visit = (proc: ProcessInfo, depth: number) => {
+      if (seen.has(proc.pid)) return // guard against cycles
+      seen.add(proc.pid)
+      rows.push({ proc, depth })
+      const kids = childrenByPpid.get(proc.pid)
+      if (kids) for (const k of kids) visit(k, depth + 1)
+    }
+    for (const r of roots) visit(r, 0)
+    // Any process not reached (e.g. orphaned by a cycle) is appended as a root.
+    for (const p of sorted) if (!seen.has(p.pid)) visit(p, 0)
+    return rows
+  }, [viewMode, filtered, sorted])
+
   // Virtual scrolling for large process lists
   const rowVirtualizer = useVirtualizer({
     count: sorted.length,
@@ -143,6 +186,30 @@ export default function Processes() {
     }
   }
 
+  const openRenice = (proc: ProcessInfo) => {
+    setReniceValue(proc.nice)
+    setReniceTarget(proc)
+  }
+
+  const clampNice = (n: number) => Math.max(-20, Math.min(19, Math.round(n)))
+
+  const handleRenice = async () => {
+    if (!reniceTarget) return
+    setRenicing(true)
+    try {
+      const nice = clampNice(reniceValue)
+      await api.reniceProcess(reniceTarget.pid, nice)
+      toast.success(t('processes.reniceSuccess', { pid: reniceTarget.pid, nice }))
+      setReniceTarget(null)
+      await fetchProcesses()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('processes.reniceFailed')
+      toast.error(message)
+    } finally {
+      setRenicing(false)
+    }
+  }
+
   const getStatusStyle = (status: string) => {
     const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
     switch (status) {
@@ -162,6 +229,120 @@ export default function Processes() {
       default: return s
     }
   }
+
+  const niceBadge = (nice: number) => {
+    const base = 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-mono'
+    const tone =
+      nice < 0 ? 'bg-[#f59e0b]/10 text-[#f59e0b]'
+        : nice > 0 ? 'bg-secondary text-muted-foreground'
+          : 'bg-primary/10 text-primary'
+    return (
+      <span className={`${base} ${tone}`} title={t('processes.nice')}>
+        <Gauge className="h-3 w-3" />
+        {nice}
+      </span>
+    )
+  }
+
+  const rowActions = (proc: ProcessInfo, visibility: string) => (
+    <div className={`inline-flex items-center justify-end gap-0.5 ${visibility}`}>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        title={t('processes.renice')}
+        onClick={() => openRenice(proc)}
+      >
+        <Gauge className="h-4 w-4" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="text-[#f04452] hover:text-[#f04452]/80"
+        title={t('processes.kill')}
+        onClick={() => setKillTarget(proc)}
+      >
+        <Skull className="h-4 w-4" />
+      </Button>
+    </div>
+  )
+
+  // Shared desktop table row; `depth` indents the name cell in tree mode.
+  const renderDesktopRow = (proc: ProcessInfo, depth = 0) => (
+    <TableRow key={proc.pid} className="group">
+      <TableCell className="font-mono text-xs w-20">{proc.pid}</TableCell>
+      <TableCell>
+        <div className="flex items-start gap-1" style={{ paddingLeft: depth * 16 }}>
+          {depth > 0 && (
+            <CornerDownRight className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground/50" />
+          )}
+          <div className="min-w-0">
+            <span className="font-medium">{proc.name}</span>
+            {proc.command !== proc.name && (
+              <p className="text-xs text-muted-foreground truncate max-w-[400px]" title={proc.command}>
+                {proc.command}
+              </p>
+            )}
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="text-xs">{proc.user}</TableCell>
+      <TableCell className="text-right font-mono text-xs w-20">
+        <span className={proc.cpu > 50 ? 'text-[#f04452] font-bold' : proc.cpu > 20 ? 'text-[#f59e0b]' : ''}>
+          {proc.cpu.toFixed(1)}
+        </span>
+      </TableCell>
+      <TableCell className="text-right font-mono text-xs w-20">
+        <span className={proc.memory > 50 ? 'text-[#f04452] font-bold' : proc.memory > 20 ? 'text-[#f59e0b]' : ''}>
+          {proc.memory.toFixed(1)}
+        </span>
+      </TableCell>
+      <TableCell className="text-right font-mono text-xs w-24 text-muted-foreground">
+        {formatBytes(proc.rss)}
+      </TableCell>
+      <TableCell className="w-16">{niceBadge(proc.nice)}</TableCell>
+      <TableCell className="w-24">
+        <span className={getStatusStyle(proc.status)}>
+          {statusLabel(proc.status)}
+        </span>
+      </TableCell>
+      <TableCell className="text-right w-24">
+        {rowActions(proc, 'opacity-0 group-hover:opacity-100 transition-opacity')}
+      </TableCell>
+    </TableRow>
+  )
+
+  // Shared mobile card; `depth` indents in tree mode.
+  const renderMobileCard = (proc: ProcessInfo, depth = 0) => (
+    <div
+      className="bg-card rounded-xl p-3 card-shadow flex items-center justify-between"
+      style={{ marginLeft: depth * 14 }}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          {depth > 0 && <CornerDownRight className="h-3 w-3 shrink-0 text-muted-foreground/50" />}
+          <p className="text-[13px] font-medium truncate">{proc.name}</p>
+        </div>
+        <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground flex-wrap">
+          <span className="font-mono">PID {proc.pid}</span>
+          <span className="flex items-center gap-1">
+            <Cpu className="h-3 w-3" />
+            <span className={proc.cpu > 50 ? 'text-[#f04452] font-bold' : proc.cpu > 20 ? 'text-[#f59e0b]' : ''}>
+              {proc.cpu.toFixed(1)}%
+            </span>
+          </span>
+          <span className="flex items-center gap-1">
+            <MemoryStick className="h-3 w-3" />
+            <span className={proc.memory > 50 ? 'text-[#f04452] font-bold' : proc.memory > 20 ? 'text-[#f59e0b]' : ''}>
+              {proc.memory.toFixed(1)}%
+            </span>
+            <span className="text-muted-foreground">({formatBytes(proc.rss)})</span>
+          </span>
+          {niceBadge(proc.nice)}
+        </div>
+      </div>
+      {rowActions(proc, 'ml-2')}
+    </div>
+  )
 
   return (
     <div className="space-y-4">
@@ -273,6 +454,26 @@ export default function Processes() {
             className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
           />
         </div>
+        <div className="inline-flex items-center rounded-xl bg-secondary/50 p-0.5">
+          <Button
+            variant={viewMode === 'list' ? 'default' : 'ghost'}
+            size="sm"
+            className="h-8 rounded-lg text-xs"
+            onClick={() => setViewMode('list')}
+          >
+            <List className="h-3.5 w-3.5 mr-1" />
+            {t('processes.viewList')}
+          </Button>
+          <Button
+            variant={viewMode === 'tree' ? 'default' : 'ghost'}
+            size="sm"
+            className="h-8 rounded-lg text-xs"
+            onClick={() => setViewMode('tree')}
+          >
+            <ListTree className="h-3.5 w-3.5 mr-1" />
+            {t('processes.viewTree')}
+          </Button>
+        </div>
         <Button variant="outline" size="sm" className="rounded-xl w-full sm:w-auto" onClick={fetchProcesses} disabled={loading}>
           <RefreshCw className={loading ? 'animate-spin' : ''} />
           {t('common.refresh')}
@@ -312,55 +513,35 @@ export default function Processes() {
         <>
           {/* Mobile card view */}
           <div className="md:hidden">
-            <div
-              ref={isMobile ? scrollRef : undefined}
-              className="overflow-auto space-y-2"
-              style={{ maxHeight: 'calc(100vh - 420px)' }}
-            >
-              <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
-                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const proc = sorted[virtualRow.index]
-                  if (!proc) return null
-                  return (
-                    <div
-                      key={proc.pid}
-                      className="absolute left-0 right-0 px-0.5"
-                      style={{ top: virtualRow.start, height: virtualRow.size }}
-                    >
-                      <div className="bg-card rounded-xl p-3 card-shadow flex items-center justify-between">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[13px] font-medium truncate">{proc.name}</p>
-                          <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground">
-                            <span className="font-mono">PID {proc.pid}</span>
-                            <span className="flex items-center gap-1">
-                              <Cpu className="h-3 w-3" />
-                              <span className={proc.cpu > 50 ? 'text-[#f04452] font-bold' : proc.cpu > 20 ? 'text-[#f59e0b]' : ''}>
-                                {proc.cpu.toFixed(1)}%
-                              </span>
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <MemoryStick className="h-3 w-3" />
-                              <span className={proc.memory > 50 ? 'text-[#f04452] font-bold' : proc.memory > 20 ? 'text-[#f59e0b]' : ''}>
-                                {proc.memory.toFixed(1)}%
-                              </span>
-                            </span>
-                          </div>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="text-[#f04452] hover:text-[#f04452]/80 ml-2"
-                          title={t('processes.kill')}
-                          onClick={() => setKillTarget(proc)}
-                        >
-                          <Skull className="h-4 w-4" />
-                        </Button>
+            {viewMode === 'list' ? (
+              <div
+                ref={isMobile ? scrollRef : undefined}
+                className="overflow-auto space-y-2"
+                style={{ maxHeight: 'calc(100vh - 420px)' }}
+              >
+                <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const proc = sorted[virtualRow.index]
+                    if (!proc) return null
+                    return (
+                      <div
+                        key={proc.pid}
+                        className="absolute left-0 right-0 px-0.5"
+                        style={{ top: virtualRow.start, height: virtualRow.size }}
+                      >
+                        {renderMobileCard(proc)}
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="overflow-auto space-y-2" style={{ maxHeight: 'calc(100vh - 420px)' }}>
+                {treeRows.map(({ proc, depth }) => (
+                  <div key={proc.pid}>{renderMobileCard(proc, depth)}</div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Desktop table view */}
@@ -373,66 +554,33 @@ export default function Processes() {
                   <TableHead>{t('processes.user')}</TableHead>
                   <TableHead className="w-20 text-right">CPU %</TableHead>
                   <TableHead className="w-20 text-right">MEM %</TableHead>
+                  <TableHead className="w-24 text-right">{t('processes.rss')}</TableHead>
+                  <TableHead className="w-16">{t('processes.nice')}</TableHead>
                   <TableHead className="w-24">{t('processes.status')}</TableHead>
-                  <TableHead className="text-right w-20">{t('common.actions')}</TableHead>
+                  <TableHead className="text-right w-24">{t('common.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
             </Table>
             <div
-              ref={isMobile ? undefined : scrollRef}
+              ref={isMobile || viewMode === 'tree' ? undefined : scrollRef}
               className="overflow-auto"
               style={{ maxHeight: 'calc(100vh - 420px)' }}
             >
               <Table>
                 <TableBody>
-                  <tr style={{ height: rowVirtualizer.getVirtualItems()[0]?.start ?? 0 }} />
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const proc = sorted[virtualRow.index]
-                    if (!proc) return null
-                    return (
-                      <TableRow key={proc.pid} className="group">
-                        <TableCell className="font-mono text-xs w-20">{proc.pid}</TableCell>
-                        <TableCell>
-                          <div>
-                            <span className="font-medium">{proc.name}</span>
-                            {proc.command !== proc.name && (
-                              <p className="text-xs text-muted-foreground truncate max-w-[400px]" title={proc.command}>
-                                {proc.command}
-                              </p>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-xs">{proc.user}</TableCell>
-                        <TableCell className="text-right font-mono text-xs w-20">
-                          <span className={proc.cpu > 50 ? 'text-[#f04452] font-bold' : proc.cpu > 20 ? 'text-[#f59e0b]' : ''}>
-                            {proc.cpu.toFixed(1)}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs w-20">
-                          <span className={proc.memory > 50 ? 'text-[#f04452] font-bold' : proc.memory > 20 ? 'text-[#f59e0b]' : ''}>
-                            {proc.memory.toFixed(1)}
-                          </span>
-                        </TableCell>
-                        <TableCell className="w-24">
-                          <span className={getStatusStyle(proc.status)}>
-                            {statusLabel(proc.status)}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right w-20">
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className="opacity-0 group-hover:opacity-100 transition-opacity text-[#f04452] hover:text-[#f04452]/80"
-                            title={t('processes.kill')}
-                            onClick={() => setKillTarget(proc)}
-                          >
-                            <Skull className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                  <tr style={{ height: rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems().at(-1)?.end ?? 0) }} />
+                  {viewMode === 'list' ? (
+                    <>
+                      <tr style={{ height: rowVirtualizer.getVirtualItems()[0]?.start ?? 0 }} />
+                      {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                        const proc = sorted[virtualRow.index]
+                        if (!proc) return null
+                        return renderDesktopRow(proc)
+                      })}
+                      <tr style={{ height: rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems().at(-1)?.end ?? 0) }} />
+                    </>
+                  ) : (
+                    treeRows.map(({ proc, depth }) => renderDesktopRow(proc, depth))
+                  )}
                 </TableBody>
               </Table>
             </div>
@@ -449,30 +597,118 @@ export default function Processes() {
               {t('processes.killConfirm', { name: killTarget?.name, pid: killTarget?.pid })}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 text-sm">
+          <div className="space-y-3 text-sm">
             <p className="text-muted-foreground">{t('processes.killDescription')}</p>
+
+            {/* Job control: pause / resume (non-destructive) */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                {t('processes.signalJobControl')}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="rounded-xl flex-1"
+                  onClick={() => handleKill('STOP')}
+                  disabled={killing}
+                >
+                  {killing ? <Loader2 className="animate-spin h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                  {t('processes.signal_stop')}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="rounded-xl flex-1"
+                  onClick={() => handleKill('CONT')}
+                  disabled={killing}
+                >
+                  {killing ? <Loader2 className="animate-spin h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  {t('processes.signal_cont')}
+                </Button>
+              </div>
+            </div>
+
+            {/* Destructive: terminate */}
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-medium text-[#f04452] uppercase tracking-wide">
+                {t('processes.signalDestructive')}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="rounded-xl flex-1"
+                  onClick={() => handleKill('TERM')}
+                  disabled={killing}
+                >
+                  {killing ? <Loader2 className="animate-spin h-4 w-4" /> : null}
+                  {t('processes.signal_term')}
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="rounded-xl flex-1"
+                  onClick={() => handleKill('KILL')}
+                  disabled={killing}
+                >
+                  {killing ? <Loader2 className="animate-spin h-4 w-4" /> : null}
+                  {t('processes.signal_kill')}
+                </Button>
+              </div>
+            </div>
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" className="rounded-xl" onClick={() => setKillTarget(null)}>
+          <DialogFooter>
+            <Button variant="ghost" className="rounded-xl" onClick={() => setKillTarget(null)}>
               {t('common.cancel')}
             </Button>
-            <Button
-              variant="outline"
-              className="rounded-xl"
-              onClick={() => handleKill('TERM')}
-              disabled={killing}
-            >
-              {killing ? <Loader2 className="animate-spin h-4 w-4" /> : null}
-              SIGTERM
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Renice dialog */}
+      <Dialog open={!!reniceTarget} onOpenChange={(open) => !open && setReniceTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('processes.reniceTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('processes.reniceConfirm', { name: reniceTarget?.name, pid: reniceTarget?.pid })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="text-muted-foreground">{t('processes.reniceDescription')}</p>
+            <div className="flex items-center justify-center gap-3">
+              <Button
+                variant="outline"
+                size="icon"
+                className="rounded-xl"
+                onClick={() => setReniceValue((v) => clampNice(v - 1))}
+                disabled={renicing || reniceValue <= -20}
+              >
+                -
+              </Button>
+              <Input
+                type="number"
+                min={-20}
+                max={19}
+                value={reniceValue}
+                onChange={(e) => setReniceValue(clampNice(Number(e.target.value)))}
+                className="w-20 h-10 text-center rounded-xl font-mono text-[15px]"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                className="rounded-xl"
+                onClick={() => setReniceValue((v) => clampNice(v + 1))}
+                disabled={renicing || reniceValue >= 19}
+              >
+                +
+              </Button>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" className="rounded-xl" onClick={() => setReniceTarget(null)}>
+              {t('common.cancel')}
             </Button>
-            <Button
-              variant="destructive"
-              className="rounded-xl"
-              onClick={() => handleKill('KILL')}
-              disabled={killing}
-            >
-              {killing ? <Loader2 className="animate-spin h-4 w-4" /> : null}
-              SIGKILL
+            <Button className="rounded-xl" onClick={handleRenice} disabled={renicing}>
+              {renicing ? <Loader2 className="animate-spin h-4 w-4" /> : <Gauge className="h-4 w-4" />}
+              {t('processes.renice')}
             </Button>
           </DialogFooter>
         </DialogContent>

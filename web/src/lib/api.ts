@@ -519,6 +519,13 @@ class ApiClient {
     })
   }
 
+  reniceProcess(pid: number, nice: number) {
+    return this.request<{ message: string; pid: number; nice: number }>(`/system/processes/${pid}/renice`, {
+      method: 'POST',
+      body: JSON.stringify({ nice }),
+    })
+  }
+
   getPortMap() {
     return this.request<PortMapRow[]>(`/system/portmap`)
   }

@@ -693,9 +693,12 @@ export interface DockerStatus {
 // Process
 export interface ProcessInfo {
   pid: number
+  ppid: number
   name: string
   cpu: number
   memory: number
+  rss: number
+  nice: number
   status: string
   user: string
   command: string

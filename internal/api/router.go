@@ -272,6 +272,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	authorized.GET("/system/processes", processesHandler.TopProcesses)
 	authorized.GET("/system/processes/list", processesHandler.ListProcesses)
 	authorized.POST("/system/processes/:pid/kill", processesHandler.KillProcess)
+	authorized.POST("/system/processes/:pid/renice", processesHandler.ReniceProcess)
 
 	// Systemd services
 	servicesHandler := &featureServices.Handler{Cmd: cmd}

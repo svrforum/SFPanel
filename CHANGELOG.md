@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.20.0] – 2026-06-03
+
+Per-feature improvement pass, round 4 — deepening the **process** module.
+
+### Added
+
+- **process** — the process list now carries **parent PID, absolute resident
+  memory (RSS), and nice value** alongside the existing CPU/mem%. The page gains
+  a **tree view** (parent→child, built from PPID with a cycle guard), a **renice**
+  control (clamped −20..19, same protected-PID guards as kill), and two new
+  **job-control signals — STOP (pause) and CONT (resume)** — in the signal menu.
+  Renice and the new signals refuse protected PIDs and panel-spawned children,
+  same as kill; validation is tested.
+
 ## [0.19.0] – 2026-06-03
 
 Per-feature improvement pass, round 3 — finishing the "backend exists, UI
