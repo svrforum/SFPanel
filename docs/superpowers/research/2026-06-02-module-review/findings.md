@@ -20,6 +20,34 @@
 
 ---
 
+## 검증 로그 (최종)
+
+브랜치 `fix/module-hardening-2026-06`. 각 항목을 "수정" 전에 코드로 재현·검증함.
+총 49건 중 **42건 수정**, **7건 오탐/비이슈로 변경 안 함**(아래 명시).
+
+### 수정 완료 ✅
+- Critical: C1, C4
+- High: H1, H4, H5, H6, H7, H8, H9, H10, H11, H12, H13, H14, H15, H16, H17
+- Medium: M1, M2, M3, M4, M5, M6, M8, M9, M10, M11, M12, M14, M15, M16, M17, M18, M19
+- Low: L1, L2, L3, L4, L5, L7, L8
+
+### 오탐 / 비이슈 — 코드 변경 안 함 (근거)
+- **C1** — 부분 정정: 운영 호출부가 trailing-slash prefix(`/var/log/`)라 실제 익스플로잇은 성립 안 함.
+  다만 caller의 trailing-slash 규율에 암묵 의존 + `..` 거짓 양성 존재 → 세그먼트 경계 매칭으로 하드닝(✅).
+  보안 등급은 과대평가였음.
+- **C2/C3** — 재현 안 됨. `AddRule`은 포트 필수 + `wouldLockOutOnAdd`가 From 무관하게 22/panel deny를
+  차단. `EnableUFW` staging 파서가 `from`-선두 규칙을 스킵해 source-scoped allow를 fail-safe로 거부.
+- **H2** — 의도된 설계. `installCtx`는 detached(클라 끊겨도 docker 계속 진행)가 명시적 의도. 끊김 시 취소는
+  정상 설치를 중단시킴. `sendSSE`는 닫힌 conn에 조용히 실패(블록/누수 없음).
+- **H3** — 거의 비이슈. `PullImage`가 SDK `ImagePull(ctx)` 반환 reader라 ctx 취소 시 `Decode` 자동 해제.
+  남은 건 "레지스트리 정지 + 클라 연결 유지" 케이스뿐인데, 그 stall 타임아웃은 정상 느린 pull을 죽일 위험.
+- **M7** — 비이슈. `getParentDisk`는 이미 "suffix 숫자 AND prefix 끝 숫자" 가드 + fallback으로 `/dev/sdp1`
+  등을 올바르게 처리. 제안된 좁은 regex는 `mmcblk0p1` 등을 오히려 회귀시킴.
+- **M13** — 보류. `validLogPath`는 이미 `..` 차단. 잔여 위험은 admin-only 엔드포인트에서 `.log` 파일 읽기
+  (admin은 logs 모듈로 이미 가능). `/var/log` 강제는 정당한 jail(nginx/docker/custom) 파손 위험.
+- **L6** — moot. go.mod이 Go 1.25라 루프 변수가 per-iteration(Go 1.22 변경). `&t`는 안전.
+- **L9** — 미적용(YAGNI). 사용처 없는 `joinOnly bool` 필드 추가는 프로젝트가 지양하는 투기적 스캐폴딩.
+
 ## Critical
 
 | ID | 위치 | 카테고리 | 문제 | 수정 방향 |
