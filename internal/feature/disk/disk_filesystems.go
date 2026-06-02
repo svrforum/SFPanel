@@ -213,9 +213,16 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 	if !strings.HasPrefix(req.Source, "/dev/") {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, "source must start with /dev/")
 	}
-	// Strip /dev/ for validation, then add back
-	devName := strings.TrimPrefix(req.Source, "/dev/")
-	if err := validateDeviceName(devName); err != nil {
+	// Validate the device leaf. LVM/dm targets are /dev/mapper/<name>, whose
+	// "mapper/<name>" leaf contains a '/' that validateDeviceName rejects —
+	// which made the entire isLVM branch below unreachable. Validate the
+	// mapper leaf against the LVM name charset instead (still no '/' or '..').
+	if strings.HasPrefix(req.Source, "/dev/mapper/") {
+		mapperName := strings.TrimPrefix(req.Source, "/dev/mapper/")
+		if mapperName == "" || !validLVMName.MatchString(mapperName) || strings.Contains(mapperName, "..") {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, "invalid device name: "+mapperName)
+		}
+	} else if err := validateDeviceName(strings.TrimPrefix(req.Source, "/dev/")); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
 
