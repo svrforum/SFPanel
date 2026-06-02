@@ -119,19 +119,22 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **상태**: username, password, confirmPassword, error, loading
 
 ### Dashboard
-- **파일**: `web/src/pages/Dashboard.tsx`
-- **기능**: 시스템 전체 현황 대시보드
-  - 호스트 정보 표시 (hostname, OS, platform, kernel, uptime, CPU 코어)
-  - 실시간 메트릭 카드 4개 (CPU, 메모리, 디스크, 네트워크)
-  - CPU/메모리 24시간 히스토리 차트 (최대 2880 포인트)
-  - Docker 컨테이너 요약 (실행/중지/전체 카운트 + 상위 5개 컨테이너 목록)
+- **파일**: `web/src/pages/Dashboard.tsx` (~600줄)
+- **기능**: 노드 단위 시스템 현황 대시보드 (클러스터 Layout 내에서 선택 노드 범위로 렌더)
+  - 호스트 정보 (hostname, OS, platform+version, kernel, uptime, CPU 코어, **주 IP**)
+  - 실시간 메트릭 카드 4개 (CPU / 메모리+Swap / 디스크 / 네트워크)
+  - CPU/메모리 히스토리 차트 (**1/4/12/24h** 범위 토글)
+  - Docker 컨테이너 요약 (실행/중지/전체 카운트 + 최근 컨테이너 목록, "전체 보기" → /docker)
   - 네트워크 I/O 실시간 송수신 속도 및 누적량
-  - 프로세스 현황 테이블 (CPU 사용률 상위, 10초마다 갱신)
-  - 최근 시스템 로그 (syslog 최신 8줄)
+  - Top 프로세스 테이블 (CPU 사용률 상위, 10초마다 갱신)
+  - 최근 로그 — **syslog / 방화벽 탭 토글** (각 8 / 50줄; 클릭 시 해당 로그 페이지로)
+  - **업데이트 배너** (`update_info` 기반) → `/settings?scope=node&tab=system`
   - 빠른 실행 바로가기 5개 (파일, Docker, 패키지, 크론, 로그)
-- **사용 API**: `api.getSystemInfo()`, `api.getMetricsHistory()`, `api.getTopProcesses()`, `api.getContainers()`, `api.readLog('syslog', 8)`
-- **WebSocket**: `useWebSocket({ url: '/ws/metrics' })` - 실시간 시스템 메트릭 수신 (Metrics 타입)
+  - WebSocket 연결 상태 배지 (Live / Disconnected)
+- **사용 API**: `api.getDashboardOverview()` (host+metrics+history+version+update_info **통합**), `api.getNetworkInterfaces()`, `api.getTopProcesses()`, `api.getContainers()`, `api.readLog('syslog', 8)`, `api.readLog('firewall', 50)`
+- **WebSocket**: `useWebSocket({ url: '/ws/metrics' })` — 실시간 메트릭(2초), 클러스터 래핑(노드 타겟 가능)
 - **사용 컴포넌트**: MetricsCard, MetricsChart, Table (shadcn/ui)
+- **변경 이력**: 기존 `getSystemInfo()`+`getMetricsHistory()` 2회 호출 → `getDashboardOverview()` 단일 호출로 통합(초기 로드 요청 수 감소). 호스트 정보에 IP, 로그 패널에 방화벽 탭, 상단 업데이트 배너 추가.
 
 ### Docker
 - **파일**: `web/src/pages/Docker.tsx`

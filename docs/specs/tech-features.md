@@ -79,19 +79,21 @@
 
 ### 1. 시스템 대시보드
 
-- **설명**: 서버의 전체 상태를 한눈에 파악하는 실시간 모니터링 대시보드
+- **설명**: 노드 단위 서버 상태를 한눈에 파악하는 실시간 모니터링 대시보드. 클러스터 모드에서는 좌측 트리에서 선택한 노드 범위로 렌더되고, `?node=` 프록시를 통해 원격 노드 메트릭도 동일 UI로 표시된다.
+- **데이터 로딩**: 초기 진입 시 단일 통합 엔드포인트 `GET /api/v1/system/overview`로 호스트 정보 + 현재 메트릭 + 히스토리 + 버전 + 업데이트 정보를 한 번에 수신(`DashboardOverview`). 서버는 host/metrics와 history를 goroutine 2개로 병렬 수집하고, 한 소스가 실패해도 500 대신 부분 데이터 + null 필드로 응답한다(대시보드가 장애의 첫 단서이므로 빈 화면보다 부분 표시 우선; UI가 null을 가드).
 - **주요 기능**:
-  - 실시간 CPU/메모리/디스크/네트워크 메트릭 카드 (WebSocket으로 2초 간격 업데이트)
-  - CPU/메모리 사용률 시계열 차트 (최대 24시간, 60초 간격 ~1,440 포인트)
-  - 호스트 정보 표시 (호스트명, OS, 플랫폼, 커널, 업타임, CPU 코어 수)
-  - 네트워크 I/O 속도 (송/수신 bytes/sec) 및 누적 전송량
-  - Swap 메모리 사용량
-  - Docker 컨테이너 요약 (실행 중/중지/전체 개수, 최근 5개 컨테이너 상태)
-  - Top 10 프로세스 (CPU 사용률 기준, 10초 간격 자동 갱신)
-  - 최근 시스템 로그 (syslog 마지막 8줄)
+  - 실시간 CPU/메모리/디스크/네트워크 메트릭 카드 (`/ws/metrics` WebSocket, 2초 간격; 우상단 연결 상태 Live/Disconnected 배지)
+  - CPU/메모리 사용률 시계열 차트 (**1/4/12/24시간** 범위 토글 — `range` 쿼리로 서버에서 윈도우 조회)
+  - 호스트 정보 (호스트명, OS, 플랫폼+버전, 커널, 업타임, CPU 코어 수, **주 IP 주소** — `getNetworkInterfaces()`로 기본 게이트웨이 인터페이스 IP)
+  - 메모리 카드에 Swap 사용량 (스왑 비활성 시 "비활성" 처리)
+  - 네트워크 I/O 실시간 송/수신 속도 + 누적 전송량
+  - Docker 컨테이너 요약 (실행 중/중지/전체 카운트 + 최근 컨테이너 상태; "전체 보기" → `/docker`)
+  - Top 프로세스 (CPU 사용률 기준, 10초 간격 자동 갱신)
+  - 최근 시스템 로그 — **syslog / 방화벽 로그 탭 토글** (각 8 / 50줄; 클릭 시 해당 로그 페이지로 이동)
+  - **업데이트 배너**: `update_info.latest_version`가 현재 버전보다 높으면 상단 배너 표시 → `/settings?scope=node&tab=system`로 이동
   - 빠른 액션 바로가기 (파일, Docker, 패키지, Cron, 로그)
-  - WebSocket 연결 상태 표시 (Live/Disconnected)
-- **관련 기술**: gopsutil v4, gorilla/websocket, uPlot, Echo WebSocket
+- **관련 엔드포인트**: `GET /system/overview`(통합), `GET /system/info`·`GET /system/metrics-history`(개별, 하위호환 유지), top 프로세스/컨테이너/로그 조회, `/ws/metrics`(클러스터 래핑 WS)
+- **관련 기술**: gopsutil v4, gorilla/websocket, uPlot, Echo WebSocket, Raft 클러스터 프록시(`?node=`)
 
 ### 2. Docker 관리
 

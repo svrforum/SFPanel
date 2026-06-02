@@ -408,6 +408,36 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 
 ---
 
+### GET /api/v1/system/overview
+대시보드 초기 로드용 **통합** 엔드포인트. 호스트 정보 + 현재 메트릭 + 메트릭 히스토리 + 패널 버전 + 업데이트 정보를 한 번에 반환하여 초기 요청 수를 줄인다. 서버는 host/metrics와 history를 병렬(goroutine 2개)로 수집하고, 한 소스가 실패해도 500 대신 해당 필드를 `null`로 둔 부분 응답을 돌려준다(WARN 로그만 남김).
+
+- **인증 필요**: 예
+- **쿼리 파라미터**: `range` — 히스토리 윈도우(예: `1h`/`4h`/`12h`/`24h`). 생략 시 기본 윈도우.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "host": { "hostname": "…", "os": "linux", "platform": "ubuntu", "platform_version": "26.04", "kernel": "…", "uptime": 0, "num_cpu": 4 },
+    "metrics": { "cpu": 23.5, "mem_percent": 50.0, "disk_percent": 34.0, "…": "…" },
+    "version": "0.16.1",
+    "metrics_history": [ { "time": 1740000000000, "cpu": 23.5, "mem_percent": 50.0 } ],
+    "update_info": { "latest_version": "0.16.2", "…": "…" }
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `host` | object\|null | 호스트 시스템 정보 (수집 실패 시 null) |
+| `metrics` | object\|null | 현재 시스템 메트릭 (수집 실패 시 null) |
+| `version` | string | 패널 버전 (`v` 접두사 제거됨) |
+| `metrics_history` | array | 메트릭 히스토리 포인트 (`range` 윈도우) |
+| `update_info` | object | 최신 버전/업데이트 가용 정보 (`latest_version` 등) |
+
+---
+
 ## 프로세스 API (`/api/v1/system/processes`)
 
 ### GET /api/v1/system/processes
