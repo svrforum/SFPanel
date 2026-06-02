@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
+	"github.com/svrforum/SFPanel/internal/common/safe"
 	"github.com/svrforum/SFPanel/internal/config"
 )
 
@@ -222,7 +223,7 @@ func (m *Manager) Start() error {
 	go m.watchLeader()
 
 	// Auto-fix own node address if it doesn't match config
-	go m.verifySelfAddress()
+	safe.Go("cluster-verify-self-address", m.verifySelfAddress)
 
 	slog.Info("cluster node started", "component", "cluster", "node_id", m.nodeID)
 	return nil
@@ -263,8 +264,13 @@ func (m *Manager) watchLeader() {
 // match its current config, and auto-corrects if not. This prevents stale
 // gRPC addresses from causing heartbeat/metrics collection failures.
 func (m *Manager) verifySelfAddress() {
-	// Wait for Raft to stabilize and leader to be elected
-	time.Sleep(10 * time.Second)
+	// Wait for Raft to stabilize and leader to be elected, but bail immediately
+	// if the manager is shutting down within that window.
+	select {
+	case <-time.After(10 * time.Second):
+	case <-m.heartbeat.Done():
+		return
+	}
 
 	advertise := m.config.AdvertiseAddress
 	if advertise == "" {
@@ -1040,7 +1046,7 @@ type MetricsCollector func() (cpuPercent, memPercent, diskPercent float64, conta
 // On the leader, metrics are recorded locally. On followers, metrics are sent
 // to the leader via gRPC heartbeat streaming.
 func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
-	go func() {
+	safe.Go("cluster-local-metrics", func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 
@@ -1154,7 +1160,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 				return
 			}
 		}
-	}()
+	})
 }
 
 // Shutdown gracefully stops all cluster services.

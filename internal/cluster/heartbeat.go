@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/svrforum/SFPanel/internal/common/safe"
 )
 
 // HeartbeatManager tracks node health via periodic heartbeats.
@@ -92,7 +94,7 @@ func (hm *HeartbeatManager) CheckHealth() map[string]NodeStatus {
 
 // StartMonitor runs a background goroutine that detects status changes.
 func (hm *HeartbeatManager) StartMonitor(onStatusChange func(nodeID string, status NodeStatus)) {
-	go func() {
+	safe.Go("cluster-heartbeat-monitor", func() {
 		ticker := time.NewTicker(hm.interval)
 		defer ticker.Stop()
 
@@ -115,7 +117,7 @@ func (hm *HeartbeatManager) StartMonitor(onStatusChange func(nodeID string, stat
 				return
 			}
 		}
-	}()
+	})
 }
 
 // RemoveNode removes a node from tracking.
