@@ -65,6 +65,7 @@
 | `/firewall` | Firewall | O | Layout | 방화벽 관리 (사이드 탭 + Outlet 구조) |
 | `/firewall/rules` | FirewallRules | O | Firewall | UFW 규칙 관리 (기본 서브라우트) |
 | `/firewall/ports` | FirewallPorts | O | Firewall | 리스닝 포트 조회 |
+| `/firewall/portmap` | FirewallPortmap | O | Firewall | 포트 맵 (UFW+Docker+프로세스 통합) |
 | `/firewall/fail2ban` | FirewallFail2ban | O | Firewall | Fail2ban jail 관리 |
 | `/firewall/docker` | FirewallDocker | O | Firewall | Docker 방화벽 (DOCKER-USER 체인) |
 | `/firewall/logs` | FirewallLogs | O | Firewall | 방화벽 로그 뷰어 |
@@ -218,7 +219,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 설치 다이얼로그: 동적 환경변수 폼 (앱별 env 설정), generate 타입은 자동 생성된 비밀번호 표시
   - 설치된 앱은 "설치됨" 상태 필 표시 + Stacks 바로가기 링크
   - 캐시 갱신 버튼
-- **사용 API**: `api.getAppStoreCategories()`, `api.getAppStoreApps()`, `api.getAppStoreAppDetail()`, `api.installAppStoreApp()`, `api.getInstalledApps()`, `api.refreshAppStore()`
+- **사용 API**: `api.getAppStoreCategories()`, `api.getAppStoreApps()`, `api.getAppStoreApp(id)`, `api.getInstalledApps()`, `api.refreshAppStore()`. 설치는 래퍼 없이 직접 `fetch`(SSE 스트림). 고급 모드는 `window.prompt`로 비밀번호 재입력 후 `{advanced,compose,env_raw,password}` 전송
 - **사용 컴포넌트**: Dialog, Button, Input, Label (shadcn/ui)
 - **사이드바 위치**: Docker 다음, 아이콘: `Store` (lucide-react)
 - **내부 서브컴포넌트**: `AppStoreDetailModal` (`web/src/pages/AppStoreDetail.tsx`)
@@ -251,9 +252,11 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 파일 클릭 시 Monaco 에디터로 편집 (언어 자동 감지: 30+ 확장자 지원)
   - 새 파일 생성, 새 폴더 생성, 파일 업로드 (XHR + FormData, 진행률 표시), 다운로드
   - 이름 변경, 삭제 확인 다이얼로그
+  - **우클릭 컨텍스트 메뉴**(행 + 배경 빈 영역): 열기/편집/다운로드/이름변경/삭제, 업로드/새파일/새폴더/새로고침
+  - 5MB 초과 파일은 편집기 대신 다운로드로 안내(confirm)
   - 도구 모음: 새로고침, 새 파일, 새 폴더, 업로드
 - **사용 API**: `api.listFiles()`, `api.readFile()`, `api.writeFile()`, `api.createDir()`, `api.deletePath()`, `api.renamePath()`, `api.uploadFile()`, `api.downloadFile()`
-- **사용 컴포넌트**: Table, Dialog, Button, Input, Label, Monaco Editor (shadcn/ui + @monaco-editor/react)
+- **사용 컴포넌트**: Table, Dialog, ContextMenu, Button, Input, Label, Monaco Editor (shadcn/ui + @monaco-editor/react)
 
 ### CronJobs
 - **파일**: `web/src/pages/CronJobs.tsx`
@@ -299,27 +302,40 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 프로세스 검색 (이름/PID/사용자/명령어)
   - 정렬 선택: CPU / 메모리 / PID / 이름
   - 프로세스 테이블: PID, 이름(+명령어), 사용자, CPU%, MEM%, 상태 배지, 종료 버튼
-  - 프로세스 종료 다이얼로그: SIGTERM(정상) / SIGKILL(강제) 선택
-  - 5초 자동 갱신
-- **사용 API**: `api.listProcesses(query, sort)`, `api.killProcess(pid, signal)`
+  - 프로세스 종료 다이얼로그: SIGTERM(정상) / SIGKILL(강제) 선택. 보호 PID/패널 자식 프로세스는 서버가 403 거부(sysguard)
+  - 15초 자동 갱신 (탭 비활성 시 일시정지), 대용량 목록 가상 스크롤(@tanstack/react-virtual)
+- **사용 API**: `api.listProcesses()` (인자 없음 — 필터/정렬은 클라이언트), `api.killProcess(pid, signal)`
 - **WebSocket**: `useWebSocket({ url: '/ws/metrics' })` - 시스템 메트릭 수신 (리소스 요약 카드용)
 - **사용 컴포넌트**: Table, Dialog, Button, Input (shadcn/ui)
 
+### Services
+- **파일**: `web/src/pages/Services.tsx`
+- **기능**: Systemd 서비스 관리
+  - 서비스 수 표시, 검색(이름/설명), 상태 필터 탭 (all/running/failed/inactive)
+  - 테이블(데스크톱)/카드(모바일): 이름, 설명, 상태(sub_state/active_state), 부팅(enabled/disabled/static/masked), 액션 드롭다운
+  - 액션: 시작/중지/재시작, 활성화/비활성화, 로그 보기. 보호 유닛 중지·재시작·비활성화는 서버 403(sysguard)
+  - 로그 다이얼로그: journalctl 출력 + 의존성(required_by/requires/wanted_by) 패널
+  - 15초 자동 갱신 (탭 비활성 시 일시정지)
+- **사용 API**: `api.listServices()`, `api.startService()`, `api.stopService()`, `api.restartService()`, `api.enableService()`, `api.disableService()`, `api.getServiceLogs(name, lines)`, `api.getServiceDeps(name)`
+- **사용 컴포넌트**: Table, Dialog, DropdownMenu, Button, Input (shadcn/ui)
+
 ### Network
-- **파일**: `web/src/pages/Network.tsx`
-- **기능**: 네트워크 인터페이스 관리
-  - 인터페이스 카드 그리드: 이름, 상태(up/down), IP 주소(IPv4/IPv6), MAC, 속도, 트래픽(TX/RX), 에러 수
-  - 인터페이스 타입별 아이콘 구분 (ethernet/wireless/loopback/bond)
-  - 기본 게이트웨이 인터페이스 표시 (ring 강조)
-  - 인터페이스 설정 다이얼로그: DHCP/Static 토글, IP 주소, 게이트웨이(IPv4/IPv6), DNS, MTU
-  - DNS 서버 설정 (인라인 편집, 쉼표 구분)
-  - 라우팅 테이블: destination, gateway, interface, metric, protocol
-  - 본딩 관리: 본드 생성(이름/모드/슬레이브 선택), 본드 삭제, 본드 모드(7종) 지원
-  - 설정 변경 시 플로팅 "적용" 버튼 + 경고 다이얼로그
-- **사용 API**: `api.getNetworkInterfaces()`, `api.configureInterface()`, `api.applyNetworkConfig()`, `api.getDNSConfig()`, `api.configureDNS()`, `api.getRoutes()`, `api.getBonds()`, `api.createBond()`, `api.deleteBond()`
-- **사용 컴포넌트**: Table, Dialog, Button, Input, Label (shadcn/ui)
-- **사용 유틸리티**: `formatBytes()` (`web/src/lib/utils.ts`)
-- **로컬 인터페이스**: NetworkAddress, BondInfo, NetworkInterface, InterfaceConfig, Route, DNSConfig
+- **파일**: `web/src/pages/Network.tsx` — 사이드 탭 셸(interfaces/wireguard/tailscale) + `<Outlet/>`
+- **탭 구조**: `/network/interfaces`(기본) → NetworkInterfaces, `/network/wireguard` → NetworkWireGuard, `/network/tailscale` → NetworkTailscale
+
+#### Network > NetworkInterfaces (`web/src/pages/network/NetworkInterfaces.tsx`)
+- 인터페이스 카드: 물리/가상/루프백/Docker(접이식) 분류, 상태, IPv4/IPv6, MAC, 속도, 트래픽, 기본 게이트웨이 강조
+- 설정 다이얼로그(DHCP/Static, IP, gateway4/6, DNS, MTU), DNS 인라인 편집, 라우팅 테이블, 본딩(생성 7모드/삭제), 플로팅 "적용"(netplan apply) + 경고
+- **사용 API**: `api.getNetworkStatus()`(interfaces+routes+dns 집계), `api.configureInterface()`, `api.configureDNS()`, `api.applyNetworkConfig()`, `api.createBond()`, `api.deleteBond()`
+
+#### Network > NetworkWireGuard (`web/src/pages/network/NetworkWireGuard.tsx`)
+- 미설치 시 원클릭 설치 게이트; 인터페이스 카드(주소/DNS/공개키 복사/listen_port/피어), up/down 토글, 설정 CRUD + `.conf` 업로드, 키 마스킹(`********`) 저장 가드
+- **사용 API**: `getWireGuardStatus/Interfaces`, `wireGuardInterfaceUp/Down`, `create/get/update/deleteWireGuardConfig`
+
+#### Network > NetworkTailscale (`web/src/pages/network/NetworkTailscale.tsx`)
+- SSE 스트리밍 설치(게이트), 상태(NotInstalled/NeedsLogin/Running), Auth Key 또는 브라우저 인증 URL 자동 오픈, 자기 정보, Accept Routes/Advertise Exit Node 토글, Exit Node 선택, 버전+업데이트 체크, 피어 표, 연결/해제/로그아웃
+- **사용 API**: `getTailscaleStatus`, `tailscaleUp/Down/Logout`, `getTailscalePeers`, `setTailscalePreferences`, `checkTailscaleUpdate`
+- **사용 유틸리티**: `formatBytes()`
 
 ### Disk
 - **파일**: `web/src/pages/Disk.tsx`
@@ -374,10 +390,11 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **파일**: `web/src/pages/Packages.tsx`
 - **기능**: 시스템 패키지 관리
   - Docker 상태 카드: 설치 여부, 버전, 실행 상태, Compose 가용성 표시. 미설치 시 Docker 설치 버튼 (SSE 스트리밍 출력)
-  - 시스템 업데이트: 업데이트 확인, 전체/선택 업그레이드, 패키지 체크박스 선택
-  - 패키지 검색/설치: 검색 결과에서 설치/제거 가능
+  - **개발 도구 카드**: Node.js(버전 관리 다이얼로그 — 설치/전환/삭제, LTS), Claude Code, Codex, Gemini CLI (각 SSE 설치; Node 미설치 시 Codex/Gemini 비활성화)
+  - 시스템 업데이트: 업데이트 확인, 전체/선택 업그레이드(SSE), 패키지 체크박스 선택
+  - 패키지 검색/설치: 검색 결과에서 설치/제거 (설치 상태 표시)
   - 작업 출력 다이얼로그: 설치/업그레이드/제거 진행 상황 실시간 표시
-- **사용 API**: `api.getDockerStatus()`, `api.installDocker()` (SSE 스트리밍), `api.checkUpdates()`, `api.upgradePackages()`, `api.installPackage()`, `api.removePackage()`, `api.searchPackages()`
+- **사용 API**: `api.getDockerStatus()`, `api.installDocker()`(SSE), `api.checkUpdates()`, `api.upgradePackages()`(SSE), `api.installPackage()`, `api.removePackage()`, `api.searchPackages()`, `getNodeStatus/getNodeVersions/switchNodeVersion/uninstallNodeVersion`, `getClaudeStatus/getCodexStatus/getGeminiStatus`, `install-node/claude/codex/gemini`(fetch SSE)
 - **사용 컴포넌트**: Table, Dialog, Button, Input (shadcn/ui)
 
 ### Terminal
@@ -392,7 +409,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 바이너리 데이터(ArrayBuffer) 지원
   - 윈도우 리사이즈 시 자동 피팅
   - 리사이즈 이벤트 서버 전송 (JSON: `{type: "resize", cols, rows}`)
-- **사용 API**: `api.getToken()` (WebSocket 인증)
+- **사용 API**: `api.buildWsUrl('/ws/terminal', {session_id})` — 단발성 ws-ticket(`POST /auth/ws-ticket`) 발급 후 URL 구성, 레거시 `?token=` fallback. 추가로 클리어(Ctrl-L), 모바일 키 바, Unicode11Addon 적용
 - **WebSocket**: 직접 관리 (`/ws/terminal?token={token}&session_id={id}`)
 - **사용 컴포넌트**: Button, Input (shadcn/ui)
 - **내부 서브컴포넌트**: `TerminalSession` - 개별 터미널 세션 관리
@@ -404,7 +421,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 터미널 타임아웃 설정 (분 단위, 0 = 무제한)
   - 파일 업로드 최대 크기 설정 (MB 단위)
   - 비밀번호 변경 (현재 비밀번호 + 새 비밀번호 + 확인)
-  - 2FA 관리: 설정 시작 -> QR 코드(외부 API로 생성) + 시크릿 키 표시 -> 6자리 코드 인증
+  - 2FA 관리: 설정 시작 -> QR 코드(qrcode.react 클라이언트 렌더링) + 시크릿 키 표시 -> 6자리 코드 인증 -> 활성화/비활성화(비밀번호 재확인)
   - 시스템 정보 표시 (버전, 호스트명, OS, 커널, 가동시간)
   - **버전 표시**: `api.getSystemInfo()`의 `data.version` 필드에서 가져옴 (`v${data.version}` 형식)
   - 시스템 튜닝 섹션 (SettingsTuning 컴포넌트 내장)
@@ -453,6 +470,10 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 | Layout | `web/src/components/Layout.tsx` | 인증된 페이지의 공통 레이아웃. 좌측 사이드바(네비게이션 12항목 + 접기/펼치기 + 로그아웃) + 우측 메인 콘텐츠(Outlet). NavLink로 활성 상태 표시. 사이드바 접기 상태 localStorage 영속화. |
 | MetricsCard | `web/src/components/MetricsCard.tsx` | 메트릭 표시 카드. 아이콘 + 제목 + 값 + 프로그레스 바(80% 초과 빨강, 60% 초과 노랑, 그 외 파랑). |
 | MetricsChart | `web/src/components/MetricsChart.tsx` | CPU/메모리 시계열 차트. uPlot 사용. CPU(파랑) + Memory(초록) 이중 라인. Y축 0-100%. |
+| ClusterSidebar | `web/src/components/cluster/ClusterSidebar.tsx` | 클러스터 모드 좌측 2단 트리(TreePanel+ContextMenu). 선택 시 `api.setCurrentNode` + 라우팅. 표준 사이드바를 대체. |
+| TreePanel | `web/src/components/cluster/TreePanel.tsx` | 데이터센터 루트 + 노드 목록(상태/리더/local, 로컬 우선 정렬), 접이식 52px 레일. |
+| ContextMenu | `web/src/components/cluster/ContextMenu.tsx` | 선택 범위별 메뉴(데이터센터: 개요/노드/토큰/설정 · 노드: 모듈 메뉴). |
+| NodeSelector | `web/src/components/NodeSelector.tsx` | (레거시) 비클러스터 표준 사이드바 전용 드롭다운. 클러스터 모드에선 미사용. |
 | ContainerShell | `web/src/components/ContainerShell.tsx` | Docker 컨테이너 셸 접속. xterm.js + WebSocket(`/ws/docker/containers/{id}/exec`). 키 입력 전송, 리사이즈 이벤트 전송. |
 | ContainerLogs | `web/src/components/ContainerLogs.tsx` | Docker 컨테이너 로그 스트리밍. xterm.js(읽기 전용) + WebSocket(`/ws/docker/containers/{id}/logs`). 검색(SearchAddon), 로그 다운로드 기능. |
 | ComposeEditor | `web/src/components/ComposeEditor.tsx` | YAML/텍스트 에디터. Monaco Editor 래퍼. 높이 400px, vs-dark 테마, 미니맵 비활성화, 자동 레이아웃. Props: `value`, `onChange`, `language`(기본값 'yaml'). |
@@ -725,8 +746,8 @@ interface UseWebSocketOptions {
 |--------|------|------|-----------|------|
 | `getAppStoreCategories()` | GET | `/appstore/categories` | `AppStoreCategory[]` | 카테고리 목록 |
 | `getAppStoreApps(category?)` | GET | `/appstore/apps` | `AppStoreApp[]` | 앱 목록 (카테고리 필터) |
-| `getAppStoreAppDetail(id)` | GET | `/appstore/apps/{id}` | `{ app: AppStoreApp; compose: string; installed: boolean }` | 앱 상세 + Compose YAML |
-| `installAppStoreApp(id, env)` | POST | `/appstore/apps/{id}/install` | `{ message: string; id: string; output: string }` | 앱 설치 |
+| `getAppStoreApp(id)` | GET | `/appstore/apps/{id}` | `{ app, compose, readme, readme_base_url, port_status[] }` | 앱 상세 + Compose + README + 포트 상태 |
+| (직접 `fetch`) | POST | `/appstore/apps/{id}/install` | **SSE** `{stage,message,done,success}` | 앱 설치 (스트리밍; 래퍼 메서드 없음) |
 | `getInstalledApps()` | GET | `/appstore/installed` | `InstalledApp[]` | 설치된 앱 목록 |
 | `refreshAppStore()` | POST | `/appstore/refresh` | `{ message: string; apps: number; categories: number }` | 캐시 갱신 |
 
@@ -1057,7 +1078,7 @@ interface InstalledApp {
 |----|------|----------|
 | `token` | JWT 액세스 토큰 | `ApiClient` (login/logout) |
 | `sfpanel_server_url` | Tauri 모드에서 원격 서버 URL | `Connect.tsx`, `ApiClient` |
-| `sfpanel_current_node` | 클러스터 원격 노드 ID (`?node=` 자동 주입) | `NodeSelector`, `ApiClient` |
+| `sfpanel_current_node` | 클러스터 원격 노드 ID (`?node=` 자동 주입) | `ClusterSidebar`(`api.setCurrentNode`), `ApiClient` |
 | `sfpanel_language` | i18next 선택 언어 | `Settings.tsx`, i18next detector |
 | `sfpanel-sidebar-collapsed` | 사이드바 접기 상태 | `Layout.tsx` |
 | `sfpanel_terminal_tabs` | 터미널 탭 상태 (이름, 순서) | `Terminal.tsx` |
