@@ -277,6 +277,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	authorized.POST("/system/services/:name/disable", servicesHandler.DisableService)
 	authorized.GET("/system/services/:name/logs", servicesHandler.ServiceLogs)
 	authorized.GET("/system/services/:name/deps", servicesHandler.GetServiceDeps)
+	authorized.GET("/system/services/:name/cat", servicesHandler.GetServiceUnit)
 
 	// File manager routes
 	filesHandler := &featureFiles.Handler{DB: database}

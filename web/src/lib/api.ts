@@ -1619,6 +1619,10 @@ class ApiClient {
     return this.request<ServiceDeps>(`/system/services/${name}/deps`)
   }
 
+  getServiceUnit(name: string) {
+    return this.request<{ unit: string }>(`/system/services/${name}/cat`)
+  }
+
   // App Store
   getAppStoreCategories() {
     return this.request<AppStoreCategory[]>('/appstore/categories')

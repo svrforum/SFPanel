@@ -213,6 +213,23 @@ func (h *Handler) ServiceLogs(c echo.Context) error {
 	return response.OK(c, map[string]string{"logs": out})
 }
 
+// GetServiceUnit returns the rendered unit file (`systemctl cat`) so operators
+// can inspect ExecStart/Restart/Environment without shelling in. Read-only.
+func (h *Handler) GetServiceUnit(c echo.Context) error {
+	name := c.Param("name")
+	if !validServiceName.MatchString(name) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
+	}
+
+	out, err := h.Cmd.Run("systemctl", "cat", name)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrServiceError,
+			fmt.Sprintf("Failed to read unit file for %s", name))
+	}
+
+	return response.OK(c, map[string]string{"unit": out})
+}
+
 // GetServiceDeps returns dependency information for a systemd service.
 // GET /system/services/:name/deps
 func (h *Handler) GetServiceDeps(c echo.Context) error {

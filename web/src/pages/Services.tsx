@@ -51,6 +51,8 @@ export default function Services() {
   const [logs, setLogs] = useState('')
   const [logsLoading, setLogsLoading] = useState(false)
   const [serviceDeps, setServiceDeps] = useState<ServiceDeps | null>(null)
+  const [unitFile, setUnitFile] = useState('')
+  const [dialogView, setDialogView] = useState<'logs' | 'unit'>('logs')
   const logContainerRef = useRef<HTMLDivElement>(null)
 
   const fetchServices = useCallback(async () => {
@@ -152,15 +154,19 @@ export default function Services() {
   const handleViewLogs = async (name: string) => {
     setLogService(name)
     setLogs('')
+    setUnitFile('')
     setServiceDeps(null)
+    setDialogView('logs')
     setLogsLoading(true)
     try {
-      const [logsData, depsData] = await Promise.all([
+      const [logsData, depsData, unitData] = await Promise.all([
         api.getServiceLogs(name, 200),
         api.getServiceDeps(name),
+        api.getServiceUnit(name).catch(() => ({ unit: '' })),
       ])
       setLogs(logsData.logs || '')
       setServiceDeps(depsData)
+      setUnitFile(unitData.unit || '')
       setTimeout(() => {
         if (logContainerRef.current) {
           logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
@@ -428,6 +434,22 @@ export default function Services() {
           <DialogHeader>
             <DialogTitle>{t('services.logsFor', { name: logService })}</DialogTitle>
           </DialogHeader>
+          {/* Logs / Unit file toggle */}
+          <div className="flex gap-1 rounded-xl bg-muted p-1 w-fit">
+            <button
+              onClick={() => setDialogView('logs')}
+              className={`px-3 py-1 text-[12px] rounded-lg transition-colors ${dialogView === 'logs' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
+            >
+              {t('services.logsTab')}
+            </button>
+            <button
+              onClick={() => setDialogView('unit')}
+              disabled={!unitFile}
+              className={`px-3 py-1 text-[12px] rounded-lg transition-colors disabled:opacity-40 ${dialogView === 'unit' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
+            >
+              {t('services.unitTab')}
+            </button>
+          </div>
           {/* Dependency info */}
           {serviceDeps && (serviceDeps.required_by?.length || serviceDeps.requires?.length || serviceDeps.wanted_by?.length) ? (
             <div className="space-y-2">
@@ -459,7 +481,7 @@ export default function Services() {
               </div>
             ) : (
               <pre className="text-[12px] leading-5 text-gray-300 font-mono whitespace-pre-wrap break-all">
-                {logs || t('services.noLogs')}
+                {dialogView === 'unit' ? unitFile || t('services.noUnit') : logs || t('services.noLogs')}
               </pre>
             )}
           </div>
