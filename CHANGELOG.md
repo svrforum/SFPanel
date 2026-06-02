@@ -6,6 +6,57 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.16.0] – 2026-06-02
+
+Module hardening sweep. Stability, security, and optimization fixes across ~20
+feature modules from the 2026-06-02 multi-module review. No breaking changes;
+additive API only (optional cron `expected_raw`, `CRON_CONFLICT` /
+`PROXY_RESPONSE_TOO_LARGE` error codes). Full findings + verification log in
+`docs/superpowers/research/2026-06-02-module-review/findings.md`; plan in
+`docs/superpowers/plans/2026-06-02-module-hardening-sweep.md`.
+
+### Fixed
+
+- **auth** — serialize refresh-token rotation so two concurrent refreshes of the
+  same token under WAL no longer deadlock (`SQLITE_BUSY_SNAPSHOT`) into a 500;
+  record an audit event for unknown-username login failures.
+- **alert** — dispatch notifications on a bounded async worker queue so a slow
+  webhook can't stall the serial docker-events listener or the evaluate ticker;
+  reserve the cooldown atomically to close a concurrent double-send race.
+- **logs** — match the custom-source allowlist on path-segment boundaries (was a
+  boundary-less prefix that silently depended on caller trailing-slash
+  discipline); count filtered totals from the in-memory grep result.
+- **firewall** — capture the DNAT rule protocol from the regex instead of a
+  whole-line `udp` substring scan (a mis-detect produced an ineffective DROP);
+  serialize DOCKER-USER chain edits so concurrent renumbering can't delete the
+  wrong rule; write fail2ban jail configs atomically.
+- **disk** — guard `findMountPoint` against an empty resolved device path (was
+  mis-gating format/resize via pseudo-fs); bound `smartctl` with a 45s timeout;
+  accept `/dev/mapper` LVM targets in `ExpandFilesystem`.
+- **cluster** — close the opposite relay connection on one-sided failure (was
+  waiting out a 60s deadline); return a clear error when a proxied response
+  exceeds the gRPC cap; re-fetch nodes from the live FSM during a rolling update.
+- **db** — check `rows.Scan`/`rows.Err` on event, alert, audit, and settings
+  reads; make audit-clear count+tombstone+delete a single transaction.
+- **system/files** — surface restore-restart failures (was fire-and-forget) and
+  stream the file-edit backup instead of reading the original fully into memory.
+- **terminal** — add a WS read deadline + keepalive so half-open clients are
+  detected promptly instead of at TCP RTO.
+
+### Changed
+
+- **process/services/disk** — collect TTL-cache data without holding the write
+  lock so a refresh no longer blocks concurrent dashboard readers; move the
+  services and disk caches onto the Handler.
+- **docker** — parallelize image-update checks with a per-image timeout.
+- **cluster** — expire pooled gRPC connections on idle rather than creation age;
+  run background loops via `safe.Go`.
+- **cron** — optional `expected_raw` optimistic-concurrency guard against
+  line-index TOCTOU on update/delete (409 `CRON_CONFLICT` on mismatch; omitting
+  it preserves prior behavior).
+
+---
+
 ## [0.15.3] – 2026-05-24
 
 Security hot-fix. Closes the 4 most operator-impacting Critical findings
