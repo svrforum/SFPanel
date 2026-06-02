@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Crown, ChevronDown, ChevronRight, Server, LogOut, PanelLeftClose, PanelLeftOpen, Coffee } from 'lucide-react'
 
@@ -43,6 +43,19 @@ export default function TreePanel({
   const isDatacenterSelected = selection.type === 'datacenter'
   const [nodesExpanded, setNodesExpanded] = useState(true)
 
+  // Stable ordering: the local node first, then alphabetical by name. The API
+  // derives the node list from a Go map whose iteration order is random, so
+  // without this the sidebar reshuffles between renders/pages.
+  const sortedNodes = useMemo(
+    () =>
+      [...nodes].sort((a, b) => {
+        if (a.id === localId) return -1
+        if (b.id === localId) return 1
+        return (a.name || a.id).localeCompare(b.name || b.id)
+      }),
+    [nodes, localId],
+  )
+
   const statusColor = (status: string) => {
     switch (status) {
       case 'online': return 'bg-[#00c471]'
@@ -77,7 +90,7 @@ export default function TreePanel({
           </button>
 
           {/* Node dots */}
-          {nodes.map((node) => (
+          {sortedNodes.map((node) => (
             <button
               key={node.id}
               onClick={() => onSelect({ type: 'node', nodeId: node.id })}
@@ -145,7 +158,7 @@ export default function TreePanel({
 
         {/* Node list — collapsible */}
         {nodesExpanded && <div className="ml-3 border-l border-border pl-1 mt-0.5">
-          {nodes.map((node) => {
+          {sortedNodes.map((node) => {
             const isSelected = selection.type === 'node' && selection.nodeId === node.id
             const isLeader = node.id === clusterStatus.leader_id
             const isLocal = node.id === localId

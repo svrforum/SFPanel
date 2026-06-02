@@ -9,7 +9,11 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'prompt',
+      // autoUpdate (with skipWaiting/clientsClaim below) so a new service
+      // worker takes over on the next load instead of waiting for a prompt the
+      // app never surfaces — that wait is what left upgraded panels serving a
+      // stale precached shell pointing at chunk hashes that no longer exist.
+      registerType: 'autoUpdate',
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         globPatterns: ['**/*.{css,html,ico,png,svg,woff2}', 'assets/*.js'],

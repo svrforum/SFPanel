@@ -10,6 +10,16 @@ interface State {
     error: Error | null
 }
 
+// isChunkLoadError detects a failed dynamic import — the symptom of an
+// already-open tab requesting a lazy chunk whose hash changed across a panel
+// upgrade (the old hash now 404s). These are recoverable by reloading.
+function isChunkLoadError(error: Error | null): boolean {
+    const msg = error?.message || ''
+    return /dynamically imported module|module script failed|Failed to fetch dynamically|ChunkLoadError|Loading chunk/i.test(
+        msg,
+    )
+}
+
 export class ErrorBoundary extends Component<Props, State> {
     constructor(props: Props) {
         super(props)
@@ -22,6 +32,17 @@ export class ErrorBoundary extends Component<Props, State> {
 
     componentDidCatch(error: Error, info: React.ErrorInfo) {
         console.error('ErrorBoundary caught:', error, info.componentStack)
+        // Belt-and-suspenders for the post-upgrade stale-chunk case if the
+        // vite:preloadError handler in main.tsx didn't catch it: reload once to
+        // pull the fresh shell. A 10s timestamp guard prevents a reload loop.
+        if (isChunkLoadError(error)) {
+            const KEY = 'sfpanel:chunk-reload-at'
+            const last = Number(sessionStorage.getItem(KEY) || 0)
+            if (Date.now() - last > 10000) {
+                sessionStorage.setItem(KEY, String(Date.now()))
+                window.location.reload()
+            }
+        }
     }
 
     render() {
