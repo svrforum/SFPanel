@@ -6,6 +6,30 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.17.0] – 2026-06-03
+
+Feature/UX improvements from the 2026-06-02 per-feature review (round 1 of an
+ongoing pass — deepening existing modules, no new subsystems).
+
+### Added
+
+- **dashboard** — the metrics-history chart now plots **root-disk usage** (amber
+  series) alongside CPU and memory. `metrics_history` gains a `disk_percent`
+  column (migration 32, old rows default 0).
+- **services** — **view the unit file** (`systemctl cat`, read-only) via a
+  Logs/Unit-file toggle in the service dialog. New `GET /system/services/:name/cat`.
+- **cron** — **run a job on demand** with captured output. New `POST /cron/:id/run`
+  (executes the entry via `sh -c`, 5m timeout) + a per-job run-now button/dialog.
+- **firewall** — the lockout-guard **force override** is now reachable from the
+  UI: a 409 from enable/add/delete opens a dialog showing the guard's reason and
+  re-runs with `force=true` on confirm. API errors now carry HTTP status/code.
+
+### Fixed
+
+- **packages** — streamed installs/upgrades showed a green "completed" even when
+  the underlying apt/npm/dev-tool command failed; the output dialog now detects
+  `ERROR:` markers and renders a real failure state.
+
 ## [0.16.2] – 2026-06-02
 
 Spec documentation refresh + two small accuracy fixes. A page-by-page review
