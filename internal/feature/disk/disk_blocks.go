@@ -16,7 +16,9 @@ import (
 
 // ---------- Disk cache ----------
 
-var diskCache struct {
+// diskCacheData is the per-Handler lsblk + iostat cache. Per-Handler (not a
+// package global) so parallel tests and two router instances don't share state.
+type diskCacheData struct {
 	sync.RWMutex
 	devices   []BlockDevice
 	iostats   []IOStat
@@ -30,30 +32,20 @@ const diskCacheTTL = 5 * time.Second
 // cache-miss request kills the work; cache hits short-circuit without
 // touching ctx.
 func (h *Handler) getCachedDiskData(ctx context.Context) ([]BlockDevice, []IOStat, error) {
-	diskCache.RLock()
-	if time.Since(diskCache.updatedAt) < diskCacheTTL {
-		devices := make([]BlockDevice, len(diskCache.devices))
-		copy(devices, diskCache.devices)
-		iostats := make([]IOStat, len(diskCache.iostats))
-		copy(iostats, diskCache.iostats)
-		diskCache.RUnlock()
+	h.cache.RLock()
+	if time.Since(h.cache.updatedAt) < diskCacheTTL {
+		devices := make([]BlockDevice, len(h.cache.devices))
+		copy(devices, h.cache.devices)
+		iostats := make([]IOStat, len(h.cache.iostats))
+		copy(iostats, h.cache.iostats)
+		h.cache.RUnlock()
 		return devices, iostats, nil
 	}
-	diskCache.RUnlock()
+	h.cache.RUnlock()
 
-	diskCache.Lock()
-	defer diskCache.Unlock()
-
-	// Double-check
-	if time.Since(diskCache.updatedAt) < diskCacheTTL {
-		devices := make([]BlockDevice, len(diskCache.devices))
-		copy(devices, diskCache.devices)
-		iostats := make([]IOStat, len(diskCache.iostats))
-		copy(iostats, diskCache.iostats)
-		return devices, iostats, nil
-	}
-
-	// Fetch lsblk
+	// Cache miss — fetch WITHOUT holding the lock (lsblk + iostat are slow);
+	// holding the write lock across them would block concurrent readers. Take
+	// the write lock only to publish.
 	outStr, err := h.Cmd.RunCtx(ctx, "lsblk", "-J", "-b", "-o",
 		"NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR")
 	if err != nil {
@@ -70,9 +62,11 @@ func (h *Handler) getCachedDiskData(ctx context.Context) ([]BlockDevice, []IOSta
 		iostats = []IOStat{} // non-fatal
 	}
 
-	diskCache.devices = devices
-	diskCache.iostats = iostats
-	diskCache.updatedAt = time.Now()
+	h.cache.Lock()
+	h.cache.devices = devices
+	h.cache.iostats = iostats
+	h.cache.updatedAt = time.Now()
+	h.cache.Unlock()
 
 	devCopy := make([]BlockDevice, len(devices))
 	copy(devCopy, devices)

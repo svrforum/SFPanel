@@ -196,14 +196,8 @@ func TestFormatPartition_RefusesDeviceMountedAtProtectedPath(t *testing.T) {
 // which on the mock returns "" — JSON unmarshal of "" then fails and the
 // handler emits ErrDiskError 500.
 func TestListDisks_GracefulWhenLsblkMissing(t *testing.T) {
-	// Reset the package-level cache so a previously-cached fixture from
-	// another test cannot leak in and mask the missing-binary path.
-	diskCache.Lock()
-	diskCache.devices = nil
-	diskCache.iostats = nil
-	diskCache.updatedAt = time.Time{}
-	diskCache.Unlock()
-
+	// Each Handler owns its cache now, so a fresh Handler starts cache-empty —
+	// no package-global reset needed to avoid fixture leakage between tests.
 	h := &Handler{Cmd: exec.NewMockCommander()}
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/disk/disks", nil)

@@ -13,6 +13,8 @@ import (
 // (block devices, SMART, partitions, filesystems, LVM, RAID, swap, I/O stats).
 type Handler struct {
 	Cmd exec.Commander
+	// cache holds the per-Handler lsblk + iostat snapshot (see diskCacheData).
+	cache diskCacheData
 }
 
 // ---------- Types ----------
