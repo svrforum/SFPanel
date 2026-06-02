@@ -217,6 +217,19 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 
 ---
 
+### DELETE /api/v1/auth/2fa
+2FA 비활성화. 비밀번호를 재확인한 뒤 admin 행의 `totp_secret`을 제거.
+
+- **인증 필요**: 예
+
+**Request Body:** `{ "password": "string" }`
+
+**Response (200):** `{ "success": true, "data": { "message": "2FA disabled" } }`
+
+**에러 응답:** `INVALID_CREDENTIALS`(401) 비밀번호 불일치.
+
+---
+
 ### POST /api/v1/auth/change-password
 비밀번호 변경.
 
@@ -435,6 +448,24 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 | `version` | string | 패널 버전 (`v` 접두사 제거됨) |
 | `metrics_history` | array | 메트릭 히스토리 포인트 (`range` 윈도우) |
 | `update_info` | object | 최신 버전/업데이트 가용 정보 (`latest_version` 등) |
+
+---
+
+### GET /api/v1/system/portmap
+호스트 포트별로 UFW 규칙 + Docker DNAT 컨테이너 + 호스트 프로세스를 통합한 포트 맵 (`ufw status numbered` + Docker DNAT + `ss -tlnp/-ulnp` 집계).
+
+- **인증 필요**: 예
+
+**Response (200):** `data`는 `PortMapRow` 배열:
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `port` | number | 호스트 포트 |
+| `proto` | string | `tcp` \| `udp` |
+| `state` | string | `listening` \| `bound` |
+| `firewall` | object\|null | `{action, scope, rule_id, source:"ufw"}` (UFW 규칙) |
+| `containers` | array | `{id, name, stack}` (해당 포트를 발행한 컨테이너) |
+| `process` | object\|null | `{pid, name}` (리스닝 호스트 프로세스) |
 
 ---
 
@@ -2385,34 +2416,21 @@ Fail2ban jail 중지 (비활성화).
 |------|------|
 | `id` | 앱 ID (예: `uptime-kuma`) |
 
-**Request Body:**
-```json
-{
-  "env": {
-    "PORT": "3001",
-    "PASSWORD": "my-secret"
-  }
-}
-```
+**응답은 JSON이 아니라 SSE(`text/event-stream`) 스트림입니다.** 각 `data:` 라인은 `{stage, message, done, success}` (stage: `prepare`/`fetch` → `pull` → `start` → `done`).
 
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "message": "앱이 설치되었습니다",
-    "id": "uptime-kuma",
-    "output": "docker compose up -d 출력..."
-  }
-}
-```
+**Request Body (심플 모드):** `{ "env": { "PORT": "3001", "PASSWORD": "my-secret" } }`
 
-**에러 응답:**
+**Request Body (고급 모드):** `{ "advanced": true, "compose": "<yaml>", "env_raw": "<.env>", "password": "<재인증>" }` — 비밀번호 bcrypt 재확인 + `privileged`/`pid:host`/hostfs/docker.sock 차단 검증. 요청 바디 1MB 캡.
+
+**스트림 종료/에러** (스트림 시작 전 사전 검사):
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
-| `APP_NOT_FOUND` | 404 | 존재하지 않는 앱 ID |
-| `APP_ALREADY_INSTALLED` | 409 | 이미 설치된 앱 |
-| `APP_INSTALL_ERROR` | 500 | 설치 실패 |
+| `INVALID_ID` | 400 | 잘못된 앱 ID |
+| `NOT_FOUND` | 404 | 존재하지 않는 앱 |
+| `PORT_CONFLICT` | 409 | 선언 포트가 이미 사용 중 |
+| `CONTAINER_CONFLICT` | 409 | 컨테이너 이름 충돌 |
+| `APPSTORE_ERROR` | 500 | 고급 검증 실패 등 |
+(스트림 시작 후 실패는 `{stage:"...",success:false}` 이벤트로 전달)
 
 ---
 
@@ -2774,6 +2792,7 @@ API 요청 기록을 조회하고 관리합니다. 감사 로그는 인증된 �
 | `status` | number | HTTP 응답 상태 코드 |
 | `ip` | string | 클라이언트 IP 주소 |
 | `node_id` | string | 클러스터 노드 ID (클러스터 미사용 시 빈 문자열) |
+| `protected` | bool | 보호 행(tombstone 등) 여부 — wipe에서 제외 |
 | `created_at` | string | 기록 일시 (ISO 8601) |
 
 **에러 응답:**
@@ -2784,16 +2803,20 @@ API 요청 기록을 조회하고 관리합니다. 감사 로그는 인증된 �
 ---
 
 ### DELETE /api/v1/audit/logs
-감사 로그 전체 삭제.
+감사 로그 삭제 (범위 지정 + tombstone 기록).
 
 - **인증 필요**: 예
+- **쿼리 파라미터** (택일, 둘 다 지정 시 400 `INVALID_VALUE`): `days=N`(N일 이전 삭제) | `before=ISO8601|YYYY-MM-DD`(해당 시점 이전 삭제). 미지정 시 보호되지 않은 전체 삭제.
+- **동작**: 삭제 전 `protected=1` tombstone 행을 먼저 INSERT(수행자/IP/노드/삭제 건수)한 뒤 `DELETE … WHERE protected=0 [+ 날짜필터]`를 같은 트랜잭션으로 실행 — tombstone·보호 행은 면역.
 
 **Response (200):**
 ```json
 {
   "success": true,
   "data": {
-    "message": "Audit logs cleared"
+    "message": "Audit logs cleared",
+    "deleted": 0,
+    "tombstone_id": 0
   }
 }
 ```
@@ -3858,6 +3881,7 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | GET | `/api/v1/auth/2fa/status` | O | 2FA 상태 확인 |
 | POST | `/api/v1/auth/2fa/setup` | O | 2FA 시크릿 생성 |
 | POST | `/api/v1/auth/2fa/verify` | O | 2FA 활성화 |
+| DELETE | `/api/v1/auth/2fa` | O | 2FA 비활성화 (비밀번호 재확인) |
 | POST | `/api/v1/auth/change-password` | O | 비밀번호 변경 |
 | POST | `/api/v1/auth/ws-ticket` | O | WebSocket 단발성 ticket 발급 (v0.13.2+) |
 | GET | `/api/v1/settings` | O | 설정 조회 |
@@ -3875,6 +3899,7 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | GET | `/api/v1/system/info` | O | 시스템 정보 + 메트릭 + 버전 |
 | GET | `/api/v1/system/metrics-history` | O | 24시간 메트릭 히스토리 |
 | GET | `/api/v1/system/overview` | O | 대시보드 통합 엔드포인트 |
+| GET | `/api/v1/system/portmap` | O | 포트 맵 (UFW+Docker DNAT+프로세스 통합) |
 | GET | `/api/v1/system/update-check` | O | 업데이트 확인 |
 | POST | `/api/v1/system/update` | O | 업데이트 실행 (SSE) |
 | POST | `/api/v1/system/backup` | O | 시스템 백업 다운로드 |
