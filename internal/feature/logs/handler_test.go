@@ -112,6 +112,31 @@ func TestValidateCustomSourcePath_RejectsBadInputs(t *testing.T) {
 	}
 }
 
+// TestValidateCustomSourcePath_PrefixBoundary verifies sibling-directory names
+// that merely share a textual prefix with an allowlist entry are rejected, and
+// that matching is robust even when a caller forgets the trailing slash on a
+// prefix. Also confirms a legitimate filename containing ".." is accepted.
+func TestValidateCustomSourcePath_PrefixBoundary(t *testing.T) {
+	reject := []string{
+		"/var/log-evil/x.log", // sibling dir sharing the "/var/log" prefix
+		"/opt-backup/x",       // sibling dir sharing the "/opt" prefix
+	}
+	for _, p := range reject {
+		if err := validateCustomSourcePath(p, []string{"/var/log", "/opt"}); err == nil {
+			t.Errorf("validateCustomSourcePath(%q) accepted; want rejection (prefix boundary)", p)
+		}
+	}
+	// A real file under the allowlist whose name contains ".." must be allowed.
+	tmp := t.TempDir()
+	dotted := filepath.Join(tmp, "app..2026.log")
+	if err := os.WriteFile(dotted, []byte("x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCustomSourcePath(dotted, []string{tmp}); err != nil {
+		t.Errorf("validateCustomSourcePath(%q) rejected a legitimate dotted filename: %v", dotted, err)
+	}
+}
+
 // TestLogStreamDrain_TimesOutOnWedgedScanner documents the drain pattern used
 // in LogStreamWS: after killing the subprocess, we wait at most 2 seconds for
 // the scanner goroutine to exit. If the scanner is wedged (e.g. SIGKILL race

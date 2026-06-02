@@ -42,9 +42,10 @@ func validateCustomSourcePath(p string, allowedPrefixes []string) error {
 	if !filepath.IsAbs(p) {
 		return fmt.Errorf("path must be absolute")
 	}
-	if strings.Contains(p, "..") {
-		return fmt.Errorf("path must not contain '..'")
-	}
+	// filepath.Clean collapses any ".." segments; a path that escapes the
+	// allowlist that way no longer matches a prefix below and is rejected.
+	// We deliberately do not reject a literal ".." substring — that wrongly
+	// blocks legitimate filenames like "app..2026.log".
 	clean := filepath.Clean(p)
 	if !hasAllowedPrefix(clean, allowedPrefixes) {
 		return fmt.Errorf("custom log path is not in the allowlist")
@@ -61,9 +62,18 @@ func validateCustomSourcePath(p string, allowedPrefixes []string) error {
 	return nil
 }
 
+// hasAllowedPrefix reports whether cleaned path p sits at or below one of the
+// allowed directory prefixes. Matching is on path-segment boundaries so a
+// sibling directory that merely shares a textual prefix ("/var/log-evil" vs
+// "/var/log") is rejected. It is robust whether or not the caller includes a
+// trailing slash on the prefix, so correctness no longer depends on that.
 func hasAllowedPrefix(p string, prefixes []string) bool {
 	for _, prefix := range prefixes {
-		if strings.HasPrefix(p, prefix) {
+		dir := strings.TrimRight(prefix, "/")
+		if dir == "" {
+			continue
+		}
+		if p == dir || strings.HasPrefix(p, dir+"/") {
 			return true
 		}
 	}
