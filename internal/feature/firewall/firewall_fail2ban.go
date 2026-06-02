@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -769,7 +770,28 @@ enabled = false
 	})
 }
 
-// writeFile writes content to a file path with 0644 permissions.
+// writeFile atomically writes content to a file path with 0644 permissions.
+// A crash mid-write must not leave a truncated jail .local that the subsequent
+// fail2ban-client reload rejects, so write to a temp file in the same directory
+// and rename into place (rename is atomic on the same filesystem).
 func writeFile(path, content string) error {
-	return os.WriteFile(path, []byte(content), 0644)
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".tmp-"+filepath.Base(path)+"-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op once the rename succeeds
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
