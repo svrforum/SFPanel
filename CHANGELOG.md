@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.16.2] – 2026-06-02
+
+Spec documentation refresh + two small accuracy fixes. A page-by-page review
+(dashboard through desktop) brought `docs/specs/{tech-features,frontend-spec,
+api-spec}.md` back in line with current behavior — they had drifted since the
+2026-04-19 snapshot (cluster tree UI, container observability, dev-tool
+installers, port map, scoped audit clear, SSE install/upgrade, etc.).
+
+### Fixed
+
+- **web/src/types/api.ts** — `AuditLogEntry` now includes the `node_id` and
+  `protected` fields the backend already returns.
+- **web/src/pages/Connect.tsx** — the desktop connect screen's example URLs and
+  placeholder used the dropped legacy `:19443` port; updated to `:3628`.
+
+### Docs
+
+- Refreshed all feature/page/API spec sections to match the shipped code
+  (no behavioral change to the server).
+
 ## [0.16.1] – 2026-06-02
 
 Frontend serving hot-fix. A live UI walkthrough (desktop + mobile) found that an
