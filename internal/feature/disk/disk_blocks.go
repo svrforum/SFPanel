@@ -249,7 +249,12 @@ func (h *Handler) GetSmartInfo(c echo.Context) error {
 	}
 
 	devPath := "/dev/" + device
-	outStr, err := h.Cmd.RunCtx(c.Request().Context(), "smartctl", "-j", "-a", devPath)
+	// Bound smartctl explicitly: a failing or spinning-down disk can make it
+	// block, and RunCtx would otherwise fall back to the 5-minute default
+	// timeout, pinning a goroutine (and the device) that whole time.
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 45*time.Second)
+	defer cancel()
+	outStr, err := h.Cmd.RunCtx(ctx, "smartctl", "-j", "-a", devPath)
 	if err != nil {
 		// smartctl returns non-zero exit codes for various SMART statuses;
 		// we still try to parse the JSON output.

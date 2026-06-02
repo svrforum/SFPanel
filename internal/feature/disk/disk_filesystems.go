@@ -844,11 +844,18 @@ func findMountPoint(devPath string) (string, error) {
 		mountDev := fields[0]
 		mountPoint := fields[1]
 
-		if mountDev == devPath || mountDev == resolvedDev {
+		if mountDev == devPath || (resolvedDev != "" && mountDev == resolvedDev) {
 			return mountPoint, nil
 		}
 
-		// Also resolve the mount device for symlink comparison
+		// Also resolve the mount device for symlink comparison. Guard against
+		// the empty-string case: when devPath doesn't exist EvalSymlinks yields
+		// resolvedDev=="" and pseudo-filesystems (proc, sysfs, tmpfs, cgroup2)
+		// also fail to resolve, so an unguarded ""=="" would wrongly return an
+		// unrelated mountpoint and mis-gate format/resize decisions.
+		if resolvedDev == "" {
+			continue
+		}
 		resolvedMountDev, _ := filepath.EvalSymlinks(mountDev)
 		if resolvedMountDev == resolvedDev {
 			return mountPoint, nil

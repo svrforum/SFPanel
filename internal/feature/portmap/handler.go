@@ -114,8 +114,10 @@ func parseUFWForPortMap(output string) map[int]FirewallInfo {
 		ruleNumStr := strings.TrimSpace(strings.Trim(line[1:closeIdx], " "))
 		ruleID, _ := strconv.Atoi(ruleNumStr)
 		body := strings.TrimSpace(line[closeIdx+1:])
-		// Strip trailing "# comment".
-		if hashIdx := strings.LastIndex(body, "#"); hashIdx >= 0 {
+		// Strip the trailing " # comment". Split on the exact " # " sequence
+		// (matching firewall_ufw.go's parser) rather than the last '#', which
+		// mis-splits rules whose address or comment legitimately contains '#'.
+		if hashIdx := strings.Index(body, " # "); hashIdx >= 0 {
 			body = strings.TrimSpace(body[:hashIdx])
 		}
 		fields := strings.Fields(body)
