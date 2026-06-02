@@ -113,7 +113,7 @@
   },
   "setup": {
     "title": "SFPanel",
-    "subtitle": "초기 설정 \u2014 관리자 계정 생성",
+    "subtitle": "초기 설정 — 관리자 계정 생성",
     "username": "사용자명",
     "password": "비밀번호",
     "passwordPlaceholder": "최소 8자 이상",
@@ -650,7 +650,9 @@
       "labelsUpdated": "라벨이 업데이트되었습니다",
       "transferLeadership": "리더십 이전",
       "confirmTransfer": "{{name}} 노드로 리더십을 이전하시겠습니까?",
-      "leaderTransferred": "{{name}} 노드로 리더십이 이전되었습니다"
+      "leaderTransferred": "{{name}} 노드로 리더십이 이전되었습니다",
+      "editAddress": "주소 편집",
+      "addressUpdated": "노드 주소가 업데이트되었습니다"
     },
     "tokens": {
       "generateTitle": "참가 토큰 생성",
@@ -660,7 +662,20 @@
       "generatedToken": "생성된 토큰",
       "expiresAt": "만료",
       "joinCommand": "참가 명령어",
-      "copied": "클립보드에 복사됨"
+      "copied": "클립보드에 복사됨",
+      "activeTitle": "활성 토큰",
+      "activeDescription": "아직 만료되거나 폐기되지 않은 참가 토큰",
+      "empty": "활성 토큰이 없습니다",
+      "revoke": "폐기",
+      "revokeConfirm": "이 참가 토큰을 폐기하시겠습니까? 노드가 더 이상 이 토큰으로 참가할 수 없습니다.",
+      "revoked": "토큰이 폐기되었습니다",
+      "createdBy": "생성자"
+    },
+    "leave": {
+      "action": "클러스터 떠나기",
+      "confirm": "이 노드가 클러스터를 떠나고 서비스가 재시작됩니다. 계속하시겠습니까?",
+      "forceConfirm": "떠나면 클러스터가 정족수 아래로 떨어집니다. 그래도 강제로 떠나시겠습니까? 남은 노드가 정족수를 잃을 수 있습니다.",
+      "success": "클러스터를 떠나는 중입니다. 서비스가 재시작됩니다."
     }
   },
   "settings": {
@@ -950,7 +965,14 @@
     "clear": "지우기",
     "disconnect": "연결 끊기",
     "connected": "연결됨",
-    "disconnected": "연결 끊김"
+    "disconnected": "연결 끊김",
+    "reattach": {
+      "button": "세션 다시 연결",
+      "title": "다시 연결 가능한 세션",
+      "empty": "다시 연결할 세션이 없습니다",
+      "attached": "연결됨",
+      "open": "열기"
+    }
   },
   "files": {
     "title": "파일 관리자",

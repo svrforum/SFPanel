@@ -227,6 +227,8 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	clusterGroup.GET("/overview", clusterHandler.GetOverview)
 	clusterGroup.GET("/nodes", clusterHandler.GetNodes)
 	clusterGroup.POST("/token", clusterHandler.CreateToken)
+	clusterGroup.GET("/tokens", clusterHandler.ListTokens)
+	clusterGroup.DELETE("/tokens/:id", clusterHandler.RevokeToken)
 	clusterGroup.DELETE("/nodes/:id", clusterHandler.RemoveNode)
 	clusterGroup.PATCH("/nodes/:id/labels", clusterHandler.UpdateNodeLabels)
 	clusterGroup.PATCH("/nodes/:id/address", clusterHandler.UpdateNodeAddress)
@@ -238,6 +240,10 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	clusterGroup.POST("/disband", clusterHandler.DisbandCluster)
 	clusterGroup.GET("/interfaces", clusterHandler.GetNetworkInterfaces)
 	clusterGroup.POST("/update", clusterHandler.ClusterUpdate)
+
+	// Terminal: list the caller's live PTY sessions so the UI can reattach to a
+	// preserved shell (scrollback included) instead of always opening a new one.
+	authorized.GET("/terminal/sessions", featureTerminal.ListSessions)
 
 	// Audit logs
 	auditHandler := &featureAudit.Handler{DB: database, LocalNodeIDFn: localNodeIDFn}

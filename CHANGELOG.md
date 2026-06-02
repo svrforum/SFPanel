@@ -6,6 +6,40 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.19.0] – 2026-06-03
+
+Per-feature improvement pass, round 3 — finishing the "backend exists, UI
+missing" gaps and a security fix surfaced while testing the self-update flow.
+
+### Fixed
+
+- **web/security** — streaming POST requests that bypass the JSON api client
+  (system self-update, backup/restore, image pull, compose up/update, file
+  upload, and the appstore/packages/tailscale install streams) omitted the
+  `X-CSRF-Token` header, so `CSRFProtect` rejected every one with **403**. This
+  silently broke the in-panel self-update (and several install flows) from the
+  browser. All streaming call sites now route headers through a shared
+  `api.streamHeaders()` that carries both the Bearer token and the CSRF
+  double-submit token.
+- **compose** — the per-service healthcheck indicator used an indentation-based
+  line scanner that missed quoted service names, flow-style blocks, and
+  healthchecks pulled in via YAML anchors + the `<<` merge key. Replaced with a
+  real YAML parse (also honors `healthcheck: {disable: true}`). Parser tested.
+
+### Added
+
+- **cluster** — **list and revoke pending join tokens** (`GET/DELETE
+  /cluster/tokens`). The list is redacted (masked value + short fingerprint;
+  full tokens are never returned) so a mis-issued invite can be invalidated
+  before use.
+- **cluster** — **edit a node's advertised address** (API + gRPC) inline and
+  **leave the cluster** from the local node's row, with a quorum-loss force
+  override. Both backend routes existed but had no UI.
+- **terminal** — **reattach to a preserved PTY session** (`GET
+  /terminal/sessions` + a picker). The server kept sessions and scrollback alive
+  across disconnects, but the frontend always minted a fresh session id, leaving
+  them unreachable.
+
 ## [0.18.0] – 2026-06-03
 
 Per-feature improvement pass, round 2 (deepening existing modules).

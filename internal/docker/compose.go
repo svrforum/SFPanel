@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/docker/docker/api/types/container"
 )
 
@@ -552,37 +554,31 @@ func (m *ComposeManager) GetProjectServices(ctx context.Context, name string) ([
 	return services, nil
 }
 
-// hasComposeHealthcheck reports whether services.<name>.healthcheck is
-// present in the compose YAML. Lightweight string scan; for stamping
-// the UI indicator we don't need full Node-API parsing.
+// hasComposeHealthcheck reports whether services.<name>.healthcheck is present
+// in the compose YAML. It parses the document rather than scanning indented
+// lines: the old line scanner missed quoted service names ("web":), flow-style
+// blocks (healthcheck: {test: …}), and — most importantly — healthchecks pulled
+// in via YAML anchors and the `<<` merge key, which yaml.v3 resolves during
+// decode. (Compose-spec `extends:` is still invisible here; that's a compose
+// feature, not a YAML one, and would need full compose resolution to detect.)
 func hasComposeHealthcheck(yamlStr, service string) bool {
-	lines := strings.Split(yamlStr, "\n")
-	inService := false
-	svcIndent := -1
-	for _, line := range lines {
-		indent := 0
-		for indent < len(line) && line[indent] == ' ' {
-			indent++
-		}
-		trimmed := strings.TrimSpace(line)
-		if !inService {
-			if trimmed == service+":" {
-				inService = true
-				svcIndent = indent
-			}
-			continue
-		}
-		if trimmed == "" {
-			continue
-		}
-		if indent <= svcIndent {
-			return false
-		}
-		if strings.HasPrefix(trimmed, "healthcheck:") {
-			return true
-		}
+	var doc struct {
+		Services map[string]struct {
+			Healthcheck *struct {
+				Disable bool `yaml:"disable"`
+			} `yaml:"healthcheck"`
+		} `yaml:"services"`
 	}
-	return false
+	if err := yaml.Unmarshal([]byte(yamlStr), &doc); err != nil {
+		return false
+	}
+	svc, ok := doc.Services[service]
+	if !ok || svc.Healthcheck == nil {
+		return false
+	}
+	// `healthcheck: {disable: true}` is the documented way to turn an
+	// image's built-in healthcheck OFF — don't light up the indicator for it.
+	return !svc.Healthcheck.Disable
 }
 
 // ListProjectsWithStatus returns all compose projects with real-time service status.
@@ -894,10 +890,10 @@ func (m *ComposeManager) RollbackStack(ctx context.Context, name string) (string
 
 // RollbackDetail holds previous and current image info for a service.
 type RollbackDetail struct {
-	Service      string `json:"service"`
-	PrevImage    string `json:"prev_image"`
-	PrevImageID  string `json:"prev_image_id"`
-	CurrImageID  string `json:"curr_image_id,omitempty"`
+	Service     string `json:"service"`
+	PrevImage   string `json:"prev_image"`
+	PrevImageID string `json:"prev_image_id"`
+	CurrImageID string `json:"curr_image_id,omitempty"`
 }
 
 // RollbackInfo holds rollback availability and details for a project.

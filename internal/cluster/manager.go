@@ -330,6 +330,24 @@ func (m *Manager) CreateJoinToken(ttl time.Duration) (*JoinToken, error) {
 	return m.tokens.Create(ttl, m.nodeID)
 }
 
+// ListJoinTokens returns redacted info for all currently-valid join tokens.
+// Leader-only: tokens are minted and persisted on the leader's local disk.
+func (m *Manager) ListJoinTokens() ([]TokenInfo, error) {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return nil, ErrNotLeader
+	}
+	return m.tokens.List(), nil
+}
+
+// RevokeJoinToken deletes the token identified by its fingerprint id so a
+// mistakenly-minted invite can be invalidated before it's used.
+func (m *Manager) RevokeJoinToken(id string) error {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return ErrNotLeader
+	}
+	return m.tokens.Revoke(id)
+}
+
 // HandleJoin processes a join request from a new node (leader-only).
 func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) (caCert, nodeCert, nodeKey []byte, peers []Node, err error) {
 	if m.raft == nil || !m.raft.IsLeader() {

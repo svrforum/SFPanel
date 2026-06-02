@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { KeyRound, Copy, Check } from 'lucide-react'
+import { KeyRound, Copy, Check, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import type { ClusterTokenInfo } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
@@ -15,6 +16,17 @@ export default function ClusterTokens() {
   const [grpcPort, setGrpcPort] = useState<number>(3629)
   const [advertise, setAdvertise] = useState<string>('<leader-ip>')
   const [copied, setCopied] = useState(false)
+  const [activeTokens, setActiveTokens] = useState<ClusterTokenInfo[]>([])
+
+  const loadTokens = () => {
+    api.listClusterTokens()
+      .then((res) => setActiveTokens(res.tokens || []))
+      .catch((err) => toast.error(String(err)))
+  }
+
+  useEffect(() => {
+    loadTokens()
+  }, [])
 
   const handleGenerate = async () => {
     setGenerating(true)
@@ -24,10 +36,22 @@ export default function ClusterTokens() {
       setExpiresAt(result.expires_at)
       if (result.grpc_port) setGrpcPort(result.grpc_port)
       if (result.advertise_address) setAdvertise(result.advertise_address)
+      loadTokens()
     } catch (err) {
       toast.error(String(err))
     } finally {
       setGenerating(false)
+    }
+  }
+
+  const handleRevoke = async (id: string) => {
+    if (!confirm(t('cluster.tokens.revokeConfirm'))) return
+    try {
+      await api.revokeClusterToken(id)
+      toast.success(t('cluster.tokens.revoked'))
+      loadTokens()
+    } catch (err) {
+      toast.error(String(err))
     }
   }
 
@@ -120,6 +144,45 @@ export default function ClusterTokens() {
           </div>
         </div>
       )}
+
+      {/* Active tokens */}
+      <div className="bg-card rounded-2xl p-6 card-shadow space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+            <KeyRound className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-[15px] font-semibold">{t('cluster.tokens.activeTitle')}</h2>
+            <p className="text-[11px] text-muted-foreground">{t('cluster.tokens.activeDescription')}</p>
+          </div>
+        </div>
+
+        {activeTokens.length === 0 ? (
+          <p className="text-[13px] text-muted-foreground">{t('cluster.tokens.empty')}</p>
+        ) : (
+          <div className="divide-y divide-border">
+            {activeTokens.map((tok) => (
+              <div key={tok.id} className="flex items-center justify-between py-3">
+                <div className="min-w-0">
+                  <div className="font-mono text-[13px] break-all">{tok.masked}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {t('cluster.tokens.createdBy')}: {tok.created_by} · {t('cluster.tokens.expiresAt')}: {new Date(tok.expires_at).toLocaleString()}
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 shrink-0 text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10"
+                  onClick={() => handleRevoke(tok.id)}
+                  title={t('cluster.tokens.revoke')}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

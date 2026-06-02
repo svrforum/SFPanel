@@ -125,6 +125,77 @@ func (tm *TokenManager) Create(ttl time.Duration, createdBy string) (*JoinToken,
 	return jt, nil
 }
 
+// TokenInfo is a redacted view of a join token for listing. The full token
+// value is deliberately never returned — only a short fingerprint operators
+// use to revoke it, a masked display string, and lifecycle metadata. Splashing
+// live bearer credentials into a list response (and browser memory) would be a
+// needless exposure even on an admin-only page.
+type TokenInfo struct {
+	ID        string    `json:"id"`
+	Masked    string    `json:"masked"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedBy string    `json:"created_by"`
+}
+
+// tokenFingerprint is a short, stable identifier derived from a token's raw
+// (pre-HMAC) half. Long enough to avoid collisions among the handful of
+// concurrently-valid invites, short enough to drop into a URL path.
+func tokenFingerprint(token string) string {
+	raw := token
+	if i := strings.IndexByte(token, '.'); i > 0 {
+		raw = token[:i]
+	}
+	if len(raw) > 12 {
+		return raw[:12]
+	}
+	return raw
+}
+
+// maskToken renders a token for display without revealing enough to use it.
+func maskToken(token string) string {
+	if len(token) <= 12 {
+		return token
+	}
+	return token[:6] + "…" + token[len(token)-4:]
+}
+
+// List returns redacted info for all currently-valid (unexpired, unused)
+// tokens. Expired/used entries are dropped first so operators only ever see
+// actionable invites.
+func (tm *TokenManager) List() []TokenInfo {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	tm.cleanupLocked()
+	out := make([]TokenInfo, 0, len(tm.tokens))
+	for _, t := range tm.tokens {
+		out = append(out, TokenInfo{
+			ID:        tokenFingerprint(t.Token),
+			Masked:    maskToken(t.Token),
+			ExpiresAt: t.ExpiresAt,
+			CreatedBy: t.CreatedBy,
+		})
+	}
+	return out
+}
+
+// Revoke deletes the live token whose fingerprint matches id and persists the
+// change. Returns ErrTokenNotFound when no live token matches.
+func (tm *TokenManager) Revoke(id string) error {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	for k, t := range tm.tokens {
+		if tokenFingerprint(t.Token) == id {
+			delete(tm.tokens, k)
+			if err := tm.saveLocked(); err != nil {
+				tm.tokens[k] = t // keep memory and disk in sync on failure
+				return fmt.Errorf("persist token revocation: %w", err)
+			}
+			return nil
+		}
+	}
+	return ErrTokenNotFound
+}
+
 // verifyHMAC re-computes the expected HMAC for a token string and compares in
 // constant time. Today the token map alone is enough (tokens only enter via
 // Create), but verifying HMAC here means that if tokens ever get persisted

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Terminal as TerminalIcon, Plus, X, Minus, Search, Eraser } from 'lucide-react'
+import { Terminal as TerminalIcon, Plus, X, Minus, Search, Eraser, History } from 'lucide-react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -9,9 +9,11 @@ import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
+import type { TerminalSession as TerminalSessionInfo } from '@/types/api'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { toast } from 'sonner'
 
 interface Tab {
   id: string
@@ -370,6 +372,8 @@ export default function TerminalPage() {
   const [editingTabName, setEditingTabName] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [reattachOpen, setReattachOpen] = useState(false)
+  const [reattachSessions, setReattachSessions] = useState<TerminalSessionInfo[]>([])
   const editInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
@@ -391,6 +395,30 @@ export default function TerminalPage() {
     const num = tabCounter
     setTabs(prev => [...prev, { id, title: `Terminal ${num}` }])
     setActiveTab(id)
+  }, [])
+
+  const openReattach = useCallback(() => {
+    setReattachOpen(prev => {
+      const next = !prev
+      if (next) {
+        api.getTerminalSessions()
+          .then((res) => {
+            const openIds = new Set(tabs.map(tb => tb.id))
+            setReattachSessions((res.sessions || []).filter(s => !openIds.has(s.session_id)))
+          })
+          .catch((err) => toast.error(String(err)))
+      }
+      return next
+    })
+  }, [tabs])
+
+  const reattachSession = useCallback((sessionId: string) => {
+    setTabs(prev => {
+      if (prev.find(tb => tb.id === sessionId)) return prev
+      return [...prev, { id: sessionId, title: `Reattached ${sessionId.slice(0, 8)}` }]
+    })
+    setActiveTab(sessionId)
+    setReattachOpen(false)
   }, [])
 
   const closeTab = useCallback((id: string) => {
@@ -618,6 +646,50 @@ export default function TerminalPage() {
             <Eraser className="h-3.5 w-3.5" />
           </Button>
           <div className="w-px h-4 bg-[#292e42] mx-1" />
+          {/* Reattach session picker */}
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "h-6 w-6 p-0 hover:bg-[#1f2335]",
+                reattachOpen ? 'text-[#7aa2f7]' : 'text-[#565f89] hover:text-[#c0caf5]'
+              )}
+              onClick={openReattach}
+              title={t('terminal.reattach.button')}
+            >
+              <History className="h-3.5 w-3.5" />
+            </Button>
+            {reattachOpen && (
+              <div className="absolute right-0 top-8 z-20 w-72 max-h-80 overflow-y-auto rounded-xl bg-[#24283b] border border-[#292e42] shadow-lg py-1">
+                <div className="px-3 py-2 text-[11px] font-semibold text-[#a9b1d6] border-b border-[#292e42]">
+                  {t('terminal.reattach.title')}
+                </div>
+                {reattachSessions.length === 0 ? (
+                  <div className="px-3 py-3 text-[12px] text-[#565f89]">
+                    {t('terminal.reattach.empty')}
+                  </div>
+                ) : (
+                  reattachSessions.map((s) => (
+                    <button
+                      key={s.session_id}
+                      onClick={() => reattachSession(s.session_id)}
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[#1f2335] transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-mono text-[12px] text-[#c0caf5] truncate">{s.session_id.slice(0, 12)}</div>
+                        <div className="text-[10px] text-[#565f89]">
+                          {new Date(s.last_use).toLocaleString()}
+                          {s.attached ? ` · ${t('terminal.reattach.attached')}` : ''}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-[10px] text-[#7aa2f7]">{t('terminal.reattach.open')}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
           {/* New tab */}
           <Button
             variant="ghost"

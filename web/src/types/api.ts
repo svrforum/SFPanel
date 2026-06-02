@@ -859,6 +859,20 @@ export interface ClusterTokenResponse {
   advertise_address?: string
 }
 
+export interface ClusterTokenInfo {
+  id: string
+  masked: string
+  expires_at: string
+  created_by: string
+}
+
+export interface TerminalSession {
+  session_id: string
+  last_use: string
+  attached: boolean
+  reader_count: number
+}
+
 export interface ClusterEvent {
   id: number
   type: string

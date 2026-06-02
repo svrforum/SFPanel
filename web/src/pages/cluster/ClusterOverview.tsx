@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Loader2, Power, Download } from 'lucide-react'
+import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Loader2, Power, Download, Pencil, LogOut } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { ClusterOverview as ClusterOverviewType, ClusterStatus, ClusterEvent } from '@/types/api'
+import type { ClusterOverview as ClusterOverviewType, ClusterStatus, ClusterEvent, ClusterNode } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -16,6 +17,13 @@ export default function ClusterOverview() {
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [updateLog, setUpdateLog] = useState<Array<{ node_name?: string; step?: string; message?: string; overall?: string }>>([])
+
+  // Per-node address editing
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [editingNode, setEditingNode] = useState<ClusterNode | null>(null)
+  const [editApiAddr, setEditApiAddr] = useState('')
+  const [editGrpcAddr, setEditGrpcAddr] = useState('')
+  const [savingAddr, setSavingAddr] = useState(false)
 
   const loadData = useCallback(() => {
     Promise.all([
@@ -88,6 +96,48 @@ export default function ClusterOverview() {
     } finally {
       setUpdating(false)
       loadData()
+    }
+  }
+
+  const openEditAddress = (node: ClusterNode) => {
+    setEditingNode(node)
+    setEditApiAddr(node.api_address)
+    setEditGrpcAddr(node.grpc_address)
+    setEditDialogOpen(true)
+  }
+
+  const handleSaveAddress = async () => {
+    if (!editingNode) return
+    setSavingAddr(true)
+    try {
+      await api.updateClusterNodeAddress(editingNode.id, editApiAddr.trim(), editGrpcAddr.trim())
+      toast.success(t('cluster.nodes.addressUpdated'))
+      setEditDialogOpen(false)
+      loadData()
+    } catch (err) {
+      toast.error(String(err))
+    } finally {
+      setSavingAddr(false)
+    }
+  }
+
+  const handleLeave = async () => {
+    if (!confirm(t('cluster.leave.confirm'))) return
+    try {
+      await api.leaveCluster()
+      toast.success(t('cluster.leave.success'))
+    } catch (err) {
+      if ((err as { status?: number }).status === 409) {
+        if (!confirm(t('cluster.leave.forceConfirm'))) return
+        try {
+          await api.leaveCluster(true)
+          toast.success(t('cluster.leave.success'))
+        } catch (forceErr) {
+          toast.error(String(forceErr))
+        }
+        return
+      }
+      toast.error(String(err))
     }
   }
 
@@ -269,6 +319,29 @@ export default function ClusterOverview() {
                     {node.status === 'offline' ? t('cluster.overview.noMetrics') : t('cluster.overview.metricsLoading')}
                   </div>
                 )}
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
+                    onClick={() => openEditAddress(node)}
+                    title={t('cluster.nodes.editAddress')}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  {node.id === status.local_id && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10"
+                      onClick={handleLeave}
+                      title={t('cluster.leave.action')}
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
               </div>
             )
           })}
@@ -300,6 +373,47 @@ export default function ClusterOverview() {
           </div>
         </div>
       )}
+
+      {/* Edit node address dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[15px]">
+              {t('cluster.nodes.editAddress')}{editingNode ? ` — ${editingNode.name}` : ''}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                {t('cluster.nodes.apiAddress')}
+              </label>
+              <Input
+                value={editApiAddr}
+                onChange={(e) => setEditApiAddr(e.target.value)}
+                className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+                {t('cluster.nodes.grpcAddress')}
+              </label>
+              <Input
+                value={editGrpcAddr}
+                onChange={(e) => setEditGrpcAddr(e.target.value)}
+                className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setEditDialogOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button className="rounded-xl" onClick={handleSaveAddress} disabled={savingAddr}>
+              {savingAddr ? t('common.saving') : t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

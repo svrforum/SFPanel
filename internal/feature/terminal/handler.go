@@ -19,6 +19,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/common/safe"
 )
@@ -406,6 +407,55 @@ func terminalHome() string {
 		}
 	}
 	return "/tmp"
+}
+
+// SessionInfo describes a live PTY session for the reattach picker.
+type SessionInfo struct {
+	SessionID   string    `json:"session_id"`
+	LastUse     time.Time `json:"last_use"`
+	Attached    bool      `json:"attached"`
+	ReaderCount int       `json:"reader_count"`
+}
+
+// listSessionsFor returns the live PTY sessions owned by username. The trailing
+// NUL in the key prefix prevents one operator's name from matching another's
+// as a substring (e.g. "admin" vs "admin2").
+func listSessionsFor(username string) []SessionInfo {
+	prefix := username + "\x00"
+	sessionsMu.Lock()
+	defer sessionsMu.Unlock()
+	out := make([]SessionInfo, 0)
+	for key, s := range sessions {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		s.readersMu.Lock()
+		rc := len(s.readers)
+		s.readersMu.Unlock()
+		s.mu.Lock()
+		last := s.lastUse
+		s.mu.Unlock()
+		out = append(out, SessionInfo{
+			SessionID:   key[len(prefix):],
+			LastUse:     last,
+			Attached:    rc > 0,
+			ReaderCount: rc,
+		})
+	}
+	return out
+}
+
+// ListSessions returns the caller's live PTY sessions so the UI can offer a
+// reattach picker instead of always minting a fresh session_id — which would
+// otherwise strand the preserved shell and its scrollback. The server keeps
+// sessions alive across disconnects; without this the operator had no way to
+// discover and re-enter them.
+func ListSessions(c echo.Context) error {
+	username, _ := c.Get("username").(string)
+	if username == "" {
+		return response.Fail(c, http.StatusUnauthorized, response.ErrMissingToken, "authentication required")
+	}
+	return response.OK(c, map[string]interface{}{"sessions": listSessionsFor(username)})
 }
 
 // TerminalWS creates a new PTY session or reconnects to an existing one

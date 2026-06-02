@@ -42,6 +42,8 @@ import type {
   ClusterOverview,
   ClusterNodesResponse,
   ClusterTokenResponse,
+  ClusterTokenInfo,
+  TerminalSession,
   ClusterEventsResponse,
   ClusterInterfacesResponse,
   ClusterInitResponse,
@@ -1687,6 +1689,35 @@ class ApiClient {
     })
   }
 
+  listClusterTokens() {
+    return this.request<{ tokens: ClusterTokenInfo[] }>('/cluster/tokens')
+  }
+
+  revokeClusterToken(id: string) {
+    return this.request<{ revoked: string }>(`/cluster/tokens/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+  }
+
+  updateClusterNodeAddress(nodeId: string, apiAddress: string, grpcAddress: string) {
+    return this.request<{ node_id: string; api_address: string; grpc_address: string }>(
+      `/cluster/nodes/${encodeURIComponent(nodeId)}/address`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ api_address: apiAddress, grpc_address: grpcAddress }),
+      }
+    )
+  }
+
+  leaveCluster(force = false) {
+    const q = force ? '?force=true' : ''
+    return this.request<{ message: string }>(`/cluster/leave${q}`, { method: 'POST' })
+  }
+
+  getTerminalSessions() {
+    return this.request<{ sessions: TerminalSession[] }>('/terminal/sessions')
+  }
+
   getClusterEvents(limit?: number) {
     const params = limit ? `?limit=${limit}` : ''
     return this.request<ClusterEventsResponse>(`/cluster/events${params}`)
@@ -1714,11 +1745,10 @@ class ApiClient {
 
   clusterUpdateStream(mode: 'rolling' | 'simultaneous', onEvent: (data: Record<string, unknown>) => void): Promise<void> {
     return new Promise((resolve, reject) => {
-      const token = this.getToken()
-      if (!token) return reject(new Error('No token'))
+      if (!this.token) return reject(new Error('No token'))
       fetch(`${this.apiBase}/cluster/update`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: this.streamHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ mode }),
       }).then(resp => {
         if (!resp.ok || !resp.body) return reject(new Error(`HTTP ${resp.status}`))

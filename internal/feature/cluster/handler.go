@@ -638,6 +638,41 @@ func (h *Handler) CreateToken(c echo.Context) error {
 	})
 }
 
+func (h *Handler) ListTokens(c echo.Context) error {
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	// Tokens live on the leader's disk — followers forward so the operator
+	// sees the same list from whichever node they're logged into.
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
+	}
+	tokens, err := mgr.ListJoinTokens()
+	if err != nil {
+		return clusterErrResponse(c, err)
+	}
+	return response.OK(c, map[string]interface{}{"tokens": tokens})
+}
+
+func (h *Handler) RevokeToken(c echo.Context) error {
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
+	}
+	id := c.Param("id")
+	if id == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Token ID required")
+	}
+	if err := mgr.RevokeJoinToken(id); err != nil {
+		return clusterErrResponse(c, err)
+	}
+	return response.OK(c, map[string]string{"revoked": id})
+}
+
 func (h *Handler) RemoveNode(c echo.Context) error {
 	mgr := h.getManager()
 	if mgr == nil {

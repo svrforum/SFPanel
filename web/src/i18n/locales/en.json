@@ -113,7 +113,7 @@
   },
   "setup": {
     "title": "SFPanel",
-    "subtitle": "Initial Setup \u2014 Create your admin account",
+    "subtitle": "Initial Setup — Create your admin account",
     "username": "Username",
     "password": "Password",
     "passwordPlaceholder": "Min 8 characters",
@@ -650,7 +650,9 @@
       "labelsUpdated": "Labels updated",
       "transferLeadership": "Transfer leadership",
       "confirmTransfer": "Transfer leadership to {{name}}?",
-      "leaderTransferred": "Leadership transferred to {{name}}"
+      "leaderTransferred": "Leadership transferred to {{name}}",
+      "editAddress": "Edit address",
+      "addressUpdated": "Node address updated"
     },
     "tokens": {
       "generateTitle": "Generate Join Token",
@@ -660,7 +662,20 @@
       "generatedToken": "Generated Token",
       "expiresAt": "Expires",
       "joinCommand": "Join Command",
-      "copied": "Copied to clipboard"
+      "copied": "Copied to clipboard",
+      "activeTitle": "Active Tokens",
+      "activeDescription": "Join tokens that have not yet expired or been revoked",
+      "empty": "No active tokens",
+      "revoke": "Revoke",
+      "revokeConfirm": "Revoke this join token? Nodes can no longer use it to join.",
+      "revoked": "Token revoked",
+      "createdBy": "Created by"
+    },
+    "leave": {
+      "action": "Leave cluster",
+      "confirm": "This node will leave the cluster and the service will restart. Continue?",
+      "forceConfirm": "Leaving would drop the cluster below quorum. Force leave anyway? Remaining nodes may lose quorum.",
+      "success": "Leaving cluster. The service will restart."
     }
   },
   "settings": {
@@ -950,7 +965,14 @@
     "clear": "Clear",
     "disconnect": "Disconnect",
     "connected": "Connected",
-    "disconnected": "Disconnected"
+    "disconnected": "Disconnected",
+    "reattach": {
+      "button": "Reattach session",
+      "title": "Reattachable sessions",
+      "empty": "No reattachable sessions",
+      "attached": "attached",
+      "open": "Open"
+    }
   },
   "files": {
     "title": "File Manager",
