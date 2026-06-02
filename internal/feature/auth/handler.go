@@ -331,12 +331,18 @@ func (h *Handler) insertSecurityAuditRow(username, ip, action, reason, method st
 			slog.Warn("security audit insert failed", "component", "auth", "action", action, "reason", reason, "error", err)
 		}
 	}
-	if h.AuditWriter != nil && h.AuditWriter.Submit(insert) {
+	if h.AuditWriter != nil {
+		if h.AuditWriter.Submit(insert) {
+			return
+		}
+		// Queue full means sustained overload; spawning unbounded goroutines
+		// that all contend on the 4-connection pool would amplify it. Drop with
+		// a loud log instead — standard backpressure.
+		slog.Warn("security audit queue full, dropping event", "component", "auth", "action", action, "reason", reason)
 		return
 	}
-	// Fallback: AuditWriter not wired (tests construct Handler{} bare) or
-	// queue was full. A short-lived goroutine here preserves the
-	// non-blocking behavior callers expect from recordSecurityEvent.
+	// No AuditWriter wired (tests construct Handler{} bare): a short-lived
+	// goroutine preserves the non-blocking behavior callers expect.
 	go insert(h.DB)
 }
 

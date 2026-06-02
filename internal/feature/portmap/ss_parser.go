@@ -27,8 +27,13 @@ func ParseSs(out, proto string) []SsEntry {
 			continue
 		}
 		// `ss -H` columns: State Recv-Q Send-Q Local-Address:Port Peer-Address:Port [users:(...)]
-		// Local-Address:Port is field index 3 for tcp listening.
+		// Local-Address:Port is usually field index 3, but the column layout can
+		// shift; fall back to field 4 when field 3 has no ':' (mirrors
+		// firewall_ufw.go's parseSSOutput).
 		localAddr := fields[3]
+		if len(fields) > 4 && !strings.Contains(fields[3], ":") {
+			localAddr = fields[4]
+		}
 		m := ssAddrRe.FindStringSubmatch(localAddr)
 		if m == nil {
 			continue
