@@ -28,12 +28,31 @@ type NodeIdentity interface {
 	LocalNodeID() string
 }
 
+// fireQueueDepth bounds the number of pending notification dispatches. Sends
+// are the slow part (each webhook POST has a 10s timeout), so we move them off
+// the caller's goroutine — the periodic evaluate ticker and, more importantly,
+// the single serial docker-events listener (internal/monitor/docker_events.go)
+// must never block on a slow/hung webhook.
+const fireQueueDepth = 256
+
+// fireWorkers is the number of goroutines draining fireQueue concurrently.
+const fireWorkers = 2
+
 type Manager struct {
 	db       *sql.DB
 	identity NodeIdentity
 	mu       sync.RWMutex
-	lastSent map[int]time.Time // rule_id -> last sent time (cooldown)
+	lastSent map[int]time.Time // rule_id -> last successful send (cooldown)
+	inFlight map[int]bool      // rule_id -> a dispatch is queued/running
 	cancel   context.CancelFunc
+
+	fireQueue chan AlertFire
+	wg        sync.WaitGroup
+
+	// deliver performs the actual (slow, network) channel sends for a fire and
+	// returns the names of channels that succeeded. A field so tests can
+	// substitute a fast/blocking stub; defaults to deliverToChannels.
+	deliver func(f AlertFire) []string
 }
 
 // NewManager constructs a single-node alert manager (no cluster filtering).
@@ -45,15 +64,27 @@ func NewManager(db *sql.DB) *Manager {
 // with `node_scope="specific"` only fire on nodes whose ID appears in
 // `node_ids`. Pass nil for single-node deployments.
 func NewManagerWithIdentity(db *sql.DB, identity NodeIdentity) *Manager {
-	return &Manager{
-		db:       db,
-		identity: identity,
-		lastSent: make(map[int]time.Time),
+	m := &Manager{
+		db:        db,
+		identity:  identity,
+		lastSent:  make(map[int]time.Time),
+		inFlight:  make(map[int]bool),
+		fireQueue: make(chan AlertFire, fireQueueDepth),
 	}
+	m.deliver = m.deliverToChannels
+	return m
 }
 
 func (m *Manager) Start(ctx context.Context) {
 	ctx, m.cancel = context.WithCancel(ctx)
+
+	// Background dispatch workers drain fireQueue so notification sends never
+	// block the caller (evaluate ticker / docker-events listener).
+	for i := 0; i < fireWorkers; i++ {
+		m.wg.Add(1)
+		go m.dispatchWorker(ctx)
+	}
+
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
@@ -71,6 +102,20 @@ func (m *Manager) Start(ctx context.Context) {
 func (m *Manager) Stop() {
 	if m.cancel != nil {
 		m.cancel()
+	}
+	m.wg.Wait()
+}
+
+// dispatchWorker drains queued fires and performs the slow channel sends.
+func (m *Manager) dispatchWorker(ctx context.Context) {
+	defer m.wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case f := <-m.fireQueue:
+			m.runFire(f)
+		}
 	}
 }
 
@@ -170,25 +215,76 @@ func (m *Manager) evaluate() {
 	}
 }
 
-// Fire delivers an AlertFire through cooldown gate → channel routing →
-// alert_history insert. Returns silently if cooldown blocks the fire.
-// Used by ContainerDispatcher and by Manager.evaluate after refactor.
+// Fire gates an AlertFire through the cooldown + in-flight check and enqueues
+// it for asynchronous delivery. It never performs network I/O itself, so it is
+// safe to call from the serial docker-events listener and the evaluate ticker.
+//
+// The cooldown read and the in-flight reservation happen atomically under a
+// single lock, so two concurrent fires for the same rule (container-event path
+// + periodic evaluate) cannot both pass the gate and double-send.
 func (m *Manager) Fire(_ context.Context, f AlertFire) {
-	// Cooldown gate
-	m.mu.RLock()
-	lastSent, hasCooldown := m.lastSent[f.RuleID]
-	m.mu.RUnlock()
-	if hasCooldown && time.Since(lastSent) < time.Duration(f.Cooldown)*time.Second {
+	m.mu.Lock()
+	if lastSent, ok := m.lastSent[f.RuleID]; ok &&
+		time.Since(lastSent) < time.Duration(f.Cooldown)*time.Second {
+		m.mu.Unlock()
+		return
+	}
+	if m.inFlight[f.RuleID] {
+		m.mu.Unlock() // a dispatch for this rule is already queued/running
+		return
+	}
+	m.inFlight[f.RuleID] = true
+	m.mu.Unlock()
+
+	select {
+	case m.fireQueue <- f:
+	default:
+		// Queue saturated: drop this fire and release the reservation so a
+		// later fire for the same rule can retry rather than being wedged.
+		m.mu.Lock()
+		delete(m.inFlight, f.RuleID)
+		m.mu.Unlock()
+		logger.Warn("alert dispatch queue full, dropping fire", "rule", f.RuleName, "type", f.Type)
+	}
+}
+
+// runFire performs the slow send for one queued fire and updates cooldown,
+// in-flight, and history. Runs on a dispatchWorker goroutine.
+func (m *Manager) runFire(f AlertFire) {
+	sentChannelNames := m.deliver(f)
+
+	m.mu.Lock()
+	delete(m.inFlight, f.RuleID)
+	if len(sentChannelNames) > 0 {
+		// Cooldown starts only after a successful send, so a transient
+		// all-channels-down failure is retried on the next fire.
+		m.lastSent[f.RuleID] = time.Now()
+	}
+	m.mu.Unlock()
+
+	if len(sentChannelNames) == 0 {
+		logger.Warn("all channel sends failed, skipping history", "rule", f.RuleName, "type", f.Type)
 		return
 	}
 
+	sentJSON, _ := json.Marshal(sentChannelNames)
+	if _, err := m.db.Exec("INSERT INTO alert_history (rule_id, rule_name, type, severity, message, node_id, sent_channels) VALUES (?,?,?,?,?,?,?)",
+		f.RuleID, f.RuleName, f.Type, f.Severity, f.Message, "", string(sentJSON)); err != nil {
+		logger.Warn("failed to record history", "error", err)
+	}
+	logger.Info("triggered", "rule", f.RuleName, "type", f.Type, "severity", f.Severity)
+}
+
+// deliverToChannels routes a fire to its configured channels and returns the
+// names of those that accepted it. This is the slow path (one webhook POST per
+// channel, each with its own timeout) and always runs on a worker goroutine.
+func (m *Manager) deliverToChannels(f AlertFire) []string {
 	title := fmt.Sprintf("SFPanel Alert: %s", f.RuleName)
 
-	// Channel routing
 	var channelIDs []int
 	if err := json.Unmarshal([]byte(f.ChannelIDs), &channelIDs); err != nil {
 		logger.Warn("invalid channel_ids JSON", "rule", f.RuleName, "error", err)
-		return
+		return nil
 	}
 
 	sentChannelNames := make([]string, 0, len(channelIDs))
@@ -226,23 +322,7 @@ func (m *Manager) Fire(_ context.Context, f AlertFire) {
 			sentChannelNames = append(sentChannelNames, ch.Name)
 		}
 	}
-
-	// Cooldown + history (only if at least one channel succeeded)
-	if len(sentChannelNames) > 0 {
-		m.mu.Lock()
-		m.lastSent[f.RuleID] = time.Now()
-		m.mu.Unlock()
-
-		sentJSON, _ := json.Marshal(sentChannelNames)
-		_, err := m.db.Exec("INSERT INTO alert_history (rule_id, rule_name, type, severity, message, node_id, sent_channels) VALUES (?,?,?,?,?,?,?)",
-			f.RuleID, f.RuleName, f.Type, f.Severity, f.Message, "", string(sentJSON))
-		if err != nil {
-			logger.Warn("failed to record history", "error", err)
-		}
-		logger.Info("triggered", "rule", f.RuleName, "type", f.Type, "severity", f.Severity)
-	} else {
-		logger.Warn("all channel sends failed, skipping history", "rule", f.RuleName, "type", f.Type)
-	}
+	return sentChannelNames
 }
 
 // ruleAppliesToNode decides whether a rule with the given node_scope /
