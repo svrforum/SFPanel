@@ -97,15 +97,15 @@
 
 ### 2. Docker 관리
 
-- **설명**: Docker 리소스의 전체 생명주기를 웹 UI에서 관리
+- **설명**: Docker 리소스의 전체 생명주기를 웹 UI에서 관리. 5개 탭(스택/컨테이너/이미지/볼륨/네트워크) + 리소스 정리.
 - **주요 기능**:
-  - **컨테이너**: 목록 조회 (전체/실행 중/중지), 상세 검사 (포트/환경변수/마운트/네트워크), 시작/중지/재시작/삭제, CPU/메모리 통계, 실시간 로그 스트리밍 (WebSocket), 컨테이너 내부 셸 접속 (WebSocket + exec, TTY 리사이즈 지원), **컨테이너 생성** (이미지/이름/포트/볼륨/환경변수/네트워크/명령어/재시작 정책 설정)
-  - **이미지**: 로컬 이미지 목록, 이미지 풀 (레지스트리에서 다운로드), 이미지 삭제 (강제), **Docker Hub 검색** (이미지 이름으로 검색, 설명/스타/공식 여부 표시)
-  - **볼륨**: 볼륨 목록, 생성, 삭제 (강제)
-  - **네트워크**: 네트워크 목록, 생성 (드라이버 선택: bridge 기본), 삭제
-  - **Docker Compose (Stacks)**: `/opt/stacks` 디렉토리 기반 프로젝트 관리 (디스크 스캔), Monaco 에디터로 YAML 편집, `.env` 파일 편집, `docker compose up -d` / `docker compose down` 실행, 프로젝트 상태 관리, **서비스별 제어** (시작/중지/재시작), 서비스별 로그 조회
-  - **리소스 정리 (Prune)**: 컨테이너/이미지/볼륨/네트워크 개별 정리 및 전체 일괄 정리
-- **관련 기술**: Docker Go SDK v27.5.1, gorilla/websocket, xterm.js, Monaco Editor
+  - **컨테이너**: 목록 조회 (전체/실행 중/중지)와 목록 내 **CPU/메모리 스파크라인**(ContainerSparkline), 상세 검사 (포트/환경변수/마운트/네트워크), 시작/중지/재시작/삭제, 실시간 CPU/메모리 통계, **컨테이너 관측성 탭**(ContainerHistoryTab) — CPU/메모리 **히스토리 차트**(1h/6h/24h, `GET /containers/:id/metrics`)와 **수명주기 이벤트 타임라인**(die/oom/restart/health 등, `GET /containers/:id/events`), 실시간 로그 스트리밍 (WebSocket), 컨테이너 내부 셸 접속 (WebSocket + exec, TTY 리사이즈), **컨테이너 생성** (이미지/이름/포트/볼륨/환경변수/네트워크/명령어/재시작 정책), **헬스체크 컴포저**(HealthcheckComposerDialog로 healthcheck 설정을 생성·삽입)
+  - **이미지**: 로컬 이미지 목록, 이미지 풀(SSE 진행률 스트리밍), 삭제(강제), **Docker Hub 검색**(설명/스타/공식 여부), **이미지 업데이트 확인**(`checkImageUpdates` — 실행 중 컨테이너가 쓰는 이미지의 레지스트리 최신 여부를 병렬 조회, 이미지별 타임아웃)
+  - **볼륨**: 목록, 생성, 삭제(강제), **볼륨 사용량 카드**(DockerVolumeUsageCard — 볼륨별 디스크 점유; 디스크 페이지에서도 노출)
+  - **네트워크**: 목록, 생성(드라이버 선택: bridge 기본), 삭제, 상세 검사
+  - **Docker Compose (Stacks)**: 설정 가능한 스택 루트(`server.stacks_path`, 기본 `/opt/stacks`) 디스크 스캔 기반 프로젝트 관리, Monaco 에디터 YAML 편집, `.env` 편집, `up -d`/`down`(이미지·볼륨 동시 삭제 옵션), 프로젝트 상태, **서비스별 제어**(시작/중지/재시작)와 로그, **스택 업데이트 확인·적용**(`POST /compose/:project/check-updates` → `…/update`/`…/update-stream` SSE)
+  - **리소스 정리(Prune)**: 컨테이너/이미지/볼륨/네트워크 개별 + 전체 일괄
+- **관련 기술**: Docker Go SDK, gorilla/websocket, xterm.js, Monaco Editor, uPlot(컨테이너 히스토리), SQLite `container_metrics_history`/`container_events`(마이그레이션 16·17)
 
 ### 3. 웹 터미널
 

@@ -166,12 +166,14 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **기능**: 컨테이너 목록 및 관리
   - 요약 카드 3개 (전체/실행 중/중지됨) - 클릭 시 필터링
   - 검색 (이름/이미지 기준)
-  - 컨테이너 테이블: 이름, 이미지, 상태 배지, 리소스(CPU/MEM 실시간), 포트, 생성일
+  - 컨테이너 테이블: 이름, 이미지, 상태 배지, 리소스(CPU/MEM 실시간 + **스파크라인** ContainerSparkline), 포트, 생성일
   - 컨테이너별 액션: 상세정보(Inspect), 터미널(Shell), 시작/중지/재시작, 삭제
-  - 상세정보 다이얼로그: Inspect(자원 사용량, 일반정보, 포트, 볼륨, 네트워크, 환경변수) / Logs / Shell 탭
+  - 상세정보 다이얼로그: Inspect(자원 사용량, 일반정보, 포트, 볼륨, 네트워크, 환경변수) / **관측성(History)** / Logs / Shell 탭
+  - **관측성 탭**(ContainerHistoryTab): CPU/메모리 히스토리 차트(1h/6h/24h) + 수명주기 이벤트 타임라인
+  - **헬스체크 컴포저**(HealthcheckComposerDialog): healthcheck 설정 생성/삽입
   - 중지/재시작/삭제 확인 다이얼로그
-- **사용 API**: `api.getContainers()`, `api.startContainer()`, `api.stopContainer()`, `api.restartContainer()`, `api.removeContainer()`, `api.inspectContainer()`, `api.containerStats()`
-- **사용 컴포넌트**: Table, Dialog, Tabs, Button, Input, ContainerLogs, ContainerShell (shadcn/ui + 커스텀)
+- **사용 API**: `api.getContainers()`, `api.startContainer()`, `api.stopContainer()`, `api.restartContainer()`, `api.removeContainer()`, `api.inspectContainer()`, `api.containerStats()`, `api.getContainerMetrics(id, range)`, `api.getContainerEvents(id, opts)`
+- **사용 컴포넌트**: Table, Dialog, Tabs, Button, Input, ContainerLogs, ContainerShell, ContainerHistoryTab, ContainerSparkline, HealthcheckComposerDialog (shadcn/ui + 커스텀)
 - **내부 서브컴포넌트**:
   - `ContainerStatsCell`: 개별 컨테이너 CPU/MEM 실시간 표시 (5초 주기 폴링)
   - `ContainerInspect`: 컨테이너 상세정보 패널 (리소스 게이지, 일반정보, 포트, 볼륨, 네트워크, 환경변수)

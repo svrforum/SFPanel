@@ -1318,6 +1318,28 @@ data: [DONE]
 
 ---
 
+#### GET /api/v1/docker/containers/:id/metrics
+컨테이너 CPU/메모리 **히스토리** 조회(관측성 탭). 백그라운드 수집기가 `container_metrics_history` 테이블에 적재한 시계열을 윈도우 단위로 반환. 관측성(observability)이 비활성이면 빈 데이터.
+
+- **인증 필요**: 예
+- **Path**: `id` — 컨테이너 ID 또는 이름
+- **쿼리 파라미터**: `range` — `1h`(기본)/`6h`/`24h`
+
+**Response (200):** `data`는 `{ ts, cpu_percent, mem_percent, mem_bytes }` 포인트 배열.
+
+---
+
+#### GET /api/v1/docker/containers/:id/events
+컨테이너 **수명주기 이벤트** 타임라인(die/oom/restart/health 등). `container_events` 테이블에 적재된 이벤트를 최신순으로 반환.
+
+- **인증 필요**: 예
+- **Path**: `id` — 컨테이너 ID 또는 이름
+- **쿼리 파라미터**: `limit`(기본 50), `before`(Unix ms 커서, 페이지네이션)
+
+**Response (200):** `data`는 `{ ts, event_type, exit_code, detail }` 이벤트 배열.
+
+---
+
 #### POST /api/v1/docker/containers/:id/start
 컨테이너 시작.
 
