@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.36.0] – 2026-06-03
+
+UX follow-up — **styled prompt dialogs**.
+
+### Changed
+
+- **ui** — the remaining native `window.prompt()` calls (disable-2FA password,
+  appstore advanced-install re-auth) are replaced by a styled `usePrompt()`
+  dialog + app-level `PromptProvider`, with a proper masked password field. No
+  more raw browser prompts in the destructive/auth flows.
+
 ## [0.35.0] – 2026-06-03
 
 Per-feature improvement pass, round 19 (final) — **mobile card fallbacks**.

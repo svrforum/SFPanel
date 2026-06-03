@@ -20,6 +20,7 @@ import {
   Circle,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { usePrompt } from '@/components/PromptDialog'
 import { api } from '@/lib/api'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -148,6 +149,7 @@ interface AppStoreDetailModalProps {
 
 export default function AppStoreDetailModal({ appId, open, onClose, onInstalled }: AppStoreDetailModalProps) {
   const { t, i18n } = useTranslation()
+  const prompt = usePrompt()
   const lang = i18n.language.startsWith('ko') ? 'ko' : 'en'
 
   const [detail, setDetail] = useState<AppStoreAppDetail | null>(null)
@@ -281,7 +283,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
     // it is the operator at the keyboard, not a borrowed session.
     let advancedPassword = ''
     if (installMode === 'advanced') {
-      const entered = window.prompt(t('appStore.advancedReAuthPrompt'))
+      const entered = await prompt({ title: t('appStore.advancedReAuthPrompt'), password: true })
       if (entered === null || entered === '') {
         return
       }

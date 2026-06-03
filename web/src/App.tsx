@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import Layout from '@/components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ConfirmProvider } from '@/components/ConfirmDialog'
+import { PromptProvider } from '@/components/PromptDialog'
 
 // Lazy-loaded pages for code splitting
 const Login = lazy(() => import('@/pages/Login'))
@@ -126,6 +127,7 @@ export default function App() {
     <ErrorBoundary>
     <BrowserRouter>
       <ConfirmProvider>
+      <PromptProvider>
       <TauriGuard>
         <SetupGuard>
           <Suspense fallback={<PageLoader />}>
@@ -194,6 +196,7 @@ export default function App() {
           </Suspense>
         </SetupGuard>
       </TauriGuard>
+      </PromptProvider>
       </ConfirmProvider>
       <Toaster />
     </BrowserRouter>
