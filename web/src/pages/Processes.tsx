@@ -16,6 +16,7 @@ import {
   List,
   ListTree,
   CornerDownRight,
+  AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -25,6 +26,7 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { Metrics, ProcessInfo } from '@/types/api'
 import {
   Table,
@@ -55,6 +57,7 @@ export default function Processes() {
   const isMobile = useIsMobile()
   const [allProcesses, setAllProcesses] = useState<ProcessInfo[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [sortField, setSortField] = useState<SortField>('cpu')
   const [killTarget, setKillTarget] = useState<ProcessInfo | null>(null)
@@ -76,9 +79,11 @@ export default function Processes() {
 
   const fetchProcesses = useCallback(async () => {
     try {
+      setError(null)
       const data = await api.listProcesses()
       setAllProcesses(data.processes || [])
-    } catch {
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
       toast.error(t('processes.fetchFailed'))
     } finally {
       setLoading(false)
@@ -503,11 +508,29 @@ export default function Processes() {
       </div>
 
       {/* Process list */}
-      {sorted.length === 0 && !loading && (
+      {error && allProcesses.length === 0 ? (
+        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium">{t('processes.loadError')}</p>
+            <p className="text-[12px] opacity-80 mt-0.5 break-words">{error}</p>
+          </div>
+          <Button variant="outline" size="sm" className="rounded-xl shrink-0" onClick={fetchProcesses}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            {t('common.retry')}
+          </Button>
+        </div>
+      ) : loading && allProcesses.length === 0 ? (
+        <div className="bg-card rounded-2xl p-3 card-shadow space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full rounded-xl" />
+          ))}
+        </div>
+      ) : sorted.length === 0 ? (
         <div className="bg-card rounded-2xl p-8 card-shadow text-center text-muted-foreground">
           {searchQuery ? t('processes.noResults') : t('processes.empty')}
         </div>
-      )}
+      ) : null}
 
       {sorted.length > 0 && (
         <>

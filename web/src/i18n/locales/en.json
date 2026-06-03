@@ -24,7 +24,8 @@
     "typeToConfirm": {
       "prompt": "To confirm, type:"
     },
-    "confirm": "Confirm"
+    "confirm": "Confirm",
+    "retry": "Retry"
   },
   "layout": {
     "brand": "SFPanel",
@@ -209,6 +210,7 @@
     "killSuccess": "Signal {{signal}} sent to PID {{pid}}",
     "killFailed": "Failed to kill process",
     "fetchFailed": "Failed to load processes",
+    "loadError": "Could not load processes",
     "noResults": "No processes match your search",
     "empty": "No processes found",
     "cpuUsage": "CPU Usage",
@@ -270,6 +272,7 @@
     "enableSuccess": "Service enabled",
     "disableSuccess": "Service disabled",
     "actionFailed": "Action failed",
+    "loadError": "Could not load services",
     "dependents": "Services depending on this",
     "requires": "Required services",
     "wantedBy": "Wanted by"
@@ -423,6 +426,7 @@
       "actionFailed": "Failed to {{action}} container",
       "deleteFailed": "Failed to delete container",
       "fetchFailed": "Failed to fetch containers",
+      "loadError": "Could not load containers",
       "stackGroup": "Stack: {{name}}",
       "standalone": "Standalone Containers",
       "service": "Service: {{name}}",

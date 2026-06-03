@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.33.0] – 2026-06-03
+
+Per-feature improvement pass, round 17 — **loading skeletons + error states**.
+
+### Changed
+
+- **docker / services / process** — the container, service, and process list
+  pages now distinguish **loading** (a skeleton placeholder), **failed to load**
+  (an inline red error block with the message + a Retry button), and **genuinely
+  empty** (the empty state) — previously a swallowed fetch error looked identical
+  to an empty list. Skeletons only show on first load, so background refreshes
+  don't flash over existing rows.
+
 ## [0.32.0] – 2026-06-03
 
 Per-feature improvement pass, round 16 — **styled confirmation dialogs**.

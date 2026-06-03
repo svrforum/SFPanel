@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Network, HardDrive, Variable, Globe, Plus, Layers, Pause, CheckSquare, Loader2, Activity, X, Box } from 'lucide-react'
+import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Network, HardDrive, Variable, Globe, Plus, Layers, Pause, CheckSquare, Loader2, Activity, X, Box, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
@@ -12,6 +12,7 @@ import type { Container, ContainerStatsResult, ContainerInspectDetail, Container
 type SingleContainerStats = Omit<ContainerStatsResult, 'id'>
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
   TableBody,
@@ -817,6 +818,7 @@ export default function DockerContainers() {
   const navigate = useNavigate()
   const [containers, setContainers] = useState<Container[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [selectedContainer, setSelectedContainer] = useState<Container | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
@@ -836,9 +838,11 @@ export default function DockerContainers() {
   const fetchContainers = useCallback(async () => {
     try {
       setLoading(true)
+      setError(null)
       const data = await api.getContainers()
       setContainers(data || [])
     } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
       const message = err instanceof Error ? err.message : t('docker.containers.fetchFailed')
       toast.error(message)
     } finally {
@@ -1154,9 +1158,30 @@ export default function DockerContainers() {
         </div>
       </div>
 
+      {/* Load error / loading skeleton (first load only) */}
+      {error && containers.length === 0 ? (
+        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium">{t('docker.containers.loadError')}</p>
+            <p className="text-[12px] opacity-80 mt-0.5 break-words">{error}</p>
+          </div>
+          <Button variant="outline" size="sm" className="rounded-xl shrink-0" onClick={fetchContainers}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            {t('common.retry')}
+          </Button>
+        </div>
+      ) : loading && containers.length === 0 ? (
+        <div className="bg-card rounded-2xl p-3 card-shadow space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full rounded-xl" />
+          ))}
+        </div>
+      ) : null}
+
       {/* Mobile card view */}
       <div className="md:hidden space-y-2">
-        {filteredContainers.length === 0 && !loading && (
+        {filteredContainers.length === 0 && !loading && !error && (
           <div className="text-center text-muted-foreground py-8">
             {searchQuery ? t('docker.containers.noResults') : t('docker.containers.empty')}
           </div>
@@ -1384,7 +1409,7 @@ export default function DockerContainers() {
       </div>
 
       {/* Desktop table view */}
-      <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden overflow-x-auto">
+      <div className={`bg-card rounded-2xl card-shadow overflow-hidden overflow-x-auto ${(error || loading) && containers.length === 0 ? 'hidden' : 'hidden md:block'}`}>
       <Table className="table-fixed w-full min-w-[800px]">
         <TableHeader>
           <TableRow className="border-border/50">
@@ -1406,7 +1431,7 @@ export default function DockerContainers() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {filteredContainers.length === 0 && !loading && (
+          {filteredContainers.length === 0 && !loading && !error && (
             <TableRow>
               <TableCell colSpan={batchMode ? 8 : 7} className="text-center text-muted-foreground py-8">
                 {searchQuery ? t('docker.containers.noResults') : t('docker.containers.empty')}
