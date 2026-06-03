@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Loader2, Power, Download, Pencil, LogOut } from 'lucide-react'
+import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Loader2, Power, Download, Pencil, LogOut, CheckCircle2, XCircle, Clock, AlertTriangle, MinusCircle, ArrowRightLeft } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ClusterOverview as ClusterOverviewType, ClusterStatus, ClusterEvent, ClusterNode } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,39 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
+// One event from the cluster-update SSE stream. Either a per-node step event
+// (node_id + step) or an overall lifecycle event (overall).
+type UpdateEvent = {
+  node_id?: string
+  node_name?: string
+  step?: string
+  message?: string
+  overall?: string
+  total_nodes?: number
+  updated?: number
+  failed?: number
+  mode?: string
+}
+
+// Per-node update state, reduced from the event stream (latest step wins).
+type NodeUpdateState = { node_id: string; node_name: string; step: string; message: string }
+
+// Terminal "done" steps drive the completed count; error is its own bucket.
+// Remaining steps (updating/waiting/transfer/warning/skipped) render as in-flight
+// or soft-fail in the stepper.
+const ERROR_STEPS = new Set(['error'])
+const DONE_STEPS = new Set(['complete', 'online'])
+
+function stepIcon(step: string) {
+  if (DONE_STEPS.has(step)) return <CheckCircle2 className="h-4 w-4 text-[#00c471]" />
+  if (ERROR_STEPS.has(step)) return <XCircle className="h-4 w-4 text-[#f04452]" />
+  if (step === 'warning') return <AlertTriangle className="h-4 w-4 text-[#f59e0b]" />
+  if (step === 'skipped') return <MinusCircle className="h-4 w-4 text-muted-foreground" />
+  if (step === 'waiting') return <Clock className="h-4 w-4 text-[#f59e0b]" />
+  if (step === 'transfer') return <ArrowRightLeft className="h-4 w-4 text-[#3182f6]" />
+  return <Loader2 className="h-4 w-4 text-[#3182f6] animate-spin" />
+}
+
 export default function ClusterOverview() {
   const { t } = useTranslation()
   const [status, setStatus] = useState<ClusterStatus | null>(null)
@@ -16,7 +49,7 @@ export default function ClusterOverview() {
   const [events, setEvents] = useState<ClusterEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
-  const [updateLog, setUpdateLog] = useState<Array<{ node_name?: string; step?: string; message?: string; overall?: string }>>([])
+  const [updateLog, setUpdateLog] = useState<UpdateEvent[]>([])
 
   // Per-node address editing
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -47,6 +80,39 @@ export default function ClusterOverview() {
       document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [loadData])
+
+  // Reduce the raw SSE events into per-node state + an overall summary so the
+  // UI renders a per-node stepper instead of a flat scrolling log. Declared
+  // before any early return to keep hook order stable.
+  const updateProgress = useMemo(() => {
+    const byNode = new Map<string, NodeUpdateState>()
+    let total = 0
+    let overall = ''
+    let done = 0
+    let failed = 0
+    for (const e of updateLog) {
+      if (e.overall) {
+        overall = e.overall
+        if (typeof e.total_nodes === 'number') total = e.total_nodes
+        if (typeof e.updated === 'number') done = e.updated
+        if (typeof e.failed === 'number') failed = e.failed
+        continue
+      }
+      if (e.node_id) {
+        byNode.set(e.node_id, {
+          node_id: e.node_id,
+          node_name: e.node_name || e.node_id,
+          step: e.step || '',
+          message: e.message || '',
+        })
+      }
+    }
+    const list = Array.from(byNode.values())
+    const completed = overall === 'complete' || overall === 'error'
+      ? done
+      : list.filter(n => DONE_STEPS.has(n.step) || n.step === 'warning' || n.step === 'skipped').length
+    return { list, total: total || list.length, completed, overall, failed }
+  }, [updateLog])
 
   if (loading) {
     return (
@@ -227,23 +293,41 @@ export default function ClusterOverview() {
       {/* Update progress */}
       {updateLog.length > 0 && (
         <div className="bg-card rounded-2xl p-5 card-shadow">
-          <h3 className="text-[15px] font-semibold mb-3">{t('cluster.overview.updateProgress')}</h3>
-          <div className="space-y-1 max-h-48 overflow-y-auto">
-            {updateLog.map((entry, i) => (
-              <div key={i} className="flex items-center gap-2 text-[12px]">
-                {entry.step === 'complete' || entry.step === 'online' ? (
-                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#00c471]" />
-                ) : entry.step === 'error' ? (
-                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#f04452]" />
-                ) : entry.overall === 'complete' ? (
-                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#00c471]" />
-                ) : (
-                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[#3182f6] animate-pulse" />
-                )}
-                <span className="text-muted-foreground">{entry.node_name || 'Cluster'}</span>
-                <span>{entry.message || entry.overall}</span>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-[15px] font-semibold">{t('cluster.overview.updateProgress')}</h3>
+            <span className="text-[12px] text-muted-foreground tabular-nums">
+              {updateProgress.completed} / {updateProgress.total}
+              {updateProgress.failed > 0 && (
+                <span className="text-[#f04452] ml-2">· {t('cluster.overview.updateFailed', { count: updateProgress.failed })}</span>
+              )}
+            </span>
+          </div>
+          {/* Overall progress bar */}
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-4">
+            <div
+              className={cn('h-full rounded-full transition-all duration-500',
+                updateProgress.overall === 'error' ? 'bg-[#f04452]' : 'bg-[#3182f6]')}
+              style={{ width: `${updateProgress.total > 0 ? (updateProgress.completed / updateProgress.total) * 100 : 0}%` }}
+            />
+          </div>
+          {/* Per-node stepper */}
+          <div className="space-y-2">
+            {updateProgress.list.map((n) => (
+              <div key={n.node_id} className="flex items-center gap-3">
+                <span className="shrink-0">{stepIcon(n.step)}</span>
+                <span className="text-[13px] font-medium w-40 truncate shrink-0">{n.node_name}</span>
+                <span className="text-[12px] text-muted-foreground truncate">
+                  {t(`cluster.overview.step.${n.step}`, { defaultValue: n.step })}
+                  {n.message ? ` — ${n.message}` : ''}
+                </span>
               </div>
             ))}
+            {updateProgress.overall === 'complete' && (
+              <div className="flex items-center gap-3 pt-1">
+                <CheckCircle2 className="h-4 w-4 text-[#00c471] shrink-0" />
+                <span className="text-[13px] font-semibold">{t('cluster.overview.updateComplete')}</span>
+              </div>
+            )}
           </div>
         </div>
       )}

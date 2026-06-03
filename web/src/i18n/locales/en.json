@@ -636,7 +636,19 @@
       "confirmUpdate": "Start cluster-wide update?",
       "updating": "Updating...",
       "updateProgress": "Update Progress",
-      "staleData": "Showing last-known cluster data — leader unreachable or partition in progress. Numbers may be out of date."
+      "staleData": "Showing last-known cluster data — leader unreachable or partition in progress. Numbers may be out of date.",
+      "updateFailed": "{{count}} failed",
+      "updateComplete": "Update complete",
+      "step": {
+        "updating": "Updating",
+        "waiting": "Waiting for restart",
+        "transfer": "Transferring leadership",
+        "complete": "Update triggered",
+        "online": "Back online",
+        "error": "Failed",
+        "warning": "Slow restart",
+        "skipped": "Skipped (offline)"
+      }
     },
     "events": {
       "node_joined": "joined the cluster",

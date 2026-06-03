@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.22.0] – 2026-06-03
+
+Per-feature improvement pass, round 6 — cluster **rolling-update UX**.
+
+### Changed
+
+- **cluster** — the cluster-wide update view is now a **per-node stepper** with
+  an overall progress bar (completed / total, failure count) instead of a flat
+  scrolling log. Each node shows a localized step state (updating, waiting for
+  restart, transferring leadership, back online, slow restart, skipped, failed)
+  derived from the structured SSE the backend was already emitting. No backend
+  change.
+
 ## [0.21.0] – 2026-06-03
 
 Per-feature improvement pass, round 5 — deepening the **files** module.
