@@ -16,7 +16,9 @@ function Tabs({
       data-orientation={orientation}
       orientation={orientation}
       className={cn(
-        "group/tabs flex gap-2 data-[orientation=horizontal]:flex-col",
+        // min-w-0 so a wide child (long string, table) can't force the tabs
+        // wrapper to its min-content width and overflow a constrained dialog.
+        "group/tabs flex gap-2 min-w-0 data-[orientation=horizontal]:flex-col",
         className
       )}
       {...props}
@@ -69,7 +71,7 @@ function TabsContent({
   return (
     <TabsPrimitive.Content
       data-slot="tabs-content"
-      className={cn("flex-1 outline-none", className)}
+      className={cn("flex-1 min-w-0 outline-none", className)}
       {...props}
     />
   )
