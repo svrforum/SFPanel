@@ -1,8 +1,9 @@
 # SFPanel API 스펙
 
 > 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/api-inventory.md`
+> v0.19.0–v0.40.0 캠페인 라우트 반영: 2026-06-03 (`internal/api/router.go` 기준 등록 라우트 279개)
 >
-> v0.10.0 이후 추가/변경된 라우트는 본 문서에 미반영입니다. 권한 있는 출처는 `internal/api/router.go`이며, 변경 요약은 `CHANGELOG.md`를 참조하세요. 본 문서가 코드와 어긋날 경우 코드를 우선시합니다.
+> 권한 있는 출처는 `internal/api/router.go`이며, 변경 요약은 `CHANGELOG.md`를 참조하세요. 본 문서가 코드와 어긋날 경우 코드를 우선시합니다.
 
 ## 개요
 
@@ -87,7 +88,8 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 {
   "username": "string",
   "password": "string",
-  "totp_code": "string"  // 선택 (2FA 활성화 시 필수)
+  "totp_code": "string",      // 선택 (2FA 활성화 시 필수)
+  "recovery_code": "string"   // 선택 (totp_code 대신 1회용 복구 코드로 로그인, v0.34.0+)
 }
 ```
 
@@ -107,7 +109,9 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 | `MISSING_FIELDS` | 400 | username 또는 password 누락 |
 | `INVALID_CREDENTIALS` | 401 | 잘못된 사용자명/비밀번호 |
 | `TOTP_REQUIRED` | 400 | 2FA가 활성화되어 있으나 totp_code 누락 |
-| `INVALID_TOTP` | 401 | 잘못된 2FA 코드 |
+| `INVALID_TOTP` | 401 | 잘못된 2FA 코드 또는 잘못된/소진된 복구 코드 |
+
+> **복구 코드 로그인 (v0.34.0+)**: `recovery_code`가 제공되면 `totp_code` 대신 사용됩니다. 유효한 코드는 사용 시 1회 소진됩니다. 코드는 SHA-256 해시로 저장되며 클러스터 관리자의 경우 Raft FSM으로 복제됩니다 — 팔로워에서 코드 소진은 leader write이므로, 팔로워 노드에서의 복구 로그인은 "리더 노드를 사용하라"는 안내와 함께 거부될 수 있습니다.
 
 ---
 
@@ -218,15 +222,79 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 ---
 
 ### DELETE /api/v1/auth/2fa
-2FA 비활성화. 비밀번호를 재확인한 뒤 admin 행의 `totp_secret`을 제거.
+2FA 비활성화. 비밀번호 + **현재 TOTP 코드**(2FA가 켜진 경우)를 재확인한 뒤 `totp_secret`을 제거하고, 함께 복구 코드도 비웁니다(2FA 없이는 무의미하므로). 세션만 탈취한 공격자가 계정을 비밀번호-only로 다운그레이드하는 것을 막기 위해 물리적 인증기(TOTP)가 요구됩니다 (v0.38.0).
 
 - **인증 필요**: 예
 
-**Request Body:** `{ "password": "string" }`
+**Request Body:**
+```json
+{
+  "password": "string",
+  "totp_code": "string"   // 2FA가 활성 상태이면 필수
+}
+```
 
-**Response (200):** `{ "success": true, "data": { "message": "2FA disabled" } }`
+**Response (200):** `{ "success": true, "data": { "message": "..." } }`
 
-**에러 응답:** `INVALID_CREDENTIALS`(401) 비밀번호 불일치.
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_FIELDS` | 400 | password 누락 |
+| `INVALID_PASSWORD` | 401 | 비밀번호 불일치 |
+| `TOTP_REQUIRED` | 400 | 2FA 활성 상태인데 totp_code 누락 |
+| `INVALID_TOTP` | 401 | 잘못된 현재 2FA 코드 |
+| `RATE_LIMITED` | 429 | per-IP 시도 제한 초과 |
+
+> 클러스터 관리자 계정은 FSM 쓰기이므로 팔로워에서 호출 시 리더로 프록시됩니다.
+
+---
+
+### POST /api/v1/auth/2fa/recovery
+2FA 복구 코드 한 세트를 새로 생성 (이전 세트는 무효화). 평문 코드는 **응답에서 1회만** 반환되며 이후 조회 불가. 2FA가 먼저 활성화되어 있어야 합니다.
+
+- **인증 필요**: 예
+- **Request Body:** 없음 (빈 POST)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "codes": ["ABCDE-FGHIJ", "..."]
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 2FA가 비활성 상태 (먼저 활성화 필요) |
+| `USER_NOT_FOUND` | 404 | 사용자 없음 |
+
+> 코드는 SHA-256 해시로 저장되고 클러스터 관리자는 Raft FSM으로 복제됩니다(팔로워는 리더로 프록시). 계정 record와 분리되어 있어 비밀번호/TOTP 변경이 복구 코드를 지우지 않습니다.
+
+---
+
+### GET /api/v1/auth/2fa/recovery/status
+복구 코드 존재 여부와 남은 개수 조회.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "generated": true,
+    "remaining": 8
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `generated` | boolean | 복구 코드가 1개 이상 존재하는지 |
+| `remaining` | number | 미사용 복구 코드 수 |
 
 ---
 
@@ -532,12 +600,17 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `pid` | number | 프로세스 ID |
+| `ppid` | number | 부모 프로세스 ID (트리 뷰 구성용, v0.20.0+) |
 | `name` | string | 프로세스 이름 |
 | `cpu` | number | CPU 사용률 (%) |
 | `memory` | number | 메모리 사용률 (%) |
+| `rss` | number | 절대 상주 메모리 (bytes, v0.20.0+) |
+| `nice` | number | nice 값 (스케줄링 우선순위, v0.20.0+) |
 | `status` | string | 프로세스 상태 코드 (예: "S", "R", "Z") |
 | `user` | string | 소유 사용자 |
 | `command` | string | 전체 명령줄 |
+
+> `ppid`/`rss`/`nice`는 `GET /system/processes`(상위 10)와 `GET /system/processes/list` 양쪽 응답에 포함됩니다. 프론트엔드는 `ppid`로 트리 뷰(순환 가드 포함)를 구성합니다.
 
 ---
 
@@ -560,7 +633,9 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
 
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
-| `signal` | string | 아니오 | 시그널 이름/번호. 기본값 `"TERM"`. 허용: `TERM`/`15`, `KILL`/`9`, `HUP`/`1`, `INT`/`2` |
+| `signal` | string | 아니오 | 시그널 이름/번호. 기본값 `"TERM"`. 허용: `TERM`/`15`, `KILL`/`9`, `HUP`/`1`, `INT`/`2`, `STOP`/`19`(일시정지), `CONT`/`18`(재개) (STOP/CONT는 v0.20.0+) |
+
+> 보호 PID(init, kthreadd, sfpanel 자신)와 패널이 스폰한 자식 프로세스(pgid 매칭)는 시그널 전송이 거부됩니다(403, `INVALID_PID`).
 
 **Response (200):**
 ```json
@@ -581,6 +656,52 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
 | `INVALID_SIGNAL` | 400 | 지원하지 않는 시그널 |
 | `PROCESS_NOT_FOUND` | 404 | 프로세스를 찾을 수 없음 |
 | `KILL_FAILED` | 500 | 시그널 전송 실패 |
+
+---
+
+### POST /api/v1/system/processes/:pid/renice
+프로세스의 스케줄링 우선순위(nice 값) 변경 (v0.20.0+).
+
+- **인증 필요**: 예
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `pid` | 대상 프로세스 ID |
+
+**Request Body:**
+```json
+{
+  "nice": 10
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `nice` | number | 예 | nice 값. `-20`(최고 우선순위) ~ `19`(최저)로 클램프 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Process 1234 reniced to 10",
+    "pid": 1234,
+    "nice": 10
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_PID` | 400/403 | 유효하지 않은 PID 또는 보호 PID/패널 자식 프로세스 |
+| `INVALID_BODY` | 400 | nice 값 누락 |
+| `INVALID_VALUE` | 400 | nice가 −20..19 범위 밖 |
+| `PROCESS_NOT_FOUND` | 404 | 프로세스 없음 |
+| `INTERNAL_ERROR` | 500 | setpriority 실패 |
+
+> kill과 동일한 보호 가드 적용 — 보호 PID(init/kthreadd/sfpanel)와 패널이 스폰한 자식 프로세스의 renice는 거부됩니다.
 
 ---
 
@@ -771,6 +892,97 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
   }
 }
 ```
+
+---
+
+### POST /api/v1/files/copy
+파일 또는 디렉토리 트리 복사 (v0.21.0+). 기존 대상 덮어쓰기 거부, 자기 자신 하위로의 복사 거부, 비정규 파일(심볼릭 링크 등) 건너뜀.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "src": "/opt/src",
+  "dst": "/opt/dst"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `src` | string | 예 | 원본 절대 경로 |
+| `dst` | string | 예 | 대상 절대 경로 (존재해서는 안 됨) |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "path copied",
+    "src": "/opt/src",
+    "dst": "/opt/dst"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_PATH` | 400 | src/dst 경로 유효성 검증 실패 |
+| `CRITICAL_PATH` | 403 | dst가 보호된 시스템 경로 |
+| `INVALID_REQUEST` | 400 | 디렉토리를 자기 하위로 복사 |
+| `NOT_FOUND` | 404 | 원본 없음 |
+| `CONFLICT` | 409 | 대상이 이미 존재 |
+| `PERMISSION_DENIED` | 403 | 권한 부족 |
+
+---
+
+### GET /api/v1/files/search
+현재 디렉토리 하위에서 이름에 검색어가 포함된 항목을 재귀 검색 (대소문자 무시, v0.21.0+). 결과 수 상한(최대 1000)과 wall-clock 데드라인(10초)으로 제한되며, 잘림 여부를 응답에 표시.
+
+- **인증 필요**: 예
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
+|----------|------|------|--------|------|
+| `path` | string | 예 | - | 검색 루트 디렉토리 절대 경로 |
+| `q` | string | 예 | - | 검색어 (부분 일치) |
+| `limit` | number | 아니오 | `200` | 결과 상한 (최대 1000) |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "results": [
+      {
+        "name": "config.yaml",
+        "path": "/opt/app/config.yaml",
+        "size": 1024,
+        "mode": "-rw-r--r--",
+        "modTime": "2026-01-15T10:30:00Z",
+        "isDir": false
+      }
+    ],
+    "count": 1,
+    "truncated": false
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `results` | array | 매칭된 항목 (`FileEntry` 형식, 디렉토리 목록과 동일) |
+| `count` | number | 반환된 결과 수 |
+| `truncated` | boolean | 상한/데드라인에 도달해 결과가 잘렸는지 |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_PATH` | 400 | 경로 유효성 검증 실패 |
+| `INVALID_REQUEST` | 400 | 검색어 누락 또는 검색 경로가 디렉토리가 아님 |
+| `NOT_FOUND` | 404 | 경로 없음 |
+| `PERMISSION_DENIED` | 403 | 권한 부족 |
 
 ---
 
@@ -1264,6 +1476,62 @@ data: [DONE]
 ```
 
 > 참고: Docker SDK의 원본 구조체를 반환하므로 필드명이 PascalCase입니다.
+
+---
+
+#### POST /api/v1/docker/containers
+독립(standalone) 컨테이너 생성 — compose 파일이나 셸 없이 UI에서 단일 컨테이너 실행 (v0.23.0+). 이미지가 로컬에 없으면 먼저 풀합니다. Docker create API의 검증된 부분집합이며 full HostConfig 패스스루가 아닙니다.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "name": "my-app",
+  "image": "nginx:latest",
+  "command": ["nginx", "-g", "daemon off;"],
+  "env": ["KEY=VALUE"],
+  "ports": [
+    { "host_ip": "", "host_port": "8080", "container_port": "80", "protocol": "tcp" }
+  ],
+  "volumes": ["/host/path:/container/path:ro"],
+  "restart_policy": "unless-stopped",
+  "network": "bridge",
+  "auto_start": true
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `image` | string | 예 | 이미지 참조 (검증됨; 없으면 풀) |
+| `name` | string | 아니오 | 컨테이너 이름 (검증됨) |
+| `command` | string[] | 아니오 | 명령 오버라이드 |
+| `env` | string[] | 아니오 | `["KEY=VALUE"]` 형식 환경변수 |
+| `ports` | array | 아니오 | `{host_ip, host_port, container_port, protocol}`. `host_port`는 비우면 랜덤, 지정 시 1–65535 |
+| `volumes` | string[] | 아니오 | `["/host:/container[:ro]"]` 바인드 마운트 |
+| `restart_policy` | string | 아니오 | `no`\|`always`\|`unless-stopped`\|`on-failure` (기본 `no`) |
+| `network` | string | 아니오 | 네트워크 이름/모드 |
+| `auto_start` | boolean | 아니오 | 생성 후 즉시 시작 여부 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "abc123...",
+    "message": "container created"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_BODY` | 400 | 잘못된 요청 본문 |
+| `INVALID_REQUEST` | 400 | image 누락 또는 잘못된 이미지 참조 |
+| `INVALID_NAME` | 400 | 잘못된 컨테이너 이름 |
+| `INVALID_VALUE` | 400 | 잘못된 restart policy 또는 호스트 포트 |
+| `DOCKER_ERROR` | 500 | 생성/풀 실패 |
 
 ---
 
@@ -1849,6 +2117,7 @@ UFW 방화벽 현재 상태 조회 (활성 여부, 기본 정책).
 UFW 방화벽 활성화 (`ufw --force enable`).
 
 - **인증 필요**: 예
+- **쿼리 파라미터**: `force` — SSH(22)/패널 포트 허용 규칙이 없을 때 잠금(lockout)을 막기 위해 활성화를 거부합니다. `?force=true`로 오버라이드. (v0.19.x 잠금 가드)
 
 **Request Body:** 없음 (빈 POST)
 
@@ -2062,6 +2331,67 @@ UFW 규칙을 번호로 삭제 (`ufw --force delete <number>`).
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `SS_ERROR` | 500 | ss 명령어 실행 실패 |
+
+---
+
+### GET /api/v1/firewall/docker
+Docker가 발행한 포트(NAT `DOCKER` 체인)와 사용자가 추가한 `DOCKER-USER` 체인 규칙을 함께 조회. `iptables`가 없으면 빈 배열을 반환. NAT `DOCKER` 체인을 **1회만** 읽어 두 뷰를 모두 파생합니다 (v0.29.0 dedup). `?node=`로 원격 노드 조회 시 iptables가 없는 노드는 빈 결과.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "ports": [
+      { "container_name": "web", "container_ip": "172.17.0.2", "host_port": 8080, "container_port": 80, "protocol": "tcp", "host_ip": "0.0.0.0" }
+    ],
+    "rules": [
+      { "number": 1, "port": 8080, "protocol": "tcp", "source": "192.168.1.0/24", "action": "drop" }
+    ]
+  }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `ports` | Docker가 발행한 published 포트 (`DockerPublishedPort`) |
+| `rules` | `DOCKER-USER` 체인의 사용자 규칙 (`DockerUserRule`) |
+
+---
+
+### POST /api/v1/firewall/docker/rules
+`DOCKER-USER` 체인에 규칙 추가 (컨테이너 published 포트에 대한 소스 기반 허용/차단).
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "port": 8080,
+  "protocol": "tcp",
+  "source": "192.168.1.0/24",
+  "action": "drop"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `port` | number | 예 | 포트 (1–65535) |
+| `protocol` | string | 아니오 | `tcp`(기본) \| `udp` |
+| `source` | string | 아니오 | 소스 IP/CIDR |
+| `action` | string | 아니오 | `drop`(기본) \| `accept` 등 |
+
+**에러 응답:** `INVALID_PORT`(400), `INVALID_PROTOCOL`(400), `TOOL_NOT_INSTALLED`(503 iptables 없음).
+
+---
+
+### DELETE /api/v1/firewall/docker/rules/:number
+`DOCKER-USER` 체인에서 줄 번호로 규칙 삭제.
+
+- **인증 필요**: 예
+- **Path**: `number` — `GET /firewall/docker`의 `rules[].number`
 
 ---
 
@@ -2594,6 +2924,101 @@ data: {"step":"complete","message":"Updated to v0.5.6. Restarting..."}
 |------|-----------|------|
 | `RESTORE_FAILED` | 400 | 백업 파일 미제공, 유효하지 않은 gzip/tar, sfpanel.db 누락 |
 | `RESTORE_FAILED` | 500 | DB 또는 설정 파일 복원 실패 |
+
+---
+
+### GET /api/v1/system/backup/schedule
+예약 로컬 백업 설정 + 디스크에 저장된 아카이브 목록 조회 (v0.26.0+). 백그라운드 러너가 10분마다 점검하고 due 시 타임스탬프 `tar.gz`(DB + config + compose 파일)를 DB 옆 `backups/` 디렉토리에 기록, 보관 한도(retention)로 prune.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "schedule": {
+      "enabled": true,
+      "interval_hours": 24,
+      "retention": 7,
+      "last_run": "2026-06-03T02:00:00Z",
+      "last_status": "success",
+      "last_error": ""
+    },
+    "files": [
+      { "name": "sfpanel-backup-20260603-020000.tar.gz", "size": 1048576, "mod_time": "2026-06-03T02:00:00Z" }
+    ]
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `schedule.enabled` | boolean | 예약 백업 활성화 여부 |
+| `schedule.interval_hours` | number | 백업 주기 (시간) |
+| `schedule.retention` | number | 보관할 아카이브 수 |
+| `schedule.last_run` | string\|null | 마지막 실행 시각 |
+| `schedule.last_status` | string | 마지막 실행 상태 |
+| `schedule.last_error` | string | 마지막 실행 오류 (있으면) |
+| `files[]` | array | `{name, size, mod_time}` 아카이브 목록 |
+
+---
+
+### PUT /api/v1/system/backup/schedule
+예약 백업 설정 변경.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "enabled": true,
+  "interval_hours": 24,
+  "retention": 7
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `enabled` | boolean | 예 | 예약 백업 활성화 여부 |
+| `interval_hours` | number | 예 | 주기 (1–168) |
+| `retention` | number | 예 | 보관 수 (1–100) |
+
+**Response (200):** `{ "message": "backup schedule updated" }`
+
+**에러 응답:** `INVALID_BODY`(400), `INVALID_VALUE`(400 범위 초과).
+
+---
+
+### POST /api/v1/system/backup/schedule/run
+즉시 백업 실행 (설정된 retention 적용).
+
+- **인증 필요**: 예
+- **Request Body:** 없음 (빈 POST)
+
+**Response (200):** `{ "message": "backup created", "name": "sfpanel-backup-...tar.gz" }`
+
+---
+
+### GET /api/v1/system/backup/files/download
+저장된 아카이브를 이름으로 다운로드 (`Content-Disposition: attachment`).
+
+- **인증 필요**: 예
+- **쿼리 파라미터**: `name` — 아카이브 파일명 (traversal 방지 패턴 검증)
+
+**에러 응답:** `INVALID_NAME`(400), `NOT_FOUND`(404).
+
+---
+
+### DELETE /api/v1/system/backup/files
+저장된 아카이브를 이름으로 삭제.
+
+- **인증 필요**: 예
+- **쿼리 파라미터**: `name` — 아카이브 파일명 (패턴 검증)
+
+**Response (200):** `{ "message": "backup deleted", "name": "..." }`
+
+**에러 응답:** `INVALID_NAME`(400), `NOT_FOUND`(404).
 
 ---
 
@@ -3436,6 +3861,51 @@ data: {"phase":"complete","line":"Update completed successfully"}
 
 ## 클러스터 — 추가 API
 
+### GET /api/v1/cluster/overview
+클러스터 개요 — 노드 목록 + 집계 메트릭 (Raft FSM 기반). 클러스터 미구성 시 빈 개요(`node_count:0`, 빈 배열)를 반환. 리더만 최신 상태를 보장하므로 팔로워는 503(또는 `stale` 플래그)으로 응답할 수 있습니다.
+
+- **인증 필요**: 예
+
+**Response (200):** `data`에 `{ name, node_count, leader_id, nodes[], metrics[] }`. (실시간 갱신은 `/ws/cluster/overview` WebSocket 사용 — v0.31.0+.)
+
+---
+
+### GET /api/v1/cluster/tokens
+대기 중(pending)인 참가 토큰 목록 조회 (v0.19.0+). 값은 **마스킹**되어 반환되며 전체 토큰은 노출되지 않으므로 오발급된 초대를 사용 전에 무효화할 수 있습니다. 토큰은 리더 디스크에 존재하므로 팔로워에서 호출 시 리더로 프록시됩니다.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "tokens": [
+      { "id": "string", "masked": "join-****…", "expires_at": "2026-06-04T00:00:00Z", "created_by": "admin" }
+    ]
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `id` | string | 토큰 식별자 (revoke에 사용) |
+| `masked` | string | 마스킹된 토큰 값 (전체 비노출) |
+| `expires_at` | string | 만료 시각 |
+| `created_by` | string | 발급한 사용자 |
+
+---
+
+### DELETE /api/v1/cluster/tokens/:id
+대기 중인 참가 토큰 폐기 (v0.19.0+). 리더 전용 — 팔로워는 자동 프록시.
+
+- **인증 필요**: 예
+- **Path**: `id` — `GET /cluster/tokens`의 `tokens[].id`
+
+**Response (200):** `{ "revoked": "<id>" }`
+
+---
+
 ### POST /api/v1/cluster/init
 새 클러스터 초기화. CA 인증서를 생성하고 Raft를 부트스트랩합니다. 이미 클러스터에 참여 중이면 실패합니다.
 
@@ -3542,9 +4012,10 @@ data: {"phase":"complete","line":"Update completed successfully"}
 ---
 
 ### POST /api/v1/cluster/leave
-클러스터에서 자발적으로 탈퇴. 리더에게 탈퇴를 통보한 후 로컬 클러스터 데이터를 정리하고 서비스를 재시작합니다.
+클러스터에서 자발적으로 탈퇴. 리더에게 탈퇴를 통보한 후 로컬 클러스터 데이터를 정리하고 서비스를 재시작합니다. (로컬 노드 row에서 탈퇴 UI는 v0.19.0+.)
 
 - **인증 필요**: 예
+- **쿼리 파라미터**: `force` — 탈퇴 후 잔여 voter가 quorum을 형성할 수 없으면(live heartbeat 기준) 탈퇴를 거부합니다. `?force=true`로 긴급 drain 시 오버라이드.
 
 **Request Body:** 없음 (빈 POST)
 
@@ -3562,6 +4033,7 @@ data: {"phase":"complete","line":"Update completed successfully"}
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `INVALID_REQUEST` | 400 | 클러스터가 구성되지 않음 |
+| `CLUSTER_QUORUM` | 409 | 탈퇴 시 quorum 상실 (`?force=true`로 오버라이드) |
 | `INTERNAL_ERROR` | 500 | 설정 저장 실패 |
 
 ---
@@ -3780,6 +4252,110 @@ data: {"overall":"complete","success_count":3,"fail_count":0}
 
 ---
 
+## WireGuard — 피어 관리 API (v0.28.0+)
+
+UI에서 raw 설정을 직접 편집하지 않고 피어를 관리. 설정 파일(`.conf`)이 진실의 원천(reboot 후에도 유지)이고, 인터페이스가 up이면 `wg set`으로 즉시 라이브 반영(best-effort)됩니다. 클라이언트 설정과 QR 코드는 **브라우저에서** 조립/렌더링되며 서버는 클라이언트 private key를 저장하지 않습니다.
+
+### POST /api/v1/network/wireguard/keypair
+WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
+
+- **인증 필요**: 예
+- **Request Body:** 없음 (빈 POST)
+
+**Response (200):** `{ "private_key": "...", "public_key": "..." }`
+
+---
+
+### POST /api/v1/network/wireguard/configs/:name/peers
+인터페이스 설정에 `[Peer]` 블록을 추가하고, up 상태면 라이브 반영.
+
+- **인증 필요**: 예
+- **Path**: `name` — 인터페이스/설정 이름
+
+**Request Body:**
+```json
+{
+  "public_key": "string",
+  "preshared_key": "string",
+  "allowed_ips": ["10.0.0.2/32"],
+  "endpoint": "host:port",
+  "persistent_keepalive": 25
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `public_key` | string | 예 | 피어 공개키 (base64, 서버 검증) |
+| `preshared_key` | string | 아니오 | PSK (검증됨; 라이브 PSK 적용은 생략하고 설정 파일에 의존) |
+| `allowed_ips` | string[] | 예 | 1개 이상의 CIDR (예: `10.0.0.2/32`) |
+| `endpoint` | string | 아니오 | `host:port` |
+| `persistent_keepalive` | number | 아니오 | 0–65535 |
+
+**Response (200):** `{ "message": "peer added", "public_key": "..." }`
+
+**에러 응답:** `INVALID_NAME`(400), `INVALID_VALUE`(400 키/CIDR/엔드포인트), `NOT_FOUND`(404 설정 없음), `CONFLICT`(409 동일 public_key 중복).
+
+---
+
+### DELETE /api/v1/network/wireguard/configs/:name/peers
+공개키로 `[Peer]` 블록 삭제 후, up 상태면 라이브 제거. 키는 **쿼리 파라미터**로 전달합니다 (WireGuard 키는 base64라 `/`·`+`를 포함해 path 라우팅을 깨뜨림).
+
+- **인증 필요**: 예
+- **Path**: `name` — 인터페이스/설정 이름
+- **쿼리 파라미터**: `public_key` — 삭제할 피어 공개키 (필수)
+
+**Response (200):** `{ "message": "peer removed", "public_key": "..." }`
+
+**에러 응답:** `INVALID_NAME`(400), `INVALID_VALUE`(400 잘못된 키), `NOT_FOUND`(404 설정/피어 없음).
+
+---
+
+### POST /api/v1/network/wireguard/configs/:name/autostart
+부팅 시 자동 시작(`wg-quick@<name>` systemd enable/disable) 토글.
+
+- **인증 필요**: 예
+- **Path**: `name` — 인터페이스/설정 이름
+
+**Request Body:** `{ "enabled": true }`
+
+**Response (200):** `{ "message": "autostart updated", "enabled": true }`
+
+---
+
+## 터미널 — 세션 목록 API
+
+### GET /api/v1/terminal/sessions
+현재 사용자가 소유한 영속 PTY 세션 목록 (v0.19.0+). 서버는 연결이 끊겨도 세션과 스크롤백을 유지하므로, 이 목록으로 기존 세션에 재접속(reattach)할 수 있습니다. `/ws/terminal`에 `?session_id=<id>`로 재접속하면 스크롤백이 재생됩니다.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "sessions": [
+      { "session_id": "string", "last_use": "2026-06-03T10:00:00Z", "attached": false, "reader_count": 0 }
+    ]
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `session_id` | string | 세션 식별자 (재접속에 사용) |
+| `last_use` | string | 마지막 사용 시각 |
+| `attached` | boolean | 현재 연결된 리더가 있는지 |
+| `reader_count` | number | 연결된 리더 수 |
+
+---
+
+## 알림 — Webhook 채널 (v0.25.0+)
+
+`POST/PUT /api/v1/alerts/channels`의 `type`에 기존 `discord`/`telegram`에 더해 **`webhook`**(Slack/Mattermost 호환)이 추가되었습니다. `config`는 `{"webhook_url":"https://…"}` 형식이며, 임의의 http(s) 대상이 허용됩니다(홈랩 수신기 대응). webhook 채널은 JSON 본문에 Slack 호환 `text` 필드 + 구조화 필드(`title`, `message`, `severity`, `source:"SFPanel"`, `timestamp`)를 POST합니다. 채널 라우트 자체는 기존과 동일(아래 요약 표 참조)하며 `type` 검증과 페이로드만 확장되었습니다.
+
+---
+
 ## WebSocket API
 
 모든 WebSocket 엔드포인트는 쿼리 파라미터 `?token=<JWT>`로 인증합니다.
@@ -3880,14 +4456,14 @@ data: {"overall":"complete","success_count":3,"fail_count":0}
 
 ## 전체 엔드포인트 요약
 
-REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개의 SSE 스트리밍 엔드포인트가 존재 (REST 숫자에 포함). Docker 소켓 미사용 시 `/api/v1/docker/*` 26개는 미등록. 실제 등록 라우트는 서버 시작 로그 또는 `internal/api/router.go`에서 확인.
+`internal/api/router.go` 기준 등록 라우트 총 279개 (REST/SSE + WebSocket 7개). 이 외에 SSE 스트리밍 엔드포인트는 REST 숫자에 포함됩니다. Docker 소켓 미사용 시 `/api/v1/docker/*` 라우트는 미등록. 실제 등록 라우트는 서버 시작 로그 또는 `internal/api/router.go`에서 확인.
 
-### 인증/설정 (13개)
+### 인증/설정 (15개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/health` | X | 헬스체크 |
-| POST | `/api/v1/auth/login` | X | 로그인 (refresh + CSRF 쿠키 발급, v0.13.3+) |
+| POST | `/api/v1/auth/login` | X | 로그인 (refresh + CSRF 쿠키 발급, v0.13.3+; recovery_code 로그인 v0.34.0+) |
 | GET | `/api/v1/auth/setup-status` | X | 셋업 필요 여부 |
 | POST | `/api/v1/auth/setup` | X | 초기 관리자 생성 |
 | POST | `/api/v1/auth/refresh` | X | 액세스 토큰 갱신 (쿠키 우선, body fallback) |
@@ -3895,7 +4471,9 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | GET | `/api/v1/auth/2fa/status` | O | 2FA 상태 확인 |
 | POST | `/api/v1/auth/2fa/setup` | O | 2FA 시크릿 생성 |
 | POST | `/api/v1/auth/2fa/verify` | O | 2FA 활성화 |
-| DELETE | `/api/v1/auth/2fa` | O | 2FA 비활성화 (비밀번호 재확인) |
+| DELETE | `/api/v1/auth/2fa` | O | 2FA 비활성화 (비밀번호 + 현재 TOTP, v0.38.0) |
+| POST | `/api/v1/auth/2fa/recovery` | O | 2FA 복구 코드 생성 (v0.34.0+) |
+| GET | `/api/v1/auth/2fa/recovery/status` | O | 복구 코드 존재/잔여 수 조회 (v0.34.0+) |
 | POST | `/api/v1/auth/change-password` | O | 비밀번호 변경 |
 | POST | `/api/v1/auth/ws-ticket` | O | WebSocket 단발성 ticket 발급 (v0.13.2+) |
 | GET | `/api/v1/settings` | O | 설정 조회 |
@@ -3906,7 +4484,7 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 - 모든 POST/PUT/PATCH/DELETE 요청에 `X-CSRF-Token: <sfpanel_csrf 값>` 헤더 필수 (`CSRFProtect` 미들웨어가 검증). 로그인/Setup/Refresh 경로 및 mTLS 클러스터 프록시는 자동 면제.
 - WebSocket 인증은 `/auth/ws-ticket`에서 60초짜리 ticket을 받아 `?ticket=` 쿼리로 사용. 레거시 `?token=` JWT 경로는 한 릴리스(v0.14.0까지) 호환성 유지.
 
-### 시스템 (18개)
+### 시스템 (29개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -3918,13 +4496,19 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | POST | `/api/v1/system/update` | O | 업데이트 실행 (SSE) |
 | POST | `/api/v1/system/backup` | O | 시스템 백업 다운로드 |
 | POST | `/api/v1/system/restore` | O | 시스템 백업 복원 |
+| GET | `/api/v1/system/backup/schedule` | O | 예약 백업 설정 + 아카이브 목록 (v0.26.0+) |
+| PUT | `/api/v1/system/backup/schedule` | O | 예약 백업 설정 변경 (v0.26.0+) |
+| POST | `/api/v1/system/backup/schedule/run` | O | 즉시 백업 실행 (v0.26.0+) |
+| GET | `/api/v1/system/backup/files/download` | O | 백업 아카이브 다운로드 (v0.26.0+) |
+| DELETE | `/api/v1/system/backup/files` | O | 백업 아카이브 삭제 (v0.26.0+) |
 | GET | `/api/v1/system/tuning` | O | 시스템 튜닝 상태 조회 |
 | POST | `/api/v1/system/tuning/apply` | O | 시스템 튜닝 적용 |
 | POST | `/api/v1/system/tuning/confirm` | O | 시스템 튜닝 확인 |
 | POST | `/api/v1/system/tuning/reset` | O | 시스템 튜닝 초기화 |
 | GET | `/api/v1/system/processes` | O | 상위 10 프로세스 |
 | GET | `/api/v1/system/processes/list` | O | 전체 프로세스 목록 |
-| POST | `/api/v1/system/processes/:pid/kill` | O | 프로세스 시그널 전송 |
+| POST | `/api/v1/system/processes/:pid/kill` | O | 프로세스 시그널 전송 (STOP/CONT 포함, v0.20.0+) |
+| POST | `/api/v1/system/processes/:pid/renice` | O | 프로세스 nice 값 변경 (v0.20.0+) |
 | GET | `/api/v1/system/services` | O | Systemd 서비스 목록 |
 | GET | `/api/v1/system/services/:name/logs` | O | 서비스 로그 조회 |
 | GET | `/api/v1/system/services/:name/deps` | O | 서비스 의존성 조회 |
@@ -3941,7 +4525,7 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | GET | `/api/v1/audit/logs` | O | 감사 로그 목록 |
 | DELETE | `/api/v1/audit/logs` | O | 감사 로그 전체 삭제 |
 
-### 파일 관리 (8개)
+### 파일 관리 (10개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -3951,6 +4535,8 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | POST | `/api/v1/files/mkdir` | O | 디렉토리 생성 |
 | DELETE | `/api/v1/files` | O | 파일/디렉토리 삭제 |
 | POST | `/api/v1/files/rename` | O | 이름 변경/이동 |
+| POST | `/api/v1/files/copy` | O | 파일/디렉토리 트리 복사 (v0.21.0+) |
+| GET | `/api/v1/files/search` | O | 재귀 이름 검색 (v0.21.0+) |
 | GET | `/api/v1/files/download` | O | 파일 다운로드 |
 | POST | `/api/v1/files/upload` | O | 파일 업로드 |
 
@@ -3988,7 +4574,7 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | POST | `/api/v1/network/bonds` | O | 본딩 생성 |
 | DELETE | `/api/v1/network/bonds/:name` | O | 본딩 삭제 |
 
-### WireGuard VPN (10개)
+### WireGuard VPN (14개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -4002,6 +4588,10 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | GET | `/api/v1/network/wireguard/configs/:name` | O | WireGuard 설정 파일 조회 |
 | PUT | `/api/v1/network/wireguard/configs/:name` | O | WireGuard 설정 파일 수정 |
 | DELETE | `/api/v1/network/wireguard/configs/:name` | O | WireGuard 설정 파일 삭제 |
+| POST | `/api/v1/network/wireguard/keypair` | O | 키페어 생성 (v0.28.0+) |
+| POST | `/api/v1/network/wireguard/configs/:name/peers` | O | 피어 추가 (v0.28.0+) |
+| DELETE | `/api/v1/network/wireguard/configs/:name/peers` | O | 피어 삭제 (`?public_key=`, v0.28.0+) |
+| POST | `/api/v1/network/wireguard/configs/:name/autostart` | O | 부팅 자동 시작 토글 (v0.28.0+) |
 
 ### Tailscale VPN (8개)
 
@@ -4016,7 +4606,7 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | GET | `/api/v1/network/tailscale/update-check` | O | Tailscale 업데이트 확인 |
 | PUT | `/api/v1/network/tailscale/preferences` | O | Tailscale 설정 변경 |
 
-### 디스크 (9개)
+### 디스크 (10개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -4025,7 +4615,8 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | POST | `/api/v1/disks/usage` | O | 디스크 사용량 |
 | GET | `/api/v1/disks/smartmontools-status` | O | smartmontools 설치 상태 |
 | POST | `/api/v1/disks/install-smartmontools` | O | smartmontools 설치 |
-| GET | `/api/v1/disks/:device/smart` | O | SMART 정보 |
+| GET | `/api/v1/disks/:device/smart` | O | SMART 정보 (self-test 로그 포함, v0.27.0+) |
+| POST | `/api/v1/disks/:device/smart/test` | O | SMART self-test 트리거 (`{type:short\|long}`, v0.27.0+) |
 | GET | `/api/v1/disks/:device/partitions` | O | 파티션 목록 |
 | POST | `/api/v1/disks/:device/partitions` | O | 파티션 생성 |
 | DELETE | `/api/v1/disks/:device/partitions/:number` | O | 파티션 삭제 |
@@ -4134,11 +4725,12 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | GET | `/api/v1/packages/gemini-status` | O | Gemini CLI 설치 상태 |
 | POST | `/api/v1/packages/install-gemini` | O | Gemini CLI 설치 (SSE) |
 
-### Docker - 컨테이너 (10개)
+### Docker - 컨테이너 (11개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/docker/containers` | O | 컨테이너 목록 |
+| POST | `/api/v1/docker/containers` | O | 독립 컨테이너 생성 (v0.23.0+) |
 | GET | `/api/v1/docker/containers/stats/batch` | O | 컨테이너 배치 stats |
 | GET | `/api/v1/docker/containers/:id/inspect` | O | 컨테이너 상세 |
 | GET | `/api/v1/docker/containers/:id/stats` | O | 컨테이너 리소스 |
@@ -4223,7 +4815,7 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | GET | `/api/v1/appstore/installed` | O | 설치된 앱 목록 |
 | POST | `/api/v1/appstore/refresh` | O | 앱스토어 캐시 갱신 |
 
-### 클러스터 (15개)
+### 클러스터 (17개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -4231,14 +4823,16 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | GET | `/api/v1/cluster/overview` | O | 클러스터 개요 (노드 목록 + 집계 메트릭) |
 | GET | `/api/v1/cluster/nodes` | O | 노드 목록 (상태, 역할, 라벨) |
 | POST | `/api/v1/cluster/token` | O | 참가 토큰 생성 (TTL 지정 가능) |
-| DELETE | `/api/v1/cluster/nodes/:id` | O | 노드 제거 (리더만 가능) |
+| GET | `/api/v1/cluster/tokens` | O | 대기 중 참가 토큰 목록 (마스킹, v0.19.0+) |
+| DELETE | `/api/v1/cluster/tokens/:id` | O | 참가 토큰 폐기 (v0.19.0+) |
+| DELETE | `/api/v1/cluster/nodes/:id` | O | 노드 제거 (리더만 가능, `?force=`) |
 | PATCH | `/api/v1/cluster/nodes/:id/labels` | O | 노드 라벨 수정 |
 | PATCH | `/api/v1/cluster/nodes/:id/address` | O | 노드 주소 수정 |
 | GET | `/api/v1/cluster/events` | O | 클러스터 이벤트 로그 |
 | POST | `/api/v1/cluster/leader-transfer` | O | 리더십 이전 |
 | POST | `/api/v1/cluster/init` | O | 클러스터 초기화 (CA 생성, Raft 부트스트랩) |
 | POST | `/api/v1/cluster/join` | O | 기존 클러스터 참가 (pre-flight 검증 포함) |
-| POST | `/api/v1/cluster/leave` | O | 클러스터 탈퇴 (서비스 재시작) |
+| POST | `/api/v1/cluster/leave` | O | 클러스터 탈퇴 (서비스 재시작, quorum 가드 `?force=`) |
 | POST | `/api/v1/cluster/disband` | O | 클러스터 해산 (리더 전용) |
 | GET | `/api/v1/cluster/interfaces` | O | 네트워크 인터페이스 목록 (클러스터 초기화용) |
 | POST | `/api/v1/cluster/update` | O | 클러스터 전체 업데이트 오케스트레이션 (SSE, 리더 전용) |
@@ -4247,7 +4841,7 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
-| GET | `/api/v1/alerts/channels` | O | 알림 채널 목록 (Discord/Telegram) |
+| GET | `/api/v1/alerts/channels` | O | 알림 채널 목록 (Discord/Telegram/Webhook) |
 | POST | `/api/v1/alerts/channels` | O | 알림 채널 생성 |
 | PUT | `/api/v1/alerts/channels/:id` | O | 채널 편집 |
 | DELETE | `/api/v1/alerts/channels/:id` | O | 채널 삭제 |
@@ -4260,7 +4854,7 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | DELETE | `/api/v1/alerts/history` | O | 이력 전체 삭제 |
 
 **스키마 요약:**
-- **채널** (`alert_channels`): `{ id, type:"discord"|"telegram", name, config, enabled }`. `config`는 Discord `{"webhook_url":"…"}` / Telegram `{"bot_token":"…","chat_id":"…"}`. `…/test`는 해당 채널로 테스트 알림 1건 발송.
+- **채널** (`alert_channels`): `{ id, type:"discord"|"telegram"|"webhook", name, config, enabled }`. `config`는 Discord `{"webhook_url":"…"}` / Telegram `{"bot_token":"…","chat_id":"…"}` / Webhook `{"webhook_url":"https://…"}`(v0.25.0+, Slack/Mattermost 호환 — `text` + 구조화 필드 POST). 목록 응답에서 `config`의 시크릿 키는 마스킹됩니다. `…/test`는 해당 채널로 테스트 알림 1건 발송.
 - **규칙** (`alert_rules`): `{ id, name, type, condition(JSON), channel_ids(JSON 배열), severity:"info"|"warning"|"critical", cooldown(초), node_scope:"all"|"specific", node_ids(JSON), enabled }`. `type`은 호스트형(`cpu`/`memory`/`disk`)이면 `condition={"operator":">","threshold":90}`, 컨테이너형(`container_down`/`container_oom`/`container_restart_loop`/`container_unhealthy`)이면 `condition={"container_pattern":"*","threshold_count":N,"window_seconds":N}`.
 - **이력** (`alert_history`): `GET`은 `?page=&limit=` 페이지네이션 → `{items[], total, page, limit}`. 각 항목 `{ rule_id, rule_name, type, severity, message, sent_channels(JSON), created_at }`. `DELETE`는 전체 삭제.
 
@@ -4279,15 +4873,18 @@ REST API 230+개 + WebSocket 6개 = 총 236+개 엔드포인트. 이 외에 8개
 | POST | `/api/v1/network/tailscale/install` | Tailscale 설치 |
 | POST | `/api/v1/cluster/update` | 클러스터 멀티노드 업데이트 |
 
-### WebSocket (6개)
+### WebSocket (7개)
 
 모두 `?token=<JWT>` 쿼리 파라미터 인증. `?node=<nodeID>` 파라미터로 클러스터 원격 릴레이 지원.
 
 | 프로토콜 | 경로 | 인증 | 설명 |
 |----------|------|------|------|
-| WS | `/ws/metrics` | O (query) | 실시간 메트릭 |
+| WS | `/ws/metrics` | O (query) | 실시간 메트릭 (단일 sampler 공유, v0.24.0+) |
+| WS | `/ws/cluster/overview` | O (query) | 클러스터 status+overview+이벤트 스냅샷 푸시 (v0.31.0+) |
 | WS | `/ws/logs` | O (query) | 실시간 로그 스트리밍 |
-| WS | `/ws/terminal` | O (query) | 호스트 PTY 터미널 (영속, 256KB 스크롤백, 최대 20 세션) |
+| WS | `/ws/terminal` | O (query) | 호스트 PTY 터미널 (영속, 256KB 스크롤백, 최대 20 세션; `?session_id=`로 재접속) |
 | WS | `/ws/docker/containers/:id/logs` | O (query) | 컨테이너 로그 |
 | WS | `/ws/docker/containers/:id/exec` | O (query) | 컨테이너 셸 exec |
 | WS | `/ws/docker/compose/:project/logs` | O (query) | Compose 프로젝트 로그 (서비스 필터 가능) |
+
+> **터미널 세션 목록 (REST)**: `GET /api/v1/terminal/sessions`로 현재 사용자의 영속 PTY 세션을 조회한 뒤 `/ws/terminal?session_id=<id>`로 재접속(reattach)합니다 (v0.19.0+).

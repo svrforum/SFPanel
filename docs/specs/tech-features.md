@@ -1,11 +1,11 @@
 # SFPanel 기술 스택 & 기능 스펙
 
-> 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/features-inventory.md`
+> 마지막 전체 동기화: 2026-04-19 · 기능 워크스루 보강: 2026-06-03 (캠페인 v0.19.0–v0.40.0 반영) · 기준 버전: v0.40.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/features-inventory.md`, `CHANGELOG.md`
 >
 > 경량 서버 관리 웹 패널. 개인 서버 관리자 및 DevOps 팀을 위한 Docker 중심 관리 도구.
 > 올인원 Go 바이너리 아키텍처 — React SPA를 `go:embed`로 포함하여 단일 실행 파일로 배포.
 >
-> v0.10.0 이후 추가된 기능(Theme B/D/F 시리즈 — Port Map, 헬스체크 컴포저, 컨테이너 관측성 등)은 본 문서에 미반영입니다. 변경 요약은 `CHANGELOG.md`를, 설계 의도는 `docs/superpowers/specs/`의 테마별 디자인 문서를 참조하세요.
+> 아래 **기능 목록**(§1–§22)은 v0.40.0까지의 모듈 심화 캠페인을 반영합니다. 단, 본 문서 하단의 표 섹션(데이터베이스 스키마, API/WS/SSE 엔드포인트 목록, 프론트엔드 페이지 등)은 아직 v0.9.0 시점 기준이며 캠페인에서 추가된 라우트/테이블/페이지를 일부 누락합니다. 변경 요약은 `CHANGELOG.md`를, 설계 의도는 `docs/superpowers/specs/`의 테마별 디자인 문서를 참조하세요.
 
 ---
 
@@ -114,6 +114,7 @@
   - PTY (pseudo-terminal) 기반 실제 셸 세션 (/bin/bash 또는 /bin/sh)
   - 다중 탭 지원 (생성/닫기/이름 변경, localStorage 지속)
   - 세션 지속성 — 탭 전환/재연결 시 스크롤백 버퍼 재생 (256KB 링 버퍼)
+  - **보존 세션 재연결(reattach)**: 서버는 연결 끊김 후에도 PTY 세션과 스크롤백을 유지하므로, `GET /terminal/sessions`로 살아 있는 세션 목록을 조회해 피커에서 기존 세션 id에 다시 붙을 수 있음 (이전에는 프론트엔드가 항상 새 세션 id를 생성해 기존 세션에 도달 불가)
   - 터미널 리사이즈 (PTY 동기화)
   - 폰트 크기 조절 (10~24px)
   - 터미널 내 텍스트 검색 (SearchAddon)
@@ -138,6 +139,9 @@
   - **읽기 차단 경로(read-protected)**: /root/.ssh, 사용자 홈의 SSH 키/authorized_keys/known_hosts 등 → 403
   - **업로드 정책**: 웹 서빙 디렉토리(/var/www 등)에는 실행 확장자(.php/.sh/.cgi/.jsp 등) 및 .htaccess/.htpasswd/web.config 업로드 차단
   - 파일/디렉토리 이름 변경 (이동), 다운로드
+  - **재귀 이름 검색** (`GET /files/search`): 현재 디렉토리 하위를 이름으로 재귀 탐색, 결과 수 상한 + 벽시계 데드라인으로 제한 (잘림 여부를 응답에 플래그)
+  - **복사** (`POST /files/copy`): 파일/디렉토리 트리 복사 — 기존 파일 덮어쓰기·자기 자신으로의 복사·시스템 중요 경로 쓰기를 거부하고, 비정규 파일(심볼릭 링크 등)을 건너뛰어 심볼릭 링크를 통한 우회 차단
+  - **다중 선택 삭제**: 행별 체크박스 + 일괄 삭제 (항목별 성공/실패 결과 요약)
   - 파일 업로드 (multipart, 상한은 설정값 `max_upload_size`)
   - 경로 유효성 검증 (절대 경로 필수, `filepath.Clean` 동등성으로 트래버설 차단, 심볼릭 링크 해석 재검증)
   - 우클릭 컨텍스트 메뉴 (행 + 빈 영역), 목록 정렬(디렉토리 우선), 타입별 아이콘, 권한/크기/수정시간 표시
@@ -162,11 +166,13 @@
 
 - **설명**: 서버에서 실행 중인 모든 프로세스를 모니터링하고 제어
 - **주요 기능**:
-  - 전체 프로세스 목록 (PID, 이름, 사용자, CPU%, 메모리%, 상태, 커맨드라인)
+  - 전체 프로세스 목록 (PID, **PPID(부모 PID)**, 이름, 사용자, CPU%, 메모리%, **절대 RSS(상주 메모리)**, **nice 값**, 상태, 커맨드라인)
+  - **프로세스 트리 뷰**: PPID 기반 부모→자식 트리 렌더 (사이클 가드 포함), 평면 목록과 토글
   - 프로세스 검색 (이름, 명령어, 사용자, PID로 필터링)
   - 정렬 (CPU, 메모리, PID, 이름)
-  - 프로세스 종료 (SIGTERM, SIGKILL, SIGHUP, SIGINT 시그널 선택)
-  - **sysguard 자기-보호**: 보호 PID(init/kthreadd/sfpanel) 및 패널이 직접 띄운 자식 프로세스(apt/docker compose/터미널 PTY 등, pgid 기준) 시그널 전송 거부 (403)
+  - 프로세스 종료 (SIGTERM, SIGKILL, SIGHUP, SIGINT 시그널 선택) + **작업 제어 시그널 STOP(일시정지)/CONT(재개)**
+  - **renice**: 우선순위(nice) 변경 (−20..19로 클램프)
+  - **sysguard 자기-보호**: 보호 PID(init/kthreadd/sfpanel) 및 패널이 직접 띄운 자식 프로세스(apt/docker compose/터미널 PTY 등, pgid 기준)에 대한 시그널 전송·renice 거부 (403, kill과 동일 가드)
   - 15초 간격 자동 갱신 (탭 비활성 시 일시정지), 대용량 목록 가상 스크롤
   - 실시간 시스템 리소스 요약 (CPU/메모리/Swap 사용률 바, `/ws/metrics`)
   - Top 프로세스 (대시보드용 별도 API `/system/processes`)
@@ -180,6 +186,7 @@
   - Cron 작업 생성 (스케줄 + 명령어)
   - Cron 작업 수정 (스케줄/명령어 변경)
   - Cron 작업 삭제
+  - **지금 실행(run-now)** (`POST /cron/:id/run`): 스케줄과 무관하게 해당 작업의 명령어를 `sh -c`로 즉시 실행하고 출력을 캡처해 반환 (5분 타임아웃). 패널 권한(root)으로 cron이 사용할 동일 컨텍스트에서 실행되므로 새 권한 상승은 없고 테스트용 즉시 실행만 제공
   - 작업 활성화/비활성화 토글 (주석 처리 방식)
   - 스케줄 프리셋 (매분, 매시, 매일, 매주, 매월)
   - 스케줄 설명 자동 생성 ("Every 5 minutes", "@reboot" 등)
@@ -214,6 +221,8 @@
   - **본딩**: 네트워크 본드 목록, 생성 (모드/슬레이브/프라이머리 설정), 삭제
   - **Netplan**: 네트워크 설정 적용 (`netplan apply`)
   - **WireGuard VPN**: 설치 상태 확인 및 원클릭 설치, 인터페이스 목록/상세 (피어 정보 포함), 인터페이스 활성화/비활성화 (`wg-quick up/down`), 설정 파일 CRUD (생성/조회/수정/삭제), `.conf` 파일 업로드 지원, PrivateKey 마스킹
+    - **피어 관리**: 원시 config 직접 편집 없이 UI에서 피어 추가/삭제. **키페어 생성**(`POST /network/wireguard/keypair`), **피어 추가**(`POST .../configs/:name/peers` — 검증된 `[Peer]` 블록을 config에 append, 인터페이스가 up이면 `wg set`으로 라이브 적용), **피어 삭제**(`DELETE .../configs/:name/peers?public_key=…` — base64 키에 `/`·`+`가 포함되므로 경로 세그먼트 대신 쿼리로 전달), **부팅 자동시작 토글**(`wg-quick@<name>` enable/disable). public key / preshared key / CIDR / endpoint 입력은 서버 측 검증, 중복 피어는 409 거부
+    - **클라이언트 config + QR**: 피어 추가 시 클라이언트 키페어를 생성하고 클라이언트 config를 **브라우저 측에서 조립** — **서버는 클라이언트 PrivateKey를 절대 저장하지 않음**(표준 WireGuard 온보딩). 복사 가능한 텍스트 + 모바일 임포트용 **QR 코드**로 렌더. 서버 PublicKey/리슨 포트는 인터페이스가 down이어도 config의 PrivateKey/포트에서 파생하므로 터널 시작 전에도 유효한 클라이언트 config가 생성됨 (v0.39.0–v0.40.0)
   - **Tailscale VPN**: 설치 상태 확인 및 **SSE 스트리밍 설치 출력** (공식 install.sh), 연결/해제/로그아웃, Auth Key 입력 또는 브라우저 인증 URL 자동 오픈, 자기 노드 정보 (Hostname/IPv4·IPv6/OS/Tailnet/MagicDNS), 피어 목록 (호스트명/IP/OS/온라인/트래픽), Exit Node 선택/해제, **Accept Routes / Advertise Exit Node 토글**, 버전 확인 및 업데이트 체크
 - **관련 기술**: Netplan CLI, ip/networkctl, wg/wg-quick, tailscale CLI
 
@@ -222,7 +231,7 @@
 - **설명**: 서버 디스크, 파티션, 파일시스템, LVM, RAID, Swap을 웹 UI에서 관리
 - **주요 기능**:
   - **디스크 개요**: 디스크 목록 (이름/크기/모델/시리얼), I/O 통계, 디스크 사용량 분석 (경로/깊이별)
-  - **SMART 모니터링**: smartmontools 설치 상태 확인 및 원클릭 설치, 디스크별 SMART 정보 조회
+  - **SMART 모니터링**: smartmontools 설치 상태 확인 및 원클릭 설치, 디스크별 SMART 정보 조회. **SMART 자기 검사 트리거**(`POST /disks/:device/smart/test`, type=`short`/`long` — smartctl이 ETA를 즉시 반환하고 검사는 드라이브에서 백그라운드 수행) + **자기 검사 로그 파싱·표시**(검사 종류/상태/통과·실패/실행 시점의 power-on 시간) — 이전 결과와 방금 완료한 결과를 함께 노출
   - **파티션**: 디스크별 파티션 목록, 파티션 생성 (시작/끝/파일시스템 타입), 파티션 삭제
   - **파일시스템**: 마운트된 파일시스템 목록, 파티션 포맷 (ext4/xfs/btrfs 등), 마운트/언마운트, 파일시스템 리사이즈, 확장 가능 여부 사전 검사 및 확장(expand-check/expand; LVM `/dev/mapper` 타깃 지원)
   - **LVM**: PV/VG/LV 목록 및 생성/삭제, LV 리사이즈
@@ -279,14 +288,15 @@
 - **주요 기능**:
   - **Raft 합의 엔진**: `hashicorp/raft` + BoltDB 스토어 (임베디드, 외부 의존 없음). FSM이 JWT 시크릿, 클러스터 이름, 노드 목록(역할/주소/상태), 어드민 계정을 복제
   - **gRPC + mTLS**: 노드 간 제어 채널 (포트 3629), TLS 1.3 상호 인증, ECDSA P-256 자체 CA, 노드 인증서 자동 발급
-  - **참가 토큰**: HMAC-SHA256 서명, 1회용, 시간제한 (기본 24시간, 메모리 저장으로 리더 재시작 시 소실)
+  - **참가 토큰**: HMAC-SHA256 서명, 1회용, 시간제한 (기본 24시간, 메모리 저장으로 리더 재시작 시 소실). **대기 중 토큰 목록·취소**(`GET/DELETE /cluster/tokens`) — 목록은 마스킹된 값 + 짧은 핑거프린트로 리댁트(전체 토큰 미반환)하여, 잘못 발급된 초대를 사용 전에 무효화 가능
   - **하트비트 모니터링**: 2초 간격, 3단계 상태 판정 (online → suspect → offline)
   - **JoinEngine 파이프라인** (`internal/cluster/join.go`): 리더→조인노드 파이프라인을 `PreFlight` / `Execute` 두 단계로 분리
     - PreFlight: TCP 연결 → `TokenManager.Peek()`(소비 없이 검증) → 포트 확인 → IP 자동 감지 → 예상 실패 사유 사전 반환
     - Execute: 6단계 원자적 조인 (Join RPC → CA/노드 인증서 저장 → Config 업데이트 → Config 원자 저장 → DB 어드민 동기화 → `LiveActivate` 콜백으로 Manager+gRPC 서버 시작). 각 단계 실패 시 롤백 경로 명시
   - **Zero-Restart 라이프사이클**: `LiveActivate` 콜백 (`main.go`에서 주입)으로 Raft/gRPC를 프로세스 재시작 없이 활성화. 기존 `existingMgr` 파라미터로 Raft 셧다운/재시작 레이스 회피. 탈퇴/해산만 바이너리 재시작 필요
   - **IP 자동 감지** (`internal/cluster/detect.go`): Tailscale(100.64.0.0/10), 동일 서브넷 매칭, TCP 다이얼 기반 감지, 리더 주소 기반 라우팅 힌트
-  - **클러스터 업데이트**: 롤링/동시 모드로 전체 클러스터 SFPanel 업데이트 오케스트레이션 (SSE 진행률 스트리밍, 노드별 step+status 이벤트)
+  - **클러스터 업데이트**: 롤링/동시 모드로 전체 클러스터 SFPanel 업데이트 오케스트레이션 (SSE 진행률 스트리밍, 노드별 step+status 이벤트). UI는 평면 로그 대신 **노드별 스테퍼 + 전체 진행 바**(완료/총 노드, 실패 카운트)로 렌더 — 각 노드의 지역화된 단계 상태(업데이트 중/재시작 대기/리더십 이전/온라인 복귀/느린 재시작/건너뜀/실패)를 백엔드가 이미 내보내던 구조화 SSE에서 도출
+  - **노드 주소 편집·탈퇴 (인라인)**: 노드 행에서 광고 주소(advertise address) 인라인 편집(API + gRPC), 로컬 노드 행에서 클러스터 탈퇴 — 정족수 손실 시 force 오버라이드 지원
   - **CLI 명령어**: `sfpanel cluster init/join/leave/status/token/remove`
   - **웹 UI API**: 클러스터 초기화/참여/탈퇴/해산/업데이트 REST API (~15개 엔드포인트)
 - **패키지 레이아웃**: `internal/cluster/` — `manager.go`, `raft_fsm.go`, `grpc_server.go`, `join.go`, `detect.go`, `tls.go`, `token.go`, `ws_relay.go` 외 다수. proto는 `proto/cluster.proto`, 생성물 `proto/cluster.pb.go` / `proto/cluster_grpc.pb.go`
@@ -296,7 +306,8 @@
 - **내부 프록시 인증**: CA 인증서 SHA-256 해시 기반, `X-SFPanel-Internal-Proxy` 헤더 상수시간 비교 (JWT 비의존). `X-SFPanel-Original-User` 헤더로 원본 사용자 전파
 - **동시성 보호**: `Manager.joiningMu`(Init/Join 중복 방지), `Config.configMu`(Cluster 필드 보호), `Handler.mu` RWMutex(Manager 포인터 동기화), `Handler.OnManagerActivated` 콜백(다른 핸들러가 Manager 활성화 시 갱신)
 - **클러스터 UI (좌측 트리)**: 클러스터 모드에서 표준 사이드바를 2단 트리로 대체 (`ClusterSidebar` = `TreePanel` + `ContextMenu`). TreePanel은 데이터센터(클러스터) 루트 + 노드 목록(상태 점/리더 왕관/local 태그, 로컬 우선 정렬)을, ContextMenu는 선택 범위에 따라 메뉴를 렌더 — **데이터센터 범위**: 개요/노드/토큰/설정, **노드 범위**: 해당 노드의 전체 모듈 메뉴. 선택·접힘 상태 localStorage 지속. 노드 선택 시 `api.setCurrentNode`로 `?node=` 전역 주입, 데이터센터 선택 시 해제. (기존 `NodeSelector`는 비클러스터 폴백 전용)
-- **데이터센터 개요** (`/cluster/overview`): 노드별 메트릭 집계 (평균 CPU/메모리/디스크, 총 컨테이너, online/total), 15초 폴링, 팔로워 stale 응답 시 경고 배너, 최근 이벤트, 리더 전용 롤링/동시 업데이트 버튼(SSE 진행률). 미초기화 시 `ClusterInitForm`(init/join) 렌더
+- **데이터센터 개요** (`/cluster/overview`): 노드별 메트릭 집계 (평균 CPU/메모리/디스크, 총 컨테이너, online/total), 팔로워 stale 응답 시 경고 배너, 최근 이벤트, 리더 전용 롤링/동시 업데이트 버튼(SSE 진행률). 미초기화 시 `ClusterInitForm`(init/join) 렌더
+  - **WebSocket 푸시** (`/ws/cluster/overview`, v0.31.0): 세 HTTP 엔드포인트를 15초마다 폴링하는 대신, **상태 + 개요 + 최근 이벤트** 스냅샷을 소켓으로 수신. 노드당 **공유 샘플러 1개**가 로컬(Raft 복제) FSM + 이벤트 버스에서 5초마다 스냅샷을 재구성해 열려 있는 모든 대시보드로 팬아웃 — 탭별 리더 RPC 없음. 팔로워는 복제된 뷰를 `stale` 플래그로 제공(UI가 배너 렌더). 페이지는 즉시 첫 페인트용 마운트 시점 fetch 1회만 유지하고 이후 소켓으로 라이브 업데이트
 - **클러스터 업데이트 가드**: 동시 모드는 정족수를 깨는 경우(투표자 ≥2) 사전 거부, 롤링은 첫 실패 시 중단. 리더는 자기 업데이트 전에 리더십을 온라인 팔로워로 이전
 - **Graceful 누락 처리**: 원격 노드에 ufw/crontab/rsyslog 미설치 시 500 대신 빈 결과 반환
 - **알려진 제약**:
@@ -337,6 +348,7 @@
 - **설명**: SFPanel 설정 데이터를 백업하고 복원하는 재해 복구 기능
 - **주요 기능**:
   - **백업 구성**: `sfpanel.db` + `config.yaml` + 스택 루트(`stacks_path`, 기본 `/opt/stacks`) 하위 각 프로젝트의 compose 파일(docker-compose.yml/compose.yaml/.env)을 `.tar.gz`로 다운로드. **컨테이너 데이터/볼륨은 미포함**
+  - **예약 로컬 백업**(v0.26.0): 반복 로컬 백업 활성화 (간격 단위 시간, 보존 개수) — 타임스탬프가 찍힌 `tar.gz` 아카이브(DB + config + compose 파일)를 DB 옆 `backups/` 디렉토리에 기록하고 보존 한도까지 자동 정리(prune). 백그라운드 러너(`StartBackupScheduler`)가 **10분마다** 점검해 도래 시 실행하며 마지막 실행 시각/상태/오류를 기록(`backup_schedule` 테이블, 마이그레이션 33–34). 엔드포인트: `GET/PUT /system/backup/schedule`, `POST /system/backup/schedule/run`(지금 실행), 개별 아카이브 다운로드/삭제(이름 패턴 검증으로 트래버설 차단). 유지보수 탭에 스케줄 폼·run-now·아카이브 목록(다운로드/삭제) 노출
   - **백업 파일 복원**: tar.gz 업로드 → DB/설정/Compose 파일 복원, 기존 파일 자동 .bak 백업
   - **필수 파일 검증**: sfpanel.db 미포함 시 복원 거부
   - **서비스 자동 재시작**: 복원 완료 후 재시작을 `Commander`로 동기 실행, 실패 시 self-exit하여 supervisor가 새 DB로 재기동 (stale DB 핸들로 계속 서빙 방지)
@@ -371,13 +383,13 @@
 - **주요 기능**:
   - **규칙 타입**: 호스트 임계치형 `cpu`/`memory`/`disk` (threshold %) + 컨테이너형 `container_down`/`container_oom`/`container_restart_loop`/`container_unhealthy` (JSON condition: 패턴·count·window 초) + 이벤트형 `service`/`login`/`package`
   - **알림 규칙** (`alert_rules` 테이블): 호스트형 조건 JSON `{"operator":">","threshold":90}` (연산자 `>`/`>=`/`<`/`<=`), 쿨다운(기본 300초, 동일 규칙 재발송 억제 — 원자적 예약으로 동시 중복 발송 차단)
-  - **알림 채널** (`alert_channels` 테이블): Discord (`{"webhook_url":"..."}`), Telegram (`{"bot_token":"...","chat_id":"..."}`). 채널 `enabled` 플래그로 토글
+  - **알림 채널** (`alert_channels` 테이블): Discord (`{"webhook_url":"..."}`), Telegram (`{"bot_token":"...","chat_id":"..."}`), **Webhook**(`{"webhook_url":"..."}`) — Slack/Mattermost incoming webhook 호환 `text` 필드 + 구조화 알림 필드(title/message/severity/timestamp)를 JSON 본문으로 POST하므로 Slack incoming webhook이나 임의의 커스텀 수신기와 동작. 홈랩 수신기가 LAN에 있는 설계 특성상 임의의 http(s) 대상을 허용(URL 형식만 검증), 전송은 공유 10초 클라이언트로 바운드. 채널 `enabled` 플래그로 토글
   - **클러스터 지원**: `node_scope` = `all` 또는 `specific`, `node_scope=specific` 시 `node_ids` JSON 배열로 대상 노드 지정
   - **심각도 수준**: info, warning, critical (`severity` 컬럼)
   - **알림 이력** (`alert_history` 테이블): 발송 시 INSERT (실제 전송 성공 채널 ID 배열만 `sent_channels`에 저장). 규칙 삭제 후에도 보존 (`rule_name` 스냅샷). 자동 정리 없음, 관리자가 UI에서 수동 삭제
   - **평가 주기**: `manager.go`가 60초 ticker로 `WHERE enabled=1` 규칙 평가 + 컨테이너 이벤트(`internal/monitor/docker_events.go`) 구독. 발송은 **bounded 비동기 워커 큐**로 분리 — 느린 webhook이 평가 ticker나 docker 이벤트 리스너를 막지 않음
   - **채널 테스트**: 채널 생성/편집 후 테스트 알림 발송 엔드포인트 제공
-- **관련 기술**: net/http (Discord/Telegram API), database/sql, 고루틴 (백그라운드 평가)
+- **관련 기술**: net/http (Discord/Telegram/Webhook 전송), database/sql, 고루틴 (백그라운드 평가)
 - **설계 문서**: `docs/superpowers/specs/2026-04-07-alert-system-design.md`
 
 ### 22. 설정
@@ -385,14 +397,25 @@
 - **설명**: 패널/계정/시스템 설정을 묶은 **6-탭 허브** (일반/보안/시스템/튜닝/알림/감사). 단일 노드는 전체 탭, 클러스터에서는 스코프로 분기.
 - **주요 기능**:
   - **일반**: 영어/한국어 전환 (i18next, 클라이언트 전용; Tauri는 연결 서버 해제 블록)
-  - **보안**: 비밀번호 변경(최소 8자, 확인 일치); 2FA(TOTP) — 설정 시작 → **QR(qrcode.react 클라이언트 렌더링)** + 시크릿 → 6자리 검증 → 활성화, **비활성화(비밀번호 재확인, `DELETE /auth/2fa`)**
-  - **시스템**: 패널 업데이트(체크 + SSE 스트리밍 실행, Sigstore 서명 검증), 백업 다운로드/복원, 시스템 정보(버전/호스트/OS/커널/업타임)
+  - **보안**: 비밀번호 변경(최소 8자, 확인 일치); 2FA(TOTP) — 설정 시작 → **QR(qrcode.react 클라이언트 렌더링)** + 시크릿 → 6자리 검증 → 활성화, **비활성화(비밀번호 + 현재 TOTP 코드 재확인, `DELETE /auth/2fa`)** — 세션만 탈취한 공격자가 2FA를 다운그레이드하지 못하도록 현재 TOTP 코드를 요구하며, 비활성화 시 복구 코드도 함께 폐기(2FA 없이는 무의미하므로 재활성화 시 새 출발)
+    - **2FA 복구 코드**(v0.34.0): 인증기를 분실해도 로그인할 수 있는 1회용 코드 세트 생성(`POST /auth/2fa/recovery`, 2FA 활성 상태 필수; 평문은 생성 시 1회만 표시). 로그인 화면에서 "복구 코드로 로그인" 시 TOTP 필드가 복구 코드 필드로 전환되고 유효 코드는 사용 시 소비됨. 코드는 **SHA-256 해시**로 저장(고엔트로피라 bcrypt 불필요, 로그인 경로 빠른 비교)되고, 클러스터 어드민의 경우 **Raft FSM으로 복제**(마이그레이션 35 + `CmdSetRecoveryCodes`) — 계정 레코드와 분리되어 비밀번호/TOTP 변경이 복구 코드를 지우지 않음. 로컬 계정은 `admin.recovery_codes` 컬럼에 저장. 클러스터 어드민 코드 소비는 리더 쓰기이며, 팔로워에서의 복구 로그인은 재사용 가능 코드를 위험에 빠뜨리지 않도록 "리더 노드 사용" 힌트와 함께 거부
+  - **시스템**: 패널 업데이트(체크 + SSE 스트리밍 실행), 백업 다운로드/복원·**예약 백업**(§18), 시스템 정보(버전/호스트/OS/커널/업타임)
+    - **업데이트 무결성 검증**: 릴리즈의 `checksums.txt`를 **Cosign keyless(Sigstore) 서명**으로 먼저 검증(인증서가 정식 레포의 `release.yml` 워크플로우/태그에 핀)한 뒤, 거기서 파싱한 **SHA-256** 해시로 다운로드 아카이브를 대조. `SignatureRequiredSince` 컷오프 이후 릴리즈는 `.sig`/`.pem` 자산이 없으면 업데이트를 거부(공격자가 서명 자산을 삭제해 SHA-only로 다운그레이드하는 공급망 공격 방지). 컷오프 이전 구버전은 1회성 업그레이드 경로를 위해 SHA-256 단독 검증으로 폴백
   - **튜닝**: 터미널 유휴 타임아웃(분), 최대 업로드 크기(MB) — per-node `settings`; sysctl 튜닝(적용/확인/리셋, 60초 자동 롤백)
-  - **알림**: 채널(Discord/Telegram) CRUD + 테스트, 규칙 CRUD, 이력 조회/삭제
+  - **알림**: 채널(Discord/Telegram/Webhook) CRUD + 테스트, 규칙 CRUD, 이력 조회/삭제
   - **감사**: 감사 로그 조회/삭제 (§17)
   - **클러스터 스코프 분기**: `scope=node` 시 per-node 탭(시스템·튜닝·감사)만, 그 외 클러스터 전역 탭(일반·보안·알림)만 노출. 보안(비밀번호/2FA)은 FSM 복제 admin 행에 반영
   - 키-값 설정 저장 (SQLite `settings` 테이블, UPSERT)
 - **관련 기술**: i18next, bcrypt, TOTP (pquerna/otp), SQLite
+
+### 23. 공통 UX (cross-cutting)
+
+캠페인(v0.30.0–v0.37.0)에서 여러 모듈에 걸쳐 일관되게 적용된 UX 개선. 특정 기능이 아니라 패널 전반의 상호작용 품질에 영향.
+
+- **스타일 확인/입력 다이얼로그**: 모든 네이티브 `window.confirm()`을 온브랜드 확인 다이얼로그로 교체(`useConfirm()` 훅 + 앱 레벨 `ConfirmProvider`, 클러스터·디스크·도커·파일·알림·보안·백업·튜닝·감사·WireGuard·compose 헬스체크 컴포저 등 ~22 호출부; 파괴적 액션은 빨간 확인 버튼). 남아 있던 `window.prompt()`(2FA 비활성화 비밀번호, 앱스토어 고급 설치 재인증)도 마스킹 비밀번호 필드를 갖춘 `usePrompt()` 다이얼로그 + `PromptProvider`로 교체
+- **type-to-confirm 게이팅**: 비가역 작업은 파괴 버튼 활성화 전에 정확한 디바이스/배열/클러스터 이름을 직접 타이핑해야 함 — **디스크 포맷**, **파티션 삭제**, **RAID 배열 삭제**, **클러스터 해산(disband)**에 적용. 오클릭으로 데이터 손실 불가
+- **로딩 스켈레톤 + 명시적 에러 상태**: 컨테이너/서비스/프로세스/cron/방화벽 규칙/도커 이미지·볼륨·네트워크 목록 페이지가 **로딩**(스켈레톤 플레이스홀더), **로드 실패**(메시지 + Retry 버튼의 인라인 에러 블록), **실제 빈 상태**(빈 상태)를 구분 — 이전에는 삼켜진 fetch 오류가 빈 목록과 동일하게 보였음. 스켈레톤은 최초 로드에만 표시(백그라운드 갱신 시 기존 행 위로 깜빡이지 않음)
+- **모바일 카드 폴백**: 넓은 데이터 테이블(**감사 로그**, **알림 이력**, **방화벽 포트맵**)이 작은 화면에서 가로 오버플로 대신 라벨/값 **카드 목록**으로 접힘(`hidden md:*`; 데스크톱 테이블은 동일한 필터/페이지네이션 행을 동일 배지·링크·액션으로 렌더)
 
 ---
 
@@ -404,7 +427,7 @@
 | **토큰 생성** | `golang-jwt/jwt/v5` — username, 발급/만료 시간 클레임 포함 |
 | **토큰 만료** | 설정 가능 (기본 24시간, `config.yaml`의 `token_expiry`) |
 | **비밀번호 해싱** | bcrypt (golang.org/x/crypto, DefaultCost) |
-| **2단계 인증** | TOTP (pquerna/otp) — Google Authenticator 등 호환, QR 코드 지원 |
+| **2단계 인증** | TOTP (pquerna/otp) — Google Authenticator 등 호환, QR 코드 지원. **복구 코드**(SHA-256 해시 1회용, 클러스터는 Raft FSM 복제) 로그인 대체 경로 |
 | **WebSocket 인증** | 쿼리 파라미터 `?token=<JWT>` 방식 (HTTP 헤더 불가능한 환경 대응) |
 | **JWT 미들웨어** | Echo 미들웨어로 보호 라우트 그룹 인증 처리 |
 | **초기 설정** | 셋업 위저드 — admin 계정 미존재 시 공개 엔드포인트로 최초 계정 생성 |

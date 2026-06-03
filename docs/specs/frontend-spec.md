@@ -3,6 +3,8 @@
 > 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/frontend-inventory.md`
 >
 > v0.10.0 이후 추가된 페이지/컴포넌트는 본 문서에 미반영입니다. 권한 있는 출처는 `web/src/`이며, 변경 요약은 `CHANGELOG.md`를 참조하세요. 본 문서가 코드와 어긋날 경우 코드를 우선시합니다.
+>
+> **부분 갱신: 2026-06-03 · v0.40.0** — v0.19.0~v0.40.0 개선 캠페인에서 추가/변경된 프론트엔드 표면(신규 공용 컴포넌트, 횡단 UI 패턴, 신규 페이지/플로우, API 클라이언트 메서드)을 반영했습니다. 변경 항목에는 `(v0.NN.0)` 표기를 달았습니다. 캠페인 이전 본문은 v0.9.0 기준이며, 일부 페이지(특히 Settings)는 그동안 구조가 바뀌어 해당 섹션에 갱신 노트를 덧붙였습니다.
 
 ## 개요
 
@@ -16,6 +18,7 @@
 - **터미널**: xterm.js (@xterm/xterm + fit/web-links/search 애드온)
 - **차트**: uPlot v1.6 (시계열 차트)
 - **아이콘**: Lucide React
+- **QR 코드**: qrcode.react (`QRCodeSVG`) — Settings 보안 탭 2FA QR + WireGuard 피어 클라이언트 config QR
 - **엔트리포인트**: `web/src/main.tsx` -> `<App />`
 - **CSS**: `web/src/index.css` (Tailwind 설정)
 - **코드 분할**: `React.lazy()` + `<Suspense>`로 모든 페이지를 lazy loading
@@ -36,9 +39,9 @@
 | `/appstore` | AppStore | O | Layout | 앱스토어 (원클릭 Docker 앱 설치) |
 | `/appstore` (모달) | AppStoreDetailModal | O | AppStore 내장 | 앱 상세 + 설치 모달 (SSE 설치 진행률) |
 | `/cluster` | Cluster | O | Layout | 클러스터 관리 (사이드 탭 + Outlet 구조) |
-| `/cluster/overview` | ClusterOverview | O | Cluster | 클러스터 개요 + 초기화/해산 (기본 서브라우트) |
-| `/cluster/nodes` | ClusterNodes | O | Cluster | 노드 목록 + 제거/리더 이전/라벨 편집 |
-| `/cluster/tokens` | ClusterTokens | O | Cluster | 참가 토큰 생성 + join 명령어 표시 |
+| `/cluster/overview` | ClusterOverview | O | Cluster | 클러스터 개요 + 초기화 + **disband(TypeToConfirm, v0.30.0)**. **(v0.31.0)** 마운트 시 1회 fetch 후 `/ws/cluster/overview` WebSocket으로 status+overview+recent events 통합 스냅샷 수신(기존 15s 3회 폴링 대체, follower는 `stale` 플래그+배너). **(v0.22.0)** 클러스터 업데이트 뷰는 **per-node 스테퍼 + 전체 진행률 바**(완료/전체, 실패 수; 구조화 SSE 기반 — `api.clusterUpdateStream`) |
+| `/cluster/nodes` | ClusterNodes | O | Cluster | 노드 목록 + 제거/리더 이전/라벨 편집. **(v0.19.0)** 노드 **advertised 주소 인라인 편집**(`api.updateClusterNodeAddress`) + 로컬 노드 행에서 **클러스터 떠나기**(quorum-loss force 오버라이드, `api.leaveCluster(force?)`) |
+| `/cluster/tokens` | ClusterTokens | O | Cluster | 참가 토큰 생성 + join 명령어 표시. **(v0.19.0)** 발급된 토큰 **목록/취소**(마스킹된 값 + 짧은 지문만 노출; `api.listClusterTokens`, `api.revokeClusterToken`) |
 | `/docker` | Docker | O | Layout | Docker 관리 (사이드 탭 + Outlet 구조) |
 | `/docker/stacks` | DockerStacks | O | Docker | Docker Compose 스택 목록 (기본 서브라우트) |
 | `/docker/stacks/:name` | DockerStacks | O | Docker | 스택 상세 (서비스 목록, YAML 편집, 로그, 셸) |
@@ -107,10 +110,10 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 
 ### Login
 - **파일**: `web/src/pages/Login.tsx`
-- **기능**: 관리자 로그인 폼. 사용자명/비밀번호 입력 후 JWT 토큰 수령. 서버에서 2FA 요구 시 TOTP 코드 입력 필드가 동적으로 표시됨.
-- **사용 API**: `api.login(username, password, totpCode?)`
+- **기능**: 관리자 로그인 폼. 사용자명/비밀번호 입력 후 JWT 토큰 수령. 서버에서 2FA 요구 시 TOTP 코드 입력 필드가 동적으로 표시됨. **(v0.34.0)** 2FA 화면에서 "복구 코드로 로그인" 토글 시 TOTP 필드가 복구 코드 필드로 교체되고, 유효한 코드는 사용 시 소진됨.
+- **사용 API**: `api.login(username, password, totpCode?, recoveryCode?)`
 - **사용 컴포넌트**: Button, Input, Label (shadcn/ui)
-- **상태**: username, password, totpCode, showTotp, error, loading
+- **상태**: username, password, totpCode, showTotp, useRecovery, recoveryCode, error, loading
 
 ### Setup
 - **파일**: `web/src/pages/Setup.tsx`
@@ -168,6 +171,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 요약 카드 3개 (전체/실행 중/중지됨) - 클릭 시 필터링
   - 검색 (이름/이미지 기준)
   - 컨테이너 테이블: 이름, 이미지, 상태 배지, 리소스(CPU/MEM 실시간 + **스파크라인** ContainerSparkline), 포트, 생성일
+  - **(v0.23.0) 독립형 컨테이너 생성 폼**(CreateContainerDialog): compose 없이 이미지(미존재 시 pull)/이름/발행 포트(host/container/proto)/환경변수/볼륨 바인드(읽기전용)/재시작 정책/네트워크/명령어/자동 시작을 입력하는 검증된 폼 (`api.createContainer(spec)`, `CreateContainerSpec`/`PortBindingSpec` 타입)
   - 컨테이너별 액션: 상세정보(Inspect), 터미널(Shell), 시작/중지/재시작, 삭제
   - 상세정보 다이얼로그: Inspect(자원 사용량, 일반정보, 포트, 볼륨, 네트워크, 환경변수) / **관측성(History)** / Logs / Shell 탭
   - **관측성 탭**(ContainerHistoryTab): CPU/메모리 히스토리 차트(1h/6h/24h) + 수명주기 이벤트 타임라인
@@ -255,7 +259,8 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - **우클릭 컨텍스트 메뉴**(행 + 배경 빈 영역): 열기/편집/다운로드/이름변경/삭제, 업로드/새파일/새폴더/새로고침
   - 5MB 초과 파일은 편집기 대신 다운로드로 안내(confirm)
   - 도구 모음: 새로고침, 새 파일, 새 폴더, 업로드
-- **사용 API**: `api.listFiles()`, `api.readFile()`, `api.writeFile()`, `api.createDir()`, `api.deletePath()`, `api.renamePath()`, `api.uploadFile()`, `api.downloadFile()`
+  - **(v0.21.0) 검색/복사/다중 삭제**: 현재 디렉토리 하위 **재귀 이름 검색**(결과 캡 + 데드라인, 잘림 플래그), 파일/디렉토리 트리 **복사**, **다중 선택 삭제**(행별 체크박스 + 일괄 삭제 + 항목별 결과 요약).
+- **사용 API**: `api.listFiles()`, `api.readFile()`, `api.writeFile()`, `api.createDir()`, `api.deletePath()`, `api.renamePath()`, `api.uploadFile()`, `api.downloadFile()`, `api.searchFiles(path, q, limit?)`, `api.copyPath(src, dst)`
 - **사용 컴포넌트**: Table, Dialog, ContextMenu, Button, Input, Label, Monaco Editor (shadcn/ui + @monaco-editor/react)
 
 ### CronJobs
@@ -268,7 +273,9 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 작업 생성/편집 다이얼로그 (스케줄 입력 + 프리셋 5개 + 명령어 입력 + 실행 주기 미리보기)
   - 작업 삭제 확인 다이얼로그
   - 프리셋: 매분, 매시간, 매일, 매주, 매월
-- **사용 API**: `api.getCronJobs()`, `api.createCronJob()`, `api.updateCronJob()`, `api.deleteCronJob()`
+  - **(v0.21.0 영역) 즉시 실행(Run now)**: 행 액션에서 작업을 즉시 실행하고 출력/성공 여부를 다이얼로그로 표시 (`api.runCronJob(id)`)
+  - **(v0.37.0)** 로딩 스켈레톤 / 인라인 에러 + Retry / 빈 상태 3분기 적용
+- **사용 API**: `api.getCronJobs()`, `api.createCronJob()`, `api.updateCronJob()`, `api.deleteCronJob()`, `api.runCronJob(id)`
 - **사용 컴포넌트**: Table, Dialog, Button, Input, Label (shadcn/ui)
 - **로컬 함수**: describeSchedule()
 - **로컬 인터페이스**: CronJob, SchedulePreset
@@ -304,7 +311,8 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 프로세스 테이블: PID, 이름(+명령어), 사용자, CPU%, MEM%, 상태 배지, 종료 버튼
   - 프로세스 종료 다이얼로그: SIGTERM(정상) / SIGKILL(강제) 선택. 보호 PID/패널 자식 프로세스는 서버가 403 거부(sysguard)
   - 15초 자동 갱신 (탭 비활성 시 일시정지), 대용량 목록 가상 스크롤(@tanstack/react-virtual)
-- **사용 API**: `api.listProcesses()` (인자 없음 — 필터/정렬은 클라이언트), `api.killProcess(pid, signal)`
+  - **(v0.20.0) 트리 뷰 / renice / job-control 시그널**: 뷰 모드 토글(`list`/`tree` — PPID 기반 부모→자식 평탄화 DFS, 사이클 가드), 행에 parent PID·절대 RSS·nice 값 표시, **renice 컨트롤**(−20..19 클램프, 보호 PID 가드), 시그널 메뉴에 **STOP(일시정지)·CONT(재개)** 추가. 보호 PID/패널 자식 프로세스는 renice·신규 시그널 모두 서버가 거부.
+- **사용 API**: `api.listProcesses()` (인자 없음 — 필터/정렬은 클라이언트), `api.killProcess(pid, signal)`, `api.reniceProcess(pid, nice)`
 - **WebSocket**: `useWebSocket({ url: '/ws/metrics' })` - 시스템 메트릭 수신 (리소스 요약 카드용)
 - **사용 컴포넌트**: Table, Dialog, Button, Input (shadcn/ui)
 
@@ -330,7 +338,8 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 
 #### Network > NetworkWireGuard (`web/src/pages/network/NetworkWireGuard.tsx`)
 - 미설치 시 원클릭 설치 게이트; 인터페이스 카드(주소/DNS/공개키 복사/listen_port/피어), up/down 토글, 설정 CRUD + `.conf` 업로드, 키 마스킹(`********`) 저장 가드
-- **사용 API**: `getWireGuardStatus/Interfaces`, `wireGuardInterfaceUp/Down`, `create/get/update/deleteWireGuardConfig`
+- **(v0.28.0) 피어 관리**: 키페어 생성, **피어 추가**(주소/엔드포인트/DNS/keepalive 입력 → 클라이언트 키페어 생성, 클라이언트 config를 브라우저에서 조립 — 서버는 클라이언트 개인키 미저장), 피어 제거, 부팅 자동시작 토글. 추가 플로우는 클라이언트 config를 복사 가능한 텍스트 + **QR 코드**(`QRCodeSVG` from `qrcode.react`)로 렌더링하여 모바일 가져오기 지원.
+- **사용 API**: `getWireGuardStatus/Interfaces`, `wireGuardInterfaceUp/Down`, `create/get/update/deleteWireGuardConfig`, `generateWireGuardKeypair()`, `addWireGuardPeer(name, peer)`, `removeWireGuardPeer(name, publicKey)`, `setWireGuardAutostart`
 
 #### Network > NetworkTailscale (`web/src/pages/network/NetworkTailscale.tsx`)
 - SSE 스트리밍 설치(게이트), 상태(NotInstalled/NeedsLogin/Running), Auth Key 또는 브라우저 인증 URL 자동 오픈, 자기 정보, Accept Routes/Advertise Exit Node 토글, Exit Node 선택, 버전+업데이트 체크, 피어 표, 연결/해제/로그아웃
@@ -350,7 +359,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - swap -> DiskSwap
 - **사용 컴포넌트**: Tabs, TabsList, TabsTrigger, TabsContent (shadcn/ui)
 - **서브 컴포넌트 파일**:
-  - `web/src/pages/disk/DiskOverview.tsx` — 디스크 개요 (블록 디바이스, SMART, I/O 통계, 디스크 사용량)
+  - `web/src/pages/disk/DiskOverview.tsx` — 디스크 개요 (블록 디바이스, SMART, I/O 통계, 디스크 사용량). **(v0.27.0)** SMART **셀프 테스트 실행 UI**(short/long, smartctl ETA 토스트) + 드라이브 **셀프 테스트 로그**(유형/상태/통과·실패/실행 시 power-on hours) 표시.
   - `web/src/pages/disk/DiskPartitions.tsx` — 파티션 관리 (생성/삭제)
   - `web/src/pages/disk/DiskFilesystems.tsx` — 파일시스템 관리 (포맷/마운트/언마운트/리사이즈)
   - `web/src/pages/disk/DiskLVM.tsx` — LVM 관리 (PV/VG/LV 생성/삭제/리사이즈)
@@ -414,6 +423,15 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **사용 컴포넌트**: Button, Input (shadcn/ui)
 - **내부 서브컴포넌트**: `TerminalSession` - 개별 터미널 세션 관리
 
+> **갱신 노트 (v0.40.0)**: Settings는 더 이상 단일 페이지가 아니라 **탭형 셸 + 코드 분할 탭 패널**로 재구성되었다. `Settings.tsx`는 shadcn/ui `Tabs`로 6개 탭(general / security / system / tuning / alerts / audit)을 렌더링하며 각 탭 패널은 `React.lazy()`로 별도 분할된다. `?tab=` 쿼리로 활성 탭을 동기화한다. **클러스터 모드에서는 `?scope`에 따라 탭이 필터링**된다: `?scope=node`면 per-node SQLite를 건드리는 탭(`system`/`tuning`/`audit`), 그 외에는 FSM 복제 대상(`general`/`security`/`alerts`)만 노출(단일 노드 배포는 전체 표시). 탭→패널 매핑: general → `settings/General.tsx`, security → `settings/Security.tsx`, system → `settings/Maintenance.tsx`, tuning → `settings/Performance.tsx`(`SettingsTuning` 래핑), alerts → `settings/AlertSettings.tsx`, audit → `settings/Audit.tsx`. 아래 v0.9.0 기준 단일 페이지 설명은 일부 기능이 이 탭들로 분산된 것으로 읽을 것.
+>
+> - **General** (`settings/General.tsx`): 언어 변경(i18n.changeLanguage), 기타 일반 설정.
+> - **Security** (`settings/Security.tsx`): 비밀번호 변경, 2FA 설정(QR `QRCodeSVG` from `qrcode.react`)·검증·비활성화(비활성화 시 `usePrompt`로 **비밀번호 + 현재 TOTP 코드** 입력 — `api.disable2FA(password, totpCode)`), **2FA 복구 코드** 생성/재생성·잔여 개수 표시(`api.get2FARecoveryStatus()`, `api.regenerate2FARecoveryCodes()`). (v0.34.0/v0.36.0/v0.38.0)
+> - **System (Maintenance)** (`settings/Maintenance.tsx`): 시스템 정보, 패널 업데이트(SSE), 백업 다운로드/복원, **예약 백업 스케줄 폼 + 즉시 실행 + 아카이브 목록(다운로드/삭제)** (v0.26.0). `clusterEnabled` prop 수신.
+> - **Performance (Tuning)** (`settings/Performance.tsx`): 터미널 타임아웃·업로드 한도 설정 + `SettingsTuning` 커널 튜닝 컴포넌트 래핑.
+> - **Alerts** (`settings/AlertSettings.tsx`): 알림 채널/규칙/히스토리 (아래 별도 섹션).
+> - **Audit** (`settings/Audit.tsx`): 감사 로그 뷰어(데스크톱 테이블 + **모바일 카드 폴백**, v0.35.0).
+
 ### Settings
 - **파일**: `web/src/pages/Settings.tsx`
 - **기능**: 계정 및 시스템 설정
@@ -449,7 +467,8 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 ### Settings > AlertSettings
 - **파일**: `web/src/pages/settings/AlertSettings.tsx`
 - **기능**: 알림 채널 및 규칙 관리 (Settings 페이지 내에 포함된 컴포넌트)
-  - 알림 채널 관리: Discord (Webhook URL), Telegram (Bot Token + Chat ID) 채널 추가/삭제/활성화 토글/테스트 전송
+  - 알림 채널 관리: Discord (Webhook URL), Telegram (Bot Token + Chat ID), **(v0.25.0) webhook (임의 http(s) URL — Slack/Mattermost 호환 `text` 페이로드)** 채널 추가/삭제/활성화 토글/테스트 전송
+  - **(v0.35.0)** 알림 히스토리는 데스크톱 테이블 + 모바일 카드 폴백
   - 알림 규칙 관리: 규칙 생성/삭제/활성화 토글
     - 규칙 타입: CPU, 메모리, 디스크, 컨테이너, 서비스, 로그인, 패키지
     - 심각도: Info, Warning, Critical (색상별 배지)
@@ -479,6 +498,14 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 | ComposeEditor | `web/src/components/ComposeEditor.tsx` | YAML/텍스트 에디터. Monaco Editor 래퍼. 높이 400px, vs-dark 테마, 미니맵 비활성화, 자동 레이아웃. Props: `value`, `onChange`, `language`(기본값 'yaml'). |
 | DockerHubSearch | `web/src/components/DockerHubSearch.tsx` | Docker Hub 이미지 검색 자동완성. 디바운싱된 검색으로 드롭다운에 결과 표시 (이름, 설명, 별점, 공식 여부). Props: `value`, `onChange`, `placeholder`. |
 | DockerPrune | `web/src/components/DockerPrune.tsx` | Docker 리소스 정리 다이얼로그. 컨테이너/이미지/볼륨/네트워크 선택적 또는 전체 정리. 정리 결과(삭제 수, 회수 용량) 토스트 표시. Props: `open`, `onOpenChange`. |
+| ConfirmDialog | `web/src/components/ConfirmDialog.tsx` | (v0.32.0) 네이티브 `window.confirm` 대체. `ConfirmProvider`(앱 루트 `App.tsx`에 1개 마운트) + `useConfirm()` 훅이 `confirm(opts) => Promise<boolean>`를 반환. `ConfirmOptions`: `title`, `description?`, `confirmLabel?`, `cancelLabel?`, `danger?`(빨강 확인 버튼). ~22개 호출 지점(cluster/disk/docker/files/alerts/security/backup/tuning/audit/WireGuard/compose healthcheck)에서 사용. |
+| PromptDialog | `web/src/components/PromptDialog.tsx` | (v0.36.0) 네이티브 `window.prompt` 대체. `PromptProvider`(`App.tsx` 마운트) + `usePrompt()` 훅이 `prompt(opts) => Promise<string \| null>`를 반환. `PromptOptions`: `title`, `description?`, `placeholder?`, `defaultValue?`, `password?`(마스킹 입력), `confirmLabel?`, `cancelLabel?`. disable-2FA 재인증·appstore 고급 설치 재인증 등 파괴/인증 플로우에서 사용. |
+| TypeToConfirmDialog | `web/src/components/TypeToConfirmDialog.tsx` | (v0.30.0) 비가역 작업 게이트. 정확한 이름(디바이스/배열/클러스터명)을 입력해야 파괴 버튼이 활성화. Props: `open`, `onOpenChange`, `title`, `description?`, `confirmPhrase`(입력해야 할 정확한 문자열), `confirmLabel`, `loading?`, `onConfirm`. 적용: 디스크 포맷, 파티션 삭제, RAID 배열 삭제, 클러스터 disband. |
+| Skeleton | `web/src/components/ui/skeleton.tsx` | (v0.33.0) 로딩 스켈레톤 플레이스홀더. `bg-accent animate-pulse rounded-md` div 래퍼. `className` props로 형태 지정. 목록 페이지 첫 로드 시에만 표시(백그라운드 갱신 시 미표시). |
+
+> **횡단 UI 패턴 (v0.33.0~v0.37.0)**
+> - **로딩/에러/빈 상태 3분기**: 목록 페이지가 **로딩**(Skeleton), **로드 실패**(인라인 빨강 에러 블록 + 메시지 + Retry 버튼), **실제 빈 상태**(empty state)를 구분한다. 이전엔 삼켜진 fetch 에러가 빈 목록과 동일하게 보였다. 적용 페이지: docker 컨테이너/이미지/볼륨/네트워크, services, processes, cron, firewall rules. Skeleton은 첫 로드에만 표시.
+> - **모바일 카드 폴백 (v0.35.0)**: 넓은 데이터 테이블이 작은 화면에서 가로 오버플로 대신 라벨/값 스택 카드로 접힌다. 데스크톱 테이블은 `hidden md:table`(또는 `hidden md:block`), 카드 목록은 `md:hidden`으로 동일한 필터/페이지네이션 행을 동일 배지·링크·액션과 함께 렌더링한다. 적용: **감사 로그**(`settings/Audit.tsx`), **알림 히스토리**(`settings/AlertSettings.tsx`), **방화벽 포트맵**(`components/portmap/PortMapTable.tsx`). 새 i18n 문자열 없이 기존 컬럼 헤더 키 재사용.
 
 ---
 
@@ -545,6 +572,13 @@ interface UseWebSocketOptions {
 | `changePassword(currentPassword, newPassword)` | POST | `/auth/change-password` | - | 비밀번호 변경 |
 | `setup2FA()` | POST | `/auth/2fa/setup` | `{ secret: string; url: string }` | 2FA 설정 시작 |
 | `verify2FA(secret, code)` | POST | `/auth/2fa/verify` | - | 2FA 코드 검증 |
+| `disable2FA(password, totpCode?)` | DELETE | `/auth/2fa` | `{ message }` | (v0.38.0) 2FA 비활성화. **비밀번호 + 현재 TOTP 코드** 필요 |
+| `get2FARecoveryStatus()` | GET | `/auth/2fa/recovery/status` | `{ generated, remaining }` | (v0.34.0) 복구 코드 생성 여부/잔여 개수 |
+| `regenerate2FARecoveryCodes()` | POST | `/auth/2fa/recovery` | `{ codes: string[] }` | (v0.34.0) 복구 코드 생성/재생성 (평문은 이때만 반환) |
+
+> **(v0.34.0)** `login()`은 4번째 인자 `recoveryCode?`를 받아 `{ username, password, totp_code, recovery_code }`를 전송한다.
+>
+> **(v0.19.0) `streamHeaders(base?)`** — `request()`를 우회하는 raw fetch/XHR 스트리밍 호출(SSE, 바이너리 blob, multipart 업로드)용 헤더 빌더. **Bearer 토큰 + CSRF double-submit 토큰**(`X-CSRF-Token`, `sfpanel_csrf` 쿠키)을 함께 실어 `CSRFProtect`의 403을 방지한다. system 업데이트·backup/restore·image pull·compose deploy·각종 install·파일 업로드 등 모든 스트리밍 POST가 이 헬퍼를 경유.
 
 ### 설정 (Settings)
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
@@ -560,6 +594,12 @@ interface UseWebSocketOptions {
 | `getMetricsHistory()` | GET | `/system/metrics-history` | `Array<{ time, cpu, mem_percent }>` | 24시간 메트릭 히스토리 |
 | `listProcesses(query?, sort?)` | GET | `/system/processes/list` | `{ processes: ProcessInfo[]; total: number }` | 프로세스 목록 (검색/정렬) |
 | `killProcess(pid, signal?)` | POST | `/system/processes/{pid}/kill` | - | 프로세스 종료 |
+| `reniceProcess(pid, nice)` | POST | `/system/processes/{pid}/renice` | `{ message, pid, nice }` | (v0.20.0) nice 값 변경 (−20..19) |
+| `getBackupSchedule()` | GET | `/system/backup/schedule` | `{ schedule: BackupScheduleConfig; archives: BackupFile[] }` | (v0.26.0) 예약 백업 설정 + 아카이브 목록 |
+| `updateBackupSchedule(cfg)` | PUT | `/system/backup/schedule` | `{ message }` | (v0.26.0) `{ enabled, interval_hours, retention }` 저장 |
+| `runBackupNow()` | POST | `/system/backup/schedule/run` | `{ message, name }` | (v0.26.0) 백업 즉시 실행 |
+
+> **(v0.20.0)** `ProcessInfo`에 `ppid`(부모 PID), `rss`(절대 RSS), `nice` 필드가 추가됨 (`web/src/types/api.ts`).
 
 ### Docker 컨테이너
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
@@ -633,6 +673,8 @@ interface UseWebSocketOptions {
 | `renamePath(oldPath, newPath)` | POST | `/files/rename` | - | 이름 변경 |
 | `uploadFile(destPath, file, onProgress?)` | POST | `/files/upload` | - | 파일 업로드 (XHR, FormData, 진행률 콜백) |
 | `downloadFile(path)` | GET | `/files/download?path=` | `Blob` | 파일 다운로드 |
+| `searchFiles(path, q, limit?)` | GET | `/files/search` | (검색 결과 + 잘림 플래그) | (v0.21.0) 재귀 이름 검색 |
+| `copyPath(src, dst)` | POST | `/files/copy` | - | (v0.21.0) 파일/디렉토리 복사 |
 
 ### 로그
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
@@ -649,6 +691,7 @@ interface UseWebSocketOptions {
 | `createCronJob(schedule, command)` | POST | `/cron` | - | 작업 생성 |
 | `updateCronJob(id, schedule, command, enabled)` | PUT | `/cron/{id}` | - | 작업 수정 |
 | `deleteCronJob(id)` | DELETE | `/cron/{id}` | - | 작업 삭제 |
+| `runCronJob(id)` | POST | `/cron/{id}/run` | `{ output, success, error? }` | (v0.21.0 영역) 작업 즉시 실행 |
 
 ### 네트워크 관리
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
@@ -664,13 +707,28 @@ interface UseWebSocketOptions {
 | `createBond(data)` | POST | `/network/bonds` | - | 본드 생성 |
 | `deleteBond(name)` | DELETE | `/network/bonds/{name}` | - | 본드 삭제 |
 
+> 위 표는 v0.9.0 기준이며 WireGuard/Tailscale 메서드는 본문 페이지 섹션(Network > NetworkWireGuard / NetworkTailscale)에 정리되어 있다. v0.28.0 WireGuard 피어 관리 신규 메서드: `generateWireGuardKeypair()`(POST `/network/wireguard/keypair`), `addWireGuardPeer(name, peer)`(POST `.../configs/:name/peers`), `removeWireGuardPeer(name, publicKey)`(DELETE `.../configs/:name/peers?public_key=`), `setWireGuardAutostart(name, enabled)`(POST `.../configs/:name/autostart`).
+
+### WireGuard 알림 (Alert) — webhook 채널
+> **(v0.25.0)** 알림 채널 타입에 **webhook**이 Discord/Telegram에 추가되었다. AlertSettings 폼에서 채널 타입 `webhook` 선택 시 `webhook_url`을 입력하며, 서버가 Slack/Mattermost 호환 `text` + 구조화 필드를 POST한다. (전용 api.ts 메서드 없이 `/alerts/channels` POST의 `config.webhook_url`로 전송 — AlertSettings 섹션 참조.)
+
+### 클러스터 (Cluster) — 캠페인 신규 메서드
+| 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
+|--------|------|------|-----------|------|
+| `listClusterTokens()` | GET | `/cluster/tokens` | `{ tokens: ClusterTokenInfo[] }` | (v0.19.0) 발급 토큰 목록(마스킹) |
+| `revokeClusterToken(id)` | DELETE | `/cluster/tokens/{id}` | `{ revoked }` | (v0.19.0) 토큰 취소 |
+| `updateClusterNodeAddress(nodeId, apiAddr, grpcAddr)` | PATCH | `/cluster/nodes/{nodeId}/address` | `{ node_id, api_address, grpc_address }` | (v0.19.0) 노드 광고 주소 편집 |
+| `leaveCluster(force?)` | POST | `/cluster/leave` | `{ message }` | (v0.19.0) 로컬 노드 클러스터 탈퇴 (`?force=true`) |
+| `clusterUpdateStream(mode, onEvent)` | POST | `/cluster/update` | (SSE) | (v0.22.0) 롤링/동시 업데이트 SSE 스트림 (per-node 스테퍼 구동) |
+
 ### 디스크 관리
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
 |--------|------|------|-----------|------|
 | `checkSmartmontools()` | GET | `/disks/smartmontools-status` | `{ installed }` | smartmontools 설치 확인 |
 | `installSmartmontools()` | POST | `/disks/install-smartmontools` | `{ message, output }` | smartmontools 설치 |
 | `getDiskOverview()` | GET | `/disks/overview` | `any` | 디스크 개요 |
-| `getDiskSmart(device)` | GET | `/disks/{device}/smart` | `SmartInfo` | SMART 정보 |
+| `getDiskSmart(device)` | GET | `/disks/{device}/smart` | `SmartInfo` | SMART 정보 (셀프 테스트 로그 `self_tests` 포함) |
+| `runSmartTest(device, type)` | POST | `/disks/{device}/smart/test` | `{ message, output }` | (v0.27.0) SMART 셀프 테스트 실행 (`'short' \| 'long'`) |
 | `getDiskIOStats()` | GET | `/disks/iostat` | `IOStat[]` | I/O 통계 |
 | `getDiskUsage(path, depth?)` | POST | `/disks/usage` | `DiskUsageEntry` | 디스크 사용량 |
 | `getPartitions(device)` | GET | `/disks/{device}/partitions` | `any` | 파티션 목록 |
@@ -1043,6 +1101,7 @@ interface InstalledApp {
 | `/ws/terminal?session_id={id}` | 서버 셸 세션 (바이너리 + JSON resize) | Terminal |
 | `/ws/docker/containers/{id}/exec` | 컨테이너 셸 접속 | DockerContainers (ContainerShell), DockerStacks (ContainerShell) |
 | `/ws/docker/containers/{id}/logs` | 컨테이너 로그 스트리밍 | DockerContainers (ContainerLogs), DockerStacks (ContainerLogs) |
+| `/ws/cluster/overview` | (v0.31.0) status + overview + recent events 통합 스냅샷 푸시(5s 샘플러, follower는 `stale`) | ClusterOverview (`useWebSocket`) |
 
 모든 WebSocket 연결은 `?token={JWT}` 쿼리 파라미터로 인증.
 
@@ -1056,6 +1115,9 @@ interface InstalledApp {
 - **색상 체계**: Primary blue(`#3182f6`), Green(`#00c471`), Red(`#f04452`), Yellow(`#f59e0b`), Purple(`#8b5cf6`)
 - **폰트 크기**: 11px(보조), 13px(본문), 15px(서브타이틀), 22px(페이지 제목)
 - **다이얼로그 패턴**: 확인 다이얼로그는 항상 취소/확인 버튼, 위험 작업은 `variant="destructive"`
+- **(v0.30.0~v0.36.0) 확인/입력 다이얼로그 통일**: 네이티브 `window.confirm`/`window.prompt`는 앱 루트(`App.tsx`)의 `ConfirmProvider`/`PromptProvider` + `useConfirm()`/`usePrompt()` 훅으로 대체. 데이터 손실 가능 작업(디스크 포맷, 파티션/RAID 삭제, 클러스터 disband)은 `TypeToConfirmDialog`로 정확한 이름 입력 게이트.
+- **(v0.33.0) 로딩/에러/빈 상태 3분기**: 목록 페이지는 Skeleton(첫 로드) / 인라인 빨강 에러 + Retry / empty state를 구분.
+- **(v0.35.0) 반응형 테이블**: 넓은 테이블은 `hidden md:*` 데스크톱 테이블 + `md:hidden` 모바일 카드 목록 폴백.
 - **에러 처리**: try/catch + toast.error, 에러 메시지는 err.message 또는 i18n 번역 키
 - **로딩 상태**: 개별 상태 변수 관리, 버튼에 `disabled={loading}` + 스피너 아이콘
 - **공유 유틸리티**: `formatBytes()`는 `web/src/lib/utils.ts`에서 공유 (각 페이지에서 중복 정의하지 않음)
