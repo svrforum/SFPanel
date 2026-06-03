@@ -43,10 +43,18 @@ import (
 // per-test via withSystemdActive(true).
 var exitCount atomic.Int32
 
+// restartWG tracks the detached restart goroutines so a test can wait for them
+// to finish — without this, a goroutine that sleeps restartFlushDelay and then
+// calls exitProcess() can fire during a *later* test and corrupt exitCount.
+var restartWG sync.WaitGroup
+
 func TestMain(m *testing.M) {
 	prevExit := exitProcess
 	exitProcess = func() { exitCount.Add(1) }
 	defer func() { exitProcess = prevExit }()
+
+	restartGoroutineStarted = func() { restartWG.Add(1) }
+	restartGoroutineFinished = func() { restartWG.Done() }
 
 	prevSystemd := isSystemdActive
 	isSystemdActive = func() bool { return false }
@@ -1411,7 +1419,13 @@ func withRestartFlushDelay(t *testing.T, d time.Duration) {
 	t.Helper()
 	prev := restartFlushDelay
 	restartFlushDelay = d
-	t.Cleanup(func() { restartFlushDelay = prev })
+	t.Cleanup(func() {
+		// Wait for any restart goroutine this test spawned to finish before
+		// restoring the delay (and before the next test runs), so its delayed
+		// exitProcess() can't bleed into a later test's exitCount measurement.
+		restartWG.Wait()
+		restartFlushDelay = prev
+	})
 }
 
 // restartFailCommander makes `systemctl restart sfpanel` return a configured
@@ -1609,6 +1623,10 @@ func TestRunUpdate_SystemdRestartSuccessNoSelfExit(t *testing.T) {
 	cmd := &restartFailCommander{MockCommander: commonExec.NewMockCommander()}
 	h := buildRunUpdateToRestartHarness(t, cmd)
 
+	// Drain any restart goroutine still pending from a prior test so its
+	// delayed exitProcess() is counted in `before` rather than landing inside
+	// our measurement window below.
+	restartWG.Wait()
 	before := exitCount.Load()
 
 	e := echo.New()
@@ -1632,8 +1650,10 @@ func TestRunUpdate_SystemdRestartSuccessNoSelfExit(t *testing.T) {
 	if !cmd.restartRan() {
 		t.Fatalf("systemctl restart was not recorded by the Commander on the success path")
 	}
-	// Give the goroutine a beat past the recorded restart to ensure no late exit.
-	time.Sleep(50 * time.Millisecond)
+	// Deterministically wait for THIS test's restart goroutine to finish, then
+	// assert it did not self-exit. No sleep — the WaitGroup join removes the
+	// flakiness of guessing how long the goroutine needs.
+	restartWG.Wait()
 	if got := exitCount.Load(); got != before {
 		t.Errorf("exitProcess fired on a successful restart (before=%d, now=%d) — should only self-exit on failure", before, got)
 	}

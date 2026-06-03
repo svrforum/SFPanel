@@ -66,6 +66,29 @@ var isSystemdActive = lifecycle.IsSystemdActive
 // client before systemd SIGTERMs us. A package var so tests can shrink it.
 var restartFlushDelay = 2 * time.Second
 
+// restartGoroutineStarted/Finished bracket the detached restart goroutine.
+// They are no-ops in production (the process is on its way out anyway), but
+// tests wire them to a WaitGroup so a goroutine that sleeps restartFlushDelay
+// and then calls exitProcess() can be joined — otherwise its delayed exit could
+// land in a *later* test's window and corrupt the shared exit counter.
+var (
+	restartGoroutineStarted  = func() {}
+	restartGoroutineFinished = func() {}
+)
+
+// spawnRestartGoroutine runs fn in a detached goroutine after restartFlushDelay.
+// Centralizing the three restart sites here keeps the test-sync hooks in one
+// place. The started hook fires synchronously (before the goroutine launches) so
+// a test that checks the WaitGroup can never miss it.
+func spawnRestartGoroutine(fn func()) {
+	restartGoroutineStarted()
+	go func() {
+		defer restartGoroutineFinished()
+		time.Sleep(restartFlushDelay)
+		fn()
+	}()
+}
+
 // osExecutable resolves the running binary's path during the update swap.
 // It's a var (default = os.Executable) so tests can point the .bak/.new
 // staging at a controlled directory — e.g. to force the .bak backup write
@@ -560,17 +583,16 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	if isSystemdActive() {
 		if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
 			sendEvent("complete", fmt.Sprintf("Updated to v%s. Restarting...", latest))
-			go func() {
-				time.Sleep(restartFlushDelay)
-				// Run (not Start) so a failed restart surfaces instead of being silently
-				// swallowed. On success systemd SIGTERMs us mid-Run and this never returns;
-				// on failure we self-exit so Restart=always reloads the freshly-staged binary.
+			// Run (not Start) so a failed restart surfaces instead of being silently
+			// swallowed. On success systemd SIGTERMs us mid-Run and this never returns;
+			// on failure we self-exit so Restart=always reloads the freshly-staged binary.
+			spawnRestartGoroutine(func() {
 				if _, rErr := h.Cmd.Run("systemctl", "restart", "sfpanel"); rErr != nil {
 					slog.Error("systemctl restart failed after update; self-exiting for supervisor restart",
 						"component", "system", "error", rErr)
 					exitProcess()
 				}
-			}()
+			})
 			return nil
 		}
 		// systemd is running but the sfpanel unit isn't active (manual `go run`
@@ -582,11 +604,10 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	// otherwise the no-systemd path would have no rollback if the new binary
 	// failed health checks.
 	sendEvent("complete", fmt.Sprintf("Updated to v%s. Process is exiting — your supervisor (Docker entrypoint, etc.) must restart sfpanel to load the new binary.", latest))
-	go func() {
-		time.Sleep(restartFlushDelay)
+	spawnRestartGoroutine(func() {
 		slog.Info("update complete, exiting for external supervisor restart", "component", "system", "version", latest)
 		exitProcess()
-	}()
+	})
 	return nil
 }
 
@@ -989,14 +1010,13 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 			// success systemd SIGTERMs us mid-Run; on failure self-exit so
 			// Restart=always cycles us rather than continuing to serve on the
 			// stale *sql.DB pointed at the freshly-overwritten file.
-			go func() {
-				time.Sleep(restartFlushDelay)
+			spawnRestartGoroutine(func() {
 				if _, rErr := h.Cmd.Run("systemctl", "restart", "sfpanel"); rErr != nil {
 					slog.Error("systemctl restart failed after restore; self-exiting for supervisor restart",
 						"component", "system", "error", rErr)
 					exitProcess()
 				}
-			}()
+			})
 			return response.OK(c, map[string]string{"message": "Backup restored. Service restarting..."})
 		}
 	}
@@ -1004,10 +1024,9 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 	// No supervisor we can drive: schedule self-exit after the response flushes
 	// so the operator's HTTP client sees the success payload before the socket
 	// drops. The user-facing message is explicit that the process is going away.
-	go func() {
-		time.Sleep(2 * time.Second)
+	spawnRestartGoroutine(func() {
 		slog.Info("backup restored, exiting for external supervisor restart", "component", "system")
 		exitProcess()
-	}()
+	})
 	return response.OK(c, map[string]string{"message": "Backup restored. The panel process is exiting — your supervisor (Docker entrypoint, etc.) must restart sfpanel to load the new database."})
 }
