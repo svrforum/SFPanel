@@ -260,7 +260,10 @@ func main() {
 		alertIdentity = clusterMgr
 	}
 	alertManager := featureAlert.NewManagerWithIdentity(database, alertIdentity)
-	go alertManager.Start(bgCtx)
+	// safe.Go (not bare go) so a panic in rule evaluation — e.g. a malformed
+	// condition pulled from the DB — is recovered and logged instead of taking
+	// down the whole process. Mirrors every other background worker below.
+	safe.Go("alert-manager", func() { alertManager.Start(bgCtx) })
 
 	// Docker observability: per-container metrics history, daemon events
 	// listener, and retention pruners. Default-on; opt-out via config.
@@ -543,6 +546,17 @@ func updatePanel() {
 		log.Fatalf("Failed to write new binary: %v", err)
 	}
 
+	// Back up the current binary so the rollback watchdog (and the operator)
+	// can revert if the new binary fails to come up. Without this the CLI
+	// update had no binary rollback at all — a crash-on-boot would loop
+	// forever under Restart=always.
+	bakBin := execPath + ".bak"
+	if cur, rErr := os.ReadFile(execPath); rErr != nil {
+		log.Fatalf("Failed to read current binary for backup: %v", rErr)
+	} else if wErr := os.WriteFile(bakBin, cur, 0755); wErr != nil {
+		log.Fatalf("Failed to back up current binary: %v", wErr)
+	}
+
 	// Snapshot the DB before the point-of-no-return rename. If a new
 	// migration corrupts the schema, the operator can stop sfpanel and
 	// `cp <bak> sfpanel.db` to roll back without re-installing the old
@@ -567,6 +581,23 @@ func updatePanel() {
 		fmt.Println("Migrated systemd unit: Restart=on-failure → Restart=always")
 	}
 
+	// Arm the same rollback watchdog the web update uses, spawned from the
+	// backup binary so the restart below can't kill it. It polls the health
+	// endpoint and restores bakBin if the new binary doesn't come up within the
+	// grace window (binary-only rollback; the DB snapshot above is for manual
+	// recovery).
+	if port := updateHealthPort(); port > 0 {
+		checkURL := fmt.Sprintf("http://127.0.0.1:%d/api/v1/system/info", port)
+		wd := exec.Command(bakBin, "watchdog-update", bakBin, execPath, checkURL, "90")
+		// Detach into its own session so the systemctl restart below can't kill it.
+		wd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		if err := wd.Start(); err != nil {
+			log.Printf("Rollback watchdog failed to start: %v (no auto-rollback — manual restore: cp %s %s)", err, bakBin, execPath)
+		} else {
+			fmt.Println("Rollback watchdog armed (auto-restores the previous binary if the update fails to come up).")
+		}
+	}
+
 	// Restart systemd service if active. Use Run() (not Start()) here because
 	// the CLI is short-lived — we want the restart to complete and surface
 	// errors before the binary exits.
@@ -578,6 +609,20 @@ func updatePanel() {
 			fmt.Println("Service restarted.")
 		}
 	}
+}
+
+// updateHealthPort loads the configured HTTP port for the rollback watchdog's
+// health probe. Returns 0 if config can't be read (watchdog is then skipped).
+func updateHealthPort() int {
+	cfgPath := defaultCfgPath
+	if envPath := os.Getenv("SFPANEL_CONFIG"); envPath != "" {
+		cfgPath = envPath
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return 0
+	}
+	return cfg.Server.Port
 }
 
 // snapshotDBForUpgrade copies the live SQLite DB to a timestamped backup so a
@@ -608,11 +653,20 @@ func snapshotDBForUpgrade() error {
 	if err := copyFileMode(dbPath, bakPath, 0600); err != nil {
 		return fmt.Errorf("copy db: %w", err)
 	}
+	// Copy the WAL/SHM sidecars so the hot snapshot is a consistent set — the
+	// live process may hold uncheckpointed pages in the WAL that a .db-only copy
+	// would drop on restore.
+	for _, sfx := range []string{"-wal", "-shm"} {
+		if _, statErr := os.Stat(dbPath + sfx); statErr == nil {
+			_ = copyFileMode(dbPath+sfx, bakPath+sfx, 0600)
+		}
+	}
 	fmt.Printf("DB snapshot saved: %s\n", bakPath)
 
-	// Prune all but the 3 newest snapshots.
+	// Prune all but the 3 newest snapshots. Count only the main .bak files
+	// (skip -wal/-shm sidecars) and remove each pruned snapshot's sidecars too.
 	entries, err := filepath.Glob(dbPath + ".bak-*")
-	if err != nil || len(entries) <= 3 {
+	if err != nil {
 		return nil
 	}
 	type entryInfo struct {
@@ -621,15 +675,23 @@ func snapshotDBForUpgrade() error {
 	}
 	infos := make([]entryInfo, 0, len(entries))
 	for _, p := range entries {
+		if strings.HasSuffix(p, "-wal") || strings.HasSuffix(p, "-shm") {
+			continue
+		}
 		st, statErr := os.Stat(p)
 		if statErr != nil {
 			continue
 		}
 		infos = append(infos, entryInfo{path: p, mod: st.ModTime()})
 	}
+	if len(infos) <= 3 {
+		return nil
+	}
 	sort.Slice(infos, func(i, j int) bool { return infos[i].mod.After(infos[j].mod) })
 	for _, old := range infos[3:] {
 		_ = os.Remove(old.path)
+		_ = os.Remove(old.path + "-wal")
+		_ = os.Remove(old.path + "-shm")
 	}
 	return nil
 }

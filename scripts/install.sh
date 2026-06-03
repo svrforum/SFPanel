@@ -137,6 +137,35 @@ download_binary() {
     log_error "Could not fetch checksums.txt from ${base}/"
     exit 1
   fi
+
+  # Verify the Sigstore (cosign keyless) signature of checksums.txt before
+  # trusting it. SHA-256 alone is self-referential: an attacker able to serve a
+  # tampered release swaps both the tarball AND checksums.txt and the hash still
+  # matches. cosign binds checksums.txt to the GitHub Actions release-workflow
+  # identity (Rekor-logged), which SHA-256 cannot. Hard-fail on a bad signature;
+  # if cosign isn't installed, warn and fall back to SHA-256-over-HTTPS only.
+  if command -v cosign >/dev/null 2>&1; then
+    if curl -fsSL "${base}/checksums.txt.sig" -o "${tmp_dir}/checksums.txt.sig" \
+       && curl -fsSL "${base}/checksums.txt.pem" -o "${tmp_dir}/checksums.txt.pem"; then
+      log_info "Verifying release signature (cosign keyless)..."
+      if ! cosign verify-blob \
+          --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+          --certificate-identity-regexp "^https://github.com/${REPO}/\.github/workflows/.*" \
+          --signature "${tmp_dir}/checksums.txt.sig" \
+          --certificate "${tmp_dir}/checksums.txt.pem" \
+          "${tmp_dir}/checksums.txt" >/dev/null 2>&1; then
+        rm -rf "$tmp_dir"
+        log_error "cosign signature verification FAILED for checksums.txt — refusing to install"
+        exit 1
+      fi
+      log_info "Release signature verified (Sigstore keyless)."
+    else
+      log_warn "Release has no cosign signature assets; using SHA-256 only."
+    fi
+  else
+    log_warn "cosign not installed — skipping signature verification (SHA-256 over HTTPS only). Install cosign for full supply-chain verification."
+  fi
+
   local expected actual
   expected=$(awk -v a="${asset}" '$2==a || $2=="*"a {print $1; exit}' "${tmp_dir}/checksums.txt")
   if [ -z "$expected" ]; then
@@ -168,10 +197,15 @@ download_binary() {
     systemctl stop "$SERVICE_NAME"
   fi
 
-  # With the service stopped (or fresh install — no service yet), the SQLite
-  # WAL has been checkpointed and we can take a clean snapshot before any
-  # new migration touches the schema. Roll back via:
-  #   systemctl stop sfpanel && cp <bak> /var/lib/sfpanel/sfpanel.db && systemctl start sfpanel
+  # With the service stopped (or fresh install — no service yet), snapshot the
+  # DB *and its WAL/SHM sidecars* before any new migration touches the schema.
+  # A clean stop usually checkpoints the WAL, but a prior unclean exit may not,
+  # so we copy the sidecars to keep the snapshot consistent. Roll back via:
+  #   systemctl stop sfpanel
+  #   rm -f /var/lib/sfpanel/sfpanel.db-wal /var/lib/sfpanel/sfpanel.db-shm
+  #   cp <bak> /var/lib/sfpanel/sfpanel.db
+  #   [ -f <bak>-wal ] && cp <bak>-wal /var/lib/sfpanel/sfpanel.db-wal
+  #   systemctl start sfpanel
   backup_db
 
   install -m 755 "${tmp_dir}/sfpanel" "${INSTALL_DIR}/sfpanel"
@@ -192,16 +226,23 @@ backup_db() {
   bak="${DATA_DIR}/sfpanel.db.bak-${ts}"
   if cp -p "$db" "$bak"; then
     chmod 600 "$bak"
+    # Copy the WAL/SHM sidecars too so the snapshot is a consistent set even if
+    # the prior shutdown left uncheckpointed pages in the WAL.
+    [ -f "${db}-wal" ] && cp -p "${db}-wal" "${bak}-wal" && chmod 600 "${bak}-wal"
+    [ -f "${db}-shm" ] && cp -p "${db}-shm" "${bak}-shm" && chmod 600 "${bak}-shm"
     log_info "DB snapshot saved: ${bak}"
   else
     log_warn "DB snapshot failed (continuing — upgrade is not blocked)"
     return 0
   fi
-  # Retain the 3 newest .bak files; prune the rest. ls -t sorts newest-first.
+  # Retain the 3 newest snapshots; prune older ones with their sidecars. Match
+  # only the timestamped main files (ts shape YYYYmmdd-HHMMSS) so -wal/-shm
+  # sidecars aren't counted as separate logical backups (which would halve the
+  # effective retention) and an operator's manually-named .bak isn't pruned.
   local old
   while IFS= read -r old; do
-    [ -n "$old" ] && rm -f "$old"
-  done < <(ls -1t "${DATA_DIR}"/sfpanel.db.bak-* 2>/dev/null | tail -n +4)
+    [ -n "$old" ] && rm -f "$old" "${old}-wal" "${old}-shm"
+  done < <(ls -1t "${DATA_DIR}"/sfpanel.db.bak-* 2>/dev/null | grep -E '/sfpanel\.db\.bak-[0-9]{8}-[0-9]{6}$' | tail -n +4)
 }
 
 setup_dirs() {

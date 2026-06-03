@@ -478,8 +478,14 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	// pending writes would still live in sfpanel.db-wal, and rolling
 	// back to .bak would silently drop them.
 	if h.DB != nil {
+		// Abort rather than proceed with a stale snapshot: if the WAL can't be
+		// folded into the main DB file, the .bak would miss the live process's
+		// pending writes and a rollback to it would silently lose committed
+		// data. The DB uses MaxOpenConns=1 so a TRUNCATE checkpoint failing
+		// here is rare; refusing the update is the safe response.
 		if cpErr := sfdb.CheckpointWAL(h.DB); cpErr != nil {
-			slog.Warn("WAL checkpoint failed before DB backup; .bak may be stale", "error", cpErr)
+			sendEvent("error", fmt.Sprintf("DB WAL checkpoint failed; aborting update to avoid an inconsistent backup: %v", cpErr))
+			return nil
 		}
 	}
 	if data, readErr := os.ReadFile(h.DBPath); readErr == nil {
@@ -590,6 +596,10 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 				if _, rErr := h.Cmd.Run("systemctl", "restart", "sfpanel"); rErr != nil {
 					slog.Error("systemctl restart failed after update; self-exiting for supervisor restart",
 						"component", "system", "error", rErr)
+					// Best-effort: the SSE stream is likely already closing, but
+					// emit a distinct event so a still-connected client learns the
+					// restart itself failed rather than only seeing "Restarting...".
+					sendEvent("restart_failed", fmt.Sprintf("systemctl restart failed: %v. The watchdog will roll back if the new binary doesn't come up; otherwise restart manually.", rErr))
 					exitProcess()
 				}
 			})

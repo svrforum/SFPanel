@@ -7,7 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
+
+	"github.com/svrforum/SFPanel/internal/common/lifecycle"
 )
 
 // watchdogUpdate is invoked as a detached subprocess by RunUpdate after the
@@ -86,8 +90,18 @@ func watchdogUpdate(args []string) {
 	// keeps the live process from observing a half-rolled-back state.
 	fmt.Fprintln(os.Stderr, "watchdog-update: panel unreachable after grace period, rolling back")
 
-	if err := exec.Command("systemctl", "stop", "sfpanel").Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "watchdog-update: stop before rollback failed (continuing): %v\n", err)
+	// Restart strategy differs by supervisor. Under systemd we stop → restore →
+	// start. On a non-systemd host (Docker entrypoint, supervisord, manual run)
+	// `systemctl` is absent or — inside a container — talks to the HOST's
+	// systemd, so we must NOT call it. There we restore the binary first, then
+	// SIGTERM the running (bad) panel process so its supervisor restarts it from
+	// the now-restored previous binary.
+	systemd := lifecycle.IsSystemdActive()
+
+	if systemd {
+		if err := exec.Command("systemctl", "stop", "sfpanel").Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "watchdog-update: stop before rollback failed (continuing): %v\n", err)
+		}
 	}
 
 	if err := restoreFile(bakPath, binaryPath, 0755, "binary"); err != nil {
@@ -109,11 +123,49 @@ func watchdogUpdate(args []string) {
 		}
 	}
 
-	if err := exec.Command("systemctl", "start", "sfpanel").Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "watchdog-update: rollback restart failed: %v\n", err)
-		os.Exit(3)
+	if systemd {
+		if err := exec.Command("systemctl", "start", "sfpanel").Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "watchdog-update: rollback restart failed: %v\n", err)
+			os.Exit(3)
+		}
+		fmt.Fprintln(os.Stderr, "watchdog-update: rollback complete, sfpanel restarted on previous binary + DB")
+		return
 	}
-	fmt.Fprintln(os.Stderr, "watchdog-update: rollback complete, sfpanel restarted on previous binary + DB")
+
+	// Non-systemd: binary on disk is now the previous (good) one. Signal the
+	// running panel so its external supervisor restarts it from that binary.
+	n := signalPanelProcesses(binaryPath, syscall.SIGTERM)
+	fmt.Fprintf(os.Stderr, "watchdog-update: non-systemd rollback — restored previous binary + DB, sent SIGTERM to %d panel process(es); the supervisor must restart sfpanel\n", n)
+}
+
+// signalPanelProcesses sends sig to every process whose executable is exePath
+// (excluding this watchdog), so a non-systemd supervisor restarts the panel
+// from the just-restored binary. /proc/<pid>/exe reads as "<path> (deleted)"
+// once the binary has been replaced on disk, so the suffix is trimmed before
+// comparison. Returns how many processes were signalled.
+func signalPanelProcesses(exePath string, sig syscall.Signal) int {
+	self := os.Getpid()
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid == self {
+			continue
+		}
+		target, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+		if err != nil {
+			continue
+		}
+		if strings.TrimSuffix(target, " (deleted)") == exePath {
+			if syscall.Kill(pid, sig) == nil {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 // restoreFile atomically swaps `bak` into `live` via a `.rollback` temp file

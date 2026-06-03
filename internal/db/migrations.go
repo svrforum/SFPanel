@@ -216,6 +216,16 @@ var migrations = []migration{
 // processes opening the same DB rely on SQLite's WAL locking — the second
 // process will block on the first's transaction.
 func RunMigrations(db *sql.DB) error {
+	// Enforce the append-only, strictly-ascending, unique-ID contract the
+	// migration list relies on (CLAUDE.md: never reorder/renumber). The loop
+	// below trusts slice order; a hand-edit that duplicates or unsorts an ID
+	// would silently skip or misorder a migration. Fail fast at boot instead.
+	for i, m := range migrations {
+		if i > 0 && m.ID <= migrations[i-1].ID {
+			return fmt.Errorf("migration list not strictly ascending/unique at index %d: id %d follows id %d", i, m.ID, migrations[i-1].ID)
+		}
+	}
+
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		id         INTEGER PRIMARY KEY,
 		applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
