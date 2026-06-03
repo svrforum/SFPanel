@@ -6,6 +6,52 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.41.0] – 2026-06-03
+
+### Fixed
+
+- **cluster: disband was a no-op after any restart.** The boot path injected the
+  Raft manager into the handler via a struct literal, bypassing the one code
+  path (`setManager`) that registers the `SetOnDisband` callback — so a node that
+  booted into an existing cluster never honored a replicated `CmdDisband`.
+  "Disband" returned 200 but nothing wiped state or restarted. Register the
+  callback at boot (`ActivateBootManager`) and add an FSM replay-index guard so a
+  stale committed `CmdDisband` can't self-destruct the node on restart.
+- **cluster: admin account is now synced down to the local DB on disband/leave.**
+  Account state only flowed local→FSM at init; while clustered, password/2FA/
+  recovery changes went only to the replicated FSM. Dropping back to standalone
+  then fell back to the stale pre-cluster local row (login would fail with the
+  cluster credentials). `syncClusterAdminToLocalDB` now writes the FSM admin into
+  the local table before the FSM is abandoned.
+- **system: update-check used a string `!=` instead of a semver compare,** so a
+  build whose version string differed from the latest release tag but was newer
+  falsely reported "update available." Now uses `IsForwardUpdate`, matching the
+  dashboard overview.
+- **install/update hardening:** verify `checksums.txt` with cosign in
+  `install.sh` (not SHA-256 only); the signature fallback now gates on both the
+  current and target version so a node past the signing cutoff never accepts an
+  unsigned update; DB snapshots include the WAL/SHM sidecars and prune only the
+  timestamped main files; the CLI `sfpanel update` now backs up the binary and
+  arms the rollback watchdog; the watchdog is systemd-aware (signals the process
+  on non-systemd hosts); the alert manager runs under `safe.Go`; migrations are
+  validated as strictly-ascending at boot.
+- **mobile: horizontal-scroll and broken detail modals.** The app shell used
+  `overflow-auto`, so an over-wide child slid the whole page left/right; page
+  headers, selects, dashboard chart header, and the shadcn tab bar now wrap /
+  scroll correctly. Detail dialogs (container/stack/network/disk/interface)
+  stopped clipping label/value pairs (`min-w-0` propagation through Tabs +
+  per-row truncation). The app shell now tracks `visualViewport.height` so the
+  mobile soft keyboard no longer pushes the terminal under the keyboard and
+  scrolls the page.
+
+### Changed
+
+- **settings: consolidated 6 tabs into 4** (Account / System / Alerts / Audit).
+  Account merges Security (password/2FA/recovery) + language; System merges
+  Maintenance (update/backup) + the former "Performance" limits (terminal
+  timeout, upload size). A scope badge ("This node" / "Cluster-wide") clarifies
+  what you're editing in cluster mode.
+
 ## [0.40.0] – 2026-06-03
 
 ### Fixed
