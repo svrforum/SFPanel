@@ -10,23 +10,23 @@
 
 - **대시보드** — CPU, 메모리, 디스크, 네트워크 실시간 모니터링 (WebSocket)
 - **Docker 관리** — 컨테이너, 이미지, 볼륨, 네트워크, Compose 스택, Hub 검색, 리소스 정리
-- **파일 관리** — 브라우저 기반 파일 탐색기, Monaco 에디터, 업로드/다운로드
-- **터미널** — xterm.js 기반 웹 터미널 (멀티탭, PTY, 세션 유지, 256KB 스크롤백)
+- **파일 관리** — 브라우저 기반 파일 탐색기, Monaco 에디터, 재귀 검색, 복사, 다중선택 삭제, 업로드/다운로드
+- **터미널** — xterm.js 기반 웹 터미널 (멀티탭, PTY, 세션 유지·재연결, 256KB 스크롤백)
 - **로그 뷰어** — 시스템/커스텀 로그 실시간 스트리밍, 구조화 파싱 (auth, ufw, sfpanel)
-- **프로세스 관리** — 프로세스 목록, 정렬, 시그널 전송
-- **크론 작업** — crontab GUI 관리
-- **서비스 관리** — systemd 서비스 시작/중지/재시작/활성화/비활성화, 의존성 확인
+- **프로세스 관리** — 프로세스 트리(PPID), 절대 RSS·nice 값, 정렬, 시그널(TERM/KILL/HUP/INT/STOP/CONT) + renice
+- **크론 작업** — crontab GUI 관리, 즉시 실행(run-now) + 출력 캡처
+- **서비스 관리** — systemd 서비스 시작/중지/재시작/활성화/비활성화, 유닛 파일 보기, 의존성 확인
 - **앱스토어** — Docker Compose 기반 원클릭 앱 설치 (Nextcloud, WordPress, GitLab 등 50+ 앱)
 - **패키지 관리** — APT 패키지 검색/설치/업그레이드, Docker/Node.js/Claude/Codex/Gemini 원클릭 설치
-- **방화벽** — UFW 규칙 관리, 열린 포트 확인, Fail2ban Jail 관리, Docker 네트워크 방화벽 (DOCKER-USER 체인)
-- **네트워크/VPN** — 인터페이스 설정 (DHCP/Static), DNS, 라우팅, 본딩, WireGuard, Tailscale
-- **디스크 관리** — 파티션, 파일시스템, LVM, RAID, 스왑, S.M.A.R.T.
-- **클러스터** — Raft 합의 기반 멀티노드 클러스터 (자동 리더 선출, mTLS, 노드 간 메트릭 공유)
-- **알림 시스템** — 조건 기반 알림 규칙, 채널 (Discord, Telegram), 알림 이력
+- **방화벽** — UFW 규칙 관리(잠금 방지 force 오버라이드), 열린 포트 확인, Fail2ban Jail 관리, Docker 네트워크 방화벽 (DOCKER-USER 체인)
+- **네트워크/VPN** — 인터페이스 설정 (DHCP/Static), DNS, 라우팅, 본딩, WireGuard(피어 관리·키 생성·클라이언트 QR·부팅 자동시작), Tailscale
+- **디스크 관리** — 파티션, 파일시스템, LVM, RAID, 스왑, 디스크 사용량 탐색기, S.M.A.R.T.(자체 검사 실행 + 로그)
+- **클러스터** — Raft 합의 기반 멀티노드 클러스터 (자동 리더 선출, mTLS, WebSocket 실시간 오버뷰, 조인 토큰 목록/취소, 노드 주소 편집·탈퇴, 롤링 업데이트 스테퍼)
+- **알림 시스템** — 조건 기반 알림 규칙, 채널 (Discord, Telegram, Webhook=Slack/Mattermost 호환), 알림 이력
 - **시스템 튜닝** — 성능 프로파일 적용 (확인 워크플로우 포함)
-- **셀프 관리** — 웹 업데이트 (SSE 스트리밍 + SHA-256 체크섬 검증), 설정 백업/복원
-- **감사 로그** — API 요청 기록, 사용자/IP/경로/상태/노드 추적
-- **보안** — JWT 인증 + TOTP 2FA, bcrypt 해시, 로그인 rate limiting (5회 실패 → 5분 차단)
+- **셀프 관리** — 웹 업데이트 (SSE 스트리밍 + cosign/SHA-256 검증), 설정 백업/복원, 예약 백업(보존 개수 지정)
+- **감사 로그** — API 요청 기록, 사용자/IP/경로/상태/노드 추적, 필터 + 범위 삭제
+- **보안** — JWT 인증 + TOTP 2FA(+ 일회용 복구 코드), bcrypt 해시, 로그인 rate limiting (5회 실패 → 5분 차단), 파괴적 작업 type-to-confirm
 - **다국어** — 한국어 / English (브라우저 자동 감지)
 - **데스크톱 앱** — Tauri 기반 Windows/Linux/macOS 네이티브 앱
 
@@ -34,9 +34,9 @@
 
 ```
 Go Binary (Echo v4)
-├── REST API (250+ endpoints) + WebSocket (6) + SSE (8 streaming)
+├── REST API (270+ endpoints) + WebSocket (7) + SSE (8 streaming)
 ├── Embedded React SPA (go:embed)
-├── SQLite (15+ tables — 인증, 설정, 감사 로그, 메트릭 히스토리, 알림, 컨테이너 이벤트, 볼륨 사용량 외)
+├── SQLite (16+ tables — 인증, 설정, 감사 로그, 메트릭 히스토리, 알림, 컨테이너 이벤트, 볼륨 사용량, 예약 백업 외)
 ├── Docker Go SDK (소켓 직접 통신, 미가용 시 Docker 라우트만 비활성)
 ├── Compose Manager (filesystem 기반, docker compose CLI)
 ├── System Metrics (gopsutil, 60초 주기 24시간 히스토리)
@@ -44,6 +44,7 @@ Go Binary (Echo v4)
     ├── 합의 기반 구성 동기화 (JWT 시크릿, 관리자 계정)
     ├── 비-리더 API 요청 프록시 (gRPC 30s / SSE HTTP relay 5m)
     ├── WebSocket 릴레이 (원격 노드 터미널/로그/메트릭)
+    ├── 클러스터 오버뷰 WS 푸시 (/ws/cluster/overview, 5s 샘플러)
     └── Heartbeat 메트릭 수집 (CPU, 메모리, 디스크, 컨테이너)
 ```
 
@@ -54,17 +55,17 @@ internal/
 │   ├── middleware/          # JWT, 감사 로그, 클러스터 프록시, 요청 로깅
 │   └── response/            # 표준 응답, 에러 코드 (150+), 출력 새니타이징
 ├── feature/                 # 22개 독립 기능 모듈
-│   ├── auth/                # JWT, TOTP 2FA, 비밀번호
+│   ├── auth/                # JWT, TOTP 2FA + 복구 코드, 비밀번호
 │   ├── docker/              # 컨테이너, 이미지, 볼륨, 네트워크
 │   ├── compose/             # Docker Compose 스택 (헬스체크 컴포저, 백업 retention)
 │   ├── portmap/             # 통합 포트 맵 (방화벽 × 컨테이너 × 프로세스)
 │   ├── firewall/            # UFW, Fail2ban, Docker 방화벽
 │   ├── disk/                # 파티션, 파일시스템, LVM, RAID, 스왑
-│   ├── network/             # 인터페이스, WireGuard, Tailscale
+│   ├── network/             # 인터페이스, WireGuard (피어/QR), Tailscale
 │   ├── packages/            # APT, Docker, Node.js, Claude, Codex, Gemini
 │   ├── cluster/             # 클러스터 관리 API
 │   ├── alert/               # 알림 채널 (Discord/Telegram), 규칙, 이력
-│   ├── system/              # 업데이트, 백업/복원, 튜닝
+│   ├── system/              # 업데이트, 백업/복원, 예약 백업, 튜닝
 │   ├── appstore/            # 앱스토어
 │   ├── services/            # systemd 서비스
 │   ├── files/               # 파일 매니저
@@ -439,8 +440,8 @@ cd e2e && npm run test:headed   # 브라우저 UI
 |------|------|
 | [docs/specs/tech-features.md](docs/specs/tech-features.md) | 전체 기능 상세 + 기술 스택 |
 | [docs/specs/api-spec.md](docs/specs/api-spec.md) | REST/SSE 엔드포인트 전수 + 요청·응답 스키마 |
-| [docs/specs/websocket-spec.md](docs/specs/websocket-spec.md) | WebSocket 6개 + SSE 8개 메시지 스키마 + 클러스터 릴레이 |
-| [docs/specs/db-schema.md](docs/specs/db-schema.md) | SQLite 15+개 테이블 + 보존 정책 + 마이그레이션 |
+| [docs/specs/websocket-spec.md](docs/specs/websocket-spec.md) | WebSocket 7개 + SSE 8개 메시지 스키마 + 클러스터 릴레이 |
+| [docs/specs/db-schema.md](docs/specs/db-schema.md) | SQLite 16+개 테이블 + 보존 정책 + 마이그레이션 |
 | [docs/specs/frontend-spec.md](docs/specs/frontend-spec.md) | 페이지/컴포넌트/라우팅/상태/빌드 |
 | [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md) | 클러스터 운영자 런북: 파티션 감지·복구, 강제 disband, 포트 마이그레이션 절차 |
 | [CHANGELOG.md](CHANGELOG.md) | 릴리스 노트 |
