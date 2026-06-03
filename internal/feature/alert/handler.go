@@ -57,6 +57,15 @@ type AlertHistoryEntry struct {
 // union of every field name the alert channels package reads as a secret
 // (Discord webhook URL, Telegram bot token / chat ID), plus generic
 // catch-alls that operators commonly use for custom integrations.
+// isValidChannelType reports whether t is a supported alert channel type.
+func isValidChannelType(t string) bool {
+	switch t {
+	case "discord", "telegram", "webhook":
+		return true
+	}
+	return false
+}
+
 var secretConfigKeys = map[string]struct{}{
 	"webhook_url": {},
 	"bot_token":   {},
@@ -161,8 +170,8 @@ func (h *Handler) CreateChannel(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
 	}
-	if req.Type != "discord" && req.Type != "telegram" {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "type must be discord or telegram")
+	if !isValidChannelType(req.Type) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "type must be discord, telegram, or webhook")
 	}
 	if req.Name == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "name is required")
@@ -200,8 +209,8 @@ func (h *Handler) UpdateChannel(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
 	}
-	if req.Type != "" && req.Type != "discord" && req.Type != "telegram" {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "type must be discord or telegram")
+	if req.Type != "" && !isValidChannelType(req.Type) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "type must be discord, telegram, or webhook")
 	}
 	if req.Config != "" && !json.Valid([]byte(req.Config)) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "config must be valid JSON")
@@ -290,6 +299,23 @@ func (h *Handler) TestChannel(c echo.Context) error {
 		}
 		if err := channels.SendTelegram(cfg.BotToken, cfg.ChatID, title, message, "info"); err != nil {
 			// Same reasoning as the discord branch above.
+			slog.Warn("test channel failed",
+				"component", "alert",
+				"channel_id", ch.ID,
+				"channel_type", ch.Type,
+				"err", err)
+			return response.Fail(c, http.StatusBadGateway, response.ErrChannelError, "channel delivery failed; check channel configuration")
+		}
+	case "webhook":
+		var cfg struct {
+			WebhookURL string `json:"webhook_url"`
+		}
+		if err := json.Unmarshal([]byte(ch.Config), &cfg); err != nil || cfg.WebhookURL == "" {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "invalid webhook config: webhook_url required")
+		}
+		if err := channels.SendWebhook(cfg.WebhookURL, title, message, "info"); err != nil {
+			// Same reasoning as the discord branch above — the error never
+			// contains the URL, but the client message stays generic.
 			slog.Warn("test channel failed",
 				"component", "alert",
 				"channel_id", ch.ID,

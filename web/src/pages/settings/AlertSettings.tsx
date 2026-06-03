@@ -14,7 +14,7 @@ import { Trash2, Plus, Send, ChevronLeft, ChevronRight, X } from 'lucide-react'
 interface AlertChannel {
   id: number
   name: string
-  type: 'discord' | 'telegram'
+  type: 'discord' | 'telegram' | 'webhook'
   config: Record<string, string>
   enabled: boolean
   created_at: string
@@ -91,7 +91,7 @@ export default function AlertSettings() {
   const [channels, setChannels] = useState<AlertChannel[]>([])
   const [showAddChannel, setShowAddChannel] = useState(false)
   const [channelForm, setChannelForm] = useState({
-    name: '', type: 'discord' as 'discord' | 'telegram',
+    name: '', type: 'discord' as 'discord' | 'telegram' | 'webhook',
     webhook_url: '', bot_token: '', chat_id: '',
   })
   const [channelLoading, setChannelLoading] = useState(false)
@@ -162,7 +162,7 @@ export default function AlertSettings() {
       return
     }
     const config: Record<string, string> = {}
-    if (channelForm.type === 'discord') {
+    if (channelForm.type === 'discord' || channelForm.type === 'webhook') {
       if (!channelForm.webhook_url.trim()) { toast.error(t('settings.alerts.channels.errorWebhookRequired')); return }
       config.webhook_url = channelForm.webhook_url
     } else {
@@ -356,26 +356,36 @@ export default function AlertSettings() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[13px]">{t('settings.alerts.channels.formTypeLabel')}</Label>
-                <Select value={channelForm.type} onValueChange={v => setChannelForm(f => ({ ...f, type: v as 'discord' | 'telegram' }))}>
+                <Select value={channelForm.type} onValueChange={v => setChannelForm(f => ({ ...f, type: v as 'discord' | 'telegram' | 'webhook' }))}>
                   <SelectTrigger className="rounded-xl w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="discord">Discord</SelectItem>
                     <SelectItem value="telegram">Telegram</SelectItem>
+                    <SelectItem value="webhook">Webhook</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
-            {channelForm.type === 'discord' ? (
+            {channelForm.type === 'discord' || channelForm.type === 'webhook' ? (
               <div className="space-y-1.5">
-                <Label className="text-[13px]">{t('settings.alerts.channels.formWebhookLabel')}</Label>
+                <Label className="text-[13px]">
+                  {channelForm.type === 'webhook'
+                    ? t('settings.alerts.channels.formWebhookUrlLabel')
+                    : t('settings.alerts.channels.formWebhookLabel')}
+                </Label>
                 <Input
                   value={channelForm.webhook_url}
                   onChange={e => setChannelForm(f => ({ ...f, webhook_url: e.target.value }))}
-                  placeholder={t('settings.alerts.channels.formWebhookPlaceholder')}
+                  placeholder={channelForm.type === 'webhook'
+                    ? t('settings.alerts.channels.formWebhookUrlPlaceholder')
+                    : t('settings.alerts.channels.formWebhookPlaceholder')}
                   className="rounded-xl"
                 />
+                {channelForm.type === 'webhook' && (
+                  <p className="text-[11px] text-muted-foreground">{t('settings.alerts.channels.formWebhookHint')}</p>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -414,9 +424,11 @@ export default function AlertSettings() {
               <div key={ch.id} className="flex items-center justify-between bg-secondary/30 rounded-xl px-4 py-3">
                 <div className="flex items-center gap-3">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                    ch.type === 'discord' ? 'bg-[#5865F2]/10 text-[#5865F2]' : 'bg-[#0088cc]/10 text-[#0088cc]'
+                    ch.type === 'discord' ? 'bg-[#5865F2]/10 text-[#5865F2]'
+                      : ch.type === 'telegram' ? 'bg-[#0088cc]/10 text-[#0088cc]'
+                      : 'bg-[#00c471]/10 text-[#00c471]'
                   }`}>
-                    {ch.type === 'discord' ? 'Discord' : 'Telegram'}
+                    {ch.type === 'discord' ? 'Discord' : ch.type === 'telegram' ? 'Telegram' : 'Webhook'}
                   </span>
                   <span className="text-[13px] font-medium">{ch.name}</span>
                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${

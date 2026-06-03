@@ -948,7 +948,10 @@
         "successAdded": "Channel added",
         "successDeleted": "Channel deleted",
         "successTested": "Test notification sent",
-        "confirmDelete": "Delete this channel?"
+        "confirmDelete": "Delete this channel?",
+        "formWebhookUrlLabel": "Webhook URL",
+        "formWebhookUrlPlaceholder": "https://your-receiver.example.com/hook",
+        "formWebhookHint": "Posts a JSON body with a Slack/Mattermost-compatible \"text\" field plus structured alert fields. Works with Slack incoming webhooks or any custom receiver."
       },
       "rules": {
         "title": "Rules",

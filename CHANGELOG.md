@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.25.0] – 2026-06-03
+
+Per-feature improvement pass, round 9 — **generic webhook alert channel**.
+
+### Added
+
+- **alert** — a third notification channel type, **webhook**, alongside Discord
+  and Telegram. It POSTs a JSON body carrying a Slack/Mattermost-compatible
+  `text` field plus the structured alert fields (title, message, severity,
+  timestamp), so it works with Slack incoming webhooks or any custom receiver.
+  Arbitrary http(s) targets are allowed by design (homelab receivers live on the
+  LAN); the URL is validated and delivery is bounded by the shared 10s client.
+  URL validation, payload shape, and non-2xx handling are tested.
+
 ## [0.24.0] – 2026-06-03
 
 Per-feature improvement pass, round 8 — **metrics sampling optimization**.

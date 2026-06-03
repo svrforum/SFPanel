@@ -314,6 +314,13 @@ func (m *Manager) deliverToChannels(f AlertFire) []string {
 			if err := json.Unmarshal([]byte(ch.Config), &cfg); err == nil && cfg.BotToken != "" && cfg.ChatID != "" {
 				sendErr = channels.SendTelegram(cfg.BotToken, cfg.ChatID, title, f.Message, f.Severity)
 			}
+		case "webhook":
+			var cfg struct {
+				WebhookURL string `json:"webhook_url"`
+			}
+			if err := json.Unmarshal([]byte(ch.Config), &cfg); err == nil && cfg.WebhookURL != "" {
+				sendErr = channels.SendWebhook(cfg.WebhookURL, title, f.Message, f.Severity)
+			}
 		}
 
 		if sendErr != nil {
