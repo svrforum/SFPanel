@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.34.0] – 2026-06-03
+
+Per-feature improvement pass, round 18 — **2FA recovery codes**.
+
+### Added
+
+- **auth** — **2FA recovery codes**: generate a set of one-time codes (Settings →
+  Security) to log in if you lose your authenticator. On the login screen, "use a
+  recovery code instead" swaps the TOTP field for a recovery-code field; a valid
+  code is consumed on use. Codes are stored hashed (SHA-256) and **replicate
+  through the Raft FSM** for cluster admins — decoupled from the account record
+  (migration 35 + a new `CmdSetRecoveryCodes`) so a password/TOTP change can't
+  wipe them. Consuming a cluster admin's code is a leader write; on a follower the
+  login is refused with a "use the leader node" hint rather than risk a reusable
+  code. Generation, hashing/normalization, consume-once, and the
+  password-change-preserves-codes guarantee are all tested.
+
 ## [0.33.0] – 2026-06-03
 
 Per-feature improvement pass, round 17 — **loading skeletons + error states**.

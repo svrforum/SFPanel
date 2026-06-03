@@ -13,6 +13,8 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [totpCode, setTotpCode] = useState('')
   const [showTotp, setShowTotp] = useState(false)
+  const [useRecovery, setUseRecovery] = useState(false)
+  const [recoveryCode, setRecoveryCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -22,7 +24,9 @@ export default function Login() {
     setLoading(true)
 
     try {
-      const result = await api.login(username, password, showTotp ? totpCode : undefined)
+      const result = showTotp && useRecovery
+        ? await api.login(username, password, undefined, recoveryCode)
+        : await api.login(username, password, showTotp ? totpCode : undefined)
       api.setTokenPair(result.token, result.refresh_token ?? null)
       navigate('/dashboard')
     } catch (err: unknown) {
@@ -88,17 +92,41 @@ export default function Login() {
 
             {showTotp && (
               <div className="space-y-2">
-                <Label htmlFor="totp" className="text-xs font-medium text-muted-foreground">{t('login.totpCode')}</Label>
-                <Input
-                  id="totp"
-                  type="text"
-                  value={totpCode}
-                  onChange={(e) => setTotpCode(e.target.value)}
-                  placeholder="000000"
-                  maxLength={6}
-                  autoFocus
-                  className="h-11 rounded-xl bg-secondary/50 border-0 text-center text-lg tracking-[0.3em] focus-visible:ring-2 focus-visible:ring-primary/30"
-                />
+                {useRecovery ? (
+                  <>
+                    <Label htmlFor="recovery" className="text-xs font-medium text-muted-foreground">{t('login.recoveryCode')}</Label>
+                    <Input
+                      id="recovery"
+                      type="text"
+                      value={recoveryCode}
+                      onChange={(e) => setRecoveryCode(e.target.value)}
+                      placeholder={t('login.recoveryCodePlaceholder')}
+                      autoFocus
+                      className="h-11 rounded-xl bg-secondary/50 border-0 text-center font-mono tracking-[0.15em] focus-visible:ring-2 focus-visible:ring-primary/30"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Label htmlFor="totp" className="text-xs font-medium text-muted-foreground">{t('login.totpCode')}</Label>
+                    <Input
+                      id="totp"
+                      type="text"
+                      value={totpCode}
+                      onChange={(e) => setTotpCode(e.target.value)}
+                      placeholder="000000"
+                      maxLength={6}
+                      autoFocus
+                      className="h-11 rounded-xl bg-secondary/50 border-0 text-center text-lg tracking-[0.3em] focus-visible:ring-2 focus-visible:ring-primary/30"
+                    />
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setUseRecovery((v) => !v)}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  {useRecovery ? t('login.useAuthenticator') : t('login.useRecoveryCode')}
+                </button>
               </div>
             )}
 

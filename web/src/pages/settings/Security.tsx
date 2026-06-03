@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { QRCodeSVG } from 'qrcode.react'
+import { Copy, Download } from 'lucide-react'
 import { useApiAction } from '@/hooks/useApiAction'
 
 export default function Security() {
@@ -26,11 +27,36 @@ export default function Security() {
   const [showTwoFASetup, setShowTwoFASetup] = useState(false)
   const [verifyLoading, setVerifyLoading] = useState(false)
 
+  // Recovery codes state
+  const [recoveryGenerated, setRecoveryGenerated] = useState(false)
+  const [recoveryRemaining, setRecoveryRemaining] = useState(0)
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
+  const [recoveryLoading, setRecoveryLoading] = useState(false)
+
   useEffect(() => {
     api.get2FAStatus()
       .then((data) => setTwoFAEnabled(data.enabled))
       .catch(() => { /* ignore */ })
   }, [])
+
+  function refreshRecoveryStatus() {
+    api.get2FARecoveryStatus()
+      .then((data) => {
+        setRecoveryGenerated(data.generated)
+        setRecoveryRemaining(data.remaining)
+      })
+      .catch(() => { /* ignore */ })
+  }
+
+  useEffect(() => {
+    if (!twoFAEnabled) {
+      setRecoveryGenerated(false)
+      setRecoveryRemaining(0)
+      setRecoveryCodes([])
+      return
+    }
+    refreshRecoveryStatus()
+  }, [twoFAEnabled])
 
   // ---- handlers that fit the useApiAction shape ----
 
@@ -114,6 +140,47 @@ export default function Security() {
     } finally {
       setVerifyLoading(false)
     }
+  }
+
+  async function handleGenerateRecoveryCodes() {
+    // Regenerating invalidates any previous set — confirm when codes exist.
+    if (recoveryGenerated) {
+      if (!(await confirm({
+        title: t('settings.recoveryCodes.regenerateConfirm'),
+        description: t('settings.recoveryCodes.regenerateConfirmDesc'),
+        danger: true,
+      }))) return
+    }
+    setRecoveryLoading(true)
+    try {
+      const { codes } = await api.regenerate2FARecoveryCodes()
+      setRecoveryCodes(codes)
+      refreshRecoveryStatus()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('settings.recoveryCodes.generateFailed')
+      toast.error(message)
+    } finally {
+      setRecoveryLoading(false)
+    }
+  }
+
+  async function handleCopyRecoveryCodes() {
+    try {
+      await navigator.clipboard.writeText(recoveryCodes.join('\n'))
+      toast.success(t('settings.recoveryCodes.copied'))
+    } catch {
+      toast.error(t('settings.recoveryCodes.copyFailed'))
+    }
+  }
+
+  function handleDownloadRecoveryCodes() {
+    const blob = new Blob([recoveryCodes.join('\n')], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'sfpanel-recovery-codes.txt'
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   function getTwoFAButtonLabel(): string {
@@ -249,6 +316,59 @@ export default function Security() {
           </div>
         )}
       </div>
+
+      {/* Recovery Codes */}
+      {twoFAEnabled && (
+        <div className="bg-card rounded-2xl p-6 card-shadow">
+          <h3 className="text-[15px] font-semibold">{t('settings.recoveryCodes.title')}</h3>
+          <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.recoveryCodes.description')}</p>
+
+          {recoveryGenerated ? (
+            recoveryRemaining > 0 ? (
+              <p className="text-[13px] mb-4">{t('settings.recoveryCodes.remaining', { count: recoveryRemaining })}</p>
+            ) : (
+              <div className="bg-destructive/8 text-destructive text-[13px] p-3 rounded-xl mb-4 font-medium">
+                {t('settings.recoveryCodes.allUsed')}
+              </div>
+            )
+          ) : (
+            <p className="text-[13px] text-muted-foreground mb-4">{t('settings.recoveryCodes.notGenerated')}</p>
+          )}
+
+          {recoveryCodes.length > 0 && (
+            <div className="space-y-3 max-w-md mb-4">
+              <div className="bg-[#ff6b00]/8 text-[#ff6b00] text-[13px] p-3 rounded-xl font-medium">
+                {t('settings.recoveryCodes.oneTimeWarning')}
+              </div>
+              <div className="grid grid-cols-2 gap-2 bg-secondary/30 p-4 rounded-xl">
+                {recoveryCodes.map((code) => (
+                  <code key={code} className="block bg-background px-3 py-2 rounded-lg text-[13px] font-mono select-all text-center">
+                    {code}
+                  </code>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={handleCopyRecoveryCodes} className="rounded-xl">
+                  <Copy className="h-4 w-4 mr-1.5" />
+                  {t('settings.recoveryCodes.copyAll')}
+                </Button>
+                <Button type="button" variant="outline" onClick={handleDownloadRecoveryCodes} className="rounded-xl">
+                  <Download className="h-4 w-4 mr-1.5" />
+                  {t('settings.recoveryCodes.download')}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <Button onClick={handleGenerateRecoveryCodes} disabled={recoveryLoading} className="rounded-xl">
+            {recoveryLoading
+              ? t('settings.recoveryCodes.generating')
+              : recoveryGenerated
+                ? t('settings.recoveryCodes.regenerate')
+                : t('settings.recoveryCodes.generate')}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

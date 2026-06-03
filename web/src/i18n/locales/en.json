@@ -80,7 +80,11 @@
     "totpCode": "2FA Code",
     "signingIn": "Signing in...",
     "signIn": "Sign In",
-    "totpRequired": "Please enter your 2FA code"
+    "totpRequired": "Please enter your 2FA code",
+    "useRecoveryCode": "Use a recovery code instead",
+    "useAuthenticator": "Use your authenticator code instead",
+    "recoveryCode": "Recovery Code",
+    "recoveryCodePlaceholder": "abcde-fghij"
   },
   "connect": {
     "title": "Connect to Server",
@@ -793,6 +797,24 @@
     "verificationPlaceholder": "Enter 6-digit code",
     "verifying": "Verifying...",
     "verifyAndEnable": "Verify & Enable",
+    "recoveryCodes": {
+      "title": "Recovery Codes",
+      "description": "Single-use codes to sign in if you lose access to your authenticator app.",
+      "remaining": "{{count}} recovery codes remaining",
+      "notGenerated": "You haven't generated recovery codes yet. Generate them and store them somewhere safe.",
+      "allUsed": "All recovery codes have been used. Regenerate a new set to keep a backup sign-in method.",
+      "generate": "Generate recovery codes",
+      "regenerate": "Regenerate recovery codes",
+      "generating": "Generating...",
+      "regenerateConfirm": "Regenerate recovery codes?",
+      "regenerateConfirmDesc": "This invalidates your existing recovery codes. Any codes you saved before will stop working.",
+      "oneTimeWarning": "These codes are shown only once. Save them now — regenerating will invalidate this set. Each code can be used a single time.",
+      "copyAll": "Copy all",
+      "copied": "Recovery codes copied to clipboard",
+      "copyFailed": "Failed to copy recovery codes",
+      "download": "Download",
+      "generateFailed": "Failed to generate recovery codes"
+    },
     "systemInfo": "System Information",
     "systemInfoDescription": "Server and application details",
     "version": "SFPanel Version",

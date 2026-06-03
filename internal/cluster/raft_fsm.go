@@ -27,6 +27,13 @@ const (
 	// local cleanup (wiping cluster material, flipping config, exiting).
 	// cmd.Key carries the node ID that initiated the disband.
 	CmdDisband
+	// CmdSetRecoveryCodes replaces the 2FA recovery-code hash list for the
+	// account named by cmd.Key (value = JSON []string of hashes). Decoupled
+	// from CmdSetAccount so a password/TOTP change (which replaces the whole
+	// AdminAccount) can't wipe the recovery codes. MUST stay last in this iota
+	// block — inserting earlier would renumber existing commands and corrupt
+	// replay of persisted Raft logs.
+	CmdSetRecoveryCodes
 )
 
 // AdminAccount represents a cluster-synced user account.
@@ -57,9 +64,10 @@ type FSM struct {
 func NewFSM() *FSM {
 	return &FSM{
 		state: ClusterState{
-			Nodes:    make(map[string]*Node),
-			Config:   make(map[string]string),
-			Accounts: make(map[string]*AdminAccount),
+			Nodes:         make(map[string]*Node),
+			Config:        make(map[string]string),
+			Accounts:      make(map[string]*AdminAccount),
+			RecoveryCodes: make(map[string][]string),
 		},
 	}
 }
@@ -155,6 +163,21 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 		}
 		return nil
 
+	case CmdSetRecoveryCodes:
+		var codes []string
+		if err := json.Unmarshal(cmd.Value, &codes); err != nil {
+			return err
+		}
+		if f.state.RecoveryCodes == nil {
+			f.state.RecoveryCodes = make(map[string][]string)
+		}
+		if len(codes) == 0 {
+			delete(f.state.RecoveryCodes, cmd.Key)
+		} else {
+			f.state.RecoveryCodes[cmd.Key] = codes
+		}
+		return nil
+
 	case CmdDisband:
 		// Fire the callback outside the FSM lock. The callback typically
 		// wipes disk state and exits the process, both of which must not
@@ -202,6 +225,9 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	if state.Accounts == nil {
 		state.Accounts = make(map[string]*AdminAccount)
 	}
+	if state.RecoveryCodes == nil {
+		state.RecoveryCodes = make(map[string][]string)
+	}
 
 	f.mu.Lock()
 	f.state = state
@@ -228,12 +254,28 @@ func (f *FSM) GetState() ClusterState {
 		a := *v
 		accounts[k] = &a
 	}
-	return ClusterState{
-		Name:     f.state.Name,
-		Nodes:    nodes,
-		Config:   config,
-		Accounts: accounts,
+	recovery := make(map[string][]string, len(f.state.RecoveryCodes))
+	for k, v := range f.state.RecoveryCodes {
+		recovery[k] = append([]string(nil), v...)
 	}
+	return ClusterState{
+		Name:          f.state.Name,
+		Nodes:         nodes,
+		Config:        config,
+		Accounts:      accounts,
+		RecoveryCodes: recovery,
+	}
+}
+
+// GetRecoveryCodes returns a copy of the 2FA recovery-code hashes for a user,
+// or nil if none are stored.
+func (f *FSM) GetRecoveryCodes(username string) []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if f.state.RecoveryCodes == nil {
+		return nil
+	}
+	return append([]string(nil), f.state.RecoveryCodes[username]...)
 }
 
 // GetNode returns a specific node, or nil.

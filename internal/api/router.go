@@ -185,6 +185,8 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	authorized.POST("/auth/2fa/setup", authHandler.Setup2FA)
 	authorized.POST("/auth/2fa/verify", authHandler.Verify2FA)
 	authorized.DELETE("/auth/2fa", authHandler.Disable2FA)
+	authorized.POST("/auth/2fa/recovery", authHandler.RegenerateRecoveryCodes)
+	authorized.GET("/auth/2fa/recovery/status", authHandler.GetRecoveryStatus)
 	authorized.POST("/auth/change-password", authHandler.ChangePassword)
 	authorized.POST("/auth/ws-ticket", authHandler.MintWSTicket)
 	authorized.POST("/auth/logout", authHandler.Logout)

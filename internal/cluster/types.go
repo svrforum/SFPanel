@@ -41,6 +41,10 @@ type ClusterState struct {
 	Nodes    map[string]*Node         `json:"nodes"`
 	Config   map[string]string        `json:"config"`
 	Accounts map[string]*AdminAccount `json:"accounts,omitempty"`
+	// RecoveryCodes maps username -> list of 2FA recovery-code hashes (unused
+	// codes only; consumed ones are removed). Kept separate from AdminAccount
+	// so a password/TOTP update doesn't clobber it.
+	RecoveryCodes map[string][]string `json:"recovery_codes,omitempty"`
 }
 
 // JoinToken is a time-limited, single-use token for node joining.

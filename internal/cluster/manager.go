@@ -966,6 +966,27 @@ func (m *Manager) GetAccount(username string) *AdminAccount {
 	return m.raft.GetFSM().GetAccount(username)
 }
 
+// SetRecoveryCodes replicates a user's 2FA recovery-code hash list through Raft
+// (leader-only; followers get ErrNotLeader). An empty slice clears them.
+func (m *Manager) SetRecoveryCodes(username string, hashes []string) error {
+	if m.raft == nil {
+		return fmt.Errorf("raft not initialized")
+	}
+	return m.raft.Apply(Command{
+		Type:  CmdSetRecoveryCodes,
+		Key:   username,
+		Value: mustJSON(hashes),
+	}, 5*time.Second)
+}
+
+// GetRecoveryCodes returns a user's recovery-code hashes from the FSM, or nil.
+func (m *Manager) GetRecoveryCodes(username string) []string {
+	if m.raft == nil {
+		return nil
+	}
+	return m.raft.GetFSM().GetRecoveryCodes(username)
+}
+
 // GetAccounts returns all accounts from the FSM state.
 func (m *Manager) GetAccounts() map[string]*AdminAccount {
 	if m.raft == nil {

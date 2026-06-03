@@ -43,6 +43,7 @@
 | username | TEXT | O | - | UNIQUE | 관리자 로그인 아이디 |
 | password | TEXT | O | - | - | bcrypt 해시된 비밀번호 |
 | totp_secret | TEXT | - | NULL | - | TOTP 2FA 시크릿 키 (NULL이면 2FA 미설정) |
+| recovery_codes | TEXT | - | NULL | - | 2FA 복구 코드 해시 JSON 배열(미사용분만; 마이그레이션 35). 클러스터 계정은 동일 목록을 Raft FSM(`RecoveryCodes` 맵)에 저장 |
 | created_at | DATETIME | - | CURRENT_TIMESTAMP | - | 계정 생성 시각 (UTC) |
 
 **자동 인덱스:**

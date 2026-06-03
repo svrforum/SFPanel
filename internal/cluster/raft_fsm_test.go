@@ -8,6 +8,63 @@ import (
 	"github.com/hashicorp/raft"
 )
 
+func applyCmd(t *testing.T, fsm *FSM, cmd Command) {
+	t.Helper()
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if res := fsm.Apply(&raft.Log{Data: data}); res != nil {
+		t.Fatalf("Apply returned non-nil: %v", res)
+	}
+}
+
+// CmdSetRecoveryCodes stores the hash list under the username, an empty list
+// clears it, and the codes survive a GetState copy (which feeds snapshots).
+func TestFSM_CmdSetRecoveryCodes(t *testing.T) {
+	fsm := NewFSM()
+	hashes := []string{"h1", "h2", "h3"}
+
+	applyCmd(t, fsm, Command{Type: CmdSetRecoveryCodes, Key: "alice", Value: mustJSON(hashes)})
+
+	if got := fsm.GetRecoveryCodes("alice"); len(got) != 3 || got[0] != "h1" {
+		t.Fatalf("GetRecoveryCodes = %v, want %v", got, hashes)
+	}
+
+	// GetState deep-copies the map (snapshot path).
+	if st := fsm.GetState(); len(st.RecoveryCodes["alice"]) != 3 {
+		t.Errorf("GetState dropped recovery codes: %v", st.RecoveryCodes)
+	}
+
+	// Mutating the returned slice must not affect FSM state.
+	got := fsm.GetRecoveryCodes("alice")
+	got[0] = "tampered"
+	if fsm.GetRecoveryCodes("alice")[0] != "h1" {
+		t.Error("GetRecoveryCodes returned an aliased slice")
+	}
+
+	// Empty list clears the entry.
+	applyCmd(t, fsm, Command{Type: CmdSetRecoveryCodes, Key: "alice", Value: mustJSON([]string{})})
+	if got := fsm.GetRecoveryCodes("alice"); len(got) != 0 {
+		t.Errorf("after clear: %v, want empty", got)
+	}
+}
+
+// A CmdSetAccount (password/TOTP change) must NOT wipe recovery codes — the
+// whole point of decoupling them into a separate command/map.
+func TestFSM_SetAccountPreservesRecoveryCodes(t *testing.T) {
+	fsm := NewFSM()
+	applyCmd(t, fsm, Command{Type: CmdSetRecoveryCodes, Key: "alice", Value: mustJSON([]string{"h1", "h2"})})
+	applyCmd(t, fsm, Command{Type: CmdSetAccount, Key: "alice", Value: mustJSON(AdminAccount{Username: "alice", Password: "newhash"})})
+
+	if got := fsm.GetRecoveryCodes("alice"); len(got) != 2 {
+		t.Errorf("CmdSetAccount wiped recovery codes: %v", got)
+	}
+	if acct := fsm.GetAccount("alice"); acct == nil || acct.Password != "newhash" {
+		t.Errorf("account not updated: %+v", acct)
+	}
+}
+
 // L-04: applying a CmdDisband log entry fires the registered onDisband
 // callback with the originating node ID and does not block the Apply loop.
 func TestFSM_CmdDisbandFiresCallback(t *testing.T) {

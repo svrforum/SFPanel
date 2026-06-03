@@ -103,6 +103,9 @@ type loginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	TOTPCode string `json:"totp_code"`
+	// RecoveryCode, when set, is used in place of TOTPCode: a one-time 2FA
+	// recovery code for operators who lost their authenticator. Consumed on use.
+	RecoveryCode string `json:"recovery_code"`
 }
 
 type setup2FAResponse struct {
@@ -185,10 +188,32 @@ func (h *Handler) Login(c echo.Context) error {
 	}
 
 	if totpSecretStr != "" {
-		if req.TOTPCode == "" {
+		switch {
+		case req.RecoveryCode != "":
+			// Recovery-code path for a lost authenticator. Bound the input so a
+			// huge body can't reach the hash/consume path.
+			if len(req.RecoveryCode) > 64 {
+				h.recordLoginEvent(req.Username, ip, http.StatusUnauthorized, "invalid_recovery")
+				return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidTOTP, "Invalid recovery code")
+			}
+			ok, cErr := h.consumeRecoveryCode(req.Username, req.RecoveryCode)
+			if cErr != nil {
+				if errors.Is(cErr, cluster.ErrNotLeader) {
+					// A follower can't replicate the consumption — refuse rather
+					// than letting the code be reused. Operator retries on the leader.
+					return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError,
+						"Recovery login must be performed on the cluster leader node")
+				}
+				return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Recovery code check failed")
+			}
+			if !ok {
+				h.recordLoginEvent(req.Username, ip, http.StatusUnauthorized, "invalid_recovery")
+				return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidTOTP, "Invalid recovery code")
+			}
+			// Consumed — fall through to token issuance.
+		case req.TOTPCode == "":
 			return response.Fail(c, http.StatusBadRequest, response.ErrTOTPRequired, "2FA code is required")
-		}
-		if !auth.ValidateCode(totpSecretStr, req.TOTPCode) {
+		case !auth.ValidateCode(totpSecretStr, req.TOTPCode):
 			// preRecordLoginAttempt already counted this attempt; no additional recordFailedLogin
 			// to avoid double-counting (which would lock out after ~3 TOTP fumbles instead of 5)
 			h.recordLoginEvent(req.Username, ip, http.StatusUnauthorized, "invalid_totp")

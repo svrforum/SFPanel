@@ -339,10 +339,10 @@ class ApiClient {
   }
 
   // Auth
-  login(username: string, password: string, totpCode?: string) {
+  login(username: string, password: string, totpCode?: string, recoveryCode?: string) {
     return this.request<{ token: string; refresh_token?: string; expires_in?: number }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password, totp_code: totpCode }),
+      body: JSON.stringify({ username, password, totp_code: totpCode, recovery_code: recoveryCode }),
     })
   }
 
@@ -377,6 +377,14 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ secret, code }),
     })
+  }
+
+  get2FARecoveryStatus() {
+    return this.request<{ generated: boolean; remaining: number }>('/auth/2fa/recovery/status')
+  }
+
+  regenerate2FARecoveryCodes() {
+    return this.request<{ codes: string[] }>('/auth/2fa/recovery', { method: 'POST' })
   }
 
   disable2FA(password: string) {

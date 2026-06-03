@@ -201,6 +201,10 @@ var migrations = []migration{
 		last_error TEXT
 	)`},
 	{ID: 34, Up: `INSERT OR IGNORE INTO backup_schedule (id, enabled, interval_hours, retention) VALUES (1, 0, 24, 7)`},
+	// 2FA recovery codes for non-cluster (local) accounts: a JSON array of
+	// unused code hashes. Cluster accounts store the same list in the Raft FSM
+	// (RecoveryCodes map). NULL/empty = no codes generated.
+	{ID: 35, Up: `ALTER TABLE admin ADD COLUMN recovery_codes TEXT`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been
