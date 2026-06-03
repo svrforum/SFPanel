@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router-dom'
 import { Marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
@@ -12,16 +13,22 @@ import {
   Code2,
   Download,
   Check,
+  Copy,
   ChevronDown,
   ChevronUp,
   X,
   CheckCircle2,
   XCircle,
   Circle,
+  ExternalLink,
+  Boxes,
+  Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePrompt } from '@/components/PromptDialog'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { api } from '@/lib/api'
+import { appStoreIconUrl } from '@/lib/appstore'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import type { AppStoreAppDetail } from '@/types/api'
@@ -150,6 +157,8 @@ interface AppStoreDetailModalProps {
 export default function AppStoreDetailModal({ appId, open, onClose, onInstalled }: AppStoreDetailModalProps) {
   const { t, i18n } = useTranslation()
   const prompt = usePrompt()
+  const confirm = useConfirm()
+  const navigate = useNavigate()
   const lang = i18n.language.startsWith('ko') ? 'ko' : 'en'
 
   const [detail, setDetail] = useState<AppStoreAppDetail | null>(null)
@@ -169,11 +178,60 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
   const [customCompose, setCustomCompose] = useState('')
   const [customEnv, setCustomEnv] = useState('')
   const [advancedTab, setAdvancedTab] = useState<'compose' | 'env'>('compose')
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [uninstalling, setUninstalling] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
   const getIconUrl = () => {
     if (!detail) return ''
-    return detail.app.icon || `https://raw.githubusercontent.com/svrforum/SFPanel-appstore/main/apps/${detail.app.id}/icon.svg`
+    return appStoreIconUrl(detail.app.id, detail.app.icon)
+  }
+
+  const copyToClipboard = (text: string, key: string) => {
+    navigator.clipboard.writeText(text)
+    setCopiedKey(key)
+    toast.success(t('appStore.copied'))
+    setTimeout(() => setCopiedKey((cur) => (cur === key ? null : cur)), 2000)
+  }
+
+  // Resolve the external access port the user is installing on: prefer the
+  // first `port`-typed env field value, fall back to the app's first declared
+  // port. Used for the access-URL preview and the post-install "Open app" link.
+  const installPort = useMemo(() => {
+    if (!detail) return ''
+    const portDef = detail.app.env.find((e) => e.type === 'port')
+    if (portDef) {
+      const v = (envValues[portDef.key] ?? '').trim()
+      if (v) return v
+    }
+    if (detail.app.ports.length > 0) return String(detail.app.ports[0])
+    return ''
+  }, [detail, envValues])
+
+  const accessUrl = installPort
+    ? `${window.location.protocol}//${window.location.hostname}:${installPort}`
+    : ''
+
+  const handleUninstall = async () => {
+    if (!detail) return
+    const ok = await confirm({
+      title: t('appStore.uninstallTitle', { name: detail.app.name }),
+      description: t('appStore.uninstallConfirm', { name: detail.app.name }),
+      confirmLabel: t('appStore.uninstall'),
+      danger: true,
+    })
+    if (!ok) return
+    setUninstalling(true)
+    try {
+      await api.uninstallApp(detail.app.id)
+      toast.success(t('appStore.uninstallSuccess', { name: detail.app.name }))
+      onInstalled()
+      loadDetail()
+    } catch {
+      toast.error(t('appStore.uninstallFailed'))
+    } finally {
+      setUninstalling(false)
+    }
   }
 
   const loadDetail = useCallback(async () => {
@@ -473,12 +531,28 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                   ))}
                 </div>
 
-                <div className="flex items-center gap-3 mt-4">
+                <div className="flex flex-wrap items-center gap-3 mt-4">
                   {detail.installed ? (
-                    <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-medium bg-[#00c471]/10 text-[#00c471]">
-                      <Check className="h-4 w-4" />
-                      {t('appStore.installed')}
-                    </span>
+                    <>
+                      <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                        <Check className="h-4 w-4" />
+                        {t('appStore.installed')}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-xl text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10"
+                        onClick={handleUninstall}
+                        disabled={uninstalling}
+                      >
+                        {uninstalling ? (
+                          <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4 mr-1.5" />
+                        )}
+                        {t('appStore.uninstall')}
+                      </Button>
+                    </>
                   ) : (
                     <Button
                       className="rounded-xl px-5"
@@ -579,8 +653,9 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                             ))}
                           </select>
                         ) : envDef.type === 'password' ? (
-                          <div className="flex gap-2">
-                            <div className="relative flex-1">
+                          <>
+                          <div className="flex flex-wrap gap-2">
+                            <div className="relative flex-1 min-w-[180px]">
                               <Input
                                 type={showPasswords[envDef.key] ? 'text' : 'password'}
                                 className="h-9 rounded-xl bg-background border-border text-[13px] pr-9"
@@ -607,23 +682,45 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                               </button>
                             </div>
                             {envDef.generate && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="rounded-xl text-[11px] shrink-0"
-                                onClick={() =>
-                                  setEnvValues((prev) => ({
-                                    ...prev,
-                                    [envDef.key]: generatePassword(),
-                                  }))
-                                }
-                              >
-                                <RefreshCw className="h-3 w-3 mr-1" />
-                                {t('appStore.generatePassword')}
-                              </Button>
+                              <>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-xl text-[11px] shrink-0"
+                                  onClick={() =>
+                                    setEnvValues((prev) => ({
+                                      ...prev,
+                                      [envDef.key]: generatePassword(),
+                                    }))
+                                  }
+                                >
+                                  <RefreshCw className="h-3 w-3 mr-1" />
+                                  {t('appStore.generatePassword')}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="rounded-xl text-[11px] shrink-0"
+                                  onClick={() => copyToClipboard(envValues[envDef.key] || '', `env-${envDef.key}`)}
+                                >
+                                  {copiedKey === `env-${envDef.key}` ? (
+                                    <Check className="h-3 w-3 mr-1 text-[#00c471]" />
+                                  ) : (
+                                    <Copy className="h-3 w-3 mr-1" />
+                                  )}
+                                  {t('appStore.copy')}
+                                </Button>
+                              </>
                             )}
                           </div>
+                          {envDef.generate && (
+                            <p className="text-[11px] text-muted-foreground">
+                              {t('appStore.passwordStoredNote')}
+                            </p>
+                          )}
+                          </>
                         ) : (
                           <div>
                             <Input
@@ -714,7 +811,14 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                   </div>
                 )}
 
-                <div className="flex gap-3">
+                {installMode === 'simple' && accessUrl && (
+                  <p className="text-[11px] text-muted-foreground mb-3 break-all">
+                    {t('appStore.accessAfterInstall')}{' '}
+                    <span className="font-mono text-foreground">{accessUrl}</span>
+                  </p>
+                )}
+
+                <div className="flex flex-wrap gap-3">
                   <Button className="rounded-xl px-5" size="sm" onClick={handleInstall} disabled={installing}>
                     {installing ? (
                       <>
@@ -818,9 +922,40 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                 </div>
 
                 {progressDone && (
-                  <div className="flex gap-3 mt-4">
+                  <div className="flex flex-wrap gap-3 mt-4">
+                    {progressSuccess && installPort && (
+                      <Button
+                        size="sm"
+                        className="rounded-xl"
+                        onClick={() =>
+                          window.open(
+                            `${window.location.protocol}//${window.location.hostname}:${installPort}`,
+                            '_blank',
+                            'noopener'
+                          )
+                        }
+                      >
+                        <ExternalLink className="h-4 w-4 mr-1.5" />
+                        {t('appStore.openApp')}
+                      </Button>
+                    )}
+                    {progressSuccess && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-xl"
+                        onClick={() => {
+                          onClose()
+                          navigate(`/docker/stacks/${detail.app.id}`)
+                        }}
+                      >
+                        <Boxes className="h-4 w-4 mr-1.5" />
+                        {t('appStore.manageInStacks')}
+                      </Button>
+                    )}
                     <Button
                       size="sm"
+                      variant={progressSuccess ? 'ghost' : 'default'}
                       className="rounded-xl"
                       onClick={() => {
                         setShowProgress(false)

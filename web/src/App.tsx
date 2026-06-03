@@ -158,6 +158,7 @@ export default function App() {
                   <Route path="tokens" element={<ClusterTokens />} />
                 </Route>
                 <Route path="appstore" element={<AppStore />} />
+                <Route path="appstore/:appId" element={<AppStore />} />
                 <Route path="files" element={<Files />} />
                 <Route path="cron" element={<CronJobs />} />
                 <Route path="logs" element={<Logs />} />

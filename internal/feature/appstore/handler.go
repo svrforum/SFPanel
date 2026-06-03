@@ -615,6 +615,21 @@ func (h *Handler) InstallApp(c echo.Context) error {
 		}
 	}
 
+	// Simple mode: env VALUES are user-supplied and get written verbatim as
+	// `KEY=value` lines into .env. A value carrying a newline could inject
+	// additional env lines (or compose directives once interpolated), so
+	// reject it up front — before any fetch, write, or SSE stream starts.
+	// Keys are catalog-defined and already constrained, so values are the
+	// only untrusted surface here.
+	if !req.Advanced {
+		for k, v := range req.Env {
+			if strings.ContainsAny(v, "\n\r") {
+				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody,
+					"Environment value for "+k+" must not contain newline characters")
+			}
+		}
+	}
+
 	if err := h.ensureCache(); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError, "Failed to load app store: "+err.Error())
 	}
@@ -809,6 +824,46 @@ func (h *Handler) InstallApp(c echo.Context) error {
 
 	send("done", "App installed successfully", true, true)
 	return nil
+}
+
+// UninstallApp tears down an installed app: `docker compose down -v
+// --remove-orphans`, then removes the staging directory and the
+// appstore_installed_<id> settings row. Per-node action — the ?node=
+// proxy middleware forwards to the target node before this handler runs,
+// so it stays local-only (same as InstallApp). Normal JSON endpoint, not
+// SSE: the teardown is fast and the result is a single OK/Fail.
+func (h *Handler) UninstallApp(c echo.Context) error {
+	id := c.Param("id")
+	if !validAppID.MatchString(id) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid app ID")
+	}
+
+	stackDir := filepath.Join(h.ComposePath, id)
+	composePath := filepath.Join(stackDir, "docker-compose.yml")
+	if _, err := os.Stat(composePath); os.IsNotExist(err) {
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "App is not installed")
+	}
+
+	// Tear the stack down. Use RunCtx so the subprocess dies if the request
+	// is cancelled. On failure we deliberately leave the directory in place
+	// so the operator can inspect/retry rather than losing state to a
+	// half-completed teardown.
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "docker", "compose", "-f", composePath, "down", "-v", "--remove-orphans")
+	if err != nil {
+		slog.Warn("appstore uninstall: compose down failed", "component", "appstore", "app_id", id, "error", err)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError,
+			"Failed to stop app: "+response.SanitizeOutput(out))
+	}
+
+	if err := os.RemoveAll(stackDir); err != nil {
+		slog.Warn("appstore uninstall: failed to remove stack dir", "component", "appstore", "app_id", id, "error", err)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError,
+			"Failed to remove app files: "+err.Error())
+	}
+
+	_, _ = h.DB.Exec("DELETE FROM settings WHERE key = ?", "appstore_installed_"+id)
+
+	return response.OK(c, map[string]string{"message": "App uninstalled successfully"})
 }
 
 func (h *Handler) streamCommand(ctx context.Context, w io.Writer, flusher http.Flusher, stage string, name string, args ...string) int {

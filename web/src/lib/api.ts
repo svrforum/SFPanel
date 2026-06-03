@@ -1750,6 +1750,10 @@ class ApiClient {
     return this.request<{ message: string; apps: number; categories: number }>('/appstore/refresh', { method: 'POST' })
   }
 
+  uninstallApp(id: string) {
+    return this.request<{ message: string }>(`/appstore/apps/${id}`, { method: 'DELETE' })
+  }
+
   // Cluster
   getClusterStatus(local?: boolean) {
     return this.request<ClusterStatus>('/cluster/status', { local })

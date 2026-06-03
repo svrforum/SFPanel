@@ -2257,6 +2257,19 @@
     "stagePrepare": "Prepare",
     "stagePull": "Pull Images",
     "stageStart": "Start",
-    "stageDone": "Done"
+    "stageDone": "Done",
+    "retry": "Retry",
+    "noResults": "No results for \"{{query}}\"",
+    "clearSearch": "Clear search",
+    "copy": "Copy",
+    "copied": "Copied",
+    "passwordStoredNote": "This password is stored only in the stack's .env file.",
+    "accessAfterInstall": "After install:",
+    "openApp": "Open app",
+    "uninstall": "Uninstall",
+    "uninstallTitle": "Uninstall {{name}}",
+    "uninstallConfirm": "This removes the {{name}} stack and deletes its data volumes. This cannot be undone.",
+    "uninstallSuccess": "{{name}} has been uninstalled",
+    "uninstallFailed": "Uninstall failed"
   }
 }

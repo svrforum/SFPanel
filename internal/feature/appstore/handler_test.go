@@ -1,11 +1,104 @@
 package appstore
 
 import (
+	"database/sql"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v4"
+	_ "modernc.org/sqlite"
+
+	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
+	sfdb "github.com/svrforum/SFPanel/internal/db"
 )
+
+// newHandler returns a Handler backed by a migrated temp SQLite DB, a
+// MockCommander, and a temp ComposePath. Mirrors the auth package's
+// openTestDB pattern. The mock's Cmd lets UninstallApp's `docker compose
+// down` resolve without touching a real docker daemon.
+func newHandler(t *testing.T) *Handler {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	if err := sfdb.RunMigrations(db); err != nil {
+		t.Fatalf("migrations: %v", err)
+	}
+	return &Handler{
+		DB:          db,
+		ComposePath: t.TempDir(),
+		Cmd:         exec.NewMockCommander(),
+	}
+}
+
+// TestUninstallApp_NotInstalled asserts that uninstalling an app whose
+// staging directory (and docker-compose.yml) does not exist returns 404
+// with the NOT_FOUND code, and never shells out to docker compose.
+func TestUninstallApp_NotInstalled(t *testing.T) {
+	h := newHandler(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/appstore/apps/ghost", nil)
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("ghost")
+
+	if err := h.UninstallApp(c); err != nil {
+		t.Fatalf("UninstallApp returned err: %v", err)
+	}
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), response.ErrNotFound) {
+		t.Errorf("body lacks %s code: %s", response.ErrNotFound, rec.Body.String())
+	}
+
+	mock := h.Cmd.(*exec.MockCommander)
+	for _, call := range mock.Calls {
+		if call.Name == "docker" {
+			t.Errorf("docker compose was invoked for a non-installed app: %+v", call)
+		}
+	}
+}
+
+// TestInstallApp_RejectsNewlineInEnvValue pins task 2: a simple-mode install
+// with an env VALUE containing a newline is rejected with INVALID_BODY and
+// the offending key named, before any stream/write begins. Advanced=false so
+// the simple-mode path runs; no app needs to exist in cache because the
+// newline check fires before the cache/app lookup writes anything.
+func TestInstallApp_RejectsNewlineInEnvValue(t *testing.T) {
+	h := newHandler(t)
+
+	body := strings.NewReader(`{"env":{"PUID":"1000\nEXTRA=injected"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/appstore/apps/demo/install", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("demo")
+
+	if err := h.InstallApp(c); err != nil {
+		t.Fatalf("InstallApp returned err: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), response.ErrInvalidBody) {
+		t.Errorf("body lacks %s code: %s", response.ErrInvalidBody, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "PUID") {
+		t.Errorf("body does not name the offending key PUID: %s", rec.Body.String())
+	}
+}
 
 // TestWriteFileAtomic_ModeAndContents asserts the helper honours the
 // requested file mode and writes the exact bytes. This is the regression

@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Search, RotateCcw, Loader2, Package, Info, ChevronDown, ChevronUp } from 'lucide-react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Search, RotateCcw, Loader2, Package, Info, ChevronDown, ChevronUp, X, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { appStoreIconUrl } from '@/lib/appstore'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import AppStoreDetailModal from '@/pages/AppStoreDetail'
@@ -11,16 +13,29 @@ import type { AppStoreCategory, AppStoreApp } from '@/types/api'
 export default function AppStore() {
   const { t, i18n } = useTranslation()
   const lang = i18n.language.startsWith('ko') ? 'ko' : 'en'
+  const navigate = useNavigate()
+  const { appId } = useParams<{ appId?: string }>()
 
   const [categories, setCategories] = useState<AppStoreCategory[]>([])
   const [apps, setApps] = useState<AppStoreApp[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState('')
   const [search, setSearch] = useState('')
   const [refreshing, setRefreshing] = useState(false)
-  const [selectedAppId, setSelectedAppId] = useState<string | null>(null)
   const [showGuide, setShowGuide] = useState(false)
   const [failedIcons, setFailedIcons] = useState<Set<string>>(new Set())
+
+  // The URL (/appstore/:appId) is the source of truth for which detail is open.
+  const selectedAppId = appId ?? null
+
+  const openApp = useCallback((id: string) => {
+    navigate(`/appstore/${id}`)
+  }, [navigate])
+
+  const closeApp = useCallback(() => {
+    navigate('/appstore')
+  }, [navigate])
 
   const loadData = useCallback(async (category?: string) => {
     try {
@@ -31,7 +46,9 @@ export default function AppStore() {
       setCategories(cats)
       setApps(appList)
       setFailedIcons(new Set())
+      setLoadError(false)
     } catch {
+      setLoadError(true)
       toast.error(t('appStore.loadFailed'))
     } finally {
       setLoading(false)
@@ -41,6 +58,11 @@ export default function AppStore() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  const handleRetry = async () => {
+    setLoading(true)
+    await loadData(selectedCategory)
+  }
 
   const handleCategoryClick = async (categoryId: string) => {
     setSelectedCategory(categoryId)
@@ -67,9 +89,6 @@ export default function AppStore() {
     const desc = app.description[lang] || app.description['en'] || ''
     return app.name.toLowerCase().includes(q) || desc.toLowerCase().includes(q)
   })
-
-  const getIconUrl = (app: AppStoreApp) =>
-    app.icon || `https://raw.githubusercontent.com/svrforum/SFPanel-appstore/main/apps/${app.id}/icon.svg`
 
   return (
     <div className="space-y-6">
@@ -189,17 +208,37 @@ export default function AppStore() {
         <div className="flex items-center justify-center h-32">
           <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : filteredApps.length === 0 ? (
+      ) : loadError ? (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-          <Package className="h-10 w-10 mb-3 opacity-40" />
-          <p className="text-[13px]">{t('appStore.noApps')}</p>
+          <AlertCircle className="h-10 w-10 mb-3 text-[#f04452] opacity-70" />
+          <p className="text-[13px] mb-4">{t('appStore.loadFailed')}</p>
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={handleRetry}>
+            <RotateCcw className="h-4 w-4 mr-2" />
+            {t('appStore.retry')}
+          </Button>
         </div>
+      ) : filteredApps.length === 0 ? (
+        search ? (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <Search className="h-10 w-10 mb-3 opacity-40" />
+            <p className="text-[13px] mb-4">{t('appStore.noResults', { query: search })}</p>
+            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setSearch('')}>
+              <X className="h-4 w-4 mr-2" />
+              {t('appStore.clearSearch')}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <Package className="h-10 w-10 mb-3 opacity-40" />
+            <p className="text-[13px]">{t('appStore.noApps')}</p>
+          </div>
+        )
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredApps.map((app) => (
             <div
               key={app.id}
-              onClick={() => setSelectedAppId(app.id)}
+              onClick={() => openApp(app.id)}
               className="bg-card rounded-2xl p-5 card-shadow hover:card-shadow-hover cursor-pointer transition-all group"
             >
               <div className="flex items-start gap-4">
@@ -210,7 +249,7 @@ export default function AppStore() {
                     </div>
                   ) : (
                     <img
-                      src={getIconUrl(app)}
+                      src={appStoreIconUrl(app.id, app.icon)}
                       alt={app.name}
                       className="h-full w-full object-contain"
                       onError={() => setFailedIcons(prev => new Set(prev).add(app.id))}
@@ -252,7 +291,7 @@ export default function AppStore() {
       <AppStoreDetailModal
         appId={selectedAppId}
         open={selectedAppId !== null}
-        onClose={() => setSelectedAppId(null)}
+        onClose={closeApp}
         onInstalled={() => loadData(selectedCategory)}
       />
     </div>

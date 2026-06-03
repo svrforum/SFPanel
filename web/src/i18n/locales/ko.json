@@ -2257,6 +2257,19 @@
     "stagePrepare": "준비",
     "stagePull": "이미지 풀",
     "stageStart": "시작",
-    "stageDone": "완료"
+    "stageDone": "완료",
+    "retry": "다시 시도",
+    "noResults": "\"{{query}}\" 검색 결과가 없습니다",
+    "clearSearch": "검색 지우기",
+    "copy": "복사",
+    "copied": "복사됨",
+    "passwordStoredNote": "이 비밀번호는 스택의 .env 파일에만 저장됩니다.",
+    "accessAfterInstall": "설치 후 접속:",
+    "openApp": "앱 열기",
+    "uninstall": "제거",
+    "uninstallTitle": "{{name}} 제거",
+    "uninstallConfirm": "{{name}} 스택을 제거하고 데이터 볼륨을 삭제합니다. 되돌릴 수 없습니다.",
+    "uninstallSuccess": "{{name}} 을(를) 제거했습니다",
+    "uninstallFailed": "제거에 실패했습니다"
   }
 }
