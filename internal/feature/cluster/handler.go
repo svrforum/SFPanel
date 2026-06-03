@@ -120,6 +120,10 @@ func (h *Handler) performDisband(fromNodeID string) {
 		h.configMu.Unlock()
 
 		if mgr := h.getManager(); mgr != nil {
+			// Sync the cluster admin down to the local DB BEFORE shutting the
+			// manager (which abandons the FSM) — otherwise the standalone restart
+			// falls back to a stale pre-cluster local account.
+			h.syncClusterAdminToLocalDB(mgr)
 			mgr.Shutdown()
 		}
 
@@ -151,6 +155,53 @@ func (h *Handler) performDisband(fromNodeID string) {
 		slog.Info("disband: exiting to restart in standalone mode", "component", "cluster")
 		os.Exit(1)
 	})
+}
+
+// syncClusterAdminToLocalDB writes the cluster (FSM) admin account down into the
+// local SQLite admin table. Account state replicates one-way at init (local DB →
+// FSM via SyncAccountFromDB) but, while clustered, all auth changes (password,
+// TOTP, recovery codes) go only to the FSM. When a node drops back to standalone
+// (disband / leave) it then authenticates against the local DB again — which
+// still holds the stale pre-cluster row. Calling this just before the FSM is
+// abandoned closes that gap so the credentials actually in use cluster-wide
+// survive the transition. Single-admin app: the one local row is overwritten to
+// match the cluster admin (the username may differ, e.g. local "admin-sv" vs
+// cluster "admin"). Best-effort: a failure is logged, not fatal.
+func (h *Handler) syncClusterAdminToLocalDB(mgr *cluster.Manager) {
+	if mgr == nil || h.DB == nil {
+		return
+	}
+	_, user, passHash, totp := mgr.GetJWTAndAdminFull()
+	if user == "" || passHash == "" {
+		return // no cluster admin to sync
+	}
+	var totpVal interface{}
+	if totp != "" {
+		totpVal = totp
+	}
+	var recoveryVal interface{}
+	if codes := mgr.GetRecoveryCodes(user); len(codes) > 0 {
+		if b, mErr := json.Marshal(codes); mErr == nil {
+			recoveryVal = string(b)
+		}
+	}
+	res, err := h.DB.Exec(
+		`UPDATE admin SET username=?, password=?, totp_secret=?, recovery_codes=? WHERE id=(SELECT id FROM admin ORDER BY id LIMIT 1)`,
+		user, passHash, totpVal, recoveryVal)
+	if err != nil {
+		slog.Error("cluster→local admin sync failed before standalone transition", "component", "cluster", "error", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// No local row (a node that only ever knew the cluster admin) — insert one.
+		if _, iErr := h.DB.Exec(
+			`INSERT INTO admin (username, password, totp_secret, recovery_codes) VALUES (?,?,?,?)`,
+			user, passHash, totpVal, recoveryVal); iErr != nil {
+			slog.Error("cluster→local admin insert failed before standalone transition", "component", "cluster", "error", iErr)
+			return
+		}
+	}
+	slog.Info("synced cluster admin to local DB before standalone transition", "component", "cluster", "username", user)
 }
 
 // rollbackInit cleans up a partially-initialised cluster after a post-Init
@@ -1026,6 +1077,10 @@ func (h *Handler) LeaveCluster(c echo.Context) error {
 
 	dataDir := h.Config.Cluster.DataDir
 	certDir := h.Config.Cluster.CertDir
+
+	// Sync the cluster admin down to the local DB before Leave() abandons the
+	// FSM, so this node keeps the cluster-wide credentials once standalone.
+	h.syncClusterAdminToLocalDB(mgr)
 
 	// Notify leader of departure (best-effort).
 	// Leave() internally shuts down Raft, so no separate Shutdown() call needed.
