@@ -155,17 +155,21 @@ func MetricsWS(jwtSecret string) echo.HandlerFunc {
 			}
 		}()
 
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
+		// Subscribe to the shared sampler instead of polling GetMetrics on a
+		// per-client ticker: every dashboard viewer now shares ONE 2s sampler
+		// rather than each running their own (≈5 syscalls/tick/viewer).
+		samples, unsubscribe := monitor.SubscribeMetrics()
+		defer unsubscribe()
 
 		for {
 			select {
 			case <-done:
 				return nil
-			case <-ticker.C:
-				metrics, err := monitor.GetMetrics()
-				if err != nil {
-					continue
+			case <-ctx.Done():
+				return nil
+			case metrics, ok := <-samples:
+				if !ok {
+					return nil
 				}
 				if err := writer.WriteJSON(metrics); err != nil {
 					return nil

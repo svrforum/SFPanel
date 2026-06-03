@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.24.0] – 2026-06-03
+
+Per-feature improvement pass, round 8 — **metrics sampling optimization**.
+
+### Changed
+
+- **monitor** — the `/ws/metrics` dashboard stream now shares a **single
+  sampler** instead of each connected viewer running its own 2-second
+  `GetMetrics` poll (≈5 syscalls per tick per viewer). One background goroutine
+  samples on the interval and fans the result out to all subscribers; it runs
+  only while at least one client is attached, drops a tick for any slow client
+  rather than stalling the rest, and hands a freshly opened dashboard the last
+  cached sample immediately. No change to the WS payload. Broadcaster lifecycle
+  is race-tested.
+
 ## [0.23.0] – 2026-06-03
 
 Per-feature improvement pass, round 7 — **standalone Docker container creation**.
