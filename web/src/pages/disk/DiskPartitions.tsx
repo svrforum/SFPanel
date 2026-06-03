@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, RefreshCw, HardDrive } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 
 import type { BlockDevice } from '@/types/api'
 
@@ -265,28 +266,16 @@ export default function DiskPartitions() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('disk.partitions.deleteTitle')}</DialogTitle>
-            <DialogDescription>
-              <Trans
-                i18nKey="disk.partitions.deleteConfirm"
-                values={{ name: deleteTarget?.name ?? '' }}
-                components={{ strong: <span className="font-semibold font-mono" /> }}
-              />
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={actionLoading}>
-              {t('common.delete')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <TypeToConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={t('disk.partitions.deleteTitle')}
+        description={t('disk.partitions.deleteConfirmDesc', { name: deleteTarget?.name ?? '' })}
+        confirmPhrase={deleteTarget?.name ?? ''}
+        confirmLabel={t('common.delete')}
+        loading={actionLoading}
+        onConfirm={handleDelete}
+      />
     </div>
   )
 }

@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 
 import type { RAIDArray } from '@/types/api'
 
@@ -380,28 +381,16 @@ export default function DiskRAID() {
       </Dialog>
 
       {/* Delete Array Dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('disk.raid.deleteTitle')}</DialogTitle>
-            <DialogDescription>
-              <Trans
-                i18nKey="disk.raid.deleteConfirm"
-                values={{ name: deleteTarget?.name ?? '' }}
-                components={{ strong: <span className="font-semibold font-mono" /> }}
-              />
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-              {t('common.delete')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <TypeToConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={t('disk.raid.deleteTitle')}
+        description={t('disk.raid.deleteConfirmDesc', { name: deleteTarget?.name ?? '' })}
+        confirmPhrase={deleteTarget?.name ?? ''}
+        confirmLabel={t('common.delete')}
+        loading={deleting}
+        onConfirm={handleDelete}
+      />
 
       {/* Add Disk Dialog */}
       <Dialog open={addDiskOpen} onOpenChange={(open) => { setAddDiskOpen(open); if (!open) { setAddDiskArray(null); setAddDiskDevice('') } }}>

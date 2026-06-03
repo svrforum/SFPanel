@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.30.0] – 2026-06-03
+
+Per-feature improvement pass, round 14 — **type-to-confirm for destructive ops**.
+
+### Added
+
+- **ui/safety** — a reusable **type-to-confirm dialog**: irreversible actions now
+  require typing the exact device/array/cluster name before the destructive
+  button enables. Applied to **disk format**, **partition delete**, **RAID array
+  delete**, and **cluster disband** (the disband's plain `window.confirm` is
+  replaced). A stray click can no longer trigger data loss on these flows.
+
 ## [0.29.0] – 2026-06-03
 
 Per-feature improvement pass, round 13 — **Docker firewall iptables dedup**.

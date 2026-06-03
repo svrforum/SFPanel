@@ -20,7 +20,10 @@
     "confirmDeleteTitle": "This action cannot be undone.",
     "edit": "Edit",
     "close": "Close",
-    "back": "Back"
+    "back": "Back",
+    "typeToConfirm": {
+      "prompt": "To confirm, type:"
+    }
   },
   "layout": {
     "brand": "SFPanel",
@@ -662,6 +665,8 @@
       "nodeCount": "{{count}} nodes",
       "disband": "Disband Cluster",
       "confirmDisband": "Are you sure you want to disband the cluster? This node will switch to standalone mode.",
+      "disbandConfirmTitle": "Disband cluster {{name}}",
+      "disbandConfirmDesc": "Disbanding cluster {{name}} switches this node to standalone mode and removes the cluster configuration. This cannot be undone.",
       "disbanded": "Cluster disbanded. Restarting service.",
       "rollingUpdate": "Rolling Update",
       "simultaneousUpdate": "Simultaneous Update",
@@ -1761,6 +1766,7 @@
       "empty": "No partitions",
       "deleteTitle": "Delete Partition",
       "confirmDelete": "Delete this partition? Data may be lost.",
+      "deleteConfirmDesc": "Deleting partition {{name}} permanently destroys its data. This cannot be undone.",
       "createSuccess": "Partition created",
       "createFailed": "Failed to create partition",
       "deleted": "Partition deleted",
@@ -1787,6 +1793,8 @@
       "empty": "No filesystems",
       "formatTitle": "Format Partition",
       "formatDescription": "This will erase all data on the device.",
+      "formatConfirmTitle": "Format device {{device}}",
+      "formatConfirmDesc": "Formatting permanently destroys all data on {{device}}. This cannot be undone.",
       "formatSuccess": "Format complete",
       "formatFailed": "Format failed",
       "formatting": "Formatting...",
@@ -1883,6 +1891,7 @@
       "createSuccess": "RAID array created",
       "createFailed": "Failed to create RAID array",
       "deleteTitle": "Delete Array",
+      "deleteConfirmDesc": "Deleting RAID array {{name}} stops it and destroys its configuration. This cannot be undone.",
       "deleted": "RAID array deleted",
       "deleteFailed": "Failed to delete RAID array",
       "addDisk": "Add Disk",

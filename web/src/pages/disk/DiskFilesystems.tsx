@@ -24,6 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 
 const FORMAT_FS_TYPES = ['ext4', 'xfs', 'btrfs']
 
@@ -44,6 +45,7 @@ export default function DiskFilesystems() {
   const [formatFsType, setFormatFsType] = useState('ext4')
   const [formatLabel, setFormatLabel] = useState('')
   const [formatting, setFormatting] = useState(false)
+  const [formatConfirmOpen, setFormatConfirmOpen] = useState(false)
 
   // Mount dialog
   const [mountOpen, setMountOpen] = useState(false)
@@ -91,6 +93,7 @@ export default function DiskFilesystems() {
         label: formatLabel.trim() || undefined,
       })
       toast.success(t('disk.filesystems.formatSuccess'))
+      setFormatConfirmOpen(false)
       setFormatOpen(false)
       resetFormatForm()
       await fetchFilesystems()
@@ -343,12 +346,24 @@ export default function DiskFilesystems() {
             <Button variant="outline" onClick={() => { setFormatOpen(false); resetFormatForm() }}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" onClick={handleFormat} disabled={formatting || !formatDevice.trim()}>
+            <Button variant="destructive" onClick={() => setFormatConfirmOpen(true)} disabled={formatting || !formatDevice.trim()}>
               {formatting ? t('disk.filesystems.formatting') : t('disk.filesystems.format')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Format Type-to-Confirm */}
+      <TypeToConfirmDialog
+        open={formatConfirmOpen}
+        onOpenChange={setFormatConfirmOpen}
+        title={t('disk.filesystems.formatConfirmTitle')}
+        description={t('disk.filesystems.formatConfirmDesc', { device: formatDevice })}
+        confirmPhrase={formatDevice}
+        confirmLabel={t('disk.filesystems.format')}
+        loading={formatting}
+        onConfirm={handleFormat}
+      />
 
       {/* Mount Dialog */}
       <Dialog open={mountOpen} onOpenChange={(open) => { setMountOpen(open); if (!open) resetMountForm() }}>

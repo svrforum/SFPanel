@@ -6,6 +6,7 @@ import type { ClusterOverview as ClusterOverviewType, ClusterStatus, ClusterEven
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -50,6 +51,8 @@ export default function ClusterOverview() {
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [updateLog, setUpdateLog] = useState<UpdateEvent[]>([])
+  const [disbandOpen, setDisbandOpen] = useState(false)
+  const [disbanding, setDisbanding] = useState(false)
 
   // Per-node address editing
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -123,9 +126,10 @@ export default function ClusterOverview() {
   }
 
   const handleDisband = async () => {
-    if (!confirm(t('cluster.overview.confirmDisband'))) return
+    setDisbanding(true)
     try {
       await api.disbandCluster()
+      setDisbandOpen(false)
       toast.success(t('cluster.overview.disbanded'))
       setTimeout(() => {
         let attempts = 0
@@ -146,6 +150,7 @@ export default function ClusterOverview() {
       }, 1000)
     } catch (err) {
       toast.error(String(err))
+      setDisbanding(false)
     }
   }
 
@@ -281,7 +286,7 @@ export default function ClusterOverview() {
               variant="outline"
               size="sm"
               className="rounded-xl text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10 border-[#f04452]/20"
-              onClick={handleDisband}
+              onClick={() => setDisbandOpen(true)}
             >
               <Power className="h-3.5 w-3.5 mr-1.5" />
               {t('cluster.overview.disband')}
@@ -498,6 +503,18 @@ export default function ClusterOverview() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Disband Type-to-Confirm */}
+      <TypeToConfirmDialog
+        open={disbandOpen}
+        onOpenChange={setDisbandOpen}
+        title={t('cluster.overview.disbandConfirmTitle')}
+        description={t('cluster.overview.disbandConfirmDesc', { name: overview?.name || status.name || '' })}
+        confirmPhrase={overview?.name || status.name || ''}
+        confirmLabel={t('cluster.overview.disband')}
+        loading={disbanding}
+        onConfirm={handleDisband}
+      />
     </div>
   )
 }

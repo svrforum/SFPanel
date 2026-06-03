@@ -20,7 +20,10 @@
     "confirmDeleteTitle": "이 작업은 되돌릴 수 없습니다.",
     "edit": "편집",
     "close": "닫기",
-    "back": "뒤로"
+    "back": "뒤로",
+    "typeToConfirm": {
+      "prompt": "확인하려면 다음을 입력하세요:"
+    }
   },
   "layout": {
     "brand": "SFPanel",
@@ -662,6 +665,8 @@
       "nodeCount": "{{count}}개 노드",
       "disband": "클러스터 해제",
       "confirmDisband": "정말 클러스터를 해제하시겠습니까? 이 노드는 독립 모드로 전환됩니다.",
+      "disbandConfirmTitle": "클러스터 {{name}} 해제",
+      "disbandConfirmDesc": "클러스터 {{name}}을(를) 해제하면 이 노드가 독립 모드로 전환되고 클러스터 구성이 제거됩니다. 이 작업은 되돌릴 수 없습니다.",
       "disbanded": "클러스터가 해제되었습니다. 서비스를 재시작합니다.",
       "rollingUpdate": "순차 업데이트",
       "simultaneousUpdate": "동시 업데이트",
@@ -1761,6 +1766,7 @@
       "empty": "파티션이 없습니다",
       "deleteTitle": "파티션 삭제",
       "confirmDelete": "이 파티션을 삭제하시겠습니까? 데이터가 손실될 수 있습니다.",
+      "deleteConfirmDesc": "{{name}} 파티션을 삭제하면 데이터가 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
       "createSuccess": "파티션이 생성되었습니다",
       "createFailed": "파티션 생성에 실패했습니다",
       "deleted": "파티션이 삭제되었습니다",
@@ -1787,6 +1793,8 @@
       "empty": "파일시스템이 없습니다",
       "formatTitle": "파티션 포맷",
       "formatDescription": "이 작업은 장치의 모든 데이터를 삭제합니다.",
+      "formatConfirmTitle": "{{device}} 장치 포맷",
+      "formatConfirmDesc": "포맷하면 {{device}}의 모든 데이터가 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
       "formatSuccess": "포맷이 완료되었습니다",
       "formatFailed": "포맷에 실패했습니다",
       "formatting": "포맷 중...",
@@ -1883,6 +1891,7 @@
       "createSuccess": "RAID 어레이가 생성되었습니다",
       "createFailed": "RAID 어레이 생성에 실패했습니다",
       "deleteTitle": "어레이 삭제",
+      "deleteConfirmDesc": "RAID 어레이 {{name}}을(를) 삭제하면 어레이가 중지되고 구성이 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
       "deleted": "RAID 어레이가 삭제되었습니다",
       "deleteFailed": "RAID 어레이 삭제에 실패했습니다",
       "addDisk": "디스크 추가",
