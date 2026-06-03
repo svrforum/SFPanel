@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { Trash2, RefreshCw, Download, Sparkles, Check, Loader2 } from 'lucide-react'
+import { Trash2, RefreshCw, Download, Sparkles, Check, Loader2, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes, formatDate } from '@/lib/utils'
@@ -8,6 +8,7 @@ import DockerHubSearch from '@/components/DockerHubSearch'
 import type { DockerImage, ImageUpdateStatus } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
   TableBody,
@@ -33,6 +34,7 @@ export default function DockerImages() {
   const { t } = useTranslation()
   const [images, setImages] = useState<DockerImage[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [pullDialogOpen, setPullDialogOpen] = useState(false)
   const [pullImage, setPullImage] = useState('nginx:latest')
   const [pulling, setPulling] = useState(false)
@@ -47,9 +49,11 @@ export default function DockerImages() {
   const fetchImages = useCallback(async () => {
     try {
       setLoading(true)
+      setError(null)
       const data = await api.getImages()
       setImages(data || [])
     } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
       const message = err instanceof Error ? err.message : t('docker.images.fetchFailed')
       toast.error(message)
     } finally {
@@ -157,9 +161,30 @@ export default function DockerImages() {
         </div>
       </div>
 
+      {/* Load error / loading skeleton (first load only) */}
+      {error && images.length === 0 ? (
+        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium">{t('docker.images.loadError')}</p>
+            <p className="text-[12px] opacity-80 mt-0.5 break-words">{error}</p>
+          </div>
+          <Button variant="outline" size="sm" className="rounded-xl shrink-0" onClick={fetchImages}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            {t('common.retry')}
+          </Button>
+        </div>
+      ) : loading && images.length === 0 ? (
+        <div className="bg-card rounded-2xl p-3 card-shadow space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full rounded-xl" />
+          ))}
+        </div>
+      ) : null}
+
       {/* Mobile card view */}
-      <div className="md:hidden space-y-2">
-        {images.length === 0 && !loading && (
+      <div className={`md:hidden space-y-2 ${(error || loading) && images.length === 0 ? 'hidden' : ''}`}>
+        {images.length === 0 && !loading && !error && (
           <div className="text-center text-muted-foreground py-8 text-[13px]">
             {t('docker.images.empty')}
           </div>
@@ -204,7 +229,7 @@ export default function DockerImages() {
       </div>
 
       {/* Desktop table */}
-      <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
+      <div className={`bg-card rounded-2xl card-shadow overflow-hidden ${(error || loading) && images.length === 0 ? 'hidden' : 'hidden md:block'}`}>
       <Table>
         <TableHeader>
           <TableRow>
@@ -217,7 +242,7 @@ export default function DockerImages() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {images.length === 0 && !loading && (
+          {images.length === 0 && !loading && !error && (
             <TableRow>
               <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                 {t('docker.images.empty')}

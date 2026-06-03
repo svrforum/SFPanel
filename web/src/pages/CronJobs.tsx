@@ -21,6 +21,7 @@ import type { CronJob } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
   TableBody,
@@ -76,6 +77,7 @@ export default function CronJobs() {
 
   const [jobs, setJobs] = useState<CronJob[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
   const [showAllTypes, setShowAllTypes] = useState(false)
 
@@ -106,9 +108,11 @@ export default function CronJobs() {
   const fetchJobs = useCallback(async () => {
     try {
       setLoading(true)
+      setError(null)
       const data = await api.getCronJobs()
       setJobs(data || [])
     } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err))
       const message = err instanceof Error ? err.message : t('cron.fetchFailed')
       toast.error(message)
     } finally {
@@ -326,9 +330,30 @@ export default function CronJobs() {
         </div>
       </div>
 
+      {/* Load error / loading skeleton (first load only) */}
+      {error && jobs.length === 0 ? (
+        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium">{t('cron.loadError')}</p>
+            <p className="text-[12px] opacity-80 mt-0.5 break-words">{error}</p>
+          </div>
+          <Button variant="outline" size="sm" className="rounded-xl shrink-0" onClick={fetchJobs}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            {t('common.retry')}
+          </Button>
+        </div>
+      ) : loading && jobs.length === 0 ? (
+        <div className="bg-card rounded-2xl p-3 card-shadow space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full rounded-xl" />
+          ))}
+        </div>
+      ) : null}
+
       {/* Mobile card view */}
-      <div className="md:hidden space-y-2">
-        {filteredJobs.length === 0 && !loading && (
+      <div className={`md:hidden space-y-2 ${(error || loading) && jobs.length === 0 ? 'hidden' : ''}`}>
+        {filteredJobs.length === 0 && !loading && !error && (
           <div className="text-center text-muted-foreground py-8 text-[13px]">
             {t('cron.empty')}
           </div>
@@ -405,7 +430,7 @@ export default function CronJobs() {
       </div>
 
       {/* Desktop table */}
-      <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
+      <div className={`bg-card rounded-2xl card-shadow overflow-hidden ${(error || loading) && jobs.length === 0 ? 'hidden' : 'hidden md:block'}`}>
         <Table>
             <TableHeader>
               <TableRow>
@@ -417,7 +442,7 @@ export default function CronJobs() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredJobs.length === 0 && !loading && (
+              {filteredJobs.length === 0 && !loading && !error && (
                 <TableRow>
                   <TableCell
                     colSpan={showAllTypes ? 5 : 4}

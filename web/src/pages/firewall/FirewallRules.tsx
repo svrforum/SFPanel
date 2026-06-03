@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Shield, Plus, Trash2, Loader2, Power, Pencil } from 'lucide-react'
+import { Shield, Plus, Trash2, Loader2, Power, Pencil, RefreshCw, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
   TableBody,
@@ -183,6 +184,7 @@ export default function FirewallRules() {
   const [rules, setRules] = useState<FirewallRule[]>([])
   const [rulesTotal, setRulesTotal] = useState(0)
   const [rulesLoading, setRulesLoading] = useState(true)
+  const [rulesError, setRulesError] = useState<string | null>(null)
 
   // Add rule dialog
   const [addOpen, setAddOpen] = useState(false)
@@ -214,10 +216,12 @@ export default function FirewallRules() {
   const fetchRules = useCallback(async () => {
     try {
       setRulesLoading(true)
+      setRulesError(null)
       const data = await api.getFirewallRules()
       setRules(data.rules || [])
       setRulesTotal(data.total)
     } catch (err: unknown) {
+      setRulesError(err instanceof Error ? err.message : String(err))
       const message = err instanceof Error ? err.message : t('common.error')
       toast.error(message)
     } finally {
@@ -463,7 +467,25 @@ export default function FirewallRules() {
       </div>
 
       {/* Rules Table */}
-      {rules.length === 0 && !rulesLoading ? (
+      {rulesError && rules.length === 0 ? (
+        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium">{t('firewall.rules.loadError')}</p>
+            <p className="text-[12px] opacity-80 mt-0.5 break-words">{rulesError}</p>
+          </div>
+          <Button variant="outline" size="sm" className="rounded-xl shrink-0" onClick={fetchRules}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            {t('common.retry')}
+          </Button>
+        </div>
+      ) : rulesLoading && rules.length === 0 ? (
+        <div className="bg-card rounded-2xl p-3 card-shadow space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full rounded-xl" />
+          ))}
+        </div>
+      ) : rules.length === 0 ? (
         <div className="bg-card rounded-2xl card-shadow p-8 text-center text-muted-foreground">
           {t('firewall.rules.noRules')}
         </div>

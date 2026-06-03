@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.37.0] – 2026-06-03
+
+UX follow-up — **loading skeletons + error states, more pages**.
+
+### Changed
+
+- **cron / firewall / docker** — the cron jobs, firewall rules, and Docker
+  images / volumes / networks list pages now get the same
+  loading-skeleton / inline-error-with-Retry / empty-state treatment introduced
+  in v0.33.0, so a failed fetch is distinct from an empty list. Skeletons show
+  only on first load.
+
 ## [0.36.0] – 2026-06-03
 
 UX follow-up — **styled prompt dialogs**.
