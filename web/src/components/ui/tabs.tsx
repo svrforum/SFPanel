@@ -34,7 +34,10 @@ function TabsList({
     <TabsPrimitive.List
       data-slot="tabs-list"
       data-variant={variant}
-      className={cn(tabsListVariants({ variant }), className)}
+      // max-w-full + overflow-x-auto so a tab list with many tabs scrolls
+      // horizontally on narrow screens instead of overflowing the page
+      // (e.g. Settings' 6 tabs on mobile). Harmless when the tabs fit.
+      className={cn(tabsListVariants({ variant }), "max-w-full overflow-x-auto no-scrollbar", className)}
       {...props}
     />
   )
