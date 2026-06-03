@@ -156,3 +156,23 @@ func TestIsForwardUpdate(t *testing.T) {
 		t.Error("invalid current version should error")
 	}
 }
+
+// SignatureRequiredForUpdate must gate on BOTH current and target so a node
+// already past the signing cutoff never drops to the unsigned SHA-256 fallback,
+// even when an attacker-controlled Release advertises a pre-cutoff target.
+func TestSignatureRequiredForUpdate(t *testing.T) {
+	tests := []struct {
+		current, target string
+		want            bool
+	}{
+		{"0.13.0", "0.40.0", true},  // both past cutoff
+		{"0.12.0", "0.12.9", false}, // both pre-cutoff (legacy upgrade)
+		{"0.40.0", "0.12.99", true}, // current past cutoff, target claims pre-cutoff → still required (the bypass)
+		{"0.12.0", "0.13.0", true},  // target at cutoff
+	}
+	for _, tt := range tests {
+		if got := SignatureRequiredForUpdate(tt.current, tt.target); got != tt.want {
+			t.Errorf("SignatureRequiredForUpdate(%q, %q) = %v, want %v", tt.current, tt.target, got, tt.want)
+		}
+	}
+}

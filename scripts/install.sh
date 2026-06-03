@@ -286,7 +286,10 @@ generate_config() {
   local jwt_secret
   jwt_secret=$(generate_jwt_secret)
 
-  cat > "${CONFIG_DIR}/config.yaml" <<EOF
+  # umask 077 so the file is created 0600 from the start — the JWT secret is in
+  # cleartext, and writing it world-default (0644) then chmod'ing leaves a brief
+  # window where any local user could read it. chmod below is belt-and-suspenders.
+  ( umask 077; cat > "${CONFIG_DIR}/config.yaml" <<EOF
 # SFPanel Configuration
 server:
   host: "0.0.0.0"
@@ -306,6 +309,7 @@ log:
   level: "info"
   file: "${LOG_DIR}/sfpanel.log"
 EOF
+  )
 
   chmod 600 "${CONFIG_DIR}/config.yaml"
   log_info "Config created at ${CONFIG_DIR}/config.yaml"
@@ -362,8 +366,12 @@ setup_systemd() {
   cat > "$unit" <<EOF
 [Unit]
 Description=SFPanel - Server Management Panel
-After=network.target docker.service
-Wants=docker.service
+# network-online.target (not just network.target) so an interface actually has
+# an address/route before boot-time outbound calls (update check, cluster peer
+# dial). The panel tolerates no-network via retries, but this avoids avoidable
+# errors on every reboot.
+After=network-online.target docker.service
+Wants=network-online.target docker.service
 
 [Service]
 Type=simple
@@ -422,6 +430,18 @@ verify_service_started() {
   done
   log_error "Service ${SERVICE_NAME} failed to start within 10s. Recent journal:"
   journalctl -u "$SERVICE_NAME" -n 30 --no-pager 2>&1 | sed 's/^/  /' >&2 || true
+  # On an upgrade the old service was stopped and the new binary failed — point
+  # the operator at the DB snapshot so they can roll back the schema if a
+  # migration broke boot. (Binary rollback: re-run install.sh for the prior tag.)
+  local latest_bak
+  latest_bak=$(ls -1t "${DATA_DIR}"/sfpanel.db.bak-*[0-9] 2>/dev/null | head -1)
+  if [ -n "$latest_bak" ]; then
+    log_warn "If a migration broke the DB, roll back with:"
+    log_warn "  systemctl stop ${SERVICE_NAME}"
+    log_warn "  rm -f ${DATA_DIR}/sfpanel.db-wal ${DATA_DIR}/sfpanel.db-shm"
+    log_warn "  cp ${latest_bak} ${DATA_DIR}/sfpanel.db"
+    log_warn "  systemctl start ${SERVICE_NAME}"
+  fi
   exit 1
 }
 
@@ -518,6 +538,11 @@ main() {
   if [ -n "$current_version" ]; then
     if [ "$current_version" = "$version" ]; then
       log_info "SFPanel v${version} is already installed and up to date"
+      # Still reconcile dirs / logrotate / systemd so a deleted or corrupted
+      # unit can be repaired by re-running the installer without a version bump.
+      setup_dirs
+      setup_logrotate
+      setup_systemd
       exit 0
     fi
     log_info "Upgrading SFPanel: v${current_version} → v${version}"

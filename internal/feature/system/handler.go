@@ -331,7 +331,11 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	sigURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.sig")
 	certURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.pem")
 	if sigURL == "" || certURL == "" {
-		if release.SignatureRequiredFor(latest) {
+		// Gate on current AND target: a node already running a signed release
+		// (>= cutoff) must never drop to unsigned SHA-only, even if the target
+		// claims a pre-cutoff version — otherwise a rewritten Release advertising
+		// "0.12.99" would bypass cosign on a current node.
+		if release.SignatureRequiredForUpdate(h.Version, latest) {
 			sendEvent("error", fmt.Sprintf(
 				"Signature required: release %s is missing checksums.txt.sig or checksums.txt.pem (refusing update to prevent supply-chain downgrade)", latest))
 			return nil

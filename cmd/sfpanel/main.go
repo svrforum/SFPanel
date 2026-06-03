@@ -117,6 +117,11 @@ func main() {
 	logging.SetupFromConfig(cfg.Log.Level, cfg.Log.File)
 	slog.Info("SFPanel starting", "version", version, "port", cfg.Server.Port)
 
+	// Sweep orphaned update staging files (<exe>.new/.rollback) left by a killed
+	// update or watchdog so they don't accumulate. <exe>.bak is intentionally
+	// kept — it's a valid rollback copy.
+	cleanupUpdateTempFiles()
+
 	database, err := db.Open(cfg.Database.Path)
 	if err != nil {
 		slog.Error("failed to open database", "error", err)
@@ -207,7 +212,11 @@ func main() {
 		var err error
 		clusterMgr, err = liveActivate(cfg, cfgPath, nil)
 		if err != nil {
-			slog.Warn("cluster start failed", "error", err)
+			// ERROR (not WARN): the panel still comes up standalone so it stays
+			// reachable, but a node silently dropping out of the cluster after a
+			// restart — e.g. a transient gRPC port conflict on a fast restart — is
+			// operationally significant and worth alarming on.
+			slog.Error("cluster start failed; node is running WITHOUT cluster membership", "component", "cluster", "error", err)
 		} else {
 			defer clusterMgr.Shutdown()
 			slog.Info("cluster mode active", "component", "cluster", "name", cfg.Cluster.Name, "node_id", cfg.Cluster.NodeID)
@@ -490,6 +499,10 @@ func updatePanel() {
 		if vErr := release.VerifyCosignBlob(checksumBody, sigBody, certBody, release.SFPanelReleaseIdentity()); vErr != nil {
 			log.Fatalf("Signature verification failed: %v", vErr)
 		}
+	} else if release.SignatureRequiredForUpdate(version, latest) {
+		// A node at/after the signing cutoff must never accept an unsigned
+		// release, regardless of the advertised target version.
+		log.Fatalf("Signature required: release v%s is missing checksums.txt.sig/.pem (refusing update to prevent supply-chain downgrade)", latest)
 	} else {
 		fmt.Println("Release predates Sigstore signing; using SHA-256 only.")
 	}
@@ -607,6 +620,21 @@ func updatePanel() {
 			log.Printf("Failed to restart service: %v (restart manually with: systemctl restart sfpanel)", err)
 		} else {
 			fmt.Println("Service restarted.")
+		}
+	}
+}
+
+// cleanupUpdateTempFiles removes orphaned update staging files (<exe>.new and
+// <exe>.rollback) left behind by a killed update handler or watchdog. It does
+// NOT touch <exe>.bak — that's a valid rollback copy we keep. Best-effort.
+func cleanupUpdateTempFiles() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	for _, sfx := range []string{".new", ".rollback"} {
+		if removeErr := os.Remove(exe + sfx); removeErr == nil {
+			slog.Info("removed orphaned update temp file", "path", exe+sfx)
 		}
 	}
 }

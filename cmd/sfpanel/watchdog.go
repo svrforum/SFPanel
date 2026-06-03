@@ -62,6 +62,17 @@ func watchdogUpdate(args []string) {
 		dbPath = args[5]
 	}
 
+	// Capability check BEFORE the grace sleep below: if we can't read the backup
+	// binary we could never roll back, so exit immediately. The parent probes
+	// this watchdog with signal-0 a few hundred ms after spawn — exiting now (vs.
+	// only discovering the unusable .bak after the multi-second grace + failed
+	// rollback) is what makes that liveness probe meaningful, so the parent
+	// aborts rather than restarting into an unprotected new binary.
+	if _, err := os.Stat(bakPath); err != nil {
+		fmt.Fprintf(os.Stderr, "watchdog-update: backup binary %s not usable, cannot guarantee rollback: %v\n", bakPath, err)
+		os.Exit(2)
+	}
+
 	// Give systemd a moment to bring the new binary up before the first poll —
 	// the parent already sleeps 2s after the SSE event, but ExecStart can take
 	// a few more seconds (DB migrations, embed extraction).

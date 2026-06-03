@@ -29,6 +29,17 @@ func SignatureRequiredFor(targetVersion string) bool {
 	return cmp >= 0
 }
 
+// SignatureRequiredForUpdate reports whether an update from `current` to
+// `target` must carry a Sigstore signature. Signing is required if EITHER the
+// target OR the currently-running version is at/after SignatureRequiredSince.
+// Gating on `current` too closes a bypass where an attacker-controlled Release
+// advertises a pre-cutoff target (e.g. "0.12.99") to a node already running a
+// signed release, dropping it into the unsigned SHA-256-only fallback. A node
+// past the cutoff never accepts an unsigned update, whatever the target claims.
+func SignatureRequiredForUpdate(current, target string) bool {
+	return SignatureRequiredFor(target) || SignatureRequiredFor(current)
+}
+
 // CompareVersions compares two MAJOR.MINOR.PATCH version strings.
 // Returns -1 if a < b, 0 if equal, 1 if a > b.
 // A leading "v" on either side is tolerated. Pre-release / build suffixes
