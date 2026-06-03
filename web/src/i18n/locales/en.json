@@ -1070,7 +1070,8 @@
         "confirmClear": "Clear all alert history?",
         "successCleared": "History cleared"
       }
-    }
+    },
+    "disable2FACodePrompt": "Enter your current 2FA code to confirm:"
   },
   "siteConfig": {
     "loadingConfig": "Loading configuration...",

@@ -587,6 +587,13 @@ func (h *Handler) Disable2FA(c echo.Context) error {
 		return h.failClusterPersist(c, err)
 	}
 
+	// Recovery codes only function while 2FA is on; clear them so they don't
+	// linger as inert state (and so re-enabling 2FA starts from a clean slate).
+	// Best-effort: a failure here doesn't undo the 2FA disable above.
+	if err := h.persistRecoveryCodes(username, nil, fromCluster); err != nil {
+		slog.Warn("failed to clear recovery codes on 2FA disable", "username", username, "error", err)
+	}
+
 	// Clear the limiter on success so the legitimate user isn't locked out.
 	loginAttempts.Delete(ip)
 	h.recordSecurityEvent(c, "2fa_disable", "success", http.StatusOK)

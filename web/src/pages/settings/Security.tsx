@@ -112,11 +112,15 @@ export default function Security() {
   }
 
   async function handleDisable2FA() {
-    // Confirm + collect password — destructive action that loosens auth.
+    // Confirm + collect password AND the current 2FA code — the backend
+    // requires a valid TOTP code to disable (so a session-only attacker with
+    // the password but no authenticator can't downgrade the account).
     if (!(await confirm({ title: t('settings.confirmDisable2FA'), danger: true }))) return
     const password = await prompt({ title: t('settings.disable2FAPasswordPrompt'), password: true })
     if (!password) return
-    await runDisable2FA(password)
+    const code = await prompt({ title: t('settings.disable2FACodePrompt'), placeholder: '000000' })
+    if (!code) return
+    await runDisable2FA(password, code)
   }
 
   async function handleVerify2FA(e: FormEvent) {

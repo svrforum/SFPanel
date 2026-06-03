@@ -387,10 +387,10 @@ class ApiClient {
     return this.request<{ codes: string[] }>('/auth/2fa/recovery', { method: 'POST' })
   }
 
-  disable2FA(password: string) {
+  disable2FA(password: string, totpCode?: string) {
     return this.request<{ message: string }>('/auth/2fa', {
       method: 'DELETE',
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password, totp_code: totpCode }),
     })
   }
 

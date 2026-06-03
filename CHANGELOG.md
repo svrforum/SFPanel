@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.38.0] – 2026-06-03
+
+### Fixed
+
+- **auth** — **disabling 2FA from the UI now works.** The backend (correctly)
+  requires the current TOTP code to disable 2FA — a guard against a session-only
+  attacker downgrading the account — but the Settings → Security flow only
+  prompted for the password, so disabling 2FA always failed with 400 "Current
+  2FA code is required". It now prompts for the password **and** the current 2FA
+  code. (Found via end-to-end browser testing.)
+- **auth** — disabling 2FA also **clears the recovery codes** (they're inert
+  without 2FA), so re-enabling starts from a clean slate.
+
 ## [0.37.0] – 2026-06-03
 
 UX follow-up — **loading skeletons + error states, more pages**.
