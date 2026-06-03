@@ -125,7 +125,7 @@ export default function DiskPartitions() {
   return (
     <div className="space-y-4 mt-4">
       {/* Toolbar */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <HardDrive className="h-4 w-4 text-muted-foreground" />
@@ -143,7 +143,7 @@ export default function DiskPartitions() {
             ))}
           </select>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchDisks} disabled={loading} className="rounded-xl">
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             {t('common.refresh')}

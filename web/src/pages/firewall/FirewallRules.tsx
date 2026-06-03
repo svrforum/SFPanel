@@ -408,7 +408,7 @@ export default function FirewallRules() {
     <div className="space-y-4 mt-4">
       {/* Status Card */}
       <div className="bg-card rounded-2xl p-5 card-shadow">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-primary/10">
               <Shield className="h-5 w-5 text-primary" aria-hidden="true" />
@@ -456,7 +456,7 @@ export default function FirewallRules() {
       </div>
 
       {/* Rules Section */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
           {t('firewall.rules.count', { count: rulesTotal })}
         </span>

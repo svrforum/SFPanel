@@ -357,13 +357,13 @@ export default function NetworkWireGuard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           {status?.version && (
             <span className="text-[11px] text-muted-foreground">{status.version}</span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             {t('common.refresh')}

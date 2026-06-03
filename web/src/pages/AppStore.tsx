@@ -74,7 +74,7 @@ export default function AppStore() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-[22px] font-bold tracking-tight">{t('appStore.title')}</h1>
           <p className="text-[13px] text-muted-foreground mt-1">{t('appStore.subtitle')}</p>

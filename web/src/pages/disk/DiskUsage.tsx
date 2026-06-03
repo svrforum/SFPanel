@@ -56,7 +56,7 @@ export default function DiskUsage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-[17px] font-bold">{t('disk.usage.title')}</h2>
           <p className="text-[13px] text-muted-foreground mt-0.5">{t('disk.usage.description')}</p>

@@ -265,8 +265,13 @@ export default function Layout() {
       </aside>}
 
       <main className={cn(
-        "flex-1 min-h-0",
-        isTerminal ? "p-0 overflow-hidden" : "overflow-auto px-5 py-4 pb-bottom-nav md:p-8 md:pb-8"
+        // min-w-0 lets this flex child shrink below its content width, and
+        // overflow-x-hidden stops an over-wide child (e.g. a non-wrapping
+        // toolbar) from making the WHOLE page slide left/right on mobile.
+        // Vertical scroll stays; intended horizontal-scroll rows keep their own
+        // overflow-x-auto so they still scroll internally.
+        "flex-1 min-h-0 min-w-0",
+        isTerminal ? "p-0 overflow-hidden" : "overflow-y-auto overflow-x-hidden px-5 py-4 pb-bottom-nav md:p-8 md:pb-8"
       )}>
         <Outlet key={nodeKey} />
       </main>

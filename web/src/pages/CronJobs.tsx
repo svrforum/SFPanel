@@ -238,12 +238,12 @@ export default function CronJobs() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-[22px] font-bold tracking-tight">{t('cron.title')}</h1>
           <p className="text-[13px] text-muted-foreground mt-1">{t('cron.subtitle')}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" className="rounded-xl" onClick={fetchJobs} disabled={loading}>
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             {t('common.refresh')}

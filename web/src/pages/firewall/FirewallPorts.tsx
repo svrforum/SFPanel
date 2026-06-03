@@ -181,7 +181,7 @@ export default function FirewallPorts() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <h2 className="text-[15px] font-semibold flex items-center gap-2">
             <Globe className="h-4 w-4" />

@@ -134,7 +134,7 @@ export default function ClusterNodes() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
           {t('cluster.nodes.count', { count: nodes.length })}
         </span>

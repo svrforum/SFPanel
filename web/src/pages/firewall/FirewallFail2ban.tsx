@@ -537,7 +537,7 @@ export default function FirewallFail2ban() {
     <div className="space-y-4 mt-4">
       {/* Status Card */}
       <div className="bg-card rounded-2xl p-5 card-shadow">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-primary/10">
               <ShieldAlert className="h-5 w-5 text-primary" />
@@ -562,7 +562,7 @@ export default function FirewallFail2ban() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="ghost"
               size="icon-xs"
@@ -589,7 +589,7 @@ export default function FirewallFail2ban() {
       {status.running && (
         <>
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
               {t('firewall.fail2ban.jailCount', { count: jails.length })}
             </span>

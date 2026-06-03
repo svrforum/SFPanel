@@ -290,7 +290,7 @@ export default function ClusterOverview() {
       )}
       {/* Cluster info */}
       <div className="bg-card rounded-2xl p-5 card-shadow">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
               <Server className="h-4 w-4 text-primary" />
@@ -302,9 +302,9 @@ export default function ClusterOverview() {
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {status.is_leader && (
-              <div className="flex gap-1">
+              <div className="flex flex-wrap gap-1">
                 <Button
                   variant="outline"
                   size="sm"

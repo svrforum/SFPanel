@@ -202,11 +202,11 @@ export default function DiskRAID() {
   return (
     <div className="space-y-4 mt-4">
       {/* Toolbar */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
           {t('disk.raid.arrayCount', { count: arrays.length })}
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchArrays} disabled={loading} className="rounded-xl">
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             {t('common.refresh')}
