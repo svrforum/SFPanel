@@ -212,10 +212,15 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
       fitAddon.fit()
     }
     window.addEventListener('resize', handleResize)
+    // Re-fit when the mobile soft keyboard opens/closes — it changes the
+    // visual viewport (not window size), so window 'resize' alone misses it
+    // and the terminal would overflow under the keyboard.
+    window.visualViewport?.addEventListener('resize', handleResize)
 
     return () => {
       disposed = true
       window.removeEventListener('resize', handleResize)
+      window.visualViewport?.removeEventListener('resize', handleResize)
       wsCleanup?.()
       term.dispose()
     }

@@ -86,6 +86,23 @@ export default function Layout() {
       .catch(() => {})
   }, [])
 
+  // Track the visual viewport height so the app shell shrinks when the mobile
+  // soft keyboard opens, instead of staying 100vh and pushing content (terminal
+  // input, bottom nav) under the keyboard — which makes the whole page scroll.
+  // Falls back to 100dvh via CSS until/if visualViewport is unavailable.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const apply = () => document.documentElement.style.setProperty('--app-h', `${vv.height}px`)
+    apply()
+    vv.addEventListener('resize', apply)
+    vv.addEventListener('scroll', apply)
+    return () => {
+      vv.removeEventListener('resize', apply)
+      vv.removeEventListener('scroll', apply)
+    }
+  }, [])
+
   const handleLogout = () => {
     // Fire-and-forget — even if the server is unreachable we still want to
     // navigate away. api.logout() clears local state on its own.
@@ -94,10 +111,10 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex overflow-hidden bg-background" style={{ height: 'var(--app-h, 100dvh)' }}>
       {/* Cluster dual-panel sidebar */}
       {clusterEnabled && (
-        <div className="hidden md:flex h-screen shrink-0">
+        <div className="hidden md:flex h-full shrink-0">
           <ClusterSidebar
             panelVersion={panelVersion}
             onLogout={handleLogout}
@@ -108,7 +125,7 @@ export default function Layout() {
 
       {/* Standard sidebar (non-cluster mode) */}
       {!clusterEnabled && <aside className={cn(
-        'bg-card border-r border-border flex-col transition-all duration-300 ease-in-out shrink-0 hidden md:flex h-screen',
+        'bg-card border-r border-border flex-col transition-all duration-300 ease-in-out shrink-0 hidden md:flex h-full',
         collapsed ? 'w-[68px]' : 'w-60'
       )}>
         <div className={cn('flex items-center', collapsed ? 'px-3 py-6 justify-center' : 'px-4 py-4')}>
