@@ -731,7 +731,8 @@ export default function AlertSettings() {
           <p className="text-[13px] text-muted-foreground py-4">{t('settings.alerts.history.empty')}</p>
         ) : (
           <>
-            <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+            {/* Desktop table */}
+            <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -780,6 +781,51 @@ export default function AlertSettings() {
                   })}
                 </TableBody>
               </Table>
+            </div>
+            {/* Mobile cards */}
+            <div className="md:hidden space-y-2">
+              {history.map(entry => {
+                const ruleTypeEntry = RULE_TYPES.find(rt => rt.value === entry.type)
+                const chans = parseSentChannels(entry.sent_channels)
+                return (
+                  <div key={entry.id} className="bg-card rounded-xl p-3 card-shadow space-y-1">
+                    <div className="flex justify-between text-[12px]">
+                      <span className="text-muted-foreground">{t('settings.alerts.history.colTime')}</span>
+                      <span className="text-muted-foreground">{new Date(entry.created_at).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-[12px]">
+                      <span className="text-muted-foreground">{t('settings.alerts.history.colType')}</span>
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground">
+                        {ruleTypeEntry ? t(ruleTypeEntry.i18nKey) : entry.type}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-[12px]">
+                      <span className="text-muted-foreground">{t('settings.alerts.history.colSeverity')}</span>
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${getSeverityStyle(entry.severity)}`}>
+                        {entry.severity}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2 text-[12px]">
+                      <span className="text-muted-foreground shrink-0">{t('settings.alerts.history.colMessage')}</span>
+                      <span className="text-right break-words">{entry.message}</span>
+                    </div>
+                    <div className="flex justify-between text-[12px]">
+                      <span className="text-muted-foreground">{t('settings.alerts.history.colNode')}</span>
+                      <span className="text-muted-foreground">{entry.node_id || '-'}</span>
+                    </div>
+                    <div className="flex justify-between text-[12px]">
+                      <span className="text-muted-foreground">{t('settings.alerts.history.colStatus')}</span>
+                      {chans.length > 0 ? (
+                        <span className="text-[#00c471]" title={chans.join(', ')}>
+                          {t('settings.alerts.history.sent', { count: chans.length })}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
             {historyTotal > historyLimit && (
               <div className="flex items-center justify-between mt-3">

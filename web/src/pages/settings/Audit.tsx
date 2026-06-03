@@ -104,7 +104,8 @@ export default function Audit() {
           <p className="text-[13px] text-muted-foreground py-4">{t('settings.auditLogEmpty')}</p>
         ) : (
           <>
-            <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+            {/* Desktop table */}
+            <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -145,6 +146,47 @@ export default function Audit() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+            {/* Mobile cards */}
+            <div className="md:hidden space-y-2">
+              {auditLogs.map(log => (
+                <div key={log.id} className="bg-card rounded-xl p-3 card-shadow space-y-1">
+                  <div className="flex justify-between text-[12px]">
+                    <span className="text-muted-foreground">{t('settings.auditTime')}</span>
+                    <span className="text-muted-foreground">{new Date(log.created_at).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-[12px]">
+                    <span className="text-muted-foreground">{t('settings.auditUser')}</span>
+                    <span>{log.username || '-'}</span>
+                  </div>
+                  <div className="flex justify-between text-[12px]">
+                    <span className="text-muted-foreground">{t('settings.auditMethod')}</span>
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                      log.method === 'DELETE' ? 'bg-[#f04452]/10 text-[#f04452]' :
+                      log.method === 'POST' ? 'bg-[#3182f6]/10 text-[#3182f6]' :
+                      'bg-[#f59e0b]/10 text-[#f59e0b]'
+                    }`}>
+                      {log.method}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2 text-[12px]">
+                    <span className="text-muted-foreground shrink-0">{t('settings.auditPath')}</span>
+                    <span className="font-mono text-right break-all">{log.path.replace('/api/v1', '')}</span>
+                  </div>
+                  <div className="flex justify-between text-[12px]">
+                    <span className="text-muted-foreground">{t('settings.auditStatus')}</span>
+                    <span className={log.status < 400 ? 'text-[#00c471]' : 'text-[#f04452]'}>{log.status}</span>
+                  </div>
+                  <div className="flex justify-between text-[12px]">
+                    <span className="text-muted-foreground">{t('settings.auditIP')}</span>
+                    <span className="text-muted-foreground">{log.ip}</span>
+                  </div>
+                  <div className="flex justify-between text-[12px]">
+                    <span className="text-muted-foreground">{t('settings.alerts.history.colNode')}</span>
+                    <span className="text-muted-foreground">{log.node_id || '-'}</span>
+                  </div>
+                </div>
+              ))}
             </div>
             {auditTotal > AUDIT_LIMIT && (
               <div className="flex items-center justify-between mt-3">

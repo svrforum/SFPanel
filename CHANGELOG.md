@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.35.0] – 2026-06-03
+
+Per-feature improvement pass, round 19 (final) — **mobile card fallbacks**.
+
+### Changed
+
+- **ui** — the wide data tables on the **audit log**, **alert history**, and
+  **firewall port-map** views now collapse to stacked label/value **cards on
+  small screens** instead of overflowing horizontally. The desktop table is
+  unchanged (`hidden md:*`); the card list renders the same filtered/paginated
+  rows with the same badges, links, and actions. No new strings (card labels
+  reuse the existing column-header keys).
+
 ## [0.34.0] – 2026-06-03
 
 Per-feature improvement pass, round 18 — **2FA recovery codes**.

@@ -47,7 +47,8 @@ export function PortMapTable() {
           {error}
         </div>
       )}
-      <Table>
+      {/* Desktop table */}
+      <Table className="hidden md:table">
         <TableHeader>
           <TableRow>
             <TableHead className="w-20">포트</TableHead>
@@ -145,6 +146,97 @@ export function PortMapTable() {
           })}
         </TableBody>
       </Table>
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-2">
+        {rows.length === 0 && !loading && (
+          <div className="text-center text-muted-foreground py-8 text-[13px]">데이터 없음</div>
+        )}
+        {rows.map((r, i) => {
+          const hasContainer = r.containers && r.containers.length > 0
+          const externalRisk = r.firewall && r.firewall.scope === 'Anywhere' && hasContainer
+          const exposedNoRule = !r.firewall && !hasContainer && r.process
+          const borderClass = externalRisk
+            ? 'border-l-2 border-amber-500'
+            : exposedNoRule
+            ? 'border-l-2 border-destructive'
+            : ''
+          return (
+            <div key={i} className={`bg-card rounded-xl p-3 card-shadow space-y-1 ${borderClass}`}>
+              <div className="flex justify-between text-[12px]">
+                <span className="text-muted-foreground">포트</span>
+                <span className="font-mono">{r.port}</span>
+              </div>
+              <div className="flex justify-between text-[12px]">
+                <span className="text-muted-foreground">프로토콜</span>
+                <Badge variant="outline" className="text-[10px]">
+                  {r.proto.toUpperCase()}
+                </Badge>
+              </div>
+              <div className="flex justify-between text-[12px]">
+                <span className="text-muted-foreground">상태</span>
+                <Badge
+                  variant={r.state === 'listening' ? 'default' : 'secondary'}
+                  className="text-[10px]"
+                >
+                  {r.state === 'listening' ? 'LISTENING' : 'BOUND'}
+                </Badge>
+              </div>
+              <div className="flex justify-between gap-2 text-[12px]">
+                <span className="text-muted-foreground shrink-0">방화벽</span>
+                {r.firewall ? (
+                  <span className="inline-flex items-center gap-1 text-right">
+                    <span
+                      className={
+                        r.firewall.action === 'DENY' || r.firewall.action === 'REJECT'
+                          ? 'text-destructive'
+                          : 'text-emerald-600'
+                      }
+                    >
+                      {r.firewall.action}
+                    </span>
+                    <span className="text-muted-foreground">{r.firewall.scope}</span>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </div>
+              <div className="flex justify-between gap-2 text-[12px]">
+                <span className="text-muted-foreground shrink-0">컨테이너</span>
+                {r.containers && r.containers.length > 0 ? (
+                  <div className="flex flex-col items-end gap-0.5">
+                    {r.containers.map((c, idx) => (
+                      <Link
+                        key={`${c.id}-${idx}`}
+                        to={`/docker/containers?selected=${encodeURIComponent(c.id)}`}
+                        className="inline-flex items-center gap-1 hover:text-primary"
+                      >
+                        <span className="font-medium">{c.name}</span>
+                        {c.stack && (
+                          <span className="text-muted-foreground">({c.stack})</span>
+                        )}
+                        <ExternalLink className="h-3 w-3" />
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </div>
+              <div className="flex justify-between gap-2 text-[12px]">
+                <span className="text-muted-foreground shrink-0">프로세스</span>
+                {r.process ? (
+                  <span className="font-mono text-right break-all">
+                    {r.process.name}
+                    {r.process.pid > 0 && ` (${r.process.pid})`}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
