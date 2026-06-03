@@ -1,12 +1,48 @@
 package firewall
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"sort"
 	"testing"
 
+	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/common/exec"
 )
+
+// TestGetDockerFirewall_FetchesNATChainOnce locks the optimization: a single
+// GET /firewall/docker must hit `iptables -t nat -L DOCKER` exactly once, not
+// twice (the published-ports view and the reverse-DNAT map share one fetch).
+func TestGetDockerFirewall_FetchesNATChainOnce(t *testing.T) {
+	mock := exec.NewMockCommander()
+	mock.SetOutput("exists:iptables", "", nil) // make Exists("iptables") true
+	mock.SetOutput("iptables", iptablesNatDockerFixture, nil)
+	mock.SetOutput("docker", "", nil)
+	h := &Handler{Cmd: mock}
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/firewall/docker", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	if err := h.GetDockerFirewall(c); err != nil {
+		t.Fatalf("GetDockerFirewall: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	natCalls := 0
+	for _, call := range mock.Calls {
+		if call.Name == "iptables" && len(call.Args) >= 4 &&
+			call.Args[0] == "-t" && call.Args[1] == "nat" && call.Args[2] == "-L" && call.Args[3] == "DOCKER" {
+			natCalls++
+		}
+	}
+	if natCalls != 1 {
+		t.Errorf("expected exactly 1 `iptables -t nat -L DOCKER` call, got %d", natCalls)
+	}
+}
 
 // Real `iptables -t nat -L DOCKER -n --line-numbers` output. Includes:
 // - IPv4 DNAT rule (protocol "tcp")

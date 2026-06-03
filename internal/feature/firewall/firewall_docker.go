@@ -64,8 +64,17 @@ func (h *Handler) GetDockerFirewall(c echo.Context) error {
 			"rules": []DockerUserRule{},
 		})
 	}
-	ports, portsErr := h.getDockerPublishedPorts()
-	rules, rulesErr := h.getDockerUserRules()
+	// Fetch the NAT DOCKER chain once and derive both the published-ports view
+	// and the reverse-DNAT map from it (previously each parser ran iptables
+	// itself, so a single GET hit `iptables -t nat -L DOCKER` twice).
+	ports := []DockerPublishedPort{}
+	reverseMap := map[string]int{}
+	natOutput, portsErr := h.getDockerNATChain()
+	if portsErr == nil {
+		ports = h.parseDockerPublishedPorts(natOutput)
+		reverseMap = parseReverseDNATMap(natOutput)
+	}
+	rules, rulesErr := h.getDockerUserRulesWith(reverseMap)
 
 	if portsErr != nil && rulesErr != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerFirewallError,
@@ -91,13 +100,27 @@ func normalizeProtocol(proto string) string {
 	}
 }
 
-// getDockerPublishedPorts parses iptables NAT DOCKER chain to find published ports.
+// getDockerNATChain fetches the `nat` table's DOCKER chain once. GetDockerFirewall
+// needs this output for BOTH the published-ports view and the reverse-DNAT map;
+// fetching here and passing the string to the parsers collapses what used to be
+// two `iptables -t nat -L DOCKER` invocations per request into one.
+func (h *Handler) getDockerNATChain() (string, error) {
+	return h.Cmd.Run("iptables", "-t", "nat", "-L", "DOCKER", "-n", "--line-numbers")
+}
+
+// getDockerPublishedPorts fetches and parses the NAT DOCKER chain. Kept as a
+// standalone fetch for callers (and tests) that only want the ports; the hot
+// path in GetDockerFirewall uses parseDockerPublishedPorts with a shared fetch.
 func (h *Handler) getDockerPublishedPorts() ([]DockerPublishedPort, error) {
-	output, err := h.Cmd.Run("iptables", "-t", "nat", "-L", "DOCKER", "-n", "--line-numbers")
+	output, err := h.getDockerNATChain()
 	if err != nil {
 		return nil, fmt.Errorf("iptables nat DOCKER: %w", err)
 	}
+	return h.parseDockerPublishedPorts(output), nil
+}
 
+// parseDockerPublishedPorts parses a pre-fetched NAT DOCKER chain listing.
+func (h *Handler) parseDockerPublishedPorts(output string) []DockerPublishedPort {
 	// Build container IP → name mapping from docker ps
 	ipToName := h.buildContainerIPMap()
 
@@ -144,7 +167,7 @@ func (h *Handler) getDockerPublishedPorts() ([]DockerPublishedPort, error) {
 		ports = []DockerPublishedPort{}
 	}
 
-	return ports, nil
+	return ports
 }
 
 // buildContainerIPMap builds a map of container IP → container name using docker inspect.
@@ -216,12 +239,18 @@ func (h *Handler) lookupDNATMapping(hostPort int, protocol string) (containerIP 
 // buildReverseDNATMap builds a mapping from "containerIP:containerPort/protocol" → hostPort
 // so that DOCKER-USER rules (which match on post-DNAT destination) can be displayed with host ports.
 func (h *Handler) buildReverseDNATMap() map[string]int {
-	result := make(map[string]int)
 	output, err := h.Cmd.Run("iptables", "-t", "nat", "-L", "DOCKER", "-n")
 	if err != nil {
-		return result
+		return make(map[string]int)
 	}
+	return parseReverseDNATMap(output)
+}
 
+// parseReverseDNATMap parses a pre-fetched NAT DOCKER listing into a
+// "containerIP:containerPort/proto" → hostPort map. The regex matches DNAT
+// anywhere on the line, so it works with or without iptables --line-numbers.
+func parseReverseDNATMap(output string) map[string]int {
+	result := make(map[string]int)
 	dnatRe := regexp.MustCompile(`DNAT\s+(?:tcp|udp|6|17)\s+--\s+\S+\s+\S+\s+(tcp|udp)\s+dpt:(\d+)\s+to:(\d+\.\d+\.\d+\.\d+):(\d+)`)
 	for _, line := range strings.Split(output, "\n") {
 		matches := dnatRe.FindStringSubmatch(line)
@@ -238,15 +267,20 @@ func (h *Handler) buildReverseDNATMap() map[string]int {
 	return result
 }
 
-// getDockerUserRules parses the DOCKER-USER iptables chain.
+// getDockerUserRules parses the DOCKER-USER chain, fetching its own reverse
+// DNAT map. Standalone entry point for callers/tests that want just the rules.
 func (h *Handler) getDockerUserRules() ([]DockerUserRule, error) {
+	return h.getDockerUserRulesWith(h.buildReverseDNATMap())
+}
+
+// getDockerUserRulesWith parses the DOCKER-USER chain using a caller-supplied
+// reverse DNAT map, so GetDockerFirewall can reuse the map it already built from
+// a single NAT DOCKER fetch instead of triggering another iptables call.
+func (h *Handler) getDockerUserRulesWith(reverseMap map[string]int) ([]DockerUserRule, error) {
 	output, err := h.Cmd.Run("iptables", "-L", "DOCKER-USER", "-n", "--line-numbers")
 	if err != nil {
 		return nil, fmt.Errorf("iptables DOCKER-USER: %w", err)
 	}
-
-	// Build reverse DNAT map to translate container IP:port back to host port
-	reverseMap := h.buildReverseDNATMap()
 
 	var rules []DockerUserRule
 

@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.29.0] – 2026-06-03
+
+Per-feature improvement pass, round 13 — **Docker firewall iptables dedup**.
+
+### Changed
+
+- **firewall** — `GET /firewall/docker` now reads the NAT `DOCKER` chain **once**
+  and derives both the published-ports view and the reverse-DNAT map from that
+  single output, instead of running `iptables -t nat -L DOCKER` twice per
+  request. Parsers were split into pure functions over a pre-fetched listing;
+  behavior is unchanged. The single-fetch invariant is tested.
+
 ## [0.28.0] – 2026-06-03
 
 Per-feature improvement pass, round 12 — **WireGuard peer management**.
