@@ -6,6 +6,38 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.42.0] – 2026-06-03
+
+### Added
+
+- **App Store: post-install experience.** The install success screen now offers
+  **Open app** (`http://<host>:<port>`) and **Manage in Docker** (→ the app's
+  Docker stack), not just Close. The install form shows a live access-URL
+  preview, and generated passwords get a copy button + a "stored only in the
+  stack's .env" note.
+- **App Store: uninstall.** Installed apps gain an Uninstall action (with a
+  destructive confirm) wired to a new `DELETE /appstore/apps/:id`
+  (`docker compose down -v` + remove the stack dir + drop the installed marker).
+  `GetInstalled` was previously dead UI surface.
+- **App Store: deep-linkable detail** — `/appstore/:appId` opens an app directly
+  and is back-button friendly. Distinct catalog empty states: search-miss (with
+  "clear search") and load-error (with retry), instead of one ambiguous block.
+
+### Changed
+
+- **App Store catalog moved into this repo** under `appstore/` (was the separate
+  `svrforum/SFPanel-appstore` repo). It's still fetched at runtime from
+  `raw.githubusercontent.com/svrforum/SFPanel/main/appstore/`, so adding or
+  updating an app stays decoupled from panel releases — a catalog-only commit
+  reaches every panel within the cache TTL, no binary update needed. 45 apps
+  migrated; the old repo now redirects to the new location.
+
+### Fixed
+
+- **App Store security:** reject newline injection in simple-mode `.env` values.
+- De-duplicated the App Store icon-URL helper (was copy-pasted with a hardcoded
+  base in two places).
+
 ## [0.41.0] – 2026-06-03
 
 ### Fixed
