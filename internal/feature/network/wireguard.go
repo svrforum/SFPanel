@@ -300,9 +300,72 @@ func (h *WireGuardHandler) GetInterface(c echo.Context) error {
 		if err == nil {
 			iface.PublicKey, iface.ListenPort, iface.Peers = parseWGDump(dump)
 		}
+	} else {
+		// Interface is down, so `wg show` has no data. Derive the public key
+		// from the config's PrivateKey and read the listen port + peers from the
+		// config file — otherwise the client-config generator produces an
+		// invalid config (empty server PublicKey) and the peer list shows empty.
+		if priv := parseWGConfField(string(confData), "PrivateKey"); priv != "" {
+			if pub, perr := h.Cmd.RunWithInput(priv, "wg", "pubkey"); perr == nil {
+				iface.PublicKey = strings.TrimSpace(pub)
+			}
+		}
+		if lp := parseWGConfField(string(confData), "ListenPort"); lp != "" {
+			iface.ListenPort, _ = strconv.Atoi(lp)
+		}
+		iface.Peers = parseWGConfPeers(string(confData))
 	}
 
 	return response.OK(c, iface)
+}
+
+// parseWGConfPeers extracts the [Peer] blocks from a WireGuard config file so a
+// down interface still reports its configured peers (wg show only works when the
+// interface is up).
+func parseWGConfPeers(conf string) []WireGuardPeer {
+	peers := []WireGuardPeer{}
+	var cur *WireGuardPeer
+	flush := func() {
+		if cur != nil {
+			peers = append(peers, *cur)
+			cur = nil
+		}
+	}
+	for _, line := range strings.Split(conf, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.EqualFold(t, "[Peer]") {
+			flush()
+			cur = &WireGuardPeer{AllowedIPs: []string{}}
+			continue
+		}
+		if strings.HasPrefix(t, "[") {
+			flush()
+			continue
+		}
+		if cur == nil {
+			continue
+		}
+		eq := strings.IndexByte(t, '=')
+		if eq < 0 {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(t[:eq]))
+		val := strings.TrimSpace(t[eq+1:])
+		switch key {
+		case "publickey":
+			cur.PublicKey = val
+		case "endpoint":
+			cur.Endpoint = val
+		case "allowedips":
+			for _, ip := range strings.Split(val, ",") {
+				if ip = strings.TrimSpace(ip); ip != "" {
+					cur.AllowedIPs = append(cur.AllowedIPs, ip)
+				}
+			}
+		}
+	}
+	flush()
+	return peers
 }
 
 // InterfaceUp brings up a WireGuard interface.

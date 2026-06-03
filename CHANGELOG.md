@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.39.0] – 2026-06-03
+
+### Fixed
+
+- **network/wireguard** — a generated client config (and QR) for a **stopped**
+  interface had an empty server `PublicKey` and missing endpoint port, because
+  those were read from `wg show`, which only reports data while the interface is
+  up. `GetInterface` now derives the public key from the config's PrivateKey,
+  reads the listen port from the config, and parses configured peers from the
+  config file when the interface is down — so client configs are valid and the
+  peer list is correct even before the tunnel is started. (Found via end-to-end
+  browser testing.) Config-peer parsing is tested.
+
 ## [0.38.0] – 2026-06-03
 
 ### Fixed

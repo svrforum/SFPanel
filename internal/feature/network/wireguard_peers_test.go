@@ -76,6 +76,27 @@ func TestAppendPeerBlock(t *testing.T) {
 	}
 }
 
+func TestParseWGConfPeers(t *testing.T) {
+	conf := sampleConf() // has [Interface] + two [Peer] blocks
+	peers := parseWGConfPeers(conf)
+	if len(peers) != 2 {
+		t.Fatalf("expected 2 peers from config, got %d", len(peers))
+	}
+	if peers[0].PublicKey != k("AAAA") || len(peers[0].AllowedIPs) != 1 || peers[0].AllowedIPs[0] != "10.0.0.2/32" {
+		t.Errorf("peer[0] mismatch: %+v", peers[0])
+	}
+	// A config with no peers yields an empty (non-nil) slice.
+	if got := parseWGConfPeers("[Interface]\nPrivateKey = x\nListenPort = 51820\n"); len(got) != 0 {
+		t.Errorf("expected 0 peers, got %d", len(got))
+	}
+	// Endpoint + multiple AllowedIPs parse.
+	withEp := "[Peer]\nPublicKey = " + k("CCCC") + "\nEndpoint = host:51820\nAllowedIPs = 10.0.0.5/32, 10.0.0.6/32\n"
+	p := parseWGConfPeers(withEp)
+	if len(p) != 1 || p[0].Endpoint != "host:51820" || len(p[0].AllowedIPs) != 2 {
+		t.Errorf("endpoint/allowedips parse wrong: %+v", p)
+	}
+}
+
 func TestRemovePeerFromConfig(t *testing.T) {
 	conf := sampleConf()
 
