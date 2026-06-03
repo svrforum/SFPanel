@@ -248,26 +248,40 @@ func (h *WireGuardHandler) ListInterfaces(c echo.Context) error {
 			Peers:  []WireGuardPeer{},
 		}
 
-		// Read Address/DNS from config
 		confPath := filepath.Join(wgConfigDir, name+".conf")
-		confData, err := os.ReadFile(confPath)
-		if err == nil {
-			iface.Address = parseWGConfField(string(confData), "Address")
-			iface.DNS = parseWGConfField(string(confData), "DNS")
-		}
-
-		// Get runtime info if active
-		if iface.Active {
-			dump, err := h.Cmd.Run("wg", "show", name, "dump")
-			if err == nil {
-				iface.PublicKey, iface.ListenPort, iface.Peers = parseWGDump(dump)
-			}
-		}
+		confData, _ := os.ReadFile(confPath)
+		h.populateWGInterface(&iface, string(confData))
 
 		interfaces = append(interfaces, iface)
 	}
 
 	return response.OK(c, interfaces)
+}
+
+// populateWGInterface fills Address/DNS (always from the config) and the
+// runtime-ish fields PublicKey/ListenPort/Peers. When the interface is up those
+// come from `wg show`; when it's down they're derived from the config file
+// (pubkey from PrivateKey, port from ListenPort, peers from [Peer] blocks) so a
+// stopped interface still yields a valid client config and correct peer list.
+func (h *WireGuardHandler) populateWGInterface(iface *WireGuardInterface, confData string) {
+	iface.Address = parseWGConfField(confData, "Address")
+	iface.DNS = parseWGConfField(confData, "DNS")
+
+	if iface.Active {
+		if dump, err := h.Cmd.Run("wg", "show", iface.Name, "dump"); err == nil {
+			iface.PublicKey, iface.ListenPort, iface.Peers = parseWGDump(dump)
+		}
+		return
+	}
+	if priv := parseWGConfField(confData, "PrivateKey"); priv != "" {
+		if pub, perr := h.Cmd.RunWithInput(priv, "wg", "pubkey"); perr == nil {
+			iface.PublicKey = strings.TrimSpace(pub)
+		}
+	}
+	if lp := parseWGConfField(confData, "ListenPort"); lp != "" {
+		iface.ListenPort, _ = strconv.Atoi(lp)
+	}
+	iface.Peers = parseWGConfPeers(confData)
 }
 
 // GetInterface returns detailed info for a single WireGuard interface.
@@ -289,32 +303,8 @@ func (h *WireGuardHandler) GetInterface(c echo.Context) error {
 		Peers:  []WireGuardPeer{},
 	}
 
-	confData, err := os.ReadFile(confPath)
-	if err == nil {
-		iface.Address = parseWGConfField(string(confData), "Address")
-		iface.DNS = parseWGConfField(string(confData), "DNS")
-	}
-
-	if iface.Active {
-		dump, err := h.Cmd.Run("wg", "show", name, "dump")
-		if err == nil {
-			iface.PublicKey, iface.ListenPort, iface.Peers = parseWGDump(dump)
-		}
-	} else {
-		// Interface is down, so `wg show` has no data. Derive the public key
-		// from the config's PrivateKey and read the listen port + peers from the
-		// config file — otherwise the client-config generator produces an
-		// invalid config (empty server PublicKey) and the peer list shows empty.
-		if priv := parseWGConfField(string(confData), "PrivateKey"); priv != "" {
-			if pub, perr := h.Cmd.RunWithInput(priv, "wg", "pubkey"); perr == nil {
-				iface.PublicKey = strings.TrimSpace(pub)
-			}
-		}
-		if lp := parseWGConfField(string(confData), "ListenPort"); lp != "" {
-			iface.ListenPort, _ = strconv.Atoi(lp)
-		}
-		iface.Peers = parseWGConfPeers(string(confData))
-	}
+	confData, _ := os.ReadFile(confPath)
+	h.populateWGInterface(&iface, string(confData))
 
 	return response.OK(c, iface)
 }

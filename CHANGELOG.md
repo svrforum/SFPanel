@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.40.0] – 2026-06-03
+
+### Fixed
+
+- **network/wireguard** — apply the down-interface fix (v0.39.0) to the
+  **interface list** too, not just the single-interface view. The WireGuard page
+  lists interfaces via the list endpoint, so a stopped interface was still
+  showing an empty public key / no peers there (and the add-peer client config
+  read its public key from the list). Extracted a shared `populateWGInterface`
+  helper used by both endpoints. (Found via end-to-end browser testing.)
+
 ## [0.39.0] – 2026-06-03
 
 ### Fixed
