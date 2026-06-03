@@ -6,6 +6,7 @@
     "en": "Self-hosted cloud storage"
   },
   "category": "cloud",
+  "featured": true,
   "version": "1.0.0",
   "website": "https://nextcloud.com",
   "source": "https://github.com/nextcloud/server",

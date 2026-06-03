@@ -1,0 +1,79 @@
+name: App request
+description: Request a new app for the SFPanel App Store catalog
+title: "[App request] <app name>"
+labels: ["app-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an app! Fill in what you know — a maintainer (or you, via a PR)
+        can turn this into a catalog entry under `appstore/apps/`.
+
+        Prefer to contribute it yourself? See `appstore/README.md` and run
+        `scripts/new-appstore-app.sh <app-id>` to scaffold the files.
+  - type: input
+    id: app-name
+    attributes:
+      label: App name
+      description: The display name of the app.
+      placeholder: Nextcloud
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Short description
+      description: One or two sentences on what the app does.
+      placeholder: Self-hosted cloud storage and collaboration platform.
+    validations:
+      required: true
+  - type: textarea
+    id: image-or-compose
+    attributes:
+      label: Docker image or compose
+      description: >
+        The Docker image (e.g. `nextcloud:latest`) or, ideally, a working
+        `docker-compose.yml`. Linking the project's official compose file helps a lot.
+      placeholder: |
+        Image: org/app:latest
+
+        or paste a docker-compose.yml here.
+      render: yaml
+    validations:
+      required: true
+  - type: input
+    id: website
+    attributes:
+      label: Official website
+      description: Project homepage or GitHub repository.
+      placeholder: https://github.com/org/repo
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Suggested category
+      description: Which catalog category fits best? (See `appstore/categories.json`.)
+      options:
+        - media
+        - cloud
+        - security
+        - monitoring
+        - dev
+        - productivity
+        - automation
+        - communication
+        - database
+        - network
+        - other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: >
+        Required ports, environment variables, dependencies (DB, etc.), or anything
+        else that would help package this app.
+    validations:
+      required: false

@@ -64,6 +64,10 @@ type AppStoreMeta struct {
 	Ports       []int             `json:"ports"`
 	Env         []AppStoreEnvDef  `json:"env"`
 	Features    []AppStoreFeature `json:"features,omitempty"`
+	// Featured renders the app first and shows a "Featured" badge on cards.
+	Featured bool `json:"featured,omitempty"`
+	// Screenshots is an optional gallery of image URLs shown on the detail page.
+	Screenshots []string `json:"screenshots,omitempty"`
 }
 
 type appStoreAppListItem struct {

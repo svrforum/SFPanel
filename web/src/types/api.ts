@@ -814,6 +814,8 @@ export interface AppStoreMeta {
   env: AppStoreEnvDef[]
   features?: AppStoreFeature[]
   icon?: string
+  featured?: boolean
+  screenshots?: string[]
 }
 
 export interface AppStoreApp extends AppStoreMeta {

@@ -6,6 +6,7 @@
     "en": "Self-hosted password manager (Bitwarden compatible)"
   },
   "category": "security",
+  "featured": true,
   "version": "1.0.0",
   "website": "https://github.com/dani-garcia/vaultwarden",
   "source": "https://github.com/dani-garcia/vaultwarden",

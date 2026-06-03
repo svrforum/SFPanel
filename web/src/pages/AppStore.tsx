@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Search, RotateCcw, Loader2, Package, Info, ChevronDown, ChevronUp, X, AlertCircle } from 'lucide-react'
+import { Search, RotateCcw, Loader2, Package, Info, ChevronDown, ChevronUp, X, AlertCircle, Star, ArrowDownUp, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { appStoreIconUrl } from '@/lib/appstore'
@@ -22,6 +22,8 @@ export default function AppStore() {
   const [loadError, setLoadError] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState('')
   const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState<'featured' | 'name' | 'category'>('featured')
+  const [installedOnly, setInstalledOnly] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
   const [failedIcons, setFailedIcons] = useState<Set<string>>(new Set())
@@ -83,12 +85,24 @@ export default function AppStore() {
     }
   }
 
-  const filteredApps = apps.filter((app) => {
-    if (!search) return true
-    const q = search.toLowerCase()
-    const desc = app.description[lang] || app.description['en'] || ''
-    return app.name.toLowerCase().includes(q) || desc.toLowerCase().includes(q)
-  })
+  const filteredApps = apps
+    .filter((app) => {
+      if (installedOnly && !app.installed) return false
+      if (!search) return true
+      const q = search.toLowerCase()
+      const desc = app.description[lang] || app.description['en'] || ''
+      return app.name.toLowerCase().includes(q) || desc.toLowerCase().includes(q)
+    })
+    .sort((a, b) => {
+      if (sortBy === 'name') return a.name.localeCompare(b.name)
+      if (sortBy === 'category') {
+        const cat = (a.category || '').localeCompare(b.category || '')
+        return cat !== 0 ? cat : a.name.localeCompare(b.name)
+      }
+      // featured (default): featured first, then alphabetical by name
+      if (!!a.featured !== !!b.featured) return a.featured ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
 
   return (
     <div className="space-y-6">
@@ -163,8 +177,33 @@ export default function AppStore() {
         )}
       </div>
 
-      {/* Shared search bar */}
-      <div className="flex justify-end">
+      {/* Shared search + sort/filter controls */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <button
+          onClick={() => setInstalledOnly((v) => !v)}
+          className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-[13px] font-medium transition-colors ${
+            installedOnly
+              ? 'bg-[#00c471]/10 text-[#00c471]'
+              : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+          }`}
+        >
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          {t('appStore.installedOnly')}
+        </button>
+        <div className="relative inline-flex items-center">
+          <ArrowDownUp className="absolute left-3 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <select
+            className="appearance-none h-9 pl-8 pr-8 rounded-xl bg-secondary/50 border-0 text-[13px] text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/30"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as 'featured' | 'name' | 'category')}
+            aria-label={t('appStore.sortBy')}
+          >
+            <option value="featured">{t('appStore.sortFeatured')}</option>
+            <option value="name">{t('appStore.sortName')}</option>
+            <option value="category">{t('appStore.sortCategory')}</option>
+          </select>
+          <ChevronDown className="absolute right-2.5 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+        </div>
         <div className="relative flex items-center w-full sm:w-64">
           <Search className="absolute left-3 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
@@ -227,6 +266,15 @@ export default function AppStore() {
               {t('appStore.clearSearch')}
             </Button>
           </div>
+        ) : installedOnly ? (
+          <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <CheckCircle2 className="h-10 w-10 mb-3 opacity-40" />
+            <p className="text-[13px] mb-4">{t('appStore.noInstalledApps')}</p>
+            <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setInstalledOnly(false)}>
+              <X className="h-4 w-4 mr-2" />
+              {t('appStore.installedOnly')}
+            </Button>
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <Package className="h-10 w-10 mb-3 opacity-40" />
@@ -258,7 +306,15 @@ export default function AppStore() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-[15px] font-semibold truncate">{app.name}</h3>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <h3 className="text-[15px] font-semibold truncate">{app.name}</h3>
+                      {app.featured && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 shrink-0">
+                          <Star className="h-2.5 w-2.5 fill-current" />
+                          {t('appStore.featured')}
+                        </span>
+                      )}
+                    </div>
                     {app.installed ? (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471] shrink-0">
                         {t('appStore.installed')}

@@ -6,6 +6,7 @@
     "en": "Lightweight self-hosted Git service"
   },
   "category": "dev",
+  "featured": true,
   "version": "1.0.0",
   "website": "https://gitea.com",
   "source": "https://github.com/go-gitea/gitea",

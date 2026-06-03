@@ -6,6 +6,7 @@
     "en": "Open source media streaming server"
   },
   "category": "media",
+  "featured": true,
   "version": "1.0.0",
   "website": "https://jellyfin.org",
   "source": "https://github.com/jellyfin/jellyfin",

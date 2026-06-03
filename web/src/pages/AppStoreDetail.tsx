@@ -602,6 +602,36 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
               </div>
             </div>
 
+            {/* Screenshots */}
+            {detail.app.screenshots && detail.app.screenshots.length > 0 && (
+              <div>
+                <h3 className="text-[14px] font-semibold mb-3">{t('appStore.screenshots')}</h3>
+                <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+                  {detail.app.screenshots.map((src, idx) => (
+                    <a
+                      key={idx}
+                      href={src}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0"
+                    >
+                      <img
+                        src={src}
+                        alt={`${detail.app.name} screenshot ${idx + 1}`}
+                        loading="lazy"
+                        className="h-40 w-auto rounded-xl border border-border object-cover hover:opacity-90 transition-opacity"
+                        onError={(e) => {
+                          const target = e.currentTarget
+                          const wrapper = target.parentElement
+                          if (wrapper) wrapper.style.display = 'none'
+                        }}
+                      />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Install Form */}
             {showInstallForm && !detail.installed && (
               <div className="bg-secondary/20 rounded-xl p-5 animate-in slide-in-from-top-2 duration-200">
