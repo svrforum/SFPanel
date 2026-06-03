@@ -351,6 +351,10 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	wg.GET("/configs/:name", wireguardHandler.GetConfig)
 	wg.PUT("/configs/:name", wireguardHandler.UpdateConfig)
 	wg.DELETE("/configs/:name", wireguardHandler.DeleteConfig)
+	wg.POST("/keypair", wireguardHandler.GenerateKeypair)
+	wg.POST("/configs/:name/peers", wireguardHandler.AddPeer)
+	wg.DELETE("/configs/:name/peers", wireguardHandler.RemovePeer)
+	wg.POST("/configs/:name/autostart", wireguardHandler.SetAutostart)
 
 	// Tailscale VPN
 	tailscaleHandler := &featureNetwork.TailscaleHandler{Cmd: cmd}

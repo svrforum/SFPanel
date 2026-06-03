@@ -1496,6 +1496,37 @@ class ApiClient {
     return this.request<{ message: string }>(`/network/wireguard/configs/${encodeURIComponent(name)}`, { method: 'DELETE' })
   }
 
+  generateWireGuardKeypair() {
+    return this.request<{ private_key: string; public_key: string }>('/network/wireguard/keypair', { method: 'POST' })
+  }
+
+  addWireGuardPeer(name: string, peer: {
+    public_key: string
+    preshared_key?: string
+    allowed_ips: string[]
+    endpoint?: string
+    persistent_keepalive?: number
+  }) {
+    return this.request<{ message: string; public_key: string }>(
+      `/network/wireguard/configs/${encodeURIComponent(name)}/peers`,
+      { method: 'POST', body: JSON.stringify(peer) }
+    )
+  }
+
+  removeWireGuardPeer(name: string, publicKey: string) {
+    return this.request<{ message: string }>(
+      `/network/wireguard/configs/${encodeURIComponent(name)}/peers?public_key=${encodeURIComponent(publicKey)}`,
+      { method: 'DELETE' }
+    )
+  }
+
+  setWireGuardAutostart(name: string, enabled: boolean) {
+    return this.request<{ message: string; enabled: boolean }>(
+      `/network/wireguard/configs/${encodeURIComponent(name)}/autostart`,
+      { method: 'POST', body: JSON.stringify({ enabled }) }
+    )
+  }
+
   // Tailscale VPN
   getTailscaleStatus() {
     return this.request<import('@/types/api').TailscaleStatus>('/network/tailscale/status')

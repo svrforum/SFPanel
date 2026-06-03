@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.28.0] – 2026-06-03
+
+Per-feature improvement pass, round 12 — **WireGuard peer management**.
+
+### Added
+
+- **network/wireguard** — manage peers from the UI instead of hand-editing raw
+  config: **generate a keypair** (`POST /network/wireguard/keypair`), **add a
+  peer** (`POST .../configs/:name/peers`) which appends a validated `[Peer]`
+  block and applies it live with `wg set` when the interface is up, **remove a
+  peer** (`DELETE .../configs/:name/peers?public_key=…`), and **toggle boot
+  autostart** (`wg-quick@<name>` enable/disable). The add-peer flow generates a
+  client keypair, assembles the client config browser-side (the server never
+  stores the client private key), and renders it as copyable text + a **QR
+  code** for mobile import. Public key / preshared key / CIDR / endpoint inputs
+  are validated server-side; the config append/remove parsing is tested.
+
 ## [0.27.0] – 2026-06-03
 
 Per-feature improvement pass, round 11 — **SMART self-tests**.
