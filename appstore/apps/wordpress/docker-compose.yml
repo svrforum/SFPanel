@@ -1,0 +1,32 @@
+services:
+  wordpress:
+    image: wordpress:latest
+    container_name: wordpress
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8082}:80"
+    environment:
+      - WORDPRESS_DB_HOST=wordpress-db
+      - WORDPRESS_DB_USER=wordpress
+      - WORDPRESS_DB_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - WORDPRESS_DB_NAME=wordpress
+    volumes:
+      - wp-content:/var/www/html
+    depends_on:
+      - wordpress-db
+
+  wordpress-db:
+    image: mariadb:11
+    container_name: wordpress-db
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=wordpress
+      - MYSQL_USER=wordpress
+      - MYSQL_PASSWORD=${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - wp-db-data:/var/lib/mysql
+
+volumes:
+  wp-content:
+  wp-db-data:

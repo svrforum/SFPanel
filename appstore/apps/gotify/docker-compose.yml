@@ -1,0 +1,12 @@
+services:
+  gotify:
+    image: gotify/server:latest
+    container_name: gotify
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8078}:80"
+    volumes:
+      - gotify-data:/app/data
+
+volumes:
+  gotify-data:

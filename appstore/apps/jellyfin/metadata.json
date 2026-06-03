@@ -1,0 +1,44 @@
+{
+  "id": "jellyfin",
+  "name": "Jellyfin",
+  "description": {
+    "ko": "오픈소스 미디어 스트리밍 서버",
+    "en": "Open source media streaming server"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://jellyfin.org",
+  "source": "https://github.com/jellyfin/jellyfin",
+  "icon": "https://raw.githubusercontent.com/jellyfin/jellyfin-ux/master/branding/SVG/icon-transparent.svg",
+  "ports": [8096],
+  "features": [
+    {
+      "title": { "ko": "미디어 스트리밍", "en": "Media streaming" },
+      "description": { "ko": "영화, TV 쇼, 음악을 어디서나 스트리밍", "en": "Stream movies, TV shows, music anywhere" },
+      "icon": "🎬"
+    },
+    {
+      "title": { "ko": "실시간 TV", "en": "Live TV" },
+      "description": { "ko": "EPG를 포함한 DVR 및 실시간 TV 지원", "en": "DVR and live TV support with EPG" },
+      "icon": "📺"
+    },
+    {
+      "title": { "ko": "멀티 클라이언트", "en": "Multi-client" },
+      "description": { "ko": "iOS, Android, Roku, Fire TV, 웹 앱 지원", "en": "Apps for iOS, Android, Roku, Fire TV, web" },
+      "icon": "📱"
+    },
+    {
+      "title": { "ko": "완전 무료", "en": "Completely free" },
+      "description": { "ko": "프리미엄 기능 없이 모든 기능 무료, 완전한 오픈소스", "en": "No premium features, fully open source" },
+      "icon": "🆓"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8096"
+    }
+  ]
+}

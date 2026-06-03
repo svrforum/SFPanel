@@ -1,0 +1,44 @@
+{
+  "id": "uptime-kuma",
+  "name": "Uptime Kuma",
+  "description": {
+    "ko": "서비스 모니터링 및 알림 도구",
+    "en": "Service monitoring and alerting tool"
+  },
+  "category": "monitoring",
+  "version": "1.0.0",
+  "website": "https://uptime.kuma.pet",
+  "source": "https://github.com/louislam/uptime-kuma",
+  "icon": "https://raw.githubusercontent.com/louislam/uptime-kuma/master/public/icon.svg",
+  "ports": [3001],
+  "features": [
+    {
+      "title": { "ko": "실시간 알림", "en": "Real-time alerts" },
+      "description": { "ko": "Telegram, Discord, Slack, 이메일 등 다채널 알림 지원", "en": "Multi-channel notifications: Telegram, Discord, Slack, Email" },
+      "icon": "🔔"
+    },
+    {
+      "title": { "ko": "상태 페이지", "en": "Status pages" },
+      "description": { "ko": "커스텀 도메인을 지원하는 공개/비공개 상태 페이지", "en": "Public/private status pages with custom domains" },
+      "icon": "📊"
+    },
+    {
+      "title": { "ko": "멀티 프로토콜", "en": "Multi-protocol" },
+      "description": { "ko": "HTTP/HTTPS, TCP, DNS, PING, GRPC 모니터링 지원", "en": "HTTP/HTTPS, TCP, DNS, PING, GRPC monitoring" },
+      "icon": "🌐"
+    },
+    {
+      "title": { "ko": "모바일 친화적", "en": "Mobile-friendly" },
+      "description": { "ko": "반응형 대시보드, 모든 기기에서 사용 가능", "en": "Responsive dashboard, works on any device" },
+      "icon": "📱"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "3001"
+    }
+  ]
+}

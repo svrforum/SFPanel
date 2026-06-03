@@ -1,0 +1,16 @@
+services:
+  filebrowser:
+    image: filebrowser/filebrowser:latest
+    container_name: filebrowser
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8085}:80"
+    volumes:
+      - filebrowser-data:/srv
+      - filebrowser-config:/config
+      - filebrowser-db:/database
+
+volumes:
+  filebrowser-data:
+  filebrowser-config:
+  filebrowser-db:

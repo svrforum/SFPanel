@@ -1,0 +1,102 @@
+{
+  "id": "nginx-proxy-manager",
+  "name": "Nginx Proxy Manager",
+  "description": {
+    "ko": "SSL 관리 기능이 포함된 리버스 프록시",
+    "en": "Reverse proxy with SSL management"
+  },
+  "category": "security",
+  "version": "1.0.0",
+  "website": "https://nginxproxymanager.com",
+  "source": "https://github.com/NginxProxyManager/nginx-proxy-manager",
+  "ports": [
+    80,
+    81,
+    443
+  ],
+  "features": [
+    {
+      "title": {
+        "ko": "SSL 관리",
+        "en": "SSL management"
+      },
+      "description": {
+        "ko": "Let's Encrypt를 통한 무료 SSL 인증서",
+        "en": "Free SSL certificates with Let's Encrypt"
+      },
+      "icon": "🔒"
+    },
+    {
+      "title": {
+        "ko": "리버스 프록시",
+        "en": "Reverse proxy"
+      },
+      "description": {
+        "ko": "UI를 통한 간편한 리버스 프록시 설정",
+        "en": "Easy reverse proxy configuration via UI"
+      },
+      "icon": "🌐"
+    },
+    {
+      "title": {
+        "ko": "리디렉션",
+        "en": "Redirection"
+      },
+      "description": {
+        "ko": "URL 리디렉션 및 301/302 관리",
+        "en": "URL redirection and 301/302 management"
+      },
+      "icon": "🔀"
+    },
+    {
+      "title": {
+        "ko": "접근 제어",
+        "en": "Access control"
+      },
+      "description": {
+        "ko": "IP 기반 접근 목록 및 인증",
+        "en": "IP-based access lists and authentication"
+      },
+      "icon": "🛡️"
+    }
+  ],
+  "env": [
+    {
+      "key": "HTTP_PORT",
+      "label": {
+        "ko": "HTTP 포트",
+        "en": "HTTP Port"
+      },
+      "type": "port",
+      "default": "80"
+    },
+    {
+      "key": "ADMIN_PORT",
+      "label": {
+        "ko": "관리자 포트",
+        "en": "Admin Port"
+      },
+      "type": "port",
+      "default": "81"
+    },
+    {
+      "key": "HTTPS_PORT",
+      "label": {
+        "ko": "HTTPS 포트",
+        "en": "HTTPS Port"
+      },
+      "type": "port",
+      "default": "443"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "label": {
+        "ko": "DB 비밀번호",
+        "en": "DB Password"
+      },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

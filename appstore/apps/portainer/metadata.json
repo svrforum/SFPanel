@@ -1,0 +1,72 @@
+{
+  "id": "portainer",
+  "name": "Portainer",
+  "description": {
+    "ko": "Docker 관리 웹 UI",
+    "en": "Docker management UI"
+  },
+  "category": "dev",
+  "version": "1.0.0",
+  "website": "https://www.portainer.io",
+  "source": "https://github.com/portainer/portainer",
+  "ports": [
+    9000
+  ],
+  "features": [
+    {
+      "title": {
+        "ko": "Docker 관리",
+        "en": "Docker management"
+      },
+      "description": {
+        "ko": "컨테이너, 이미지, 볼륨, 네트워크 관리",
+        "en": "Manage containers, images, volumes, networks"
+      },
+      "icon": "🐳"
+    },
+    {
+      "title": {
+        "ko": "대시보드",
+        "en": "Dashboard"
+      },
+      "description": {
+        "ko": "Docker 환경의 시각적 개요",
+        "en": "Visual overview of your Docker environment"
+      },
+      "icon": "📊"
+    },
+    {
+      "title": {
+        "ko": "멀티 유저",
+        "en": "Multi-user"
+      },
+      "description": {
+        "ko": "팀을 위한 역할 기반 접근 제어",
+        "en": "Role-based access control for teams"
+      },
+      "icon": "👥"
+    },
+    {
+      "title": {
+        "ko": "스택 배포",
+        "en": "Stack deploy"
+      },
+      "description": {
+        "ko": "UI에서 Docker Compose 스택 배포",
+        "en": "Deploy Docker Compose stacks from UI"
+      },
+      "icon": "📦"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": {
+        "ko": "외부 포트",
+        "en": "External Port"
+      },
+      "type": "port",
+      "default": "9000"
+    }
+  ]
+}

@@ -1,0 +1,129 @@
+{
+  "id": "filehatch",
+  "name": "FileHatch",
+  "description": {
+    "ko": "셀프 호스팅 클라우드 파일 공유 시스템 (SMB/WebDAV/OnlyOffice 지원)",
+    "en": "Self-hosted cloud file sharing system with SMB/WebDAV/OnlyOffice support"
+  },
+  "category": "cloud",
+  "version": "1.0.0",
+  "website": "https://github.com/svrforum/FileHatch",
+  "source": "https://github.com/svrforum/FileHatch",
+  "ports": [
+    3080
+  ],
+  "features": [
+    {
+      "title": {
+        "ko": "다중 프로토콜",
+        "en": "Multi-protocol"
+      },
+      "description": {
+        "ko": "웹 UI, SMB/CIFS, WebDAV 접근 지원",
+        "en": "Web UI, SMB/CIFS, WebDAV access support"
+      },
+      "icon": "🌐"
+    },
+    {
+      "title": {
+        "ko": "문서 편집",
+        "en": "Document editing"
+      },
+      "description": {
+        "ko": "OnlyOffice 통합으로 브라우저 내 Office 편집",
+        "en": "In-browser Office editing via OnlyOffice integration"
+      },
+      "icon": "📝"
+    },
+    {
+      "title": {
+        "ko": "강력한 보안",
+        "en": "Strong security"
+      },
+      "description": {
+        "ko": "JWT, 2FA(TOTP), SSO/OIDC, 브루트포스 방지",
+        "en": "JWT, 2FA(TOTP), SSO/OIDC, brute-force protection"
+      },
+      "icon": "🔒"
+    },
+    {
+      "title": {
+        "ko": "팀 협업",
+        "en": "Team collaboration"
+      },
+      "description": {
+        "ko": "공유 드라이브, 파일 공유, 실시간 알림",
+        "en": "Shared drives, file sharing, real-time notifications"
+      },
+      "icon": "👥"
+    }
+  ],
+  "env": [
+    {
+      "key": "UI_PORT",
+      "label": {
+        "ko": "웹 UI 포트",
+        "en": "Web UI Port"
+      },
+      "type": "port",
+      "default": "3080"
+    },
+    {
+      "key": "DB_USER",
+      "label": {
+        "ko": "DB 사용자명",
+        "en": "DB Username"
+      },
+      "type": "text",
+      "default": "fh_user"
+    },
+    {
+      "key": "DB_PASS",
+      "label": {
+        "ko": "DB 비밀번호",
+        "en": "DB Password"
+      },
+      "type": "password",
+      "required": true,
+      "generate": true
+    },
+    {
+      "key": "DB_NAME",
+      "label": {
+        "ko": "DB 이름",
+        "en": "DB Name"
+      },
+      "type": "text",
+      "default": "fh_main"
+    },
+    {
+      "key": "JWT_SECRET",
+      "label": {
+        "ko": "JWT 시크릿",
+        "en": "JWT Secret"
+      },
+      "type": "password",
+      "required": true,
+      "generate": true
+    },
+    {
+      "key": "ENCRYPTION_KEY",
+      "label": {
+        "ko": "암호화 키",
+        "en": "Encryption Key"
+      },
+      "type": "password",
+      "required": true,
+      "generate": true
+    },
+    {
+      "key": "TZ",
+      "label": {
+        "ko": "타임존",
+        "en": "Timezone"
+      },
+      "type": "text",
+      "default": "Asia/Seoul"
+    }
+  ]
+}

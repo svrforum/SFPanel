@@ -1,0 +1,121 @@
+{
+  "id": "nginx-proxy-guard",
+  "name": "Nginx Proxy Guard",
+  "description": {
+    "ko": "Nginx 리버스 프록시 + SSL + WAF 보안 관리 웹 UI",
+    "en": "Nginx reverse proxy with SSL automation and WAF security management"
+  },
+  "category": "security",
+  "version": "1.0.0",
+  "website": "https://nginxproxyguard.com",
+  "source": "https://github.com/svrforum/NginxProxyGuard",
+  "ports": [
+    80,
+    81,
+    443
+  ],
+  "features": [
+    {
+      "title": {
+        "ko": "SSL 자동화",
+        "en": "SSL Automation"
+      },
+      "description": {
+        "ko": "Let's Encrypt 자동 발급/갱신, 와일드카드 지원",
+        "en": "Auto Let's Encrypt issuance/renewal with wildcard support"
+      },
+      "icon": "🔒"
+    },
+    {
+      "title": {
+        "ko": "WAF 보안",
+        "en": "WAF Security"
+      },
+      "description": {
+        "ko": "ModSecurity + OWASP CRS 기반 웹 애플리케이션 방화벽",
+        "en": "Web application firewall with ModSecurity + OWASP CRS"
+      },
+      "icon": "🛡️"
+    },
+    {
+      "title": {
+        "ko": "HTTP/3 지원",
+        "en": "HTTP/3 Support"
+      },
+      "description": {
+        "ko": "QUIC 프로토콜 기반 최신 HTTP/3 지원",
+        "en": "Latest HTTP/3 support based on QUIC protocol"
+      },
+      "icon": "⚡"
+    },
+    {
+      "title": {
+        "ko": "실시간 모니터링",
+        "en": "Real-time Monitoring"
+      },
+      "description": {
+        "ko": "트래픽, 보안 이벤트, 인증서 만료 실시간 대시보드",
+        "en": "Real-time dashboard for traffic, security events, and certificate expiry"
+      },
+      "icon": "📊"
+    }
+  ],
+  "env": [
+    {
+      "key": "UI_PORT",
+      "label": {
+        "ko": "관리 UI 포트",
+        "en": "Admin UI Port"
+      },
+      "type": "port",
+      "default": "81"
+    },
+    {
+      "key": "NGINX_HTTP_PORT",
+      "label": {
+        "ko": "HTTP 포트",
+        "en": "HTTP Port"
+      },
+      "type": "port",
+      "default": "80"
+    },
+    {
+      "key": "NGINX_HTTPS_PORT",
+      "label": {
+        "ko": "HTTPS 포트",
+        "en": "HTTPS Port"
+      },
+      "type": "port",
+      "default": "443"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "label": {
+        "ko": "DB 비밀번호",
+        "en": "DB Password"
+      },
+      "type": "password",
+      "required": true,
+      "generate": true
+    },
+    {
+      "key": "JWT_SECRET",
+      "label": {
+        "ko": "JWT 시크릿",
+        "en": "JWT Secret"
+      },
+      "type": "password",
+      "required": true,
+      "generate": true
+    },
+    {
+      "key": "TZ",
+      "label": {
+        "ko": "타임존",
+        "en": "Timezone"
+      },
+      "type": "text",
+      "default": "Asia/Seoul"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+[
+  { "id": "media", "name": { "ko": "미디어", "en": "Media" }, "icon": "Film" },
+  { "id": "cloud", "name": { "ko": "클라우드", "en": "Cloud" }, "icon": "Cloud" },
+  { "id": "security", "name": { "ko": "보안", "en": "Security" }, "icon": "Shield" },
+  { "id": "monitoring", "name": { "ko": "모니터링", "en": "Monitoring" }, "icon": "Activity" },
+  { "id": "dev", "name": { "ko": "개발", "en": "Development" }, "icon": "Code" },
+  { "id": "productivity", "name": { "ko": "생산성", "en": "Productivity" }, "icon": "Briefcase" },
+  { "id": "automation", "name": { "ko": "자동화", "en": "Automation" }, "icon": "Zap" },
+  { "id": "communication", "name": { "ko": "커뮤니케이션", "en": "Communication" }, "icon": "MessageSquare" },
+  { "id": "database", "name": { "ko": "데이터베이스", "en": "Database" }, "icon": "Database" },
+  { "id": "network", "name": { "ko": "네트워크", "en": "Network" }, "icon": "Globe" }
+]

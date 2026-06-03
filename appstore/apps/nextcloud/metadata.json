@@ -1,0 +1,58 @@
+{
+  "id": "nextcloud",
+  "name": "Nextcloud",
+  "description": {
+    "ko": "셀프 호스팅 클라우드 스토리지",
+    "en": "Self-hosted cloud storage"
+  },
+  "category": "cloud",
+  "version": "1.0.0",
+  "website": "https://nextcloud.com",
+  "source": "https://github.com/nextcloud/server",
+  "icon": "https://raw.githubusercontent.com/nextcloud/promo/master/nextcloud-icon.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "파일 동기화", "en": "File sync" },
+      "description": { "ko": "모든 기기에서 파일 동기화", "en": "Sync files across all your devices" },
+      "icon": "☁️"
+    },
+    {
+      "title": { "ko": "오피스 스위트", "en": "Office suite" },
+      "description": { "ko": "Collabora/OnlyOffice를 통한 내장 문서 편집", "en": "Built-in document editing with Collabora/OnlyOffice" },
+      "icon": "📝"
+    },
+    {
+      "title": { "ko": "캘린더/연락처", "en": "Calendar/Contacts" },
+      "description": { "ko": "CalDAV/CardDAV 동기화", "en": "CalDAV/CardDAV sync" },
+      "icon": "📅"
+    },
+    {
+      "title": { "ko": "앱 생태계", "en": "App ecosystem" },
+      "description": { "ko": "수백 개의 커뮤니티 앱과 통합 기능", "en": "Hundreds of community apps and integrations" },
+      "icon": "🔌"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    },
+    {
+      "key": "MYSQL_ROOT_PASSWORD",
+      "label": { "ko": "MySQL Root 비밀번호", "en": "MySQL Root Password" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    },
+    {
+      "key": "MYSQL_PASSWORD",
+      "label": { "ko": "MySQL 비밀번호", "en": "MySQL Password" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

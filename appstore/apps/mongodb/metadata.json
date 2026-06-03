@@ -1,0 +1,24 @@
+{
+  "id": "mongodb",
+  "name": "MongoDB",
+  "description": {
+    "ko": "유연한 스키마의 NoSQL 문서 데이터베이스. JSON 형태의 문서를 저장하고 쿼리합니다.",
+    "en": "Flexible schema NoSQL document database. Store and query JSON-like documents."
+  },
+  "category": "database",
+  "version": "7",
+  "website": "https://www.mongodb.com",
+  "source": "https://github.com/mongodb/mongo",
+  "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/svg/mongodb.svg",
+  "ports": [27017],
+  "features": [
+    { "title": { "ko": "문서 스토리지", "en": "Document Storage" }, "description": { "ko": "JSON 형태의 문서 기반 데이터 저장", "en": "JSON-like document-based data storage" }, "icon": "📄" },
+    { "title": { "ko": "유연한 스키마", "en": "Flexible Schema" }, "description": { "ko": "스키마 없이 자유로운 데이터 구조", "en": "Schema-free flexible data structures" }, "icon": "🔧" },
+    { "title": { "ko": "집계 파이프라인", "en": "Aggregation" }, "description": { "ko": "강력한 데이터 집계 및 변환 파이프라인", "en": "Powerful data aggregation and transformation pipeline" }, "icon": "⚙️" },
+    { "title": { "ko": "샤딩", "en": "Sharding" }, "description": { "ko": "수평 확장을 위한 자동 샤딩", "en": "Automatic sharding for horizontal scaling" }, "icon": "🔀" }
+  ],
+  "env": [
+    { "key": "MONGO_INITDB_ROOT_USERNAME", "description": { "ko": "관리자 사용자명", "en": "Admin username" }, "default": "admin", "required": true },
+    { "key": "MONGO_INITDB_ROOT_PASSWORD", "description": { "ko": "관리자 비밀번호", "en": "Admin password" }, "default": "changeme", "required": true }
+  ]
+}

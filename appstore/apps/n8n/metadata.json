@@ -1,0 +1,25 @@
+{
+  "id": "n8n",
+  "name": "n8n",
+  "description": {
+    "ko": "워크플로우 자동화 플랫폼",
+    "en": "Workflow automation platform"
+  },
+  "category": "automation",
+  "version": "1.0.0",
+  "website": "https://n8n.io",
+  "source": "https://github.com/n8n-io/n8n",
+  "icon": "https://raw.githubusercontent.com/n8n-io/n8n/master/assets/n8n-logo.png",
+  "ports": [5678],
+  "features": [
+    { "title": { "ko": "비주얼 워크플로우", "en": "Visual workflows" }, "description": { "ko": "드래그 앤 드롭으로 워크플로우 설계", "en": "Design workflows with drag and drop" }, "icon": "🔧" },
+    { "title": { "ko": "400+ 통합", "en": "400+ integrations" }, "description": { "ko": "Slack, Google, GitHub 등 다양한 서비스 연동", "en": "Connect with Slack, Google, GitHub and more" }, "icon": "🔌" },
+    { "title": { "ko": "셀프 호스팅", "en": "Self-hosted" }, "description": { "ko": "데이터가 내 서버에 보관", "en": "Your data stays on your server" }, "icon": "🏠" },
+    { "title": { "ko": "코드 지원", "en": "Code support" }, "description": { "ko": "JavaScript/Python으로 커스텀 로직 작성", "en": "Write custom logic in JavaScript/Python" }, "icon": "💻" }
+  ],
+  "env": [
+    { "key": "PORT", "label": { "ko": "외부 포트", "en": "External Port" }, "type": "port", "default": "5678" },
+    { "key": "N8N_BASIC_AUTH_USER", "label": { "ko": "관리자 계정", "en": "Admin Username" }, "type": "text", "default": "admin" },
+    { "key": "N8N_BASIC_AUTH_PASSWORD", "label": { "ko": "관리자 비밀번호", "en": "Admin Password" }, "type": "password", "required": true, "generate": true }
+  ]
+}

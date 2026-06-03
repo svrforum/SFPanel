@@ -1,0 +1,20 @@
+{
+  "id": "prometheus",
+  "name": "Prometheus",
+  "description": { "ko": "시계열 모니터링 및 알림 시스템", "en": "Time-series monitoring and alerting system" },
+  "category": "monitoring",
+  "version": "1.0.0",
+  "website": "https://prometheus.io",
+  "source": "https://github.com/prometheus/prometheus",
+  "icon": "https://raw.githubusercontent.com/prometheus/docs/main/static/prometheus_logo_orange_circle.svg",
+  "ports": [9090],
+  "features": [
+    { "title": { "ko": "메트릭 수집", "en": "Metrics collection" }, "description": { "ko": "Pull 기반 메트릭 수집", "en": "Pull-based metrics collection" }, "icon": "📈" },
+    { "title": { "ko": "PromQL", "en": "PromQL" }, "description": { "ko": "강력한 쿼리 언어로 데이터 분석", "en": "Analyze data with powerful query language" }, "icon": "🔍" },
+    { "title": { "ko": "알림 매니저", "en": "Alert Manager" }, "description": { "ko": "알림 그룹화, 라우팅, 억제", "en": "Alert grouping, routing, silencing" }, "icon": "🔔" },
+    { "title": { "ko": "서비스 디스커버리", "en": "Service discovery" }, "description": { "ko": "자동 타겟 발견 및 모니터링", "en": "Automatic target discovery and monitoring" }, "icon": "🎯" }
+  ],
+  "env": [
+    { "key": "PORT", "label": { "ko": "외부 포트", "en": "External Port" }, "type": "port", "default": "9090" }
+  ]
+}

@@ -1,0 +1,37 @@
+services:
+  planka:
+    image: ghcr.io/plankanban/planka:latest
+    container_name: planka
+    restart: unless-stopped
+    ports:
+      - "${PORT:-1337}:1337"
+    environment:
+      - BASE_URL=http://localhost:${PORT:-1337}
+      - SECRET_KEY=${SECRET_KEY}
+      - DEFAULT_ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
+      - DEFAULT_ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - DEFAULT_ADMIN_NAME=Admin
+      - DEFAULT_ADMIN_USERNAME=admin
+    volumes:
+      - planka-user-avatars:/app/public/user-avatars
+      - planka-project-bg:/app/public/project-background-images
+      - planka-attachments:/app/private/attachments
+    depends_on:
+      - planka-db
+
+  planka-db:
+    image: postgres:16-alpine
+    container_name: planka-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=planka
+      - POSTGRES_USER=planka
+      - POSTGRES_PASSWORD=${SECRET_KEY}
+    volumes:
+      - planka-db-data:/var/lib/postgresql/data
+
+volumes:
+  planka-user-avatars:
+  planka-project-bg:
+  planka-attachments:
+  planka-db-data:

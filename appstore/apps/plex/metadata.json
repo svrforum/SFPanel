@@ -1,0 +1,21 @@
+{
+  "id": "plex",
+  "name": "Plex",
+  "description": { "ko": "프리미엄 미디어 서버", "en": "Premium media server" },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://plex.tv",
+  "source": "https://github.com/plexinc/pms-docker",
+  "icon": "https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/plex-logo.png",
+  "ports": [32400],
+  "features": [
+    { "title": { "ko": "미디어 스트리밍", "en": "Media streaming" }, "description": { "ko": "영화, TV, 음악을 모든 기기에서 스트리밍", "en": "Stream movies, TV, music to all devices" }, "icon": "🎬" },
+    { "title": { "ko": "자동 메타데이터", "en": "Auto metadata" }, "description": { "ko": "영화/TV 정보 자동 매칭 및 표시", "en": "Automatic media matching and display" }, "icon": "🏷️" },
+    { "title": { "ko": "하드웨어 트랜스코딩", "en": "HW transcoding" }, "description": { "ko": "GPU 가속 트랜스코딩 지원", "en": "GPU accelerated transcoding support" }, "icon": "⚡" },
+    { "title": { "ko": "원격 접속", "en": "Remote access" }, "description": { "ko": "외부에서도 미디어 라이브러리 접근", "en": "Access your media library from anywhere" }, "icon": "🌍" }
+  ],
+  "env": [
+    { "key": "PORT", "label": { "ko": "외부 포트", "en": "External Port" }, "type": "port", "default": "32400" },
+    { "key": "PLEX_CLAIM", "label": { "ko": "Plex Claim 토큰", "en": "Plex Claim Token" }, "type": "text", "default": "" }
+  ]
+}

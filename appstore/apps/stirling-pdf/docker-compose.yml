@@ -1,0 +1,14 @@
+services:
+  stirling-pdf:
+    image: frooodle/s-pdf:latest
+    container_name: stirling-pdf
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8086}:8080"
+    volumes:
+      - stirling-data:/usr/share/tessdata
+      - stirling-configs:/configs
+
+volumes:
+  stirling-data:
+  stirling-configs:

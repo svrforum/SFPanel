@@ -1,0 +1,23 @@
+{
+  "id": "redis",
+  "name": "Redis",
+  "description": {
+    "ko": "초고속 인메모리 데이터 스토어. 캐싱, 세션 관리, 메시지 브로커로 널리 사용됩니다.",
+    "en": "Ultra-fast in-memory data store. Widely used for caching, session management, and message brokering."
+  },
+  "category": "database",
+  "version": "7",
+  "website": "https://redis.io",
+  "source": "https://github.com/redis/redis",
+  "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/svg/redis.svg",
+  "ports": [6379],
+  "features": [
+    { "title": { "ko": "키-값 스토어", "en": "Key-Value Store" }, "description": { "ko": "초고속 인메모리 키-값 데이터 구조", "en": "Ultra-fast in-memory key-value data structures" }, "icon": "⚡" },
+    { "title": { "ko": "퍼시스턴스", "en": "Persistence" }, "description": { "ko": "RDB 스냅샷 및 AOF 로그 지원", "en": "RDB snapshots and AOF log support" }, "icon": "💾" },
+    { "title": { "ko": "Pub/Sub", "en": "Pub/Sub" }, "description": { "ko": "실시간 메시지 발행/구독 지원", "en": "Real-time publish/subscribe messaging" }, "icon": "📡" },
+    { "title": { "ko": "스크립팅", "en": "Scripting" }, "description": { "ko": "Lua 스크립트로 서버 사이드 로직 실행", "en": "Execute server-side logic with Lua scripts" }, "icon": "📜" }
+  ],
+  "env": [
+    { "key": "REDIS_PASSWORD", "description": { "ko": "Redis 비밀번호", "en": "Redis password" }, "default": "changeme", "required": true }
+  ]
+}

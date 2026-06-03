@@ -1,0 +1,57 @@
+{
+  "id": "immich",
+  "name": "Immich",
+  "description": {
+    "ko": "셀프 호스팅 사진/동영상 백업 솔루션 (Google Photos 대안)",
+    "en": "Self-hosted photo and video backup solution (Google Photos alternative)"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://immich.app",
+  "source": "https://github.com/immich-app/immich",
+  "icon": "https://raw.githubusercontent.com/immich-app/immich/main/docs/static/img/favicon.png",
+  "ports": [2283],
+  "features": [
+    {
+      "title": { "ko": "자동 백업", "en": "Auto backup" },
+      "description": { "ko": "모바일 기기에서 사진/동영상 자동 백업", "en": "Automatic photo/video backup from mobile devices" },
+      "icon": "📸"
+    },
+    {
+      "title": { "ko": "AI 기능", "en": "AI features" },
+      "description": { "ko": "얼굴 인식, 객체 감지, 스마트 검색", "en": "Face recognition, object detection, smart search" },
+      "icon": "🤖"
+    },
+    {
+      "title": { "ko": "지도 보기", "en": "Map view" },
+      "description": { "ko": "인터랙티브 지도에서 사진 탐색", "en": "Browse photos on an interactive map" },
+      "icon": "🗺️"
+    },
+    {
+      "title": { "ko": "공유", "en": "Sharing" },
+      "description": { "ko": "가족/친구와 앨범 및 사진 공유", "en": "Share albums and photos with family/friends" },
+      "icon": "👥"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "2283"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "label": { "ko": "DB 비밀번호", "en": "DB Password" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    },
+    {
+      "key": "UPLOAD_LOCATION",
+      "label": { "ko": "업로드 경로", "en": "Upload Location" },
+      "type": "path",
+      "default": "./upload"
+    }
+  ]
+}

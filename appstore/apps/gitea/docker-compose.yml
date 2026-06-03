@@ -1,0 +1,32 @@
+services:
+  gitea:
+    image: gitea/gitea:latest
+    container_name: gitea
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - GITEA__database__DB_TYPE=postgres
+      - GITEA__database__HOST=gitea-postgres:5432
+      - GITEA__database__NAME=gitea
+      - GITEA__database__USER=gitea
+      - GITEA__database__PASSWD=${DB_PASSWORD}
+    volumes:
+      - gitea-data:/data
+    depends_on:
+      - gitea-postgres
+
+  gitea-postgres:
+    image: postgres:16-alpine
+    container_name: gitea-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=gitea
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=gitea
+    volumes:
+      - gitea-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  gitea-data:
+  gitea-postgres-data:

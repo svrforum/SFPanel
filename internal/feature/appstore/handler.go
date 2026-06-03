@@ -125,7 +125,10 @@ type installedAppResponse struct {
 // ---------------------------------------------------------------------------
 
 const (
-	appStoreBaseURL = "https://raw.githubusercontent.com/svrforum/SFPanel-appstore/main/"
+	// Catalog now lives in the main repo under /appstore (migrated from the
+	// separate SFPanel-appstore repo). Still fetched at runtime — a catalog-only
+	// commit to main updates every panel within the cache TTL, no release needed.
+	appStoreBaseURL = "https://raw.githubusercontent.com/svrforum/SFPanel/main/appstore/"
 	cacheTTL        = 1 * time.Hour
 	httpTimeout     = 30 * time.Second
 )

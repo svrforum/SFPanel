@@ -1,0 +1,20 @@
+{
+  "id": "filebrowser",
+  "name": "File Browser",
+  "description": { "ko": "웹 기반 파일 관리자", "en": "Web-based file manager" },
+  "category": "cloud",
+  "version": "1.0.0",
+  "website": "https://filebrowser.org",
+  "source": "https://github.com/filebrowser/filebrowser",
+  "icon": "https://raw.githubusercontent.com/filebrowser/logo/master/icon_raw.svg",
+  "ports": [8085],
+  "features": [
+    { "title": { "ko": "파일 관리", "en": "File management" }, "description": { "ko": "업로드, 다운로드, 이동, 삭제, 편집", "en": "Upload, download, move, delete, edit" }, "icon": "📁" },
+    { "title": { "ko": "사용자 관리", "en": "User management" }, "description": { "ko": "다중 사용자 및 권한 설정", "en": "Multiple users with permissions" }, "icon": "👥" },
+    { "title": { "ko": "공유 링크", "en": "Share links" }, "description": { "ko": "파일/폴더 공유 링크 생성", "en": "Create shareable links for files/folders" }, "icon": "🔗" },
+    { "title": { "ko": "경량", "en": "Lightweight" }, "description": { "ko": "최소 리소스로 빠른 파일 접근", "en": "Fast file access with minimal resources" }, "icon": "⚡" }
+  ],
+  "env": [
+    { "key": "PORT", "label": { "ko": "외부 포트", "en": "External Port" }, "type": "port", "default": "8085" }
+  ]
+}

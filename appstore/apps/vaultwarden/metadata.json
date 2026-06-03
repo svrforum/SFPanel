@@ -1,0 +1,51 @@
+{
+  "id": "vaultwarden",
+  "name": "Vaultwarden",
+  "description": {
+    "ko": "셀프 호스팅 비밀번호 관리자 (Bitwarden 호환)",
+    "en": "Self-hosted password manager (Bitwarden compatible)"
+  },
+  "category": "security",
+  "version": "1.0.0",
+  "website": "https://github.com/dani-garcia/vaultwarden",
+  "source": "https://github.com/dani-garcia/vaultwarden",
+  "icon": "https://raw.githubusercontent.com/dani-garcia/vaultwarden/main/resources/vaultwarden-icon.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "Bitwarden 호환", "en": "Bitwarden compatible" },
+      "description": { "ko": "모든 Bitwarden 클라이언트와 완벽 호환", "en": "Full compatibility with all Bitwarden clients" },
+      "icon": "🔐"
+    },
+    {
+      "title": { "ko": "비밀번호 공유", "en": "Password sharing" },
+      "description": { "ko": "사용자 간 안전한 비밀번호 공유", "en": "Secure password sharing between users" },
+      "icon": "🔑"
+    },
+    {
+      "title": { "ko": "2FA 지원", "en": "2FA support" },
+      "description": { "ko": "TOTP, FIDO2/WebAuthn 이중 인증 지원", "en": "TOTP, FIDO2/WebAuthn two-factor authentication" },
+      "icon": "📱"
+    },
+    {
+      "title": { "ko": "경량화", "en": "Lightweight" },
+      "description": { "ko": "최소한의 리소스 사용, 저사양 서버에서도 동작", "en": "Minimal resource usage, runs on low-spec servers" },
+      "icon": "💾"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    },
+    {
+      "key": "ADMIN_TOKEN",
+      "label": { "ko": "관리자 토큰", "en": "Admin Token" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

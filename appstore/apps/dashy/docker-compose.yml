@@ -1,0 +1,12 @@
+services:
+  dashy:
+    image: lissy93/dashy:latest
+    container_name: dashy
+    restart: unless-stopped
+    ports:
+      - "${PORT:-4000}:8080"
+    volumes:
+      - dashy-config:/app/user-data
+
+volumes:
+  dashy-config:

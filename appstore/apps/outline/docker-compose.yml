@@ -1,0 +1,39 @@
+services:
+  outline:
+    image: outlinewiki/outline:latest
+    container_name: outline
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3100}:3000"
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - UTILS_SECRET=${UTILS_SECRET}
+      - DATABASE_URL=postgres://outline:${POSTGRES_PASSWORD}@outline-db:5432/outline
+      - REDIS_URL=redis://outline-redis:6379
+      - URL=http://localhost:${PORT:-3100}
+      - FILE_STORAGE=local
+    volumes:
+      - outline-data:/var/lib/outline/data
+    depends_on:
+      - outline-db
+      - outline-redis
+
+  outline-db:
+    image: postgres:16-alpine
+    container_name: outline-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=outline
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=outline
+    volumes:
+      - outline-db-data:/var/lib/postgresql/data
+
+  outline-redis:
+    image: redis:7-alpine
+    container_name: outline-redis
+    restart: unless-stopped
+
+volumes:
+  outline-data:
+  outline-db-data:

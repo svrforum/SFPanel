@@ -1,0 +1,91 @@
+services:
+  api:
+    container_name: fh-api
+    image: svrforum/filehatch-api:latest
+    restart: unless-stopped
+    extra_hosts:
+      - "localhost:host-gateway"
+    environment:
+      - TZ=${TZ:-Asia/Seoul}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-fh_user}
+      - DB_PASS=${DB_PASS}
+      - DB_NAME=${DB_NAME:-fh_main}
+      - VALKEY_HOST=valkey
+      - VALKEY_PORT=6379
+      - JWT_SECRET=${JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+    volumes:
+      - filehatch-data:/data
+      - filehatch-config:/etc/filehatch
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  ui:
+    container_name: fh-ui
+    image: svrforum/filehatch-ui:latest
+    restart: unless-stopped
+    ports:
+      - "${UI_PORT:-3080}:3000"
+    environment:
+      - TZ=${TZ:-Asia/Seoul}
+      - API_URL=http://api:8080
+    depends_on:
+      api:
+        condition: service_healthy
+
+  samba:
+    container_name: fh-samba
+    image: svrforum/filehatch-samba:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TZ=${TZ:-Asia/Seoul}
+    volumes:
+      - filehatch-data:/data
+      - filehatch-config:/etc/filehatch
+
+  db:
+    container_name: fh-db
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Asia/Seoul}
+      - POSTGRES_USER=${DB_USER:-fh_user}
+      - POSTGRES_PASSWORD=${DB_PASS}
+      - POSTGRES_DB=${DB_NAME:-fh_main}
+    volumes:
+      - filehatch-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-fh_user} -d ${DB_NAME:-fh_main}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  valkey:
+    container_name: fh-valkey
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Asia/Seoul}
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  filehatch-data:
+  filehatch-config:
+  filehatch-db:
