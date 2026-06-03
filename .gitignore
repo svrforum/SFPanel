@@ -41,6 +41,10 @@ e2e/playwright-report/
 screenshots/
 .playwright-mcp/
 
+# Blog/가이드 원고 — 서버포럼 아티클용 로컬 초안. 공개 저장소에 푸시하지 않음.
+# 로컬 파일(article.html + screenshots)은 유지되지만 새로 추적되지 않도록 차단.
+docs/blog/
+
 # Node (root-level, Playwright 등)
 /node_modules/
 /package.json
