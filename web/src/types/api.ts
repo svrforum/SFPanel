@@ -126,6 +126,25 @@ export interface DockerNetwork {
   used_by: string[]
 }
 
+export interface PortBindingSpec {
+  host_ip?: string
+  host_port?: string
+  container_port: string
+  protocol?: string // 'tcp' | 'udp'
+}
+
+export interface CreateContainerSpec {
+  name?: string
+  image: string
+  command?: string[]
+  env?: string[] // ['KEY=VALUE']
+  ports?: PortBindingSpec[]
+  volumes?: string[] // ['/host:/container[:ro]']
+  restart_policy?: string // 'no' | 'always' | 'unless-stopped' | 'on-failure'
+  network?: string
+  auto_start?: boolean
+}
+
 export interface ComposeProject {
   name: string
   compose_file: string

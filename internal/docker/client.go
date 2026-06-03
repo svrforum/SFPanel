@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/go-connections/nat"
 )
 
 // cache holds a generic cached result with expiration.
@@ -130,6 +131,96 @@ func (c *Client) RestartContainer(ctx context.Context, id string) error {
 func (c *Client) RemoveContainer(ctx context.Context, id string) error {
 	defer c.containersCache.invalidate()
 	return c.cli.ContainerRemove(ctx, id, container.RemoveOptions{Force: true})
+}
+
+// PortBindingSpec is one published port for a created container.
+type PortBindingSpec struct {
+	HostIP        string `json:"host_ip"`
+	HostPort      string `json:"host_port"`
+	ContainerPort string `json:"container_port"`
+	Protocol      string `json:"protocol"` // tcp (default) or udp
+}
+
+// CreateContainerSpec describes a standalone container to create. It's the
+// panel's small, explicit subset of the Docker create API — enough to launch a
+// service without a compose file, not a full passthrough of every HostConfig
+// knob (which would be a footgun surface).
+type CreateContainerSpec struct {
+	Name          string            `json:"name"`
+	Image         string            `json:"image"`
+	Command       []string          `json:"command"`
+	Env           []string          `json:"env"` // ["KEY=VALUE"]
+	Ports         []PortBindingSpec `json:"ports"`
+	Volumes       []string          `json:"volumes"`        // ["/host:/container[:ro]"]
+	RestartPolicy string            `json:"restart_policy"` // no|always|unless-stopped|on-failure
+	Network       string            `json:"network"`        // optional network name/mode
+	AutoStart     bool              `json:"auto_start"`
+}
+
+// CreateContainer creates (and optionally starts) a standalone container,
+// pulling the image first when it isn't present locally so create doesn't fail
+// on a fresh host. Returns the new container ID.
+func (c *Client) CreateContainer(ctx context.Context, spec CreateContainerSpec) (string, error) {
+	defer c.containersCache.invalidate()
+
+	if _, err := c.cli.ImageInspect(ctx, spec.Image); err != nil {
+		rc, perr := c.PullImage(ctx, spec.Image)
+		if perr != nil {
+			return "", fmt.Errorf("pull image: %w", perr)
+		}
+		// Drain the pull stream to completion (the pull only finishes once the
+		// reader is fully consumed) before attempting create.
+		_, _ = io.Copy(io.Discard, rc)
+		rc.Close()
+	}
+
+	exposed := nat.PortSet{}
+	bindings := nat.PortMap{}
+	for _, p := range spec.Ports {
+		proto := p.Protocol
+		if proto == "" {
+			proto = "tcp"
+		}
+		port, err := nat.NewPort(proto, p.ContainerPort)
+		if err != nil {
+			return "", fmt.Errorf("invalid port %q/%s: %w", p.ContainerPort, proto, err)
+		}
+		exposed[port] = struct{}{}
+		if p.HostPort != "" {
+			bindings[port] = append(bindings[port], nat.PortBinding{HostIP: p.HostIP, HostPort: p.HostPort})
+		}
+	}
+
+	cfg := &container.Config{
+		Image:        spec.Image,
+		Env:          spec.Env,
+		ExposedPorts: exposed,
+	}
+	if len(spec.Command) > 0 {
+		cfg.Cmd = spec.Command
+	}
+
+	hostCfg := &container.HostConfig{
+		PortBindings: bindings,
+		Binds:        spec.Volumes,
+	}
+	if spec.RestartPolicy != "" && spec.RestartPolicy != "no" {
+		hostCfg.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyMode(spec.RestartPolicy)}
+	}
+	if spec.Network != "" {
+		hostCfg.NetworkMode = container.NetworkMode(spec.Network)
+	}
+
+	resp, err := c.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, spec.Name)
+	if err != nil {
+		return "", err
+	}
+	if spec.AutoStart {
+		if err := c.cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+			return resp.ID, fmt.Errorf("container created (%s) but failed to start: %w", resp.ID[:12], err)
+		}
+	}
+	return resp.ID, nil
 }
 
 // PauseContainer pauses a running container.

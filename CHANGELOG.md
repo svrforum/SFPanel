@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.23.0] – 2026-06-03
+
+Per-feature improvement pass, round 7 — **standalone Docker container creation**.
+
+### Added
+
+- **docker** — create a **standalone container** from the UI (`POST
+  /docker/containers`) without a compose file or shell: image (pulled if
+  missing), name, published ports (host/container/proto), environment variables,
+  volume binds (with read-only), restart policy, network, command, and
+  auto-start. The form is an explicit, validated subset of the Docker create API
+  rather than a full HostConfig passthrough; image ref, container name, restart
+  policy, and host ports are validated server-side (tested).
+
 ## [0.22.0] – 2026-06-03
 
 Per-feature improvement pass, round 6 — cluster **rolling-update UX**.

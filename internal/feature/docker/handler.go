@@ -28,6 +28,10 @@ var validImageRef = regexp.MustCompile(`^[a-zA-Z0-9._/:@\-]+$`)
 
 const maxImageRefLen = 512
 
+// validContainerName matches Docker's own container-name charset
+// ([a-zA-Z0-9][a-zA-Z0-9_.-]+). Empty is allowed (daemon assigns a name).
+var validContainerName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
+
 // Handler holds a Docker client and exposes REST handlers for
 // container, image, volume, and network management.
 //
@@ -119,6 +123,52 @@ func (h *Handler) ListContainers(c echo.Context) error {
 		out = append(out, row)
 	}
 	return response.OK(c, out)
+}
+
+// CreateContainer creates a standalone container from a JSON spec, pulling the
+// image if needed and optionally starting it.
+func (h *Handler) CreateContainer(c echo.Context) error {
+	ctx := c.Request().Context()
+	var spec docker.CreateContainerSpec
+	if err := c.Bind(&spec); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "Invalid request body")
+	}
+
+	spec.Image = strings.TrimSpace(spec.Image)
+	if spec.Image == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "image is required")
+	}
+	if len(spec.Image) > maxImageRefLen || !validImageRef.MatchString(spec.Image) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "invalid image reference")
+	}
+
+	spec.Name = strings.TrimSpace(spec.Name)
+	if spec.Name != "" && !validContainerName.MatchString(spec.Name) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "invalid container name")
+	}
+
+	switch spec.RestartPolicy {
+	case "", "no", "always", "unless-stopped", "on-failure":
+	default:
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "invalid restart policy")
+	}
+
+	// Host ports must be numeric (or empty for a random host port). Catch this
+	// here so the operator gets a clean 400 instead of a daemon error string.
+	for _, p := range spec.Ports {
+		if p.HostPort != "" {
+			if n, err := strconv.Atoi(p.HostPort); err != nil || n < 1 || n > 65535 {
+				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
+					fmt.Sprintf("invalid host port %q", p.HostPort))
+			}
+		}
+	}
+
+	id, err := h.Docker.CreateContainer(ctx, spec)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
+	}
+	return response.OK(c, map[string]string{"id": id, "message": "container created"})
 }
 
 // StartContainer starts a container by ID.

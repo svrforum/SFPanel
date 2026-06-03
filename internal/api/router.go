@@ -470,6 +470,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 
 		// Containers (static routes before :id to avoid shadowing)
 		dk.GET("/containers", dockerHandler.ListContainers)
+		dk.POST("/containers", dockerHandler.CreateContainer)
 		dk.GET("/containers/stats/batch", dockerHandler.ContainerStatsBatch)
 		dk.GET("/containers/:id/inspect", dockerHandler.InspectContainer)
 		dk.GET("/containers/:id/stats", dockerHandler.ContainerStats)

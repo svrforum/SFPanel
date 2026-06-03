@@ -535,6 +535,13 @@ class ApiClient {
     return this.request<Container[]>('/docker/containers')
   }
 
+  createContainer(spec: import('@/types/api').CreateContainerSpec) {
+    return this.request<{ id: string; message: string }>('/docker/containers', {
+      method: 'POST',
+      body: JSON.stringify(spec),
+    })
+  }
+
   startContainer(id: string) {
     return this.request(`/docker/containers/${id}/start`, { method: 'POST' })
   }
