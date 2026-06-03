@@ -178,10 +178,17 @@ func (h *Handler) CheckUpdate(c echo.Context) error {
 
 	latest := strings.TrimPrefix(ghRelease.TagName, "v")
 	current := strings.TrimPrefix(h.Version, "v")
+	// Proper semver comparison instead of a string `!=`: a dev build whose
+	// version ("0.40.0-15-g331fd47") differs from the release tag ("0.40.0")
+	// but is actually newer/equal must NOT report an update. IsForwardUpdate
+	// strips the pre-release suffix and only returns true when latest is
+	// strictly newer — matching the dashboard overview's logic. On a parse
+	// error it returns false, which is the safe "no update" default.
+	forward, _ := release.IsForwardUpdate(current, latest)
 	return response.OK(c, UpdateCheckResponse{
 		CurrentVersion:  current,
 		LatestVersion:   latest,
-		UpdateAvailable: latest != current,
+		UpdateAvailable: forward,
 		ReleaseNotes:    ghRelease.Body,
 		PublishedAt:     ghRelease.PublishedAt,
 	})

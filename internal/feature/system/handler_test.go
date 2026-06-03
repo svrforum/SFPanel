@@ -260,6 +260,32 @@ func TestCheckUpdateForwardAvailable(t *testing.T) {
 	}
 }
 
+// A dev build whose version string differs from the latest release tag but is
+// actually newer (or equal) must NOT report an update — string `!=` used to
+// flag this falsely.
+func TestCheckUpdateDevBuildNotAvailable(t *testing.T) {
+	srv := fakeReleaseServer(t, "v0.40.0", nil)
+	withReleaseAPI(t, srv.URL)
+
+	h := newHandler("0.40.0-15-g331fd47")
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	ctx := e.NewContext(httptest.NewRequest(http.MethodGet, "/api/v1/system/update-check", nil), rec)
+
+	if err := h.CheckUpdate(ctx); err != nil {
+		t.Fatalf("CheckUpdate returned error: %v", err)
+	}
+	var env struct {
+		Data UpdateCheckResponse `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+	}
+	if env.Data.UpdateAvailable {
+		t.Errorf("dev build 0.40.0-15 vs release 0.40.0 must NOT report an update; got %+v", env.Data)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Update flow: SHA-256 mismatch rejection. Drives the full RunUpdate path
 // against a local server that serves a binary whose hash does not match the
