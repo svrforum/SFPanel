@@ -511,8 +511,8 @@ export default function DockerStacks() {
               onClick={() => navigate(`/docker/stacks/${p.name}`)}
             >
               {statusIcon(p.real_status)}
-              <span className="text-[13px] font-medium truncate flex-1">{p.name}</span>
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-[13px] font-medium truncate min-w-0 flex-1">{p.name}</span>
+              <span className="text-[11px] text-muted-foreground shrink-0">
                 {p.running_count}/{p.service_count}
               </span>
             </div>
@@ -536,8 +536,8 @@ export default function DockerStacks() {
                 onClick={() => navigate(`/docker/stacks/${p.name}`)}
               >
                 {statusIcon(p.real_status)}
-                <span className="text-[13px] font-medium truncate flex-1">{p.name}</span>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                <span className="text-[13px] font-medium truncate min-w-0 flex-1">{p.name}</span>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 ${
                   p.real_status === 'running' ? 'bg-[#00c471]/10 text-[#00c471]' :
                   p.real_status === 'partial' ? 'bg-[#f59e0b]/10 text-[#f59e0b]' :
                   'bg-secondary text-muted-foreground'
@@ -618,17 +618,17 @@ export default function DockerStacks() {
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <h2 className="text-[18px] font-bold">{selectedName}</h2>
+                <h2 className="text-[18px] font-bold truncate min-w-0 max-w-full">{selectedName}</h2>
                 {selectedProject && (
                   <>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 ${
                       selectedProject.real_status === 'running' ? 'bg-[#00c471]/10 text-[#00c471]' :
                       selectedProject.real_status === 'partial' ? 'bg-[#f59e0b]/10 text-[#f59e0b]' :
                       'bg-secondary text-muted-foreground'
                     }`}>
                       {t(`docker.stacks.${selectedProject.real_status}`)}
                     </span>
-                    <span className="text-[11px] text-muted-foreground font-mono hidden sm:inline">
+                    <span className="text-[11px] text-muted-foreground font-mono hidden sm:inline truncate min-w-0" title={selectedProject.path}>
                       {selectedProject.path}
                     </span>
                   </>
@@ -759,26 +759,26 @@ export default function DockerStacks() {
                 </div>
                 <div className="space-y-1">
                   {updateCheck.images.map(img => (
-                    <div key={img.image} className="flex items-center gap-2 text-[13px]">
+                    <div key={img.image} className="flex items-center gap-2 text-[13px] min-w-0">
                       {img.error ? (
                         <>
                           <XCircle className="h-3.5 w-3.5 text-[#f04452] shrink-0" />
-                          <span className="font-mono text-[12px] truncate">{img.image}</span>
-                          <span className="text-[11px] text-[#f04452]">{t('docker.stacks.registryError')}</span>
+                          <span className="font-mono text-[12px] truncate min-w-0 flex-1" title={img.image}>{img.image}</span>
+                          <span className="text-[11px] text-[#f04452] shrink-0">{t('docker.stacks.registryError')}</span>
                         </>
                       ) : img.has_update ? (
                         <>
                           <span className="inline-block w-2 h-2 rounded-full bg-[#3182f6] shrink-0" />
-                          <span className="font-mono text-[12px] truncate">{img.image}</span>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                          <span className="font-mono text-[12px] truncate min-w-0 flex-1" title={img.image}>{img.image}</span>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6] shrink-0">
                             {t('docker.stacks.updateAvailable')}
                           </span>
                         </>
                       ) : (
                         <>
                           <CheckCircle2 className="h-3.5 w-3.5 text-[#00c471] shrink-0" />
-                          <span className="font-mono text-[12px] truncate">{img.image}</span>
-                          <span className="text-[11px] text-muted-foreground">{t('docker.stacks.upToDate')}</span>
+                          <span className="font-mono text-[12px] truncate min-w-0 flex-1" title={img.image}>{img.image}</span>
+                          <span className="text-[11px] text-muted-foreground shrink-0">{t('docker.stacks.upToDate')}</span>
                         </>
                       )}
                     </div>
@@ -890,11 +890,11 @@ export default function DockerStacks() {
                   )}
                   {services.map(svc => (
                     <div key={svc.name} className="bg-card rounded-2xl p-4 card-shadow">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-[13px] font-medium truncate flex-1">{svc.name}</span>
+                      <div className="flex items-center gap-2 mb-2 min-w-0">
+                        <span className="text-[13px] font-medium truncate min-w-0 flex-1">{svc.name}</span>
                         {serviceBadge(svc.state)}
                       </div>
-                      <div className="text-[11px] text-muted-foreground font-mono truncate mb-1">{svc.image}</div>
+                      <div className="text-[11px] text-muted-foreground font-mono truncate mb-1" title={svc.image}>{svc.image}</div>
                       {svc.ports && (
                         <div className="text-[11px] text-muted-foreground font-mono truncate mb-2">{svc.ports}</div>
                       )}
@@ -1151,7 +1151,7 @@ export default function DockerStacks() {
       <Dialog open={!!logService} onOpenChange={(open) => !open && setLogService(null)}>
         <DialogContent className="w-[calc(100vw-2rem)] md:w-full sm:max-w-3xl h-[90vh] md:h-[80vh]">
           <DialogHeader>
-            <DialogTitle>{logService?.name} — {t('docker.stacks.logs')}</DialogTitle>
+            <DialogTitle className="truncate">{logService?.name} — {t('docker.stacks.logs')}</DialogTitle>
           </DialogHeader>
           {logService?.container_id && <ContainerLogs containerId={logService.container_id} />}
         </DialogContent>
@@ -1161,7 +1161,7 @@ export default function DockerStacks() {
       <Dialog open={!!shellService} onOpenChange={(open) => !open && setShellService(null)}>
         <DialogContent className="w-[calc(100vw-2rem)] md:w-full sm:max-w-3xl h-[90vh] md:h-[80vh]">
           <DialogHeader>
-            <DialogTitle>{shellService?.name} — Shell</DialogTitle>
+            <DialogTitle className="truncate">{shellService?.name} — Shell</DialogTitle>
           </DialogHeader>
           {shellService?.container_id && <ContainerShell containerId={shellService.container_id} />}
         </DialogContent>
@@ -1182,13 +1182,13 @@ export default function DockerStacks() {
           </DialogHeader>
           <div className="bg-[#0d1117] rounded-xl p-4 max-h-[400px] overflow-y-auto font-mono text-[12px] text-[#c9d1d9] leading-5">
             {progressLines.map((line, i) => (
-              <div key={i} className={
+              <div key={i} className={`whitespace-pre-wrap break-all ${
                 line.startsWith('✅') ? 'text-[#00c471]' :
                 line.startsWith('❌') ? 'text-[#f04452]' :
                 line.startsWith('[pull]') ? 'text-[#3182f6]' :
                 line.startsWith('[recreate]') ? 'text-[#f59e0b]' :
                 ''
-              }>
+              }`}>
                 {line}
               </div>
             ))}

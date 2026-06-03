@@ -491,10 +491,10 @@ export default function DiskFilesystems() {
             /* Selected target: show steps and confirm */
             <div className="space-y-4">
               <div className="bg-muted/30 rounded-xl p-4 text-[13px]">
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                  <span className="text-muted-foreground">{t('disk.filesystems.source')}</span>
-                  <span className="font-mono font-medium truncate" title={expandTarget.source}>{expandTarget.source}</span>
-                  <span className="text-muted-foreground">{t('disk.filesystems.fsType')}</span>
+                <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
+                  <span className="text-muted-foreground shrink-0">{t('disk.filesystems.source')}</span>
+                  <span className="font-mono font-medium truncate min-w-0" title={expandTarget.source}>{expandTarget.source}</span>
+                  <span className="text-muted-foreground shrink-0">{t('disk.filesystems.fsType')}</span>
                   <span className="font-mono">{expandTarget.fstype}{expandTarget.is_lvm && (
                     <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
                       {t('disk.filesystems.expandLVM')}
@@ -518,7 +518,7 @@ export default function DiskFilesystems() {
                         {i + 1}
                       </span>
                       <div className="min-w-0">
-                        <p className="text-[12px] font-medium font-mono">{step.command}</p>
+                        <p className="text-[12px] font-medium font-mono break-all">{step.command}</p>
                         <p className="text-[11px] text-muted-foreground">{step.description}</p>
                       </div>
                     </div>

@@ -542,25 +542,25 @@ export default function NetworkTailscale() {
               {t('network.tailscale.thisDevice')}
             </h3>
             <div className="space-y-2 text-[13px]">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{t('network.tailscale.hostname')}</span>
-                <span className="font-semibold">{status.self.hostname}</span>
+              <div className="flex items-center justify-between gap-2 min-w-0">
+                <span className="text-muted-foreground shrink-0">{t('network.tailscale.hostname')}</span>
+                <span className="font-semibold truncate min-w-0 text-right" title={status.self.hostname}>{status.self.hostname}</span>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{t('network.tailscale.tailscaleIP')}</span>
+              <div className="flex items-center justify-between gap-2 min-w-0">
+                <span className="text-muted-foreground shrink-0">{t('network.tailscale.tailscaleIP')}</span>
                 <button
-                  className="font-mono flex items-center gap-1 hover:text-primary"
+                  className="font-mono flex items-center gap-1 hover:text-primary min-w-0"
                   onClick={() => copyToClipboard(status.self!.tailscale_ip, 'ip4')}
                 >
-                  {status.self.tailscale_ip}
-                  {copiedField === 'ip4' ? <Check className="h-3 w-3 text-[#00c471]" /> : <Copy className="h-3 w-3" />}
+                  <span className="truncate min-w-0">{status.self.tailscale_ip}</span>
+                  {copiedField === 'ip4' ? <Check className="h-3 w-3 text-[#00c471] shrink-0" /> : <Copy className="h-3 w-3 shrink-0" />}
                 </button>
               </div>
               {status.self.tailscale_ipv6 && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">IPv6</span>
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <span className="text-muted-foreground shrink-0">IPv6</span>
                   <button
-                    className="font-mono text-[11px] flex items-center gap-1 hover:text-primary truncate max-w-[200px]"
+                    className="font-mono text-[11px] flex items-center gap-1 hover:text-primary truncate min-w-0 max-w-[200px]"
                     onClick={() => copyToClipboard(status.self!.tailscale_ipv6, 'ip6')}
                     title={status.self.tailscale_ipv6}
                   >
@@ -574,15 +574,15 @@ export default function NetworkTailscale() {
                 <span>{status.self.os}</span>
               </div>
               {status.tailnet_name && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">{t('network.tailscale.tailnet')}</span>
-                  <span className="font-medium">{status.tailnet_name}</span>
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <span className="text-muted-foreground shrink-0">{t('network.tailscale.tailnet')}</span>
+                  <span className="font-medium truncate min-w-0 text-right" title={status.tailnet_name}>{status.tailnet_name}</span>
                 </div>
               )}
               {status.magic_dns_suffix && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">MagicDNS</span>
-                  <span className="font-mono text-[11px]">{status.magic_dns_suffix}</span>
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <span className="text-muted-foreground shrink-0">MagicDNS</span>
+                  <span className="font-mono text-[11px] truncate min-w-0 text-right" title={status.magic_dns_suffix}>{status.magic_dns_suffix}</span>
                 </div>
               )}
             </div>
@@ -733,7 +733,7 @@ export default function NetworkTailscale() {
             <p className="text-[13px] text-muted-foreground">{t('network.tailscale.noPeers')}</p>
           </div>
         ) : (
-          <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+          <div className="bg-card rounded-2xl card-shadow overflow-hidden overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>

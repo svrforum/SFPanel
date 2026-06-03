@@ -216,22 +216,22 @@ export default function DiskOverview() {
               <div key={disk.name} className="bg-card rounded-2xl card-shadow overflow-hidden" role="region" aria-label={`${disk.name} ${formatBytes(disk.size)}`}>
                 {/* Disk Header */}
                 <div className="p-5 border-b border-border/50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div className="p-2 rounded-xl bg-primary/10">
                         <HardDrive className="h-5 w-5 text-primary" aria-hidden="true" />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold text-[15px]">{disk.name}</h3>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <h3 className="font-semibold text-[15px] truncate min-w-0">{disk.name}</h3>
                           {diskTypeBadge(disk.type, disk.rotational)}
                         </div>
-                        <div className="text-[13px] text-muted-foreground mt-0.5">
+                        <div className="text-[13px] text-muted-foreground mt-0.5 truncate" title={disk.model || undefined}>
                           {disk.model || t('disk.overview.unknownModel')}
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 shrink-0">
                       <div className="text-right">
                         <div className="text-lg font-bold">{formatBytes(disk.size)}</div>
                         {disk.transport && (
@@ -268,10 +268,10 @@ export default function DiskOverview() {
                       {disk.children.map((child) => (
                         <div
                           key={child.name}
-                          className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2 text-[13px]"
+                          className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2 text-[13px] min-w-0"
                         >
                           <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden="true" />
-                          <span className="font-mono font-medium w-28 shrink-0">{child.name}</span>
+                          <span className="font-mono font-medium w-28 shrink-0 truncate">{child.name}</span>
                           <span className="text-muted-foreground w-20 shrink-0">{formatBytes(child.size)}</span>
                           {child.fstype && (
                             <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border shrink-0">
@@ -279,7 +279,7 @@ export default function DiskOverview() {
                             </span>
                           )}
                           {child.mountpoint && (
-                            <span className="text-muted-foreground font-mono text-xs truncate" title={child.mountpoint}>
+                            <span className="text-muted-foreground font-mono text-xs truncate min-w-0 flex-1" title={child.mountpoint}>
                               {child.mountpoint}
                             </span>
                           )}
@@ -458,7 +458,7 @@ export default function DiskOverview() {
               <div>
                 <h4 className="text-[13px] font-semibold mb-2">{t('disk.smart.selfTest.logTitle')}</h4>
                 {smartData.self_tests && smartData.self_tests.length > 0 ? (
-                  <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+                  <div className="bg-card rounded-2xl card-shadow overflow-hidden overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow className="border-border/50">
@@ -501,7 +501,7 @@ export default function DiskOverview() {
               {smartData.attributes && smartData.attributes.length > 0 && (
                 <div>
                   <h4 className="text-[13px] font-semibold mb-2">{t('disk.smart.attributes')}</h4>
-                  <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+                  <div className="bg-card rounded-2xl card-shadow overflow-hidden overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow className="border-border/50">

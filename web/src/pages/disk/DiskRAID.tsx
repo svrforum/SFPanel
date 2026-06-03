@@ -298,15 +298,15 @@ export default function DiskRAID() {
                     {arr.devices.map((member) => (
                       <div
                         key={member.device}
-                        className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2 text-[13px]"
+                        className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2 text-[13px] min-w-0"
                       >
                         <HardDrive className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        <span className="font-mono font-medium w-28 shrink-0">{member.device}</span>
-                        <span className={`inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium ${memberStateColor(member.state)}`}>
+                        <span className="font-mono font-medium w-28 shrink-0 truncate" title={member.device}>{member.device}</span>
+                        <span className={`inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium shrink-0 ${memberStateColor(member.state)}`}>
                           {member.state}
                         </span>
                         {member.role && (
-                          <span className="text-xs text-muted-foreground">{member.role}</span>
+                          <span className="text-xs text-muted-foreground truncate min-w-0">{member.role}</span>
                         )}
                         <div className="ml-auto">
                           <Button

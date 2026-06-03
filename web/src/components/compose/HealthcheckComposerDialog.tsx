@@ -213,7 +213,7 @@ export function HealthcheckComposerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Healthcheck — {service}</DialogTitle>
+          <DialogTitle className="truncate">Healthcheck — {service}</DialogTitle>
           <DialogDescription>
             compose YAML의 services.{service}.healthcheck 블록을 추가/수정합니다. 자동 배포되지 않습니다 — 미리보기 후 Save & Deploy 하세요.
           </DialogDescription>

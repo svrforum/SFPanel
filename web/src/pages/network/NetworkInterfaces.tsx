@@ -334,22 +334,22 @@ export default function NetworkInterfaces() {
         } ${isLoopback ? 'opacity-60' : ''}`}
       >
         {/* Header: name + state */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2 min-w-0">
             {getInterfaceIcon(iface)}
-            <span className="text-[15px] font-semibold">{iface.name}</span>
+            <span className="text-[15px] font-semibold truncate min-w-0" title={iface.name}>{iface.name}</span>
             {iface.is_default && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6] shrink-0">
                 {t('network.defaultGateway')}
               </span>
             )}
             {iface.bond_info && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#f59e0b]/10 text-[#f59e0b]">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#f59e0b]/10 text-[#f59e0b] shrink-0">
                 Bond
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             <span className={`h-2 w-2 rounded-full ${getStateDot(iface.state)}`} />
             <span className={getStateStyle(iface.state)}>
               {iface.state === 'up' ? t('network.up') : iface.state === 'down' ? t('network.down') : iface.state}
@@ -600,7 +600,7 @@ export default function NetworkInterfaces() {
             {routes.length}
           </span>
         </h2>
-        <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+        <div className="bg-card rounded-2xl card-shadow overflow-hidden overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -738,9 +738,9 @@ export default function NetworkInterfaces() {
       <Dialog open={!!configTarget} onOpenChange={(open) => !open && setConfigTarget(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Settings2 className="h-5 w-5" />
-              {t('network.configureInterface')} — {configTarget?.name}
+            <DialogTitle className="flex items-center gap-2 min-w-0">
+              <Settings2 className="h-5 w-5 shrink-0" />
+              <span className="truncate min-w-0">{t('network.configureInterface')} — {configTarget?.name}</span>
             </DialogTitle>
             <DialogDescription>
               {t('network.configureDesc', { name: configTarget?.name })}

@@ -153,7 +153,7 @@ function ContainerInspect({ containerId }: { containerId: string }) {
   if (!data) return null
 
   return (
-    <div className="space-y-4 max-h-[500px] overflow-y-auto pr-1">
+    <div className="space-y-4 max-h-[500px] overflow-y-auto overflow-x-hidden pr-1 min-w-0">
       {/* Resource Stats */}
       {stats && (
         <div className="grid grid-cols-2 gap-3">
@@ -206,17 +206,17 @@ function ContainerInspect({ containerId }: { containerId: string }) {
           <Info className="h-3.5 w-3.5" />
           {t('docker.containers.generalInfo')}
         </h4>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm bg-muted/30 rounded-lg p-3">
-          <div className="text-muted-foreground">{t('docker.containers.image')}</div>
-          <div className="font-mono text-xs truncate">{data.image}</div>
-          <div className="text-muted-foreground">{t('docker.containers.command')}</div>
-          <div className="font-mono text-xs truncate" title={data.cmd || data.entrypoint}>{data.cmd || data.entrypoint || '-'}</div>
-          <div className="text-muted-foreground">{t('docker.containers.workingDir')}</div>
-          <div className="font-mono text-xs">{data.working_dir || '/'}</div>
-          <div className="text-muted-foreground">{t('docker.containers.hostname')}</div>
-          <div className="font-mono text-xs">{data.hostname}</div>
-          <div className="text-muted-foreground">{t('docker.containers.startedAt')}</div>
-          <div className="text-xs">{data.started_at ? new Date(data.started_at).toLocaleString() : '-'}</div>
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm bg-muted/30 rounded-lg p-3">
+          <div className="text-muted-foreground shrink-0">{t('docker.containers.image')}</div>
+          <div className="font-mono text-xs truncate min-w-0 text-right" title={data.image}>{data.image}</div>
+          <div className="text-muted-foreground shrink-0">{t('docker.containers.command')}</div>
+          <div className="font-mono text-xs truncate min-w-0 text-right" title={data.cmd || data.entrypoint}>{data.cmd || data.entrypoint || '-'}</div>
+          <div className="text-muted-foreground shrink-0">{t('docker.containers.workingDir')}</div>
+          <div className="font-mono text-xs truncate min-w-0 text-right" title={data.working_dir || '/'}>{data.working_dir || '/'}</div>
+          <div className="text-muted-foreground shrink-0">{t('docker.containers.hostname')}</div>
+          <div className="font-mono text-xs truncate min-w-0 text-right" title={data.hostname}>{data.hostname}</div>
+          <div className="text-muted-foreground shrink-0">{t('docker.containers.startedAt')}</div>
+          <div className="text-xs truncate min-w-0 text-right">{data.started_at ? new Date(data.started_at).toLocaleString() : '-'}</div>
         </div>
       </div>
 
@@ -261,11 +261,11 @@ function ContainerInspect({ containerId }: { containerId: string }) {
           </h4>
           <div className="space-y-1">
             {data.mounts.map((m: ContainerInspectMount, i: number) => (
-              <div key={i} className="bg-muted/30 rounded-lg px-3 py-2 text-xs font-mono flex items-center gap-2">
+              <div key={i} className="bg-muted/30 rounded-lg px-3 py-2 text-xs font-mono flex items-center gap-2 min-w-0">
                 <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border shrink-0">{m.type}</span>
-                <span className="truncate" title={m.source}>{m.source}</span>
+                <span className="truncate min-w-0 flex-1" title={m.source}>{m.source}</span>
                 <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                <span className="truncate" title={m.destination}>{m.destination}</span>
+                <span className="truncate min-w-0 flex-1" title={m.destination}>{m.destination}</span>
                 <span className={`inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium ml-auto shrink-0 ${m.rw === 'true' ? 'bg-secondary text-secondary-foreground' : 'border border-border'}`}>
                   {m.rw === 'true' ? 'rw' : 'ro'}
                 </span>
@@ -284,8 +284,8 @@ function ContainerInspect({ containerId }: { containerId: string }) {
           </h4>
           <div className="space-y-1">
             {data.networks.map((n: ContainerInspectNetwork, i: number) => (
-              <div key={i} className="bg-muted/30 rounded-lg px-3 py-2 text-xs flex items-center gap-4">
-                <span className="font-medium">{n.name}</span>
+              <div key={i} className="bg-muted/30 rounded-lg px-3 py-2 text-xs flex flex-wrap items-center gap-x-4 gap-y-1 min-w-0">
+                <span className="font-medium truncate min-w-0">{n.name}</span>
                 <span className="font-mono text-muted-foreground">IP: {n.ip_address || '-'}</span>
                 <span className="font-mono text-muted-foreground">GW: {n.gateway || '-'}</span>
               </div>
@@ -307,10 +307,10 @@ function ContainerInspect({ containerId }: { containerId: string }) {
               const key = eqIdx >= 0 ? e.substring(0, eqIdx) : e
               const val = eqIdx >= 0 ? e.substring(eqIdx + 1) : ''
               return (
-                <div key={i} className="text-xs font-mono py-0.5 flex">
-                  <span className="text-blue-400 shrink-0">{key}</span>
-                  <span className="text-muted-foreground mx-1">=</span>
-                  <span className="text-foreground truncate" title={val}>{val}</span>
+                <div key={i} className="text-xs font-mono py-0.5 flex min-w-0">
+                  <span className="text-blue-400 shrink-0 break-all">{key}</span>
+                  <span className="text-muted-foreground mx-1 shrink-0">=</span>
+                  <span className="text-foreground truncate min-w-0" title={val}>{val}</span>
                 </div>
               )
             })}
@@ -1576,15 +1576,17 @@ export default function DockerContainers() {
 
       {/* Container detail dialog */}
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="sm:max-w-4xl max-h-[90vh]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
+          <DialogHeader className="min-w-0">
+            <DialogTitle className="flex items-center gap-2 min-w-0">
               {selectedContainer && statusBadge(selectedContainer.State)}
-              {selectedContainer
-                ? formatContainerName(selectedContainer.Names)
-                : 'Container'}
+              <span className="truncate min-w-0">
+                {selectedContainer
+                  ? formatContainerName(selectedContainer.Names)
+                  : 'Container'}
+              </span>
             </DialogTitle>
-            <DialogDescription className="font-mono text-xs">
+            <DialogDescription className="font-mono text-xs truncate">
               {selectedContainer?.Image} &middot; {selectedContainer?.Id.substring(0, 12)}
             </DialogDescription>
           </DialogHeader>

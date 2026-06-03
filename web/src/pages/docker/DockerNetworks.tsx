@@ -338,24 +338,24 @@ export default function DockerNetworks() {
       <Dialog open={!!inspectTarget} onOpenChange={(open) => !open && setInspectTarget(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{inspectTarget?.name}</DialogTitle>
+            <DialogTitle className="truncate">{inspectTarget?.name}</DialogTitle>
             <DialogDescription>{inspectTarget?.driver} · {inspectTarget?.scope}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             <div className="grid grid-cols-2 gap-3">
-              <div>
+              <div className="min-w-0">
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Subnet</p>
-                <p className="text-[13px] font-mono">{inspectTarget?.subnet || '-'}</p>
+                <p className="text-[13px] font-mono break-all">{inspectTarget?.subnet || '-'}</p>
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Gateway</p>
-                <p className="text-[13px] font-mono">{inspectTarget?.gateway || '-'}</p>
+                <p className="text-[13px] font-mono break-all">{inspectTarget?.gateway || '-'}</p>
               </div>
             </div>
             {inspectTarget?.containers && inspectTarget.containers.length > 0 && (
               <div>
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">{t('docker.networks.connectedContainers')}</p>
-                <div className="bg-card rounded-xl card-shadow overflow-hidden">
+                <div className="bg-card rounded-xl card-shadow overflow-hidden overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow className="border-border/50">

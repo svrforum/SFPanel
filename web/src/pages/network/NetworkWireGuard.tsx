@@ -393,11 +393,11 @@ export default function NetworkWireGuard() {
         {interfaces.map((iface) => (
           <div key={iface.name} className="bg-card rounded-2xl p-5 card-shadow">
             {/* Interface Header */}
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Shield className="h-4 w-4 text-[#3182f6]" />
-                <span className="text-[15px] font-semibold">{iface.name}</span>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+            <div className="flex items-center justify-between gap-2 mb-4">
+              <div className="flex items-center gap-2 min-w-0">
+                <Shield className="h-4 w-4 text-[#3182f6] shrink-0" />
+                <span className="text-[15px] font-semibold truncate min-w-0" title={iface.name}>{iface.name}</span>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 ${
                   iface.active
                     ? 'bg-[#00c471]/10 text-[#00c471]'
                     : 'bg-secondary text-muted-foreground'
@@ -405,7 +405,7 @@ export default function NetworkWireGuard() {
                   {iface.active ? t('network.wireguard.active') : t('network.wireguard.inactive')}
                 </span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 shrink-0">
                 <Button
                   variant="ghost"
                   size="icon-xs"
@@ -452,25 +452,25 @@ export default function NetworkWireGuard() {
             {/* Info */}
             <div className="space-y-2 text-[13px]">
               {iface.address && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">{t('network.wireguard.address')}</span>
-                  <span className="font-mono">{iface.address}</span>
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <span className="text-muted-foreground shrink-0">{t('network.wireguard.address')}</span>
+                  <span className="font-mono truncate min-w-0 text-right" title={iface.address}>{iface.address}</span>
                 </div>
               )}
               {iface.dns && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">DNS</span>
-                  <span className="font-mono">{iface.dns}</span>
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <span className="text-muted-foreground shrink-0">DNS</span>
+                  <span className="font-mono truncate min-w-0 text-right" title={iface.dns}>{iface.dns}</span>
                 </div>
               )}
               {iface.public_key && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground flex items-center gap-1">
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <span className="text-muted-foreground flex items-center gap-1 shrink-0">
                     <Key className="h-3 w-3" />
                     {t('network.wireguard.publicKey')}
                   </span>
                   <button
-                    className="font-mono text-[11px] truncate max-w-[200px] hover:text-primary flex items-center gap-1"
+                    className="font-mono text-[11px] truncate min-w-0 max-w-[200px] hover:text-primary flex items-center gap-1"
                     onClick={() => copyToClipboard(iface.public_key, iface.name)}
                     title={iface.public_key}
                   >
@@ -524,15 +524,15 @@ export default function NetworkWireGuard() {
                         </div>
                       </div>
                       {peer.endpoint && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">{t('network.wireguard.endpoint')}</span>
-                          <span className="font-mono">{peer.endpoint}</span>
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <span className="text-muted-foreground shrink-0">{t('network.wireguard.endpoint')}</span>
+                          <span className="font-mono truncate min-w-0 text-right" title={peer.endpoint}>{peer.endpoint}</span>
                         </div>
                       )}
                       {peer.allowed_ips && peer.allowed_ips.length > 0 && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">{t('network.wireguard.allowedIPs')}</span>
-                          <span className="font-mono text-[11px]">{peer.allowed_ips.join(', ')}</span>
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <span className="text-muted-foreground shrink-0">{t('network.wireguard.allowedIPs')}</span>
+                          <span className="font-mono text-[11px] truncate min-w-0 text-right" title={peer.allowed_ips.join(', ')}>{peer.allowed_ips.join(', ')}</span>
                         </div>
                       )}
                       <div className="flex items-center justify-between">
@@ -621,14 +621,14 @@ export default function NetworkWireGuard() {
                       {t('network.wireguard.peers.regenerate')}
                     </button>
                   </div>
-                  <div className="flex items-center gap-2 rounded-xl bg-secondary/50 px-3 py-2 text-[12px] font-mono min-h-[38px]">
+                  <div className="flex items-center gap-2 rounded-xl bg-secondary/50 px-3 py-2 text-[12px] font-mono min-h-[38px] min-w-0">
                     {genLoading || !keypair ? (
                       <span className="flex items-center gap-2 text-muted-foreground">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         {t('network.wireguard.peers.generating')}
                       </span>
                     ) : (
-                      <span className="truncate" title={keypair.public_key}>{keypair.public_key}</span>
+                      <span className="truncate min-w-0" title={keypair.public_key}>{keypair.public_key}</span>
                     )}
                   </div>
                 </div>
