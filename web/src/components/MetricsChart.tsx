@@ -249,8 +249,8 @@ export default function MetricsChart({ data, title, headerAction, xDomain }: Met
 
   return (
     <div className="bg-card rounded-2xl p-6 card-shadow">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <h3 className="text-[13px] font-semibold text-foreground">{title}</h3>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
