@@ -47,6 +47,17 @@ type SmartInfo struct {
 	Temperature   int        `json:"temperature"`
 	PowerOnHours  int        `json:"power_on_hours"`
 	Attributes    []SmartAttr `json:"attributes"`
+	SelfTests     []SmartSelfTest `json:"self_tests"`
+}
+
+// SmartSelfTest is one entry from the device's self-test log, so the UI can
+// show prior short/long test outcomes (and the most recent result after a
+// test the operator just triggered).
+type SmartSelfTest struct {
+	Type          string `json:"type"`           // e.g. "Short offline", "Extended offline"
+	Status        string `json:"status"`         // e.g. "Completed without error"
+	Passed        bool   `json:"passed"`
+	LifetimeHours int    `json:"lifetime_hours"` // power-on hours when the test ran
 }
 
 // SmartAttr represents a single S.M.A.R.T. attribute.

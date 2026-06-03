@@ -272,6 +272,14 @@ export interface SmartInfo {
   temperature: number
   power_on_hours: number
   attributes: SmartAttr[]
+  self_tests: SmartSelfTest[]
+}
+
+export interface SmartSelfTest {
+  type: string
+  status: string
+  passed: boolean
+  lifetime_hours: number
 }
 
 export interface SmartAttr {

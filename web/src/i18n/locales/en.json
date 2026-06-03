@@ -1693,7 +1693,23 @@
       "attrStatus": "Status",
       "noData": "S.M.A.R.T. data not available",
       "notSupported": "N/A",
-      "fetchFailed": "Failed to load S.M.A.R.T. data"
+      "fetchFailed": "Failed to load S.M.A.R.T. data",
+      "selfTest": {
+        "runTitle": "Run Self-Test",
+        "short": "Short test",
+        "long": "Long test",
+        "running": "Test running on the drive in the background…",
+        "started": "Self-test started",
+        "hint": "The test runs on the drive in the background. Results appear in the log below when complete.",
+        "logTitle": "Self-Test Log",
+        "colType": "Type",
+        "colStatus": "Status",
+        "colResult": "Result",
+        "colWhen": "When",
+        "passed": "Passed",
+        "failed": "Failed",
+        "empty": "No self-tests recorded yet"
+      }
     },
     "partitions": {
       "title": "Partition Management",

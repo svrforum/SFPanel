@@ -1234,6 +1234,13 @@ class ApiClient {
     return this.request<SmartInfo>(`/disks/${encodeURIComponent(device)}/smart`)
   }
 
+  runSmartTest(device: string, type: 'short' | 'long') {
+    return this.request<{ message: string; type: string; output: string }>(
+      `/disks/${encodeURIComponent(device)}/smart/test`,
+      { method: 'POST', body: JSON.stringify({ type }) }
+    )
+  }
+
   getDiskIOStats() {
     return this.request<IOStat[]>('/disks/iostat')
   }

@@ -137,6 +137,28 @@ func TestParseSmartctlJSON(t *testing.T) {
 	}
 }
 
+func TestParseSmartctlJSON_SelfTestLog(t *testing.T) {
+	const withLog = `{
+		"ata_smart_self_test_log": {"standard": {"table": [
+			{"type": {"string": "Short offline"}, "status": {"string": "Completed without error", "passed": true}, "lifetime_hours": 12000},
+			{"type": {"string": "Extended offline"}, "status": {"string": "Completed: read failure", "passed": false}, "lifetime_hours": 11000}
+		]}}
+	}`
+	info, err := parseSmartctlJSON("/dev/sda", []byte(withLog))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(info.SelfTests) != 2 {
+		t.Fatalf("expected 2 self-tests, got %d", len(info.SelfTests))
+	}
+	if info.SelfTests[0].Type != "Short offline" || !info.SelfTests[0].Passed || info.SelfTests[0].LifetimeHours != 12000 {
+		t.Errorf("self-test[0] mismatch: %+v", info.SelfTests[0])
+	}
+	if info.SelfTests[1].Passed {
+		t.Errorf("self-test[1] should be failed: %+v", info.SelfTests[1])
+	}
+}
+
 func TestParseSmartctlJSON_FailingHealth(t *testing.T) {
 	const failing = `{"smart_status": {"passed": false}, "temperature": {"current": 65}}`
 	info, err := parseSmartctlJSON("/dev/sdb", []byte(failing))

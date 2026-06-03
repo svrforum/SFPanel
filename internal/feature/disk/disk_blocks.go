@@ -267,6 +267,48 @@ func (h *Handler) GetSmartInfo(c echo.Context) error {
 	return response.OK(c, info)
 }
 
+// RunSmartTest starts a SMART self-test on a device. The test runs on the drive
+// itself (smartctl -t returns immediately with an ETA); results land in the
+// self-test log, readable via GetSmartInfo once it completes.
+// POST /disks/:device/smart/test  body: { type: "short" | "long" }
+func (h *Handler) RunSmartTest(c echo.Context) error {
+	device := c.Param("device")
+	if err := validateDeviceName(device); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
+	}
+	if !h.Cmd.Exists("smartctl") {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
+			"smartctl is not installed. Install smartmontools: apt install smartmontools")
+	}
+
+	var req struct {
+		Type string `json:"type"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
+	}
+	if req.Type != "short" && req.Type != "long" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "type must be 'short' or 'long'")
+	}
+
+	devPath := "/dev/" + device
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
+	defer cancel()
+	// `smartctl -t` schedules the test on the device and returns immediately
+	// (with a human-readable ETA in stdout). A non-zero exit with no output is
+	// a real failure; otherwise pass the ETA text back to the operator.
+	outStr, err := h.Cmd.RunCtx(ctx, "smartctl", "-t", req.Type, devPath)
+	if err != nil && outStr == "" {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrSMARTError,
+			"smartctl -t failed: "+response.SanitizeOutput(err.Error()))
+	}
+	return response.OK(c, map[string]string{
+		"message": "self-test started",
+		"type":    req.Type,
+		"output":  response.SanitizeOutput(outStr),
+	})
+}
+
 // computeSmartStatus determines the status of a SMART attribute.
 // "ok" = value well above threshold, "warn" = within 10% of threshold, "fail" = at or below threshold.
 func computeSmartStatus(value, worst, threshold int) string {
@@ -408,6 +450,36 @@ func parseSmartctlJSON(devPath string, data []byte) (*SmartInfo, error) {
 					RawValue: strconv.FormatInt(int64(val), 10),
 					Status:   "ok",
 				})
+			}
+		}
+	}
+
+	// Self-test log (ATA). smartctl nests it as
+	// ata_smart_self_test_log.standard.table[]; each entry has a type/status
+	// object plus the power-on hours when it ran. NVMe uses a different shape
+	// (nvme_self_test_log) which we don't surface yet.
+	info.SelfTests = []SmartSelfTest{}
+	if stl, ok := raw["ata_smart_self_test_log"].(map[string]interface{}); ok {
+		if std, ok := stl["standard"].(map[string]interface{}); ok {
+			if table, ok := std["table"].([]interface{}); ok {
+				for _, entry := range table {
+					e, ok := entry.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					st := SmartSelfTest{}
+					if tp, ok := e["type"].(map[string]interface{}); ok {
+						st.Type, _ = tp["string"].(string)
+					}
+					if status, ok := e["status"].(map[string]interface{}); ok {
+						st.Status, _ = status["string"].(string)
+						st.Passed, _ = status["passed"].(bool)
+					}
+					if lt, ok := e["lifetime_hours"].(float64); ok {
+						st.LifetimeHours = int(lt)
+					}
+					info.SelfTests = append(info.SelfTests, st)
+				}
 			}
 		}
 	}

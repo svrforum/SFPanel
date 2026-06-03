@@ -6,6 +6,18 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.27.0] – 2026-06-03
+
+Per-feature improvement pass, round 11 — **SMART self-tests**.
+
+### Added
+
+- **disk** — **trigger a SMART self-test** (short or long) on a drive (`POST
+  /disks/:device/smart/test`); the test runs on the device and smartctl returns
+  an ETA. The SMART view now also parses and shows the drive's **self-test log**
+  (type, status, pass/fail, power-on hours when run) so prior and just-completed
+  results are visible. Self-test log parsing is tested.
+
 ## [0.26.0] – 2026-06-03
 
 Per-feature improvement pass, round 10 — **scheduled local backups**.

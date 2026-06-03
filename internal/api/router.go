@@ -373,6 +373,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	disks.GET("/smartmontools-status", diskHandler.CheckSmartmontools)
 	disks.POST("/install-smartmontools", diskHandler.InstallSmartmontools)
 	disks.GET("/:device/smart", diskHandler.GetSmartInfo)
+	disks.POST("/:device/smart/test", diskHandler.RunSmartTest)
 	disks.GET("/:device/partitions", diskHandler.ListPartitions)
 	disks.POST("/:device/partitions", diskHandler.CreatePartition)
 	disks.DELETE("/:device/partitions/:number", diskHandler.DeletePartition)

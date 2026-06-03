@@ -65,6 +65,7 @@ export default function DiskOverview() {
   const [smartLoading, setSmartLoading] = useState(false)
   const [smartData, setSmartInfo] = useState<SmartInfo | null>(null)
   const [smartDiskName, setSmartDiskName] = useState('')
+  const [runningSmartTest, setRunningSmartTest] = useState(false)
 
   // Smartmontools status
   const [smartmontoolsInstalled, setSmartmontoolsInstalled] = useState<boolean | null>(null)
@@ -143,6 +144,20 @@ export default function DiskOverview() {
       setSmartOpen(false)
     } finally {
       setSmartLoading(false)
+    }
+  }
+
+  const handleRunSmartTest = async (type: 'short' | 'long') => {
+    if (!smartDiskName) return
+    setRunningSmartTest(true)
+    try {
+      const result = await api.runSmartTest(smartDiskName, type)
+      toast.success(result.output?.trim() || t('disk.smart.selfTest.started'))
+      await handleViewSmart(smartDiskName)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRunningSmartTest(false)
     }
   }
 
@@ -405,6 +420,81 @@ export default function DiskOverview() {
                     {smartData.power_on_hours.toLocaleString()}h
                   </span>
                 </div>
+              </div>
+
+              {/* Self-Test Controls */}
+              <div className="bg-secondary/30 rounded-xl p-4 space-y-2.5">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <h4 className="text-[13px] font-semibold">{t('disk.smart.selfTest.runTitle')}</h4>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleRunSmartTest('short')}
+                      disabled={runningSmartTest}
+                      className="rounded-xl"
+                    >
+                      {runningSmartTest && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                      {t('disk.smart.selfTest.short')}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleRunSmartTest('long')}
+                      disabled={runningSmartTest}
+                      className="rounded-xl"
+                    >
+                      {runningSmartTest && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+                      {t('disk.smart.selfTest.long')}
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-[12px] text-muted-foreground">
+                  {runningSmartTest ? t('disk.smart.selfTest.running') : t('disk.smart.selfTest.hint')}
+                </p>
+              </div>
+
+              {/* Self-Test Log */}
+              <div>
+                <h4 className="text-[13px] font-semibold mb-2">{t('disk.smart.selfTest.logTitle')}</h4>
+                {smartData.self_tests && smartData.self_tests.length > 0 ? (
+                  <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-border/50">
+                          <TableHead className="text-[11px]">{t('disk.smart.selfTest.colType')}</TableHead>
+                          <TableHead className="text-[11px]">{t('disk.smart.selfTest.colStatus')}</TableHead>
+                          <TableHead className="text-[11px]">{t('disk.smart.selfTest.colResult')}</TableHead>
+                          <TableHead className="text-[11px]">{t('disk.smart.selfTest.colWhen')}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {smartData.self_tests.map((test, idx) => (
+                          <TableRow key={`${test.type}-${test.lifetime_hours}-${idx}`}>
+                            <TableCell className="text-xs">{test.type}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{test.status}</TableCell>
+                            <TableCell>
+                              {test.passed ? (
+                                <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[#00c471]">
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  {t('disk.smart.selfTest.passed')}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[#f04452]">
+                                  <XCircle className="h-3.5 w-3.5" />
+                                  {t('disk.smart.selfTest.failed')}
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">@ {test.lifetime_hours.toLocaleString()} h</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p className="text-[12px] text-muted-foreground">{t('disk.smart.selfTest.empty')}</p>
+                )}
               </div>
 
               {/* SMART Attributes Table */}
