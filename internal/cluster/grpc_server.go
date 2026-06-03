@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -25,6 +26,21 @@ import (
 // localHTTPClient is reused for all proxy requests to 127.0.0.1 to leverage
 // HTTP connection pooling instead of creating a new client per request.
 var localHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+// localHTTPClientLong serves proxied requests whose local work can exceed 30s
+// (compose up/down/update/import/rollback — first image pull or git clone).
+// The fixed 30s on localHTTPClient would otherwise abort these on the loopback
+// hop even though the proxy middleware grants the gRPC call a 5-minute budget
+// for /docker/compose/ paths — silently turning a slow cross-node compose
+// operation into a 502.
+var localHTTPClientLong = &http.Client{Timeout: 5 * time.Minute}
+
+// requiresLongLocalTimeout reports whether a proxied path may legitimately run
+// longer than the default 30s loopback timeout. Kept in sync with the 5-minute
+// branch in middleware/proxy.go's proxyToNodeGRPC.
+func requiresLongLocalTimeout(path string) bool {
+	return strings.Contains(path, "/docker/compose/")
+}
 
 // GRPCServer serves the ClusterService.
 type GRPCServer struct {
@@ -334,8 +350,13 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 		httpReq.Header.Set("Authorization", "Bearer "+req.AuthToken)
 	}
 
-	// Execute locally (reuse connection pool)
-	httpResp, err := localHTTPClient.Do(httpReq)
+	// Execute locally (reuse connection pool). Long-running paths get the
+	// 5-minute client so the loopback hop doesn't cap below the gRPC budget.
+	client := localHTTPClient
+	if requiresLongLocalTimeout(req.Path) {
+		client = localHTTPClientLong
+	}
+	httpResp, err := client.Do(httpReq)
 	if err != nil {
 		return &pb.APIResponse{
 			StatusCode: 502,

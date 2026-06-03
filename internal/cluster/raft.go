@@ -111,6 +111,18 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 			"component", "cluster")
 	}
 
+	// Mark every log index that already exists as "replay" BEFORE NewRaft
+	// spins up its apply loop. CmdDisband entries at or below this index are
+	// historical and must not re-fire local teardown on restart (see
+	// FSM.SetReplayThreshold). Setting it pre-NewRaft closes the race where a
+	// replayed disband could apply before the threshold is in place.
+	if lastIdx, lerr := logStore.LastIndex(); lerr == nil {
+		fsm.SetReplayThreshold(lastIdx)
+	} else {
+		slog.Warn("could not read last log index for disband replay guard",
+			"component", "cluster", "error", lerr)
+	}
+
 	r, err := raft.NewRaft(raftCfg, fsm, logStore, stableStore, snapshotStore, transport)
 	if err != nil {
 		return nil, fmt.Errorf("create raft: %w", err)

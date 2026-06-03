@@ -59,6 +59,15 @@ type FSM struct {
 	// onDisband is invoked (in a goroutine) when a CmdDisband entry is
 	// applied. Set once at Manager wire-up; never changed at runtime.
 	onDisband func(fromNodeID string)
+
+	// replayUpTo is the highest Raft log index that already existed when this
+	// process started. CmdDisband entries at or below it are being REPLAYED
+	// from the persisted log (not freshly applied), so their teardown side
+	// effect must be suppressed — otherwise a node that booted with a stale
+	// committed disband in its log would self-destruct on every restart.
+	// Live disbands (applied after startup) carry Index > replayUpTo. Set
+	// once before raft.NewRaft begins replay; 0 means "treat all as live".
+	replayUpTo uint64
 }
 
 func NewFSM() *FSM {
@@ -77,6 +86,15 @@ func NewFSM() *FSM {
 func (f *FSM) SetOnDisband(cb func(fromNodeID string)) {
 	f.mu.Lock()
 	f.onDisband = cb
+	f.mu.Unlock()
+}
+
+// SetReplayThreshold records the highest log index present at startup so that
+// CmdDisband entries replayed from the persisted log (Index <= threshold) do
+// not re-trigger local teardown. Call once, before raft.NewRaft begins replay.
+func (f *FSM) SetReplayThreshold(idx uint64) {
+	f.mu.Lock()
+	f.replayUpTo = idx
 	f.mu.Unlock()
 }
 
@@ -179,6 +197,15 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 		return nil
 
 	case CmdDisband:
+		// Suppress the teardown side effect for entries that are merely being
+		// REPLAYED from the persisted log at startup (Index <= replayUpTo).
+		// Without this, a node that booted with a stale committed CmdDisband
+		// in its log would wipe state and exit on every restart. A live
+		// disband (applied after this process started) carries a higher index
+		// and falls through to fire the callback.
+		if f.replayUpTo > 0 && l.Index <= f.replayUpTo {
+			return nil
+		}
 		// Fire the callback outside the FSM lock. The callback typically
 		// wipes disk state and exits the process, both of which must not
 		// stall the Raft Apply loop.

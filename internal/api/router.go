@@ -154,6 +154,12 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 			authHandler.SetClusterMgr(m)
 		},
 	}
+	// Boot path wires Manager via the struct literal above, bypassing
+	// setManager — so register the manager-dependent callbacks (disband
+	// self-clean) explicitly. Without this a node that booted into an existing
+	// cluster never honors a replicated CmdDisband. The FSM's replay-index
+	// guard makes this safe even though it runs after Raft replay has begun.
+	clusterHandler.ActivateBootManager()
 
 	// Protected routes
 	authorized := v1.Group("")

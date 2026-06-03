@@ -92,6 +92,20 @@ func (h *Handler) setManager(m *cluster.Manager) {
 	}
 }
 
+// ActivateBootManager wires the manager-dependent callbacks (currently the
+// disband self-clean) for a Manager that was injected at construction time via
+// the boot path. The runtime init/join paths register these through
+// setManager; the boot path builds the Handler with a struct literal
+// (router.go) and so must call this explicitly. Without it, a node that boots
+// straight into an existing cluster never registers performDisband, so a
+// replicated CmdDisband silently no-ops and "cluster disband" appears to do
+// nothing after any restart. Nil-safe and idempotent.
+func (h *Handler) ActivateBootManager() {
+	if m := h.getManager(); m != nil {
+		m.SetOnDisband(h.performDisband)
+	}
+}
+
 // performDisband is the node-local cleanup fired by CmdDisband replication.
 // Runs on both the leader (who initiated) and every follower. Wipes cluster
 // material, flips config.Enabled=false, and exits so the supervisor restarts
@@ -288,23 +302,25 @@ func (h *Handler) InitCluster(c echo.Context) error {
 			if totpSecret.Valid {
 				totp = totpSecret.String
 			}
-			mgr.SyncAccountFromDB(username, passwordHash, totp)
+			// Replicate the admin to the FSM. A failure here leaves the cluster
+			// with a jwt_secret but no admin account — every node would trust
+			// the JWT secret with nothing to authenticate against — so roll
+			// back rather than persist a half-initialized cluster.
+			if err := mgr.SyncAccountFromDB(username, passwordHash, totp); err != nil {
+				return h.rollbackInit(c, mgr, fmt.Errorf("sync admin account to FSM: %w", err))
+			}
 		}
 	}
 
-	// Save config
+	// Save config. rollbackInit resets Enabled=false in memory AND on disk and
+	// tears down the manager — the previous hand-rolled cleanup left
+	// Enabled=true in memory with no running manager (inconsistent state).
 	data, err := yaml.Marshal(h.Config)
 	if err != nil {
-		mgr.Shutdown()
-		os.RemoveAll(h.Config.Cluster.DataDir)
-		os.RemoveAll(h.Config.Cluster.CertDir)
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
+		return h.rollbackInit(c, mgr, fmt.Errorf("marshal cluster config: %w", err))
 	}
 	if err := config.AtomicWriteFile(h.ConfigPath, data, 0600); err != nil {
-		mgr.Shutdown()
-		os.RemoveAll(h.Config.Cluster.DataDir)
-		os.RemoveAll(h.Config.Cluster.CertDir)
-		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, fmt.Sprintf("Failed to save config: %v", err))
+		return h.rollbackInit(c, mgr, fmt.Errorf("save cluster config: %w", err))
 	}
 
 	// Live activate — pass existing manager to avoid Raft shutdown/reopen race

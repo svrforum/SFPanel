@@ -314,6 +314,19 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 				}
 			}
 			if readErr != nil {
+				if readErr != io.EOF {
+					// The remote stream broke mid-flight (node crash, network
+					// reset). Headers (200) are already sent, so we can't change
+					// the status — but surface a terminal error event and log it
+					// so a half-finished install/update isn't read as success.
+					slog.Warn("SSE relay: remote stream ended abnormally",
+						"component", "cluster-proxy",
+						"path", c.Request().URL.Path, "error", readErr)
+					fmt.Fprint(w, "event: error\ndata: {\"message\":\"upstream stream interrupted\"}\n\n")
+					if flusher != nil {
+						flusher.Flush()
+					}
+				}
 				break
 			}
 		}

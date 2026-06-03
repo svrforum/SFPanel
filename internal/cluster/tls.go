@@ -154,11 +154,16 @@ func (t *TLSManager) SaveNodeCert(certPEM, keyPEM []byte) error {
 }
 
 // SaveCACert writes the CA certificate (received from leader during join).
+//
+// 0600 to match SaveNodeCert and InitCA: the internal proxy secret is derived
+// as sha256(ca.crt), so a world-readable CA lets any non-root local process
+// recompute the secret and forge X-SFPanel-Internal-Proxy headers. Keep all
+// cluster trust material root-only.
 func (t *TLSManager) SaveCACert(caPEM []byte) error {
 	if err := os.MkdirAll(t.certDir, 0700); err != nil {
 		return fmt.Errorf("create cert dir: %w", err)
 	}
-	return os.WriteFile(filepath.Join(t.certDir, "ca.crt"), caPEM, 0644)
+	return os.WriteFile(filepath.Join(t.certDir, "ca.crt"), caPEM, 0600)
 }
 
 // LoadCACert reads the CA certificate.

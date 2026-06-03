@@ -106,6 +106,38 @@ func TestFSM_CmdDisbandWithoutCallbackIsNoop(t *testing.T) {
 	}
 }
 
+// A CmdDisband that is being REPLAYED from the persisted log at startup
+// (Index <= replay threshold) must NOT fire the teardown callback — otherwise
+// a node that booted with a stale committed disband would self-destruct on
+// every restart. A live disband (Index > threshold) still fires.
+func TestFSM_CmdDisbandReplaySuppressed(t *testing.T) {
+	fsm := NewFSM()
+	fired := make(chan string, 1)
+	fsm.SetOnDisband(func(id string) { fired <- id })
+	fsm.SetReplayThreshold(100) // everything up to index 100 is historical
+
+	data, _ := json.Marshal(Command{Type: CmdDisband, Key: "leader"})
+
+	// Replayed entry (index within the historical range) → suppressed.
+	fsm.Apply(&raft.Log{Index: 100, Data: data})
+	select {
+	case <-fired:
+		t.Fatal("replayed CmdDisband (Index<=threshold) must not fire onDisband")
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// Live entry (index past the threshold) → fires.
+	fsm.Apply(&raft.Log{Index: 101, Data: data})
+	select {
+	case got := <-fired:
+		if got != "leader" {
+			t.Fatalf("callback got %q, want %q", got, "leader")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("live CmdDisband (Index>threshold) did not fire onDisband")
+	}
+}
+
 // L-05: pickTransferTarget skips self, non-voter roles, and non-Online
 // peers, returning only a suitable voter for leadership handoff.
 func TestManager_pickTransferTarget(t *testing.T) {
