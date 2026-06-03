@@ -694,7 +694,7 @@ export default function NetworkTailscale() {
                   </div>
                   <div className="flex items-center gap-2">
                     <select
-                      className="flex-1 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] px-3 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      className="flex-1 min-w-0 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] px-3 focus:outline-none focus:ring-2 focus:ring-primary/20"
                       value={status?.current_exit_node || ''}
                       onChange={(e) => handleSetExitNode(e.target.value)}
                       disabled={settingExitNode !== null}

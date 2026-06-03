@@ -267,13 +267,13 @@ export default function ClusterNodes() {
                 value={labelKey}
                 onChange={(e) => setLabelKey(e.target.value)}
                 placeholder={t('cluster.nodes.labelKey')}
-                className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] flex-1"
+                className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] flex-1 min-w-0"
               />
               <Input
                 value={labelValue}
                 onChange={(e) => setLabelValue(e.target.value)}
                 placeholder={t('cluster.nodes.labelValue')}
-                className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] flex-1"
+                className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] flex-1 min-w-0"
                 onKeyDown={(e) => e.key === 'Enter' && handleAddLabel()}
               />
               <Button variant="outline" size="sm" className="rounded-xl" onClick={handleAddLabel} disabled={!labelKey.trim()}>
