@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.31.0] – 2026-06-03
+
+Per-feature improvement pass, round 15 — **cluster overview WebSocket push**.
+
+### Changed
+
+- **cluster** — the cluster dashboard now receives a combined **status + overview
+  + recent events** snapshot over `/ws/cluster/overview` instead of polling three
+  HTTP endpoints every 15s. A single shared sampler per node rebuilds the
+  snapshot from the local (Raft-replicated) FSM + event bus every 5s and fans it
+  out to every open dashboard — no per-tab leader RPC. Followers serve their
+  replicated view flagged `stale` (the UI already renders a banner). The page
+  keeps one mount-time fetch for instant first paint, then live-updates over the
+  socket. Snapshot builder + broadcaster lifecycle are race-tested.
+
 ## [0.30.0] – 2026-06-03
 
 Per-feature improvement pass, round 14 — **type-to-confirm for destructive ops**.

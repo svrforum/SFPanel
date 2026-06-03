@@ -566,6 +566,10 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 
 	// WebSocket routes (auth via query param token, cluster relay support)
 	e.GET("/ws/metrics", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.MetricsWS(cfg.Auth.JWTSecret)))
+	// Cluster overview push: one shared sampler per node fans the combined
+	// status+overview+events snapshot out to all dashboards, replacing the
+	// per-tab 15s HTTP triple-poll. Served from the local FSM (no leader RPC).
+	e.GET("/ws/cluster/overview", featureWS.ClusterOverviewWS(clusterHandler.GetManager, cfg.Auth.JWTSecret))
 	e.GET("/ws/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureLogs.LogStreamWS(cfg.Auth.JWTSecret, database)))
 	e.GET("/ws/terminal", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureTerminal.TerminalWS(cfg.Auth.JWTSecret)))
 

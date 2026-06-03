@@ -121,6 +121,33 @@ const wsUrl = `${protocol}//${window.location.host}/ws/...?token=${token}`
 
 ---
 
+### 1b. `/ws/cluster/overview` -- 클러스터 개요 실시간 푸시
+
+| 항목 | 값 |
+|------|-----|
+| **용도** | 클러스터 대시보드(상태+개요+최근 이벤트) 실시간 갱신 |
+| **인증** | `?token=<JWT>` (필수) |
+| **통신 방향** | 서버 -> 클라이언트 (단방향 푸시) |
+| **전송 주기** | **5초** (`overviewBroadcastInterval`) |
+| **메시지 타입** | JSON (TextMessage) |
+| **사용 페이지** | `ClusterOverview.tsx` |
+| **라우트 등록** | `e.GET("/ws/cluster/overview", featureWS.ClusterOverviewWS(...))` |
+
+기존 15초 HTTP 3중 폴링(`/cluster/status` + `/cluster/overview` + `/cluster/events`)을 대체한다. 노드별 **단일 공유 샘플러**(`internal/feature/websocket/cluster_overview.go`)가 로컬 Raft FSM + 이벤트 버스에서 스냅샷을 만들어 그 노드의 모든 대시보드 연결에 fan-out한다 — 리더 RPC 없음. 팔로워는 복제된 FSM 뷰를 `stale=true`로 표시(프론트는 "오래된 데이터" 배너 렌더). 메시지 형식:
+
+```json
+{
+  "enabled": true, "local_id": "<uuid>", "is_leader": true, "stale": false,
+  "name": "svrforum", "node_count": 2, "leader_id": "<uuid>",
+  "nodes": [ /* ClusterNode[] */ ], "metrics": [ /* ClusterNodeMetrics[] */ ],
+  "events": [ /* 최근 20개 ClusterEvent */ ]
+}
+```
+
+클러스터 비활성 노드에서는 `{"enabled": false}`만 푸시되며 프론트는 이를 무시한다. 프론트는 첫 페인트를 위해 마운트 시 1회 HTTP fetch를 유지하고, 이후 라이브 갱신은 WS로 받는다.
+
+---
+
 ### 2. `/ws/logs` -- 시스템 로그 실시간 스트리밍
 
 | 항목 | 값 |

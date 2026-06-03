@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Loader2, Power, Download, Pencil, LogOut, CheckCircle2, XCircle, Clock, AlertTriangle, MinusCircle, ArrowRightLeft } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { ClusterOverview as ClusterOverviewType, ClusterStatus, ClusterEvent, ClusterNode } from '@/types/api'
+import type { ClusterOverview as ClusterOverviewType, ClusterStatus, ClusterEvent, ClusterNode, ClusterNodeMetrics } from '@/types/api'
+import { useWebSocket } from '@/hooks/useWebSocket'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
@@ -26,6 +27,22 @@ type UpdateEvent = {
 
 // Per-node update state, reduced from the event stream (latest step wins).
 type NodeUpdateState = { node_id: string; node_name: string; step: string; message: string }
+
+// The combined snapshot pushed over /ws/cluster/overview (status + overview +
+// recent events in one message). Followers serve their replicated FSM view with
+// stale=true.
+interface ClusterSnapshot {
+  enabled: boolean
+  local_id?: string
+  is_leader?: boolean
+  stale?: boolean
+  name?: string
+  node_count?: number
+  leader_id?: string
+  nodes?: ClusterNode[]
+  metrics?: ClusterNodeMetrics[]
+  events?: ClusterEvent[]
+}
 
 // Terminal "done" steps drive the completed count; error is its own bucket.
 // Remaining steps (updating/waiting/transfer/warning/skipped) render as in-flight
@@ -73,13 +90,39 @@ export default function ClusterOverview() {
     }).finally(() => setLoading(false))
   }, [])
 
+  // The /ws/cluster/overview push replaces the old 15s status+overview+events
+  // triple-poll: one shared sampler per node fans the combined snapshot out to
+  // every dashboard. We still fetch once on mount for an instant first paint
+  // (and as a fallback while the socket is connecting / between reconnects).
+  const applySnapshot = useCallback((snap: ClusterSnapshot) => {
+    if (!snap || !snap.enabled) return
+    setStatus({
+      enabled: true,
+      name: snap.name,
+      node_count: snap.node_count,
+      leader_id: snap.leader_id,
+      local_id: snap.local_id,
+      is_leader: snap.is_leader,
+      stale: snap.stale,
+    })
+    setOverview({
+      name: snap.name ?? '',
+      node_count: snap.node_count ?? 0,
+      leader_id: snap.leader_id ?? '',
+      nodes: snap.nodes ?? [],
+      metrics: snap.metrics ?? [],
+    })
+    setEvents(snap.events ?? [])
+    setLoading(false)
+  }, [])
+
+  useWebSocket<ClusterSnapshot>({ url: '/ws/cluster/overview', onMessage: applySnapshot })
+
   useEffect(() => {
     loadData()
-    const interval = setInterval(loadData, 15000)
     const handleVisibility = () => { if (!document.hidden) loadData() }
     document.addEventListener('visibilitychange', handleVisibility)
     return () => {
-      clearInterval(interval)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [loadData])
