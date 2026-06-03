@@ -39,6 +39,7 @@ import (
 	featureAlert "github.com/svrforum/SFPanel/internal/feature/alert"
 	featureauth "github.com/svrforum/SFPanel/internal/feature/auth"
 	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
+	featureSystem "github.com/svrforum/SFPanel/internal/feature/system"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	"github.com/svrforum/SFPanel/internal/monitor"
 	"github.com/svrforum/SFPanel/internal/release"
@@ -226,6 +227,9 @@ func main() {
 
 	// Start background metrics history collector (60s interval, 24h rolling window)
 	monitor.StartHistoryCollector(bgCtx, database)
+
+	// Start the scheduled-backup loop (no-op until an operator enables it).
+	featureSystem.StartBackupScheduler(bgCtx, database, cfg.Database.Path, cfgPath, cfg.Server.StacksPath)
 
 	// Single drain for all audit_logs INSERTs (request middleware + auth
 	// security events). Per-request goroutines used to fan out unbounded

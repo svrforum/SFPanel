@@ -699,23 +699,28 @@ func (h *Handler) CreateBackup(c echo.Context) error {
 	c.Response().Header().Set("Content-Disposition",
 		fmt.Sprintf("attachment; filename=sfpanel-backup-%s.tar.gz", time.Now().Format("20060102-150405")))
 	c.Response().WriteHeader(http.StatusOK)
+	return writeBackupArchive(c.Response(), h.DBPath, h.ConfigPath, h.ComposePath)
+}
 
-	gw := gzip.NewWriter(c.Response())
+// writeBackupArchive streams a gzip+tar backup (DB + config + compose project
+// files) to w. Shared by the download handler and the scheduled-backup runner
+// so both produce byte-identical archives.
+func writeBackupArchive(w io.Writer, dbPath, configPath, composePath string) error {
+	gw := gzip.NewWriter(w)
 	defer gw.Close()
 	tw := tar.NewWriter(gw)
 	defer tw.Close()
 
-	if err := addFileToTar(tw, h.DBPath, "sfpanel.db"); err != nil {
+	if err := addFileToTar(tw, dbPath, "sfpanel.db"); err != nil {
 		return err
 	}
-
-	if err := addFileToTar(tw, h.ConfigPath, "config.yaml"); err != nil {
+	if err := addFileToTar(tw, configPath, "config.yaml"); err != nil {
 		return err
 	}
 
 	// Include Docker Compose project files from /opt/stacks/
-	if h.ComposePath != "" {
-		entries, err := os.ReadDir(h.ComposePath)
+	if composePath != "" {
+		entries, err := os.ReadDir(composePath)
 		if err == nil {
 			composeFiles := []string{"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml", ".env"}
 			for _, entry := range entries {
@@ -723,7 +728,7 @@ func (h *Handler) CreateBackup(c echo.Context) error {
 					continue
 				}
 				for _, cf := range composeFiles {
-					filePath := filepath.Join(h.ComposePath, entry.Name(), cf)
+					filePath := filepath.Join(composePath, entry.Name(), cf)
 					if _, statErr := os.Stat(filePath); statErr == nil {
 						archiveName := filepath.Join("compose", entry.Name(), cf)
 						if err := addFileToTar(tw, filePath, archiveName); err != nil {

@@ -1,11 +1,12 @@
 import { useState, useEffect, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
-import { formatUptime } from '@/lib/utils'
-import type { HostInfo } from '@/types/api'
+import { formatUptime, formatBytes } from '@/lib/utils'
+import type { HostInfo, BackupScheduleConfig, BackupFile } from '@/types/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Download, Upload, RefreshCw, AlertCircle } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Download, Upload, RefreshCw, AlertCircle, Clock, Play, Trash2 } from 'lucide-react'
 import { useApiAction } from '@/hooks/useApiAction'
 
 type MaintenanceProps = {
@@ -28,6 +29,32 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   // Backup state
   const [backupLoading, setBackupLoading] = useState(false)
   const [restoreLoading, setRestoreLoading] = useState(false)
+
+  // Scheduled backup state
+  const [schedule, setSchedule] = useState<BackupScheduleConfig | null>(null)
+  const [backupFiles, setBackupFiles] = useState<BackupFile[]>([])
+  const [scheduleEnabled, setScheduleEnabled] = useState(false)
+  const [intervalHours, setIntervalHours] = useState('24')
+  const [retention, setRetention] = useState('7')
+  const [savingSchedule, setSavingSchedule] = useState(false)
+  const [runningNow, setRunningNow] = useState(false)
+
+  async function loadBackupSchedule() {
+    try {
+      const data = await api.getBackupSchedule()
+      setSchedule(data.schedule)
+      setBackupFiles(data.files ?? [])
+      setScheduleEnabled(data.schedule.enabled)
+      setIntervalHours(String(data.schedule.interval_hours))
+      setRetention(String(data.schedule.retention))
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  useEffect(() => {
+    loadBackupSchedule()
+  }, [])
 
   useEffect(() => {
     api.getSystemInfo()
@@ -157,6 +184,67 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
     }
   }
 
+  async function handleSaveSchedule() {
+    const hours = Number(intervalHours)
+    const keep = Number(retention)
+    if (!Number.isInteger(hours) || hours < 1 || hours > 168) {
+      toast.error(t('settings.backupSchedule.intervalInvalid'))
+      return
+    }
+    if (!Number.isInteger(keep) || keep < 1 || keep > 100) {
+      toast.error(t('settings.backupSchedule.retentionInvalid'))
+      return
+    }
+    setSavingSchedule(true)
+    try {
+      await api.updateBackupSchedule({ enabled: scheduleEnabled, interval_hours: hours, retention: keep })
+      toast.success(t('settings.backupSchedule.saved'))
+      await loadBackupSchedule()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSavingSchedule(false)
+    }
+  }
+
+  async function handleRunNow() {
+    setRunningNow(true)
+    try {
+      const res = await api.runBackupNow()
+      toast.success(t('settings.backupSchedule.runSuccess', { name: res.name }))
+      await loadBackupSchedule()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRunningNow(false)
+    }
+  }
+
+  async function handleDownloadBackupFile(name: string) {
+    try {
+      const blob = await api.downloadBackupFile(name)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = name
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleDeleteBackupFile(name: string) {
+    if (!window.confirm(t('settings.backupSchedule.deleteConfirm', { name }))) return
+    try {
+      await api.deleteBackupFile(name)
+      toast.success(t('settings.backupSchedule.deleted'))
+      await loadBackupSchedule()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   return (
     <div className="space-y-6 mt-6">
       {/* Panel Update */}
@@ -269,6 +357,111 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
             disabled={restoreLoading}
           />
         </div>
+      </div>
+
+      {/* Scheduled Backups */}
+      <div className="bg-card rounded-2xl p-6 card-shadow">
+        <h3 className="text-[15px] font-semibold">{t('settings.backupSchedule.title')}</h3>
+        <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.backupSchedule.description')}</p>
+
+        <label className="flex items-center gap-2 mb-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={scheduleEnabled}
+            onChange={(e) => setScheduleEnabled(e.target.checked)}
+            className="h-4 w-4 rounded accent-[#3182f6]"
+          />
+          <span className="text-[13px] font-medium">{t('settings.backupSchedule.enable')}</span>
+        </label>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+          <div className="space-y-1">
+            <label className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.intervalLabel')}</label>
+            <Input
+              type="number"
+              min={1}
+              max={168}
+              value={intervalHours}
+              onChange={(e) => setIntervalHours(e.target.value)}
+              className="rounded-xl"
+            />
+            <p className="text-[11px] text-muted-foreground">{t('settings.backupSchedule.intervalHint')}</p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.retentionLabel')}</label>
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={retention}
+              onChange={(e) => setRetention(e.target.value)}
+              className="rounded-xl"
+            />
+            <p className="text-[11px] text-muted-foreground">{t('settings.backupSchedule.retentionHint')}</p>
+          </div>
+        </div>
+
+        {schedule?.last_run && (
+          <div className="bg-secondary/40 rounded-xl p-3 mb-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.lastRun')}</span>
+              <span className="text-[12px] font-medium">{new Date(schedule.last_run).toLocaleString()}</span>
+              <span className={`text-[12px] font-medium ${schedule.last_status === 'error' ? 'text-[#f04452]' : 'text-[#16a34a]'}`}>
+                {schedule.last_status === 'error' ? t('settings.backupSchedule.statusError') : t('settings.backupSchedule.statusSuccess')}
+              </span>
+            </div>
+            {schedule.last_status === 'error' && schedule.last_error && (
+              <p className="text-[12px] text-[#f04452] mt-1">{schedule.last_error}</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-3 mb-6">
+          <Button onClick={handleSaveSchedule} disabled={savingSchedule} className="rounded-xl">
+            {savingSchedule ? t('settings.backupSchedule.saving') : t('settings.backupSchedule.save')}
+          </Button>
+          <Button onClick={handleRunNow} disabled={runningNow} variant="outline" className="rounded-xl">
+            <Play className="h-4 w-4 mr-2" />
+            {runningNow ? t('settings.backupSchedule.running') : t('settings.backupSchedule.runNow')}
+          </Button>
+        </div>
+
+        <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">{t('settings.backupSchedule.existingTitle')}</p>
+        {backupFiles.length === 0 ? (
+          <p className="text-[13px] text-muted-foreground">{t('settings.backupSchedule.empty')}</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {backupFiles.map((file) => (
+              <div key={file.name} className="flex items-center gap-3 bg-secondary/40 rounded-xl px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-medium truncate">{file.name}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {formatBytes(file.size)} · {new Date(file.mod_time).toLocaleString()}
+                  </p>
+                </div>
+                <Button
+                  onClick={() => handleDownloadBackupFile(file.name)}
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl shrink-0"
+                >
+                  <Download className="h-4 w-4 mr-1" />
+                  {t('settings.backupSchedule.download')}
+                </Button>
+                <Button
+                  onClick={() => handleDeleteBackupFile(file.name)}
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl shrink-0 text-[#f04452] hover:text-[#f04452]"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  {t('settings.backupSchedule.delete')}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* System Info */}

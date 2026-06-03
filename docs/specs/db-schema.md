@@ -450,8 +450,11 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 
 ## 백업/복구
 
-**현재 백업/복구 자동화 기능은 구현되어 있지 않음.** `scripts/install.sh`는 데이터 디렉토리(`/var/lib/sfpanel/`)만 생성하며 백업 로직은 포함하지 않음. 운영자가 필요 시 다음 방식 중 선택:
+**수동 백업/복구** — `POST /system/backup`이 `sfpanel.db` + `config.yaml` + 각 Compose 프로젝트 파일을 tar.gz로 스트리밍 다운로드하고, `POST /system/restore`가 업로드된 아카이브로 복원(WAL 체크포인트 후 교체).
 
+**예약 백업** (v0.26.0~, 마이그레이션 33–34) — `backup_schedule` 테이블(단일 행 `id=1`)에 `enabled`/`interval_hours`/`retention`/`last_run`/`last_status`/`last_error`를 저장. `internal/feature/system/backup_schedule.go`의 백그라운드 러너(`StartBackupScheduler`, `cmd/sfpanel/main.go`에서 기동)가 `backupCheckInterval`(기본 10분)마다 깨어나 활성화·주기 도래 시 `<DB 디렉토리>/backups/`에 타임스탬프 tar.gz를 생성하고 `retention` 개수로 정리. 엔드포인트: `GET/PUT /system/backup/schedule`, `POST /system/backup/schedule/run`, `GET /system/backup/files/download`, `DELETE /system/backup/files`. 파일명은 `sfpanel-backup-YYYYMMDD-HHMMSS.tar.gz` 패턴으로 검증(다운로드/삭제 시 경로 traversal 차단).
+
+수동 파일 복사 대안:
 - **파일 복사 기반**: 서비스 정지 후 `sfpanel.db`, `sfpanel.db-shm`, `sfpanel.db-wal` 세 파일 함께 복사
 - **온라인 백업**: `PRAGMA wal_checkpoint(RESTART)` 실행 후 `sfpanel.db` 단일 파일 복사 (프로세스 중단 없이 가능, 다만 `-wal` 파일에 부분 변경이 남아 있을 수 있음)
 

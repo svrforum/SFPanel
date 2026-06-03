@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.26.0] – 2026-06-03
+
+Per-feature improvement pass, round 10 — **scheduled local backups**.
+
+### Added
+
+- **system** — **scheduled backups**: enable a recurring local backup (interval
+  in hours, retention count) that writes timestamped `tar.gz` archives (DB +
+  config + compose files) to a `backups/` dir beside the database and prunes to
+  the retention limit. A background runner (`StartBackupScheduler`) checks every
+  10 minutes and runs when due; the last run's time/status/error are recorded
+  (migration 33–34, `backup_schedule`). New endpoints: `GET/PUT
+  /system/backup/schedule`, `POST /system/backup/schedule/run`, and download/
+  delete of individual archives (name pattern-validated against traversal). The
+  Maintenance tab gains a schedule form, run-now, and an archive list with
+  download/delete. Archive creation, listing, pruning, and the name guard are
+  tested.
+
 ## [0.25.0] – 2026-06-03
 
 Per-feature improvement pass, round 9 — **generic webhook alert channel**.

@@ -218,6 +218,11 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	authorized.POST("/system/update", systemHandler.RunUpdate)
 	authorized.POST("/system/backup", systemHandler.CreateBackup)
 	authorized.POST("/system/restore", systemHandler.RestoreBackup)
+	authorized.GET("/system/backup/schedule", systemHandler.GetBackupSchedule)
+	authorized.PUT("/system/backup/schedule", systemHandler.UpdateBackupSchedule)
+	authorized.POST("/system/backup/schedule/run", systemHandler.RunBackupNow)
+	authorized.GET("/system/backup/files/download", systemHandler.DownloadBackupFile)
+	authorized.DELETE("/system/backup/files", systemHandler.DeleteBackupFile)
 	authorized.GET("/system/portmap", portmapHandler.GetPortMap)
 
 	// Cluster management (handler already created above so the proxy

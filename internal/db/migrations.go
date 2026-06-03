@@ -187,6 +187,20 @@ var migrations = []migration{
 	// dashboard chart can plot root-disk usage over time. Existing rows default
 	// to 0 (no disk history before this migration).
 	{ID: 32, Up: `ALTER TABLE metrics_history ADD COLUMN disk_percent REAL NOT NULL DEFAULT 0`},
+	// Local scheduled-backup configuration. Single row (id=1) holding the
+	// operator's schedule: whether it's on, how often, and how many archives to
+	// keep. The runner writes timestamped tar.gz files to a local dir and prunes
+	// to retention; last_run/last_status/last_error surface the most recent run.
+	{ID: 33, Up: `CREATE TABLE IF NOT EXISTS backup_schedule (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		enabled INTEGER NOT NULL DEFAULT 0,
+		interval_hours INTEGER NOT NULL DEFAULT 24,
+		retention INTEGER NOT NULL DEFAULT 7,
+		last_run TIMESTAMP,
+		last_status TEXT,
+		last_error TEXT
+	)`},
+	{ID: 34, Up: `INSERT OR IGNORE INTO backup_schedule (id, enabled, interval_hours, retention) VALUES (1, 0, 24, 7)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been

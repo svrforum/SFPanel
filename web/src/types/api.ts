@@ -126,6 +126,21 @@ export interface DockerNetwork {
   used_by: string[]
 }
 
+export interface BackupScheduleConfig {
+  enabled: boolean
+  interval_hours: number
+  retention: number
+  last_run: string | null
+  last_status: string
+  last_error: string
+}
+
+export interface BackupFile {
+  name: string
+  size: number
+  mod_time: string
+}
+
 export interface PortBindingSpec {
   host_ip?: string
   host_port?: string

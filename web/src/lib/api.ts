@@ -494,6 +494,38 @@ class ApiClient {
     return res.blob()
   }
 
+  getBackupSchedule() {
+    return this.request<{
+      schedule: import('@/types/api').BackupScheduleConfig
+      files: import('@/types/api').BackupFile[]
+    }>('/system/backup/schedule')
+  }
+
+  updateBackupSchedule(cfg: { enabled: boolean; interval_hours: number; retention: number }) {
+    return this.request<{ message: string }>('/system/backup/schedule', {
+      method: 'PUT',
+      body: JSON.stringify(cfg),
+    })
+  }
+
+  runBackupNow() {
+    return this.request<{ message: string; name: string }>('/system/backup/schedule/run', { method: 'POST' })
+  }
+
+  async downloadBackupFile(name: string): Promise<Blob> {
+    const res = await fetch(this.withNode(`/system/backup/files/download?name=${encodeURIComponent(name)}`), {
+      headers: this.streamHeaders(),
+    })
+    if (!res.ok) throw new Error(`Download failed (${res.status})`)
+    return res.blob()
+  }
+
+  deleteBackupFile(name: string) {
+    return this.request<{ message: string }>(`/system/backup/files?name=${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    })
+  }
+
   async restoreBackup(file: File): Promise<void> {
     const formData = new FormData()
     formData.append('backup', file)
