@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 
@@ -62,6 +63,7 @@ function stepIcon(step: string) {
 
 export default function ClusterOverview() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [status, setStatus] = useState<ClusterStatus | null>(null)
   const [overview, setOverview] = useState<ClusterOverviewType | null>(null)
   const [events, setEvents] = useState<ClusterEvent[]>([])
@@ -198,7 +200,7 @@ export default function ClusterOverview() {
   }
 
   const handleClusterUpdate = async (mode: 'rolling' | 'simultaneous') => {
-    if (!confirm(t('cluster.overview.confirmUpdate'))) return
+    if (!(await confirm({ title: t('cluster.overview.confirmUpdate') }))) return
     setUpdating(true)
     setUpdateLog([])
     try {
@@ -236,13 +238,13 @@ export default function ClusterOverview() {
   }
 
   const handleLeave = async () => {
-    if (!confirm(t('cluster.leave.confirm'))) return
+    if (!(await confirm({ title: t('cluster.leave.confirm'), danger: true }))) return
     try {
       await api.leaveCluster()
       toast.success(t('cluster.leave.success'))
     } catch (err) {
       if ((err as { status?: number }).status === 409) {
-        if (!confirm(t('cluster.leave.forceConfirm'))) return
+        if (!(await confirm({ title: t('cluster.leave.forceConfirm'), danger: true }))) return
         try {
           await api.leaveCluster(true)
           toast.success(t('cluster.leave.success'))

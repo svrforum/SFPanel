@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { formatBytes } from '@/lib/utils'
 import type { TuningStatus, TuningCategory } from '@/types/api'
 import { toast } from 'sonner'
@@ -16,6 +17,7 @@ const CATEGORY_META: Record<string, { icon: typeof Network; color: string }> = {
 
 export default function SettingsTuning() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [status, setStatus] = useState<TuningStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [applying, setApplying] = useState<string | null>(null) // category name or 'all'
@@ -106,7 +108,7 @@ export default function SettingsTuning() {
   }
 
   async function handleReset() {
-    if (!window.confirm(t('settings.tuning.resetConfirm'))) return
+    if (!(await confirm({ title: t('settings.tuning.resetConfirm'), danger: true }))) return
     setResetting(true)
     try {
       await api.resetTuning()

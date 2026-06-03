@@ -1,6 +1,7 @@
 import { useState, useEffect, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { formatUptime, formatBytes } from '@/lib/utils'
 import type { HostInfo, BackupScheduleConfig, BackupFile } from '@/types/api'
 import { toast } from 'sonner'
@@ -15,6 +16,7 @@ type MaintenanceProps = {
 
 export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
 
   // System info state
   const [systemInfo, setSystemInfo] = useState<{ host: HostInfo; version?: string } | null>(null)
@@ -84,7 +86,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   }
 
   async function handleRunUpdate() {
-    if (!window.confirm(t('settings.updateConfirm'))) return
+    if (!(await confirm({ title: t('settings.updateConfirm') }))) return
     setUpdating(true)
     setUpdateStep('')
     setUpdateError('')
@@ -117,7 +119,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
     // restoring this backup on a leader would rewind replicated state,
     // on a follower it would desync immediately. Warn loudly before
     // letting the operator proceed.
-    if (clusterEnabled && !window.confirm(t('settings.backupClusterWarn'))) {
+    if (clusterEnabled && !(await confirm({ title: t('settings.backupClusterWarn') }))) {
       return
     }
     setBackupLoading(true)
@@ -140,13 +142,13 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   async function handleRestoreBackup(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    if (!window.confirm(t('settings.restoreConfirm'))) {
+    if (!(await confirm({ title: t('settings.restoreConfirm'), danger: true }))) {
       e.target.value = ''
       return
     }
     // Same cluster caveat as download — restoring a single-node backup
     // onto a cluster member desyncs replicated state.
-    if (clusterEnabled && !window.confirm(t('settings.restoreClusterWarn'))) {
+    if (clusterEnabled && !(await confirm({ title: t('settings.restoreClusterWarn'), danger: true }))) {
       e.target.value = ''
       return
     }
@@ -235,7 +237,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   }
 
   async function handleDeleteBackupFile(name: string) {
-    if (!window.confirm(t('settings.backupSchedule.deleteConfirm', { name }))) return
+    if (!(await confirm({ title: t('settings.backupSchedule.deleteConfirm', { name }), danger: true }))) return
     try {
       await api.deleteBackupFile(name)
       toast.success(t('settings.backupSchedule.deleted'))

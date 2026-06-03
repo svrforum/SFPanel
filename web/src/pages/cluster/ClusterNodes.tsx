@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Server, Trash2, RefreshCw, Crown, Tag, ArrowRightLeft } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ClusterNode, ClusterStatus, ClusterNodeMetrics } from '@/types/api'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -12,6 +13,7 @@ import { cn } from '@/lib/utils'
 
 export default function ClusterNodes() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [status, setStatus] = useState<ClusterStatus | null>(null)
   const [nodes, setNodes] = useState<ClusterNode[]>([])
   const [metrics, setMetrics] = useState<ClusterNodeMetrics[]>([])
@@ -56,7 +58,7 @@ export default function ClusterNodes() {
   }, [loadNodes])
 
   const handleRemove = async (nodeId: string, nodeName: string) => {
-    if (!confirm(t('cluster.nodes.confirmRemove', { name: nodeName }))) return
+    if (!(await confirm({ title: t('cluster.nodes.confirmRemove', { name: nodeName }), danger: true }))) return
     try {
       await api.removeClusterNode(nodeId)
       toast.success(t('cluster.nodes.removed', { name: nodeName }))
@@ -67,7 +69,7 @@ export default function ClusterNodes() {
   }
 
   const handleTransferLeadership = async (nodeId: string, nodeName: string) => {
-    if (!confirm(t('cluster.nodes.confirmTransfer', { name: nodeName }))) return
+    if (!(await confirm({ title: t('cluster.nodes.confirmTransfer', { name: nodeName }) }))) return
     try {
       await api.transferClusterLeadership(nodeId)
       toast.success(t('cluster.nodes.leaderTransferred', { name: nodeName }))

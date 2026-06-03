@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,6 +11,7 @@ import { useApiAction } from '@/hooks/useApiAction'
 
 export default function Security() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
 
   // Password change state
   const [currentPassword, setCurrentPassword] = useState('')
@@ -83,7 +85,7 @@ export default function Security() {
 
   async function handleDisable2FA() {
     // Confirm + collect password — destructive action that loosens auth.
-    if (!window.confirm(t('settings.confirmDisable2FA'))) return
+    if (!(await confirm({ title: t('settings.confirmDisable2FA'), danger: true }))) return
     const password = window.prompt(t('settings.disable2FAPasswordPrompt'))
     if (!password) return
     await runDisable2FA(password)

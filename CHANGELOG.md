@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.32.0] – 2026-06-03
+
+Per-feature improvement pass, round 16 — **styled confirmation dialogs**.
+
+### Changed
+
+- **ui** — every native `window.confirm()` is replaced by a styled, on-brand
+  confirmation dialog via a new `useConfirm()` hook + app-level `ConfirmProvider`
+  (~22 call sites across cluster, disk, docker, files, alerts, security, backup,
+  tuning, audit, WireGuard, and the compose healthcheck composer). Destructive
+  actions get a red confirm button; multi-line prompts split into title +
+  description. One previously hardcoded Korean confirm string is now i18n'd
+  (`compose.healthcheck.removeConfirm`, both locales).
+
 ## [0.31.0] – 2026-06-03
 
 Per-feature improvement pass, round 15 — **cluster overview WebSocket push**.

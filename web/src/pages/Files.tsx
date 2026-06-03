@@ -22,6 +22,7 @@ import {
 import { toast } from 'sonner'
 import Editor from '@monaco-editor/react'
 import { api } from '@/lib/api'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { formatBytes, formatDate } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -110,6 +111,7 @@ function joinPath(...parts: string[]): string {
 
 export default function Files() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Core state
@@ -324,14 +326,15 @@ export default function Files() {
     navigateTo(newPath)
   }
 
-  const handleFileClick = (entry: FileEntry) => {
+  const handleFileClick = async (entry: FileEntry) => {
     // Server caps /files/read at 5 MB. If the user clicks a larger file the
     // editor open path produces a confusing 400 even after the size warning;
     // route them to download instead — that's almost always what they meant.
     if (entry.size > editMaxBytes) {
-      const ok = window.confirm(
-        `이 파일은 ${Math.round(entry.size / 1024 / 1024)} MB로 편집기에서 열 수 없습니다 (최대 5 MB). 다운로드할까요?`,
-      )
+      const ok = await confirm({
+        title: `이 파일은 ${Math.round(entry.size / 1024 / 1024)} MB로 편집기에서 열 수 없습니다 (최대 5 MB). 다운로드할까요?`,
+        danger: true,
+      })
       if (ok) handleDownload(entry)
       return
     }
@@ -345,9 +348,10 @@ export default function Files() {
     // Defensive: if a code path bypasses handleFileClick (context menu, etc.)
     // and tries to open a too-large file, send it to download too.
     if (entry.size > editMaxBytes) {
-      const ok = window.confirm(
-        `이 파일은 ${Math.round(entry.size / 1024 / 1024)} MB로 편집기에서 열 수 없습니다 (최대 5 MB). 다운로드할까요?`,
-      )
+      const ok = await confirm({
+        title: `이 파일은 ${Math.round(entry.size / 1024 / 1024)} MB로 편집기에서 열 수 없습니다 (최대 5 MB). 다운로드할까요?`,
+        danger: true,
+      })
       if (ok) handleDownload(entry)
       return
     }

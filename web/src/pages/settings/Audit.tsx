@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import type { AuditLogEntry } from '@/types/api'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +14,7 @@ const selectCls = 'h-8 rounded-lg border border-border bg-card px-2 text-[12px]'
 
 export default function Audit() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
   const [auditTotal, setAuditTotal] = useState(0)
   const [auditPage, setAuditPage] = useState(1)
@@ -55,7 +57,7 @@ export default function Audit() {
               size="sm"
               className="rounded-xl text-[#f04452] hover:text-[#f04452]"
               onClick={async () => {
-                if (!window.confirm(t('settings.auditClearConfirm'))) return
+                if (!(await confirm({ title: t('settings.auditClearConfirm'), danger: true }))) return
                 try {
                   await api.clearAuditLogs()
                   setAuditLogs([])

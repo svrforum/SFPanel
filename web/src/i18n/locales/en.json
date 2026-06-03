@@ -23,7 +23,8 @@
     "back": "Back",
     "typeToConfirm": {
       "prompt": "To confirm, type:"
-    }
+    },
+    "confirm": "Confirm"
   },
   "layout": {
     "brand": "SFPanel",
@@ -580,6 +581,11 @@
       "deleteFailed": "Failed to delete project",
       "fetchFailed": "Failed to fetch compose projects",
       "path": "Path"
+    }
+  },
+  "compose": {
+    "healthcheck": {
+      "removeConfirm": "Remove the healthcheck for service {{service}}?"
     }
   },
   "sites": {

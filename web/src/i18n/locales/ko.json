@@ -23,7 +23,8 @@
     "back": "뒤로",
     "typeToConfirm": {
       "prompt": "확인하려면 다음을 입력하세요:"
-    }
+    },
+    "confirm": "확인"
   },
   "layout": {
     "brand": "SFPanel",
@@ -580,6 +581,11 @@
       "deleteFailed": "프로젝트 삭제 실패",
       "fetchFailed": "Compose 프로젝트 목록을 가져올 수 없습니다",
       "path": "경로"
+    }
+  },
+  "compose": {
+    "healthcheck": {
+      "removeConfirm": "{{service}} 서비스의 healthcheck를 제거하시겠습니까?"
     }
   },
   "sites": {

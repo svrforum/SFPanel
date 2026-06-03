@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   Dialog,
@@ -12,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { api } from '@/lib/api'
+import { useConfirm } from '@/components/ConfirmDialog'
 import type { HealthcheckSpec, HealthcheckTestType, HealthcheckTestResult } from '@/types/api'
 
 interface Props {
@@ -69,6 +71,8 @@ export function HealthcheckComposerDialog({
   baseYaml,
   onApplied,
 }: Props) {
+  const { t } = useTranslation()
+  const confirm = useConfirm()
   const [spec, setSpec] = useState<HealthcheckSpec>(DEFAULTS)
   const [hasExisting, setHasExisting] = useState(false)
   const [replace, setReplace] = useState(false)
@@ -190,7 +194,7 @@ export function HealthcheckComposerDialog({
 
   async function onRemove() {
     if (!hasExisting) return
-    if (!confirm(`${service} 서비스의 healthcheck를 제거하시겠습니까?`)) return
+    if (!(await confirm({ title: t('compose.healthcheck.removeConfirm', { service }), danger: true }))) return
     setRemoving(true)
     try {
       const baseHash = await sha256Hex(baseYaml)

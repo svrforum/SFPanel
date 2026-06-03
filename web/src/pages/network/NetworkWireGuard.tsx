@@ -25,6 +25,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
 import type { WireGuardStatus, WireGuardInterface } from '@/types/api'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -39,6 +40,7 @@ import {
 
 export default function NetworkWireGuard() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
 
   const [status, setStatus] = useState<WireGuardStatus | null>(null)
   const [interfaces, setInterfaces] = useState<WireGuardInterface[]>([])
@@ -270,7 +272,7 @@ export default function NetworkWireGuard() {
   }
 
   const handleRemovePeer = async (name: string, publicKey: string) => {
-    if (!window.confirm(t('network.wireguard.peers.removeConfirm', { name }))) return
+    if (!(await confirm({ title: t('network.wireguard.peers.removeConfirm', { name }), danger: true }))) return
     setRemovingPeer(publicKey)
     try {
       await api.removeWireGuardPeer(name, publicKey)

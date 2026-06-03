@@ -3,12 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { KeyRound, Copy, Check, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ClusterTokenInfo } from '@/types/api'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 
 export default function ClusterTokens() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [ttl, setTtl] = useState('24h')
   const [generating, setGenerating] = useState(false)
   const [token, setToken] = useState('')
@@ -45,7 +47,7 @@ export default function ClusterTokens() {
   }
 
   const handleRevoke = async (id: string) => {
-    if (!confirm(t('cluster.tokens.revokeConfirm'))) return
+    if (!(await confirm({ title: t('cluster.tokens.revokeConfirm'), danger: true }))) return
     try {
       await api.revokeClusterToken(id)
       toast.success(t('cluster.tokens.revoked'))

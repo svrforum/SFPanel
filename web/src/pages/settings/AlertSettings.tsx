@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -86,6 +87,7 @@ function getSeverityStyle(severity: string) {
 
 export default function AlertSettings() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
 
   // Channel state
   const [channels, setChannels] = useState<AlertChannel[]>([])
@@ -204,7 +206,7 @@ export default function AlertSettings() {
   }
 
   async function handleDeleteChannel(id: number) {
-    if (!window.confirm(t('settings.alerts.channels.confirmDelete'))) return
+    if (!(await confirm({ title: t('settings.alerts.channels.confirmDelete'), danger: true }))) return
     try {
       await api.request(`/alerts/channels/${id}`, { method: 'DELETE' })
       toast.success(t('settings.alerts.channels.successDeleted'))
@@ -289,7 +291,7 @@ export default function AlertSettings() {
   }
 
   async function handleDeleteRule(id: number) {
-    if (!window.confirm(t('settings.alerts.rules.confirmDelete'))) return
+    if (!(await confirm({ title: t('settings.alerts.rules.confirmDelete'), danger: true }))) return
     try {
       await api.request(`/alerts/rules/${id}`, { method: 'DELETE' })
       toast.success(t('settings.alerts.rules.successDeleted'))
@@ -301,7 +303,7 @@ export default function AlertSettings() {
 
   // History handlers
   async function handleClearHistory() {
-    if (!window.confirm(t('settings.alerts.history.confirmClear'))) return
+    if (!(await confirm({ title: t('settings.alerts.history.confirmClear'), danger: true }))) return
     try {
       await api.request('/alerts/history', { method: 'DELETE' })
       toast.success(t('settings.alerts.history.successCleared'))

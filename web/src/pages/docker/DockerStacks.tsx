@@ -10,6 +10,7 @@ import {
 import { HealthcheckComposerDialog } from '@/components/compose/HealthcheckComposerDialog'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { useConfirm } from '@/components/ConfirmDialog'
 import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck, RollbackInfo } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -72,6 +73,7 @@ function serviceBadge(state: string) {
 
 export default function DockerStacks() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const { name: selectedName } = useParams()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -446,7 +448,7 @@ export default function DockerStacks() {
       const curr = e.curr_image_id ? e.curr_image_id.substring(7, 19) : '?'
       return `  ${e.service}: ${curr} → ${prev}`
     }).join('\n') || ''
-    if (!confirm(`${t('docker.stacks.confirmRollback')}\n\n${detailLines}`)) return
+    if (!(await confirm({ title: t('docker.stacks.confirmRollback'), description: detailLines, danger: true }))) return
     setRollingBack(true)
     try {
       await api.rollbackStack(selectedName)

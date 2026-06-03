@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { api } from '@/lib/api'
 import Layout from '@/components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { ConfirmProvider } from '@/components/ConfirmDialog'
 
 // Lazy-loaded pages for code splitting
 const Login = lazy(() => import('@/pages/Login'))
@@ -124,6 +125,7 @@ export default function App() {
   return (
     <ErrorBoundary>
     <BrowserRouter>
+      <ConfirmProvider>
       <TauriGuard>
         <SetupGuard>
           <Suspense fallback={<PageLoader />}>
@@ -192,6 +194,7 @@ export default function App() {
           </Suspense>
         </SetupGuard>
       </TauriGuard>
+      </ConfirmProvider>
       <Toaster />
     </BrowserRouter>
     </ErrorBoundary>
