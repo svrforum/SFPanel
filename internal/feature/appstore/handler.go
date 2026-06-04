@@ -893,6 +893,16 @@ func (h *Handler) InstallApp(c echo.Context) error {
 	return nil
 }
 
+// composeDownArgs builds the `docker compose ... down` argument list. Volumes
+// (and thus app data) are removed only when keepData is false.
+func composeDownArgs(composePath string, keepData bool) []string {
+	args := []string{"compose", "-f", composePath, "down", "--remove-orphans"}
+	if !keepData {
+		args = append(args, "-v")
+	}
+	return args
+}
+
 // UninstallApp tears down an installed app: `docker compose down -v
 // --remove-orphans`, then removes the staging directory and the
 // appstore_installed_<id> settings row. Per-node action — the ?node=
@@ -905,6 +915,8 @@ func (h *Handler) UninstallApp(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "Invalid app ID")
 	}
 
+	keepData := c.QueryParam("keep_data") == "true"
+
 	stackDir := filepath.Join(h.ComposePath, id)
 	composePath := filepath.Join(stackDir, "docker-compose.yml")
 	if _, err := os.Stat(composePath); os.IsNotExist(err) {
@@ -915,7 +927,7 @@ func (h *Handler) UninstallApp(c echo.Context) error {
 	// is cancelled. On failure we deliberately leave the directory in place
 	// so the operator can inspect/retry rather than losing state to a
 	// half-completed teardown.
-	out, err := h.Cmd.RunCtx(c.Request().Context(), "docker", "compose", "-f", composePath, "down", "-v", "--remove-orphans")
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "docker", composeDownArgs(composePath, keepData)...)
 	if err != nil {
 		slog.Warn("appstore uninstall: compose down failed", "component", "appstore", "app_id", id, "error", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError,
