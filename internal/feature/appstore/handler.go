@@ -132,9 +132,10 @@ const (
 	// Catalog now lives in the main repo under /appstore (migrated from the
 	// separate SFPanel-appstore repo). Still fetched at runtime — a catalog-only
 	// commit to main updates every panel within the cache TTL, no release needed.
-	appStoreBaseURL = "https://raw.githubusercontent.com/svrforum/SFPanel/main/appstore/"
-	cacheTTL        = 1 * time.Hour
-	httpTimeout     = 30 * time.Second
+	appStoreBaseURL    = "https://raw.githubusercontent.com/svrforum/SFPanel/main/appstore/"
+	appStoreBundleFile = "catalog.json"
+	cacheTTL           = 1 * time.Hour
+	httpTimeout        = 30 * time.Second
 )
 
 var validAppID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,49}$`)
@@ -185,36 +186,29 @@ func (h *Handler) ensureCache() error {
 	if valid {
 		return nil
 	}
-	return h.refreshCache()
+	return h.refreshCache(false)
 }
 
-func (h *Handler) refreshCache() error {
-	h.refreshing.Lock()
-	defer h.refreshing.Unlock()
-
-	h.mu.RLock()
-	valid := !h.cachedAt.IsZero() && time.Since(h.cachedAt) < cacheTTL
-	h.mu.RUnlock()
-	if valid {
-		return nil
-	}
-
+// fetchCatalogLegacy is the pre-bundle fetch path: categories.json + index.json
+// + one metadata.json per app (concurrency-limited). Kept as a fallback for a
+// `main` that doesn't yet carry catalog.json.
+func (h *Handler) fetchCatalogLegacy() ([]AppStoreCategory, []AppStoreMeta, error) {
 	catData, err := h.httpGet(appStoreBaseURL + "categories.json")
 	if err != nil {
-		return fmt.Errorf("fetch categories: %w", err)
+		return nil, nil, fmt.Errorf("fetch categories: %w", err)
 	}
 	cats := make([]AppStoreCategory, 0)
 	if err := json.Unmarshal(catData, &cats); err != nil {
-		return fmt.Errorf("parse categories: %w", err)
+		return nil, nil, fmt.Errorf("parse categories: %w", err)
 	}
 
 	indexData, err := h.httpGet(appStoreBaseURL + "index.json")
 	if err != nil {
-		return fmt.Errorf("fetch index: %w", err)
+		return nil, nil, fmt.Errorf("fetch index: %w", err)
 	}
 	var appIDs []string
 	if err := json.Unmarshal(indexData, &appIDs); err != nil {
-		return fmt.Errorf("parse index: %w", err)
+		return nil, nil, fmt.Errorf("parse index: %w", err)
 	}
 
 	type metaResult struct {
@@ -224,16 +218,13 @@ func (h *Handler) refreshCache() error {
 	results := make([]metaResult, len(appIDs))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 5)
-
 	for i, appID := range appIDs {
 		wg.Add(1)
 		go func(idx int, id string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-
-			metaURL := appStoreBaseURL + "apps/" + id + "/metadata.json"
-			metaData, err := h.httpGet(metaURL)
+			metaData, err := h.httpGet(appStoreBaseURL + "apps/" + id + "/metadata.json")
 			if err != nil {
 				slog.Warn("skip app: fetch error", "component", "appstore", "app_id", id, "error", err)
 				return
@@ -256,6 +247,53 @@ func (h *Handler) refreshCache() error {
 		if r.ok {
 			apps = append(apps, r.meta)
 		}
+	}
+	return cats, apps, nil
+}
+
+// fetchCatalogBundle fetches the single bundled catalog.json. When force is set
+// a per-minute cache-bust query sidesteps the ~5-min raw.githubusercontent CDN
+// window.
+func (h *Handler) fetchCatalogBundle(force bool) ([]AppStoreCategory, []AppStoreMeta, error) {
+	url := appStoreBaseURL + appStoreBundleFile
+	if force {
+		url += fmt.Sprintf("?v=%d", time.Now().Unix()/60)
+	}
+	data, err := h.httpGet(url)
+	if err != nil {
+		return nil, nil, err
+	}
+	var bundle struct {
+		Categories []AppStoreCategory `json:"categories"`
+		Apps       []AppStoreMeta     `json:"apps"`
+	}
+	if err := json.Unmarshal(data, &bundle); err != nil {
+		return nil, nil, fmt.Errorf("parse catalog bundle: %w", err)
+	}
+	return bundle.Categories, bundle.Apps, nil
+}
+
+func (h *Handler) refreshCache(force bool) error {
+	h.refreshing.Lock()
+	defer h.refreshing.Unlock()
+
+	if !force {
+		h.mu.RLock()
+		valid := !h.cachedAt.IsZero() && time.Since(h.cachedAt) < cacheTTL
+		h.mu.RUnlock()
+		if valid {
+			return nil
+		}
+	}
+
+	cats, apps, err := h.fetchCatalogBundle(force)
+	if err != nil {
+		slog.Warn("appstore: bundle fetch failed, falling back to per-app walk",
+			"component", "appstore", "error", err)
+		cats, apps, err = h.fetchCatalogLegacy()
+	}
+	if err != nil {
+		return err
 	}
 
 	h.mu.Lock()
@@ -1066,7 +1104,7 @@ func (h *Handler) GetInstalled(c echo.Context) error {
 }
 
 func (h *Handler) RefreshCache(c echo.Context) error {
-	if err := h.refreshCache(); err != nil {
+	if err := h.refreshCache(true); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError, "Failed to refresh app store: "+err.Error())
 	}
 
