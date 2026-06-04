@@ -846,6 +846,12 @@ export interface AppStoreInstalledApp {
   icon?: string
 }
 
+export interface AppStoreStatus {
+  stale: boolean
+  cached_at: string
+  apps: number
+}
+
 // Cluster
 export interface ClusterNode {
   id: string

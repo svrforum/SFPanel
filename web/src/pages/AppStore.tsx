@@ -25,6 +25,7 @@ export default function AppStore() {
   const [sortBy, setSortBy] = useState<'featured' | 'name' | 'category'>('featured')
   const [installedOnly, setInstalledOnly] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [stale, setStale] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
   const [failedIcons, setFailedIcons] = useState<Set<string>>(new Set())
 
@@ -59,6 +60,7 @@ export default function AppStore() {
 
   useEffect(() => {
     loadData()
+    api.getAppStoreStatus().then((s) => setStale(s.stale)).catch(() => {})
   }, [loadData])
 
   const handleRetry = async () => {
@@ -77,6 +79,7 @@ export default function AppStore() {
     try {
       await api.refreshAppStore()
       toast.success(t('appStore.refreshSuccess'))
+      setStale(false)
       await loadData(selectedCategory)
     } catch {
       toast.error(t('appStore.loadFailed'))
@@ -106,6 +109,12 @@ export default function AppStore() {
 
   return (
     <div className="space-y-6">
+      {stale && (
+        <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 px-3 py-2 text-[13px] text-amber-600 ring-1 ring-amber-500/20">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{t('appStore.staleCatalog')}</span>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>

@@ -2214,6 +2214,7 @@
     "refresh": "Refresh",
     "refreshing": "Refreshing...",
     "refreshSuccess": "Catalog refreshed successfully",
+    "staleCatalog": "Offline — showing the last cached catalog. Press refresh to retry.",
     "all": "All",
     "featured": "Featured",
     "sortBy": "Sort by",

@@ -1750,6 +1750,10 @@ class ApiClient {
     return this.request<{ message: string; apps: number; categories: number }>('/appstore/refresh', { method: 'POST' })
   }
 
+  getAppStoreStatus() {
+    return this.request<import('@/types/api').AppStoreStatus>('/appstore/status')
+  }
+
   uninstallApp(id: string) {
     return this.request<{ message: string }>(`/appstore/apps/${id}`, { method: 'DELETE' })
   }

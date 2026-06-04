@@ -2214,6 +2214,7 @@
     "refresh": "새로고침",
     "refreshing": "새로고침 중...",
     "refreshSuccess": "카탈로그를 새로고침했습니다",
+    "staleCatalog": "오프라인 — 캐시된 카탈로그를 표시 중입니다. 새로고침을 눌러 다시 시도하세요.",
     "all": "전체",
     "featured": "추천",
     "sortBy": "정렬",
