@@ -103,6 +103,7 @@ type sseEvent struct {
 	Message string `json:"message"`
 	Done    bool   `json:"done"`
 	Success bool   `json:"success"`
+	Health  string `json:"health,omitempty"`
 }
 
 type refreshResult struct {
@@ -889,7 +890,9 @@ func (h *Handler) InstallApp(c echo.Context) error {
 		settingsKey, string(recordJSON),
 	)
 
-	send("done", "App installed successfully", true, true)
+	send("health", "Checking health...", false, true)
+	health := h.pollHealth(installCtx, composePath)
+	sendSSE(w, flusher, sseEvent{Stage: "done", Message: "App installed successfully", Done: true, Success: true, Health: health})
 	return nil
 }
 
@@ -943,6 +946,82 @@ func (h *Handler) UninstallApp(c echo.Context) error {
 	_, _ = h.DB.Exec("DELETE FROM settings WHERE key = ?", "appstore_installed_"+id)
 
 	return response.OK(c, map[string]string{"message": "App uninstalled successfully"})
+}
+
+type composePS struct {
+	Service string `json:"Service"`
+	State   string `json:"State"`
+	Health  string `json:"Health"`
+}
+
+func parseComposePS(s string) []composePS {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	var arr []composePS
+	if json.Unmarshal([]byte(s), &arr) == nil {
+		return arr
+	}
+	out := make([]composePS, 0)
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var p composePS
+		if json.Unmarshal([]byte(line), &p) == nil {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// classifyComposeHealth maps `docker compose ps --format json` to a coarse
+// signal: "healthy" (all services running, none mid-startup/unhealthy),
+// "starting" (something still coming up), or "unknown" (no parseable rows).
+func classifyComposeHealth(psJSON string) string {
+	svcs := parseComposePS(psJSON)
+	if len(svcs) == 0 {
+		return "unknown"
+	}
+	allHealthy := true
+	for _, s := range svcs {
+		state := strings.ToLower(s.State)
+		health := strings.ToLower(s.Health)
+		if health == "starting" || state == "restarting" || state == "created" {
+			return "starting"
+		}
+		if state != "running" || (health != "" && health != "healthy") {
+			allHealthy = false
+		}
+	}
+	if allHealthy {
+		return "healthy"
+	}
+	return "starting"
+}
+
+// pollHealth samples compose ps for up to ~15s, returning as soon as the stack
+// is healthy. Never blocks install success — worst case returns the last seen
+// classification ("starting"/"unknown").
+func (h *Handler) pollHealth(ctx context.Context, composePath string) string {
+	last := "unknown"
+	for i := 0; i < 5; i++ {
+		out, err := h.Cmd.RunCtx(ctx, "docker", "compose", "-f", composePath, "ps", "--format", "json")
+		if err == nil {
+			last = classifyComposeHealth(out)
+			if last == "healthy" {
+				return "healthy"
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return last
+		case <-time.After(3 * time.Second):
+		}
+	}
+	return last
 }
 
 func (h *Handler) streamCommand(ctx context.Context, w io.Writer, flusher http.Flusher, stage string, name string, args ...string) int {
