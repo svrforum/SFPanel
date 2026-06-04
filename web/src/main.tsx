@@ -19,6 +19,25 @@ window.addEventListener('vite:preloadError', (e) => {
   window.location.reload()
 })
 
+// Auto-reload to the newest deployed build. The service worker uses
+// registerType 'autoUpdate' (skipWaiting + clientsClaim), so a freshly deployed
+// version takes control of this tab and fires 'controllerchange'; reload so the
+// page runs the new assets instead of a stale cached shell. Guarded against the
+// first install (no prior controller) and reload loops. The 60s poll lets a
+// long-open tab pick up a deploy without the user manually refreshing.
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller
+  let reloading = false
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading || !hadController) return
+    reloading = true
+    window.location.reload()
+  })
+  navigator.serviceWorker.ready
+    .then((reg) => { setInterval(() => { void reg.update() }, 60_000) })
+    .catch(() => {})
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
