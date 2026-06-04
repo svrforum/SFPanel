@@ -1068,24 +1068,37 @@ func (h *Handler) streamCommand(ctx context.Context, w io.Writer, flusher http.F
 
 func (h *Handler) checkPortConflicts(meta *AppStoreMeta, envVals map[string]string) []string {
 	portsToCheck := make(map[int]bool)
-	for _, p := range meta.Ports {
-		portsToCheck[p] = true
+
+	// Resolve each port-type env var to its effective (user-supplied or default)
+	// value, and remember the set of their DEFAULTS. A meta.Ports entry equal to
+	// a port-env default is the *overridable* port — it's superseded by the env
+	// value below, so it must not be checked on its own. Otherwise changing the
+	// port to dodge a busy default would still fail on the stale default (the
+	// published port is the env value, not meta.Ports).
+	envDefaults := make(map[int]bool)
+	for _, envDef := range meta.Env {
+		if envDef.Type != "port" {
+			continue
+		}
+		if d := parsePort(envDef.Default); d > 0 {
+			envDefaults[d] = true
+		}
+		val := envDef.Default
+		if v, ok := envVals[envDef.Key]; ok && v != "" {
+			val = v
+		}
+		if port := parsePort(val); port > 0 {
+			portsToCheck[port] = true
+		}
 	}
 
-	for _, envDef := range meta.Env {
-		if envDef.Type == "port" {
-			val := ""
-			if v, ok := envVals[envDef.Key]; ok && v != "" {
-				val = v
-			} else if envDef.Default != "" {
-				val = envDef.Default
-			}
-			if val != "" {
-				if port := parsePort(val); port > 0 {
-					portsToCheck[port] = true
-				}
-			}
+	// Fixed ports declared in meta.Ports that aren't a port-env default (those
+	// are already represented by the resolved env value above).
+	for _, p := range meta.Ports {
+		if envDefaults[p] {
+			continue
 		}
+		portsToCheck[p] = true
 	}
 
 	conflicts := make([]string, 0)
