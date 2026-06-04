@@ -143,19 +143,27 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     term.loadAddon(unicode11Addon)
     term.unicode.activeVersion = '11'
     term.open(containerRef.current)
+    fitAddon.fit() // immediate baseline
 
-    // Debounced, layout-settled fit: measure the container only after the
-    // browser applies pending layout (rAF), so a keyboard-driven --app-h change
-    // or a just-loaded webfont can't make us compute the wrong row count — the
-    // cause of the big blank gap and broken scrollback on mobile.
-    let rafId = 0
+    // Time-debounced fit. The mobile soft keyboard fires a BURST of viewport
+    // resizes across its open/close animation; fitting on each one churns the
+    // PTY row count and leaves piles of blank rows (the "공백" after toggling the
+    // keyboard). Instead, fit once ~140ms after the size settles, skip it when
+    // the dimensions didn't actually change, and anchor to the bottom so no gap
+    // shows above the prompt.
+    let fitTimer = 0
     const safeFit = () => {
-      cancelAnimationFrame(rafId)
-      rafId = requestAnimationFrame(() => {
-        try { fitAddon.fit() } catch { /* container not laid out yet */ }
-      })
+      clearTimeout(fitTimer)
+      fitTimer = window.setTimeout(() => {
+        try {
+          const dims = fitAddon.proposeDimensions()
+          if (dims && (dims.rows !== term.rows || dims.cols !== term.cols)) {
+            fitAddon.fit()
+            term.scrollToBottom()
+          }
+        } catch { /* container not laid out yet */ }
+      }, 140)
     }
-    safeFit()
     // Re-fit once the monospace webfont is ready: its cell metrics differ from
     // the fallback, and fitting with fallback metrics yields a wrong row count.
     document.fonts?.ready.then(() => safeFit()).catch(() => {})
@@ -269,7 +277,7 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
 
     return () => {
       disposed = true
-      cancelAnimationFrame(rafId)
+      clearTimeout(fitTimer)
       ro.disconnect()
       window.removeEventListener('resize', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
