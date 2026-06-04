@@ -180,3 +180,18 @@ Need a new one? Add it to `categories.json` (`icon` is a
 5. **Install** — `docker-compose.yml` is downloaded to `/opt/stacks/<app-id>/`,
    `.env` is generated from the `env` defs, then `docker compose pull` + `up -d`
    stream over SSE.
+
+---
+
+## Catalog propagation & caching / 전파 및 캐싱
+
+Catalog edits on `main` are served from `raw.githubusercontent.com` and can take
+up to ~5 minutes to clear the GitHub CDN. The panel additionally caches the
+catalog for 1 hour. To pull changes immediately, use the **Refresh** button in
+the App Store (it forces a re-fetch and appends a cache-bust query).
+
+After editing any app, regenerate the bundle and commit it:
+
+```bash
+make appstore-catalog
+```
