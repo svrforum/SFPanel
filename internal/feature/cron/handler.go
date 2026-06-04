@@ -300,6 +300,48 @@ func (h *Handler) RunJob(c echo.Context) error {
 	return response.OK(c, resp)
 }
 
+type cronLogsResponse struct {
+	Source  string `json:"source"`
+	Content string `json:"content"`
+}
+
+// GetLogs returns recent cron daemon execution log lines (when jobs ran),
+// sourced from the journal (systemd) with a /var/log/syslog fallback. This is
+// the system cron log: it records executions, not each job's stdout (scheduled
+// output goes to mail or the command's own redirect). Per-node action — a
+// remote node without journald/syslog returns an empty log, not an error.
+func (h *Handler) GetLogs(c echo.Context) error {
+	const maxLines = 300
+
+	// Prefer journalctl: Ubuntu/Debian log the cron unit to the journal, and
+	// `-u cron` scopes output to cron without unrelated syslog noise.
+	if h.Cmd.Exists("journalctl") {
+		out, err := h.Cmd.RunWithTimeout(30*time.Second, "journalctl",
+			"-u", "cron", "-n", strconv.Itoa(maxLines), "--no-pager", "-o", "short-iso")
+		if err == nil {
+			trimmed := strings.TrimSpace(out)
+			if trimmed != "" && !strings.Contains(trimmed, "No entries") {
+				return response.OK(c, cronLogsResponse{
+					Source:  "journalctl -u cron",
+					Content: response.SanitizeLog(out),
+				})
+			}
+		}
+	}
+
+	// Fallback: extract CRON lines from syslog (the conventional rsyslog target).
+	out, err := h.Cmd.RunWithTimeout(30*time.Second, "sh", "-c",
+		"grep -a CRON /var/log/syslog 2>/dev/null | tail -n "+strconv.Itoa(maxLines))
+	if err == nil && strings.TrimSpace(out) != "" {
+		return response.OK(c, cronLogsResponse{
+			Source:  "/var/log/syslog",
+			Content: response.SanitizeLog(out),
+		})
+	}
+
+	return response.OK(c, cronLogsResponse{Source: "", Content: ""})
+}
+
 // readCrontab executes `crontab -l` and returns its output.
 func readCrontab(cmd exec.Commander) (string, error) {
 	out, err := cmd.Run("crontab", "-l")

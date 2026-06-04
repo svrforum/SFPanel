@@ -1269,7 +1269,11 @@
       "weekly": "일주일에 한 번",
       "monthly": "한 달에 한 번",
       "yearly": "일 년에 한 번"
-    }
+    },
+    "logs": "로그",
+    "logsTitle": "크론 로그",
+    "logsDescription": "최근 크론 실행 기록 (작업이 실행된 시점)",
+    "noLogs": "크론 로그가 없습니다."
   },
   "network": {
     "title": "네트워크 / VPN",

@@ -1060,6 +1060,9 @@ class ApiClient {
   runCronJob(id: number) {
     return this.request<{ output: string; success: boolean; error?: string }>(`/cron/${id}/run`, { method: 'POST' })
   }
+  getCronLogs() {
+    return this.request<{ source: string; content: string }>('/cron/logs')
+  }
 
   // Network
   getNetworkStatus() {

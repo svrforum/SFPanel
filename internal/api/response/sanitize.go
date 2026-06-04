@@ -26,3 +26,14 @@ func SanitizeOutput(output string) string {
 	}
 	return strings.TrimSpace(result)
 }
+
+// SanitizeLog strips ANSI escapes and redacts obvious secrets
+// (password/token/secret/key assignments) from multi-line log output, WITHOUT
+// the 500-char cap SanitizeOutput applies — log views are intentionally long.
+// It keeps filesystem paths intact (logs are more useful with them, and an
+// authenticated admin can already read them elsewhere).
+func SanitizeLog(output string) string {
+	result := ansiPattern.ReplaceAllString(output, "")
+	result = sensitivePattern.ReplaceAllString(result, "$1=***")
+	return strings.TrimSpace(result)
+}

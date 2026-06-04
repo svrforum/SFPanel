@@ -14,6 +14,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  ScrollText,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -96,6 +97,28 @@ export default function CronJobs() {
   // Delete dialog state
   const [deleteTarget, setDeleteTarget] = useState<CronJob | null>(null)
   const [showGuide, setShowGuide] = useState(false)
+
+  // Cron execution logs (system journal / syslog — when jobs ran)
+  const [logsOpen, setLogsOpen] = useState(false)
+  const [logsContent, setLogsContent] = useState('')
+  const [logsSource, setLogsSource] = useState('')
+  const [logsLoading, setLogsLoading] = useState(false)
+
+  const openLogs = useCallback(async () => {
+    setLogsOpen(true)
+    setLogsLoading(true)
+    try {
+      const res = await api.getCronLogs()
+      setLogsContent(res.content)
+      setLogsSource(res.source)
+    } catch (err) {
+      setLogsContent('')
+      setLogsSource('')
+      toast.error(err instanceof Error ? err.message : t('common.error'))
+    } finally {
+      setLogsLoading(false)
+    }
+  }, [t])
 
   const presets: SchedulePreset[] = [
     { label: t('cron.presetEveryMinute'), value: '* * * * *' },
@@ -244,6 +267,10 @@ export default function CronJobs() {
           <p className="text-[13px] text-muted-foreground mt-1">{t('cron.subtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={openLogs}>
+            <ScrollText />
+            {t('cron.logs')}
+          </Button>
           <Button variant="outline" size="sm" className="rounded-xl" onClick={fetchJobs} disabled={loading}>
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             {t('common.refresh')}
@@ -675,6 +702,35 @@ export default function CronJobs() {
               disabled={actionLoading === deleteTarget?.id}
             >
               {t('common.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cron execution logs dialog */}
+      <Dialog open={logsOpen} onOpenChange={setLogsOpen}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ScrollText className="h-4 w-4" />
+              {t('cron.logsTitle')}
+            </DialogTitle>
+            <DialogDescription>
+              {t('cron.logsDescription')}{logsSource ? ` · ${logsSource}` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="bg-zinc-950 text-zinc-100 rounded-xl p-4 max-h-[60vh] overflow-auto">
+            <pre className="text-[11px] font-mono whitespace-pre-wrap break-words">
+              {logsLoading ? t('common.loading') : (logsContent || t('cron.noLogs'))}
+            </pre>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={openLogs} disabled={logsLoading}>
+              <RefreshCw className={logsLoading ? 'animate-spin' : ''} />
+              {t('common.refresh')}
+            </Button>
+            <Button variant="outline" className="rounded-xl" onClick={() => setLogsOpen(false)}>
+              {t('common.close')}
             </Button>
           </DialogFooter>
         </DialogContent>

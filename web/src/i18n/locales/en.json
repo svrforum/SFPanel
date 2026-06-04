@@ -1269,7 +1269,11 @@
       "weekly": "Once a week",
       "monthly": "Once a month",
       "yearly": "Once a year"
-    }
+    },
+    "logs": "Logs",
+    "logsTitle": "Cron Logs",
+    "logsDescription": "Recent cron daemon executions (when jobs ran)",
+    "noLogs": "No cron logs found."
   },
   "network": {
     "title": "Network / VPN",
