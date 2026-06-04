@@ -262,8 +262,10 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
         e.preventDefault()
       }
     }
-    container?.addEventListener('touchstart', onTouchStart, { passive: true })
-    container?.addEventListener('touchmove', onTouchMove, { passive: false })
+    // Capture phase so we run before any xterm internal touch handler that
+    // might stopPropagation; passive:false on touchmove so preventDefault works.
+    container?.addEventListener('touchstart', onTouchStart, { capture: true, passive: true })
+    container?.addEventListener('touchmove', onTouchMove, { capture: true, passive: false })
 
     return () => {
       disposed = true
@@ -271,8 +273,8 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
       ro.disconnect()
       window.removeEventListener('resize', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
-      container?.removeEventListener('touchstart', onTouchStart)
-      container?.removeEventListener('touchmove', onTouchMove)
+      container?.removeEventListener('touchstart', onTouchStart, { capture: true })
+      container?.removeEventListener('touchmove', onTouchMove, { capture: true })
       wsCleanup?.()
       term.dispose()
     }
@@ -309,7 +311,10 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     <div
       ref={containerRef}
       className={cn(
-        'w-full h-full',
+        // touch-none: xterm v6's viewport isn't natively touch-scrollable, so we
+        // drive scrollback from a touch-drag handler (see the effect above) —
+        // disable the browser's own touch gestures here so they can't preempt it.
+        'w-full h-full touch-none',
         active ? 'block' : 'hidden'
       )}
     />
