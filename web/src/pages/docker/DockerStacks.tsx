@@ -767,13 +767,20 @@ export default function DockerStacks() {
                           <span className="text-[11px] text-[#f04452] shrink-0">{t('docker.stacks.registryError')}</span>
                         </>
                       ) : img.has_update ? (
-                        <>
-                          <span className="inline-block w-2 h-2 rounded-full bg-[#3182f6] shrink-0" />
-                          <span className="font-mono text-[12px] truncate min-w-0 flex-1" title={img.image}>{img.image}</span>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6] shrink-0">
-                            {t('docker.stacks.updateAvailable')}
-                          </span>
-                        </>
+                        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="inline-block w-2 h-2 rounded-full bg-[#3182f6] shrink-0" />
+                            <span className="font-mono text-[12px] truncate min-w-0 flex-1" title={img.image}>{img.image}</span>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6] shrink-0">
+                              {t('docker.stacks.updateAvailable')}
+                            </span>
+                          </div>
+                          {img.current_digest && img.remote_digest && (
+                            <span className="pl-4 font-mono text-[11px] text-muted-foreground truncate">
+                              {img.current_digest} → {img.remote_digest}
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <>
                           <CheckCircle2 className="h-3.5 w-3.5 text-[#00c471] shrink-0" />

@@ -615,7 +615,11 @@ export interface HealthcheckTestResult {
 // Docker - Image Update Status
 export interface ImageUpdateStatus {
   image: string
+  tag?: string
   current_id: string
+  current_digest?: string
+  remote_digest?: string
+  current_created?: string
   has_update: boolean
   error?: string
 }
