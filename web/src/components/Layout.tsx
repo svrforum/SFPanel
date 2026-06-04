@@ -97,9 +97,16 @@ export default function Layout() {
     apply()
     vv.addEventListener('resize', apply)
     vv.addEventListener('scroll', apply)
+    // Some mobile browsers (notably Samsung Internet) report a stale viewport
+    // height right after a load that happens while the soft keyboard is already
+    // open, and never fire a corrected 'resize' — leaving --app-h (and the
+    // terminal sized off it) wrong, which shows as a big blank gap. Re-read a
+    // few times so it settles to the real value.
+    const timers = [150, 350, 700, 1200].map((d) => window.setTimeout(apply, d))
     return () => {
       vv.removeEventListener('resize', apply)
       vv.removeEventListener('scroll', apply)
+      timers.forEach(clearTimeout)
     }
   }, [])
 

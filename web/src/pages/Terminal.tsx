@@ -275,6 +275,13 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     container?.addEventListener('touchstart', onTouchStart, { capture: true, passive: true })
     container?.addEventListener('touchmove', onTouchMove, { capture: true, passive: false })
 
+    // Re-fit when the terminal gains focus (user tapped to type). This
+    // self-corrects the size when the page loaded with the keyboard already up
+    // and the viewport-change events that normally drive the fit never fired —
+    // the second fit lands after the keyboard's open animation settles.
+    const onFocusIn = () => { safeFit(); window.setTimeout(safeFit, 400) }
+    container?.addEventListener('focusin', onFocusIn)
+
     return () => {
       disposed = true
       clearTimeout(fitTimer)
@@ -283,6 +290,7 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
       window.visualViewport?.removeEventListener('resize', handleResize)
       container?.removeEventListener('touchstart', onTouchStart, { capture: true })
       container?.removeEventListener('touchmove', onTouchMove, { capture: true })
+      container?.removeEventListener('focusin', onFocusIn)
       wsCleanup?.()
       term.dispose()
     }
