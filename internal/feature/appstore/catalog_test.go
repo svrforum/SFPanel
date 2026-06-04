@@ -1,6 +1,7 @@
 package appstore
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -134,5 +135,25 @@ func TestCatalogValid(t *testing.T) {
 		if !indexed[e.Name()] {
 			t.Errorf("app folder apps/%s/ is not listed in index.json (orphan)", e.Name())
 		}
+	}
+}
+
+// TestCatalogBundleUpToDate fails if appstore/catalog.json is stale relative
+// to the per-app source files. A contributor who edits an app must run
+// `make appstore-catalog` and commit the regenerated bundle.
+func TestCatalogBundleUpToDate(t *testing.T) {
+	if _, err := os.Stat(catalogDir); os.IsNotExist(err) {
+		t.Skipf("catalog directory %s not present; skipping", catalogDir)
+	}
+	want, err := os.ReadFile(filepath.Join(catalogDir, "catalog.json"))
+	if err != nil {
+		t.Fatalf("appstore/catalog.json missing or unreadable — run `make appstore-catalog` and commit: %v", err)
+	}
+	got, err := BuildCatalogBundle(catalogDir)
+	if err != nil {
+		t.Fatalf("BuildCatalogBundle: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatal("appstore/catalog.json is stale — run `make appstore-catalog` and commit the result")
 	}
 }
