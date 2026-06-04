@@ -365,7 +365,6 @@ export default function AppStore() {
                     {app.description[lang] || app.description['en'] || ''}
                   </p>
                   <div className="flex items-center gap-2 mt-2">
-                    <span className="text-[11px] text-muted-foreground">v{app.version}</span>
                     {app.ports.length > 0 && (
                       <span className="text-[11px] text-muted-foreground">
                         {t('appStore.port')}: {app.ports.join(', ')}

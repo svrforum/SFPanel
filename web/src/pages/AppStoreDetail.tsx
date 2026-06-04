@@ -521,9 +521,11 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                 </p>
 
                 <div className="flex flex-wrap items-center gap-2 mt-3">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-secondary/60 text-muted-foreground">
-                    v{detail.app.version}
-                  </span>
+                  {detail.installed && detail.installed_at ? (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-secondary/60 text-muted-foreground">
+                      {t('appStore.installedOn', { date: new Date(detail.installed_at).toLocaleDateString() })}
+                    </span>
+                  ) : null}
                   {detail.app.category && (
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-secondary/60 text-muted-foreground capitalize">
                       {detail.app.category}

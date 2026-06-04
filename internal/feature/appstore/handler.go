@@ -87,6 +87,7 @@ type appStoreAppDetail struct {
 	Readme        string       `json:"readme"`
 	ReadmeBaseURL string       `json:"readme_base_url,omitempty"`
 	Installed     bool         `json:"installed"`
+	InstalledAt   string       `json:"installed_at,omitempty"`
 	PortStatus    []portStatus `json:"port_status,omitempty"`
 }
 
@@ -634,12 +635,25 @@ func (h *Handler) GetApp(c echo.Context) error {
 		}
 	}
 
+	installed := h.isInstalled(id)
+	installedAt := ""
+	if installed {
+		var value string
+		if err := h.DB.QueryRow("SELECT value FROM settings WHERE key = ?", "appstore_installed_"+id).Scan(&value); err == nil {
+			var rec appStoreInstallRecord
+			if json.Unmarshal([]byte(value), &rec) == nil {
+				installedAt = rec.InstalledAt
+			}
+		}
+	}
+
 	detail := appStoreAppDetail{
 		App:           *found,
 		Compose:       string(composeResult.data),
 		Readme:        readmeResult.content,
 		ReadmeBaseURL: readmeResult.baseURL,
-		Installed:     h.isInstalled(id),
+		Installed:     installed,
+		InstalledAt:   installedAt,
 		PortStatus:    ports,
 	}
 

@@ -838,6 +838,7 @@ export interface AppStoreAppDetail {
   readme: string
   readme_base_url?: string
   installed: boolean
+  installed_at?: string
   port_status?: PortStatus[]
 }
 

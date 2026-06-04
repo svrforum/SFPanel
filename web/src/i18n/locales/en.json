@@ -2227,6 +2227,7 @@
     "searchPlaceholder": "Search apps...",
     "noApps": "No apps found",
     "installed": "Installed",
+    "installedOn": "Installed {{date}}",
     "updateAvailable": "Update available",
     "install": "Install",
     "installing": "Installing...",
