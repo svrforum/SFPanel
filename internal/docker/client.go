@@ -558,10 +558,42 @@ func (c *Client) InspectImage(ctx context.Context, id string) (image.InspectResp
 
 // ImageUpdateStatus holds update check result for a single image.
 type ImageUpdateStatus struct {
-	Image     string `json:"image"`
-	CurrentID string `json:"current_id"`
-	HasUpdate bool   `json:"has_update"`
-	Error     string `json:"error,omitempty"`
+	Image          string `json:"image"`
+	Tag            string `json:"tag,omitempty"`
+	CurrentID      string `json:"current_id"`
+	CurrentDigest  string `json:"current_digest,omitempty"`
+	RemoteDigest   string `json:"remote_digest,omitempty"`
+	CurrentCreated string `json:"current_created,omitempty"`
+	HasUpdate      bool   `json:"has_update"`
+	Error          string `json:"error,omitempty"`
+}
+
+func parseImageTag(ref string) string {
+	name := ref
+	if i := strings.LastIndex(name, "/"); i >= 0 {
+		name = name[i+1:]
+	}
+	if i := strings.LastIndex(name, ":"); i >= 0 {
+		return name[i+1:]
+	}
+	return "latest"
+}
+
+func shortSha(d string) string {
+	d = strings.TrimPrefix(d, "sha256:")
+	if len(d) > 12 {
+		return d[:12]
+	}
+	return d
+}
+
+func shortRepoDigest(repoDigests []string) string {
+	for _, rd := range repoDigests {
+		if i := strings.Index(rd, "@sha256:"); i >= 0 {
+			return shortSha(rd[i+1:])
+		}
+	}
+	return ""
 }
 
 // CheckImageUpdate checks if a newer version exists by comparing digests.
@@ -578,6 +610,9 @@ func (c *Client) CheckImageUpdate(ctx context.Context, imageRef string) (*ImageU
 		id = id[:12]
 	}
 	status.CurrentID = id
+	status.Tag = parseImageTag(imageRef)
+	status.CurrentDigest = shortRepoDigest(localInspect.RepoDigests)
+	status.CurrentCreated = localInspect.Created
 
 	// Use DistributionInspect to get remote digest without pulling
 	distInspect, err := c.cli.DistributionInspect(ctx, imageRef, "")
@@ -588,6 +623,7 @@ func (c *Client) CheckImageUpdate(ctx context.Context, imageRef string) (*ImageU
 	}
 
 	remoteDigest := string(distInspect.Descriptor.Digest)
+	status.RemoteDigest = shortSha(remoteDigest)
 	hasMatch := false
 	for _, d := range localInspect.RepoDigests {
 		if strings.Contains(d, remoteDigest) {
