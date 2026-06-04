@@ -180,6 +180,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
   const [advancedTab, setAdvancedTab] = useState<'compose' | 'env'>('compose')
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [uninstalling, setUninstalling] = useState(false)
+  const [keepData, setKeepData] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
   const getIconUrl = () => {
@@ -216,15 +217,18 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
     if (!detail) return
     const ok = await confirm({
       title: t('appStore.uninstallTitle', { name: detail.app.name }),
-      description: t('appStore.uninstallConfirm', { name: detail.app.name }),
+      description: keepData
+        ? t('appStore.uninstallConfirmKeep', { name: detail.app.name })
+        : t('appStore.uninstallConfirm', { name: detail.app.name }),
       confirmLabel: t('appStore.uninstall'),
       danger: true,
     })
     if (!ok) return
     setUninstalling(true)
     try {
-      await api.uninstallApp(detail.app.id)
+      await api.uninstallApp(detail.app.id, keepData)
       toast.success(t('appStore.uninstallSuccess', { name: detail.app.name }))
+      setKeepData(false)
       onInstalled()
       loadDetail()
     } catch {
@@ -538,6 +542,10 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                         <Check className="h-4 w-4" />
                         {t('appStore.installed')}
                       </span>
+                      <label className="flex items-center gap-2 text-[13px] text-muted-foreground mb-2 cursor-pointer">
+                        <input type="checkbox" checked={keepData} onChange={(e) => setKeepData(e.target.checked)} />
+                        {t('appStore.keepData')}
+                      </label>
                       <Button
                         variant="ghost"
                         size="sm"

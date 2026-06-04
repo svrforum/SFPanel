@@ -1754,8 +1754,9 @@ class ApiClient {
     return this.request<import('@/types/api').AppStoreStatus>('/appstore/status')
   }
 
-  uninstallApp(id: string) {
-    return this.request<{ message: string }>(`/appstore/apps/${id}`, { method: 'DELETE' })
+  uninstallApp(id: string, keepData = false) {
+    const q = keepData ? '?keep_data=true' : ''
+    return this.request<{ message: string }>(`/appstore/apps/${id}${q}`, { method: 'DELETE' })
   }
 
   // Cluster

@@ -2278,6 +2278,8 @@
     "uninstall": "제거",
     "uninstallTitle": "{{name}} 제거",
     "uninstallConfirm": "{{name}} 스택을 제거하고 데이터 볼륨을 삭제합니다. 되돌릴 수 없습니다.",
+    "uninstallConfirmKeep": "{{name}}을(를) 제거하되 데이터 볼륨은 유지할까요?",
+    "keepData": "데이터 볼륨 유지 (앱 데이터를 삭제하지 않음)",
     "uninstallSuccess": "{{name}} 을(를) 제거했습니다",
     "uninstallFailed": "제거에 실패했습니다"
   }

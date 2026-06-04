@@ -2278,6 +2278,8 @@
     "uninstall": "Uninstall",
     "uninstallTitle": "Uninstall {{name}}",
     "uninstallConfirm": "This removes the {{name}} stack and deletes its data volumes. This cannot be undone.",
+    "uninstallConfirmKeep": "Remove {{name}} but keep its data volumes?",
+    "keepData": "Keep data volumes (don't delete app data)",
     "uninstallSuccess": "{{name}} has been uninstalled",
     "uninstallFailed": "Uninstall failed"
   }
