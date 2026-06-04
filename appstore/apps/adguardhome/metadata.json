@@ -1,0 +1,39 @@
+{
+  "id": "adguardhome",
+  "name": "AdGuard Home",
+  "description": {
+    "ko": "네트워크 전체 광고/트래커 차단 DNS 서버. 포트 53(DNS)이 비어 있어야 합니다 (systemd-resolved 등과 충돌 시 해당 서비스를 중지하세요). 설치 후 웹 UI 포트로 접속해 초기 설정을 진행합니다.",
+    "en": "Network-wide ad and tracker blocking DNS server. Port 53 (DNS) must be free (stop conflicting services such as systemd-resolved). After install, open the web UI port to run initial setup."
+  },
+  "category": "network",
+  "version": "1.0.0",
+  "website": "https://adguard.com/adguard-home/overview.html",
+  "source": "https://github.com/AdguardTeam/AdGuardHome",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/adguard-home.svg",
+  "ports": [3000, 53],
+  "features": [
+    {
+      "title": { "ko": "광고 차단", "en": "Ad blocking" },
+      "description": { "ko": "네트워크 전체 광고 및 트래커를 DNS 수준에서 차단합니다", "en": "Block ads and trackers network-wide at the DNS level" },
+      "icon": "🛡️"
+    },
+    {
+      "title": { "ko": "DNS 암호화", "en": "Encrypted DNS" },
+      "description": { "ko": "DNS-over-HTTPS, DNS-over-TLS, DNSCrypt를 지원합니다", "en": "Supports DNS-over-HTTPS, DNS-over-TLS, and DNSCrypt" },
+      "icon": "🔒"
+    },
+    {
+      "title": { "ko": "통계 대시보드", "en": "Statistics dashboard" },
+      "description": { "ko": "쿼리 로그, 차단률, 클라이언트별 통계를 확인합니다", "en": "View query logs, block rates, and per-client statistics" },
+      "icon": "📊"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "웹 UI 포트", "en": "Web UI Port" },
+      "type": "port",
+      "default": "3000"
+    }
+  ]
+}

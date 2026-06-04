@@ -1,0 +1,39 @@
+{
+  "id": "jellyseerr",
+  "name": "Jellyseerr",
+  "description": {
+    "ko": "Jellyfin/Plex용 미디어 요청 관리 도구",
+    "en": "Media request manager for Jellyfin/Plex"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://docs.jellyseerr.dev",
+  "source": "https://github.com/fallenbagel/jellyseerr",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/jellyseerr.svg",
+  "ports": [5055],
+  "features": [
+    {
+      "title": { "ko": "미디어 요청", "en": "Media requests" },
+      "description": { "ko": "사용자가 보고 싶은 영화/TV를 직접 요청", "en": "Let users request movies and TV shows they want to watch" },
+      "icon": "🎯"
+    },
+    {
+      "title": { "ko": "*arr 연동", "en": "*arr integration" },
+      "description": { "ko": "Sonarr/Radarr로 요청 자동 전달", "en": "Forward requests automatically to Sonarr/Radarr" },
+      "icon": "🔗"
+    },
+    {
+      "title": { "ko": "사용자 관리", "en": "User management" },
+      "description": { "ko": "Jellyfin/Plex 계정 연동 및 권한 관리", "en": "Link Jellyfin/Plex accounts and manage permissions" },
+      "icon": "👥"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "5055"
+    }
+  ]
+}

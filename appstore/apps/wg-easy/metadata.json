@@ -1,0 +1,51 @@
+{
+  "id": "wg-easy",
+  "name": "wg-easy",
+  "description": {
+    "ko": "웹 UI로 관리하는 WireGuard VPN 서버. 클라이언트 추가/삭제, QR 코드 생성을 지원합니다.",
+    "en": "WireGuard VPN server with a web UI. Add/remove clients and generate QR codes."
+  },
+  "category": "network",
+  "version": "1.0.0",
+  "website": "https://github.com/wg-easy/wg-easy",
+  "source": "https://github.com/wg-easy/wg-easy",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/wireguard.svg",
+  "ports": [51821, 51820],
+  "features": [
+    {
+      "title": { "ko": "웹 UI 관리", "en": "Web UI management" },
+      "description": { "ko": "직관적인 웹 인터페이스로 VPN을 관리합니다", "en": "Manage the VPN through an intuitive web interface" },
+      "icon": "🖥️"
+    },
+    {
+      "title": { "ko": "QR 코드", "en": "QR code" },
+      "description": { "ko": "모바일 클라이언트용 QR 코드를 즉시 생성합니다", "en": "Instantly generate QR codes for mobile clients" },
+      "icon": "📱"
+    },
+    {
+      "title": { "ko": "고성능 VPN", "en": "High-performance VPN" },
+      "description": { "ko": "WireGuard 커널 암호화로 빠르고 안전한 연결을 제공합니다", "en": "Fast, secure connections with WireGuard kernel-level encryption" },
+      "icon": "⚡"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "웹 UI 포트", "en": "Web UI Port" },
+      "type": "port",
+      "default": "51821"
+    },
+    {
+      "key": "WG_HOST",
+      "label": { "ko": "서버 공인 IP 또는 도메인", "en": "Server Public IP or Domain" },
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "PASSWORD_HASH",
+      "label": { "ko": "웹 UI 비밀번호 bcrypt 해시 ($는 $$로 이스케이프)", "en": "Web UI password bcrypt hash (escape $ as $$)" },
+      "type": "text",
+      "required": true
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+services:
+  rocketchat:
+    image: rocket.chat:latest
+    container_name: rocketchat
+    restart: unless-stopped
+    environment:
+      - MONGO_URL=mongodb://rocketchat-mongo:27017/rocketchat?replicaSet=rs0
+      - MONGO_OPLOG_URL=mongodb://rocketchat-mongo:27017/local?replicaSet=rs0
+      - ROOT_URL=http://localhost:${PORT:-3000}
+      - PORT=3000
+    ports:
+      - "${PORT:-3000}:3000"
+    depends_on:
+      rocketchat-mongo:
+        condition: service_healthy
+
+  rocketchat-mongo:
+    image: mongo:6
+    container_name: rocketchat-mongo
+    restart: unless-stopped
+    command: mongod --replSet rs0 --bind_ip_all --oplogSize 128
+    volumes:
+      - rocketchat-mongo-data:/data/db
+      - rocketchat-mongo-config:/data/configdb
+    # Self-initialize the single-node replica set on first healthy boot.
+    # rs.initiate() is idempotent-guarded; once rs0 exists it is a no-op.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet --eval \"try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'rocketchat-mongo:27017' }] }).ok }\" | grep -q 1",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+
+volumes:
+  rocketchat-mongo-data:
+  rocketchat-mongo-config:

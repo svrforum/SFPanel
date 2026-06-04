@@ -1,0 +1,14 @@
+services:
+  glance:
+    image: glanceapp/glance:latest
+    container_name: glance
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Seoul
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      - glance-config:/app/config
+
+volumes:
+  glance-config:

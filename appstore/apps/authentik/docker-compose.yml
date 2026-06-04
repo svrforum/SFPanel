@@ -1,0 +1,64 @@
+services:
+  authentik-server:
+    image: ghcr.io/goauthentik/server:latest
+    container_name: authentik
+    restart: unless-stopped
+    command: server
+    ports:
+      - "${PORT:-9000}:9000"
+    environment:
+      - AUTHENTIK_SECRET_KEY=${SECRET_KEY}
+      - AUTHENTIK_POSTGRESQL__HOST=authentik-db
+      - AUTHENTIK_POSTGRESQL__USER=authentik
+      - AUTHENTIK_POSTGRESQL__NAME=authentik
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${PG_PASS}
+      - AUTHENTIK_REDIS__HOST=authentik-redis
+    volumes:
+      - authentik-media:/media
+      - authentik-certs:/certs
+    depends_on:
+      - authentik-db
+      - authentik-redis
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:latest
+    container_name: authentik-worker
+    restart: unless-stopped
+    command: worker
+    environment:
+      - AUTHENTIK_SECRET_KEY=${SECRET_KEY}
+      - AUTHENTIK_POSTGRESQL__HOST=authentik-db
+      - AUTHENTIK_POSTGRESQL__USER=authentik
+      - AUTHENTIK_POSTGRESQL__NAME=authentik
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${PG_PASS}
+      - AUTHENTIK_REDIS__HOST=authentik-redis
+    volumes:
+      - authentik-media:/media
+      - authentik-certs:/certs
+    depends_on:
+      - authentik-db
+      - authentik-redis
+
+  authentik-db:
+    image: postgres:16-alpine
+    container_name: authentik-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_PASSWORD=${PG_PASS}
+      - POSTGRES_USER=authentik
+      - POSTGRES_DB=authentik
+    volumes:
+      - authentik-db-data:/var/lib/postgresql/data
+
+  authentik-redis:
+    image: redis:alpine
+    container_name: authentik-redis
+    restart: unless-stopped
+    volumes:
+      - authentik-redis-data:/data
+
+volumes:
+  authentik-media:
+  authentik-certs:
+  authentik-db-data:
+  authentik-redis-data:

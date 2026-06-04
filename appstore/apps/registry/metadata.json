@@ -1,0 +1,39 @@
+{
+  "id": "registry",
+  "name": "Docker Registry",
+  "description": {
+    "ko": "셀프 호스팅 비공개 Docker 이미지 레지스트리. 기본은 인증이 없으므로 인증을 적용한 리버스 프록시 뒤에 배치하세요",
+    "en": "Self-hosted private Docker image registry. Unauthenticated by default - put it behind a reverse proxy with auth"
+  },
+  "category": "dev",
+  "version": "1.0.0",
+  "website": "https://distribution.github.io/distribution",
+  "source": "https://github.com/distribution/distribution",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/docker.svg",
+  "ports": [5000],
+  "features": [
+    {
+      "title": { "ko": "비공개 이미지 저장", "en": "Private image storage" },
+      "description": { "ko": "컨테이너 이미지를 자체 인프라에 저장", "en": "Store container images on your own infrastructure" },
+      "icon": "📦"
+    },
+    {
+      "title": { "ko": "이미지 삭제 지원", "en": "Image deletion enabled" },
+      "description": { "ko": "사용하지 않는 이미지를 삭제해 공간 회수", "en": "Delete unused images to reclaim storage" },
+      "icon": "🗑️"
+    },
+    {
+      "title": { "ko": "표준 Docker API", "en": "Standard Docker API" },
+      "description": { "ko": "docker push/pull과 완전 호환", "en": "Fully compatible with docker push/pull" },
+      "icon": "🔌"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "5000"
+    }
+  ]
+}

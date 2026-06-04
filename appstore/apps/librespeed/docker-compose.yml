@@ -1,0 +1,16 @@
+services:
+  librespeed:
+    image: lscr.io/linuxserver/librespeed:latest
+    container_name: librespeed
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Seoul
+    ports:
+      - "${PORT:-8095}:80"
+    volumes:
+      - librespeed-config:/config
+
+volumes:
+  librespeed-config:

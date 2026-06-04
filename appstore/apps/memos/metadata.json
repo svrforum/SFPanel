@@ -1,0 +1,39 @@
+{
+  "id": "memos",
+  "name": "Memos",
+  "description": {
+    "ko": "가볍고 빠른 셀프 호스팅 메모/노트 허브",
+    "en": "Lightweight, privacy-first self-hosted memo and note hub"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://www.usememos.com",
+  "source": "https://github.com/usememos/memos",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/memos.svg",
+  "ports": [5230],
+  "features": [
+    {
+      "title": { "ko": "마크다운 지원", "en": "Markdown support" },
+      "description": { "ko": "마크다운으로 빠르게 메모 작성", "en": "Write notes quickly with Markdown" },
+      "icon": "📝"
+    },
+    {
+      "title": { "ko": "프라이버시 우선", "en": "Privacy first" },
+      "description": { "ko": "모든 데이터를 직접 보관하고 제어", "en": "Keep and control all your data yourself" },
+      "icon": "🔒"
+    },
+    {
+      "title": { "ko": "가벼운 설치", "en": "Lightweight" },
+      "description": { "ko": "단일 컨테이너로 빠르게 실행", "en": "Runs fast as a single container" },
+      "icon": "⚡"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "5230"
+    }
+  ]
+}

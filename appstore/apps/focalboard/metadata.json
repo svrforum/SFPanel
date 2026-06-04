@@ -1,0 +1,39 @@
+{
+  "id": "focalboard",
+  "name": "Focalboard",
+  "description": {
+    "ko": "셀프 호스팅 프로젝트 및 칸반 보드 (Notion/Trello 대안)",
+    "en": "Self-hosted project and kanban boards (Notion/Trello alternative)"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://www.focalboard.com",
+  "source": "https://github.com/mattermost/focalboard",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/focalboard.svg",
+  "ports": [8000],
+  "features": [
+    {
+      "title": { "ko": "칸반 보드", "en": "Kanban boards" },
+      "description": { "ko": "드래그 앤 드롭으로 작업을 시각적으로 관리", "en": "Manage tasks visually with drag-and-drop" },
+      "icon": "📊"
+    },
+    {
+      "title": { "ko": "다양한 보기", "en": "Multiple views" },
+      "description": { "ko": "보드, 테이블, 갤러리, 캘린더 보기 지원", "en": "Board, table, gallery and calendar views" },
+      "icon": "🗂️"
+    },
+    {
+      "title": { "ko": "템플릿", "en": "Templates" },
+      "description": { "ko": "내장 템플릿으로 빠르게 시작", "en": "Get started fast with built-in templates" },
+      "icon": "📋"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8000"
+    }
+  ]
+}

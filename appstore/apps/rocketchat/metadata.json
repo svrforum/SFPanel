@@ -1,0 +1,39 @@
+{
+  "id": "rocketchat",
+  "name": "Rocket.Chat",
+  "description": {
+    "ko": "셀프 호스팅 팀 채팅 플랫폼 (Slack 대안) - 채널, DM, 영상 통화 지원",
+    "en": "Self-hosted team chat platform (Slack alternative) with channels, DMs, and video calls"
+  },
+  "category": "communication",
+  "version": "1.0.0",
+  "website": "https://rocket.chat",
+  "source": "https://github.com/RocketChat/Rocket.Chat",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/rocket-chat.svg",
+  "ports": [3000],
+  "features": [
+    {
+      "title": { "ko": "실시간 채팅", "en": "Real-time chat" },
+      "description": { "ko": "채널, 그룹, 1:1 다이렉트 메시지", "en": "Channels, groups, and one-to-one direct messages" },
+      "icon": "💬"
+    },
+    {
+      "title": { "ko": "음성/영상 통화", "en": "Voice and video calls" },
+      "description": { "ko": "내장된 음성 및 영상 회의 기능", "en": "Built-in voice and video conferencing" },
+      "icon": "📞"
+    },
+    {
+      "title": { "ko": "확장과 연동", "en": "Apps and integrations" },
+      "description": { "ko": "앱 마켓플레이스와 웹훅으로 워크플로우 연동", "en": "Extend workflows with the app marketplace and webhooks" },
+      "icon": "🔌"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "3000"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "id": "mattermost",
+  "name": "Mattermost",
+  "description": {
+    "ko": "셀프 호스팅 팀 협업 플랫폼 (Slack 대안) - 메시징, 파일 공유, 통합",
+    "en": "Self-hosted team collaboration platform (Slack alternative) with messaging, file sharing, and integrations"
+  },
+  "category": "communication",
+  "version": "1.0.0",
+  "website": "https://mattermost.com",
+  "source": "https://github.com/mattermost/mattermost",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/mattermost.svg",
+  "ports": [8065],
+  "features": [
+    {
+      "title": { "ko": "채널 메시징", "en": "Channel messaging" },
+      "description": { "ko": "공개/비공개 채널과 다이렉트 메시지", "en": "Public/private channels and direct messages" },
+      "icon": "💬"
+    },
+    {
+      "title": { "ko": "파일 공유", "en": "File sharing" },
+      "description": { "ko": "파일과 코드 스니펫을 드래그 앤 드롭으로 공유", "en": "Drag-and-drop file and code snippet sharing" },
+      "icon": "📎"
+    },
+    {
+      "title": { "ko": "통합과 봇", "en": "Integrations and bots" },
+      "description": { "ko": "슬래시 명령어, 웹훅, 봇으로 워크플로우 자동화", "en": "Automate workflows with slash commands, webhooks, and bots" },
+      "icon": "🤖"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8065"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "label": { "ko": "DB 비밀번호", "en": "DB Password" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

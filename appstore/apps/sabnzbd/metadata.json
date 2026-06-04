@@ -1,0 +1,39 @@
+{
+  "id": "sabnzbd",
+  "name": "SABnzbd",
+  "description": {
+    "ko": "웹 기반 Usenet(NZB) 다운로더",
+    "en": "Web-based Usenet (NZB) downloader"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://sabnzbd.org",
+  "source": "https://github.com/sabnzbd/sabnzbd",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/sabnzbd.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "자동 다운로드", "en": "Automatic download" },
+      "description": { "ko": "NZB 파일을 자동으로 다운로드 및 처리", "en": "Automatically download and process NZB files" },
+      "icon": "📥"
+    },
+    {
+      "title": { "ko": "자동 압축 해제", "en": "Auto extraction" },
+      "description": { "ko": "다운로드 후 자동 압축 해제 및 정리", "en": "Automatically extract and tidy up after download" },
+      "icon": "🗜️"
+    },
+    {
+      "title": { "ko": "*arr 연동", "en": "*arr integration" },
+      "description": { "ko": "Sonarr/Radarr의 다운로드 클라이언트로 연동", "en": "Integrate as a download client for Sonarr/Radarr" },
+      "icon": "🔗"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    }
+  ]
+}

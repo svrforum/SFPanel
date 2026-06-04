@@ -1,0 +1,53 @@
+{
+  "id": "firefly-iii",
+  "name": "Firefly III",
+  "description": {
+    "ko": "셀프 호스팅 개인 재무 관리 도구",
+    "en": "Self-hosted personal finance manager"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://www.firefly-iii.org",
+  "source": "https://github.com/firefly-iii/firefly-iii",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/firefly-iii.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "예산 관리", "en": "Budgeting" },
+      "description": { "ko": "예산과 카테고리로 지출을 체계적으로 관리", "en": "Manage spending with budgets and categories" },
+      "icon": "💰"
+    },
+    {
+      "title": { "ko": "자동 규칙", "en": "Automation rules" },
+      "description": { "ko": "규칙으로 거래를 자동 분류 및 처리", "en": "Auto-categorize transactions with rules" },
+      "icon": "⚙️"
+    },
+    {
+      "title": { "ko": "리포트", "en": "Reports" },
+      "description": { "ko": "수입/지출/순자산 추이를 차트로 분석", "en": "Analyze income, expenses and net worth in charts" },
+      "icon": "📈"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    },
+    {
+      "key": "APP_KEY",
+      "label": { "ko": "앱 키 (32자)", "en": "App Key (32 chars)" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    },
+    {
+      "key": "DB_PASSWORD",
+      "label": { "ko": "DB 비밀번호", "en": "DB Password" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

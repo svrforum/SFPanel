@@ -1,0 +1,52 @@
+{
+  "id": "wallabag",
+  "name": "Wallabag",
+  "description": {
+    "ko": "셀프 호스팅 나중에 읽기 / 아티클 저장 서비스",
+    "en": "Self-hosted read-it-later and article saver"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://wallabag.org",
+  "source": "https://github.com/wallabag/wallabag",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/wallabag.svg",
+  "ports": [80],
+  "features": [
+    {
+      "title": { "ko": "아티클 저장", "en": "Save articles" },
+      "description": { "ko": "웹 아티클을 깔끔하게 저장하고 나중에 읽기", "en": "Save web articles cleanly and read them later" },
+      "icon": "📑"
+    },
+    {
+      "title": { "ko": "광고 제거", "en": "Clean reading" },
+      "description": { "ko": "광고와 잡음을 제거한 본문만 표시", "en": "Strip ads and clutter to show just the content" },
+      "icon": "✨"
+    },
+    {
+      "title": { "ko": "다양한 내보내기", "en": "Export options" },
+      "description": { "ko": "EPUB, PDF, 모바일 앱 등으로 내보내기", "en": "Export to EPUB, PDF and mobile apps" },
+      "icon": "📤"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "80"
+    },
+    {
+      "key": "DOMAIN_NAME",
+      "label": { "ko": "도메인 URL", "en": "Domain URL" },
+      "type": "text",
+      "default": "http://localhost"
+    },
+    {
+      "key": "SECRET",
+      "label": { "ko": "시크릿 키", "en": "Secret Key" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

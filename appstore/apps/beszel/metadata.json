@@ -1,0 +1,39 @@
+{
+  "id": "beszel",
+  "name": "Beszel",
+  "description": {
+    "ko": "이력 기반 메트릭을 제공하는 가벼운 서버 모니터링 허브 (에이전트는 별도 등록)",
+    "en": "Lightweight server monitoring hub with historical metrics (agents added separately)"
+  },
+  "category": "monitoring",
+  "version": "1.0.0",
+  "website": "https://beszel.dev",
+  "source": "https://github.com/henrygd/beszel",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/beszel.svg",
+  "ports": [8090],
+  "features": [
+    {
+      "title": { "ko": "이력 메트릭", "en": "Historical metrics" },
+      "description": { "ko": "CPU, 메모리, 디스크, 네트워크 사용량을 이력으로 기록", "en": "Record CPU, memory, disk and network usage over time" },
+      "icon": "📊"
+    },
+    {
+      "title": { "ko": "경량 허브", "en": "Lightweight hub" },
+      "description": { "ko": "낮은 리소스로 여러 서버를 한곳에서 모니터링", "en": "Monitor many servers from one place with low overhead" },
+      "icon": "🪶"
+    },
+    {
+      "title": { "ko": "알림", "en": "Alerts" },
+      "description": { "ko": "임계값 초과 시 이메일/푸시 알림 전송", "en": "Send email/push alerts when thresholds are exceeded" },
+      "icon": "🔔"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8090"
+    }
+  ]
+}

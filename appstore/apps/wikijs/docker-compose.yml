@@ -1,0 +1,30 @@
+services:
+  wikijs:
+    image: requarks/wiki:2
+    container_name: wikijs
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - DB_TYPE=postgres
+      - DB_HOST=wikijs-db
+      - DB_PORT=5432
+      - DB_USER=wikijs
+      - DB_PASS=${DB_PASSWORD}
+      - DB_NAME=wiki
+    depends_on:
+      - wikijs-db
+
+  wikijs-db:
+    image: postgres:16-alpine
+    container_name: wikijs-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=wikijs
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=wiki
+    volumes:
+      - wikijs-db-data:/var/lib/postgresql/data
+
+volumes:
+  wikijs-db-data:

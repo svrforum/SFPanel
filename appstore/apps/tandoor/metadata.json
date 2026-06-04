@@ -1,0 +1,53 @@
+{
+  "id": "tandoor",
+  "name": "Tandoor Recipes",
+  "description": {
+    "ko": "셀프 호스팅 레시피 및 식단 관리 도구",
+    "en": "Self-hosted recipe and meal planning manager"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://tandoor.dev",
+  "source": "https://github.com/TandoorRecipes/recipes",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/tandoor.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "레시피 관리", "en": "Recipe management" },
+      "description": { "ko": "레시피를 정리하고 태그로 분류", "en": "Organize and tag your recipes" },
+      "icon": "🍳"
+    },
+    {
+      "title": { "ko": "식단 계획", "en": "Meal planning" },
+      "description": { "ko": "주간 식단을 계획하고 장보기 목록 생성", "en": "Plan weekly meals and generate shopping lists" },
+      "icon": "📅"
+    },
+    {
+      "title": { "ko": "레시피 가져오기", "en": "Recipe import" },
+      "description": { "ko": "웹사이트에서 레시피를 자동으로 가져오기", "en": "Import recipes automatically from websites" },
+      "icon": "📥"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    },
+    {
+      "key": "SECRET_KEY",
+      "label": { "ko": "시크릿 키", "en": "Secret Key" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    },
+    {
+      "key": "DB_PASSWORD",
+      "label": { "ko": "DB 비밀번호", "en": "DB Password" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

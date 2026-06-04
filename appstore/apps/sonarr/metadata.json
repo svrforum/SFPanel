@@ -1,0 +1,39 @@
+{
+  "id": "sonarr",
+  "name": "Sonarr",
+  "description": {
+    "ko": "TV 시리즈 자동 다운로드 및 관리 (PVR)",
+    "en": "TV series PVR for automatic download and management"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://sonarr.tv",
+  "source": "https://github.com/Sonarr/Sonarr",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/sonarr.svg",
+  "ports": [8989],
+  "features": [
+    {
+      "title": { "ko": "자동 다운로드", "en": "Automatic download" },
+      "description": { "ko": "새 에피소드 방영 시 자동으로 검색 및 다운로드", "en": "Automatically search and download new episodes as they air" },
+      "icon": "📺"
+    },
+    {
+      "title": { "ko": "품질 관리", "en": "Quality management" },
+      "description": { "ko": "원하는 화질로 자동 업그레이드", "en": "Automatically upgrade to your preferred quality" },
+      "icon": "🎚️"
+    },
+    {
+      "title": { "ko": "캘린더", "en": "Calendar" },
+      "description": { "ko": "방영 일정 캘린더로 한눈에 확인", "en": "View airing schedules at a glance in a calendar" },
+      "icon": "📅"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8989"
+    }
+  ]
+}

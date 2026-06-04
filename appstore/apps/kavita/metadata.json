@@ -1,0 +1,39 @@
+{
+  "id": "kavita",
+  "name": "Kavita",
+  "description": {
+    "ko": "셀프 호스팅 디지털 라이브러리 - 만화, 코믹, 전자책을 빠르게 읽고 관리",
+    "en": "Self-hosted digital library to read and manage comics, manga, and ebooks"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://www.kavitareader.com",
+  "source": "https://github.com/Kareadita/Kavita",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/kavita.svg",
+  "ports": [5000],
+  "features": [
+    {
+      "title": { "ko": "다양한 포맷 지원", "en": "Many formats supported" },
+      "description": { "ko": "CBZ, CBR, EPUB, PDF 등 폭넓게 지원", "en": "Broad support for CBZ, CBR, EPUB, PDF, and more" },
+      "icon": "📚"
+    },
+    {
+      "title": { "ko": "빠른 웹 리더", "en": "Fast web reader" },
+      "description": { "ko": "테마와 읽기 설정이 가능한 내장 리더", "en": "Built-in reader with themes and reading settings" },
+      "icon": "📖"
+    },
+    {
+      "title": { "ko": "읽기 진행률 동기화", "en": "Reading progress sync" },
+      "description": { "ko": "기기 간 진행률과 컬렉션 동기화", "en": "Sync progress and collections across devices" },
+      "icon": "🔄"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "5000"
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "id": "forgejo",
+  "name": "Forgejo",
+  "description": {
+    "ko": "셀프 호스팅 Git 포지 (Gitea 포크) - 코드 호스팅, 이슈, PR, CI 지원",
+    "en": "Self-hosted Git forge (Gitea fork) with code hosting, issues, PRs, and CI"
+  },
+  "category": "dev",
+  "version": "1.0.0",
+  "website": "https://forgejo.org",
+  "source": "https://codeberg.org/forgejo/forgejo",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/forgejo.svg",
+  "ports": [3000, 222],
+  "features": [
+    {
+      "title": { "ko": "Git 저장소 호스팅", "en": "Git repository hosting" },
+      "description": { "ko": "HTTPS와 SSH로 무제한 저장소를 호스팅", "en": "Host unlimited repositories over HTTPS and SSH" },
+      "icon": "📦"
+    },
+    {
+      "title": { "ko": "이슈 및 PR", "en": "Issues and PRs" },
+      "description": { "ko": "이슈 추적과 풀 리퀘스트로 협업", "en": "Collaborate with issue tracking and pull requests" },
+      "icon": "🔀"
+    },
+    {
+      "title": { "ko": "내장 CI/CD", "en": "Built-in CI/CD" },
+      "description": { "ko": "Forgejo Actions로 자동 빌드 및 배포", "en": "Automate builds and deploys with Forgejo Actions" },
+      "icon": "⚙️"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "3000"
+    }
+  ]
+}

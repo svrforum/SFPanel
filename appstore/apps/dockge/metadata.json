@@ -1,0 +1,39 @@
+{
+  "id": "dockge",
+  "name": "Dockge",
+  "description": {
+    "ko": "Docker Compose 스택을 관리하는 웹 UI. 컴포즈 파일을 시각적으로 편집하고 실시간 로그를 확인합니다.",
+    "en": "Web UI for managing Docker Compose stacks. Visually edit compose files and view real-time logs."
+  },
+  "category": "dev",
+  "version": "1.0.0",
+  "website": "https://dockge.kuma.pet",
+  "source": "https://github.com/louislam/dockge",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/dockge.svg",
+  "ports": [5001],
+  "features": [
+    {
+      "title": { "ko": "컴포즈 편집기", "en": "Compose editor" },
+      "description": { "ko": "compose.yaml를 웹에서 직접 편집하고 즉시 배포합니다", "en": "Edit compose.yaml directly in the browser and deploy instantly" },
+      "icon": "📝"
+    },
+    {
+      "title": { "ko": "실시간 로그", "en": "Real-time logs" },
+      "description": { "ko": "컨테이너 로그와 터미널을 실시간으로 확인합니다", "en": "View container logs and an interactive terminal in real time" },
+      "icon": "📜"
+    },
+    {
+      "title": { "ko": "스택 관리", "en": "Stack management" },
+      "description": { "ko": "여러 컴포즈 스택을 시작/정지/재시작합니다", "en": "Start, stop, and restart multiple compose stacks" },
+      "icon": "🧱"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "5001"
+    }
+  ]
+}

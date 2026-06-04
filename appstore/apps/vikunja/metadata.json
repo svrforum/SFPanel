@@ -1,0 +1,52 @@
+{
+  "id": "vikunja",
+  "name": "Vikunja",
+  "description": {
+    "ko": "셀프 호스팅 할 일 및 작업 관리 앱 (Todoist 대안)",
+    "en": "Self-hosted to-do and task management app (Todoist alternative)"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://vikunja.io",
+  "source": "https://github.com/go-vikunja/vikunja",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/vikunja.svg",
+  "ports": [3456],
+  "features": [
+    {
+      "title": { "ko": "다양한 보기", "en": "Multiple views" },
+      "description": { "ko": "리스트, 칸반, 간트, 테이블 등 여러 방식으로 작업 보기", "en": "View tasks as list, kanban, gantt, table and more" },
+      "icon": "📋"
+    },
+    {
+      "title": { "ko": "알림 및 마감일", "en": "Reminders and due dates" },
+      "description": { "ko": "마감일과 알림으로 일정 관리", "en": "Manage schedules with due dates and reminders" },
+      "icon": "⏰"
+    },
+    {
+      "title": { "ko": "협업", "en": "Collaboration" },
+      "description": { "ko": "팀원과 프로젝트 및 작업 공유", "en": "Share projects and tasks with team members" },
+      "icon": "👥"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "3456"
+    },
+    {
+      "key": "VIKUNJA_SERVICE_PUBLICURL",
+      "label": { "ko": "공개 URL", "en": "Public URL" },
+      "type": "text",
+      "default": "http://localhost:3456"
+    },
+    {
+      "key": "VIKUNJA_SERVICE_JWTSECRET",
+      "label": { "ko": "JWT 시크릿", "en": "JWT Secret" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

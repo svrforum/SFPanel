@@ -1,0 +1,39 @@
+{
+  "id": "qbittorrent",
+  "name": "qBittorrent",
+  "description": {
+    "ko": "웹 UI를 갖춘 BitTorrent 클라이언트",
+    "en": "BitTorrent client with web UI"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://www.qbittorrent.org",
+  "source": "https://github.com/qbittorrent/qBittorrent",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/qbittorrent.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "웹 UI", "en": "Web UI" },
+      "description": { "ko": "브라우저에서 토렌트를 원격으로 관리", "en": "Manage torrents remotely from the browser" },
+      "icon": "🌐"
+    },
+    {
+      "title": { "ko": "광고 없음", "en": "Ad-free" },
+      "description": { "ko": "오픈소스로 광고 없이 가볍게 동작", "en": "Open-source, lightweight and ad-free" },
+      "icon": "🚫"
+    },
+    {
+      "title": { "ko": "RSS 자동 다운로드", "en": "RSS auto-download" },
+      "description": { "ko": "RSS 피드 기반 자동 다운로드 규칙 설정", "en": "Set up RSS feed based automatic download rules" },
+      "icon": "📡"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    }
+  ]
+}

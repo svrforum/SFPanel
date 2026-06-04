@@ -1,0 +1,46 @@
+{
+  "id": "photoprism",
+  "name": "PhotoPrism",
+  "description": {
+    "ko": "AI 기반 셀프 호스팅 사진 관리 (Google Photos 대안) - 자동 태깅과 얼굴 인식",
+    "en": "AI-powered self-hosted photo management (Google Photos alternative) with auto-tagging and face recognition"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://photoprism.app",
+  "source": "https://github.com/photoprism/photoprism",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/photoprism.svg",
+  "ports": [2342],
+  "features": [
+    {
+      "title": { "ko": "AI 자동 분류", "en": "AI auto classification" },
+      "description": { "ko": "객체 인식으로 사진을 자동 태깅", "en": "Automatically tag photos with object recognition" },
+      "icon": "🤖"
+    },
+    {
+      "title": { "ko": "얼굴 인식", "en": "Face recognition" },
+      "description": { "ko": "인물별로 사진을 자동 그룹화", "en": "Automatically group photos by person" },
+      "icon": "🙂"
+    },
+    {
+      "title": { "ko": "스마트 검색", "en": "Smart search" },
+      "description": { "ko": "위치, 색상, 키워드로 강력한 검색", "en": "Powerful search by location, color, and keyword" },
+      "icon": "🔍"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "2342"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "label": { "ko": "관리자 비밀번호", "en": "Admin Password" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

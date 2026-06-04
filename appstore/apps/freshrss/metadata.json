@@ -1,0 +1,57 @@
+{
+  "id": "freshrss",
+  "name": "FreshRSS",
+  "description": {
+    "ko": "셀프 호스팅 RSS 피드 수집기 및 리더",
+    "en": "Self-hosted RSS feed aggregator and reader"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://freshrss.org",
+  "source": "https://github.com/FreshRSS/FreshRSS",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/freshrss.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "피드 통합", "en": "Feed aggregation" },
+      "description": { "ko": "여러 RSS/Atom 피드를 한곳에서 구독", "en": "Subscribe to many RSS/Atom feeds in one place" },
+      "icon": "📰"
+    },
+    {
+      "title": { "ko": "웹 스크래핑", "en": "Web scraping" },
+      "description": { "ko": "RSS가 없는 사이트도 피드로 변환", "en": "Turn sites without RSS into feeds" },
+      "icon": "🕸️"
+    },
+    {
+      "title": { "ko": "모바일 호환", "en": "Mobile compatible" },
+      "description": { "ko": "다양한 모바일 리더 앱과 API 연동", "en": "Works with many mobile reader apps via API" },
+      "icon": "📱"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    },
+    {
+      "key": "PUID",
+      "label": { "ko": "사용자 ID", "en": "User ID" },
+      "type": "text",
+      "default": "1000"
+    },
+    {
+      "key": "PGID",
+      "label": { "ko": "그룹 ID", "en": "Group ID" },
+      "type": "text",
+      "default": "1000"
+    },
+    {
+      "key": "TZ",
+      "label": { "ko": "시간대", "en": "Timezone" },
+      "type": "text",
+      "default": "Asia/Seoul"
+    }
+  ]
+}

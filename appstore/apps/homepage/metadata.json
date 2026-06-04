@@ -1,0 +1,39 @@
+{
+  "id": "homepage",
+  "name": "Homepage",
+  "description": {
+    "ko": "Docker, 서비스 통합, 위젯을 지원하는 고도로 사용자 정의 가능한 대시보드",
+    "en": "Highly customizable dashboard with Docker, service integrations and widgets"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://gethomepage.dev",
+  "source": "https://github.com/gethomepage/homepage",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/homepage.svg",
+  "ports": [3000],
+  "features": [
+    {
+      "title": { "ko": "서비스 통합", "en": "Service integrations" },
+      "description": { "ko": "100개 이상의 서비스 위젯으로 상태 표시", "en": "Show live status with 100+ built-in service widgets" },
+      "icon": "🔌"
+    },
+    {
+      "title": { "ko": "Docker 연동", "en": "Docker integration" },
+      "description": { "ko": "Docker 컨테이너를 자동으로 검색하고 표시", "en": "Automatically discover and display Docker containers" },
+      "icon": "🐳"
+    },
+    {
+      "title": { "ko": "빠른 검색", "en": "Quick search" },
+      "description": { "ko": "북마크와 검색 바로 빠르게 이동", "en": "Jump quickly with bookmarks and a built-in search bar" },
+      "icon": "🔍"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "3000"
+    }
+  ]
+}

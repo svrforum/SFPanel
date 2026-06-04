@@ -1,0 +1,39 @@
+{
+  "id": "scrutiny",
+  "name": "Scrutiny",
+  "description": {
+    "ko": "하드디스크 S.M.A.R.T. 상태와 고장 예측을 보여주는 디스크 건강 대시보드. 호스트 디스크 장치 접근 권한이 필요합니다.",
+    "en": "Hard drive S.M.A.R.T. health dashboard with failure prediction. Requires access to host disk devices."
+  },
+  "category": "monitoring",
+  "version": "1.0.0",
+  "website": "https://github.com/AnalogJ/scrutiny",
+  "source": "https://github.com/AnalogJ/scrutiny",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/scrutiny.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "S.M.A.R.T. 모니터링", "en": "S.M.A.R.T. monitoring" },
+      "description": { "ko": "디스크의 S.M.A.R.T. 속성을 수집해 한눈에 표시", "en": "Collect and display disk S.M.A.R.T. attributes at a glance" },
+      "icon": "💽"
+    },
+    {
+      "title": { "ko": "고장 예측", "en": "Failure prediction" },
+      "description": { "ko": "실제 고장 임계값 기반으로 위험 디스크를 경고", "en": "Warn about risky drives using real-world failure thresholds" },
+      "icon": "⚠️"
+    },
+    {
+      "title": { "ko": "이력 추세", "en": "Historical trends" },
+      "description": { "ko": "시간에 따른 디스크 상태 변화를 그래프로 추적", "en": "Track how drive health changes over time with graphs" },
+      "icon": "📉"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    }
+  ]
+}

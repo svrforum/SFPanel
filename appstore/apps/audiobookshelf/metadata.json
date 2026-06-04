@@ -1,0 +1,39 @@
+{
+  "id": "audiobookshelf",
+  "name": "Audiobookshelf",
+  "description": {
+    "ko": "오디오북 및 팟캐스트 셀프 호스팅 서버",
+    "en": "Self-hosted audiobook and podcast server"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://www.audiobookshelf.org",
+  "source": "https://github.com/advplyr/audiobookshelf",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/audiobookshelf.svg",
+  "ports": [13378],
+  "features": [
+    {
+      "title": { "ko": "오디오북 관리", "en": "Audiobook management" },
+      "description": { "ko": "오디오북 라이브러리를 정리하고 스트리밍", "en": "Organize and stream your audiobook library" },
+      "icon": "🎧"
+    },
+    {
+      "title": { "ko": "팟캐스트", "en": "Podcasts" },
+      "description": { "ko": "팟캐스트 구독 및 자동 다운로드", "en": "Subscribe to and auto-download podcasts" },
+      "icon": "🎙️"
+    },
+    {
+      "title": { "ko": "진행률 동기화", "en": "Progress sync" },
+      "description": { "ko": "여러 기기 간 청취 진행률 자동 동기화", "en": "Automatically sync listening progress across devices" },
+      "icon": "🔄"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "13378"
+    }
+  ]
+}

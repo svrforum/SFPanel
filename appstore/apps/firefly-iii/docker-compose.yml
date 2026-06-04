@@ -1,0 +1,34 @@
+services:
+  firefly-iii:
+    image: fireflyiii/core:latest
+    container_name: firefly-iii
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      - APP_KEY=${APP_KEY}
+      - DB_CONNECTION=pgsql
+      - DB_HOST=firefly-iii-db
+      - DB_PORT=5432
+      - DB_DATABASE=firefly
+      - DB_USERNAME=firefly
+      - DB_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - firefly-iii-upload:/var/www/html/storage/upload
+    depends_on:
+      - firefly-iii-db
+
+  firefly-iii-db:
+    image: postgres:16-alpine
+    container_name: firefly-iii-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=firefly
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=firefly
+    volumes:
+      - firefly-iii-db-data:/var/lib/postgresql/data
+
+volumes:
+  firefly-iii-upload:
+  firefly-iii-db-data:

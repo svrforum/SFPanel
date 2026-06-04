@@ -1,0 +1,39 @@
+{
+  "id": "radarr",
+  "name": "Radarr",
+  "description": {
+    "ko": "영화 자동 다운로드 및 관리 (PVR)",
+    "en": "Movie PVR for automatic download and management"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://radarr.video",
+  "source": "https://github.com/Radarr/Radarr",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/radarr.svg",
+  "ports": [7878],
+  "features": [
+    {
+      "title": { "ko": "자동 다운로드", "en": "Automatic download" },
+      "description": { "ko": "원하는 영화를 자동으로 검색 및 다운로드", "en": "Automatically search and download desired movies" },
+      "icon": "🎬"
+    },
+    {
+      "title": { "ko": "품질 관리", "en": "Quality management" },
+      "description": { "ko": "원하는 화질로 자동 업그레이드", "en": "Automatically upgrade to your preferred quality" },
+      "icon": "🎚️"
+    },
+    {
+      "title": { "ko": "라이브러리 관리", "en": "Library management" },
+      "description": { "ko": "영화 라이브러리를 체계적으로 정리", "en": "Organize your movie library systematically" },
+      "icon": "🗂️"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "7878"
+    }
+  ]
+}

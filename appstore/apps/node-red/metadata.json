@@ -1,0 +1,39 @@
+{
+  "id": "node-red",
+  "name": "Node-RED",
+  "description": {
+    "ko": "플로우 기반 자동화 도구 - IoT 기기와 API, 서비스를 시각적으로 연결",
+    "en": "Flow-based automation tool to visually wire together IoT devices, APIs, and services"
+  },
+  "category": "automation",
+  "version": "1.0.0",
+  "website": "https://nodered.org",
+  "source": "https://github.com/node-red/node-red",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/node-red.svg",
+  "ports": [1880],
+  "features": [
+    {
+      "title": { "ko": "플로우 에디터", "en": "Flow editor" },
+      "description": { "ko": "브라우저에서 노드를 끌어다 놓아 로직 구성", "en": "Build logic by dragging and dropping nodes in the browser" },
+      "icon": "🔗"
+    },
+    {
+      "title": { "ko": "방대한 노드 팔레트", "en": "Rich node palette" },
+      "description": { "ko": "수천 개의 커뮤니티 노드로 기능 확장", "en": "Extend functionality with thousands of community nodes" },
+      "icon": "🧩"
+    },
+    {
+      "title": { "ko": "IoT 연동", "en": "IoT integration" },
+      "description": { "ko": "MQTT, HTTP, 시리얼 등 다양한 프로토콜 지원", "en": "Supports MQTT, HTTP, serial, and many other protocols" },
+      "icon": "📡"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "1880"
+    }
+  ]
+}

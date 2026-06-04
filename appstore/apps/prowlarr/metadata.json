@@ -1,0 +1,39 @@
+{
+  "id": "prowlarr",
+  "name": "Prowlarr",
+  "description": {
+    "ko": "Sonarr/Radarr용 인덱서 통합 관리",
+    "en": "Indexer manager for Sonarr/Radarr"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://prowlarr.com",
+  "source": "https://github.com/Prowlarr/Prowlarr",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/prowlarr.svg",
+  "ports": [9696],
+  "features": [
+    {
+      "title": { "ko": "인덱서 통합", "en": "Indexer integration" },
+      "description": { "ko": "Torrent/Usenet 인덱서를 한 곳에서 관리", "en": "Manage Torrent and Usenet indexers in one place" },
+      "icon": "🔎"
+    },
+    {
+      "title": { "ko": "자동 동기화", "en": "Auto sync" },
+      "description": { "ko": "Sonarr/Radarr에 인덱서 자동 동기화", "en": "Automatically sync indexers to Sonarr/Radarr" },
+      "icon": "🔄"
+    },
+    {
+      "title": { "ko": "통계", "en": "Statistics" },
+      "description": { "ko": "인덱서별 검색/조회 통계 제공", "en": "Per-indexer search and grab statistics" },
+      "icon": "📊"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "9696"
+    }
+  ]
+}

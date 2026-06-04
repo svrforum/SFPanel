@@ -1,0 +1,16 @@
+services:
+  komga:
+    image: gotson/komga:latest
+    container_name: komga
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Seoul
+    ports:
+      - "${PORT:-25600}:25600"
+    volumes:
+      - komga-config:/config
+      - komga-books:/data
+
+volumes:
+  komga-config:
+  komga-books:

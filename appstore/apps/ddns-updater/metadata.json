@@ -1,0 +1,39 @@
+{
+  "id": "ddns-updater",
+  "name": "DDNS Updater",
+  "description": {
+    "ko": "여러 DNS 제공자의 레코드를 주기적으로 갱신하는 동적 DNS 업데이터 (웹 UI 포함). 설치 후 웹 UI 또는 데이터 볼륨의 config.json에서 제공자를 구성하세요.",
+    "en": "Dynamic DNS updater with a web UI that periodically updates records across many DNS providers. After install, configure providers in the web UI or in config.json inside the data volume."
+  },
+  "category": "network",
+  "version": "1.0.0",
+  "website": "https://github.com/qdm12/ddns-updater",
+  "source": "https://github.com/qdm12/ddns-updater",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/ddns-updater.svg",
+  "ports": [8000],
+  "features": [
+    {
+      "title": { "ko": "다중 제공자", "en": "Multiple providers" },
+      "description": { "ko": "Cloudflare, Namecheap 등 다양한 DNS 제공자를 지원합니다", "en": "Supports many DNS providers including Cloudflare and Namecheap" },
+      "icon": "🌐"
+    },
+    {
+      "title": { "ko": "자동 갱신", "en": "Automatic updates" },
+      "description": { "ko": "공인 IP가 바뀌면 DNS 레코드를 자동으로 갱신합니다", "en": "Automatically updates DNS records when your public IP changes" },
+      "icon": "🔄"
+    },
+    {
+      "title": { "ko": "웹 대시보드", "en": "Web dashboard" },
+      "description": { "ko": "각 도메인의 갱신 상태와 이력을 한눈에 확인합니다", "en": "View update status and history for each domain at a glance" },
+      "icon": "📊"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8000"
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "id": "navidrome",
+  "name": "Navidrome",
+  "description": {
+    "ko": "Subsonic 호환 음악 스트리밍 서버",
+    "en": "Subsonic-compatible music streaming server"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://www.navidrome.org",
+  "source": "https://github.com/navidrome/navidrome",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/navidrome.svg",
+  "ports": [4533],
+  "features": [
+    {
+      "title": { "ko": "음악 스트리밍", "en": "Music streaming" },
+      "description": { "ko": "어디서나 내 음악 라이브러리를 스트리밍", "en": "Stream your music library from anywhere" },
+      "icon": "🎵"
+    },
+    {
+      "title": { "ko": "Subsonic 호환", "en": "Subsonic compatible" },
+      "description": { "ko": "다양한 Subsonic 클라이언트 앱과 호환", "en": "Compatible with many Subsonic client apps" },
+      "icon": "📱"
+    },
+    {
+      "title": { "ko": "다중 사용자", "en": "Multi-user" },
+      "description": { "ko": "여러 사용자가 개별 재생목록과 즐겨찾기 사용", "en": "Multiple users with individual playlists and favorites" },
+      "icon": "👥"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "4533"
+    }
+  ]
+}

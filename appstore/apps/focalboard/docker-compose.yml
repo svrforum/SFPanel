@@ -1,0 +1,12 @@
+services:
+  focalboard:
+    image: mattermost/focalboard:latest
+    container_name: focalboard
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - focalboard-data:/data
+
+volumes:
+  focalboard-data:

@@ -1,0 +1,39 @@
+{
+  "id": "heimdall",
+  "name": "Heimdall",
+  "description": {
+    "ko": "모든 웹 애플리케이션을 한곳에서 관리하는 애플리케이션 대시보드/런처",
+    "en": "Application dashboard and launcher to organize all your web apps in one place"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://heimdall.site",
+  "source": "https://github.com/linuxserver/Heimdall",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/heimdall.svg",
+  "ports": [8090],
+  "features": [
+    {
+      "title": { "ko": "통합 대시보드", "en": "Unified dashboard" },
+      "description": { "ko": "모든 서비스를 한 화면에 모아 빠르게 실행", "en": "Gather all your services on one screen for quick launching" },
+      "icon": "🚀"
+    },
+    {
+      "title": { "ko": "강화된 앱", "en": "Enhanced apps" },
+      "description": { "ko": "지원 앱의 상태와 통계를 타일에 직접 표시", "en": "Show live status and stats of supported apps right on the tile" },
+      "icon": "📊"
+    },
+    {
+      "title": { "ko": "사용자 정의", "en": "Customizable" },
+      "description": { "ko": "배경, 태그, 핀 고정으로 자유롭게 구성", "en": "Organize freely with backgrounds, tags and pinned items" },
+      "icon": "🎨"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8090"
+    }
+  ]
+}

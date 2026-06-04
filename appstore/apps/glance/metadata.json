@@ -1,0 +1,39 @@
+{
+  "id": "glance",
+  "name": "Glance",
+  "description": {
+    "ko": "피드, 위젯, 시스템 정보를 한 화면에 모으는 셀프 호스팅 대시보드",
+    "en": "Self-hosted dashboard aggregating feeds, widgets and system info on one screen"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://github.com/glanceapp/glance",
+  "source": "https://github.com/glanceapp/glance",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/glance.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "피드 집계", "en": "Feed aggregation" },
+      "description": { "ko": "RSS, 레딧, 해커뉴스 등을 한곳에 모음", "en": "Bring RSS, Reddit, Hacker News and more into one place" },
+      "icon": "📰"
+    },
+    {
+      "title": { "ko": "다양한 위젯", "en": "Rich widgets" },
+      "description": { "ko": "날씨, 캘린더, 모니터, 마켓 등 위젯 제공", "en": "Weather, calendar, monitor, markets and many more widgets" },
+      "icon": "🧩"
+    },
+    {
+      "title": { "ko": "가벼운 성능", "en": "Lightweight" },
+      "description": { "ko": "단일 바이너리로 빠르고 리소스 소모가 적음", "en": "Single binary that is fast and light on resources" },
+      "icon": "⚡"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    }
+  ]
+}

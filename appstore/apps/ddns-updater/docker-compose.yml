@@ -1,0 +1,12 @@
+services:
+  ddns-updater:
+    image: qmcgaw/ddns-updater:latest
+    container_name: ddns-updater
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ddns-updater-data:/updater/data
+
+volumes:
+  ddns-updater-data:

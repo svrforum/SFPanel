@@ -1,0 +1,22 @@
+services:
+  photoprism:
+    image: photoprism/photoprism:latest
+    container_name: photoprism
+    restart: unless-stopped
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    environment:
+      - PHOTOPRISM_ADMIN_USER=admin
+      - PHOTOPRISM_ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - PHOTOPRISM_HTTP_PORT=2342
+      - PHOTOPRISM_DATABASE_DRIVER=sqlite
+    ports:
+      - "${PORT:-2342}:2342"
+    volumes:
+      - photoprism-storage:/photoprism/storage
+      - photoprism-originals:/photoprism/originals
+
+volumes:
+  photoprism-storage:
+  photoprism-originals:

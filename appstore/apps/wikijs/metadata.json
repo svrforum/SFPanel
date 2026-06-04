@@ -1,0 +1,46 @@
+{
+  "id": "wikijs",
+  "name": "Wiki.js",
+  "description": {
+    "ko": "셀프 호스팅 모던 위키 플랫폼",
+    "en": "Self-hosted modern wiki platform"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://js.wiki",
+  "source": "https://github.com/requarks/wiki",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/wikijs.svg",
+  "ports": [3000],
+  "features": [
+    {
+      "title": { "ko": "마크다운 편집", "en": "Markdown editing" },
+      "description": { "ko": "마크다운, 비주얼, 코드 등 다양한 에디터 지원", "en": "Markdown, visual and code editors supported" },
+      "icon": "📝"
+    },
+    {
+      "title": { "ko": "강력한 검색", "en": "Powerful search" },
+      "description": { "ko": "내장 전문 검색 엔진으로 빠른 탐색", "en": "Fast navigation with built-in full-text search" },
+      "icon": "🔍"
+    },
+    {
+      "title": { "ko": "접근 제어", "en": "Access control" },
+      "description": { "ko": "세분화된 권한과 다양한 인증 연동", "en": "Granular permissions and many auth providers" },
+      "icon": "🔐"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "3000"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "label": { "ko": "DB 비밀번호", "en": "DB Password" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

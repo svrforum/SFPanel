@@ -1,0 +1,39 @@
+{
+  "id": "cloudflared",
+  "name": "Cloudflare Tunnel",
+  "description": {
+    "ko": "Cloudflare Tunnel 커넥터. 포트를 개방하지 않고 아웃바운드 연결만으로 로컬 서비스를 외부에 안전하게 노출합니다. Cloudflare Zero Trust 대시보드에서 발급한 터널 토큰이 필요합니다.",
+    "en": "Cloudflare Tunnel connector. Exposes local services securely using only outbound connections, with no open ports. Requires a tunnel token issued from the Cloudflare Zero Trust dashboard."
+  },
+  "category": "network",
+  "version": "1.0.0",
+  "website": "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/",
+  "source": "https://github.com/cloudflare/cloudflared",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/cloudflare.svg",
+  "ports": [],
+  "features": [
+    {
+      "title": { "ko": "포트 개방 불필요", "en": "No open ports" },
+      "description": { "ko": "방화벽 포트를 열지 않고 아웃바운드 연결만 사용합니다", "en": "Uses only outbound connections without opening firewall ports" },
+      "icon": "🚪"
+    },
+    {
+      "title": { "ko": "안전한 노출", "en": "Secure exposure" },
+      "description": { "ko": "Cloudflare 네트워크를 통해 로컬 서비스를 안전하게 공개합니다", "en": "Safely expose local services through the Cloudflare network" },
+      "icon": "🔒"
+    },
+    {
+      "title": { "ko": "DDoS 보호", "en": "DDoS protection" },
+      "description": { "ko": "Cloudflare의 DDoS 완화 및 WAF 보호를 활용합니다", "en": "Leverages Cloudflare's DDoS mitigation and WAF protection" },
+      "icon": "🛡️"
+    }
+  ],
+  "env": [
+    {
+      "key": "TUNNEL_TOKEN",
+      "label": { "ko": "터널 토큰 (Cloudflare Zero Trust 대시보드에서 발급)", "en": "Tunnel Token (from Cloudflare Zero Trust dashboard)" },
+      "type": "text",
+      "required": true
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "id": "bazarr",
+  "name": "Bazarr",
+  "description": {
+    "ko": "Sonarr/Radarr용 자막 자동 관리",
+    "en": "Subtitle manager for Sonarr/Radarr"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://www.bazarr.media",
+  "source": "https://github.com/morpheus65535/bazarr",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/bazarr.svg",
+  "ports": [6767],
+  "features": [
+    {
+      "title": { "ko": "자막 자동 다운로드", "en": "Auto subtitle download" },
+      "description": { "ko": "여러 자막 제공처에서 자막을 자동 검색 및 다운로드", "en": "Automatically search and download subtitles from multiple providers" },
+      "icon": "💬"
+    },
+    {
+      "title": { "ko": "다국어 지원", "en": "Multi-language" },
+      "description": { "ko": "원하는 언어의 자막을 우선순위로 설정", "en": "Set preferred subtitle languages by priority" },
+      "icon": "🌐"
+    },
+    {
+      "title": { "ko": "*arr 연동", "en": "*arr integration" },
+      "description": { "ko": "Sonarr/Radarr 라이브러리와 자동 연동", "en": "Automatically integrate with Sonarr/Radarr libraries" },
+      "icon": "🔗"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "6767"
+    }
+  ]
+}

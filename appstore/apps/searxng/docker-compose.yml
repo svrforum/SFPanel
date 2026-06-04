@@ -1,0 +1,15 @@
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      - SEARXNG_BASE_URL=${SEARXNG_BASE_URL}
+      - SEARXNG_SECRET=${SEARXNG_SECRET}
+    volumes:
+      - searxng-config:/etc/searxng
+
+volumes:
+  searxng-config:

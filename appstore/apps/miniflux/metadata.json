@@ -1,0 +1,53 @@
+{
+  "id": "miniflux",
+  "name": "Miniflux",
+  "description": {
+    "ko": "미니멀리스트 셀프 호스팅 RSS 리더",
+    "en": "Minimalist self-hosted RSS reader"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://miniflux.app",
+  "source": "https://github.com/miniflux/v2",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/miniflux.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "미니멀 디자인", "en": "Minimalist design" },
+      "description": { "ko": "군더더기 없이 읽기에 집중한 인터페이스", "en": "A clutter-free interface focused on reading" },
+      "icon": "📖"
+    },
+    {
+      "title": { "ko": "빠른 성능", "en": "Fast performance" },
+      "description": { "ko": "단일 바이너리로 가볍고 빠르게 동작", "en": "Lightweight and fast as a single binary" },
+      "icon": "⚡"
+    },
+    {
+      "title": { "ko": "통합 지원", "en": "Integrations" },
+      "description": { "ko": "Wallabag, Pocket 등 다양한 서비스와 연동", "en": "Integrates with Wallabag, Pocket and more" },
+      "icon": "🔌"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    },
+    {
+      "key": "DB_PASSWORD",
+      "label": { "ko": "DB 비밀번호", "en": "DB Password" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "label": { "ko": "관리자 비밀번호", "en": "Admin Password" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

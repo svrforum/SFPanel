@@ -1,0 +1,19 @@
+services:
+  wallabag:
+    image: wallabag/wallabag:latest
+    container_name: wallabag
+    restart: unless-stopped
+    ports:
+      - "${PORT:-80}:80"
+    environment:
+      - SYMFONY__ENV__DATABASE_DRIVER=pdo_sqlite
+      - SYMFONY__ENV__DATABASE_PATH=/var/www/wallabag/data/db/wallabag.sqlite
+      - SYMFONY__ENV__DOMAIN_NAME=${DOMAIN_NAME}
+      - SYMFONY__ENV__SECRET=${SECRET}
+    volumes:
+      - wallabag-data:/var/www/wallabag/data
+      - wallabag-images:/var/www/wallabag/web/assets/images
+
+volumes:
+  wallabag-data:
+  wallabag-images:

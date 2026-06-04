@@ -1,0 +1,51 @@
+{
+  "id": "searxng",
+  "name": "SearXNG",
+  "description": {
+    "ko": "프라이버시를 존중하는 메타 검색 엔진. 70개 이상의 검색 소스를 추적 없이 집계합니다.",
+    "en": "Privacy-respecting metasearch engine. Aggregates results from 70+ sources without tracking."
+  },
+  "category": "network",
+  "version": "1.0.0",
+  "website": "https://docs.searxng.org",
+  "source": "https://github.com/searxng/searxng",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/searxng.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "추적 없음", "en": "No tracking" },
+      "description": { "ko": "사용자 프로필을 만들지 않고 검색을 익명화합니다", "en": "Anonymizes searches without building user profiles" },
+      "icon": "🕵️"
+    },
+    {
+      "title": { "ko": "메타 검색", "en": "Metasearch" },
+      "description": { "ko": "70개 이상의 검색 엔진 결과를 한곳에 모읍니다", "en": "Aggregates results from 70+ search engines in one place" },
+      "icon": "🔍"
+    },
+    {
+      "title": { "ko": "맞춤 설정", "en": "Customizable" },
+      "description": { "ko": "검색 엔진, 테마, 카테고리를 자유롭게 설정합니다", "en": "Freely configure engines, themes, and categories" },
+      "icon": "⚙️"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    },
+    {
+      "key": "SEARXNG_BASE_URL",
+      "label": { "ko": "기본 URL (예: https://search.example.com/)", "en": "Base URL (e.g. https://search.example.com/)" },
+      "type": "text"
+    },
+    {
+      "key": "SEARXNG_SECRET",
+      "label": { "ko": "시크릿 키", "en": "Secret Key" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

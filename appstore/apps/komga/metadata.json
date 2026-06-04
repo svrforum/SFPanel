@@ -1,0 +1,39 @@
+{
+  "id": "komga",
+  "name": "Komga",
+  "description": {
+    "ko": "셀프 호스팅 만화/코믹 서버 - 라이브러리 관리와 OPDS, 웹 리더 지원",
+    "en": "Self-hosted comic and manga server with library management, OPDS, and a web reader"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://komga.org",
+  "source": "https://github.com/gotson/komga",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/komga.svg",
+  "ports": [25600],
+  "features": [
+    {
+      "title": { "ko": "라이브러리 관리", "en": "Library management" },
+      "description": { "ko": "만화와 코믹을 시리즈별로 자동 정리", "en": "Automatically organize comics and manga by series" },
+      "icon": "📚"
+    },
+    {
+      "title": { "ko": "웹 리더", "en": "Web reader" },
+      "description": { "ko": "브라우저에서 바로 읽는 내장 뷰어", "en": "Built-in viewer to read directly in the browser" },
+      "icon": "📖"
+    },
+    {
+      "title": { "ko": "OPDS 지원", "en": "OPDS support" },
+      "description": { "ko": "외부 리더 앱과 OPDS로 연동", "en": "Connect external reader apps via OPDS" },
+      "icon": "🔗"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "25600"
+    }
+  ]
+}

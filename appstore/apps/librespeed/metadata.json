@@ -1,0 +1,39 @@
+{
+  "id": "librespeed",
+  "name": "LibreSpeed",
+  "description": {
+    "ko": "Flash나 Java 없이 동작하는 셀프 호스팅 네트워크 속도 측정 도구",
+    "en": "Self-hosted network speed test that runs without Flash or Java"
+  },
+  "category": "network",
+  "version": "1.0.0",
+  "website": "https://librespeed.org",
+  "source": "https://github.com/librespeed/speedtest",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/librespeed.svg",
+  "ports": [8095],
+  "features": [
+    {
+      "title": { "ko": "속도 측정", "en": "Speed test" },
+      "description": { "ko": "다운로드, 업로드, 핑, 지터를 한 번에 측정", "en": "Measure download, upload, ping and jitter in one run" },
+      "icon": "🚀"
+    },
+    {
+      "title": { "ko": "경량 구성", "en": "Lightweight" },
+      "description": { "ko": "Flash, Java 없이 순수 웹 기술로 동작", "en": "Runs on pure web tech with no Flash or Java" },
+      "icon": "🪶"
+    },
+    {
+      "title": { "ko": "결과 기록", "en": "Result history" },
+      "description": { "ko": "측정 결과를 저장하고 공유 링크 제공", "en": "Save test results and share them via links" },
+      "icon": "📊"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8095"
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "id": "netdata",
+  "name": "Netdata",
+  "description": {
+    "ko": "초당 단위의 실시간 시스템 메트릭 모니터링 대시보드",
+    "en": "Real-time, per-second system metrics monitoring dashboard"
+  },
+  "category": "monitoring",
+  "version": "1.0.0",
+  "website": "https://www.netdata.cloud",
+  "source": "https://github.com/netdata/netdata",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/netdata.svg",
+  "ports": [19999],
+  "features": [
+    {
+      "title": { "ko": "실시간 메트릭", "en": "Real-time metrics" },
+      "description": { "ko": "CPU, 메모리, 디스크, 네트워크를 초 단위로 수집", "en": "Collect CPU, memory, disk and network metrics every second" },
+      "icon": "📈"
+    },
+    {
+      "title": { "ko": "자동 감지", "en": "Auto detection" },
+      "description": { "ko": "수백 개 서비스와 앱을 자동으로 감지해 모니터링", "en": "Auto-detect and monitor hundreds of services and apps" },
+      "icon": "🔎"
+    },
+    {
+      "title": { "ko": "알림", "en": "Alerting" },
+      "description": { "ko": "기본 임계값 기반 이상 징후 알림 제공", "en": "Built-in threshold-based alerts for anomalies" },
+      "icon": "🔔"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "19999"
+    }
+  ]
+}

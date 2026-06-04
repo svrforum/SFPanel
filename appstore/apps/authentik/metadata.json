@@ -1,0 +1,53 @@
+{
+  "id": "authentik",
+  "name": "authentik",
+  "description": {
+    "ko": "셀프 호스팅 ID 제공자 및 SSO 솔루션. SAML, OAuth2/OIDC, LDAP, 프록시 인증을 지원합니다.",
+    "en": "Self-hosted identity provider and SSO solution supporting SAML, OAuth2/OIDC, LDAP, and proxy authentication."
+  },
+  "category": "security",
+  "version": "1.0.0",
+  "website": "https://goauthentik.io",
+  "source": "https://github.com/goauthentik/authentik",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/authentik.svg",
+  "ports": [9000],
+  "features": [
+    {
+      "title": { "ko": "통합 인증 (SSO)", "en": "Single Sign-On" },
+      "description": { "ko": "한 번의 로그인으로 모든 연결된 앱에 접근합니다", "en": "Access all connected apps with a single login" },
+      "icon": "🔐"
+    },
+    {
+      "title": { "ko": "다양한 프로토콜", "en": "Multiple protocols" },
+      "description": { "ko": "SAML, OAuth2/OIDC, LDAP, 프록시 인증을 지원합니다", "en": "Supports SAML, OAuth2/OIDC, LDAP, and proxy authentication" },
+      "icon": "🔌"
+    },
+    {
+      "title": { "ko": "다단계 인증", "en": "Multi-factor auth" },
+      "description": { "ko": "TOTP, WebAuthn, SMS 등 유연한 MFA 흐름을 구성합니다", "en": "Configure flexible MFA flows with TOTP, WebAuthn, SMS, and more" },
+      "icon": "🛡️"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "9000"
+    },
+    {
+      "key": "SECRET_KEY",
+      "label": { "ko": "시크릿 키", "en": "Secret Key" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    },
+    {
+      "key": "PG_PASS",
+      "label": { "ko": "PostgreSQL 비밀번호", "en": "PostgreSQL Password" },
+      "type": "password",
+      "required": true,
+      "generate": true
+    }
+  ]
+}

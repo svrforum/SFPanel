@@ -1,0 +1,39 @@
+{
+  "id": "glances",
+  "name": "Glances",
+  "description": {
+    "ko": "CPU, 메모리, 디스크, 네트워크, 컨테이너를 한 화면에 보여주는 시스템 모니터링 웹 UI",
+    "en": "System monitoring web UI showing CPU, memory, disk, network and containers in one view"
+  },
+  "category": "monitoring",
+  "version": "1.0.0",
+  "website": "https://nicolargo.github.io/glances",
+  "source": "https://github.com/nicolargo/glances",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/glances.svg",
+  "ports": [61208],
+  "features": [
+    {
+      "title": { "ko": "한눈에 보기", "en": "At a glance" },
+      "description": { "ko": "주요 시스템 자원을 한 화면에 종합 표시", "en": "Show key system resources together on one screen" },
+      "icon": "👀"
+    },
+    {
+      "title": { "ko": "컨테이너 모니터링", "en": "Container monitoring" },
+      "description": { "ko": "Docker 컨테이너의 자원 사용량을 함께 표시", "en": "Display resource usage of Docker containers too" },
+      "icon": "🐳"
+    },
+    {
+      "title": { "ko": "웹 인터페이스", "en": "Web interface" },
+      "description": { "ko": "브라우저에서 실시간으로 시스템 상태 확인", "en": "Check system status live from the browser" },
+      "icon": "🌐"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "61208"
+    }
+  ]
+}

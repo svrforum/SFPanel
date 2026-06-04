@@ -1,0 +1,39 @@
+{
+  "id": "calibre-web",
+  "name": "Calibre-Web",
+  "description": {
+    "ko": "웹 기반 전자책 라이브러리 관리",
+    "en": "Web-based ebook library manager"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://github.com/janeczku/calibre-web",
+  "source": "https://github.com/janeczku/calibre-web",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/calibre-web.svg",
+  "ports": [8083],
+  "features": [
+    {
+      "title": { "ko": "전자책 라이브러리", "en": "Ebook library" },
+      "description": { "ko": "Calibre 라이브러리를 웹에서 탐색 및 관리", "en": "Browse and manage your Calibre library from the web" },
+      "icon": "📚"
+    },
+    {
+      "title": { "ko": "온라인 리더", "en": "Online reader" },
+      "description": { "ko": "브라우저에서 바로 전자책 읽기", "en": "Read ebooks directly in the browser" },
+      "icon": "📖"
+    },
+    {
+      "title": { "ko": "포맷 변환", "en": "Format conversion" },
+      "description": { "ko": "다양한 전자책 포맷으로 변환 및 다운로드", "en": "Convert and download in various ebook formats" },
+      "icon": "🔄"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8083"
+    }
+  ]
+}

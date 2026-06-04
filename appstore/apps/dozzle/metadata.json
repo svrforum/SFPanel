@@ -1,0 +1,39 @@
+{
+  "id": "dozzle",
+  "name": "Dozzle",
+  "description": {
+    "ko": "Docker 컨테이너 로그를 브라우저에서 실시간으로 보는 경량 뷰어",
+    "en": "Lightweight, real-time Docker container log viewer in your browser"
+  },
+  "category": "monitoring",
+  "version": "1.0.0",
+  "website": "https://dozzle.dev",
+  "source": "https://github.com/amir20/dozzle",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/dozzle.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "실시간 로그", "en": "Real-time logs" },
+      "description": { "ko": "컨테이너 로그를 지연 없이 실시간 스트리밍", "en": "Stream container logs in real time with no delay" },
+      "icon": "📜"
+    },
+    {
+      "title": { "ko": "검색과 필터", "en": "Search and filter" },
+      "description": { "ko": "정규식 검색과 필터로 원하는 로그를 빠르게 탐색", "en": "Find logs fast with regex search and filtering" },
+      "icon": "🔍"
+    },
+    {
+      "title": { "ko": "설치 불필요", "en": "Agentless" },
+      "description": { "ko": "에이전트 없이 Docker 소켓만으로 동작", "en": "Works with just the Docker socket, no agents needed" },
+      "icon": "🪶"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    }
+  ]
+}

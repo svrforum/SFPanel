@@ -1,0 +1,39 @@
+{
+  "id": "trilium",
+  "name": "Trilium Notes",
+  "description": {
+    "ko": "계층형 노트 작성을 위한 셀프 호스팅 지식 베이스",
+    "en": "Self-hosted hierarchical note-taking knowledge base"
+  },
+  "category": "productivity",
+  "version": "1.0.0",
+  "website": "https://github.com/TriliumNext/Notes",
+  "source": "https://github.com/TriliumNext/Notes",
+  "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/trilium.svg",
+  "ports": [8080],
+  "features": [
+    {
+      "title": { "ko": "계층 구조", "en": "Hierarchical tree" },
+      "description": { "ko": "트리 구조로 노트를 무한히 정리", "en": "Organize notes in an unlimited tree structure" },
+      "icon": "🌳"
+    },
+    {
+      "title": { "ko": "리치 편집", "en": "Rich editing" },
+      "description": { "ko": "표, 코드 블록, 수식 등 풍부한 편집 기능", "en": "Rich editing with tables, code blocks and math" },
+      "icon": "✏️"
+    },
+    {
+      "title": { "ko": "노트 연결", "en": "Note relations" },
+      "description": { "ko": "노트 간 링크와 관계로 지식 연결", "en": "Link notes and build relations between knowledge" },
+      "icon": "🔗"
+    }
+  ],
+  "env": [
+    {
+      "key": "PORT",
+      "label": { "ko": "외부 포트", "en": "External Port" },
+      "type": "port",
+      "default": "8080"
+    }
+  ]
+}
