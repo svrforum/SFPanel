@@ -222,6 +222,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	appStore.DELETE("/apps/:id", appStoreHandler.UninstallApp)
 	appStore.GET("/installed", appStoreHandler.GetInstalled)
 	appStore.POST("/refresh", appStoreHandler.RefreshCache)
+	appStore.GET("/status", appStoreHandler.GetStatus)
 
 	authorized.GET("/system/update-check", systemHandler.CheckUpdate)
 	authorized.POST("/system/update", systemHandler.RunUpdate)

@@ -150,6 +150,7 @@ type Handler struct {
 	categories []AppStoreCategory
 	apps       []AppStoreMeta
 	cachedAt   time.Time
+	stale      bool
 	refreshing sync.Mutex
 }
 
@@ -270,6 +271,9 @@ func (h *Handler) fetchCatalogBundle(force bool) ([]AppStoreCategory, []AppStore
 	if err := json.Unmarshal(data, &bundle); err != nil {
 		return nil, nil, fmt.Errorf("parse catalog bundle: %w", err)
 	}
+	if len(bundle.Apps) == 0 {
+		return nil, nil, fmt.Errorf("catalog bundle has no apps")
+	}
 	return bundle.Categories, bundle.Apps, nil
 }
 
@@ -293,6 +297,19 @@ func (h *Handler) refreshCache(force bool) error {
 		cats, apps, err = h.fetchCatalogLegacy()
 	}
 	if err != nil {
+		// Serve-stale: if we already have a catalog (in-mem or DB), keep it and
+		// flag it stale instead of failing the whole store offline.
+		h.mu.RLock()
+		haveCache := len(h.apps) > 0
+		h.mu.RUnlock()
+		if haveCache {
+			h.mu.Lock()
+			h.stale = true
+			h.mu.Unlock()
+			slog.Warn("appstore: refresh failed; serving stale cache",
+				"component", "appstore", "error", err)
+			return nil
+		}
 		return err
 	}
 
@@ -300,6 +317,7 @@ func (h *Handler) refreshCache(force bool) error {
 	h.categories = cats
 	h.apps = apps
 	h.cachedAt = time.Now()
+	h.stale = false
 	go h.persistCache()
 	h.mu.Unlock()
 	return nil
@@ -338,12 +356,16 @@ func (h *Handler) loadCacheFromDB() {
 	if err := json.Unmarshal([]byte(value), &cacheData); err != nil {
 		return
 	}
-	if time.Since(cacheData.CachedAt) < cacheTTL {
-		h.mu.Lock()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	// Load the DB cache when in-mem is empty or the DB copy is newer. Caches
+	// older than the TTL are accepted as a last resort (offline survivability)
+	// and flagged stale rather than discarded.
+	if h.cachedAt.IsZero() || cacheData.CachedAt.After(h.cachedAt) {
 		h.categories = cacheData.Categories
 		h.apps = cacheData.Apps
 		h.cachedAt = cacheData.CachedAt
-		h.mu.Unlock()
+		h.stale = time.Since(cacheData.CachedAt) >= cacheTTL
 	}
 }
 
@@ -1101,6 +1123,23 @@ func (h *Handler) GetInstalled(c echo.Context) error {
 	}
 
 	return response.OK(c, result)
+}
+
+type appStoreStatus struct {
+	Stale    bool      `json:"stale"`
+	CachedAt time.Time `json:"cached_at"`
+	Apps     int       `json:"apps"`
+}
+
+// GetStatus reports whether the served catalog is stale (last refresh failed,
+// serving a cached copy) so the UI can show an offline banner. Never errors —
+// a brand-new panel with no cache simply reports stale=false, apps=0.
+func (h *Handler) GetStatus(c echo.Context) error {
+	_ = h.ensureCache()
+	h.mu.RLock()
+	st := appStoreStatus{Stale: h.stale, CachedAt: h.cachedAt, Apps: len(h.apps)}
+	h.mu.RUnlock()
+	return response.OK(c, st)
 }
 
 func (h *Handler) RefreshCache(c echo.Context) error {
