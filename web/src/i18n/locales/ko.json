@@ -2227,6 +2227,7 @@
     "searchPlaceholder": "앱 검색...",
     "noApps": "앱이 없습니다",
     "installed": "설치됨",
+    "updateAvailable": "업데이트 있음",
     "install": "설치",
     "installing": "설치 중...",
     "installSuccess": "{{name}} 설치가 완료되었습니다",

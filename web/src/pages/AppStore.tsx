@@ -28,6 +28,7 @@ export default function AppStore() {
   const [stale, setStale] = useState(false)
   const [showGuide, setShowGuide] = useState(false)
   const [failedIcons, setFailedIcons] = useState<Set<string>>(new Set())
+  const [updates, setUpdates] = useState<Record<string, boolean>>({})
 
   // The URL (/appstore/:appId) is the source of truth for which detail is open.
   const selectedAppId = appId ?? null
@@ -62,6 +63,23 @@ export default function AppStore() {
     loadData()
     api.getAppStoreStatus().then((s) => setStale(s.stale)).catch(() => {})
   }, [loadData])
+
+  // Lazily check installed apps for available updates (best-effort, never throws).
+  useEffect(() => {
+    const installed = apps.filter((a) => a.installed)
+    let cancelled = false
+    ;(async () => {
+      for (const a of installed) {
+        try {
+          const r = await api.checkStackUpdates(a.id)
+          if (!cancelled && r.has_updates) setUpdates((m) => ({ ...m, [a.id]: true }))
+        } catch {
+          /* docker absent / not scanned — no badge */
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [apps])
 
   const handleRetry = async () => {
     setLoading(true)
@@ -324,6 +342,15 @@ export default function AppStore() {
                         </span>
                       )}
                     </div>
+                    {app.installed && updates[app.id] && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/docker/stacks/${app.id}`) }}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6]"
+                      >
+                        {t('appStore.updateAvailable')}
+                      </button>
+                    )}
                     {app.installed ? (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471] shrink-0">
                         {t('appStore.installed')}
