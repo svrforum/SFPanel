@@ -5,7 +5,7 @@ import {
   Plus, Play, Square, RotateCw, ArrowUp, RefreshCw,
   Trash2, Terminal, ScrollText, FileText, FileCode, Save, Loader2,
   CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft, Eye,
-  HeartPulse,
+  HeartPulse, Info,
 } from 'lucide-react'
 import { HealthcheckComposerDialog } from '@/components/compose/HealthcheckComposerDialog'
 import { toast } from 'sonner'
@@ -36,6 +36,7 @@ import ComposeEditor from '@/components/ComposeEditor'
 import ComposeLogs from '@/components/ComposeLogs'
 import ContainerLogs from '@/components/ContainerLogs'
 import ContainerShell from '@/components/ContainerShell'
+import ContainerInspect from '@/components/ContainerInspect'
 import { DiffSheet } from '@/components/compose/DiffSheet'
 import { GitImportForm } from '@/components/compose/GitImportForm'
 
@@ -130,6 +131,7 @@ export default function DockerStacks() {
   // Service logs/shell dialogs
   const [logService, setLogService] = useState<ComposeService | null>(null)
   const [shellService, setShellService] = useState<ComposeService | null>(null)
+  const [inspectService, setInspectService] = useState<ComposeService | null>(null)
 
   useEffect(() => {
     progressEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -839,7 +841,12 @@ export default function DockerStacks() {
                       )}
                       {services.map(svc => (
                         <TableRow key={svc.name}>
-                          <TableCell className="font-medium text-[13px]">{svc.name}</TableCell>
+                          <TableCell className="font-medium text-[13px]">
+                            {svc.container_id ? (
+                              <button onClick={() => setInspectService(svc)} title={t('docker.containers.inspect')}
+                                className="text-left hover:text-primary hover:underline max-w-full truncate">{svc.name}</button>
+                            ) : svc.name}
+                          </TableCell>
                           <TableCell className="text-muted-foreground text-xs font-mono">{svc.image}</TableCell>
                           <TableCell>{serviceBadge(svc.state)}</TableCell>
                           <TableCell className="text-muted-foreground text-xs font-mono">{svc.ports || '-'}</TableCell>
@@ -866,6 +873,11 @@ export default function DockerStacks() {
                               <Button variant="ghost" size="icon-xs" title="Healthcheck"
                                 onClick={() => setHealthcheckTarget(svc)}>
                                 <HeartPulse className={`h-3.5 w-3.5 ${svc.has_healthcheck ? 'text-[#00c471]' : ''}`} />
+                              </Button>
+                              <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')}
+                                disabled={!svc.container_id}
+                                onClick={() => setInspectService(svc)}>
+                                <Info className="h-3.5 w-3.5" />
                               </Button>
                               <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')}
                                 onClick={() => setLogService(svc)}>
@@ -898,7 +910,12 @@ export default function DockerStacks() {
                   {services.map(svc => (
                     <div key={svc.name} className="bg-card rounded-2xl p-4 card-shadow">
                       <div className="flex items-center gap-2 mb-2 min-w-0">
-                        <span className="text-[13px] font-medium truncate min-w-0 flex-1">{svc.name}</span>
+                        {svc.container_id ? (
+                          <button onClick={() => setInspectService(svc)} title={t('docker.containers.inspect')}
+                            className="text-[13px] font-medium truncate min-w-0 flex-1 text-left hover:text-primary">{svc.name}</button>
+                        ) : (
+                          <span className="text-[13px] font-medium truncate min-w-0 flex-1">{svc.name}</span>
+                        )}
                         {serviceBadge(svc.state)}
                       </div>
                       <div className="text-[11px] text-muted-foreground font-mono truncate mb-1" title={svc.image}>{svc.image}</div>
@@ -927,6 +944,11 @@ export default function DockerStacks() {
                         <Button variant="ghost" size="icon-xs" title="Healthcheck"
                           onClick={() => setHealthcheckTarget(svc)}>
                           <HeartPulse className={`h-3.5 w-3.5 ${svc.has_healthcheck ? 'text-[#00c471]' : ''}`} />
+                        </Button>
+                        <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')}
+                          disabled={!svc.container_id}
+                          onClick={() => setInspectService(svc)}>
+                          <Info className="h-3.5 w-3.5" />
                         </Button>
                         <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')}
                           onClick={() => setLogService(svc)}>
@@ -1165,6 +1187,15 @@ export default function DockerStacks() {
       </Dialog>
 
       {/* Service shell dialog */}
+      <Dialog open={!!inspectService} onOpenChange={(open) => !open && setInspectService(null)}>
+        <DialogContent className="w-[calc(100vw-2rem)] md:w-full sm:max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
+          <DialogHeader className="min-w-0">
+            <DialogTitle className="truncate">{inspectService?.name} — {t('docker.containers.inspect')}</DialogTitle>
+          </DialogHeader>
+          {inspectService?.container_id && <ContainerInspect containerId={inspectService.container_id} />}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!shellService} onOpenChange={(open) => !open && setShellService(null)}>
         <DialogContent className="w-[calc(100vw-2rem)] md:w-full sm:max-w-3xl h-[90vh] md:h-[80vh]">
           <DialogHeader>
