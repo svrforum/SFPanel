@@ -2246,6 +2246,8 @@
     "features": "Key Features",
     "about": "About",
     "installComplete": "Installation Complete",
+    "healthHealthy": "Running and healthy — open it below.",
+    "healthStarting": "Still starting up — give it a moment, then open it.",
     "guideTitle": "How does the App Store work?",
     "guideStep1Title": "Select & Configure",
     "guideStep1Desc": "Choose an app and configure environment variables like ports and passwords. Advanced mode lets you edit docker-compose.yml and .env directly.",

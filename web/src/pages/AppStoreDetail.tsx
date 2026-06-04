@@ -172,6 +172,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
   const [progressLogs, setProgressLogs] = useState<Array<{ stage: string; message: string; success: boolean }>>([])
   const [progressDone, setProgressDone] = useState(false)
   const [progressSuccess, setProgressSuccess] = useState(false)
+  const [installHealth, setInstallHealth] = useState<string>('')
   const [currentStage, setCurrentStage] = useState('')
   const logEndRef = useRef<HTMLDivElement>(null)
   const [installMode, setInstallMode] = useState<'simple' | 'advanced'>('simple')
@@ -248,6 +249,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
     setProgressLogs([])
     setProgressDone(false)
     setProgressSuccess(false)
+    setInstallHealth('')
     setCurrentStage('')
     setInstalling(false)
     try {
@@ -357,6 +359,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
     setProgressLogs([])
     setProgressDone(false)
     setProgressSuccess(false)
+    setInstallHealth('')
     setCurrentStage('')
     setShowInstallForm(false)
 
@@ -432,6 +435,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
             if (event.done) {
               setProgressDone(true)
               setProgressSuccess(event.success)
+              if (event.health) setInstallHealth(event.health)
               if (event.success) {
                 toast.success(t('appStore.installSuccess', { name: detail.app.name }))
                 onInstalled()
@@ -958,6 +962,14 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                   ))}
                   <div ref={logEndRef} />
                 </div>
+
+                {progressDone && progressSuccess && (
+                  installHealth === 'healthy' ? (
+                    <p className="text-[13px] text-[#00c471] mt-4">{t('appStore.healthHealthy')}</p>
+                  ) : installHealth === 'starting' ? (
+                    <p className="text-[13px] text-amber-600 mt-4">{t('appStore.healthStarting')}</p>
+                  ) : null
+                )}
 
                 {progressDone && (
                   <div className="flex flex-wrap gap-3 mt-4">
