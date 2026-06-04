@@ -235,12 +235,44 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     window.addEventListener('resize', handleResize)
     window.visualViewport?.addEventListener('resize', handleResize)
 
+    // xterm v6's viewport scrolls only via wheel events, so on a touch device a
+    // drag can't reach the scrollback (the .xterm-viewport has no natively
+    // scrollable area). Translate a vertical touch-drag into term.scrollLines so
+    // mobile can scroll up through output history.
+    let touchY = 0
+    let touchAccum = 0
+    const cellPx = () => {
+      const screenEl = container?.querySelector('.xterm-screen') as HTMLElement | null
+      return screenEl && term.rows ? screenEl.clientHeight / term.rows : 17
+    }
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return
+      touchY = e.touches[0].clientY
+      touchAccum = 0
+    }
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return
+      const y = e.touches[0].clientY
+      touchAccum += touchY - y
+      touchY = y
+      const lines = Math.trunc(touchAccum / cellPx())
+      if (lines !== 0) {
+        term.scrollLines(lines)
+        touchAccum -= lines * cellPx()
+        e.preventDefault()
+      }
+    }
+    container?.addEventListener('touchstart', onTouchStart, { passive: true })
+    container?.addEventListener('touchmove', onTouchMove, { passive: false })
+
     return () => {
       disposed = true
       cancelAnimationFrame(rafId)
       ro.disconnect()
       window.removeEventListener('resize', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
+      container?.removeEventListener('touchstart', onTouchStart)
+      container?.removeEventListener('touchmove', onTouchMove)
       wsCleanup?.()
       term.dispose()
     }
