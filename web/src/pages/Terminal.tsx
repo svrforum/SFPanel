@@ -143,7 +143,22 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     term.loadAddon(unicode11Addon)
     term.unicode.activeVersion = '11'
     term.open(containerRef.current)
-    fitAddon.fit()
+
+    // Debounced, layout-settled fit: measure the container only after the
+    // browser applies pending layout (rAF), so a keyboard-driven --app-h change
+    // or a just-loaded webfont can't make us compute the wrong row count — the
+    // cause of the big blank gap and broken scrollback on mobile.
+    let rafId = 0
+    const safeFit = () => {
+      cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(() => {
+        try { fitAddon.fit() } catch { /* container not laid out yet */ }
+      })
+    }
+    safeFit()
+    // Re-fit once the monospace webfont is ready: its cell metrics differ from
+    // the fallback, and fitting with fallback metrics yields a wrong row count.
+    document.fonts?.ready.then(() => safeFit()).catch(() => {})
     termRef.current = term
     fitAddonRef.current = fitAddon
     searchAddonRef.current = searchAddon
@@ -208,17 +223,22 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
       }
     })()
 
-    const handleResize = () => {
-      fitAddon.fit()
-    }
+    // ResizeObserver fires AFTER the container's box actually changes (keyboard
+    // open/close via --app-h, orientation, tab switch), so the fit measures the
+    // real post-reflow height — unlike a visualViewport 'resize' that can fire
+    // before the CSS height reflows. window/visualViewport stay as a fallback
+    // for browsers that miss some container resizes.
+    const container = containerRef.current
+    const ro = new ResizeObserver(() => safeFit())
+    if (container) ro.observe(container)
+    const handleResize = () => safeFit()
     window.addEventListener('resize', handleResize)
-    // Re-fit when the mobile soft keyboard opens/closes — it changes the
-    // visual viewport (not window size), so window 'resize' alone misses it
-    // and the terminal would overflow under the keyboard.
     window.visualViewport?.addEventListener('resize', handleResize)
 
     return () => {
       disposed = true
+      cancelAnimationFrame(rafId)
+      ro.disconnect()
       window.removeEventListener('resize', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
       wsCleanup?.()
