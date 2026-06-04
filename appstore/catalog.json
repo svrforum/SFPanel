@@ -1,0 +1,6800 @@
+{
+  "categories": [
+    {
+      "id": "media",
+      "name": {
+        "ko": "미디어",
+        "en": "Media"
+      },
+      "icon": "Film"
+    },
+    {
+      "id": "cloud",
+      "name": {
+        "ko": "클라우드",
+        "en": "Cloud"
+      },
+      "icon": "Cloud"
+    },
+    {
+      "id": "security",
+      "name": {
+        "ko": "보안",
+        "en": "Security"
+      },
+      "icon": "Shield"
+    },
+    {
+      "id": "monitoring",
+      "name": {
+        "ko": "모니터링",
+        "en": "Monitoring"
+      },
+      "icon": "Activity"
+    },
+    {
+      "id": "dev",
+      "name": {
+        "ko": "개발",
+        "en": "Development"
+      },
+      "icon": "Code"
+    },
+    {
+      "id": "productivity",
+      "name": {
+        "ko": "생산성",
+        "en": "Productivity"
+      },
+      "icon": "Briefcase"
+    },
+    {
+      "id": "automation",
+      "name": {
+        "ko": "자동화",
+        "en": "Automation"
+      },
+      "icon": "Zap"
+    },
+    {
+      "id": "communication",
+      "name": {
+        "ko": "커뮤니케이션",
+        "en": "Communication"
+      },
+      "icon": "MessageSquare"
+    },
+    {
+      "id": "database",
+      "name": {
+        "ko": "데이터베이스",
+        "en": "Database"
+      },
+      "icon": "Database"
+    },
+    {
+      "id": "network",
+      "name": {
+        "ko": "네트워크",
+        "en": "Network"
+      },
+      "icon": "Globe"
+    }
+  ],
+  "apps": [
+    {
+      "id": "actual-budget",
+      "name": "Actual Budget",
+      "description": {
+        "ko": "셀프 호스팅 개인 재무 관리",
+        "en": "Self-hosted personal finance management"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://actualbudget.org",
+      "source": "https://github.com/actualbudget/actual",
+      "icon": "https://raw.githubusercontent.com/actualbudget/docs/master/static/img/actual.png",
+      "ports": [
+        5006
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "예산 관리",
+            "en": "Budget management"
+          },
+          "description": {
+            "ko": "봉투 예산 방식으로 지출 관리",
+            "en": "Manage spending with envelope budgeting"
+          },
+          "icon": "💰"
+        },
+        {
+          "title": {
+            "ko": "은행 동기화",
+            "en": "Bank sync"
+          },
+          "description": {
+            "ko": "은행 거래 내역 자동 가져오기",
+            "en": "Auto-import bank transactions"
+          },
+          "icon": "🏦"
+        },
+        {
+          "title": {
+            "ko": "리포트",
+            "en": "Reports"
+          },
+          "description": {
+            "ko": "지출 분석 차트 및 리포트",
+            "en": "Spending analysis charts and reports"
+          },
+          "icon": "📊"
+        },
+        {
+          "title": {
+            "ko": "오프라인",
+            "en": "Offline"
+          },
+          "description": {
+            "ko": "오프라인에서도 사용 가능",
+            "en": "Works offline too"
+          },
+          "icon": "📱"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "5006"
+        }
+      ]
+    },
+    {
+      "id": "adguardhome",
+      "name": "AdGuard Home",
+      "description": {
+        "ko": "네트워크 전체 광고/트래커 차단 DNS 서버. 포트 53(DNS)이 비어 있어야 합니다 (systemd-resolved 등과 충돌 시 해당 서비스를 중지하세요). 설치 후 웹 UI 포트로 접속해 초기 설정을 진행합니다.",
+        "en": "Network-wide ad and tracker blocking DNS server. Port 53 (DNS) must be free (stop conflicting services such as systemd-resolved). After install, open the web UI port to run initial setup."
+      },
+      "category": "network",
+      "version": "1.0.0",
+      "website": "https://adguard.com/adguard-home/overview.html",
+      "source": "https://github.com/AdguardTeam/AdGuardHome",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/adguard-home.svg",
+      "ports": [
+        3000,
+        53
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "광고 차단",
+            "en": "Ad blocking"
+          },
+          "description": {
+            "ko": "네트워크 전체 광고 및 트래커를 DNS 수준에서 차단합니다",
+            "en": "Block ads and trackers network-wide at the DNS level"
+          },
+          "icon": "🛡️"
+        },
+        {
+          "title": {
+            "ko": "DNS 암호화",
+            "en": "Encrypted DNS"
+          },
+          "description": {
+            "ko": "DNS-over-HTTPS, DNS-over-TLS, DNSCrypt를 지원합니다",
+            "en": "Supports DNS-over-HTTPS, DNS-over-TLS, and DNSCrypt"
+          },
+          "icon": "🔒"
+        },
+        {
+          "title": {
+            "ko": "통계 대시보드",
+            "en": "Statistics dashboard"
+          },
+          "description": {
+            "ko": "쿼리 로그, 차단률, 클라이언트별 통계를 확인합니다",
+            "en": "View query logs, block rates, and per-client statistics"
+          },
+          "icon": "📊"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "웹 UI 포트",
+            "en": "Web UI Port"
+          },
+          "type": "port",
+          "default": "3000"
+        }
+      ]
+    },
+    {
+      "id": "audiobookshelf",
+      "name": "Audiobookshelf",
+      "description": {
+        "ko": "오디오북 및 팟캐스트 셀프 호스팅 서버",
+        "en": "Self-hosted audiobook and podcast server"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://www.audiobookshelf.org",
+      "source": "https://github.com/advplyr/audiobookshelf",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/audiobookshelf.svg",
+      "ports": [
+        13378
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "오디오북 관리",
+            "en": "Audiobook management"
+          },
+          "description": {
+            "ko": "오디오북 라이브러리를 정리하고 스트리밍",
+            "en": "Organize and stream your audiobook library"
+          },
+          "icon": "🎧"
+        },
+        {
+          "title": {
+            "ko": "팟캐스트",
+            "en": "Podcasts"
+          },
+          "description": {
+            "ko": "팟캐스트 구독 및 자동 다운로드",
+            "en": "Subscribe to and auto-download podcasts"
+          },
+          "icon": "🎙️"
+        },
+        {
+          "title": {
+            "ko": "진행률 동기화",
+            "en": "Progress sync"
+          },
+          "description": {
+            "ko": "여러 기기 간 청취 진행률 자동 동기화",
+            "en": "Automatically sync listening progress across devices"
+          },
+          "icon": "🔄"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "13378"
+        }
+      ]
+    },
+    {
+      "id": "authentik",
+      "name": "authentik",
+      "description": {
+        "ko": "셀프 호스팅 ID 제공자 및 SSO 솔루션. SAML, OAuth2/OIDC, LDAP, 프록시 인증을 지원합니다.",
+        "en": "Self-hosted identity provider and SSO solution supporting SAML, OAuth2/OIDC, LDAP, and proxy authentication."
+      },
+      "category": "security",
+      "version": "1.0.0",
+      "website": "https://goauthentik.io",
+      "source": "https://github.com/goauthentik/authentik",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/authentik.svg",
+      "ports": [
+        9000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "통합 인증 (SSO)",
+            "en": "Single Sign-On"
+          },
+          "description": {
+            "ko": "한 번의 로그인으로 모든 연결된 앱에 접근합니다",
+            "en": "Access all connected apps with a single login"
+          },
+          "icon": "🔐"
+        },
+        {
+          "title": {
+            "ko": "다양한 프로토콜",
+            "en": "Multiple protocols"
+          },
+          "description": {
+            "ko": "SAML, OAuth2/OIDC, LDAP, 프록시 인증을 지원합니다",
+            "en": "Supports SAML, OAuth2/OIDC, LDAP, and proxy authentication"
+          },
+          "icon": "🔌"
+        },
+        {
+          "title": {
+            "ko": "다단계 인증",
+            "en": "Multi-factor auth"
+          },
+          "description": {
+            "ko": "TOTP, WebAuthn, SMS 등 유연한 MFA 흐름을 구성합니다",
+            "en": "Configure flexible MFA flows with TOTP, WebAuthn, SMS, and more"
+          },
+          "icon": "🛡️"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "9000"
+        },
+        {
+          "key": "SECRET_KEY",
+          "label": {
+            "ko": "시크릿 키",
+            "en": "Secret Key"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "PG_PASS",
+          "label": {
+            "ko": "PostgreSQL 비밀번호",
+            "en": "PostgreSQL Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "bazarr",
+      "name": "Bazarr",
+      "description": {
+        "ko": "Sonarr/Radarr용 자막 자동 관리",
+        "en": "Subtitle manager for Sonarr/Radarr"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://www.bazarr.media",
+      "source": "https://github.com/morpheus65535/bazarr",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/bazarr.svg",
+      "ports": [
+        6767
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "자막 자동 다운로드",
+            "en": "Auto subtitle download"
+          },
+          "description": {
+            "ko": "여러 자막 제공처에서 자막을 자동 검색 및 다운로드",
+            "en": "Automatically search and download subtitles from multiple providers"
+          },
+          "icon": "💬"
+        },
+        {
+          "title": {
+            "ko": "다국어 지원",
+            "en": "Multi-language"
+          },
+          "description": {
+            "ko": "원하는 언어의 자막을 우선순위로 설정",
+            "en": "Set preferred subtitle languages by priority"
+          },
+          "icon": "🌐"
+        },
+        {
+          "title": {
+            "ko": "*arr 연동",
+            "en": "*arr integration"
+          },
+          "description": {
+            "ko": "Sonarr/Radarr 라이브러리와 자동 연동",
+            "en": "Automatically integrate with Sonarr/Radarr libraries"
+          },
+          "icon": "🔗"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "6767"
+        }
+      ]
+    },
+    {
+      "id": "beszel",
+      "name": "Beszel",
+      "description": {
+        "ko": "이력 기반 메트릭을 제공하는 가벼운 서버 모니터링 허브 (에이전트는 별도 등록)",
+        "en": "Lightweight server monitoring hub with historical metrics (agents added separately)"
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://beszel.dev",
+      "source": "https://github.com/henrygd/beszel",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/beszel.svg",
+      "ports": [
+        8090
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "이력 메트릭",
+            "en": "Historical metrics"
+          },
+          "description": {
+            "ko": "CPU, 메모리, 디스크, 네트워크 사용량을 이력으로 기록",
+            "en": "Record CPU, memory, disk and network usage over time"
+          },
+          "icon": "📊"
+        },
+        {
+          "title": {
+            "ko": "경량 허브",
+            "en": "Lightweight hub"
+          },
+          "description": {
+            "ko": "낮은 리소스로 여러 서버를 한곳에서 모니터링",
+            "en": "Monitor many servers from one place with low overhead"
+          },
+          "icon": "🪶"
+        },
+        {
+          "title": {
+            "ko": "알림",
+            "en": "Alerts"
+          },
+          "description": {
+            "ko": "임계값 초과 시 이메일/푸시 알림 전송",
+            "en": "Send email/push alerts when thresholds are exceeded"
+          },
+          "icon": "🔔"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8090"
+        }
+      ]
+    },
+    {
+      "id": "bookstack",
+      "name": "BookStack",
+      "description": {
+        "ko": "셀프 호스팅 위키/문서 플랫폼",
+        "en": "Self-hosted wiki and documentation platform"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://www.bookstackapp.com",
+      "source": "https://github.com/BookStackApp/BookStack",
+      "icon": "https://raw.githubusercontent.com/BookStackApp/website/main/static/images/logo.svg",
+      "ports": [
+        6875
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "책/챕터/페이지",
+            "en": "Books/Chapters/Pages"
+          },
+          "description": {
+            "ko": "직관적인 계층 구조 문서 관리",
+            "en": "Intuitive hierarchical documentation"
+          },
+          "icon": "📚"
+        },
+        {
+          "title": {
+            "ko": "WYSIWYG 에디터",
+            "en": "WYSIWYG editor"
+          },
+          "description": {
+            "ko": "마크다운 + 리치 텍스트 에디터",
+            "en": "Markdown + rich text editor"
+          },
+          "icon": "✏️"
+        },
+        {
+          "title": {
+            "ko": "권한 관리",
+            "en": "Permission control"
+          },
+          "description": {
+            "ko": "역할 기반 세밀한 접근 제어",
+            "en": "Role-based fine-grained access control"
+          },
+          "icon": "🔐"
+        },
+        {
+          "title": {
+            "ko": "검색",
+            "en": "Search"
+          },
+          "description": {
+            "ko": "전문 검색으로 빠르게 문서 찾기",
+            "en": "Full-text search for quick document finding"
+          },
+          "icon": "🔍"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "6875"
+        },
+        {
+          "key": "DB_PASS",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "calibre-web",
+      "name": "Calibre-Web",
+      "description": {
+        "ko": "웹 기반 전자책 라이브러리 관리",
+        "en": "Web-based ebook library manager"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://github.com/janeczku/calibre-web",
+      "source": "https://github.com/janeczku/calibre-web",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/calibre-web.svg",
+      "ports": [
+        8083
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "전자책 라이브러리",
+            "en": "Ebook library"
+          },
+          "description": {
+            "ko": "Calibre 라이브러리를 웹에서 탐색 및 관리",
+            "en": "Browse and manage your Calibre library from the web"
+          },
+          "icon": "📚"
+        },
+        {
+          "title": {
+            "ko": "온라인 리더",
+            "en": "Online reader"
+          },
+          "description": {
+            "ko": "브라우저에서 바로 전자책 읽기",
+            "en": "Read ebooks directly in the browser"
+          },
+          "icon": "📖"
+        },
+        {
+          "title": {
+            "ko": "포맷 변환",
+            "en": "Format conversion"
+          },
+          "description": {
+            "ko": "다양한 전자책 포맷으로 변환 및 다운로드",
+            "en": "Convert and download in various ebook formats"
+          },
+          "icon": "🔄"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8083"
+        }
+      ]
+    },
+    {
+      "id": "changedetection",
+      "name": "changedetection.io",
+      "description": {
+        "ko": "웹 페이지 변경 감지 및 알림",
+        "en": "Website change detection and notification"
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://changedetection.io",
+      "source": "https://github.com/dgtlmoon/changedetection.io",
+      "icon": "https://raw.githubusercontent.com/dgtlmoon/changedetection.io/master/changedetectionio/static/images/avatar-256x256.png",
+      "ports": [
+        5000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "변경 감지",
+            "en": "Change detection"
+          },
+          "description": {
+            "ko": "웹 페이지 변경 사항 자동 감지",
+            "en": "Automatically detect web page changes"
+          },
+          "icon": "👁️"
+        },
+        {
+          "title": {
+            "ko": "알림",
+            "en": "Notifications"
+          },
+          "description": {
+            "ko": "이메일, Slack, Telegram 등으로 알림",
+            "en": "Notify via email, Slack, Telegram and more"
+          },
+          "icon": "🔔"
+        },
+        {
+          "title": {
+            "ko": "필터링",
+            "en": "Filtering"
+          },
+          "description": {
+            "ko": "CSS/XPath 셀렉터로 특정 영역 감시",
+            "en": "Monitor specific areas with CSS/XPath selectors"
+          },
+          "icon": "🎯"
+        },
+        {
+          "title": {
+            "ko": "가격 추적",
+            "en": "Price tracking"
+          },
+          "description": {
+            "ko": "상품 가격 변동 추적",
+            "en": "Track product price changes"
+          },
+          "icon": "💰"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "5000"
+        }
+      ]
+    },
+    {
+      "id": "cloudflared",
+      "name": "Cloudflare Tunnel",
+      "description": {
+        "ko": "Cloudflare Tunnel 커넥터. 포트를 개방하지 않고 아웃바운드 연결만으로 로컬 서비스를 외부에 안전하게 노출합니다. Cloudflare Zero Trust 대시보드에서 발급한 터널 토큰이 필요합니다.",
+        "en": "Cloudflare Tunnel connector. Exposes local services securely using only outbound connections, with no open ports. Requires a tunnel token issued from the Cloudflare Zero Trust dashboard."
+      },
+      "category": "network",
+      "version": "1.0.0",
+      "website": "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/",
+      "source": "https://github.com/cloudflare/cloudflared",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/cloudflare.svg",
+      "ports": [],
+      "features": [
+        {
+          "title": {
+            "ko": "포트 개방 불필요",
+            "en": "No open ports"
+          },
+          "description": {
+            "ko": "방화벽 포트를 열지 않고 아웃바운드 연결만 사용합니다",
+            "en": "Uses only outbound connections without opening firewall ports"
+          },
+          "icon": "🚪"
+        },
+        {
+          "title": {
+            "ko": "안전한 노출",
+            "en": "Secure exposure"
+          },
+          "description": {
+            "ko": "Cloudflare 네트워크를 통해 로컬 서비스를 안전하게 공개합니다",
+            "en": "Safely expose local services through the Cloudflare network"
+          },
+          "icon": "🔒"
+        },
+        {
+          "title": {
+            "ko": "DDoS 보호",
+            "en": "DDoS protection"
+          },
+          "description": {
+            "ko": "Cloudflare의 DDoS 완화 및 WAF 보호를 활용합니다",
+            "en": "Leverages Cloudflare's DDoS mitigation and WAF protection"
+          },
+          "icon": "🛡️"
+        }
+      ],
+      "env": [
+        {
+          "key": "TUNNEL_TOKEN",
+          "label": {
+            "ko": "터널 토큰 (Cloudflare Zero Trust 대시보드에서 발급)",
+            "en": "Tunnel Token (from Cloudflare Zero Trust dashboard)"
+          },
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "code-server",
+      "name": "Code Server",
+      "description": {
+        "ko": "브라우저에서 실행되는 VS Code",
+        "en": "VS Code running in the browser"
+      },
+      "category": "dev",
+      "version": "1.0.0",
+      "website": "https://coder.com",
+      "source": "https://github.com/coder/code-server",
+      "icon": "https://raw.githubusercontent.com/coder/code-server/main/src/browser/media/pwa-icon-512.png",
+      "ports": [
+        8443
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "VS Code 경험",
+            "en": "VS Code experience"
+          },
+          "description": {
+            "ko": "브라우저에서 완전한 VS Code 사용",
+            "en": "Full VS Code experience in the browser"
+          },
+          "icon": "💻"
+        },
+        {
+          "title": {
+            "ko": "확장 프로그램",
+            "en": "Extensions"
+          },
+          "description": {
+            "ko": "VS Code 마켓플레이스 확장 설치",
+            "en": "Install VS Code marketplace extensions"
+          },
+          "icon": "🧩"
+        },
+        {
+          "title": {
+            "ko": "원격 개발",
+            "en": "Remote development"
+          },
+          "description": {
+            "ko": "어디서든 서버의 개발 환경 접근",
+            "en": "Access your dev environment from anywhere"
+          },
+          "icon": "🌍"
+        },
+        {
+          "title": {
+            "ko": "터미널",
+            "en": "Terminal"
+          },
+          "description": {
+            "ko": "내장 터미널로 서버 직접 접근",
+            "en": "Built-in terminal with direct server access"
+          },
+          "icon": "⌨️"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8443"
+        },
+        {
+          "key": "PASSWORD",
+          "label": {
+            "ko": "접속 비밀번호",
+            "en": "Access Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "dashy",
+      "name": "Dashy",
+      "description": {
+        "ko": "커스터마이즈 가능한 홈 서버 대시보드",
+        "en": "Highly customizable home server dashboard"
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://dashy.to",
+      "source": "https://github.com/Lissy93/dashy",
+      "icon": "https://raw.githubusercontent.com/Lissy93/dashy/master/public/web-icons/dashy-logo.png",
+      "ports": [
+        4000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "위젯",
+            "en": "Widgets"
+          },
+          "description": {
+            "ko": "시스템 정보, 날씨, 검색 등 다양한 위젯",
+            "en": "System info, weather, search and more widgets"
+          },
+          "icon": "🧩"
+        },
+        {
+          "title": {
+            "ko": "테마",
+            "en": "Themes"
+          },
+          "description": {
+            "ko": "50+ 내장 테마 + 커스텀 CSS",
+            "en": "50+ built-in themes + custom CSS"
+          },
+          "icon": "🎨"
+        },
+        {
+          "title": {
+            "ko": "인증",
+            "en": "Authentication"
+          },
+          "description": {
+            "ko": "Keycloak, OAuth 등 인증 지원",
+            "en": "Support Keycloak, OAuth and more auth"
+          },
+          "icon": "🔐"
+        },
+        {
+          "title": {
+            "ko": "상태 체크",
+            "en": "Status check"
+          },
+          "description": {
+            "ko": "서비스 가용성 실시간 모니터링",
+            "en": "Real-time service availability monitoring"
+          },
+          "icon": "💚"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "4000"
+        }
+      ]
+    },
+    {
+      "id": "ddns-updater",
+      "name": "DDNS Updater",
+      "description": {
+        "ko": "여러 DNS 제공자의 레코드를 주기적으로 갱신하는 동적 DNS 업데이터 (웹 UI 포함). 설치 후 웹 UI 또는 데이터 볼륨의 config.json에서 제공자를 구성하세요.",
+        "en": "Dynamic DNS updater with a web UI that periodically updates records across many DNS providers. After install, configure providers in the web UI or in config.json inside the data volume."
+      },
+      "category": "network",
+      "version": "1.0.0",
+      "website": "https://github.com/qdm12/ddns-updater",
+      "source": "https://github.com/qdm12/ddns-updater",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/ddns-updater.svg",
+      "ports": [
+        8000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "다중 제공자",
+            "en": "Multiple providers"
+          },
+          "description": {
+            "ko": "Cloudflare, Namecheap 등 다양한 DNS 제공자를 지원합니다",
+            "en": "Supports many DNS providers including Cloudflare and Namecheap"
+          },
+          "icon": "🌐"
+        },
+        {
+          "title": {
+            "ko": "자동 갱신",
+            "en": "Automatic updates"
+          },
+          "description": {
+            "ko": "공인 IP가 바뀌면 DNS 레코드를 자동으로 갱신합니다",
+            "en": "Automatically updates DNS records when your public IP changes"
+          },
+          "icon": "🔄"
+        },
+        {
+          "title": {
+            "ko": "웹 대시보드",
+            "en": "Web dashboard"
+          },
+          "description": {
+            "ko": "각 도메인의 갱신 상태와 이력을 한눈에 확인합니다",
+            "en": "View update status and history for each domain at a glance"
+          },
+          "icon": "📊"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8000"
+        }
+      ]
+    },
+    {
+      "id": "dockge",
+      "name": "Dockge",
+      "description": {
+        "ko": "Docker Compose 스택을 관리하는 웹 UI. 컴포즈 파일을 시각적으로 편집하고 실시간 로그를 확인합니다.",
+        "en": "Web UI for managing Docker Compose stacks. Visually edit compose files and view real-time logs."
+      },
+      "category": "dev",
+      "version": "1.0.0",
+      "website": "https://dockge.kuma.pet",
+      "source": "https://github.com/louislam/dockge",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/dockge.svg",
+      "ports": [
+        5001
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "컴포즈 편집기",
+            "en": "Compose editor"
+          },
+          "description": {
+            "ko": "compose.yaml를 웹에서 직접 편집하고 즉시 배포합니다",
+            "en": "Edit compose.yaml directly in the browser and deploy instantly"
+          },
+          "icon": "📝"
+        },
+        {
+          "title": {
+            "ko": "실시간 로그",
+            "en": "Real-time logs"
+          },
+          "description": {
+            "ko": "컨테이너 로그와 터미널을 실시간으로 확인합니다",
+            "en": "View container logs and an interactive terminal in real time"
+          },
+          "icon": "📜"
+        },
+        {
+          "title": {
+            "ko": "스택 관리",
+            "en": "Stack management"
+          },
+          "description": {
+            "ko": "여러 컴포즈 스택을 시작/정지/재시작합니다",
+            "en": "Start, stop, and restart multiple compose stacks"
+          },
+          "icon": "🧱"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "5001"
+        }
+      ]
+    },
+    {
+      "id": "dozzle",
+      "name": "Dozzle",
+      "description": {
+        "ko": "Docker 컨테이너 로그를 브라우저에서 실시간으로 보는 경량 뷰어",
+        "en": "Lightweight, real-time Docker container log viewer in your browser"
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://dozzle.dev",
+      "source": "https://github.com/amir20/dozzle",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/dozzle.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "실시간 로그",
+            "en": "Real-time logs"
+          },
+          "description": {
+            "ko": "컨테이너 로그를 지연 없이 실시간 스트리밍",
+            "en": "Stream container logs in real time with no delay"
+          },
+          "icon": "📜"
+        },
+        {
+          "title": {
+            "ko": "검색과 필터",
+            "en": "Search and filter"
+          },
+          "description": {
+            "ko": "정규식 검색과 필터로 원하는 로그를 빠르게 탐색",
+            "en": "Find logs fast with regex search and filtering"
+          },
+          "icon": "🔍"
+        },
+        {
+          "title": {
+            "ko": "설치 불필요",
+            "en": "Agentless"
+          },
+          "description": {
+            "ko": "에이전트 없이 Docker 소켓만으로 동작",
+            "en": "Works with just the Docker socket, no agents needed"
+          },
+          "icon": "🪶"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        }
+      ]
+    },
+    {
+      "id": "duplicati",
+      "name": "Duplicati",
+      "description": {
+        "ko": "암호화된 클라우드 백업 솔루션",
+        "en": "Encrypted cloud backup solution"
+      },
+      "category": "cloud",
+      "version": "1.0.0",
+      "website": "https://www.duplicati.com",
+      "source": "https://github.com/duplicati/duplicati",
+      "icon": "https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/duplicati-icon.png",
+      "ports": [
+        8200
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "암호화 백업",
+            "en": "Encrypted backup"
+          },
+          "description": {
+            "ko": "AES-256으로 백업 데이터 암호화",
+            "en": "Encrypt backup data with AES-256"
+          },
+          "icon": "🔐"
+        },
+        {
+          "title": {
+            "ko": "클라우드 지원",
+            "en": "Cloud support"
+          },
+          "description": {
+            "ko": "S3, Google Drive, OneDrive 등 지원",
+            "en": "Support S3, Google Drive, OneDrive and more"
+          },
+          "icon": "☁️"
+        },
+        {
+          "title": {
+            "ko": "스케줄링",
+            "en": "Scheduling"
+          },
+          "description": {
+            "ko": "자동 백업 스케줄 설정",
+            "en": "Set automatic backup schedules"
+          },
+          "icon": "⏰"
+        },
+        {
+          "title": {
+            "ko": "증분 백업",
+            "en": "Incremental backup"
+          },
+          "description": {
+            "ko": "변경된 부분만 백업하여 속도/공간 절약",
+            "en": "Back up only changes for speed and space savings"
+          },
+          "icon": "📦"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8200"
+        }
+      ]
+    },
+    {
+      "id": "filebrowser",
+      "name": "File Browser",
+      "description": {
+        "ko": "웹 기반 파일 관리자",
+        "en": "Web-based file manager"
+      },
+      "category": "cloud",
+      "version": "1.0.0",
+      "website": "https://filebrowser.org",
+      "source": "https://github.com/filebrowser/filebrowser",
+      "icon": "https://raw.githubusercontent.com/filebrowser/logo/master/icon_raw.svg",
+      "ports": [
+        8085
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "파일 관리",
+            "en": "File management"
+          },
+          "description": {
+            "ko": "업로드, 다운로드, 이동, 삭제, 편집",
+            "en": "Upload, download, move, delete, edit"
+          },
+          "icon": "📁"
+        },
+        {
+          "title": {
+            "ko": "사용자 관리",
+            "en": "User management"
+          },
+          "description": {
+            "ko": "다중 사용자 및 권한 설정",
+            "en": "Multiple users with permissions"
+          },
+          "icon": "👥"
+        },
+        {
+          "title": {
+            "ko": "공유 링크",
+            "en": "Share links"
+          },
+          "description": {
+            "ko": "파일/폴더 공유 링크 생성",
+            "en": "Create shareable links for files/folders"
+          },
+          "icon": "🔗"
+        },
+        {
+          "title": {
+            "ko": "경량",
+            "en": "Lightweight"
+          },
+          "description": {
+            "ko": "최소 리소스로 빠른 파일 접근",
+            "en": "Fast file access with minimal resources"
+          },
+          "icon": "⚡"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8085"
+        }
+      ]
+    },
+    {
+      "id": "filehatch",
+      "name": "FileHatch",
+      "description": {
+        "ko": "셀프 호스팅 클라우드 파일 공유 시스템 (SMB/WebDAV/OnlyOffice 지원)",
+        "en": "Self-hosted cloud file sharing system with SMB/WebDAV/OnlyOffice support"
+      },
+      "category": "cloud",
+      "version": "1.0.0",
+      "website": "https://github.com/svrforum/FileHatch",
+      "source": "https://github.com/svrforum/FileHatch",
+      "ports": [
+        3080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "다중 프로토콜",
+            "en": "Multi-protocol"
+          },
+          "description": {
+            "ko": "웹 UI, SMB/CIFS, WebDAV 접근 지원",
+            "en": "Web UI, SMB/CIFS, WebDAV access support"
+          },
+          "icon": "🌐"
+        },
+        {
+          "title": {
+            "ko": "문서 편집",
+            "en": "Document editing"
+          },
+          "description": {
+            "ko": "OnlyOffice 통합으로 브라우저 내 Office 편집",
+            "en": "In-browser Office editing via OnlyOffice integration"
+          },
+          "icon": "📝"
+        },
+        {
+          "title": {
+            "ko": "강력한 보안",
+            "en": "Strong security"
+          },
+          "description": {
+            "ko": "JWT, 2FA(TOTP), SSO/OIDC, 브루트포스 방지",
+            "en": "JWT, 2FA(TOTP), SSO/OIDC, brute-force protection"
+          },
+          "icon": "🔒"
+        },
+        {
+          "title": {
+            "ko": "팀 협업",
+            "en": "Team collaboration"
+          },
+          "description": {
+            "ko": "공유 드라이브, 파일 공유, 실시간 알림",
+            "en": "Shared drives, file sharing, real-time notifications"
+          },
+          "icon": "👥"
+        }
+      ],
+      "env": [
+        {
+          "key": "UI_PORT",
+          "label": {
+            "ko": "웹 UI 포트",
+            "en": "Web UI Port"
+          },
+          "type": "port",
+          "default": "3080"
+        },
+        {
+          "key": "DB_USER",
+          "label": {
+            "ko": "DB 사용자명",
+            "en": "DB Username"
+          },
+          "type": "text",
+          "default": "fh_user"
+        },
+        {
+          "key": "DB_PASS",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "DB_NAME",
+          "label": {
+            "ko": "DB 이름",
+            "en": "DB Name"
+          },
+          "type": "text",
+          "default": "fh_main"
+        },
+        {
+          "key": "JWT_SECRET",
+          "label": {
+            "ko": "JWT 시크릿",
+            "en": "JWT Secret"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "ENCRYPTION_KEY",
+          "label": {
+            "ko": "암호화 키",
+            "en": "Encryption Key"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "TZ",
+          "label": {
+            "ko": "타임존",
+            "en": "Timezone"
+          },
+          "type": "text",
+          "default": "Asia/Seoul"
+        }
+      ]
+    },
+    {
+      "id": "firefly-iii",
+      "name": "Firefly III",
+      "description": {
+        "ko": "셀프 호스팅 개인 재무 관리 도구",
+        "en": "Self-hosted personal finance manager"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://www.firefly-iii.org",
+      "source": "https://github.com/firefly-iii/firefly-iii",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/firefly-iii.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "예산 관리",
+            "en": "Budgeting"
+          },
+          "description": {
+            "ko": "예산과 카테고리로 지출을 체계적으로 관리",
+            "en": "Manage spending with budgets and categories"
+          },
+          "icon": "💰"
+        },
+        {
+          "title": {
+            "ko": "자동 규칙",
+            "en": "Automation rules"
+          },
+          "description": {
+            "ko": "규칙으로 거래를 자동 분류 및 처리",
+            "en": "Auto-categorize transactions with rules"
+          },
+          "icon": "⚙️"
+        },
+        {
+          "title": {
+            "ko": "리포트",
+            "en": "Reports"
+          },
+          "description": {
+            "ko": "수입/지출/순자산 추이를 차트로 분석",
+            "en": "Analyze income, expenses and net worth in charts"
+          },
+          "icon": "📈"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        },
+        {
+          "key": "APP_KEY",
+          "label": {
+            "ko": "앱 키 (32자)",
+            "en": "App Key (32 chars)"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "DB_PASSWORD",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "focalboard",
+      "name": "Focalboard",
+      "description": {
+        "ko": "셀프 호스팅 프로젝트 및 칸반 보드 (Notion/Trello 대안)",
+        "en": "Self-hosted project and kanban boards (Notion/Trello alternative)"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://www.focalboard.com",
+      "source": "https://github.com/mattermost/focalboard",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/focalboard.svg",
+      "ports": [
+        8000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "칸반 보드",
+            "en": "Kanban boards"
+          },
+          "description": {
+            "ko": "드래그 앤 드롭으로 작업을 시각적으로 관리",
+            "en": "Manage tasks visually with drag-and-drop"
+          },
+          "icon": "📊"
+        },
+        {
+          "title": {
+            "ko": "다양한 보기",
+            "en": "Multiple views"
+          },
+          "description": {
+            "ko": "보드, 테이블, 갤러리, 캘린더 보기 지원",
+            "en": "Board, table, gallery and calendar views"
+          },
+          "icon": "🗂️"
+        },
+        {
+          "title": {
+            "ko": "템플릿",
+            "en": "Templates"
+          },
+          "description": {
+            "ko": "내장 템플릿으로 빠르게 시작",
+            "en": "Get started fast with built-in templates"
+          },
+          "icon": "📋"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8000"
+        }
+      ]
+    },
+    {
+      "id": "forgejo",
+      "name": "Forgejo",
+      "description": {
+        "ko": "셀프 호스팅 Git 포지 (Gitea 포크) - 코드 호스팅, 이슈, PR, CI 지원",
+        "en": "Self-hosted Git forge (Gitea fork) with code hosting, issues, PRs, and CI"
+      },
+      "category": "dev",
+      "version": "1.0.0",
+      "website": "https://forgejo.org",
+      "source": "https://codeberg.org/forgejo/forgejo",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/forgejo.svg",
+      "ports": [
+        3000,
+        222
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "Git 저장소 호스팅",
+            "en": "Git repository hosting"
+          },
+          "description": {
+            "ko": "HTTPS와 SSH로 무제한 저장소를 호스팅",
+            "en": "Host unlimited repositories over HTTPS and SSH"
+          },
+          "icon": "📦"
+        },
+        {
+          "title": {
+            "ko": "이슈 및 PR",
+            "en": "Issues and PRs"
+          },
+          "description": {
+            "ko": "이슈 추적과 풀 리퀘스트로 협업",
+            "en": "Collaborate with issue tracking and pull requests"
+          },
+          "icon": "🔀"
+        },
+        {
+          "title": {
+            "ko": "내장 CI/CD",
+            "en": "Built-in CI/CD"
+          },
+          "description": {
+            "ko": "Forgejo Actions로 자동 빌드 및 배포",
+            "en": "Automate builds and deploys with Forgejo Actions"
+          },
+          "icon": "⚙️"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "3000"
+        }
+      ]
+    },
+    {
+      "id": "freshrss",
+      "name": "FreshRSS",
+      "description": {
+        "ko": "셀프 호스팅 RSS 피드 수집기 및 리더",
+        "en": "Self-hosted RSS feed aggregator and reader"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://freshrss.org",
+      "source": "https://github.com/FreshRSS/FreshRSS",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/freshrss.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "피드 통합",
+            "en": "Feed aggregation"
+          },
+          "description": {
+            "ko": "여러 RSS/Atom 피드를 한곳에서 구독",
+            "en": "Subscribe to many RSS/Atom feeds in one place"
+          },
+          "icon": "📰"
+        },
+        {
+          "title": {
+            "ko": "웹 스크래핑",
+            "en": "Web scraping"
+          },
+          "description": {
+            "ko": "RSS가 없는 사이트도 피드로 변환",
+            "en": "Turn sites without RSS into feeds"
+          },
+          "icon": "🕸️"
+        },
+        {
+          "title": {
+            "ko": "모바일 호환",
+            "en": "Mobile compatible"
+          },
+          "description": {
+            "ko": "다양한 모바일 리더 앱과 API 연동",
+            "en": "Works with many mobile reader apps via API"
+          },
+          "icon": "📱"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        },
+        {
+          "key": "PUID",
+          "label": {
+            "ko": "사용자 ID",
+            "en": "User ID"
+          },
+          "type": "text",
+          "default": "1000"
+        },
+        {
+          "key": "PGID",
+          "label": {
+            "ko": "그룹 ID",
+            "en": "Group ID"
+          },
+          "type": "text",
+          "default": "1000"
+        },
+        {
+          "key": "TZ",
+          "label": {
+            "ko": "시간대",
+            "en": "Timezone"
+          },
+          "type": "text",
+          "default": "Asia/Seoul"
+        }
+      ]
+    },
+    {
+      "id": "ghost",
+      "name": "Ghost",
+      "description": {
+        "ko": "프로페셔널 퍼블리싱 플랫폼",
+        "en": "Professional publishing platform"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://ghost.org",
+      "source": "https://github.com/TryGhost/Ghost",
+      "icon": "https://raw.githubusercontent.com/nicehash/daggerhashimoto/master/Ghost.png",
+      "ports": [
+        2368
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "콘텐츠 에디터",
+            "en": "Content editor"
+          },
+          "description": {
+            "ko": "강력한 리치 텍스트 에디터",
+            "en": "Powerful rich text editor"
+          },
+          "icon": "✍️"
+        },
+        {
+          "title": {
+            "ko": "멤버십/구독",
+            "en": "Memberships"
+          },
+          "description": {
+            "ko": "유료 구독 및 뉴스레터 기능",
+            "en": "Paid subscriptions and newsletter features"
+          },
+          "icon": "💳"
+        },
+        {
+          "title": {
+            "ko": "SEO 최적화",
+            "en": "SEO optimized"
+          },
+          "description": {
+            "ko": "검색엔진 최적화 기본 내장",
+            "en": "Built-in search engine optimization"
+          },
+          "icon": "🔍"
+        },
+        {
+          "title": {
+            "ko": "테마",
+            "en": "Themes"
+          },
+          "description": {
+            "ko": "커스터마이즈 가능한 테마 시스템",
+            "en": "Customizable theme system"
+          },
+          "icon": "🎨"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "2368"
+        },
+        {
+          "key": "URL",
+          "label": {
+            "ko": "사이트 URL",
+            "en": "Site URL"
+          },
+          "type": "text",
+          "default": "http://localhost:2368"
+        }
+      ]
+    },
+    {
+      "id": "gitea",
+      "name": "Gitea",
+      "description": {
+        "ko": "경량 셀프 호스팅 Git 서비스",
+        "en": "Lightweight self-hosted Git service"
+      },
+      "category": "dev",
+      "featured": true,
+      "version": "1.0.0",
+      "website": "https://gitea.com",
+      "source": "https://github.com/go-gitea/gitea",
+      "icon": "https://raw.githubusercontent.com/go-gitea/gitea/main/public/assets/img/logo.svg",
+      "ports": [
+        3000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "Git 호스팅",
+            "en": "Git hosting"
+          },
+          "description": {
+            "ko": "웹 UI를 갖춘 완전한 Git 저장소 호스팅",
+            "en": "Full Git repository hosting with web UI"
+          },
+          "icon": "📦"
+        },
+        {
+          "title": {
+            "ko": "CI/CD",
+            "en": "CI/CD"
+          },
+          "description": {
+            "ko": "내장 Gitea Actions, GitHub Actions 호환",
+            "en": "Built-in Gitea Actions, GitHub Actions compatible"
+          },
+          "icon": "🔄"
+        },
+        {
+          "title": {
+            "ko": "이슈 트래킹",
+            "en": "Issue tracking"
+          },
+          "description": {
+            "ko": "이슈, 풀 리퀘스트, 프로젝트 보드",
+            "en": "Issues, pull requests, project boards"
+          },
+          "icon": "📋"
+        },
+        {
+          "title": {
+            "ko": "경량화",
+            "en": "Lightweight"
+          },
+          "description": {
+            "ko": "최소한의 리소스 사용, Go로 작성",
+            "en": "Minimal resource usage, written in Go"
+          },
+          "icon": "💨"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "3000"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "glance",
+      "name": "Glance",
+      "description": {
+        "ko": "피드, 위젯, 시스템 정보를 한 화면에 모으는 셀프 호스팅 대시보드",
+        "en": "Self-hosted dashboard aggregating feeds, widgets and system info on one screen"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://github.com/glanceapp/glance",
+      "source": "https://github.com/glanceapp/glance",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/glance.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "피드 집계",
+            "en": "Feed aggregation"
+          },
+          "description": {
+            "ko": "RSS, 레딧, 해커뉴스 등을 한곳에 모음",
+            "en": "Bring RSS, Reddit, Hacker News and more into one place"
+          },
+          "icon": "📰"
+        },
+        {
+          "title": {
+            "ko": "다양한 위젯",
+            "en": "Rich widgets"
+          },
+          "description": {
+            "ko": "날씨, 캘린더, 모니터, 마켓 등 위젯 제공",
+            "en": "Weather, calendar, monitor, markets and many more widgets"
+          },
+          "icon": "🧩"
+        },
+        {
+          "title": {
+            "ko": "가벼운 성능",
+            "en": "Lightweight"
+          },
+          "description": {
+            "ko": "단일 바이너리로 빠르고 리소스 소모가 적음",
+            "en": "Single binary that is fast and light on resources"
+          },
+          "icon": "⚡"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        }
+      ]
+    },
+    {
+      "id": "glances",
+      "name": "Glances",
+      "description": {
+        "ko": "CPU, 메모리, 디스크, 네트워크, 컨테이너를 한 화면에 보여주는 시스템 모니터링 웹 UI",
+        "en": "System monitoring web UI showing CPU, memory, disk, network and containers in one view"
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://nicolargo.github.io/glances",
+      "source": "https://github.com/nicolargo/glances",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/glances.svg",
+      "ports": [
+        61208
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "한눈에 보기",
+            "en": "At a glance"
+          },
+          "description": {
+            "ko": "주요 시스템 자원을 한 화면에 종합 표시",
+            "en": "Show key system resources together on one screen"
+          },
+          "icon": "👀"
+        },
+        {
+          "title": {
+            "ko": "컨테이너 모니터링",
+            "en": "Container monitoring"
+          },
+          "description": {
+            "ko": "Docker 컨테이너의 자원 사용량을 함께 표시",
+            "en": "Display resource usage of Docker containers too"
+          },
+          "icon": "🐳"
+        },
+        {
+          "title": {
+            "ko": "웹 인터페이스",
+            "en": "Web interface"
+          },
+          "description": {
+            "ko": "브라우저에서 실시간으로 시스템 상태 확인",
+            "en": "Check system status live from the browser"
+          },
+          "icon": "🌐"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "61208"
+        }
+      ]
+    },
+    {
+      "id": "gotify",
+      "name": "Gotify",
+      "description": {
+        "ko": "셀프 호스팅 실시간 메시지 서버",
+        "en": "Self-hosted real-time message server"
+      },
+      "category": "communication",
+      "version": "1.0.0",
+      "website": "https://gotify.net",
+      "source": "https://github.com/gotify/server",
+      "icon": "https://raw.githubusercontent.com/gotify/logo/master/gotify-logo.png",
+      "ports": [
+        8078
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "REST API",
+            "en": "REST API"
+          },
+          "description": {
+            "ko": "REST API로 메시지 전송",
+            "en": "Send messages via REST API"
+          },
+          "icon": "📡"
+        },
+        {
+          "title": {
+            "ko": "웹소켓",
+            "en": "WebSocket"
+          },
+          "description": {
+            "ko": "실시간 메시지 수신",
+            "en": "Receive messages in real-time"
+          },
+          "icon": "⚡"
+        },
+        {
+          "title": {
+            "ko": "Android 앱",
+            "en": "Android app"
+          },
+          "description": {
+            "ko": "Android 푸시 알림 지원",
+            "en": "Android push notification support"
+          },
+          "icon": "📱"
+        },
+        {
+          "title": {
+            "ko": "플러그인",
+            "en": "Plugins"
+          },
+          "description": {
+            "ko": "Go 플러그인으로 기능 확장",
+            "en": "Extend with Go plugins"
+          },
+          "icon": "🧩"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8078"
+        }
+      ]
+    },
+    {
+      "id": "grafana",
+      "name": "Grafana",
+      "description": {
+        "ko": "오픈소스 데이터 시각화 및 모니터링",
+        "en": "Open source data visualization and monitoring"
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://grafana.com",
+      "source": "https://github.com/grafana/grafana",
+      "icon": "https://raw.githubusercontent.com/grafana/grafana/main/public/img/grafana_icon.svg",
+      "ports": [
+        3000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "대시보드",
+            "en": "Dashboards"
+          },
+          "description": {
+            "ko": "드래그 앤 드롭 패널로 대시보드 구성",
+            "en": "Build dashboards with drag and drop panels"
+          },
+          "icon": "📊"
+        },
+        {
+          "title": {
+            "ko": "데이터소스",
+            "en": "Datasources"
+          },
+          "description": {
+            "ko": "Prometheus, InfluxDB, MySQL 등 지원",
+            "en": "Support Prometheus, InfluxDB, MySQL and more"
+          },
+          "icon": "🔌"
+        },
+        {
+          "title": {
+            "ko": "알림",
+            "en": "Alerting"
+          },
+          "description": {
+            "ko": "조건 기반 알림 규칙 설정",
+            "en": "Set up condition-based alert rules"
+          },
+          "icon": "🔔"
+        },
+        {
+          "title": {
+            "ko": "플러그인",
+            "en": "Plugins"
+          },
+          "description": {
+            "ko": "수백 개의 커뮤니티 플러그인",
+            "en": "Hundreds of community plugins"
+          },
+          "icon": "🧩"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "3000"
+        },
+        {
+          "key": "GF_SECURITY_ADMIN_PASSWORD",
+          "label": {
+            "ko": "관리자 비밀번호",
+            "en": "Admin Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "heimdall",
+      "name": "Heimdall",
+      "description": {
+        "ko": "모든 웹 애플리케이션을 한곳에서 관리하는 애플리케이션 대시보드/런처",
+        "en": "Application dashboard and launcher to organize all your web apps in one place"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://heimdall.site",
+      "source": "https://github.com/linuxserver/Heimdall",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/heimdall.svg",
+      "ports": [
+        8090
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "통합 대시보드",
+            "en": "Unified dashboard"
+          },
+          "description": {
+            "ko": "모든 서비스를 한 화면에 모아 빠르게 실행",
+            "en": "Gather all your services on one screen for quick launching"
+          },
+          "icon": "🚀"
+        },
+        {
+          "title": {
+            "ko": "강화된 앱",
+            "en": "Enhanced apps"
+          },
+          "description": {
+            "ko": "지원 앱의 상태와 통계를 타일에 직접 표시",
+            "en": "Show live status and stats of supported apps right on the tile"
+          },
+          "icon": "📊"
+        },
+        {
+          "title": {
+            "ko": "사용자 정의",
+            "en": "Customizable"
+          },
+          "description": {
+            "ko": "배경, 태그, 핀 고정으로 자유롭게 구성",
+            "en": "Organize freely with backgrounds, tags and pinned items"
+          },
+          "icon": "🎨"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8090"
+        }
+      ]
+    },
+    {
+      "id": "homarr",
+      "name": "Homarr",
+      "description": {
+        "ko": "모던 홈 서버 대시보드",
+        "en": "Modern home server dashboard"
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://homarr.dev",
+      "source": "https://github.com/ajnart/homarr",
+      "icon": "https://raw.githubusercontent.com/ajnart/homarr/dev/public/imgs/logo/logo.png",
+      "ports": [
+        7575
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "드래그 앤 드롭",
+            "en": "Drag and drop"
+          },
+          "description": {
+            "ko": "위젯을 드래그하여 대시보드 구성",
+            "en": "Drag widgets to compose your dashboard"
+          },
+          "icon": "🖱️"
+        },
+        {
+          "title": {
+            "ko": "Docker 통합",
+            "en": "Docker integration"
+          },
+          "description": {
+            "ko": "Docker 컨테이너 상태 실시간 표시",
+            "en": "Real-time Docker container status"
+          },
+          "icon": "🐳"
+        },
+        {
+          "title": {
+            "ko": "위젯",
+            "en": "Widgets"
+          },
+          "description": {
+            "ko": "날씨, 토렌트, 미디어 등 다양한 위젯",
+            "en": "Weather, torrent, media and more widgets"
+          },
+          "icon": "🧩"
+        },
+        {
+          "title": {
+            "ko": "사용자 관리",
+            "en": "User management"
+          },
+          "description": {
+            "ko": "다중 사용자 및 권한 지원",
+            "en": "Multi-user with permission support"
+          },
+          "icon": "👥"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "7575"
+        }
+      ]
+    },
+    {
+      "id": "homeassistant",
+      "name": "Home Assistant",
+      "description": {
+        "ko": "오픈소스 홈 자동화 플랫폼",
+        "en": "Open source home automation platform"
+      },
+      "category": "automation",
+      "version": "1.0.0",
+      "website": "https://www.home-assistant.io",
+      "source": "https://github.com/home-assistant/core",
+      "icon": "https://raw.githubusercontent.com/home-assistant/assets/master/logo/logo.svg",
+      "ports": [
+        8123
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "IoT 통합",
+            "en": "IoT integration"
+          },
+          "description": {
+            "ko": "2000+ 디바이스 및 서비스 연동",
+            "en": "Connect 2000+ devices and services"
+          },
+          "icon": "🏠"
+        },
+        {
+          "title": {
+            "ko": "자동화",
+            "en": "Automation"
+          },
+          "description": {
+            "ko": "조건 기반 자동화 규칙 설정",
+            "en": "Set up condition-based automation rules"
+          },
+          "icon": "⚙️"
+        },
+        {
+          "title": {
+            "ko": "대시보드",
+            "en": "Dashboard"
+          },
+          "description": {
+            "ko": "맞춤형 홈 대시보드 구성",
+            "en": "Customizable home dashboards"
+          },
+          "icon": "📊"
+        },
+        {
+          "title": {
+            "ko": "프라이버시",
+            "en": "Privacy"
+          },
+          "description": {
+            "ko": "로컬 처리, 클라우드 의존 없음",
+            "en": "Local processing, no cloud dependency"
+          },
+          "icon": "🔒"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8123"
+        }
+      ]
+    },
+    {
+      "id": "homepage",
+      "name": "Homepage",
+      "description": {
+        "ko": "Docker, 서비스 통합, 위젯을 지원하는 고도로 사용자 정의 가능한 대시보드",
+        "en": "Highly customizable dashboard with Docker, service integrations and widgets"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://gethomepage.dev",
+      "source": "https://github.com/gethomepage/homepage",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/homepage.svg",
+      "ports": [
+        3000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "서비스 통합",
+            "en": "Service integrations"
+          },
+          "description": {
+            "ko": "100개 이상의 서비스 위젯으로 상태 표시",
+            "en": "Show live status with 100+ built-in service widgets"
+          },
+          "icon": "🔌"
+        },
+        {
+          "title": {
+            "ko": "Docker 연동",
+            "en": "Docker integration"
+          },
+          "description": {
+            "ko": "Docker 컨테이너를 자동으로 검색하고 표시",
+            "en": "Automatically discover and display Docker containers"
+          },
+          "icon": "🐳"
+        },
+        {
+          "title": {
+            "ko": "빠른 검색",
+            "en": "Quick search"
+          },
+          "description": {
+            "ko": "북마크와 검색 바로 빠르게 이동",
+            "en": "Jump quickly with bookmarks and a built-in search bar"
+          },
+          "icon": "🔍"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "3000"
+        }
+      ]
+    },
+    {
+      "id": "homer",
+      "name": "Homer",
+      "description": {
+        "ko": "심플한 홈 서버 대시보드",
+        "en": "Simple home server dashboard"
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://homer-demo.netlify.app",
+      "source": "https://github.com/bastienwirtz/homer",
+      "icon": "https://raw.githubusercontent.com/bastienwirtz/homer/main/public/logo.png",
+      "ports": [
+        8088
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "서비스 바로가기",
+            "en": "Service shortcuts"
+          },
+          "description": {
+            "ko": "모든 셀프호스팅 서비스 한눈에 보기",
+            "en": "See all self-hosted services at a glance"
+          },
+          "icon": "🏠"
+        },
+        {
+          "title": {
+            "ko": "YAML 설정",
+            "en": "YAML config"
+          },
+          "description": {
+            "ko": "심플한 YAML 설정 파일",
+            "en": "Simple YAML configuration file"
+          },
+          "icon": "📝"
+        },
+        {
+          "title": {
+            "ko": "헬스 체크",
+            "en": "Health check"
+          },
+          "description": {
+            "ko": "서비스 상태 자동 확인",
+            "en": "Automatic service status checks"
+          },
+          "icon": "💚"
+        },
+        {
+          "title": {
+            "ko": "커스텀 테마",
+            "en": "Custom themes"
+          },
+          "description": {
+            "ko": "다크/라이트 테마 및 커스텀 CSS",
+            "en": "Dark/light themes and custom CSS"
+          },
+          "icon": "🎨"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8088"
+        }
+      ]
+    },
+    {
+      "id": "immich",
+      "name": "Immich",
+      "description": {
+        "ko": "셀프 호스팅 사진/동영상 백업 솔루션 (Google Photos 대안)",
+        "en": "Self-hosted photo and video backup solution (Google Photos alternative)"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://immich.app",
+      "source": "https://github.com/immich-app/immich",
+      "icon": "https://raw.githubusercontent.com/immich-app/immich/main/docs/static/img/favicon.png",
+      "ports": [
+        2283
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "자동 백업",
+            "en": "Auto backup"
+          },
+          "description": {
+            "ko": "모바일 기기에서 사진/동영상 자동 백업",
+            "en": "Automatic photo/video backup from mobile devices"
+          },
+          "icon": "📸"
+        },
+        {
+          "title": {
+            "ko": "AI 기능",
+            "en": "AI features"
+          },
+          "description": {
+            "ko": "얼굴 인식, 객체 감지, 스마트 검색",
+            "en": "Face recognition, object detection, smart search"
+          },
+          "icon": "🤖"
+        },
+        {
+          "title": {
+            "ko": "지도 보기",
+            "en": "Map view"
+          },
+          "description": {
+            "ko": "인터랙티브 지도에서 사진 탐색",
+            "en": "Browse photos on an interactive map"
+          },
+          "icon": "🗺️"
+        },
+        {
+          "title": {
+            "ko": "공유",
+            "en": "Sharing"
+          },
+          "description": {
+            "ko": "가족/친구와 앨범 및 사진 공유",
+            "en": "Share albums and photos with family/friends"
+          },
+          "icon": "👥"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "2283"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "UPLOAD_LOCATION",
+          "label": {
+            "ko": "업로드 경로",
+            "en": "Upload Location"
+          },
+          "type": "path",
+          "default": "./upload"
+        }
+      ]
+    },
+    {
+      "id": "it-tools",
+      "name": "IT Tools",
+      "description": {
+        "ko": "개발자/IT 유틸리티 모음",
+        "en": "Collection of developer and IT utilities"
+      },
+      "category": "dev",
+      "version": "1.0.0",
+      "website": "https://it-tools.tech",
+      "source": "https://github.com/CorentinTh/it-tools",
+      "icon": "https://raw.githubusercontent.com/CorentinTh/it-tools/main/public/favicon.svg",
+      "ports": [
+        8087
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "암호화 도구",
+            "en": "Crypto tools"
+          },
+          "description": {
+            "ko": "해시, 인코딩, JWT 디코딩 등",
+            "en": "Hashing, encoding, JWT decoding and more"
+          },
+          "icon": "🔐"
+        },
+        {
+          "title": {
+            "ko": "네트워크 도구",
+            "en": "Network tools"
+          },
+          "description": {
+            "ko": "IP 변환, CIDR 계산, DNS 조회",
+            "en": "IP conversion, CIDR calculator, DNS lookup"
+          },
+          "icon": "🌐"
+        },
+        {
+          "title": {
+            "ko": "텍스트 도구",
+            "en": "Text tools"
+          },
+          "description": {
+            "ko": "JSON 포맷터, Base64, UUID 생성",
+            "en": "JSON formatter, Base64, UUID generator"
+          },
+          "icon": "📝"
+        },
+        {
+          "title": {
+            "ko": "100+ 도구",
+            "en": "100+ tools"
+          },
+          "description": {
+            "ko": "개발자에게 필요한 100가지 이상 유틸리티",
+            "en": "Over 100 utilities needed by developers"
+          },
+          "icon": "🧰"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8087"
+        }
+      ]
+    },
+    {
+      "id": "jellyfin",
+      "name": "Jellyfin",
+      "description": {
+        "ko": "오픈소스 미디어 스트리밍 서버",
+        "en": "Open source media streaming server"
+      },
+      "category": "media",
+      "featured": true,
+      "version": "1.0.0",
+      "website": "https://jellyfin.org",
+      "source": "https://github.com/jellyfin/jellyfin",
+      "icon": "https://raw.githubusercontent.com/jellyfin/jellyfin-ux/master/branding/SVG/icon-transparent.svg",
+      "ports": [
+        8096
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "미디어 스트리밍",
+            "en": "Media streaming"
+          },
+          "description": {
+            "ko": "영화, TV 쇼, 음악을 어디서나 스트리밍",
+            "en": "Stream movies, TV shows, music anywhere"
+          },
+          "icon": "🎬"
+        },
+        {
+          "title": {
+            "ko": "실시간 TV",
+            "en": "Live TV"
+          },
+          "description": {
+            "ko": "EPG를 포함한 DVR 및 실시간 TV 지원",
+            "en": "DVR and live TV support with EPG"
+          },
+          "icon": "📺"
+        },
+        {
+          "title": {
+            "ko": "멀티 클라이언트",
+            "en": "Multi-client"
+          },
+          "description": {
+            "ko": "iOS, Android, Roku, Fire TV, 웹 앱 지원",
+            "en": "Apps for iOS, Android, Roku, Fire TV, web"
+          },
+          "icon": "📱"
+        },
+        {
+          "title": {
+            "ko": "완전 무료",
+            "en": "Completely free"
+          },
+          "description": {
+            "ko": "프리미엄 기능 없이 모든 기능 무료, 완전한 오픈소스",
+            "en": "No premium features, fully open source"
+          },
+          "icon": "🆓"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8096"
+        }
+      ]
+    },
+    {
+      "id": "jellyseerr",
+      "name": "Jellyseerr",
+      "description": {
+        "ko": "Jellyfin/Plex용 미디어 요청 관리 도구",
+        "en": "Media request manager for Jellyfin/Plex"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://docs.jellyseerr.dev",
+      "source": "https://github.com/fallenbagel/jellyseerr",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/jellyseerr.svg",
+      "ports": [
+        5055
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "미디어 요청",
+            "en": "Media requests"
+          },
+          "description": {
+            "ko": "사용자가 보고 싶은 영화/TV를 직접 요청",
+            "en": "Let users request movies and TV shows they want to watch"
+          },
+          "icon": "🎯"
+        },
+        {
+          "title": {
+            "ko": "*arr 연동",
+            "en": "*arr integration"
+          },
+          "description": {
+            "ko": "Sonarr/Radarr로 요청 자동 전달",
+            "en": "Forward requests automatically to Sonarr/Radarr"
+          },
+          "icon": "🔗"
+        },
+        {
+          "title": {
+            "ko": "사용자 관리",
+            "en": "User management"
+          },
+          "description": {
+            "ko": "Jellyfin/Plex 계정 연동 및 권한 관리",
+            "en": "Link Jellyfin/Plex accounts and manage permissions"
+          },
+          "icon": "👥"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "5055"
+        }
+      ]
+    },
+    {
+      "id": "kavita",
+      "name": "Kavita",
+      "description": {
+        "ko": "셀프 호스팅 디지털 라이브러리 - 만화, 코믹, 전자책을 빠르게 읽고 관리",
+        "en": "Self-hosted digital library to read and manage comics, manga, and ebooks"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://www.kavitareader.com",
+      "source": "https://github.com/Kareadita/Kavita",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/kavita.svg",
+      "ports": [
+        5000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "다양한 포맷 지원",
+            "en": "Many formats supported"
+          },
+          "description": {
+            "ko": "CBZ, CBR, EPUB, PDF 등 폭넓게 지원",
+            "en": "Broad support for CBZ, CBR, EPUB, PDF, and more"
+          },
+          "icon": "📚"
+        },
+        {
+          "title": {
+            "ko": "빠른 웹 리더",
+            "en": "Fast web reader"
+          },
+          "description": {
+            "ko": "테마와 읽기 설정이 가능한 내장 리더",
+            "en": "Built-in reader with themes and reading settings"
+          },
+          "icon": "📖"
+        },
+        {
+          "title": {
+            "ko": "읽기 진행률 동기화",
+            "en": "Reading progress sync"
+          },
+          "description": {
+            "ko": "기기 간 진행률과 컬렉션 동기화",
+            "en": "Sync progress and collections across devices"
+          },
+          "icon": "🔄"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "5000"
+        }
+      ]
+    },
+    {
+      "id": "komga",
+      "name": "Komga",
+      "description": {
+        "ko": "셀프 호스팅 만화/코믹 서버 - 라이브러리 관리와 OPDS, 웹 리더 지원",
+        "en": "Self-hosted comic and manga server with library management, OPDS, and a web reader"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://komga.org",
+      "source": "https://github.com/gotson/komga",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/komga.svg",
+      "ports": [
+        25600
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "라이브러리 관리",
+            "en": "Library management"
+          },
+          "description": {
+            "ko": "만화와 코믹을 시리즈별로 자동 정리",
+            "en": "Automatically organize comics and manga by series"
+          },
+          "icon": "📚"
+        },
+        {
+          "title": {
+            "ko": "웹 리더",
+            "en": "Web reader"
+          },
+          "description": {
+            "ko": "브라우저에서 바로 읽는 내장 뷰어",
+            "en": "Built-in viewer to read directly in the browser"
+          },
+          "icon": "📖"
+        },
+        {
+          "title": {
+            "ko": "OPDS 지원",
+            "en": "OPDS support"
+          },
+          "description": {
+            "ko": "외부 리더 앱과 OPDS로 연동",
+            "en": "Connect external reader apps via OPDS"
+          },
+          "icon": "🔗"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "25600"
+        }
+      ]
+    },
+    {
+      "id": "librespeed",
+      "name": "LibreSpeed",
+      "description": {
+        "ko": "Flash나 Java 없이 동작하는 셀프 호스팅 네트워크 속도 측정 도구",
+        "en": "Self-hosted network speed test that runs without Flash or Java"
+      },
+      "category": "network",
+      "version": "1.0.0",
+      "website": "https://librespeed.org",
+      "source": "https://github.com/librespeed/speedtest",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/librespeed.svg",
+      "ports": [
+        8095
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "속도 측정",
+            "en": "Speed test"
+          },
+          "description": {
+            "ko": "다운로드, 업로드, 핑, 지터를 한 번에 측정",
+            "en": "Measure download, upload, ping and jitter in one run"
+          },
+          "icon": "🚀"
+        },
+        {
+          "title": {
+            "ko": "경량 구성",
+            "en": "Lightweight"
+          },
+          "description": {
+            "ko": "Flash, Java 없이 순수 웹 기술로 동작",
+            "en": "Runs on pure web tech with no Flash or Java"
+          },
+          "icon": "🪶"
+        },
+        {
+          "title": {
+            "ko": "결과 기록",
+            "en": "Result history"
+          },
+          "description": {
+            "ko": "측정 결과를 저장하고 공유 링크 제공",
+            "en": "Save test results and share them via links"
+          },
+          "icon": "📊"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8095"
+        }
+      ]
+    },
+    {
+      "id": "linkwarden",
+      "name": "Linkwarden",
+      "description": {
+        "ko": "셀프 호스팅 북마크 관리자",
+        "en": "Self-hosted bookmark manager"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://linkwarden.app",
+      "source": "https://github.com/linkwarden/linkwarden",
+      "icon": "https://raw.githubusercontent.com/linkwarden/linkwarden/main/assets/logo.png",
+      "ports": [
+        3050
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "북마크 관리",
+            "en": "Bookmark management"
+          },
+          "description": {
+            "ko": "링크 저장, 분류, 태그 관리",
+            "en": "Save, organize, and tag links"
+          },
+          "icon": "🔖"
+        },
+        {
+          "title": {
+            "ko": "웹 아카이브",
+            "en": "Web archive"
+          },
+          "description": {
+            "ko": "링크 페이지 자동 아카이빙",
+            "en": "Automatic page archiving for saved links"
+          },
+          "icon": "📦"
+        },
+        {
+          "title": {
+            "ko": "컬렉션",
+            "en": "Collections"
+          },
+          "description": {
+            "ko": "컬렉션으로 북마크 분류",
+            "en": "Organize bookmarks into collections"
+          },
+          "icon": "📁"
+        },
+        {
+          "title": {
+            "ko": "협업",
+            "en": "Collaboration"
+          },
+          "description": {
+            "ko": "팀원과 북마크 공유",
+            "en": "Share bookmarks with team members"
+          },
+          "icon": "👥"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "3050"
+        },
+        {
+          "key": "NEXTAUTH_SECRET",
+          "label": {
+            "ko": "시크릿 키",
+            "en": "Secret Key"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "POSTGRES_PASSWORD",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "mariadb",
+      "name": "MariaDB",
+      "description": {
+        "ko": "MySQL 호환 오픈소스 관계형 데이터베이스. 높은 성능과 안정성을 제공합니다.",
+        "en": "MySQL-compatible open source relational database. Offers high performance and reliability."
+      },
+      "category": "database",
+      "version": "11",
+      "website": "https://mariadb.org",
+      "source": "https://github.com/MariaDB/server",
+      "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/svg/mariadb.svg",
+      "ports": [
+        3306
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "MySQL 호환",
+            "en": "MySQL Compatible"
+          },
+          "description": {
+            "ko": "MySQL과 완전 호환되는 드롭인 대체",
+            "en": "Drop-in replacement fully compatible with MySQL"
+          },
+          "icon": "🔄"
+        },
+        {
+          "title": {
+            "ko": "클러스터링",
+            "en": "Clustering"
+          },
+          "description": {
+            "ko": "Galera 클러스터로 고가용성 구성",
+            "en": "High availability with Galera Cluster"
+          },
+          "icon": "🌐"
+        },
+        {
+          "title": {
+            "ko": "컬럼스토어",
+            "en": "Columnstore"
+          },
+          "description": {
+            "ko": "분석 워크로드용 컬럼스토어 엔진",
+            "en": "Columnstore engine for analytical workloads"
+          },
+          "icon": "📊"
+        },
+        {
+          "title": {
+            "ko": "동적 컬럼",
+            "en": "Dynamic Columns"
+          },
+          "description": {
+            "ko": "스키마리스 데이터 저장 지원",
+            "en": "Schema-less data storage support"
+          },
+          "icon": "📦"
+        }
+      ],
+      "env": [
+        {
+          "key": "MARIADB_ROOT_PASSWORD",
+          "description": {
+            "ko": "루트 비밀번호",
+            "en": "Root password"
+          },
+          "default": "changeme",
+          "required": true
+        },
+        {
+          "key": "MARIADB_DATABASE",
+          "description": {
+            "ko": "기본 데이터베이스명",
+            "en": "Default database name"
+          },
+          "default": "mydb",
+          "required": false
+        },
+        {
+          "key": "MARIADB_USER",
+          "description": {
+            "ko": "사용자명",
+            "en": "Username"
+          },
+          "default": "user",
+          "required": false
+        },
+        {
+          "key": "MARIADB_PASSWORD",
+          "description": {
+            "ko": "사용자 비밀번호",
+            "en": "User password"
+          },
+          "default": "changeme",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "mattermost",
+      "name": "Mattermost",
+      "description": {
+        "ko": "셀프 호스팅 팀 협업 플랫폼 (Slack 대안) - 메시징, 파일 공유, 통합",
+        "en": "Self-hosted team collaboration platform (Slack alternative) with messaging, file sharing, and integrations"
+      },
+      "category": "communication",
+      "version": "1.0.0",
+      "website": "https://mattermost.com",
+      "source": "https://github.com/mattermost/mattermost",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/mattermost.svg",
+      "ports": [
+        8065
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "채널 메시징",
+            "en": "Channel messaging"
+          },
+          "description": {
+            "ko": "공개/비공개 채널과 다이렉트 메시지",
+            "en": "Public/private channels and direct messages"
+          },
+          "icon": "💬"
+        },
+        {
+          "title": {
+            "ko": "파일 공유",
+            "en": "File sharing"
+          },
+          "description": {
+            "ko": "파일과 코드 스니펫을 드래그 앤 드롭으로 공유",
+            "en": "Drag-and-drop file and code snippet sharing"
+          },
+          "icon": "📎"
+        },
+        {
+          "title": {
+            "ko": "통합과 봇",
+            "en": "Integrations and bots"
+          },
+          "description": {
+            "ko": "슬래시 명령어, 웹훅, 봇으로 워크플로우 자동화",
+            "en": "Automate workflows with slash commands, webhooks, and bots"
+          },
+          "icon": "🤖"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8065"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "mealie",
+      "name": "Mealie",
+      "description": {
+        "ko": "셀프 호스팅 레시피 관리",
+        "en": "Self-hosted recipe management"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://mealie.io",
+      "source": "https://github.com/mealie-recipes/mealie",
+      "icon": "https://raw.githubusercontent.com/mealie-recipes/mealie/mealie-next/frontend/public/img/icons/android-chrome-512x512.png",
+      "ports": [
+        9925
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "레시피 스크랩",
+            "en": "Recipe scraping"
+          },
+          "description": {
+            "ko": "URL에서 레시피 자동 가져오기",
+            "en": "Auto-import recipes from URLs"
+          },
+          "icon": "🔗"
+        },
+        {
+          "title": {
+            "ko": "식단 계획",
+            "en": "Meal planning"
+          },
+          "description": {
+            "ko": "주간 식단 계획 관리",
+            "en": "Manage weekly meal plans"
+          },
+          "icon": "📅"
+        },
+        {
+          "title": {
+            "ko": "쇼핑 리스트",
+            "en": "Shopping list"
+          },
+          "description": {
+            "ko": "레시피 기반 쇼핑 리스트 자동 생성",
+            "en": "Auto-generate shopping lists from recipes"
+          },
+          "icon": "🛒"
+        },
+        {
+          "title": {
+            "ko": "가족 공유",
+            "en": "Family sharing"
+          },
+          "description": {
+            "ko": "가족 구성원과 레시피 공유",
+            "en": "Share recipes with family members"
+          },
+          "icon": "👨‍👩‍👧‍👦"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "9925"
+        }
+      ]
+    },
+    {
+      "id": "memos",
+      "name": "Memos",
+      "description": {
+        "ko": "가볍고 빠른 셀프 호스팅 메모/노트 허브",
+        "en": "Lightweight, privacy-first self-hosted memo and note hub"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://www.usememos.com",
+      "source": "https://github.com/usememos/memos",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/memos.svg",
+      "ports": [
+        5230
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "마크다운 지원",
+            "en": "Markdown support"
+          },
+          "description": {
+            "ko": "마크다운으로 빠르게 메모 작성",
+            "en": "Write notes quickly with Markdown"
+          },
+          "icon": "📝"
+        },
+        {
+          "title": {
+            "ko": "프라이버시 우선",
+            "en": "Privacy first"
+          },
+          "description": {
+            "ko": "모든 데이터를 직접 보관하고 제어",
+            "en": "Keep and control all your data yourself"
+          },
+          "icon": "🔒"
+        },
+        {
+          "title": {
+            "ko": "가벼운 설치",
+            "en": "Lightweight"
+          },
+          "description": {
+            "ko": "단일 컨테이너로 빠르게 실행",
+            "en": "Runs fast as a single container"
+          },
+          "icon": "⚡"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "5230"
+        }
+      ]
+    },
+    {
+      "id": "miniflux",
+      "name": "Miniflux",
+      "description": {
+        "ko": "미니멀리스트 셀프 호스팅 RSS 리더",
+        "en": "Minimalist self-hosted RSS reader"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://miniflux.app",
+      "source": "https://github.com/miniflux/v2",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/miniflux.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "미니멀 디자인",
+            "en": "Minimalist design"
+          },
+          "description": {
+            "ko": "군더더기 없이 읽기에 집중한 인터페이스",
+            "en": "A clutter-free interface focused on reading"
+          },
+          "icon": "📖"
+        },
+        {
+          "title": {
+            "ko": "빠른 성능",
+            "en": "Fast performance"
+          },
+          "description": {
+            "ko": "단일 바이너리로 가볍고 빠르게 동작",
+            "en": "Lightweight and fast as a single binary"
+          },
+          "icon": "⚡"
+        },
+        {
+          "title": {
+            "ko": "통합 지원",
+            "en": "Integrations"
+          },
+          "description": {
+            "ko": "Wallabag, Pocket 등 다양한 서비스와 연동",
+            "en": "Integrates with Wallabag, Pocket and more"
+          },
+          "icon": "🔌"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "ADMIN_PASSWORD",
+          "label": {
+            "ko": "관리자 비밀번호",
+            "en": "Admin Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "minio",
+      "name": "MinIO",
+      "description": {
+        "ko": "고성능 오브젝트 스토리지 (S3 호환)",
+        "en": "High-performance S3-compatible object storage"
+      },
+      "category": "cloud",
+      "version": "1.0.0",
+      "website": "https://min.io",
+      "source": "https://github.com/minio/minio",
+      "icon": "https://raw.githubusercontent.com/minio/minio/master/.github/logo.svg",
+      "ports": [
+        9000,
+        9001
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "S3 호환",
+            "en": "S3 compatible"
+          },
+          "description": {
+            "ko": "AWS S3 API 완전 호환",
+            "en": "Fully compatible with AWS S3 API"
+          },
+          "icon": "☁️"
+        },
+        {
+          "title": {
+            "ko": "웹 콘솔",
+            "en": "Web console"
+          },
+          "description": {
+            "ko": "브라우저 기반 관리 UI",
+            "en": "Browser-based management UI"
+          },
+          "icon": "🖥️"
+        },
+        {
+          "title": {
+            "ko": "고성능",
+            "en": "High performance"
+          },
+          "description": {
+            "ko": "병렬 읽기/쓰기 최적화",
+            "en": "Optimized for parallel reads/writes"
+          },
+          "icon": "⚡"
+        },
+        {
+          "title": {
+            "ko": "암호화",
+            "en": "Encryption"
+          },
+          "description": {
+            "ko": "서버 측 암호화 지원",
+            "en": "Server-side encryption support"
+          },
+          "icon": "🔐"
+        }
+      ],
+      "env": [
+        {
+          "key": "CONSOLE_PORT",
+          "label": {
+            "ko": "콘솔 포트",
+            "en": "Console Port"
+          },
+          "type": "port",
+          "default": "9001"
+        },
+        {
+          "key": "MINIO_ROOT_USER",
+          "label": {
+            "ko": "관리자 계정",
+            "en": "Root User"
+          },
+          "type": "text",
+          "default": "minioadmin"
+        },
+        {
+          "key": "MINIO_ROOT_PASSWORD",
+          "label": {
+            "ko": "관리자 비밀번호",
+            "en": "Root Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "mongodb",
+      "name": "MongoDB",
+      "description": {
+        "ko": "유연한 스키마의 NoSQL 문서 데이터베이스. JSON 형태의 문서를 저장하고 쿼리합니다.",
+        "en": "Flexible schema NoSQL document database. Store and query JSON-like documents."
+      },
+      "category": "database",
+      "version": "7",
+      "website": "https://www.mongodb.com",
+      "source": "https://github.com/mongodb/mongo",
+      "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/svg/mongodb.svg",
+      "ports": [
+        27017
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "문서 스토리지",
+            "en": "Document Storage"
+          },
+          "description": {
+            "ko": "JSON 형태의 문서 기반 데이터 저장",
+            "en": "JSON-like document-based data storage"
+          },
+          "icon": "📄"
+        },
+        {
+          "title": {
+            "ko": "유연한 스키마",
+            "en": "Flexible Schema"
+          },
+          "description": {
+            "ko": "스키마 없이 자유로운 데이터 구조",
+            "en": "Schema-free flexible data structures"
+          },
+          "icon": "🔧"
+        },
+        {
+          "title": {
+            "ko": "집계 파이프라인",
+            "en": "Aggregation"
+          },
+          "description": {
+            "ko": "강력한 데이터 집계 및 변환 파이프라인",
+            "en": "Powerful data aggregation and transformation pipeline"
+          },
+          "icon": "⚙️"
+        },
+        {
+          "title": {
+            "ko": "샤딩",
+            "en": "Sharding"
+          },
+          "description": {
+            "ko": "수평 확장을 위한 자동 샤딩",
+            "en": "Automatic sharding for horizontal scaling"
+          },
+          "icon": "🔀"
+        }
+      ],
+      "env": [
+        {
+          "key": "MONGO_INITDB_ROOT_USERNAME",
+          "description": {
+            "ko": "관리자 사용자명",
+            "en": "Admin username"
+          },
+          "default": "admin",
+          "required": true
+        },
+        {
+          "key": "MONGO_INITDB_ROOT_PASSWORD",
+          "description": {
+            "ko": "관리자 비밀번호",
+            "en": "Admin password"
+          },
+          "default": "changeme",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "n8n",
+      "name": "n8n",
+      "description": {
+        "ko": "워크플로우 자동화 플랫폼",
+        "en": "Workflow automation platform"
+      },
+      "category": "automation",
+      "version": "1.0.0",
+      "website": "https://n8n.io",
+      "source": "https://github.com/n8n-io/n8n",
+      "icon": "https://raw.githubusercontent.com/n8n-io/n8n/master/assets/n8n-logo.png",
+      "ports": [
+        5678
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "비주얼 워크플로우",
+            "en": "Visual workflows"
+          },
+          "description": {
+            "ko": "드래그 앤 드롭으로 워크플로우 설계",
+            "en": "Design workflows with drag and drop"
+          },
+          "icon": "🔧"
+        },
+        {
+          "title": {
+            "ko": "400+ 통합",
+            "en": "400+ integrations"
+          },
+          "description": {
+            "ko": "Slack, Google, GitHub 등 다양한 서비스 연동",
+            "en": "Connect with Slack, Google, GitHub and more"
+          },
+          "icon": "🔌"
+        },
+        {
+          "title": {
+            "ko": "셀프 호스팅",
+            "en": "Self-hosted"
+          },
+          "description": {
+            "ko": "데이터가 내 서버에 보관",
+            "en": "Your data stays on your server"
+          },
+          "icon": "🏠"
+        },
+        {
+          "title": {
+            "ko": "코드 지원",
+            "en": "Code support"
+          },
+          "description": {
+            "ko": "JavaScript/Python으로 커스텀 로직 작성",
+            "en": "Write custom logic in JavaScript/Python"
+          },
+          "icon": "💻"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "5678"
+        },
+        {
+          "key": "N8N_BASIC_AUTH_USER",
+          "label": {
+            "ko": "관리자 계정",
+            "en": "Admin Username"
+          },
+          "type": "text",
+          "default": "admin"
+        },
+        {
+          "key": "N8N_BASIC_AUTH_PASSWORD",
+          "label": {
+            "ko": "관리자 비밀번호",
+            "en": "Admin Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "navidrome",
+      "name": "Navidrome",
+      "description": {
+        "ko": "Subsonic 호환 음악 스트리밍 서버",
+        "en": "Subsonic-compatible music streaming server"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://www.navidrome.org",
+      "source": "https://github.com/navidrome/navidrome",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/navidrome.svg",
+      "ports": [
+        4533
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "음악 스트리밍",
+            "en": "Music streaming"
+          },
+          "description": {
+            "ko": "어디서나 내 음악 라이브러리를 스트리밍",
+            "en": "Stream your music library from anywhere"
+          },
+          "icon": "🎵"
+        },
+        {
+          "title": {
+            "ko": "Subsonic 호환",
+            "en": "Subsonic compatible"
+          },
+          "description": {
+            "ko": "다양한 Subsonic 클라이언트 앱과 호환",
+            "en": "Compatible with many Subsonic client apps"
+          },
+          "icon": "📱"
+        },
+        {
+          "title": {
+            "ko": "다중 사용자",
+            "en": "Multi-user"
+          },
+          "description": {
+            "ko": "여러 사용자가 개별 재생목록과 즐겨찾기 사용",
+            "en": "Multiple users with individual playlists and favorites"
+          },
+          "icon": "👥"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "4533"
+        }
+      ]
+    },
+    {
+      "id": "netdata",
+      "name": "Netdata",
+      "description": {
+        "ko": "초당 단위의 실시간 시스템 메트릭 모니터링 대시보드",
+        "en": "Real-time, per-second system metrics monitoring dashboard"
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://www.netdata.cloud",
+      "source": "https://github.com/netdata/netdata",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/netdata.svg",
+      "ports": [
+        19999
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "실시간 메트릭",
+            "en": "Real-time metrics"
+          },
+          "description": {
+            "ko": "CPU, 메모리, 디스크, 네트워크를 초 단위로 수집",
+            "en": "Collect CPU, memory, disk and network metrics every second"
+          },
+          "icon": "📈"
+        },
+        {
+          "title": {
+            "ko": "자동 감지",
+            "en": "Auto detection"
+          },
+          "description": {
+            "ko": "수백 개 서비스와 앱을 자동으로 감지해 모니터링",
+            "en": "Auto-detect and monitor hundreds of services and apps"
+          },
+          "icon": "🔎"
+        },
+        {
+          "title": {
+            "ko": "알림",
+            "en": "Alerting"
+          },
+          "description": {
+            "ko": "기본 임계값 기반 이상 징후 알림 제공",
+            "en": "Built-in threshold-based alerts for anomalies"
+          },
+          "icon": "🔔"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "19999"
+        }
+      ]
+    },
+    {
+      "id": "nextcloud",
+      "name": "Nextcloud",
+      "description": {
+        "ko": "셀프 호스팅 클라우드 스토리지",
+        "en": "Self-hosted cloud storage"
+      },
+      "category": "cloud",
+      "featured": true,
+      "version": "1.0.0",
+      "website": "https://nextcloud.com",
+      "source": "https://github.com/nextcloud/server",
+      "icon": "https://raw.githubusercontent.com/nextcloud/promo/master/nextcloud-icon.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "파일 동기화",
+            "en": "File sync"
+          },
+          "description": {
+            "ko": "모든 기기에서 파일 동기화",
+            "en": "Sync files across all your devices"
+          },
+          "icon": "☁️"
+        },
+        {
+          "title": {
+            "ko": "오피스 스위트",
+            "en": "Office suite"
+          },
+          "description": {
+            "ko": "Collabora/OnlyOffice를 통한 내장 문서 편집",
+            "en": "Built-in document editing with Collabora/OnlyOffice"
+          },
+          "icon": "📝"
+        },
+        {
+          "title": {
+            "ko": "캘린더/연락처",
+            "en": "Calendar/Contacts"
+          },
+          "description": {
+            "ko": "CalDAV/CardDAV 동기화",
+            "en": "CalDAV/CardDAV sync"
+          },
+          "icon": "📅"
+        },
+        {
+          "title": {
+            "ko": "앱 생태계",
+            "en": "App ecosystem"
+          },
+          "description": {
+            "ko": "수백 개의 커뮤니티 앱과 통합 기능",
+            "en": "Hundreds of community apps and integrations"
+          },
+          "icon": "🔌"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        },
+        {
+          "key": "MYSQL_ROOT_PASSWORD",
+          "label": {
+            "ko": "MySQL Root 비밀번호",
+            "en": "MySQL Root Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "MYSQL_PASSWORD",
+          "label": {
+            "ko": "MySQL 비밀번호",
+            "en": "MySQL Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "nginx-proxy-guard",
+      "name": "Nginx Proxy Guard",
+      "description": {
+        "ko": "Nginx 리버스 프록시 + SSL + WAF 보안 관리 웹 UI",
+        "en": "Nginx reverse proxy with SSL automation and WAF security management"
+      },
+      "category": "security",
+      "version": "1.0.0",
+      "website": "https://nginxproxyguard.com",
+      "source": "https://github.com/svrforum/NginxProxyGuard",
+      "ports": [
+        80,
+        81,
+        443
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "SSL 자동화",
+            "en": "SSL Automation"
+          },
+          "description": {
+            "ko": "Let's Encrypt 자동 발급/갱신, 와일드카드 지원",
+            "en": "Auto Let's Encrypt issuance/renewal with wildcard support"
+          },
+          "icon": "🔒"
+        },
+        {
+          "title": {
+            "ko": "WAF 보안",
+            "en": "WAF Security"
+          },
+          "description": {
+            "ko": "ModSecurity + OWASP CRS 기반 웹 애플리케이션 방화벽",
+            "en": "Web application firewall with ModSecurity + OWASP CRS"
+          },
+          "icon": "🛡️"
+        },
+        {
+          "title": {
+            "ko": "HTTP/3 지원",
+            "en": "HTTP/3 Support"
+          },
+          "description": {
+            "ko": "QUIC 프로토콜 기반 최신 HTTP/3 지원",
+            "en": "Latest HTTP/3 support based on QUIC protocol"
+          },
+          "icon": "⚡"
+        },
+        {
+          "title": {
+            "ko": "실시간 모니터링",
+            "en": "Real-time Monitoring"
+          },
+          "description": {
+            "ko": "트래픽, 보안 이벤트, 인증서 만료 실시간 대시보드",
+            "en": "Real-time dashboard for traffic, security events, and certificate expiry"
+          },
+          "icon": "📊"
+        }
+      ],
+      "env": [
+        {
+          "key": "UI_PORT",
+          "label": {
+            "ko": "관리 UI 포트",
+            "en": "Admin UI Port"
+          },
+          "type": "port",
+          "default": "81"
+        },
+        {
+          "key": "NGINX_HTTP_PORT",
+          "label": {
+            "ko": "HTTP 포트",
+            "en": "HTTP Port"
+          },
+          "type": "port",
+          "default": "80"
+        },
+        {
+          "key": "NGINX_HTTPS_PORT",
+          "label": {
+            "ko": "HTTPS 포트",
+            "en": "HTTPS Port"
+          },
+          "type": "port",
+          "default": "443"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "JWT_SECRET",
+          "label": {
+            "ko": "JWT 시크릿",
+            "en": "JWT Secret"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "TZ",
+          "label": {
+            "ko": "타임존",
+            "en": "Timezone"
+          },
+          "type": "text",
+          "default": "Asia/Seoul"
+        }
+      ]
+    },
+    {
+      "id": "nginx-proxy-manager",
+      "name": "Nginx Proxy Manager",
+      "description": {
+        "ko": "SSL 관리 기능이 포함된 리버스 프록시",
+        "en": "Reverse proxy with SSL management"
+      },
+      "category": "security",
+      "version": "1.0.0",
+      "website": "https://nginxproxymanager.com",
+      "source": "https://github.com/NginxProxyManager/nginx-proxy-manager",
+      "ports": [
+        80,
+        81,
+        443
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "SSL 관리",
+            "en": "SSL management"
+          },
+          "description": {
+            "ko": "Let's Encrypt를 통한 무료 SSL 인증서",
+            "en": "Free SSL certificates with Let's Encrypt"
+          },
+          "icon": "🔒"
+        },
+        {
+          "title": {
+            "ko": "리버스 프록시",
+            "en": "Reverse proxy"
+          },
+          "description": {
+            "ko": "UI를 통한 간편한 리버스 프록시 설정",
+            "en": "Easy reverse proxy configuration via UI"
+          },
+          "icon": "🌐"
+        },
+        {
+          "title": {
+            "ko": "리디렉션",
+            "en": "Redirection"
+          },
+          "description": {
+            "ko": "URL 리디렉션 및 301/302 관리",
+            "en": "URL redirection and 301/302 management"
+          },
+          "icon": "🔀"
+        },
+        {
+          "title": {
+            "ko": "접근 제어",
+            "en": "Access control"
+          },
+          "description": {
+            "ko": "IP 기반 접근 목록 및 인증",
+            "en": "IP-based access lists and authentication"
+          },
+          "icon": "🛡️"
+        }
+      ],
+      "env": [
+        {
+          "key": "HTTP_PORT",
+          "label": {
+            "ko": "HTTP 포트",
+            "en": "HTTP Port"
+          },
+          "type": "port",
+          "default": "80"
+        },
+        {
+          "key": "ADMIN_PORT",
+          "label": {
+            "ko": "관리자 포트",
+            "en": "Admin Port"
+          },
+          "type": "port",
+          "default": "81"
+        },
+        {
+          "key": "HTTPS_PORT",
+          "label": {
+            "ko": "HTTPS 포트",
+            "en": "HTTPS Port"
+          },
+          "type": "port",
+          "default": "443"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "node-red",
+      "name": "Node-RED",
+      "description": {
+        "ko": "플로우 기반 자동화 도구 - IoT 기기와 API, 서비스를 시각적으로 연결",
+        "en": "Flow-based automation tool to visually wire together IoT devices, APIs, and services"
+      },
+      "category": "automation",
+      "version": "1.0.0",
+      "website": "https://nodered.org",
+      "source": "https://github.com/node-red/node-red",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/node-red.svg",
+      "ports": [
+        1880
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "플로우 에디터",
+            "en": "Flow editor"
+          },
+          "description": {
+            "ko": "브라우저에서 노드를 끌어다 놓아 로직 구성",
+            "en": "Build logic by dragging and dropping nodes in the browser"
+          },
+          "icon": "🔗"
+        },
+        {
+          "title": {
+            "ko": "방대한 노드 팔레트",
+            "en": "Rich node palette"
+          },
+          "description": {
+            "ko": "수천 개의 커뮤니티 노드로 기능 확장",
+            "en": "Extend functionality with thousands of community nodes"
+          },
+          "icon": "🧩"
+        },
+        {
+          "title": {
+            "ko": "IoT 연동",
+            "en": "IoT integration"
+          },
+          "description": {
+            "ko": "MQTT, HTTP, 시리얼 등 다양한 프로토콜 지원",
+            "en": "Supports MQTT, HTTP, serial, and many other protocols"
+          },
+          "icon": "📡"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "1880"
+        }
+      ]
+    },
+    {
+      "id": "ntfy",
+      "name": "ntfy",
+      "description": {
+        "ko": "셀프 호스팅 푸시 알림 서버",
+        "en": "Self-hosted push notification server"
+      },
+      "category": "communication",
+      "version": "1.0.0",
+      "website": "https://ntfy.sh",
+      "source": "https://github.com/binwiederhier/ntfy",
+      "icon": "https://raw.githubusercontent.com/binwiederhier/ntfy/main/web/public/static/images/ntfy.png",
+      "ports": [
+        2586
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "푸시 알림",
+            "en": "Push notifications"
+          },
+          "description": {
+            "ko": "HTTP PUT/POST로 알림 전송",
+            "en": "Send notifications via HTTP PUT/POST"
+          },
+          "icon": "📬"
+        },
+        {
+          "title": {
+            "ko": "모바일 앱",
+            "en": "Mobile app"
+          },
+          "description": {
+            "ko": "iOS/Android 푸시 알림 수신",
+            "en": "Receive push notifications on iOS/Android"
+          },
+          "icon": "📱"
+        },
+        {
+          "title": {
+            "ko": "토픽 구독",
+            "en": "Topic subscription"
+          },
+          "description": {
+            "ko": "토픽별 알림 구독 관리",
+            "en": "Manage notifications by topic subscription"
+          },
+          "icon": "📢"
+        },
+        {
+          "title": {
+            "ko": "첨부 파일",
+            "en": "Attachments"
+          },
+          "description": {
+            "ko": "알림에 파일 첨부 지원",
+            "en": "Support file attachments in notifications"
+          },
+          "icon": "📎"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "2586"
+        }
+      ]
+    },
+    {
+      "id": "outline",
+      "name": "Outline",
+      "description": {
+        "ko": "팀 위키 및 지식 베이스 (Notion 대안)",
+        "en": "Team wiki and knowledge base (Notion alternative)"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://www.getoutline.com",
+      "source": "https://github.com/outline/outline",
+      "icon": "https://raw.githubusercontent.com/outline/outline/main/public/images/icon-512.png",
+      "ports": [
+        3100
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "마크다운 에디터",
+            "en": "Markdown editor"
+          },
+          "description": {
+            "ko": "실시간 협업 마크다운 에디터",
+            "en": "Real-time collaborative markdown editor"
+          },
+          "icon": "✏️"
+        },
+        {
+          "title": {
+            "ko": "팀 협업",
+            "en": "Team collaboration"
+          },
+          "description": {
+            "ko": "팀 공간, 권한, 코멘트 기능",
+            "en": "Team spaces, permissions, comments"
+          },
+          "icon": "👥"
+        },
+        {
+          "title": {
+            "ko": "슬래시 명령",
+            "en": "Slash commands"
+          },
+          "description": {
+            "ko": "/ 명령으로 빠르게 블록 삽입",
+            "en": "Quick block insertion with / commands"
+          },
+          "icon": "⚡"
+        },
+        {
+          "title": {
+            "ko": "API",
+            "en": "API"
+          },
+          "description": {
+            "ko": "REST API로 자동화 및 통합",
+            "en": "Automate and integrate via REST API"
+          },
+          "icon": "🔌"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "3100"
+        },
+        {
+          "key": "SECRET_KEY",
+          "label": {
+            "ko": "시크릿 키",
+            "en": "Secret Key"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "UTILS_SECRET",
+          "label": {
+            "ko": "유틸리티 시크릿",
+            "en": "Utils Secret"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "POSTGRES_PASSWORD",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "paperless-ngx",
+      "name": "Paperless-ngx",
+      "description": {
+        "ko": "문서 관리 시스템 (OCR 지원)",
+        "en": "Document management system with OCR"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://docs.paperless-ngx.com",
+      "source": "https://github.com/paperless-ngx/paperless-ngx",
+      "icon": "https://raw.githubusercontent.com/paperless-ngx/paperless-ngx/main/src/documents/static/paperless-ngx/img/logo-dark.svg",
+      "ports": [
+        8000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "OCR",
+            "en": "OCR"
+          },
+          "description": {
+            "ko": "스캔 문서 자동 텍스트 인식",
+            "en": "Automatic text recognition for scanned documents"
+          },
+          "icon": "📝"
+        },
+        {
+          "title": {
+            "ko": "자동 분류",
+            "en": "Auto classification"
+          },
+          "description": {
+            "ko": "AI 기반 자동 태그/분류",
+            "en": "AI-based automatic tagging and classification"
+          },
+          "icon": "🏷️"
+        },
+        {
+          "title": {
+            "ko": "전문 검색",
+            "en": "Full-text search"
+          },
+          "description": {
+            "ko": "문서 내용 전문 검색",
+            "en": "Full-text search across document contents"
+          },
+          "icon": "🔍"
+        },
+        {
+          "title": {
+            "ko": "모바일 스캔",
+            "en": "Mobile scan"
+          },
+          "description": {
+            "ko": "모바일에서 스캔하여 자동 업로드",
+            "en": "Scan from mobile and auto-upload"
+          },
+          "icon": "📱"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8000"
+        },
+        {
+          "key": "PAPERLESS_SECRET_KEY",
+          "label": {
+            "ko": "시크릿 키",
+            "en": "Secret Key"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "PAPERLESS_ADMIN_PASSWORD",
+          "label": {
+            "ko": "관리자 비밀번호",
+            "en": "Admin Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "photoprism",
+      "name": "PhotoPrism",
+      "description": {
+        "ko": "AI 기반 셀프 호스팅 사진 관리 (Google Photos 대안) - 자동 태깅과 얼굴 인식",
+        "en": "AI-powered self-hosted photo management (Google Photos alternative) with auto-tagging and face recognition"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://photoprism.app",
+      "source": "https://github.com/photoprism/photoprism",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/photoprism.svg",
+      "ports": [
+        2342
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "AI 자동 분류",
+            "en": "AI auto classification"
+          },
+          "description": {
+            "ko": "객체 인식으로 사진을 자동 태깅",
+            "en": "Automatically tag photos with object recognition"
+          },
+          "icon": "🤖"
+        },
+        {
+          "title": {
+            "ko": "얼굴 인식",
+            "en": "Face recognition"
+          },
+          "description": {
+            "ko": "인물별로 사진을 자동 그룹화",
+            "en": "Automatically group photos by person"
+          },
+          "icon": "🙂"
+        },
+        {
+          "title": {
+            "ko": "스마트 검색",
+            "en": "Smart search"
+          },
+          "description": {
+            "ko": "위치, 색상, 키워드로 강력한 검색",
+            "en": "Powerful search by location, color, and keyword"
+          },
+          "icon": "🔍"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "2342"
+        },
+        {
+          "key": "ADMIN_PASSWORD",
+          "label": {
+            "ko": "관리자 비밀번호",
+            "en": "Admin Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "pihole",
+      "name": "Pi-hole",
+      "description": {
+        "ko": "네트워크 광고 차단 DNS 서버",
+        "en": "Network-wide ad blocking DNS server"
+      },
+      "category": "network",
+      "version": "1.0.0",
+      "website": "https://pi-hole.net",
+      "source": "https://github.com/pi-hole/pi-hole",
+      "icon": "https://wp-cdn.pi-hole.net/wp-content/uploads/2016/12/Vortex-R.png",
+      "ports": [
+        8053,
+        53
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "광고 차단",
+            "en": "Ad blocking"
+          },
+          "description": {
+            "ko": "네트워크 전체 광고/트래커 차단",
+            "en": "Block ads and trackers network-wide"
+          },
+          "icon": "🛡️"
+        },
+        {
+          "title": {
+            "ko": "DNS 서버",
+            "en": "DNS server"
+          },
+          "description": {
+            "ko": "로컬 DNS 서버로 빠른 응답",
+            "en": "Fast responses as local DNS server"
+          },
+          "icon": "🌐"
+        },
+        {
+          "title": {
+            "ko": "통계 대시보드",
+            "en": "Statistics dashboard"
+          },
+          "description": {
+            "ko": "쿼리 통계, 차단률, 클라이언트 분석",
+            "en": "Query stats, block rates, client analysis"
+          },
+          "icon": "📊"
+        },
+        {
+          "title": {
+            "ko": "화이트/블랙리스트",
+            "en": "White/Blacklist"
+          },
+          "description": {
+            "ko": "도메인별 허용/차단 관리",
+            "en": "Per-domain allow/deny management"
+          },
+          "icon": "📋"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "웹 UI 포트",
+            "en": "Web UI Port"
+          },
+          "type": "port",
+          "default": "8053"
+        },
+        {
+          "key": "WEBPASSWORD",
+          "label": {
+            "ko": "웹 비밀번호",
+            "en": "Web Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "planka",
+      "name": "Planka",
+      "description": {
+        "ko": "칸반 보드 프로젝트 관리 (Trello 대안)",
+        "en": "Kanban board project management (Trello alternative)"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://planka.app",
+      "source": "https://github.com/plankanban/planka",
+      "icon": "https://raw.githubusercontent.com/plankanban/planka/master/client/public/logo192.png",
+      "ports": [
+        1337
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "칸반 보드",
+            "en": "Kanban board"
+          },
+          "description": {
+            "ko": "드래그 앤 드롭 태스크 관리",
+            "en": "Drag and drop task management"
+          },
+          "icon": "📋"
+        },
+        {
+          "title": {
+            "ko": "실시간 협업",
+            "en": "Real-time collaboration"
+          },
+          "description": {
+            "ko": "팀원과 실시간 보드 공유",
+            "en": "Share boards with team in real-time"
+          },
+          "icon": "👥"
+        },
+        {
+          "title": {
+            "ko": "첨부 파일",
+            "en": "Attachments"
+          },
+          "description": {
+            "ko": "카드에 파일 첨부",
+            "en": "Attach files to cards"
+          },
+          "icon": "📎"
+        },
+        {
+          "title": {
+            "ko": "라벨/체크리스트",
+            "en": "Labels/Checklists"
+          },
+          "description": {
+            "ko": "라벨, 기한, 체크리스트로 태스크 관리",
+            "en": "Manage tasks with labels, due dates, checklists"
+          },
+          "icon": "✅"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "1337"
+        },
+        {
+          "key": "SECRET_KEY",
+          "label": {
+            "ko": "시크릿 키",
+            "en": "Secret Key"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "ADMIN_EMAIL",
+          "label": {
+            "ko": "관리자 이메일",
+            "en": "Admin Email"
+          },
+          "type": "text",
+          "default": "admin@example.com"
+        },
+        {
+          "key": "ADMIN_PASSWORD",
+          "label": {
+            "ko": "관리자 비밀번호",
+            "en": "Admin Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "plex",
+      "name": "Plex",
+      "description": {
+        "ko": "프리미엄 미디어 서버",
+        "en": "Premium media server"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://plex.tv",
+      "source": "https://github.com/plexinc/pms-docker",
+      "icon": "https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/plex-logo.png",
+      "ports": [
+        32400
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "미디어 스트리밍",
+            "en": "Media streaming"
+          },
+          "description": {
+            "ko": "영화, TV, 음악을 모든 기기에서 스트리밍",
+            "en": "Stream movies, TV, music to all devices"
+          },
+          "icon": "🎬"
+        },
+        {
+          "title": {
+            "ko": "자동 메타데이터",
+            "en": "Auto metadata"
+          },
+          "description": {
+            "ko": "영화/TV 정보 자동 매칭 및 표시",
+            "en": "Automatic media matching and display"
+          },
+          "icon": "🏷️"
+        },
+        {
+          "title": {
+            "ko": "하드웨어 트랜스코딩",
+            "en": "HW transcoding"
+          },
+          "description": {
+            "ko": "GPU 가속 트랜스코딩 지원",
+            "en": "GPU accelerated transcoding support"
+          },
+          "icon": "⚡"
+        },
+        {
+          "title": {
+            "ko": "원격 접속",
+            "en": "Remote access"
+          },
+          "description": {
+            "ko": "외부에서도 미디어 라이브러리 접근",
+            "en": "Access your media library from anywhere"
+          },
+          "icon": "🌍"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "32400"
+        },
+        {
+          "key": "PLEX_CLAIM",
+          "label": {
+            "ko": "Plex Claim 토큰",
+            "en": "Plex Claim Token"
+          },
+          "type": "text",
+          "default": ""
+        }
+      ]
+    },
+    {
+      "id": "portainer",
+      "name": "Portainer",
+      "description": {
+        "ko": "Docker 관리 웹 UI",
+        "en": "Docker management UI"
+      },
+      "category": "dev",
+      "featured": true,
+      "version": "1.0.0",
+      "website": "https://www.portainer.io",
+      "source": "https://github.com/portainer/portainer",
+      "ports": [
+        9000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "Docker 관리",
+            "en": "Docker management"
+          },
+          "description": {
+            "ko": "컨테이너, 이미지, 볼륨, 네트워크 관리",
+            "en": "Manage containers, images, volumes, networks"
+          },
+          "icon": "🐳"
+        },
+        {
+          "title": {
+            "ko": "대시보드",
+            "en": "Dashboard"
+          },
+          "description": {
+            "ko": "Docker 환경의 시각적 개요",
+            "en": "Visual overview of your Docker environment"
+          },
+          "icon": "📊"
+        },
+        {
+          "title": {
+            "ko": "멀티 유저",
+            "en": "Multi-user"
+          },
+          "description": {
+            "ko": "팀을 위한 역할 기반 접근 제어",
+            "en": "Role-based access control for teams"
+          },
+          "icon": "👥"
+        },
+        {
+          "title": {
+            "ko": "스택 배포",
+            "en": "Stack deploy"
+          },
+          "description": {
+            "ko": "UI에서 Docker Compose 스택 배포",
+            "en": "Deploy Docker Compose stacks from UI"
+          },
+          "icon": "📦"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "9000"
+        }
+      ]
+    },
+    {
+      "id": "postgres",
+      "name": "PostgreSQL",
+      "description": {
+        "ko": "세계에서 가장 진보된 오픈소스 관계형 데이터베이스. ACID 호환, 확장 가능.",
+        "en": "The world's most advanced open source relational database. ACID compliant and extensible."
+      },
+      "category": "database",
+      "version": "17",
+      "website": "https://www.postgresql.org",
+      "source": "https://github.com/postgres/postgres",
+      "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/svg/postgres.svg",
+      "ports": [
+        5432
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "ACID 트랜잭션",
+            "en": "ACID Transactions"
+          },
+          "description": {
+            "ko": "완전한 ACID 호환 트랜잭션 지원",
+            "en": "Full ACID compliant transaction support"
+          },
+          "icon": "🔒"
+        },
+        {
+          "title": {
+            "ko": "JSON 지원",
+            "en": "JSON Support"
+          },
+          "description": {
+            "ko": "JSON/JSONB 네이티브 데이터 타입",
+            "en": "Native JSON/JSONB data types"
+          },
+          "icon": "📋"
+        },
+        {
+          "title": {
+            "ko": "전문 검색",
+            "en": "Full-Text Search"
+          },
+          "description": {
+            "ko": "내장 전문 검색 엔진",
+            "en": "Built-in full-text search engine"
+          },
+          "icon": "🔍"
+        },
+        {
+          "title": {
+            "ko": "확장 시스템",
+            "en": "Extensions"
+          },
+          "description": {
+            "ko": "PostGIS 등 다양한 확장 지원",
+            "en": "Support PostGIS and many extensions"
+          },
+          "icon": "🧩"
+        }
+      ],
+      "env": [
+        {
+          "key": "POSTGRES_USER",
+          "description": {
+            "ko": "관리자 사용자명",
+            "en": "Admin username"
+          },
+          "default": "postgres",
+          "required": true
+        },
+        {
+          "key": "POSTGRES_PASSWORD",
+          "description": {
+            "ko": "관리자 비밀번호",
+            "en": "Admin password"
+          },
+          "default": "changeme",
+          "required": true
+        },
+        {
+          "key": "POSTGRES_DB",
+          "description": {
+            "ko": "기본 데이터베이스명",
+            "en": "Default database name"
+          },
+          "default": "postgres",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "prometheus",
+      "name": "Prometheus",
+      "description": {
+        "ko": "시계열 모니터링 및 알림 시스템",
+        "en": "Time-series monitoring and alerting system"
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://prometheus.io",
+      "source": "https://github.com/prometheus/prometheus",
+      "icon": "https://raw.githubusercontent.com/prometheus/docs/main/static/prometheus_logo_orange_circle.svg",
+      "ports": [
+        9090
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "메트릭 수집",
+            "en": "Metrics collection"
+          },
+          "description": {
+            "ko": "Pull 기반 메트릭 수집",
+            "en": "Pull-based metrics collection"
+          },
+          "icon": "📈"
+        },
+        {
+          "title": {
+            "ko": "PromQL",
+            "en": "PromQL"
+          },
+          "description": {
+            "ko": "강력한 쿼리 언어로 데이터 분석",
+            "en": "Analyze data with powerful query language"
+          },
+          "icon": "🔍"
+        },
+        {
+          "title": {
+            "ko": "알림 매니저",
+            "en": "Alert Manager"
+          },
+          "description": {
+            "ko": "알림 그룹화, 라우팅, 억제",
+            "en": "Alert grouping, routing, silencing"
+          },
+          "icon": "🔔"
+        },
+        {
+          "title": {
+            "ko": "서비스 디스커버리",
+            "en": "Service discovery"
+          },
+          "description": {
+            "ko": "자동 타겟 발견 및 모니터링",
+            "en": "Automatic target discovery and monitoring"
+          },
+          "icon": "🎯"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "9090"
+        }
+      ]
+    },
+    {
+      "id": "prowlarr",
+      "name": "Prowlarr",
+      "description": {
+        "ko": "Sonarr/Radarr용 인덱서 통합 관리",
+        "en": "Indexer manager for Sonarr/Radarr"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://prowlarr.com",
+      "source": "https://github.com/Prowlarr/Prowlarr",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/prowlarr.svg",
+      "ports": [
+        9696
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "인덱서 통합",
+            "en": "Indexer integration"
+          },
+          "description": {
+            "ko": "Torrent/Usenet 인덱서를 한 곳에서 관리",
+            "en": "Manage Torrent and Usenet indexers in one place"
+          },
+          "icon": "🔎"
+        },
+        {
+          "title": {
+            "ko": "자동 동기화",
+            "en": "Auto sync"
+          },
+          "description": {
+            "ko": "Sonarr/Radarr에 인덱서 자동 동기화",
+            "en": "Automatically sync indexers to Sonarr/Radarr"
+          },
+          "icon": "🔄"
+        },
+        {
+          "title": {
+            "ko": "통계",
+            "en": "Statistics"
+          },
+          "description": {
+            "ko": "인덱서별 검색/조회 통계 제공",
+            "en": "Per-indexer search and grab statistics"
+          },
+          "icon": "📊"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "9696"
+        }
+      ]
+    },
+    {
+      "id": "qbittorrent",
+      "name": "qBittorrent",
+      "description": {
+        "ko": "웹 UI를 갖춘 BitTorrent 클라이언트",
+        "en": "BitTorrent client with web UI"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://www.qbittorrent.org",
+      "source": "https://github.com/qbittorrent/qBittorrent",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/qbittorrent.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "웹 UI",
+            "en": "Web UI"
+          },
+          "description": {
+            "ko": "브라우저에서 토렌트를 원격으로 관리",
+            "en": "Manage torrents remotely from the browser"
+          },
+          "icon": "🌐"
+        },
+        {
+          "title": {
+            "ko": "광고 없음",
+            "en": "Ad-free"
+          },
+          "description": {
+            "ko": "오픈소스로 광고 없이 가볍게 동작",
+            "en": "Open-source, lightweight and ad-free"
+          },
+          "icon": "🚫"
+        },
+        {
+          "title": {
+            "ko": "RSS 자동 다운로드",
+            "en": "RSS auto-download"
+          },
+          "description": {
+            "ko": "RSS 피드 기반 자동 다운로드 규칙 설정",
+            "en": "Set up RSS feed based automatic download rules"
+          },
+          "icon": "📡"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        }
+      ]
+    },
+    {
+      "id": "radarr",
+      "name": "Radarr",
+      "description": {
+        "ko": "영화 자동 다운로드 및 관리 (PVR)",
+        "en": "Movie PVR for automatic download and management"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://radarr.video",
+      "source": "https://github.com/Radarr/Radarr",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/radarr.svg",
+      "ports": [
+        7878
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "자동 다운로드",
+            "en": "Automatic download"
+          },
+          "description": {
+            "ko": "원하는 영화를 자동으로 검색 및 다운로드",
+            "en": "Automatically search and download desired movies"
+          },
+          "icon": "🎬"
+        },
+        {
+          "title": {
+            "ko": "품질 관리",
+            "en": "Quality management"
+          },
+          "description": {
+            "ko": "원하는 화질로 자동 업그레이드",
+            "en": "Automatically upgrade to your preferred quality"
+          },
+          "icon": "🎚️"
+        },
+        {
+          "title": {
+            "ko": "라이브러리 관리",
+            "en": "Library management"
+          },
+          "description": {
+            "ko": "영화 라이브러리를 체계적으로 정리",
+            "en": "Organize your movie library systematically"
+          },
+          "icon": "🗂️"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "7878"
+        }
+      ]
+    },
+    {
+      "id": "redis",
+      "name": "Redis",
+      "description": {
+        "ko": "초고속 인메모리 데이터 스토어. 캐싱, 세션 관리, 메시지 브로커로 널리 사용됩니다.",
+        "en": "Ultra-fast in-memory data store. Widely used for caching, session management, and message brokering."
+      },
+      "category": "database",
+      "version": "7",
+      "website": "https://redis.io",
+      "source": "https://github.com/redis/redis",
+      "icon": "https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/svg/redis.svg",
+      "ports": [
+        6379
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "키-값 스토어",
+            "en": "Key-Value Store"
+          },
+          "description": {
+            "ko": "초고속 인메모리 키-값 데이터 구조",
+            "en": "Ultra-fast in-memory key-value data structures"
+          },
+          "icon": "⚡"
+        },
+        {
+          "title": {
+            "ko": "퍼시스턴스",
+            "en": "Persistence"
+          },
+          "description": {
+            "ko": "RDB 스냅샷 및 AOF 로그 지원",
+            "en": "RDB snapshots and AOF log support"
+          },
+          "icon": "💾"
+        },
+        {
+          "title": {
+            "ko": "Pub/Sub",
+            "en": "Pub/Sub"
+          },
+          "description": {
+            "ko": "실시간 메시지 발행/구독 지원",
+            "en": "Real-time publish/subscribe messaging"
+          },
+          "icon": "📡"
+        },
+        {
+          "title": {
+            "ko": "스크립팅",
+            "en": "Scripting"
+          },
+          "description": {
+            "ko": "Lua 스크립트로 서버 사이드 로직 실행",
+            "en": "Execute server-side logic with Lua scripts"
+          },
+          "icon": "📜"
+        }
+      ],
+      "env": [
+        {
+          "key": "REDIS_PASSWORD",
+          "description": {
+            "ko": "Redis 비밀번호",
+            "en": "Redis password"
+          },
+          "default": "changeme",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "registry",
+      "name": "Docker Registry",
+      "description": {
+        "ko": "셀프 호스팅 비공개 Docker 이미지 레지스트리. 기본은 인증이 없으므로 인증을 적용한 리버스 프록시 뒤에 배치하세요",
+        "en": "Self-hosted private Docker image registry. Unauthenticated by default - put it behind a reverse proxy with auth"
+      },
+      "category": "dev",
+      "version": "1.0.0",
+      "website": "https://distribution.github.io/distribution",
+      "source": "https://github.com/distribution/distribution",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/docker.svg",
+      "ports": [
+        5000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "비공개 이미지 저장",
+            "en": "Private image storage"
+          },
+          "description": {
+            "ko": "컨테이너 이미지를 자체 인프라에 저장",
+            "en": "Store container images on your own infrastructure"
+          },
+          "icon": "📦"
+        },
+        {
+          "title": {
+            "ko": "이미지 삭제 지원",
+            "en": "Image deletion enabled"
+          },
+          "description": {
+            "ko": "사용하지 않는 이미지를 삭제해 공간 회수",
+            "en": "Delete unused images to reclaim storage"
+          },
+          "icon": "🗑️"
+        },
+        {
+          "title": {
+            "ko": "표준 Docker API",
+            "en": "Standard Docker API"
+          },
+          "description": {
+            "ko": "docker push/pull과 완전 호환",
+            "en": "Fully compatible with docker push/pull"
+          },
+          "icon": "🔌"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "5000"
+        }
+      ]
+    },
+    {
+      "id": "rocketchat",
+      "name": "Rocket.Chat",
+      "description": {
+        "ko": "셀프 호스팅 팀 채팅 플랫폼 (Slack 대안) - 채널, DM, 영상 통화 지원",
+        "en": "Self-hosted team chat platform (Slack alternative) with channels, DMs, and video calls"
+      },
+      "category": "communication",
+      "version": "1.0.0",
+      "website": "https://rocket.chat",
+      "source": "https://github.com/RocketChat/Rocket.Chat",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/rocket-chat.svg",
+      "ports": [
+        3000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "실시간 채팅",
+            "en": "Real-time chat"
+          },
+          "description": {
+            "ko": "채널, 그룹, 1:1 다이렉트 메시지",
+            "en": "Channels, groups, and one-to-one direct messages"
+          },
+          "icon": "💬"
+        },
+        {
+          "title": {
+            "ko": "음성/영상 통화",
+            "en": "Voice and video calls"
+          },
+          "description": {
+            "ko": "내장된 음성 및 영상 회의 기능",
+            "en": "Built-in voice and video conferencing"
+          },
+          "icon": "📞"
+        },
+        {
+          "title": {
+            "ko": "확장과 연동",
+            "en": "Apps and integrations"
+          },
+          "description": {
+            "ko": "앱 마켓플레이스와 웹훅으로 워크플로우 연동",
+            "en": "Extend workflows with the app marketplace and webhooks"
+          },
+          "icon": "🔌"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "3000"
+        }
+      ]
+    },
+    {
+      "id": "sabnzbd",
+      "name": "SABnzbd",
+      "description": {
+        "ko": "웹 기반 Usenet(NZB) 다운로더",
+        "en": "Web-based Usenet (NZB) downloader"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://sabnzbd.org",
+      "source": "https://github.com/sabnzbd/sabnzbd",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/sabnzbd.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "자동 다운로드",
+            "en": "Automatic download"
+          },
+          "description": {
+            "ko": "NZB 파일을 자동으로 다운로드 및 처리",
+            "en": "Automatically download and process NZB files"
+          },
+          "icon": "📥"
+        },
+        {
+          "title": {
+            "ko": "자동 압축 해제",
+            "en": "Auto extraction"
+          },
+          "description": {
+            "ko": "다운로드 후 자동 압축 해제 및 정리",
+            "en": "Automatically extract and tidy up after download"
+          },
+          "icon": "🗜️"
+        },
+        {
+          "title": {
+            "ko": "*arr 연동",
+            "en": "*arr integration"
+          },
+          "description": {
+            "ko": "Sonarr/Radarr의 다운로드 클라이언트로 연동",
+            "en": "Integrate as a download client for Sonarr/Radarr"
+          },
+          "icon": "🔗"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        }
+      ]
+    },
+    {
+      "id": "scrutiny",
+      "name": "Scrutiny",
+      "description": {
+        "ko": "하드디스크 S.M.A.R.T. 상태와 고장 예측을 보여주는 디스크 건강 대시보드. 호스트 디스크 장치 접근 권한이 필요합니다.",
+        "en": "Hard drive S.M.A.R.T. health dashboard with failure prediction. Requires access to host disk devices."
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://github.com/AnalogJ/scrutiny",
+      "source": "https://github.com/AnalogJ/scrutiny",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/scrutiny.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "S.M.A.R.T. 모니터링",
+            "en": "S.M.A.R.T. monitoring"
+          },
+          "description": {
+            "ko": "디스크의 S.M.A.R.T. 속성을 수집해 한눈에 표시",
+            "en": "Collect and display disk S.M.A.R.T. attributes at a glance"
+          },
+          "icon": "💽"
+        },
+        {
+          "title": {
+            "ko": "고장 예측",
+            "en": "Failure prediction"
+          },
+          "description": {
+            "ko": "실제 고장 임계값 기반으로 위험 디스크를 경고",
+            "en": "Warn about risky drives using real-world failure thresholds"
+          },
+          "icon": "⚠️"
+        },
+        {
+          "title": {
+            "ko": "이력 추세",
+            "en": "Historical trends"
+          },
+          "description": {
+            "ko": "시간에 따른 디스크 상태 변화를 그래프로 추적",
+            "en": "Track how drive health changes over time with graphs"
+          },
+          "icon": "📉"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        }
+      ]
+    },
+    {
+      "id": "searxng",
+      "name": "SearXNG",
+      "description": {
+        "ko": "프라이버시를 존중하는 메타 검색 엔진. 70개 이상의 검색 소스를 추적 없이 집계합니다.",
+        "en": "Privacy-respecting metasearch engine. Aggregates results from 70+ sources without tracking."
+      },
+      "category": "network",
+      "version": "1.0.0",
+      "website": "https://docs.searxng.org",
+      "source": "https://github.com/searxng/searxng",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/searxng.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "추적 없음",
+            "en": "No tracking"
+          },
+          "description": {
+            "ko": "사용자 프로필을 만들지 않고 검색을 익명화합니다",
+            "en": "Anonymizes searches without building user profiles"
+          },
+          "icon": "🕵️"
+        },
+        {
+          "title": {
+            "ko": "메타 검색",
+            "en": "Metasearch"
+          },
+          "description": {
+            "ko": "70개 이상의 검색 엔진 결과를 한곳에 모읍니다",
+            "en": "Aggregates results from 70+ search engines in one place"
+          },
+          "icon": "🔍"
+        },
+        {
+          "title": {
+            "ko": "맞춤 설정",
+            "en": "Customizable"
+          },
+          "description": {
+            "ko": "검색 엔진, 테마, 카테고리를 자유롭게 설정합니다",
+            "en": "Freely configure engines, themes, and categories"
+          },
+          "icon": "⚙️"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        },
+        {
+          "key": "SEARXNG_BASE_URL",
+          "label": {
+            "ko": "기본 URL (예: https://search.example.com/)",
+            "en": "Base URL (e.g. https://search.example.com/)"
+          },
+          "type": "text"
+        },
+        {
+          "key": "SEARXNG_SECRET",
+          "label": {
+            "ko": "시크릿 키",
+            "en": "Secret Key"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "sonarr",
+      "name": "Sonarr",
+      "description": {
+        "ko": "TV 시리즈 자동 다운로드 및 관리 (PVR)",
+        "en": "TV series PVR for automatic download and management"
+      },
+      "category": "media",
+      "version": "1.0.0",
+      "website": "https://sonarr.tv",
+      "source": "https://github.com/Sonarr/Sonarr",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/sonarr.svg",
+      "ports": [
+        8989
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "자동 다운로드",
+            "en": "Automatic download"
+          },
+          "description": {
+            "ko": "새 에피소드 방영 시 자동으로 검색 및 다운로드",
+            "en": "Automatically search and download new episodes as they air"
+          },
+          "icon": "📺"
+        },
+        {
+          "title": {
+            "ko": "품질 관리",
+            "en": "Quality management"
+          },
+          "description": {
+            "ko": "원하는 화질로 자동 업그레이드",
+            "en": "Automatically upgrade to your preferred quality"
+          },
+          "icon": "🎚️"
+        },
+        {
+          "title": {
+            "ko": "캘린더",
+            "en": "Calendar"
+          },
+          "description": {
+            "ko": "방영 일정 캘린더로 한눈에 확인",
+            "en": "View airing schedules at a glance in a calendar"
+          },
+          "icon": "📅"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8989"
+        }
+      ]
+    },
+    {
+      "id": "speedtest-tracker",
+      "name": "Speedtest Tracker",
+      "description": {
+        "ko": "인터넷 속도 자동 측정 및 추적",
+        "en": "Automatic internet speed monitoring and tracking"
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://docs.speedtest-tracker.dev",
+      "source": "https://github.com/alexjustesen/speedtest-tracker",
+      "icon": "https://raw.githubusercontent.com/alexjustesen/speedtest-tracker/main/public/img/logo.svg",
+      "ports": [
+        8765
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "자동 측정",
+            "en": "Auto testing"
+          },
+          "description": {
+            "ko": "스케줄 기반 자동 속도 측정",
+            "en": "Schedule-based automatic speed testing"
+          },
+          "icon": "⏰"
+        },
+        {
+          "title": {
+            "ko": "그래프",
+            "en": "Graphs"
+          },
+          "description": {
+            "ko": "속도 변화 추이 그래프",
+            "en": "Speed trend graphs over time"
+          },
+          "icon": "📈"
+        },
+        {
+          "title": {
+            "ko": "알림",
+            "en": "Notifications"
+          },
+          "description": {
+            "ko": "속도 저하 시 알림",
+            "en": "Get notified on speed drops"
+          },
+          "icon": "🔔"
+        },
+        {
+          "title": {
+            "ko": "히스토리",
+            "en": "History"
+          },
+          "description": {
+            "ko": "과거 측정 결과 보관 및 비교",
+            "en": "Store and compare past results"
+          },
+          "icon": "📊"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8765"
+        },
+        {
+          "key": "APP_KEY",
+          "label": {
+            "ko": "앱 키",
+            "en": "App Key"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "stirling-pdf",
+      "name": "Stirling PDF",
+      "description": {
+        "ko": "셀프 호스팅 PDF 도구 모음",
+        "en": "Self-hosted PDF tools suite"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://stirlingtools.com",
+      "source": "https://github.com/Stirling-Tools/Stirling-PDF",
+      "icon": "https://raw.githubusercontent.com/Stirling-Tools/Stirling-PDF/main/docs/stirling.png",
+      "ports": [
+        8086
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "PDF 변환",
+            "en": "PDF conversion"
+          },
+          "description": {
+            "ko": "이미지, 워드 등 다양한 포맷 변환",
+            "en": "Convert to/from images, Word and more formats"
+          },
+          "icon": "🔄"
+        },
+        {
+          "title": {
+            "ko": "병합/분할",
+            "en": "Merge/Split"
+          },
+          "description": {
+            "ko": "PDF 병합, 분할, 페이지 추출",
+            "en": "Merge, split, extract pages from PDFs"
+          },
+          "icon": "✂️"
+        },
+        {
+          "title": {
+            "ko": "OCR",
+            "en": "OCR"
+          },
+          "description": {
+            "ko": "스캔 PDF에서 텍스트 추출",
+            "en": "Extract text from scanned PDFs"
+          },
+          "icon": "📝"
+        },
+        {
+          "title": {
+            "ko": "보안",
+            "en": "Security"
+          },
+          "description": {
+            "ko": "암호 추가/제거, 서명, 워터마크",
+            "en": "Add/remove passwords, sign, watermark"
+          },
+          "icon": "🔒"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8086"
+        }
+      ]
+    },
+    {
+      "id": "syncthing",
+      "name": "Syncthing",
+      "description": {
+        "ko": "P2P 파일 동기화 도구",
+        "en": "P2P file synchronization tool"
+      },
+      "category": "cloud",
+      "version": "1.0.0",
+      "website": "https://syncthing.net",
+      "source": "https://github.com/syncthing/syncthing",
+      "icon": "https://raw.githubusercontent.com/syncthing/syncthing/main/assets/logo-text.svg",
+      "ports": [
+        8384
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "P2P 동기화",
+            "en": "P2P sync"
+          },
+          "description": {
+            "ko": "중앙 서버 없이 기기 간 직접 동기화",
+            "en": "Direct sync between devices without central server"
+          },
+          "icon": "🔄"
+        },
+        {
+          "title": {
+            "ko": "암호화",
+            "en": "Encryption"
+          },
+          "description": {
+            "ko": "전송 중 TLS 암호화",
+            "en": "TLS encryption in transit"
+          },
+          "icon": "🔒"
+        },
+        {
+          "title": {
+            "ko": "크로스 플랫폼",
+            "en": "Cross-platform"
+          },
+          "description": {
+            "ko": "Windows, macOS, Linux, Android 지원",
+            "en": "Support Windows, macOS, Linux, Android"
+          },
+          "icon": "💻"
+        },
+        {
+          "title": {
+            "ko": "버전 관리",
+            "en": "Versioning"
+          },
+          "description": {
+            "ko": "파일 변경 이력 보관",
+            "en": "Keep file change history"
+          },
+          "icon": "📋"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8384"
+        }
+      ]
+    },
+    {
+      "id": "tandoor",
+      "name": "Tandoor Recipes",
+      "description": {
+        "ko": "셀프 호스팅 레시피 및 식단 관리 도구",
+        "en": "Self-hosted recipe and meal planning manager"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://tandoor.dev",
+      "source": "https://github.com/TandoorRecipes/recipes",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/tandoor.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "레시피 관리",
+            "en": "Recipe management"
+          },
+          "description": {
+            "ko": "레시피를 정리하고 태그로 분류",
+            "en": "Organize and tag your recipes"
+          },
+          "icon": "🍳"
+        },
+        {
+          "title": {
+            "ko": "식단 계획",
+            "en": "Meal planning"
+          },
+          "description": {
+            "ko": "주간 식단을 계획하고 장보기 목록 생성",
+            "en": "Plan weekly meals and generate shopping lists"
+          },
+          "icon": "📅"
+        },
+        {
+          "title": {
+            "ko": "레시피 가져오기",
+            "en": "Recipe import"
+          },
+          "description": {
+            "ko": "웹사이트에서 레시피를 자동으로 가져오기",
+            "en": "Import recipes automatically from websites"
+          },
+          "icon": "📥"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        },
+        {
+          "key": "SECRET_KEY",
+          "label": {
+            "ko": "시크릿 키",
+            "en": "Secret Key"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "DB_PASSWORD",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "traefik",
+      "name": "Traefik",
+      "description": {
+        "ko": "클라우드 네이티브 리버스 프록시 및 로드 밸런서",
+        "en": "Cloud-native reverse proxy and load balancer"
+      },
+      "category": "network",
+      "version": "1.0.0",
+      "website": "https://traefik.io",
+      "source": "https://github.com/traefik/traefik",
+      "icon": "https://raw.githubusercontent.com/traefik/traefik/master/docs/content/assets/img/traefik.logo.png",
+      "ports": [
+        80,
+        443,
+        8089
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "자동 SSL",
+            "en": "Auto SSL"
+          },
+          "description": {
+            "ko": "Let's Encrypt 자동 인증서 발급",
+            "en": "Automatic Let's Encrypt certificates"
+          },
+          "icon": "🔒"
+        },
+        {
+          "title": {
+            "ko": "Docker 연동",
+            "en": "Docker integration"
+          },
+          "description": {
+            "ko": "Docker 라벨 기반 자동 설정",
+            "en": "Auto-configure via Docker labels"
+          },
+          "icon": "🐳"
+        },
+        {
+          "title": {
+            "ko": "대시보드",
+            "en": "Dashboard"
+          },
+          "description": {
+            "ko": "라우팅 현황 실시간 대시보드",
+            "en": "Real-time routing status dashboard"
+          },
+          "icon": "📊"
+        },
+        {
+          "title": {
+            "ko": "미들웨어",
+            "en": "Middleware"
+          },
+          "description": {
+            "ko": "인증, 리다이렉트, 압축 등 미들웨어 체인",
+            "en": "Auth, redirect, compression middleware chains"
+          },
+          "icon": "🔧"
+        }
+      ],
+      "env": [
+        {
+          "key": "DASHBOARD_PORT",
+          "label": {
+            "ko": "대시보드 포트",
+            "en": "Dashboard Port"
+          },
+          "type": "port",
+          "default": "8089"
+        }
+      ]
+    },
+    {
+      "id": "trilium",
+      "name": "Trilium Notes",
+      "description": {
+        "ko": "계층형 노트 작성을 위한 셀프 호스팅 지식 베이스",
+        "en": "Self-hosted hierarchical note-taking knowledge base"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://github.com/TriliumNext/Notes",
+      "source": "https://github.com/TriliumNext/Notes",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/trilium.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "계층 구조",
+            "en": "Hierarchical tree"
+          },
+          "description": {
+            "ko": "트리 구조로 노트를 무한히 정리",
+            "en": "Organize notes in an unlimited tree structure"
+          },
+          "icon": "🌳"
+        },
+        {
+          "title": {
+            "ko": "리치 편집",
+            "en": "Rich editing"
+          },
+          "description": {
+            "ko": "표, 코드 블록, 수식 등 풍부한 편집 기능",
+            "en": "Rich editing with tables, code blocks and math"
+          },
+          "icon": "✏️"
+        },
+        {
+          "title": {
+            "ko": "노트 연결",
+            "en": "Note relations"
+          },
+          "description": {
+            "ko": "노트 간 링크와 관계로 지식 연결",
+            "en": "Link notes and build relations between knowledge"
+          },
+          "icon": "🔗"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        }
+      ]
+    },
+    {
+      "id": "uptime-kuma",
+      "name": "Uptime Kuma",
+      "description": {
+        "ko": "서비스 모니터링 및 알림 도구",
+        "en": "Service monitoring and alerting tool"
+      },
+      "category": "monitoring",
+      "version": "1.0.0",
+      "website": "https://uptime.kuma.pet",
+      "source": "https://github.com/louislam/uptime-kuma",
+      "icon": "https://raw.githubusercontent.com/louislam/uptime-kuma/master/public/icon.svg",
+      "ports": [
+        3001
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "실시간 알림",
+            "en": "Real-time alerts"
+          },
+          "description": {
+            "ko": "Telegram, Discord, Slack, 이메일 등 다채널 알림 지원",
+            "en": "Multi-channel notifications: Telegram, Discord, Slack, Email"
+          },
+          "icon": "🔔"
+        },
+        {
+          "title": {
+            "ko": "상태 페이지",
+            "en": "Status pages"
+          },
+          "description": {
+            "ko": "커스텀 도메인을 지원하는 공개/비공개 상태 페이지",
+            "en": "Public/private status pages with custom domains"
+          },
+          "icon": "📊"
+        },
+        {
+          "title": {
+            "ko": "멀티 프로토콜",
+            "en": "Multi-protocol"
+          },
+          "description": {
+            "ko": "HTTP/HTTPS, TCP, DNS, PING, GRPC 모니터링 지원",
+            "en": "HTTP/HTTPS, TCP, DNS, PING, GRPC monitoring"
+          },
+          "icon": "🌐"
+        },
+        {
+          "title": {
+            "ko": "모바일 친화적",
+            "en": "Mobile-friendly"
+          },
+          "description": {
+            "ko": "반응형 대시보드, 모든 기기에서 사용 가능",
+            "en": "Responsive dashboard, works on any device"
+          },
+          "icon": "📱"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "3001"
+        }
+      ]
+    },
+    {
+      "id": "vaultwarden",
+      "name": "Vaultwarden",
+      "description": {
+        "ko": "셀프 호스팅 비밀번호 관리자 (Bitwarden 호환)",
+        "en": "Self-hosted password manager (Bitwarden compatible)"
+      },
+      "category": "security",
+      "featured": true,
+      "version": "1.0.0",
+      "website": "https://github.com/dani-garcia/vaultwarden",
+      "source": "https://github.com/dani-garcia/vaultwarden",
+      "icon": "https://raw.githubusercontent.com/dani-garcia/vaultwarden/main/resources/vaultwarden-icon.svg",
+      "ports": [
+        8080
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "Bitwarden 호환",
+            "en": "Bitwarden compatible"
+          },
+          "description": {
+            "ko": "모든 Bitwarden 클라이언트와 완벽 호환",
+            "en": "Full compatibility with all Bitwarden clients"
+          },
+          "icon": "🔐"
+        },
+        {
+          "title": {
+            "ko": "비밀번호 공유",
+            "en": "Password sharing"
+          },
+          "description": {
+            "ko": "사용자 간 안전한 비밀번호 공유",
+            "en": "Secure password sharing between users"
+          },
+          "icon": "🔑"
+        },
+        {
+          "title": {
+            "ko": "2FA 지원",
+            "en": "2FA support"
+          },
+          "description": {
+            "ko": "TOTP, FIDO2/WebAuthn 이중 인증 지원",
+            "en": "TOTP, FIDO2/WebAuthn two-factor authentication"
+          },
+          "icon": "📱"
+        },
+        {
+          "title": {
+            "ko": "경량화",
+            "en": "Lightweight"
+          },
+          "description": {
+            "ko": "최소한의 리소스 사용, 저사양 서버에서도 동작",
+            "en": "Minimal resource usage, runs on low-spec servers"
+          },
+          "icon": "💾"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8080"
+        },
+        {
+          "key": "ADMIN_TOKEN",
+          "label": {
+            "ko": "관리자 토큰",
+            "en": "Admin Token"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "vikunja",
+      "name": "Vikunja",
+      "description": {
+        "ko": "셀프 호스팅 할 일 및 작업 관리 앱 (Todoist 대안)",
+        "en": "Self-hosted to-do and task management app (Todoist alternative)"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://vikunja.io",
+      "source": "https://github.com/go-vikunja/vikunja",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/vikunja.svg",
+      "ports": [
+        3456
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "다양한 보기",
+            "en": "Multiple views"
+          },
+          "description": {
+            "ko": "리스트, 칸반, 간트, 테이블 등 여러 방식으로 작업 보기",
+            "en": "View tasks as list, kanban, gantt, table and more"
+          },
+          "icon": "📋"
+        },
+        {
+          "title": {
+            "ko": "알림 및 마감일",
+            "en": "Reminders and due dates"
+          },
+          "description": {
+            "ko": "마감일과 알림으로 일정 관리",
+            "en": "Manage schedules with due dates and reminders"
+          },
+          "icon": "⏰"
+        },
+        {
+          "title": {
+            "ko": "협업",
+            "en": "Collaboration"
+          },
+          "description": {
+            "ko": "팀원과 프로젝트 및 작업 공유",
+            "en": "Share projects and tasks with team members"
+          },
+          "icon": "👥"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "3456"
+        },
+        {
+          "key": "VIKUNJA_SERVICE_PUBLICURL",
+          "label": {
+            "ko": "공개 URL",
+            "en": "Public URL"
+          },
+          "type": "text",
+          "default": "http://localhost:3456"
+        },
+        {
+          "key": "VIKUNJA_SERVICE_JWTSECRET",
+          "label": {
+            "ko": "JWT 시크릿",
+            "en": "JWT Secret"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "wallabag",
+      "name": "Wallabag",
+      "description": {
+        "ko": "셀프 호스팅 나중에 읽기 / 아티클 저장 서비스",
+        "en": "Self-hosted read-it-later and article saver"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://wallabag.org",
+      "source": "https://github.com/wallabag/wallabag",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/wallabag.svg",
+      "ports": [
+        80
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "아티클 저장",
+            "en": "Save articles"
+          },
+          "description": {
+            "ko": "웹 아티클을 깔끔하게 저장하고 나중에 읽기",
+            "en": "Save web articles cleanly and read them later"
+          },
+          "icon": "📑"
+        },
+        {
+          "title": {
+            "ko": "광고 제거",
+            "en": "Clean reading"
+          },
+          "description": {
+            "ko": "광고와 잡음을 제거한 본문만 표시",
+            "en": "Strip ads and clutter to show just the content"
+          },
+          "icon": "✨"
+        },
+        {
+          "title": {
+            "ko": "다양한 내보내기",
+            "en": "Export options"
+          },
+          "description": {
+            "ko": "EPUB, PDF, 모바일 앱 등으로 내보내기",
+            "en": "Export to EPUB, PDF and mobile apps"
+          },
+          "icon": "📤"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "80"
+        },
+        {
+          "key": "DOMAIN_NAME",
+          "label": {
+            "ko": "도메인 URL",
+            "en": "Domain URL"
+          },
+          "type": "text",
+          "default": "http://localhost"
+        },
+        {
+          "key": "SECRET",
+          "label": {
+            "ko": "시크릿 키",
+            "en": "Secret Key"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "wg-easy",
+      "name": "wg-easy",
+      "description": {
+        "ko": "웹 UI로 관리하는 WireGuard VPN 서버. 클라이언트 추가/삭제, QR 코드 생성을 지원합니다.",
+        "en": "WireGuard VPN server with a web UI. Add/remove clients and generate QR codes."
+      },
+      "category": "network",
+      "version": "1.0.0",
+      "website": "https://github.com/wg-easy/wg-easy",
+      "source": "https://github.com/wg-easy/wg-easy",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/wireguard.svg",
+      "ports": [
+        51821,
+        51820
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "웹 UI 관리",
+            "en": "Web UI management"
+          },
+          "description": {
+            "ko": "직관적인 웹 인터페이스로 VPN을 관리합니다",
+            "en": "Manage the VPN through an intuitive web interface"
+          },
+          "icon": "🖥️"
+        },
+        {
+          "title": {
+            "ko": "QR 코드",
+            "en": "QR code"
+          },
+          "description": {
+            "ko": "모바일 클라이언트용 QR 코드를 즉시 생성합니다",
+            "en": "Instantly generate QR codes for mobile clients"
+          },
+          "icon": "📱"
+        },
+        {
+          "title": {
+            "ko": "고성능 VPN",
+            "en": "High-performance VPN"
+          },
+          "description": {
+            "ko": "WireGuard 커널 암호화로 빠르고 안전한 연결을 제공합니다",
+            "en": "Fast, secure connections with WireGuard kernel-level encryption"
+          },
+          "icon": "⚡"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "웹 UI 포트",
+            "en": "Web UI Port"
+          },
+          "type": "port",
+          "default": "51821"
+        },
+        {
+          "key": "WG_HOST",
+          "label": {
+            "ko": "서버 공인 IP 또는 도메인",
+            "en": "Server Public IP or Domain"
+          },
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "PASSWORD_HASH",
+          "label": {
+            "ko": "웹 UI 비밀번호 bcrypt 해시 ($는 $$로 이스케이프)",
+            "en": "Web UI password bcrypt hash (escape $ as $$)"
+          },
+          "type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "wikijs",
+      "name": "Wiki.js",
+      "description": {
+        "ko": "셀프 호스팅 모던 위키 플랫폼",
+        "en": "Self-hosted modern wiki platform"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://js.wiki",
+      "source": "https://github.com/requarks/wiki",
+      "icon": "https://cdn.jsdelivr.net/gh/selfhst/icons/svg/wikijs.svg",
+      "ports": [
+        3000
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "마크다운 편집",
+            "en": "Markdown editing"
+          },
+          "description": {
+            "ko": "마크다운, 비주얼, 코드 등 다양한 에디터 지원",
+            "en": "Markdown, visual and code editors supported"
+          },
+          "icon": "📝"
+        },
+        {
+          "title": {
+            "ko": "강력한 검색",
+            "en": "Powerful search"
+          },
+          "description": {
+            "ko": "내장 전문 검색 엔진으로 빠른 탐색",
+            "en": "Fast navigation with built-in full-text search"
+          },
+          "icon": "🔍"
+        },
+        {
+          "title": {
+            "ko": "접근 제어",
+            "en": "Access control"
+          },
+          "description": {
+            "ko": "세분화된 권한과 다양한 인증 연동",
+            "en": "Granular permissions and many auth providers"
+          },
+          "icon": "🔐"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "3000"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "label": {
+            "ko": "DB 비밀번호",
+            "en": "DB Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    },
+    {
+      "id": "wireguard",
+      "name": "WireGuard Easy",
+      "description": {
+        "ko": "간편한 WireGuard VPN 서버 관리 UI",
+        "en": "Easy WireGuard VPN server management UI"
+      },
+      "category": "network",
+      "version": "1.0.0",
+      "website": "https://github.com/wg-easy/wg-easy",
+      "source": "https://github.com/wg-easy/wg-easy",
+      "icon": "https://raw.githubusercontent.com/wg-easy/wg-easy/master/src/www/img/logo.png",
+      "ports": [
+        51821,
+        51820
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "웹 UI",
+            "en": "Web UI"
+          },
+          "description": {
+            "ko": "직관적인 웹 인터페이스로 VPN 관리",
+            "en": "Manage VPN with intuitive web interface"
+          },
+          "icon": "🖥️"
+        },
+        {
+          "title": {
+            "ko": "QR 코드",
+            "en": "QR code"
+          },
+          "description": {
+            "ko": "모바일 클라이언트용 QR 코드 생성",
+            "en": "Generate QR codes for mobile clients"
+          },
+          "icon": "📱"
+        },
+        {
+          "title": {
+            "ko": "클라이언트 관리",
+            "en": "Client management"
+          },
+          "description": {
+            "ko": "클라이언트 추가/제거/활성화",
+            "en": "Add/remove/enable clients"
+          },
+          "icon": "👥"
+        },
+        {
+          "title": {
+            "ko": "고성능",
+            "en": "High performance"
+          },
+          "description": {
+            "ko": "커널 수준 암호화로 최소 오버헤드",
+            "en": "Minimal overhead with kernel-level encryption"
+          },
+          "icon": "⚡"
+        }
+      ],
+      "env": [
+        {
+          "key": "WG_HOST",
+          "label": {
+            "ko": "서버 공인 IP",
+            "en": "Server Public IP"
+          },
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "PASSWORD",
+          "label": {
+            "ko": "웹 UI 비밀번호",
+            "en": "Web UI Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        },
+        {
+          "key": "UI_PORT",
+          "label": {
+            "ko": "웹 UI 포트",
+            "en": "Web UI Port"
+          },
+          "type": "port",
+          "default": "51821"
+        }
+      ]
+    },
+    {
+      "id": "wordpress",
+      "name": "WordPress",
+      "description": {
+        "ko": "세계에서 가장 인기 있는 CMS",
+        "en": "World's most popular CMS"
+      },
+      "category": "productivity",
+      "version": "1.0.0",
+      "website": "https://wordpress.org",
+      "source": "https://github.com/WordPress/WordPress",
+      "icon": "https://s.w.org/style/images/about/WordPress-logotype-wmark.png",
+      "ports": [
+        8082
+      ],
+      "features": [
+        {
+          "title": {
+            "ko": "쉬운 사용",
+            "en": "Easy to use"
+          },
+          "description": {
+            "ko": "코딩 없이 웹사이트 제작",
+            "en": "Build websites without coding"
+          },
+          "icon": "🖱️"
+        },
+        {
+          "title": {
+            "ko": "플러그인",
+            "en": "Plugins"
+          },
+          "description": {
+            "ko": "60,000+ 플러그인으로 기능 확장",
+            "en": "Extend with 60,000+ plugins"
+          },
+          "icon": "🧩"
+        },
+        {
+          "title": {
+            "ko": "테마",
+            "en": "Themes"
+          },
+          "description": {
+            "ko": "수천 개의 무료/유료 테마",
+            "en": "Thousands of free and premium themes"
+          },
+          "icon": "🎨"
+        },
+        {
+          "title": {
+            "ko": "WooCommerce",
+            "en": "WooCommerce"
+          },
+          "description": {
+            "ko": "전자상거래 기능 추가 가능",
+            "en": "Add e-commerce functionality"
+          },
+          "icon": "🛒"
+        }
+      ],
+      "env": [
+        {
+          "key": "PORT",
+          "label": {
+            "ko": "외부 포트",
+            "en": "External Port"
+          },
+          "type": "port",
+          "default": "8082"
+        },
+        {
+          "key": "MYSQL_ROOT_PASSWORD",
+          "label": {
+            "ko": "MySQL Root 비밀번호",
+            "en": "MySQL Root Password"
+          },
+          "type": "password",
+          "required": true,
+          "generate": true
+        }
+      ]
+    }
+  ]
+}

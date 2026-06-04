@@ -1,4 +1,4 @@
-.PHONY: build dev dev-api dev-web lint clean ci
+.PHONY: build dev dev-api dev-web lint clean ci appstore-catalog
 
 # Version metadata is injected via ldflags so `make build` matches the artifact
 # that goreleaser ships in CI. Without this the local binary always reported
@@ -39,6 +39,10 @@ clean:
 # 테스트
 test:
 	go test ./internal/... -v -count=1
+
+# 앱스토어 카탈로그 번들 생성
+appstore-catalog:
+	go run ./cmd/appstore-catalog
 
 # 테스트 커버리지
 test-coverage:
