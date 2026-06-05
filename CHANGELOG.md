@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **License: MIT → GNU AGPL-3.0.** SFPanel is now licensed under the AGPL-3.0
+  (`LICENSE` added). Self-hosting, modification and redistribution stay free;
+  offering a *modified* version as a network service now requires publishing the
+  corresponding source (§13). Honest self-hosters take on no new obligation. A
+  separate commercial/closed-source license is available on request
+  (svrforum.com@gmail.com). Past MIT-licensed commits remain MIT.
+- **README: English translation + language switcher.** Added `README.en.md`
+  (full translation) with a 한국어 · English toggle on both files; refreshed the
+  Korean README intro (value-prop summary) and the feature table (90+ app store,
+  cron run logs, 10,000-line terminal scrollback, mobile/PWA).
+
+---
+
 ## [0.42.0] – 2026-06-03
 
 ### Added
