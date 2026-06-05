@@ -4,31 +4,34 @@
 
 # SFPanel
 
-경량 서버 관리 웹 패널. 올인원 Go 바이너리로 설치 즉시 사용 가능.
+**홈서버·VPS·NAS를 위한 올인원 서버 관리 웹 패널.** 단일 Go 바이너리 하나로 Docker·방화벽·디스크·네트워크·터미널·앱스토어까지 — 설치 즉시, 런타임 의존성 없이.
+
+- 🪶 **단일 바이너리** — Go 백엔드 + 임베디드 React SPA. SQLite 내장(CGO-free), 외부 의존성 0. `curl | sudo bash` 한 줄이면 끝.
+- 🐳 **Docker는 선택** — 소켓이 있으면 컨테이너·Compose 스택까지 관리하고, 없으면 해당 메뉴만 빠지고 나머지는 그대로 동작.
+- 🔒 **보안 기본 탑재** — JWT + TOTP 2FA + 일회용 복구 코드, 로그인 rate-limit, 파괴적 작업 type-to-confirm.
+- 📱 **데스크탑부터 모바일까지** — 한국어/English, 반응형 웹 + PWA, 그리고 Windows/macOS/Linux 네이티브 앱(Tauri).
+- 🧩 **클러스터는 선택** — 기본은 단일 노드. 필요하면 Raft 멀티노드(실시간 오버뷰 + `?node=` 투명 프록시)로 확장.
 
 ## 주요 기능
 
-- **대시보드** — CPU, 메모리, 디스크, 네트워크 실시간 모니터링 (WebSocket)
-- **Docker 관리** — 컨테이너, 이미지, 볼륨, 네트워크, Compose 스택, Hub 검색, 리소스 정리
-- **파일 관리** — 브라우저 기반 파일 탐색기, Monaco 에디터, 재귀 검색, 복사, 다중선택 삭제, 업로드/다운로드
-- **터미널** — xterm.js 기반 웹 터미널 (멀티탭, PTY, 세션 유지·재연결, 256KB 스크롤백)
-- **로그 뷰어** — 시스템/커스텀 로그 실시간 스트리밍, 구조화 파싱 (auth, ufw, sfpanel)
-- **프로세스 관리** — 프로세스 트리(PPID), 절대 RSS·nice 값, 정렬, 시그널(TERM/KILL/HUP/INT/STOP/CONT) + renice
-- **크론 작업** — crontab GUI 관리, 즉시 실행(run-now) + 출력 캡처
-- **서비스 관리** — systemd 서비스 시작/중지/재시작/활성화/비활성화, 유닛 파일 보기, 의존성 확인
-- **앱스토어** — Docker Compose 기반 원클릭 앱 설치 (Nextcloud, WordPress, GitLab 등 50+ 앱)
-- **패키지 관리** — APT 패키지 검색/설치/업그레이드, Docker/Node.js/Claude/Codex/Gemini 원클릭 설치
-- **방화벽** — UFW 규칙 관리(잠금 방지 force 오버라이드), 열린 포트 확인, Fail2ban Jail 관리, Docker 네트워크 방화벽 (DOCKER-USER 체인)
-- **네트워크/VPN** — 인터페이스 설정 (DHCP/Static), DNS, 라우팅, 본딩, WireGuard(피어 관리·키 생성·클라이언트 QR·부팅 자동시작), Tailscale
-- **디스크 관리** — 파티션, 파일시스템, LVM, RAID, 스왑, 디스크 사용량 탐색기, S.M.A.R.T.(자체 검사 실행 + 로그)
-- **클러스터** — Raft 합의 기반 멀티노드 클러스터 (자동 리더 선출, mTLS, WebSocket 실시간 오버뷰, 조인 토큰 목록/취소, 노드 주소 편집·탈퇴, 롤링 업데이트 스테퍼)
-- **알림 시스템** — 조건 기반 알림 규칙, 채널 (Discord, Telegram, Webhook=Slack/Mattermost 호환), 알림 이력
-- **시스템 튜닝** — 성능 프로파일 적용 (확인 워크플로우 포함)
-- **셀프 관리** — 웹 업데이트 (SSE 스트리밍 + cosign/SHA-256 검증), 설정 백업/복원, 예약 백업(보존 개수 지정)
-- **감사 로그** — API 요청 기록, 사용자/IP/경로/상태/노드 추적, 필터 + 범위 삭제
-- **보안** — JWT 인증 + TOTP 2FA(+ 일회용 복구 코드), bcrypt 해시, 로그인 rate limiting (5회 실패 → 5분 차단), 파괴적 작업 type-to-confirm
-- **다국어** — 한국어 / English (브라우저 자동 감지)
-- **데스크톱 앱** — Tauri 기반 Windows/Linux/macOS 네이티브 앱
+| 영역 | 내용 |
+|------|------|
+| **대시보드** | CPU·메모리·디스크·네트워크 실시간 모니터링(WebSocket), 24시간 히스토리 차트, Docker 요약, 빠른 작업 바로가기 |
+| **Docker** | 컨테이너·이미지·볼륨·네트워크, Compose 스택(서비스별 상세·업데이트 현재→대상 digest·롤백), Hub 검색, 리소스 정리 |
+| **앱스토어** | 큐레이션된 **90+** 셀프호스팅 앱 원클릭 설치(\*arr·Nextcloud·Vaultwarden·Immich·AdGuard·Authentik·Forgejo 등). 추천 배지·정렬·검색, "업데이트 있음" 배지, 데이터 보존 삭제, 설치 후 헬스 체크 |
+| **파일 관리** | 브라우저 파일 탐색기 + Monaco 에디터, 재귀 검색, 복사·다중선택 삭제, 업로드/다운로드 |
+| **터미널** | xterm.js 멀티탭 웹 터미널(PTY), 세션 유지·재연결, 10,000줄 스크롤백, 모바일 터치 스크롤 |
+| **프로세스·서비스·크론** | 프로세스 트리·renice·시그널(TERM/KILL/STOP/CONT 등); systemd 서비스 제어·유닛 보기; crontab GUI + 즉시 실행·출력 캡처 + **시스템 크론 실행 로그** |
+| **로그** | 시스템/커스텀 로그 실시간 스트리밍(SSE), 구조화 파싱(auth·UFW·Fail2ban·sfpanel), 검색·레벨 색상·다운로드 |
+| **네트워크 / VPN** | 인터페이스(DHCP/Static)·DNS·라우팅·본딩, **WireGuard**(피어 관리·키 생성·클라이언트 QR·부팅 자동시작), **Tailscale** |
+| **디스크** | 파티션·파일시스템·LVM·RAID·스왑, 사용량 탐색기, **S.M.A.R.T.** 자체 검사 실행 + 로그 |
+| **방화벽** | UFW 규칙(잠금 방지 가드)·Fail2ban Jail·Docker 방화벽(DOCKER-USER 체인)·통합 포트맵(방화벽×컨테이너×프로세스) |
+| **패키지** | APT 검색/설치/업그레이드 + Docker·Node.js·Claude·Codex·Gemini 원클릭 설치(실시간 SSE 스트리밍) |
+| **보안·감사** | JWT + TOTP 2FA + 일회용 복구 코드, bcrypt, 로그인 rate-limit(5회→5분), 감사 로그(사용자·IP·경로·상태·노드) |
+| **백업·업데이트** | 설정 백업/복원, 예약 백업(보존 개수), 웹 셀프 업데이트(SSE + cosign/SHA-256 검증·자동 .bak 스냅샷·워치독 롤백) |
+| **알림** | 조건 기반 규칙 + 채널(Discord·Telegram·Webhook=Slack/Mattermost 호환) + 알림 이력 |
+| **클러스터** (선택) | Raft 멀티노드(자동 리더 선출·mTLS·조인 토큰), 실시간 오버뷰 WS, `?node=` 투명 프록시, 롤링 업데이트 |
+| **그 외** | 한국어/English(자동 감지) · 반응형 + PWA · 시스템 튜닝 프로파일 · 데스크탑 앱(Tauri, Win/macOS/Linux) |
 
 ## 아키텍처
 
@@ -66,10 +69,10 @@ internal/
 │   ├── cluster/             # 클러스터 관리 API
 │   ├── alert/               # 알림 채널 (Discord/Telegram), 규칙, 이력
 │   ├── system/              # 업데이트, 백업/복원, 예약 백업, 튜닝
-│   ├── appstore/            # 앱스토어
+│   ├── appstore/            # 앱스토어 (런타임 카탈로그 fetch + catalog.json 번들, 90+ 앱)
 │   ├── services/            # systemd 서비스
 │   ├── files/               # 파일 매니저
-│   ├── terminal/            # 웹 터미널 (PTY, 256KB 스크롤백)
+│   ├── terminal/            # 웹 터미널 (PTY, 10,000줄 스크롤백, 재연결용 256KB 서버 버퍼)
 │   ├── websocket/           # WebSocket 실시간 데이터
 │   ├── monitor/             # 대시보드 메트릭
 │   ├── logs/                # 로그 뷰어 + 커스텀 소스
