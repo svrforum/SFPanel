@@ -1,0 +1,91 @@
+services:
+  app:
+    image: ghcr.io/svrforum/bebe-moment/app:latest
+    container_name: bebe-moment
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgres://bebe:${POSTGRES_PASSWORD}@postgres:5432/bebe
+      DATABASE_URL_WEB: postgres://bebe_web:${BEBE_WEB_DB_PASSWORD}@postgres:5432/bebe
+      DATABASE_URL_MEDIA: postgres://bebe_media:${BEBE_MEDIA_DB_PASSWORD}@postgres:5432/bebe
+      REDIS_URL: redis://redis:6379
+      SECRET_KEY: ${SECRET_KEY}
+      PUBLIC_URL: ${PUBLIC_URL}
+      TZ: Asia/Seoul
+      MEDIA_INTERNAL_URL: http://localhost:3001
+      NEXT_PUBLIC_MEDIA_BASE_URL: ${PUBLIC_URL}
+      MEDIA_PUBLIC_BASE_URL: ${PUBLIC_URL}
+      MEDIA_SERVICE_TOKEN: ${MEDIA_SERVICE_TOKEN}
+      MEDIA_JWT_SECRET: ${MEDIA_JWT_SECRET}
+      BEBE_WEB_DB_PASSWORD: ${BEBE_WEB_DB_PASSWORD}
+      BEBE_MEDIA_DB_PASSWORD: ${BEBE_MEDIA_DB_PASSWORD}
+      STORAGE_MODE: local
+      STORAGE_PATH: /data
+      BACKUP_DIR: /backups
+      ADMIN_USER_EMAIL: ${ADMIN_USER_EMAIL:-}
+      LOG_LEVEL: info
+    volumes:
+      - bebe-data:/data
+      - bebe-backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    # pgvector: face-embedding vector search. pg16 -> pg17 data dirs are NOT
+    # compatible — a fresh install uses pg17 cleanly.
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bebe
+      POSTGRES_USER: bebe
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - bebe-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bebe"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    # Valkey (BSD-licensed Redis fork) — RESP-compatible with BullMQ/ioredis.
+    image: valkey/valkey:9-alpine
+    restart: unless-stopped
+    volumes:
+      - bebe-redis:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Face-recognition ML sidecar — OPT-IN. The App Store install leaves it off;
+  # to enable it, run `docker compose --profile faces up -d` on this stack
+  # (e.g. from the Docker → stack editor). Models download to a volume on first run.
+  ml:
+    image: ghcr.io/svrforum/bebe-moment/ml:latest
+    profiles: ["faces"]
+    restart: unless-stopped
+    environment:
+      FACE_MODEL_PACK: buffalo_l
+      FACE_DET_SIZE: "800"
+      FACE_DET_THRESH: "0.3"
+    volumes:
+      - bebe-ml-models:/data/insightface
+
+volumes:
+  bebe-data:
+  bebe-backups:
+  bebe-pg:
+  bebe-redis:
+  bebe-ml-models:

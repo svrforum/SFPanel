@@ -1,0 +1,42 @@
+{
+  "id": "bebe-moment",
+  "name": "Bebe Moment",
+  "description": {
+    "ko": "셀프 호스팅 가족용 아기 포토 저널 — 광고·추적·구독료 없이 사진/영상/성장 기록을 내 서버에",
+    "en": "Self-hosted family baby photo journal — photos, videos and milestones on your own server, no ads/tracking/subscriptions"
+  },
+  "category": "media",
+  "version": "1.0.0",
+  "website": "https://github.com/svrforum/bebe-moment",
+  "source": "https://github.com/svrforum/bebe-moment",
+  "icon": "https://raw.githubusercontent.com/svrforum/bebe-moment/main/apps/web/public/icons/icon-512.png",
+  "ports": [3000],
+  "env": [
+    { "key": "PORT", "label": { "ko": "외부 포트", "en": "External Port" }, "type": "port", "default": "3000" },
+    { "key": "PUBLIC_URL", "label": { "ko": "공개 URL (예: http://192.168.1.10:3000)", "en": "Public URL (e.g. http://192.168.1.10:3000)" }, "type": "text", "required": true },
+    { "key": "SECRET_KEY", "label": { "ko": "앱 시크릿 키", "en": "App Secret Key" }, "type": "password", "required": true, "generate": true },
+    { "key": "POSTGRES_PASSWORD", "label": { "ko": "데이터베이스 비밀번호", "en": "Database Password" }, "type": "password", "required": true, "generate": true },
+    { "key": "BEBE_WEB_DB_PASSWORD", "label": { "ko": "웹 DB 역할 비밀번호", "en": "Web DB Role Password" }, "type": "password", "required": true, "generate": true },
+    { "key": "BEBE_MEDIA_DB_PASSWORD", "label": { "ko": "미디어 DB 역할 비밀번호", "en": "Media DB Role Password" }, "type": "password", "required": true, "generate": true },
+    { "key": "MEDIA_SERVICE_TOKEN", "label": { "ko": "미디어 서비스 토큰", "en": "Media Service Token" }, "type": "password", "required": true, "generate": true },
+    { "key": "MEDIA_JWT_SECRET", "label": { "ko": "미디어 JWT 시크릿", "en": "Media JWT Secret" }, "type": "password", "required": true, "generate": true },
+    { "key": "ADMIN_USER_EMAIL", "label": { "ko": "관리자 이메일 (첫 가입자, 선택)", "en": "Admin email (first sign-up, optional)" }, "type": "text" }
+  ],
+  "features": [
+    {
+      "title": { "ko": "셀프호스팅", "en": "Self-hosted" },
+      "description": { "ko": "내 서버에 가족 사진·영상 — 외부 클라우드·광고·추적·구독 없음", "en": "Family photos and videos on your own server — no cloud, ads, tracking or subscriptions" },
+      "icon": "🔒"
+    },
+    {
+      "title": { "ko": "한 가족 전용", "en": "One family per instance" },
+      "description": { "ko": "초대 링크로만 합류하고, family_id로 데이터가 격리됩니다", "en": "Members join by invite link only; data is isolated per family_id" },
+      "icon": "👨‍👩‍👧"
+    },
+    {
+      "title": { "ko": "원본 보존 + 얼굴 인식(옵트인)", "en": "Originals kept + optional face recognition" },
+      "description": { "ko": "올린 바이트 그대로 보존, 얼굴 인식은 선택형 온프레미스 ML 사이드카", "en": "Keeps your original bytes; optional on-prem face-recognition ML sidecar" },
+      "icon": "🖼️"
+    }
+  ]
+}
