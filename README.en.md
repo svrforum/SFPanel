@@ -113,6 +113,8 @@ internal/
 - root privileges (needed to run system management commands)
 - Docker (optional — the panel itself works without it)
 
+> **Tested on** — **Ubuntu 24.04 LTS / 26.04 LTS**. It should run on most other Debian/Ubuntu-based distros (systemd + apt), but those two are the officially verified targets. Other distributions (RHEL/Fedora, Arch, …) are unverified and some package-management / service-control features may differ.
+
 ## Installation
 
 > **SFPanel runs as root.** root is required for system management (Docker, firewall, disk, packages, …). After installing, be sure to **enable 2FA (TOTP)** to harden your account.
