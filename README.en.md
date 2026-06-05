@@ -482,4 +482,8 @@ If SFPanel is useful to you, support its development with a cup of coffee. The s
 
 ## License
 
-MIT
+Copyright © 2026 svrforum
+
+[GNU AGPL-3.0](LICENSE) — you're free to self-host, modify and redistribute, but if you offer a modified version **as a network service** you must also publish its source code (§13). Honest self-hosters have no extra obligation.
+
+> **Commercial / closed-source licensing** — if you want to embed or resell SFPanel without the AGPL terms, a separate commercial license is available. Contact <svrforum.com@gmail.com>.
