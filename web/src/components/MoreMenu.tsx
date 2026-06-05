@@ -30,7 +30,6 @@ interface MoreMenuProps {
 
 const menuItems = [
   { path: '/processes', icon: Activity, label: 'layout.nav.processes' },
-  { path: '/cluster', icon: Server, label: 'layout.nav.cluster' },
   { path: '/appstore', icon: Store, label: 'layout.nav.appstore' },
   { path: '/files', icon: FolderOpen, label: 'layout.nav.files' },
   { path: '/cron', icon: Clock, label: 'layout.nav.cron' },
@@ -40,6 +39,7 @@ const menuItems = [
   { path: '/disk', icon: HardDrive, label: 'layout.nav.disk' },
   { path: '/firewall', icon: Shield, label: 'layout.nav.firewall' },
   { path: '/packages', icon: Package, label: 'layout.nav.packages' },
+  { path: '/cluster', icon: Server, label: 'layout.nav.cluster' },
   { path: '/settings', icon: Settings, label: 'layout.nav.settings' },
 ] as const
 

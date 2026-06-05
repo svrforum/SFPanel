@@ -20,7 +20,6 @@ import MoreMenu from '@/components/MoreMenu'
 
 const navItems = [
   { to: '/dashboard', labelKey: 'layout.nav.dashboard', icon: LayoutDashboard },
-  { to: '/cluster', labelKey: 'layout.nav.cluster', icon: Server },
   { to: '/docker', labelKey: 'layout.nav.docker', icon: Container },
   { to: '/appstore', labelKey: 'layout.nav.appstore', icon: Store },
   { to: '/files', labelKey: 'layout.nav.files', icon: FolderOpen },
@@ -33,6 +32,7 @@ const navItems = [
   { to: '/firewall', labelKey: 'layout.nav.firewall', icon: Shield },
   { to: '/packages', labelKey: 'layout.nav.packages', icon: Package },
   { to: '/terminal', labelKey: 'layout.nav.terminal', icon: Terminal },
+  { to: '/cluster', labelKey: 'layout.nav.cluster', icon: Server },
   { to: '/settings', labelKey: 'layout.nav.settings', icon: Settings },
 ]
 
