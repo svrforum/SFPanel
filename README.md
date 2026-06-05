@@ -4,6 +4,8 @@
 
 # SFPanel
 
+<p align="center"><strong>한국어</strong> · <a href="README.en.md">English</a></p>
+
 **홈서버·VPS·NAS를 위한 올인원 서버 관리 웹 패널.** 단일 Go 바이너리 하나로 Docker·방화벽·디스크·네트워크·터미널·앱스토어까지 — 설치 즉시, 런타임 의존성 없이.
 
 - 🪶 **단일 바이너리** — Go 백엔드 + 임베디드 React SPA. SQLite 내장(CGO-free), 외부 의존성 0. `curl | sudo bash` 한 줄이면 끝.
