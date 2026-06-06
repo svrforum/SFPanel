@@ -45,6 +45,14 @@ screenshots/
 # 로컬 파일(article.html + screenshots)은 유지되지만 새로 추적되지 않도록 차단.
 docs/blog/
 
+# 내부 개발 과정 문서 — brainstorm 스펙, 구현 plan, research, 유지보수 KB.
+# 로컬 작업/참고용으로만 유지하고 공개 저장소엔 올리지 않음.
+# 공개 레퍼런스(docs/specs/)는 README가 링크하므로 계속 추적함.
+docs/superpowers/
+docs/plans/
+docs/maintainers/
+docs/migration-plan.md
+
 # Node (root-level, Playwright 등)
 /node_modules/
 /package.json
