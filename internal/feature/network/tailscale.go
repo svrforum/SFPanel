@@ -247,6 +247,34 @@ func (h *TailscaleHandler) GetStatus(c echo.Context) error {
 	return response.OK(c, status)
 }
 
+// downloadInstaller fetches an installer script into a freshly created
+// private temp file (random name, 0600) and returns its path plus curl's
+// combined output for SSE replay. A fixed name in world-writable /tmp would
+// let a local unprivileged user pre-create or swap the script between the
+// release.VerifyInstaller hash check and execution (TOCTOU → root code
+// execution). The script runs via "sh <path>", so no +x bit is needed.
+// On success the caller must os.Remove the returned path (defer).
+// Same shape as the packages module helper; kept local to avoid coupling.
+func downloadInstaller(ctx context.Context, url string) (string, string, error) {
+	f, err := os.CreateTemp("", "sfpanel-installer-*.sh")
+	if err != nil {
+		return "", "", fmt.Errorf("create installer temp file: %w", err)
+	}
+	path := f.Name()
+	f.Close()
+
+	// Part of the documented SSE install flow (os/exec exception); ctx kills
+	// the download with the request. curl -o truncates the existing file in
+	// place, preserving the 0600 mode and owner set by CreateTemp.
+	cmd := osExec.CommandContext(ctx, "curl", "-fsSL", url, "-o", path)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		os.Remove(path)
+		return "", string(out), err
+	}
+	return path, string(out), nil
+}
+
 // Install installs Tailscale using the official install script.
 // Uses SSE to stream installation output in real-time.
 // POST /network/tailscale/install
@@ -269,15 +297,11 @@ func (h *TailscaleHandler) Install(c echo.Context) error {
 
 	sendLine(">>> Downloading Tailscale install script...")
 
-	// Step 1: Download install script
-	// Streaming command — cannot use Commander (needs live stdout pipe)
-	dlCmd := osExec.CommandContext(c.Request().Context(), "curl", "-fsSL", "https://tailscale.com/install.sh", "-o", "/tmp/tailscale-install.sh")
-	dlOut, err := dlCmd.CombinedOutput()
-	if len(dlOut) > 0 {
-		for _, line := range strings.Split(string(dlOut), "\n") {
-			if line != "" {
-				sendLine(line)
-			}
+	// Step 1: Download install script into a private temp file
+	scriptPath, dlOut, err := downloadInstaller(c.Request().Context(), "https://tailscale.com/install.sh")
+	for _, line := range strings.Split(dlOut, "\n") {
+		if line != "" {
+			sendLine(line)
 		}
 	}
 	if err != nil {
@@ -285,13 +309,13 @@ func (h *TailscaleHandler) Install(c echo.Context) error {
 		sendLine("[DONE]")
 		return nil
 	}
+	defer os.Remove(scriptPath)
 
 	// Step 1.5: Verify SHA-256 if operator pinned one. Soft-pass when env
 	// var unset (matches CLAUDE.md "track-latest by default" stance).
-	if err := release.VerifyInstaller("/tmp/tailscale-install.sh", "SFPANEL_TAILSCALE_INSTALLER_SHA256", "tailscale"); err != nil {
+	if err := release.VerifyInstaller(scriptPath, "SFPANEL_TAILSCALE_INSTALLER_SHA256", "tailscale"); err != nil {
 		sendLine("ERROR: " + response.SanitizeOutput(err.Error()))
 		sendLine("[DONE]")
-		os.Remove("/tmp/tailscale-install.sh")
 		return nil
 	}
 
@@ -302,7 +326,7 @@ func (h *TailscaleHandler) Install(c echo.Context) error {
 	defer cancel()
 
 	// Streaming command — cannot use Commander (needs live stdout pipe)
-	cmd := osExec.CommandContext(ctx, "sh", "/tmp/tailscale-install.sh")
+	cmd := osExec.CommandContext(ctx, "sh", scriptPath)
 	cmd.Env = append(cmd.Environ(), "DEBIAN_FRONTEND=noninteractive")
 
 	stdout, err := cmd.StdoutPipe()

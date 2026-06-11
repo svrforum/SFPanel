@@ -236,7 +236,7 @@ func invalidateNetworkCache() {
 func (h *Handler) ListInterfaces(c echo.Context) error {
 	ifaces, _, _, _, err := h.cachedNetworkStatus()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list interfaces: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, "failed to list interfaces: "+response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, ifaces)
 }
@@ -246,7 +246,7 @@ func (h *Handler) ListInterfaces(c echo.Context) error {
 func (h *Handler) GetNetworkStatus(c echo.Context) error {
 	ifaces, routes, dns, bonds, err := h.cachedNetworkStatus()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to gather network status: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, "failed to gather network status: "+response.SanitizeOutput(err.Error()))
 	}
 
 	return response.OK(c, map[string]interface{}{
@@ -266,7 +266,7 @@ func (h *Handler) GetInterface(c echo.Context) error {
 
 	ifaces, _, _, _, err := h.cachedNetworkStatus()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to get interfaces: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, "failed to get interfaces: "+response.SanitizeOutput(err.Error()))
 	}
 
 	var found *NetworkInterface
@@ -343,7 +343,7 @@ func (h *Handler) ConfigureInterface(c echo.Context) error {
 	}
 
 	if err := updateNetplanInterface(name, &req); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("failed to update netplan config: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, "failed to update netplan config: "+response.SanitizeOutput(err.Error()))
 	}
 
 	invalidateNetworkCache()
@@ -377,7 +377,7 @@ func (h *Handler) ApplyNetplan(c echo.Context) error {
 func (h *Handler) GetDNS(c echo.Context) error {
 	_, _, dns, _, err := h.cachedNetworkStatus()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to read DNS: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, "failed to read DNS: "+response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, dns)
 }
@@ -400,7 +400,7 @@ func (h *Handler) ConfigureDNS(c echo.Context) error {
 	}
 
 	if err := updateNetplanDNS(req.Servers); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("failed to update DNS: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, "failed to update DNS: "+response.SanitizeOutput(err.Error()))
 	}
 
 	invalidateNetworkCache()
@@ -411,7 +411,7 @@ func (h *Handler) ConfigureDNS(c echo.Context) error {
 func (h *Handler) GetRoutes(c echo.Context) error {
 	_, routes, _, _, err := h.cachedNetworkStatus()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to read routes: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, "failed to read routes: "+response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, routes)
 }
@@ -420,7 +420,7 @@ func (h *Handler) GetRoutes(c echo.Context) error {
 func (h *Handler) ListBonds(c echo.Context) error {
 	_, _, _, bonds, err := h.cachedNetworkStatus()
 	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, fmt.Sprintf("failed to list bonds: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetworkError, "failed to list bonds: "+response.SanitizeOutput(err.Error()))
 	}
 	return response.OK(c, bonds)
 }
@@ -472,7 +472,7 @@ func (h *Handler) CreateBond(c echo.Context) error {
 	}
 
 	if err := createNetplanBond(&req); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("failed to create bond: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, "failed to create bond: "+response.SanitizeOutput(err.Error()))
 	}
 	invalidateNetworkCache()
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("bond %s created in netplan config", req.Name)})
@@ -486,7 +486,7 @@ func (h *Handler) DeleteBond(c echo.Context) error {
 	}
 
 	if err := deleteNetplanBond(name); err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, fmt.Sprintf("failed to delete bond: %v", err))
+		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError, "failed to delete bond: "+response.SanitizeOutput(err.Error()))
 	}
 	invalidateNetworkCache()
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("bond %s removed from netplan config", name)})

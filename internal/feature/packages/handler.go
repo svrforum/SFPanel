@@ -497,6 +497,33 @@ func (h *Handler) GetDockerStatus(c echo.Context) error {
 	return response.OK(c, status)
 }
 
+// downloadInstaller fetches an installer script into a freshly created
+// private temp file (random name, 0600) and returns its path plus curl's
+// combined output for SSE replay. A fixed name in world-writable /tmp would
+// let a local unprivileged user pre-create or swap the script between the
+// release.VerifyInstaller hash check and execution (TOCTOU → root code
+// execution). Scripts run via "sh/bash <path>", so no +x bit is needed.
+// On success the caller must os.Remove the returned path (defer).
+func downloadInstaller(ctx context.Context, url string) (string, string, error) {
+	f, err := os.CreateTemp("", "sfpanel-installer-*.sh")
+	if err != nil {
+		return "", "", fmt.Errorf("create installer temp file: %w", err)
+	}
+	path := f.Name()
+	f.Close()
+
+	// Part of the documented SSE install flow (os/exec exception); ctx kills
+	// the download with the request. curl -o truncates the existing file in
+	// place, preserving the 0600 mode and owner set by CreateTemp.
+	cmd := osExec.CommandContext(ctx, "curl", "-fsSL", url, "-o", path)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		os.Remove(path)
+		return "", string(out), err
+	}
+	return path, string(out), nil
+}
+
 // ---------- InstallDocker ----------
 
 // InstallDocker installs Docker Engine using the official get.docker.com script.
@@ -521,16 +548,13 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 
 	sendLine(">>> Downloading Docker install script from https://get.docker.com ...")
 
-	// Step 1: Download get-docker.sh (30s timeout)
+	// Step 1: Download get-docker.sh (30s timeout) into a private temp file
 	dlCtx, dlCancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 	defer dlCancel()
-	dlCmd := osExec.CommandContext(dlCtx, "curl", "-fsSL", "https://get.docker.com", "-o", "/tmp/get-docker.sh")
-	dlOut, err := dlCmd.CombinedOutput()
-	if len(dlOut) > 0 {
-		for _, line := range strings.Split(string(dlOut), "\n") {
-			if line != "" {
-				sendLine(line)
-			}
+	scriptPath, dlOut, err := downloadInstaller(dlCtx, "https://get.docker.com")
+	for _, line := range strings.Split(dlOut, "\n") {
+		if line != "" {
+			sendLine(line)
 		}
 	}
 	if err != nil {
@@ -538,13 +562,13 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 		sendLine("[DONE]")
 		return nil
 	}
+	defer os.Remove(scriptPath)
 
 	// Step 1.5: Verify SHA-256 if operator pinned one. Soft-pass when env
 	// var unset (matches CLAUDE.md "track-latest by default" stance).
-	if err := release.VerifyInstaller("/tmp/get-docker.sh", "SFPANEL_DOCKER_INSTALLER_SHA256", "docker"); err != nil {
+	if err := release.VerifyInstaller(scriptPath, "SFPANEL_DOCKER_INSTALLER_SHA256", "docker"); err != nil {
 		sendLine("ERROR: " + response.SanitizeOutput(err.Error()))
 		sendLine("[DONE]")
-		os.Remove("/tmp/get-docker.sh")
 		return nil
 	}
 
@@ -554,7 +578,7 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Minute)
 	defer cancel()
 
-	cmd := osExec.CommandContext(ctx, "sh", "/tmp/get-docker.sh")
+	cmd := osExec.CommandContext(ctx, "sh", scriptPath)
 	cmd.Env = append(cmd.Environ(), "DEBIAN_FRONTEND=noninteractive")
 
 	// Create a pipe for real-time output
@@ -584,9 +608,6 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 		sendLine("[DONE]")
 		return nil
 	}
-
-	// Clean up temp file
-	os.Remove("/tmp/get-docker.sh")
 
 	sendLine(">>> Docker installation completed successfully!")
 	sendLine("[DONE]")
@@ -678,13 +699,10 @@ func (h *Handler) InstallNode(c echo.Context) error {
 
 		dlCtx, dlCancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 		defer dlCancel()
-		dlCmd := osExec.CommandContext(dlCtx, "curl", "-fsSL", "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh", "-o", "/tmp/install-nvm.sh")
-		dlOut, err := dlCmd.CombinedOutput()
-		if len(dlOut) > 0 {
-			for _, line := range strings.Split(string(dlOut), "\n") {
-				if line != "" {
-					sendLine(line)
-				}
+		scriptPath, dlOut, err := downloadInstaller(dlCtx, "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh")
+		for _, line := range strings.Split(dlOut, "\n") {
+			if line != "" {
+				sendLine(line)
 			}
 		}
 		if err != nil {
@@ -692,19 +710,19 @@ func (h *Handler) InstallNode(c echo.Context) error {
 			sendLine("[DONE]")
 			return nil
 		}
+		defer os.Remove(scriptPath)
 
 		// Verify SHA-256 if operator pinned one. Soft-pass when env unset.
-		if err := release.VerifyInstaller("/tmp/install-nvm.sh", "SFPANEL_NVM_INSTALLER_SHA256", "nvm"); err != nil {
+		if err := release.VerifyInstaller(scriptPath, "SFPANEL_NVM_INSTALLER_SHA256", "nvm"); err != nil {
 			sendLine("ERROR: " + response.SanitizeOutput(err.Error()))
 			sendLine("[DONE]")
-			os.Remove("/tmp/install-nvm.sh")
 			return nil
 		}
 
 		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Minute)
 		defer cancel()
 
-		cmd := osExec.CommandContext(ctx, "bash", "/tmp/install-nvm.sh")
+		cmd := osExec.CommandContext(ctx, "bash", scriptPath)
 		cmd.Env = append(os.Environ(), "HOME="+homeDir, "NVM_DIR="+nvmDir)
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -731,7 +749,6 @@ func (h *Handler) InstallNode(c echo.Context) error {
 			sendLine("[DONE]")
 			return nil
 		}
-		os.Remove("/tmp/install-nvm.sh")
 		sendLine(">>> NVM installed successfully!")
 	} else {
 		sendLine(">>> NVM already installed, skipping...")
@@ -1140,13 +1157,10 @@ func (h *Handler) InstallClaude(c echo.Context) error {
 
 	dlCtx, dlCancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 	defer dlCancel()
-	dlCmd := osExec.CommandContext(dlCtx, "curl", "-fsSL", "https://claude.ai/install.sh", "-o", "/tmp/install-claude.sh")
-	dlOut, err := dlCmd.CombinedOutput()
-	if len(dlOut) > 0 {
-		for _, line := range strings.Split(string(dlOut), "\n") {
-			if line != "" {
-				sendLine(line)
-			}
+	scriptPath, dlOut, err := downloadInstaller(dlCtx, "https://claude.ai/install.sh")
+	for _, line := range strings.Split(dlOut, "\n") {
+		if line != "" {
+			sendLine(line)
 		}
 	}
 	if err != nil {
@@ -1154,19 +1168,19 @@ func (h *Handler) InstallClaude(c echo.Context) error {
 		sendLine("[DONE]")
 		return nil
 	}
+	defer os.Remove(scriptPath)
 
 	// Verify SHA-256 if operator pinned one. Soft-pass when env unset.
-	if err := release.VerifyInstaller("/tmp/install-claude.sh", "SFPANEL_CLAUDE_INSTALLER_SHA256", "claude"); err != nil {
+	if err := release.VerifyInstaller(scriptPath, "SFPANEL_CLAUDE_INSTALLER_SHA256", "claude"); err != nil {
 		sendLine("ERROR: " + response.SanitizeOutput(err.Error()))
 		sendLine("[DONE]")
-		os.Remove("/tmp/install-claude.sh")
 		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
 	defer cancel()
 
-	cmd := osExec.CommandContext(ctx, "bash", "/tmp/install-claude.sh")
+	cmd := osExec.CommandContext(ctx, "bash", scriptPath)
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1193,8 +1207,6 @@ func (h *Handler) InstallClaude(c echo.Context) error {
 		sendLine("[DONE]")
 		return nil
 	}
-
-	os.Remove("/tmp/install-claude.sh")
 
 	sendLine(">>> Claude Code CLI installed successfully!")
 	sendLine("[DONE]")
