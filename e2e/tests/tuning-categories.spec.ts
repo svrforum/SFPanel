@@ -1,38 +1,18 @@
 import { test, expect } from '@playwright/test'
+import { login } from './helpers'
 
 // Guards the tuning-status API payload against future regressions. The
 // structure is load-bearing for the /settings tuning UI (categories +
 // per-param current vs. recommended values + applied flag).
 //
-// Requires a valid admin session. Env vars:
-//   PW_BASE_URL   panel URL
-//   PW_USER       admin username
-//   PW_PASS       admin password
-
-const baseURL = process.env.PW_BASE_URL
-const user = process.env.PW_USER
-const pass = process.env.PW_PASS
-
-const haveEnv = baseURL && user && pass
-
-async function login(request: import('@playwright/test').APIRequestContext): Promise<string> {
-  const res = await request.post(`${baseURL}/api/v1/auth/login`, {
-    headers: { 'Content-Type': 'application/json' },
-    data: { username: user, password: pass },
-  })
-  const json = await res.json()
-  expect(json.success).toBe(true)
-  return json.data.token as string
-}
+// Targets the config baseURL (PLAYWRIGHT_BASE_URL, default localhost:3628).
+// Credentials come from PW_USER / PW_PASS (default admin / TestPass123!);
+// the account must have no TOTP — see helpers.ts.
 
 test.describe('System tuning categories', () => {
-  test.skip(!haveEnv, 'requires PW_BASE_URL, PW_USER, PW_PASS')
-
   test('response shape and category presence', async ({ request }) => {
-    const token = await login(request)
-    const res = await request.get(`${baseURL}/api/v1/system/tuning`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    const session = await login(request)
+    const res = await request.get('/api/v1/system/tuning', { headers: session.headers })
     expect(res.ok()).toBe(true)
     const json = await res.json()
     expect(json.success).toBe(true)
@@ -70,17 +50,15 @@ test.describe('System tuning categories', () => {
   })
 
   test('conntrack category appears when nf_conntrack is loaded', async ({ request }) => {
-    const token = await login(request)
-    const res = await request.get(`${baseURL}/api/v1/system/tuning`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    const session = await login(request)
+    const res = await request.get('/api/v1/system/tuning', { headers: session.headers })
     const json = await res.json()
     const cats = json.data.categories as Array<{ name: string; params: Array<{ key: string }> }>
     const conntrack = cats.find((c) => c.name === 'conntrack')
 
-    // On a Docker host (this is one) the module is loaded — category must
-    // appear. On a bare box without Docker/netfilter it would be absent;
-    // we don't fail the test in that case, we just skip the assertions.
+    // On a Docker host the module is loaded — category must appear. On a
+    // bare box without Docker/netfilter it would be absent; we don't fail
+    // the test in that case, we just skip the assertions.
     if (!conntrack) {
       test.info().annotations.push({ type: 'note', description: 'nf_conntrack not loaded; conntrack category intentionally absent' })
       return

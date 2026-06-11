@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { login } from './helpers'
 
 // Covers the cluster remote-node proxy path: after selecting a non-local
 // node in the sidebar NodeSelector, REST calls and WebSocket streams must
@@ -6,42 +7,25 @@ import { test, expect } from '@playwright/test'
 //
 // Requires a live 2-node cluster. Env vars:
 //   PW_BASE_URL       Leader's panel URL           (required)
-//   PW_USER           Admin username on leader     (required)
-//   PW_PASS           Admin password               (required)
 //   PW_REMOTE_NODE_ID Remote node UUID             (required)
 //   PW_REMOTE_HOST    Remote node's expected hostname (required)
+// Optional:
+//   PW_USER, PW_PASS  Admin creds (default admin / TestPass123!; no TOTP)
 
 const baseURL = process.env.PW_BASE_URL
-const user = process.env.PW_USER
-const pass = process.env.PW_PASS
 const remoteId = process.env.PW_REMOTE_NODE_ID
 const remoteHost = process.env.PW_REMOTE_HOST
 
-const haveEnv = baseURL && user && pass && remoteId && remoteHost
-const skipReason = 'cluster tests require PW_BASE_URL, PW_USER, PW_PASS, PW_REMOTE_NODE_ID, PW_REMOTE_HOST'
-
-// login() hits the panel's real /auth/login so these tests exercise the
-// production auth flow, not a hand-minted JWT. The token is captured once
-// per spec and reused by the following tests via the `token` fixture.
-async function login(request: import('@playwright/test').APIRequestContext): Promise<string> {
-  const res = await request.post(`${baseURL}/api/v1/auth/login`, {
-    headers: { 'Content-Type': 'application/json' },
-    data: { username: user, password: pass },
-  })
-  const json = await res.json()
-  if (!json.success || !json.data?.token) {
-    throw new Error(`login failed: ${JSON.stringify(json)}`)
-  }
-  return json.data.token as string
-}
+const haveEnv = baseURL && remoteId && remoteHost
+const skipReason = 'cluster tests require PW_BASE_URL, PW_REMOTE_NODE_ID, PW_REMOTE_HOST'
 
 test.describe('Cluster remote-node proxy', () => {
   test.skip(!haveEnv, skipReason)
 
   test('REST ?node=<remote> returns remote hostname', async ({ request }) => {
-    const token = await login(request)
+    const session = await login(request, { baseURL })
     const res = await request.get(`${baseURL}/api/v1/system/info?node=${remoteId}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: session.headers,
     })
     expect(res.ok()).toBe(true)
     const json = await res.json()
@@ -50,9 +34,9 @@ test.describe('Cluster remote-node proxy', () => {
   })
 
   test('REST without ?node returns local (leader) hostname', async ({ request }) => {
-    const token = await login(request)
+    const session = await login(request, { baseURL })
     const res = await request.get(`${baseURL}/api/v1/system/info`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: session.headers,
     })
     const json = await res.json()
     expect(json.success).toBe(true)
@@ -61,7 +45,8 @@ test.describe('Cluster remote-node proxy', () => {
 
   test('WS /ws/metrics?node=<remote> delivers remote metrics', async ({ page, request }) => {
     test.setTimeout(20000)
-    const token = await login(request)
+    const session = await login(request, { baseURL })
+    const token = session.token
     const wsBase = baseURL!.replace(/^http/, 'ws')
 
     // Evaluate in the browser context so we're exercising real WS transport.
@@ -117,6 +102,15 @@ test.describe('Cluster remote-node proxy', () => {
       { wsBase, token },
     )
     expect(local.mem).toBeGreaterThan(0)
-    expect(local.mem).not.toBe(remote.mem) // different hosts → different RAM
+
+    // The metrics WS payload carries no hostname, and comparing mem_total
+    // across nodes is flaky on identically-sized VMs (same RAM → false
+    // failure). Assert node identity via /system/info hostnames over the
+    // same ?node= proxy path instead; the WS assertions above prove relay
+    // delivery for both targets.
+    const localInfo = await (await request.get(`${baseURL}/api/v1/system/info`, { headers: session.headers })).json()
+    const remoteInfo = await (await request.get(`${baseURL}/api/v1/system/info?node=${remoteId}`, { headers: session.headers })).json()
+    expect(remoteInfo.data.host.hostname).toBe(remoteHost)
+    expect(localInfo.data.host.hostname).not.toBe(remoteInfo.data.host.hostname)
   })
 })

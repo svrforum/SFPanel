@@ -22,7 +22,14 @@ jobs:
           # bump that raises the minimum Go toolchain.
           go-version-file: go.mod
           cache: true
-      - run: go test ./internal/... -v -count=1
+      # cmd/sfpanel imports the root package, whose `//go:embed all:web/dist`
+      # and `//go:embed web/dist/index.html` fail to compile until web/dist
+      # exists. This job tests ./cmd and ./internal (not the root's SPA
+      # serving), so a stub index.html is enough to let the embed compile —
+      # cheaper than a full `npm run build` here. Explicit package list
+      # rather than ./... since web/node_modules ships a stray Go package.
+      - run: mkdir -p web/dist && echo '<!doctype html><title>ci-stub</title>' > web/dist/index.html
+      - run: go test ./cmd/... ./internal/... -v -count=1
 
   go-lint:
     runs-on: ubuntu-latest
@@ -81,3 +88,80 @@ jobs:
       # Removing the guard so a lint regression actually breaks CI.
       - run: cd web && npm run lint
       - run: cd web && npm run build
+
+  # Boots a throwaway panel (temp-dir DB, default port 3628) and runs the
+  # single-node Playwright specs against it. The 2-node cluster specs and the
+  # disruptive init→disband test self-skip without their env vars, but the
+  # spec list below keeps the selection explicit anyway.
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Read the version from go.mod so CI never drifts behind a dep
+          # bump that raises the minimum Go toolchain.
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            web/package-lock.json
+            e2e/package-lock.json
+      - run: cd web && npm ci && npm run build
+      - run: go build -o sfpanel ./cmd/sfpanel
+      - name: Boot throwaway panel
+        run: |
+          E2E_DIR="$(mktemp -d)"
+          echo "E2E_DIR=$E2E_DIR" >> "$GITHUB_ENV"
+          # jwt_secret pre-set (>=32 chars) so config.Load() doesn't need to
+          # generate-and-persist one; DB lives and dies with the runner.
+          cat > "$E2E_DIR/config.yaml" <<EOF
+          server:
+            port: 3628
+          database:
+            path: $E2E_DIR/sfpanel.db
+          auth:
+            jwt_secret: $(openssl rand -hex 32)
+          EOF
+          # The binary refuses to start as non-root (system management needs
+          # apt/disk/docker privileges); hosted runners have passwordless sudo.
+          sudo ./sfpanel "$E2E_DIR/config.yaml" > "$E2E_DIR/panel.log" 2>&1 &
+          echo "PANEL_PID=$!" >> "$GITHUB_ENV"
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3628/api/v1/health >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "panel did not become healthy within 30s"
+          cat "$E2E_DIR/panel.log"
+          exit 1
+      # Seed the admin via the CSRF-exempt bootstrap endpoint. The seeded
+      # account must have NO TOTP — the specs' login helper can't answer a
+      # 2FA challenge (see e2e/README.md).
+      - name: Seed admin account
+        run: |
+          curl -fsS -X POST http://localhost:3628/api/v1/auth/setup \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"admin","password":"TestPass123!"}' >/dev/null
+      - run: cd e2e && npm ci
+      - run: cd e2e && npx playwright install chromium --with-deps
+      - name: Run single-node specs
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3628
+        run: |
+          cd e2e && npx playwright test \
+            tests/connect-port.spec.ts \
+            tests/sidebar-banner.spec.ts \
+            tests/tuning-categories.spec.ts \
+            tests/cluster-lifecycle.spec.ts
+      - name: Dump panel log on failure
+        if: failure()
+        run: cat "$E2E_DIR/panel.log" || true
+      - name: Stop panel
+        if: always()
+        # PANEL_PID is the sudo wrapper; sudo forwards SIGTERM to the panel.
+        run: sudo kill "$PANEL_PID" 2>/dev/null || true

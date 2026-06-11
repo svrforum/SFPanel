@@ -1,4 +1,5 @@
-import { test, expect, Page } from '@playwright/test'
+import { test, expect } from '@playwright/test'
+import { login } from './helpers'
 
 // Lifecycle smoke test for cluster fixes L-01..L-08.
 //
@@ -13,39 +14,23 @@ import { test, expect, Page } from '@playwright/test'
 //    with only one node, the node self-cleans via CmdDisband and restarts.
 //  - L-06: follower-only paths aren't exercised here (single node), but we
 //    confirm the GetNodes endpoint returns 200 on the leader.
-
-const ADMIN_USER = 'admin'
-const ADMIN_PASS = 'TestPass123!'
-
-async function authToken(page: Page): Promise<string> {
-  await page.goto('/login')
-  await page.waitForLoadState('networkidle')
-  const res = await page.request.post('/api/v1/auth/login', {
-    headers: { 'Content-Type': 'application/json' },
-    data: { username: ADMIN_USER, password: ADMIN_PASS },
-  })
-  const json = await res.json()
-  expect(json.success).toBe(true)
-  return json.data.token as string
-}
+//
+// Credentials come from PW_USER / PW_PASS (default admin / TestPass123!);
+// the account must have no TOTP — see helpers.ts.
 
 test.describe('Cluster lifecycle (API smoke)', () => {
-  test('cluster status reports disabled on a fresh node', async ({ page }) => {
-    const token = await authToken(page)
-    const res = await page.request.get('/api/v1/cluster/status', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+  test('cluster status reports disabled on a fresh node', async ({ request }) => {
+    const session = await login(request)
+    const res = await request.get('/api/v1/cluster/status', { headers: session.headers })
     expect(res.ok()).toBe(true)
     const json = await res.json()
     expect(json.success).toBe(true)
     expect(json.data.enabled).toBe(false)
   })
 
-  test('GetNodes returns 200 with empty nodes list on standalone', async ({ page }) => {
-    const token = await authToken(page)
-    const res = await page.request.get('/api/v1/cluster/nodes', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+  test('GetNodes returns 200 with empty nodes list on standalone', async ({ request }) => {
+    const session = await login(request)
+    const res = await request.get('/api/v1/cluster/nodes', { headers: session.headers })
     expect(res.ok()).toBe(true)
     const json = await res.json()
     expect(json.success).toBe(true)
@@ -62,13 +47,14 @@ test.describe('Cluster lifecycle (API smoke)', () => {
   // playwright test cluster-lifecycle.spec.ts
   const disruptive = !!process.env.PLAYWRIGHT_CLUSTER_DISRUPTIVE
 
-  ;(disruptive ? test : test.skip)('init → overview → disband round-trip [disruptive]', async ({ page }) => {
+  ;(disruptive ? test : test.skip)('init → overview → disband round-trip [disruptive]', async ({ request }) => {
     test.setTimeout(60000)
-    const token = await authToken(page)
-    const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+    // session.headers carries the CSRF double-submit echo — without it the
+    // POSTs below 403 because the login cookies ride in the request jar.
+    const session = await login(request)
 
-    const initRes = await page.request.post('/api/v1/cluster/init', {
-      headers,
+    const initRes = await request.post('/api/v1/cluster/init', {
+      headers: session.headers,
       data: { name: 'pw-test-cluster' },
     })
     const initJson = await initRes.json()
@@ -81,17 +67,17 @@ test.describe('Cluster lifecycle (API smoke)', () => {
     // Poll briefly for leader election + self-registration to settle.
     let overviewJson: { success: boolean; data: { node_count: number; leader_id: string } } | null = null
     for (let i = 0; i < 20; i++) {
-      const r = await page.request.get('/api/v1/cluster/overview', { headers })
+      const r = await request.get('/api/v1/cluster/overview', { headers: session.headers })
       overviewJson = await r.json()
       if (overviewJson?.success && overviewJson.data?.node_count === 1) break
-      await page.waitForTimeout(500)
+      await new Promise((resolve) => setTimeout(resolve, 500))
     }
     expect(overviewJson?.success).toBe(true)
     expect(overviewJson?.data.node_count).toBe(1)
     expect(overviewJson?.data.leader_id).toBeTruthy()
 
     // Disband — L-04 broadcasts CmdDisband; single-node self-cleans + exits.
-    const disbandRes = await page.request.post('/api/v1/cluster/disband', { headers })
+    const disbandRes = await request.post('/api/v1/cluster/disband', { headers: session.headers })
     const disbandJson = await disbandRes.json()
     expect(disbandJson.success).toBe(true)
     // HTTP response flushed; process will exit within ~2s via performDisband.

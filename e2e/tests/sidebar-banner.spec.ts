@@ -1,4 +1,5 @@
 import { test, expect, Page } from '@playwright/test'
+import { PW_USER, PW_PASS } from './helpers'
 
 // Covers the recent UI change that replaced the favicon + text brand in
 // the sidebar with the product banner, and made the banner a link to
@@ -6,9 +7,9 @@ import { test, expect, Page } from '@playwright/test'
 //
 // Tests are resilient to either standalone or cluster sidebar because both
 // render the banner as the link target with aria-label "SFPanel".
-
-const ADMIN_USER = 'admin'
-const ADMIN_PASS = 'TestPass123!'
+//
+// Credentials come from PW_USER / PW_PASS (default admin / TestPass123!);
+// the account must have no TOTP — the form fill below can't answer 2FA.
 
 async function maybeLogin(page: Page) {
   await page.goto('/')
@@ -16,8 +17,8 @@ async function maybeLogin(page: Page) {
   // If we land on /login, sign in so the sidebar renders.
   if (page.url().includes('/login')) {
     await page.evaluate(() => localStorage.setItem('sfpanel_language', 'en'))
-    await page.fill('input[type="text"], input[name="username"]', ADMIN_USER)
-    await page.fill('input[type="password"]', ADMIN_PASS)
+    await page.fill('input[type="text"], input[name="username"]', PW_USER)
+    await page.fill('input[type="password"]', PW_PASS)
     await page.click('button[type="submit"]')
     await page.waitForURL(/\/(dashboard|setup)/, { timeout: 10000 })
   }

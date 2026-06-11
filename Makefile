@@ -1,4 +1,4 @@
-.PHONY: build dev dev-api dev-web lint clean ci appstore-catalog
+.PHONY: build dev dev-api dev-web lint clean ci appstore-catalog test test-coverage stub-dist
 
 # Version metadata is injected via ldflags so `make build` matches the artifact
 # that goreleaser ships in CI. Without this the local binary always reported
@@ -36,17 +36,24 @@ clean:
 	rm -f sfpanel
 	rm -rf web/dist
 
-# 테스트
-test:
-	go test ./internal/... -v -count=1
+# 테스트 — cmd/ runs too (./internal/... alone silently skipped it). Explicit
+# lists rather than ./... because web/node_modules ships a stray Go package.
+# cmd/sfpanel imports the root embed package, which won't compile until
+# web/dist exists — stub a minimal index.html when it's absent (a real
+# `make build` leaves the genuine assets untouched).
+stub-dist:
+	@[ -f web/dist/index.html ] || (mkdir -p web/dist && echo '<!doctype html><title>test-stub</title>' > web/dist/index.html)
+
+test: stub-dist
+	go test ./cmd/... ./internal/... -v -count=1
 
 # 앱스토어 카탈로그 번들 생성
 appstore-catalog:
 	go run ./cmd/appstore-catalog
 
 # 테스트 커버리지
-test-coverage:
-	go test ./internal/... -coverprofile=coverage.out
+test-coverage: stub-dist
+	go test ./cmd/... ./internal/... -coverprofile=coverage.out
 	go tool cover -func=coverage.out | tail -1
 
 # CI - 로컬에서 전체 파이프라인 실행
