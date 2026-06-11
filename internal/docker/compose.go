@@ -96,6 +96,40 @@ func (m *ComposeManager) DockerClient() *Client {
 	return m.dockerClient
 }
 
+// writeFileAtomic writes data via a temp file in the same directory plus
+// rename, fsyncing first, so a crash or full disk mid-write can't leave a
+// truncated compose/.env file behind. An existing file keeps its mode;
+// new files get defaultMode (0600 — compose files and .env can carry
+// inline secrets, matching what the appstore installer writes).
+func writeFileAtomic(path string, data []byte, defaultMode os.FileMode) error {
+	mode := defaultMode
+	if info, err := os.Stat(path); err == nil {
+		mode = info.Mode().Perm()
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op after successful rename
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
 // findComposeFile returns the compose filename found in the given directory, or empty string if none.
 func findComposeFile(dir string) string {
 	for _, name := range composeFileNames {
@@ -265,7 +299,7 @@ func (m *ComposeManager) UpdateProjectEnv(_ context.Context, name, content strin
 	if _, err := os.Stat(dir); err != nil {
 		return fmt.Errorf("project %q not found", name)
 	}
-	return os.WriteFile(filepath.Join(dir, ".env"), []byte(content), 0600)
+	return writeFileAtomic(filepath.Join(dir, ".env"), []byte(content), 0600)
 }
 
 // CreateProject creates a new compose project directory with a docker-compose.yml.
@@ -285,7 +319,7 @@ func (m *ComposeManager) CreateProject(_ context.Context, name, yamlContent stri
 	}
 
 	yamlPath := filepath.Join(projectDir, "docker-compose.yml")
-	if err := os.WriteFile(yamlPath, []byte(yamlContent), 0644); err != nil {
+	if err := writeFileAtomic(yamlPath, []byte(yamlContent), 0600); err != nil {
 		return nil, fmt.Errorf("write docker-compose.yml: %w", err)
 	}
 
@@ -307,7 +341,7 @@ func (m *ComposeManager) UpdateProject(_ context.Context, name, yamlContent stri
 	if composeFile == "" {
 		return fmt.Errorf("no compose file found in %q", name)
 	}
-	return os.WriteFile(filepath.Join(dir, composeFile), []byte(yamlContent), 0644)
+	return writeFileAtomic(filepath.Join(dir, composeFile), []byte(yamlContent), 0600)
 }
 
 // DeleteProject tears down a compose project and removes its directory.
@@ -455,7 +489,11 @@ func (m *ComposeManager) UpdateStackStream(ctx context.Context, name string, onL
 	if len(rollback) > 0 {
 		rbData, _ := json.Marshal(rollback)
 		rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
-		os.WriteFile(rbPath, rbData, 0600)
+		// Abort if the manifest can't be written (e.g. full disk): updating
+		// without a rollback path silently loses the recovery option.
+		if err := writeFileAtomic(rbPath, rbData, 0600); err != nil {
+			return fmt.Errorf("write rollback manifest: %w", err)
+		}
 	}
 
 	onLine("[pull] Pulling latest images...")
@@ -819,11 +857,14 @@ func (m *ComposeManager) UpdateStack(ctx context.Context, name string) (string, 
 		}
 	}
 
-	// Write rollback file
+	// Write rollback file. Abort if it can't be written (e.g. full disk):
+	// updating without a rollback path silently loses the recovery option.
 	if len(rollback) > 0 {
 		rbData, _ := json.Marshal(rollback)
 		rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
-		os.WriteFile(rbPath, rbData, 0600)
+		if err := writeFileAtomic(rbPath, rbData, 0600); err != nil {
+			return "", fmt.Errorf("write rollback manifest: %w", err)
+		}
 	}
 
 	// Pull latest images

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -69,7 +70,23 @@ type Client struct {
 
 // NewClient creates a new Docker client connected to the given host
 // (e.g. "unix:///var/run/docker.sock").
+//
+// On the common Docker-less homeserver the unix socket file is simply
+// absent; we gate on its existence so callers (router, observability,
+// volume collector) treat that as "Docker not installed" and skip the
+// /docker routes entirely instead of serving endpoints that 500 on every
+// call. We deliberately do NOT gate on a live Ping: a present socket whose
+// daemon is merely down — transiently, or because dockerd starts after the
+// panel — still yields a client. The SDK redials per request (API version
+// negotiation is deferred), so Docker features recover on their own when
+// the daemon returns, without a panel restart. A non-unix host (tcp://)
+// implies Docker is intended, so it is never gated here.
 func NewClient(host string) (*Client, error) {
+	if sock, ok := strings.CutPrefix(host, "unix://"); ok {
+		if _, err := os.Stat(sock); err != nil {
+			return nil, fmt.Errorf("docker socket not present at %s: %w", sock, err)
+		}
+	}
 	cli, err := client.NewClientWithOpts(
 		client.WithHost(host),
 		client.WithAPIVersionNegotiation(),

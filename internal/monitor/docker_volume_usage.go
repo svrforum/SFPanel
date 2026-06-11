@@ -69,7 +69,15 @@ func measureVolumeUsageOnce(db *sql.DB, cmd exec.Commander, lister VolumeListerF
 	volumes := lister()
 	now := time.Now().UnixMilli()
 	for _, v := range volumes {
-		path := "/var/lib/docker/volumes/" + v.Name + "/_data"
+		// Non-local drivers (NFS plugins etc.) have no host-measurable data
+		// dir; skip silently — a warn here would repeat every 5 minutes.
+		if v.Driver != "" && v.Driver != "local" {
+			continue
+		}
+		path := v.Mountpoint
+		if path == "" {
+			path = "/var/lib/docker/volumes/" + v.Name + "/_data"
+		}
 		out, err := cmd.RunWithTimeout(duPerVolumeTimeout, "du", "-sb", path)
 		if err != nil {
 			slog.Warn("volume usage: du failed", "volume", v.Name, "error", err)

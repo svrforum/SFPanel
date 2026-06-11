@@ -59,6 +59,52 @@ func TestVolumeUsageOnce_DuFailureSkipsVolume(t *testing.T) {
 	require.Equal(t, 0, n)
 }
 
+func TestVolumeUsageOnce_UsesAPIMountpoint(t *testing.T) {
+	db := openTestDBForVolUsage(t)
+	mock := exec.NewMockCommander()
+	mock.SetOutput("du", "100\t/custom/data-root/volumes/v1/_data\n", nil)
+
+	measureVolumeUsageOnce(db, mock, func() []*volume.Volume {
+		return []*volume.Volume{{Name: "v1", Driver: "local", Mountpoint: "/custom/data-root/volumes/v1/_data"}}
+	})
+
+	require.Len(t, mock.Calls, 1)
+	require.Equal(t, []string{"-sb", "/custom/data-root/volumes/v1/_data"}, mock.Calls[0].Args)
+}
+
+func TestVolumeUsageOnce_FallsBackToConstructedPath(t *testing.T) {
+	db := openTestDBForVolUsage(t)
+	mock := exec.NewMockCommander()
+	mock.SetOutput("du", "100\t/var/lib/docker/volumes/v1/_data\n", nil)
+
+	measureVolumeUsageOnce(db, mock, func() []*volume.Volume {
+		return []*volume.Volume{{Name: "v1"}} // no Mountpoint from API
+	})
+
+	require.Len(t, mock.Calls, 1)
+	require.Equal(t, []string{"-sb", "/var/lib/docker/volumes/v1/_data"}, mock.Calls[0].Args)
+}
+
+func TestVolumeUsageOnce_SkipsNonLocalDriver(t *testing.T) {
+	db := openTestDBForVolUsage(t)
+	mock := exec.NewMockCommander()
+	mock.SetOutput("du", "100\t/x\n", nil)
+
+	measureVolumeUsageOnce(db, mock, func() []*volume.Volume {
+		return []*volume.Volume{
+			{Name: "nfsvol", Driver: "nfs", Mountpoint: "/remote"},
+			{Name: "v1", Driver: "local", Mountpoint: "/var/lib/docker/volumes/v1/_data"},
+		}
+	})
+
+	// Only the local-driver volume is measured; no du call for nfsvol.
+	require.Len(t, mock.Calls, 1)
+	require.Equal(t, []string{"-sb", "/var/lib/docker/volumes/v1/_data"}, mock.Calls[0].Args)
+	var n int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM docker_volume_usage WHERE volume_name='nfsvol'`).Scan(&n))
+	require.Equal(t, 0, n)
+}
+
 var errFakeNoSuchFile = errFake("du: cannot access /var/lib/...: No such file or directory")
 
 type errFake string

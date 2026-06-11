@@ -32,8 +32,18 @@ func ValidateAdvancedCompose(content string) error {
 		if !ok {
 			continue
 		}
-		if priv, _ := svc["privileged"].(bool); priv {
-			return fmt.Errorf("service %q sets privileged: true", svcName)
+		switch priv := svc["privileged"].(type) {
+		case bool:
+			if priv {
+				return fmt.Errorf("service %q sets privileged: true", svcName)
+			}
+		case string:
+			// Quoted ("true") and YAML-1.1 ("yes"/"on") forms decode as
+			// strings here but compose still resolves them to a truthy bool.
+			switch strings.ToLower(strings.TrimSpace(priv)) {
+			case "true", "1", "yes", "y", "on":
+				return fmt.Errorf("service %q sets privileged: true", svcName)
+			}
 		}
 		for _, hostModeKey := range []string{
 			"pid", "network", "ipc", "uts",
@@ -74,10 +84,17 @@ func ValidateAdvancedCompose(content string) error {
 			for _, s := range security {
 				ss, _ := s.(string)
 				trimmed := strings.TrimSpace(ss)
-				if strings.EqualFold(trimmed, "apparmor:unconfined") ||
-					strings.EqualFold(trimmed, "seccomp:unconfined") ||
-					strings.EqualFold(trimmed, "systempaths=unconfined") {
-					return fmt.Errorf("service %q disables %q sandbox", svcName, trimmed)
+				// Docker accepts both ':' and '=' as key/value separator
+				// (e.g. apparmor=unconfined); split on whichever comes first.
+				key, val := trimmed, ""
+				if i := strings.IndexAny(trimmed, ":="); i >= 0 {
+					key, val = strings.TrimSpace(trimmed[:i]), strings.TrimSpace(trimmed[i+1:])
+				}
+				switch strings.ToLower(key) {
+				case "apparmor", "seccomp", "systempaths":
+					if strings.EqualFold(val, "unconfined") {
+						return fmt.Errorf("service %q disables %q sandbox", svcName, trimmed)
+					}
 				}
 			}
 		}
@@ -128,17 +145,28 @@ func isDangerousBind(p string) bool {
 	if clean == "/" {
 		return true
 	}
+	// On the target platform /var/run is a symlink to /run, so
+	// /var/run/containerd reaches the same runtime state as /run/containerd.
+	// Normalize the alias before matching so a blocklist entry need only
+	// list the canonical /run form.
+	if clean == "/var/run" || strings.HasPrefix(clean, "/var/run/") {
+		clean = clean[len("/var"):]
+	}
 	blocked := []string{
 		"/etc", "/root", "/home", "/boot", "/proc", "/sys", "/dev",
 		"/var/lib/sfpanel", "/etc/sfpanel", "/usr", "/bin", "/sbin",
 		"/lib", "/lib64",
+		// Daemon state dirs: write access there is host takeover even
+		// without the socket (image layers, containerd runtime state).
+		"/var/lib/docker", "/run/containerd",
 	}
 	for _, b := range blocked {
 		if clean == b || strings.HasPrefix(clean, b+"/") {
 			return true
 		}
 	}
-	if clean == "/var/run/docker.sock" || clean == "/run/docker.sock" {
+	// /var/run/docker.sock normalizes to /run/docker.sock above.
+	if clean == "/run/docker.sock" {
 		return true
 	}
 	return false
