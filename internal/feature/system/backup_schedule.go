@@ -53,11 +53,18 @@ func (h *Handler) backupDir() string { return backupDirFor(h.DBPath) }
 
 // createBackupFile writes a new timestamped archive into dir via a temp file +
 // rename so a crash mid-write never leaves a truncated archive that a later
-// restore would choke on. Returns the file name.
-func createBackupFile(dir, dbPath, configPath, composePath string) (string, error) {
+// restore would choke on. The DB enters the archive as a VACUUM INTO snapshot
+// (see snapshotDBForBackup) so the copy is consistent even while the live
+// process is writing. Returns the file name.
+func createBackupFile(db *sql.DB, dir, dbPath, configPath, composePath string) (string, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", fmt.Errorf("create backup dir: %w", err)
 	}
+	snapPath, cleanup, err := snapshotDBForBackup(db, dbPath)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
 	name := fmt.Sprintf("sfpanel-backup-%s.tar.gz", time.Now().Format("20060102-150405"))
 	final := filepath.Join(dir, name)
 	tmp := final + ".tmp"
@@ -66,7 +73,7 @@ func createBackupFile(dir, dbPath, configPath, composePath string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	if err := writeBackupArchive(f, dbPath, configPath, composePath); err != nil {
+	if err := writeBackupArchive(f, snapPath, configPath, composePath); err != nil {
 		f.Close()
 		os.Remove(tmp)
 		return "", err
@@ -155,7 +162,7 @@ func recordRun(db *sql.DB, status, errMsg string) {
 // the outcome. Shared by the runner and the run-now handler.
 func performScheduledBackup(db *sql.DB, dbPath, configPath, composePath string, retention int) (string, error) {
 	dir := backupDirFor(dbPath)
-	name, err := createBackupFile(dir, dbPath, configPath, composePath)
+	name, err := createBackupFile(db, dir, dbPath, configPath, composePath)
 	if err != nil {
 		slog.Error("scheduled backup failed", "component", "system", "error", err)
 		recordRun(db, "error", err.Error())

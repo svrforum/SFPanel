@@ -119,8 +119,9 @@ const watchdogLivenessDelay = 200 * time.Millisecond
 type Handler struct {
 	Version     string
 	// DB is the live SQLite connection — used to force a WAL checkpoint
-	// before copying the DB file to .bak so the snapshot is not stale.
-	// Nil-safe: pre-update backup falls back to a plain file copy.
+	// before copying the DB file to .bak so the snapshot is not stale, and
+	// to take VACUUM INTO snapshots for backup archives. Nil-safe: both
+	// paths fall back to a plain file copy.
 	DB          *sql.DB
 	DBPath      string
 	ConfigPath  string
@@ -716,16 +717,49 @@ func fetchBytes(ctx context.Context, client *http.Client, url string) ([]byte, e
 
 // CreateBackup creates a tar.gz archive of DB + config and sends it as download.
 func (h *Handler) CreateBackup(c echo.Context) error {
+	// Snapshot before WriteHeader: a snapshot failure must surface as a JSON
+	// error response, not a truncated 200 stream.
+	snapPath, cleanup, err := snapshotDBForBackup(h.DB, h.DBPath)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrBackupFailed,
+			response.SanitizeOutput(err.Error()))
+	}
+	defer cleanup()
 	c.Response().Header().Set("Content-Type", "application/gzip")
 	c.Response().Header().Set("Content-Disposition",
 		fmt.Sprintf("attachment; filename=sfpanel-backup-%s.tar.gz", time.Now().Format("20060102-150405")))
 	c.Response().WriteHeader(http.StatusOK)
-	return writeBackupArchive(c.Response(), h.DBPath, h.ConfigPath, h.ComposePath)
+	return writeBackupArchive(c.Response(), snapPath, h.ConfigPath, h.ComposePath)
+}
+
+// snapshotDBForBackup produces a transactionally consistent snapshot of the
+// live WAL-mode database via VACUUM INTO and returns the snapshot path plus a
+// cleanup func. A plain file copy of sfpanel.db misses every committed page
+// still in the -wal sidecar and can tear if an auto-checkpoint lands
+// mid-copy. The temp dir is a sibling of the DB so it inherits the data dir's
+// space and permissions. Nil db (unit tests) degrades to archiving the raw
+// file with a no-op cleanup.
+func snapshotDBForBackup(db *sql.DB, dbPath string) (string, func(), error) {
+	if db == nil {
+		return dbPath, func() {}, nil
+	}
+	tmpDir, err := os.MkdirTemp(filepath.Dir(dbPath), ".sfpanel-snapshot-*")
+	if err != nil {
+		return "", nil, fmt.Errorf("create snapshot dir: %w", err)
+	}
+	snapPath := filepath.Join(tmpDir, "sfpanel.db")
+	if err := sfdb.SnapshotTo(db, snapPath); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", nil, fmt.Errorf("snapshot db: %w", err)
+	}
+	return snapPath, func() { _ = os.RemoveAll(tmpDir) }, nil
 }
 
 // writeBackupArchive streams a gzip+tar backup (DB + config + compose project
 // files) to w. Shared by the download handler and the scheduled-backup runner
-// so both produce byte-identical archives.
+// so both produce byte-identical archives. dbPath is the consistent snapshot
+// from snapshotDBForBackup — it is archived under the canonical name
+// "sfpanel.db" regardless of the on-disk temp name.
 func writeBackupArchive(w io.Writer, dbPath, configPath, composePath string) error {
 	gw := gzip.NewWriter(w)
 	defer gw.Close()
@@ -932,6 +966,16 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 
 	if _, ok := stagedByName["sfpanel.db"]; !ok {
 		return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed, "Backup must contain sfpanel.db")
+	}
+
+	// Vet the uploaded DB before any live file is touched: a torn or corrupt
+	// sfpanel.db (e.g. a plain-copy backup taken while an auto-checkpoint was
+	// rewriting the file) must not silently replace a healthy database.
+	if err := sfdb.QuickCheck(stagedByName["sfpanel.db"].path); err != nil {
+		slog.Warn("restore: uploaded database failed integrity check",
+			"component", "system", "error", err)
+		return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed,
+			"Backup database failed integrity check (quick_check)")
 	}
 
 	// Create backups of current files (copy via ReadFile is fine — these are

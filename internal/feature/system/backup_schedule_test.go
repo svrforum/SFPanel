@@ -3,10 +3,15 @@ package system
 import (
 	"archive/tar"
 	"compress/gzip"
+	"database/sql"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	sfdb "github.com/svrforum/SFPanel/internal/db"
 )
 
 func TestBackupFileRe(t *testing.T) {
@@ -43,7 +48,8 @@ func TestCreateBackupFile_ProducesValidArchive(t *testing.T) {
 	}
 
 	backupDir := filepath.Join(dir, "backups")
-	name, err := createBackupFile(backupDir, dbPath, cfgPath, "")
+	// nil db: exercises the raw-file fallback (no live connection to snapshot).
+	name, err := createBackupFile(nil, backupDir, dbPath, cfgPath, "")
 	if err != nil {
 		t.Fatalf("createBackupFile: %v", err)
 	}
@@ -77,6 +83,100 @@ func TestCreateBackupFile_ProducesValidArchive(t *testing.T) {
 	}
 	if !found["sfpanel.db"] || !found["config.yaml"] {
 		t.Errorf("archive missing expected entries, got %v", found)
+	}
+}
+
+// extractDBFromArchive pulls the "sfpanel.db" entry out of a backup tar.gz
+// and writes it to a temp file, returning the path.
+func extractDBFromArchive(t *testing.T, archivePath string) string {
+	t.Helper()
+	f, err := os.Open(archivePath)
+	if err != nil {
+		t.Fatalf("open archive: %v", err)
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatalf("archive is not valid gzip: %v", err)
+	}
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err != nil {
+			t.Fatalf("archive missing sfpanel.db entry: %v", err)
+		}
+		if hdr.Name != "sfpanel.db" {
+			continue
+		}
+		out := filepath.Join(t.TempDir(), "extracted.db")
+		data, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatalf("read sfpanel.db entry: %v", err)
+		}
+		if err := os.WriteFile(out, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+}
+
+// TestCreateBackupFile_WALRowsIncluded is the regression test for the
+// WAL-consistency defect: rows committed to a live WAL-mode database sit in
+// the -wal sidecar until a checkpoint, and the old plain os.Open+io.Copy
+// backup silently omitted them. The VACUUM INTO snapshot must capture them.
+func TestCreateBackupFile_WALRowsIncluded(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "sfpanel.db")
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("cfgdata"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sfdb.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open WAL db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE wal_probe (id INTEGER PRIMARY KEY, v TEXT)`); err != nil {
+		t.Fatalf("create probe table: %v", err)
+	}
+	const rows = 10
+	for i := 0; i < rows; i++ {
+		if _, err := db.Exec(`INSERT INTO wal_probe (v) VALUES (?)`, fmt.Sprintf("row-%d", i)); err != nil {
+			t.Fatalf("insert probe row: %v", err)
+		}
+	}
+	// Precondition: the probe rows must still live in the -wal sidecar, or
+	// this test would pass even with the broken plain-copy backup.
+	if info, err := os.Stat(dbPath + "-wal"); err != nil || info.Size() == 0 {
+		t.Fatalf("expected non-empty -wal sidecar (precondition), info=%v err=%v", info, err)
+	}
+
+	backupDir := filepath.Join(dir, "backups")
+	name, err := createBackupFile(db, backupDir, dbPath, cfgPath, "")
+	if err != nil {
+		t.Fatalf("createBackupFile: %v", err)
+	}
+
+	extracted := extractDBFromArchive(t, filepath.Join(backupDir, name))
+	check, err := sql.Open("sqlite", extracted)
+	if err != nil {
+		t.Fatalf("open extracted db: %v", err)
+	}
+	defer check.Close()
+	var n int
+	if err := check.QueryRow(`SELECT COUNT(*) FROM wal_probe`).Scan(&n); err != nil {
+		t.Fatalf("backup is missing the wal_probe table (stale pre-WAL copy?): %v", err)
+	}
+	if n != rows {
+		t.Errorf("backup contains %d probe rows, want %d (WAL content lost)", n, rows)
+	}
+	// No snapshot temp dir left behind next to the DB.
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.IsDir() && e.Name() != "backups" {
+			t.Errorf("leftover temp dir %q after backup", e.Name())
+		}
 	}
 }
 

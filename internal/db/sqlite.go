@@ -70,6 +70,40 @@ func CheckpointWAL(db *sql.DB) error {
 	return nil
 }
 
+// SnapshotTo writes a transactionally consistent copy of the live database
+// to destPath via VACUUM INTO. Unlike a plain file copy of sfpanel.db, the
+// snapshot includes every committed page still sitting in the -wal sidecar
+// and cannot tear if an auto-checkpoint runs mid-copy. destPath must not
+// already exist — SQLite refuses to overwrite.
+func SnapshotTo(db *sql.DB, destPath string) error {
+	if _, err := db.Exec(`VACUUM INTO ?`, destPath); err != nil {
+		return fmt.Errorf("vacuum into: %w", err)
+	}
+	return nil
+}
+
+// QuickCheck opens the SQLite database file at path read-only and runs
+// PRAGMA quick_check, returning an error when the file is not a SQLite
+// database or fails the integrity scan. Used to vet uploaded backups before
+// they replace the live database. The `file:` prefix is required for the
+// driver to pass mode=ro through to sqlite3_open_v2 (a bare path has its
+// query string stripped before open).
+func QuickCheck(path string) error {
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	if err != nil {
+		return fmt.Errorf("open for quick_check: %w", err)
+	}
+	defer db.Close()
+	var result string
+	if err := db.QueryRow(`PRAGMA quick_check(1)`).Scan(&result); err != nil {
+		return fmt.Errorf("quick_check: %w", err)
+	}
+	if result != "ok" {
+		return fmt.Errorf("quick_check: %s", result)
+	}
+	return nil
+}
+
 // OptimizeOnShutdown runs `PRAGMA optimize` so SQLite can persist learned
 // statistics about which indexes the just-finished session relied on. The
 // next process boot reads those stats and skips warm-up cost on the first

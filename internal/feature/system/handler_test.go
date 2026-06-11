@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
+	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/release"
 )
 
@@ -520,6 +522,30 @@ func buildTarGz(t *testing.T, entries []tarEntry) []byte {
 	return buf.Bytes()
 }
 
+// validSQLiteDBBytes returns the bytes of a minimal valid SQLite database.
+// Restore fixtures must carry a real database now that RestoreBackup runs
+// PRAGMA quick_check on the staged upload before swapping it in.
+func validSQLiteDBBytes(t *testing.T) []byte {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "valid.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open fixture db: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE restore_probe (id INTEGER PRIMARY KEY)`); err != nil {
+		db.Close()
+		t.Fatalf("create fixture table: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close fixture db: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fixture db: %v", err)
+	}
+	return data
+}
+
 // newRestoreRequest packages the supplied tar.gz bytes as a multipart upload
 // against the RestoreBackup handler.
 func newRestoreRequest(t *testing.T, archive []byte) *http.Request {
@@ -585,11 +611,11 @@ func runRestore(t *testing.T, h *Handler, archive []byte) *httptest.ResponseReco
 // behind.
 func TestRestoreBackup_HappyPath(t *testing.T) {
 	h, _ := restoreHandler(t)
-	const newDB = "fresh-db-contents"
+	newDB := validSQLiteDBBytes(t)
 	const newCfg = "server:\n  port: 3628\n"
 	const composeBody = "services:\n  test:\n    image: nginx\n"
 	archive := buildTarGz(t, []tarEntry{
-		{name: "sfpanel.db", typeflag: tar.TypeReg, body: []byte(newDB)},
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: newDB},
 		{name: "config.yaml", typeflag: tar.TypeReg, body: []byte(newCfg)},
 		{name: "compose/app/docker-compose.yml", typeflag: tar.TypeReg, body: []byte(composeBody)},
 	})
@@ -600,8 +626,8 @@ func TestRestoreBackup_HappyPath(t *testing.T) {
 	}
 
 	got, _ := os.ReadFile(h.DBPath)
-	if string(got) != newDB {
-		t.Errorf("DB not replaced: got %q want %q", got, newDB)
+	if !bytes.Equal(got, newDB) {
+		t.Errorf("DB not replaced: got %d bytes, want the %d-byte fixture db", len(got), len(newDB))
 	}
 	gotCfg, _ := os.ReadFile(h.ConfigPath)
 	if string(gotCfg) != newCfg {
@@ -630,7 +656,7 @@ func TestRestoreBackup_SymlinkEntryDropped(t *testing.T) {
 	h, _ := restoreHandler(t)
 	archive := buildTarGz(t, []tarEntry{
 		// Required entry so the handler doesn't 400 on missing sfpanel.db.
-		{name: "sfpanel.db", typeflag: tar.TypeReg, body: []byte("db")},
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: validSQLiteDBBytes(t)},
 		// Hostile symlink entry: name passes the allowlist prefix check.
 		{name: "compose/app/docker-compose.yml", typeflag: tar.TypeSymlink, linkname: "/etc/cron.d/evil"},
 	})
@@ -660,7 +686,7 @@ func TestRestoreBackup_PathTraversalDropped(t *testing.T) {
 	}
 
 	archive := buildTarGz(t, []tarEntry{
-		{name: "sfpanel.db", typeflag: tar.TypeReg, body: []byte("db")},
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: validSQLiteDBBytes(t)},
 		// Path traversal: filepath.Clean("compose/../sentinel") == "sentinel".
 		// Since "sentinel" doesn't start with "compose/", the allowlist also
 		// drops it — belt-and-braces guard verification.
@@ -686,7 +712,7 @@ func TestRestoreBackup_PathTraversalDropped(t *testing.T) {
 func TestRestoreBackup_AbsolutePathDropped(t *testing.T) {
 	h, _ := restoreHandler(t)
 	archive := buildTarGz(t, []tarEntry{
-		{name: "sfpanel.db", typeflag: tar.TypeReg, body: []byte("db")},
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: validSQLiteDBBytes(t)},
 		{name: "/tmp/sfpanel-absolute-evil", typeflag: tar.TypeReg, body: []byte("PWNED")},
 	})
 
@@ -706,7 +732,7 @@ func TestRestoreBackup_AbsolutePathDropped(t *testing.T) {
 func TestRestoreBackup_UnknownFileSilentlyDropped(t *testing.T) {
 	h, dir := restoreHandler(t)
 	archive := buildTarGz(t, []tarEntry{
-		{name: "sfpanel.db", typeflag: tar.TypeReg, body: []byte("db")},
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: validSQLiteDBBytes(t)},
 		{name: "secrets.txt", typeflag: tar.TypeReg, body: []byte("nope")},
 		{name: "etc/passwd", typeflag: tar.TypeReg, body: []byte("nope")},
 	})
@@ -774,7 +800,7 @@ func TestRestoreBackup_NoSystemdEmitsSupervisorMessage(t *testing.T) {
 
 	h, _ := restoreHandler(t)
 	archive := buildTarGz(t, []tarEntry{
-		{name: "sfpanel.db", typeflag: tar.TypeReg, body: []byte("db")},
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: validSQLiteDBBytes(t)},
 	})
 
 	rec := runRestore(t, h, archive)
@@ -822,7 +848,7 @@ func TestRestoreBackup_SystemdPresentButUnitInactive(t *testing.T) {
 	// fall-through into the supervisor-less branch.
 	h.Cmd.(*commonExec.MockCommander).SetOutput("systemctl", "", errors.New("inactive"))
 	archive := buildTarGz(t, []tarEntry{
-		{name: "sfpanel.db", typeflag: tar.TypeReg, body: []byte("db")},
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: validSQLiteDBBytes(t)},
 	})
 
 	rec := runRestore(t, h, archive)
@@ -907,7 +933,7 @@ func TestRestoreBackup_RefusesConcurrentInvocations(t *testing.T) {
 func TestRestoreBackup_PreservesEnvFilePermissions(t *testing.T) {
 	h, _ := restoreHandler(t)
 	archive := buildTarGz(t, []tarEntry{
-		{name: "sfpanel.db", typeflag: tar.TypeReg, body: []byte("db")},
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: validSQLiteDBBytes(t)},
 		// Explicit 0o600 in the header. Without Fix 3, the handler would
 		// write at 0o644 and lose the protection.
 		{name: "compose/app/.env", typeflag: tar.TypeReg, mode: 0o600, body: []byte("SECRET=hunter2\n")},
@@ -925,6 +951,137 @@ func TestRestoreBackup_PreservesEnvFilePermissions(t *testing.T) {
 	}
 	if perm := info.Mode().Perm(); perm != 0o600 {
 		t.Errorf(".env restored at mode %o, want 0600 (secret protection stripped)", perm)
+	}
+}
+
+// TestRestoreBackup_CorruptDBRejected confirms the quick_check gate: an
+// archive whose sfpanel.db is not a valid SQLite database — or is a torn,
+// truncated copy like the ones the pre-fix plain-copy backup could produce —
+// is rejected with 400 / RESTORE_FAILED before the live DB or its .bak are
+// touched.
+func TestRestoreBackup_CorruptDBRejected(t *testing.T) {
+	valid := validSQLiteDBBytes(t)
+	cases := map[string][]byte{
+		"not-a-database": []byte("definitely not a sqlite database, padded out past the 100-byte header"),
+		"truncated-copy": valid[:len(valid)/2],
+	}
+	for label, body := range cases {
+		t.Run(label, func(t *testing.T) {
+			h, _ := restoreHandler(t)
+			originalDB, _ := os.ReadFile(h.DBPath)
+			archive := buildTarGz(t, []tarEntry{
+				{name: "sfpanel.db", typeflag: tar.TypeReg, body: body},
+			})
+
+			rec := runRestore(t, h, archive)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "RESTORE_FAILED") {
+				t.Errorf("expected RESTORE_FAILED error code, body: %s", rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "integrity check") {
+				t.Errorf("expected integrity-check message, body: %s", rec.Body.String())
+			}
+			got, _ := os.ReadFile(h.DBPath)
+			if !bytes.Equal(got, originalDB) {
+				t.Errorf("live DB modified despite corrupt upload")
+			}
+			// quick_check runs before the .bak/.new side effects.
+			for _, leftover := range []string{h.DBPath + ".bak", h.DBPath + ".new"} {
+				if _, err := os.Stat(leftover); err == nil {
+					t.Errorf("file %q created despite rejection", leftover)
+				}
+			}
+		})
+	}
+}
+
+// TestCreateBackup_WALRowsIncluded pins the HTTP download path against the
+// WAL-consistency defect (same property as TestCreateBackupFile_WALRowsIncluded
+// for the scheduled path): rows committed to a live WAL-mode database still
+// sitting in the -wal sidecar must appear in the downloaded archive.
+func TestCreateBackup_WALRowsIncluded(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "sfpanel.db")
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("cfg"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sfdb.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open WAL db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE wal_probe (id INTEGER PRIMARY KEY, v TEXT)`); err != nil {
+		t.Fatalf("create probe table: %v", err)
+	}
+	const rows = 5
+	for i := 0; i < rows; i++ {
+		if _, err := db.Exec(`INSERT INTO wal_probe (v) VALUES (?)`, fmt.Sprintf("row-%d", i)); err != nil {
+			t.Fatalf("insert probe row: %v", err)
+		}
+	}
+	if info, err := os.Stat(dbPath + "-wal"); err != nil || info.Size() == 0 {
+		t.Fatalf("expected non-empty -wal sidecar (precondition), info=%v err=%v", info, err)
+	}
+
+	h := &Handler{DB: db, DBPath: dbPath, ConfigPath: cfgPath, Cmd: commonExec.NewMockCommander()}
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	ctx := e.NewContext(httptest.NewRequest(http.MethodGet, "/api/v1/system/backup", nil), rec)
+	if err := h.CreateBackup(ctx); err != nil {
+		t.Fatalf("CreateBackup returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	archivePath := filepath.Join(t.TempDir(), "download.tar.gz")
+	if err := os.WriteFile(archivePath, rec.Body.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	extracted := extractDBFromArchive(t, archivePath)
+	check, err := sql.Open("sqlite", extracted)
+	if err != nil {
+		t.Fatalf("open extracted db: %v", err)
+	}
+	defer check.Close()
+	var n int
+	if err := check.QueryRow(`SELECT COUNT(*) FROM wal_probe`).Scan(&n); err != nil {
+		t.Fatalf("backup is missing the wal_probe table (stale pre-WAL copy?): %v", err)
+	}
+	if n != rows {
+		t.Errorf("backup contains %d probe rows, want %d (WAL content lost)", n, rows)
+	}
+}
+
+// TestCreateBackup_SnapshotFailureIsJSONError pins the ordering contract: the
+// VACUUM INTO snapshot is taken before WriteHeader(200), so a snapshot
+// failure surfaces as a 500 / BACKUP_FAILED JSON body instead of a truncated
+// 200 gzip stream the client would save as a corrupt archive.
+func TestCreateBackup_SnapshotFailureIsJSONError(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "sfpanel.db")
+	db, err := sfdb.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open WAL db: %v", err)
+	}
+	// Closed handle: VACUUM INTO fails before any response bytes go out.
+	db.Close()
+
+	h := &Handler{DB: db, DBPath: dbPath, ConfigPath: filepath.Join(dir, "config.yaml"), Cmd: commonExec.NewMockCommander()}
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	ctx := e.NewContext(httptest.NewRequest(http.MethodGet, "/api/v1/system/backup", nil), rec)
+	if err := h.CreateBackup(ctx); err != nil {
+		t.Fatalf("CreateBackup returned error: %v", err)
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "BACKUP_FAILED") {
+		t.Errorf("expected BACKUP_FAILED error code, body: %s", rec.Body.String())
 	}
 }
 
