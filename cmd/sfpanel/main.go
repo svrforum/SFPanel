@@ -46,7 +46,10 @@ import (
 )
 
 var (
-	version = "0.11.1"
+	// Overridden via ldflags in the Makefile; "dev" marks a build that
+	// bypassed it. GetUpdateInfo treats unparseable versions as
+	// not-updatable, so a "dev" binary never nags about releases.
+	version = "dev"
 	commit  = "none"
 	date    = "unknown"
 )

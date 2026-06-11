@@ -211,10 +211,11 @@ var migrations = []migration{
 // recorded in the schema_migrations table. Each migration runs inside its own
 // transaction; a partial-apply failure rolls back and the boot aborts.
 //
-// SQLite serialises DDL within a connection, and Open() pins MaxOpenConns=1,
-// so two concurrent in-process callers can't race here. Two separate
-// processes opening the same DB rely on SQLite's WAL locking — the second
-// process will block on the first's transaction.
+// Concurrency safety rests on the call site, not the pool size (Open() allows
+// MaxOpenConns=4 since b4a8e83): RunMigrations runs exactly once at boot,
+// inside Open(), before the *sql.DB is handed to any concurrent caller. Two
+// separate processes opening the same DB rely on SQLite's WAL locking — the
+// second process will block on the first's transaction.
 func RunMigrations(db *sql.DB) error {
 	// Enforce the append-only, strictly-ascending, unique-ID contract the
 	// migration list relies on (CLAUDE.md: never reorder/renumber). The loop

@@ -5,8 +5,10 @@
 //   - IsProtectedSystemdUnit guards systemctl operations.
 //   - IsProtectedPID guards signal-sending and prevents self-targeting.
 //   - IsPanelChildPID guards against killing subprocesses sfpanel
-//     itself spawned (apt, docker compose, terminal PTYs, etc.) — they
-//     share the panel's process group.
+//     spawned in its own process group (apt, docker compose,
+//     exec.Commander children). Terminal PTY shells are NOT covered:
+//     creack/pty's Start forces Setsid, so each PTY session gets a new
+//     session and pgid and never matches the check.
 //
 // New deny-list rules go here so every module benefits without
 // duplicating logic. See docs/superpowers/plans/2026-05-22-module-hardening-followup.md
@@ -61,9 +63,12 @@ func IsProtectedPID(pid int) bool {
 
 // IsPanelChildPID reports whether the given PID is in the same process
 // group as the running panel — meaning it was spawned (directly or
-// transitively) by sfpanel and should not be killable through the
-// generic process API. Returns an error if the PID cannot be inspected
-// (does not exist, permission denied).
+// transitively) by sfpanel without changing its process group and should
+// not be killable through the generic process API. PTY shells started by
+// the terminal feature run under their own session (creack/pty forces
+// Setsid), so this check does NOT match them — don't rely on it to
+// protect terminal sessions. Returns an error if the PID cannot be
+// inspected (does not exist, permission denied).
 func IsPanelChildPID(pid int) (bool, error) {
 	pgid, err := syscall.Getpgid(pid)
 	if err != nil {

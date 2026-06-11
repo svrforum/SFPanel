@@ -2,12 +2,14 @@ package monitor
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/svrforum/SFPanel/internal/common/safe"
+	"github.com/svrforum/SFPanel/internal/release"
 )
 
 var (
@@ -44,23 +46,31 @@ func checkUpdate(currentVersion string) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get("https://api.github.com/repos/svrforum/SFPanel/releases/latest")
 	if err != nil {
+		slog.Warn("update check: github request failed",
+			"component", "monitor", "error", err)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		// 403 here is almost always the unauthenticated per-IP rate limit;
+		// the cache just goes stale until a later tick succeeds.
+		slog.Warn("update check: github returned non-200",
+			"component", "monitor", "status", resp.StatusCode)
 		return
 	}
 
-	var release struct {
+	var rel struct {
 		TagName     string `json:"tag_name"`
 		Body        string `json:"body"`
 		PublishedAt string `json:"published_at"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		slog.Warn("update check: decode release response failed",
+			"component", "monitor", "error", err)
 		return
 	}
 
-	latest := strings.TrimPrefix(release.TagName, "v")
+	latest := strings.TrimPrefix(rel.TagName, "v")
 	updateMu.Lock()
 	cachedLatest = latest
 	updateMu.Unlock()
@@ -72,22 +82,25 @@ type UpdateInfo struct {
 }
 
 // GetUpdateInfo returns cached update status.
-// currentVersion may be ldflags-injected as "v0.13.0" while cachedLatest is
-// already stripped to "0.13.0"; normalize before comparing so a node running
-// the latest release doesn't claim the same release is "available".
 //
-// Dev builds carry a "-N-gHASH" suffix from `git describe` (e.g.
-// "0.13.0-8-g61f85c0"). They're commits *past* cachedLatest, so don't
-// flag them as needing an update — that's noise for anyone running off
-// of a personal build.
+// Comparison is semver (release.IsForwardUpdate), not string equality:
+//   - a "v" prefix on currentVersion is tolerated (cachedLatest is
+//     already stripped);
+//   - dev builds with a "-N-gHASH" suffix from `git describe` compare as
+//     their base version, so commits past a release aren't flagged
+//     against that same release;
+//   - a version locally *newer* than the latest published release is not
+//     flagged as updatable (downgrades are noise, not updates);
+//   - unparseable versions (the plain "dev" ldflags fallback in
+//     cmd/sfpanel) are never flagged — nothing meaningful to compare.
 func GetUpdateInfo(currentVersion string) UpdateInfo {
 	updateMu.RLock()
 	defer updateMu.RUnlock()
 	if cachedLatest == "" {
 		return UpdateInfo{}
 	}
-	current := strings.TrimPrefix(currentVersion, "v")
-	if current == cachedLatest || strings.HasPrefix(current, cachedLatest+"-") {
+	forward, err := release.IsForwardUpdate(currentVersion, cachedLatest)
+	if err != nil || !forward {
 		return UpdateInfo{}
 	}
 	return UpdateInfo{

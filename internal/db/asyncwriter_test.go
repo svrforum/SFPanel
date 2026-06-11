@@ -108,6 +108,24 @@ func TestAsyncWriter_NilReceiverNoop(t *testing.T) {
 	aw.Wait() // must not panic
 }
 
+// Once shutdown has begun, Submit must refuse instead of enqueueing into
+// a queue nobody will ever drain (silently losing the row).
+func TestAsyncWriter_SubmitAfterShutdownRefused(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	aw := NewAsyncWriter(ctx, nil, "test", 4)
+
+	cancel()
+	aw.Wait()
+
+	var ran int32
+	if aw.Submit(func(_ *sql.DB) { atomic.StoreInt32(&ran, 1) }) {
+		t.Error("Submit after shutdown should return false")
+	}
+	if atomic.LoadInt32(&ran) != 0 {
+		t.Error("closure submitted after shutdown must never run")
+	}
+}
+
 // Ensure the panic recover keeps the drain goroutine alive across a
 // misbehaving closure.
 func TestAsyncWriter_RecoversFromPanic(t *testing.T) {

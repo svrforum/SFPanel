@@ -9,19 +9,17 @@ import (
 )
 
 // requestLoggerSkip identifies paths whose request log would just be noise
-// without adding any operational signal. Heartbeat polls, the system
-// metrics tick (called every 2 s by the dashboard WS keepalive fallback)
-// and the static SPA shell all qualify. Long-lived WS upgrades (/ws/*)
+// without adding any operational signal. Heartbeat polls and the
+// dashboard's system-info refresh qualify. Long-lived WS upgrades (/ws/*)
 // don't emit anything useful here either — the handler logs already cover
 // the interesting state transitions.
 //
-// Mutation endpoints, anything authenticated/audited, and errors always
-// log; skipping is purely for the high-volume read-only chatter.
+// Skipping suppresses only the success case: RequestLogger still logs
+// skip-path requests that return an error or end with status >= 400.
 func requestLoggerSkip(path string) bool {
 	switch path {
 	case "/api/v1/health",
-		"/api/v1/system/info",
-		"/api/v1/monitor/metrics":
+		"/api/v1/system/info":
 		return true
 	}
 	// WS upgrades land here as plain GETs that the handler doesn't return
@@ -35,14 +33,14 @@ func RequestLogger() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			path := c.Path()
-			if requestLoggerSkip(path) {
-				return next(c)
-			}
+			skip := requestLoggerSkip(path)
 			start := time.Now()
 			err := next(c)
-			// Errors and non-2xx responses always log, even on otherwise
-			// skipped paths — kept above as path-only skip, here for the
-			// general case.
+			// Skip paths suppress only the success line — a failing
+			// health check or refused WS upgrade still logs.
+			if skip && err == nil && c.Response().Status < 400 {
+				return err
+			}
 			slog.Info("request",
 				"method", c.Request().Method,
 				"path", path,

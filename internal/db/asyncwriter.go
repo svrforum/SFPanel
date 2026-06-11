@@ -23,6 +23,9 @@ type AsyncWriter struct {
 	name  string // identifies the writer in dropped-row warnings
 	queue chan func(*sql.DB)
 	wg    sync.WaitGroup
+
+	mu      sync.RWMutex
+	stopped bool // set once shutdown begins; Submit refuses afterwards
 }
 
 // NewAsyncWriter starts the drain goroutine. The writer stops when ctx is
@@ -43,9 +46,16 @@ func NewAsyncWriter(ctx context.Context, db *sql.DB, name string, capacity int) 
 
 // Submit non-blockingly enqueues a write closure. Returns true if accepted,
 // false if the queue is full (the closure is dropped and a warning is
-// logged at most once per drop).
+// logged at most once per drop) or shutdown has begun — once ctx is
+// cancelled, accepted-but-never-executed rows would otherwise be lost
+// silently behind the final drain.
 func (aw *AsyncWriter) Submit(fn func(*sql.DB)) bool {
 	if aw == nil || fn == nil {
+		return false
+	}
+	aw.mu.RLock()
+	defer aw.mu.RUnlock()
+	if aw.stopped {
 		return false
 	}
 	select {
@@ -74,6 +84,14 @@ func (aw *AsyncWriter) run(ctx context.Context) {
 		case fn := <-aw.queue:
 			aw.execute(fn)
 		case <-ctx.Done():
+			// Mark stopped under the write lock before draining: any
+			// Submit that already enqueued (under RLock with stopped
+			// still false) happened-before this point and is picked up
+			// by the drain below; later Submits return false instead of
+			// enqueueing into a queue nobody will ever read.
+			aw.mu.Lock()
+			aw.stopped = true
+			aw.mu.Unlock()
 			// Drain remaining queue so a graceful shutdown still
 			// persists in-flight rows.
 			for {
