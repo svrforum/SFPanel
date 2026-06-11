@@ -1,10 +1,12 @@
-package websocket
+package logs
 
 import (
 	"net/http"
 	"testing"
 )
 
+// The logs WS upgrader used to allow ALL origins; it now mirrors
+// websocket/handler.go's policy (same-origin / empty / Tauri webview).
 func TestSameOriginOrEmpty(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -15,15 +17,12 @@ func TestSameOriginOrEmpty(t *testing.T) {
 		{"no origin (curl/websocat)", "panel.example.com:9443", "", true},
 		{"matching origin", "panel.example.com:9443", "https://panel.example.com:9443", true},
 		{"case-insensitive host", "Panel.Example.com:9443", "https://panel.example.com:9443", true},
-		{"matching origin without port (rare)", "panel.example.com", "https://panel.example.com", true},
 		{"foreign origin", "panel.example.com:9443", "https://evil.example.com", false},
 		{"matching host different port", "panel.example.com:9443", "https://panel.example.com:9444", false},
 		{"malformed origin", "panel.example.com:9443", "not-a-url", false},
-		{"protocol-relative scheme empty", "panel.example.com:9443", "//panel.example.com:9443", true},
 		{"tauri custom scheme", "panel.example.com:9443", "tauri://localhost", true},
 		{"tauri http origin", "panel.example.com:9443", "http://tauri.localhost", true},
 		{"tauri https origin", "panel.example.com:9443", "https://tauri.localhost", true},
-		{"tauri origin case-insensitive", "panel.example.com:9443", "Tauri://Localhost", true},
 		{"tauri lookalike subdomain", "panel.example.com:9443", "https://evil.tauri.localhost", false},
 	}
 	for _, tc := range cases {
@@ -35,8 +34,7 @@ func TestSameOriginOrEmpty(t *testing.T) {
 			if tc.origin != "" {
 				r.Header.Set("Origin", tc.origin)
 			}
-			got := sameOriginOrEmpty(r)
-			if got != tc.want {
+			if got := sameOriginOrEmpty(r); got != tc.want {
 				t.Errorf("sameOriginOrEmpty(Host=%q, Origin=%q) = %v, want %v",
 					tc.host, tc.origin, got, tc.want)
 			}

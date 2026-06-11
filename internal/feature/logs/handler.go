@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -154,13 +155,36 @@ func (h *Handler) SetSFPanelLogPath(path string) {
 	srcs["sfpanel"] = logSourceInfo{Name: "SFPanel", Path: path}
 }
 
-var Upgrader = websocket.Upgrader{
-	// CheckOrigin allows all origins because auth uses explicit JWT token
-	// in query params, not cookies. CSWSH is not a risk since credentials
-	// are never sent automatically by the browser.
-	CheckOrigin: func(r *http.Request) bool {
+// tauriOrigins are the desktop wrapper's webview origins — the same three
+// the CORS allowlist in router.go carries. Keys are lowercase.
+var tauriOrigins = map[string]bool{
+	"tauri://localhost":       true,
+	"http://tauri.localhost":  true,
+	"https://tauri.localhost": true,
+}
+
+// sameOriginOrEmpty mirrors websocket/handler.go's CheckOrigin: accept
+// same-host upgrades, Origin-less non-browser clients (curl, websocat),
+// and the Tauri desktop webview origins. A foreign Origin is refused —
+// the ?ticket=/?token= auth doesn't ride cookies, but a uniform policy
+// across the WS modules removes any CSWSH foothold.
+func sameOriginOrEmpty(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
 		return true
-	},
+	}
+	if tauriOrigins[strings.ToLower(origin)] {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
+}
+
+var Upgrader = websocket.Upgrader{
+	CheckOrigin: sameOriginOrEmpty,
 }
 
 func authenticateWS(c echo.Context, jwtSecret string) error {

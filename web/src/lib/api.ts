@@ -262,10 +262,16 @@ class ApiClient {
       res = await fetch(url, {
         ...fetchOptions,
         headers,
-        // Send cookies so the refresh + CSRF cookies plant by the server
-        // arrive on subsequent requests. credentials:'include' is needed
-        // when the dev proxy or reverse-proxy crosses origins.
-        credentials: 'include',
+        // Browsers send cookies so the refresh + CSRF cookies planted by the
+        // server arrive on subsequent requests; credentials:'include' is
+        // needed when the dev proxy or reverse-proxy crosses origins. Under
+        // Tauri the API origin differs from the webview origin and the
+        // server's CORS does not set AllowCredentials — 'include' would fail
+        // the preflight in spec-compliant webviews, and the API origin's
+        // cookies are unreadable from the webview anyway. Auth there is the
+        // Bearer header alone (the backend CSRF check exempts
+        // bearer-without-cookie requests).
+        credentials: this.isTauri ? 'omit' : 'include',
         signal: controller.signal,
       })
     } catch (err) {

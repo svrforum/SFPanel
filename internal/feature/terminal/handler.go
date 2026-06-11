@@ -57,13 +57,26 @@ const idleReapAfter = 5 * time.Minute
 const terminalWSPingInterval = 30 * time.Second
 const terminalWSReadDeadline = 70 * time.Second
 
+// tauriOrigins are the desktop wrapper's webview origins — the same three
+// the CORS allowlist in router.go carries. Keys are lowercase. Webviews DO
+// stamp an Origin on WS upgrades, so the empty-Origin allowance alone does
+// not cover the desktop app.
+var tauriOrigins = map[string]bool{
+	"tauri://localhost":       true,
+	"http://tauri.localhost":  true,
+	"https://tauri.localhost": true,
+}
+
 // sameOriginOrEmpty mirrors websocket/handler.go's CheckOrigin: accept
-// when Origin is absent (curl/websocat/desktop wrapper) or its host
-// matches the request host. Anything else is a foreign Origin from a
-// CSWSH attempt and the upgrade is refused.
+// when Origin is absent (curl/websocat), matches the request host, or is
+// a Tauri desktop webview origin. Anything else is a foreign Origin from
+// a CSWSH attempt and the upgrade is refused.
 func sameOriginOrEmpty(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
+		return true
+	}
+	if tauriOrigins[strings.ToLower(origin)] {
 		return true
 	}
 	u, err := url.Parse(origin)

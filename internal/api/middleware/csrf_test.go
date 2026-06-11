@@ -84,6 +84,59 @@ func TestCSRFProtect_HeaderMatchAccepted(t *testing.T) {
 	}
 }
 
+func TestCSRFProtect_BearerWithoutCookiesExempt(t *testing.T) {
+	// Zero ambient authority: Authorization header can't be forged
+	// cross-site and no sfpanel cookie rides along — must pass without an
+	// X-CSRF-Token header (the Tauri desktop wrapper path).
+	handler := newCSRFHandler()
+	req := httptest.NewRequest("POST", "/api/v1/settings", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer some.jwt.token")
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.SetPath("/api/v1/settings")
+	_ = handler(c)
+	if rec.Code != http.StatusOK {
+		t.Errorf("bearer without sfpanel cookies: status = %d, want 200", rec.Code)
+	}
+}
+
+func TestCSRFProtect_BearerWithCookieStillChecked(t *testing.T) {
+	// Any sfpanel cookie present → full double-submit check applies; a
+	// Bearer header alone must not downgrade a browser session.
+	cookies := []*http.Cookie{
+		{Name: auth.CSRFCookieName, Value: "token"},
+		{Name: auth.RefreshCookieName, Value: "refresh"},
+	}
+	for _, ck := range cookies {
+		t.Run(ck.Name, func(t *testing.T) {
+			handler := newCSRFHandler()
+			req := httptest.NewRequest("POST", "/api/v1/settings", strings.NewReader("{}"))
+			req.Header.Set("Authorization", "Bearer some.jwt.token")
+			req.AddCookie(ck)
+			rec := httptest.NewRecorder()
+			c := echo.New().NewContext(req, rec)
+			c.SetPath("/api/v1/settings")
+			_ = handler(c)
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("bearer with %s cookie but no CSRF header: status = %d, want 403", ck.Name, rec.Code)
+			}
+		})
+	}
+}
+
+func TestCSRFProtect_CookielessNonBearerRejected(t *testing.T) {
+	// No cookies AND no Bearer header → the exemption must not fire.
+	handler := newCSRFHandler()
+	req := httptest.NewRequest("POST", "/api/v1/settings", strings.NewReader("{}"))
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.SetPath("/api/v1/settings")
+	_ = handler(c)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("cookieless non-bearer POST: status = %d, want 403", rec.Code)
+	}
+}
+
 func TestCSRFProtect_InternalProxyBypass(t *testing.T) {
 	auth.SetClusterProxySecret("test-secret-32-bytes-long-enough!!")
 	defer auth.SetClusterProxySecret("")

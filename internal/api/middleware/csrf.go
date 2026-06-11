@@ -3,6 +3,7 @@ package middleware
 import (
 	"crypto/subtle"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -29,6 +30,8 @@ var csrfSafeMethods = map[string]bool{
 //     v2 replay-protected, and the proxy code doesn't carry a CSRF token
 //   - Login / setup / refresh — bootstrap flows that mint the cookie
 //     themselves; no cookie exists yet to compare against
+//   - Bearer-token requests carrying NO sfpanel cookies — zero ambient
+//     authority, so cross-site forgery is structurally impossible
 //   - File downloads / system backup over ?token= GET — already covered
 //     by the safe-method bypass
 //
@@ -55,6 +58,26 @@ func CSRFProtect() echo.MiddlewareFunc {
 				"/api/v1/auth/setup",
 				"/api/v1/auth/refresh":
 				return next(c)
+			}
+
+			// Bearer-authenticated request with zero sfpanel cookies: CSRF
+			// rides on ambient authority (cookies the browser attaches without
+			// the attacker's involvement), and an Authorization header cannot
+			// be set by a cross-site page. With neither sfpanel_csrf nor
+			// sfpanel_refresh on the request there is nothing for a forged
+			// request to ride, so the check is moot. This is the only viable
+			// path for the Tauri desktop wrapper, whose webview origin can't
+			// read the API origin's cookies. If ANY sfpanel cookie is present
+			// the full double-submit check below still applies, so a browser
+			// session can't be downgraded by merely adding a Bearer header.
+			// (JWTMiddleware runs before this and has already verified the
+			// token — we only gate on its presence here.)
+			if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+				_, csrfErr := r.Cookie(auth.CSRFCookieName)
+				_, refreshErr := r.Cookie(auth.RefreshCookieName)
+				if csrfErr != nil && refreshErr != nil {
+					return next(c)
+				}
 			}
 
 			cookie, err := r.Cookie(auth.CSRFCookieName)

@@ -20,14 +20,27 @@ import (
 	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
+// tauriOrigins are the desktop wrapper's webview origins — the same three
+// the CORS allowlist in router.go carries. Keys are lowercase.
+var tauriOrigins = map[string]bool{
+	"tauri://localhost":       true,
+	"http://tauri.localhost":  true,
+	"https://tauri.localhost": true,
+}
+
 // sameOriginOrEmpty allows WS upgrades from the same Host as the request
-// (the panel UI in a normal browser) and from non-browser clients that omit
-// the Origin header entirely (curl, websocat, the desktop wrapper). Anything
+// (the panel UI in a normal browser), from non-browser clients that omit
+// the Origin header entirely (curl, websocat), and from the Tauri desktop
+// webview origins — webviews DO stamp an Origin on WS upgrades, so the
+// empty-Origin allowance alone does not cover the desktop app. Anything
 // else — a foreign Origin set by a malicious page — is rejected, defending
 // against CSWSH even though the ?ticket=/?token= path doesn't ride cookies.
 func sameOriginOrEmpty(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
+		return true
+	}
+	if tauriOrigins[strings.ToLower(origin)] {
 		return true
 	}
 	u, err := url.Parse(origin)

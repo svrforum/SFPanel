@@ -68,6 +68,11 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		// malformed entry doesn't take the panel down.
 		if _, ipnet, err := parseCIDROrIP(cidr); err == nil {
 			trustOpts = append(trustOpts, echo.TrustIPRange(ipnet))
+		} else {
+			// A silently dropped entry shrinks the trust list: requests via
+			// that proxy then rate-limit on the proxy's own IP instead of
+			// the real client's. Make the misconfiguration diagnosable.
+			slog.Warn("ignoring unparseable trusted_proxies entry", "entry", cidr, "error", err)
 		}
 	}
 	e.IPExtractor = echo.ExtractIPFromXFFHeader(trustOpts...)
@@ -89,7 +94,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	e.Use(echoMw.CORSWithConfig(echoMw.CORSConfig{
 		AllowOrigins: corsOrigins,
 		AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "PATCH"},
-		AllowHeaders: []string{"Authorization", "Content-Type"},
+		AllowHeaders: []string{"Authorization", "Content-Type", "X-CSRF-Token"},
 	}))
 
 	cmd := commonExec.NewCommander()
