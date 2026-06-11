@@ -50,7 +50,10 @@ func newRaftTransport(cfg RaftConfig, addr *net.TCPAddr) (raft.Transport, error)
 		return t, nil
 	}
 
-	serverTLS, err := cfg.TLS.ServerTLSConfig()
+	// Raft-specific server config: requires a verified client cert. The gRPC
+	// port's VerifyClientCertIfGiven (for PreFlight/Join) is compensated by
+	// interceptors there; the raw Raft stream has no such layer.
+	serverTLS, err := cfg.TLS.RaftServerTLSConfig()
 	if err != nil {
 		return nil, fmt.Errorf("raft server TLS: %w", err)
 	}

@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"crypto/tls"
 	"os"
 	"path/filepath"
 	"testing"
@@ -110,6 +111,57 @@ func TestTLSManager_HalfRotationKeepsCached(t *testing.T) {
 	}
 	if string(second.Certificate[0]) != string(first.Certificate[0]) {
 		t.Fatalf("expected cached cert during half-rotation, got different DER")
+	}
+}
+
+// The Raft listener (grpc_port + 1) has no interceptor layer, so its TLS
+// config must demand a verified client cert outright — while the gRPC port
+// keeps VerifyClientCertIfGiven so PreFlight/Join can land pre-cert (gated
+// per-method by the interceptors in grpc_server.go).
+func TestRaftServerTLSConfig_RequiresClientCert(t *testing.T) {
+	_, mgr := setupCertDir(t)
+
+	raftCfg, err := mgr.RaftServerTLSConfig()
+	if err != nil {
+		t.Fatalf("RaftServerTLSConfig: %v", err)
+	}
+	if raftCfg.ClientAuth != tls.RequireAndVerifyClientCert {
+		t.Fatalf("raft listener ClientAuth = %v, want RequireAndVerifyClientCert", raftCfg.ClientAuth)
+	}
+	if raftCfg.ClientCAs == nil {
+		t.Fatalf("raft listener must verify clients against the cluster CA pool")
+	}
+	if raftCfg.GetCertificate == nil {
+		t.Fatalf("raft listener must keep the hot-reload GetCertificate callback")
+	}
+
+	grpcCfg, err := mgr.ServerTLSConfig()
+	if err != nil {
+		t.Fatalf("ServerTLSConfig: %v", err)
+	}
+	if grpcCfg.ClientAuth != tls.VerifyClientCertIfGiven {
+		t.Fatalf("gRPC listener ClientAuth = %v, want VerifyClientCertIfGiven (PreFlight/Join run pre-cert)", grpcCfg.ClientAuth)
+	}
+}
+
+// The Raft dial side must present a client cert or the listener's
+// RequireAndVerifyClientCert would break legitimate peers.
+func TestClientTLSConfig_PresentsNodeCert(t *testing.T) {
+	_, mgr := setupCertDir(t)
+
+	cfg, err := mgr.ClientTLSConfig()
+	if err != nil {
+		t.Fatalf("ClientTLSConfig: %v", err)
+	}
+	if cfg.GetClientCertificate == nil {
+		t.Fatalf("ClientTLSConfig must wire GetClientCertificate")
+	}
+	cert, err := cfg.GetClientCertificate(nil)
+	if err != nil {
+		t.Fatalf("GetClientCertificate: %v", err)
+	}
+	if cert == nil || len(cert.Certificate) == 0 {
+		t.Fatalf("client config returned an empty certificate")
 	}
 }
 

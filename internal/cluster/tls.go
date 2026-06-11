@@ -261,6 +261,22 @@ func (t *TLSManager) ServerTLSConfig() (*tls.Config, error) {
 	}, nil
 }
 
+// RaftServerTLSConfig builds a TLS config for the Raft transport listener
+// (grpc_port + 1). Same cert callbacks and CA pool as ServerTLSConfig, but
+// client certificates are mandatory: the Raft port is only ever dialed by
+// established cluster members (ClientTLSConfig always presents the node
+// cert), and unlike the gRPC port there is no interceptor layer to gate
+// cert-less connections — so the PreFlight/Join allowance baked into
+// VerifyClientCertIfGiven must not apply here.
+func (t *TLSManager) RaftServerTLSConfig() (*tls.Config, error) {
+	cfg, err := t.ServerTLSConfig()
+	if err != nil {
+		return nil, err
+	}
+	cfg.ClientAuth = tls.RequireAndVerifyClientCert
+	return cfg, nil
+}
+
 // ClientTLSConfig builds a TLS config for gRPC client connections.
 // Uses GetClientCertificate for the same rotation semantics as the server.
 func (t *TLSManager) ClientTLSConfig() (*tls.Config, error) {

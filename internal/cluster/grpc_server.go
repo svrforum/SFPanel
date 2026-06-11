@@ -102,6 +102,22 @@ func requireClientCertStreamInterceptor(srv any, ss grpc.ServerStream, info *grp
 	return handler(srv, ss)
 }
 
+// extractPeerCN returns the CommonName of the verified mTLS client leaf
+// certificate on a gRPC context, or "" when no verified chain is present.
+// Node certs are issued with CN == node ID (IssueNodeCert), so the CN is
+// the transport-level node identity.
+func extractPeerCN(ctx context.Context) string {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return ""
+	}
+	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok || len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
+		return ""
+	}
+	return tlsInfo.State.VerifiedChains[0][0].Subject.CommonName
+}
+
 // recvResult is the message shape pushed onto the heartbeat recv channel.
 type recvResult struct {
 	ping *pb.HeartbeatPing
@@ -253,6 +269,17 @@ func (s *GRPCServer) Leave(ctx context.Context, req *pb.LeaveRequest) (*pb.Leave
 func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 	const idleTimeout = 30 * time.Second
 
+	// Bind the stream to its mTLS identity. The stream interceptor already
+	// guarantees a verified client cert here; node certs carry CN == node ID,
+	// so a ping whose NodeId differs from the peer CN is a cluster member
+	// spoofing another node's liveness/metrics (and could trigger
+	// PromoteOnHeartbeatIfPending for a node that never connected).
+	// PreFlight/Join are unary and unaffected by this check.
+	peerCN := extractPeerCN(stream.Context())
+	if peerCN == "" {
+		return status.Error(codes.Unauthenticated, "heartbeat requires a verified client certificate")
+	}
+
 	// Single goroutine for receiving — the runHeartbeatRecvLoop helper also
 	// drops out on stream.Context().Done() so it doesn't leak when this
 	// outer select exits via timeout/done while the channel buffer is full.
@@ -267,6 +294,10 @@ func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 		case result := <-recvCh:
 			if result.err != nil {
 				return result.err
+			}
+			if result.ping.NodeId != peerCN {
+				return status.Errorf(codes.PermissionDenied,
+					"heartbeat node_id %q does not match peer certificate identity", result.ping.NodeId)
 			}
 			if !timer.Stop() {
 				select {

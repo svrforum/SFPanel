@@ -25,10 +25,12 @@ import (
 // is stamped into X-SFPanel-Original-User on the outbound dial so the remote
 // handler can bind per-user state (e.g. the terminal PTY session key). The
 // HTTP gRPC proxy mirrors this header propagation — see proxy.go:451-462,
-// where the same trust boundary is established for unary requests. Empty
-// username is acceptable here on the dialing side; the receiving terminal
-// handler's strict guard (handler.go:74-78) rejects empty after the
-// X-SFPanel-Internal-Proxy validation passes.
+// where the same trust boundary is established for unary requests. Callers
+// must pass a non-empty, locally-authenticated username: the remote trusts
+// the internal-proxy headers, and most relayed WS handlers (logs, metrics,
+// docker exec) do not re-validate the operator — only the terminal handler
+// has its own non-empty guard. WrapEchoWSHandler rejects unauthenticated
+// relays with 401 before calling this.
 func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url.URL, proxySecret, username string, tlsCfg *crypto_tls.Config) error {
 	// Build remote WS URL.
 	//
@@ -227,35 +229,23 @@ func WrapEchoWSHandler(getMgr func() *Manager, handler func(c echo.Context) erro
 		}
 
 		// Resolve the authenticated username before the upgrade so we can
-		// stamp it into the outbound X-SFPanel-Original-User header. WS
-		// routes are registered on root echo (no JWTMiddleware), so
-		// c.Get("username") is only populated when this relay node is
-		// itself receiving a chained internal-proxy request — handle that
-		// first, then fall back to the ticket/JWT in the query string.
+		// stamp it into the outbound X-SFPanel-Original-User header.
 		//
-		// Mirrors the type-assertion-safe lookup pattern in
-		// proxy.go:455-462. Empty username flows through to the dial;
-		// the remote terminal handler's strict guard refuses empty after
-		// validating the internal-proxy headers.
-		var username string
-		if u, ok := c.Get("username").(string); ok && u != "" {
-			username = u
-		} else if auth.IsInternalProxyRequest(c.Request()) {
-			username = c.Request().Header.Get("X-SFPanel-Original-User")
-		} else {
-			// Authenticate against the ticket/JWT in the query. This
-			// consumes the single-use ticket on the relay side, so the
-			// dialed URL below has ticket/token stripped — the remote
-			// authenticates via X-SFPanel-Internal-Proxy(-V2) instead.
-			//
-			// Pull the JWT secret from the FSM (replicated cluster-wide)
-			// for the loopback ?token= back-compat path. The ticket
-			// branch in AuthenticateWSRequest does not consult the
-			// secret, so callers without a JWT secret available (i.e.
-			// pre-cluster boot) still authenticate fine on the modern
-			// path.
-			jwtSecret, _, _ := mgr.GetJWTAndAdmin()
-			username = auth.AuthenticateWSRequest(c.Request(), jwtSecret)
+		// The JWT secret comes from the FSM (replicated cluster-wide) for
+		// the loopback ?token= back-compat path. The ticket branch in
+		// AuthenticateWSRequest does not consult the secret, so callers
+		// without a JWT secret available (i.e. pre-cluster boot) still
+		// authenticate fine on the modern path.
+		jwtSecret, _, _ := mgr.GetJWTAndAdmin()
+		username := resolveRelayUsername(c, jwtSecret)
+		// A relay carries internal-proxy headers the remote trusts, and the
+		// relayed logs/metrics/docker-exec handlers do not re-validate the
+		// operator — an unauthenticated relay would hand a remote session
+		// (including container exec) to anyone who knows a node UUID.
+		// Reject before upgrading or dialing. Local (no ?node=) requests
+		// returned earlier above; local handlers do their own auth.
+		if username == "" {
+			return c.JSON(http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 		}
 
 		// Upgrade client connection
@@ -285,6 +275,26 @@ func WrapEchoWSHandler(getMgr func() *Manager, handler func(c echo.Context) erro
 		}
 		return nil
 	}
+}
+
+// resolveRelayUsername resolves the operator identity for a ?node= WS relay,
+// in trust order: username already on the echo context (WS routes skip
+// JWTMiddleware, so it's only set when this relay node is itself receiving a
+// chained internal-proxy request), the X-SFPanel-Original-User header of a
+// validated internal-proxy request, then the single-use ticket / loopback
+// ?token= JWT in the query string. Returns "" when nothing authenticates.
+// The ticket path consumes the ticket on this node, which is why the relayed
+// URL is stripped of auth params (stripAuthParams) — the remote trusts the
+// internal-proxy headers instead.
+func resolveRelayUsername(c echo.Context, jwtSecret string) string {
+	// Mirrors the type-assertion-safe lookup pattern in proxy.go:455-462.
+	if u, ok := c.Get("username").(string); ok && u != "" {
+		return u
+	}
+	if auth.IsInternalProxyRequest(c.Request()) {
+		return c.Request().Header.Get("X-SFPanel-Original-User")
+	}
+	return auth.AuthenticateWSRequest(c.Request(), jwtSecret)
 }
 
 // stripAuthParams removes ticket/token query parameters from a raw query.
