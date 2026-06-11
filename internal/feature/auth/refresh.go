@@ -248,6 +248,70 @@ func (h *Handler) Refresh(c echo.Context) error {
 	})
 }
 
+// revokeOtherSessions deletes every refresh-token row for username on THIS
+// node except the rotation family of the refresh token presented in the
+// current request's cookie — a browser operator who just rotated a credential
+// keeps their own session (the SPA does not force re-login after a password
+// change), while every other, possibly stolen, chain dies immediately.
+//
+// Three deliberate limitations:
+//   - Access JWTs already issued stay valid until expiry: they are stateless
+//     and there is no server-side revocation list (out of scope).
+//   - In cluster mode refresh tokens are per-node local state, so only this
+//     node's rows are cleared (when a follower proxied the credential change
+//     to the leader, "this node" is the leader).
+//   - The Tauri desktop client authenticates Bearer-only with no cookies
+//     (its webview can't read the API-origin cookie), so it hits the
+//     fail-secure branch below and ALL of its sessions — including the
+//     current one — are revoked. The user is forced to re-login once the
+//     access JWT expires. This is acceptable (revoking every session on a
+//     password change is a defensible security posture) but is an asymmetry
+//     vs the browser path; seamless desktop session retention would require
+//     the client to present its refresh token on the credential-change call.
+//
+// Best-effort: the credential change has already persisted by the time this
+// runs, so a failure here is logged rather than turned into an error response.
+func revokeOtherSessions(c echo.Context, db *sql.DB, username string) {
+	keepHash, keepFamily := "", ""
+	if cookie, err := c.Request().Cookie(auth.RefreshCookieName); err == nil && cookie.Value != "" {
+		sum := sha256.Sum256([]byte(cookie.Value))
+		keepHash = hex.EncodeToString(sum[:])
+		var fid string
+		if err := db.QueryRow(
+			`SELECT family_id FROM refresh_tokens WHERE token_hash = ? AND username = ?`,
+			keepHash, username,
+		).Scan(&fid); err == nil {
+			keepFamily = fid
+		} else {
+			// Cookie token unknown on this node (proxied request, stale
+			// cookie, DB error) — fail secure and revoke everything.
+			keepHash = ""
+		}
+	}
+
+	var res sql.Result
+	var err error
+	switch {
+	case keepFamily != "":
+		res, err = db.Exec(`DELETE FROM refresh_tokens WHERE username = ? AND family_id != ?`, username, keepFamily)
+	case keepHash != "":
+		// Pre-migration-24 legacy row (family_id=''): spare just the
+		// presented token instead of the empty family.
+		res, err = db.Exec(`DELETE FROM refresh_tokens WHERE username = ? AND token_hash != ?`, username, keepHash)
+	default:
+		res, err = db.Exec(`DELETE FROM refresh_tokens WHERE username = ?`, username)
+	}
+	if err != nil {
+		slog.Error("refresh session revocation after credential change failed",
+			"username", username, "error", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		slog.Info("revoked refresh sessions after credential change",
+			"username", username, "revoked", n, "kept_own_session", keepHash != "" || keepFamily != "")
+	}
+}
+
 // MintWSTicket issues a single-use 60s ticket for the calling user. The JS
 // client trades the long-lived JWT for a ticket right before opening a
 // WebSocket so the JWT itself never appears in the URL — that would land it

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"testing"
 	"time"
@@ -325,4 +326,36 @@ func TestListAuditLogs_Filters(t *testing.T) {
 	require.Equal(t, 3, list("").Total)
 	// SQL-injection attempt is bound as a literal LIKE value → matches nothing.
 	require.Equal(t, 0, list("user=alice%27+OR+1%3D1").Total)
+}
+
+// TestListAuditLogs_UserFilterEscapesLikeWildcards — `%`, `_` and `\` in the
+// user filter must match literally instead of acting as LIKE metacharacters
+// (a bare `%` previously matched every row).
+func TestListAuditLogs_UserFilterEscapesLikeWildcards(t *testing.T) {
+	d := openTestDB(t)
+	h := &Handler{DB: d}
+	now := time.Now()
+	insertLog(t, d, "a_c", "GET", "/1", false, now)
+	insertLog(t, d, "abc", "GET", "/2", false, now)
+	insertLog(t, d, "a%c", "GET", "/3", false, now)
+	insertLog(t, d, `a\c`, "GET", "/4", false, now)
+
+	list := func(user string) AuditLogsResponse {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/audit/logs?user="+url.QueryEscape(user), nil)
+		rec := httptest.NewRecorder()
+		c := echo.New().NewContext(req, rec)
+		require.NoError(t, h.ListAuditLogs(c))
+		var resp struct {
+			Data AuditLogsResponse `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		return resp.Data
+	}
+
+	require.Equal(t, 1, list("a_c").Total, "_ must not match any single character")
+	require.Equal(t, 1, list("a%c").Total, "%% must not match any run of characters")
+	require.Equal(t, 1, list(`a\c`).Total, `\ must survive as a literal`)
+	require.Equal(t, 1, list("%").Total, "bare %% must only match usernames containing a literal %%")
+	require.Equal(t, 1, list("_").Total, "bare _ must only match usernames containing a literal _")
+	require.Equal(t, 0, list("z%").Total)
 }

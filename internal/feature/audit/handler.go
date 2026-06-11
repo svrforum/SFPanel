@@ -53,6 +53,16 @@ type ClearAuditLogsResponse struct {
 	TombstoneID int64  `json:"tombstone_id"`
 }
 
+// escapeLike neutralizes LIKE metacharacters in user-supplied filter text so
+// `%` and `_` match literally instead of acting as wildcards. The backslash
+// must be doubled first; pairs with the ESCAPE '\' clause on the LIKE.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
 func (h *Handler) ListAuditLogs(c echo.Context) error {
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	if page < 1 {
@@ -68,8 +78,8 @@ func (h *Handler) ListAuditLogs(c echo.Context) error {
 	var where []string
 	var args []interface{}
 	if u := strings.TrimSpace(c.QueryParam("user")); u != "" {
-		where = append(where, "username LIKE ?")
-		args = append(args, "%"+u+"%")
+		where = append(where, `username LIKE ? ESCAPE '\'`)
+		args = append(args, "%"+escapeLike(u)+"%")
 	}
 	if m := strings.TrimSpace(c.QueryParam("method")); m != "" {
 		where = append(where, "method = ?")

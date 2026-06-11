@@ -503,6 +503,10 @@ func (h *Handler) Verify2FA(c echo.Context) error {
 		return h.failClusterPersist(c, err)
 	}
 
+	// 2FA was just enforced — sessions established before it must not keep
+	// silently refreshing around the new factor. Caller's chain survives.
+	revokeOtherSessions(c, h.DB, username)
+
 	h.recordSecurityEvent(c, "2fa_verify", "success", http.StatusOK)
 	return response.OK(c, map[string]string{"message": "2FA enabled successfully"})
 }
@@ -594,6 +598,10 @@ func (h *Handler) Disable2FA(c echo.Context) error {
 		slog.Warn("failed to clear recovery codes on 2FA disable", "username", username, "error", err)
 	}
 
+	// 2FA downgrade is a credential change: revoke every other refresh chain
+	// so a hijacked session can't keep refreshing past it.
+	revokeOtherSessions(c, h.DB, username)
+
 	// Clear the limiter on success so the legitimate user isn't locked out.
 	loginAttempts.Delete(ip)
 	h.recordSecurityEvent(c, "2fa_disable", "success", http.StatusOK)
@@ -655,6 +663,11 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 	if err := h.persistAdminAccount(username, newHash, totpSecret, fromCluster); err != nil {
 		return h.failClusterPersist(c, err)
 	}
+
+	// Kill every other refresh chain so a stolen refresh token doesn't
+	// survive the password rotation. See revokeOtherSessions for the access-
+	// JWT and cluster per-node caveats.
+	revokeOtherSessions(c, h.DB, username)
 
 	// Successful change — clear rate-limit counter for this IP.
 	loginAttempts.Delete(ip)

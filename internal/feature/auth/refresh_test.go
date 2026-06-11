@@ -480,6 +480,155 @@ func TestRefresh_RotationRollsBackOnJWTFailure(t *testing.T) {
 	}
 }
 
+// TestChangePassword_RevokesOtherRefreshSessions — a password rotation must
+// kill every refresh chain except the caller's own (presented via cookie), so
+// a stolen refresh token can't outlive the credential it was minted under.
+func TestChangePassword_RevokesOtherRefreshSessions(t *testing.T) {
+	h, db := newRefreshHandler(t)
+	seedAdmin(t, db, "alice", "oldpassword123", "")
+
+	callerRaw, callerHash := seedRefreshToken(t, db, "alice")
+	// Second login = separate family — the "stolen on another device" chain.
+	if _, err := issueRefreshToken(db, "alice"); err != nil {
+		t.Fatalf("issue other session: %v", err)
+	}
+
+	body := `{"current_password":"oldpassword123","new_password":"newpassword456"}`
+	req := httptest.NewRequest("POST", "/api/v1/auth/change-password", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "198.51.100.10:1234"
+	req.AddCookie(&http.Cookie{Name: auth.RefreshCookieName, Value: callerRaw})
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.Set("username", "alice")
+
+	if err := h.ChangePassword(c); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var remaining int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM refresh_tokens WHERE username = 'alice'`).Scan(&remaining); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if remaining != 1 {
+		t.Errorf("rows after change = %d, want 1 (caller's chain only)", remaining)
+	}
+	var kept int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM refresh_tokens WHERE token_hash = ?`, callerHash).Scan(&kept); err != nil {
+		t.Fatalf("count caller row: %v", err)
+	}
+	if kept != 1 {
+		t.Errorf("caller's own refresh token was revoked; want it preserved")
+	}
+	waitForAuditRows(t, db, 1) // drain the async security-event write before DB close
+}
+
+// TestChangePassword_NoCookieRevokesAllSessions — without a refresh cookie to
+// identify the caller's chain there is nothing safe to spare: every row goes.
+func TestChangePassword_NoCookieRevokesAllSessions(t *testing.T) {
+	h, db := newRefreshHandler(t)
+	seedAdmin(t, db, "alice", "oldpassword123", "")
+	if _, err := issueRefreshToken(db, "alice"); err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	if _, err := issueRefreshToken(db, "alice"); err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+
+	body := `{"current_password":"oldpassword123","new_password":"newpassword456"}`
+	c, rec := newAuthedContext("POST", "/api/v1/auth/change-password", body, "alice")
+	if err := h.ChangePassword(c); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var remaining int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM refresh_tokens WHERE username = 'alice'`).Scan(&remaining); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if remaining != 0 {
+		t.Errorf("rows after change = %d, want 0 (no cookie ⇒ revoke everything)", remaining)
+	}
+	waitForAuditRows(t, db, 1)
+}
+
+// TestDisable2FA_RevokesOtherRefreshSessions — 2FA downgrade is a credential
+// change and must clear the per-user refresh rows the same way.
+func TestDisable2FA_RevokesOtherRefreshSessions(t *testing.T) {
+	h, db := newRefreshHandler(t)
+	seedAdmin(t, db, "alice", "rightpassword12", "")
+	if _, err := issueRefreshToken(db, "alice"); err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+
+	body := `{"password":"rightpassword12"}`
+	req := httptest.NewRequest("POST", "/api/v1/auth/2fa/disable", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "198.51.100.11:1234"
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.Set("username", "alice")
+
+	if err := h.Disable2FA(c); err != nil {
+		t.Fatalf("Disable2FA: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var remaining int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM refresh_tokens WHERE username = 'alice'`).Scan(&remaining); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if remaining != 0 {
+		t.Errorf("rows after 2FA disable = %d, want 0", remaining)
+	}
+	waitForAuditRows(t, db, 1)
+}
+
+// TestRevokeOtherSessions_LegacyFamilyRow — a pre-migration-24 cookie token
+// (family_id='') must be spared by token_hash, not via the empty family.
+func TestRevokeOtherSessions_LegacyFamilyRow(t *testing.T) {
+	_, db := newRefreshHandler(t)
+	freshAt := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+
+	raw := "legacy-raw-token"
+	sum := sha256.Sum256([]byte(raw))
+	keepHash := hex.EncodeToString(sum[:])
+	if _, err := db.Exec(
+		`INSERT INTO refresh_tokens (token_hash, username, family_id, expires_at) VALUES (?, 'alice', '', ?), ('otherlegacy', 'alice', '', ?)`,
+		keepHash, freshAt, freshAt,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	req := httptest.NewRequest("POST", "/api/v1/auth/change-password", nil)
+	req.AddCookie(&http.Cookie{Name: auth.RefreshCookieName, Value: raw})
+	c := echo.New().NewContext(req, httptest.NewRecorder())
+
+	revokeOtherSessions(c, db, "alice")
+
+	rows, err := db.Query(`SELECT token_hash FROM refresh_tokens WHERE username = 'alice'`)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+	got := []string{}
+	for rows.Next() {
+		var h string
+		_ = rows.Scan(&h)
+		got = append(got, h)
+	}
+	if len(got) != 1 || got[0] != keepHash {
+		t.Errorf("rows after revoke = %v, want only the presented legacy token", got)
+	}
+}
+
 func TestValidCredentialBounds(t *testing.T) {
 	cases := []struct {
 		name                       string
