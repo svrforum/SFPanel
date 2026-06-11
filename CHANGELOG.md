@@ -8,6 +8,49 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ## [Unreleased]
 
+---
+
+## [0.43.0] – 2026-06-11
+
+### Security
+
+- **Cluster: closed three trust-boundary gaps.** The WebSocket relay no longer
+  dials a remote node for an unauthenticated request (empty username), which had
+  let anyone who knew a node UUID reach a remote container `exec`. The Raft
+  transport now requires a verified client certificate instead of accepting
+  certless TLS connections, and heartbeats are bound to the peer certificate CN
+  so a member can no longer spoof another node's identity.
+- **Auth: credential changes now revoke other sessions.** Changing the password
+  or toggling 2FA deletes the user's other refresh-token chains, so a stolen
+  chain no longer survives a password rotation. The browser keeps its own
+  session via the request cookie. Audit log user filters now escape `%`/`_` so
+  they can't act as wildcards.
+- **App Store / Compose: hardened the safety validator.** Bind-mount blocking now
+  covers `/var/lib/docker` and `/run/containerd` (and the `/var/run` symlink
+  alias), `security_opt` parsing catches the `=` separator form
+  (`apparmor=unconfined`), and string-form `privileged` values are caught.
+- **Installers: removed a /tmp TOCTOU.** Installer scripts (Docker, Node, Claude,
+  Tailscale) download to a private `0600` temp file instead of a predictable
+  `/tmp` name, closing a local race between the hash check and execution.
+
+### Fixed
+
+- **Desktop: restored the Tauri client.** The CSRF double-submit introduced in
+  the security campaign had silently broken the desktop app since v0.13.10 (its
+  webview origin can't read the API cookie). Bearer requests with no cookies are
+  now exempt from CSRF, the webview omits credentials so login passes CORS, the
+  Tauri origins are allowed on the WebSocket handlers, and the desktop version is
+  re-aligned so the auto-updater manifest resolves.
+- **Backups are now consistent.** Both backup paths snapshot the database with
+  `VACUUM INTO` (a transactionally consistent copy) instead of a plain copy of a
+  live WAL-mode file that could be stale or torn; restores reject a backup that
+  fails a `PRAGMA quick_check`.
+- **Docker routes are gated on the socket's presence** so a Docker-less host no
+  longer registers `/docker` routes that 500 — while a daemon that is merely down
+  recovers without a panel restart.
+- Compose project/`.env` writes are now atomic (`0600`); request logging records
+  errors on skipped paths; the audit writer rejects submits after shutdown.
+
 ### Changed
 
 - **License: MIT → GNU AGPL-3.0.** SFPanel is now licensed under the AGPL-3.0
@@ -20,6 +63,8 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
   (full translation) with a 한국어 · English toggle on both files; refreshed the
   Korean README intro (value-prop summary) and the feature table (90+ app store,
   cron run logs, 10,000-line terminal scrollback, mobile/PWA).
+- **CI: `cmd/` tests now run, and the Playwright e2e suite was revived** (port and
+  CSRF fixes) with a single-node smoke job.
 
 ---
 
