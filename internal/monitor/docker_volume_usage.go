@@ -99,4 +99,24 @@ func measureVolumeUsageOnce(db *sql.DB, cmd exec.Commander, lister VolumeListerF
 			slog.Warn("volume usage: db write failed", "volume", v.Name, "error", err)
 		}
 	}
+
+	// Prune rows for volumes that no longer exist so the cache tracks the
+	// current volume set rather than every volume ever measured (otherwise a
+	// host that churns ephemeral volumes grows this table unbounded). Guarded
+	// on a non-empty list so a transient list/du failure — which yields zero
+	// volumes — can't wipe the cache; stale rows clear on the next populated
+	// tick. Volumes skipped this tick (non-local driver, du failure) stay in
+	// `volumes` so they are retained.
+	if len(volumes) > 0 {
+		names := make([]any, 0, len(volumes))
+		placeholders := make([]string, 0, len(volumes))
+		for _, v := range volumes {
+			names = append(names, v.Name)
+			placeholders = append(placeholders, "?")
+		}
+		query := `DELETE FROM docker_volume_usage WHERE volume_name NOT IN (` + strings.Join(placeholders, ",") + `)`
+		if _, err := db.Exec(query, names...); err != nil {
+			slog.Warn("volume usage: stale-row prune failed", "error", err)
+		}
+	}
 }

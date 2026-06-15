@@ -487,23 +487,28 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		return nil
 	}
 
-	// Force WAL pages back into the main DB file so the .bak we're about
-	// to write is a complete snapshot. Without this the live process's
-	// pending writes would still live in sfpanel.db-wal, and rolling
-	// back to .bak would silently drop them.
-	if h.DB != nil {
-		// Abort rather than proceed with a stale snapshot: if the WAL can't be
-		// folded into the main DB file, the .bak would miss the live process's
-		// pending writes and a rollback to it would silently lose committed
-		// data. The DB uses MaxOpenConns=1 so a TRUNCATE checkpoint failing
-		// here is rare; refusing the update is the safe response.
-		if cpErr := sfdb.CheckpointWAL(h.DB); cpErr != nil {
-			sendEvent("error", fmt.Sprintf("DB WAL checkpoint failed; aborting update to avoid an inconsistent backup: %v", cpErr))
-			return nil
-		}
+	// Snapshot the DB with VACUUM INTO (transactionally consistent) rather
+	// than a plain copy of the live WAL-mode file. Background writers (audit
+	// queue, metrics collector, retention pruners) stay active during the
+	// update, so a plain post-checkpoint copy could still miss a commit that
+	// landed in the -wal sidecar between the checkpoint and the read. This
+	// .bak is what the update watchdog restores on a failed upgrade, so its
+	// consistency matters; abort rather than proceed with a torn/stale one.
+	// (Nil DB — unit tests — degrades to copying the raw file.)
+	snapPath, cleanupSnap, snapErr := snapshotDBForBackup(h.DB, h.DBPath)
+	if snapErr != nil {
+		sendEvent("error", fmt.Sprintf("DB snapshot failed; aborting update to avoid an inconsistent backup: %v", snapErr))
+		return nil
 	}
-	if data, readErr := os.ReadFile(h.DBPath); readErr == nil {
-		_ = os.WriteFile(h.DBPath+".bak", data, 0600)
+	dbBak, readErr := os.ReadFile(snapPath)
+	cleanupSnap()
+	if readErr != nil {
+		sendEvent("error", fmt.Sprintf("Failed to read DB snapshot: %v", readErr))
+		return nil
+	}
+	if wErr := os.WriteFile(h.DBPath+".bak", dbBak, 0600); wErr != nil {
+		sendEvent("error", fmt.Sprintf("Failed to write DB backup: %v", wErr))
+		return nil
 	}
 	if data, readErr := os.ReadFile(h.ConfigPath); readErr == nil {
 		_ = os.WriteFile(h.ConfigPath+".bak", data, 0600)
