@@ -33,15 +33,15 @@ func clusterErrResponse(c echo.Context, err error) error {
 	case errors.Is(err, cluster.ErrNotLeader):
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "This node is not the cluster leader")
 	case errors.Is(err, cluster.ErrNodeNotFound):
-		return response.Fail(c, http.StatusNotFound, response.ErrInternalError, "Node not found")
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Node not found")
 	case errors.Is(err, cluster.ErrSelfRemove):
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cannot remove self from cluster")
 	case errors.Is(err, cluster.ErrNodeAlreadyExists):
-		return response.Fail(c, http.StatusConflict, response.ErrInvalidRequest, "Node already exists")
+		return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, "Node already exists")
 	case errors.Is(err, cluster.ErrMaxNodesReached):
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Maximum node count reached")
 	case errors.Is(err, cluster.ErrTokenNotFound), errors.Is(err, cluster.ErrTokenExpired), errors.Is(err, cluster.ErrTokenUsed):
-		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidRequest, err.Error())
+		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidToken, err.Error())
 	default:
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
 	}

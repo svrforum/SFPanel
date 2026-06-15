@@ -1,5 +1,18 @@
 package response
 
+// Error codes are coarse, stable categories that the frontend keys its i18n
+// messages off of. Two rules govern them:
+//
+//  1. Code string values MUST be unique (enforced by TestErrorCodeValuesUnique
+//     in errors_test.go) — a duplicate would make two failure modes
+//     indistinguishable to the UI and to audit/log filters.
+//  2. The HTTP status is the CALLER's choice, passed to response.Fail per call
+//     site. A single code can legitimately map to several statuses depending
+//     on context (e.g. ErrInvalidRequest → 400 normally, 409 on a conflict).
+//     There is intentionally no central code→status table; pick the status
+//     that fits the failure, and reuse an existing code rather than minting a
+//     near-duplicate.
+
 // Common error codes
 const (
 	ErrInvalidRequest  = "INVALID_REQUEST"
