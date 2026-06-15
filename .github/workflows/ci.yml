@@ -55,6 +55,15 @@ jobs:
           # on the v6 action resolved to a v1.x binary built with Go 1.24,
           # which refused to load against go.mod's go 1.25.0 directive.
           version: v2.12.1
+      - name: errcheck (scoped — security/state packages)
+        # errcheck stays off in the main config (best-effort `_ =` is heavy
+        # repo-wide), but dropped errors on state-mutating calls in the
+        # cluster/api/auth/db packages are a correctness/security risk, so
+        # run errcheck against just those with a dedicated config.
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.1
+          args: -c .golangci-errcheck.yml ./internal/cluster/... ./internal/api/... ./internal/feature/auth/... ./internal/db/...
 
   go-build:
     runs-on: ubuntu-latest

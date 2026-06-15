@@ -1,4 +1,4 @@
-.PHONY: build dev dev-api dev-web lint clean ci appstore-catalog test test-coverage stub-dist
+.PHONY: build dev dev-api dev-web lint lint-errcheck clean ci appstore-catalog test test-coverage stub-dist
 
 # Version metadata is injected via ldflags so `make build` matches the artifact
 # that goreleaser ships in CI. Without this the local binary always reported
@@ -27,9 +27,15 @@ dev-web:
 	cd web && npm run dev
 
 # 린트
-lint:
+lint: lint-errcheck
 	golangci-lint run ./...
 	cd web && npm run lint
+
+# 스코프드 errcheck — 보안·상태 변경에 민감한 패키지에서만 누락 에러를 잡는다.
+# 전역 errcheck는 best-effort `_ =` 관용구가 많아 노이즈가 크므로 .golangci.yml
+# 에선 꺼두고, 여기서만 별도 설정(.golangci-errcheck.yml)으로 돌린다.
+lint-errcheck:
+	golangci-lint run -c .golangci-errcheck.yml ./internal/cluster/... ./internal/api/... ./internal/feature/auth/... ./internal/db/...
 
 # 정리
 clean:

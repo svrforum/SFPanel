@@ -164,7 +164,7 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr string) (*JoinResu
 		return nil, fmt.Errorf("failed to save CA cert: %w", err)
 	}
 	if err := tlsMgr.SaveNodeCert(resp.NodeCert, resp.NodeKey); err != nil {
-		os.RemoveAll(certDir)
+		_ = os.RemoveAll(certDir) // best-effort cleanup; the save error below is authoritative
 		return nil, fmt.Errorf("failed to save node cert: %w", err)
 	}
 
@@ -237,9 +237,18 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr string) (*JoinResu
 
 // rollbackJoin cleans up certs and restores original config on failure.
 func (e *JoinEngine) rollbackJoin(certDir string, originalConfig []byte) {
-	os.RemoveAll(certDir)
+	if err := os.RemoveAll(certDir); err != nil {
+		slog.Warn("join rollback: failed to remove cert dir",
+			"component", "cluster", "dir", certDir, "error", err)
+	}
 	if e.ConfigPath != "" && originalConfig != nil {
-		os.WriteFile(e.ConfigPath, originalConfig, 0600)
+		// Restoring the original config is the load-bearing step: a silent
+		// failure here leaves a half-written cluster config that would make
+		// the node try to join on next boot. Surface it loudly.
+		if err := os.WriteFile(e.ConfigPath, originalConfig, 0600); err != nil {
+			slog.Error("join rollback: FAILED to restore original config — manual recovery may be required",
+				"component", "cluster", "path", e.ConfigPath, "error", err)
+		}
 	}
 	e.Config.Cluster.Enabled = false
 	slog.Warn("join rolled back", "component", "cluster")

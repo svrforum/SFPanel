@@ -1,0 +1,28 @@
+# Scoped errcheck pass — run separately from the main lint config
+# (`.golangci.yml`, where errcheck stays off repo-wide). This catches
+# DROPPED errors on state-mutating calls (file writes/renames, DB commits,
+# Raft applies) in the security- and state-sensitive packages, where a
+# silent failure is a correctness/security risk. Invoked via
+# `make lint-errcheck` against internal/cluster, internal/api,
+# internal/feature/auth, internal/db only.
+#
+# Best-effort I/O calls (closing readers/conns/listeners, setting WS
+# deadlines, writing to an already-failing stream) are idiomatically left
+# unchecked and are excluded by text below so the pass stays signal, not noise.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+  exclusions:
+    rules:
+      - linters: [errcheck]
+        text: 'Error return value of `.*\.(Close|Cancel|Shutdown|Rollback|SetReadDeadline|SetWriteDeadline|WriteMessage)` is not checked'
+      - linters: [errcheck]
+        text: 'Error return value of `(fmt\.Fprint|fmt\.Fprintf|.*\.Write)` is not checked'
+      - path: _test\.go
+        linters: [errcheck]

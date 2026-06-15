@@ -311,7 +311,7 @@ func (tm *TokenManager) saveLocked() error {
 		return fmt.Errorf("write token file: %w", err)
 	}
 	if err := os.Rename(tmpPath, tm.path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath) // best-effort cleanup of the temp file; the rename error is authoritative
 		return fmt.Errorf("rename token file: %w", err)
 	}
 	return nil
