@@ -99,6 +99,14 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 				Address:  raft.ServerAddress(p.Address),
 			})
 		}
+		// Validate before rewriting the Raft configuration. RecoverCluster
+		// bypasses consensus, so a typo'd or truncated peers.json would
+		// silently install a broken configuration that the next boot can't
+		// recover from. Refuse (leaving peers.json in place for the operator
+		// to fix) rather than apply a malformed recovery.
+		if vErr := validateRecoveryServers(servers, cfg.NodeID); vErr != nil {
+			return nil, vErr
+		}
 		slog.Warn("Raft peers.json detected — running RecoverCluster",
 			"component", "cluster", "peer_count", len(servers))
 		if recErr := raft.RecoverCluster(raftCfg, fsm, logStore, stableStore, snapshotStore, transport,
@@ -146,6 +154,31 @@ func NewRaftNode(cfg RaftConfig) (*RaftNode, error) {
 	slog.Info("Raft node started", "component", "cluster", "id", cfg.NodeID, "addr", cfg.BindAddr, "bootstrap", cfg.Bootstrap)
 
 	return &RaftNode{raft: r, fsm: fsm}, nil
+}
+
+// validateRecoveryServers sanity-checks a peers.json-derived server set
+// before it is handed to raft.RecoverCluster (which bypasses consensus).
+// It requires a non-empty set that includes the local node, with every
+// address parseable as host:port. A malformed set is rejected so the
+// operator's mistake surfaces as a boot error instead of an unrecoverable
+// Raft configuration.
+func validateRecoveryServers(servers []raft.Server, localID string) error {
+	if len(servers) == 0 {
+		return fmt.Errorf("peers.json: empty server list")
+	}
+	selfPresent := false
+	for _, s := range servers {
+		if string(s.ID) == localID {
+			selfPresent = true
+		}
+		if _, _, err := net.SplitHostPort(string(s.Address)); err != nil {
+			return fmt.Errorf("peers.json: invalid address %q for node %q: %w", s.Address, s.ID, err)
+		}
+	}
+	if !selfPresent {
+		return fmt.Errorf("peers.json: local node %q absent from server list — refusing to recover into a configuration that excludes this node", localID)
+	}
+	return nil
 }
 
 // Apply submits a command to the Raft cluster.

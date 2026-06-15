@@ -355,11 +355,21 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 		}, nil
 	}
 
-	// Copy headers from the inbound gRPC request, but skip the trust-laden
-	// keys — those are set explicitly below from this node's secrets, not
-	// from what a (potentially compromised) peer claimed. Without this
-	// filter a misbehaving peer could inject X-SFPanel-Original-User to
-	// impersonate any user.
+	// Copy headers from the inbound gRPC request, but skip the auth
+	// credentials: Authorization and the internal-proxy secrets are set
+	// fresh below from THIS node's secrets, never trusted from the peer.
+	//
+	// X-SFPanel-Original-User / X-SFPanel-Original-Node are deliberately NOT
+	// skipped. They carry the identity the *forwarding* node already
+	// authenticated (proxy.go re-sets Original-User from its JWT-validated
+	// c.Get("username")), and the loopback handler consumes them for audit
+	// attribution. Trust here rests on two facts: this RPC is gated on a
+	// verified cluster-CA client cert (requireClientCertInterceptor), and
+	// every member already shares the JWT signing secret — a malicious
+	// member could forge any identity by minting a JWT directly, so
+	// stripping these headers would buy no security while collapsing every
+	// cross-node forwarded action to "admin" in the audit log. Do NOT add
+	// them to this skip list. (See cluster/CLAUDE.md "Header copy".)
 	for k, v := range req.Headers {
 		switch http.CanonicalHeaderKey(k) {
 		case "Authorization", "X-Sfpanel-Internal-Proxy",
