@@ -33,11 +33,27 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import type { AppStoreAppDetail } from '@/types/api'
 
+// escapeHtmlAttr escapes a value for safe interpolation into an HTML attribute
+// (here: untrusted-README URLs). The rendered HTML is always run through
+// DOMPurify before it touches the DOM (see RenderedReadme), so this is
+// defense-in-depth: it keeps these string builders safe against
+// attribute-breakout even if a future refactor moves or relaxes that sanitize
+// step. Only URLs are escaped — link/image *text* may legitimately carry
+// already-rendered inline HTML, so it is left for DOMPurify to clean.
+function escapeHtmlAttr(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
 // Convert inline markdown (bold, links) to HTML
 function inlineMarkdownToHtml(text: string): string {
   return text
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="underline">$1</a>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label: string, href: string) =>
+      `<a href="${escapeHtmlAttr(href)}" target="_blank" rel="noopener noreferrer" class="underline">${label}</a>`)
 }
 
 // Convert GitHub Alert syntax to styled HTML
@@ -88,24 +104,28 @@ function createMarked(baseUrl?: string): Marked {
     gfm: true,
     breaks: false,
     renderer: {
+      // src/href are escaped at interpolation (escapeHtmlAttr); alt/text are
+      // left for DOMPurify since they may carry rendered inline HTML. Output
+      // always passes through DOMPurify in RenderedReadme before the DOM.
       image({ href, text }: { href: string; text: string }) {
         const src = transformUrl(href, baseUrl)
+        const safeSrc = escapeHtmlAttr(src)
         const isBadge = src && (
           src.includes('shields.io') || src.includes('img.shields') ||
           src.includes('badge') || src.includes('contrib.rocks') ||
           src.includes('repobeats') || src.includes('star-history')
         )
         if (isBadge) {
-          return `<img src="${src}" alt="${text}" class="inline-block h-5 my-0.5 mr-1 rounded-none" />`
+          return `<img src="${safeSrc}" alt="${text}" class="inline-block h-5 my-0.5 mr-1 rounded-none" />`
         }
         const isLogo = (src && (src.endsWith('.svg') || src.includes('logo'))) ||
           (text && text.toLowerCase().includes('logo'))
         const maxH = isLogo ? 'max-h-20' : 'max-h-64'
-        return `<img src="${src}" alt="${text}" class="max-w-full h-auto rounded-lg ${maxH}" />`
+        return `<img src="${safeSrc}" alt="${text}" class="max-w-full h-auto rounded-lg ${maxH}" />`
       },
       link({ href, text }: { href: string; text: string }) {
         const url = transformUrl(href, baseUrl)
-        return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`
+        return `<a href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener noreferrer">${text}</a>`
       },
     },
   })

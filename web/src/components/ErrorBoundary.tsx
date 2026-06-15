@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react'
 import React from 'react'
+import { LANGUAGE_KEY } from '../i18n'
 
 interface Props {
     children: ReactNode
@@ -8,6 +9,33 @@ interface Props {
 interface State {
     hasError: boolean
     error: Error | null
+}
+
+// The boundary renders outside the i18n React context (a crashed tree can't
+// use useTranslation), so replicate the detector's resolution manually:
+// stored preference first, then the browser language, defaulting to English
+// (i18n fallbackLng). Without this the crash screen was hardcoded Korean for
+// every user.
+function crashCopy(): { title: string; body: string; reload: string } {
+    let lng = ''
+    try {
+        lng = localStorage.getItem(LANGUAGE_KEY) || navigator.language || ''
+    } catch {
+        // localStorage can throw (privacy mode / disabled storage); the empty
+        // default below resolves to English (i18n fallbackLng).
+    }
+    if (lng.toLowerCase().startsWith('ko')) {
+        return {
+            title: '오류가 발생했습니다',
+            body: '예상치 못한 오류가 발생했습니다. 페이지를 새로고침해 주세요.',
+            reload: '새로고침',
+        }
+    }
+    return {
+        title: 'Something went wrong',
+        body: 'An unexpected error occurred. Please refresh the page.',
+        reload: 'Refresh',
+    }
 }
 
 // isChunkLoadError detects a failed dynamic import — the symptom of an
@@ -47,18 +75,17 @@ export class ErrorBoundary extends Component<Props, State> {
 
     render() {
         if (this.state.hasError) {
+            const copy = crashCopy()
             return (
                 <div className="flex items-center justify-center min-h-screen bg-background">
                     <div className="text-center p-8 max-w-md">
-                        <h1 className="text-2xl font-bold mb-4">오류가 발생했습니다</h1>
-                        <p className="text-muted-foreground mb-6">
-                            예상치 못한 오류가 발생했습니다. 페이지를 새로고침해 주세요.
-                        </p>
+                        <h1 className="text-2xl font-bold mb-4">{copy.title}</h1>
+                        <p className="text-muted-foreground mb-6">{copy.body}</p>
                         <button
                             onClick={() => window.location.reload()}
                             className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
                         >
-                            새로고침
+                            {copy.reload}
                         </button>
                     </div>
                 </div>
