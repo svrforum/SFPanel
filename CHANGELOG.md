@@ -10,6 +10,74 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.44.0] – 2026-06-15
+
+Post-v0.43.0 audit follow-ups. A multi-agent review of the whole tree, with
+every high/medium finding adversarially re-verified against the code before
+acting — two flagged items (a cluster "impersonation" gap and an error-code
+"status drift") were investigated and deliberately *not* changed because the
+recommended fixes were wrong for this codebase.
+
+### Security
+
+- **Cluster: `peers.json` recovery is validated.** `raft.RecoverCluster`
+  bypasses consensus, so a typo'd, empty, or self-excluding `peers.json` could
+  silently install an unrecoverable Raft configuration. It is now rejected at
+  boot (non-empty server set that includes the local node, with parseable
+  host:port addresses) instead of applied. Also documented why `ProxyRequest`
+  intentionally preserves the `X-SFPanel-Original-User` header: it carries the
+  forwarding node's already-authenticated identity for audit attribution, the
+  RPC is gated on a verified cluster-CA client cert, and every member already
+  shares the JWT secret — so stripping it would break cross-node audit
+  attribution without closing any real gap.
+- **App Store: fail closed on weak secrets.** Auto-generated stack secrets now
+  abort the install if `crypto/rand` fails, instead of writing a predictable
+  zero-derived password into the stack `.env`.
+- **Uniform SSE sanitization** across the packages / app-store / system-update
+  install streams, so error and status lines built from raw Go errors can't
+  leak ANSI escapes or secret patterns.
+
+### Fixed
+
+- **Pre-update rollback backup is consistent.** The `.bak` taken before a
+  binary update now uses `VACUUM INTO` instead of a plain copy of the live
+  WAL-mode DB, so a commit from a still-active background writer can't leave
+  the watchdog's rollback target stale.
+- **App Store install reports pull failures directly** — it checks the
+  `docker compose pull` exit code instead of failing later at `up -d` with a
+  vaguer error.
+- **Volume-usage cache no longer grows unbounded** — rows for volumes that no
+  longer exist are pruned each tick (guarded so a transient list failure can't
+  wipe the cache).
+- **Cluster API error codes now match their HTTP status** — node-not-found →
+  `NOT_FOUND`, node-already-exists → `ALREADY_EXISTS`, token errors →
+  `INVALID_TOKEN` (were generic `INTERNAL_ERROR` / `INVALID_REQUEST`).
+- **Crash screen is localized** (was hardcoded Korean — it renders outside the
+  i18n context) and the app-store README renderer defensively escapes
+  interpolated URLs.
+
+### Changed
+
+- **Scoped `errcheck` in CI** for the security/state packages
+  (`cluster`/`api`/`auth`/`db`) via a dedicated config + `make lint-errcheck`,
+  catching dropped errors on state-mutating calls — the cluster-join rollback
+  now logs a failed config restore loudly instead of swallowing it. Repo-wide
+  `errcheck` stays off (best-effort `_ =` is idiomatic there).
+- Error-code string uniqueness is enforced by a test; the SPA and
+  trusted-proxy helpers were extracted out of `router.go` (690 → 601 lines);
+  UFW-parse regexes are hoisted to package level.
+
+### Tests / Docs
+
+- The systemd-migration test stubs `daemon-reload` (no real `systemctl`; the
+  package dropped from a ~25s outlier to ~0s) and asserts the reload is
+  issued; the app-store catalog test now fails instead of skipping when its
+  tracked in-repo fixture is missing. `docs/specs/db-schema.md` is refreshed
+  for the current connection pool (`MaxOpenConns=4`) and the
+  `schema_migrations`-tracked migration model (35 steps).
+
+---
+
 ## [0.43.0] – 2026-06-11
 
 ### Security
