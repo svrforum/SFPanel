@@ -3,12 +3,7 @@ package api
 import (
 	"database/sql"
 	"embed"
-	"io"
-	"io/fs"
 	"log/slog"
-	"net"
-	"net/http"
-	"strings"
 
 	"github.com/labstack/echo/v4"
 	echoMw "github.com/labstack/echo/v4/middleware"
@@ -43,9 +38,11 @@ import (
 )
 
 // NewRouter wires the HTTP server and returns both the Echo instance and a
-// cleanup function. The cleanup function must be called by the caller during
-// graceful shutdown to stop background goroutines (e.g. the alert manager)
-// before the DB is closed.
+// cleanup function. The cleanup function is currently a no-op (see
+// noopCleanup): all background workers are owned and torn down by
+// cmd/sfpanel via the shared bgCtx, not by the router. It is still returned
+// and called during graceful shutdown so the sequence stays stable if
+// router-owned teardown is ever reintroduced.
 //
 // auditWriter is the shared *db.AsyncWriter used by the audit middleware and
 // auth security-events to serialise INSERTs onto one background drain.
@@ -592,99 +589,13 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	// SPA static file serving — catch-all AFTER all API and WS routes
 	e.GET("/*", spaHandler(webFS))
 
-	cleanup := func() {}
-	return e, cleanup
+	return e, noopCleanup
 }
 
-// spaHandler serves the embedded React SPA with fallback to index.html
-// for client-side routing. API (/api/*) and WebSocket (/ws/*) routes are
-// registered before this catch-all so they take precedence.
-func spaHandler(fsys fs.FS) echo.HandlerFunc {
-	subFS, err := fs.Sub(fsys, "web/dist")
-	if err != nil {
-		slog.Error("failed to create sub-filesystem for embedded SPA", "error", err)
-		panic("embedded SPA filesystem unavailable")
-	}
-	fileServer := http.FileServer(http.FS(subFS))
-
-	return func(c echo.Context) error {
-		path := c.Request().URL.Path
-
-		// Strip leading slash and try to open the file
-		cleanPath := strings.TrimPrefix(path, "/")
-		if cleanPath == "" {
-			cleanPath = "index.html"
-		}
-
-		f, err := subFS.Open(cleanPath)
-		if err != nil {
-			// A request for a concrete build asset that doesn't exist must 404,
-			// NOT fall back to index.html. Returning text/html for a missing
-			// .js chunk trips the browser's strict MIME check and — after an
-			// upgrade leaves a client referencing old chunk hashes — bricks the
-			// whole SPA. Only extensionless paths are client-side routes.
-			if isStaticAssetPath(cleanPath) {
-				return c.String(http.StatusNotFound, "not found")
-			}
-			// SPA client-side route → serve index.html, marked no-cache so a
-			// panel upgrade takes effect on the next load instead of a stale
-			// shell pointing at chunk hashes that no longer exist.
-			index, indexErr := subFS.Open("index.html")
-			if indexErr != nil {
-				return c.String(http.StatusNotFound, "index.html not found")
-			}
-			defer index.Close()
-			content, readErr := io.ReadAll(index)
-			if readErr != nil {
-				return c.String(http.StatusInternalServerError, "failed to read index.html")
-			}
-			c.Response().Header().Set("Cache-Control", "no-cache")
-			return c.HTMLBlob(http.StatusOK, content)
-		}
-		f.Close()
-
-		// index.html must always revalidate; hashed build assets are immutable.
-		switch {
-		case cleanPath == "index.html":
-			c.Response().Header().Set("Cache-Control", "no-cache")
-		case strings.HasPrefix(cleanPath, "assets/"):
-			c.Response().Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		}
-
-		// Serve the actual file
-		fileServer.ServeHTTP(c.Response(), c.Request())
-		return nil
-	}
-}
-
-// isStaticAssetPath reports whether p names a concrete build asset (its last
-// segment has a file extension, e.g. "assets/x.js", "favicon.ico") rather than
-// a client-side SPA route ("docker", "disk/overview"). Missing assets get a
-// 404; missing routes fall back to index.html.
-func isStaticAssetPath(p string) bool {
-	base := p
-	if i := strings.LastIndexByte(p, '/'); i >= 0 {
-		base = p[i+1:]
-	}
-	return strings.Contains(base, ".")
-}
-
-// parseCIDROrIP turns a single IP ("10.0.0.5") or CIDR ("10.0.0.0/8") string
-// into a *net.IPNet. Bare IPs are widened to a /32 (IPv4) or /128 (IPv6)
-// network so the trusted-proxy match logic can use a single Contains check.
-func parseCIDROrIP(s string) (string, *net.IPNet, error) {
-	s = strings.TrimSpace(s)
-	if strings.Contains(s, "/") {
-		_, ipnet, err := net.ParseCIDR(s)
-		return s, ipnet, err
-	}
-	ip := net.ParseIP(s)
-	if ip == nil {
-		return s, nil, &net.ParseError{Type: "IP address", Text: s}
-	}
-	mask := net.CIDRMask(32, 32)
-	if ip.To4() == nil {
-		mask = net.CIDRMask(128, 128)
-	}
-	return s, &net.IPNet{IP: ip, Mask: mask}, nil
-}
+// noopCleanup is returned by NewRouter as its cleanup func. It currently does
+// nothing: every background worker (alert manager, metrics/audit drains,
+// retention pruners) is owned by cmd/sfpanel and stopped via the shared
+// bgCtx cancel during shutdown, not here. It is kept so the call site's
+// shutdown sequence stays stable if router-owned teardown is ever needed
+// again — add it here rather than reintroducing a new return value.
+func noopCleanup() {}
