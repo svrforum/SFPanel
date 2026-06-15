@@ -2,7 +2,7 @@
 
 > 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/db-inventory.md`
 >
-> **이 문서의 테이블별 컬럼 정의는 v0.9.0 시점**입니다. v0.10.0 이후 추가/변경된 항목은 `internal/db/migrations.go`(ID 8–26)와 본 문서 하단 § 마이그레이션 이력의 "v4 이후" 단락을 참조하세요. 권한 있는 출처는 코드입니다.
+> **이 문서의 테이블별 컬럼 정의는 v0.9.0 시점**입니다. v0.10.0 이후 추가/변경된 항목은 `internal/db/migrations.go`(현재 ID 8–35)와 본 문서 하단 § 마이그레이션 이력의 "v4 이후" 단락을 참조하세요. 권한 있는 출처는 코드입니다.
 
 ## 개요
 
@@ -15,8 +15,8 @@
   - `synchronous(NORMAL)` — 성능·안정성 균형
   - `mmap_size(268435456)` — 메모리 매핑 256MB
   - `cache_size(-8000)` — 페이지 캐시 8MB
-- **연결 풀**: `db.SetMaxOpenConns(1)` — SQLite 단일 연결 정책 (쓰기 경합 최소화)
-- **마이그레이션 방식**: `db.Open()` 호출 시 `RunMigrations()` 자동 실행. 모든 DDL에 `CREATE TABLE IF NOT EXISTS` 사용하여 멱등성(idempotent) 보장. 별도의 마이그레이션 버전 추적 테이블 없이 순차적으로 실행. `ALTER TABLE ADD COLUMN`의 "duplicate column" 에러는 무시 (재실행 안전).
+- **연결 풀**: `db.SetMaxOpenConns(4)` — WAL 모드에서 다중 reader가 단일 writer와 병행하도록 4 커넥션 허용 (구버전의 단일 연결 정책에서 확대).
+- **마이그레이션 방식**: `db.Open()` 호출 시 `RunMigrations()` 자동 실행. 적용된 각 마이그레이션 ID를 `schema_migrations` 테이블에 기록해 재실행 시 이미 적용된 작업을 건너뜀(멱등). 사전 버전 추적이 없던 호스트는 boot 시 기존 객체를 "적용됨"으로 backfill. 각 마이그레이션은 개별 트랜잭션으로 실행된다.
 
 ### 소스 파일
 
@@ -282,7 +282,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 
 ## 마이그레이션 이력
 
-마이그레이션은 `internal/db/migrations.go`의 `migrations` 슬라이스에 DDL 문이 순서대로 정의됨. 별도의 버전 추적 메커니즘 없이 `CREATE TABLE IF NOT EXISTS`로 멱등성 보장.
+마이그레이션은 `internal/db/migrations.go`의 `migrations` 슬라이스에 DDL 문이 순서대로(ID 1–35) 정의됨. 적용된 ID는 `schema_migrations` 테이블에 기록되어 재실행 시 건너뜀(append-only — 출시된 마이그레이션은 절대 재번호/수정하지 않음).
 
 ### v1: 초기 스키마
 
@@ -308,7 +308,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - `alert_history` 테이블 생성 (알림 발송 이력)
 - `idx_alert_history_created_at` 인덱스 생성
 
-### v4 이후 (migrations.go ID 8 – 26, v0.11.x – v0.13.2)
+### v4 이후 (migrations.go ID 8 – 35, v0.11.x – v0.43.x)
 
 권한 있는 출처는 `internal/db/migrations.go`. 본 단락은 변경 이력 요약입니다.
 
@@ -320,6 +320,12 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - **ID 20** — `docker_volume_usage` (Theme B Phase 1: 볼륨×디스크 사용량 캐시)
 - **ID 21–23** — `image_signatures` 테이블 + 2개 인덱스. **데드 스키마**: v0.13.0에서 Cosign 이미지 검증 기능을 제거했지만, append-only 마이그레이션 정책에 따라 테이블은 그대로 유지. 읽기/쓰기 모두 없음. 새로운 검증 계열 기능을 추가할 경우 별도 테이블을 사용할 것.
 - **ID 24–26** — `refresh_tokens.family_id TEXT NOT NULL DEFAULT ''` + `refresh_tokens.consumed_at DATETIME` + `idx_refresh_tokens_family` 인덱스 (v0.13.2 OWASP 토큰 재사용 탐지). `family_id`는 로그인마다 발급되는 32-hex 식별자로 한 체인 안의 회전을 묶음. `consumed_at`은 소비된 토큰의 tombstone 타임스탬프 — `Refresh` 핸들러가 tombstone에 대한 재사용을 보면 같은 `family_id`의 모든 토큰을 삭제(전 세션 무효화). 24시간이 지난 tombstone은 `pruneRefreshTokens`가 자동 정리.
+- **ID 27** — `audit_logs.protected INTEGER NOT NULL DEFAULT 0`. 보호 표시된 행(`protected = 1`)은 운영자가 감사 로그를 비울 때도 보존 — 보존 pruner와 수동 clear 모두 `WHERE protected = 0`으로 범위를 한정.
+- **ID 28–29** — `audit_logs` 인덱스 보강: `(username, created_at DESC)`(사용자별 필터)와 `(protected, created_at)`(보호 행 보존 쿼리).
+- **ID 30–31** — `container_metrics_history(ts)`, `alert_history(rule_id, created_at DESC)` 인덱스 (보존 정리·규칙별 조회 가속).
+- **ID 32** — `metrics_history.disk_percent REAL NOT NULL DEFAULT 0`. 메트릭 히스토리에 디스크 사용률 열 추가.
+- **ID 33–34** — `backup_schedule` 테이블 + 기본 행(`id=1`, `enabled=0`, `interval_hours=24`, `retention=7`). 단일 행으로 예약 백업 설정을 보관.
+- **ID 35** — `admin.recovery_codes TEXT`. 2FA 복구 코드(단일 사용, 해시 저장)를 admin 행에 보관.
 
 ---
 
@@ -462,7 +468,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 ## 참고사항
 
 - **WAL 모드**: 연결 시 DSN에서 `journal_mode(WAL)`을 지정하고, `Open()` 직후 `PRAGMA journal_mode;`로 실제 모드를 검증. `wal`이 아니면 명시적 `PRAGMA journal_mode=WAL`로 재설정 후 실패 시 에러 반환. 따라서 정상 시동된 프로세스는 항상 WAL 모드로 동작.
-- **동시성**: `busy_timeout(5000)`으로 5초간 잠금 대기 + `SetMaxOpenConns(1)`로 단일 쓰기 경합. 읽기는 WAL 덕분에 쓰기와 병행 가능.
+- **동시성**: `busy_timeout(5000)`으로 5초간 잠금 대기 + `SetMaxOpenConns(4)`. WAL 모드라 다수 reader가 단일 writer와 병행 가능하며, 잠긴 동안의 쓰기는 busy_timeout으로 직렬화.
 - **AUTOINCREMENT vs ROWID**: 모든 id 컬럼에 `AUTOINCREMENT` 사용. SQLite에서 AUTOINCREMENT는 id 재사용을 방지하여 삭제된 행의 id가 재할당되지 않음을 보장.
 - **시간대**: 모든 DATETIME 컬럼은 `CURRENT_TIMESTAMP` (UTC) 기준. 클라이언트에서 로컬 시간으로 변환.
 - **비밀번호 보안**: `admin.password`는 bcrypt 해시로 저장 (`auth.HashPassword` 사용).
