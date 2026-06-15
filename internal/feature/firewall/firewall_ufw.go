@@ -156,17 +156,22 @@ func (h *Handler) ListRules(c echo.Context) error {
 //	[ 1] 22/tcp                     ALLOW IN    Anywhere                   # SSH
 //	[ 2] 80/tcp                     ALLOW IN    Anywhere
 //	[ 3] 22/tcp (v6)                ALLOW IN    Anywhere (v6)              # SSH
+// UFW status-output parsing patterns, compiled once at package init rather
+// than per parse call / per line. ufwRuleRe matches the bracketed rule number
+// + details; ufwActionRe/ufwSimpleActionRe split To/Action/From.
+var (
+	ufwRuleRe         = regexp.MustCompile(`\[\s*(\d+)\]\s+(.+)`)
+	ufwActionRe       = regexp.MustCompile(`\s+(ALLOW|DENY|REJECT|LIMIT)\s+(IN|OUT|FWD)\s+`)
+	ufwSimpleActionRe = regexp.MustCompile(`\s+(ALLOW|DENY|REJECT|LIMIT)\s+`)
+)
+
 func parseUFWRules(output string) []UFWRule {
 	rules := make([]UFWRule, 0)
-
-	// Match lines like: [ 1] 22/tcp   ALLOW IN   Anywhere   # SSH
-	// The number is in brackets, followed by the rule details.
-	ruleRe := regexp.MustCompile(`\[\s*(\d+)\]\s+(.+)`)
 
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		matches := ruleRe.FindStringSubmatch(line)
+		matches := ufwRuleRe.FindStringSubmatch(line)
 		if matches == nil {
 			continue
 		}
@@ -193,8 +198,7 @@ func parseUFWRules(output string) []UFWRule {
 
 		// Parse: To   Action   From
 		// Action keywords: ALLOW IN, DENY IN, REJECT IN, LIMIT IN, ALLOW OUT, etc.
-		actionRe := regexp.MustCompile(`\s+(ALLOW|DENY|REJECT|LIMIT)\s+(IN|OUT|FWD)\s+`)
-		actionMatches := actionRe.FindStringSubmatchIndex(rest)
+		actionMatches := ufwActionRe.FindStringSubmatchIndex(rest)
 
 		if actionMatches != nil {
 			rule.To = strings.TrimSpace(rest[:actionMatches[0]])
@@ -202,8 +206,7 @@ func parseUFWRules(output string) []UFWRule {
 			rule.From = strings.TrimSpace(rest[actionMatches[1]:])
 		} else {
 			// Fallback: try simpler pattern without direction
-			simpleActionRe := regexp.MustCompile(`\s+(ALLOW|DENY|REJECT|LIMIT)\s+`)
-			simpleMatches := simpleActionRe.FindStringSubmatchIndex(rest)
+			simpleMatches := ufwSimpleActionRe.FindStringSubmatchIndex(rest)
 			if simpleMatches != nil {
 				rule.To = strings.TrimSpace(rest[:simpleMatches[0]])
 				rule.Action = strings.TrimSpace(rest[simpleMatches[2]:simpleMatches[3]])
