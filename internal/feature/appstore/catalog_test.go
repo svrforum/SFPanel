@@ -14,11 +14,14 @@ const catalogDir = "../../../appstore"
 // TestCatalogValid validates the repo's App Store catalog so that any
 // malformed contribution (bad JSON, missing files, unknown category,
 // orphaned app folder, invalid port/env definition) fails CI under
-// `go test ./...`. If the catalog directory is absent (e.g. a checkout
-// without it), the test skips rather than failing.
+// `go test ./...`. The catalog directory is tracked in-repo, so its absence
+// is a checkout/path regression and fails the test rather than skipping.
 func TestCatalogValid(t *testing.T) {
 	if _, err := os.Stat(catalogDir); os.IsNotExist(err) {
-		t.Skipf("catalog directory %s not present; skipping", catalogDir)
+		// appstore/ is tracked in-repo (196 files), so on any normal checkout
+		// it is present. Its absence means a path/checkout regression, not an
+		// environment limitation — fail loudly instead of silently passing.
+		t.Fatalf("catalog directory %s not present (expected in-repo)", catalogDir)
 	}
 
 	// --- categories.json ---
@@ -143,7 +146,10 @@ func TestCatalogValid(t *testing.T) {
 // `make appstore-catalog` and commit the regenerated bundle.
 func TestCatalogBundleUpToDate(t *testing.T) {
 	if _, err := os.Stat(catalogDir); os.IsNotExist(err) {
-		t.Skipf("catalog directory %s not present; skipping", catalogDir)
+		// appstore/ is tracked in-repo (196 files), so on any normal checkout
+		// it is present. Its absence means a path/checkout regression, not an
+		// environment limitation — fail loudly instead of silently passing.
+		t.Fatalf("catalog directory %s not present (expected in-repo)", catalogDir)
 	}
 	want, err := os.ReadFile(filepath.Join(catalogDir, "catalog.json"))
 	if err != nil {

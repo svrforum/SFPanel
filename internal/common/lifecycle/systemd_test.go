@@ -16,6 +16,19 @@ func withUnitPath(t *testing.T, p string) {
 	t.Cleanup(func() { unitPath = prev })
 }
 
+// stubDaemonReload replaces the real `systemctl daemon-reload` with a no-op
+// for the duration of a test and returns a pointer to a flag reporting
+// whether it was invoked. Without this, tests that trigger a migration block
+// on the real systemctl timeout when no systemd is running.
+func stubDaemonReload(t *testing.T) *bool {
+	t.Helper()
+	called := false
+	prev := daemonReload
+	daemonReload = func() error { called = true; return nil }
+	t.Cleanup(func() { daemonReload = prev })
+	return &called
+}
+
 func TestMigrateRestartPolicy_RewritesOnFailure(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sfpanel.service")
@@ -24,6 +37,7 @@ func TestMigrateRestartPolicy_RewritesOnFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	withUnitPath(t, path)
+	reloaded := stubDaemonReload(t)
 
 	migrated, err := MigrateRestartPolicy()
 	if err != nil {
@@ -31,6 +45,9 @@ func TestMigrateRestartPolicy_RewritesOnFailure(t *testing.T) {
 	}
 	if !migrated {
 		t.Fatal("expected migrated=true for Restart=on-failure unit")
+	}
+	if !*reloaded {
+		t.Error("expected daemon-reload to be issued after a successful migration")
 	}
 
 	got, err := os.ReadFile(path)

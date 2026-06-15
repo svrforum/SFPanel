@@ -19,6 +19,14 @@ var unitPath = "/etc/systemd/system/sfpanel.service"
 // directory.
 var systemdRuntimePath = "/run/systemd/system"
 
+// daemonReload runs `systemctl daemon-reload`. It's a var so tests can
+// substitute a no-op: the real command blocks for the systemctl timeout on
+// a host without a running systemd, which made the migration test a slow,
+// environment-dependent outlier.
+var daemonReload = func() error {
+	return exec.Command("systemctl", "daemon-reload").Run()
+}
+
 // IsSystemdActive reports whether the current host is being managed by
 // systemd (i.e. systemd is PID 1 and has set up its runtime directory).
 //
@@ -80,7 +88,7 @@ func MigrateRestartPolicy() (bool, error) {
 	// 1, etc.) the migrated unit still takes effect on next boot. We log
 	// the failure but don't propagate it because the file write — the part
 	// the caller cares about — already succeeded.
-	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
+	if err := daemonReload(); err != nil {
 		slog.Warn("systemd daemon-reload after unit migration failed", "error", err)
 	}
 	return true, nil
