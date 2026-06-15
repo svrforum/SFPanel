@@ -264,7 +264,9 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	flusher := c.Response()
 
 	sendEvent := func(step, message string) {
-		data, _ := json.Marshal(map[string]string{"step": step, "message": message})
+		// Sanitize centrally: the update flow forwards raw Go errors (e.g. from
+		// release-asset / checksum parsing) as event messages.
+		data, _ := json.Marshal(map[string]string{"step": step, "message": response.SanitizeOutput(message)})
 		fmt.Fprintf(flusher, "data: %s\n\n", data)
 		flusher.Flush()
 	}

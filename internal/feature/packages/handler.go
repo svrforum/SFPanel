@@ -224,7 +224,9 @@ func (h *Handler) UpgradePackages(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSSEError, "Streaming not supported")
 	}
 	sendLine := func(line string) {
-		fmt.Fprintf(c.Response(), "data: %s\n\n", line)
+		// Sanitize centrally so every SSE line — status, error, and streamed
+		// command output — is stripped of ANSI and secret patterns uniformly.
+		fmt.Fprintf(c.Response(), "data: %s\n\n", response.SanitizeOutput(line))
 		flusher.Flush()
 	}
 
@@ -542,7 +544,9 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 	}
 
 	sendLine := func(line string) {
-		fmt.Fprintf(c.Response(), "data: %s\n\n", line)
+		// Sanitize centrally so every SSE line — status, error, and streamed
+		// command output — is stripped of ANSI and secret patterns uniformly.
+		fmt.Fprintf(c.Response(), "data: %s\n\n", response.SanitizeOutput(line))
 		flusher.Flush()
 	}
 
@@ -686,7 +690,9 @@ func (h *Handler) InstallNode(c echo.Context) error {
 	}
 
 	sendLine := func(line string) {
-		fmt.Fprintf(c.Response(), "data: %s\n\n", line)
+		// Sanitize centrally so every SSE line — status, error, and streamed
+		// command output — is stripped of ANSI and secret patterns uniformly.
+		fmt.Fprintf(c.Response(), "data: %s\n\n", response.SanitizeOutput(line))
 		flusher.Flush()
 	}
 
@@ -976,7 +982,9 @@ func (h *Handler) InstallNodeVersion(c echo.Context) error {
 	}
 
 	sendLine := func(line string) {
-		fmt.Fprintf(c.Response(), "data: %s\n\n", line)
+		// Sanitize centrally so every SSE line — status, error, and streamed
+		// command output — is stripped of ANSI and secret patterns uniformly.
+		fmt.Fprintf(c.Response(), "data: %s\n\n", response.SanitizeOutput(line))
 		flusher.Flush()
 	}
 
@@ -1149,7 +1157,9 @@ func (h *Handler) InstallClaude(c echo.Context) error {
 	}
 
 	sendLine := func(line string) {
-		fmt.Fprintf(c.Response(), "data: %s\n\n", line)
+		// Sanitize centrally so every SSE line — status, error, and streamed
+		// command output — is stripped of ANSI and secret patterns uniformly.
+		fmt.Fprintf(c.Response(), "data: %s\n\n", response.SanitizeOutput(line))
 		flusher.Flush()
 	}
 
@@ -1254,7 +1264,9 @@ func (h *Handler) InstallCodex(c echo.Context) error {
 	}
 
 	sendLine := func(line string) {
-		fmt.Fprintf(c.Response(), "data: %s\n\n", line)
+		// Sanitize centrally so every SSE line — status, error, and streamed
+		// command output — is stripped of ANSI and secret patterns uniformly.
+		fmt.Fprintf(c.Response(), "data: %s\n\n", response.SanitizeOutput(line))
 		flusher.Flush()
 	}
 
@@ -1343,7 +1355,9 @@ func (h *Handler) InstallGemini(c echo.Context) error {
 	}
 
 	sendLine := func(line string) {
-		fmt.Fprintf(c.Response(), "data: %s\n\n", line)
+		// Sanitize centrally so every SSE line — status, error, and streamed
+		// command output — is stripped of ANSI and secret patterns uniformly.
+		fmt.Fprintf(c.Response(), "data: %s\n\n", response.SanitizeOutput(line))
 		flusher.Flush()
 	}
 

@@ -386,10 +386,17 @@ func (h *Handler) isInstalled(appID string) bool {
 	return true
 }
 
-func generatePassword(length int) string {
+// generatePassword returns a hex secret of the given length from crypto/rand.
+// It returns an error rather than silently falling back: ignoring a
+// crypto/rand failure would yield a zero-filled, attacker-predictable secret
+// (these values become DB root passwords etc. in the stack .env), so the
+// caller must abort the install instead of writing a weak credential.
+func generatePassword(length int) (string, error) {
 	b := make([]byte, length/2+1)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)[:length]
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate secret: %w", err)
+	}
+	return hex.EncodeToString(b)[:length], nil
 }
 
 // writeFileAtomic writes data to path via a temp file + rename so a crash
@@ -774,7 +781,9 @@ func (h *Handler) InstallApp(c echo.Context) error {
 
 	flusher, _ := w.Writer.(http.Flusher)
 	send := func(stage, message string, done, success bool) {
-		sendSSE(w, flusher, sseEvent{Stage: stage, Message: message, Done: done, Success: success})
+		// Sanitize centrally so error/status messages built from err.Error()
+		// can't leak ANSI or secret patterns into the SSE stream.
+		sendSSE(w, flusher, sseEvent{Stage: stage, Message: response.SanitizeOutput(message), Done: done, Success: success})
 	}
 
 	send("prepare", "Creating directory: "+stackDir, false, true)
@@ -854,7 +863,13 @@ func (h *Handler) InstallApp(c echo.Context) error {
 			if userVal, ok := req.Env[envDef.Key]; ok {
 				value = userVal
 			} else if envDef.Generate {
-				value = generatePassword(32)
+				gen, err := generatePassword(32)
+				if err != nil {
+					cleanup()
+					send("prepare", "Failed to generate secret for "+envDef.Key, true, false)
+					return nil
+				}
+				value = gen
 			} else if envDef.Default != "" {
 				value = envDef.Default
 			}
@@ -879,7 +894,13 @@ func (h *Handler) InstallApp(c echo.Context) error {
 	defer installCancel()
 
 	send("pull", "Pulling images...", false, true)
-	h.streamCommand(installCtx, w, flusher, "pull", "docker", "compose", "-f", composePath, "pull")
+	if pullExit := h.streamCommand(installCtx, w, flusher, "pull", "docker", "compose", "-f", composePath, "pull"); pullExit != 0 {
+		// Report the pull failure directly instead of letting `up -d` fail
+		// later with a less precise "image not found" error.
+		cleanup()
+		send("pull", "Failed to pull images", true, false)
+		return nil
+	}
 
 	send("start", "Starting containers...", false, true)
 	exitCode := h.streamCommand(installCtx, w, flusher, "start", "docker", "compose", "-f", composePath, "up", "-d")
