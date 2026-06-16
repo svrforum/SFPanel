@@ -277,10 +277,21 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 		req.Body.Close()
 	}
 
-	ctx, cancel := context.WithTimeout(req.Context(), 5*time.Minute)
+	// http.Client.Timeout caps the WHOLE request including the streamed body, so
+	// it bounds the longest an SSE relay can run. The stack-migration stream
+	// (quiesce → transfer → restore → healthcheck) routinely outlives the 5-minute
+	// default used for install/update; give it a window wider than the migrate
+	// orchestrator's own 25-minute op timeout so the relay never cuts a still-live
+	// migration off mid-flight.
+	window := 5 * time.Minute
+	if strings.HasSuffix(req.URL.Path, "/migrate") {
+		window = 30 * time.Minute
+	}
+
+	ctx, cancel := context.WithTimeout(req.Context(), window)
 	defer cancel()
 
-	client := newRemoteHTTPClient(5*time.Minute, mgr)
+	client := newRemoteHTTPClient(window, mgr)
 
 	// Try SSE streaming endpoint first
 	sseURL := baseURL + req.URL.Path + queryStr

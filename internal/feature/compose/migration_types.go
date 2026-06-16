@@ -79,4 +79,9 @@ type MigrationManifest struct {
 	Ports              []int        `json:"ports,omitempty"`
 	Devices            []string     `json:"devices,omitempty"`
 	Disposition        Disposition  `json:"disposition"`
+	// Overwrite carries the source operator's acked intent to replace a stack
+	// that already exists on the target. The target refuses (409) to overwrite
+	// an existing stack unless this is set, and backs the prior tenant up so a
+	// failed import can't destroy it.
+	Overwrite bool `json:"overwrite,omitempty"`
 }

@@ -76,7 +76,22 @@ type Handler struct {
 	// auth handler's SetClusterMgr pattern. nil when the panel is standalone.
 	clusterMu  sync.RWMutex
 	clusterMgr *cluster.Manager
+
+	// migInFlight serializes migrations/imports per stack id so two concurrent
+	// runs for the same stack can't interleave destructively (one's cleanup
+	// wiping the other's healthy stack). Zero-value ready.
+	migInFlight sync.Map
 }
+
+// tryAcquireMigration marks a stack id as migrating/importing. Returns false if
+// one is already in flight for that id (caller should 409).
+func (h *Handler) tryAcquireMigration(id string) bool {
+	_, loaded := h.migInFlight.LoadOrStore(id, true)
+	return !loaded
+}
+
+// releaseMigration clears the in-flight marker for a stack id.
+func (h *Handler) releaseMigration(id string) { h.migInFlight.Delete(id) }
 
 // SetClusterMgr updates the live cluster manager. Called at boot with the
 // boot-time manager (nil if cluster disabled) and again from the

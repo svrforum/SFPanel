@@ -64,6 +64,16 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput("bundle: "+err.Error()))
 	}
+	if !validStackID.MatchString(m.StackID) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "invalid stack id in bundle")
+	}
+
+	// Serialize imports of the same stack so two concurrent pushes can't race on
+	// the same dir/project (one's failure cleanup wiping the other's healthy stack).
+	if !h.tryAcquireMigration(m.StackID) {
+		return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, "an import for this stack is already in progress")
+	}
+	defer h.releaseMigration(m.StackID)
 
 	composeData, ok := files["compose/"+m.ComposeFile]
 	if !ok {
@@ -73,13 +83,28 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 
+	// Overwrite safety: if a stack with this id already exists, refuse unless the
+	// source acked overwrite. On overwrite, move the prior tenant aside (backup)
+	// so a failed import can restore it AND its named volumes are NOT removed on
+	// cleanup — a failed import must never destroy pre-existing target data.
+	stackDir := filepath.Join(h.ComposePath, m.StackID)
+	backup := ""
+	if _, statErr := os.Stat(stackDir); statErr == nil {
+		if !m.Overwrite {
+			return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, "a stack with this id already exists on the target")
+		}
+		backup = stackDir + ".migbak"
+		_ = os.RemoveAll(backup)
+		if rerr := os.Rename(stackDir, backup); rerr != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("overwrite backup failed: "+rerr.Error()))
+		}
+	}
+
 	if err := restoreDefinition(h.ComposePath, m, files); err != nil {
-		// Partial write — the stack was never brought up, so just remove the
-		// (validated, traversal-safe) stack dir. m.StackID was validated by
-		// restoreDefinition's own validStackID check before any write, but it
-		// only returns the error AFTER MkdirAll, so the dir may exist.
-		if validStackID.MatchString(m.StackID) {
-			_ = os.RemoveAll(filepath.Join(h.ComposePath, m.StackID))
+		// Partial write, never upped — just remove the new dir and restore any backup.
+		_ = os.RemoveAll(stackDir)
+		if backup != "" {
+			_ = os.Rename(backup, stackDir)
 		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
@@ -90,20 +115,38 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	opCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	if _, err := h.Compose.Up(opCtx, m.StackID); err != nil {
-		h.migrateCleanup(m.StackID)
+		h.failedImportCleanup(m.StackID, backup)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("up: "+err.Error()))
 	}
 	if err := h.waitHealthy(opCtx, m.StackID, 60*time.Second); err != nil {
-		h.migrateCleanup(m.StackID)
+		h.failedImportCleanup(m.StackID, backup)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("healthcheck: "+err.Error()))
+	}
+	if backup != "" {
+		_ = os.RemoveAll(backup) // success: the prior definition is intentionally replaced
 	}
 	return response.OK(c, map[string]string{"status": "ok", "stackId": m.StackID})
 }
 
-// migrateCleanup tears down a partially-imported stack (down -v + rm dir).
-func (h *Handler) migrateCleanup(stackID string) {
-	if err := h.Compose.DeleteProject(context.Background(), stackID, false, true); err != nil {
-		slog.Warn("migrate import cleanup failed", "component", "compose", "stack", stackID, "error", err)
+// failedImportCleanup tears down a failed import after `up`. For a fresh import
+// it removes the stack with its volumes. For an OVERWRITE (backup != "") it must
+// NOT remove volumes (they may belong to the prior tenant) and restores the
+// prior definition from the backup, so a failed import never destroys pre-existing data.
+func (h *Handler) failedImportCleanup(stackID, backup string) {
+	overwrite := backup != ""
+	h.migrateCleanup(stackID, !overwrite)
+	if overwrite {
+		dir := filepath.Join(h.ComposePath, stackID)
+		_ = os.RemoveAll(dir)
+		_ = os.Rename(backup, dir)
+	}
+}
+
+// migrateCleanup tears down an imported stack (down [-v] + rm dir). removeVolumes
+// is false on an overwrite so the prior tenant's named volumes survive.
+func (h *Handler) migrateCleanup(stackID string, removeVolumes bool) {
+	if err := h.Compose.DeleteProject(context.Background(), stackID, false, removeVolumes); err != nil {
+		slog.Warn("migrate import cleanup failed", "component", "compose", "stack", stackID, "error", err, "removeVolumes", removeVolumes)
 	}
 }
 
@@ -231,27 +274,32 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 		HasDevice:         facts.HasDevice,
 		OverwriteAcked:    overwriteAcked,
 		Disposition:       DispositionRetain, // preflight is disposition-agnostic for blocking; clone relaxation handled at migrate time
+		// Minimal definition-only estimate so the insufficient-disk block is live
+		// (the resolved config plus headroom). M2/M3 add bind/volume data sizes.
+		EstimatedBytes: int64(len(cfgJSON)) + (16 << 20),
 	}
 
-	// Target facts via the cross-node info endpoint.
+	// Target facts via the cross-node info endpoint. A 200 with an unparseable
+	// body (version skew, truncation) must NOT masquerade as a clean pass — it
+	// gets the same target-unreachable warning so the operator isn't shown a
+	// falsely-green report with arch/disk/port/overwrite checks silently skipped.
 	path := "/api/v1/docker/compose/migrate/target-info?stackId=" + url.QueryEscape(project)
 	status, body, perr := mgr.ProxyToNode(ctx, targetNodeID, http.MethodGet, path, nil, username)
+	var jerr error
 	if perr == nil && status == http.StatusOK {
 		var wrapper struct {
 			Data migrateTargetInfo `json:"data"`
 		}
-		if jerr := json.Unmarshal(body, &wrapper); jerr == nil {
+		if jerr = json.Unmarshal(body, &wrapper); jerr == nil {
 			in.TargetArch = wrapper.Data.Arch
 			in.TargetFreeBytes = wrapper.Data.FreeBytes
 			in.TargetPortsInUse = wrapper.Data.PortsInUse
 			in.TargetStackExists = wrapper.Data.StackExists
 		}
 	}
-	// If the target query failed, BuildPreflightReport still returns the local-only
-	// checks; surface a warning so the operator knows target checks were skipped.
 	report := BuildPreflightReport(in)
-	if perr != nil || status != http.StatusOK {
-		report.Warnings = append(report.Warnings, PreflightFinding{Code: "target-unreachable", Message: "could not query the target node; disk/port/arch checks were skipped"})
+	if perr != nil || status != http.StatusOK || jerr != nil {
+		report.Warnings = append(report.Warnings, PreflightFinding{Code: "target-unreachable", Message: "could not query the target node; disk/port/arch/overwrite checks were skipped"})
 	}
 	return report, nil
 }
@@ -312,6 +360,13 @@ func (h *Handler) Migrate(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "targetNodeId and a valid disposition are required")
 	}
 
+	// Serialize migrations of the same stack — a second concurrent run could race
+	// the first's quiesce/package/disposition destructively.
+	if !h.tryAcquireMigration(project) {
+		return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, "a migration for this stack is already in progress")
+	}
+	defer h.releaseMigration(project)
+
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
@@ -323,12 +378,18 @@ func (h *Handler) Migrate(c echo.Context) error {
 		flusher.Flush()
 	}
 
-	ctx := c.Request().Context()
+	// Detach the orchestration from the request context so a client/proxy
+	// disconnect (or the SSE relay timeout) cannot cancel the
+	// quiesce/transfer/ROLLBACK/finalize docker operations mid-flight — the
+	// rollback that restores the source MUST run even when the operator is gone.
+	// The request context governs only SSE writes (no-ops once disconnected).
+	opCtx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+	defer cancel()
 	username, _ := c.Get("username").(string)
 
 	// 1. preflight — abort on any block.
 	send(PhasePreflight, "Running pre-flight checks...", false)
-	report, perr := h.gatherPreflight(ctx, project, req.TargetNodeID, username, req.OverwriteAcked)
+	report, perr := h.gatherPreflight(opCtx, project, req.TargetNodeID, username, req.OverwriteAcked)
 	if perr != nil {
 		send(PhaseError, response.SanitizeOutput("pre-flight failed: "+perr.Error()), true)
 		return nil
@@ -340,24 +401,23 @@ func (h *Handler) Migrate(c echo.Context) error {
 
 	// 2. quiesce — stop the source (cold) so the snapshot is consistent.
 	send(PhaseQuiesce, "Stopping source stack...", false)
-	if _, err := h.Compose.Stop(ctx, project); err != nil {
-		send(PhaseError, response.SanitizeOutput("quiesce failed: "+err.Error()), true)
+	if _, err := h.Compose.Stop(opCtx, project); err != nil {
+		h.reportRollback(send, opCtx, project, "quiesce failed", err.Error())
 		return nil
 	}
 
 	// 3. package — build the definition bundle + checksum.
 	send(PhasePackage, "Packaging stack...", false)
-	yamlPath, _ := h.Compose.ResolveComposeFile(ctx, project)
+	yamlPath, _ := h.Compose.ResolveComposeFile(opCtx, project)
 	composeFile := filepath.Base(yamlPath)
 	hasEnv := false
 	if _, err := os.Stat(filepath.Join(h.ComposePath, project, ".env")); err == nil {
 		hasEnv = true
 	}
-	manifest := buildDefinitionManifest(project, composeFile, hasEnv, mgr.LocalNodeID(), runtime.GOARCH, req.TargetNodeID, disp)
+	manifest := buildDefinitionManifest(project, composeFile, hasEnv, mgr.LocalNodeID(), runtime.GOARCH, req.TargetNodeID, disp, req.OverwriteAcked)
 	var buf bytes.Buffer
 	if err := packageDefinitionBundle(&buf, manifest, filepath.Join(h.ComposePath, project)); err != nil {
-		h.migrateRollback(ctx, project)
-		send(PhaseRollback, response.SanitizeOutput("packaging failed; source restarted: "+err.Error()), true)
+		h.reportRollback(send, opCtx, project, "packaging failed", err.Error())
 		return nil
 	}
 	sum := sha256.Sum256(buf.Bytes())
@@ -365,34 +425,51 @@ func (h *Handler) Migrate(c echo.Context) error {
 
 	// 4. transfer — push to the target; it restores + ups + healthchecks.
 	send(PhaseTransfer, "Transferring to target...", false)
-	status, body, terr := h.pushBundleToTarget(ctx, req.TargetNodeID, username, buf.Bytes(), sha)
+	status, body, terr := h.pushBundleToTarget(opCtx, req.TargetNodeID, username, buf.Bytes(), sha)
 	if terr != nil || status != http.StatusOK {
-		h.migrateRollback(ctx, project)
-		msg := "transfer/restore failed; source restarted"
+		cause := ""
 		if terr != nil {
-			msg += ": " + terr.Error()
+			// The target may have received the bundle and come up anyway (it
+			// detaches its up from the connection); flag a possible orphan.
+			cause = terr.Error() + " (verify the target for an orphaned copy)"
 		} else {
-			msg += " (target status " + http.StatusText(status) + ": " + string(body) + ")"
+			cause = "target status " + http.StatusText(status) + ": " + string(body)
 		}
-		send(PhaseRollback, response.SanitizeOutput(msg), true)
+		h.reportRollback(send, opCtx, project, "transfer/restore failed", cause)
 		return nil
 	}
 
-	// 5. finalize — disposition (target is healthy now).
+	// 5. finalize — disposition (target is healthy now). A finalize failure does
+	// NOT undo the successful migration, so it terminates as DONE with a warning
+	// rather than masquerading as a failed migration.
 	send(PhaseFinalize, "Applying source disposition ("+string(disp)+")...", false)
-	if err := h.migrateFinalize(ctx, project, disp); err != nil {
-		send(PhaseError, response.SanitizeOutput("finalize warning: "+err.Error()), true)
+	if err := h.migrateFinalize(opCtx, project, disp); err != nil {
+		send(PhaseDone, response.SanitizeOutput("migrated to target (running); source cleanup needs attention: "+err.Error()), true)
 		return nil
 	}
 	send(PhaseDone, "Migration complete.", true)
 	return nil
 }
 
-// migrateRollback restores the source to running after a pre-finalize failure.
-func (h *Handler) migrateRollback(ctx context.Context, project string) {
+// reportRollback restarts the source after a pre-finalize failure and emits an
+// honest terminal event — it claims "source restarted" only if the restart
+// actually succeeded, otherwise a PhaseError telling the operator to start it.
+func (h *Handler) reportRollback(send func(string, string, bool), ctx context.Context, project, what, cause string) {
+	if rerr := h.migrateRollback(ctx, project); rerr != nil {
+		send(PhaseError, response.SanitizeOutput(what+"; SOURCE FAILED TO RESTART — start it manually: "+cause), true)
+		return
+	}
+	send(PhaseRollback, response.SanitizeOutput(what+"; source restarted: "+cause), true)
+}
+
+// migrateRollback restarts the source after a pre-finalize failure. Returns the
+// restart error so the caller reports honestly instead of always claiming success.
+func (h *Handler) migrateRollback(ctx context.Context, project string) error {
 	if _, err := h.Compose.Start(ctx, project); err != nil {
 		slog.Error("migration rollback: failed to restart source", "component", "compose", "project", project, "error", err)
+		return err
 	}
+	return nil
 }
 
 // migrateFinalize applies the source disposition AFTER the target is healthy.
@@ -401,7 +478,12 @@ func (h *Handler) migrateFinalize(ctx context.Context, project string, d Disposi
 	case DispositionRetain:
 		return nil // source already stopped
 	case DispositionDelete:
-		return h.Compose.DeleteProject(ctx, project, false, true)
+		// Down (with volumes) the source, CHECKING the error: swallowing a down
+		// failure would delete the definition while containers keep running.
+		if _, err := h.Compose.DownWithVolumes(ctx, project); err != nil {
+			return fmt.Errorf("source teardown failed (still running): %w", err)
+		}
+		return os.RemoveAll(filepath.Join(h.ComposePath, project))
 	case DispositionClone:
 		_, err := h.Compose.Start(ctx, project)
 		return err

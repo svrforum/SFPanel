@@ -168,18 +168,31 @@ func TestParseStackConfigPublishedNumber(t *testing.T) {
 }
 
 // TestParseStackConfigPortRange covers a published value emitted as a range
-// string ("9000-9001"); the host port collected is the range start.
+// string ("9000-9002"); EVERY port in the range is collected so the port-conflict
+// pre-flight doesn't miss the tail of a range.
 func TestParseStackConfigPortRange(t *testing.T) {
 	const j = `{
   "name": "r",
-  "services": {"a": {"ports": [{"target": 9000, "published": "9000-9001", "protocol": "tcp"}]}}
+  "services": {"a": {"ports": [{"target": 9000, "published": "9000-9002", "protocol": "tcp"}]}}
 }`
 	facts, err := parseStackConfig([]byte(j), "/opt/stacks/r")
 	if err != nil {
 		t.Fatalf("parseStackConfig: %v", err)
 	}
-	if !reflect.DeepEqual(facts.HostPorts, []int{9000}) {
-		t.Errorf("HostPorts = %v, want [9000]", facts.HostPorts)
+	if !reflect.DeepEqual(facts.HostPorts, []int{9000, 9001, 9002}) {
+		t.Errorf("HostPorts = %v, want [9000 9001 9002]", facts.HostPorts)
+	}
+}
+
+// TestHostPortsRangeCap verifies an oversized range is capped rather than
+// ballooning the port set (defends the pre-flight against a hostile mapping).
+func TestHostPortsRangeCap(t *testing.T) {
+	got := hostPorts([]byte(`"1-65535"`))
+	if len(got) != maxPortRangeExpansion {
+		t.Fatalf("len=%d, want capped at %d", len(got), maxPortRangeExpansion)
+	}
+	if got[0] != 1 {
+		t.Errorf("first port=%d, want 1", got[0])
 	}
 }
 

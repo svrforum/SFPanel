@@ -75,7 +75,7 @@ func receiveBundle(r io.Reader, expectedSha, stagingDir string) (MigrationManife
 
 // buildDefinitionManifest assembles the M1 (definition-only) manifest. Binds/
 // Volumes/Images stay empty until later milestones.
-func buildDefinitionManifest(stackID, composeFile string, hasEnv bool, sourceID, sourceArch, targetID string, d Disposition) MigrationManifest {
+func buildDefinitionManifest(stackID, composeFile string, hasEnv bool, sourceID, sourceArch, targetID string, d Disposition, overwrite bool) MigrationManifest {
 	return MigrationManifest{
 		SchemaVersion:      1,
 		StackID:            stackID,
@@ -85,6 +85,7 @@ func buildDefinitionManifest(stackID, composeFile string, hasEnv bool, sourceID,
 		ComposeFile:        composeFile,
 		HasEnv:             hasEnv,
 		Disposition:        d,
+		Overwrite:          overwrite,
 	}
 }
 
@@ -116,7 +117,9 @@ func (h *Handler) pushBundleToTarget(ctx context.Context, targetNodeID, username
 	if cfg, err := mgr.GetTLS().ClientTLSConfig(); err == nil && cfg != nil {
 		tlsCfg = cfg.Clone()
 	}
-	client := &http.Client{Timeout: 30 * time.Minute, Transport: &http.Transport{TLSClientConfig: tlsCfg}}
+	transport := &http.Transport{TLSClientConfig: tlsCfg}
+	defer transport.CloseIdleConnections() // one-shot push: don't leak the kept-alive conn
+	client := &http.Client{Timeout: 30 * time.Minute, Transport: transport}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(bundle))
 	if err != nil {

@@ -376,6 +376,13 @@ func (m *ComposeManager) Down(ctx context.Context, name string) (string, error) 
 	return m.runCompose(ctx, name, "down")
 }
 
+// DownWithVolumes runs `docker compose down -v` and RETURNS the error, unlike
+// DeleteProject which swallows it. Used by migration's delete disposition so a
+// failed teardown (containers left running) is not mistaken for a clean removal.
+func (m *ComposeManager) DownWithVolumes(ctx context.Context, name string) (string, error) {
+	return m.runCompose(ctx, name, "down", "-v")
+}
+
 // Stop halts a project's containers without removing them (cold-migration quiesce).
 func (m *ComposeManager) Stop(ctx context.Context, name string) (string, error) {
 	return m.runCompose(ctx, name, "stop")

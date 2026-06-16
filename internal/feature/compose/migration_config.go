@@ -70,11 +70,9 @@ func parseStackConfig(configJSON []byte, workingDir string) (stackConfigFacts, e
 
 	for _, svc := range cfg.Services {
 		for _, p := range svc.Ports {
-			port, ok := hostPort(p.Published)
-			if !ok {
-				continue // no published port (random host port)
+			for _, port := range hostPorts(p.Published) {
+				portSet[port] = true
 			}
-			portSet[port] = true
 		}
 
 		for _, v := range svc.Volumes {
@@ -137,21 +135,43 @@ func parseStackConfig(configJSON []byte, workingDir string) (stackConfigFacts, e
 	return facts, nil
 }
 
-// hostPort resolves a compose ports[].published raw value to an integer host
-// port. published is emitted as a JSON string ("8096") on current Compose and a
-// number (8096) on older builds; a range string ("9000-9001") contributes its
-// start. An absent/empty value (random host port) returns ok=false.
-func hostPort(published json.RawMessage) (int, bool) {
+// maxPortRangeExpansion caps how many ports a single "start-end" published range
+// expands to, so a hostile/typo'd "1-65535" mapping can't balloon the port set.
+const maxPortRangeExpansion = 1024
+
+// hostPorts resolves a compose ports[].published raw value to its host port(s).
+// published is emitted as a JSON string ("8096") on current Compose and a number
+// (8096) on older builds; a range string ("9000-9001") expands to EVERY port in
+// the range (9000, 9001) so the port-conflict pre-flight doesn't miss the tail of
+// a range. An absent/empty value (random host port) yields nil. Oversized or
+// malformed ranges fall back to the range start so the check degrades safely.
+func hostPorts(published json.RawMessage) []int {
 	s := strings.Trim(strings.TrimSpace(string(published)), `"`)
 	if s == "" || s == "null" {
-		return 0, false
+		return nil
 	}
 	if i := strings.IndexByte(s, '-'); i >= 0 {
-		s = s[:i] // "9000-9001" → start of range
+		start, serr := strconv.Atoi(strings.TrimSpace(s[:i]))
+		end, eerr := strconv.Atoi(strings.TrimSpace(s[i+1:]))
+		if serr != nil || eerr != nil || start <= 0 || end < start {
+			// Malformed range — fall back to the start if it parses, else nothing.
+			if serr == nil && start > 0 {
+				return []int{start}
+			}
+			return nil
+		}
+		if end-start+1 > maxPortRangeExpansion {
+			end = start + maxPortRangeExpansion - 1
+		}
+		ports := make([]int, 0, end-start+1)
+		for p := start; p <= end; p++ {
+			ports = append(ports, p)
+		}
+		return ports
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n <= 0 {
-		return 0, false
+		return nil
 	}
-	return n, true
+	return []int{n}
 }

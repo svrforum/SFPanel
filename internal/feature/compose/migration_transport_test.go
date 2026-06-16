@@ -57,10 +57,16 @@ func TestReceiveBundleRejectsHashMismatch(t *testing.T) {
 }
 
 func TestBuildDefinitionManifest(t *testing.T) {
-	m := buildDefinitionManifest("demo", "docker-compose.yml", true, "src-node", "amd64", "tgt-node", DispositionClone)
+	m := buildDefinitionManifest("demo", "docker-compose.yml", true, "src-node", "amd64", "tgt-node", DispositionClone, false)
 
 	if m.SchemaVersion != 1 {
 		t.Fatalf("schemaVersion=%d, want 1", m.SchemaVersion)
+	}
+	if m.Overwrite {
+		t.Fatal("overwrite=true, want false (not acked)")
+	}
+	if got := buildDefinitionManifest("demo", "docker-compose.yml", true, "src", "amd64", "tgt", DispositionRetain, true); !got.Overwrite {
+		t.Fatal("overwrite=false, want true (acked propagates into manifest)")
 	}
 	if m.StackID != "demo" || m.ComposeProjectName != "demo" {
 		t.Fatalf("stackId=%q composeProjectName=%q", m.StackID, m.ComposeProjectName)
