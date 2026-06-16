@@ -10,6 +10,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.46.1] – 2026-06-17
+
+### Fixed
+
+- **Stack migration works on hosts without a `docker0` bridge.** The volume
+  archive/restore helpers run a throwaway container; with default networking it
+  attaches to the default bridge, which fails on hosts whose `docker0` is absent
+  or custom — so a stack with a named volume couldn't migrate even though its
+  own compose-managed containers run fine. The helpers only tar a mounted volume
+  and never need a network, so they now run with `--network none`.
+
+---
+
 ## [0.46.0] – 2026-06-17
 
 Node-to-node stack migration grows from definitions to **full-fidelity data + image transfer**, with an in-panel UI. Where M1 (v0.45.0) carried only the compose file and `.env`, a migration now also moves every named volume's contents, copied bind-mount data, and the stack's images (always `docker save`/`load`, no registry dependency) — each entry SHA-256-verified end to end, so a `200` from the target implies verified-intact data, which is what makes the source `delete` disposition safe. The whole bundle is staged to disk and streamed (no GB held in memory), and the target's root-run restore path is extensively hardened against a hostile peer manifest. A "Migrate to node" dialog drives the flow from the Docker Stacks page when the panel is in cluster mode.
