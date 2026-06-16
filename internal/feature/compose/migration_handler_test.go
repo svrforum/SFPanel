@@ -67,3 +67,35 @@ func TestMigrateFinalizeRejectsUnknownDisposition(t *testing.T) {
 		t.Fatalf("retain should be a no-op, got %v", err)
 	}
 }
+
+func TestMigrateRejectsTraversalProject(t *testing.T) {
+	h := &Handler{ComposePath: t.TempDir()}
+	for _, bad := range []string{"..", "../etc", "a/b", ".hidden", "a..b"} {
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/docker/compose/x/migrate", strings.NewReader(`{"targetNodeId":"n","disposition":"retain"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		c.SetParamNames("project")
+		c.SetParamValues(bad)
+		_ = h.Migrate(c)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("project %q: want 400, got %d", bad, rec.Code)
+		}
+	}
+}
+
+func TestMigratePreflightRejectsTraversalProject(t *testing.T) {
+	h := &Handler{ComposePath: t.TempDir()}
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/docker/compose/x/migrate/preflight", strings.NewReader(`{"targetNodeId":"n"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetParamNames("project")
+	c.SetParamValues("../escape")
+	_ = h.MigratePreflight(c)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for traversal project, got %d", rec.Code)
+	}
+}

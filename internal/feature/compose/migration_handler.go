@@ -25,6 +25,13 @@ import (
 
 const migrationShaHeader = "X-SFPanel-Migration-Sha256"
 
+// validProjectID reports whether a :project / stackId path or query param is
+// safe for filesystem use — same rule as restoreDefinition's stack id (leading
+// alnum rejects "."/"..", plus an explicit ".." guard for defense in depth).
+func validProjectID(id string) bool {
+	return validStackID.MatchString(id) && !strings.Contains(id, "..")
+}
+
 // MigrateImport (POST /docker/compose/migrate-import) receives a migration
 // bundle from a source node over the authenticated cluster channel, verifies
 // its checksum, runs the compose safety validator, restores the stack
@@ -125,6 +132,9 @@ func (h *Handler) MigrateTargetInfo(c echo.Context) error {
 		return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "cluster-internal only")
 	}
 	stackID := c.QueryParam("stackId")
+	if stackID != "" && !validProjectID(stackID) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "invalid stackId")
+	}
 	info := migrateTargetInfo{Arch: runtime.GOARCH}
 	if u, err := disk.Usage(h.ComposePath); err == nil {
 		info.FreeBytes = int64(u.Free)
@@ -227,10 +237,13 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 // MigratePreflight (POST /docker/compose/:project/migrate/preflight) runs on the
 // source node and returns a dry-run report. Body: {"targetNodeId","overwriteAcked"}.
 func (h *Handler) MigratePreflight(c echo.Context) error {
+	project := c.Param("project")
+	if !validProjectID(project) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "invalid project id")
+	}
 	if h.ClusterMgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInternalError, "cluster is not enabled")
 	}
-	project := c.Param("project")
 	var req struct {
 		TargetNodeID   string `json:"targetNodeId"`
 		OverwriteAcked bool   `json:"overwriteAcked"`
@@ -257,6 +270,9 @@ func (h *Handler) MigratePreflight(c echo.Context) error {
 // reports healthy.
 func (h *Handler) Migrate(c echo.Context) error {
 	project := c.Param("project")
+	if !validProjectID(project) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "invalid project id")
+	}
 	var req struct {
 		TargetNodeID   string `json:"targetNodeId"`
 		Disposition    string `json:"disposition"`
