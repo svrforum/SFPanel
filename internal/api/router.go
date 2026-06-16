@@ -128,7 +128,8 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 
 	// Initialize Compose manager — scans cfg.Server.StacksPath for compose projects
 	composeManager := docker.NewComposeManager(cfg.Server.StacksPath, dockerClient)
-	composeHandler := &featureCompose.Handler{Compose: composeManager, DB: database, ComposePath: cfg.Server.StacksPath, ClusterMgr: clusterMgr}
+	composeHandler := &featureCompose.Handler{Compose: composeManager, DB: database, ComposePath: cfg.Server.StacksPath}
+	composeHandler.SetClusterMgr(clusterMgr) // boot-time manager (nil if cluster disabled); updated on runtime activation below
 
 	v1 := e.Group("/api/v1")
 
@@ -154,6 +155,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		LiveActivate: liveActivate,
 		OnManagerActivated: func(m *cluster.Manager) {
 			authHandler.SetClusterMgr(m)
+			composeHandler.SetClusterMgr(m)
 		},
 	}
 	// Boot path wires Manager via the struct literal above, bypassing

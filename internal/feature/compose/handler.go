@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -67,8 +68,30 @@ func pruneHealthcheckBackups(yamlPath string, keep int) {
 type Handler struct {
 	Compose     *docker.ComposeManager
 	DB          *sql.DB
-	ComposePath string           // stacks root (cfg.Server.StacksPath); restore target for migrations
-	ClusterMgr  *cluster.Manager // nil when the panel is standalone (no cluster)
+	ComposePath string // stacks root (cfg.Server.StacksPath); restore target for migrations
+
+	// clusterMgr is resolved dynamically: set at boot and again when the cluster
+	// activates at runtime (live init/join), so migration works without a
+	// restart. Guarded because SetClusterMgr races request handlers. Mirrors the
+	// auth handler's SetClusterMgr pattern. nil when the panel is standalone.
+	clusterMu  sync.RWMutex
+	clusterMgr *cluster.Manager
+}
+
+// SetClusterMgr updates the live cluster manager. Called at boot with the
+// boot-time manager (nil if cluster disabled) and again from the
+// OnManagerActivated callback when the cluster comes up at runtime.
+func (h *Handler) SetClusterMgr(m *cluster.Manager) {
+	h.clusterMu.Lock()
+	h.clusterMgr = m
+	h.clusterMu.Unlock()
+}
+
+// clusterManager returns the live cluster manager, or nil when standalone.
+func (h *Handler) clusterManager() *cluster.Manager {
+	h.clusterMu.RLock()
+	defer h.clusterMu.RUnlock()
+	return h.clusterMgr
 }
 
 // ListProjectsWithStatus returns all compose projects with real-time service status.

@@ -208,6 +208,10 @@ func (h *Handler) usedHostPorts(ctx context.Context) []int {
 // be reached is non-fatal — the report carries a target-unreachable warning and
 // the local-only checks still run.
 func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, username string, overwriteAcked bool) (PreflightReport, error) {
+	mgr := h.clusterManager()
+	if mgr == nil {
+		return PreflightReport{}, fmt.Errorf("cluster is not enabled")
+	}
 	cfgJSON, err := h.Compose.GetResolvedConfig(ctx, project)
 	if err != nil {
 		return PreflightReport{}, err
@@ -218,7 +222,7 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 	}
 
 	in := PreflightInput{
-		SourceNodeID:      h.ClusterMgr.LocalNodeID(),
+		SourceNodeID:      mgr.LocalNodeID(),
 		TargetNodeID:      targetNodeID,
 		SourceArch:        runtime.GOARCH,
 		StackPorts:        facts.HostPorts,
@@ -231,7 +235,7 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 
 	// Target facts via the cross-node info endpoint.
 	path := "/api/v1/docker/compose/migrate/target-info?stackId=" + url.QueryEscape(project)
-	status, body, perr := h.ClusterMgr.ProxyToNode(ctx, targetNodeID, http.MethodGet, path, nil, username)
+	status, body, perr := mgr.ProxyToNode(ctx, targetNodeID, http.MethodGet, path, nil, username)
 	if perr == nil && status == http.StatusOK {
 		var wrapper struct {
 			Data migrateTargetInfo `json:"data"`
@@ -259,7 +263,7 @@ func (h *Handler) MigratePreflight(c echo.Context) error {
 	if !validProjectID(project) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "invalid project id")
 	}
-	if h.ClusterMgr == nil {
+	if h.clusterManager() == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInternalError, "cluster is not enabled")
 	}
 	var req struct {
@@ -300,7 +304,8 @@ func (h *Handler) Migrate(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
 	}
 	disp := Disposition(req.Disposition)
-	if h.ClusterMgr == nil {
+	mgr := h.clusterManager()
+	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInternalError, "cluster is not enabled")
 	}
 	if req.TargetNodeID == "" || !disp.Valid() {
@@ -348,7 +353,7 @@ func (h *Handler) Migrate(c echo.Context) error {
 	if _, err := os.Stat(filepath.Join(h.ComposePath, project, ".env")); err == nil {
 		hasEnv = true
 	}
-	manifest := buildDefinitionManifest(project, composeFile, hasEnv, h.ClusterMgr.LocalNodeID(), runtime.GOARCH, req.TargetNodeID, disp)
+	manifest := buildDefinitionManifest(project, composeFile, hasEnv, mgr.LocalNodeID(), runtime.GOARCH, req.TargetNodeID, disp)
 	var buf bytes.Buffer
 	if err := packageDefinitionBundle(&buf, manifest, filepath.Join(h.ComposePath, project)); err != nil {
 		h.migrateRollback(ctx, project)

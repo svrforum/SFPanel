@@ -101,7 +101,11 @@ func migrationNodeBaseURL(apiAddr string) string {
 // migrate-import endpoint with internal-proxy auth + the SHA header. Returns the
 // target's HTTP status + body. mTLS via the cluster client TLS config.
 func (h *Handler) pushBundleToTarget(ctx context.Context, targetNodeID, username string, bundle []byte, sha string) (int, []byte, error) {
-	node := h.ClusterMgr.GetNode(targetNodeID)
+	mgr := h.clusterManager()
+	if mgr == nil {
+		return 0, nil, fmt.Errorf("cluster is not enabled")
+	}
+	node := mgr.GetNode(targetNodeID)
 	if node == nil {
 		return 0, nil, fmt.Errorf("unknown target node %q", targetNodeID)
 	}
@@ -109,7 +113,7 @@ func (h *Handler) pushBundleToTarget(ctx context.Context, targetNodeID, username
 	target := migrationNodeBaseURL(node.APIAddress) + importPath
 
 	tlsCfg := &tls.Config{}
-	if cfg, err := h.ClusterMgr.GetTLS().ClientTLSConfig(); err == nil && cfg != nil {
+	if cfg, err := mgr.GetTLS().ClientTLSConfig(); err == nil && cfg != nil {
 		tlsCfg = cfg.Clone()
 	}
 	client := &http.Client{Timeout: 30 * time.Minute, Transport: &http.Transport{TLSClientConfig: tlsCfg}}
@@ -121,7 +125,7 @@ func (h *Handler) pushBundleToTarget(ctx context.Context, targetNodeID, username
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set(migrationShaHeader, sha)
 	req.ContentLength = int64(len(bundle))
-	if secret := h.ClusterMgr.ProxySecret(); secret != "" {
+	if secret := mgr.ProxySecret(); secret != "" {
 		req.Header.Set(auth.InternalProxyHeader, secret)
 		if v2 := auth.SignProxyRequestV2(http.MethodPost, importPath); v2 != "" {
 			req.Header.Set(auth.InternalProxyHeaderV2, v2)
