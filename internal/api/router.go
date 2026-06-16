@@ -128,7 +128,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 
 	// Initialize Compose manager — scans cfg.Server.StacksPath for compose projects
 	composeManager := docker.NewComposeManager(cfg.Server.StacksPath, dockerClient)
-	composeHandler := &featureCompose.Handler{Compose: composeManager, DB: database, ComposePath: cfg.Server.StacksPath}
+	composeHandler := &featureCompose.Handler{Compose: composeManager, DB: database, ComposePath: cfg.Server.StacksPath, ClusterMgr: clusterMgr}
 
 	v1 := e.Group("/api/v1")
 
@@ -552,6 +552,8 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		compose.POST("/:project/healthcheck/:service/test", composeHandler.TestHealthcheck)
 		compose.POST("/import", composeHandler.ImportFromGit)
 		compose.POST("/migrate-import", composeHandler.MigrateImport)
+		compose.POST("/:project/migrate/preflight", composeHandler.MigratePreflight)
+		compose.GET("/migrate/target-info", composeHandler.MigrateTargetInfo)
 		compose.DELETE("/:project", composeHandler.DeleteProject)
 		compose.POST("/:project/up", composeHandler.ProjectUp)
 		compose.POST("/:project/up-stream", composeHandler.ProjectUpStream)

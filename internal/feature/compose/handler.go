@@ -19,6 +19,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/composex"
 	"github.com/svrforum/SFPanel/internal/docker"
 	"gopkg.in/yaml.v3"
@@ -66,7 +67,8 @@ func pruneHealthcheckBackups(yamlPath string, keep int) {
 type Handler struct {
 	Compose     *docker.ComposeManager
 	DB          *sql.DB
-	ComposePath string // stacks root (cfg.Server.StacksPath); restore target for migrations
+	ComposePath string           // stacks root (cfg.Server.StacksPath); restore target for migrations
+	ClusterMgr  *cluster.Manager // nil when the panel is standalone (no cluster)
 }
 
 // ListProjectsWithStatus returns all compose projects with real-time service status.

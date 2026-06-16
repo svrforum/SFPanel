@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/svrforum/SFPanel/internal/auth"
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/common/safe"
 	"github.com/svrforum/SFPanel/internal/config"
@@ -86,6 +87,52 @@ func NewManager(cfg *config.ClusterConfig) *Manager {
 // GetConnPool returns the gRPC connection pool for proxy middleware.
 func (m *Manager) GetConnPool() *ConnPool {
 	return m.connPool
+}
+
+// ProxyToNode issues an authenticated gRPC ProxyRequest to another node's local
+// HTTP handler and returns the status + body. Auth uses the cluster-internal
+// proxy secret (v1 + replay-resistant v2) and carries `username` as the
+// already-authenticated operator identity for audit attribution. For small
+// requests/responses only — the gRPC unary path caps the response near 4 MB;
+// large transfers must use the HTTP relay path instead.
+func (m *Manager) ProxyToNode(ctx context.Context, nodeID, method, path string, body []byte, username string) (int, []byte, error) {
+	node := m.GetNode(nodeID)
+	if node == nil {
+		return 0, nil, fmt.Errorf("unknown node %q", nodeID)
+	}
+	headers := map[string]string{}
+	if secret := m.ProxySecret(); secret != "" {
+		headers[auth.InternalProxyHeader] = secret
+		if v2 := auth.SignProxyRequestV2(method, path); v2 != "" {
+			headers[auth.InternalProxyHeaderV2] = v2
+		}
+	}
+	if username != "" {
+		headers["X-SFPanel-Original-User"] = username
+	}
+	req := &pb.APIRequest{Method: method, Path: path, Body: body, Headers: headers}
+
+	pool := m.GetConnPool()
+	client, err := pool.Get(node.GRPCAddress)
+	if err != nil {
+		return 0, nil, fmt.Errorf("dial node %q: %w", nodeID, err)
+	}
+	resp, err := client.ProxyRequest(ctx, req)
+	if err != nil {
+		// One retry on a fresh connection (mirror the cluster handler's pattern):
+		// the first attempt may have hit a stale pooled connection (peer restart,
+		// idle-timeout, ephemeral RST).
+		pool.Remove(node.GRPCAddress)
+		client, derr := pool.Get(node.GRPCAddress)
+		if derr != nil {
+			return 0, nil, fmt.Errorf("redial node %q: %w", nodeID, err)
+		}
+		resp, err = client.ProxyRequest(ctx, req)
+		if err != nil {
+			return 0, nil, fmt.Errorf("proxy to node %q: %w", nodeID, err)
+		}
+	}
+	return int(resp.StatusCode), resp.Body, nil
 }
 
 // Init bootstraps a new cluster (first node, becomes leader).

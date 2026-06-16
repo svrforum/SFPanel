@@ -2,13 +2,18 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/composex"
@@ -99,4 +104,132 @@ func (h *Handler) waitHealthy(ctx context.Context, stackID string, timeout time.
 		case <-time.After(2 * time.Second):
 		}
 	}
+}
+
+// migrateTargetInfo is the target node's answer to a pre-flight query.
+type migrateTargetInfo struct {
+	Arch        string `json:"arch"`
+	FreeBytes   int64  `json:"freeBytes"`
+	PortsInUse  []int  `json:"portsInUse"`
+	StackExists bool   `json:"stackExists"`
+}
+
+// MigrateTargetInfo (GET /docker/compose/migrate/target-info?stackId=X) returns
+// this node's pre-flight facts. Cluster-internal only.
+func (h *Handler) MigrateTargetInfo(c echo.Context) error {
+	if !auth.IsInternalProxyRequest(c.Request()) {
+		return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "cluster-internal only")
+	}
+	stackID := c.QueryParam("stackId")
+	info := migrateTargetInfo{Arch: runtime.GOARCH}
+	if u, err := disk.Usage(h.ComposePath); err == nil {
+		info.FreeBytes = int64(u.Free)
+	}
+	if stackID != "" {
+		if _, err := os.Stat(filepath.Join(h.ComposePath, stackID)); err == nil {
+			info.StackExists = true
+		}
+	}
+	info.PortsInUse = h.usedHostPorts(c.Request().Context())
+	return response.OK(c, info)
+}
+
+// usedHostPorts returns the distinct published host ports of containers running
+// on this node, best-effort. Used by the port-conflict pre-flight check. Errors
+// (docker unreachable, etc.) collapse to an empty slice — a no-op check is
+// acceptable rather than failing the whole pre-flight.
+func (h *Handler) usedHostPorts(ctx context.Context) []int {
+	if h.Compose == nil {
+		return nil
+	}
+	dc := h.Compose.DockerClient()
+	if dc == nil {
+		return nil
+	}
+	containers, err := dc.ListContainersCached(ctx)
+	if err != nil {
+		slog.Warn("preflight: list containers failed", "component", "compose", "error", err)
+		return nil
+	}
+	seen := map[int]bool{}
+	var ports []int
+	for _, ct := range containers {
+		for _, p := range ct.Ports {
+			if p.PublicPort == 0 {
+				continue // not published to the host
+			}
+			hp := int(p.PublicPort)
+			if seen[hp] {
+				continue
+			}
+			seen[hp] = true
+			ports = append(ports, hp)
+		}
+	}
+	return ports
+}
+
+// MigratePreflight (POST /docker/compose/:project/migrate/preflight) runs on the
+// source node and returns a dry-run report. Body: {"targetNodeId","overwriteAcked"}.
+func (h *Handler) MigratePreflight(c echo.Context) error {
+	if h.ClusterMgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInternalError, "cluster is not enabled")
+	}
+	project := c.Param("project")
+	var req struct {
+		TargetNodeID   string `json:"targetNodeId"`
+		OverwriteAcked bool   `json:"overwriteAcked"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
+	}
+	if req.TargetNodeID == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "targetNodeId is required")
+	}
+
+	ctx := c.Request().Context()
+	// Local facts from the resolved compose config.
+	cfgJSON, err := h.Compose.GetResolvedConfig(ctx, project)
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput(err.Error()))
+	}
+	facts, err := parseStackConfig(cfgJSON, filepath.Join(h.ComposePath, project))
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
+	}
+
+	in := PreflightInput{
+		SourceNodeID:      h.ClusterMgr.LocalNodeID(),
+		TargetNodeID:      req.TargetNodeID,
+		SourceArch:        runtime.GOARCH,
+		StackPorts:        facts.HostPorts,
+		HasSystemBind:     facts.HasSystemBind,
+		HasExternalVolume: facts.HasExternalVolume,
+		HasDevice:         facts.HasDevice,
+		OverwriteAcked:    req.OverwriteAcked,
+		Disposition:       DispositionRetain, // preflight is disposition-agnostic for blocking; clone relaxation handled at migrate time
+	}
+
+	// Target facts via the cross-node info endpoint.
+	username, _ := c.Get("username").(string)
+	path := "/api/v1/docker/compose/migrate/target-info?stackId=" + url.QueryEscape(project)
+	status, body, perr := h.ClusterMgr.ProxyToNode(ctx, req.TargetNodeID, http.MethodGet, path, nil, username)
+	if perr == nil && status == http.StatusOK {
+		var wrapper struct {
+			Data migrateTargetInfo `json:"data"`
+		}
+		if jerr := json.Unmarshal(body, &wrapper); jerr == nil {
+			in.TargetArch = wrapper.Data.Arch
+			in.TargetFreeBytes = wrapper.Data.FreeBytes
+			in.TargetPortsInUse = wrapper.Data.PortsInUse
+			in.TargetStackExists = wrapper.Data.StackExists
+		}
+	}
+	// If the target query failed, BuildPreflightReport still returns the local-only
+	// checks; surface a warning so the operator knows target checks were skipped.
+	report := BuildPreflightReport(in)
+	if perr != nil || status != http.StatusOK {
+		report.Warnings = append(report.Warnings, PreflightFinding{Code: "target-unreachable", Message: "could not query the target node; disk/port/arch checks were skipped"})
+	}
+	return response.OK(c, report)
 }
