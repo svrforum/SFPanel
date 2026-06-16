@@ -10,6 +10,92 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.45.0] – 2026-06-17
+
+Cold node-to-node Docker stack migration (M1, definition-only). An operator can
+move a compose stack from one cluster node to another: the source is quiesced
+(stopped), its compose file and `.env` are bundled and SHA-256-checksummed, then
+pushed to the target over the mTLS internal proxy, where they are restored,
+brought up with `docker compose up`, and verified healthy before the source's
+fate is decided. A chosen disposition — `retain` (keep the stopped source),
+`delete` (tear it down only after the target is confirmed healthy), or `clone`
+(restart the source so both run) — is applied last, and any pre-finalize failure
+rolls the source back to running. M1 carries stack *definitions* only (compose +
+`.env`); bind-mount, named-volume, and image data transfer are deferred to later
+milestones, and there is no UI yet — the routes drive a future panel page.
+
+### Added
+
+- **Node-to-node cold stack migration** under `/api/v1/docker/compose`:
+  `POST /:project/migrate/preflight` and `POST /:project/migrate` (SSE) on the
+  source, plus `GET /migrate/target-info` and `POST /migrate-import` on the
+  target. The migrate stream emits ordered phase events — `preflight`,
+  `quiesce`, `package`, `transfer`, `restore`, `up`, `healthcheck`, `finalize`,
+  and on failure `rollback`/`error`. Pre-flight runs a cross-node check (target
+  reachability/arch via `ProxyToNode`, published-port conflict scan with
+  `start-end` ranges expanded, existing-stack collision) and blocks the run
+  before anything is stopped. The transfer bundle is a single streamed,
+  path-safe archive of the compose file and `.env`; the target re-hashes the
+  whole stream and refuses a bundle whose SHA-256 doesn't match. New
+  `migration_*.go` set in `internal/feature/compose` (types, manifest +
+  dispositions, resolved-config extraction, bundle packaging, transport,
+  pre-flight, import, handler). M1 is definition-only: the manifest's
+  `MountSpec`/`VolumeSpec`/`ImageSpec` slots exist but carry no data yet (M2/M3).
+- The compose handler now resolves the cluster manager **dynamically** via a
+  mutex-guarded `SetClusterMgr` wired at boot and re-invoked from
+  `OnManagerActivated`, so a node whose cluster is brought up at runtime (live
+  `cluster init`/`join` without a restart) can migrate immediately instead of
+  failing with "cluster is not enabled".
+- Migration routes and the SSE phase sequence are documented in
+  `docs/specs/api-spec.md` and `docs/specs/websocket-spec.md`, with an env-gated
+  two-node e2e spec (`e2e/tests/stack-migration.spec.ts`) covering a definition
+  migrate and rollback.
+
+### Security
+
+- **Cross-node relay authentication fixed.** The SSE/HTTP cluster relays strip
+  the routing `?node=` param from the outbound request, but the v2
+  internal-proxy MAC was signed over the *inbound* request URI (still carrying
+  `?node=`). The peer validates the MAC over the node-stripped URI it actually
+  receives, and `IsInternalProxyRequest` only falls back to v1 when the v2
+  header is *absent* — not when it fails — so every `?node`-routed SSE/binary
+  relay 401'd. `setAuthHeaders` now signs `httpReq.URL.RequestURI()` (the
+  outbound URI the peer validates), restoring cross-node-initiated stack
+  migration as well as large `?node` file/backup relays
+  (`internal/api/middleware/proxy.go`).
+- **Stack ids are path-traversal-validated** on both the source and the target:
+  a leading-alphanumeric allowlist regex plus an explicit `..` check, applied to
+  the `:project` route param and again to the id carried inside the received
+  bundle, so a hostile bundle can't escape the stacks root on restore.
+- **Overwrite is data-safe.** The target refuses (409) to replace an
+  already-existing stack unless the source operator explicitly acked overwrite;
+  when it does overwrite, it sets the prior tenant aside and keeps its named
+  volumes, so a failed import can never destroy pre-existing data.
+
+### Fixed
+
+- **A client disconnect can no longer abort a migration mid-flight.** The
+  orchestration and import paths run on a detached `context.Background()` with
+  their own timeouts (25 min migrate, 10 min import) instead of the request
+  context, so a dropped client or an SSE-relay timeout cannot cancel the
+  quiesce/transfer/restore — or, critically, the rollback that restores the
+  source — while the operator is gone.
+- **Migrations are serialized per stack id** via a `sync.Map` marker
+  (`409 Conflict` on a second concurrent run for the same stack), so two runs
+  can't interleave destructively with one's cleanup wiping the other's healthy
+  stack.
+- **Honest rollback reporting.** A pre-finalize failure now claims "source
+  restarted" only when the restart actually succeeded; otherwise it emits an
+  error telling the operator the source must be started manually.
+- **The `delete` disposition checks the teardown result.** Source removal now
+  inspects the `down -v` error instead of swallowing it, so a failed teardown
+  isn't reported as a clean removal.
+- Idle connections are closed after the one-shot bundle push, and the SSE relay
+  window is widened to 30 min for `/migrate` so the relay outlives a live
+  migration.
+
+---
+
 ## [0.44.0] – 2026-06-15
 
 Post-v0.43.0 audit follow-ups. A multi-agent review of the whole tree, with
