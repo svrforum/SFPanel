@@ -66,10 +66,10 @@ func TestParseStackConfig(t *testing.T) {
 		}
 	}
 
-	// Volumes: data (internal, copy) + shared (external, no copy).
+	// Volumes: data (internal) + shared (external) — both copied (operator choice).
 	wantVols := map[string]VolumeSpec{
 		"data":   {Compose: "data", Docker: "demo_data", External: false, Copy: true},
-		"shared": {Compose: "shared", Docker: "shared", External: true, Copy: false},
+		"shared": {Compose: "shared", Docker: "shared", External: true, Copy: true},
 	}
 	if len(facts.Volumes) != len(wantVols) {
 		t.Fatalf("Volumes = %+v, want %d entries", facts.Volumes, len(wantVols))
@@ -88,6 +88,15 @@ func TestParseStackConfig(t *testing.T) {
 	// Devices: host path before the ':' (here just the source).
 	if !reflect.DeepEqual(facts.Devices, []string{"/dev/dri"}) {
 		t.Errorf("Devices = %v, want [/dev/dri]", facts.Devices)
+	}
+
+	// Images: the single service image, save/load flagged.
+	if len(facts.Images) != 1 || facts.Images[0].Ref != "alpine:latest" || !facts.Images[0].SaveLoad {
+		t.Errorf("Images = %+v, want [{alpine:latest saveLoad}]", facts.Images)
+	}
+	// This config has only in-stack + system binds, no absolute bind.
+	if facts.HasAbsBind {
+		t.Errorf("HasAbsBind = true, want false")
 	}
 
 	// Flags.
@@ -209,6 +218,31 @@ func TestParseStackConfigDeviceShort(t *testing.T) {
 	}
 	if !reflect.DeepEqual(facts.Devices, []string{"/dev/snd"}) {
 		t.Errorf("Devices = %v, want [/dev/snd]", facts.Devices)
+	}
+}
+
+// TestParseStackConfigAbsBindAndImageDedup covers an absolute (non-system) bind
+// being marked copy + HasAbsBind, and an image shared across services deduped.
+func TestParseStackConfigAbsBindAndImageDedup(t *testing.T) {
+	const j = `{
+  "name": "ab",
+  "services": {
+    "a": {"image": "nginx:alpine", "volumes": [{"type": "bind", "source": "/srv/media", "target": "/media"}]},
+    "b": {"image": "nginx:alpine"}
+  }
+}`
+	facts, err := parseStackConfig([]byte(j), "/opt/stacks/ab")
+	if err != nil {
+		t.Fatalf("parseStackConfig: %v", err)
+	}
+	if len(facts.Binds) != 1 || facts.Binds[0].Kind != "abs" || !facts.Binds[0].Copy {
+		t.Fatalf("Binds = %+v, want one abs copy bind", facts.Binds)
+	}
+	if !facts.HasAbsBind {
+		t.Error("HasAbsBind = false, want true")
+	}
+	if len(facts.Images) != 1 || facts.Images[0].Ref != "nginx:alpine" {
+		t.Errorf("Images = %+v, want one deduped nginx:alpine", facts.Images)
 	}
 }
 

@@ -43,6 +43,9 @@ import type {
   ClusterNodesResponse,
   ClusterTokenResponse,
   ClusterTokenInfo,
+  MigratePreflightReport,
+  MigratePhaseEvent,
+  MigrateDisposition,
   TerminalSession,
   ClusterEventsResponse,
   ClusterInterfacesResponse,
@@ -829,6 +832,31 @@ class ApiClient {
     })
     if (!res.ok) throw new Error('Update failed')
     await this.readSSEStream(res, onEvent)
+  }
+
+  // migratePreflight runs the source-side dry-run for a node-to-node migration.
+  // Slow (it sizes volumes/images), so it gets a generous timeout.
+  migratePreflight(project: string, body: { targetNodeId: string; overwriteAcked: boolean }) {
+    return this.request<MigratePreflightReport>(
+      `/docker/compose/${encodeURIComponent(project)}/migrate/preflight`,
+      { method: 'POST', body: JSON.stringify(body), timeout: 120000 },
+    )
+  }
+
+  // migrateStream cold-migrates the stack to targetNodeId and streams phase
+  // events (preflight → quiesce → package → transfer → restore → up →
+  // healthcheck → finalize, or rollback/error on failure).
+  async migrateStream(
+    project: string,
+    body: { targetNodeId: string; disposition: MigrateDisposition; overwriteAcked: boolean },
+    onEvent: (event: MigratePhaseEvent) => void,
+  ): Promise<void> {
+    const nodeParam = this._currentNode ? `?node=${this._currentNode}` : ''
+    const res = await fetch(`${this.apiBase}/docker/compose/${encodeURIComponent(project)}/migrate${nodeParam}`, {
+      method: 'POST', headers: this.streamHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error('Migration failed to start')
+    await this.readSSEStream<MigratePhaseEvent>(res, onEvent)
   }
 
   private async readSSEStream<T = { phase: string; line: string }>(

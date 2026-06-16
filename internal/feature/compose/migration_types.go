@@ -37,15 +37,22 @@ type NodeRef struct {
 	Arch   string `json:"arch"`
 }
 
-// MountSpec describes one bind mount referenced by the stack (M2 populates data).
+// MountSpec describes one bind mount referenced by the stack. When Copy is set
+// the host dir/file is archived into the bundle at Archive (sha256 in Sha256).
+// Rel is the host path relative to the source stack dir for "in-stack" binds, so
+// the target can place the data under ITS stack dir (paths may differ per node).
 type MountSpec struct {
 	Host    string `json:"host"`
 	Kind    string `json:"kind"` // "in-stack" | "abs" | "system"
+	Rel     string `json:"rel,omitempty"`
 	Copy    bool   `json:"copy"`
+	Bytes   int64  `json:"bytes,omitempty"`
 	Archive string `json:"archive,omitempty"`
+	Sha256  string `json:"sha256,omitempty"`
 }
 
-// VolumeSpec describes one named volume (M3 populates data).
+// VolumeSpec describes one named volume. When Copy is set the volume's data is
+// archived into the bundle at Archive (sha256 in Sha256).
 type VolumeSpec struct {
 	Compose  string `json:"compose"`
 	Docker   string `json:"docker"`
@@ -53,14 +60,18 @@ type VolumeSpec struct {
 	Bytes    int64  `json:"bytes,omitempty"`
 	Copy     bool   `json:"copy"`
 	Archive  string `json:"archive,omitempty"`
+	Sha256   string `json:"sha256,omitempty"`
 }
 
-// ImageSpec describes one image (M3 populates save/load).
+// ImageSpec describes one image. M3 always save/loads (SaveLoad): the image is
+// archived into the bundle at Archive (sha256 in Sha256).
 type ImageSpec struct {
 	Ref      string `json:"ref"`
 	Pullable bool   `json:"pullable"`
 	SaveLoad bool   `json:"saveLoad"`
+	Bytes    int64  `json:"bytes,omitempty"`
 	Archive  string `json:"archive,omitempty"`
+	Sha256   string `json:"sha256,omitempty"`
 }
 
 // MigrationManifest is the single source of truth carried inside the bundle.

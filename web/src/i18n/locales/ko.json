@@ -282,6 +282,30 @@
     "wantedBy": "이 서비스를 원하는 유닛"
   },
   "docker": {
+    "migrate": {
+      "action": "노드 간 이전",
+      "title": "\"{{stack}}\" 다른 노드로 이전",
+      "desc": "이 스택을 정의(compose) · 볼륨/바인드 데이터 · 이미지까지 다른 클러스터 노드로 콜드 마이그레이션합니다.",
+      "target": "대상 노드",
+      "selectTarget": "대상 노드 선택…",
+      "noTargets": "이전 가능한 다른 온라인 노드가 없습니다.",
+      "disposition": "이전 후 원본 스택 처리",
+      "disp": { "retain": "보존", "delete": "삭제", "clone": "복제" },
+      "dispDesc": {
+        "retain": "원본을 정지하고 파일·데이터를 그대로 둡니다.",
+        "delete": "대상이 정상 확인된 뒤에만 원본을 삭제합니다.",
+        "clone": "원본을 재시작해 양쪽 모두 실행합니다."
+      },
+      "overwriteAck": "대상에 같은 이름의 스택이 있으면 덮어씁니다(기존 데이터는 백업됨).",
+      "preflight": "사전 점검",
+      "start": "이전 시작",
+      "running": "이전 중… (창을 닫아도 이전은 계속 진행됩니다)",
+      "blocked": "차단됨:",
+      "warnings": "경고:",
+      "preflightOk": "사전 점검 통과 — 이전 준비 완료.",
+      "streamEnded": "마이그레이션 스트림이 예기치 않게 종료됐습니다. 서버에서 계속 진행 중일 수 있으니 대상 노드를 확인하세요.",
+      "loadNodesFailed": "클러스터 노드를 불러오지 못했습니다."
+    },
     "title": "Docker",
     "tabs": {
       "containers": "컨테이너",

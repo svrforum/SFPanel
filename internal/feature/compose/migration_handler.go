@@ -1,10 +1,7 @@
 package compose
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -25,11 +22,11 @@ import (
 
 const migrationShaHeader = "X-SFPanel-Migration-Sha256"
 
-// maxMigrationBundleBytes caps an incoming migration bundle. M1 is
-// definition-only (compose + .env + small config files); the cap bounds memory
-// against a malformed/hostile bundle from a compromised cluster member. A var so
-// tests can lower it.
-var maxMigrationBundleBytes int64 = 64 << 20 // 64 MiB
+// maxMigrationBundleBytes caps an incoming migration bundle. The bundle now
+// carries volume/bind data + saved images, so the cap is a large safety bound
+// against a runaway/hostile transfer from a compromised cluster member, not a
+// tight limit. A var so tests can lower it.
+var maxMigrationBundleBytes int64 = 64 << 30 // 64 GiB
 
 // validProjectID reports whether a :project / stackId path or query param is
 // safe for filesystem use — same rule as restoreDefinition's stack id (leading
@@ -60,7 +57,7 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	defer func() { _ = os.RemoveAll(staging) }()
 
 	body := http.MaxBytesReader(c.Response(), c.Request().Body, maxMigrationBundleBytes)
-	m, files, err := receiveBundle(body, expectedSha, staging)
+	m, files, staged, err := receiveBundle(body, expectedSha, staging)
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput("bundle: "+err.Error()))
 	}
@@ -110,16 +107,29 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	}
 
 	// Detach from the request context: a client/proxy disconnect must not abort
-	// the compose up + health poll (which would clean up a stack that is in fact
-	// coming up healthy). Bound it independently instead.
-	opCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	// the data restore + compose up + health poll (which would clean up a stack
+	// that is in fact coming up healthy). Bound it independently instead. 2h
+	// covers docker load + volume extraction of a large stack.
+	opCtx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
+
+	// Restore images + volume/bind data BEFORE up. Each archive was sha256-verified
+	// on receipt, so a clean return means the target holds intact data — which is
+	// what makes the source `delete` disposition safe.
+	createdVols, warns, derr := restoreData(opCtx, m, staged, h.ComposePath)
+	for _, w := range warns {
+		slog.Warn("migrate import: "+w, "component", "compose", "stack", m.StackID)
+	}
+	if derr != nil {
+		h.failedImportData(m.StackID, backup, createdVols)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("restore data: "+derr.Error()))
+	}
 	if _, err := h.Compose.Up(opCtx, m.StackID); err != nil {
-		h.failedImportCleanup(m.StackID, backup)
+		h.failedImportData(m.StackID, backup, createdVols)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("up: "+err.Error()))
 	}
 	if err := h.waitHealthy(opCtx, m.StackID, 60*time.Second); err != nil {
-		h.failedImportCleanup(m.StackID, backup)
+		h.failedImportData(m.StackID, backup, createdVols)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("healthcheck: "+err.Error()))
 	}
 	if backup != "" {
@@ -134,11 +144,31 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 // prior definition from the backup, so a failed import never destroys pre-existing data.
 func (h *Handler) failedImportCleanup(stackID, backup string) {
 	overwrite := backup != ""
-	h.migrateCleanup(stackID, !overwrite)
+	// Never `down -v`: a blanket volume removal would delete a pre-existing
+	// volume whose name collides with the imported stack's (a different tenant's
+	// data). Volumes we FRESHLY created are removed by failedImportData via the
+	// createdVols list; pre-existing ones are left intact.
+	h.migrateCleanup(stackID, false)
 	if overwrite {
 		dir := filepath.Join(h.ComposePath, stackID)
 		_ = os.RemoveAll(dir)
 		_ = os.Rename(backup, dir)
+	}
+}
+
+// failedImportData cleans up after a data-restore/up/health failure: the stack
+// teardown (failedImportCleanup) plus removal of any volumes restoreData FRESHLY
+// created. Freshly-created volumes did not exist before this import, so removing
+// them is safe even on an overwrite (a pre-existing tenant volume is never in
+// createdVols).
+func (h *Handler) failedImportData(stackID, backup string, createdVols []string) {
+	h.failedImportCleanup(stackID, backup)
+	// Volume removal must run even if the import op deadline already fired (a
+	// timeout is a common failure cause), so use a fresh bounded context.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	for _, v := range createdVols {
+		removeVolume(ctx, v)
 	}
 }
 
@@ -271,12 +301,13 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 		StackPorts:        facts.HostPorts,
 		HasSystemBind:     facts.HasSystemBind,
 		HasExternalVolume: facts.HasExternalVolume,
+		HasAbsBind:        facts.HasAbsBind,
 		HasDevice:         facts.HasDevice,
 		OverwriteAcked:    overwriteAcked,
 		Disposition:       DispositionRetain, // preflight is disposition-agnostic for blocking; clone relaxation handled at migrate time
-		// Minimal definition-only estimate so the insufficient-disk block is live
-		// (the resolved config plus headroom). M2/M3 add bind/volume data sizes.
-		EstimatedBytes: int64(len(cfgJSON)) + (16 << 20),
+		// Real estimate: resolved config + actual volume/bind/image data sizes +
+		// headroom, so the insufficient-disk block reflects the true transfer.
+		EstimatedBytes: int64(len(cfgJSON)) + estimateTransferBytes(ctx, facts) + (16 << 20),
 	}
 
 	// Target facts via the cross-node info endpoint. A 200 with an unparseable
@@ -383,7 +414,8 @@ func (h *Handler) Migrate(c echo.Context) error {
 	// quiesce/transfer/ROLLBACK/finalize docker operations mid-flight — the
 	// rollback that restores the source MUST run even when the operator is gone.
 	// The request context governs only SSE writes (no-ops once disconnected).
-	opCtx, cancel := context.WithTimeout(context.Background(), 25*time.Minute)
+	// 2h bounds a large data+image transfer (volume tar + docker save/load).
+	opCtx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
 	username, _ := c.Get("username").(string)
 
@@ -402,12 +434,12 @@ func (h *Handler) Migrate(c echo.Context) error {
 	// 2. quiesce — stop the source (cold) so the snapshot is consistent.
 	send(PhaseQuiesce, "Stopping source stack...", false)
 	if _, err := h.Compose.Stop(opCtx, project); err != nil {
-		h.reportRollback(send, opCtx, project, "quiesce failed", err.Error())
+		h.reportRollback(send, project, "quiesce failed", err.Error())
 		return nil
 	}
 
-	// 3. package — build the definition bundle + checksum.
-	send(PhasePackage, "Packaging stack...", false)
+	// 3. package — archive definition + volume/bind data + images into a bundle.
+	send(PhasePackage, "Packaging stack (data + images)...", false)
 	yamlPath, _ := h.Compose.ResolveComposeFile(opCtx, project)
 	composeFile := filepath.Base(yamlPath)
 	hasEnv := false
@@ -415,17 +447,33 @@ func (h *Handler) Migrate(c echo.Context) error {
 		hasEnv = true
 	}
 	manifest := buildDefinitionManifest(project, composeFile, hasEnv, mgr.LocalNodeID(), runtime.GOARCH, req.TargetNodeID, disp, req.OverwriteAcked)
-	var buf bytes.Buffer
-	if err := packageDefinitionBundle(&buf, manifest, filepath.Join(h.ComposePath, project)); err != nil {
-		h.reportRollback(send, opCtx, project, "packaging failed", err.Error())
+	// Populate data sections from the resolved config. A parse failure falls back
+	// to a definition-only migration rather than aborting the run.
+	if cfgJSON, cerr := h.Compose.GetResolvedConfig(opCtx, project); cerr == nil {
+		if facts, ferr := parseStackConfig(cfgJSON, filepath.Join(h.ComposePath, project)); ferr == nil {
+			manifest.Volumes = facts.Volumes
+			manifest.Binds = facts.Binds
+			manifest.Images = facts.Images
+			manifest.Devices = facts.Devices
+			manifest.Ports = facts.HostPorts
+		}
+	}
+	tmpDir, terr0 := os.MkdirTemp(h.ComposePath, ".mig-pkg-*")
+	if terr0 != nil {
+		h.reportRollback(send, project, "packaging failed", terr0.Error())
 		return nil
 	}
-	sum := sha256.Sum256(buf.Bytes())
-	sha := hex.EncodeToString(sum[:])
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+	bundleFile := filepath.Join(tmpDir, "bundle.tar")
+	sha, pkgErr := packageFullBundle(opCtx, bundleFile, &manifest, filepath.Join(h.ComposePath, project), tmpDir)
+	if pkgErr != nil {
+		h.reportRollback(send, project, "packaging failed", pkgErr.Error())
+		return nil
+	}
 
-	// 4. transfer — push to the target; it restores + ups + healthchecks.
+	// 4. transfer — stream the bundle to the target; it restores + ups + healthchecks.
 	send(PhaseTransfer, "Transferring to target...", false)
-	status, body, terr := h.pushBundleToTarget(opCtx, req.TargetNodeID, username, buf.Bytes(), sha)
+	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha)
 	if terr != nil || status != http.StatusOK {
 		cause := ""
 		if terr != nil {
@@ -435,7 +483,7 @@ func (h *Handler) Migrate(c echo.Context) error {
 		} else {
 			cause = "target status " + http.StatusText(status) + ": " + string(body)
 		}
-		h.reportRollback(send, opCtx, project, "transfer/restore failed", cause)
+		h.reportRollback(send, project, "transfer/restore failed", cause)
 		return nil
 	}
 
@@ -454,7 +502,11 @@ func (h *Handler) Migrate(c echo.Context) error {
 // reportRollback restarts the source after a pre-finalize failure and emits an
 // honest terminal event — it claims "source restarted" only if the restart
 // actually succeeded, otherwise a PhaseError telling the operator to start it.
-func (h *Handler) reportRollback(send func(string, string, bool), ctx context.Context, project, what, cause string) {
+// It runs on a FRESH bounded context (not the op context) so the source restart
+// still happens when the failure was the op deadline itself expiring.
+func (h *Handler) reportRollback(send func(string, string, bool), project, what, cause string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 	if rerr := h.migrateRollback(ctx, project); rerr != nil {
 		send(PhaseError, response.SanitizeOutput(what+"; SOURCE FAILED TO RESTART — start it manually: "+cause), true)
 		return

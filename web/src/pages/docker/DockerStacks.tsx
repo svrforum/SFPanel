@@ -5,9 +5,10 @@ import {
   Plus, Play, Square, RotateCw, ArrowUp, RefreshCw,
   Trash2, Terminal, ScrollText, FileText, FileCode, Save, Loader2,
   CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft, Eye,
-  HeartPulse, Info,
+  HeartPulse, Info, ArrowRightLeft,
 } from 'lucide-react'
 import { HealthcheckComposerDialog } from '@/components/compose/HealthcheckComposerDialog'
+import { MigrateStackDialog } from '@/pages/docker/components/MigrateStackDialog'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -90,6 +91,15 @@ export default function DockerStacks() {
   const [newName, setNewName] = useState('')
   const [newYaml, setNewYaml] = useState(DEFAULT_COMPOSE)
   const [creating, setCreating] = useState(false)
+
+  // Node-to-node migration (shown only when the cluster has another node)
+  const [migrateOpen, setMigrateOpen] = useState(false)
+  const [clusterNodeCount, setClusterNodeCount] = useState(0)
+  useEffect(() => {
+    api.getClusterStatus()
+      .then((s) => setClusterNodeCount(s.enabled ? (s.node_count ?? 0) : 0))
+      .catch(() => setClusterNodeCount(0))
+  }, [])
 
   // Editor state
   const [editYaml, setEditYaml] = useState('')
@@ -693,6 +703,15 @@ export default function DockerStacks() {
                   )}
                   {t('docker.stacks.checkUpdates')}
                 </Button>
+                {clusterNodeCount > 1 && (
+                  <Button
+                    variant="outline" size="sm" className="rounded-xl"
+                    onClick={() => setMigrateOpen(true)}
+                  >
+                    <ArrowRightLeft className="h-3.5 w-3.5" />
+                    {t('docker.migrate.action')}
+                  </Button>
+                )}
                 {rollbackInfo?.has_rollback && (
                   <div className="flex items-center gap-2">
                     <Button
@@ -1280,6 +1299,10 @@ export default function DockerStacks() {
             void fetchServices(selectedName)
           }}
         />
+      )}
+
+      {selectedName && (
+        <MigrateStackDialog open={migrateOpen} onOpenChange={setMigrateOpen} project={selectedName} />
       )}
     </div>
   )

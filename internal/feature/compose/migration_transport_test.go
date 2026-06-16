@@ -2,6 +2,7 @@ package compose
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -26,7 +27,7 @@ func TestPackageThenReceiveRoundTrip(t *testing.T) {
 	sum := sha256.Sum256(buf.Bytes())
 	sha := hex.EncodeToString(sum[:])
 
-	got, files, err := receiveBundle(bytes.NewReader(buf.Bytes()), sha, t.TempDir())
+	got, files, _, err := receiveBundle(bytes.NewReader(buf.Bytes()), sha, t.TempDir())
 	if err != nil {
 		t.Fatalf("receive: %v", err)
 	}
@@ -41,6 +42,62 @@ func TestPackageThenReceiveRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPackageFullBundleBindRoundTrip(t *testing.T) {
+	stackDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stackDir, "docker-compose.yml"), []byte("services:\n  web:\n    image: nginx\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bindDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bindDir, "data.txt"), []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := MigrationManifest{
+		SchemaVersion: 1, StackID: "demo", ComposeFile: "docker-compose.yml",
+		Disposition: DispositionRetain,
+		Binds:       []MountSpec{{Host: bindDir, Kind: "abs", Copy: true}},
+	}
+	bundlePath := filepath.Join(t.TempDir(), "bundle.tar")
+	sha, err := packageFullBundle(context.Background(), bundlePath, &m, stackDir, t.TempDir())
+	if err != nil {
+		t.Fatalf("packageFullBundle: %v", err)
+	}
+	if len(sha) != 64 {
+		t.Fatalf("bundle sha = %q, want 64-hex", sha)
+	}
+	if m.Binds[0].Archive == "" || m.Binds[0].Sha256 == "" || m.Binds[0].Bytes <= 0 {
+		t.Fatalf("bind not archived into manifest: %+v", m.Binds[0])
+	}
+
+	bf, err := os.Open(bundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bf.Close()
+	got, _, staged, err := receiveBundle(bf, sha, t.TempDir())
+	if err != nil {
+		t.Fatalf("receiveBundle: %v", err)
+	}
+	if len(got.Binds) != 1 || got.Binds[0].Archive != m.Binds[0].Archive {
+		t.Fatalf("manifest binds mismatch: %+v", got.Binds)
+	}
+	// Data entries stream to disk (staged), verified against the manifest sha.
+	stagedPath, ok := staged[m.Binds[0].Archive]
+	if !ok {
+		t.Fatalf("bind archive %q not staged; have %v", m.Binds[0].Archive, stagedKeys(staged))
+	}
+	if fi, serr := os.Stat(stagedPath); serr != nil || fi.Size() <= 0 {
+		t.Fatalf("staged bind archive missing/empty: %v", serr)
+	}
+}
+
+func stagedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 func TestReceiveBundleRejectsHashMismatch(t *testing.T) {
 	stackDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(stackDir, "docker-compose.yml"), []byte("services: {}\n"), 0o600); err != nil {
@@ -51,7 +108,7 @@ func TestReceiveBundleRejectsHashMismatch(t *testing.T) {
 	if err := packageDefinitionBundle(&buf, m, stackDir); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := receiveBundle(bytes.NewReader(buf.Bytes()), "deadbeef", t.TempDir()); err == nil {
+	if _, _, _, err := receiveBundle(bytes.NewReader(buf.Bytes()), "deadbeef", t.TempDir()); err == nil {
 		t.Fatal("expected hash-mismatch rejection")
 	}
 }

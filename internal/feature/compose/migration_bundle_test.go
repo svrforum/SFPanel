@@ -21,7 +21,7 @@ func TestBundleWriteThenRead(t *testing.T) {
 	}
 
 	r := NewBundleReader(bytes.NewReader(buf.Bytes()))
-	got, files, err := r.ReadAll("/tmp/does-not-write-in-test")
+	got, files, _, err := r.ReadAll("/tmp/does-not-write-in-test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestBundleRejectsTraversal(t *testing.T) {
 	_ = tw.Close()
 
 	r := NewBundleReader(bytes.NewReader(buf.Bytes()))
-	if _, _, err := r.ReadAll("/tmp/x"); err == nil {
+	if _, _, _, err := r.ReadAll("/tmp/x"); err == nil {
 		t.Fatal("expected traversal entry to be rejected")
 	}
 }

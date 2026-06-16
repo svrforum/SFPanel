@@ -282,6 +282,30 @@
     "wantedBy": "Wanted by"
   },
   "docker": {
+    "migrate": {
+      "action": "Migrate to node",
+      "title": "Migrate \"{{stack}}\" to another node",
+      "desc": "Cold-migrate this stack — its compose definition, volume/bind data, and images — to another cluster node.",
+      "target": "Target node",
+      "selectTarget": "Select a target node…",
+      "noTargets": "No other online nodes available.",
+      "disposition": "After migration, the source should be…",
+      "disp": { "retain": "Retain", "delete": "Delete", "clone": "Clone" },
+      "dispDesc": {
+        "retain": "Stop the source and keep its files and data.",
+        "delete": "Remove the source only after the target is verified healthy.",
+        "clone": "Restart the source so both copies run."
+      },
+      "overwriteAck": "Overwrite a stack with the same name if it already exists on the target (its prior data is backed up).",
+      "preflight": "Run pre-flight",
+      "start": "Start migration",
+      "running": "Migrating… (you can leave this open; the migration continues even if you close it)",
+      "blocked": "Blocked:",
+      "warnings": "Warnings:",
+      "preflightOk": "Pre-flight passed — ready to migrate.",
+      "streamEnded": "The migration stream ended unexpectedly; it may still be running on the server. Check the target node.",
+      "loadNodesFailed": "Failed to load cluster nodes."
+    },
     "title": "Docker",
     "tabs": {
       "containers": "Containers",

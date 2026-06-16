@@ -1,12 +1,187 @@
 package compose
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
+
+// validDockerVolume / validImageRef gate manifest-supplied identifiers before
+// they reach `docker` argv on the target. The leading-alphanumeric rule blocks
+// argv flag-smuggling (a value like "-foo" parsed as a flag); the character
+// class blocks anything outside legal docker volume names / image references.
+var validDockerVolume = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
+var validImageRef = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/@-]{0,255}$`)
+
+// absBindDenyPrefixes are target paths that a migrated absolute bind must NEVER
+// overwrite, even if the (cluster-internal but potentially compromised) source
+// claims them. Restoring an abs bind writes attacker-influenced files as root, so
+// critical system trees are refused — the bind is skipped with a warning.
+var absBindDenyPrefixes = []string{
+	"/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/boot", "/root",
+	// /var broadly: covers /var/lib (panel SQLite DB + Raft/BoltDB cluster
+	// state + docker), /var/log, /var/spool/cron (cron RCE), /var/run.
+	"/var",
+	// /home: .ssh/authorized_keys is an RCE vector.
+	"/home",
+	"/sys", "/proc", "/dev", "/run", "/opt/stacks",
+}
+
+// pathHasContent reports whether p exists and is a non-empty dir or a file.
+func pathHasContent(p string) bool {
+	fi, err := os.Stat(p)
+	if err != nil {
+		return false
+	}
+	if !fi.IsDir() {
+		return true
+	}
+	entries, err := os.ReadDir(p)
+	return err == nil && len(entries) > 0
+}
+
+// absBindRestorable reports whether restored data may be written at the absolute
+// host path p on the target. "/" and any deny-listed system tree are refused.
+func absBindRestorable(p string) bool {
+	clean := filepath.Clean(p)
+	// Must be absolute: a relative Host (attacker-controlled in the manifest)
+	// would otherwise resolve against the process CWD ("/" for the service) and
+	// the leading-slash deny-list would never match — e.g. "etc/cron.d" → /etc.
+	if !filepath.IsAbs(clean) {
+		return false
+	}
+	if clean == "/" {
+		return false
+	}
+	for _, d := range absBindDenyPrefixes {
+		if clean == d || strings.HasPrefix(clean+"/", d+"/") {
+			return false
+		}
+	}
+	return true
+}
+
+// restoreData loads images, recreates named volumes from their archives, and
+// restores copied bind dirs — AFTER restoreDefinition, BEFORE compose up. Every
+// data archive was already sha256-verified by the bundle reader, so a clean
+// return means the target holds intact data (which is what makes the source
+// `delete` disposition safe). Returns the docker volumes it FRESHLY created (for
+// failure cleanup) and any skipped-bind warnings.
+func restoreData(ctx context.Context, m MigrationManifest, staged map[string]string, composeRoot string) (created []string, warnings []string, err error) {
+	stackDir := filepath.Join(composeRoot, m.StackID)
+
+	// Gate every manifest identifier that reaches a docker argv (the manifest
+	// comes from another node and is not trusted) BEFORE touching docker.
+	for _, v := range m.Volumes {
+		if v.Copy && v.Archive != "" && !validDockerVolume.MatchString(v.Docker) {
+			return created, warnings, fmt.Errorf("invalid volume name in manifest: %q", v.Docker)
+		}
+	}
+	for _, im := range m.Images {
+		if im.Archive != "" && !validImageRef.MatchString(im.Ref) {
+			return created, warnings, fmt.Errorf("invalid image ref in manifest: %q", im.Ref)
+		}
+	}
+
+	for _, im := range m.Images {
+		if im.Archive == "" {
+			continue
+		}
+		path, ok := staged[im.Archive]
+		if !ok {
+			return created, warnings, fmt.Errorf("image archive %q missing from bundle", im.Archive)
+		}
+		if lerr := loadImageFromFile(ctx, path); lerr != nil {
+			return created, warnings, lerr
+		}
+	}
+
+	for i := range m.Volumes {
+		v := m.Volumes[i]
+		if !v.Copy || v.Archive == "" {
+			continue
+		}
+		path, ok := staged[v.Archive]
+		if !ok {
+			return created, warnings, fmt.Errorf("volume archive %q missing from bundle", v.Archive)
+		}
+		fresh, cerr := createVolumeIfAbsent(ctx, v.Docker)
+		if cerr != nil {
+			return created, warnings, cerr
+		}
+		if fresh {
+			created = append(created, v.Docker)
+		} else {
+			// A pre-existing volume (another stack/tenant, an external shared
+			// volume, or an orphan) must NOT be silently overlaid. Require an
+			// explicit overwrite ack, then wipe it so the restore is an exact copy.
+			if !m.Overwrite {
+				return created, warnings, fmt.Errorf("target volume %q already exists; ack overwrite to replace it", v.Docker)
+			}
+			if werr := clearVolume(ctx, v.Docker); werr != nil {
+				return created, warnings, werr
+			}
+		}
+		if rerr := restoreVolumeFromFile(ctx, v.Docker, path); rerr != nil {
+			return created, warnings, rerr
+		}
+	}
+
+	for i := range m.Binds {
+		b := m.Binds[i]
+		if !b.Copy || b.Archive == "" {
+			continue
+		}
+		path, ok := staged[b.Archive]
+		if !ok {
+			return created, warnings, fmt.Errorf("bind archive %q missing from bundle", b.Archive)
+		}
+		var targetBind string
+		if b.Kind == "in-stack" {
+			rel := b.Rel
+			if rel == "" {
+				rel = filepath.Base(b.Host)
+			}
+			targetBind = filepath.Join(stackDir, rel)
+			if !withinRoot(stackDir, targetBind) {
+				return created, warnings, fmt.Errorf("in-stack bind escapes stack dir: %q", rel)
+			}
+			if filepath.Clean(targetBind) == filepath.Clean(stackDir) {
+				// rel "." / "" / "../<id>" would resolve to the stack dir itself;
+				// wiping it would destroy the just-written compose definition.
+				return created, warnings, fmt.Errorf("in-stack bind resolves to the stack dir itself: %q", rel)
+			}
+			// In-stack data lives under the fresh/backed-up stack dir (a confined
+			// descendant); clear any leftover so the restore is exact.
+			_ = os.RemoveAll(targetBind)
+		} else { // abs (system binds were never marked Copy)
+			if !absBindRestorable(b.Host) {
+				warnings = append(warnings, "skipped restoring bind to protected path "+b.Host)
+				continue
+			}
+			targetBind = b.Host
+			// NEVER RemoveAll an absolute host path: a hostile manifest could point
+			// it at /opt, /srv, /data, … and the overwrite ack would then authorize
+			// wiping an entire unrelated tree as root. Require the target path to be
+			// empty/absent; the operator clears it themselves to intentionally replace.
+			if pathHasContent(targetBind) {
+				return created, warnings, fmt.Errorf("target path %q is not empty; clear it on the target before migrating this bind", b.Host)
+			}
+		}
+		// Pin the archive to the bind's own basename so extraction (tar -C parent)
+		// writes ONLY into targetBind, never a sibling under the shared parent.
+		if verr := tarTopLevelIs(path, filepath.Base(targetBind)); verr != nil {
+			return created, warnings, verr
+		}
+		if eerr := extractTarToDir(ctx, filepath.Dir(targetBind), path); eerr != nil {
+			return created, warnings, eerr
+		}
+	}
+	return created, warnings, nil
+}
 
 // validStackID requires a leading alphanumeric (so "." and ".." cannot match),
 // then up to 62 more of [a-zA-Z0-9_.-]. The leading-alnum rule is what blocks

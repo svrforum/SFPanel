@@ -60,3 +60,26 @@ func TestPreflightSameNodeBlocks(t *testing.T) {
 		t.Fatal("source==target must block")
 	}
 }
+
+func TestPreflightDataWarnings(t *testing.T) {
+	r := BuildPreflightReport(PreflightInput{
+		SourceNodeID: "a", TargetNodeID: "b",
+		SourceArch: "amd64", TargetArch: "amd64",
+		HasAbsBind:     true,
+		EstimatedBytes: 8 << 30, // > 5 GiB → large-transfer
+	})
+	if len(r.Blocks) != 0 {
+		t.Fatalf("unexpected blocks: %+v", r.Blocks)
+	}
+	want := map[string]bool{"absolute-bind-write": false, "large-transfer": false}
+	for _, w := range r.Warnings {
+		if _, ok := want[w.Code]; ok {
+			want[w.Code] = true
+		}
+	}
+	for code, seen := range want {
+		if !seen {
+			t.Errorf("expected warning %q, warnings=%+v", code, r.Warnings)
+		}
+	}
+}

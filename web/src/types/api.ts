@@ -1055,3 +1055,22 @@ export interface HealthcheckSpec {
   start_period: string
 }
 
+
+// --- Node-to-node stack migration ---
+export interface MigratePreflightFinding {
+  code: string
+  message: string
+}
+
+export interface MigratePreflightReport {
+  blocks: MigratePreflightFinding[]
+  warnings: MigratePreflightFinding[]
+}
+
+export interface MigratePhaseEvent {
+  phase: string
+  message: string
+  done: boolean
+}
+
+export type MigrateDisposition = 'retain' | 'delete' | 'clone'

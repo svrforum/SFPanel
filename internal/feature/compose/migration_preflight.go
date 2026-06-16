@@ -13,9 +13,14 @@ type PreflightInput struct {
 	OverwriteAcked             bool
 	HasSystemBind              bool
 	HasExternalVolume          bool
+	HasAbsBind                 bool
 	HasDevice                  bool
 	Disposition                Disposition
 }
+
+// largeTransferThreshold is the estimated size above which the operator is
+// warned that the migration will move a lot of data and may run for a while.
+const largeTransferThreshold int64 = 5 << 30 // 5 GiB
 
 type PreflightFinding struct {
 	Code    string `json:"code"`
@@ -44,7 +49,9 @@ func intersect(a, b []int) []int {
 // BuildPreflightReport is pure: blocking conditions stop the migration;
 // warnings require an explicit operator ack but do not block.
 func BuildPreflightReport(in PreflightInput) PreflightReport {
-	var r PreflightReport
+	// Non-nil slices so JSON emits [] not null — the UI's "no blocks && no
+	// warnings" success check relies on length, not presence.
+	r := PreflightReport{Blocks: []PreflightFinding{}, Warnings: []PreflightFinding{}}
 	block := func(code, msg string) { r.Blocks = append(r.Blocks, PreflightFinding{code, msg}) }
 	warn := func(code, msg string) { r.Warnings = append(r.Warnings, PreflightFinding{code, msg}) }
 
@@ -66,10 +73,16 @@ func BuildPreflightReport(in PreflightInput) PreflightReport {
 		block("stack-exists", "a stack with this id already exists on the target (ack overwrite to proceed)")
 	}
 	if in.HasSystemBind {
-		warn("system-bind", "stack uses host/system bind mounts (e.g. docker.sock); these are not copied and must exist on the target")
+		warn("system-bind", "stack uses host/system bind mounts (e.g. docker.sock, /dev); these are NOT copied and must exist on the target")
 	}
 	if in.HasExternalVolume {
-		warn("external-volume", "stack references external volumes; their data is not copied")
+		warn("external-volume", "stack references external volumes; their data WILL be copied, which may duplicate data shared with other stacks")
+	}
+	if in.HasAbsBind {
+		warn("absolute-bind-write", "stack has absolute-path bind mounts; their data will be written to the SAME absolute paths on the target (protected system paths are skipped)")
+	}
+	if in.EstimatedBytes > largeTransferThreshold {
+		warn("large-transfer", "this migration moves a large amount of data and may take a while")
 	}
 	if in.HasDevice {
 		warn("device-required", "stack requests devices/GPU; the target must have equivalent hardware")

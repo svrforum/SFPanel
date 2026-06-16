@@ -16,9 +16,11 @@ type stackConfigFacts struct {
 	HostPorts         []int
 	Binds             []MountSpec
 	Volumes           []VolumeSpec
+	Images            []ImageSpec
 	Devices           []string
 	HasSystemBind     bool
 	HasExternalVolume bool
+	HasAbsBind        bool
 	HasDevice         bool
 }
 
@@ -35,6 +37,7 @@ type stackConfigFacts struct {
 //     flag (absent when false).
 type composeConfig struct {
 	Services map[string]struct {
+		Image string `json:"image"`
 		Ports []struct {
 			Published json.RawMessage `json:"published"`
 		} `json:"ports"`
@@ -67,8 +70,13 @@ func parseStackConfig(configJSON []byte, workingDir string) (stackConfigFacts, e
 	bindSeen := map[string]bool{}
 	volSeen := map[string]bool{}
 	devSeen := map[string]bool{}
+	imgSeen := map[string]bool{}
 
 	for _, svc := range cfg.Services {
+		if svc.Image != "" && !imgSeen[svc.Image] {
+			imgSeen[svc.Image] = true
+			facts.Images = append(facts.Images, ImageSpec{Ref: svc.Image, SaveLoad: true})
+		}
 		for _, p := range svc.Ports {
 			for _, port := range hostPorts(p.Published) {
 				portSet[port] = true
@@ -88,8 +96,11 @@ func parseStackConfig(configJSON []byte, workingDir string) (stackConfigFacts, e
 					Kind: kind,
 					Copy: kind != "system",
 				})
-				if kind == "system" {
+				switch kind {
+				case "system":
 					facts.HasSystemBind = true
+				case "abs":
+					facts.HasAbsBind = true
 				}
 			case "volume":
 				if v.Source == "" || volSeen[v.Source] {
@@ -105,7 +116,7 @@ func parseStackConfig(configJSON []byte, workingDir string) (stackConfigFacts, e
 					Compose:  v.Source,
 					Docker:   docker,
 					External: external,
-					Copy:     !external,
+					Copy:     true, // copy all volume data, external included (operator choice)
 				})
 				if external {
 					facts.HasExternalVolume = true
