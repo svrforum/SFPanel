@@ -144,7 +144,15 @@ func setAuthHeaders(httpReq *http.Request, origReq *http.Request, mgr *cluster.M
 		// v1 stays for back-compat with not-yet-upgraded peers; v2 makes the
 		// request replay-resistant when both sides support it.
 		httpReq.Header.Set(authpkg.InternalProxyHeader, secret)
-		if v2 := authpkg.SignProxyRequestV2(origReq.Method, origReq.URL.RequestURI()); v2 != "" {
+		// Sign the OUTBOUND request-URI (httpReq), not the inbound one. Callers
+		// build httpReq pointing at the peer with the routing ?node= stripped, so
+		// signing httpReq.URL.RequestURI() binds the MAC to exactly what the peer
+		// receives and validates. Signing origReq instead would cover the
+		// with-node URI; the peer validates the node-stripped one and v2 fails
+		// with NO v1 fallback (IsInternalProxyRequest only tries v1 when the v2
+		// header is absent), 401-ing every ?node-routed relay (e.g. a
+		// cross-node-initiated stack migration over SSE).
+		if v2 := authpkg.SignProxyRequestV2(httpReq.Method, httpReq.URL.RequestURI()); v2 != "" {
 			httpReq.Header.Set(authpkg.InternalProxyHeaderV2, v2)
 		}
 	} else if auth := origReq.Header.Get("Authorization"); auth != "" {
