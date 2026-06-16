@@ -381,6 +381,17 @@ func (m *ComposeManager) ValidateConfig(ctx context.Context, name string) (strin
 	return m.runCompose(ctx, name, "config", "--quiet")
 }
 
+// GetResolvedConfig returns `docker compose config --format json` for the
+// project — the fully-resolved compose spec (env-interpolated, defaults
+// applied). Used by stack migration to enumerate ports/volumes/binds/devices.
+func (m *ComposeManager) GetResolvedConfig(ctx context.Context, name string) ([]byte, error) {
+	out, err := m.runCompose(ctx, name, "config", "--format", "json")
+	if err != nil {
+		return nil, fmt.Errorf("compose config: %w", err)
+	}
+	return []byte(out), nil
+}
+
 // runCompose executes a docker compose command for the given project.
 func (m *ComposeManager) runCompose(ctx context.Context, name string, args ...string) (string, error) {
 	if err := m.validateProjectName(name); err != nil {
