@@ -5,18 +5,39 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
-var validStackID = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
+// validStackID requires a leading alphanumeric (so "." and ".." cannot match),
+// then up to 62 more of [a-zA-Z0-9_.-]. The leading-alnum rule is what blocks
+// traversal/reserved names; the explicit ".." check below is defense in depth.
+var validStackID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
+
+// withinRoot reports whether path is root or a lexical descendant of root.
+func withinRoot(root, path string) bool {
+	root = filepath.Clean(root)
+	path = filepath.Clean(path)
+	if path == root {
+		return true
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
 
 // restoreDefinition writes the stack's compose + .env + extra files under
 // composeRoot/<stackId>/. The stackId is validated (no traversal) and bundle
 // entry names were already validated by the reader. Files keep 0600/0755.
 func restoreDefinition(composeRoot string, m MigrationManifest, files map[string][]byte) error {
-	if !validStackID.MatchString(m.StackID) {
+	if !validStackID.MatchString(m.StackID) || strings.Contains(m.StackID, "..") {
 		return fmt.Errorf("invalid stack id %q", m.StackID)
 	}
 	stackDir := filepath.Join(composeRoot, m.StackID)
+	if !withinRoot(composeRoot, stackDir) {
+		return fmt.Errorf("stack dir escapes compose root: %q", m.StackID)
+	}
 	if err := os.MkdirAll(stackDir, 0o755); err != nil {
 		return fmt.Errorf("create stack dir: %w", err)
 	}
@@ -37,6 +58,9 @@ func restoreDefinition(composeRoot string, m MigrationManifest, files map[string
 	for _, extra := range m.ExtraFiles {
 		if data, ok := files["compose/"+extra]; ok {
 			dst := filepath.Join(stackDir, filepath.Clean(extra))
+			if !withinRoot(stackDir, dst) {
+				return fmt.Errorf("extra file escapes stack dir: %q", extra)
+			}
 			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 				return fmt.Errorf("create dir for %s: %w", extra, err)
 			}

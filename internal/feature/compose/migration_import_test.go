@@ -40,3 +40,29 @@ func TestRestoreDefinitionRejectsBadStackID(t *testing.T) {
 		t.Fatal("expected bad stack id to be rejected")
 	}
 }
+
+func TestRestoreDefinitionRejectsTraversalNames(t *testing.T) {
+	root := t.TempDir()
+	for _, bad := range []string{"..", ".", "a..b", "foo/bar", ".hidden"} {
+		m := MigrationManifest{SchemaVersion: 1, StackID: bad, ComposeFile: "docker-compose.yml"}
+		err := restoreDefinition(root, m, map[string][]byte{"compose/docker-compose.yml": []byte("services: {}")})
+		if err == nil {
+			t.Errorf("stack id %q should be rejected", bad)
+		}
+	}
+}
+
+func TestRestoreDefinitionRejectsExtraFileEscape(t *testing.T) {
+	root := t.TempDir()
+	m := MigrationManifest{
+		SchemaVersion: 1, StackID: "demo", ComposeFile: "docker-compose.yml",
+		ExtraFiles: []string{"../escape.txt"},
+	}
+	files := map[string][]byte{
+		"compose/docker-compose.yml": []byte("services: {}"),
+		"compose/../escape.txt":      []byte("evil"),
+	}
+	if err := restoreDefinition(root, m, files); err == nil {
+		t.Fatal("extra file escaping the stack dir must be rejected")
+	}
+}
