@@ -2,7 +2,7 @@
 
 > 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/ws-inventory.md`
 >
-> WebSocket 6개 + SSE(Server-Sent Events) 8개. SSE 섹션은 문서 하단 참조.
+> WebSocket 6개 + SSE(Server-Sent Events) 9개. SSE 섹션은 문서 하단 참조.
 >
 > v0.10.0 이후 추가된 SSE 엔드포인트(예: `/system/update`, `/appstore/.../install`, `/compose/.../up-stream`, `/compose/.../update-stream`)는 본 문서에 부분적으로만 반영되어 있습니다. 권한 있는 출처는 `internal/api/router.go` + `internal/api/middleware/proxy.go`(스트리밍 엔드포인트 화이트리스트). 변경 요약은 `CHANGELOG.md`를 참조하세요.
 
@@ -671,7 +671,7 @@ go func() {
 
 ## Server-Sent Events (SSE) 스트리밍
 
-WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 8개가 존재한다. REST API와 달리 `Content-Type: text/event-stream`을 반환하고, 장시간 실행되는 명령(설치, 업데이트, 이미지 풀 등)의 출력을 라인 단위로 스트리밍한다.
+WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 9개가 존재한다. REST API와 달리 `Content-Type: text/event-stream`을 반환하고, 장시간 실행되는 명령(설치, 업데이트, 이미지 풀 등)의 출력을 라인 단위로 스트리밍한다.
 
 ### 인증
 
@@ -695,6 +695,7 @@ WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 8�
 | `/api/v1/packages/install-node` | POST | Node.js/NVM 설치 | 평문 라인, 종료 시 `[DONE]` |
 | `/api/v1/network/tailscale/install` | POST | Tailscale 설치 (공식 install.sh) | 평문 라인, 종료 시 `[DONE]` |
 | `/api/v1/cluster/update` | POST | 클러스터 멀티노드 업데이트 오케스트레이션 | JSON `{overall?, node_id, node_name, step, status, message}` — 전체 시작 시 `{"overall":"started","mode":"rolling","total_nodes":N}`, 이후 노드별 진행 이벤트 |
+| `/api/v1/docker/compose/:project/migrate` | POST | 스택 노드 간 콜드 이관 (소스 정지 → 패키징 → 전송 → disposition) | JSON `{phase, message, done}` — phase: `preflight` / `quiesce` / `package` / `transfer` / `finalize` / 종료 `done`; 실패 시 `rollback`(소스 복구 후) 또는 `error` |
 
 ### 메시지 예시
 
@@ -726,6 +727,23 @@ data: {"node_id":"node-1","node_name":"Leader","step":"updating","message":"Star
 
 data: {"node_id":"node-1","node_name":"Leader","step":"complete","message":"Node updated successfully"}
 ```
+
+`/api/v1/docker/compose/:project/migrate` (콜드 이관):
+```
+data: {"phase":"preflight","message":"Running pre-flight checks...","done":false}
+
+data: {"phase":"quiesce","message":"Stopping source stack...","done":false}
+
+data: {"phase":"package","message":"Packaging stack...","done":false}
+
+data: {"phase":"transfer","message":"Transferring to target...","done":false}
+
+data: {"phase":"finalize","message":"Applying source disposition (retain)...","done":false}
+
+data: {"phase":"done","message":"Migration complete.","done":true}
+```
+
+실패 시 패키징/전송 단계는 소스를 복구한 뒤 `{"phase":"rollback",...,"done":true}`를, 사전 점검 차단이나 그 외 실패는 `{"phase":"error",...,"done":true}`를 마지막으로 전송한다. 요청 본문은 `{"targetNodeId","disposition","overwriteAcked"}` (REST 스펙의 `POST /docker/compose/:project/migrate` 참조).
 
 ### 클러스터 프록시
 

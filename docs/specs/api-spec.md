@@ -3859,6 +3859,181 @@ data: {"phase":"complete","line":"Update completed successfully"}
 
 ---
 
+### POST /api/v1/docker/compose/:project/migrate/preflight
+스택을 다른 노드로 이관하기 전 사전 점검(dry-run). 실제 이관은 하지 않고 차단 사유(`blocks`)와 경고(`warnings`)만 반환합니다. 클러스터가 활성화되어 있어야 합니다 (v0.43.0+).
+
+- **인증 필요**: 예
+- **Docker 사용 가능 시에만 등록**
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `project` | 소스 스택(프로젝트) 이름 |
+
+**Request Body:**
+```json
+{
+  "targetNodeId": "node-b",
+  "overwriteAcked": false
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `targetNodeId` | string | 예 | 이관 대상 노드 ID |
+| `overwriteAcked` | boolean | 아니오 | 대상에 동일 id 스택이 존재할 때 덮어쓰기를 명시적으로 승인 (기본 `false`) |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "blocks": [
+      { "code": "arch-mismatch", "message": "source (arm64) and target (amd64) architectures differ" }
+    ],
+    "warnings": [
+      { "code": "system-bind", "message": "stack uses host/system bind mounts (e.g. docker.sock); these are not copied and must exist on the target" }
+    ]
+  }
+}
+```
+
+**차단 코드 (`blocks` — 이관 거부):**
+| 코드 | 조건 |
+|------|------|
+| `same-node` | 소스와 대상이 같은 노드 |
+| `arch-mismatch` | 소스/대상 CPU 아키텍처 불일치 |
+| `insufficient-disk` | 대상 여유 공간이 추정 이관 크기보다 작음 |
+| `port-conflict` | 대상이 스택의 호스트 포트를 이미 사용 중 (disposition이 `clone`이 아닐 때) |
+| `stack-exists` | 대상에 동일 id 스택이 이미 존재 (`overwriteAcked`로 승인 필요) |
+
+**경고 코드 (`warnings` — 승인 후 진행 가능):**
+| 코드 | 조건 |
+|------|------|
+| `port-conflict` | `clone` 시 대상이 일부 호스트 포트를 사용 중 — 클론 시작 전 리맵 필요 |
+| `system-bind` | 호스트/시스템 바인드 마운트(예: docker.sock)는 복사되지 않으며 대상에 존재해야 함 |
+| `external-volume` | external 볼륨 데이터는 복사되지 않음 |
+| `device-required` | 디바이스/GPU 요청 — 대상에 동등 하드웨어 필요 |
+| `target-unreachable` | 대상 노드 조회 실패 — 디스크/포트/아키텍처 점검이 생략됨 |
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_NAME` | 400 | 유효하지 않은 프로젝트 id |
+| `MISSING_FIELDS` | 400 | targetNodeId 누락 |
+| `INTERNAL_ERROR` | 400 | 클러스터 미활성 |
+| `COMPOSE_ERROR` | 400 | compose 설정 해석 실패 |
+
+---
+
+### POST /api/v1/docker/compose/:project/migrate
+스택을 `targetNodeId` 노드로 **콜드 이관**(SSE 스트리밍). 소스를 정지시켜 일관된 스냅샷을 만든 뒤 번들로 패키징해 대상에 전송하고, 대상이 정상(healthy)으로 확인되면 disposition을 적용합니다. finalize 이전 단계에서 실패하면 소스는 다시 실행 상태로 복구됩니다. 클러스터가 활성화되어 있어야 합니다 (v0.43.0+).
+
+- **인증 필요**: 예
+- **Docker 사용 가능 시에만 등록**
+- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+
+**Path Parameters:**
+| 파라미터 | 설명 |
+|----------|------|
+| `project` | 소스 스택(프로젝트) 이름 |
+
+**Request Body:**
+```json
+{
+  "targetNodeId": "node-b",
+  "disposition": "retain",
+  "overwriteAcked": false
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `targetNodeId` | string | 예 | 이관 대상 노드 ID |
+| `disposition` | string | 예 | 이관 성공 후 소스 처리: `retain` \| `delete` \| `clone` |
+| `overwriteAcked` | boolean | 아니오 | 대상 동일 id 스택 덮어쓰기 승인 (기본 `false`) |
+
+**disposition 의미:**
+| 값 | 동작 |
+|----|------|
+| `retain` | 소스는 정지 상태로 남김 (파일/볼륨 보존) |
+| `delete` | 대상이 정상 확인된 **후** 소스 제거 |
+| `clone` | 소스를 다시 실행 (소스·대상 양쪽 모두 실행) |
+
+**Response:** SSE 스트림 (각 이벤트는 JSON)
+```
+data: {"phase":"preflight","message":"Running pre-flight checks...","done":false}
+
+data: {"phase":"quiesce","message":"Stopping source stack...","done":false}
+
+data: {"phase":"package","message":"Packaging stack...","done":false}
+
+data: {"phase":"transfer","message":"Transferring to target...","done":false}
+
+data: {"phase":"finalize","message":"Applying source disposition (retain)...","done":false}
+
+data: {"phase":"done","message":"Migration complete.","done":true}
+```
+
+이벤트 필드는 `{phase, message, done}`. 정상 진행 순서: `preflight` → `quiesce` → `package` → `transfer` → `finalize` → 종료 마커 `done`. 실패 시: 패키징/전송 단계 실패는 소스를 복구한 뒤 `rollback` 이벤트(`done:true`)를, 사전 점검 차단이나 그 외 실패는 `error` 이벤트(`done:true`)를 전송합니다.
+
+**사전 실패 (스트림 시작 전):**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_NAME` | 400 | 유효하지 않은 프로젝트 id |
+| `INVALID_BODY` | 400 | 잘못된 요청 본문 |
+| `INTERNAL_ERROR` | 400 | 클러스터 미활성 |
+| `MISSING_FIELDS` | 400 | targetNodeId 누락 또는 유효하지 않은 disposition |
+
+---
+
+### GET /api/v1/docker/compose/migrate/target-info
+**클러스터 내부 전용** — 이관 사전 점검 시 소스 노드가 대상 노드의 사실(arch, 여유 공간, 사용 중 포트, 스택 존재 여부)을 조회하기 위해 노드 간(internal-proxy 인증)으로만 호출됩니다. 일반 클라이언트가 직접 호출하면 거부됩니다 (v0.43.0+).
+
+- **인증**: 내부 프록시 전용 (`X-SFPanel-Internal-Proxy`). 외부 호출 시 403 `PERMISSION_DENIED`.
+- **Docker 사용 가능 시에만 등록**
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `stackId` | string | 아니오 | 대상에 동일 id 스택 존재 여부를 확인할 스택 id |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "arch": "amd64",
+    "freeBytes": 0,
+    "portsInUse": [8096],
+    "stackExists": false
+  }
+}
+```
+
+---
+
+### POST /api/v1/docker/compose/migrate-import
+**클러스터 내부 전용** — 소스 노드가 이관 번들(tar 스트림)을 대상 노드로 푸시하는 바이너리 릴레이 엔드포인트. 운영자가 직접 호출하는 용도가 아닙니다. `X-SFPanel-Migration-Sha256` 요청 헤더의 체크섬으로 번들을 검증하고, compose 안전성 검증 → 스택 정의 복원 → `up` → 헬스체크를 수행하며, 실패 시 부분 복원분을 정리합니다 (v0.43.0+).
+
+- **인증**: 내부 프록시 전용 (`X-SFPanel-Internal-Proxy`). 외부 호출 시 403 `PERMISSION_DENIED`.
+- **Docker 사용 가능 시에만 등록**
+- **요청 헤더**: `X-SFPanel-Migration-Sha256` (번들 SHA-256 체크섬, 필수)
+- **요청 바디**: 이관 번들 tar 스트림 (바이너리)
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "status": "ok",
+    "stackId": "jellyfin"
+  }
+}
+```
+
+---
+
 ## 클러스터 — 추가 API
 
 ### GET /api/v1/cluster/overview
