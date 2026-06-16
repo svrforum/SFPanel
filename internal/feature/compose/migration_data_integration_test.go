@@ -34,7 +34,7 @@ func TestVolumeArchiveRestoreRoundTrip(t *testing.T) {
 		t.Fatalf("create src: %v", err)
 	}
 	// Write a known payload into the source volume.
-	if out, err := exec.CommandContext(ctx, "docker", "run", "--rm", "-v", src+":/d",
+	if out, err := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "-v", src+":/d",
 		migrationHelperImage, "sh", "-c", "echo migrated-payload > /d/marker.txt").CombinedOutput(); err != nil {
 		t.Fatalf("seed src: %v: %s", err, out)
 	}
@@ -52,7 +52,7 @@ func TestVolumeArchiveRestoreRoundTrip(t *testing.T) {
 		t.Fatalf("restore volume: %v", err)
 	}
 
-	out, err := exec.CommandContext(ctx, "docker", "run", "--rm", "-v", dst+":/d",
+	out, err := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "-v", dst+":/d",
 		migrationHelperImage, "cat", "/d/marker.txt").Output()
 	if err != nil {
 		t.Fatalf("read dst: %v", err)
@@ -115,7 +115,7 @@ func TestRestoreDataVolumeOverwriteGate(t *testing.T) {
 	if _, err := createVolumeIfAbsent(ctx, src); err != nil {
 		t.Fatal(err)
 	}
-	exec.CommandContext(ctx, "docker", "run", "--rm", "-v", src+":/d", migrationHelperImage,
+	exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "-v", src+":/d", migrationHelperImage,
 		"sh", "-c", "echo NEW > /d/marker.txt; echo NEW > /d/only-new.txt").Run()
 	arc := filepath.Join(t.TempDir(), "v.tar")
 	_, sha, err := archiveVolumeToFile(ctx, src, arc)
@@ -129,7 +129,7 @@ func TestRestoreDataVolumeOverwriteGate(t *testing.T) {
 	if _, err := createVolumeIfAbsent(ctx, tgt); err != nil {
 		t.Fatal(err)
 	}
-	exec.CommandContext(ctx, "docker", "run", "--rm", "-v", tgt+":/d", migrationHelperImage,
+	exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "-v", tgt+":/d", migrationHelperImage,
 		"sh", "-c", "echo OLD > /d/marker.txt; echo OLD > /d/only-old.txt").Run()
 
 	// Without overwrite ack → refuse (no silent overlay).
@@ -142,7 +142,7 @@ func TestRestoreDataVolumeOverwriteGate(t *testing.T) {
 	if _, _, err := restoreData(ctx, m, staged, t.TempDir()); err != nil {
 		t.Fatalf("overwrite restore: %v", err)
 	}
-	out, err := exec.CommandContext(ctx, "docker", "run", "--rm", "-v", tgt+":/d", migrationHelperImage,
+	out, err := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "-v", tgt+":/d", migrationHelperImage,
 		"sh", "-c", "cat /d/marker.txt; echo ---; ls /d").Output()
 	if err != nil {
 		t.Fatal(err)
