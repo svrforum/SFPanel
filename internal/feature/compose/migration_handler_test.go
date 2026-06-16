@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,5 +52,18 @@ func TestMigrateImportRejectsBadBundle(t *testing.T) {
 	_ = h.MigrateImport(c)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400 for bad bundle, got %d", rec.Code)
+	}
+}
+
+func TestMigrateFinalizeRejectsUnknownDisposition(t *testing.T) {
+	// An unknown disposition errors before touching docker, so a zero-value
+	// Handler is enough — retain/delete/clone are covered by the 2-node e2e.
+	h := &Handler{}
+	if err := h.migrateFinalize(context.Background(), "demo", Disposition("bogus")); err == nil {
+		t.Fatal("expected error for unknown disposition")
+	}
+	// retain is a no-op (source already stopped) and must not error.
+	if err := h.migrateFinalize(context.Background(), "demo", DispositionRetain); err != nil {
+		t.Fatalf("retain should be a no-op, got %v", err)
 	}
 }

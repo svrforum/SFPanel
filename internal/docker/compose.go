@@ -376,6 +376,16 @@ func (m *ComposeManager) Down(ctx context.Context, name string) (string, error) 
 	return m.runCompose(ctx, name, "down")
 }
 
+// Stop halts a project's containers without removing them (cold-migration quiesce).
+func (m *ComposeManager) Stop(ctx context.Context, name string) (string, error) {
+	return m.runCompose(ctx, name, "stop")
+}
+
+// Start re-launches previously-stopped containers (rollback / clone restart).
+func (m *ComposeManager) Start(ctx context.Context, name string) (string, error) {
+	return m.runCompose(ctx, name, "start")
+}
+
 // ValidateConfig validates the docker-compose.yml of a project.
 func (m *ComposeManager) ValidateConfig(ctx context.Context, name string) (string, error) {
 	return m.runCompose(ctx, name, "config", "--quiet")

@@ -1,13 +1,21 @@
 package compose
 
 import (
+	"bytes"
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/svrforum/SFPanel/internal/auth"
 )
 
 // packageDefinitionBundle writes a definition-only migration bundle (manifest +
@@ -63,4 +71,70 @@ func receiveBundle(r io.Reader, expectedSha, stagingDir string) (MigrationManife
 		return m, nil, fmt.Errorf("bundle hash mismatch")
 	}
 	return m, files, nil
+}
+
+// buildDefinitionManifest assembles the M1 (definition-only) manifest. Binds/
+// Volumes/Images stay empty until later milestones.
+func buildDefinitionManifest(stackID, composeFile string, hasEnv bool, sourceID, sourceArch, targetID string, d Disposition) MigrationManifest {
+	return MigrationManifest{
+		SchemaVersion:      1,
+		StackID:            stackID,
+		ComposeProjectName: stackID,
+		Source:             NodeRef{NodeID: sourceID, Arch: sourceArch},
+		Target:             NodeRef{NodeID: targetID},
+		ComposeFile:        composeFile,
+		HasEnv:             hasEnv,
+		Disposition:        d,
+	}
+}
+
+// migrationNodeBaseURL mirrors the proxy middleware: panels are plain HTTP by
+// default (TLS is a reverse proxy's job); honor an explicit scheme if stored.
+func migrationNodeBaseURL(apiAddr string) string {
+	if strings.HasPrefix(apiAddr, "http://") || strings.HasPrefix(apiAddr, "https://") {
+		return apiAddr
+	}
+	return "http://" + apiAddr
+}
+
+// pushBundleToTarget streams an already-built bundle to the target node's
+// migrate-import endpoint with internal-proxy auth + the SHA header. Returns the
+// target's HTTP status + body. mTLS via the cluster client TLS config.
+func (h *Handler) pushBundleToTarget(ctx context.Context, targetNodeID, username string, bundle []byte, sha string) (int, []byte, error) {
+	node := h.ClusterMgr.GetNode(targetNodeID)
+	if node == nil {
+		return 0, nil, fmt.Errorf("unknown target node %q", targetNodeID)
+	}
+	const importPath = "/api/v1/docker/compose/migrate-import"
+	target := migrationNodeBaseURL(node.APIAddress) + importPath
+
+	tlsCfg := &tls.Config{}
+	if cfg, err := h.ClusterMgr.GetTLS().ClientTLSConfig(); err == nil && cfg != nil {
+		tlsCfg = cfg.Clone()
+	}
+	client := &http.Client{Timeout: 30 * time.Minute, Transport: &http.Transport{TLSClientConfig: tlsCfg}}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(bundle))
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set(migrationShaHeader, sha)
+	req.ContentLength = int64(len(bundle))
+	if secret := h.ClusterMgr.ProxySecret(); secret != "" {
+		req.Header.Set(auth.InternalProxyHeader, secret)
+		if v2 := auth.SignProxyRequestV2(http.MethodPost, importPath); v2 != "" {
+			req.Header.Set(auth.InternalProxyHeaderV2, v2)
+		}
+	}
+	if username != "" {
+		req.Header.Set("X-SFPanel-Original-User", username)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, body, nil
 }

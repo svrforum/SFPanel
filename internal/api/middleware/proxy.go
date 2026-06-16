@@ -53,6 +53,11 @@ func isStreamingEndpoint(path string) bool {
 	// 4 MB unary response.
 	case strings.HasSuffix(path, "/cluster/update"):
 		return true
+	// Stack migrate orchestrator is SSE (cold-migration phase stream, can
+	// run for minutes). The exact "/migrate" suffix deliberately excludes
+	// "/migrate-import" (binary relay) and "/migrate/preflight" (unary JSON).
+	case strings.HasSuffix(path, "/migrate"):
+		return true
 	}
 	return false
 }

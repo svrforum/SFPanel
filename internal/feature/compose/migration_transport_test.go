@@ -55,3 +55,33 @@ func TestReceiveBundleRejectsHashMismatch(t *testing.T) {
 		t.Fatal("expected hash-mismatch rejection")
 	}
 }
+
+func TestBuildDefinitionManifest(t *testing.T) {
+	m := buildDefinitionManifest("demo", "docker-compose.yml", true, "src-node", "amd64", "tgt-node", DispositionClone)
+
+	if m.SchemaVersion != 1 {
+		t.Fatalf("schemaVersion=%d, want 1", m.SchemaVersion)
+	}
+	if m.StackID != "demo" || m.ComposeProjectName != "demo" {
+		t.Fatalf("stackId=%q composeProjectName=%q", m.StackID, m.ComposeProjectName)
+	}
+	if m.ComposeFile != "docker-compose.yml" {
+		t.Fatalf("composeFile=%q", m.ComposeFile)
+	}
+	if !m.HasEnv {
+		t.Fatal("hasEnv=false, want true")
+	}
+	if m.Disposition != DispositionClone {
+		t.Fatalf("disposition=%q, want clone", m.Disposition)
+	}
+	if m.Source.NodeID != "src-node" || m.Source.Arch != "amd64" {
+		t.Fatalf("source=%+v", m.Source)
+	}
+	if m.Target.NodeID != "tgt-node" {
+		t.Fatalf("target=%+v", m.Target)
+	}
+	// Definition-only bundle: data sections stay empty until later milestones.
+	if len(m.Binds) != 0 || len(m.Volumes) != 0 || len(m.Images) != 0 {
+		t.Fatalf("expected empty binds/volumes/images, got binds=%d volumes=%d images=%d", len(m.Binds), len(m.Volumes), len(m.Images))
+	}
+}

@@ -553,6 +553,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		compose.POST("/import", composeHandler.ImportFromGit)
 		compose.POST("/migrate-import", composeHandler.MigrateImport)
 		compose.POST("/:project/migrate/preflight", composeHandler.MigratePreflight)
+		compose.POST("/:project/migrate", composeHandler.Migrate)
 		compose.GET("/migrate/target-info", composeHandler.MigrateTargetInfo)
 		compose.DELETE("/:project", composeHandler.DeleteProject)
 		compose.POST("/:project/up", composeHandler.ProjectUp)

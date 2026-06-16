@@ -70,12 +70,18 @@ func TestIsStreamingEndpoint(t *testing.T) {
 		{"/api/v1/network/tailscale/install", true},
 		// Cluster orchestrated rolling update (SSE on the leader).
 		{"/api/v1/cluster/update", true},
+		// Stack migrate orchestrator (SSE phase stream).
+		{"/api/v1/docker/compose/myproj/migrate", true},
 		// Sync POSTs that intentionally stay unary.
 		{"/api/v1/packages/install", false},
 		{"/api/v1/packages/remove", false},
 		{"/api/v1/files/download", false},
 		{"/api/v1/system/backup", false},
 		{"/api/v1/cluster/nodes", false},
+		// Migrate siblings that must NOT classify as SSE: the bundle import is
+		// a binary relay and the preflight is unary JSON.
+		{"/api/v1/docker/compose/migrate-import", false},
+		{"/api/v1/docker/compose/myproj/migrate/preflight", false},
 	}
 	for _, tc := range cases {
 		if got := isStreamingEndpoint(tc.path); got != tc.want {
@@ -113,6 +119,7 @@ func TestStreamingAllowlist_KnownSSEHandlers(t *testing.T) {
 		// compose (project-templated)
 		"/api/v1/docker/compose/myproj/up-stream",
 		"/api/v1/docker/compose/myproj/update-stream",
+		"/api/v1/docker/compose/myproj/migrate",
 		// network
 		"/api/v1/network/tailscale/install",
 		// cluster orchestrator
@@ -475,4 +482,3 @@ func TestSetAuthHeaders_V2SignsPathPlusQuery(t *testing.T) {
 		t.Errorf("receiver rejected v2 sig — signer used path-only but verifier uses path+query")
 	}
 }
-
