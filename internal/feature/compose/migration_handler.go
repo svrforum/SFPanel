@@ -25,6 +25,12 @@ import (
 
 const migrationShaHeader = "X-SFPanel-Migration-Sha256"
 
+// maxMigrationBundleBytes caps an incoming migration bundle. M1 is
+// definition-only (compose + .env + small config files); the cap bounds memory
+// against a malformed/hostile bundle from a compromised cluster member. A var so
+// tests can lower it.
+var maxMigrationBundleBytes int64 = 64 << 20 // 64 MiB
+
 // validProjectID reports whether a :project / stackId path or query param is
 // safe for filesystem use — same rule as restoreDefinition's stack id (leading
 // alnum rejects "."/"..", plus an explicit ".." guard for defense in depth).
@@ -53,7 +59,8 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
 
-	m, files, err := receiveBundle(c.Request().Body, expectedSha, staging)
+	body := http.MaxBytesReader(c.Response(), c.Request().Body, maxMigrationBundleBytes)
+	m, files, err := receiveBundle(body, expectedSha, staging)
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput("bundle: "+err.Error()))
 	}
@@ -67,15 +74,26 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	}
 
 	if err := restoreDefinition(h.ComposePath, m, files); err != nil {
+		// Partial write — the stack was never brought up, so just remove the
+		// (validated, traversal-safe) stack dir. m.StackID was validated by
+		// restoreDefinition's own validStackID check before any write, but it
+		// only returns the error AFTER MkdirAll, so the dir may exist.
+		if validStackID.MatchString(m.StackID) {
+			_ = os.RemoveAll(filepath.Join(h.ComposePath, m.StackID))
+		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 
-	ctx := c.Request().Context()
-	if _, err := h.Compose.Up(ctx, m.StackID); err != nil {
+	// Detach from the request context: a client/proxy disconnect must not abort
+	// the compose up + health poll (which would clean up a stack that is in fact
+	// coming up healthy). Bound it independently instead.
+	opCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	if _, err := h.Compose.Up(opCtx, m.StackID); err != nil {
 		h.migrateCleanup(m.StackID)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("up: "+err.Error()))
 	}
-	if err := h.waitHealthy(ctx, m.StackID, 60*time.Second); err != nil {
+	if err := h.waitHealthy(opCtx, m.StackID, 60*time.Second); err != nil {
 		h.migrateCleanup(m.StackID)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("healthcheck: "+err.Error()))
 	}

@@ -55,6 +55,25 @@ func TestMigrateImportRejectsBadBundle(t *testing.T) {
 	}
 }
 
+func TestMigrateImportRejectsOversizeBundle(t *testing.T) {
+	auth.SetClusterProxySecret("test-secret")
+	defer auth.SetClusterProxySecret("")
+	prev := maxMigrationBundleBytes
+	maxMigrationBundleBytes = 16
+	defer func() { maxMigrationBundleBytes = prev }()
+
+	h := &Handler{ComposePath: t.TempDir()}
+	big := strings.Repeat("A", 1024)
+	c, rec := newImportCtx(echo.New(), big, map[string]string{
+		"X-SFPanel-Internal-Proxy":   "test-secret",
+		"X-SFPanel-Migration-Sha256": "deadbeef",
+	})
+	_ = h.MigrateImport(c)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for oversize bundle, got %d", rec.Code)
+	}
+}
+
 func TestMigrateFinalizeRejectsUnknownDisposition(t *testing.T) {
 	// An unknown disposition errors before touching docker, so a zero-value
 	// Handler is enough — retain/delete/clone are covered by the 2-node e2e.
