@@ -67,7 +67,8 @@ func isBinaryRelayEndpoint(path string) bool {
 	return strings.HasSuffix(path, "/files/download") ||
 		strings.HasSuffix(path, "/files/upload") ||
 		strings.HasSuffix(path, "/system/backup") ||
-		strings.HasSuffix(path, "/system/restore")
+		strings.HasSuffix(path, "/system/restore") ||
+		strings.HasSuffix(path, "/compose/migrate-import")
 }
 
 // hopByHopHeaders are headers that must not be forwarded across HTTP

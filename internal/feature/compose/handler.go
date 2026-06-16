@@ -64,8 +64,9 @@ func pruneHealthcheckBackups(yamlPath string, keep int) {
 
 // Handler exposes REST handlers for Docker Compose project management.
 type Handler struct {
-	Compose *docker.ComposeManager
-	DB      *sql.DB
+	Compose     *docker.ComposeManager
+	DB          *sql.DB
+	ComposePath string // stacks root (cfg.Server.StacksPath); restore target for migrations
 }
 
 // ListProjectsWithStatus returns all compose projects with real-time service status.
