@@ -10,6 +10,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.46.0] – 2026-06-17
+
+Node-to-node stack migration grows from definitions to **full-fidelity data + image transfer**, with an in-panel UI. Where M1 (v0.45.0) carried only the compose file and `.env`, a migration now also moves every named volume's contents, copied bind-mount data, and the stack's images (always `docker save`/`load`, no registry dependency) — each entry SHA-256-verified end to end, so a `200` from the target implies verified-intact data, which is what makes the source `delete` disposition safe. The whole bundle is staged to disk and streamed (no GB held in memory), and the target's root-run restore path is extensively hardened against a hostile peer manifest. A "Migrate to node" dialog drives the flow from the Docker Stacks page when the panel is in cluster mode.
+
+### Added
+
+- **Stack migration now transfers data and images, not just definitions.** The source archives each named volume (read-only helper-container `tar`), each copied bind directory (host `tar`), and each image (`docker save`) to a temp file, SHA-256s it, then streams the assembled bundle from disk — nothing multi-GB is held in memory. The target streams each data entry back to disk, re-verifies its per-entry SHA, then `docker load`s images and recreates volumes / restores binds **before** `docker compose up`. All volumes are copied (external volumes included); special files (sockets, devices, named pipes, irregular files) and missing bind paths are skipped with a pre-flight warning rather than failing the run. New `migration_data.go` / `migration_import.go` restore primitives in `internal/feature/compose`.
+- **Pre-flight sizes the real transfer.** The disk-space block now sums the actual bytes to be copied (`du -sb` per volume/bind via the helper image, `docker image inspect` per image) instead of estimating from definitions, and emits absolute-bind and large-transfer (> 5 GiB) warnings. Sizing is best-effort: an un-sizable entry contributes 0 rather than aborting the migration.
+- **"Migrate to node" dialog** (`web/src/pages/docker/components/MigrateStackDialog.tsx`), surfaced from the Docker Stacks page in cluster mode: pick a target node, review pre-flight blocks and warnings, choose the disposition with an explicit overwrite acknowledgement, then watch a live phase timeline. Wired through the API client and types, with English/Korean strings.
+
+### Security
+
+The bundle restored on the target is built from a manifest supplied by another cluster node — integrity-checked (per-entry SHA) but **not trusted** — and is extracted as root. The restore path is hardened accordingly:
+
+- **Manifest identifiers are gated before they reach a `docker` argv.** Volume names and image references in the manifest are validated against leading-alphanumeric allowlist regexes (`validDockerVolume`, `validImageRef`) **before** any `docker exec`, blocking argv flag-smuggling (a value like `-foo` parsed as a flag) and out-of-spec names.
+- **Every archive is scanned for escape before extraction.** `validateTarSafe` rejects absolute or `..` member names and absolute / out-of-root symlink and hardlink targets, applied before any `tar -x` (host or helper container). Bind archives are additionally pinned to their own leaf via `tarTopLevelIs`, so a crafted extra/renamed top-level entry can't create or merge into a sibling directory under the shared parent.
+- **Absolute binds are deny-listed and never blind-overwritten.** `absBindRestorable` requires an absolute path and refuses `/` and the system trees `/etc`, `/usr`, `/bin`, `/sbin`, `/lib`, `/boot`, `/root`, `/var` (panel DB + Raft/BoltDB state, cron, logs), `/home` (`.ssh/authorized_keys`), `/sys`, `/proc`, `/dev`, `/run`, and `/opt/stacks` — a relative manifest `Host` (which would resolve against the service CWD `/`) is rejected too. An absolute host bind is **never** `RemoveAll`'d; a non-empty target is refused (the operator clears it deliberately) rather than wiped. In-stack binds are confined under the freshly written stack dir and may not resolve to the stack dir itself (which would destroy the just-restored compose definition).
+- **Volume overwrite is gated and restores an exact replica.** Restoring into a pre-existing named volume is refused unless the operator acked overwrite; on overwrite the volume is cleared first (`clearVolume`) so the result is an exact copy of the source rather than the migrated files overlaid onto a prior tenant's data. Failed-import cleanup never `down -v`s a colliding pre-existing volume — it removes only the volumes this import freshly created (`createdVols`).
+- **In-memory growth is capped and recovery can't be cancelled by the failure that triggered it.** Small in-memory entries (manifest / `.env`) are bounded (`maxSmallEntryBytes`, 16 MiB) while bulk data streams to disk (`maxMigrationBundleBytes` raised to 64 GiB), and rollback / failed-import cleanup runs on a **fresh** `context.Background()` with its own 5-minute timeout, so an op-timeout failure can't no-op its own recovery.
+
+### Fixed
+
+- **Copy buttons work over plain HTTP.** `navigator.clipboard` is only exposed in a secure context (HTTPS/localhost), so every copy button silently failed when the panel was served plain HTTP over a LAN IP (the common reverse-proxy-less setup). A shared `copyText()` helper (`web/src/lib/utils.ts`) uses the Clipboard API in secure contexts and falls back to a hidden `<textarea>` + `execCommand('copy')` otherwise; the cluster join-token, app-store env, Tailscale/WireGuard, and 2FA recovery-code copy actions all route through it.
+
+---
+
 ## [0.45.0] – 2026-06-17
 
 Cold node-to-node Docker stack migration (M1, definition-only). An operator can
