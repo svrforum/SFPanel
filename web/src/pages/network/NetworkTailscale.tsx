@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import { formatBytes } from '@/lib/utils'
+import { formatBytes, copyText } from '@/lib/utils'
 import type { TailscaleStatus, TailscalePeer } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -312,8 +312,11 @@ export default function NetworkTailscale() {
     }
   }
 
-  const copyToClipboard = (text: string, field: string) => {
-    navigator.clipboard.writeText(text)
+  const copyToClipboard = async (text: string, field: string) => {
+    if (!(await copyText(text))) {
+      toast.error('Failed to copy to clipboard')
+      return
+    }
     setCopiedField(field)
     setTimeout(() => setCopiedField(null), 2000)
   }

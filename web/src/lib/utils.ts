@@ -40,3 +40,39 @@ export function getUsageColor(percent: number, variant?: 'cpu' | 'mem' | 'swap')
   if (variant === 'mem') return '#00c471'
   return '#3182f6'
 }
+
+// copyText copies text to the clipboard and returns whether it succeeded.
+//
+// The async Clipboard API (navigator.clipboard) is only exposed in a SECURE
+// context — HTTPS or localhost. The panel is routinely served plain HTTP over a
+// LAN IP (TLS is the reverse proxy's job), where navigator.clipboard is
+// undefined and every copy button silently fails. So we try the modern API when
+// available and fall back to a hidden <textarea> + execCommand('copy'), which
+// works in non-secure contexts as long as it runs inside a user gesture (our
+// callers all fire from onClick).
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (window.isSecureContext && navigator.clipboard) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // Permission denied or unavailable — fall through to the legacy path.
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.top = '-9999px'
+    ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    ta.setSelectionRange(0, text.length)
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}

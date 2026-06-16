@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { KeyRound, Copy, Check, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { copyText } from '@/lib/utils'
 import type { ClusterTokenInfo } from '@/types/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
@@ -58,12 +59,11 @@ export default function ClusterTokens() {
   }
 
   const handleCopy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
+    if (await copyText(text)) {
       setCopied(true)
       toast.success(t('cluster.tokens.copied'))
       setTimeout(() => setCopied(false), 2000)
-    } catch {
+    } else {
       toast.error('Failed to copy to clipboard')
     }
   }

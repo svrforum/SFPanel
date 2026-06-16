@@ -23,7 +23,7 @@ import {
 import { toast } from 'sonner'
 import { QRCodeSVG } from 'qrcode.react'
 import { api } from '@/lib/api'
-import { formatBytes } from '@/lib/utils'
+import { formatBytes, copyText } from '@/lib/utils'
 import type { WireGuardStatus, WireGuardInterface } from '@/types/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
@@ -314,8 +314,11 @@ export default function NetworkWireGuard() {
     e.target.value = ''
   }
 
-  const copyToClipboard = (text: string, key: string) => {
-    navigator.clipboard.writeText(text)
+  const copyToClipboard = async (text: string, key: string) => {
+    if (!(await copyText(text))) {
+      toast.error('Failed to copy to clipboard')
+      return
+    }
     setCopiedKey(key)
     setTimeout(() => setCopiedKey(null), 2000)
   }

@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { usePrompt } from '@/components/PromptDialog'
 import { toast } from 'sonner'
+import { copyText } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -171,10 +172,9 @@ export default function Security() {
   }
 
   async function handleCopyRecoveryCodes() {
-    try {
-      await navigator.clipboard.writeText(recoveryCodes.join('\n'))
+    if (await copyText(recoveryCodes.join('\n'))) {
       toast.success(t('settings.recoveryCodes.copied'))
-    } catch {
+    } else {
       toast.error(t('settings.recoveryCodes.copyFailed'))
     }
   }

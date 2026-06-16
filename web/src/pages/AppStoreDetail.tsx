@@ -25,6 +25,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { copyText } from '@/lib/utils'
 import { usePrompt } from '@/components/PromptDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { api } from '@/lib/api'
@@ -209,8 +210,11 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
     return appStoreIconUrl(detail.app.id, detail.app.icon)
   }
 
-  const copyToClipboard = (text: string, key: string) => {
-    navigator.clipboard.writeText(text)
+  const copyToClipboard = async (text: string, key: string) => {
+    if (!(await copyText(text))) {
+      toast.error('Failed to copy to clipboard')
+      return
+    }
     setCopiedKey(key)
     toast.success(t('appStore.copied'))
     setTimeout(() => setCopiedKey((cur) => (cur === key ? null : cur)), 2000)
