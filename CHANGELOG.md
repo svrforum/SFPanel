@@ -10,6 +10,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.48.0] – 2026-06-17
+
+The cluster-wide Docker view (**Cluster › Docker**) becomes a master-detail: selecting a stack opens its full detail — services, editor, logs, and all actions — inline, scoped to the stack's own node, without leaving the page. The cluster sidebar tree now collapses by default to give the detail more room.
+
+### Changed
+
+- **Cluster › Docker is now a master-detail.** The left list groups every node's stacks by node; selecting one shows the same full detail panel as the single-node Docker page (services / editor / logs / up · down · redeploy / update-check / migrate / rollback / delete), scoped to that stack's node. It reuses the single-node page via a `clusterMode` prop rather than duplicating the detail.
+- **Migrate, node chip, and refresh follow the route node.** The detail header shows a node chip when operating on a non-local node; migrating uses the stack's own node as the source (and the dialog shows it); the list and detail refresh after an action.
+- **The cluster sidebar tree collapses by default** — a 2–3 node tree is mostly empty otherwise, so this reclaims width for content. A user who expands it keeps it expanded.
+
+### Fixed
+
+- **Same-named stacks on different nodes no longer mistarget.** The owning node is now in the URL (`/cluster/stacks/:node/:name`), not only the global node context, so opening e.g. `web` on node A and then `web` on node B reloads the detail for the correct node — previously the panel could keep node A's services/compose while actions hit node B. This was a real data-safety gap for clusters with duplicate stack names.
+
+---
+
 ## [0.47.0] – 2026-06-17
 
 A cluster-wide Docker stacks dashboard. In cluster mode a new **Cluster › Docker** tab (under Nodes) lists every node's compose stacks in one view, grouped by node, and lets you open a stack on its node or migrate it elsewhere from one place. The per-node Docker › Stacks page stays single-node.
