@@ -10,6 +10,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.49.2] – 2026-06-17
+
+### Fixed
+
+- **WebSocket relay no longer refuses a reachable peer that reads "offline".** Follow-up to 0.49.1: the relay wrapper fast-failed a `?node=` WebSocket with `503 node is offline` whenever the leader's heartbeat view of the peer was `offline` — but in a 2-node cluster that view goes stale right after a restart (and a follower never sees a sibling as online at all), so a perfectly reachable peer's dashboard/logs/terminal could be refused. The relay now attempts the connection and lets the TCP dial fail for a genuinely-down node, matching how the cluster-stacks aggregator already ignores possibly-stale status.
+
+---
+
 ## [0.49.1] – 2026-06-17
 
 ### Fixed
