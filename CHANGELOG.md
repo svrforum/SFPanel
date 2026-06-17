@@ -10,6 +10,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.49.1] – 2026-06-17
+
+### Fixed
+
+- **Remote-node live data in cluster mode.** Opening a peer node's dashboard (and its logs / terminal / container exec) failed to stream — the metrics WebSocket 401'd with "authentication failed", so the CPU/memory charts never populated. The single-use WS ticket was being minted on the *target* node (the mint request was node-scoped via `?node=`), but a `?node=` WebSocket always connects to and is authenticated on the local node *before* the cluster relay forwards it — so the local node could not validate a peer-minted ticket. The ticket is now always minted locally; every `?node=` WebSocket stream (metrics, logs, terminal, exec) authenticates and relays correctly.
+
+---
+
 ## [0.49.0] – 2026-06-17
 
 Lighter binary and fewer wasted requests — no feature changes.
