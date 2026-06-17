@@ -10,6 +10,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.47.0] – 2026-06-17
+
+A cluster-wide Docker stacks dashboard. In cluster mode a new **Cluster › Docker** tab (under Nodes) lists every node's compose stacks in one view, grouped by node, and lets you open a stack on its node or migrate it elsewhere from one place. The per-node Docker › Stacks page stays single-node.
+
+### Added
+
+- **Cluster › Docker Stacks tab** — a dedicated page aggregating every cluster node's compose stacks, grouped by node with live status. `GET /docker/compose/cluster-stacks` fans out concurrently: the local node listed directly, remote nodes via the cluster proxy. It *tries* each node's proxy (bounded 15s) rather than trusting the local heartbeat status — which on a follower can read a healthy peer as offline — so an unreachable node yields a stable error code and an empty list (never a 500), and a reachable Docker-less node reads as empty. Each node carries its health status for the status dot.
+- **Migrate from anywhere.** The per-node migrate action takes an explicit source-node id, so any node's stack can be migrated without first switching the global node context. The migrate dialog shows the source node ("From: …") and routes pre-flight and the stream to it.
+- **Node wayfinding.** Opening a node's stack switches the global node context and re-highlights the active node in the cluster sidebar tree; the stack-detail header shows a node chip so destructive actions (stop/down/delete/rollback) can't land on the wrong machine unnoticed. Both lists refresh after a migration completes.
+
+### Changed
+
+- The cluster-wide view moved off the Docker › Stacks page (where it was an in-list toggle) to its own **Cluster › Docker** tab; the Docker › Stacks page is single-node again. Node compose-stack responses now carry the node's health `status`, and node-level fetch errors are stable machine codes mapped to translated copy instead of raw strings.
+
+### Accessibility
+
+- Cluster stack rows and the migrate affordance are real buttons with focus rings — keyboard-reachable and touch-friendly (the migrate icon is always visible, not hover-only), and the cluster view works on mobile. The migrate dialog's target select and disposition group are properly labelled.
+
+---
+
 ## [0.46.1] – 2026-06-17
 
 ### Fixed
