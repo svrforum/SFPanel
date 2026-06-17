@@ -236,6 +236,10 @@ func executeHTTPRelay(
 	// target trusts more than a forwarded user JWT.
 	copyEndToEndHeaders(httpReq.Header, req.Header)
 	httpReq.Header.Del("Authorization")
+	// Ask the target for PLAIN — this edge node compresses once for the browser.
+	// Forwarding Accept-Encoding would gzip on the target AND here → a
+	// double-gzipped body the browser can't decode.
+	httpReq.Header.Del("Accept-Encoding")
 	if authMutator != nil {
 		authMutator(httpReq)
 	}
@@ -475,16 +479,13 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Node not found: "+nodeID)
 			}
 
-			// Only fail-fast on the leader — its CheckHealth is authoritative
-			// because the leader receives heartbeats from every node. On a
-			// follower, CheckHealth only reflects the leader→this-node link,
-			// so other followers always look offline from this view. Trusting
-			// that here would 503 routes to a perfectly healthy peer.
-			// On follower we let the gRPC call (30 s timeout) be the source of
-			// truth; a real outage still surfaces, just one round-trip later.
-			if mgr.IsLeader() && targetNode.Status != cluster.StatusOnline {
-				return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "Node is offline: "+targetNode.Name)
-			}
+			// Don't pre-refuse on heartbeat status. Even the leader's view goes
+			// stale right after a peer restart (the 2-node heartbeat is racy) and
+			// a follower never sees a sibling as online at all — so a 503 here
+			// would block a perfectly reachable peer's dashboard/API. Let the
+			// gRPC call be the source of truth: a genuine outage fails fast
+			// (connection refused), matching the WS relay and the cluster-stacks
+			// aggregator, which both try rather than trust a possibly-stale status.
 
 			// Propagate the authenticated username for cluster-internal requests.
 			// .Set() replaces any attacker-supplied value, so the JWT-derived

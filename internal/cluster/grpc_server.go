@@ -375,6 +375,12 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 		case "Authorization", "X-Sfpanel-Internal-Proxy",
 			"X-Sfpanel-Internal-Proxy-V2":
 			continue
+		case "Accept-Encoding":
+			// Let the loopback handler return PLAIN — the forwarding (edge) node
+			// re-compresses once for the browser. Keeping Accept-Encoding would
+			// gzip here AND at the edge → a double-gzipped body the browser can't
+			// decode (Content-Encoding says gzip only once).
+			continue
 		}
 		httpReq.Header.Set(k, v)
 	}
