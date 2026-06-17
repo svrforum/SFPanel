@@ -498,10 +498,10 @@ func (h *Handler) ImportFromGit(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, err.Error())
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request().Context(), importCloneTimeout)
+	ctx, cancel := context.WithTimeout(c.Request().Context(), importFetchTimeout)
 	defer cancel()
 
-	repo, err := cloneShallow(ctx, req.URL, req.Branch, req.Token)
+	yamlBody, err := fetchComposeFile(ctx, req)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrAuthFailed):
@@ -510,20 +510,13 @@ func (h *Handler) ImportFromGit(c echo.Context) error {
 		case errors.Is(err, ErrRepoNotFound):
 			return response.Fail(c, http.StatusNotFound, response.ErrGitRepoNotFound,
 				"저장소를 찾을 수 없습니다.")
+		case errors.Is(err, ErrPathNotFound):
+			return response.Fail(c, http.StatusNotFound, response.ErrGitPathNotFound,
+				"해당 경로의 파일이 없습니다.")
 		default:
 			return response.Fail(c, http.StatusInternalServerError, response.ErrGitCloneFailed,
 				response.SanitizeOutput(err.Error()))
 		}
-	}
-
-	yamlBody, err := readComposeFromRepo(ctx, repo, req.Branch, req.Path)
-	if err != nil {
-		if errors.Is(err, ErrPathNotFound) {
-			return response.Fail(c, http.StatusNotFound, response.ErrGitPathNotFound,
-				"해당 경로의 파일이 없습니다.")
-		}
-		return response.Fail(c, http.StatusInternalServerError, response.ErrGitCloneFailed,
-			response.SanitizeOutput(err.Error()))
 	}
 
 	if err := composex.ValidateAdvancedCompose(yamlBody); err != nil {

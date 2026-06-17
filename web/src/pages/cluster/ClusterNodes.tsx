@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { useTranslation } from 'react-i18next'
 import { Server, Trash2, RefreshCw, Crown, Tag, ArrowRightLeft } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -46,16 +47,8 @@ export default function ClusterNodes() {
     }).finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => {
-    loadNodes()
-    const interval = setInterval(loadNodes, 15000)
-    const handleVisibility = () => { if (!document.hidden) loadNodes() }
-    document.addEventListener('visibilitychange', handleVisibility)
-    return () => {
-      clearInterval(interval)
-      document.removeEventListener('visibilitychange', handleVisibility)
-    }
-  }, [loadNodes])
+  // Load on mount + poll every 15s while visible (paused when the tab is hidden).
+  useVisibleInterval(loadNodes, 15000)
 
   const handleRemove = async (nodeId: string, nodeName: string) => {
     if (!(await confirm({ title: t('cluster.nodes.confirmRemove', { name: nodeName }), danger: true }))) return

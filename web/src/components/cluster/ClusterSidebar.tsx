@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { api } from '@/lib/api'
 import type { ClusterStatus, ClusterNode } from '@/types/api'
 import TreePanel, { type TreeSelection } from './TreePanel'
@@ -52,16 +53,8 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
     }).catch(() => {})
   }, [])
 
-  useEffect(() => {
-    loadClusterData()
-    const interval = setInterval(loadClusterData, 15000)
-    const handleVisibility = () => { if (!document.hidden) loadClusterData() }
-    document.addEventListener('visibilitychange', handleVisibility)
-    return () => {
-      clearInterval(interval)
-      document.removeEventListener('visibilitychange', handleVisibility)
-    }
-  }, [loadClusterData])
+  // Load on mount + poll every 15s while visible (paused when the tab is hidden).
+  useVisibleInterval(loadClusterData, 15000)
 
   useEffect(() => {
     localStorage.setItem(TREE_COLLAPSE_KEY, String(treeCollapsed))

@@ -2,15 +2,12 @@ package compose
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/go-git/go-billy/v5/memfs"
-	git "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	httpauth "github.com/go-git/go-git/v5/plumbing/transport/http"
-	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/stretchr/testify/require"
 )
 
@@ -68,87 +65,90 @@ func TestValidateImportRequest_NameRules(t *testing.T) {
 	}
 }
 
-func TestBuildCloneOptions(t *testing.T) {
-	t.Run("defaults: depth 1, single-branch, no auth, no ref", func(t *testing.T) {
-		opts := buildCloneOptions(ImportRequest{
-			URL:  "https://github.com/foo/bar.git",
-			Name: "stack",
+func TestOwnerRepoFromURL(t *testing.T) {
+	cases := []struct {
+		url, owner, repo string
+		ok               bool
+	}{
+		{"https://github.com/foo/bar", "foo", "bar", true},
+		{"https://github.com/foo/bar.git", "foo", "bar", true},
+		{"https://github.com/my-org/my.repo.git", "my-org", "my.repo", true},
+		{"https://github.com/foo", "", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.url, func(t *testing.T) {
+			owner, repo, err := ownerRepoFromURL(tc.url)
+			if !tc.ok {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.owner, owner)
+			require.Equal(t, tc.repo, repo)
 		})
-		require.Equal(t, "https://github.com/foo/bar.git", opts.URL)
-		require.Equal(t, 1, opts.Depth)
-		require.True(t, opts.SingleBranch)
-		require.Empty(t, string(opts.ReferenceName))
-		require.Nil(t, opts.Auth)
-	})
-
-	t.Run("branch -> plumbing reference", func(t *testing.T) {
-		opts := buildCloneOptions(ImportRequest{
-			URL:    "https://github.com/foo/bar.git",
-			Branch: "main",
-			Name:   "stack",
-		})
-		require.Equal(t, "refs/heads/main", string(opts.ReferenceName))
-	})
-
-	t.Run("token -> BasicAuth with PAT password", func(t *testing.T) {
-		opts := buildCloneOptions(ImportRequest{
-			URL:   "https://github.com/foo/bar.git",
-			Token: "ghp_secret",
-			Name:  "stack",
-		})
-		require.NotNil(t, opts.Auth)
-		basic, ok := opts.Auth.(*httpauth.BasicAuth)
-		require.True(t, ok, "expected *http.BasicAuth")
-		require.Equal(t, "x-access-token", basic.Username)
-		require.Equal(t, "ghp_secret", basic.Password)
-	})
+	}
 }
 
-// makeFakeRepo returns a *git.Repository in memory containing the
-// given file at the given path on the default branch (HEAD = main).
-func makeFakeRepo(t *testing.T, path, content string) *git.Repository {
+// withFakeGitHub points githubAPIBase at the given handler for the test's scope.
+func withFakeGitHub(t *testing.T, h http.HandlerFunc) {
 	t.Helper()
-	fs := memfs.New()
-	storer := memory.NewStorage()
-	r, err := git.InitWithOptions(storer, fs, git.InitOptions{DefaultBranch: plumbing.Main})
-	require.NoError(t, err)
-
-	w, err := r.Worktree()
-	require.NoError(t, err)
-
-	f, err := fs.Create(path)
-	require.NoError(t, err)
-	_, err = f.Write([]byte(content))
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-
-	_, err = w.Add(path)
-	require.NoError(t, err)
-
-	_, err = w.Commit("seed", &git.CommitOptions{
-		Author: &object.Signature{Name: "test", Email: "t@x", When: time.Now()},
-	})
-	require.NoError(t, err)
-	return r
+	srv := httptest.NewServer(h)
+	prev := githubAPIBase
+	githubAPIBase = srv.URL
+	t.Cleanup(func() { githubAPIBase = prev; srv.Close() })
 }
 
-func TestReadComposeFromRepo_HappyPath(t *testing.T) {
+func TestFetchComposeFile_HappyPath(t *testing.T) {
 	yaml := "services:\n  web:\n    image: nginx:1.25\n"
-	r := makeFakeRepo(t, "docker-compose.yml", yaml)
-
+	withFakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/repos/foo/bar/contents/docker-compose.yml", r.URL.Path)
+		require.Equal(t, "main", r.URL.Query().Get("ref"))
+		require.Equal(t, "application/vnd.github.raw", r.Header.Get("Accept"))
+		require.Empty(t, r.Header.Get("Authorization")) // no token
+		_, _ = w.Write([]byte(yaml))
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	got, err := readComposeFromRepo(ctx, r, "main", "docker-compose.yml")
+	got, err := fetchComposeFile(ctx, ImportRequest{URL: "https://github.com/foo/bar", Branch: "main", Path: "docker-compose.yml"})
 	require.NoError(t, err)
 	require.Equal(t, yaml, got)
 }
 
-func TestReadComposeFromRepo_PathNotFound(t *testing.T) {
-	r := makeFakeRepo(t, "docker-compose.yml", "services: {}\n")
+func TestFetchComposeFile_TokenSent(t *testing.T) {
+	withFakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer ghp_secret", r.Header.Get("Authorization"))
+		_, _ = w.Write([]byte("services: {}\n"))
+	})
+	ctx := context.Background()
+	_, err := fetchComposeFile(ctx, ImportRequest{URL: "https://github.com/foo/bar", Token: "ghp_secret"})
+	require.NoError(t, err)
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, err := readComposeFromRepo(ctx, r, "main", "missing.yml")
-	require.Error(t, err)
+func TestFetchComposeFile_AuthFailed(t *testing.T) {
+	withFakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	_, err := fetchComposeFile(context.Background(), ImportRequest{URL: "https://github.com/foo/bar", Token: "bad"})
+	require.ErrorIs(t, err, ErrAuthFailed)
+}
+
+func TestFetchComposeFile_PathNotFound(t *testing.T) {
+	withFakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		// contents path 404, but the repo probe returns 200 -> ErrPathNotFound.
+		if strings.HasPrefix(r.URL.Path, "/repos/foo/bar/contents/") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK) // repo exists
+	})
+	_, err := fetchComposeFile(context.Background(), ImportRequest{URL: "https://github.com/foo/bar", Path: "missing.yml"})
 	require.ErrorIs(t, err, ErrPathNotFound)
+}
+
+func TestFetchComposeFile_RepoNotFound(t *testing.T) {
+	withFakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound) // both contents and repo probe 404
+	})
+	_, err := fetchComposeFile(context.Background(), ImportRequest{URL: "https://github.com/foo/bar"})
+	require.ErrorIs(t, err, ErrRepoNotFound)
 }

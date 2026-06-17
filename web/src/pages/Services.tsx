@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import {
   Cog,
   Search,
@@ -71,20 +72,8 @@ export default function Services() {
     }
   }, [t])
 
-  useEffect(() => {
-    fetchServices()
-  }, [fetchServices])
-
-  // Auto-refresh every 15 seconds, pause when tab hidden
-  useEffect(() => {
-    const interval = setInterval(fetchServices, 15000)
-    const handleVisibility = () => { if (!document.hidden) fetchServices() }
-    document.addEventListener('visibilitychange', handleVisibility)
-    return () => {
-      clearInterval(interval)
-      document.removeEventListener('visibilitychange', handleVisibility)
-    }
-  }, [fetchServices])
+  // Fetch on mount + every 15s while the tab is visible (paused when hidden).
+  useVisibleInterval(fetchServices, 15000)
 
   // Client-side filtering
   const filtered = useMemo(() => {
