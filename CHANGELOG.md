@@ -10,6 +10,15 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.49.3] – 2026-06-17
+
+### Fixed
+
+- **Proxied remote-node API responses no longer arrive double-compressed.** Completing the 0.49.1/0.49.2 cluster-proxy fixes: a `?node=` request for a non-streaming endpoint (e.g. the dashboard's `/system/overview` host-info card) was gzipped *twice*. The gRPC loopback on the target node forwarded the browser's `Accept-Encoding`, so the target compressed the body, then the forwarding edge node compressed it again — while `Content-Encoding` still announced gzip only once. The browser decoded a single layer and `JSON.parse` choked on the leftover gzip magic byte, leaving the host-info card (and any other proxied JSON) blank. The loopback handler and the HTTP relay now strip `Accept-Encoding`, so the body is compressed exactly once, by the edge node, for the browser.
+- **HTTP `?node=` proxy no longer pre-refuses a reachable peer that reads "offline".** The same stale-heartbeat guard removed from the WebSocket relay in 0.49.2 also gated the gRPC/HTTP proxy path: a `?node=` API call returned `503 node is offline` whenever the leader's heartbeat view of the peer was stale — which it routinely is right after a peer restart, and a follower never sees a sibling as online at all. The proxy now lets the gRPC call be the source of truth; a genuinely-down node still fails fast on connection-refused, matching the WS relay and the cluster-stacks aggregator.
+
+---
+
 ## [0.49.2] – 2026-06-17
 
 ### Fixed
