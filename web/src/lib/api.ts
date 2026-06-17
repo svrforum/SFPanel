@@ -1958,7 +1958,11 @@ class ApiClient {
     }
     const params = new URLSearchParams()
     try {
-      const t = await this.request<{ ticket: string }>('/auth/ws-ticket', { method: 'POST' })
+      // local: the WS always connects to THIS node and the cluster relay wrapper
+      // authenticates the ticket here before relaying to ?node=. Minting it on a
+      // remote node (proxied via ?node=) would yield a ticket this node can't
+      // validate — a 401 on every remote-node WS (metrics, logs, terminal, exec).
+      const t = await this.request<{ ticket: string }>('/auth/ws-ticket', { method: 'POST', local: true })
       if (t?.ticket) params.set('ticket', t.ticket)
       else if (this.token) params.set('token', this.token)
     } catch {
