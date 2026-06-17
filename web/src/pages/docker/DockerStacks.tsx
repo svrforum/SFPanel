@@ -5,14 +5,14 @@ import {
   Plus, Play, Square, RotateCw, ArrowUp, RefreshCw,
   Trash2, Terminal, ScrollText, FileText, FileCode, Save, Loader2,
   CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft, Eye,
-  HeartPulse, Info, ArrowRightLeft, Monitor,
+  HeartPulse, Info, ArrowRightLeft, Monitor, AlertTriangle,
 } from 'lucide-react'
 import { HealthcheckComposerDialog } from '@/components/compose/HealthcheckComposerDialog'
 import { MigrateStackDialog } from '@/pages/docker/components/MigrateStackDialog'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
-import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck, RollbackInfo } from '@/types/api'
+import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck, RollbackInfo, ClusterNodeStacks } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -73,12 +73,32 @@ function serviceBadge(state: string) {
   }
 }
 
-export default function DockerStacks() {
+// Cluster node health dot — a fetch error (stacks couldn't load) takes
+// precedence, otherwise the node's reported health. Mirrors NodeSelector.
+function nodeDot(status: string, error?: string) {
+  if (error) return 'bg-[#f04452]'
+  switch (status) {
+    case 'online': return 'bg-[#00c471]'
+    case 'suspect': return 'bg-[#f59e0b]'
+    case 'offline': return 'bg-[#f04452]'
+    default: return 'bg-muted-foreground'
+  }
+}
+
+// clusterMode renders the cluster-wide master-detail (Cluster › Docker): the left
+// list is every node's stacks grouped by node. Selecting one navigates to
+// /cluster/stacks/:node/:name; the detail panel is identical to the single-node
+// page and scopes its fetches to the route node (api.currentNode = routeNode).
+export default function DockerStacks({ clusterMode = false }: { clusterMode?: boolean }) {
   const { t } = useTranslation()
   const confirm = useConfirm()
-  const { name: selectedName } = useParams()
+  // In cluster mode the route is /cluster/stacks/:node/:name — the owning node is
+  // in the URL (not just api.currentNode), so same-named stacks on different
+  // nodes are distinct routes and reloads/deep-links resolve the right node.
+  const { name: selectedName, node: routeNode } = useParams()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const basePath = clusterMode ? '/cluster/stacks' : '/docker/stacks'
 
   const [projects, setProjects] = useState<ComposeProjectWithStatus[]>([])
   const [loading, setLoading] = useState(true)
@@ -92,11 +112,11 @@ export default function DockerStacks() {
   const [newYaml, setNewYaml] = useState(DEFAULT_COMPOSE)
   const [creating, setCreating] = useState(false)
 
-  // Node-to-node migration (shown only when the cluster has another node).
-  // The cluster-wide view lives on its own page (Cluster › Docker Stacks); this
-  // page is always single-node and migrates the CURRENT node's stack.
+  // Node-to-node migration. In single-node mode the source is the current node;
+  // in cluster mode the left list passes the stack's own node explicitly.
   const [migrateOpen, setMigrateOpen] = useState(false)
   const [migrateProject, setMigrateProject] = useState('')
+  const [migrateSourceNode, setMigrateSourceNode] = useState<string | undefined>(undefined)
   const [clusterNodeCount, setClusterNodeCount] = useState(0)
   useEffect(() => {
     // local: cluster membership is the same from any node; don't proxy this to a
@@ -106,11 +126,25 @@ export default function DockerStacks() {
       .catch(() => setClusterNodeCount(0))
   }, [])
 
-  // When operating on a remote node (reached via the cluster stacks page), show
-  // its name in the detail header so destructive actions can't land on the wrong
-  // machine unnoticed. Only resolved when a non-local node is active.
+  // Cluster mode: the left list is every node's stacks grouped by node, and it
+  // also resolves the detail's selectedProject.
+  const [clusterStacks, setClusterStacks] = useState<ClusterNodeStacks[]>([])
+  const [clusterLoading, setClusterLoading] = useState(false)
+  const fetchClusterStacks = useCallback(async () => {
+    setClusterLoading(true)
+    try {
+      setClusterStacks(await api.getClusterStacks())
+    } catch {
+      setClusterStacks([])
+    } finally {
+      setClusterLoading(false)
+    }
+  }, [])
+
+  // Single-node mode: resolve the active remote node's name for the header chip.
   const [currentNodeName, setCurrentNodeName] = useState<string | null>(null)
   useEffect(() => {
+    if (clusterMode) return
     const nid = api.currentNode
     if (!nid) { setCurrentNodeName(null); return }
     // local: node names are the same from any node — resolve locally instead of
@@ -118,10 +152,20 @@ export default function DockerStacks() {
     api.getClusterNodes(true)
       .then((d) => setCurrentNodeName(d.nodes.find((n) => n.id === nid)?.name ?? null))
       .catch(() => setCurrentNodeName(null))
-  }, [])
+  }, [clusterMode])
 
-  const openMigrate = (project: string) => {
+  // The node group the selected stack lives on (cluster mode), resolved from the
+  // ROUTE node — deterministic across reloads and same-named stacks on two nodes.
+  const selectedNodeGroup = clusterMode
+    ? clusterStacks.find((n) => n.node_id === routeNode)
+    : undefined
+  const detailNodeName = clusterMode
+    ? (selectedNodeGroup && !selectedNodeGroup.local ? selectedNodeGroup.node_name : null)
+    : currentNodeName
+
+  const openMigrate = (project: string, sourceNode?: string) => {
     setMigrateProject(project)
+    setMigrateSourceNode(sourceNode)
     setMigrateOpen(true)
   }
 
@@ -171,7 +215,11 @@ export default function DockerStacks() {
     progressEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [progressLines])
 
-  const selectedProject = projects.find(p => p.name === selectedName)
+  // In cluster mode the selected stack lives in its node group (it isn't in the
+  // local `projects` list); otherwise resolve from the single-node list.
+  const selectedProject = clusterMode
+    ? selectedNodeGroup?.stacks.find(p => p.name === selectedName)
+    : projects.find(p => p.name === selectedName)
 
   const fetchProjects = useCallback(async (showLoading = true) => {
     try {
@@ -185,6 +233,13 @@ export default function DockerStacks() {
       if (showLoading) setLoading(false)
     }
   }, [t])
+
+  // After list-affecting actions, refresh whichever list is showing so statuses
+  // (and selectedProject in cluster mode) stay current.
+  const refreshList = useCallback(
+    (showLoading = false) => (clusterMode ? fetchClusterStacks() : fetchProjects(showLoading)),
+    [clusterMode, fetchClusterStacks, fetchProjects],
+  )
 
   // Tracks the latest stack the user is looking at, so that in-flight fetches for
   // a previously-selected stack don't overwrite the services list when they resolve
@@ -206,17 +261,31 @@ export default function DockerStacks() {
   }, [])
 
   useEffect(() => {
-    fetchProjects()
-  }, [fetchProjects])
+    if (clusterMode) fetchClusterStacks()
+    else fetchProjects()
+  }, [clusterMode, fetchClusterStacks, fetchProjects])
 
   useEffect(() => {
-    if (searchParams.get('new') === '1') {
+    // Create flow is single-node only (the cluster master-detail has no '+');
+    // its route /cluster/stacks/NAME wouldn't match the :node/:name detail route.
+    if (!clusterMode && searchParams.get('new') === '1') {
       setCreateOpen(true)
       setSearchParams({}, { replace: true })
     }
-  }, [searchParams, setSearchParams])
+  }, [clusterMode, searchParams, setSearchParams])
+
+  // Tracks the node we last pointed api.currentNode at (cluster mode), so the
+  // unmount cleanup only clears it if the sidebar didn't re-point it meanwhile.
+  const lastClusterNode = useRef<string | null>(null)
 
   useEffect(() => {
+    // Cluster mode: the route node is authoritative — scope every detail fetch
+    // and action to it. Keying on routeNode makes the panel reload when only the
+    // node changes (same-named stack on a different node).
+    if (clusterMode && routeNode) {
+      api.setCurrentNode(routeNode)
+      lastClusterNode.current = routeNode
+    }
     if (selectedName) {
       latestSelectedRef.current = selectedName
       // Clear stale services from a previously-selected stack so the row doesn't
@@ -235,7 +304,18 @@ export default function DockerStacks() {
     } else {
       latestSelectedRef.current = ''
     }
-  }, [selectedName, fetchServices])
+  }, [selectedName, routeNode, clusterMode, fetchServices])
+
+  // Don't leak the in-page node selection to the rest of the app on leave —
+  // unless the sidebar tree re-pointed currentNode while navigating away.
+  useEffect(() => {
+    if (!clusterMode) return
+    return () => {
+      if (api.currentNode && api.currentNode === lastClusterNode.current) {
+        api.setCurrentNode(null)
+      }
+    }
+  }, [clusterMode])
 
   useEffect(() => {
     setValidationResult(null)
@@ -270,7 +350,7 @@ export default function DockerStacks() {
       setNewName('')
       setNewYaml(DEFAULT_COMPOSE)
       await fetchProjects()
-      navigate(`/docker/stacks/${newName.trim()}`)
+      navigate(`${basePath}/${newName.trim()}`)
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.compose.createFailed'))
     } finally {
@@ -299,7 +379,7 @@ export default function DockerStacks() {
       setProgressDone(true)
       toast.success(t('docker.compose.upSuccess', { name }))
       await Promise.all([
-        fetchProjects(false),
+        refreshList(),
         selectedName === name ? fetchServices(name) : Promise.resolve(),
       ])
     } catch (err: unknown) {
@@ -315,7 +395,7 @@ export default function DockerStacks() {
       await api.composeDown(name)
       toast.success(t('docker.compose.downSuccess', { name }))
       await Promise.all([
-        fetchProjects(false),
+        refreshList(),
         selectedName === name ? fetchServices(name) : Promise.resolve(),
       ])
     } catch (err: unknown) {
@@ -337,8 +417,8 @@ export default function DockerStacks() {
       setDeleteTarget(null)
       setDeleteImages(false)
       setDeleteVolumes(false)
-      if (selectedName === deleteTarget.name) navigate('/docker/stacks')
-      await fetchProjects()
+      if (selectedName === deleteTarget.name) navigate(basePath)
+      await refreshList(true)
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.compose.deleteFailed'))
     } finally {
@@ -378,7 +458,7 @@ export default function DockerStacks() {
       })
       setProgressDone(true)
       toast.success(t('docker.stacks.deploySuccess'))
-      await Promise.all([fetchProjects(false), fetchServices(selectedName)])
+      await Promise.all([refreshList(), fetchServices(selectedName)])
     } catch (err: unknown) {
       setProgressError(true)
       setProgressDone(true)
@@ -406,7 +486,7 @@ export default function DockerStacks() {
       await api.updateComposeEnv(selectedName, editEnv)
       toast.success(t('docker.stacks.envSaved'))
       // Refresh project to update has_env status
-      fetchProjects()
+      refreshList()
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.stacks.envSaveFailed'))
     } finally {
@@ -414,7 +494,7 @@ export default function DockerStacks() {
     }
   }
 
-  // Reset update check and rollback when stack changes
+  // Reset update check and rollback when the stack OR its node changes
   useEffect(() => {
     setUpdateCheck(null)
     if (selectedName) {
@@ -422,7 +502,7 @@ export default function DockerStacks() {
     } else {
       setRollbackInfo(null)
     }
-  }, [selectedName])
+  }, [selectedName, routeNode])
 
   const handleCheckUpdates = async () => {
     if (!selectedName) return
@@ -469,7 +549,7 @@ export default function DockerStacks() {
       if (selectedName) {
         api.hasRollback(selectedName).then(r => setRollbackInfo(r)).catch(() => {})
       }
-      await Promise.all([fetchProjects(false), fetchServices(selectedName)])
+      await Promise.all([refreshList(), fetchServices(selectedName)])
     } catch (err: unknown) {
       setProgressError(true)
       setProgressDone(true)
@@ -491,7 +571,7 @@ export default function DockerStacks() {
       toast.success(t('docker.stacks.rollbackSuccess'))
       setUpdateCheck(null)
       setRollbackInfo(null)
-      await Promise.all([fetchProjects(false), fetchServices(selectedName)])
+      await Promise.all([refreshList(), fetchServices(selectedName)])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.stacks.rollbackFailed'))
     } finally {
@@ -507,7 +587,7 @@ export default function DockerStacks() {
       else if (action === 'stop') await api.stopComposeService(selectedName, service)
       else if (action === 'start') await api.startComposeService(selectedName, service)
       toast.success(t(`docker.stacks.${action}Success`))
-      await Promise.all([fetchServices(selectedName), fetchProjects(false)])
+      await Promise.all([fetchServices(selectedName), refreshList()])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.stacks.actionFailed'))
     } finally {
@@ -517,21 +597,77 @@ export default function DockerStacks() {
 
   return (
     <div className="flex flex-col md:flex-row gap-4 h-full">
-      {/* Stack list (left panel) — hidden on mobile when a stack is selected */}
+      {/* Stack list (left panel) — hidden on mobile when a stack is selected.
+          In cluster mode it lists every node's stacks grouped by node. */}
       <div className={`md:w-[220px] shrink-0 space-y-2 ${selectedName ? 'hidden md:block' : ''}`}>
         <div className="flex items-center justify-between">
           <span className="text-[15px] font-semibold">{t('docker.stacks.title')}</span>
           <div className="flex gap-1">
-            <Button variant="ghost" size="icon-xs" onClick={() => fetchProjects()} disabled={loading}>
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <Button variant="ghost" size="icon-xs" onClick={() => (clusterMode ? fetchClusterStacks() : fetchProjects())} disabled={clusterMode ? clusterLoading : loading}>
+              <RefreshCw className={`h-3.5 w-3.5 ${(clusterMode ? clusterLoading : loading) ? 'animate-spin' : ''}`} />
             </Button>
-            <Button variant="ghost" size="icon-xs" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-3.5 w-3.5" />
-            </Button>
+            {!clusterMode && (
+              <Button variant="ghost" size="icon-xs" onClick={() => setCreateOpen(true)}>
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* Desktop stack list (this node only — the cluster-wide view is its own page) */}
+        {clusterMode ? (
+          /* Cluster-wide list: every node's stacks grouped by node (responsive) */
+          <div className="space-y-1">
+            {clusterLoading && clusterStacks.length === 0 && (
+              <p className="text-[13px] text-muted-foreground py-4 text-center">{t('common.loading')}</p>
+            )}
+            {!clusterLoading && clusterStacks.length === 0 && (
+              <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
+            )}
+            {clusterStacks.map(node => (
+              <div key={node.node_id} className="space-y-0.5">
+                <div className="flex items-center gap-1.5 px-2 pt-2 text-[11px] font-medium text-muted-foreground">
+                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${nodeDot(node.status, node.error)}`} />
+                  <span className="truncate">{node.node_name}</span>
+                  {node.local && <span className="text-muted-foreground/70 shrink-0">· {t('layout.cluster.localNode')}</span>}
+                  {node.error && (
+                    <span className="shrink-0 inline-flex items-center gap-0.5 text-[#f59e0b]">
+                      <AlertTriangle className="h-3 w-3" />
+                      {node.error === 'unreachable' ? t('cluster.stacks.nodeUnreachable') : node.error === 'list_failed' ? t('cluster.stacks.nodeListFailed') : node.error}
+                    </span>
+                  )}
+                </div>
+                {node.stacks.map(p => {
+                  const isSel = selectedName === p.name && routeNode === node.node_id
+                  return (
+                    <div key={node.node_id + '/' + p.name} className={`group flex items-center gap-2 px-3 py-2 rounded-xl ${isSel ? 'bg-primary/10 ring-1 ring-primary/20' : 'hover:bg-secondary/50'}`}>
+                      {statusIcon(p.real_status)}
+                      <button
+                        type="button"
+                        className="text-[13px] font-medium truncate min-w-0 flex-1 text-left rounded hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        onClick={() => navigate(`${basePath}/${node.node_id}/${p.name}`)}
+                      >{p.name}</button>
+                      <span className="text-[11px] text-muted-foreground shrink-0">{p.running_count}/{p.service_count}</span>
+                      <button
+                        type="button"
+                        title={t('docker.migrate.action')}
+                        aria-label={t('docker.migrate.action')}
+                        className="shrink-0 rounded text-muted-foreground opacity-60 transition hover:text-primary group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        onClick={() => openMigrate(p.name, node.node_id)}
+                      >
+                        <ArrowRightLeft className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )
+                })}
+                {node.stacks.length === 0 && !node.error && (
+                  <p className="px-3 py-1 text-[12px] text-muted-foreground/70">{t('docker.stacks.noStacks')}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+        <>
+        {/* Desktop stack list */}
         <div className="hidden md:block space-y-1">
           {projects.length === 0 && !loading && (
             <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
@@ -544,7 +680,7 @@ export default function DockerStacks() {
                   ? 'bg-primary/10 ring-1 ring-primary/20'
                   : 'hover:bg-secondary/50'
               }`}
-              onClick={() => navigate(`/docker/stacks/${p.name}`)}
+              onClick={() => navigate(`${basePath}/${p.name}`)}
             >
               {statusIcon(p.real_status)}
               <span className="text-[13px] font-medium truncate min-w-0 flex-1">{p.name}</span>
@@ -569,7 +705,7 @@ export default function DockerStacks() {
             >
               <div
                 className="flex items-center gap-2 cursor-pointer"
-                onClick={() => navigate(`/docker/stacks/${p.name}`)}
+                onClick={() => navigate(`${basePath}/${p.name}`)}
               >
                 {statusIcon(p.real_status)}
                 <span className="text-[13px] font-medium truncate min-w-0 flex-1">{p.name}</span>
@@ -619,7 +755,7 @@ export default function DockerStacks() {
                 <Button
                   size="sm" variant="ghost"
                   className="rounded-xl h-7 px-2 text-[11px]"
-                  onClick={() => navigate(`/docker/stacks/${p.name}`)}
+                  onClick={() => navigate(`${basePath}/${p.name}`)}
                 >
                   <FileCode className="h-3 w-3" />
                   {t('docker.stacks.editor')}
@@ -634,6 +770,8 @@ export default function DockerStacks() {
             </div>
           ))}
         </div>
+        </>
+        )}
       </div>
 
       {/* Stack detail (right panel) */}
@@ -650,18 +788,18 @@ export default function DockerStacks() {
                 <Button
                   variant="ghost" size="icon-xs"
                   className="md:hidden"
-                  onClick={() => navigate('/docker/stacks')}
+                  onClick={() => navigate(basePath)}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <h2 className="text-[18px] font-bold truncate min-w-0 max-w-full">{selectedName}</h2>
-                {currentNodeName && (
+                {detailNodeName && (
                   <span
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6] shrink-0"
-                    title={t('docker.stacks.onNode', { node: currentNodeName })}
+                    title={t('docker.stacks.onNode', { node: detailNodeName })}
                   >
                     <Monitor className="h-3 w-3" />
-                    {currentNodeName}
+                    {detailNodeName}
                   </span>
                 )}
                 {selectedProject && (
@@ -739,7 +877,7 @@ export default function DockerStacks() {
                 {clusterNodeCount > 1 && (
                   <Button
                     variant="outline" size="sm" className="rounded-xl"
-                    onClick={() => selectedName && openMigrate(selectedName)}
+                    onClick={() => selectedName && openMigrate(selectedName, clusterMode ? routeNode : undefined)}
                   >
                     <ArrowRightLeft className="h-3.5 w-3.5" />
                     {t('docker.migrate.action')}
@@ -1168,7 +1306,7 @@ export default function DockerStacks() {
                 onSuccess={(projectName) => {
                   setCreateOpen(false)
                   void fetchProjects()
-                  navigate(`/docker/stacks/${projectName}`)
+                  navigate(`${basePath}/${projectName}`)
                 }}
                 onCancel={() => setCreateOpen(false)}
               />
@@ -1338,11 +1476,12 @@ export default function DockerStacks() {
         open={migrateOpen}
         onOpenChange={setMigrateOpen}
         project={migrateProject}
+        sourceNodeId={migrateSourceNode}
         onMigrated={() => {
           // Stack moved off this node — refresh the list, and if it was the open
           // stack clear the now-stale detail route (matches the delete flow).
-          void fetchProjects(false)
-          if (migrateProject && migrateProject === selectedName) navigate('/docker/stacks')
+          void refreshList()
+          if (migrateProject && migrateProject === selectedName) navigate(basePath)
         }}
       />
     </div>

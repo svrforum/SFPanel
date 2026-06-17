@@ -20,7 +20,9 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
   const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null)
   const [nodes, setNodes] = useState<ClusterNode[]>([])
   const [localId, setLocalId] = useState('')
-  const [treeCollapsed, setTreeCollapsed] = useState(() => localStorage.getItem(TREE_COLLAPSE_KEY) === 'true')
+  // Collapsed by default (a 2-3 node tree is mostly empty otherwise); a user who
+  // explicitly expands it ('false') keeps it expanded.
+  const [treeCollapsed, setTreeCollapsed] = useState(() => localStorage.getItem(TREE_COLLAPSE_KEY) !== 'false')
   const [menuCollapsed, setMenuCollapsed] = useState(() => localStorage.getItem(MENU_COLLAPSE_KEY) === 'true')
 
   const [selection, setSelection] = useState<TreeSelection>(() => {

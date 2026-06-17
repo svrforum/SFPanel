@@ -157,6 +157,7 @@ export default function App() {
                   <Route path="overview" element={<ClusterOverview />} />
                   <Route path="nodes" element={<ClusterNodes />} />
                   <Route path="stacks" element={<ClusterStacks />} />
+                  <Route path="stacks/:node/:name" element={<ClusterStacks />} />
                   <Route path="tokens" element={<ClusterTokens />} />
                 </Route>
                 <Route path="appstore" element={<AppStore />} />

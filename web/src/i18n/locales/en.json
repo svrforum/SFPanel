@@ -675,9 +675,6 @@
       "description": "Enable cluster mode to manage 2-32 nodes as a unified cluster."
     },
     "stacks": {
-      "count": "{{count}} stacks",
-      "nodeCount": "{{count}} stacks",
-      "empty": "No stacks on any node yet.",
       "nodeUnreachable": "unreachable",
       "nodeListFailed": "failed to list stacks"
     },
