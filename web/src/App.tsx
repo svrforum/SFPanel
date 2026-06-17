@@ -45,6 +45,7 @@ const FirewallLogs = lazy(() => import('@/pages/firewall/FirewallLogs'))
 const Cluster = lazy(() => import('@/pages/Cluster'))
 const ClusterOverview = lazy(() => import('@/pages/cluster/ClusterOverview'))
 const ClusterNodes = lazy(() => import('@/pages/cluster/ClusterNodes'))
+const ClusterStacks = lazy(() => import('@/pages/cluster/ClusterStacks'))
 const ClusterTokens = lazy(() => import('@/pages/cluster/ClusterTokens'))
 const AppStore = lazy(() => import('@/pages/AppStore'))
 const Packages = lazy(() => import('@/pages/Packages'))
@@ -155,6 +156,7 @@ export default function App() {
                   <Route index element={<Navigate to="overview" replace />} />
                   <Route path="overview" element={<ClusterOverview />} />
                   <Route path="nodes" element={<ClusterNodes />} />
+                  <Route path="stacks" element={<ClusterStacks />} />
                   <Route path="tokens" element={<ClusterTokens />} />
                 </Route>
                 <Route path="appstore" element={<AppStore />} />

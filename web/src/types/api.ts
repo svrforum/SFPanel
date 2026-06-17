@@ -1074,3 +1074,13 @@ export interface MigratePhaseEvent {
 }
 
 export type MigrateDisposition = 'retain' | 'delete' | 'clone'
+
+// Cluster-wide stacks aggregation (Docker page "전체 클러스터" toggle)
+export interface ClusterNodeStacks {
+  node_id: string
+  node_name: string
+  local: boolean
+  status: string // node health: online | suspect | offline | joining
+  stacks: ComposeProjectWithStatus[]
+  error?: string // stable machine code (unreachable | list_failed), mapped to i18n in the UI
+}

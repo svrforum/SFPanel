@@ -46,6 +46,7 @@ import type {
   MigratePreflightReport,
   MigratePhaseEvent,
   MigrateDisposition,
+  ClusterNodeStacks,
   TerminalSession,
   ClusterEventsResponse,
   ClusterInterfacesResponse,
@@ -834,24 +835,37 @@ class ApiClient {
     await this.readSSEStream(res, onEvent)
   }
 
+  // getClusterStacks aggregates compose stacks across all cluster nodes (the
+  // Cluster › Docker Stacks page). Always runs on the local node (no ?node) and
+  // fans out from there.
+  getClusterStacks() {
+    return this.request<ClusterNodeStacks[]>('/docker/compose/cluster-stacks', { local: true })
+  }
+
   // migratePreflight runs the source-side dry-run for a node-to-node migration.
-  // Slow (it sizes volumes/images), so it gets a generous timeout.
-  migratePreflight(project: string, body: { targetNodeId: string; overwriteAcked: boolean }) {
+  // `node` is the SOURCE node the stack lives on (defaults to the current node);
+  // it routes the request there. Slow (sizes volumes/images), so generous timeout.
+  migratePreflight(project: string, body: { targetNodeId: string; overwriteAcked: boolean }, node?: string) {
+    const nodeId = node ?? this._currentNode
+    const q = nodeId ? `?node=${encodeURIComponent(nodeId)}` : ''
     return this.request<MigratePreflightReport>(
-      `/docker/compose/${encodeURIComponent(project)}/migrate/preflight`,
-      { method: 'POST', body: JSON.stringify(body), timeout: 120000 },
+      `/docker/compose/${encodeURIComponent(project)}/migrate/preflight${q}`,
+      { method: 'POST', body: JSON.stringify(body), timeout: 120000, local: true },
     )
   }
 
   // migrateStream cold-migrates the stack to targetNodeId and streams phase
   // events (preflight → quiesce → package → transfer → restore → up →
-  // healthcheck → finalize, or rollback/error on failure).
+  // healthcheck → finalize, or rollback/error on failure). `node` is the SOURCE
+  // node the stack lives on (defaults to the current node).
   async migrateStream(
     project: string,
     body: { targetNodeId: string; disposition: MigrateDisposition; overwriteAcked: boolean },
     onEvent: (event: MigratePhaseEvent) => void,
+    node?: string,
   ): Promise<void> {
-    const nodeParam = this._currentNode ? `?node=${this._currentNode}` : ''
+    const nodeId = node ?? this._currentNode
+    const nodeParam = nodeId ? `?node=${encodeURIComponent(nodeId)}` : ''
     const res = await fetch(`${this.apiBase}/docker/compose/${encodeURIComponent(project)}/migrate${nodeParam}`, {
       method: 'POST', headers: this.streamHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body),
     })

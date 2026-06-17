@@ -285,12 +285,17 @@
     "migrate": {
       "action": "Migrate to node",
       "title": "Migrate \"{{stack}}\" to another node",
+      "fromNode": "From: {{node}}",
       "desc": "Cold-migrate this stack — its compose definition, volume/bind data, and images — to another cluster node.",
       "target": "Target node",
       "selectTarget": "Select a target node…",
       "noTargets": "No other online nodes available.",
       "disposition": "After migration, the source should be…",
-      "disp": { "retain": "Retain", "delete": "Delete", "clone": "Clone" },
+      "disp": {
+        "retain": "Retain",
+        "delete": "Delete",
+        "clone": "Clone"
+      },
       "dispDesc": {
         "retain": "Stop the source and keep its files and data.",
         "delete": "Remove the source only after the target is verified healthy.",
@@ -378,7 +383,8 @@
       "registryError": "Registry check failed",
       "allServices": "All services",
       "lastLines": "Last",
-      "allLogs": "All"
+      "allLogs": "All",
+      "onNode": "on {{node}}"
     },
     "search": {
       "placeholder": "Search Docker Hub...",
@@ -661,11 +667,19 @@
     "nav": {
       "overview": "Overview",
       "nodes": "Nodes",
+      "stacks": "Docker",
       "tokens": "Tokens"
     },
     "notEnabled": {
       "title": "Cluster not enabled",
       "description": "Enable cluster mode to manage 2-32 nodes as a unified cluster."
+    },
+    "stacks": {
+      "count": "{{count}} stacks",
+      "nodeCount": "{{count}} stacks",
+      "empty": "No stacks on any node yet.",
+      "nodeUnreachable": "unreachable",
+      "nodeListFailed": "failed to list stacks"
     },
     "init": {
       "clusterName": "Cluster Name",

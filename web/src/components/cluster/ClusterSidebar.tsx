@@ -34,6 +34,10 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
   })
 
   const initialLoad = useRef(true)
+  // Set when the selection is being synced FROM an external node switch (the
+  // cluster stacks page), so the selection effect updates the highlight only and
+  // does NOT re-run its navigate / setCurrentNode side effects.
+  const syncing = useRef(false)
 
   const loadClusterData = useCallback(() => {
     Promise.all([
@@ -65,12 +69,37 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
     localStorage.setItem(MENU_COLLAPSE_KEY, String(menuCollapsed))
   }, [menuCollapsed])
 
+  // Re-highlight the tree when another surface switches to a remote node (e.g.
+  // the cluster stacks page drilling into a peer's stack). Only remote ids are
+  // synced: currentNode === null is ambiguous (local node vs datacenter), so we
+  // leave the tree's own selection alone there rather than guess.
+  useEffect(() => {
+    const handler = () => {
+      const nid = api.currentNode
+      if (!nid) return
+      setSelection((prev) => {
+        if (prev.type === 'node' && prev.nodeId === nid) return prev
+        syncing.current = true
+        return { type: 'node', nodeId: nid }
+      })
+    }
+    window.addEventListener('sfpanel:node-changed', handler)
+    return () => window.removeEventListener('sfpanel:node-changed', handler)
+  }, [])
+
   // Handle selection changes
   useEffect(() => {
     localStorage.setItem(SELECTION_KEY, JSON.stringify(selection))
 
     if (initialLoad.current) {
       initialLoad.current = false
+      return
+    }
+
+    // Synced from an external switch: update the highlight only, don't navigate
+    // away (the external switcher already navigated) or re-set the node.
+    if (syncing.current) {
+      syncing.current = false
       return
     }
 

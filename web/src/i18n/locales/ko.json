@@ -285,12 +285,17 @@
     "migrate": {
       "action": "노드 간 이전",
       "title": "\"{{stack}}\" 다른 노드로 이전",
+      "fromNode": "출발 노드: {{node}}",
       "desc": "이 스택을 정의(compose) · 볼륨/바인드 데이터 · 이미지까지 다른 클러스터 노드로 콜드 마이그레이션합니다.",
       "target": "대상 노드",
       "selectTarget": "대상 노드 선택…",
       "noTargets": "이전 가능한 다른 온라인 노드가 없습니다.",
       "disposition": "이전 후 원본 스택 처리",
-      "disp": { "retain": "보존", "delete": "삭제", "clone": "복제" },
+      "disp": {
+        "retain": "보존",
+        "delete": "삭제",
+        "clone": "복제"
+      },
       "dispDesc": {
         "retain": "원본을 정지하고 파일·데이터를 그대로 둡니다.",
         "delete": "대상이 정상 확인된 뒤에만 원본을 삭제합니다.",
@@ -378,7 +383,8 @@
       "registryError": "레지스트리 확인 불가",
       "allServices": "전체 서비스",
       "lastLines": "최근",
-      "allLogs": "전체"
+      "allLogs": "전체",
+      "onNode": "{{node}} 노드"
     },
     "search": {
       "placeholder": "Docker Hub에서 이미지 검색...",
@@ -661,11 +667,19 @@
     "nav": {
       "overview": "개요",
       "nodes": "노드",
+      "stacks": "Docker",
       "tokens": "토큰"
     },
     "notEnabled": {
       "title": "클러스터가 활성화되지 않았습니다",
       "description": "클러스터 모드를 활성화하면 2~32대 노드를 하나로 묶어 통합 관리할 수 있습니다."
+    },
+    "stacks": {
+      "count": "스택 {{count}}개",
+      "nodeCount": "스택 {{count}}개",
+      "empty": "아직 어느 노드에도 스택이 없습니다.",
+      "nodeUnreachable": "연결 불가",
+      "nodeListFailed": "스택 조회 실패"
     },
     "init": {
       "clusterName": "클러스터 이름",

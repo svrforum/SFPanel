@@ -545,6 +545,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		// Docker Compose
 		compose := dk.Group("/compose")
 		compose.GET("", composeHandler.ListProjectsWithStatus)
+		compose.GET("/cluster-stacks", composeHandler.ClusterStacks) // cluster-wide aggregation (static before :project)
 		compose.POST("", composeHandler.CreateProject)
 		compose.GET("/:project", composeHandler.GetProject)
 		compose.PUT("/:project", composeHandler.UpdateProject)

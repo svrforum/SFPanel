@@ -5,7 +5,7 @@ import {
   Plus, Play, Square, RotateCw, ArrowUp, RefreshCw,
   Trash2, Terminal, ScrollText, FileText, FileCode, Save, Loader2,
   CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft, Eye,
-  HeartPulse, Info, ArrowRightLeft,
+  HeartPulse, Info, ArrowRightLeft, Monitor,
 } from 'lucide-react'
 import { HealthcheckComposerDialog } from '@/components/compose/HealthcheckComposerDialog'
 import { MigrateStackDialog } from '@/pages/docker/components/MigrateStackDialog'
@@ -92,14 +92,38 @@ export default function DockerStacks() {
   const [newYaml, setNewYaml] = useState(DEFAULT_COMPOSE)
   const [creating, setCreating] = useState(false)
 
-  // Node-to-node migration (shown only when the cluster has another node)
+  // Node-to-node migration (shown only when the cluster has another node).
+  // The cluster-wide view lives on its own page (Cluster › Docker Stacks); this
+  // page is always single-node and migrates the CURRENT node's stack.
   const [migrateOpen, setMigrateOpen] = useState(false)
+  const [migrateProject, setMigrateProject] = useState('')
   const [clusterNodeCount, setClusterNodeCount] = useState(0)
   useEffect(() => {
-    api.getClusterStatus()
+    // local: cluster membership is the same from any node; don't proxy this to a
+    // remote currentNode just to count nodes.
+    api.getClusterStatus(true)
       .then((s) => setClusterNodeCount(s.enabled ? (s.node_count ?? 0) : 0))
       .catch(() => setClusterNodeCount(0))
   }, [])
+
+  // When operating on a remote node (reached via the cluster stacks page), show
+  // its name in the detail header so destructive actions can't land on the wrong
+  // machine unnoticed. Only resolved when a non-local node is active.
+  const [currentNodeName, setCurrentNodeName] = useState<string | null>(null)
+  useEffect(() => {
+    const nid = api.currentNode
+    if (!nid) { setCurrentNodeName(null); return }
+    // local: node names are the same from any node — resolve locally instead of
+    // proxying this lookup to the remote node we're trying to name.
+    api.getClusterNodes(true)
+      .then((d) => setCurrentNodeName(d.nodes.find((n) => n.id === nid)?.name ?? null))
+      .catch(() => setCurrentNodeName(null))
+  }, [])
+
+  const openMigrate = (project: string) => {
+    setMigrateProject(project)
+    setMigrateOpen(true)
+  }
 
   // Editor state
   const [editYaml, setEditYaml] = useState('')
@@ -507,7 +531,7 @@ export default function DockerStacks() {
           </div>
         </div>
 
-        {/* Desktop stack list */}
+        {/* Desktop stack list (this node only — the cluster-wide view is its own page) */}
         <div className="hidden md:block space-y-1">
           {projects.length === 0 && !loading && (
             <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
@@ -631,6 +655,15 @@ export default function DockerStacks() {
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <h2 className="text-[18px] font-bold truncate min-w-0 max-w-full">{selectedName}</h2>
+                {currentNodeName && (
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6] shrink-0"
+                    title={t('docker.stacks.onNode', { node: currentNodeName })}
+                  >
+                    <Monitor className="h-3 w-3" />
+                    {currentNodeName}
+                  </span>
+                )}
                 {selectedProject && (
                   <>
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 ${
@@ -706,7 +739,7 @@ export default function DockerStacks() {
                 {clusterNodeCount > 1 && (
                   <Button
                     variant="outline" size="sm" className="rounded-xl"
-                    onClick={() => setMigrateOpen(true)}
+                    onClick={() => selectedName && openMigrate(selectedName)}
                   >
                     <ArrowRightLeft className="h-3.5 w-3.5" />
                     {t('docker.migrate.action')}
@@ -1301,9 +1334,17 @@ export default function DockerStacks() {
         />
       )}
 
-      {selectedName && (
-        <MigrateStackDialog open={migrateOpen} onOpenChange={setMigrateOpen} project={selectedName} />
-      )}
+      <MigrateStackDialog
+        open={migrateOpen}
+        onOpenChange={setMigrateOpen}
+        project={migrateProject}
+        onMigrated={() => {
+          // Stack moved off this node — refresh the list, and if it was the open
+          // stack clear the now-stale detail route (matches the delete flow).
+          void fetchProjects(false)
+          if (migrateProject && migrateProject === selectedName) navigate('/docker/stacks')
+        }}
+      />
     </div>
   )
 }

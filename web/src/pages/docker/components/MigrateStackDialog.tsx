@@ -23,13 +23,22 @@ export function MigrateStackDialog({
   open,
   onOpenChange,
   project,
+  sourceNodeId,
+  onMigrated,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   project: string
+  // The node the stack lives on. Defaults to the current node (detail-page use);
+  // the cluster-wide view passes it explicitly so it can migrate any node's stack.
+  sourceNodeId?: string
+  // Fired once when a migration completes successfully, so the caller can refresh
+  // its stack lists (the stack has moved nodes).
+  onMigrated?: () => void
 }) {
   const { t } = useTranslation()
   const [nodes, setNodes] = useState<ClusterNode[]>([])
+  const [sourceName, setSourceName] = useState('')
   const [targetId, setTargetId] = useState('')
   const [disposition, setDisposition] = useState<MigrateDisposition>('retain')
   const [overwriteAck, setOverwriteAck] = useState(false)
@@ -51,7 +60,8 @@ export function MigrateStackDialog({
     ;(async () => {
       try {
         const [nodesRes, status] = await Promise.all([api.getClusterNodes(), api.getClusterStatus()])
-        const sourceId = api.currentNode ?? status.local_id ?? ''
+        const sourceId = sourceNodeId ?? api.currentNode ?? status.local_id ?? ''
+        setSourceName((nodesRes.nodes || []).find((n) => n.id === sourceId)?.name ?? '')
         const targets = (nodesRes.nodes || []).filter((n) => n.id !== sourceId && n.status === 'online')
         setNodes(targets)
         if (targets.length === 1) setTargetId(targets[0].id)
@@ -59,14 +69,14 @@ export function MigrateStackDialog({
         toast.error(t('docker.migrate.loadNodesFailed'))
       }
     })()
-  }, [open, t])
+  }, [open, t, sourceNodeId])
 
   const runPreflight = async () => {
     if (!targetId) return
     setChecking(true)
     setReport(null)
     try {
-      setReport(await api.migratePreflight(project, { targetNodeId: targetId, overwriteAcked: overwriteAck }))
+      setReport(await api.migratePreflight(project, { targetNodeId: targetId, overwriteAcked: overwriteAck }, sourceNodeId))
     } catch (e) {
       toast.error(String(e))
     } finally {
@@ -89,8 +99,12 @@ export function MigrateStackDialog({
           if (ev.done) {
             sawTerminal = true
             setTerminal(ev)
+            // Only a 'done' phase means the stack actually landed on the target;
+            // 'error'/'rollback' leave it on the source, so don't claim success.
+            if (ev.phase === 'done') onMigrated?.()
           }
         },
+        sourceNodeId,
       )
       // Stream ended without a terminal event (relay timeout / reset) — show a
       // definite end state instead of silently reverting to the form. The
@@ -127,9 +141,13 @@ export function MigrateStackDialog({
 
         {inForm && (
           <div className="space-y-4">
+            {sourceName && (
+              <p className="text-xs text-muted-foreground">{t('docker.migrate.fromNode', { node: sourceName })}</p>
+            )}
             <div className="space-y-1.5">
-              <Label>{t('docker.migrate.target')}</Label>
+              <Label htmlFor="migrate-target">{t('docker.migrate.target')}</Label>
               <select
+                id="migrate-target"
                 value={targetId}
                 onChange={(e) => {
                   setTargetId(e.target.value)
@@ -156,6 +174,7 @@ export function MigrateStackDialog({
                   <button
                     key={d}
                     type="button"
+                    aria-pressed={disposition === d}
                     onClick={() => setDisposition(d)}
                     className={cn(
                       'rounded-lg border p-2 text-xs font-medium transition',

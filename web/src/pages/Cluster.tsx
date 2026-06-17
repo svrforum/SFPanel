@@ -1,11 +1,12 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Server, LayoutDashboard, KeyRound } from 'lucide-react'
+import { Server, LayoutDashboard, KeyRound, Layers } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const tabs = [
   { to: 'overview', labelKey: 'cluster.nav.overview', icon: LayoutDashboard },
   { to: 'nodes', labelKey: 'cluster.nav.nodes', icon: Server },
+  { to: 'stacks', labelKey: 'cluster.nav.stacks', icon: Layers },
   { to: 'tokens', labelKey: 'cluster.nav.tokens', icon: KeyRound },
 ]
 
