@@ -10,6 +10,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.49.0] – 2026-06-17
+
+Lighter binary and fewer wasted requests — no feature changes.
+
+### Changed
+
+- **Binary ~43 MB → ~33 MB.** Two embedded-weight cuts: (1) Monaco now imports the slim `editor.api` with an explicit language allowlist instead of the full `monaco-editor` barrel, dropping the ~6.9 MB TypeScript language worker that was embedded (via `go:embed`) but never actually spawned — the worker override already routed TypeScript to the base editor worker. The Docker/Files editors are unchanged: YAML/JSON/CSS/HTML and every other mapped language still highlight (only TS IntelliSense, already disabled, is gone). The embedded `web/dist` drops 17 MB → 9.6 MB. (2) The GitHub compose-import path drops `go-git` (and its ~7 MB crypto/diff transitive tree, 26 modules) in favour of a plain `net/http` fetch of the one compose file via the GitHub Contents API — same public / private-PAT / branch behaviour and the same typed auth / not-found errors.
+- **Background tabs stop polling.** The cluster sidebar, Cluster Nodes, Processes and Services pages now use the existing `useVisibleInterval` hook (fetch on mount + while the tab is visible, paused while hidden) instead of a `setInterval` that kept firing in unfocused tabs.
+
+---
+
 ## [0.48.0] – 2026-06-17
 
 The cluster-wide Docker view (**Cluster › Docker**) becomes a master-detail: selecting a stack opens its full detail — services, editor, logs, and all actions — inline, scoped to the stack's own node, without leaving the page. The cluster sidebar tree now collapses by default to give the detail more room.
