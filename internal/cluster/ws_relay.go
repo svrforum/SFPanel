@@ -220,13 +220,12 @@ func WrapEchoWSHandler(getMgr func() *Manager, handler func(c echo.Context) erro
 		if node == nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "node not found"})
 		}
-		// Only the leader has authoritative health (it receives heartbeats
-		// from every node). On a follower, sibling-follower status is always
-		// offline from this view, so we'd reject WS relay to a healthy peer.
-		// Let the actual TCP dial fail instead.
-		if mgr.IsLeader() && node.Status == StatusOffline {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "node is offline"})
-		}
+		// Don't pre-refuse on heartbeat status. A peer can read "offline" while
+		// it's perfectly reachable — the 2-node heartbeat is racy right after a
+		// restart, and a follower never sees a sibling as online at all. Attempt
+		// the relay and let the TCP dial fail for a genuinely-down node (a fast
+		// connection-refused), matching how the cluster-stacks aggregator always
+		// tries the proxy rather than trusting a possibly-stale status.
 
 		// Resolve the authenticated username before the upgrade so we can
 		// stamp it into the outbound X-SFPanel-Original-User header.
