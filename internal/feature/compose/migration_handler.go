@@ -137,6 +137,24 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	opCtx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
 
+	// Re-validate the RESOLVED compose (after .env interpolation). The raw-text
+	// ValidateAdvancedCompose above can be bypassed by a hostile/edited .env that
+	// injects privileged/host-mode/device directives via ${VAR} substitution, and
+	// the target's `up` re-resolves with that .env. Best-effort: if the config
+	// can't be resolved here, `up` would surface the same error, so fall back to
+	// the raw check rather than failing on a transient resolve error.
+	if resolved, rerr := h.Compose.GetResolvedConfigYAML(opCtx, m.StackID); rerr == nil {
+		if verr := composex.ValidateAdvancedCompose(resolved); verr != nil {
+			_ = os.RemoveAll(stackDir)
+			if backup != "" {
+				if err := os.Rename(backup, stackDir); err != nil {
+					slog.Error("resolved-compose reject: restoring prior definition from backup failed", "component", "compose", "stack", m.StackID, "error", err)
+				}
+			}
+			return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput("resolved compose rejected: "+verr.Error()))
+		}
+	}
+
 	// Restore images + volume/bind data BEFORE up. Each archive was sha256-verified
 	// on receipt, so a clean return means the target holds intact data — which is
 	// what makes the source `delete` disposition safe.

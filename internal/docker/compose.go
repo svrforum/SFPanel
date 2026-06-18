@@ -409,6 +409,19 @@ func (m *ComposeManager) GetResolvedConfig(ctx context.Context, name string) ([]
 	return []byte(out), nil
 }
 
+// GetResolvedConfigYAML returns `docker compose config` as resolved YAML
+// (env-interpolated, defaults applied, normalized long form). Stack-migration
+// import re-validates this on the target so an edited/hostile .env can't smuggle
+// privileged/host-mode/device directives past the raw-text safety check (the
+// target's `up` re-resolves with that .env).
+func (m *ComposeManager) GetResolvedConfigYAML(ctx context.Context, name string) (string, error) {
+	out, err := m.runCompose(ctx, name, "config")
+	if err != nil {
+		return "", fmt.Errorf("compose config: %w", err)
+	}
+	return out, nil
+}
+
 // runCompose executes a docker compose command for the given project.
 func (m *ComposeManager) runCompose(ctx context.Context, name string, args ...string) (string, error) {
 	if err := m.validateProjectName(name); err != nil {
