@@ -106,6 +106,24 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 
+	// Serialize restores that touch the SAME docker volume. The stack lock above
+	// does NOT cover this: two distinct stacks can share a named/external volume,
+	// hold different stack locks, and race clearVolume + tar-extract on the one
+	// shared volume — corrupting it and (under a source `delete` disposition)
+	// destroying the source over a corrupted target. Acquire all the volumes this
+	// import will restore, all-or-nothing; refuse with 409 if any is mid-restore.
+	var volNames []string
+	for _, v := range m.Volumes {
+		if v.Copy && v.Archive != "" {
+			volNames = append(volNames, v.Docker)
+		}
+	}
+	acquiredVols, contendedVol := h.tryAcquireVolumes(volNames)
+	if contendedVol != "" {
+		return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, "another migration is restoring shared volume: "+contendedVol)
+	}
+	defer h.releaseVolumes(acquiredVols)
+
 	// Detach from the request context: a client/proxy disconnect must not abort
 	// the data restore + compose up + health poll (which would clean up a stack
 	// that is in fact coming up healthy). Bound it independently instead. 2h
