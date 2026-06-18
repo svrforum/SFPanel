@@ -315,6 +315,31 @@ type migrateTargetInfo struct {
 	SameDevice      bool   `json:"sameDevice"`      // stacks FS and docker FS share one device
 	PortsInUse      []int  `json:"portsInUse"`
 	StackExists     bool   `json:"stackExists"`
+	StackRunning    bool   `json:"stackRunning"` // a stack with this id has a running container here
+}
+
+// targetStackRunning best-effort asks the target node whether the stack is
+// currently running there. Used after a transfer connection error to avoid a
+// split brain: if the target brought the stack up, the source must NOT be
+// restarted. Any error (target unreachable, parse failure) reports false so the
+// caller falls back to restarting the source.
+func (h *Handler) targetStackRunning(ctx context.Context, targetNodeID, project, username string) bool {
+	mgr := h.clusterManager()
+	if mgr == nil {
+		return false
+	}
+	path := "/api/v1/docker/compose/migrate/target-info?stackId=" + url.QueryEscape(project)
+	status, body, err := mgr.ProxyToNode(ctx, targetNodeID, http.MethodGet, path, nil, username)
+	if err != nil || status != http.StatusOK {
+		return false
+	}
+	var wrapper struct {
+		Data migrateTargetInfo `json:"data"`
+	}
+	if json.Unmarshal(body, &wrapper) != nil {
+		return false
+	}
+	return wrapper.Data.StackRunning
 }
 
 // dockerRootDir returns the docker daemon's storage root (e.g. /var/lib/docker)
@@ -370,6 +395,16 @@ func (h *Handler) MigrateTargetInfo(c echo.Context) error {
 	if stackID != "" {
 		if _, err := os.Stat(filepath.Join(h.ComposePath, stackID)); err == nil {
 			info.StackExists = true
+		}
+		// StackRunning lets the source detect a split brain after a transfer
+		// connection error (the target may have brought the stack up).
+		if svcs, err := h.Compose.GetProjectServices(c.Request().Context(), stackID); err == nil {
+			for _, s := range svcs {
+				if s.State == "running" {
+					info.StackRunning = true
+					break
+				}
+			}
 		}
 	}
 	info.PortsInUse = h.usedHostPorts(c.Request().Context())
@@ -617,11 +652,19 @@ func (h *Handler) Migrate(c echo.Context) error {
 	send(PhaseTransfer, "Transferring to target...", false)
 	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha)
 	if terr != nil || status != http.StatusOK {
+		// On a CONNECTION error the target detaches its restore+up from the dropped
+		// connection, so the stack may actually be running there. Probe before
+		// rolling back: if it IS running on the target, restarting the source would
+		// create two live copies (split brain). Leave the source stopped and tell
+		// the operator instead. A clean HTTP error status (target reachable, import
+		// rejected) is a real failure — roll back normally.
+		if terr != nil && h.targetStackRunning(opCtx, req.TargetNodeID, project, username) {
+			send(PhaseError, response.SanitizeOutput("transfer connection lost but the stack is RUNNING on the target; the source was left stopped to avoid two live copies — verify the target and remove the source if the migration succeeded ("+terr.Error()+")"), true)
+			return nil
+		}
 		cause := ""
 		if terr != nil {
-			// The target may have received the bundle and come up anyway (it
-			// detaches its up from the connection); flag a possible orphan.
-			cause = terr.Error() + " (verify the target for an orphaned copy)"
+			cause = terr.Error()
 		} else {
 			cause = "target status " + http.StatusText(status) + ": " + string(body)
 		}
