@@ -198,12 +198,37 @@ func migrationNodeBaseURL(apiAddr string) string {
 	return "http://" + apiAddr
 }
 
+// progressReader wraps the bundle stream and reports cumulative bytes sent at
+// coarse intervals (~5% steps, min 16 MiB) so a multi-GB transfer surfaces
+// progress in the SSE stream without flooding it.
+type progressReader struct {
+	r        io.Reader
+	total    int64
+	read     int64
+	nextEmit int64
+	step     int64
+	onProg   func(sent, total int64)
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	p.read += int64(n)
+	if p.onProg != nil && (p.read >= p.nextEmit || (err == io.EOF && p.read > 0)) {
+		for p.nextEmit <= p.read {
+			p.nextEmit += p.step
+		}
+		p.onProg(p.read, p.total)
+	}
+	return n, err
+}
+
 // pushBundle streams body (length contentLength) to the target node's
 // migrate-import endpoint with internal-proxy auth + the SHA header, returning
 // the target's HTTP status + body. mTLS via the cluster client TLS config. No
 // fixed client Timeout — a multi-GB transfer can outlast any deadline; the
-// caller's opCtx bounds (and cancels) the whole migration instead.
-func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string, body io.Reader, contentLength int64, sha string) (int, []byte, error) {
+// caller's opCtx bounds (and cancels) the whole migration instead. onProgress
+// (optional) is called with cumulative/total bytes as the body streams out.
+func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string, body io.Reader, contentLength int64, sha string, onProgress func(sent, total int64)) (int, []byte, error) {
 	mgr := h.clusterManager()
 	if mgr == nil {
 		return 0, nil, fmt.Errorf("cluster is not enabled")
@@ -223,7 +248,15 @@ func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string,
 	defer transport.CloseIdleConnections() // one-shot push: don't leak the kept-alive conn
 	client := &http.Client{Transport: transport}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, body)
+	reqBody := body
+	if onProgress != nil && contentLength > 0 {
+		step := contentLength / 20
+		if step < 16<<20 {
+			step = 16 << 20
+		}
+		reqBody = &progressReader{r: body, total: contentLength, step: step, nextEmit: step, onProg: onProgress}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, reqBody)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -249,8 +282,8 @@ func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string,
 }
 
 // pushBundleFileToTarget streams a staged bundle file (no in-memory copy) to the
-// target's migrate-import endpoint.
-func (h *Handler) pushBundleFileToTarget(ctx context.Context, targetNodeID, username, bundlePath, sha string) (int, []byte, error) {
+// target's migrate-import endpoint. onProgress (optional) reports bytes sent.
+func (h *Handler) pushBundleFileToTarget(ctx context.Context, targetNodeID, username, bundlePath, sha string, onProgress func(sent, total int64)) (int, []byte, error) {
 	f, err := os.Open(bundlePath)
 	if err != nil {
 		return 0, nil, err
@@ -260,5 +293,5 @@ func (h *Handler) pushBundleFileToTarget(ctx context.Context, targetNodeID, user
 	if err != nil {
 		return 0, nil, err
 	}
-	return h.pushBundle(ctx, targetNodeID, username, f, fi.Size(), sha)
+	return h.pushBundle(ctx, targetNodeID, username, f, fi.Size(), sha, onProgress)
 }

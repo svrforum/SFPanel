@@ -5,17 +5,25 @@ package compose
 type PreflightInput struct {
 	SourceNodeID, TargetNodeID string
 	SourceArch, TargetArch     string
-	TargetFreeBytes            int64
-	EstimatedBytes             int64
-	StackPorts                 []int
-	TargetPortsInUse           []int
-	TargetStackExists          bool
-	OverwriteAcked             bool
-	HasSystemBind              bool
-	HasExternalVolume          bool
-	HasAbsBind                 bool
-	HasDevice                  bool
-	Disposition                Disposition
+	// TargetFreeBytes is free space on the target's stacks FS; EstimatedBytes is
+	// what lands there (stack files + bind data + headroom). TargetDockerFreeBytes
+	// is free on the target's docker storage FS; EstimatedDockerBytes is what
+	// lands there (volume + image data). TargetSameDevice is true when both roots
+	// are on one filesystem, so the combined total must fit a single free figure.
+	TargetFreeBytes       int64
+	EstimatedBytes        int64
+	TargetDockerFreeBytes int64
+	EstimatedDockerBytes  int64
+	TargetSameDevice      bool
+	StackPorts            []int
+	TargetPortsInUse      []int
+	TargetStackExists     bool
+	OverwriteAcked        bool
+	HasSystemBind         bool
+	HasExternalVolume     bool
+	HasAbsBind            bool
+	HasDevice             bool
+	Disposition           Disposition
 }
 
 // largeTransferThreshold is the estimated size above which the operator is
@@ -61,8 +69,21 @@ func BuildPreflightReport(in PreflightInput) PreflightReport {
 	if in.SourceArch != "" && in.TargetArch != "" && in.SourceArch != in.TargetArch {
 		block("arch-mismatch", "source ("+in.SourceArch+") and target ("+in.TargetArch+") architectures differ")
 	}
-	if in.EstimatedBytes > 0 && in.TargetFreeBytes > 0 && in.TargetFreeBytes < in.EstimatedBytes {
-		block("insufficient-disk", "target free space is less than the estimated migration size")
+	// Disk: volume + image data lands on the docker storage FS; stack files + bind
+	// data on the stacks FS. When both roots share one device the combined total
+	// must fit; when they differ each portion is checked against its own free space.
+	if in.TargetSameDevice {
+		total := in.EstimatedBytes + in.EstimatedDockerBytes
+		if total > 0 && in.TargetFreeBytes > 0 && in.TargetFreeBytes < total {
+			block("insufficient-disk", "target free space is less than the estimated migration size")
+		}
+	} else {
+		if in.EstimatedBytes > 0 && in.TargetFreeBytes > 0 && in.TargetFreeBytes < in.EstimatedBytes {
+			block("insufficient-disk", "target stacks filesystem free space is less than the stack files + bind data size")
+		}
+		if in.EstimatedDockerBytes > 0 && in.TargetDockerFreeBytes > 0 && in.TargetDockerFreeBytes < in.EstimatedDockerBytes {
+			block("insufficient-disk-docker", "target docker storage free space is less than the volume + image data size")
+		}
 	}
 	if c := intersect(in.StackPorts, in.TargetPortsInUse); len(c) > 0 && in.Disposition != DispositionClone {
 		block("port-conflict", "target already uses one or more of the stack's host ports")
@@ -81,7 +102,7 @@ func BuildPreflightReport(in PreflightInput) PreflightReport {
 	if in.HasAbsBind {
 		warn("absolute-bind-write", "stack has absolute-path bind mounts; their data will be written to the SAME absolute paths on the target (protected system paths are skipped)")
 	}
-	if in.EstimatedBytes > largeTransferThreshold {
+	if in.EstimatedBytes+in.EstimatedDockerBytes > largeTransferThreshold {
 		warn("large-transfer", "this migration moves a large amount of data and may take a while")
 	}
 	if in.HasDevice {

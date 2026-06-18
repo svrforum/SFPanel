@@ -132,6 +132,49 @@ func TestValidateTarSafeRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestValidateTarSafeRejectsSpecialAndSetuid(t *testing.T) {
+	// Char device node rejected — extraction as root would materialize it.
+	dev := filepath.Join(t.TempDir(), "dev.tar")
+	writeTar(t, dev, []tar.Header{
+		{Name: "data/null", Typeflag: tar.TypeChar, Devmajor: 1, Devminor: 3, Mode: 0o666},
+	}, []string{""})
+	if err := validateTarSafe(dev); err == nil {
+		t.Fatal("char device member must be rejected")
+	}
+	// FIFO rejected.
+	fifo := filepath.Join(t.TempDir(), "fifo.tar")
+	writeTar(t, fifo, []tar.Header{
+		{Name: "data/pipe", Typeflag: tar.TypeFifo, Mode: 0o644},
+	}, []string{""})
+	if err := validateTarSafe(fifo); err == nil {
+		t.Fatal("fifo member must be rejected")
+	}
+	// setuid regular file rejected — would plant a setuid-root binary on the target.
+	suid := filepath.Join(t.TempDir(), "suid.tar")
+	writeTar(t, suid, []tar.Header{
+		{Name: "data/rootshell", Typeflag: tar.TypeReg, Size: 1, Mode: 0o4755},
+	}, []string{"x"})
+	if err := validateTarSafe(suid); err == nil {
+		t.Fatal("setuid regular file must be rejected")
+	}
+	// setgid regular file rejected.
+	sgid := filepath.Join(t.TempDir(), "sgid.tar")
+	writeTar(t, sgid, []tar.Header{
+		{Name: "data/sgid", Typeflag: tar.TypeReg, Size: 1, Mode: 0o2755},
+	}, []string{"y"})
+	if err := validateTarSafe(sgid); err == nil {
+		t.Fatal("setgid regular file must be rejected")
+	}
+	// setgid DIRECTORY allowed — legitimate group-inheritance, not an exec vector.
+	sgidDir := filepath.Join(t.TempDir(), "sgiddir.tar")
+	writeTar(t, sgidDir, []tar.Header{
+		{Name: "data", Typeflag: tar.TypeDir, Mode: 0o2755},
+	}, []string{""})
+	if err := validateTarSafe(sgidDir); err != nil {
+		t.Fatalf("setgid dir must be allowed: %v", err)
+	}
+}
+
 func writeTar(t *testing.T, path string, hdrs []tar.Header, bodies []string) {
 	t.Helper()
 	f, err := os.Create(path)

@@ -83,3 +83,48 @@ func TestPreflightDataWarnings(t *testing.T) {
 		}
 	}
 }
+
+func hasBlock(r PreflightReport, code string) bool {
+	for _, b := range r.Blocks {
+		if b.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func TestPreflightSplitFilesystemDiskCheck(t *testing.T) {
+	base := PreflightInput{
+		SourceNodeID: "a", TargetNodeID: "b",
+		SourceArch: "amd64", TargetArch: "amd64", Disposition: DispositionRetain,
+	}
+
+	// Separate devices: docker FS too small for volumes/images → docker block,
+	// stacks FS has room → no stacks block.
+	sep := base
+	sep.TargetSameDevice = false
+	sep.EstimatedBytes, sep.TargetFreeBytes = 100, 1_000_000
+	sep.EstimatedDockerBytes, sep.TargetDockerFreeBytes = 5_000, 1_000
+	r := BuildPreflightReport(sep)
+	if !hasBlock(r, "insufficient-disk-docker") || hasBlock(r, "insufficient-disk") {
+		t.Fatalf("want docker-only disk block, got %+v", r.Blocks)
+	}
+
+	// Same device: the COMBINED total must fit a single free figure.
+	same := base
+	same.TargetSameDevice = true
+	same.EstimatedBytes, same.EstimatedDockerBytes, same.TargetFreeBytes = 600, 600, 1_000 // 1200 > 1000
+	if r2 := BuildPreflightReport(same); !hasBlock(r2, "insufficient-disk") {
+		t.Fatalf("same-device combined total should block, got %+v", r2.Blocks)
+	}
+
+	// Separate devices, each portion fits its own FS → no block even though the
+	// SUM exceeds either single free (the old single-FS check would over-block).
+	fits := base
+	fits.TargetSameDevice = false
+	fits.EstimatedBytes, fits.TargetFreeBytes = 600, 1_000
+	fits.EstimatedDockerBytes, fits.TargetDockerFreeBytes = 600, 1_000
+	if r3 := BuildPreflightReport(fits); hasBlock(r3, "insufficient-disk") || hasBlock(r3, "insufficient-disk-docker") {
+		t.Fatalf("each portion fits its own FS; should not block: %+v", r3.Blocks)
+	}
+}

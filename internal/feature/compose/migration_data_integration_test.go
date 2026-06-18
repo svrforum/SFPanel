@@ -133,13 +133,13 @@ func TestRestoreDataVolumeOverwriteGate(t *testing.T) {
 		"sh", "-c", "echo OLD > /d/marker.txt; echo OLD > /d/only-old.txt").Run()
 
 	// Without overwrite ack → refuse (no silent overlay).
-	if _, _, err := restoreData(ctx, m, staged, t.TempDir()); err == nil {
+	if _, _, _, err := restoreData(ctx, m, staged, t.TempDir(), t.TempDir()); err == nil {
 		t.Fatal("pre-existing volume without overwrite ack must be refused")
 	}
 
 	// With overwrite ack → EXACT replica (stale only-old.txt gone, marker=NEW).
 	m.Overwrite = true
-	if _, _, err := restoreData(ctx, m, staged, t.TempDir()); err != nil {
+	if _, _, _, err := restoreData(ctx, m, staged, t.TempDir(), t.TempDir()); err != nil {
 		t.Fatalf("overwrite restore: %v", err)
 	}
 	out, err := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "-v", tgt+":/d", migrationHelperImage,
@@ -150,5 +150,66 @@ func TestRestoreDataVolumeOverwriteGate(t *testing.T) {
 	s := string(out)
 	if !strings.Contains(s, "NEW") || strings.Contains(s, "only-old.txt") || !strings.Contains(s, "only-new.txt") {
 		t.Fatalf("overwrite was not an exact replica: %q", s)
+	}
+}
+
+// TestRestoreDataPrebakRestoresPriorVolume verifies the A2 fix: on an overwrite,
+// restoreData archives the pre-existing volume's data to a prebak BEFORE wiping
+// it, and that prebak can restore the prior tenant's data if the import later
+// fails — so a failed overwrite import never destroys pre-existing volume data.
+func TestRestoreDataPrebakRestoresPriorVolume(t *testing.T) {
+	requireDockerIT(t)
+	ctx := context.Background()
+	const tgt, src = "sfmig_it_pb_tgt", "sfmig_it_pb_src"
+	defer removeVolume(ctx, tgt)
+	defer removeVolume(ctx, src)
+
+	// Incoming (NEW) data archive.
+	if _, err := createVolumeIfAbsent(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "-v", src+":/d", migrationHelperImage,
+		"sh", "-c", "echo NEW > /d/marker.txt").Run()
+	arc := filepath.Join(t.TempDir(), "v.tar")
+	_, sha, err := archiveVolumeToFile(ctx, src, arc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := MigrationManifest{StackID: "x", Overwrite: true, Volumes: []VolumeSpec{{Docker: tgt, Copy: true, Archive: "volumes/v.tar", Sha256: sha}}}
+	staged := map[string]string{"volumes/v.tar": arc}
+
+	// Pre-existing target volume with PRIOR (other-tenant) data.
+	if _, err := createVolumeIfAbsent(ctx, tgt); err != nil {
+		t.Fatal(err)
+	}
+	exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "-v", tgt+":/d", migrationHelperImage,
+		"sh", "-c", "echo PRIOR > /d/marker.txt; echo PRIOR > /d/only-prior.txt").Run()
+
+	prebakDir := t.TempDir()
+	_, prebaks, _, err := restoreData(ctx, m, staged, t.TempDir(), prebakDir)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if len(prebaks) != 1 || prebaks[0].Docker != tgt {
+		t.Fatalf("want 1 prebak for %s, got %+v", tgt, prebaks)
+	}
+	if _, err := os.Stat(prebaks[0].Archive); err != nil {
+		t.Fatalf("prebak archive missing: %v", err)
+	}
+
+	// Simulate failedImportData's restore: clear + extract the prebak (trusted path).
+	if err := clearVolume(ctx, tgt); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractArchiveToVolume(ctx, tgt, prebaks[0].Archive); err != nil {
+		t.Fatalf("prebak restore: %v", err)
+	}
+	out, err := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "-v", tgt+":/d", migrationHelperImage,
+		"sh", "-c", "cat /d/marker.txt; ls /d").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(out); !strings.Contains(got, "PRIOR") || !strings.Contains(got, "only-prior.txt") {
+		t.Fatalf("prebak did not restore prior data, got: %q", got)
 	}
 }

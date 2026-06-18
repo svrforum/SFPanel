@@ -89,6 +89,26 @@ func validateTarSafe(archivePath string) error {
 		if !tarMemberSafe(hdr.Name) {
 			return fmt.Errorf("unsafe archive member %q", hdr.Name)
 		}
+		// Reject special-file entries (char/block device, FIFO/socket): a migrated
+		// bind/volume payload is data, never a device node. Extraction runs as root
+		// (host `tar -x` for binds, the volume helper for volumes), so a device or
+		// FIFO entry in a hostile bundle would be materialized verbatim on the
+		// target. Only regular files, dirs, and (already-validated) sym/hardlinks
+		// are data-bearing. FileInfo().Mode() classifies reg/dir without touching
+		// the deprecated TypeRegA.
+		mode := hdr.FileInfo().Mode()
+		switch {
+		case mode.IsRegular(), mode.IsDir(), hdr.Typeflag == tar.TypeSymlink, hdr.Typeflag == tar.TypeLink:
+			// data-bearing or link entries — allowed (link targets validated below)
+		default:
+			return fmt.Errorf("unsupported archive member type %d for %q", hdr.Typeflag, hdr.Name)
+		}
+		// Reject setuid/setgid regular files: `tar -x` as root preserves the bits,
+		// so a hostile bundle could plant a setuid-root executable on the target.
+		// (setgid/sticky on DIRS is legitimate group-inheritance and left alone.)
+		if mode.IsRegular() && mode&(os.ModeSetuid|os.ModeSetgid) != 0 {
+			return fmt.Errorf("archive member %q carries setuid/setgid bits", hdr.Name)
+		}
 		switch hdr.Typeflag {
 		case tar.TypeSymlink:
 			// Resolve the link relative to the entry's directory; it must stay in-root.
@@ -109,11 +129,18 @@ func validateTarSafe(archivePath string) error {
 // on docker hosts; if absent docker pulls it once.
 const migrationHelperImage = "alpine"
 
-// helperNetNone runs the helper container with no networking. It only tars a
-// mounted volume, so it never needs a network — and `--network none` avoids a
-// hard failure on hosts whose default bridge (docker0) is absent or custom
-// (where a bare `docker run` can't attach to the default network).
-var helperNetNone = []string{"--network", "none"}
+// migrationHelperLabel tags every throwaway helper container so an orphaned one
+// (left behind when the parent migration process is SIGKILLed mid-tar — `--rm`
+// only fires on a clean exit, and the detached container can outlive the killed
+// CLI) can be swept at boot. See SweepMigrationHelperContainers.
+const migrationHelperLabel = "sfpanel.migration.helper=1"
+
+// helperRunFlags are the common `docker run` flags for the throwaway helper:
+//   - `--network none`: it only tars a mounted volume, never needs networking,
+//     and this avoids a hard failure on hosts whose default bridge (docker0) is
+//     absent or custom (where a bare `docker run` can't attach to it).
+//   - `--label`: tags it for the orphan sweep above.
+var helperRunFlags = []string{"--network", "none", "--label", migrationHelperLabel}
 
 // errSkipSpecial marks a bind whose host path is a socket/device/irregular file
 // or is missing — it can't (and shouldn't) be archived. The caller flips the
@@ -161,7 +188,7 @@ func runStreamToFile(ctx context.Context, dstPath, name string, args ...string) 
 // archiveVolumeToFile tars a named volume's contents into dstPath via the helper
 // image (read-only mount). Works for any volume driver docker can mount.
 func archiveVolumeToFile(ctx context.Context, dockerVol, dstPath string) (int64, string, error) {
-	args := append([]string{"run", "--rm"}, helperNetNone...)
+	args := append([]string{"run", "--rm"}, helperRunFlags...)
 	args = append(args, "-v", dockerVol+":/from:ro", "-w", "/from", migrationHelperImage, "tar", "-cf", "-", ".")
 	return runStreamToFile(ctx, dstPath, "docker", args...)
 }
@@ -204,7 +231,7 @@ func parseLeadingBytes(out []byte) int64 {
 // volumeSizeBytes best-effort returns a named volume's apparent size (du -sb via
 // the helper image). 0 on any error — pre-flight sizing degrades, never fails.
 func volumeSizeBytes(ctx context.Context, dockerVol string) int64 {
-	args := append([]string{"run", "--rm"}, helperNetNone...)
+	args := append([]string{"run", "--rm"}, helperRunFlags...)
 	args = append(args, "-v", dockerVol+":/v:ro", migrationHelperImage, "du", "-sb", "/v")
 	out, err := exec.CommandContext(ctx, "docker", args...).Output()
 	if err != nil {
@@ -231,25 +258,28 @@ func imageSizeBytes(ctx context.Context, ref string) int64 {
 	return parseLeadingBytes(out)
 }
 
-// estimateTransferBytes best-effort sums the bytes that will actually be copied
-// (volume + bind data + image sizes) so the pre-flight disk check uses a real
-// figure. Best-effort: an un-sizable entry contributes 0 rather than failing.
-func estimateTransferBytes(ctx context.Context, facts stackConfigFacts) int64 {
-	var total int64
+// estimateTransferBytes best-effort sizes what will be copied, split by which
+// filesystem it lands on so the pre-flight disk check can compare each against
+// the right free space: volume + image data lands on the docker storage FS
+// (e.g. /var/lib/docker); bind data lands on the stacks FS (in-stack binds) or a
+// bind's own absolute path (counted toward stacks as an approximation — abs
+// binds are usually small config dirs). Best-effort: an un-sizable entry
+// contributes 0 rather than failing.
+func estimateTransferBytes(ctx context.Context, facts stackConfigFacts) (dockerBytes, stacksBytes int64) {
 	for _, v := range facts.Volumes {
 		if v.Copy {
-			total += volumeSizeBytes(ctx, v.Docker)
-		}
-	}
-	for _, b := range facts.Binds {
-		if b.Copy {
-			total += dirSizeBytes(ctx, b.Host)
+			dockerBytes += volumeSizeBytes(ctx, v.Docker)
 		}
 	}
 	for _, im := range facts.Images {
-		total += imageSizeBytes(ctx, im.Ref)
+		dockerBytes += imageSizeBytes(ctx, im.Ref)
 	}
-	return total
+	for _, b := range facts.Binds {
+		if b.Copy {
+			stacksBytes += dirSizeBytes(ctx, b.Host)
+		}
+	}
+	return dockerBytes, stacksBytes
 }
 
 // --- target-side restore primitives ---
@@ -291,7 +321,7 @@ func removeVolume(ctx context.Context, dockerVol string) {
 // acked overwrite restores an EXACT copy of the source volume rather than
 // overlaying the migrated files onto a pre-existing tenant's data.
 func clearVolume(ctx context.Context, dockerVol string) error {
-	args := append([]string{"run", "--rm"}, helperNetNone...)
+	args := append([]string{"run", "--rm"}, helperRunFlags...)
 	args = append(args, "-v", dockerVol+":/to", "-w", "/to", migrationHelperImage,
 		"sh", "-c", "rm -rf /to/* /to/.[!.]* /to/..?* 2>/dev/null; true")
 	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
@@ -301,19 +331,20 @@ func clearVolume(ctx context.Context, dockerVol string) error {
 	return nil
 }
 
-// restoreVolumeFromFile extracts a volume archive into the named volume via the
-// helper image (stdin = the staged tar). The archive is validated for path
-// traversal first, so the (busybox) extractor can't escape /to.
-func restoreVolumeFromFile(ctx context.Context, dockerVol, archivePath string) error {
-	if err := validateTarSafe(archivePath); err != nil {
-		return err
-	}
+// extractArchiveToVolume streams a tar archive into the named volume via the
+// helper image (stdin = the tar). It does NOT validate the archive: callers
+// restoring an UNTRUSTED cross-node archive must validateTarSafe first (use
+// restoreVolumeFromFile); callers restoring a TRUSTED archive we made ourselves
+// (a prebak of the target's OWN volume) skip that — re-running the hostile-input
+// validator on our own backup would, e.g., reject a legitimate setuid file the
+// volume already held and leave the prior tenant unrecoverable.
+func extractArchiveToVolume(ctx context.Context, dockerVol, archivePath string) error {
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = f.Close() }()
-	args := append([]string{"run", "-i", "--rm"}, helperNetNone...)
+	args := append([]string{"run", "-i", "--rm"}, helperRunFlags...)
 	args = append(args, "-v", dockerVol+":/to", "-w", "/to", migrationHelperImage, "tar", "-xf", "-")
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Stdin = f
@@ -323,6 +354,16 @@ func restoreVolumeFromFile(ctx context.Context, dockerVol, archivePath string) e
 		return fmt.Errorf("extract volume %s: %w: %s", dockerVol, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
+}
+
+// restoreVolumeFromFile extracts an UNTRUSTED (cross-node) volume archive into
+// the named volume, validating it for path traversal / unsafe entries first so
+// the (busybox) extractor can't escape /to or materialize device/setuid entries.
+func restoreVolumeFromFile(ctx context.Context, dockerVol, archivePath string) error {
+	if err := validateTarSafe(archivePath); err != nil {
+		return err
+	}
+	return extractArchiveToVolume(ctx, dockerVol, archivePath)
 }
 
 // extractTarToDir extracts an archive into targetParent (created if needed),

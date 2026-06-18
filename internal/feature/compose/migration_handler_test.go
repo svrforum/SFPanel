@@ -118,3 +118,34 @@ func TestMigratePreflightRejectsTraversalProject(t *testing.T) {
 		t.Fatalf("want 400 for traversal project, got %d", rec.Code)
 	}
 }
+
+func TestTryAcquireVolumesSerializesSharedVolume(t *testing.T) {
+	h := &Handler{}
+	// First import grabs its volumes (one of them shared).
+	got, contended := h.tryAcquireVolumes([]string{"a", "shared", "b"})
+	if contended != "" {
+		t.Fatalf("first acquire should succeed, got contended %q", contended)
+	}
+	if len(got) != 3 {
+		t.Fatalf("want 3 acquired, got %d", len(got))
+	}
+	// A second import touching the shared volume is refused and grabs NOTHING.
+	got2, contended2 := h.tryAcquireVolumes([]string{"c", "shared", "d"})
+	if contended2 != "shared" {
+		t.Fatalf("expected contention on shared, got %q", contended2)
+	}
+	if got2 != nil {
+		t.Fatalf("contended acquire must return nil set, got %v", got2)
+	}
+	// All-or-nothing: the refused import must not have left c/d locked.
+	got3, c3 := h.tryAcquireVolumes([]string{"c", "d"})
+	if c3 != "" || len(got3) != 2 {
+		t.Fatalf("partial lock leaked: c/d should be free, contended=%q got=%v", c3, got3)
+	}
+	h.releaseVolumes(got3)
+	// After the first import releases, the shared volume is free again.
+	h.releaseVolumes(got)
+	if got4, c4 := h.tryAcquireVolumes([]string{"shared"}); c4 != "" || len(got4) != 1 {
+		t.Fatalf("shared not released, contended=%q", c4)
+	}
+}

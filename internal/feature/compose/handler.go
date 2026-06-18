@@ -81,6 +81,42 @@ type Handler struct {
 	// runs for the same stack can't interleave destructively (one's cleanup
 	// wiping the other's healthy stack). Zero-value ready.
 	migInFlight sync.Map
+
+	// volInFlight serializes restores that touch the SAME docker volume. The
+	// stack-keyed migInFlight does not cover this: two DISTINCT stacks can share
+	// a named/external volume, acquire different stack locks, and race
+	// clearVolume + tar-extract on the one shared volume. Keyed by docker volume
+	// name; held only for the target import's restore window. Zero-value ready.
+	volInFlight sync.Map
+}
+
+// tryAcquireVolumes marks a set of docker volume names as in-flight for a
+// restore. All-or-nothing: on success returns the acquired names (release them
+// with releaseVolumes); if ANY name is already held it grabs none, returns the
+// first contended name, and the caller should 409. Acquired in sorted order for
+// deterministic reporting — it is try-only (never blocks), so ordering is not
+// needed for deadlock-avoidance.
+func (h *Handler) tryAcquireVolumes(names []string) ([]string, string) {
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	got := make([]string, 0, len(sorted))
+	for _, n := range sorted {
+		if _, loaded := h.volInFlight.LoadOrStore(n, true); loaded {
+			for _, g := range got {
+				h.volInFlight.Delete(g)
+			}
+			return nil, n
+		}
+		got = append(got, n)
+	}
+	return got, ""
+}
+
+// releaseVolumes clears in-flight markers for the given docker volume names.
+func (h *Handler) releaseVolumes(names []string) {
+	for _, n := range names {
+		h.volInFlight.Delete(n)
+	}
 }
 
 // tryAcquireMigration marks a stack id as migrating/importing. Returns false if

@@ -38,6 +38,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/docker"
 	featureAlert "github.com/svrforum/SFPanel/internal/feature/alert"
 	featureauth "github.com/svrforum/SFPanel/internal/feature/auth"
+	featureCompose "github.com/svrforum/SFPanel/internal/feature/compose"
 	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
 	featureSystem "github.com/svrforum/SFPanel/internal/feature/system"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
@@ -124,6 +125,15 @@ func main() {
 	// update or watchdog so they don't accumulate. <exe>.bak is intentionally
 	// kept — it's a valid rollback copy.
 	cleanupUpdateTempFiles()
+
+	// Sweep migration scratch (.mig-pkg-*/.migrate-stage-*) and recover a prior
+	// stack from a leftover overwrite backup (.migbak) if a crashed import left
+	// no live copy — so a mid-migration crash doesn't strand staging dirs under
+	// /opt/stacks or surface a phantom ".migbak" stack.
+	featureCompose.CleanupOrphanMigrationStaging(cfg.Server.StacksPath)
+	sweepCtx, sweepCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	featureCompose.SweepMigrationHelperContainers(sweepCtx)
+	sweepCancel()
 
 	database, err := db.Open(cfg.Database.Path)
 	if err != nil {

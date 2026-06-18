@@ -76,6 +76,13 @@ func (m *ComposeManager) validateProjectName(name string) error {
 	if name == "" || !validProjectName.MatchString(name) {
 		return fmt.Errorf("invalid project name %q", name)
 	}
+	// Reserve the migration scratch namespace: a stack named "<x>.migbak" or a
+	// dot-prefixed name would collide with an overwrite backup / staging dir that
+	// the boot sweep treats specially (it can rename a stray "<x>.migbak" back to
+	// "<x>"). Refusing them at the door keeps that namespace unambiguous.
+	if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".migbak") {
+		return fmt.Errorf("invalid project name %q: reserved", name)
+	}
 	resolved := filepath.Clean(filepath.Join(m.baseDir, name))
 	if !strings.HasPrefix(resolved, filepath.Clean(m.baseDir)+string(filepath.Separator)) {
 		return fmt.Errorf("invalid project name %q: path traversal", name)
@@ -208,6 +215,14 @@ func (m *ComposeManager) ListProjects(_ context.Context) ([]ComposeProject, erro
 	var projects []ComposeProject
 	for _, entry := range entries {
 		if !entry.IsDir() {
+			continue
+		}
+		// Skip migration scratch: dot-prefixed staging (.mig-pkg-*/.migrate-stage-*)
+		// and *.migbak overwrite backups. The latter holds a real compose file, so
+		// without this it would surface as a phantom "<id>.migbak" project. Stack
+		// ids are leading-alphanumeric, so a legit stack never starts with "." —
+		// and ".migbak" is reserved for migration backups.
+		if strings.HasPrefix(entry.Name(), ".") || strings.HasSuffix(entry.Name(), ".migbak") {
 			continue
 		}
 		dir := filepath.Join(m.baseDir, entry.Name())
@@ -407,6 +422,19 @@ func (m *ComposeManager) GetResolvedConfig(ctx context.Context, name string) ([]
 		return nil, fmt.Errorf("compose config: %w", err)
 	}
 	return []byte(out), nil
+}
+
+// GetResolvedConfigYAML returns `docker compose config` as resolved YAML
+// (env-interpolated, defaults applied, normalized long form). Stack-migration
+// import re-validates this on the target so an edited/hostile .env can't smuggle
+// privileged/host-mode/device directives past the raw-text safety check (the
+// target's `up` re-resolves with that .env).
+func (m *ComposeManager) GetResolvedConfigYAML(ctx context.Context, name string) (string, error) {
+	out, err := m.runCompose(ctx, name, "config")
+	if err != nil {
+		return "", fmt.Errorf("compose config: %w", err)
+	}
+	return out, nil
 }
 
 // runCompose executes a docker compose command for the given project.

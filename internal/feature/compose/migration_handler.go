@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -21,6 +23,12 @@ import (
 )
 
 const migrationShaHeader = "X-SFPanel-Migration-Sha256"
+
+// healthGateTimeout bounds how long the target waits for the imported stack to
+// become healthy before treating the import as failed (and rolling back). It is
+// longer than a bare container start because, when a service declares a Docker
+// health-check, we wait for it to report healthy rather than merely "running".
+const healthGateTimeout = 120 * time.Second
 
 // maxMigrationBundleBytes caps an incoming migration bundle. The bundle now
 // carries volume/bind data + saved images, so the cap is a large safety bound
@@ -80,6 +88,26 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 
+	// Serialize restores that touch the SAME docker volume, BEFORE any destructive
+	// on-disk mutation (the overwrite backup + definition write below). The stack
+	// lock does NOT cover this: two distinct stacks can share a named/external
+	// volume, hold different stack locks, and race clearVolume + tar-extract on the
+	// one shared volume. Acquire all volumes this import will restore, all-or-
+	// nothing; a 409 here fires while the prior stack is still intact, so there is
+	// nothing to roll back (acquiring after the backup would strand the prior
+	// definition in .migbak).
+	var volNames []string
+	for _, v := range m.Volumes {
+		if v.Copy && v.Archive != "" {
+			volNames = append(volNames, v.Docker)
+		}
+	}
+	acquiredVols, contendedVol := h.tryAcquireVolumes(volNames)
+	if contendedVol != "" {
+		return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, "another migration is restoring shared volume: "+contendedVol)
+	}
+	defer h.releaseVolumes(acquiredVols)
+
 	// Overwrite safety: if a stack with this id already exists, refuse unless the
 	// source acked overwrite. On overwrite, move the prior tenant aside (backup)
 	// so a failed import can restore it AND its named volumes are NOT removed on
@@ -113,28 +141,50 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	opCtx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
 
+	// Re-validate the RESOLVED compose (after .env interpolation). The raw-text
+	// ValidateAdvancedCompose above can be bypassed by a hostile/edited .env that
+	// injects privileged/host-mode/device directives via ${VAR} substitution, and
+	// the target's `up` re-resolves with that .env. Best-effort: if the config
+	// can't be resolved here, `up` would surface the same error, so fall back to
+	// the raw check rather than failing on a transient resolve error.
+	if resolved, rerr := h.Compose.GetResolvedConfigYAML(opCtx, m.StackID); rerr == nil {
+		if verr := composex.ValidateAdvancedCompose(resolved); verr != nil {
+			_ = os.RemoveAll(stackDir)
+			if backup != "" {
+				if err := os.Rename(backup, stackDir); err != nil {
+					slog.Error("resolved-compose reject: restoring prior definition from backup failed", "component", "compose", "stack", m.StackID, "error", err)
+				}
+			}
+			return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput("resolved compose rejected: "+verr.Error()))
+		}
+	}
+
 	// Restore images + volume/bind data BEFORE up. Each archive was sha256-verified
 	// on receipt, so a clean return means the target holds intact data — which is
 	// what makes the source `delete` disposition safe.
-	createdVols, warns, derr := restoreData(opCtx, m, staged, h.ComposePath)
+	// staging holds the received bundle; reuse it as the prebak dir so a pre-existing
+	// volume can be archived aside before an overwrite clearVolume wipes it.
+	createdVols, prebaks, warns, derr := restoreData(opCtx, m, staged, h.ComposePath, staging)
 	for _, w := range warns {
 		slog.Warn("migrate import: "+w, "component", "compose", "stack", m.StackID)
 	}
 	if derr != nil {
-		h.failedImportData(m.StackID, backup, createdVols)
+		h.failedImportData(m.StackID, backup, createdVols, prebaks)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("restore data: "+derr.Error()))
 	}
 	if _, err := h.Compose.Up(opCtx, m.StackID); err != nil {
-		h.failedImportData(m.StackID, backup, createdVols)
+		h.failedImportData(m.StackID, backup, createdVols, prebaks)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("up: "+err.Error()))
 	}
-	if err := h.waitHealthy(opCtx, m.StackID, 60*time.Second); err != nil {
-		h.failedImportData(m.StackID, backup, createdVols)
+	if err := h.waitHealthy(opCtx, m.StackID, healthGateTimeout); err != nil {
+		h.failedImportData(m.StackID, backup, createdVols, prebaks)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("healthcheck: "+err.Error()))
 	}
 	if backup != "" {
 		_ = os.RemoveAll(backup) // success: the prior definition is intentionally replaced
 	}
+	slog.Info("stack migration import complete", "component", "compose", "stack", m.StackID,
+		"source", m.Source.NodeID, "overwrite", m.Overwrite)
 	return response.OK(c, map[string]string{"status": "ok", "stackId": m.StackID})
 }
 
@@ -151,24 +201,44 @@ func (h *Handler) failedImportCleanup(stackID, backup string) {
 	h.migrateCleanup(stackID, false)
 	if overwrite {
 		dir := filepath.Join(h.ComposePath, stackID)
-		_ = os.RemoveAll(dir)
-		_ = os.Rename(backup, dir)
+		if err := os.RemoveAll(dir); err != nil {
+			slog.Error("failed import: removing partial stack dir before backup restore failed", "component", "compose", "stack", stackID, "error", err)
+		}
+		// Restoring the prior definition is the whole point of the .migbak backup;
+		// a silent failure here leaves the prior tenant's definition gone with no trace.
+		if err := os.Rename(backup, dir); err != nil {
+			slog.Error("failed import: restoring prior stack definition from backup failed — prior definition may be lost", "component", "compose", "stack", stackID, "backup", backup, "error", err)
+		}
 	}
 }
 
 // failedImportData cleans up after a data-restore/up/health failure: the stack
-// teardown (failedImportCleanup) plus removal of any volumes restoreData FRESHLY
-// created. Freshly-created volumes did not exist before this import, so removing
-// them is safe even on an overwrite (a pre-existing tenant volume is never in
-// createdVols).
-func (h *Handler) failedImportData(stackID, backup string, createdVols []string) {
+// teardown (failedImportCleanup), removal of any volumes restoreData FRESHLY
+// created, and restoration of any pre-existing volumes it cleared on overwrite.
+// Freshly-created volumes did not exist before this import, so removing them is
+// safe even on an overwrite (a pre-existing tenant volume is never in createdVols);
+// pre-existing volumes cleared on overwrite are restored from their prebak archive
+// so a failed import never destroys the prior tenant's volume data.
+func (h *Handler) failedImportData(stackID, backup string, createdVols []string, prebaks []volPrebak) {
 	h.failedImportCleanup(stackID, backup)
-	// Volume removal must run even if the import op deadline already fired (a
-	// timeout is a common failure cause), so use a fresh bounded context.
+	// Cleanup must run even if the import op deadline already fired (a timeout is a
+	// common failure cause), so use a fresh bounded context.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	for _, v := range createdVols {
 		removeVolume(ctx, v)
+	}
+	// Restore pre-existing volumes we wiped on overwrite, from their prebak. The
+	// prebak is our OWN archive of the target's prior data, so it extracts via the
+	// trusted path (no hostile-input validation that could reject legit content).
+	for _, pb := range prebaks {
+		if err := clearVolume(ctx, pb.Docker); err != nil {
+			slog.Error("failed import: clearing volume before prebak restore failed", "component", "compose", "volume", pb.Docker, "error", err)
+			continue
+		}
+		if err := extractArchiveToVolume(ctx, pb.Docker, pb.Archive); err != nil {
+			slog.Error("failed import: restoring pre-existing volume from prebak failed — prior data may be lost", "component", "compose", "volume", pb.Docker, "error", err)
+		}
 	}
 }
 
@@ -185,20 +255,53 @@ func (h *Handler) waitHealthy(ctx context.Context, stackID string, timeout time.
 	deadline := time.Now().Add(timeout)
 	for {
 		svcs, err := h.Compose.GetProjectServices(ctx, stackID)
-		if err == nil && len(svcs) > 0 {
-			allRunning := true
+		reason := ""
+		allUp := err == nil && len(svcs) > 0
+		anyUnhealthy := false
+		stillStarting := false
+		switch {
+		case err != nil:
+			reason = "service status unavailable: " + err.Error()
+		case len(svcs) == 0:
+			reason = "no services found"
+		default:
 			for _, s := range svcs {
+				// A container must be running — not restarting (crash loop),
+				// exited, or created. This is what catches a stack that came up
+				// and immediately fell over, which "running"-at-some-instant alone
+				// would miss.
 				if s.State != "running" {
-					allRunning = false
+					allUp = false
+					reason = s.Name + " is " + s.State
 					break
 				}
-			}
-			if allRunning {
-				return nil
+				// When the service declares a Docker health-check, gate on it:
+				// "(unhealthy)" is a real failure; "health: starting" is not yet a
+				// failure (keep waiting). Without a health-check, running is all
+				// Docker knows, so running == ready.
+				if s.HasHealthcheck && strings.Contains(s.Status, "(unhealthy)") {
+					anyUnhealthy = true
+					reason = s.Name + " is unhealthy"
+				} else if s.HasHealthcheck && strings.Contains(s.Status, "health: starting") {
+					stillStarting = true
+					if reason == "" {
+						reason = s.Name + " health-check is still starting"
+					}
+				}
 			}
 		}
+		if allUp && !anyUnhealthy && !stillStarting {
+			return nil
+		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("services did not become healthy within %s", timeout)
+			// A slow-warming health-check must not false-fail a stack that is
+			// otherwise running and not explicitly unhealthy — accept it with a
+			// note rather than rolling back a stack that is in fact coming up.
+			if allUp && !anyUnhealthy && stillStarting {
+				slog.Warn("migrate import: health gate elapsed while a health-check is still warming up; accepting running stack", "component", "compose", "stack", stackID)
+				return nil
+			}
+			return fmt.Errorf("services did not become healthy within %s (%s)", timeout, reason)
 		}
 		select {
 		case <-ctx.Done():
@@ -210,10 +313,64 @@ func (h *Handler) waitHealthy(ctx context.Context, stackID string, timeout time.
 
 // migrateTargetInfo is the target node's answer to a pre-flight query.
 type migrateTargetInfo struct {
-	Arch        string `json:"arch"`
-	FreeBytes   int64  `json:"freeBytes"`
-	PortsInUse  []int  `json:"portsInUse"`
-	StackExists bool   `json:"stackExists"`
+	Arch            string `json:"arch"`
+	FreeBytes       int64  `json:"freeBytes"`       // free on the stacks FS
+	DockerFreeBytes int64  `json:"dockerFreeBytes"` // free on the docker storage FS
+	SameDevice      bool   `json:"sameDevice"`      // stacks FS and docker FS share one device
+	PortsInUse      []int  `json:"portsInUse"`
+	StackExists     bool   `json:"stackExists"`
+	StackRunning    bool   `json:"stackRunning"` // a stack with this id has a running container here
+}
+
+// targetStackRunning best-effort asks the target node whether the stack is
+// currently running there. Used after a transfer connection error to avoid a
+// split brain: if the target brought the stack up, the source must NOT be
+// restarted. Any error (target unreachable, parse failure) reports false so the
+// caller falls back to restarting the source.
+func (h *Handler) targetStackRunning(ctx context.Context, targetNodeID, project, username string) bool {
+	mgr := h.clusterManager()
+	if mgr == nil {
+		return false
+	}
+	path := "/api/v1/docker/compose/migrate/target-info?stackId=" + url.QueryEscape(project)
+	status, body, err := mgr.ProxyToNode(ctx, targetNodeID, http.MethodGet, path, nil, username)
+	if err != nil || status != http.StatusOK {
+		return false
+	}
+	var wrapper struct {
+		Data migrateTargetInfo `json:"data"`
+	}
+	if json.Unmarshal(body, &wrapper) != nil {
+		return false
+	}
+	return wrapper.Data.StackRunning
+}
+
+// dockerRootDir returns the docker daemon's storage root (e.g. /var/lib/docker)
+// via `docker info`, or "" if docker is unreachable. Used to disk-check the
+// filesystem where migrated volume/image data actually lands.
+func dockerRootDir(ctx context.Context) string {
+	out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{.DockerRootDir}}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// sameDevice reports whether two paths reside on the same filesystem (same
+// st_dev). Used so the pre-flight sums the disk estimate when the stacks root
+// and docker root share a device, and checks each portion separately otherwise.
+// Any stat error (missing path, etc.) reports false — the caller then checks the
+// two portions independently, which never under-counts a shared device.
+func sameDevice(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	var sa, sb syscall.Stat_t
+	if syscall.Stat(a, &sa) != nil || syscall.Stat(b, &sb) != nil {
+		return false
+	}
+	return sa.Dev == sb.Dev
 }
 
 // MigrateTargetInfo (GET /docker/compose/migrate/target-info?stackId=X) returns
@@ -230,9 +387,28 @@ func (h *Handler) MigrateTargetInfo(c echo.Context) error {
 	if u, err := disk.Usage(h.ComposePath); err == nil {
 		info.FreeBytes = int64(u.Free)
 	}
+	// Volume + image data lands on the docker storage FS, which is often a
+	// different filesystem than the stacks root — report its free space (and
+	// whether they share a device) so the pre-flight checks the right disk.
+	if root := dockerRootDir(c.Request().Context()); root != "" {
+		if u, err := disk.Usage(root); err == nil {
+			info.DockerFreeBytes = int64(u.Free)
+		}
+		info.SameDevice = sameDevice(h.ComposePath, root)
+	}
 	if stackID != "" {
 		if _, err := os.Stat(filepath.Join(h.ComposePath, stackID)); err == nil {
 			info.StackExists = true
+		}
+		// StackRunning lets the source detect a split brain after a transfer
+		// connection error (the target may have brought the stack up).
+		if svcs, err := h.Compose.GetProjectServices(c.Request().Context(), stackID); err == nil {
+			for _, s := range svcs {
+				if s.State == "running" {
+					info.StackRunning = true
+					break
+				}
+			}
 		}
 	}
 	info.PortsInUse = h.usedHostPorts(c.Request().Context())
@@ -305,10 +481,13 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 		HasDevice:         facts.HasDevice,
 		OverwriteAcked:    overwriteAcked,
 		Disposition:       DispositionRetain, // preflight is disposition-agnostic for blocking; clone relaxation handled at migrate time
-		// Real estimate: resolved config + actual volume/bind/image data sizes +
-		// headroom, so the insufficient-disk block reflects the true transfer.
-		EstimatedBytes: int64(len(cfgJSON)) + estimateTransferBytes(ctx, facts) + (16 << 20),
 	}
+	// Real estimate, split by destination filesystem: volume+image data lands on
+	// the docker storage FS, stack files + bind data on the stacks FS — so the
+	// insufficient-disk block can check each against the right free space.
+	dockerBytes, stacksBytes := estimateTransferBytes(ctx, facts)
+	in.EstimatedDockerBytes = dockerBytes
+	in.EstimatedBytes = int64(len(cfgJSON)) + stacksBytes + (16 << 20)
 
 	// Target facts via the cross-node info endpoint. A 200 with an unparseable
 	// body (version skew, truncation) must NOT masquerade as a clean pass — it
@@ -324,6 +503,8 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 		if jerr = json.Unmarshal(body, &wrapper); jerr == nil {
 			in.TargetArch = wrapper.Data.Arch
 			in.TargetFreeBytes = wrapper.Data.FreeBytes
+			in.TargetDockerFreeBytes = wrapper.Data.DockerFreeBytes
+			in.TargetSameDevice = wrapper.Data.SameDevice
 			in.TargetPortsInUse = wrapper.Data.PortsInUse
 			in.TargetStackExists = wrapper.Data.StackExists
 		}
@@ -403,11 +584,26 @@ func (h *Handler) Migrate(c echo.Context) error {
 	c.Response().Header().Set("Connection", "keep-alive")
 	c.Response().WriteHeader(http.StatusOK)
 	flusher := c.Response()
+	username, _ := c.Get("username").(string)
 	send := func(phase, msg string, done bool) {
+		// Durable audit trail: every terminal outcome is logged with the full
+		// who/what/where (the request-level audit middleware records only the call).
+		if done {
+			lvl := slog.LevelInfo
+			if phase == PhaseError {
+				lvl = slog.LevelWarn
+			}
+			slog.LogAttrs(context.Background(), lvl, "stack migration "+phase,
+				slog.String("component", "compose"), slog.String("stack", project),
+				slog.String("target", req.TargetNodeID), slog.String("disposition", req.Disposition),
+				slog.String("user", username), slog.String("detail", msg))
+		}
 		data, _ := json.Marshal(map[string]any{"phase": phase, "message": msg, "done": done})
 		fmt.Fprintf(flusher, "data: %s\n\n", data)
 		flusher.Flush()
 	}
+	slog.Info("stack migration starting", "component", "compose", "stack", project,
+		"target", req.TargetNodeID, "disposition", req.Disposition, "user", username)
 
 	// Detach the orchestration from the request context so a client/proxy
 	// disconnect (or the SSE relay timeout) cannot cancel the
@@ -417,7 +613,6 @@ func (h *Handler) Migrate(c echo.Context) error {
 	// 2h bounds a large data+image transfer (volume tar + docker save/load).
 	opCtx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
-	username, _ := c.Get("username").(string)
 
 	// 1. preflight — abort on any block.
 	send(PhasePreflight, "Running pre-flight checks...", false)
@@ -473,13 +668,34 @@ func (h *Handler) Migrate(c echo.Context) error {
 
 	// 4. transfer — stream the bundle to the target; it restores + ups + healthchecks.
 	send(PhaseTransfer, "Transferring to target...", false)
-	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha)
+	onProg := func(sent, total int64) {
+		msg := fmt.Sprintf("Transferring to target... %d / %d MiB", sent>>20, total>>20)
+		if total > 0 {
+			msg += fmt.Sprintf(" (%d%%)", sent*100/total)
+		}
+		send(PhaseTransfer, msg, false)
+	}
+	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha, onProg)
 	if terr != nil || status != http.StatusOK {
+		// On a CONNECTION error the target detaches its restore+up from the dropped
+		// connection, so the stack may actually be running there. Probe before
+		// rolling back: if it IS running on the target, restarting the source would
+		// create two live copies (split brain). Leave the source stopped and tell
+		// the operator instead. A clean HTTP error status (target reachable, import
+		// rejected) is a real failure — roll back normally.
+		// Probe on a FRESH context, not opCtx: a common transfer-error cause is the
+		// 2h opCtx deadline firing, and a Done opCtx would make the probe error out
+		// (→ false → restart source) in exactly the split-brain case it must catch.
+		probeCtx, probeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		running := terr != nil && h.targetStackRunning(probeCtx, req.TargetNodeID, project, username)
+		probeCancel()
+		if running {
+			send(PhaseError, response.SanitizeOutput("transfer connection lost but the stack is RUNNING on the target; the source was left stopped to avoid two live copies — verify the target and remove the source if the migration succeeded ("+terr.Error()+")"), true)
+			return nil
+		}
 		cause := ""
 		if terr != nil {
-			// The target may have received the bundle and come up anyway (it
-			// detaches its up from the connection); flag a possible orphan.
-			cause = terr.Error() + " (verify the target for an orphaned copy)"
+			cause = terr.Error()
 		} else {
 			cause = "target status " + http.StatusText(status) + ": " + string(body)
 		}

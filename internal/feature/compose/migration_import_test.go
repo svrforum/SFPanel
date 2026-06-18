@@ -142,7 +142,7 @@ func TestRestoreDataBindGuards(t *testing.T) {
 
 	// #2: in-stack bind with rel "." resolves to the stack dir itself → refused.
 	mCollapse := MigrationManifest{StackID: "demo", Binds: []MountSpec{{Host: stackDir, Kind: "in-stack", Rel: ".", Copy: true, Archive: "binds/b.tar"}}}
-	if _, _, err := restoreData(context.Background(), mCollapse, staged, root); err == nil {
+	if _, _, _, err := restoreData(context.Background(), mCollapse, staged, root, t.TempDir()); err == nil {
 		t.Fatal("in-stack bind collapsing to the stack dir must be refused")
 	}
 
@@ -156,7 +156,7 @@ func TestRestoreDataBindGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	mAbs := MigrationManifest{StackID: "demo", Binds: []MountSpec{{Host: absTgt, Kind: "abs", Copy: true, Archive: "binds/b.tar"}}}
-	if _, _, err := restoreData(context.Background(), mAbs, staged, root); err == nil {
+	if _, _, _, err := restoreData(context.Background(), mAbs, staged, root, t.TempDir()); err == nil {
 		t.Fatal("abs bind to a non-empty path must be refused")
 	}
 	if _, err := os.Stat(keep); err != nil {
