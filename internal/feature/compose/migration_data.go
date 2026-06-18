@@ -89,6 +89,26 @@ func validateTarSafe(archivePath string) error {
 		if !tarMemberSafe(hdr.Name) {
 			return fmt.Errorf("unsafe archive member %q", hdr.Name)
 		}
+		// Reject special-file entries (char/block device, FIFO/socket): a migrated
+		// bind/volume payload is data, never a device node. Extraction runs as root
+		// (host `tar -x` for binds, the volume helper for volumes), so a device or
+		// FIFO entry in a hostile bundle would be materialized verbatim on the
+		// target. Only regular files, dirs, and (already-validated) sym/hardlinks
+		// are data-bearing. FileInfo().Mode() classifies reg/dir without touching
+		// the deprecated TypeRegA.
+		mode := hdr.FileInfo().Mode()
+		switch {
+		case mode.IsRegular(), mode.IsDir(), hdr.Typeflag == tar.TypeSymlink, hdr.Typeflag == tar.TypeLink:
+			// data-bearing or link entries — allowed (link targets validated below)
+		default:
+			return fmt.Errorf("unsupported archive member type %d for %q", hdr.Typeflag, hdr.Name)
+		}
+		// Reject setuid/setgid regular files: `tar -x` as root preserves the bits,
+		// so a hostile bundle could plant a setuid-root executable on the target.
+		// (setgid/sticky on DIRS is legitimate group-inheritance and left alone.)
+		if mode.IsRegular() && mode&(os.ModeSetuid|os.ModeSetgid) != 0 {
+			return fmt.Errorf("archive member %q carries setuid/setgid bits", hdr.Name)
+		}
 		switch hdr.Typeflag {
 		case tar.TypeSymlink:
 			// Resolve the link relative to the entry's directory; it must stay in-root.
