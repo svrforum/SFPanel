@@ -22,6 +22,12 @@ import (
 
 const migrationShaHeader = "X-SFPanel-Migration-Sha256"
 
+// healthGateTimeout bounds how long the target waits for the imported stack to
+// become healthy before treating the import as failed (and rolling back). It is
+// longer than a bare container start because, when a service declares a Docker
+// health-check, we wait for it to report healthy rather than merely "running".
+const healthGateTimeout = 120 * time.Second
+
 // maxMigrationBundleBytes caps an incoming migration bundle. The bundle now
 // carries volume/bind data + saved images, so the cap is a large safety bound
 // against a runaway/hostile transfer from a compromised cluster member, not a
@@ -134,20 +140,22 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	// Restore images + volume/bind data BEFORE up. Each archive was sha256-verified
 	// on receipt, so a clean return means the target holds intact data — which is
 	// what makes the source `delete` disposition safe.
-	createdVols, warns, derr := restoreData(opCtx, m, staged, h.ComposePath)
+	// staging holds the received bundle; reuse it as the prebak dir so a pre-existing
+	// volume can be archived aside before an overwrite clearVolume wipes it.
+	createdVols, prebaks, warns, derr := restoreData(opCtx, m, staged, h.ComposePath, staging)
 	for _, w := range warns {
 		slog.Warn("migrate import: "+w, "component", "compose", "stack", m.StackID)
 	}
 	if derr != nil {
-		h.failedImportData(m.StackID, backup, createdVols)
+		h.failedImportData(m.StackID, backup, createdVols, prebaks)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("restore data: "+derr.Error()))
 	}
 	if _, err := h.Compose.Up(opCtx, m.StackID); err != nil {
-		h.failedImportData(m.StackID, backup, createdVols)
+		h.failedImportData(m.StackID, backup, createdVols, prebaks)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("up: "+err.Error()))
 	}
-	if err := h.waitHealthy(opCtx, m.StackID, 60*time.Second); err != nil {
-		h.failedImportData(m.StackID, backup, createdVols)
+	if err := h.waitHealthy(opCtx, m.StackID, healthGateTimeout); err != nil {
+		h.failedImportData(m.StackID, backup, createdVols, prebaks)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput("healthcheck: "+err.Error()))
 	}
 	if backup != "" {
@@ -169,24 +177,44 @@ func (h *Handler) failedImportCleanup(stackID, backup string) {
 	h.migrateCleanup(stackID, false)
 	if overwrite {
 		dir := filepath.Join(h.ComposePath, stackID)
-		_ = os.RemoveAll(dir)
-		_ = os.Rename(backup, dir)
+		if err := os.RemoveAll(dir); err != nil {
+			slog.Error("failed import: removing partial stack dir before backup restore failed", "component", "compose", "stack", stackID, "error", err)
+		}
+		// Restoring the prior definition is the whole point of the .migbak backup;
+		// a silent failure here leaves the prior tenant's definition gone with no trace.
+		if err := os.Rename(backup, dir); err != nil {
+			slog.Error("failed import: restoring prior stack definition from backup failed — prior definition may be lost", "component", "compose", "stack", stackID, "backup", backup, "error", err)
+		}
 	}
 }
 
 // failedImportData cleans up after a data-restore/up/health failure: the stack
-// teardown (failedImportCleanup) plus removal of any volumes restoreData FRESHLY
-// created. Freshly-created volumes did not exist before this import, so removing
-// them is safe even on an overwrite (a pre-existing tenant volume is never in
-// createdVols).
-func (h *Handler) failedImportData(stackID, backup string, createdVols []string) {
+// teardown (failedImportCleanup), removal of any volumes restoreData FRESHLY
+// created, and restoration of any pre-existing volumes it cleared on overwrite.
+// Freshly-created volumes did not exist before this import, so removing them is
+// safe even on an overwrite (a pre-existing tenant volume is never in createdVols);
+// pre-existing volumes cleared on overwrite are restored from their prebak archive
+// so a failed import never destroys the prior tenant's volume data.
+func (h *Handler) failedImportData(stackID, backup string, createdVols []string, prebaks []volPrebak) {
 	h.failedImportCleanup(stackID, backup)
-	// Volume removal must run even if the import op deadline already fired (a
-	// timeout is a common failure cause), so use a fresh bounded context.
+	// Cleanup must run even if the import op deadline already fired (a timeout is a
+	// common failure cause), so use a fresh bounded context.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	for _, v := range createdVols {
 		removeVolume(ctx, v)
+	}
+	// Restore pre-existing volumes we wiped on overwrite, from their prebak. The
+	// prebak is our OWN archive of the target's prior data, so it extracts via the
+	// trusted path (no hostile-input validation that could reject legit content).
+	for _, pb := range prebaks {
+		if err := clearVolume(ctx, pb.Docker); err != nil {
+			slog.Error("failed import: clearing volume before prebak restore failed", "component", "compose", "volume", pb.Docker, "error", err)
+			continue
+		}
+		if err := extractArchiveToVolume(ctx, pb.Docker, pb.Archive); err != nil {
+			slog.Error("failed import: restoring pre-existing volume from prebak failed — prior data may be lost", "component", "compose", "volume", pb.Docker, "error", err)
+		}
 	}
 }
 
@@ -203,20 +231,53 @@ func (h *Handler) waitHealthy(ctx context.Context, stackID string, timeout time.
 	deadline := time.Now().Add(timeout)
 	for {
 		svcs, err := h.Compose.GetProjectServices(ctx, stackID)
-		if err == nil && len(svcs) > 0 {
-			allRunning := true
+		reason := ""
+		allUp := err == nil && len(svcs) > 0
+		anyUnhealthy := false
+		stillStarting := false
+		switch {
+		case err != nil:
+			reason = "service status unavailable: " + err.Error()
+		case len(svcs) == 0:
+			reason = "no services found"
+		default:
 			for _, s := range svcs {
+				// A container must be running — not restarting (crash loop),
+				// exited, or created. This is what catches a stack that came up
+				// and immediately fell over, which "running"-at-some-instant alone
+				// would miss.
 				if s.State != "running" {
-					allRunning = false
+					allUp = false
+					reason = s.Name + " is " + s.State
 					break
 				}
-			}
-			if allRunning {
-				return nil
+				// When the service declares a Docker health-check, gate on it:
+				// "(unhealthy)" is a real failure; "health: starting" is not yet a
+				// failure (keep waiting). Without a health-check, running is all
+				// Docker knows, so running == ready.
+				if s.HasHealthcheck && strings.Contains(s.Status, "(unhealthy)") {
+					anyUnhealthy = true
+					reason = s.Name + " is unhealthy"
+				} else if s.HasHealthcheck && strings.Contains(s.Status, "health: starting") {
+					stillStarting = true
+					if reason == "" {
+						reason = s.Name + " health-check is still starting"
+					}
+				}
 			}
 		}
+		if allUp && !anyUnhealthy && !stillStarting {
+			return nil
+		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("services did not become healthy within %s", timeout)
+			// A slow-warming health-check must not false-fail a stack that is
+			// otherwise running and not explicitly unhealthy — accept it with a
+			// note rather than rolling back a stack that is in fact coming up.
+			if allUp && !anyUnhealthy && stillStarting {
+				slog.Warn("migrate import: health gate elapsed while a health-check is still warming up; accepting running stack", "component", "compose", "stack", stackID)
+				return nil
+			}
+			return fmt.Errorf("services did not become healthy within %s (%s)", timeout, reason)
 		}
 		select {
 		case <-ctx.Done():

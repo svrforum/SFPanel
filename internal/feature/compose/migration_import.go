@@ -64,25 +64,35 @@ func absBindRestorable(p string) bool {
 	return true
 }
 
+// volPrebak records a pre-existing target volume that was archived aside before
+// an overwrite clearVolume wiped it, so a failed import can restore the prior
+// tenant's data. Archive is a tar of the volume's prior contents under prebakDir.
+type volPrebak struct {
+	Docker  string
+	Archive string
+}
+
 // restoreData loads images, recreates named volumes from their archives, and
 // restores copied bind dirs — AFTER restoreDefinition, BEFORE compose up. Every
 // data archive was already sha256-verified by the bundle reader, so a clean
 // return means the target holds intact data (which is what makes the source
-// `delete` disposition safe). Returns the docker volumes it FRESHLY created (for
-// failure cleanup) and any skipped-bind warnings.
-func restoreData(ctx context.Context, m MigrationManifest, staged map[string]string, composeRoot string) (created []string, warnings []string, err error) {
+// `delete` disposition safe). prebakDir is where pre-existing volumes are backed
+// up before an overwrite wipes them. Returns the docker volumes it FRESHLY
+// created and the pre-existing volumes it backed up (both for failure cleanup),
+// plus any skipped-bind warnings.
+func restoreData(ctx context.Context, m MigrationManifest, staged map[string]string, composeRoot, prebakDir string) (created []string, prebaks []volPrebak, warnings []string, err error) {
 	stackDir := filepath.Join(composeRoot, m.StackID)
 
 	// Gate every manifest identifier that reaches a docker argv (the manifest
 	// comes from another node and is not trusted) BEFORE touching docker.
 	for _, v := range m.Volumes {
 		if v.Copy && v.Archive != "" && !validDockerVolume.MatchString(v.Docker) {
-			return created, warnings, fmt.Errorf("invalid volume name in manifest: %q", v.Docker)
+			return created, prebaks, warnings, fmt.Errorf("invalid volume name in manifest: %q", v.Docker)
 		}
 	}
 	for _, im := range m.Images {
 		if im.Archive != "" && !validImageRef.MatchString(im.Ref) {
-			return created, warnings, fmt.Errorf("invalid image ref in manifest: %q", im.Ref)
+			return created, prebaks, warnings, fmt.Errorf("invalid image ref in manifest: %q", im.Ref)
 		}
 	}
 
@@ -92,10 +102,10 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 		}
 		path, ok := staged[im.Archive]
 		if !ok {
-			return created, warnings, fmt.Errorf("image archive %q missing from bundle", im.Archive)
+			return created, prebaks, warnings, fmt.Errorf("image archive %q missing from bundle", im.Archive)
 		}
 		if lerr := loadImageFromFile(ctx, path); lerr != nil {
-			return created, warnings, lerr
+			return created, prebaks, warnings, lerr
 		}
 	}
 
@@ -106,11 +116,11 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 		}
 		path, ok := staged[v.Archive]
 		if !ok {
-			return created, warnings, fmt.Errorf("volume archive %q missing from bundle", v.Archive)
+			return created, prebaks, warnings, fmt.Errorf("volume archive %q missing from bundle", v.Archive)
 		}
 		fresh, cerr := createVolumeIfAbsent(ctx, v.Docker)
 		if cerr != nil {
-			return created, warnings, cerr
+			return created, prebaks, warnings, cerr
 		}
 		if fresh {
 			created = append(created, v.Docker)
@@ -119,14 +129,22 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 			// volume, or an orphan) must NOT be silently overlaid. Require an
 			// explicit overwrite ack, then wipe it so the restore is an exact copy.
 			if !m.Overwrite {
-				return created, warnings, fmt.Errorf("target volume %q already exists; ack overwrite to replace it", v.Docker)
+				return created, prebaks, warnings, fmt.Errorf("target volume %q already exists; ack overwrite to replace it", v.Docker)
 			}
+			// Back up the prior contents BEFORE the irreversible clearVolume, so a
+			// later import failure can restore the prior tenant exactly — mirroring
+			// the .migbak definition backup. (Without this the rm -rf is unrecoverable.)
+			prebakPath := filepath.Join(prebakDir, "prebak-"+shortHash(v.Docker)+".tar")
+			if _, _, aerr := archiveVolumeToFile(ctx, v.Docker, prebakPath); aerr != nil {
+				return created, prebaks, warnings, fmt.Errorf("back up pre-existing volume %q before overwrite: %w", v.Docker, aerr)
+			}
+			prebaks = append(prebaks, volPrebak{Docker: v.Docker, Archive: prebakPath})
 			if werr := clearVolume(ctx, v.Docker); werr != nil {
-				return created, warnings, werr
+				return created, prebaks, warnings, werr
 			}
 		}
 		if rerr := restoreVolumeFromFile(ctx, v.Docker, path); rerr != nil {
-			return created, warnings, rerr
+			return created, prebaks, warnings, rerr
 		}
 	}
 
@@ -137,7 +155,7 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 		}
 		path, ok := staged[b.Archive]
 		if !ok {
-			return created, warnings, fmt.Errorf("bind archive %q missing from bundle", b.Archive)
+			return created, prebaks, warnings, fmt.Errorf("bind archive %q missing from bundle", b.Archive)
 		}
 		var targetBind string
 		if b.Kind == "in-stack" {
@@ -147,12 +165,12 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 			}
 			targetBind = filepath.Join(stackDir, rel)
 			if !withinRoot(stackDir, targetBind) {
-				return created, warnings, fmt.Errorf("in-stack bind escapes stack dir: %q", rel)
+				return created, prebaks, warnings, fmt.Errorf("in-stack bind escapes stack dir: %q", rel)
 			}
 			if filepath.Clean(targetBind) == filepath.Clean(stackDir) {
 				// rel "." / "" / "../<id>" would resolve to the stack dir itself;
 				// wiping it would destroy the just-written compose definition.
-				return created, warnings, fmt.Errorf("in-stack bind resolves to the stack dir itself: %q", rel)
+				return created, prebaks, warnings, fmt.Errorf("in-stack bind resolves to the stack dir itself: %q", rel)
 			}
 			// In-stack data lives under the fresh/backed-up stack dir (a confined
 			// descendant); clear any leftover so the restore is exact.
@@ -168,19 +186,19 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 			// wiping an entire unrelated tree as root. Require the target path to be
 			// empty/absent; the operator clears it themselves to intentionally replace.
 			if pathHasContent(targetBind) {
-				return created, warnings, fmt.Errorf("target path %q is not empty; clear it on the target before migrating this bind", b.Host)
+				return created, prebaks, warnings, fmt.Errorf("target path %q is not empty; clear it on the target before migrating this bind", b.Host)
 			}
 		}
 		// Pin the archive to the bind's own basename so extraction (tar -C parent)
 		// writes ONLY into targetBind, never a sibling under the shared parent.
 		if verr := tarTopLevelIs(path, filepath.Base(targetBind)); verr != nil {
-			return created, warnings, verr
+			return created, prebaks, warnings, verr
 		}
 		if eerr := extractTarToDir(ctx, filepath.Dir(targetBind), path); eerr != nil {
-			return created, warnings, eerr
+			return created, prebaks, warnings, eerr
 		}
 	}
-	return created, warnings, nil
+	return created, prebaks, warnings, nil
 }
 
 // validStackID requires a leading alphanumeric (so "." and ".." cannot match),

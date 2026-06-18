@@ -321,13 +321,14 @@ func clearVolume(ctx context.Context, dockerVol string) error {
 	return nil
 }
 
-// restoreVolumeFromFile extracts a volume archive into the named volume via the
-// helper image (stdin = the staged tar). The archive is validated for path
-// traversal first, so the (busybox) extractor can't escape /to.
-func restoreVolumeFromFile(ctx context.Context, dockerVol, archivePath string) error {
-	if err := validateTarSafe(archivePath); err != nil {
-		return err
-	}
+// extractArchiveToVolume streams a tar archive into the named volume via the
+// helper image (stdin = the tar). It does NOT validate the archive: callers
+// restoring an UNTRUSTED cross-node archive must validateTarSafe first (use
+// restoreVolumeFromFile); callers restoring a TRUSTED archive we made ourselves
+// (a prebak of the target's OWN volume) skip that — re-running the hostile-input
+// validator on our own backup would, e.g., reject a legitimate setuid file the
+// volume already held and leave the prior tenant unrecoverable.
+func extractArchiveToVolume(ctx context.Context, dockerVol, archivePath string) error {
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return err
@@ -343,6 +344,16 @@ func restoreVolumeFromFile(ctx context.Context, dockerVol, archivePath string) e
 		return fmt.Errorf("extract volume %s: %w: %s", dockerVol, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
+}
+
+// restoreVolumeFromFile extracts an UNTRUSTED (cross-node) volume archive into
+// the named volume, validating it for path traversal / unsafe entries first so
+// the (busybox) extractor can't escape /to or materialize device/setuid entries.
+func restoreVolumeFromFile(ctx context.Context, dockerVol, archivePath string) error {
+	if err := validateTarSafe(archivePath); err != nil {
+		return err
+	}
+	return extractArchiveToVolume(ctx, dockerVol, archivePath)
 }
 
 // extractTarToDir extracts an archive into targetParent (created if needed),
