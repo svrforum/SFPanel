@@ -10,6 +10,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.50.0] – 2026-06-18
+
+### Fixed
+
+- **Node-to-node stack migration: shared-volume corruption & data-loss races closed.** Two distinct stacks that share a named/external volume could be migrated to the same target concurrently and race `clearVolume` + extract on the one shared volume, corrupting it (and, under a `delete` disposition, destroying the source over a corrupted target). Restores that touch the same docker volume are now serialized per-volume (a second one 409s). On an acked overwrite, the pre-existing target volume is now archived aside before it is wiped and restored if the import later fails — a failed overwrite no longer destroys the prior tenant's volume data (previously only the stack *definition* was backed up).
+- **Migration import hardening.** Restored tar archives now reject device/FIFO nodes and setuid/setgid regular files (a compromised cluster member could otherwise plant a setuid-root binary as root). The resolved compose (after `.env` interpolation) is re-validated on the target, so an edited `.env` can't smuggle `privileged`/`network_mode: host`/`devices` past the raw-text safety check. The import health gate now waits for declared Docker health-checks to report healthy (and catches a crash-looping container) instead of treating a momentary "running" as success.
+- **Crash recovery.** Orphaned migration staging (`.mig-pkg-*`/`.migrate-stage-*`) and helper containers left by a killed migration are now swept at boot; a leftover overwrite backup (`.migbak`) is restored when its stack vanished, and is hidden from the stack list instead of surfacing as a phantom project. The migration scratch namespace is reserved at stack-create time.
+- **Pre-flight disk check now covers the docker storage filesystem** (where volume + image data actually lands), not just the stacks root — so a migration no longer passes pre-flight then fails with ENOSPC mid-restore. Same-device layouts are summed; separate devices are checked per-portion.
+- **Split-brain avoidance.** After a transfer *connection* error (the target detaches its restore + `up` from the connection), the source now probes the target before rolling back — if the stack is running there, the source is left stopped instead of restarting into two live copies.
+
+### Added
+
+- Migration transfer streams byte progress to the SSE client, every terminal outcome is written to the structured audit log, and staging archives are freed incrementally during restore to cut peak target disk use. The migrate dialog now requires a pre-flight to pass before Start.
+
+---
+
 ## [0.49.3] – 2026-06-17
 
 ### Fixed

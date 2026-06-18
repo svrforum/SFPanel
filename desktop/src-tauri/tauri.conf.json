@@ -1,6 +1,6 @@
 {
   "productName": "SFPanel",
-  "version": "0.49.3",
+  "version": "0.50.0",
   "identifier": "com.sfpanel.desktop",
   "build": {
     "frontendDist": "../../web/dist",
