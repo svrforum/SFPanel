@@ -301,7 +301,7 @@
         "delete": "Remove the source only after the target is verified healthy.",
         "clone": "Restart the source so both copies run."
       },
-      "overwriteAck": "Overwrite a stack with the same name if it already exists on the target (its prior data is backed up).",
+      "overwriteAck": "Overwrite a stack with the same name if it already exists on the target (its prior data is backed up first, which briefly uses extra disk).",
       "preflight": "Run pre-flight",
       "preflightRequired": "Run pre-flight before starting the migration.",
       "start": "Start migration",

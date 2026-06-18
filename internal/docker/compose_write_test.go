@@ -140,3 +140,17 @@ func TestUpdateProjectEnv_Writes0600(t *testing.T) {
 		t.Fatalf(".env mode=%o want 0600", info.Mode().Perm())
 	}
 }
+
+func TestValidateProjectNameReservesMigrationNamespace(t *testing.T) {
+	m := NewComposeManager(t.TempDir(), nil)
+	for _, bad := range []string{"foo.migbak", ".mig-pkg-1", ".migrate-stage-x", ".hidden"} {
+		if err := m.validateProjectName(bad); err == nil {
+			t.Errorf("reserved name %q should be refused", bad)
+		}
+	}
+	for _, ok := range []string{"foo", "my-stack", "n8n", "app.v2"} {
+		if err := m.validateProjectName(ok); err != nil {
+			t.Errorf("legit name %q rejected: %v", ok, err)
+		}
+	}
+}

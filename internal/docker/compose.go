@@ -76,6 +76,13 @@ func (m *ComposeManager) validateProjectName(name string) error {
 	if name == "" || !validProjectName.MatchString(name) {
 		return fmt.Errorf("invalid project name %q", name)
 	}
+	// Reserve the migration scratch namespace: a stack named "<x>.migbak" or a
+	// dot-prefixed name would collide with an overwrite backup / staging dir that
+	// the boot sweep treats specially (it can rename a stray "<x>.migbak" back to
+	// "<x>"). Refusing them at the door keeps that namespace unambiguous.
+	if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".migbak") {
+		return fmt.Errorf("invalid project name %q: reserved", name)
+	}
 	resolved := filepath.Clean(filepath.Join(m.baseDir, name))
 	if !strings.HasPrefix(resolved, filepath.Clean(m.baseDir)+string(filepath.Separator)) {
 		return fmt.Errorf("invalid project name %q: path traversal", name)

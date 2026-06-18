@@ -88,6 +88,26 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
 
+	// Serialize restores that touch the SAME docker volume, BEFORE any destructive
+	// on-disk mutation (the overwrite backup + definition write below). The stack
+	// lock does NOT cover this: two distinct stacks can share a named/external
+	// volume, hold different stack locks, and race clearVolume + tar-extract on the
+	// one shared volume. Acquire all volumes this import will restore, all-or-
+	// nothing; a 409 here fires while the prior stack is still intact, so there is
+	// nothing to roll back (acquiring after the backup would strand the prior
+	// definition in .migbak).
+	var volNames []string
+	for _, v := range m.Volumes {
+		if v.Copy && v.Archive != "" {
+			volNames = append(volNames, v.Docker)
+		}
+	}
+	acquiredVols, contendedVol := h.tryAcquireVolumes(volNames)
+	if contendedVol != "" {
+		return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, "another migration is restoring shared volume: "+contendedVol)
+	}
+	defer h.releaseVolumes(acquiredVols)
+
 	// Overwrite safety: if a stack with this id already exists, refuse unless the
 	// source acked overwrite. On overwrite, move the prior tenant aside (backup)
 	// so a failed import can restore it AND its named volumes are NOT removed on
@@ -113,24 +133,6 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
-
-	// Serialize restores that touch the SAME docker volume. The stack lock above
-	// does NOT cover this: two distinct stacks can share a named/external volume,
-	// hold different stack locks, and race clearVolume + tar-extract on the one
-	// shared volume — corrupting it and (under a source `delete` disposition)
-	// destroying the source over a corrupted target. Acquire all the volumes this
-	// import will restore, all-or-nothing; refuse with 409 if any is mid-restore.
-	var volNames []string
-	for _, v := range m.Volumes {
-		if v.Copy && v.Archive != "" {
-			volNames = append(volNames, v.Docker)
-		}
-	}
-	acquiredVols, contendedVol := h.tryAcquireVolumes(volNames)
-	if contendedVol != "" {
-		return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, "another migration is restoring shared volume: "+contendedVol)
-	}
-	defer h.releaseVolumes(acquiredVols)
 
 	// Detach from the request context: a client/proxy disconnect must not abort
 	// the data restore + compose up + health poll (which would clean up a stack
@@ -681,7 +683,13 @@ func (h *Handler) Migrate(c echo.Context) error {
 		// create two live copies (split brain). Leave the source stopped and tell
 		// the operator instead. A clean HTTP error status (target reachable, import
 		// rejected) is a real failure — roll back normally.
-		if terr != nil && h.targetStackRunning(opCtx, req.TargetNodeID, project, username) {
+		// Probe on a FRESH context, not opCtx: a common transfer-error cause is the
+		// 2h opCtx deadline firing, and a Done opCtx would make the probe error out
+		// (→ false → restart source) in exactly the split-brain case it must catch.
+		probeCtx, probeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		running := terr != nil && h.targetStackRunning(probeCtx, req.TargetNodeID, project, username)
+		probeCancel()
+		if running {
 			send(PhaseError, response.SanitizeOutput("transfer connection lost but the stack is RUNNING on the target; the source was left stopped to avoid two live copies — verify the target and remove the source if the migration succeeded ("+terr.Error()+")"), true)
 			return nil
 		}
