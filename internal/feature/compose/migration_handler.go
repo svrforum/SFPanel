@@ -181,6 +181,8 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	if backup != "" {
 		_ = os.RemoveAll(backup) // success: the prior definition is intentionally replaced
 	}
+	slog.Info("stack migration import complete", "component", "compose", "stack", m.StackID,
+		"source", m.Source.NodeID, "overwrite", m.Overwrite)
 	return response.OK(c, map[string]string{"status": "ok", "stackId": m.StackID})
 }
 
@@ -580,11 +582,26 @@ func (h *Handler) Migrate(c echo.Context) error {
 	c.Response().Header().Set("Connection", "keep-alive")
 	c.Response().WriteHeader(http.StatusOK)
 	flusher := c.Response()
+	username, _ := c.Get("username").(string)
 	send := func(phase, msg string, done bool) {
+		// Durable audit trail: every terminal outcome is logged with the full
+		// who/what/where (the request-level audit middleware records only the call).
+		if done {
+			lvl := slog.LevelInfo
+			if phase == PhaseError {
+				lvl = slog.LevelWarn
+			}
+			slog.LogAttrs(context.Background(), lvl, "stack migration "+phase,
+				slog.String("component", "compose"), slog.String("stack", project),
+				slog.String("target", req.TargetNodeID), slog.String("disposition", req.Disposition),
+				slog.String("user", username), slog.String("detail", msg))
+		}
 		data, _ := json.Marshal(map[string]any{"phase": phase, "message": msg, "done": done})
 		fmt.Fprintf(flusher, "data: %s\n\n", data)
 		flusher.Flush()
 	}
+	slog.Info("stack migration starting", "component", "compose", "stack", project,
+		"target", req.TargetNodeID, "disposition", req.Disposition, "user", username)
 
 	// Detach the orchestration from the request context so a client/proxy
 	// disconnect (or the SSE relay timeout) cannot cancel the
@@ -594,7 +611,6 @@ func (h *Handler) Migrate(c echo.Context) error {
 	// 2h bounds a large data+image transfer (volume tar + docker save/load).
 	opCtx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 	defer cancel()
-	username, _ := c.Get("username").(string)
 
 	// 1. preflight — abort on any block.
 	send(PhasePreflight, "Running pre-flight checks...", false)

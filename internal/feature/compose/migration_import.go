@@ -107,6 +107,7 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 		if lerr := loadImageFromFile(ctx, path); lerr != nil {
 			return created, prebaks, warnings, lerr
 		}
+		_ = os.Remove(path) // free staging as we go — cuts peak target disk use
 	}
 
 	for i := range m.Volumes {
@@ -146,6 +147,7 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 		if rerr := restoreVolumeFromFile(ctx, v.Docker, path); rerr != nil {
 			return created, prebaks, warnings, rerr
 		}
+		_ = os.Remove(path) // free staging as we go — cuts peak target disk use
 	}
 
 	for i := range m.Binds {
@@ -197,6 +199,7 @@ func restoreData(ctx context.Context, m MigrationManifest, staged map[string]str
 		if eerr := extractTarToDir(ctx, filepath.Dir(targetBind), path); eerr != nil {
 			return created, prebaks, warnings, eerr
 		}
+		_ = os.Remove(path) // free staging as we go — cuts peak target disk use
 	}
 	return created, prebaks, warnings, nil
 }
