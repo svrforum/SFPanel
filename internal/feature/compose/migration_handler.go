@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -307,10 +309,39 @@ func (h *Handler) waitHealthy(ctx context.Context, stackID string, timeout time.
 
 // migrateTargetInfo is the target node's answer to a pre-flight query.
 type migrateTargetInfo struct {
-	Arch        string `json:"arch"`
-	FreeBytes   int64  `json:"freeBytes"`
-	PortsInUse  []int  `json:"portsInUse"`
-	StackExists bool   `json:"stackExists"`
+	Arch            string `json:"arch"`
+	FreeBytes       int64  `json:"freeBytes"`       // free on the stacks FS
+	DockerFreeBytes int64  `json:"dockerFreeBytes"` // free on the docker storage FS
+	SameDevice      bool   `json:"sameDevice"`      // stacks FS and docker FS share one device
+	PortsInUse      []int  `json:"portsInUse"`
+	StackExists     bool   `json:"stackExists"`
+}
+
+// dockerRootDir returns the docker daemon's storage root (e.g. /var/lib/docker)
+// via `docker info`, or "" if docker is unreachable. Used to disk-check the
+// filesystem where migrated volume/image data actually lands.
+func dockerRootDir(ctx context.Context) string {
+	out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{.DockerRootDir}}").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// sameDevice reports whether two paths reside on the same filesystem (same
+// st_dev). Used so the pre-flight sums the disk estimate when the stacks root
+// and docker root share a device, and checks each portion separately otherwise.
+// Any stat error (missing path, etc.) reports false — the caller then checks the
+// two portions independently, which never under-counts a shared device.
+func sameDevice(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	var sa, sb syscall.Stat_t
+	if syscall.Stat(a, &sa) != nil || syscall.Stat(b, &sb) != nil {
+		return false
+	}
+	return sa.Dev == sb.Dev
 }
 
 // MigrateTargetInfo (GET /docker/compose/migrate/target-info?stackId=X) returns
@@ -326,6 +357,15 @@ func (h *Handler) MigrateTargetInfo(c echo.Context) error {
 	info := migrateTargetInfo{Arch: runtime.GOARCH}
 	if u, err := disk.Usage(h.ComposePath); err == nil {
 		info.FreeBytes = int64(u.Free)
+	}
+	// Volume + image data lands on the docker storage FS, which is often a
+	// different filesystem than the stacks root — report its free space (and
+	// whether they share a device) so the pre-flight checks the right disk.
+	if root := dockerRootDir(c.Request().Context()); root != "" {
+		if u, err := disk.Usage(root); err == nil {
+			info.DockerFreeBytes = int64(u.Free)
+		}
+		info.SameDevice = sameDevice(h.ComposePath, root)
 	}
 	if stackID != "" {
 		if _, err := os.Stat(filepath.Join(h.ComposePath, stackID)); err == nil {
@@ -400,12 +440,15 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 		HasExternalVolume: facts.HasExternalVolume,
 		HasAbsBind:        facts.HasAbsBind,
 		HasDevice:         facts.HasDevice,
-		OverwriteAcked:    overwriteAcked,
-		Disposition:       DispositionRetain, // preflight is disposition-agnostic for blocking; clone relaxation handled at migrate time
-		// Real estimate: resolved config + actual volume/bind/image data sizes +
-		// headroom, so the insufficient-disk block reflects the true transfer.
-		EstimatedBytes: int64(len(cfgJSON)) + estimateTransferBytes(ctx, facts) + (16 << 20),
+		OverwriteAcked: overwriteAcked,
+		Disposition:    DispositionRetain, // preflight is disposition-agnostic for blocking; clone relaxation handled at migrate time
 	}
+	// Real estimate, split by destination filesystem: volume+image data lands on
+	// the docker storage FS, stack files + bind data on the stacks FS — so the
+	// insufficient-disk block can check each against the right free space.
+	dockerBytes, stacksBytes := estimateTransferBytes(ctx, facts)
+	in.EstimatedDockerBytes = dockerBytes
+	in.EstimatedBytes = int64(len(cfgJSON)) + stacksBytes + (16 << 20)
 
 	// Target facts via the cross-node info endpoint. A 200 with an unparseable
 	// body (version skew, truncation) must NOT masquerade as a clean pass — it
@@ -421,6 +464,8 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 		if jerr = json.Unmarshal(body, &wrapper); jerr == nil {
 			in.TargetArch = wrapper.Data.Arch
 			in.TargetFreeBytes = wrapper.Data.FreeBytes
+			in.TargetDockerFreeBytes = wrapper.Data.DockerFreeBytes
+			in.TargetSameDevice = wrapper.Data.SameDevice
 			in.TargetPortsInUse = wrapper.Data.PortsInUse
 			in.TargetStackExists = wrapper.Data.StackExists
 		}

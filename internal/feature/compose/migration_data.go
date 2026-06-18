@@ -258,25 +258,28 @@ func imageSizeBytes(ctx context.Context, ref string) int64 {
 	return parseLeadingBytes(out)
 }
 
-// estimateTransferBytes best-effort sums the bytes that will actually be copied
-// (volume + bind data + image sizes) so the pre-flight disk check uses a real
-// figure. Best-effort: an un-sizable entry contributes 0 rather than failing.
-func estimateTransferBytes(ctx context.Context, facts stackConfigFacts) int64 {
-	var total int64
+// estimateTransferBytes best-effort sizes what will be copied, split by which
+// filesystem it lands on so the pre-flight disk check can compare each against
+// the right free space: volume + image data lands on the docker storage FS
+// (e.g. /var/lib/docker); bind data lands on the stacks FS (in-stack binds) or a
+// bind's own absolute path (counted toward stacks as an approximation — abs
+// binds are usually small config dirs). Best-effort: an un-sizable entry
+// contributes 0 rather than failing.
+func estimateTransferBytes(ctx context.Context, facts stackConfigFacts) (dockerBytes, stacksBytes int64) {
 	for _, v := range facts.Volumes {
 		if v.Copy {
-			total += volumeSizeBytes(ctx, v.Docker)
-		}
-	}
-	for _, b := range facts.Binds {
-		if b.Copy {
-			total += dirSizeBytes(ctx, b.Host)
+			dockerBytes += volumeSizeBytes(ctx, v.Docker)
 		}
 	}
 	for _, im := range facts.Images {
-		total += imageSizeBytes(ctx, im.Ref)
+		dockerBytes += imageSizeBytes(ctx, im.Ref)
 	}
-	return total
+	for _, b := range facts.Binds {
+		if b.Copy {
+			stacksBytes += dirSizeBytes(ctx, b.Host)
+		}
+	}
+	return dockerBytes, stacksBytes
 }
 
 // --- target-side restore primitives ---
