@@ -477,8 +477,8 @@ func (h *Handler) gatherPreflight(ctx context.Context, project, targetNodeID, us
 		HasExternalVolume: facts.HasExternalVolume,
 		HasAbsBind:        facts.HasAbsBind,
 		HasDevice:         facts.HasDevice,
-		OverwriteAcked: overwriteAcked,
-		Disposition:    DispositionRetain, // preflight is disposition-agnostic for blocking; clone relaxation handled at migrate time
+		OverwriteAcked:    overwriteAcked,
+		Disposition:       DispositionRetain, // preflight is disposition-agnostic for blocking; clone relaxation handled at migrate time
 	}
 	// Real estimate, split by destination filesystem: volume+image data lands on
 	// the docker storage FS, stack files + bind data on the stacks FS — so the

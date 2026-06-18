@@ -13,12 +13,12 @@ func TestCleanupOrphanMigrationStaging(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	mk(".mig-pkg-123")          // pure temp → removed
-	mk(".migrate-stage-abc")    // pure temp → removed
-	mk("gone.migbak")           // backup with no live orig → restored to "gone"
-	mk("live")                  // live stack...
-	mk("live.migbak")           // ...with a backup → both left for the operator
-	mk("normal")                // unrelated stack → untouched
+	mk(".mig-pkg-123")       // pure temp → removed
+	mk(".migrate-stage-abc") // pure temp → removed
+	mk("gone.migbak")        // backup with no live orig → restored to "gone"
+	mk("live")               // live stack...
+	mk("live.migbak")        // ...with a backup → both left for the operator
+	mk("normal")             // unrelated stack → untouched
 
 	CleanupOrphanMigrationStaging(root)
 
