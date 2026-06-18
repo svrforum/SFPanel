@@ -303,6 +303,7 @@
       },
       "overwriteAck": "Overwrite a stack with the same name if it already exists on the target (its prior data is backed up).",
       "preflight": "Run pre-flight",
+      "preflightRequired": "Run pre-flight before starting the migration.",
       "start": "Start migration",
       "running": "Migrating… (you can leave this open; the migration continues even if you close it)",
       "blocked": "Blocked:",

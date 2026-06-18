@@ -120,7 +120,11 @@ export function MigrateStackDialog({
   }
 
   const blocked = (report?.blocks?.length ?? 0) > 0
-  const canStart = !!targetId && !running && !blocked
+  // Require a pre-flight to have been run (and passed) before Start — otherwise
+  // disk/arch/port blocks and binds/large-transfer/external-volume warnings are
+  // only enforced server-side, after the source is already stopped. Changing the
+  // target or overwrite ack clears `report`, forcing a fresh pre-flight.
+  const canStart = !!targetId && !running && !blocked && report !== null
   const inForm = !running && !terminal
 
   return (
@@ -262,6 +266,9 @@ export function MigrateStackDialog({
           </div>
         )}
 
+        {inForm && !!targetId && report === null && !checking && (
+          <p className="text-xs text-muted-foreground">{t('docker.migrate.preflightRequired')}</p>
+        )}
         <DialogFooter>
           {inForm && (
             <>
