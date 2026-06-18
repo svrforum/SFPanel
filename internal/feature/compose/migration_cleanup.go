@@ -1,8 +1,10 @@
 package compose
 
 import (
+	"context"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -48,5 +50,26 @@ func CleanupOrphanMigrationStaging(composeRoot string) {
 				slog.Warn("leftover migration backup present; manual cleanup may be needed", "component", "compose", "backup", name)
 			}
 		}
+	}
+}
+
+// SweepMigrationHelperContainers force-removes any throwaway migration helper
+// container left behind by a killed migration. The `docker run --rm` helper is
+// detached enough in the daemon to outlive a SIGKILLed parent CLI, and `--rm`
+// only fires on a clean exit, so a crash mid-tar can strand one. Best-effort and
+// docker-optional: a missing/erroring docker is a no-op. Called once at boot.
+func SweepMigrationHelperContainers(ctx context.Context) {
+	out, err := exec.CommandContext(ctx, "docker", "ps", "-aq", "--filter", "label="+migrationHelperLabel).Output()
+	if err != nil {
+		return // docker absent or unreachable — nothing to sweep
+	}
+	ids := strings.Fields(string(out))
+	if len(ids) == 0 {
+		return
+	}
+	if rerr := exec.CommandContext(ctx, "docker", append([]string{"rm", "-f"}, ids...)...).Run(); rerr == nil {
+		slog.Info("swept orphaned migration helper containers", "component", "compose", "count", len(ids))
+	} else {
+		slog.Warn("failed to sweep orphaned migration helper containers", "component", "compose", "error", rerr)
 	}
 }

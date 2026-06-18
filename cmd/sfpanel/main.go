@@ -131,6 +131,9 @@ func main() {
 	// no live copy — so a mid-migration crash doesn't strand staging dirs under
 	// /opt/stacks or surface a phantom ".migbak" stack.
 	featureCompose.CleanupOrphanMigrationStaging(cfg.Server.StacksPath)
+	sweepCtx, sweepCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	featureCompose.SweepMigrationHelperContainers(sweepCtx)
+	sweepCancel()
 
 	database, err := db.Open(cfg.Database.Path)
 	if err != nil {

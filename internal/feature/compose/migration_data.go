@@ -129,11 +129,18 @@ func validateTarSafe(archivePath string) error {
 // on docker hosts; if absent docker pulls it once.
 const migrationHelperImage = "alpine"
 
-// helperNetNone runs the helper container with no networking. It only tars a
-// mounted volume, so it never needs a network — and `--network none` avoids a
-// hard failure on hosts whose default bridge (docker0) is absent or custom
-// (where a bare `docker run` can't attach to the default network).
-var helperNetNone = []string{"--network", "none"}
+// migrationHelperLabel tags every throwaway helper container so an orphaned one
+// (left behind when the parent migration process is SIGKILLed mid-tar — `--rm`
+// only fires on a clean exit, and the detached container can outlive the killed
+// CLI) can be swept at boot. See SweepMigrationHelperContainers.
+const migrationHelperLabel = "sfpanel.migration.helper=1"
+
+// helperRunFlags are the common `docker run` flags for the throwaway helper:
+//   - `--network none`: it only tars a mounted volume, never needs networking,
+//     and this avoids a hard failure on hosts whose default bridge (docker0) is
+//     absent or custom (where a bare `docker run` can't attach to it).
+//   - `--label`: tags it for the orphan sweep above.
+var helperRunFlags = []string{"--network", "none", "--label", migrationHelperLabel}
 
 // errSkipSpecial marks a bind whose host path is a socket/device/irregular file
 // or is missing — it can't (and shouldn't) be archived. The caller flips the
@@ -181,7 +188,7 @@ func runStreamToFile(ctx context.Context, dstPath, name string, args ...string) 
 // archiveVolumeToFile tars a named volume's contents into dstPath via the helper
 // image (read-only mount). Works for any volume driver docker can mount.
 func archiveVolumeToFile(ctx context.Context, dockerVol, dstPath string) (int64, string, error) {
-	args := append([]string{"run", "--rm"}, helperNetNone...)
+	args := append([]string{"run", "--rm"}, helperRunFlags...)
 	args = append(args, "-v", dockerVol+":/from:ro", "-w", "/from", migrationHelperImage, "tar", "-cf", "-", ".")
 	return runStreamToFile(ctx, dstPath, "docker", args...)
 }
@@ -224,7 +231,7 @@ func parseLeadingBytes(out []byte) int64 {
 // volumeSizeBytes best-effort returns a named volume's apparent size (du -sb via
 // the helper image). 0 on any error — pre-flight sizing degrades, never fails.
 func volumeSizeBytes(ctx context.Context, dockerVol string) int64 {
-	args := append([]string{"run", "--rm"}, helperNetNone...)
+	args := append([]string{"run", "--rm"}, helperRunFlags...)
 	args = append(args, "-v", dockerVol+":/v:ro", migrationHelperImage, "du", "-sb", "/v")
 	out, err := exec.CommandContext(ctx, "docker", args...).Output()
 	if err != nil {
@@ -311,7 +318,7 @@ func removeVolume(ctx context.Context, dockerVol string) {
 // acked overwrite restores an EXACT copy of the source volume rather than
 // overlaying the migrated files onto a pre-existing tenant's data.
 func clearVolume(ctx context.Context, dockerVol string) error {
-	args := append([]string{"run", "--rm"}, helperNetNone...)
+	args := append([]string{"run", "--rm"}, helperRunFlags...)
 	args = append(args, "-v", dockerVol+":/to", "-w", "/to", migrationHelperImage,
 		"sh", "-c", "rm -rf /to/* /to/.[!.]* /to/..?* 2>/dev/null; true")
 	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
@@ -334,7 +341,7 @@ func extractArchiveToVolume(ctx context.Context, dockerVol, archivePath string) 
 		return err
 	}
 	defer func() { _ = f.Close() }()
-	args := append([]string{"run", "-i", "--rm"}, helperNetNone...)
+	args := append([]string{"run", "-i", "--rm"}, helperRunFlags...)
 	args = append(args, "-v", dockerVol+":/to", "-w", "/to", migrationHelperImage, "tar", "-xf", "-")
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Stdin = f
