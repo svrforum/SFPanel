@@ -104,6 +104,7 @@
   - **볼륨**: 목록, 생성, 삭제(강제), **볼륨 사용량 카드**(DockerVolumeUsageCard — 볼륨별 디스크 점유; 디스크 페이지에서도 노출)
   - **네트워크**: 목록, 생성(드라이버 선택: bridge 기본), 삭제, 상세 검사
   - **Docker Compose (Stacks)**: 설정 가능한 스택 루트(`server.stacks_path`, 기본 `/opt/stacks`) 디스크 스캔 기반 프로젝트 관리, Monaco 에디터 YAML 편집, `.env` 편집, `up -d`/`down`(이미지·볼륨 동시 삭제 옵션), 프로젝트 상태, **서비스별 제어**(시작/중지/재시작)와 로그, **스택 업데이트 확인·적용**(`POST /compose/:project/check-updates` → `…/update`/`…/update-stream` SSE)
+    - **노드 간 스택 마이그레이션**(클러스터 전용): 대상 노드(`targetNodeId`)로의 콜드 마이그레이션 + 원본 처분(`disposition`: retain/delete/clone). 정의·`.env`·볼륨·바인드 데이터·이미지(save/load)를 콜드 패키징해 이전. **사전 점검**(arch/디스크/포트/덮어쓰기)과 **헬스 게이트**를 통과해야 적용하며, 덮어쓰기 시 정의/볼륨을 백업하고 실패 시 원복. 전송 진행률은 SSE로 스트리밍, **전송 속도 제한**(v0.51.0) 지원
   - **리소스 정리(Prune)**: 컨테이너/이미지/볼륨/네트워크 개별 + 전체 일괄
 - **관련 기술**: Docker Go SDK, gorilla/websocket, xterm.js, Monaco Editor, uPlot(컨테이너 히스토리), SQLite `container_metrics_history`/`container_events`(마이그레이션 16·17)
 
@@ -669,6 +670,10 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(1)`, 추가 프래그�
 | POST | `/api/v1/docker/compose/:project/services/:service/stop` | Compose 서비스 중지 |
 | POST | `/api/v1/docker/compose/:project/services/:service/start` | Compose 서비스 시작 |
 | GET | `/api/v1/docker/compose/:project/services/:service/logs` | Compose 서비스 로그 |
+| POST | `/api/v1/docker/compose/:project/migrate/preflight` | 노드 간 마이그레이션 사전 점검 |
+| POST | `/api/v1/docker/compose/:project/migrate` | 노드 간 마이그레이션 (SSE) |
+| GET | `/api/v1/docker/compose/migrate/target-info` | 대상 노드 사실 조회 (내부 전용) |
+| POST | `/api/v1/docker/compose/migrate-import` | 마이그레이션 번들 수신 (내부 전용) |
 
 ### WebSocket 엔드포인트 (쿼리 파라미터 토큰 인증)
 
@@ -685,7 +690,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(1)`, 추가 프래그�
 
 ### SSE 스트리밍 엔드포인트 (`Content-Type: text/event-stream`)
 
-총 8개. JWT 미들웨어 적용. 장시간 실행 작업의 실시간 진행률 스트리밍용. 클러스터 프록시 시 HTTP 직접 릴레이(5분 타임아웃).
+총 9개. JWT 미들웨어 적용. 장시간 실행 작업의 실시간 진행률 스트리밍용. 클러스터 프록시 시 HTTP 직접 릴레이(5분 타임아웃).
 
 | 경로 | 용도 | 이벤트 형식 |
 |------|------|-----------|
@@ -693,6 +698,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(1)`, 추가 프래그�
 | `POST /api/v1/docker/images/pull` | Docker 이미지 풀 | JSON (Docker API 이벤트 그대로) |
 | `POST /api/v1/docker/compose/:project/up-stream` | Compose 프로젝트 시작 | JSON `{phase, line}` |
 | `POST /api/v1/docker/compose/:project/update-stream` | Compose 스택 풀+재생성 | JSON `{phase, line}` |
+| `POST /api/v1/docker/compose/:project/migrate` | 노드 간 스택 마이그레이션 | JSON `{phase, message, done}` (preflight/quiesce/package/transfer/finalize/done) |
 | `POST /api/v1/packages/install-docker` | Docker 엔진 설치 (get.docker.com) | 평문 라인 + `[DONE]` |
 | `POST /api/v1/packages/install-node` | Node.js/NVM 설치 | 평문 라인 + `[DONE]` |
 | `POST /api/v1/network/tailscale/install` | Tailscale 설치 | 평문 라인 + `[DONE]` |

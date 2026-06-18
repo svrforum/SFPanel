@@ -3943,7 +3943,8 @@ data: {"phase":"complete","line":"Update completed successfully"}
 {
   "targetNodeId": "node-b",
   "disposition": "retain",
-  "overwriteAcked": false
+  "overwriteAcked": false,
+  "rateLimitMbps": 0
 }
 ```
 
@@ -3952,6 +3953,7 @@ data: {"phase":"complete","line":"Update completed successfully"}
 | `targetNodeId` | string | 예 | 이관 대상 노드 ID |
 | `disposition` | string | 예 | 이관 성공 후 소스 처리: `retain` \| `delete` \| `clone` |
 | `overwriteAcked` | boolean | 아니오 | 대상 동일 id 스택 덮어쓰기 승인 (기본 `false`) |
+| `rateLimitMbps` | number | 아니오 | 전송 대역폭 상한(MB/s). 0 또는 미지정 = 무제한. (v0.51.0) |
 
 **disposition 의미:**
 | 값 | 동작 |
@@ -3976,6 +3978,8 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 ```
 
 이벤트 필드는 `{phase, message, done}`. 정상 진행 순서: `preflight` → `quiesce` → `package` → `transfer` → `finalize` → 종료 마커 `done`. 실패 시: 패키징/전송 단계 실패는 소스를 복구한 뒤 `rollback` 이벤트(`done:true`)를, 사전 점검 차단이나 그 외 실패는 `error` 이벤트(`done:true`)를 전송합니다.
+
+> `transfer` 단계는 진행률 메시지를 주기적으로 전송합니다 — 예: `{"phase":"transfer","message":"Transferring to target... 512 / 2048 MiB (25%)","done":false}`
 
 **사전 실패 (스트림 시작 전):**
 | 코드 | HTTP 상태 | 조건 |
@@ -4005,16 +4009,23 @@ data: {"phase":"done","message":"Migration complete.","done":true}
   "data": {
     "arch": "amd64",
     "freeBytes": 0,
+    "dockerFreeBytes": 0,
+    "sameDevice": true,
     "portsInUse": [8096],
-    "stackExists": false
+    "stackExists": false,
+    "stackRunning": false
   }
 }
 ```
 
+- `dockerFreeBytes`: docker 스토리지 FS의 여유 바이트.
+- `sameDevice`: stacks FS와 docker FS가 동일 디바이스인지 여부.
+- `stackRunning`: 대상에 동일 id 스택이 실행 중인지 여부.
+
 ---
 
 ### POST /api/v1/docker/compose/migrate-import
-**클러스터 내부 전용** — 소스 노드가 이관 번들(tar 스트림)을 대상 노드로 푸시하는 바이너리 릴레이 엔드포인트. 운영자가 직접 호출하는 용도가 아닙니다. `X-SFPanel-Migration-Sha256` 요청 헤더의 체크섬으로 번들을 검증하고, compose 안전성 검증 → 스택 정의 복원 → `up` → 헬스체크를 수행하며, 실패 시 부분 복원분을 정리합니다 (v0.43.0+).
+**클러스터 내부 전용** — 소스 노드가 이관 번들(tar 스트림)을 대상 노드로 푸시하는 바이너리 릴레이 엔드포인트. 운영자가 직접 호출하는 용도가 아닙니다. `X-SFPanel-Migration-Sha256` 요청 헤더의 체크섬으로 번들을 검증한 뒤, compose 안전성 검증(원문 + .env 주입 후 resolved 재검증) → 정의 복원 → 이미지 `docker load` + 명명 볼륨/바인드 데이터 복원 → `up` → 헬스체크를 수행하며, 실패 시 부분 복원분을 정리합니다. 덮어쓰기 시 기존 정의(`.migbak`)와 기존 볼륨 데이터를 백업해 두고 실패하면 원복합니다. 동일 스택 동시 import 또는 공유 볼륨 동시 복원은 409로 거부합니다 (v0.43.0+, v0.50.0/v0.51.0).
 
 - **인증**: 내부 프록시 전용 (`X-SFPanel-Internal-Proxy`). 외부 호출 시 403 `PERMISSION_DENIED`.
 - **Docker 사용 가능 시에만 등록**

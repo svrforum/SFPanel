@@ -19,7 +19,7 @@
 | 영역 | 내용 |
 |------|------|
 | **대시보드** | CPU·메모리·디스크·네트워크 실시간 모니터링(WebSocket), 24시간 히스토리 차트, Docker 요약, 빠른 작업 바로가기 |
-| **Docker** | 컨테이너·이미지·볼륨·네트워크, Compose 스택(서비스별 상세·업데이트 현재→대상 digest·롤백), Hub 검색, 리소스 정리 |
+| **Docker** | 컨테이너·이미지·볼륨·네트워크, Compose 스택(서비스별 상세·업데이트 현재→대상 digest·롤백), Hub 검색, 리소스 정리, 노드 간 스택 콜드 마이그레이션(정의·.env·볼륨/바인드 데이터·이미지 이전, retain/delete/clone, 전송 속도 제한) |
 | **앱스토어** | 큐레이션된 **90+** 셀프호스팅 앱 원클릭 설치(\*arr·Nextcloud·Vaultwarden·Immich·AdGuard·Authentik·Forgejo 등). 추천 배지·정렬·검색, "업데이트 있음" 배지, 데이터 보존 삭제, 설치 후 헬스 체크 |
 | **파일 관리** | 브라우저 파일 탐색기 + Monaco 에디터, 재귀 검색, 복사·다중선택 삭제, 업로드/다운로드 |
 | **터미널** | xterm.js 멀티탭 웹 터미널(PTY), 세션 유지·재연결, 10,000줄 스크롤백, 모바일 터치 스크롤 |
@@ -39,7 +39,7 @@
 
 ```
 Go Binary (Echo v4)
-├── REST API (270+ endpoints) + WebSocket (7) + SSE (8 streaming)
+├── REST API (270+ endpoints) + WebSocket (7) + SSE (15+ streaming)
 ├── Embedded React SPA (go:embed)
 ├── SQLite (16+ tables — 인증, 설정, 감사 로그, 메트릭 히스토리, 알림, 컨테이너 이벤트, 볼륨 사용량, 예약 백업 외)
 ├── Docker Go SDK (소켓 직접 통신, 미가용 시 Docker 라우트만 비활성)
@@ -439,7 +439,7 @@ cd e2e && npm run test:headed   # 브라우저 UI
 - 인증: `Authorization: Bearer <JWT>` 헤더
 - WebSocket 인증: 쿼리 파라미터 `?token=<JWT>`
 - 클러스터 원격 노드 호출: 모든 보호 라우트에 `?node=<nodeID>` 추가 시 `ClusterProxyMiddleware`가 대상 노드로 투명 포워딩 (gRPC 30s, SSE/WS는 HTTP/WS 직접 릴레이)
-- SSE 스트리밍 엔드포인트 8개 (시스템 업데이트, Docker 이미지 풀, Compose up/update, 패키지·VPN 설치, 클러스터 업데이트)
+- SSE 스트리밍 엔드포인트 15+개 (시스템 업데이트, Docker 이미지 풀, Compose up/update, Compose 스택 마이그레이션, 패키지·VPN 설치, appstore 설치, 클러스터 업데이트)
 
 ## 문서
 
@@ -447,7 +447,7 @@ cd e2e && npm run test:headed   # 브라우저 UI
 |------|------|
 | [docs/specs/tech-features.md](docs/specs/tech-features.md) | 전체 기능 상세 + 기술 스택 |
 | [docs/specs/api-spec.md](docs/specs/api-spec.md) | REST/SSE 엔드포인트 전수 + 요청·응답 스키마 |
-| [docs/specs/websocket-spec.md](docs/specs/websocket-spec.md) | WebSocket 7개 + SSE 8개 메시지 스키마 + 클러스터 릴레이 |
+| [docs/specs/websocket-spec.md](docs/specs/websocket-spec.md) | WebSocket 7개 + SSE 15+개 메시지 스키마 + 클러스터 릴레이 |
 | [docs/specs/db-schema.md](docs/specs/db-schema.md) | SQLite 16+개 테이블 + 보존 정책 + 마이그레이션 |
 | [docs/specs/frontend-spec.md](docs/specs/frontend-spec.md) | 페이지/컴포넌트/라우팅/상태/빌드 |
 | [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md) | 클러스터 운영자 런북: 파티션 감지·복구, 강제 disband, 포트 마이그레이션 절차 |

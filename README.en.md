@@ -19,7 +19,7 @@
 | Area | What it does |
 |------|------|
 | **Dashboard** | Real-time CPU/memory/disk/network monitoring (WebSocket), 24-hour history charts, Docker summary, quick-action shortcuts |
-| **Docker** | Containers, images, volumes, networks; Compose stacks (per-service detail, current→target digest updates, rollback); Hub search; resource pruning |
+| **Docker** | Containers, images, volumes, networks; Compose stacks (per-service detail, current→target digest updates, rollback); Hub search; resource pruning; node-to-node cold stack migration (compose + .env + volume/bind-mount data + images, retain/delete/clone disposition, optional transfer rate limit) |
 | **App Store** | One-click install of **90+** curated self-hosted apps (\*arr, Nextcloud, Vaultwarden, Immich, AdGuard, Authentik, Forgejo and more). Recommended badges, sorting & search, "update available" badge, keep-data uninstall, post-install health check |
 | **File manager** | In-browser file explorer + Monaco editor, recursive search, copy/multi-select delete, upload/download |
 | **Terminal** | xterm.js multi-tab web terminal (PTY), session persistence & reconnect, 10,000-line scrollback, mobile touch scrolling |
@@ -39,7 +39,7 @@
 
 ```
 Go Binary (Echo v4)
-├── REST API (270+ endpoints) + WebSocket (7) + SSE (8 streaming)
+├── REST API (270+ endpoints) + WebSocket (7) + SSE (15+ streaming)
 ├── Embedded React SPA (go:embed)
 ├── SQLite (16+ tables — auth, settings, audit log, metrics history, alerts, container events, volume usage, scheduled backups, …)
 ├── Docker Go SDK (direct socket; only the Docker routes disable when unavailable)
@@ -439,7 +439,7 @@ All REST responses use a uniform JSON shape:
 - Auth: `Authorization: Bearer <JWT>` header
 - WebSocket auth: query parameter `?token=<JWT>`
 - Cluster remote-node calls: adding `?node=<nodeID>` to any protected route makes `ClusterProxyMiddleware` transparently forward to the target node (gRPC 30s; SSE/WS relay directly over HTTP/WS)
-- 8 SSE streaming endpoints (system update, Docker image pull, Compose up/update, package/VPN install, cluster update)
+- 15+ SSE streaming endpoints (system update, Docker image pull, Compose up/update, stack migration, package/VPN install, appstore install, cluster update)
 
 ## Documentation
 
@@ -447,7 +447,7 @@ All REST responses use a uniform JSON shape:
 |------|------|
 | [docs/specs/tech-features.md](docs/specs/tech-features.md) | Full feature detail + tech stack |
 | [docs/specs/api-spec.md](docs/specs/api-spec.md) | Complete REST/SSE endpoints + request/response schemas |
-| [docs/specs/websocket-spec.md](docs/specs/websocket-spec.md) | 7 WebSocket + 8 SSE message schemas + cluster relay |
+| [docs/specs/websocket-spec.md](docs/specs/websocket-spec.md) | 7 WebSocket + 15+ SSE message schemas + cluster relay |
 | [docs/specs/db-schema.md](docs/specs/db-schema.md) | SQLite 16+ tables + retention policy + migrations |
 | [docs/specs/frontend-spec.md](docs/specs/frontend-spec.md) | Pages/components/routing/state/build |
 | [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md) | Cluster operator runbook: partition detection/recovery, forced disband, port migration procedure |

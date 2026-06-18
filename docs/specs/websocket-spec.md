@@ -738,12 +738,16 @@ data: {"phase":"package","message":"Packaging stack...","done":false}
 
 data: {"phase":"transfer","message":"Transferring to target...","done":false}
 
+data: {"phase":"transfer","message":"Transferring to target... 512 / 2048 MiB (25%)","done":false}
+
 data: {"phase":"finalize","message":"Applying source disposition (retain)...","done":false}
 
 data: {"phase":"done","message":"Migration complete.","done":true}
 ```
 
-실패 시 패키징/전송 단계는 소스를 복구한 뒤 `{"phase":"rollback",...,"done":true}`를, 사전 점검 차단이나 그 외 실패는 `{"phase":"error",...,"done":true}`를 마지막으로 전송한다. 요청 본문은 `{"targetNodeId","disposition","overwriteAcked"}` (REST 스펙의 `POST /docker/compose/:project/migrate` 참조).
+`transfer` 단계는 진행률 갱신을 위해 위 예시처럼 증분 이벤트를 반복 전송한다: `data: {"phase":"transfer","message":"Transferring to target... 512 / 2048 MiB (25%)","done":false}`.
+
+실패 시 패키징/전송 단계는 소스를 복구한 뒤 `{"phase":"rollback",...,"done":true}`를, 사전 점검 차단이나 그 외 실패는 `{"phase":"error",...,"done":true}`를 마지막으로 전송한다. 요청 본문은 `{"targetNodeId","disposition","overwriteAcked","rateLimitMbps"}` (REST 스펙의 `POST /docker/compose/:project/migrate` 참조). `rateLimitMbps` (선택) — 전송 대역폭 상한(MiB/s), 0/미지정 시 무제한 (v0.51.0).
 
 ### 클러스터 프록시
 

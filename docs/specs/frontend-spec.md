@@ -162,8 +162,9 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 서비스별 로그 보기 (ContainerLogs) / 셸 접속 (ContainerShell) 다이얼로그
   - 스택 생성/삭제 다이얼로그
   - 스택 Up/Down/Restart 액션
-- **사용 API**: `api.getComposeProjects()`, `api.createComposeProject()`, `api.getComposeProject()`, `api.updateComposeProject()`, `api.deleteComposeProject()`, `api.composeUp()`, `api.composeDown()`, `api.getComposeServices()`, `api.restartComposeService()`, `api.stopComposeService()`, `api.startComposeService()`, `api.getComposeServiceLogs()`, `api.getComposeEnv()`, `api.updateComposeEnv()`
-- **사용 컴포넌트**: Table, Dialog, Tabs, Button, Input, Label, ComposeEditor, ContainerLogs, ContainerShell (shadcn/ui + 커스텀)
+  - 스택 마이그레이션 (MigrateStackDialog, v0.50.0 콜드 데이터 이전 / v0.51.0 전송 속도 제한): 클러스터 모드에서 다른 온라인 노드로 스택 이전 — 대상 노드 선택, disposition(retain/delete/clone), 덮어쓰기 ack, 전송 속도 제한, 사전 점검 게이트, SSE 진행 로그
+- **사용 API**: `api.getComposeProjects()`, `api.createComposeProject()`, `api.getComposeProject()`, `api.updateComposeProject()`, `api.deleteComposeProject()`, `api.composeUp()`, `api.composeDown()`, `api.getComposeServices()`, `api.restartComposeService()`, `api.stopComposeService()`, `api.startComposeService()`, `api.getComposeServiceLogs()`, `api.getComposeEnv()`, `api.updateComposeEnv()`, `api.migratePreflight()`, `api.migrateStream()`(SSE), `api.getMigrateTargetInfo()`
+- **사용 컴포넌트**: Table, Dialog, Tabs, Button, Input, Label, ComposeEditor, ContainerLogs, ContainerShell, MigrateStackDialog (shadcn/ui + 커스텀)
 
 ### Docker > DockerContainers
 - **파일**: `web/src/pages/docker/DockerContainers.tsx`
@@ -661,6 +662,8 @@ interface UseWebSocketOptions {
 | `getComposeServiceLogs(project, service, tail?)` | GET | `/docker/compose/{project}/services/{service}/logs` | `{ logs: string }` | 서비스 로그 |
 | `getComposeEnv(project)` | GET | `/docker/compose/{project}/env` | `{ content: string }` | .env 파일 읽기 |
 | `updateComposeEnv(project, content)` | PUT | `/docker/compose/{project}/env` | - | .env 파일 수정 |
+| `migratePreflight` | POST | `/docker/compose/{project}/migrate/preflight` | - | 사전 점검 |
+| `migrateStream` | POST(SSE) | `/docker/compose/{project}/migrate` | - | 노드 간 마이그레이션 |
 
 ### 파일 관리자
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
@@ -889,6 +892,14 @@ interface PruneReport { deleted: number; space_reclaimed?: number }
 interface PruneAllReport {
   containers: PruneReport; images: PruneReport;
   volumes: PruneReport; networks: PruneReport
+}
+type MigrateDisposition = 'retain' | 'delete' | 'clone'
+interface MigratePreflightFinding { code: string; message: string }
+interface MigratePreflightReport {
+  blocks: MigratePreflightFinding[]; warnings: MigratePreflightFinding[]
+}
+interface MigratePhaseEvent {
+  phase: string; message: string; done: boolean
 }
 ```
 
