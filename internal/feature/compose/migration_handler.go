@@ -666,7 +666,14 @@ func (h *Handler) Migrate(c echo.Context) error {
 
 	// 4. transfer — stream the bundle to the target; it restores + ups + healthchecks.
 	send(PhaseTransfer, "Transferring to target...", false)
-	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha)
+	onProg := func(sent, total int64) {
+		msg := fmt.Sprintf("Transferring to target... %d / %d MiB", sent>>20, total>>20)
+		if total > 0 {
+			msg += fmt.Sprintf(" (%d%%)", sent*100/total)
+		}
+		send(PhaseTransfer, msg, false)
+	}
+	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha, onProg)
 	if terr != nil || status != http.StatusOK {
 		// On a CONNECTION error the target detaches its restore+up from the dropped
 		// connection, so the stack may actually be running there. Probe before
