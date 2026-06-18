@@ -210,6 +210,14 @@ func (m *ComposeManager) ListProjects(_ context.Context) ([]ComposeProject, erro
 		if !entry.IsDir() {
 			continue
 		}
+		// Skip migration scratch: dot-prefixed staging (.mig-pkg-*/.migrate-stage-*)
+		// and *.migbak overwrite backups. The latter holds a real compose file, so
+		// without this it would surface as a phantom "<id>.migbak" project. Stack
+		// ids are leading-alphanumeric, so a legit stack never starts with "." —
+		// and ".migbak" is reserved for migration backups.
+		if strings.HasPrefix(entry.Name(), ".") || strings.HasSuffix(entry.Name(), ".migbak") {
+			continue
+		}
 		dir := filepath.Join(m.baseDir, entry.Name())
 		composeFile := findComposeFile(dir)
 		if composeFile == "" {
