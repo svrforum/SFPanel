@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/svrforum/SFPanel/internal/auth"
 )
@@ -222,13 +223,46 @@ func (p *progressReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
+// throttledReader caps read throughput at bps bytes/sec (0 = unlimited) so a
+// large migration can be rate-limited (QoS) and not saturate the link — useful
+// over a metered/shared WAN (e.g. Tailscale). It paces by comparing cumulative
+// bytes against the time they "should" have taken, sleeping the difference; the
+// sleep is ctx-cancellable so a cancelled migration doesn't wait it out.
+type throttledReader struct {
+	r     io.Reader
+	bps   int64
+	ctx   context.Context
+	start time.Time
+	sent  int64
+}
+
+func (t *throttledReader) Read(b []byte) (int, error) {
+	n, err := t.r.Read(b)
+	if n > 0 && t.bps > 0 {
+		if t.start.IsZero() {
+			t.start = time.Now()
+		}
+		t.sent += int64(n)
+		expected := time.Duration(float64(t.sent) / float64(t.bps) * float64(time.Second))
+		if d := expected - time.Since(t.start); d > 0 {
+			select {
+			case <-t.ctx.Done():
+				return n, t.ctx.Err()
+			case <-time.After(d):
+			}
+		}
+	}
+	return n, err
+}
+
 // pushBundle streams body (length contentLength) to the target node's
 // migrate-import endpoint with internal-proxy auth + the SHA header, returning
 // the target's HTTP status + body. mTLS via the cluster client TLS config. No
 // fixed client Timeout — a multi-GB transfer can outlast any deadline; the
 // caller's opCtx bounds (and cancels) the whole migration instead. onProgress
 // (optional) is called with cumulative/total bytes as the body streams out.
-func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string, body io.Reader, contentLength int64, sha string, onProgress func(sent, total int64)) (int, []byte, error) {
+// rateBytesPerSec > 0 caps transfer throughput (QoS).
+func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string, body io.Reader, contentLength int64, sha string, onProgress func(sent, total int64), rateBytesPerSec int64) (int, []byte, error) {
 	mgr := h.clusterManager()
 	if mgr == nil {
 		return 0, nil, fmt.Errorf("cluster is not enabled")
@@ -249,12 +283,15 @@ func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string,
 	client := &http.Client{Transport: transport}
 
 	reqBody := body
+	if rateBytesPerSec > 0 {
+		reqBody = &throttledReader{r: reqBody, bps: rateBytesPerSec, ctx: ctx}
+	}
 	if onProgress != nil && contentLength > 0 {
 		step := contentLength / 20
 		if step < 16<<20 {
 			step = 16 << 20
 		}
-		reqBody = &progressReader{r: body, total: contentLength, step: step, nextEmit: step, onProg: onProgress}
+		reqBody = &progressReader{r: reqBody, total: contentLength, step: step, nextEmit: step, onProg: onProgress}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, reqBody)
 	if err != nil {
@@ -282,8 +319,9 @@ func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string,
 }
 
 // pushBundleFileToTarget streams a staged bundle file (no in-memory copy) to the
-// target's migrate-import endpoint. onProgress (optional) reports bytes sent.
-func (h *Handler) pushBundleFileToTarget(ctx context.Context, targetNodeID, username, bundlePath, sha string, onProgress func(sent, total int64)) (int, []byte, error) {
+// target's migrate-import endpoint. onProgress (optional) reports bytes sent;
+// rateBytesPerSec > 0 caps transfer throughput.
+func (h *Handler) pushBundleFileToTarget(ctx context.Context, targetNodeID, username, bundlePath, sha string, onProgress func(sent, total int64), rateBytesPerSec int64) (int, []byte, error) {
 	f, err := os.Open(bundlePath)
 	if err != nil {
 		return 0, nil, err
@@ -293,5 +331,5 @@ func (h *Handler) pushBundleFileToTarget(ctx context.Context, targetNodeID, user
 	if err != nil {
 		return 0, nil, err
 	}
-	return h.pushBundle(ctx, targetNodeID, username, f, fi.Size(), sha, onProgress)
+	return h.pushBundle(ctx, targetNodeID, username, f, fi.Size(), sha, onProgress, rateBytesPerSec)
 }

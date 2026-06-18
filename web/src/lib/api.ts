@@ -860,7 +860,7 @@ class ApiClient {
   // node the stack lives on (defaults to the current node).
   async migrateStream(
     project: string,
-    body: { targetNodeId: string; disposition: MigrateDisposition; overwriteAcked: boolean },
+    body: { targetNodeId: string; disposition: MigrateDisposition; overwriteAcked: boolean; rateLimitMbps?: number },
     onEvent: (event: MigratePhaseEvent) => void,
     node?: string,
   ): Promise<void> {

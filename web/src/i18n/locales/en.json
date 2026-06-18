@@ -302,6 +302,8 @@
         "clone": "Restart the source so both copies run."
       },
       "overwriteAck": "Overwrite a stack with the same name if it already exists on the target (its prior data is backed up first, which briefly uses extra disk).",
+      "rateLimit": "Transfer rate limit (MB/s)",
+      "rateLimitHint": "Cap the transfer bandwidth so a large migration doesn't saturate the link (e.g. over Tailscale/WAN). 0 or blank = unlimited.",
       "preflight": "Run pre-flight",
       "preflightRequired": "Run pre-flight before starting the migration.",
       "start": "Start migration",

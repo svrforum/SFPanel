@@ -556,14 +556,19 @@ func (h *Handler) Migrate(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "invalid project id")
 	}
 	var req struct {
-		TargetNodeID   string `json:"targetNodeId"`
-		Disposition    string `json:"disposition"`
-		OverwriteAcked bool   `json:"overwriteAcked"`
+		TargetNodeID   string  `json:"targetNodeId"`
+		Disposition    string  `json:"disposition"`
+		OverwriteAcked bool    `json:"overwriteAcked"`
+		RateLimitMbps  float64 `json:"rateLimitMbps"` // transfer cap in MiB/s; <=0 = unlimited
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
 	}
 	disp := Disposition(req.Disposition)
+	var rateBytes int64
+	if req.RateLimitMbps > 0 {
+		rateBytes = int64(req.RateLimitMbps * 1024 * 1024)
+	}
 	mgr := h.clusterManager()
 	if mgr == nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInternalError, "cluster is not enabled")
@@ -603,7 +608,8 @@ func (h *Handler) Migrate(c echo.Context) error {
 		flusher.Flush()
 	}
 	slog.Info("stack migration starting", "component", "compose", "stack", project,
-		"target", req.TargetNodeID, "disposition", req.Disposition, "user", username)
+		"target", req.TargetNodeID, "disposition", req.Disposition, "user", username,
+		"rate_limit_mibps", req.RateLimitMbps)
 
 	// Detach the orchestration from the request context so a client/proxy
 	// disconnect (or the SSE relay timeout) cannot cancel the
@@ -675,7 +681,7 @@ func (h *Handler) Migrate(c echo.Context) error {
 		}
 		send(PhaseTransfer, msg, false)
 	}
-	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha, onProg)
+	status, body, terr := h.pushBundleFileToTarget(opCtx, req.TargetNodeID, username, bundleFile, sha, onProg, rateBytes)
 	if terr != nil || status != http.StatusOK {
 		// On a CONNECTION error the target detaches its restore+up from the dropped
 		// connection, so the stack may actually be running there. Probe before

@@ -5,10 +5,39 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+func TestThrottledReaderPaces(t *testing.T) {
+	const size = 256 * 1024       // 256 KiB
+	const bps = int64(512 * 1024) // 512 KiB/s → ~0.5s
+	tr := &throttledReader{r: bytes.NewReader(make([]byte, size)), bps: bps, ctx: context.Background()}
+	start := time.Now()
+	n, err := io.Copy(io.Discard, tr)
+	elapsed := time.Since(start)
+	if err != nil || n != size {
+		t.Fatalf("copy n=%d err=%v, want %d", n, err, size)
+	}
+	// 256 KiB at 512 KiB/s ≈ 0.5s; assert it was actually throttled (not instant).
+	if elapsed < 350*time.Millisecond {
+		t.Fatalf("throttle too fast: %v for %d B at %d B/s (expected ~0.5s)", elapsed, size, bps)
+	}
+}
+
+func TestThrottledReaderUnlimitedIsInstant(t *testing.T) {
+	tr := &throttledReader{r: bytes.NewReader(make([]byte, 1<<20)), bps: 0, ctx: context.Background()}
+	start := time.Now()
+	if _, err := io.Copy(io.Discard, tr); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("bps=0 should not throttle, took %v", elapsed)
+	}
+}
 
 func TestPackageThenReceiveRoundTrip(t *testing.T) {
 	stackDir := t.TempDir()

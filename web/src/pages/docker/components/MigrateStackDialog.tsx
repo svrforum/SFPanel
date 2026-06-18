@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { ClusterNode, MigratePreflightReport, MigratePhaseEvent, MigrateDisposition } from '@/types/api'
 
@@ -42,6 +43,7 @@ export function MigrateStackDialog({
   const [targetId, setTargetId] = useState('')
   const [disposition, setDisposition] = useState<MigrateDisposition>('retain')
   const [overwriteAck, setOverwriteAck] = useState(false)
+  const [rateLimit, setRateLimit] = useState('') // MiB/s; '' = unlimited
   const [report, setReport] = useState<MigratePreflightReport | null>(null)
   const [checking, setChecking] = useState(false)
   const [running, setRunning] = useState(false)
@@ -57,6 +59,7 @@ export function MigrateStackDialog({
     setTargetId('')
     setOverwriteAck(false)
     setDisposition('retain')
+    setRateLimit('')
     ;(async () => {
       try {
         const [nodesRes, status] = await Promise.all([api.getClusterNodes(), api.getClusterStatus()])
@@ -93,7 +96,12 @@ export function MigrateStackDialog({
     try {
       await api.migrateStream(
         project,
-        { targetNodeId: targetId, disposition, overwriteAcked: overwriteAck },
+        {
+          targetNodeId: targetId,
+          disposition,
+          overwriteAcked: overwriteAck,
+          rateLimitMbps: rateLimit ? Number(rateLimit) : undefined,
+        },
         (ev) => {
           setEvents((prev) => [...prev, ev])
           if (ev.done) {
@@ -203,6 +211,22 @@ export function MigrateStackDialog({
               />
               <span className="text-muted-foreground">{t('docker.migrate.overwriteAck')}</span>
             </label>
+
+            <div className="space-y-1">
+              <Label htmlFor="migrate-rate">{t('docker.migrate.rateLimit')}</Label>
+              <Input
+                id="migrate-rate"
+                type="number"
+                min="0"
+                step="1"
+                inputMode="decimal"
+                placeholder="0"
+                value={rateLimit}
+                onChange={(e) => setRateLimit(e.target.value)}
+                className="w-40"
+              />
+              <p className="text-xs text-muted-foreground">{t('docker.migrate.rateLimitHint')}</p>
+            </div>
 
             {report && (
               <div className="space-y-2 rounded-lg border p-3 text-xs">
