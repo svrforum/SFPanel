@@ -10,6 +10,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.51.0] – 2026-06-18
+
+### Added
+
+- **Transfer rate limit (QoS) for stack migration.** The migrate dialog now takes an optional transfer-rate cap (MB/s; 0 or blank = unlimited) so a large node-to-node migration doesn't saturate the link — useful over a metered or shared WAN (e.g. Tailscale). The cap is applied to the bundle push on the source via a cancellable pacing reader; it composes with the existing transfer-progress reporting and is recorded in the migration audit log.
+
+---
+
 ## [0.50.0] – 2026-06-18
 
 ### Fixed
