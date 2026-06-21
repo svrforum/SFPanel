@@ -583,8 +583,8 @@ uninstall() {
   # voter; on a 2-voter cluster the survivor loses quorum and needs peers.json
   # recovery. Best-effort (set -e safe).
   if [ -x "${INSTALL_DIR}/sfpanel" ] \
-     && grep -qsE '^[[:space:]]*enabled:[[:space:]]*true' \
-          <(awk '/^cluster:/{f=1;next} /^[^[:space:]]/{f=0} f' "${CONFIG_DIR}/config.yaml" 2>/dev/null); then
+     && awk '/^cluster:/{f=1;next} /^[^[:space:]]/{f=0} f' "${CONFIG_DIR}/config.yaml" 2>/dev/null \
+          | grep -qsE '^[[:space:]]*enabled:[[:space:]]*true'; then
     log_info "Cluster member detected — leaving the cluster first..."
     if "${INSTALL_DIR}/sfpanel" cluster leave --config "${CONFIG_DIR}/config.yaml" >/dev/null 2>&1; then
       log_info "Left the cluster cleanly."
@@ -662,8 +662,8 @@ main() {
     # A script upgrade stops THIS node's service for the whole download+restart
     # window. Fanning install.sh across all voters at once breaks heartbeat/quorum
     # simultaneously — steer clustered operators to the safe paths.
-    if grep -qsE '^[[:space:]]*enabled:[[:space:]]*true' \
-         <(awk '/^cluster:/{f=1;next} /^[^[:space:]]/{f=0} f' "${CONFIG_DIR}/config.yaml" 2>/dev/null); then
+    if awk '/^cluster:/{f=1;next} /^[^[:space:]]/{f=0} f' "${CONFIG_DIR}/config.yaml" 2>/dev/null \
+         | grep -qsE '^[[:space:]]*enabled:[[:space:]]*true'; then
       log_warn "This node is part of a cluster. For zero-downtime upgrades use the panel's"
       log_warn "Cluster → Update (rolling), or run install.sh one node at a time (>=10s apart)."
     fi
