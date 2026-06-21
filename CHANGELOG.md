@@ -10,6 +10,31 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.52.0] – 2026-06-21
+
+Install / update / uninstall lifecycle hardening, plus a couple of cluster-mode robustness fixes. No feature surface changes.
+
+### Added
+
+- **`/api/v1/system/health` is now a real readiness probe.** It pings the SQLite connection and returns `503` (with `{"status":"degraded"}`) when the DB is unreachable, instead of always answering `200` regardless of backend state. A reverse proxy, load balancer, or external cluster health-check can now distinguish "process is up" from "process can actually serve requests" and stop routing to a node whose DB has gone away.
+- **`install.sh` upgrade rollback + version pinning + signature enforcement.** An upgrade now backs up the live binary before the swap and automatically reverts it (and restarts the service) if the new binary fails to come up, so a bad release can't leave the panel offline. `SFPANEL_VERSION=v0.X.Y` pins the install to a specific tag instead of always-latest (for reproducible installs / staged rollouts), and `SFPANEL_REQUIRE_COSIGN=1` makes a missing or invalid cosign signature a hard failure rather than a warning.
+- **`uninstall --purge`.** Plain `uninstall` now preserves config, database, and logs (and prints exactly what it kept, plus the untouched `/opt/stacks` stack data); `--purge` additionally removes `/etc/sfpanel`, `/var/lib/sfpanel`, and `/var/log/sfpanel` for a clean teardown.
+
+### Changed
+
+- **Uninstall is cluster-aware.** When the node being removed is a cluster member, `uninstall` now runs `sfpanel cluster leave` first so the node departs the Raft configuration gracefully instead of being orphaned as a permanently-offline voter that the surviving nodes must prune by hand.
+- **Cosign verification tightened.** The signer-identity match is now anchored to `https://github.com/<repo>/.github/workflows/release.yml@refs/tags/v…` (previously a looser substring), and an unsigned download emits a loud, explicit warning rather than passing quietly.
+- **Cleaner output and stricter perms.** Install/uninstall messaging no longer prints a live panel URL or systemd-specific hints on hosts without systemd, and the SQLite database plus its `-wal`/`-shm` sidecars are created `0600`.
+
+### Fixed
+
+- **Clear error when a cross-node update is rejected by a too-old peer.** Triggering an update on a remote node whose binary predates the update-relay HMAC auth returned a bare `401`/`403`; the panel now explains that the target node is likely too old to authenticate the relay and that it should be updated locally (SSH + `install.sh`) first.
+- **Update auto-rollback no longer silently discards post-snapshot writes.** When the watchdog rolls a failed update back to the previous binary + DB snapshot, it first copies the *live* database aside to `<db>.pre-rollback` (and clears stale `-wal`/`-shm` sidecars), so any writes the failed binary accepted between the snapshot and the rollback are recoverable instead of lost.
+- **Update-check surfaces version-compare failures.** A semver comparison error during the update check is now reported (`compare_error`) instead of being swallowed and reported as "no update available".
+- **Portable cluster detection in `install.sh`.** Cluster-membership detection during uninstall now uses a pipe instead of a process substitution, so it works under the POSIX `sh` some minimal hosts symlink `bash` to.
+
+---
+
 ## [0.51.0] – 2026-06-18
 
 ### Added
