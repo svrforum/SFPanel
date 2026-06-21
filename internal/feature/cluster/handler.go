@@ -1317,6 +1317,14 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 			} else {
 				detail = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, detail)
 			}
+			// A 401/403 here is almost always the target running a version too old
+			// to validate the internal-proxy v2 auth (the update relay's HMAC): the
+			// new leader signs correctly, but the old node's validator rejects it,
+			// and there is no v1 fallback by design (that would be replayable). Make
+			// the chicken-and-egg actionable instead of an opaque auth error.
+			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+				detail += " — the target node is likely too old to authenticate the update relay; update it locally (SSH + install.sh) for large version jumps, then it can re-join cluster updates"
+			}
 			sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Update failed: " + detail})
 			return false
 		}
