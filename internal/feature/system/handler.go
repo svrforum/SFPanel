@@ -152,6 +152,11 @@ type UpdateCheckResponse struct {
 	UpdateAvailable bool   `json:"update_available"`
 	ReleaseNotes    string `json:"release_notes"`
 	PublishedAt     string `json:"published_at"`
+	// CompareError is set when the two versions couldn't be compared (e.g. an
+	// unparseable tag). UpdateAvailable then defaults to false, so without this
+	// the UI would show a confident "up to date" — surface it so the UI can say
+	// "couldn't determine; check the releases page" instead.
+	CompareError string `json:"compare_error,omitempty"`
 }
 
 // CheckUpdate queries GitHub releases API and returns version comparison.
@@ -185,13 +190,21 @@ func (h *Handler) CheckUpdate(c echo.Context) error {
 	// strips the pre-release suffix and only returns true when latest is
 	// strictly newer — matching the dashboard overview's logic. On a parse
 	// error it returns false, which is the safe "no update" default.
-	forward, _ := release.IsForwardUpdate(current, latest)
+	forward, cmpErr := release.IsForwardUpdate(current, latest)
+	cmpErrStr := ""
+	if cmpErr != nil {
+		// Don't fail the whole check — still report both versions so the UI can
+		// show them — but surface that the comparison was inconclusive instead of
+		// a misleading "up to date".
+		cmpErrStr = "could not compare versions: " + cmpErr.Error()
+	}
 	return response.OK(c, UpdateCheckResponse{
 		CurrentVersion:  current,
 		LatestVersion:   latest,
 		UpdateAvailable: forward,
 		ReleaseNotes:    ghRelease.Body,
 		PublishedAt:     ghRelease.PublishedAt,
+		CompareError:    cmpErrStr,
 	})
 }
 

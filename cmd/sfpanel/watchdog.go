@@ -121,6 +121,15 @@ func watchdogUpdate(args []string) {
 	}
 	if dbBakPath != "" && dbPath != "" {
 		if _, statErr := os.Stat(dbBakPath); statErr == nil {
+			// Preserve the LIVE DB before overwriting it: the failed-update binary
+			// may have accepted writes since the snapshot, and rolling straight back
+			// would silently discard them. Keep a copy at <db>.pre-rollback so the
+			// operator can recover those writes. Best-effort.
+			if data, rerr := os.ReadFile(dbPath); rerr == nil {
+				if werr := os.WriteFile(dbPath+".pre-rollback", data, 0600); werr == nil {
+					fmt.Fprintf(os.Stderr, "watchdog-update: DB ROLLBACK — any writes since the update snapshot are preserved at %s.pre-rollback (recover manually if the rollback lost data)\n", dbPath)
+				}
+			}
 			if err := restoreFile(dbBakPath, dbPath, 0600, "database"); err != nil {
 				fmt.Fprintln(os.Stderr, err.Error())
 				// Don't exit — binary rollback already happened, restarting on
