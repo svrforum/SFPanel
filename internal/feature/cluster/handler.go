@@ -165,7 +165,7 @@ func (h *Handler) performDisband(fromNodeID string) {
 // still holds the stale pre-cluster row. Calling this just before the FSM is
 // abandoned closes that gap so the credentials actually in use cluster-wide
 // survive the transition. Single-admin app: the one local row is overwritten to
-// match the cluster admin (the username may differ, e.g. local "admin-sv" vs
+// match the cluster admin (the username may differ, e.g. a local "admin2" vs
 // cluster "admin"). Best-effort: a failure is logged, not fatal.
 func (h *Handler) syncClusterAdminToLocalDB(mgr *cluster.Manager) {
 	if mgr == nil || h.DB == nil {
