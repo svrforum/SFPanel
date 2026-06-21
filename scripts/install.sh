@@ -14,6 +14,15 @@ DATA_DIR="/var/lib/sfpanel"
 LOG_DIR="/var/log/sfpanel"
 SERVICE_NAME="sfpanel"
 FORCE_SYSTEMD="${FORCE_SYSTEMD:-0}"
+# SFPANEL_VERSION pins a specific version (rollback / reproducible install):
+#   SFPANEL_VERSION=0.50.0 ./install.sh
+# SFPANEL_REQUIRE_COSIGN=1 hard-fails the install when the cosign signature
+# can't be verified (production supply-chain enforcement) instead of warning.
+SFPANEL_REQUIRE_COSIGN="${SFPANEL_REQUIRE_COSIGN:-0}"
+# Set to 1 by download_binary once it has saved the prior binary to .bak, so
+# verify_service_started only auto-reverts on a failed upgrade THIS run (not on
+# a same-version reconcile that finds a stale .bak from an earlier upgrade).
+BINARY_BACKED_UP=0
 
 # Colors
 RED='\033[0;31m'
@@ -103,10 +112,16 @@ read_config_port() {
 # --- Core functions ---
 
 get_latest_version() {
+  # Pinned version (rollback / reproducible install) takes precedence.
+  if [ -n "${SFPANEL_VERSION:-}" ]; then
+    echo "${SFPANEL_VERSION#v}"
+    return
+  fi
   local version
   version=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
   if [ -z "$version" ]; then
     log_error "Failed to fetch latest version. Check https://github.com/${REPO}/releases"
+    log_error "(Pin a known version to bypass: SFPANEL_VERSION=0.50.0 $0)"
     exit 1
   fi
   echo "$version"
@@ -148,9 +163,12 @@ download_binary() {
     if curl -fsSL "${base}/checksums.txt.sig" -o "${tmp_dir}/checksums.txt.sig" \
        && curl -fsSL "${base}/checksums.txt.pem" -o "${tmp_dir}/checksums.txt.pem"; then
       log_info "Verifying release signature (cosign keyless)..."
+      # Pin the identity to the release workflow on a TAG ref (mirrors the
+      # in-binary policy at internal/release/cosign.go) — the old `/workflows/.*`
+      # regexp would accept a signature minted by ANY workflow in the repo.
       if ! cosign verify-blob \
           --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-          --certificate-identity-regexp "^https://github.com/${REPO}/\.github/workflows/.*" \
+          --certificate-identity-regexp "^https://github.com/${REPO}/\.github/workflows/release\.yml@refs/tags/v" \
           --signature "${tmp_dir}/checksums.txt.sig" \
           --certificate "${tmp_dir}/checksums.txt.pem" \
           "${tmp_dir}/checksums.txt" >/dev/null 2>&1; then
@@ -161,9 +179,25 @@ download_binary() {
       log_info "Release signature verified (Sigstore keyless)."
     else
       log_warn "Release has no cosign signature assets; using SHA-256 only."
+      if [ "$SFPANEL_REQUIRE_COSIGN" = "1" ]; then
+        rm -rf "$tmp_dir"
+        log_error "SFPANEL_REQUIRE_COSIGN=1 but the release carries no signature — refusing to install."
+        exit 1
+      fi
     fi
   else
-    log_warn "cosign not installed — skipping signature verification (SHA-256 over HTTPS only). Install cosign for full supply-chain verification."
+    if [ "$SFPANEL_REQUIRE_COSIGN" = "1" ]; then
+      rm -rf "$tmp_dir"
+      log_error "SFPANEL_REQUIRE_COSIGN=1 but cosign is not installed — refusing the unverified install."
+      log_error "Install cosign (https://docs.sigstore.dev/cosign/installation) or unset SFPANEL_REQUIRE_COSIGN."
+      exit 1
+    fi
+    log_warn "============================================================"
+    log_warn "cosign NOT installed — the release SIGNATURE is NOT verified."
+    log_warn "Falling back to SHA-256-over-HTTPS only (integrity, not provenance)."
+    log_warn "For full supply-chain verification install cosign, or set"
+    log_warn "SFPANEL_REQUIRE_COSIGN=1 to make a missing signature fatal."
+    log_warn "============================================================"
   fi
 
   local expected actual
@@ -181,7 +215,11 @@ download_binary() {
   fi
 
   log_info "Extracting..."
-  tar -xzf "${tmp_dir}/sfpanel.tar.gz" -C "$tmp_dir"
+  if ! tar -xzf "${tmp_dir}/sfpanel.tar.gz" -C "$tmp_dir"; then
+    rm -rf "$tmp_dir"
+    log_error "Failed to extract ${tmp_dir}/sfpanel.tar.gz (corrupt or truncated download)"
+    exit 1
+  fi
 
   if [ ! -f "${tmp_dir}/sfpanel" ]; then
     rm -rf "$tmp_dir"
@@ -207,6 +245,14 @@ download_binary() {
   #   [ -f <bak>-wal ] && cp <bak>-wal /var/lib/sfpanel/sfpanel.db-wal
   #   systemctl start sfpanel
   backup_db
+
+  # Back up the current binary so a failed upgrade (new binary crashes on boot)
+  # can be auto-reverted by verify_service_started — mirrors the web/CLI update
+  # watchdog's binary-only revert. Fresh install (no current binary) skips this.
+  if [ -f "${INSTALL_DIR}/sfpanel" ]; then
+    cp -p "${INSTALL_DIR}/sfpanel" "${INSTALL_DIR}/sfpanel.bak"
+    BINARY_BACKED_UP=1
+  fi
 
   install -m 755 "${tmp_dir}/sfpanel" "${INSTALL_DIR}/sfpanel"
   rm -rf "$tmp_dir"
@@ -259,6 +305,14 @@ setup_dirs() {
     chmod 700 "${CONFIG_DIR}/cluster"
     find "${CONFIG_DIR}/cluster" -type f -name "*.key" -exec chmod 600 {} \; 2>/dev/null || true
   fi
+  # The DB + WAL/SHM sidecars hold bcrypt hashes / TOTP secrets. The 0700 parent
+  # already blocks other users, but keep the files themselves root-only too
+  # (defense in depth, matching backup_db's 0600 snapshots) since the binary
+  # creates them at the process umask (commonly 0644).
+  local f
+  for f in "${DATA_DIR}/sfpanel.db" "${DATA_DIR}/sfpanel.db-wal" "${DATA_DIR}/sfpanel.db-shm"; do
+    [ -f "$f" ] && chmod 600 "$f" 2>/dev/null || true
+  done
 }
 
 # generate_jwt_secret returns 64 hex characters (32 bytes of /dev/urandom).
@@ -430,9 +484,20 @@ verify_service_started() {
   done
   log_error "Service ${SERVICE_NAME} failed to start within 10s. Recent journal:"
   journalctl -u "$SERVICE_NAME" -n 30 --no-pager 2>&1 | sed 's/^/  /' >&2 || true
-  # On an upgrade the old service was stopped and the new binary failed — point
-  # the operator at the DB snapshot so they can roll back the schema if a
-  # migration broke boot. (Binary rollback: re-run install.sh for the prior tag.)
+  # Auto-revert the binary if THIS run upgraded it (BINARY_BACKED_UP) — a
+  # crash-on-boot new binary shouldn't leave the host on the broken version.
+  if [ "$BINARY_BACKED_UP" = "1" ] && [ -f "${INSTALL_DIR}/sfpanel.bak" ]; then
+    log_warn "Reverting to the previous binary and restarting..."
+    install -m 755 "${INSTALL_DIR}/sfpanel.bak" "${INSTALL_DIR}/sfpanel"
+    systemctl start "$SERVICE_NAME" 2>/dev/null || true
+    if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+      log_warn "Previous binary restored — the panel is back up on the prior version (upgrade reverted)."
+    else
+      log_error "Auto-revert restart also failed — manual recovery needed."
+    fi
+  fi
+  # If a migration ran before the crash, the schema may also need rolling back —
+  # point the operator at the DB snapshot.
   local latest_bak
   latest_bak=$(ls -1t "${DATA_DIR}"/sfpanel.db.bak-*[0-9] 2>/dev/null | head -1)
   if [ -n "$latest_bak" ]; then
@@ -452,9 +517,19 @@ print_success() {
   port=$(read_config_port)
   : "${port:=3628}"
 
+  # Whether the service is actually running: systemd present AND active. On a
+  # no-systemd host the binary is installed but nothing was launched, so we must
+  # not present a live Access URL.
+  local running=0
+  if check_systemd && systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+    running=1
+  fi
+
   echo ""
   echo -e "${CYAN}============================================${NC}"
-  if [ "$mode" = "upgrade" ]; then
+  if [ "$running" -ne 1 ]; then
+    echo -e "${CYAN}   SFPanel v${version} binary installed${NC}"
+  elif [ "$mode" = "upgrade" ]; then
     echo -e "${CYAN}   SFPanel upgraded to v${version}!${NC}"
   else
     echo -e "${CYAN}   SFPanel installed successfully!${NC}"
@@ -462,7 +537,13 @@ print_success() {
   echo -e "${CYAN}============================================${NC}"
   echo ""
   echo -e "  Version:   ${GREEN}v${version}${NC}"
-  echo -e "  Access:    ${GREEN}http://<server-ip>:${port}${NC}"
+  if [ "$running" -eq 1 ]; then
+    echo -e "  Access:    ${GREEN}http://<server-ip>:${port}${NC}"
+  else
+    echo -e "  ${YELLOW}Not running (no systemd detected). Launch it manually:${NC}"
+    echo -e "    ${INSTALL_DIR}/sfpanel ${CONFIG_DIR}/config.yaml"
+    echo -e "  Then open: http://<server-ip>:${port}"
+  fi
   echo -e "  Config:    ${CONFIG_DIR}/config.yaml"
   echo -e "  Data:      ${DATA_DIR}/"
   echo -e "  Logs:      journalctl -u ${SERVICE_NAME} -f"
@@ -493,7 +574,28 @@ print_success() {
 # --- Uninstall ---
 
 uninstall() {
+  local purge="${1:-}"   # "purge" → also remove config/data/logs
   log_info "Uninstalling SFPanel..."
+
+  # If this node is a Raft cluster member, leave the cluster FIRST — while the
+  # service + binary are still present — so the surviving voters drop it from
+  # the Raft configuration. Otherwise the node vanishes while still counted as a
+  # voter; on a 2-voter cluster the survivor loses quorum and needs peers.json
+  # recovery. Best-effort (set -e safe).
+  if [ -x "${INSTALL_DIR}/sfpanel" ] \
+     && awk '/^cluster:/{f=1;next} /^[^[:space:]]/{f=0} f' "${CONFIG_DIR}/config.yaml" 2>/dev/null \
+          | grep -qsE '^[[:space:]]*enabled:[[:space:]]*true'; then
+    log_info "Cluster member detected — leaving the cluster first..."
+    if "${INSTALL_DIR}/sfpanel" cluster leave --config "${CONFIG_DIR}/config.yaml" >/dev/null 2>&1; then
+      log_info "Left the cluster cleanly."
+    else
+      log_warn "Could not leave the cluster automatically (peer unreachable / quorum lost)."
+      log_warn "This node is STILL a Raft voter. From a surviving node run:"
+      log_warn "    sudo sfpanel cluster remove <node-id>"
+      log_warn "or follow docs/specs/cluster-partition-runbook.md (peers.json recovery)."
+    fi
+  fi
+
   if check_systemd; then
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
     systemctl disable "$SERVICE_NAME" 2>/dev/null || true
@@ -503,9 +605,19 @@ uninstall() {
   if check_systemd; then
     systemctl daemon-reload
   fi
-  rm -f "${INSTALL_DIR}/sfpanel"
-  log_info "Binary, service unit, and logrotate config removed"
-  log_warn "Config (${CONFIG_DIR}) and data (${DATA_DIR}) preserved. Remove manually if needed."
+  rm -f "${INSTALL_DIR}/sfpanel" "${INSTALL_DIR}/sfpanel.bak"
+  log_info "Binary, service unit, and logrotate config removed."
+
+  if [ "$purge" = "purge" ]; then
+    rm -rf "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}"
+    log_warn "PURGED: ${CONFIG_DIR} (config + JWT secret + cluster certs), ${DATA_DIR} (DB + snapshots), ${LOG_DIR}."
+  else
+    log_warn "Preserved (remove with 'uninstall --purge'):"
+    log_warn "  ${CONFIG_DIR}  — config.yaml + JWT secret + cluster mTLS certs"
+    log_warn "  ${DATA_DIR}  — SQLite DB + sfpanel.db.bak-* snapshots"
+    log_warn "  ${LOG_DIR}  — logs"
+  fi
+  log_warn "Appstore-deployed Docker stacks under /opt/stacks keep running (managed by Docker, not the panel) — remove them separately if decommissioning the host."
 }
 
 # --- Main ---
@@ -513,7 +625,7 @@ uninstall() {
 main() {
   if [ "${1:-}" = "uninstall" ]; then
     check_root
-    uninstall
+    if [ "${2:-}" = "--purge" ]; then uninstall purge; else uninstall; fi
     exit 0
   fi
 
@@ -547,6 +659,14 @@ main() {
     fi
     log_info "Upgrading SFPanel: v${current_version} → v${version}"
     mode="upgrade"
+    # A script upgrade stops THIS node's service for the whole download+restart
+    # window. Fanning install.sh across all voters at once breaks heartbeat/quorum
+    # simultaneously — steer clustered operators to the safe paths.
+    if awk '/^cluster:/{f=1;next} /^[^[:space:]]/{f=0} f' "${CONFIG_DIR}/config.yaml" 2>/dev/null \
+         | grep -qsE '^[[:space:]]*enabled:[[:space:]]*true'; then
+      log_warn "This node is part of a cluster. For zero-downtime upgrades use the panel's"
+      log_warn "Cluster → Update (rolling), or run install.sh one node at a time (>=10s apart)."
+    fi
   else
     log_info "Installing SFPanel v${version}..."
     mode="install"
