@@ -1,13 +1,17 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"log/slog"
+	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	echoMw "github.com/labstack/echo/v4/middleware"
 	mw "github.com/svrforum/SFPanel/internal/api/middleware"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/config"
@@ -36,6 +40,22 @@ import (
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	featureWS "github.com/svrforum/SFPanel/internal/feature/websocket"
 )
+
+// healthHandler reports readiness (not just liveness): 200 when the SQLite
+// store is reachable, 503 when a ping fails (locked / unwritable / corrupt DB),
+// so a reverse proxy / load balancer / uptime monitor sees the panel as
+// unhealthy even though the process is alive. Bounded so a stuck DB can't hang
+// the probe. Stays public (no auth) — it's consumed by infra, not the SPA.
+func healthHandler(db *sql.DB, version string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
+		defer cancel()
+		if err := db.PingContext(ctx); err != nil {
+			return Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "database unreachable")
+		}
+		return OK(c, map[string]string{"status": "ok", "version": version})
+	}
+}
 
 // NewRouter wires the HTTP server and returns both the Echo instance and a
 // cleanup function. The cleanup function is currently a no-op (see
@@ -134,9 +154,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	v1 := e.Group("/api/v1")
 
 	// Public routes
-	v1.GET("/health", func(c echo.Context) error {
-		return OK(c, map[string]string{"status": "ok"})
-	})
+	v1.GET("/health", healthHandler(database, version))
 	v1.POST("/auth/login", authHandler.Login)
 	v1.GET("/auth/setup-status", authHandler.GetSetupStatus)
 	v1.POST("/auth/setup", authHandler.SetupAdmin)
