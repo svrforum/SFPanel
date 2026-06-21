@@ -16,7 +16,7 @@ Install / update / uninstall lifecycle hardening, plus a couple of cluster-mode 
 
 ### Added
 
-- **`/api/v1/system/health` is now a real readiness probe.** It pings the SQLite connection and returns `503` (with `{"status":"degraded"}`) when the DB is unreachable, instead of always answering `200` regardless of backend state. A reverse proxy, load balancer, or external cluster health-check can now distinguish "process is up" from "process can actually serve requests" and stop routing to a node whose DB has gone away.
+- **`/api/v1/health` is now a real readiness probe.** It pings the SQLite connection (bounded by a 2s timeout) and returns `503` when the DB is unreachable, instead of always answering `200` regardless of backend state. A reverse proxy, load balancer, or external cluster health-check can now distinguish "process is up" from "process can actually serve requests" and stop routing to a node whose DB has gone away.
 - **`install.sh` upgrade rollback + version pinning + signature enforcement.** An upgrade now backs up the live binary before the swap and automatically reverts it (and restarts the service) if the new binary fails to come up, so a bad release can't leave the panel offline. `SFPANEL_VERSION=v0.X.Y` pins the install to a specific tag instead of always-latest (for reproducible installs / staged rollouts), and `SFPANEL_REQUIRE_COSIGN=1` makes a missing or invalid cosign signature a hard failure rather than a warning.
 - **`uninstall --purge`.** Plain `uninstall` now preserves config, database, and logs (and prints exactly what it kept, plus the untouched `/opt/stacks` stack data); `--purge` additionally removes `/etc/sfpanel`, `/var/lib/sfpanel`, and `/var/log/sfpanel` for a clean teardown.
 
