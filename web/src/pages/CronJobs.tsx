@@ -359,7 +359,7 @@ export default function CronJobs() {
 
       {/* Load error / loading skeleton (first load only) */}
       {error && jobs.length === 0 ? (
-        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium">{t('cron.loadError')}</p>
@@ -651,8 +651,8 @@ export default function CronJobs() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {runLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {!runLoading && runResult?.success && <CheckCircle2 className="h-4 w-4 text-[#00c471]" />}
-              {!runLoading && runResult && !runResult.success && <AlertCircle className="h-4 w-4 text-[#f04452]" />}
+              {!runLoading && runResult?.success && <CheckCircle2 className="h-4 w-4 text-success" />}
+              {!runLoading && runResult && !runResult.success && <AlertCircle className="h-4 w-4 text-destructive" />}
               {t('cron.runNow')}
             </DialogTitle>
             <DialogDescription className="font-mono text-[11px] break-all">{runJob?.command}</DialogDescription>

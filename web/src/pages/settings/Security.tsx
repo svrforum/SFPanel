@@ -251,7 +251,7 @@ export default function Security() {
         <div className="flex items-center gap-3">
           <h3 className="text-[15px] font-semibold">{t('settings.twoFA')}</h3>
           {twoFAEnabled ? (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">{t('settings.twoFAEnabled')}</span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">{t('settings.twoFAEnabled')}</span>
           ) : (
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">{t('settings.twoFANotConfigured')}</span>
           )}

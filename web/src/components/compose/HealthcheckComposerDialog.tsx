@@ -323,7 +323,7 @@ export function HealthcheckComposerDialog({
               {testResult && (
                 <div
                   className={`text-[12px] font-mono rounded-md p-2 ${
-                    testResult.exit_code === 0 ? 'bg-[#00c471]/10 text-[#00c471]' : 'bg-[#f04452]/10 text-[#f04452]'
+                    testResult.exit_code === 0 ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'
                   }`}
                 >
                   <div>
@@ -345,7 +345,7 @@ export function HealthcheckComposerDialog({
 
           <DialogFooter className="flex !justify-between">
             {hasExisting ? (
-              <Button type="button" variant="ghost" className="text-[#f04452] hover:bg-[#f04452]/10" onClick={onRemove} disabled={removing || submitting}>
+              <Button type="button" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={onRemove} disabled={removing || submitting}>
                 {removing ? '제거 중…' : 'Healthcheck 제거'}
               </Button>
             ) : <span />}

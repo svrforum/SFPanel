@@ -262,7 +262,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
           {updateInfo?.update_available && (
             <div className="space-y-1">
               <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.latestVersion')}</p>
-              <p className="text-[13px] font-medium text-[#3182f6]">v{updateInfo.latest_version}</p>
+              <p className="text-[13px] font-medium text-primary">v{updateInfo.latest_version}</p>
             </div>
           )}
         </div>
@@ -270,13 +270,13 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
         {updating ? (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <RefreshCw className="h-4 w-4 animate-spin text-[#3182f6]" />
+              <RefreshCw className="h-4 w-4 animate-spin text-primary" />
               <span className="text-[13px]">
                 {updateStep && t(`settings.updateStep.${updateStep}`, { defaultValue: updateStep })}
               </span>
             </div>
             {updateError && (
-              <div className="flex items-center gap-2 text-[#f04452]">
+              <div className="flex items-center gap-2 text-destructive">
                 <AlertCircle className="h-4 w-4" />
                 <span className="text-[13px]">{updateError}</span>
               </div>
@@ -314,17 +314,17 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
           <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">{t('settings.backupIncludes')}</p>
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#3182f6]" />
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
               <span className="text-[12px] text-foreground/80">sfpanel.db</span>
               <span className="text-[11px] text-muted-foreground">— {t('settings.backupItemDB')}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#3182f6]" />
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
               <span className="text-[12px] text-foreground/80">config.yaml</span>
               <span className="text-[11px] text-muted-foreground">— {t('settings.backupItemConfig')}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#3182f6]" />
+              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
               <span className="text-[12px] text-foreground/80">compose/*</span>
               <span className="text-[11px] text-muted-foreground">— {t('settings.backupItemCompose')}</span>
             </div>
@@ -371,7 +371,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
             type="checkbox"
             checked={scheduleEnabled}
             onChange={(e) => setScheduleEnabled(e.target.checked)}
-            className="h-4 w-4 rounded accent-[#3182f6]"
+            className="h-4 w-4 rounded accent-primary"
           />
           <span className="text-[13px] font-medium">{t('settings.backupSchedule.enable')}</span>
         </label>
@@ -409,12 +409,12 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
               <Clock className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.lastRun')}</span>
               <span className="text-[12px] font-medium">{new Date(schedule.last_run).toLocaleString()}</span>
-              <span className={`text-[12px] font-medium ${schedule.last_status === 'error' ? 'text-[#f04452]' : 'text-[#16a34a]'}`}>
+              <span className={`text-[12px] font-medium ${schedule.last_status === 'error' ? 'text-destructive' : 'text-[#16a34a]'}`}>
                 {schedule.last_status === 'error' ? t('settings.backupSchedule.statusError') : t('settings.backupSchedule.statusSuccess')}
               </span>
             </div>
             {schedule.last_status === 'error' && schedule.last_error && (
-              <p className="text-[12px] text-[#f04452] mt-1">{schedule.last_error}</p>
+              <p className="text-[12px] text-destructive mt-1">{schedule.last_error}</p>
             )}
           </div>
         )}
@@ -455,7 +455,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
                   onClick={() => handleDeleteBackupFile(file.name)}
                   variant="outline"
                   size="sm"
-                  className="rounded-xl shrink-0 text-[#f04452] hover:text-[#f04452]"
+                  className="rounded-xl shrink-0 text-destructive hover:text-destructive"
                 >
                   <Trash2 className="h-4 w-4 mr-1" />
                   {t('settings.backupSchedule.delete')}

@@ -123,7 +123,7 @@ export default function ClusterTokens() {
               onClick={() => handleCopy(token)}
               className="absolute right-3 top-3 p-1.5 rounded-lg hover:bg-accent transition-colors"
             >
-              {copied ? <Check className="h-4 w-4 text-[#00c471]" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+              {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
             </button>
           </div>
 
@@ -174,7 +174,7 @@ export default function ClusterTokens() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 p-0 shrink-0 text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10"
+                  className="h-7 w-7 p-0 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                   onClick={() => handleRevoke(tok.id)}
                   title={t('cluster.tokens.revoke')}
                 >

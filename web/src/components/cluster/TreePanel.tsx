@@ -58,9 +58,9 @@ export default function TreePanel({
 
   const statusColor = (status: string) => {
     switch (status) {
-      case 'online': return 'bg-[#00c471]'
-      case 'suspect': return 'bg-[#f59e0b]'
-      case 'offline': return 'bg-[#f04452]'
+      case 'online': return 'bg-success'
+      case 'suspect': return 'bg-warning'
+      case 'offline': return 'bg-destructive'
       default: return 'bg-muted-foreground'
     }
   }

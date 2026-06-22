@@ -195,7 +195,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
       <div className="flex items-center justify-between px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <Circle className={`h-2 w-2 fill-current ${connected ? 'text-[#00c471]' : 'text-[#f04452]'}`} />
+            <Circle className={`h-2 w-2 fill-current ${connected ? 'text-success' : 'text-destructive'}`} />
             <span className="text-[11px] text-white/40 font-medium">
               {connected ? t('terminal.connected') : t('terminal.disconnected')}
             </span>
@@ -234,7 +234,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             <Button
               variant="ghost"
               size="icon-xs"
-              className={`text-white/40 hover:text-white hover:bg-white/10 ${timestamps ? 'text-[#3182f6]' : ''}`}
+              className={`text-white/40 hover:text-white hover:bg-white/10 ${timestamps ? 'text-primary' : ''}`}
               title="Timestamps"
               onClick={() => setTimestamps(!timestamps)}
             >
@@ -246,7 +246,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
           <Button
             variant="ghost"
             size="icon-xs"
-            className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-[#3182f6]' : ''}`}
+            className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-primary' : ''}`}
             title="Auto-scroll"
             onClick={() => {
               setAutoScroll(!autoScroll)
@@ -258,7 +258,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
           <Button
             variant="ghost"
             size="icon-xs"
-            className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-[#3182f6]' : ''}`}
+            className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-primary' : ''}`}
             title={t('terminal.search')}
             onClick={() => {
               setSearchOpen(!searchOpen)
@@ -301,7 +301,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
                 }
               }}
               placeholder={t('terminal.searchPlaceholder')}
-              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-[#3182f6]/50"
+              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-primary/50"
               autoFocus
             />
           </div>

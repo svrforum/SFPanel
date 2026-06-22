@@ -43,7 +43,7 @@ export default function BottomNav({ onMorePress }: BottomNavProps) {
                 // '/dashboard' doesn't highlight on a hypothetical
                 // '/dashboard-foo' route.
                 (isActive || location.pathname === tab.to || location.pathname.startsWith(tab.to + '/'))
-                  ? 'text-[#3182f6]'
+                  ? 'text-primary'
                   : 'text-muted-foreground'
               )
             }

@@ -141,7 +141,7 @@ export default function DockerNetworks() {
 
       {/* Load error / loading skeleton (first load only) */}
       {error && networks.length === 0 ? (
-        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium">{t('docker.networks.loadError')}</p>
@@ -179,7 +179,7 @@ export default function DockerNetworks() {
                 </div>
                 <div className="mt-1.5">
                   {n.in_use ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                       {t('docker.networks.inUse')}
                     </span>
                   ) : (
@@ -239,7 +239,7 @@ export default function DockerNetworks() {
             <TableRow key={n.Id}>
               <TableCell className="font-medium">
                 <div className="flex items-center gap-1.5">
-                  {n.in_use && <Check className="h-3.5 w-3.5 text-[#00c471] shrink-0" />}
+                  {n.in_use && <Check className="h-3.5 w-3.5 text-success shrink-0" />}
                   {n.Name}
                 </div>
               </TableCell>
@@ -248,7 +248,7 @@ export default function DockerNetworks() {
               </TableCell>
               <TableCell>
                 {n.in_use ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]" title={n.used_by.join(', ')}>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success" title={n.used_by.join(', ')}>
                     {t('docker.networks.inUse')}
                   </span>
                 ) : (

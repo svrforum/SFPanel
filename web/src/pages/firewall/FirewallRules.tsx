@@ -114,10 +114,10 @@ function RuleFormFields({
           value={form.port}
           onChange={(e) => setForm({ ...form, port: e.target.value })}
           placeholder="80, 443, 8000:8080"
-          className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${portError ? 'ring-1 ring-[#f04452]' : ''}`}
+          className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${portError ? 'ring-1 ring-destructive' : ''}`}
         />
         {portError && (
-          <p className="text-[11px] text-[#f04452]">{t('firewall.rules.invalidPort')}</p>
+          <p className="text-[11px] text-destructive">{t('firewall.rules.invalidPort')}</p>
         )}
       </div>
 
@@ -144,10 +144,10 @@ function RuleFormFields({
           value={form.from}
           onChange={(e) => setForm({ ...form, from: e.target.value })}
           placeholder={t('firewall.rules.any')}
-          className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${fromError ? 'ring-1 ring-[#f04452]' : ''}`}
+          className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${fromError ? 'ring-1 ring-destructive' : ''}`}
         />
         {fromError ? (
-          <p className="text-[11px] text-[#f04452]">{t('firewall.rules.invalidIP')}</p>
+          <p className="text-[11px] text-destructive">{t('firewall.rules.invalidIP')}</p>
         ) : (
           <p className="text-[11px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
         )}
@@ -381,9 +381,9 @@ export default function FirewallRules() {
   const getActionStyle = (action: string) => {
     const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
     const normalized = action.toUpperCase()
-    if (normalized.startsWith('ALLOW')) return `${base} bg-[#00c471]/10 text-[#00c471]`
-    if (normalized.startsWith('DENY') || normalized.startsWith('REJECT')) return `${base} bg-[#f04452]/10 text-[#f04452]`
-    if (normalized.startsWith('LIMIT')) return `${base} bg-[#f59e0b]/10 text-[#f59e0b]`
+    if (normalized.startsWith('ALLOW')) return `${base} bg-success/10 text-success`
+    if (normalized.startsWith('DENY') || normalized.startsWith('REJECT')) return `${base} bg-destructive/10 text-destructive`
+    if (normalized.startsWith('LIMIT')) return `${base} bg-warning/10 text-warning`
     return `${base} bg-secondary text-muted-foreground`
   }
 
@@ -419,8 +419,8 @@ export default function FirewallRules() {
                 {status && (
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
                     status.active
-                      ? 'bg-[#00c471]/10 text-[#00c471]'
-                      : 'bg-[#f04452]/10 text-[#f04452]'
+                      ? 'bg-success/10 text-success'
+                      : 'bg-destructive/10 text-destructive'
                   }`}>
                     {status.active ? t('firewall.status.active') : t('firewall.status.inactive')}
                   </span>
@@ -468,7 +468,7 @@ export default function FirewallRules() {
 
       {/* Rules Table */}
       {rulesError && rules.length === 0 ? (
-        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium">{t('firewall.rules.loadError')}</p>
@@ -575,7 +575,7 @@ export default function FirewallRules() {
       <Dialog open={!!lockout} onOpenChange={(open) => !open && setLockout(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="text-[#f04452]">{t('firewall.lockout.title')}</DialogTitle>
+            <DialogTitle className="text-destructive">{t('firewall.lockout.title')}</DialogTitle>
             <DialogDescription className="whitespace-pre-line">
               {lockout?.message}
               {'\n\n'}

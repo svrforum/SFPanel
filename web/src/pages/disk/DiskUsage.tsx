@@ -100,7 +100,7 @@ export default function DiskUsage() {
       </div>
 
       {error ? (
-        <div className="flex items-center gap-2 text-[13px] text-[#f04452] bg-[#f04452]/10 rounded-xl p-3">
+        <div className="flex items-center gap-2 text-[13px] text-destructive bg-destructive/10 rounded-xl p-3">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
         </div>
@@ -120,12 +120,12 @@ export default function DiskUsage() {
                 onClick={() => setPath(entry.path)}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-accent transition-colors text-left group"
               >
-                <Folder className="h-4 w-4 text-[#3182f6] shrink-0" />
+                <Folder className="h-4 w-4 text-primary shrink-0" />
                 <span className="text-[13px] font-medium w-48 truncate shrink-0" title={entry.path}>
                   {basename(entry.path)}
                 </span>
                 <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                  <div className="h-full bg-[#3182f6]/70 rounded-full" style={{ width: `${pct}%` }} />
+                  <div className="h-full bg-primary/70 rounded-full" style={{ width: `${pct}%` }} />
                 </div>
                 <span className="text-[12px] text-muted-foreground tabular-nums w-20 text-right shrink-0">
                   {formatBytes(entry.size)}

@@ -77,9 +77,9 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
 
   const statusColor = (status: string) => {
     switch (status) {
-      case 'online': return 'bg-[#00c471]'
-      case 'suspect': return 'bg-[#f59e0b]'
-      case 'offline': return 'bg-[#f04452]'
+      case 'online': return 'bg-success'
+      case 'suspect': return 'bg-warning'
+      case 'offline': return 'bg-destructive'
       default: return 'bg-muted-foreground'
     }
   }
@@ -157,7 +157,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                     className={cn(
                       'flex flex-col items-center gap-1.5 rounded-xl py-3 px-1 transition-colors',
                       isActive
-                        ? 'bg-primary/10 text-[#3182f6]'
+                        ? 'bg-primary/10 text-primary'
                         : 'text-muted-foreground active:bg-secondary/80'
                     )}
                   >
@@ -173,7 +173,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
             <div className="border-t border-border mt-2 pt-2 pb-4">
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-2 w-full rounded-xl py-3 px-4 text-[#f04452] active:bg-secondary/80 transition-colors"
+                className="flex items-center gap-2 w-full rounded-xl py-3 px-4 text-destructive active:bg-secondary/80 transition-colors"
               >
                 <LogOut className="h-5 w-5" />
                 <span className="text-[13px] font-medium">{t('layout.logout')}</span>

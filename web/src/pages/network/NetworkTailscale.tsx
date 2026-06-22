@@ -358,7 +358,7 @@ export default function NetworkTailscale() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 {!outputDialog.done && <Loader2 className="h-4 w-4 animate-spin" />}
-                {outputDialog.done && <CheckCircle2 className="h-4 w-4 text-[#00c471]" />}
+                {outputDialog.done && <CheckCircle2 className="h-4 w-4 text-success" />}
                 {outputDialog.title}
               </DialogTitle>
               <DialogDescription>
@@ -414,7 +414,7 @@ export default function NetworkTailscale() {
                 {t('network.tailscale.checkUpdate')}
               </Button>
               {updateInfo && (
-                <span className={`text-[11px] ${updateInfo.available ? 'text-[#f59e0b] font-medium' : 'text-[#00c471]'}`}>
+                <span className={`text-[11px] ${updateInfo.available ? 'text-warning font-medium' : 'text-success'}`}>
                   {updateInfo.available
                     ? t('network.tailscale.updateAvailable', { version: updateInfo.version })
                     : t('network.tailscale.upToDate')}
@@ -430,7 +430,7 @@ export default function NetworkTailscale() {
 
         <div className="bg-card rounded-2xl p-6 card-shadow max-w-lg mx-auto">
           <div className="text-center mb-6">
-            <Globe className="h-10 w-10 text-[#3182f6] mx-auto mb-3" />
+            <Globe className="h-10 w-10 text-primary mx-auto mb-3" />
             <h3 className="text-[15px] font-semibold mb-1">{t('network.tailscale.notConnected')}</h3>
             <p className="text-[13px] text-muted-foreground">
               {status?.backend_state === 'NeedsLogin'
@@ -458,13 +458,13 @@ export default function NetworkTailscale() {
             </Button>
 
             {authURL && (
-              <div className="bg-[#3182f6]/10 rounded-xl p-3">
-                <p className="text-[13px] text-[#3182f6] font-medium mb-2">{t('network.tailscale.authRequired')}</p>
+              <div className="bg-primary/10 rounded-xl p-3">
+                <p className="text-[13px] text-primary font-medium mb-2">{t('network.tailscale.authRequired')}</p>
                 <a
                   href={authURL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[13px] text-[#3182f6] hover:underline font-mono break-all"
+                  className="inline-flex items-center gap-1 text-[13px] text-primary hover:underline font-mono break-all"
                 >
                   {authURL}
                   <ExternalLink className="h-3 w-3 shrink-0" />
@@ -503,7 +503,7 @@ export default function NetworkTailscale() {
             {t('network.tailscale.checkUpdate')}
           </Button>
           {updateInfo && (
-            <span className={`text-[11px] ${updateInfo.available ? 'text-[#f59e0b] font-medium' : 'text-[#00c471]'}`}>
+            <span className={`text-[11px] ${updateInfo.available ? 'text-warning font-medium' : 'text-success'}`}>
               {updateInfo.available
                 ? t('network.tailscale.updateAvailable', { version: updateInfo.version })
                 : t('network.tailscale.upToDate')}
@@ -527,7 +527,7 @@ export default function NetworkTailscale() {
           <Button
             variant="outline"
             size="sm"
-            className="text-[#f04452] hover:text-[#f04452]"
+            className="text-destructive hover:text-destructive"
             onClick={() => setLogoutDialogOpen(true)}
           >
             <LogOut className="h-3.5 w-3.5" />
@@ -556,7 +556,7 @@ export default function NetworkTailscale() {
                   onClick={() => copyToClipboard(status.self!.tailscale_ip, 'ip4')}
                 >
                   <span className="truncate min-w-0">{status.self.tailscale_ip}</span>
-                  {copiedField === 'ip4' ? <Check className="h-3 w-3 text-[#00c471] shrink-0" /> : <Copy className="h-3 w-3 shrink-0" />}
+                  {copiedField === 'ip4' ? <Check className="h-3 w-3 text-success shrink-0" /> : <Copy className="h-3 w-3 shrink-0" />}
                 </button>
               </div>
               {status.self.tailscale_ipv6 && (
@@ -568,7 +568,7 @@ export default function NetworkTailscale() {
                     title={status.self.tailscale_ipv6}
                   >
                     {status.self.tailscale_ipv6}
-                    {copiedField === 'ip6' ? <Check className="h-3 w-3 text-[#00c471]" /> : <Copy className="h-3 w-3" />}
+                    {copiedField === 'ip6' ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
                   </button>
                 </div>
               )}
@@ -602,7 +602,7 @@ export default function NetworkTailscale() {
             <button
               className={`w-full flex items-center justify-between rounded-xl p-3 transition-colors ${
                 status?.accept_routes
-                  ? 'bg-[#00c471]/10 ring-1 ring-[#00c471]/20'
+                  ? 'bg-success/10 ring-1 ring-success/20'
                   : 'bg-secondary/50 hover:bg-secondary/80'
               }`}
               onClick={() => handleToggleAcceptRoutes(!status?.accept_routes)}
@@ -610,9 +610,9 @@ export default function NetworkTailscale() {
             >
               <div className="flex items-center gap-3 text-left">
                 <div className={`flex items-center justify-center w-8 h-8 rounded-lg ${
-                  status?.accept_routes ? 'bg-[#00c471]/20' : 'bg-secondary'
+                  status?.accept_routes ? 'bg-success/20' : 'bg-secondary'
                 }`}>
-                  <Route className={`h-4 w-4 ${status?.accept_routes ? 'text-[#00c471]' : 'text-muted-foreground'}`} />
+                  <Route className={`h-4 w-4 ${status?.accept_routes ? 'text-success' : 'text-muted-foreground'}`} />
                 </div>
                 <div>
                   <div className="text-[13px] font-medium">{t('network.tailscale.acceptRoutes')}</div>
@@ -624,7 +624,7 @@ export default function NetworkTailscale() {
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 ) : (
                   <div className={`w-10 h-6 rounded-full transition-colors relative ${
-                    status?.accept_routes ? 'bg-[#00c471]' : 'bg-secondary'
+                    status?.accept_routes ? 'bg-success' : 'bg-secondary'
                   }`}>
                     <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${
                       status?.accept_routes ? 'translate-x-5' : 'translate-x-1'
@@ -638,7 +638,7 @@ export default function NetworkTailscale() {
             <button
               className={`w-full flex items-center justify-between rounded-xl p-3 transition-colors ${
                 status?.advertise_exit_node
-                  ? 'bg-[#3182f6]/10 ring-1 ring-[#3182f6]/20'
+                  ? 'bg-primary/10 ring-1 ring-primary/20'
                   : 'bg-secondary/50 hover:bg-secondary/80'
               }`}
               onClick={() => handleToggleAdvertiseExitNode(!status?.advertise_exit_node)}
@@ -646,9 +646,9 @@ export default function NetworkTailscale() {
             >
               <div className="flex items-center gap-3 text-left">
                 <div className={`flex items-center justify-center w-8 h-8 rounded-lg ${
-                  status?.advertise_exit_node ? 'bg-[#3182f6]/20' : 'bg-secondary'
+                  status?.advertise_exit_node ? 'bg-primary/20' : 'bg-secondary'
                 }`}>
-                  <Shield className={`h-4 w-4 ${status?.advertise_exit_node ? 'text-[#3182f6]' : 'text-muted-foreground'}`} />
+                  <Shield className={`h-4 w-4 ${status?.advertise_exit_node ? 'text-primary' : 'text-muted-foreground'}`} />
                 </div>
                 <div>
                   <div className="text-[13px] font-medium">{t('network.tailscale.advertiseExitNode')}</div>
@@ -660,7 +660,7 @@ export default function NetworkTailscale() {
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 ) : (
                   <div className={`w-10 h-6 rounded-full transition-colors relative ${
-                    status?.advertise_exit_node ? 'bg-[#3182f6]' : 'bg-secondary'
+                    status?.advertise_exit_node ? 'bg-primary' : 'bg-secondary'
                   }`}>
                     <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${
                       status?.advertise_exit_node ? 'translate-x-5' : 'translate-x-1'
@@ -756,7 +756,7 @@ export default function NetworkTailscale() {
                       <div className="flex items-center gap-1.5">
                         {peer.hostname}
                         {peer.exit_node && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary">
                             Exit
                           </span>
                         )}
@@ -774,7 +774,7 @@ export default function NetworkTailscale() {
                       >
                         {peer.tailscale_ip}
                         {copiedField === peer.tailscale_ip ? (
-                          <Check className="h-3 w-3 text-[#00c471]" />
+                          <Check className="h-3 w-3 text-success" />
                         ) : (
                           <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100" />
                         )}
@@ -784,7 +784,7 @@ export default function NetworkTailscale() {
                     <TableCell>
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
                         peer.online
-                          ? 'bg-[#00c471]/10 text-[#00c471]'
+                          ? 'bg-success/10 text-success'
                           : 'bg-secondary text-muted-foreground'
                       }`}>
                         {peer.online ? t('network.tailscale.online') : t('network.tailscale.offline')}
@@ -793,9 +793,9 @@ export default function NetworkTailscale() {
                     <TableCell className="text-right text-[12px]">
                       {(peer.tx_bytes > 0 || peer.rx_bytes > 0) ? (
                         <span>
-                          <span className="text-[#3182f6]">{formatBytes(peer.tx_bytes)}</span>
+                          <span className="text-primary">{formatBytes(peer.tx_bytes)}</span>
                           {' / '}
-                          <span className="text-[#00c471]">{formatBytes(peer.rx_bytes)}</span>
+                          <span className="text-success">{formatBytes(peer.rx_bytes)}</span>
                         </span>
                       ) : (
                         <span className="text-muted-foreground">-</span>

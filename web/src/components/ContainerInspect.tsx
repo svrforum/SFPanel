@@ -81,7 +81,7 @@ export default function ContainerInspect({ containerId }: { containerId: string 
                 className="h-full rounded-full transition-all duration-500"
                 style={{
                   width: `${Math.min(stats.cpu_percent, 100)}%`,
-                  backgroundColor: stats.cpu_percent > 80 ? '#f04452' : stats.cpu_percent > 50 ? '#f59e0b' : '#3182f6'
+                  backgroundColor: stats.cpu_percent > 80 ? 'var(--destructive)' : stats.cpu_percent > 50 ? 'var(--warning)' : 'var(--primary)'
                 }}
               />
             </div>
@@ -103,7 +103,7 @@ export default function ContainerInspect({ containerId }: { containerId: string 
                 className="h-full rounded-full transition-all duration-500"
                 style={{
                   width: `${Math.min(stats.mem_percent, 100)}%`,
-                  backgroundColor: stats.mem_percent > 80 ? '#f04452' : stats.mem_percent > 50 ? '#f59e0b' : '#8b5cf6'
+                  backgroundColor: stats.mem_percent > 80 ? 'var(--destructive)' : stats.mem_percent > 50 ? 'var(--warning)' : 'var(--chart-4)'
                 }}
               />
             </div>

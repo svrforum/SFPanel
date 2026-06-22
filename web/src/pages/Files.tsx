@@ -1288,7 +1288,7 @@ export default function Files() {
                 className="h-full rounded-full transition-all duration-300"
                 style={{
                   width: `${uploadProgress?.percent ?? 0}%`,
-                  backgroundColor: '#3182f6',
+                  backgroundColor: 'var(--primary)',
                 }}
               />
             </div>

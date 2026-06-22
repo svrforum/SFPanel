@@ -164,7 +164,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
       <div className="flex items-center justify-between px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
-            <Circle className={`h-2 w-2 fill-current ${connected ? 'text-[#00c471]' : 'text-[#f04452]'}`} />
+            <Circle className={`h-2 w-2 fill-current ${connected ? 'text-success' : 'text-destructive'}`} />
             <span className="text-[11px] text-white/40 font-medium">
               {connected ? t('terminal.connected') : t('terminal.disconnected')}
             </span>
@@ -174,7 +174,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
           <select
             value={selectedService}
             onChange={(e) => setSelectedService(e.target.value)}
-            className="h-6 px-2 text-[11px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-[#3182f6]/50"
+            className="h-6 px-2 text-[11px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50"
           >
             <option value="">{t('docker.stacks.allServices', 'All services')}</option>
             {serviceNames.map(name => (
@@ -186,7 +186,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
           <select
             value={tail}
             onChange={(e) => setTail(Number(e.target.value))}
-            className="h-6 px-2 text-[11px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-[#3182f6]/50"
+            className="h-6 px-2 text-[11px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50"
           >
             {TAIL_OPTIONS.map(opt => (
               <option key={opt.value} value={opt.value}>
@@ -199,7 +199,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
           <Button
             variant="ghost"
             size="icon-xs"
-            className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-[#3182f6]' : ''}`}
+            className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-primary' : ''}`}
             title="Auto-scroll"
             onClick={() => {
               setAutoScroll(!autoScroll)
@@ -211,7 +211,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
           <Button
             variant="ghost"
             size="icon-xs"
-            className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-[#3182f6]' : ''}`}
+            className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-primary' : ''}`}
             title={t('terminal.search')}
             onClick={() => {
               setSearchOpen(!searchOpen)
@@ -254,7 +254,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
                 }
               }}
               placeholder={t('terminal.searchPlaceholder')}
-              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-[#3182f6]/50"
+              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-primary/50"
               autoFocus
             />
           </div>

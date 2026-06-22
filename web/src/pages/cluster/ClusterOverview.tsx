@@ -52,13 +52,13 @@ const ERROR_STEPS = new Set(['error'])
 const DONE_STEPS = new Set(['complete', 'online'])
 
 function stepIcon(step: string) {
-  if (DONE_STEPS.has(step)) return <CheckCircle2 className="h-4 w-4 text-[#00c471]" />
-  if (ERROR_STEPS.has(step)) return <XCircle className="h-4 w-4 text-[#f04452]" />
-  if (step === 'warning') return <AlertTriangle className="h-4 w-4 text-[#f59e0b]" />
+  if (DONE_STEPS.has(step)) return <CheckCircle2 className="h-4 w-4 text-success" />
+  if (ERROR_STEPS.has(step)) return <XCircle className="h-4 w-4 text-destructive" />
+  if (step === 'warning') return <AlertTriangle className="h-4 w-4 text-warning" />
   if (step === 'skipped') return <MinusCircle className="h-4 w-4 text-muted-foreground" />
-  if (step === 'waiting') return <Clock className="h-4 w-4 text-[#f59e0b]" />
-  if (step === 'transfer') return <ArrowRightLeft className="h-4 w-4 text-[#3182f6]" />
-  return <Loader2 className="h-4 w-4 text-[#3182f6] animate-spin" />
+  if (step === 'waiting') return <Clock className="h-4 w-4 text-warning" />
+  if (step === 'transfer') return <ArrowRightLeft className="h-4 w-4 text-primary" />
+  return <Loader2 className="h-4 w-4 text-primary animate-spin" />
 }
 
 export default function ClusterOverview() {
@@ -271,11 +271,11 @@ export default function ClusterOverview() {
   const totalContainers = metrics.reduce((s, m) => s + m.container_count, 0)
 
   const statCards = [
-    { label: t('cluster.overview.nodes'), value: `${onlineCount}/${nodes.length}`, icon: Server, color: '#3182f6' },
-    { label: t('cluster.overview.avgCpu'), value: `${avgCpu.toFixed(1)}%`, icon: Cpu, color: avgCpu > 80 ? '#f04452' : avgCpu > 50 ? '#f59e0b' : '#3182f6' },
-    { label: t('cluster.overview.avgMemory'), value: `${avgMem.toFixed(1)}%`, icon: MemoryStick, color: avgMem > 80 ? '#f04452' : avgMem > 50 ? '#f59e0b' : '#00c471' },
-    { label: t('cluster.overview.avgDisk'), value: `${avgDisk.toFixed(1)}%`, icon: HardDrive, color: avgDisk > 80 ? '#f04452' : avgDisk > 50 ? '#f59e0b' : '#3182f6' },
-    { label: t('cluster.overview.containers'), value: String(totalContainers), icon: Container, color: '#3182f6' },
+    { label: t('cluster.overview.nodes'), value: `${onlineCount}/${nodes.length}`, icon: Server, color: 'var(--primary)' },
+    { label: t('cluster.overview.avgCpu'), value: `${avgCpu.toFixed(1)}%`, icon: Cpu, color: avgCpu > 80 ? 'var(--destructive)' : avgCpu > 50 ? 'var(--warning)' : 'var(--primary)' },
+    { label: t('cluster.overview.avgMemory'), value: `${avgMem.toFixed(1)}%`, icon: MemoryStick, color: avgMem > 80 ? 'var(--destructive)' : avgMem > 50 ? 'var(--warning)' : 'var(--success)' },
+    { label: t('cluster.overview.avgDisk'), value: `${avgDisk.toFixed(1)}%`, icon: HardDrive, color: avgDisk > 80 ? 'var(--destructive)' : avgDisk > 50 ? 'var(--warning)' : 'var(--primary)' },
+    { label: t('cluster.overview.containers'), value: String(totalContainers), icon: Container, color: 'var(--primary)' },
   ]
 
   return (
@@ -330,7 +330,7 @@ export default function ClusterOverview() {
             <Button
               variant="outline"
               size="sm"
-              className="rounded-xl text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10 border-[#f04452]/20"
+              className="rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
               onClick={() => setDisbandOpen(true)}
             >
               <Power className="h-3.5 w-3.5 mr-1.5" />
@@ -348,7 +348,7 @@ export default function ClusterOverview() {
             <span className="text-[12px] text-muted-foreground tabular-nums">
               {updateProgress.completed} / {updateProgress.total}
               {updateProgress.failed > 0 && (
-                <span className="text-[#f04452] ml-2">· {t('cluster.overview.updateFailed', { count: updateProgress.failed })}</span>
+                <span className="text-destructive ml-2">· {t('cluster.overview.updateFailed', { count: updateProgress.failed })}</span>
               )}
             </span>
           </div>
@@ -356,7 +356,7 @@ export default function ClusterOverview() {
           <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-4">
             <div
               className={cn('h-full rounded-full transition-all duration-500',
-                updateProgress.overall === 'error' ? 'bg-[#f04452]' : 'bg-[#3182f6]')}
+                updateProgress.overall === 'error' ? 'bg-destructive' : 'bg-primary')}
               style={{ width: `${updateProgress.total > 0 ? (updateProgress.completed / updateProgress.total) * 100 : 0}%` }}
             />
           </div>
@@ -374,7 +374,7 @@ export default function ClusterOverview() {
             ))}
             {updateProgress.overall === 'complete' && (
               <div className="flex items-center gap-3 pt-1">
-                <CheckCircle2 className="h-4 w-4 text-[#00c471] shrink-0" />
+                <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
                 <span className="text-[13px] font-semibold">{t('cluster.overview.updateComplete')}</span>
               </div>
             )}
@@ -404,7 +404,7 @@ export default function ClusterOverview() {
           {nodes.map((node) => {
             const nodeMetrics = metrics.find(m => m.node_id === node.id)
             const isLeader = node.id === status.leader_id
-            const statusColor = node.status === 'online' ? '#00c471' : node.status === 'suspect' ? '#f59e0b' : '#f04452'
+            const statusColor = node.status === 'online' ? 'var(--success)' : node.status === 'suspect' ? 'var(--warning)' : 'var(--destructive)'
 
             return (
               <div key={node.id} className="px-5 py-4 flex items-center gap-4">
@@ -414,7 +414,7 @@ export default function ClusterOverview() {
                     <div className="flex items-center gap-2">
                       <span className="text-[13px] font-medium">{node.name}</span>
                       {isLeader && nodes.length > 1 && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary">
                           <Crown className="h-3 w-3" />
                           {t('layout.cluster.leader')}
                         </span>
@@ -468,7 +468,7 @@ export default function ClusterOverview() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 w-7 p-0 text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10"
+                      className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                       onClick={handleLeave}
                       title={t('cluster.leave.action')}
                     >
@@ -565,7 +565,7 @@ export default function ClusterOverview() {
 }
 
 function MetricBar({ label, value }: { label: string; value: number }) {
-  const color = value > 80 ? '#f04452' : value > 50 ? '#f59e0b' : '#3182f6'
+  const color = value > 80 ? 'var(--destructive)' : value > 50 ? 'var(--warning)' : 'var(--primary)'
   return (
     <div className="min-w-[100px]">
       <div className="flex justify-between text-[11px] mb-1">
@@ -808,12 +808,12 @@ function ClusterInitForm() {
 
 function EventDot({ type }: { type: string }) {
   const color = type.includes('offline') || type.includes('left')
-    ? '#f04452'
+    ? 'var(--destructive)'
     : type.includes('suspect')
-      ? '#f59e0b'
+      ? 'var(--warning)'
       : type.includes('online') || type.includes('joined')
-        ? '#00c471'
-        : '#3182f6'
+        ? 'var(--success)'
+        : 'var(--primary)'
 
   return <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
 }

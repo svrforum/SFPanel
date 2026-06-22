@@ -607,7 +607,7 @@ export default function Logs() {
                           </span>
                         )}
                         {source.custom && (
-                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-primary/10 text-primary">
                             {t('logs.customSource')}
                           </span>
                         )}

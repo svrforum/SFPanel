@@ -223,7 +223,7 @@ export default function Connect() {
                 <p className="text-muted-foreground">{t('connect.diagEmpty')}</p>
               ) : (
                 diagLog.map((line, i) => (
-                  <p key={i} className={line.includes('❌') ? 'text-[#f04452]' : line.includes('✅') ? 'text-[#00c471]' : ''}>
+                  <p key={i} className={line.includes('❌') ? 'text-destructive' : line.includes('✅') ? 'text-success' : ''}>
                     {line}
                   </p>
                 ))

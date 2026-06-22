@@ -135,10 +135,10 @@ export default function FirewallPorts() {
   const getProtocolStyle = (protocol: string) => {
     const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
     if (protocol.startsWith('tcp')) {
-      return `${base} bg-[#3182f6]/10 text-[#3182f6]`
+      return `${base} bg-primary/10 text-primary`
     }
     if (protocol.startsWith('udp')) {
-      return `${base} bg-[#f59e0b]/10 text-[#f59e0b]`
+      return `${base} bg-warning/10 text-warning`
     }
     return `${base} bg-secondary text-muted-foreground`
   }

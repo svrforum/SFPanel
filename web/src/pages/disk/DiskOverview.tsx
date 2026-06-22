@@ -27,7 +27,7 @@ import type { BlockDevice, SmartInfo, IOStat } from '@/types/api'
 function diskTypeBadge(type_: string, rotational: boolean) {
   const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
   if (!rotational || type_ === 'ssd') {
-    return <span className={`${base} bg-[#3182f6]/10 text-[#3182f6]`}>SSD</span>
+    return <span className={`${base} bg-primary/10 text-primary`}>SSD</span>
   }
   return <span className={`${base} bg-secondary text-muted-foreground`}>HDD</span>
 }
@@ -48,11 +48,11 @@ function smartStatusStyle(status: string | undefined, value?: number, worst?: nu
   switch (computed) {
     case 'ok':
     case 'passed':
-      return { className: `${base} bg-[#00c471]/10 text-[#00c471]`, label: 'OK' }
+      return { className: `${base} bg-success/10 text-success`, label: 'OK' }
     case 'warn':
-      return { className: `${base} bg-[#f59e0b]/10 text-[#f59e0b]`, label: 'WARN' }
+      return { className: `${base} bg-warning/10 text-warning`, label: 'WARN' }
     default:
-      return { className: `${base} bg-[#f04452]/10 text-[#f04452]`, label: 'FAIL' }
+      return { className: `${base} bg-destructive/10 text-destructive`, label: 'FAIL' }
   }
 }
 
@@ -174,8 +174,8 @@ export default function DiskOverview() {
       <DockerVolumeUsageCard />
       {/* Smartmontools Install Banner */}
       {smartmontoolsInstalled === false && (
-        <div className="flex items-center gap-3 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-2xl px-5 py-3.5" role="alert">
-          <AlertTriangle className="h-5 w-5 text-[#f59e0b] shrink-0" aria-hidden="true" />
+        <div className="flex items-center gap-3 bg-warning/10 border border-warning/30 rounded-2xl px-5 py-3.5" role="alert">
+          <AlertTriangle className="h-5 w-5 text-warning shrink-0" aria-hidden="true" />
           <div className="flex-1">
             <p className="text-[13px] font-medium">{t('disk.overview.smartmontoolsNotInstalled')}</p>
             <p className="text-[12px] text-muted-foreground mt-0.5">{t('disk.overview.smartmontoolsHint')}</p>
@@ -346,7 +346,7 @@ export default function DiskOverview() {
             )}
             {installSuccess !== null && (
               <div className={`flex items-center gap-2 text-[13px] font-medium ${
-                installSuccess ? 'text-[#00c471]' : 'text-[#f04452]'
+                installSuccess ? 'text-success' : 'text-destructive'
               }`}>
                 {installSuccess
                   ? <><CheckCircle2 className="h-4 w-4" />{t('disk.overview.installSuccess')}</>
@@ -392,8 +392,8 @@ export default function DiskOverview() {
                     smartData.healthy === null
                       ? 'text-muted-foreground'
                       : smartData.healthy
-                        ? 'text-[#00c471]'
-                        : 'text-[#f04452]'
+                        ? 'text-success'
+                        : 'text-destructive'
                   }`}>
                     {smartData.healthy === null
                       ? t('disk.smart.notSupported')
@@ -404,10 +404,10 @@ export default function DiskOverview() {
                 </div>
                 <div className="bg-secondary/30 rounded-xl py-3 px-4 text-center">
                   <div className="flex items-center justify-center gap-1.5 mb-1">
-                    <ThermometerSun className="h-3.5 w-3.5 text-[#f59e0b]" aria-hidden="true" />
+                    <ThermometerSun className="h-3.5 w-3.5 text-warning" aria-hidden="true" />
                     <span className="text-[12px] text-muted-foreground">{t('disk.smart.temperature')}</span>
                   </div>
-                  <span className={`text-lg font-bold ${smartData.temperature > 50 ? 'text-[#f04452]' : smartData.temperature > 40 ? 'text-[#f59e0b]' : ''}`}>
+                  <span className={`text-lg font-bold ${smartData.temperature > 50 ? 'text-destructive' : smartData.temperature > 40 ? 'text-warning' : ''}`}>
                     {smartData.temperature}&deg;C
                   </span>
                 </div>
@@ -475,12 +475,12 @@ export default function DiskOverview() {
                             <TableCell className="text-xs text-muted-foreground">{test.status}</TableCell>
                             <TableCell>
                               {test.passed ? (
-                                <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[#00c471]">
+                                <span className="inline-flex items-center gap-1 text-[12px] font-medium text-success">
                                   <CheckCircle2 className="h-3.5 w-3.5" />
                                   {t('disk.smart.selfTest.passed')}
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[#f04452]">
+                                <span className="inline-flex items-center gap-1 text-[12px] font-medium text-destructive">
                                   <XCircle className="h-3.5 w-3.5" />
                                   {t('disk.smart.selfTest.failed')}
                                 </span>

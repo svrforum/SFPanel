@@ -252,7 +252,7 @@ export default function DiskSwap() {
         </div>
         <div className="bg-card rounded-2xl card-shadow p-4">
           <div className="flex items-center gap-2 mb-1">
-            <MemoryStick className="h-4 w-4 text-[#f59e0b]" />
+            <MemoryStick className="h-4 w-4 text-warning" />
             <span className="text-[13px] text-muted-foreground">{t('disk.swap.used')}</span>
           </div>
           <div className="text-2xl font-bold">{formatBytes(summary.used)}</div>
@@ -262,7 +262,7 @@ export default function DiskSwap() {
                 className="h-full rounded-full transition-all duration-500"
                 style={{
                   width: `${Math.min(usedPercent, 100)}%`,
-                  backgroundColor: usedPercent > 80 ? '#f04452' : usedPercent > 50 ? '#f59e0b' : '#3182f6',
+                  backgroundColor: usedPercent > 80 ? 'var(--destructive)' : usedPercent > 50 ? 'var(--warning)' : 'var(--primary)',
                 }}
               />
             </div>
@@ -270,10 +270,10 @@ export default function DiskSwap() {
         </div>
         <div className="bg-card rounded-2xl card-shadow p-4">
           <div className="flex items-center gap-2 mb-1">
-            <MemoryStick className="h-4 w-4 text-[#00c471]" />
+            <MemoryStick className="h-4 w-4 text-success" />
             <span className="text-[13px] text-muted-foreground">{t('disk.swap.free')}</span>
           </div>
-          <div className="text-2xl font-bold text-[#00c471]">{formatBytes(summary.free)}</div>
+          <div className="text-2xl font-bold text-success">{formatBytes(summary.free)}</div>
         </div>
       </div>
 
@@ -552,15 +552,15 @@ export default function DiskSwap() {
 
                 {/* Warnings */}
                 {swapoffUnsafe && (
-                  <div className="flex items-start gap-2 bg-[#f04452]/10 border border-[#f04452]/30 rounded-xl px-3 py-2.5">
-                    <AlertTriangle className="h-4 w-4 text-[#f04452] shrink-0 mt-0.5" />
-                    <p className="text-[12px] text-[#f04452]">{t('disk.swap.swapoffWarning')}</p>
+                  <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/30 rounded-xl px-3 py-2.5">
+                    <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                    <p className="text-[12px] text-destructive">{t('disk.swap.swapoffWarning')}</p>
                   </div>
                 )}
                 {exceedsDisk && (
-                  <div className="flex items-start gap-2 bg-[#f04452]/10 border border-[#f04452]/30 rounded-xl px-3 py-2.5">
-                    <AlertTriangle className="h-4 w-4 text-[#f04452] shrink-0 mt-0.5" />
-                    <p className="text-[12px] text-[#f04452]">{t('disk.swap.exceedsDisk')}</p>
+                  <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/30 rounded-xl px-3 py-2.5">
+                    <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                    <p className="text-[12px] text-destructive">{t('disk.swap.exceedsDisk')}</p>
                   </div>
                 )}
 
@@ -574,14 +574,14 @@ export default function DiskSwap() {
                   <div className="text-center">
                     <div className="text-[11px] text-muted-foreground mb-1">{t('disk.swap.newSizeMB')}</div>
                     <div className={`text-xl font-bold font-mono ${
-                      diffMB > 0 ? 'text-[#00c471]' : diffMB < 0 ? 'text-[#f59e0b]' : ''
+                      diffMB > 0 ? 'text-success' : diffMB < 0 ? 'text-warning' : ''
                     }`}>
                       {newMB > 0 ? formatBytes(newMB * 1024 * 1024) : '—'}
                     </div>
                   </div>
                   {newMB > 0 && diffMB !== 0 && (
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                      diffMB > 0 ? 'bg-[#00c471]/10 text-[#00c471]' : 'bg-[#f59e0b]/10 text-[#f59e0b]'
+                      diffMB > 0 ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'
                     }`}>
                       {diffMB > 0 ? '+' : ''}{formatBytes(Math.abs(diffMB) * 1024 * 1024)}
                     </span>
@@ -598,7 +598,7 @@ export default function DiskSwap() {
                     {newMB > 0 && (
                       <div
                         className={`absolute inset-y-0 left-0 rounded-full transition-all duration-300 ${
-                          exceedsDisk ? 'bg-[#f04452]' : diffMB >= 0 ? 'bg-[#3182f6]' : 'bg-[#f59e0b]'
+                          exceedsDisk ? 'bg-destructive' : diffMB >= 0 ? 'bg-primary' : 'bg-warning'
                         }`}
                         style={{ width: `${Math.min((newMB / maxSlider) * 100, 100)}%` }}
                       />
@@ -666,9 +666,9 @@ export default function DiskSwap() {
                 <div key={i} className="flex items-start gap-3 bg-secondary/20 rounded-xl px-4 py-3">
                   <div className="mt-0.5">
                     {step.status === 'success' ? (
-                      <CheckCircle2 className="h-4 w-4 text-[#00c471]" />
+                      <CheckCircle2 className="h-4 w-4 text-success" />
                     ) : (
-                      <XCircle className="h-4 w-4 text-[#f04452]" />
+                      <XCircle className="h-4 w-4 text-destructive" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -676,8 +676,8 @@ export default function DiskSwap() {
                       <span className="text-[13px] font-semibold font-mono">{step.name}</span>
                       <span className={`inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium ${
                         step.status === 'success'
-                          ? 'bg-[#00c471]/10 text-[#00c471]'
-                          : 'bg-[#f04452]/10 text-[#f04452]'
+                          ? 'bg-success/10 text-success'
+                          : 'bg-destructive/10 text-destructive'
                       }`}>
                         {step.status}
                       </span>
@@ -692,7 +692,7 @@ export default function DiskSwap() {
               ))}
               {!resizing && resizeSteps.length > 0 && (
                 <div className={`flex items-center gap-2 justify-center py-2 text-[13px] font-medium ${
-                  resizeSteps.every(s => s.status === 'success') ? 'text-[#00c471]' : 'text-[#f04452]'
+                  resizeSteps.every(s => s.status === 'success') ? 'text-success' : 'text-destructive'
                 }`}>
                   {resizeSteps.every(s => s.status === 'success') ? (
                     <><CheckCircle2 className="h-4 w-4" />{t('disk.swap.resizeSuccess')}</>

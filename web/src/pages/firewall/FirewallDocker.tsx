@@ -222,11 +222,11 @@ export default function FirewallDocker() {
                     <TableCell className="text-[13px] font-mono text-muted-foreground">{port.host_ip}</TableCell>
                     <TableCell>
                       {blocked ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#f04452]/10 text-[#f04452]">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-destructive/10 text-destructive">
                           {t('firewall.docker.blocked')}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                           {t('firewall.docker.open')}
                         </span>
                       )}
@@ -296,8 +296,8 @@ export default function FirewallDocker() {
                   <TableCell>
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
                       rule.action === 'drop'
-                        ? 'bg-[#f04452]/10 text-[#f04452]'
-                        : 'bg-[#00c471]/10 text-[#00c471]'
+                        ? 'bg-destructive/10 text-destructive'
+                        : 'bg-success/10 text-success'
                     }`}>
                       {rule.action === 'drop' ? t('firewall.docker.drop') : t('firewall.docker.accept')}
                     </span>

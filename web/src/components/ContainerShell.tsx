@@ -133,7 +133,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
       <div className="flex items-center justify-between px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <Circle className={`h-2 w-2 fill-current ${connected ? 'text-[#00c471]' : 'text-[#f04452]'}`} />
+            <Circle className={`h-2 w-2 fill-current ${connected ? 'text-success' : 'text-destructive'}`} />
             <span className="text-[11px] text-white/40 font-medium">
               {connected ? t('terminal.connected') : t('terminal.disconnected')}
             </span>
@@ -153,7 +153,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
             <Button
               variant="ghost"
               size="icon-xs"
-              className="text-white/40 hover:text-[#f04452] hover:bg-white/10"
+              className="text-white/40 hover:text-destructive hover:bg-white/10"
               title={t('terminal.disconnect')}
               onClick={handleDisconnect}
             >

@@ -187,9 +187,9 @@ export default function Layout() {
                   {panelVersion ? `v${panelVersion.split('.').slice(0, 2).join('.')}` : '...'}
                 </span>
                 {updateAvailable ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#3182f6]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
                 ) : panelVersion ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#00c471]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-success" />
                 ) : null}
               </button>
               <div className="flex items-center gap-1 pt-0.5">
@@ -226,11 +226,11 @@ export default function Layout() {
                   </p>
                 </div>
                 {updateAvailable ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#3182f6]/10 text-[#3182f6]">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary">
                     {t('layout.updateAvailable')}
                   </span>
                 ) : panelVersion ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#00c471]/10 text-[#00c471]">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-success/10 text-success">
                     {t('layout.upToDate')}
                   </span>
                 ) : null}

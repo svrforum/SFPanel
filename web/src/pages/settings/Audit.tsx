@@ -55,7 +55,7 @@ export default function Audit() {
             <Button
               variant="outline"
               size="sm"
-              className="rounded-xl text-[#f04452] hover:text-[#f04452]"
+              className="rounded-xl text-destructive hover:text-destructive"
               onClick={async () => {
                 if (!(await confirm({ title: t('settings.auditClearConfirm'), danger: true }))) return
                 try {
@@ -127,16 +127,16 @@ export default function Audit() {
                       <TableCell className="text-[12px]">{log.username || '-'}</TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                          log.method === 'DELETE' ? 'bg-[#f04452]/10 text-[#f04452]' :
-                          log.method === 'POST' ? 'bg-[#3182f6]/10 text-[#3182f6]' :
-                          'bg-[#f59e0b]/10 text-[#f59e0b]'
+                          log.method === 'DELETE' ? 'bg-destructive/10 text-destructive' :
+                          log.method === 'POST' ? 'bg-primary/10 text-primary' :
+                          'bg-warning/10 text-warning'
                         }`}>
                           {log.method}
                         </span>
                       </TableCell>
                       <TableCell className="text-[12px] font-mono max-w-[300px] truncate">{log.path.replace('/api/v1', '')}</TableCell>
                       <TableCell>
-                        <span className={`text-[12px] ${log.status < 400 ? 'text-[#00c471]' : 'text-[#f04452]'}`}>
+                        <span className={`text-[12px] ${log.status < 400 ? 'text-success' : 'text-destructive'}`}>
                           {log.status}
                         </span>
                       </TableCell>
@@ -162,9 +162,9 @@ export default function Audit() {
                   <div className="flex justify-between text-[12px]">
                     <span className="text-muted-foreground">{t('settings.auditMethod')}</span>
                     <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                      log.method === 'DELETE' ? 'bg-[#f04452]/10 text-[#f04452]' :
-                      log.method === 'POST' ? 'bg-[#3182f6]/10 text-[#3182f6]' :
-                      'bg-[#f59e0b]/10 text-[#f59e0b]'
+                      log.method === 'DELETE' ? 'bg-destructive/10 text-destructive' :
+                      log.method === 'POST' ? 'bg-primary/10 text-primary' :
+                      'bg-warning/10 text-warning'
                     }`}>
                       {log.method}
                     </span>
@@ -175,7 +175,7 @@ export default function Audit() {
                   </div>
                   <div className="flex justify-between text-[12px]">
                     <span className="text-muted-foreground">{t('settings.auditStatus')}</span>
-                    <span className={log.status < 400 ? 'text-[#00c471]' : 'text-[#f04452]'}>{log.status}</span>
+                    <span className={log.status < 400 ? 'text-success' : 'text-destructive'}>{log.status}</span>
                   </div>
                   <div className="flex justify-between text-[12px]">
                     <span className="text-muted-foreground">{t('settings.auditIP')}</span>

@@ -70,13 +70,13 @@ function statusBadge(state: string) {
   const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
   switch (state.toLowerCase()) {
     case 'running':
-      return <span className={`${base} bg-[#00c471]/10 text-[#00c471]`}>running</span>
+      return <span className={`${base} bg-success/10 text-success`}>running</span>
     case 'exited':
-      return <span className={`${base} bg-[#f04452]/10 text-[#f04452]`}>exited</span>
+      return <span className={`${base} bg-destructive/10 text-destructive`}>exited</span>
     case 'created':
       return <span className={`${base} bg-secondary text-muted-foreground`}>created</span>
     case 'paused':
-      return <span className={`${base} bg-[#f59e0b]/10 text-[#f59e0b]`}>paused</span>
+      return <span className={`${base} bg-warning/10 text-warning`}>paused</span>
     default:
       return <span className={`${base} bg-secondary text-muted-foreground`}>{state}</span>
   }
@@ -862,18 +862,18 @@ export default function DockerContainers() {
           <div className="text-2xl font-bold mt-1">{containers.length}</div>
         </div>
         <div
-          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 ${filterState === 'running' ? 'bg-[#00c471]/10 ring-1 ring-[#00c471]/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
+          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 ${filterState === 'running' ? 'bg-success/10 ring-1 ring-success/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
           onClick={() => setFilterState('running')}
         >
-          <span className="text-[13px] text-[#00c471]">{t('docker.containers.running')}</span>
-          <div className="text-2xl font-bold text-[#00c471] mt-1">{runningCount}</div>
+          <span className="text-[13px] text-success">{t('docker.containers.running')}</span>
+          <div className="text-2xl font-bold text-success mt-1">{runningCount}</div>
         </div>
         <div
-          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 ${filterState === 'stopped' ? 'bg-[#f04452]/10 ring-1 ring-[#f04452]/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
+          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 ${filterState === 'stopped' ? 'bg-destructive/10 ring-1 ring-destructive/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
           onClick={() => setFilterState('stopped')}
         >
-          <span className="text-[13px] text-[#f04452]">{t('docker.containers.stopped')}</span>
-          <div className="text-2xl font-bold text-[#f04452] mt-1">{stoppedCount}</div>
+          <span className="text-[13px] text-destructive">{t('docker.containers.stopped')}</span>
+          <div className="text-2xl font-bold text-destructive mt-1">{stoppedCount}</div>
         </div>
       </div>
 
@@ -942,7 +942,7 @@ export default function DockerContainers() {
 
       {/* Load error / loading skeleton (first load only) */}
       {error && containers.length === 0 ? (
-        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium">{t('docker.containers.loadError')}</p>
@@ -987,7 +987,7 @@ export default function DockerContainers() {
                   )}
                   <Layers className="h-4 w-4 text-primary shrink-0" />
                   <span className="text-[13px] font-semibold truncate">{stackName}</span>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                     {stackRunning}/{stackContainers.length}
                   </span>
                   <div className="flex-1 min-w-0" />
@@ -1036,9 +1036,9 @@ export default function DockerContainers() {
               </div>
               {!isCollapsed && stackContainers.map((c) => {
                 const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-                const statusClasses = c.State === 'running' ? `${base} bg-[#00c471]/10 text-[#00c471]`
-                  : c.State === 'exited' ? `${base} bg-[#f04452]/10 text-[#f04452]`
-                  : c.State === 'paused' ? `${base} bg-[#f59e0b]/10 text-[#f59e0b]`
+                const statusClasses = c.State === 'running' ? `${base} bg-success/10 text-success`
+                  : c.State === 'exited' ? `${base} bg-destructive/10 text-destructive`
+                  : c.State === 'paused' ? `${base} bg-warning/10 text-warning`
                   : `${base} bg-secondary text-muted-foreground`
                 const stats = statsMap[c.Id]
                 return (
@@ -1118,9 +1118,9 @@ export default function DockerContainers() {
         {/* Standalone containers */}
         {groupedContainers.standalone.map((c) => {
           const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-          const statusClasses = c.State === 'running' ? `${base} bg-[#00c471]/10 text-[#00c471]`
-            : c.State === 'exited' ? `${base} bg-[#f04452]/10 text-[#f04452]`
-            : c.State === 'paused' ? `${base} bg-[#f59e0b]/10 text-[#f59e0b]`
+          const statusClasses = c.State === 'running' ? `${base} bg-success/10 text-success`
+            : c.State === 'exited' ? `${base} bg-destructive/10 text-destructive`
+            : c.State === 'paused' ? `${base} bg-warning/10 text-warning`
             : `${base} bg-secondary text-muted-foreground`
           const stats = statsMap[c.Id]
           return (
@@ -1240,7 +1240,7 @@ export default function DockerContainers() {
                       )}
                       <Layers className="h-4 w-4 text-primary shrink-0" />
                       <span className="text-[13px] font-semibold truncate">{stackName}</span>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                         {stackRunning}/{stackContainers.length}
                       </span>
                       <div className="flex-1 min-w-0" />

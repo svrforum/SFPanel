@@ -163,7 +163,7 @@ export default function DockerImages() {
 
       {/* Load error / loading skeleton (first load only) */}
       {error && images.length === 0 ? (
-        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium">{t('docker.images.loadError')}</p>
@@ -200,7 +200,7 @@ export default function DockerImages() {
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   {img.in_use ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                       {t('docker.images.inUse')}
                     </span>
                   ) : (
@@ -209,7 +209,7 @@ export default function DockerImages() {
                     </span>
                   )}
                   {getUpdateStatus(img.RepoTags?.[0] || '')?.has_update && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary">
                       {t('docker.images.updateAvailable')}
                     </span>
                   )}
@@ -253,7 +253,7 @@ export default function DockerImages() {
             <TableRow key={img.Id}>
               <TableCell className="font-medium font-mono text-sm">
                 <div className="flex items-center gap-1.5">
-                  {img.in_use && <Check className="h-3.5 w-3.5 text-[#00c471] shrink-0" />}
+                  {img.in_use && <Check className="h-3.5 w-3.5 text-success shrink-0" />}
                   {getRepoTag(img)}
                 </div>
               </TableCell>
@@ -263,7 +263,7 @@ export default function DockerImages() {
               <TableCell>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {img.in_use ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]" title={img.used_by.join(', ')}>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success" title={img.used_by.join(', ')}>
                       {t('docker.images.inUse')}
                     </span>
                   ) : (
@@ -272,7 +272,7 @@ export default function DockerImages() {
                     </span>
                   )}
                   {getUpdateStatus(img.RepoTags?.[0] || '')?.has_update && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary">
                       {t('docker.images.updateAvailable')}
                     </span>
                   )}

@@ -25,13 +25,13 @@ function memberStateColor(state: string): string {
   switch (state.toLowerCase()) {
     case 'active':
     case 'in_sync':
-      return 'bg-[#00c471]/10 text-[#00c471]'
+      return 'bg-success/10 text-success'
     case 'spare':
     case 'rebuilding':
-      return 'bg-[#f59e0b]/10 text-[#f59e0b]'
+      return 'bg-warning/10 text-warning'
     case 'faulty':
     case 'removed':
-      return 'bg-[#f04452]/10 text-[#f04452]'
+      return 'bg-destructive/10 text-destructive'
     default:
       return 'bg-secondary text-muted-foreground'
   }
@@ -42,13 +42,13 @@ function arrayStateBadge(state: string) {
   switch (state.toLowerCase()) {
     case 'active':
     case 'clean':
-      return <span className={`${base} bg-[#00c471]/10 text-[#00c471]`}>{state}</span>
+      return <span className={`${base} bg-success/10 text-success`}>{state}</span>
     case 'degraded':
     case 'rebuilding':
-      return <span className={`${base} bg-[#f59e0b]/10 text-[#f59e0b]`}>{state}</span>
+      return <span className={`${base} bg-warning/10 text-warning`}>{state}</span>
     case 'inactive':
     case 'failed':
-      return <span className={`${base} bg-[#f04452]/10 text-[#f04452]`}>{state}</span>
+      return <span className={`${base} bg-destructive/10 text-destructive`}>{state}</span>
     default:
       return <span className={`${base} bg-secondary text-muted-foreground`}>{state}</span>
   }
@@ -272,17 +272,17 @@ export default function DiskRAID() {
                     <div className="text-[11px] text-muted-foreground">{t('disk.raid.totalDevices')}</div>
                     <div className="text-lg font-bold">{arr.total}</div>
                   </div>
-                  <div className="bg-[#00c471]/5 rounded-lg px-3 py-2 text-center">
-                    <div className="text-[11px] text-[#00c471]">{t('disk.raid.activeDevices')}</div>
-                    <div className="text-lg font-bold text-[#00c471]">{arr.active}</div>
+                  <div className="bg-success/5 rounded-lg px-3 py-2 text-center">
+                    <div className="text-[11px] text-success">{t('disk.raid.activeDevices')}</div>
+                    <div className="text-lg font-bold text-success">{arr.active}</div>
                   </div>
-                  <div className="bg-[#f04452]/5 rounded-lg px-3 py-2 text-center">
-                    <div className="text-[11px] text-[#f04452]">{t('disk.raid.failedDevices')}</div>
-                    <div className="text-lg font-bold text-[#f04452]">{arr.failed}</div>
+                  <div className="bg-destructive/5 rounded-lg px-3 py-2 text-center">
+                    <div className="text-[11px] text-destructive">{t('disk.raid.failedDevices')}</div>
+                    <div className="text-lg font-bold text-destructive">{arr.failed}</div>
                   </div>
-                  <div className="bg-[#f59e0b]/5 rounded-lg px-3 py-2 text-center">
-                    <div className="text-[11px] text-[#f59e0b]">{t('disk.raid.spareDevices')}</div>
-                    <div className="text-lg font-bold text-[#f59e0b]">{arr.spare}</div>
+                  <div className="bg-warning/5 rounded-lg px-3 py-2 text-center">
+                    <div className="text-[11px] text-warning">{t('disk.raid.spareDevices')}</div>
+                    <div className="text-lg font-bold text-warning">{arr.spare}</div>
                   </div>
                 </div>
               </div>

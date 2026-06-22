@@ -398,11 +398,11 @@ export default function NetworkWireGuard() {
             {/* Interface Header */}
             <div className="flex items-center justify-between gap-2 mb-4">
               <div className="flex items-center gap-2 min-w-0">
-                <Shield className="h-4 w-4 text-[#3182f6] shrink-0" />
+                <Shield className="h-4 w-4 text-primary shrink-0" />
                 <span className="text-[15px] font-semibold truncate min-w-0" title={iface.name}>{iface.name}</span>
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 ${
                   iface.active
-                    ? 'bg-[#00c471]/10 text-[#00c471]'
+                    ? 'bg-success/10 text-success'
                     : 'bg-secondary text-muted-foreground'
                 }`}>
                   {iface.active ? t('network.wireguard.active') : t('network.wireguard.inactive')}
@@ -415,7 +415,7 @@ export default function NetworkWireGuard() {
                   onClick={() => openAddPeer(iface)}
                   title={t('network.wireguard.peers.addPeer')}
                 >
-                  <UserPlus className="h-4 w-4 text-[#3182f6]" />
+                  <UserPlus className="h-4 w-4 text-primary" />
                 </Button>
                 <Button
                   variant="ghost"
@@ -427,9 +427,9 @@ export default function NetworkWireGuard() {
                   {toggling === iface.name ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : iface.active ? (
-                    <PowerOff className="h-4 w-4 text-[#f04452]" />
+                    <PowerOff className="h-4 w-4 text-destructive" />
                   ) : (
-                    <Power className="h-4 w-4 text-[#00c471]" />
+                    <Power className="h-4 w-4 text-success" />
                   )}
                 </Button>
                 <Button
@@ -443,7 +443,7 @@ export default function NetworkWireGuard() {
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  className="text-[#f04452] hover:text-[#f04452]"
+                  className="text-destructive hover:text-destructive"
                   onClick={() => setDeleteTarget(iface.name)}
                   title={t('common.delete')}
                 >
@@ -478,7 +478,7 @@ export default function NetworkWireGuard() {
                     title={iface.public_key}
                   >
                     {iface.public_key.substring(0, 20)}...
-                    {copiedKey === iface.name ? <Check className="h-3 w-3 text-[#00c471]" /> : <Copy className="h-3 w-3" />}
+                    {copiedKey === iface.name ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
                   </button>
                 </div>
               )}
@@ -513,7 +513,7 @@ export default function NetworkWireGuard() {
                           <Button
                             variant="ghost"
                             size="icon-xs"
-                            className="h-5 w-5 text-[#f04452] hover:text-[#f04452]"
+                            className="h-5 w-5 text-destructive hover:text-destructive"
                             onClick={() => handleRemovePeer(iface.name, peer.public_key)}
                             disabled={removingPeer === peer.public_key}
                             title={t('network.wireguard.peers.removePeer')}
@@ -551,9 +551,9 @@ export default function NetworkWireGuard() {
                           {t('network.wireguard.transfer')}
                         </span>
                         <span>
-                          <span className="text-[#3182f6]">{formatBytes(peer.transfer_tx)}</span>
+                          <span className="text-primary">{formatBytes(peer.transfer_tx)}</span>
                           {' / '}
-                          <span className="text-[#00c471]">{formatBytes(peer.transfer_rx)}</span>
+                          <span className="text-success">{formatBytes(peer.transfer_rx)}</span>
                         </span>
                       </div>
                     </div>
@@ -696,7 +696,7 @@ export default function NetworkWireGuard() {
           ) : (
             <>
               <div className="space-y-4">
-                <div className="flex items-start gap-2 rounded-xl bg-[#f04452]/10 px-3 py-2 text-[12px] text-[#f04452]">
+                <div className="flex items-start gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                   <span>{t('network.wireguard.peers.privateKeyWarning')}</span>
                 </div>
@@ -710,7 +710,7 @@ export default function NetworkWireGuard() {
                       onClick={() => copyToClipboard(clientConfig, 'peer-config')}
                     >
                       {copiedKey === 'peer-config' ? (
-                        <><Check className="h-3 w-3 text-[#00c471]" />{t('network.wireguard.peers.copied')}</>
+                        <><Check className="h-3 w-3 text-success" />{t('network.wireguard.peers.copied')}</>
                       ) : (
                         <><Copy className="h-3 w-3" />{t('network.wireguard.peers.copyConfig')}</>
                       )}

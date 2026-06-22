@@ -60,9 +60,9 @@ export default function NodeSelector({ collapsed }: NodeSelectorProps) {
 
   const statusColor = (status: string) => {
     switch (status) {
-      case 'online': return 'bg-[#00c471]'
-      case 'suspect': return 'bg-[#f59e0b]'
-      case 'offline': return 'bg-[#f04452]'
+      case 'online': return 'bg-success'
+      case 'suspect': return 'bg-warning'
+      case 'offline': return 'bg-destructive'
       default: return 'bg-muted-foreground'
     }
   }
@@ -139,7 +139,7 @@ export default function NodeSelector({ collapsed }: NodeSelectorProps) {
                 <span className="text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
               )}
               {node.id === clusterStatus?.leader_id && (
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-[#3182f6]/10 text-[#3182f6] ml-auto">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary ml-auto">
                   {t('layout.cluster.leader')}
                 </span>
               )}

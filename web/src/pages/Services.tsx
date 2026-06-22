@@ -176,13 +176,13 @@ export default function Services() {
   const getActiveStateStyle = (activeState: string, subState: string) => {
     const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
     if (activeState === 'active' && subState === 'running') {
-      return `${base} bg-[#00c471]/10 text-[#00c471]`
+      return `${base} bg-success/10 text-success`
     }
     if (activeState === 'failed') {
-      return `${base} bg-[#f04452]/10 text-[#f04452]`
+      return `${base} bg-destructive/10 text-destructive`
     }
     if (activeState === 'activating' || activeState === 'deactivating') {
-      return `${base} bg-[#f59e0b]/10 text-[#f59e0b]`
+      return `${base} bg-warning/10 text-warning`
     }
     return `${base} bg-muted text-muted-foreground`
   }
@@ -191,11 +191,11 @@ export default function Services() {
     const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
     switch (enabled) {
       case 'enabled':
-        return `${base} bg-[#00c471]/10 text-[#00c471]`
+        return `${base} bg-success/10 text-success`
       case 'static':
-        return `${base} bg-[#3182f6]/10 text-[#3182f6]`
+        return `${base} bg-primary/10 text-primary`
       case 'masked':
-        return `${base} bg-[#f04452]/10 text-[#f04452]`
+        return `${base} bg-destructive/10 text-destructive`
       default:
         return `${base} bg-muted text-muted-foreground`
     }
@@ -263,7 +263,7 @@ export default function Services() {
 
       {/* Load error / loading skeleton (first load only) */}
       {error && allServices.length === 0 ? (
-        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium">{t('services.loadError')}</p>
@@ -475,8 +475,8 @@ export default function Services() {
                 </div>
               )}
               {serviceDeps.requires && serviceDeps.requires.length > 0 && (
-                <div className="p-3 bg-[#3182f6]/10 rounded-xl">
-                  <p className="text-[11px] font-medium text-[#3182f6]">{t('services.requires')}</p>
+                <div className="p-3 bg-primary/10 rounded-xl">
+                  <p className="text-[11px] font-medium text-primary">{t('services.requires')}</p>
                   <p className="text-[13px] mt-1">{serviceDeps.requires.join(', ')}</p>
                 </div>
               )}
