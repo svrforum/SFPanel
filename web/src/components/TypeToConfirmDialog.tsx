@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -60,7 +60,7 @@ export function TypeToConfirmDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-[#f04452]">
+          <DialogTitle className="flex items-center gap-2 text-destructive">
             <AlertTriangle className="h-5 w-5 shrink-0" />
             {title}
           </DialogTitle>
@@ -68,7 +68,7 @@ export function TypeToConfirmDialog({
         </DialogHeader>
 
         <div className="space-y-2">
-          <p className="text-[13px] text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {t('common.typeToConfirm.prompt')}{' '}
             <span className="font-mono font-semibold text-foreground">{confirmPhrase}</span>
           </p>
@@ -76,7 +76,7 @@ export function TypeToConfirmDialog({
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             placeholder={confirmPhrase}
-            className="font-mono rounded-xl"
+            className="font-mono"
             autoFocus
             spellCheck={false}
             autoComplete="off"
@@ -86,18 +86,18 @@ export function TypeToConfirmDialog({
         <DialogFooter>
           <Button
             variant="outline"
-            className="rounded-xl"
             onClick={() => onOpenChange(false)}
             disabled={loading}
           >
             {t('common.cancel')}
           </Button>
           <Button
-            className="rounded-xl bg-[#f04452] hover:bg-[#f04452]/90 text-white"
-            disabled={!matches || loading}
+            variant="destructive"
+            disabled={!matches}
+            loading={loading}
             onClick={onConfirm}
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : confirmLabel}
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

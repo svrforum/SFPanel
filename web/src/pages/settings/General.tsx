@@ -1,9 +1,18 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { getThemePref, setThemePref, type ThemePref } from '@/lib/theme'
 
 export default function General() {
   const { t, i18n } = useTranslation()
+  const [theme, setTheme] = useState<ThemePref>(() => getThemePref())
+
+  const themeOptions: { value: ThemePref; label: string }[] = [
+    { value: 'light', label: t('settings.themeLight') },
+    { value: 'dark', label: t('settings.themeDark') },
+    { value: 'system', label: t('settings.themeSystem') },
+  ]
 
   return (
     <div className="space-y-6 mt-6">
@@ -51,6 +60,25 @@ export default function General() {
           >
             한국어
           </Button>
+        </div>
+      </div>
+
+      {/* Theme */}
+      <div className="bg-card rounded-2xl p-6 card-shadow">
+        <h3 className="text-[15px] font-semibold">{t('settings.theme')}</h3>
+        <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.themeDescription')}</p>
+        <div className="flex items-center gap-2">
+          {themeOptions.map((opt) => (
+            <Button
+              key={opt.value}
+              variant={theme === opt.value ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => { setThemePref(opt.value); setTheme(opt.value) }}
+              className="rounded-xl"
+            >
+              {opt.label}
+            </Button>
+          ))}
         </div>
       </div>
     </div>

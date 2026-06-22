@@ -85,15 +85,14 @@ export function PromptProvider({ children }: { children: ReactNode }) {
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder={opts?.placeholder}
-              className="rounded-xl"
               autoFocus
               autoComplete={opts?.password ? 'current-password' : 'off'}
             />
             <DialogFooter>
-              <Button type="button" variant="outline" className="rounded-xl" onClick={() => settle(null)}>
+              <Button type="button" variant="outline" onClick={() => settle(null)}>
                 {opts?.cancelLabel ?? t('common.cancel')}
               </Button>
-              <Button type="submit" className="rounded-xl">
+              <Button type="submit">
                 {opts?.confirmLabel ?? t('common.confirm')}
               </Button>
             </DialogFooter>

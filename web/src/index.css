@@ -37,6 +37,14 @@
     --color-chart-3: var(--chart-3);
     --color-chart-4: var(--chart-4);
     --color-chart-5: var(--chart-5);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-info: var(--info);
+    --color-info-foreground: var(--info-foreground);
+    --color-terminal: var(--terminal);
+    --color-terminal-foreground: var(--terminal-foreground);
     --color-sidebar: var(--sidebar);
     --color-sidebar-foreground: var(--sidebar-foreground);
     --color-sidebar-primary: var(--sidebar-primary);
@@ -72,6 +80,14 @@
     --chart-3: #f59e0b;
     --chart-4: #8b5cf6;
     --chart-5: #ec4899;
+    --success: #00c471;
+    --success-foreground: #ffffff;
+    --warning: #f59e0b;
+    --warning-foreground: #ffffff;
+    --info: #3182f6;
+    --info-foreground: #ffffff;
+    --terminal: #191f28;
+    --terminal-foreground: #e6edf3;
     --sidebar: #ffffff;
     --sidebar-foreground: #333d4b;
     --sidebar-primary: #3182f6;
@@ -106,6 +122,14 @@
     --chart-3: #d29922;
     --chart-4: #a371f7;
     --chart-5: #f778ba;
+    --success: #3fb950;
+    --success-foreground: #ffffff;
+    --warning: #d29922;
+    --warning-foreground: #1c1500;
+    --info: #4c9aff;
+    --info-foreground: #ffffff;
+    --terminal: #0d1117;
+    --terminal-foreground: #e6edf3;
     --sidebar: #0d1117;
     --sidebar-foreground: #e6edf3;
     --sidebar-primary: #4c9aff;
@@ -122,6 +146,28 @@
     }
     body {
         @apply bg-background text-foreground font-sans antialiased;
+    }
+    /* Subtle, theme-aware scrollbar so the chrome reads calm in both themes
+       (Firefox + WebKit). Token-driven, so it flips with the palette. */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+    }
+    *::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+    *::-webkit-scrollbar-thumb {
+        background-color: var(--border);
+        border-radius: 9999px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+        background-color: var(--muted-foreground);
+    }
+    *::-webkit-scrollbar-track {
+        background: transparent;
     }
 }
 

@@ -3,7 +3,12 @@ import { createRoot } from 'react-dom/client'
 import './i18n'
 import './lib/monaco'
 import './index.css'
+import { initTheme } from './lib/theme'
 import App from './App'
+
+// Activate theming: re-sync the stored preference applied by the index.html
+// pre-paint script and start honouring live OS theme changes.
+initTheme()
 
 // After a panel upgrade, an already-open tab may still reference old lazy-chunk
 // hashes that the upgraded server no longer has (they now 404). Vite fires
