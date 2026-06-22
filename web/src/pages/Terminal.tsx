@@ -178,23 +178,47 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
       return
     }
 
-    // WS setup is async (ticket mint) so wrap in IIFE and let the cleanup
-    // ref tear down whatever got allocated even if we unmount mid-await.
+    // WS setup is async (ticket mint). connect() is re-invocable so a dropped
+    // socket transparently reconnects to the SAME session_id: the server keeps
+    // the PTY alive (stable session key, scrollback replay, 5-min idle grace),
+    // so a transient drop (Wi-Fi blip, sleep, reverse-proxy idle timeout)
+    // resumes the live session instead of leaving a dead terminal. The
+    // term-level input/resize listeners are registered once and always target
+    // the current socket via wsRef.
     let disposed = false
     let wsCleanup: (() => void) | null = null
+    let reconnectTimer = 0
+    let stableTimer = 0
+    let attempts = 0
+    const maxReconnectAttempts = 6
 
-    void (async () => {
+    const onDataDisposable = term.onData((data) => {
+      const sock = wsRef.current
+      if (sock && sock.readyState === WebSocket.OPEN) {
+        sock.send(new TextEncoder().encode(data))
+      }
+    })
+    const onResizeDisposable = term.onResize(({ cols, rows }) => {
+      const sock = wsRef.current
+      if (sock && sock.readyState === WebSocket.OPEN) {
+        sock.send(JSON.stringify({ type: 'resize', cols, rows }))
+      }
+    })
+
+    const connect = async () => {
       const wsUrl = await api.buildWsUrl('/ws/terminal', { session_id: sessionId })
       if (disposed) return
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
-
       ws.binaryType = 'arraybuffer'
 
       ws.onopen = () => {
         term.focus()
         const { cols, rows } = term
         ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+        // Only clear the backoff once the socket has proven stable, so a server
+        // that accepts then instantly drops can't spin in a tight reconnect loop.
+        stableTimer = window.setTimeout(() => { attempts = 0 }, 3000)
       }
 
       ws.onmessage = (event) => {
@@ -206,31 +230,36 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
       }
 
       ws.onerror = () => {
-        term.writeln('\r\n\x1b[31m' + t('terminal.wsError') + '\x1b[0m')
+        // Swallow: onclose fires next and drives the reconnect/disconnect notice.
       }
 
       ws.onclose = () => {
-        term.writeln('\r\n\x1b[33m' + t('terminal.disconnected') + '\x1b[0m')
-      }
-
-      const onDataDisposable = term.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(new TextEncoder().encode(data))
+        clearTimeout(stableTimer)
+        if (disposed) return
+        if (attempts < maxReconnectAttempts) {
+          const delay = Math.min(1000 * 2 ** attempts, 10000)
+          attempts += 1
+          term.writeln('\r\n\x1b[33m' + t('terminal.reconnecting') + '\x1b[0m')
+          reconnectTimer = window.setTimeout(() => { void connect() }, delay)
+        } else {
+          term.writeln('\r\n\x1b[31m' + t('terminal.disconnected') + '\x1b[0m')
         }
-      })
-
-      const onResizeDisposable = term.onResize(({ cols, rows }) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'resize', cols, rows }))
-        }
-      })
-
-      wsCleanup = () => {
-        onDataDisposable.dispose()
-        onResizeDisposable.dispose()
-        ws.close()
       }
-    })()
+    }
+
+    void connect()
+
+    wsCleanup = () => {
+      clearTimeout(reconnectTimer)
+      clearTimeout(stableTimer)
+      onDataDisposable.dispose()
+      onResizeDisposable.dispose()
+      const sock = wsRef.current
+      if (sock) {
+        sock.onclose = null // intentional teardown — must not schedule a reconnect
+        sock.close()
+      }
+    }
 
     // ResizeObserver fires AFTER the container's box actually changes (keyboard
     // open/close via --app-h, orientation, tab switch), so the fit measures the

@@ -1145,6 +1145,7 @@
     "clear": "Clear",
     "disconnect": "Disconnect",
     "connected": "Connected",
+    "reconnecting": "Reconnecting…",
     "disconnected": "Disconnected",
     "reattach": {
       "button": "Reattach session",
