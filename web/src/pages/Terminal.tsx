@@ -353,9 +353,14 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     el.__termRef = termRef
   }, [])
 
+  // data-terminal-session is a stable hook for the parent's active-session
+  // lookup (search/clear/key forwarding). Querying by Tailwind class substrings
+  // broke silently when a className was reordered during the UI-polish churn;
+  // this attribute is decoupled from styling.
   return (
     <div
       ref={containerRef}
+      data-terminal-session={active ? 'active' : 'inactive'}
       className={cn(
         // touch-none: xterm v6's viewport isn't natively touch-scrollable, so we
         // drive scrollback from a touch-drag handler (see the effect above) —
@@ -566,7 +571,7 @@ export default function TerminalPage() {
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
     // Find the active terminal's search addon
-    const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
+    const termContainers = document.querySelectorAll('[data-terminal-session="active"]')
     termContainers.forEach(el => {
       const addon = (el as TerminalSessionElement).__searchAddon
       if (addon && query) {
@@ -576,7 +581,7 @@ export default function TerminalPage() {
   }, [])
 
   const handleSearchNext = useCallback(() => {
-    const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
+    const termContainers = document.querySelectorAll('[data-terminal-session="active"]')
     termContainers.forEach(el => {
       const addon = (el as TerminalSessionElement).__searchAddon
       if (addon && searchQuery) addon.findNext(searchQuery)
@@ -584,7 +589,7 @@ export default function TerminalPage() {
   }, [searchQuery])
 
   const handleSearchPrev = useCallback(() => {
-    const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
+    const termContainers = document.querySelectorAll('[data-terminal-session="active"]')
     termContainers.forEach(el => {
       const addon = (el as TerminalSessionElement).__searchAddon
       if (addon && searchQuery) addon.findPrevious(searchQuery)
@@ -592,7 +597,7 @@ export default function TerminalPage() {
   }, [searchQuery])
 
   const clearTerminal = useCallback(() => {
-    const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
+    const termContainers = document.querySelectorAll('[data-terminal-session="active"]')
     termContainers.forEach(el => {
       const termRef = (el as TerminalSessionElement).__termRef
       const wsRef = (el as TerminalSessionElement).__wsRef
@@ -627,7 +632,7 @@ export default function TerminalPage() {
   }, [searchOpen])
 
   const sendKeyToActiveTerminal = useCallback((data: string) => {
-    const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
+    const termContainers = document.querySelectorAll('[data-terminal-session="active"]')
     termContainers.forEach(el => {
       const wsRef = (el as TerminalSessionElement).__wsRef
       const termRef = (el as TerminalSessionElement).__termRef
