@@ -112,6 +112,37 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 	// Mutexes to protect concurrent writes on each connection
 	var clientMu, remoteMu sync.Mutex
 
+	// Keepalive for the client leg. The relay forwards frames verbatim but
+	// never re-emits the remote handler's 30s pings toward the browser
+	// (gorilla auto-pongs them on the remote leg), and browser JS can't
+	// originate WS pings. So a user watching streaming output without typing
+	// would let the silent client→remote read deadline fire after wsReadTimeout
+	// and tear down a live session. Ping the client ourselves and re-arm its
+	// read deadline on the browser's auto-pong — mirroring the local handler.
+	clientWS.SetPongHandler(func(string) error {
+		clientWS.SetReadDeadline(time.Now().Add(wsReadTimeout))
+		return nil
+	})
+	stopPing := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopPing:
+				return
+			case <-ticker.C:
+				clientMu.Lock()
+				clientWS.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				err := clientWS.WriteMessage(websocket.PingMessage, nil)
+				clientMu.Unlock()
+				if err != nil {
+					return
+				}
+			}
+		}
+	}()
+
 	// Client → Remote
 	go func() {
 		defer wg.Done()
@@ -171,6 +202,7 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 	}()
 
 	wg.Wait()
+	close(stopPing)
 	return nil
 }
 

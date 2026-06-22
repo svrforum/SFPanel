@@ -135,7 +135,7 @@ func (b *overviewBroadcasterT) run() {
 // HTTP triple-poll. All connections on a node share one sampler.
 func ClusterOverviewWS(getManager func() *cluster.Manager, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if err := AuthenticateWS(c, jwtSecret); err != nil {
+		if _, err := AuthenticateWS(c, jwtSecret); err != nil {
 			return err
 		}
 		ws, err := Upgrader.Upgrade(c.Response(), c.Request(), nil)

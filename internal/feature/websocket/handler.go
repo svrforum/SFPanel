@@ -16,7 +16,9 @@ import (
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
+	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
+	"github.com/svrforum/SFPanel/internal/feature/audit"
 	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
@@ -122,21 +124,25 @@ func startWSKeepalive(ctx context.Context, ws *websocket.Conn, writer *safeWSWri
 // AuthenticateWS validates a WebSocket request via a single-use ticket
 // (preferred — JWT never lands in the URL/access log) or, for back-compat
 // with older JS clients, via the ?token= JWT path. Internal cluster proxy
-// requests authenticated by mTLS bypass both. Returns nil on success.
-func AuthenticateWS(c echo.Context, jwtSecret string) error {
+// requests authenticated by mTLS bypass both. Returns the authenticated
+// username on success so the caller can attribute/audit the session.
+func AuthenticateWS(c echo.Context, jwtSecret string) (string, error) {
 	if auth.IsInternalProxyRequest(c.Request()) {
-		return nil
+		// Internal cluster forward: the originating node authenticated the
+		// operator and the proxy middleware re-stamped the verified user into
+		// X-SFPanel-Original-User, so it is authoritative for attribution here.
+		return c.Request().Header.Get("X-SFPanel-Original-User"), nil
 	}
 	if user := auth.AuthenticateWSRequest(c.Request(), jwtSecret); user != "" {
-		return nil
+		return user, nil
 	}
-	return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	return "", c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 }
 
 // MetricsWS handles WebSocket connections for real-time metrics streaming.
 func MetricsWS(jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if err := AuthenticateWS(c, jwtSecret); err != nil {
+		if _, err := AuthenticateWS(c, jwtSecret); err != nil {
 			return err
 		}
 
@@ -195,7 +201,7 @@ func MetricsWS(jwtSecret string) echo.HandlerFunc {
 // ContainerLogsWS streams container logs over a WebSocket connection.
 func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if err := AuthenticateWS(c, jwtSecret); err != nil {
+		if _, err := AuthenticateWS(c, jwtSecret); err != nil {
 			return err
 		}
 
@@ -284,7 +290,7 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 // ComposeLogsWS streams compose project logs over a WebSocket connection.
 func ComposeLogsWS(composeManager *docker.ComposeManager, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if err := AuthenticateWS(c, jwtSecret); err != nil {
+		if _, err := AuthenticateWS(c, jwtSecret); err != nil {
 			return err
 		}
 
@@ -361,9 +367,10 @@ func parseInt(s string) (int, error) {
 
 // ContainerExecWS creates an exec session in a container and bridges
 // it over a WebSocket for interactive terminal access.
-func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {
+func ContainerExecWS(dockerClient *docker.Client, jwtSecret string, auditWriter *sfdb.AsyncWriter, localNodeIDFn func() string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if err := AuthenticateWS(c, jwtSecret); err != nil {
+		username, err := AuthenticateWS(c, jwtSecret)
+		if err != nil {
 			return err
 		}
 
@@ -374,6 +381,16 @@ func ContainerExecWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 			return err
 		}
 		defer ws.Close()
+
+		// Audit the exec session open: /ws/* bypasses AuditMiddleware (WS
+		// upgrades are GET, registered on the root echo), so without this the
+		// operator's container-shell opens leave no queryable trail. The path
+		// already carries the container id.
+		nodeID := ""
+		if localNodeIDFn != nil {
+			nodeID = localNodeIDFn()
+		}
+		audit.RecordWSSession(auditWriter, username, c.Request().URL.Path, c.RealIP(), nodeID)
 
 		ctx, cancel := context.WithCancel(c.Request().Context())
 		defer cancel()
