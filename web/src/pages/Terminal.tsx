@@ -406,7 +406,7 @@ function MobileTerminalBar({ onSendKey }: { onSendKey: (data: string) => void })
   ]
 
   return (
-    <div className="md:hidden shrink-0 bg-[#1a1b26] border-t border-[#292e42]">
+    <div className="md:hidden shrink-0 bg-card border-t border-border">
       {/* Special keys row */}
       <div className="flex items-center gap-0.5 px-1 py-1 overflow-x-auto no-scrollbar">
         {keys.map((k) => (
@@ -415,8 +415,8 @@ function MobileTerminalBar({ onSendKey }: { onSendKey: (data: string) => void })
             className={cn(
               'shrink-0 px-2.5 py-1.5 rounded text-[11px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
               (k.toggle === 'ctrl' && ctrlActive) || (k.toggle === 'alt' && altActive)
-                ? 'bg-[#7aa2f7] text-[#1a1b26]'
-                : 'bg-[#24283b] text-[#a9b1d6] active:bg-[#414868]'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-secondary text-foreground active:bg-accent'
             )}
             onClick={() => {
               if (k.toggle === 'ctrl') { setCtrlActive(!ctrlActive); setAltActive(false) }
@@ -429,28 +429,28 @@ function MobileTerminalBar({ onSendKey }: { onSendKey: (data: string) => void })
         ))}
       </div>
       {/* Navigation row */}
-      <div className="flex items-center justify-around h-10 pb-safe border-t border-[#292e42]">
+      <div className="flex items-center justify-around h-10 pb-safe border-t border-border">
         <button
           onClick={() => navigate('/dashboard')}
-          className="flex flex-col items-center justify-center flex-1 h-full text-[#565f89] active:text-[#a9b1d6] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+          className="flex flex-col items-center justify-center flex-1 h-full text-muted-foreground active:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
         >
           <span className="text-[10px] font-medium">← {t('layout.mobileNav.dashboard')}</span>
         </button>
         <button
           onClick={() => onSendKey('\x03')}
-          className="flex flex-col items-center justify-center flex-1 h-full text-[#f7768e] active:opacity-70 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+          className="flex flex-col items-center justify-center flex-1 h-full text-destructive active:opacity-70 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
         >
           <span className="text-[10px] font-semibold">Ctrl+C</span>
         </button>
         <button
           onClick={() => onSendKey('\x04')}
-          className="flex flex-col items-center justify-center flex-1 h-full text-[#e0af68] active:opacity-70 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+          className="flex flex-col items-center justify-center flex-1 h-full text-warning active:opacity-70 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
         >
           <span className="text-[10px] font-semibold">Ctrl+D</span>
         </button>
         <button
           onClick={() => onSendKey('\x1a')}
-          className="flex flex-col items-center justify-center flex-1 h-full text-[#565f89] active:text-[#a9b1d6] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+          className="flex flex-col items-center justify-center flex-1 h-full text-muted-foreground active:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
         >
           <span className="text-[10px] font-semibold">Ctrl+Z</span>
         </button>
@@ -654,7 +654,7 @@ export default function TerminalPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Tab Bar */}
-      <div className="flex items-center bg-[#1a1b26] border-b border-[#292e42] px-2 shrink-0">
+      <div className="flex items-center bg-card border-b border-border px-2 shrink-0">
         <div className="flex items-center gap-0.5 overflow-x-auto py-1 flex-1">
           {tabs.map((tab) => (
             <div
@@ -664,8 +664,8 @@ export default function TerminalPage() {
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs cursor-pointer select-none group transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                 activeTab === tab.id
-                  ? 'bg-[#24283b] text-[#c0caf5]'
-                  : 'text-[#565f89] hover:text-[#a9b1d6] hover:bg-[#1f2335]'
+                  ? 'bg-secondary text-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
               )}
               onClick={() => setActiveTab(tab.id)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTab(tab.id) } }}
@@ -684,7 +684,7 @@ export default function TerminalPage() {
                     e.stopPropagation()
                   }}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-transparent border-b border-[#7aa2f7] outline-none text-[#c0caf5] w-20 text-xs"
+                  className="bg-transparent border-b border-primary outline-none text-foreground w-20 text-xs"
                   autoFocus
                 />
               ) : (
@@ -696,7 +696,7 @@ export default function TerminalPage() {
                   'ml-1 rounded p-0.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                   'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
                   activeTab === tab.id && 'opacity-60',
-                  'hover:bg-[#414868] hover:text-[#f7768e]'
+                  'hover:bg-accent hover:text-destructive'
                 )}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -713,32 +713,32 @@ export default function TerminalPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
             onClick={() => adjustFontSize(-1)}
             title={t('terminal.fontSmaller')}
             aria-label={t('terminal.fontSmaller')}
           >
             <Minus className="h-3 w-3" />
           </Button>
-          <span className="text-[10px] text-[#565f89] min-w-[20px] text-center">{fontSize}</span>
+          <span className="text-[10px] text-muted-foreground min-w-[20px] text-center">{fontSize}</span>
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
             onClick={() => adjustFontSize(1)}
             title={t('terminal.fontLarger')}
             aria-label={t('terminal.fontLarger')}
           >
             <Plus className="h-3 w-3" />
           </Button>
-          <div className="w-px h-4 bg-[#292e42] mx-1" />
+          <div className="w-px h-4 bg-border mx-1" />
           {/* Search */}
           <Button
             variant="ghost"
             size="sm"
             className={cn(
-              "h-6 w-6 p-0 hover:bg-[#1f2335]",
-              searchOpen ? 'text-[#7aa2f7]' : 'text-[#565f89] hover:text-[#c0caf5]'
+              "h-6 w-6 p-0 hover:bg-accent",
+              searchOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
             )}
             onClick={() => {
               setSearchOpen(!searchOpen)
@@ -754,22 +754,22 @@ export default function TerminalPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
             onClick={clearTerminal}
             title={t('terminal.clear')}
             aria-label={t('terminal.clear')}
           >
             <Eraser className="h-3.5 w-3.5" />
           </Button>
-          <div className="w-px h-4 bg-[#292e42] mx-1" />
+          <div className="w-px h-4 bg-border mx-1" />
           {/* Reattach session picker */}
           <div className="relative">
             <Button
               variant="ghost"
               size="sm"
               className={cn(
-                "h-6 w-6 p-0 hover:bg-[#1f2335]",
-                reattachOpen ? 'text-[#7aa2f7]' : 'text-[#565f89] hover:text-[#c0caf5]'
+                "h-6 w-6 p-0 hover:bg-accent",
+                reattachOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
               )}
               onClick={openReattach}
               title={t('terminal.reattach.button')}
@@ -778,12 +778,12 @@ export default function TerminalPage() {
               <History className="h-3.5 w-3.5" />
             </Button>
             {reattachOpen && (
-              <div className="absolute right-0 top-8 z-20 w-72 max-h-80 overflow-y-auto rounded-xl bg-[#24283b] border border-[#292e42] shadow-lg py-1">
-                <div className="px-3 py-2 text-[11px] font-semibold text-[#a9b1d6] border-b border-[#292e42]">
+              <div className="absolute right-0 top-8 z-20 w-72 max-h-80 overflow-y-auto rounded-xl bg-secondary border border-border shadow-lg py-1">
+                <div className="px-3 py-2 text-[11px] font-semibold text-foreground border-b border-border">
                   {t('terminal.reattach.title')}
                 </div>
                 {reattachSessions.length === 0 ? (
-                  <div className="px-3 py-3 text-[12px] text-[#565f89]">
+                  <div className="px-3 py-3 text-[12px] text-muted-foreground">
                     {t('terminal.reattach.empty')}
                   </div>
                 ) : (
@@ -791,16 +791,16 @@ export default function TerminalPage() {
                     <button
                       key={s.session_id}
                       onClick={() => reattachSession(s.session_id)}
-                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[#1f2335] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
                     >
                       <div className="min-w-0">
-                        <div className="font-mono text-[12px] text-[#c0caf5] truncate">{s.session_id.slice(0, 12)}</div>
-                        <div className="text-[10px] text-[#565f89]">
+                        <div className="font-mono text-[12px] text-foreground truncate">{s.session_id.slice(0, 12)}</div>
+                        <div className="text-[10px] text-muted-foreground">
                           {new Date(s.last_use).toLocaleString()}
                           {s.attached ? ` · ${t('terminal.reattach.attached')}` : ''}
                         </div>
                       </div>
-                      <span className="shrink-0 text-[10px] text-[#7aa2f7]">{t('terminal.reattach.open')}</span>
+                      <span className="shrink-0 text-[10px] text-primary">{t('terminal.reattach.open')}</span>
                     </button>
                   ))
                 )}
@@ -811,7 +811,7 @@ export default function TerminalPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
             onClick={addTab}
             title={t('terminal.newTab')}
             aria-label={t('terminal.newTab')}
@@ -823,8 +823,8 @@ export default function TerminalPage() {
 
       {/* Search bar */}
       {searchOpen && (
-        <div className="flex items-center gap-1.5 bg-[#1f2335] border-b border-[#292e42] px-2 md:px-3 py-1.5">
-          <Search className="h-3.5 w-3.5 text-[#565f89]" />
+        <div className="flex items-center gap-1.5 bg-muted border-b border-border px-2 md:px-3 py-1.5">
+          <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <Input
             ref={searchInputRef}
             value={searchQuery}
@@ -841,13 +841,13 @@ export default function TerminalPage() {
               }
             }}
             placeholder={t('terminal.searchPlaceholder')}
-            className="h-6 text-xs bg-[#1a1b26] border-[#292e42] text-[#c0caf5] flex-1 max-w-[10rem] md:max-w-xs"
+            className="h-6 text-xs bg-card border-border text-foreground flex-1 max-w-[10rem] md:max-w-xs"
             autoFocus
           />
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-1.5 md:px-2 text-xs text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1a1b26]"
+            className="h-6 px-1.5 md:px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-card"
             onClick={handleSearchPrev}
           >
             <span className="hidden md:inline">{t('terminal.prev')}</span>
@@ -856,7 +856,7 @@ export default function TerminalPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-1.5 md:px-2 text-xs text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1a1b26]"
+            className="h-6 px-1.5 md:px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-card"
             onClick={handleSearchNext}
           >
             <span className="hidden md:inline">{t('terminal.next')}</span>
@@ -865,7 +865,7 @@ export default function TerminalPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1a1b26]"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-card"
             onClick={() => { setSearchOpen(false); setSearchQuery('') }}
           >
             <X className="h-3.5 w-3.5" />
@@ -874,7 +874,7 @@ export default function TerminalPage() {
       )}
 
       {/* Terminal Area */}
-      <div className="flex-1 bg-[#1a1b26] relative min-h-0">
+      <div className="flex-1 bg-card relative min-h-0">
         {tabs.map((tab) => (
           <TerminalSession
             key={tab.id}
@@ -884,14 +884,14 @@ export default function TerminalPage() {
           />
         ))}
         {tabs.length === 0 && (
-          <div className="flex items-center justify-center h-full text-[#565f89]">
+          <div className="flex items-center justify-center h-full text-muted-foreground">
             <div className="text-center">
               <TerminalIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
               <p>{t('terminal.noTabs')}</p>
               <Button
                 variant="outline"
                 size="sm"
-                className="mt-3 border-[#414868] text-[#a9b1d6] hover:bg-[#1f2335]"
+                className="mt-3 border-border text-foreground hover:bg-accent"
                 onClick={addTab}
               >
                 <Plus className="h-4 w-4 mr-1" />
