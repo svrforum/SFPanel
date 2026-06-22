@@ -54,9 +54,12 @@ const Terminal = lazy(() => import('@/pages/Terminal'))
 const Connect = lazy(() => import('@/pages/Connect'))
 
 function PageLoader() {
+  // Fills the content area and centres so a cold navigation shows a calm,
+  // centered loader instead of a tiny spinner floating on an otherwise blank
+  // page near the top.
   return (
-    <div className="flex items-center justify-center h-32">
-      <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+    <div className="flex items-center justify-center min-h-[60vh] w-full">
+      <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
   )
 }

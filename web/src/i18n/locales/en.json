@@ -2098,7 +2098,7 @@
       "editRule": "Edit Rule",
       "editDescription": "Edit rule #{{number}}. The existing rule will be deleted and a new rule will be added.",
       "editDeleteFailed": "New rule was added but failed to delete the old rule. Please delete it manually.",
-      "editAddFailed": "Old rule was deleted but failed to add the new rule",
+      "editAddFailed": "Failed to add the new rule; the original rule is unchanged",
       "invalidPort": "Invalid port format (e.g., 80, 8000:8080)",
       "invalidIP": "Invalid IP address format (e.g., 192.168.1.0/24)",
       "deleteConfirm": "Are you sure you want to delete rule #{{number}}?",

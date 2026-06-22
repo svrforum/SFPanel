@@ -769,14 +769,16 @@ export default function NetworkTailscale() {
                     </TableCell>
                     <TableCell className="font-mono text-[13px]">
                       <button
-                        className="hover:text-primary flex items-center gap-1"
+                        className="group hover:text-primary flex items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                         onClick={() => copyToClipboard(peer.tailscale_ip, peer.tailscale_ip)}
+                        aria-label={t('common.copy')}
+                        title={t('common.copy')}
                       >
                         {peer.tailscale_ip}
                         {copiedField === peer.tailscale_ip ? (
                           <Check className="h-3 w-3 text-success" />
                         ) : (
-                          <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100" />
+                          <Copy className="h-3 w-3 opacity-60 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-visible:opacity-100" />
                         )}
                       </button>
                     </TableCell>

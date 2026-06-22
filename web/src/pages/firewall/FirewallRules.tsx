@@ -351,28 +351,32 @@ export default function FirewallRules() {
     if (!editTarget || !isFormValid(editForm)) return
     setEditing(true)
     try {
-      // Step 1: Delete old rule first
-      await api.deleteFirewallRule(editTarget.number)
-      // Step 2: Add new rule
+      // Add the replacement FIRST, so a failure leaves the existing rule intact.
+      // (Deleting first would leave the firewall with NO rule if the add failed —
+      // a real protection gap.) UFW appends, so the old rule's number is unchanged.
+      await api.addFirewallRule({
+        action: editForm.action,
+        port: editForm.port.trim(),
+        protocol: editForm.protocol,
+        from: editForm.from.trim() || 'any',
+        to: '',
+        comment: editForm.comment.trim(),
+      })
+      // Replacement is active — now remove the old rule.
       try {
-        await api.addFirewallRule({
-          action: editForm.action,
-          port: editForm.port.trim(),
-          protocol: editForm.protocol,
-          from: editForm.from.trim() || 'any',
-          to: '',
-          comment: editForm.comment.trim(),
-        })
-      } catch (addErr: unknown) {
-        // Delete succeeded but add failed — warn user
-        const message = addErr instanceof Error ? addErr.message : t('common.error')
-        toast.error(t('firewall.rules.editAddFailed') + ': ' + message)
+        await api.deleteFirewallRule(editTarget.number)
+      } catch (delErr: unknown) {
+        // New rule is in place; the old one just couldn't be removed. Surface it
+        // so the operator can delete the leftover duplicate manually.
+        const message = delErr instanceof Error ? delErr.message : t('common.error')
+        toast.warning(t('firewall.rules.editDeleteFailed') + ': ' + message)
       }
       setEditTarget(null)
       await fetchRules()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('common.error')
-      toast.error(message)
+    } catch (addErr: unknown) {
+      // Add failed — the original rule is untouched, so the firewall is unchanged.
+      const message = addErr instanceof Error ? addErr.message : t('common.error')
+      toast.error(t('firewall.rules.editAddFailed') + ': ' + message)
     } finally {
       setEditing(false)
     }
