@@ -286,7 +286,7 @@ export default function CronJobs() {
       <div className="bg-card rounded-2xl card-shadow overflow-hidden">
         <button
           onClick={() => setShowGuide(!showGuide)}
-          className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
+          className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-secondary/30 transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
         >
           <Info className="h-4 w-4 text-primary shrink-0" />
           <span className="text-[13px] font-medium flex-1">{t('cron.guideTitle')}</span>
@@ -408,6 +408,7 @@ export default function CronJobs() {
                       variant="ghost"
                       size="icon-xs"
                       title={job.enabled ? t('cron.clickToDisable') : t('cron.clickToEnable')}
+                      aria-label={job.enabled ? t('cron.clickToDisable') : t('cron.clickToEnable')}
                       disabled={actionLoading === job.id}
                       onClick={() => handleToggleEnabled(job)}
                     >
@@ -421,6 +422,7 @@ export default function CronJobs() {
                       variant="ghost"
                       size="icon-xs"
                       title={t('cron.runNow')}
+                      aria-label={t('cron.runNow')}
                       disabled={actionLoading === job.id}
                       onClick={() => handleRunNow(job)}
                     >
@@ -430,6 +432,7 @@ export default function CronJobs() {
                       variant="ghost"
                       size="icon-xs"
                       title={t('common.edit')}
+                      aria-label={t('common.edit')}
                       disabled={actionLoading === job.id}
                       onClick={() => openEditDialog(job)}
                     >
@@ -439,6 +442,7 @@ export default function CronJobs() {
                       variant="ghost"
                       size="icon-xs"
                       title={t('common.delete')}
+                      aria-label={t('common.delete')}
                       disabled={actionLoading === job.id}
                       onClick={() => setDeleteTarget(job)}
                     >
@@ -487,6 +491,7 @@ export default function CronJobs() {
                         variant="ghost"
                         size="icon-xs"
                         title={job.enabled ? t('cron.clickToDisable') : t('cron.clickToEnable')}
+                        aria-label={job.enabled ? t('cron.clickToDisable') : t('cron.clickToEnable')}
                         disabled={actionLoading === job.id}
                         onClick={() => handleToggleEnabled(job)}
                       >
@@ -545,6 +550,7 @@ export default function CronJobs() {
                           variant="ghost"
                           size="icon-xs"
                           title={t('common.edit')}
+                          aria-label={t('common.edit')}
                           disabled={actionLoading === job.id}
                           onClick={() => openEditDialog(job)}
                         >
@@ -554,6 +560,7 @@ export default function CronJobs() {
                           variant="ghost"
                           size="icon-xs"
                           title={t('common.delete')}
+                          aria-label={t('common.delete')}
                           disabled={actionLoading === job.id}
                           onClick={() => setDeleteTarget(job)}
                         >

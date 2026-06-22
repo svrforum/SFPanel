@@ -57,8 +57,9 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
       <div className="w-[42px] bg-card border-r border-border flex flex-col h-full shrink-0">
         <button
           onClick={onToggleCollapse}
-          className="flex items-center justify-center py-3 border-b border-border hover:bg-accent transition-colors"
+          className="flex items-center justify-center py-3 border-b border-border hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
           title="Expand menu"
+          aria-label="Expand menu"
         >
           <PanelLeftOpen className="h-4 w-4 text-foreground/60" />
         </button>
@@ -69,9 +70,10 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
               to={item.to}
               end={item.to === '/dashboard' || item.matchEnd}
               title={t(item.labelKey)}
+              aria-label={t(item.labelKey)}
               className={({ isActive }) =>
                 cn(
-                  'w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
+                  'w-8 h-8 rounded-lg flex items-center justify-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                   isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent'
                 )
               }
@@ -94,7 +96,7 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
           </p>
           <p className="text-[13px] font-semibold text-foreground truncate mt-0.5">{title}</p>
         </div>
-        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors mt-0.5 shrink-0" title="Collapse menu">
+        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors mt-0.5 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" title="Collapse menu" aria-label="Collapse menu">
           <PanelLeftClose className="h-4 w-4 text-foreground/60" />
         </button>
       </div>
@@ -108,7 +110,7 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
             end={item.to === '/dashboard' || item.matchEnd}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12px] font-medium transition-colors',
+                'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[12px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                 isActive
                   ? 'bg-primary/10 text-primary'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground'

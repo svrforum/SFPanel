@@ -324,7 +324,7 @@ export default function FirewallLogs() {
         <div className="flex items-center bg-secondary/50 rounded-xl p-0.5 mr-2">
           <button
             onClick={() => handleSourceChange('firewall')}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
               selectedSource === 'firewall'
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
@@ -334,7 +334,7 @@ export default function FirewallLogs() {
           </button>
           <button
             onClick={() => handleSourceChange('fail2ban')}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
               selectedSource === 'fail2ban'
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
@@ -364,7 +364,7 @@ export default function FirewallLogs() {
           <div className="flex items-center bg-secondary/50 rounded-xl p-0.5">
             <button
               onClick={() => setViewMode('raw')}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                 viewMode === 'raw'
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
@@ -374,7 +374,7 @@ export default function FirewallLogs() {
             </button>
             <button
               onClick={() => setViewMode('parsed')}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                 viewMode === 'parsed'
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
@@ -407,6 +407,7 @@ export default function FirewallLogs() {
           size="sm"
           onClick={() => setAutoScroll(!autoScroll)}
           title={t('logs.autoScroll')}
+          aria-label={t('logs.autoScroll')}
         >
           <ArrowDown className="h-3.5 w-3.5" />
         </Button>
@@ -418,6 +419,7 @@ export default function FirewallLogs() {
           onClick={handleRefresh}
           disabled={logLoading}
           title={t('logs.refresh')}
+          aria-label={t('logs.refresh')}
         >
           <RefreshCw className={`h-3.5 w-3.5 ${logLoading ? 'animate-spin' : ''}`} />
         </Button>
@@ -432,6 +434,7 @@ export default function FirewallLogs() {
             if (searchOpen) setSearchQuery('')
           }}
           title={t('logs.search')}
+          aria-label={t('logs.search')}
         >
           <Search className="h-3.5 w-3.5" />
         </Button>
@@ -443,6 +446,7 @@ export default function FirewallLogs() {
           onClick={handleDownload}
           disabled={logLines.length === 0}
           title={t('logs.download')}
+          aria-label={t('logs.download')}
         >
           <Download className="h-3.5 w-3.5" />
         </Button>
@@ -453,6 +457,7 @@ export default function FirewallLogs() {
           size="icon-sm"
           onClick={handleClear}
           title={t('logs.clear')}
+          aria-label={t('logs.clear')}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
@@ -487,13 +492,13 @@ export default function FirewallLogs() {
                 : t('logs.noMatches')}
             </span>
           )}
-          <Button variant="ghost" size="icon-xs" onClick={() => goToMatch('prev')} disabled={matchingLines.length === 0}>
+          <Button variant="ghost" size="icon-xs" onClick={() => goToMatch('prev')} disabled={matchingLines.length === 0} aria-label={t('common.previous')}>
             <ChevronUp className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon-xs" onClick={() => goToMatch('next')} disabled={matchingLines.length === 0}>
+          <Button variant="ghost" size="icon-xs" onClick={() => goToMatch('next')} disabled={matchingLines.length === 0} aria-label={t('common.next')}>
             <ChevronDown className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="icon-xs" onClick={() => { setSearchOpen(false); setSearchQuery('') }}>
+          <Button variant="ghost" size="icon-xs" onClick={() => { setSearchOpen(false); setSearchQuery('') }} aria-label={t('logs.closeSearch')}>
             <X className="h-4 w-4" />
           </Button>
         </div>

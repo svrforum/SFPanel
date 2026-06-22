@@ -236,6 +236,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
               size="icon-xs"
               className={`text-white/40 hover:text-white hover:bg-white/10 ${timestamps ? 'text-primary' : ''}`}
               title="Timestamps"
+              aria-label="Timestamps"
               onClick={() => setTimestamps(!timestamps)}
             >
               <span className="text-[10px] font-mono">T</span>
@@ -248,6 +249,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             size="icon-xs"
             className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-primary' : ''}`}
             title="Auto-scroll"
+            aria-label="Auto-scroll"
             onClick={() => {
               setAutoScroll(!autoScroll)
               if (!autoScroll) termRef.current?.scrollToBottom()
@@ -260,6 +262,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             size="icon-xs"
             className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-primary' : ''}`}
             title={t('terminal.search')}
+            aria-label={t('terminal.search')}
             onClick={() => {
               setSearchOpen(!searchOpen)
               if (searchOpen) {
@@ -275,6 +278,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             size="icon-xs"
             className="text-white/40 hover:text-white hover:bg-white/10"
             title={t('logs.download')}
+            aria-label={t('logs.download')}
             onClick={handleDownload}
           >
             <Download className="h-3.5 w-3.5" />
@@ -306,17 +310,18 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             />
           </div>
           <Button variant="ghost" size="icon-xs" onClick={handleSearchPrev}
-            className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.prev')}>
+            className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.prev')} aria-label={t('terminal.prev')}>
             <ChevronUp className="h-3.5 w-3.5" />
           </Button>
           <Button variant="ghost" size="icon-xs" onClick={handleSearchNext}
-            className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.next')}>
+            className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.next')} aria-label={t('terminal.next')}>
             <ChevronDown className="h-3.5 w-3.5" />
           </Button>
           <Button
             variant="ghost"
             size="icon-xs"
             className="text-white/40 hover:text-white hover:bg-white/10"
+            aria-label={t('common.close')}
             onClick={() => {
               setSearchOpen(false)
               setSearchQuery('')

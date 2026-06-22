@@ -503,7 +503,7 @@ export default function NetworkInterfaces() {
           {classified.docker.length > 0 && (
             <div>
               <button
-                className="flex items-center gap-2 mb-3 group"
+                className="flex items-center gap-2 mb-3 group outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                 onClick={() => setDockerCollapsed(!dockerCollapsed)}
                 aria-expanded={!dockerCollapsed}
                 aria-controls="docker-interfaces"
@@ -708,6 +708,7 @@ export default function NetworkInterfaces() {
                         size="icon-xs"
                         className="text-destructive hover:text-destructive"
                         onClick={() => setBondDeleteTarget(bond)}
+                        aria-label={t('common.delete')}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -755,7 +756,7 @@ export default function NetworkInterfaces() {
                 <button
                   role="radio"
                   aria-checked={configMode === 'dhcp'}
-                  className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all ${
+                  className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     configMode === 'dhcp'
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-secondary text-muted-foreground hover:text-foreground'
@@ -767,7 +768,7 @@ export default function NetworkInterfaces() {
                 <button
                   role="radio"
                   aria-checked={configMode === 'static'}
-                  className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all ${
+                  className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     configMode === 'static'
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-secondary text-muted-foreground hover:text-foreground'

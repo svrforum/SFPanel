@@ -40,7 +40,10 @@ export function DockerVolumeUsageCard() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-[14px]">🐳 Docker 볼륨 사용량</CardTitle>
-        <Link to="/docker/volumes" className="text-[12px] text-primary hover:underline">
+        <Link
+          to="/docker/volumes"
+          className="text-[12px] text-primary hover:underline outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+        >
           전체 보기 →
         </Link>
       </CardHeader>

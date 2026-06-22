@@ -194,6 +194,7 @@ export default function DockerNetworks() {
                   variant="ghost"
                   size="icon-xs"
                   title="Inspect"
+                  aria-label="Inspect"
                   disabled={inspecting}
                   onClick={() => handleInspect(n.Id)}
                 >
@@ -203,6 +204,7 @@ export default function DockerNetworks() {
                   variant="ghost"
                   size="icon-xs"
                   title={isPredefined(n.Name) ? t('docker.networks.cannotDeletePredefined') : t('common.delete')}
+                  aria-label={isPredefined(n.Name) ? t('docker.networks.cannotDeletePredefined') : t('common.delete')}
                   disabled={isPredefined(n.Name)}
                   onClick={() => setDeleteTarget(n)}
                 >
@@ -265,6 +267,7 @@ export default function DockerNetworks() {
                     variant="ghost"
                     size="icon-xs"
                     title="Inspect"
+                    aria-label="Inspect"
                     disabled={inspecting}
                     onClick={() => handleInspect(n.Id)}
                   >
@@ -274,6 +277,7 @@ export default function DockerNetworks() {
                     variant="ghost"
                     size="icon-xs"
                     title={isPredefined(n.Name) ? t('docker.networks.cannotDeletePredefined') : t('common.delete')}
+                    aria-label={isPredefined(n.Name) ? t('docker.networks.cannotDeletePredefined') : t('common.delete')}
                     disabled={isPredefined(n.Name)}
                     onClick={() => setDeleteTarget(n)}
                   >

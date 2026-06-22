@@ -289,6 +289,7 @@ export default function DiskFilesystems() {
                         variant="ghost"
                         size="icon-xs"
                         title={t('disk.filesystems.unmount')}
+                        aria-label={t('disk.filesystems.unmount')}
                         onClick={() => setUnmountTarget(fs)}
                       >
                         <FolderDown />
@@ -542,7 +543,7 @@ export default function DiskFilesystems() {
                 <button
                   key={c.source}
                   type="button"
-                  className="w-full text-left bg-muted/20 hover:bg-muted/40 rounded-xl p-4 transition-colors group"
+                  className="w-full text-left bg-muted/20 hover:bg-muted/40 rounded-xl p-4 transition-colors group outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                   onClick={() => setExpandTarget(c)}
                 >
                   <div className="flex items-center justify-between">

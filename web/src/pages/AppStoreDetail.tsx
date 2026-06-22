@@ -501,7 +501,8 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
         {/* Close button */}
         <button
           onClick={() => !installing && onClose()}
-          className="absolute top-4 right-4 z-20 p-1.5 rounded-full bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+          aria-label={t('common.close')}
+          className="absolute top-4 right-4 z-20 p-1.5 rounded-full bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
         >
           <X className="h-4 w-4" />
         </button>
@@ -619,7 +620,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                       href={detail.app.website}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                     >
                       <Globe className="h-3.5 w-3.5" />
                       {t('appStore.website')}
@@ -630,7 +631,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                       href={detail.app.source}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                     >
                       <Code2 className="h-3.5 w-3.5" />
                       {t('appStore.source')}
@@ -651,7 +652,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                       href={src}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="shrink-0"
+                      className="shrink-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                     >
                       <img
                         src={src}
@@ -678,7 +679,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                 {/* Mode tabs */}
                 <div className="flex gap-1 p-1 bg-secondary/40 rounded-xl mb-4">
                   <button
-                    className={`flex-1 py-1.5 text-[12px] font-medium rounded-lg transition-colors ${
+                    className={`flex-1 py-1.5 text-[12px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                       installMode === 'simple'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
@@ -688,7 +689,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                     {t('appStore.simpleMode')}
                   </button>
                   <button
-                    className={`flex-1 py-1.5 text-[12px] font-medium rounded-lg transition-colors ${
+                    className={`flex-1 py-1.5 text-[12px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                       installMode === 'advanced'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
@@ -734,7 +735,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                               />
                               <button
                                 type="button"
-                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                                 onClick={() =>
                                   setShowPasswords((prev) => ({
                                     ...prev,
@@ -837,7 +838,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                     {/* Sub-tabs */}
                     <div className="flex gap-1 mb-3">
                       <button
-                        className={`px-3 py-1 text-[11px] font-medium rounded-lg transition-colors ${
+                        className={`px-3 py-1 text-[11px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                           advancedTab === 'compose'
                             ? 'bg-primary/10 text-primary'
                             : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -847,7 +848,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                         docker-compose.yml
                       </button>
                       <button
-                        className={`px-3 py-1 text-[11px] font-medium rounded-lg transition-colors ${
+                        className={`px-3 py-1 text-[11px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                           advancedTab === 'env'
                             ? 'bg-primary/10 text-primary'
                             : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -1075,7 +1076,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
             <div>
               <button
                 onClick={() => setShowCompose(!showCompose)}
-                className="flex items-center gap-2 text-[14px] font-semibold hover:text-primary transition-colors"
+                className="flex items-center gap-2 text-[14px] font-semibold hover:text-primary transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
               >
                 Docker Compose
                 {showCompose ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}

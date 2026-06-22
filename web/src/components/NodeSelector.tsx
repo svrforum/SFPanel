@@ -72,8 +72,9 @@ export default function NodeSelector({ collapsed }: NodeSelectorProps) {
       <div ref={ref} className="relative px-2 py-1">
         <button
           onClick={() => setOpen(!open)}
-          className="flex flex-col items-center gap-1 w-full py-1.5 rounded-xl hover:bg-accent transition-colors"
+          className="flex flex-col items-center gap-1 w-full py-1.5 rounded-xl hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
           title={currentNode?.name || t('layout.cluster.selectNode')}
+          aria-label={currentNode?.name || t('layout.cluster.selectNode')}
         >
           <Monitor className="h-[18px] w-[18px] text-muted-foreground" />
           <span className={cn('h-1.5 w-1.5 rounded-full', statusColor(currentNode?.status || ''))} />
@@ -88,7 +89,7 @@ export default function NodeSelector({ collapsed }: NodeSelectorProps) {
                   setOpen(false)
                 }}
                 className={cn(
-                  'flex items-center gap-2 w-full px-3 py-2 text-[13px] hover:bg-accent transition-colors',
+                  'flex items-center gap-2 w-full px-3 py-2 text-[13px] hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                   (selectedNode === node.id || (!selectedNode && node.id === localId)) && 'bg-primary/10 text-primary'
                 )}
               >
@@ -109,7 +110,7 @@ export default function NodeSelector({ collapsed }: NodeSelectorProps) {
     <div ref={ref} className="relative px-3 py-1">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 w-full px-3 py-2 rounded-xl hover:bg-accent transition-colors text-[13px]"
+        className="flex items-center gap-2 w-full px-3 py-2 rounded-xl hover:bg-accent transition-colors text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
       >
         <Monitor className="h-[16px] w-[16px] text-muted-foreground shrink-0" />
         <span className={cn('h-2 w-2 rounded-full shrink-0', statusColor(currentNode?.status || ''))} />
@@ -129,7 +130,7 @@ export default function NodeSelector({ collapsed }: NodeSelectorProps) {
                 setOpen(false)
               }}
               className={cn(
-                'flex items-center gap-2 w-full px-3 py-2 text-[13px] hover:bg-accent transition-colors',
+                'flex items-center gap-2 w-full px-3 py-2 text-[13px] hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                 (selectedNode === node.id || (!selectedNode && node.id === localId)) && 'bg-primary/10 text-primary'
               )}
             >

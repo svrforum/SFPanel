@@ -25,7 +25,10 @@
       "prompt": "To confirm, type:"
     },
     "confirm": "Confirm",
-    "retry": "Retry"
+    "retry": "Retry",
+    "copy": "Copy",
+    "previous": "Previous",
+    "next": "Next"
   },
   "layout": {
     "brand": "SFPanel",
@@ -1602,6 +1605,7 @@
     "noMatches": "No matches",
     "prevMatch": "Previous match",
     "nextMatch": "Next match",
+    "closeSearch": "Close search",
     "download": "Download logs",
     "addSource": "Add Source",
     "addSourceTitle": "Add Custom Log Source",

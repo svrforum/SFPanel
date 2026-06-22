@@ -236,7 +236,7 @@ export default function FirewallDocker() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="opacity-0 group-hover:opacity-100 transition-opacity text-[12px] h-7 rounded-lg"
+                          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity text-[12px] h-7 rounded-lg"
                           onClick={() => handleOpenAddForPort(port)}
                         >
                           <ShieldBan className="h-3.5 w-3.5 mr-1" />
@@ -306,8 +306,9 @@ export default function FirewallDocker() {
                     <Button
                       variant="ghost"
                       size="icon-xs"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-600"
+                      className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity text-red-500 hover:text-red-600"
                       title={t('firewall.docker.deleteRule')}
+                      aria-label={t('firewall.docker.deleteRule')}
                       onClick={() => setDeleteTarget(rule)}
                     >
                       <Trash2 className="h-4 w-4" />

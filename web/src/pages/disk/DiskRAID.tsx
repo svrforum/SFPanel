@@ -313,6 +313,7 @@ export default function DiskRAID() {
                             variant="ghost"
                             size="icon-xs"
                             title={t('disk.raid.removeDisk')}
+                            aria-label={t('disk.raid.removeDisk')}
                             onClick={() => openRemoveDisk(arr, member.device)}
                           >
                             <MinusCircle className="h-3.5 w-3.5" />

@@ -461,6 +461,7 @@ export default function ClusterOverview() {
                     className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
                     onClick={() => openEditAddress(node)}
                     title={t('cluster.nodes.editAddress')}
+                    aria-label={t('cluster.nodes.editAddress')}
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
@@ -471,6 +472,7 @@ export default function ClusterOverview() {
                       className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                       onClick={handleLeave}
                       title={t('cluster.leave.action')}
+                      aria-label={t('cluster.leave.action')}
                     >
                       <LogOut className="h-3.5 w-3.5" />
                     </Button>
@@ -707,7 +709,7 @@ function ClusterInitForm() {
                   key={`${iface.name}-${iface.address}`}
                   onClick={() => setSelectedAddr(iface.address)}
                   className={cn(
-                    'w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] transition-colors',
+                    'w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                     selectedAddr === iface.address
                       ? 'bg-primary/10 ring-1 ring-primary/20'
                       : 'bg-secondary/50 hover:bg-secondary'

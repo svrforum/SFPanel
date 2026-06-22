@@ -825,6 +825,7 @@ export default function Packages() {
                     className="h-7 w-7 p-0"
                     onClick={openNodeVersionDialog}
                     title={t('packages.nodeVersionManage')}
+                    aria-label={t('packages.nodeVersionManage')}
                   >
                     <Settings2 className="h-3.5 w-3.5" />
                   </Button>
@@ -1248,6 +1249,7 @@ export default function Packages() {
                             className="rounded-xl"
                             onClick={() => handleInstallPackage(pkg.name)}
                             disabled={loading.install === pkg.name}
+                            aria-label={t('packages.install')}
                           >
                             {loading.install === pkg.name ? (
                               <Loader2 className="animate-spin h-4 w-4" aria-hidden="true" />
@@ -1262,6 +1264,7 @@ export default function Packages() {
                             className="rounded-xl"
                             onClick={() => handleRemovePackage(pkg.name)}
                             disabled={loading.remove === pkg.name}
+                            aria-label={t('packages.remove')}
                           >
                             {loading.remove === pkg.name ? (
                               <Loader2 className="animate-spin h-4 w-4" aria-hidden="true" />
@@ -1458,6 +1461,7 @@ export default function Packages() {
                                   className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                                   onClick={() => handleUninstallNodeVersion(v.version)}
                                   disabled={nodeRemoving !== null}
+                                  aria-label={t('common.delete')}
                                 >
                                   {nodeRemoving === v.version ? (
                                     <Loader2 className="h-3 w-3 animate-spin" />

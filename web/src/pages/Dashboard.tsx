@@ -223,7 +223,7 @@ export default function Dashboard() {
           </span>
           <button
             onClick={() => navigate('/settings?scope=node&tab=system')}
-            className="text-[13px] font-medium text-primary hover:underline flex items-center gap-1"
+            className="text-[13px] font-medium text-primary hover:underline flex items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
           >
             {t('dashboard.updateBannerAction')}
             <ArrowUpRight className="h-3.5 w-3.5" />
@@ -320,7 +320,7 @@ export default function Dashboard() {
                   <button
                     key={range}
                     onClick={() => setChartRange(range)}
-                    className={`px-2 md:px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    className={`px-2 md:px-2.5 py-1 rounded-md text-[11px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                       chartRange === range
                         ? 'bg-card text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
@@ -343,7 +343,7 @@ export default function Dashboard() {
                 <Container className="h-4 w-4 text-muted-foreground" />
                 <span className="text-[13px] font-semibold">{t('dashboard.dockerSummary')}</span>
               </div>
-              <button onClick={() => navigate('/docker')} className="text-xs text-primary font-medium hover:underline">
+              <button onClick={() => navigate('/docker')} className="text-xs text-primary font-medium hover:underline rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0">
                 {t('dashboard.viewAll')}
               </button>
             </div>
@@ -469,7 +469,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-1 bg-secondary/60 rounded-lg p-0.5">
                 <button
                   onClick={() => setLogTab('firewall')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     logTab === 'firewall'
                       ? 'bg-card text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
@@ -479,7 +479,7 @@ export default function Dashboard() {
                 </button>
                 <button
                   onClick={() => setLogTab('syslog')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     logTab === 'syslog'
                       ? 'bg-card text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
@@ -491,7 +491,7 @@ export default function Dashboard() {
             </div>
             <button
               onClick={() => navigate(logTab === 'firewall' ? '/firewall/logs' : '/logs')}
-              className="text-xs text-primary font-medium hover:underline"
+              className="text-xs text-primary font-medium hover:underline rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
             >
               {t('dashboard.viewAll')}
             </button>
@@ -588,7 +588,7 @@ export default function Dashboard() {
             <button
               key={action.to}
               onClick={() => navigate(action.to)}
-              className="shrink-0 w-[120px] md:w-auto flex flex-col items-center gap-2.5 p-4 rounded-2xl bg-secondary/50 hover:bg-secondary transition-all duration-200 cursor-pointer"
+              className="shrink-0 w-[120px] md:w-auto flex flex-col items-center gap-2.5 p-4 rounded-2xl bg-secondary/50 hover:bg-secondary transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
             >
               <div className={`p-2.5 rounded-xl ${action.color}`}>
                 <action.icon className="h-5 w-5" />

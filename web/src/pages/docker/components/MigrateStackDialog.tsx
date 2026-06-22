@@ -165,7 +165,7 @@ export function MigrateStackDialog({
                   setTargetId(e.target.value)
                   setReport(null)
                 }}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
               >
                 <option value="">{t('docker.migrate.selectTarget')}</option>
                 {nodes.map((n) => (
@@ -189,7 +189,7 @@ export function MigrateStackDialog({
                     aria-pressed={disposition === d}
                     onClick={() => setDisposition(d)}
                     className={cn(
-                      'rounded-lg border p-2 text-xs font-medium transition',
+                      'rounded-lg border p-2 text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                       disposition === d ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent',
                     )}
                   >

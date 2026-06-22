@@ -184,8 +184,9 @@ export default function ClusterNodes() {
                     {status.is_leader && (
                       <button
                         onClick={() => openLabelDialog(node.id, node.name, node.labels || {})}
-                        className="p-0.5 rounded hover:bg-accent transition-colors"
+                        className="p-0.5 rounded hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                         title={t('cluster.nodes.editLabels')}
+                        aria-label={t('cluster.nodes.editLabels')}
                       >
                         <Tag className="h-3 w-3 text-muted-foreground" />
                       </button>
@@ -205,6 +206,7 @@ export default function ClusterNodes() {
                         className="h-7 w-7 p-0 text-primary hover:text-primary hover:bg-primary/10"
                         onClick={() => handleTransferLeadership(node.id, node.name)}
                         title={t('cluster.nodes.transferLeadership')}
+                        aria-label={t('cluster.nodes.transferLeadership')}
                       >
                         <ArrowRightLeft className="h-3.5 w-3.5" />
                       </Button>
@@ -215,6 +217,7 @@ export default function ClusterNodes() {
                         size="sm"
                         className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                         onClick={() => handleRemove(node.id, node.name)}
+                        aria-label={t('common.delete')}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -243,7 +246,8 @@ export default function ClusterNodes() {
                   </span>
                   <button
                     onClick={() => handleRemoveLabel(k)}
-                    className="p-1 rounded hover:bg-destructive/10 transition-colors"
+                    className="p-1 rounded hover:bg-destructive/10 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                    aria-label={t('common.delete')}
                   >
                     <Trash2 className="h-3.5 w-3.5 text-destructive" />
                   </button>

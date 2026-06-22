@@ -25,7 +25,10 @@
       "prompt": "확인하려면 다음을 입력하세요:"
     },
     "confirm": "확인",
-    "retry": "다시 시도"
+    "retry": "다시 시도",
+    "copy": "복사",
+    "previous": "이전",
+    "next": "다음"
   },
   "layout": {
     "brand": "SFPanel",
@@ -1602,6 +1605,7 @@
     "noMatches": "결과 없음",
     "prevMatch": "이전 결과",
     "nextMatch": "다음 결과",
+    "closeSearch": "검색 닫기",
     "download": "로그 다운로드",
     "addSource": "소스 추가",
     "addSourceTitle": "커스텀 로그 소스 추가",

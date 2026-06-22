@@ -166,6 +166,7 @@ export default function DockerVolumes() {
                 variant="ghost"
                 size="icon-xs"
                 title={t('common.delete')}
+                aria-label={t('common.delete')}
                 onClick={() => setDeleteTarget(v)}
               >
                 <Trash2 className="h-4 w-4" />
@@ -233,6 +234,7 @@ export default function DockerVolumes() {
                   variant="ghost"
                   size="icon-xs"
                   title={t('common.delete')}
+                  aria-label={t('common.delete')}
                   onClick={() => setDeleteTarget(v)}
                 >
                   <Trash2 />

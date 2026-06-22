@@ -306,7 +306,7 @@ export default function DiskSwap() {
             max={100}
             value={swappiness}
             onChange={(e) => setSwappiness(parseInt(e.target.value, 10))}
-            className="flex-1 h-2 bg-secondary rounded-full appearance-none cursor-pointer accent-primary"
+            className="flex-1 h-2 bg-secondary rounded-full appearance-none cursor-pointer accent-primary outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
           />
           <span className="text-xs text-muted-foreground w-7">100</span>
         </div>
@@ -357,6 +357,7 @@ export default function DiskSwap() {
                         variant="ghost"
                         size="icon-xs"
                         title={t('disk.swap.resize')}
+                        aria-label={t('disk.swap.resize')}
                         onClick={() => openResizeDialog(entry)}
                       >
                         <Maximize2 />
@@ -366,6 +367,7 @@ export default function DiskSwap() {
                       variant="ghost"
                       size="icon-xs"
                       title={t('disk.swap.remove')}
+                      aria-label={t('disk.swap.remove')}
                       onClick={() => setRemoveTarget(entry)}
                     >
                       <Trash2 />
@@ -393,7 +395,7 @@ export default function DiskSwap() {
                 <button
                   type="button"
                   onClick={() => setCreateMode('file')}
-                  className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors ${
+                  className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     createMode === 'file'
                       ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
                       : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
@@ -404,7 +406,7 @@ export default function DiskSwap() {
                 <button
                   type="button"
                   onClick={() => setCreateMode('partition')}
-                  className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors ${
+                  className={`flex-1 rounded-xl px-4 py-2.5 text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     createMode === 'partition'
                       ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
                       : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
@@ -618,7 +620,7 @@ export default function DiskSwap() {
                   step={64}
                   value={newMB || currentMB}
                   onChange={(e) => setResizeSizeMB(e.target.value)}
-                  className="w-full h-2 bg-secondary rounded-full appearance-none cursor-pointer accent-primary"
+                  className="w-full h-2 bg-secondary rounded-full appearance-none cursor-pointer accent-primary outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                 />
 
                 {/* Preset buttons */}
@@ -628,7 +630,7 @@ export default function DiskSwap() {
                       key={mb}
                       type="button"
                       onClick={() => setResizeSizeMB(String(mb))}
-                      className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors ${
+                      className={`px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                         newMB === mb
                           ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
                           : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'

@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const AUDIT_LIMIT = 20
-const selectCls = 'h-8 rounded-lg border border-border bg-card px-2 text-[12px]'
+const selectCls = 'h-8 rounded-lg border border-border bg-card px-2 text-[12px] outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0'
 
 export default function Audit() {
   const { t } = useTranslation()
@@ -198,6 +198,7 @@ export default function Audit() {
                     variant="outline"
                     size="sm"
                     className="rounded-xl h-7 px-2"
+                    aria-label={t('common.previous')}
                     disabled={auditPage <= 1}
                     onClick={() => { const p = auditPage - 1; setAuditPage(p); loadAuditLogs(p) }}
                   >
@@ -207,6 +208,7 @@ export default function Audit() {
                     variant="outline"
                     size="sm"
                     className="rounded-xl h-7 px-2"
+                    aria-label={t('common.next')}
                     disabled={auditPage >= Math.ceil(auditTotal / AUDIT_LIMIT)}
                     onClick={() => { const p = auditPage + 1; setAuditPage(p); loadAuditLogs(p) }}
                   >

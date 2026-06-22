@@ -244,6 +244,7 @@ export default function Processes() {
         variant="ghost"
         size="icon-xs"
         title={t('processes.renice')}
+        aria-label={t('processes.renice')}
         onClick={() => openRenice(proc)}
       >
         <Gauge className="h-4 w-4" />
@@ -253,6 +254,7 @@ export default function Processes() {
         size="icon-xs"
         className="text-destructive hover:text-destructive/80"
         title={t('processes.kill')}
+        aria-label={t('processes.kill')}
         onClick={() => setKillTarget(proc)}
       >
         <Skull className="h-4 w-4" />
@@ -300,7 +302,7 @@ export default function Processes() {
         </span>
       </TableCell>
       <TableCell className="text-right w-24">
-        {rowActions(proc, 'opacity-0 group-hover:opacity-100 transition-opacity')}
+        {rowActions(proc, 'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity')}
       </TableCell>
     </TableRow>
   )

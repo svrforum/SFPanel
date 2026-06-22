@@ -245,8 +245,11 @@ export default function SettingsTuning() {
           <div key={cat.name} className="bg-card rounded-2xl card-shadow overflow-hidden">
             {/* Category Header */}
             <div
-              className="flex items-center justify-between p-5 cursor-pointer hover:bg-secondary/30 transition-colors"
+              role="button"
+              tabIndex={0}
+              className="flex items-center justify-between p-5 cursor-pointer hover:bg-secondary/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
               onClick={() => toggleExpand(cat.name)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(cat.name) } }}
             >
               <div className="flex items-center gap-3">
                 <div

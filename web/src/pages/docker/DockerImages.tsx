@@ -219,6 +219,7 @@ export default function DockerImages() {
                 variant="ghost"
                 size="icon-xs"
                 title={t('common.delete')}
+                aria-label={t('common.delete')}
                 onClick={() => setDeleteTarget(img)}
               >
                 <Trash2 className="h-4 w-4" />
@@ -285,6 +286,7 @@ export default function DockerImages() {
                     variant="ghost"
                     size="icon-xs"
                     title={t('common.delete')}
+                    aria-label={t('common.delete')}
                     onClick={() => setDeleteTarget(img)}
                   >
                     <Trash2 />

@@ -74,6 +74,7 @@ export default function DiskUsage() {
           size="icon-xs"
           className="rounded-xl shrink-0"
           title={t('disk.usage.up')}
+          aria-label={t('disk.usage.up')}
           disabled={path === '/' || loading}
           onClick={() => setPath(parentOf(path))}
         >
@@ -118,7 +119,7 @@ export default function DiskUsage() {
               <button
                 key={entry.path}
                 onClick={() => setPath(entry.path)}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-accent transition-colors text-left group"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-accent transition-colors text-left group outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
               >
                 <Folder className="h-4 w-4 text-primary shrink-0" />
                 <span className="text-[13px] font-medium w-48 truncate shrink-0" title={entry.path}>

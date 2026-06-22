@@ -313,6 +313,7 @@ export default function Services() {
                   variant="ghost"
                   size="icon-xs"
                   title={t('services.start')}
+                  aria-label={t('services.start')}
                   disabled={svc.active_state === 'active' || !!actionLoading?.startsWith(svc.name + ':')}
                   onClick={() => handleAction(svc.name, 'start')}
                 >
@@ -322,6 +323,7 @@ export default function Services() {
                   variant="ghost"
                   size="icon-xs"
                   title={t('services.stop')}
+                  aria-label={t('services.stop')}
                   disabled={svc.active_state === 'inactive' || !!actionLoading?.startsWith(svc.name + ':')}
                   onClick={() => handleAction(svc.name, 'stop')}
                 >
@@ -331,6 +333,7 @@ export default function Services() {
                   variant="ghost"
                   size="icon-xs"
                   title={t('services.restart')}
+                  aria-label={t('services.restart')}
                   disabled={!!actionLoading?.startsWith(svc.name + ':')}
                   onClick={() => handleAction(svc.name, 'restart')}
                 >
@@ -340,6 +343,7 @@ export default function Services() {
                   variant="ghost"
                   size="icon-xs"
                   title={t('services.viewLogs')}
+                  aria-label={t('services.viewLogs')}
                   onClick={() => handleViewLogs(svc.name)}
                 >
                   <FileText className="h-4 w-4" />
@@ -396,7 +400,8 @@ export default function Services() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        aria-label={t('services.actions')}
+                        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
                         disabled={actionLoading?.startsWith(svc.name + ':') || false}
                       >
                         {actionLoading?.startsWith(svc.name + ':') ? (
@@ -453,14 +458,14 @@ export default function Services() {
           <div className="flex gap-1 rounded-xl bg-muted p-1 w-fit">
             <button
               onClick={() => setDialogView('logs')}
-              className={`px-3 py-1 text-[12px] rounded-lg transition-colors ${dialogView === 'logs' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
+              className={`px-3 py-1 text-[12px] rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${dialogView === 'logs' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
             >
               {t('services.logsTab')}
             </button>
             <button
               onClick={() => setDialogView('unit')}
               disabled={!unitFile}
-              className={`px-3 py-1 text-[12px] rounded-lg transition-colors disabled:opacity-40 ${dialogView === 'unit' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
+              className={`px-3 py-1 text-[12px] rounded-lg transition-colors disabled:opacity-40 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${dialogView === 'unit' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
             >
               {t('services.unitTab')}
             </button>

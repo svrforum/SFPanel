@@ -414,6 +414,7 @@ export default function NetworkWireGuard() {
                   size="icon-xs"
                   onClick={() => openAddPeer(iface)}
                   title={t('network.wireguard.peers.addPeer')}
+                  aria-label={t('network.wireguard.peers.addPeer')}
                 >
                   <UserPlus className="h-4 w-4 text-primary" />
                 </Button>
@@ -423,6 +424,7 @@ export default function NetworkWireGuard() {
                   onClick={() => handleToggle(iface.name, iface.active)}
                   disabled={toggling === iface.name}
                   title={iface.active ? t('network.wireguard.down') : t('network.wireguard.up')}
+                  aria-label={iface.active ? t('network.wireguard.down') : t('network.wireguard.up')}
                 >
                   {toggling === iface.name ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -437,6 +439,7 @@ export default function NetworkWireGuard() {
                   size="icon-xs"
                   onClick={() => openEdit(iface.name)}
                   title={t('common.edit')}
+                  aria-label={t('common.edit')}
                 >
                   <Settings2 className="h-4 w-4" />
                 </Button>
@@ -446,6 +449,7 @@ export default function NetworkWireGuard() {
                   className="text-destructive hover:text-destructive"
                   onClick={() => setDeleteTarget(iface.name)}
                   title={t('common.delete')}
+                  aria-label={t('common.delete')}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -473,9 +477,10 @@ export default function NetworkWireGuard() {
                     {t('network.wireguard.publicKey')}
                   </span>
                   <button
-                    className="font-mono text-[11px] truncate min-w-0 max-w-[200px] hover:text-primary flex items-center gap-1"
+                    className="font-mono text-[11px] truncate min-w-0 max-w-[200px] hover:text-primary flex items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                     onClick={() => copyToClipboard(iface.public_key, iface.name)}
                     title={iface.public_key}
+                    aria-label={t('common.copy')}
                   >
                     {iface.public_key.substring(0, 20)}...
                     {copiedKey === iface.name ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
@@ -517,6 +522,7 @@ export default function NetworkWireGuard() {
                             onClick={() => handleRemovePeer(iface.name, peer.public_key)}
                             disabled={removingPeer === peer.public_key}
                             title={t('network.wireguard.peers.removePeer')}
+                            aria-label={t('network.wireguard.peers.removePeer')}
                           >
                             {removingPeer === peer.public_key ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
@@ -616,7 +622,7 @@ export default function NetworkWireGuard() {
                     <Label className="text-[13px]">{t('network.wireguard.peers.clientPublicKey')}</Label>
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1 text-[12px] text-primary hover:text-primary/80 font-medium disabled:opacity-50"
+                      className="inline-flex items-center gap-1 text-[12px] text-primary hover:text-primary/80 font-medium disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                       onClick={generateKeypair}
                       disabled={genLoading}
                     >
@@ -706,7 +712,7 @@ export default function NetworkWireGuard() {
                     <Label className="text-[13px]">{t('network.wireguard.peers.clientConfig')}</Label>
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1 text-[12px] text-primary hover:text-primary/80 font-medium"
+                      className="inline-flex items-center gap-1 text-[12px] text-primary hover:text-primary/80 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                       onClick={() => copyToClipboard(clientConfig, 'peer-config')}
                     >
                       {copiedKey === 'peer-config' ? (

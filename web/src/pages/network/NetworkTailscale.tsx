@@ -464,7 +464,7 @@ export default function NetworkTailscale() {
                   href={authURL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[13px] text-primary hover:underline font-mono break-all"
+                  className="inline-flex items-center gap-1 text-[13px] text-primary hover:underline font-mono break-all rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                 >
                   {authURL}
                   <ExternalLink className="h-3 w-3 shrink-0" />
@@ -552,8 +552,9 @@ export default function NetworkTailscale() {
               <div className="flex items-center justify-between gap-2 min-w-0">
                 <span className="text-muted-foreground shrink-0">{t('network.tailscale.tailscaleIP')}</span>
                 <button
-                  className="font-mono flex items-center gap-1 hover:text-primary min-w-0"
+                  className="font-mono flex items-center gap-1 hover:text-primary min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                   onClick={() => copyToClipboard(status.self!.tailscale_ip, 'ip4')}
+                  aria-label={t('common.copy')}
                 >
                   <span className="truncate min-w-0">{status.self.tailscale_ip}</span>
                   {copiedField === 'ip4' ? <Check className="h-3 w-3 text-success shrink-0" /> : <Copy className="h-3 w-3 shrink-0" />}
@@ -563,8 +564,9 @@ export default function NetworkTailscale() {
                 <div className="flex items-center justify-between gap-2 min-w-0">
                   <span className="text-muted-foreground shrink-0">IPv6</span>
                   <button
-                    className="font-mono text-[11px] flex items-center gap-1 hover:text-primary truncate min-w-0 max-w-[200px]"
+                    className="font-mono text-[11px] flex items-center gap-1 hover:text-primary truncate min-w-0 max-w-[200px] rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                     onClick={() => copyToClipboard(status.self!.tailscale_ipv6, 'ip6')}
+                    aria-label={t('common.copy')}
                     title={status.self.tailscale_ipv6}
                   >
                     {status.self.tailscale_ipv6}
@@ -600,7 +602,7 @@ export default function NetworkTailscale() {
           <div className="space-y-3">
             {/* Accept Routes */}
             <button
-              className={`w-full flex items-center justify-between rounded-xl p-3 transition-colors ${
+              className={`w-full flex items-center justify-between rounded-xl p-3 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                 status?.accept_routes
                   ? 'bg-success/10 ring-1 ring-success/20'
                   : 'bg-secondary/50 hover:bg-secondary/80'
@@ -636,7 +638,7 @@ export default function NetworkTailscale() {
 
             {/* Advertise as Exit Node */}
             <button
-              className={`w-full flex items-center justify-between rounded-xl p-3 transition-colors ${
+              className={`w-full flex items-center justify-between rounded-xl p-3 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                 status?.advertise_exit_node
                   ? 'bg-primary/10 ring-1 ring-primary/20'
                   : 'bg-secondary/50 hover:bg-secondary/80'

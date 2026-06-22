@@ -145,6 +145,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
             size="icon-xs"
             className="text-white/40 hover:text-white hover:bg-white/10"
             title={t('terminal.clear')}
+            aria-label={t('terminal.clear')}
             onClick={handleClear}
           >
             <Eraser className="h-3.5 w-3.5" />
@@ -155,6 +156,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
               size="icon-xs"
               className="text-white/40 hover:text-destructive hover:bg-white/10"
               title={t('terminal.disconnect')}
+              aria-label={t('terminal.disconnect')}
               onClick={handleDisconnect}
             >
               <Unplug className="h-3.5 w-3.5" />

@@ -568,6 +568,7 @@ export default function FirewallFail2ban() {
               size="icon-xs"
               onClick={() => setAboutOpen(true)}
               title={t('firewall.fail2ban.learnMore')}
+              aria-label={t('firewall.fail2ban.learnMore')}
             >
               <Info className="h-4 w-4" />
             </Button>
@@ -636,7 +637,16 @@ export default function FirewallFail2ban() {
                   {jails.map((jail) => (
                     <TableRow
                       key={jail.name}
-                      className={`cursor-pointer transition-colors ${
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleSelectJail(jail.name)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          handleSelectJail(jail.name)
+                        }
+                      }}
+                      className={`cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 ${
                         selectedJail === jail.name ? 'bg-primary/5' : 'hover:bg-muted/50'
                       }`}
                     >
@@ -707,6 +717,7 @@ export default function FirewallFail2ban() {
                               e.stopPropagation()
                               setDeleteJailDialog({ open: true, name: jail.name })
                             }}
+                            aria-label={t('firewall.fail2ban.deleteJail')}
                             className="rounded-xl text-[12px] text-destructive hover:text-destructive hover:bg-destructive/10"
                           >
                             <Trash2 className="h-3 w-3" />
@@ -1051,7 +1062,7 @@ export default function FirewallFail2ban() {
                 <button
                   type="button"
                   onClick={handleSelectCustom}
-                  className={`text-left rounded-xl px-3 py-2.5 border transition-all ${
+                  className={`text-left rounded-xl px-3 py-2.5 border transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     isCustomMode
                       ? 'bg-primary/10 border-primary/30 ring-1 ring-primary/20'
                       : 'bg-card border-border hover:border-primary/30 hover:bg-muted/50'
@@ -1071,7 +1082,7 @@ export default function FirewallFail2ban() {
                       type="button"
                       onClick={() => tmpl.available && handleSelectTemplate(tmpl)}
                       disabled={!tmpl.available}
-                      className={`text-left rounded-xl px-3 py-2.5 border transition-all ${
+                      className={`text-left rounded-xl px-3 py-2.5 border transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                         selectedTemplate?.id === tmpl.id
                           ? 'bg-primary/10 border-primary/30 ring-1 ring-primary/20'
                           : tmpl.available

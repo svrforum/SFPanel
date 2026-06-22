@@ -226,32 +226,44 @@ export default function FirewallPorts() {
           <TableHeader>
             <TableRow>
               <TableHead
-                className="w-24 cursor-pointer select-none"
+                className="w-24 cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+                role="button"
+                tabIndex={0}
                 onClick={() => handleSort('protocol')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort('protocol') } }}
               >
                 <span className="inline-flex items-center text-[11px]">
                   {t('firewall.ports.protocol')}{getSortIcon('protocol')}
                 </span>
               </TableHead>
               <TableHead
-                className="cursor-pointer select-none"
+                className="cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+                role="button"
+                tabIndex={0}
                 onClick={() => handleSort('address')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort('address') } }}
               >
                 <span className="inline-flex items-center text-[11px]">
                   {t('firewall.ports.address')}{getSortIcon('address')}
                 </span>
               </TableHead>
               <TableHead
-                className="w-24 cursor-pointer select-none"
+                className="w-24 cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+                role="button"
+                tabIndex={0}
                 onClick={() => handleSort('port')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort('port') } }}
               >
                 <span className="inline-flex items-center text-[11px]">
                   {t('firewall.ports.port')}{getSortIcon('port')}
                 </span>
               </TableHead>
               <TableHead
-                className="cursor-pointer select-none"
+                className="cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+                role="button"
+                tabIndex={0}
                 onClick={() => handleSort('process')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort('process') } }}
               >
                 <span className="inline-flex items-center text-[11px]">
                   {t('firewall.ports.process')}{getSortIcon('process')}
@@ -300,7 +312,7 @@ export default function FirewallPorts() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="h-7 text-xs opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
                     onClick={() => handleOpenAddDialog(port)}
                   >
                     <Plus className="h-3.5 w-3.5 mr-1" />

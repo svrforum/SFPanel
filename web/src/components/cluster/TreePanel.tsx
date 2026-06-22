@@ -70,8 +70,9 @@ export default function TreePanel({
       <div className="w-[52px] bg-card border-r border-border flex flex-col h-full shrink-0">
         <button
           onClick={onToggleCollapse}
-          className="flex items-center justify-center py-3 hover:bg-accent transition-colors border-b border-border"
+          className="flex items-center justify-center py-3 hover:bg-accent transition-colors border-b border-border outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
           title="Expand tree"
+          aria-label="Expand tree"
         >
           <PanelLeftOpen className="h-4 w-4 text-foreground/60" />
         </button>
@@ -81,10 +82,11 @@ export default function TreePanel({
           <button
             onClick={() => onSelect({ type: 'datacenter' })}
             className={cn(
-              'w-9 h-9 rounded-lg flex items-center justify-center transition-colors',
+              'w-9 h-9 rounded-lg flex items-center justify-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
               isDatacenterSelected ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent'
             )}
             title={clusterStatus.name}
+            aria-label={clusterStatus.name}
           >
             <Server className="h-4 w-4" />
           </button>
@@ -95,12 +97,13 @@ export default function TreePanel({
               key={node.id}
               onClick={() => onSelect({ type: 'node', nodeId: node.id })}
               className={cn(
-                'w-9 h-9 rounded-lg flex items-center justify-center transition-colors',
+                'w-9 h-9 rounded-lg flex items-center justify-center transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                 selection.type === 'node' && selection.nodeId === node.id
                   ? 'bg-primary/10'
                   : 'hover:bg-accent'
               )}
               title={node.name}
+              aria-label={node.name}
             >
               <span className={cn('h-2.5 w-2.5 rounded-full', statusColor(node.status))} />
             </button>
@@ -108,7 +111,7 @@ export default function TreePanel({
         </div>
 
         <div className="shrink-0 border-t border-border py-2 flex flex-col items-center gap-1">
-          <button onClick={onLogout} className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-accent transition-colors" title={t('layout.logout')}>
+          <button onClick={onLogout} className="w-9 h-9 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" title={t('layout.logout')} aria-label={t('layout.logout')}>
             <LogOut className="h-4 w-4" />
           </button>
         </div>
@@ -123,7 +126,7 @@ export default function TreePanel({
         <Link to="/dashboard" aria-label="SFPanel" className="flex-1 min-w-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
           <img src="/banner.png" alt="SFPanel" className="w-full h-auto" />
         </Link>
-        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors shrink-0" title="Collapse tree">
+        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" title="Collapse tree" aria-label="Collapse tree">
           <PanelLeftClose className="h-4 w-4 text-foreground/60" />
         </button>
       </div>
@@ -138,14 +141,14 @@ export default function TreePanel({
         <div className="flex items-center">
           <button
             onClick={() => setNodesExpanded(!nodesExpanded)}
-            className="p-1 rounded hover:bg-accent transition-colors shrink-0"
+            className="p-1 rounded hover:bg-accent transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
           >
             {nodesExpanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
           </button>
           <button
             onClick={() => onSelect({ type: 'datacenter' })}
             className={cn(
-              'flex-1 flex items-center gap-2 px-1.5 py-1.5 rounded-lg text-[12px] font-semibold transition-colors',
+              'flex-1 flex items-center gap-2 px-1.5 py-1.5 rounded-lg text-[12px] font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
               isDatacenterSelected
                 ? 'bg-primary/10 text-primary'
                 : 'text-foreground hover:bg-accent'
@@ -168,7 +171,7 @@ export default function TreePanel({
                 key={node.id}
                 onClick={() => onSelect({ type: 'node', nodeId: node.id })}
                 className={cn(
-                  'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors',
+                  'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                   isSelected
                     ? 'bg-primary/10 text-primary font-semibold'
                     : 'text-foreground/80 hover:bg-accent'
@@ -196,8 +199,9 @@ export default function TreePanel({
           </span>
           <button
             onClick={onLogout}
-            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
             title={t('layout.logout')}
+            aria-label={t('layout.logout')}
           >
             <LogOut className="h-3.5 w-3.5" />
           </button>
@@ -207,8 +211,9 @@ export default function TreePanel({
             href="https://github.com/svrforum/SFPanel"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
             title="GitHub"
+            aria-label="GitHub"
           >
             <GithubIcon className="h-3 w-3" />
           </a>
@@ -216,8 +221,9 @@ export default function TreePanel({
             href="https://buymeacoffee.com/svrforum"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-[#FFDD00] transition-colors"
+            className="text-muted-foreground hover:text-[#FFDD00] transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
             title="Buy me a coffee"
+            aria-label="Buy me a coffee"
           >
             <Coffee className="h-3 w-3" />
           </a>

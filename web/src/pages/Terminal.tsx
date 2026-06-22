@@ -97,6 +97,7 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const initialized = useRef(false)
+  const { t } = useTranslation()
 
   useEffect(() => {
     if (!containerRef.current || initialized.current) return
@@ -173,7 +174,7 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
 
     const token = api.getToken()
     if (!token) {
-      term.writeln('\r\n\x1b[31mNot authenticated. Please log in.\x1b[0m')
+      term.writeln('\r\n\x1b[31m' + t('terminal.notAuthenticated') + '\x1b[0m')
       return
     }
 
@@ -205,11 +206,11 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
       }
 
       ws.onerror = () => {
-        term.writeln('\r\n\x1b[31mWebSocket error\x1b[0m')
+        term.writeln('\r\n\x1b[31m' + t('terminal.wsError') + '\x1b[0m')
       }
 
       ws.onclose = () => {
-        term.writeln('\r\n\x1b[33mConnection closed\x1b[0m')
+        term.writeln('\r\n\x1b[33m' + t('terminal.disconnected') + '\x1b[0m')
       }
 
       const onDataDisposable = term.onData((data) => {
@@ -383,7 +384,7 @@ function MobileTerminalBar({ onSendKey }: { onSendKey: (data: string) => void })
           <button
             key={k.label}
             className={cn(
-              'shrink-0 px-2.5 py-1.5 rounded text-[11px] font-medium transition-colors',
+              'shrink-0 px-2.5 py-1.5 rounded text-[11px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
               (k.toggle === 'ctrl' && ctrlActive) || (k.toggle === 'alt' && altActive)
                 ? 'bg-[#7aa2f7] text-[#1a1b26]'
                 : 'bg-[#24283b] text-[#a9b1d6] active:bg-[#414868]'
@@ -402,25 +403,25 @@ function MobileTerminalBar({ onSendKey }: { onSendKey: (data: string) => void })
       <div className="flex items-center justify-around h-10 pb-safe border-t border-[#292e42]">
         <button
           onClick={() => navigate('/dashboard')}
-          className="flex flex-col items-center justify-center flex-1 h-full text-[#565f89] active:text-[#a9b1d6]"
+          className="flex flex-col items-center justify-center flex-1 h-full text-[#565f89] active:text-[#a9b1d6] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
         >
           <span className="text-[10px] font-medium">← {t('layout.mobileNav.dashboard')}</span>
         </button>
         <button
           onClick={() => onSendKey('\x03')}
-          className="flex flex-col items-center justify-center flex-1 h-full text-[#f7768e] active:opacity-70"
+          className="flex flex-col items-center justify-center flex-1 h-full text-[#f7768e] active:opacity-70 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
         >
           <span className="text-[10px] font-semibold">Ctrl+C</span>
         </button>
         <button
           onClick={() => onSendKey('\x04')}
-          className="flex flex-col items-center justify-center flex-1 h-full text-[#e0af68] active:opacity-70"
+          className="flex flex-col items-center justify-center flex-1 h-full text-[#e0af68] active:opacity-70 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
         >
           <span className="text-[10px] font-semibold">Ctrl+D</span>
         </button>
         <button
           onClick={() => onSendKey('\x1a')}
-          className="flex flex-col items-center justify-center flex-1 h-full text-[#565f89] active:text-[#a9b1d6]"
+          className="flex flex-col items-center justify-center flex-1 h-full text-[#565f89] active:text-[#a9b1d6] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
         >
           <span className="text-[10px] font-semibold">Ctrl+Z</span>
         </button>
@@ -629,13 +630,16 @@ export default function TerminalPage() {
           {tabs.map((tab) => (
             <div
               key={tab.id}
+              role="button"
+              tabIndex={0}
               className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs cursor-pointer select-none group transition-colors shrink-0',
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs cursor-pointer select-none group transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                 activeTab === tab.id
                   ? 'bg-[#24283b] text-[#c0caf5]'
                   : 'text-[#565f89] hover:text-[#a9b1d6] hover:bg-[#1f2335]'
               )}
               onClick={() => setActiveTab(tab.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTab(tab.id) } }}
               onDoubleClick={() => handleDoubleClickTab(tab)}
             >
               <TerminalIcon className="h-3 w-3" />
@@ -658,9 +662,10 @@ export default function TerminalPage() {
                 <span>{tab.title}</span>
               )}
               <button
+                aria-label={t('common.close')}
                 className={cn(
-                  'ml-1 rounded p-0.5 transition-colors',
-                  'opacity-0 group-hover:opacity-100',
+                  'ml-1 rounded p-0.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
+                  'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
                   activeTab === tab.id && 'opacity-60',
                   'hover:bg-[#414868] hover:text-[#f7768e]'
                 )}
@@ -682,6 +687,7 @@ export default function TerminalPage() {
             className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
             onClick={() => adjustFontSize(-1)}
             title={t('terminal.fontSmaller')}
+            aria-label={t('terminal.fontSmaller')}
           >
             <Minus className="h-3 w-3" />
           </Button>
@@ -692,6 +698,7 @@ export default function TerminalPage() {
             className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
             onClick={() => adjustFontSize(1)}
             title={t('terminal.fontLarger')}
+            aria-label={t('terminal.fontLarger')}
           >
             <Plus className="h-3 w-3" />
           </Button>
@@ -710,6 +717,7 @@ export default function TerminalPage() {
               else setSearchQuery('')
             }}
             title={t('terminal.search')}
+            aria-label={t('terminal.search')}
           >
             <Search className="h-3.5 w-3.5" />
           </Button>
@@ -720,6 +728,7 @@ export default function TerminalPage() {
             className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
             onClick={clearTerminal}
             title={t('terminal.clear')}
+            aria-label={t('terminal.clear')}
           >
             <Eraser className="h-3.5 w-3.5" />
           </Button>
@@ -735,6 +744,7 @@ export default function TerminalPage() {
               )}
               onClick={openReattach}
               title={t('terminal.reattach.button')}
+              aria-label={t('terminal.reattach.button')}
             >
               <History className="h-3.5 w-3.5" />
             </Button>
@@ -752,7 +762,7 @@ export default function TerminalPage() {
                     <button
                       key={s.session_id}
                       onClick={() => reattachSession(s.session_id)}
-                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[#1f2335] transition-colors"
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[#1f2335] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
                     >
                       <div className="min-w-0">
                         <div className="font-mono text-[12px] text-[#c0caf5] truncate">{s.session_id.slice(0, 12)}</div>
@@ -775,6 +785,7 @@ export default function TerminalPage() {
             className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
             onClick={addTab}
             title={t('terminal.newTab')}
+            aria-label={t('terminal.newTab')}
           >
             <Plus className="h-3.5 w-3.5" />
           </Button>

@@ -603,11 +603,11 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
         <div className="flex items-center justify-between">
           <span className="text-[15px] font-semibold">{t('docker.stacks.title')}</span>
           <div className="flex gap-1">
-            <Button variant="ghost" size="icon-xs" onClick={() => (clusterMode ? fetchClusterStacks() : fetchProjects())} disabled={clusterMode ? clusterLoading : loading}>
+            <Button variant="ghost" size="icon-xs" aria-label={t('common.refresh')} onClick={() => (clusterMode ? fetchClusterStacks() : fetchProjects())} disabled={clusterMode ? clusterLoading : loading}>
               <RefreshCw className={`h-3.5 w-3.5 ${(clusterMode ? clusterLoading : loading) ? 'animate-spin' : ''}`} />
             </Button>
             {!clusterMode && (
-              <Button variant="ghost" size="icon-xs" onClick={() => setCreateOpen(true)}>
+              <Button variant="ghost" size="icon-xs" aria-label={t('docker.compose.createTitle')} onClick={() => setCreateOpen(true)}>
                 <Plus className="h-3.5 w-3.5" />
               </Button>
             )}
@@ -675,12 +675,15 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
           {projects.map(p => (
             <div
               key={p.name}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer transition-all duration-200 ${
+              role="button"
+              tabIndex={0}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl cursor-pointer transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                 selectedName === p.name
                   ? 'bg-primary/10 ring-1 ring-primary/20'
                   : 'hover:bg-secondary/50'
               }`}
               onClick={() => navigate(`${basePath}/${p.name}`)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`${basePath}/${p.name}`) } }}
             >
               {statusIcon(p.real_status)}
               <span className="text-[13px] font-medium truncate min-w-0 flex-1">{p.name}</span>
@@ -704,8 +707,11 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
               }`}
             >
               <div
-                className="flex items-center gap-2 cursor-pointer"
+                role="button"
+                tabIndex={0}
+                className="flex items-center gap-2 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                 onClick={() => navigate(`${basePath}/${p.name}`)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`${basePath}/${p.name}`) } }}
               >
                 {statusIcon(p.real_status)}
                 <span className="text-[13px] font-medium truncate min-w-0 flex-1">{p.name}</span>
@@ -762,6 +768,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 </Button>
                 <Button
                   variant="ghost" size="icon-xs"
+                  aria-label={t('common.delete')}
                   onClick={() => setDeleteTarget(p)}
                 >
                   <Trash2 className="h-3 w-3" />
@@ -916,6 +923,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 )}
                 <Button
                   variant="ghost" size="icon-xs"
+                  aria-label={t('common.delete')}
                   onClick={() => setDeleteTarget(selectedProject || null)}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
@@ -1034,7 +1042,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                           <TableCell className="font-medium text-[13px]">
                             {svc.container_id ? (
                               <button onClick={() => setInspectService(svc)} title={t('docker.containers.inspect')}
-                                className="text-left hover:text-primary hover:underline max-w-full truncate">{svc.name}</button>
+                                className="text-left hover:text-primary hover:underline max-w-full truncate rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0">{svc.name}</button>
                             ) : svc.name}
                           </TableCell>
                           <TableCell className="text-muted-foreground text-xs font-mono">{svc.image}</TableCell>
@@ -1043,38 +1051,38 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
                               {svc.state === 'running' ? (
-                                <Button variant="ghost" size="icon-xs" title={t('docker.stacks.stopService')}
+                                <Button variant="ghost" size="icon-xs" title={t('docker.stacks.stopService')} aria-label={t('docker.stacks.stopService')}
                                   disabled={actionLoading === svc.name}
                                   onClick={() => handleServiceAction('stop', svc.name)}>
                                   {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
                                 </Button>
                               ) : (
-                                <Button variant="ghost" size="icon-xs" title={t('docker.stacks.startService')}
+                                <Button variant="ghost" size="icon-xs" title={t('docker.stacks.startService')} aria-label={t('docker.stacks.startService')}
                                   disabled={actionLoading === svc.name}
                                   onClick={() => handleServiceAction('start', svc.name)}>
                                   {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
                                 </Button>
                               )}
-                              <Button variant="ghost" size="icon-xs" title={t('docker.stacks.restartService')}
+                              <Button variant="ghost" size="icon-xs" title={t('docker.stacks.restartService')} aria-label={t('docker.stacks.restartService')}
                                 disabled={actionLoading === svc.name}
                                 onClick={() => handleServiceAction('restart', svc.name)}>
                                 {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
                               </Button>
-                              <Button variant="ghost" size="icon-xs" title="Healthcheck"
+                              <Button variant="ghost" size="icon-xs" title="Healthcheck" aria-label="Healthcheck"
                                 onClick={() => setHealthcheckTarget(svc)}>
                                 <HeartPulse className={`h-3.5 w-3.5 ${svc.has_healthcheck ? 'text-success' : ''}`} />
                               </Button>
-                              <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')}
+                              <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')}
                                 disabled={!svc.container_id}
                                 onClick={() => setInspectService(svc)}>
                                 <Info className="h-3.5 w-3.5" />
                               </Button>
-                              <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')}
+                              <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')} aria-label={t('docker.stacks.viewLogs')}
                                 onClick={() => setLogService(svc)}>
                                 <ScrollText className="h-3.5 w-3.5" />
                               </Button>
                               {svc.container_id && svc.state === 'running' && (
-                                <Button variant="ghost" size="icon-xs" title={t('docker.stacks.openShell')}
+                                <Button variant="ghost" size="icon-xs" title={t('docker.stacks.openShell')} aria-label={t('docker.stacks.openShell')}
                                   onClick={() => setShellService(svc)}>
                                   <Terminal className="h-3.5 w-3.5" />
                                 </Button>
@@ -1102,7 +1110,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                       <div className="flex items-center gap-2 mb-2 min-w-0">
                         {svc.container_id ? (
                           <button onClick={() => setInspectService(svc)} title={t('docker.containers.inspect')}
-                            className="text-[13px] font-medium truncate min-w-0 flex-1 text-left hover:text-primary">{svc.name}</button>
+                            className="text-[13px] font-medium truncate min-w-0 flex-1 text-left hover:text-primary rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0">{svc.name}</button>
                         ) : (
                           <span className="text-[13px] font-medium truncate min-w-0 flex-1">{svc.name}</span>
                         )}
@@ -1114,38 +1122,38 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                       )}
                       <div className="flex items-center gap-1 pt-2 border-t border-border/50">
                         {svc.state === 'running' ? (
-                          <Button variant="ghost" size="icon-xs" title={t('docker.stacks.stopService')}
+                          <Button variant="ghost" size="icon-xs" title={t('docker.stacks.stopService')} aria-label={t('docker.stacks.stopService')}
                             disabled={actionLoading === svc.name}
                             onClick={() => handleServiceAction('stop', svc.name)}>
                             {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
                           </Button>
                         ) : (
-                          <Button variant="ghost" size="icon-xs" title={t('docker.stacks.startService')}
+                          <Button variant="ghost" size="icon-xs" title={t('docker.stacks.startService')} aria-label={t('docker.stacks.startService')}
                             disabled={actionLoading === svc.name}
                             onClick={() => handleServiceAction('start', svc.name)}>
                             {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.restartService')}
+                        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.restartService')} aria-label={t('docker.stacks.restartService')}
                           disabled={actionLoading === svc.name}
                           onClick={() => handleServiceAction('restart', svc.name)}>
                           {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
                         </Button>
-                        <Button variant="ghost" size="icon-xs" title="Healthcheck"
+                        <Button variant="ghost" size="icon-xs" title="Healthcheck" aria-label="Healthcheck"
                           onClick={() => setHealthcheckTarget(svc)}>
                           <HeartPulse className={`h-3.5 w-3.5 ${svc.has_healthcheck ? 'text-success' : ''}`} />
                         </Button>
-                        <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')}
+                        <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')}
                           disabled={!svc.container_id}
                           onClick={() => setInspectService(svc)}>
                           <Info className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')}
+                        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')} aria-label={t('docker.stacks.viewLogs')}
                           onClick={() => setLogService(svc)}>
                           <ScrollText className="h-3.5 w-3.5" />
                         </Button>
                         {svc.container_id && svc.state === 'running' && (
-                          <Button variant="ghost" size="icon-xs" title={t('docker.stacks.openShell')}
+                          <Button variant="ghost" size="icon-xs" title={t('docker.stacks.openShell')} aria-label={t('docker.stacks.openShell')}
                             onClick={() => setShellService(svc)}>
                             <Terminal className="h-3.5 w-3.5" />
                           </Button>
@@ -1161,7 +1169,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                   {/* Compose / Env sub-tabs */}
                   <div className="flex items-center gap-1 bg-secondary/40 rounded-xl p-1 w-fit overflow-x-auto">
                     <button
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all ${
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                         editorTab === 'compose' ? 'bg-primary/10 text-primary card-shadow' : 'text-muted-foreground hover:text-foreground'
                       }`}
                       onClick={() => setEditorTab('compose')}
@@ -1170,7 +1178,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                       {selectedProject?.compose_file || 'docker-compose.yml'}
                     </button>
                     <button
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all ${
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                         editorTab === 'env' ? 'bg-warning/10 text-warning card-shadow' : 'text-muted-foreground hover:text-foreground'
                       }`}
                       onClick={() => setEditorTab('env')}

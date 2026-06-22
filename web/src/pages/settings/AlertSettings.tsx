@@ -463,6 +463,7 @@ export default function AlertSettings() {
                     size="sm"
                     className="rounded-xl h-7 px-2 text-destructive hover:text-destructive"
                     onClick={() => handleDeleteChannel(ch.id)}
+                    aria-label={t('common.delete')}
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -638,7 +639,7 @@ export default function AlertSettings() {
                             ...f,
                             nodes: selected ? f.nodes.filter((x) => x !== n.id) : [...f.nodes, n.id],
                           }))}
-                          className={`px-2 py-1 rounded-lg text-[12px] border transition-colors ${selected ? 'bg-primary/10 border-primary/40 text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}
+                          className={`px-2 py-1 rounded-lg text-[12px] border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${selected ? 'bg-primary/10 border-primary/40 text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}
                         >
                           {n.name}
                         </button>
@@ -696,6 +697,7 @@ export default function AlertSettings() {
                     size="sm"
                     className="rounded-xl h-7 px-2 text-destructive hover:text-destructive"
                     onClick={() => handleDeleteRule(rule.id)}
+                    aria-label={t('common.delete')}
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -839,6 +841,7 @@ export default function AlertSettings() {
                     className="rounded-xl h-7 px-2"
                     disabled={historyPage <= 1}
                     onClick={() => { const p = historyPage - 1; setHistoryPage(p); loadHistory(p) }}
+                    aria-label={t('common.previous')}
                   >
                     <ChevronLeft className="h-3.5 w-3.5" />
                   </Button>
@@ -848,6 +851,7 @@ export default function AlertSettings() {
                     className="rounded-xl h-7 px-2"
                     disabled={historyPage >= Math.ceil(historyTotal / historyLimit)}
                     onClick={() => { const p = historyPage + 1; setHistoryPage(p); loadHistory(p) }}
+                    aria-label={t('common.next')}
                   >
                     <ChevronRight className="h-3.5 w-3.5" />
                   </Button>
