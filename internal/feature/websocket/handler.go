@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,42 +14,16 @@ import (
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/wsorigin"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
 	"github.com/svrforum/SFPanel/internal/feature/audit"
 	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
-// tauriOrigins are the desktop wrapper's webview origins — the same three
-// the CORS allowlist in router.go carries. Keys are lowercase.
-var tauriOrigins = map[string]bool{
-	"tauri://localhost":       true,
-	"http://tauri.localhost":  true,
-	"https://tauri.localhost": true,
-}
-
-// sameOriginOrEmpty allows WS upgrades from the same Host as the request
-// (the panel UI in a normal browser), from non-browser clients that omit
-// the Origin header entirely (curl, websocat), and from the Tauri desktop
-// webview origins — webviews DO stamp an Origin on WS upgrades, so the
-// empty-Origin allowance alone does not cover the desktop app. Anything
-// else — a foreign Origin set by a malicious page — is rejected, defending
-// against CSWSH even though the ?ticket=/?token= path doesn't ride cookies.
-func sameOriginOrEmpty(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return true
-	}
-	if tauriOrigins[strings.ToLower(origin)] {
-		return true
-	}
-	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" {
-		return false
-	}
-	// Compare host:port; gorilla normalizes Request.Host the same way.
-	return strings.EqualFold(u.Host, r.Host)
-}
+// sameOriginOrEmpty is the shared CSWSH origin check (see common/wsorigin),
+// aliased here so the Upgrader and the package test refer to it by name.
+var sameOriginOrEmpty = wsorigin.CheckOrigin
 
 var Upgrader = websocket.Upgrader{
 	CheckOrigin: sameOriginOrEmpty,
