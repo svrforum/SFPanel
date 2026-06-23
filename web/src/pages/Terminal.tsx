@@ -21,9 +21,17 @@ interface Tab {
   title: string
 }
 
-const STORAGE_KEY = 'sfpanel_terminal_tabs'
-const ACTIVE_TAB_KEY = 'sfpanel_terminal_active'
+// Tabs map 1:1 to server PTY sessions and each node keeps its own session map,
+// so persist tabs PER NODE. A single global key reused the same tab id as the
+// session_id on every node, spawning a duplicate PTY per tab on each node
+// switch (orphaned until the 5-min idle reaper). Font size is a global pref.
+const STORAGE_KEY_BASE = 'sfpanel_terminal_tabs'
+const ACTIVE_TAB_KEY_BASE = 'sfpanel_terminal_active'
 const FONT_SIZE_KEY = 'sfpanel_terminal_fontsize'
+
+const nodeSuffix = () => api.currentNode || 'local'
+const tabsKey = () => `${STORAGE_KEY_BASE}:${nodeSuffix()}`
+const activeTabKey = () => `${ACTIVE_TAB_KEY_BASE}:${nodeSuffix()}`
 
 const MIN_FONT_SIZE = 10
 const MAX_FONT_SIZE = 24
@@ -38,7 +46,7 @@ function generateTabId() {
 
 function loadTabs(): Tab[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(tabsKey())
     if (raw) {
       const tabs = JSON.parse(raw) as Tab[]
       if (Array.isArray(tabs) && tabs.length > 0) {
@@ -56,15 +64,15 @@ function loadTabs(): Tab[] {
 }
 
 function saveTabs(tabs: Tab[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs))
+  localStorage.setItem(tabsKey(), JSON.stringify(tabs))
 }
 
 function loadActiveTab(): string {
-  return localStorage.getItem(ACTIVE_TAB_KEY) || ''
+  return localStorage.getItem(activeTabKey()) || ''
 }
 
 function saveActiveTab(id: string) {
-  localStorage.setItem(ACTIVE_TAB_KEY, id)
+  localStorage.setItem(activeTabKey(), id)
 }
 
 function loadFontSize(): number {
