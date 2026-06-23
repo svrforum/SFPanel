@@ -10,6 +10,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.53.0] – 2026-06-23
+
+A UI/UX polish pass — dark mode, semantic design tokens, and an end-to-end keyboard-accessibility sweep — plus a terminal-feature hardening campaign driven by a deep review of the PTY/exec WebSocket path.
+
+### Added
+
+- **Dark mode.** The design system's dark theme is now wired up and activated, with the foundation design-system fixes that preceded it.
+- **Keyboard accessibility across the SPA.** Every interactive surface gained `focus-visible` rings, icon-only controls gained `aria-label`s (reusing existing i18n keys), click-only rows/cells/headers became keyboard-operable (`role`/`tabIndex`/Enter-Space), and hover-hidden row actions now reveal on keyboard focus.
+- **Terminal auto-reconnect.** A dropped WebSocket transparently reconnects to the same live PTY session with bounded exponential backoff; the server replays scrollback so the session resumes instead of leaving a dead terminal.
+- **Durable audit trail for the highest-privilege actions.** Opening a host shell (`/ws/terminal`) or a container exec session now writes a queryable `audit_logs` row — these `/ws/*` routes previously bypassed the audit middleware entirely.
+- **Mobile touch-scroll for the container shell and log viewers.** `ContainerShell` / `ContainerLogs` / `ComposeLogs` now share the terminal's touch-drag scrollback handler, so output that scrolled past the box is reachable on a phone.
+
+### Changed
+
+- **Hardcoded brand/terminal hex swept to semantic tokens.** The brand-colour sweep plus `Terminal.tsx`'s chrome (tab bar, toolbar, search bar, mobile bar) now follow the theme, so the terminal page is no longer a dark island in light mode.
+- **Cluster WS relay keepalive.** The relay now pings the client leg every 30s and re-arms its read deadline on the browser's auto-pong, so a remote terminal streaming output without keystrokes is no longer torn down after ~60s.
+- **Terminal tabs are scoped per node.** Persisted tabs are namespaced by node id, so switching nodes shows that node's own tab set instead of reusing the same `session_id` and spawning a duplicate PTY per tab.
+- **CSWSH origin check centralized.** The same-origin-or-empty WebSocket check (and its Tauri allowlist) lives once in `internal/common/wsorigin` instead of being copy-pasted across the terminal, websocket and logs handlers.
+
+### Fixed
+
+- **Phase-2 UI correctness bugs:** an invisible copy button, an unsafe firewall rule edit, and a blank loader state.
+- **Terminal backend hardening:** ignore degenerate `0×0` resize frames that wedged full-screen TUIs; close a reattach liveness race where a just-exited shell was treated as alive; and replace a fragile Tailwind-class-string DOM query for the active terminal with a stable `data-` attribute.
+
+---
+
 ## [0.52.0] – 2026-06-21
 
 Install / update / uninstall lifecycle hardening, plus a couple of cluster-mode robustness fixes. No feature surface changes.
