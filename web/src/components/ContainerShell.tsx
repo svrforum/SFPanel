@@ -6,6 +6,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
+import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import { Button } from '@/components/ui/button'
 
 interface ContainerShellProps {
@@ -53,11 +54,12 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
     term.open(terminalRef.current)
     fitAddon.fit()
     termRef.current = term
+    const detachTouch = attachXtermTouchScroll(terminalRef.current, term)
 
     const token = api.getToken()
     if (!token) {
       term.writeln(`\x1b[31m${t('terminal.notAuthenticated')}\x1b[0m`)
-      return () => { term.dispose() }
+      return () => { detachTouch(); term.dispose() }
     }
 
     // Async because buildWsUrl mints a ws-ticket so the JWT stays out of
@@ -122,6 +124,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
     return () => {
       disposed = true
       window.removeEventListener('resize', handleResize)
+      detachTouch()
       wsCleanup?.()
       term.dispose()
     }
@@ -168,7 +171,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
       {/* Terminal */}
       <div
         ref={terminalRef}
-        className="h-[420px] w-full px-1 pt-1"
+        className="h-[420px] w-full px-1 pt-1 touch-none"
         onClick={() => termRef.current?.focus()}
       />
     </div>

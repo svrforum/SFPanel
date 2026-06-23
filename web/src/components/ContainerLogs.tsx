@@ -6,6 +6,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
+import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -107,12 +108,14 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
     fitAddonRef.current = fitAddon
     searchAddonRef.current = searchAddon
     logLinesRef.current = []
+    const detachTouch = attachXtermTouchScroll(terminalRef.current, term)
 
     const handleResize = () => fitAddon.fit()
     window.addEventListener('resize', handleResize)
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      detachTouch()
       term.dispose()
       termRef.current = null
       fitAddonRef.current = null
@@ -336,7 +339,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
       {/* Terminal */}
       <div
         ref={terminalRef}
-        className="h-[420px] w-full px-1 pt-1"
+        className="h-[420px] w-full px-1 pt-1 touch-none"
       />
     </div>
   )

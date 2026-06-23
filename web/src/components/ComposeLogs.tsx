@@ -6,6 +6,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
+import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -88,11 +89,12 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
     fitAddonRef.current = fitAddon
     searchAddonRef.current = searchAddon
     logLinesRef.current = []
+    const detachTouch = attachXtermTouchScroll(terminalRef.current, term)
 
     const token = api.getToken()
     if (!token) {
       term.writeln(`\x1b[31m${t('terminal.notAuthenticated')}\x1b[0m`)
-      return () => { term.dispose() }
+      return () => { detachTouch(); term.dispose() }
     }
 
     const wsPath = `/ws/docker/compose/${encodeURIComponent(project)}/logs`
@@ -138,6 +140,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
     return () => {
       disposed = true
       window.removeEventListener('resize', handleResize)
+      detachTouch()
       wsRefLocal?.close()
       term.dispose()
     }
@@ -288,7 +291,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
       {/* Terminal */}
       <div
         ref={terminalRef}
-        className="h-[500px] w-full px-1 pt-1"
+        className="h-[500px] w-full px-1 pt-1 touch-none"
       />
     </div>
   )

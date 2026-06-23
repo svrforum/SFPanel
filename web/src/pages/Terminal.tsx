@@ -9,6 +9,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
+import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import type { TerminalSession as TerminalSessionInfo } from '@/types/api'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -273,37 +274,10 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     window.addEventListener('resize', handleResize)
     window.visualViewport?.addEventListener('resize', handleResize)
 
-    // xterm v6's viewport scrolls only via wheel events, so on a touch device a
-    // drag can't reach the scrollback (the .xterm-viewport has no natively
-    // scrollable area). Translate a vertical touch-drag into term.scrollLines so
-    // mobile can scroll up through output history.
-    let touchY = 0
-    let touchAccum = 0
-    const cellPx = () => {
-      const screenEl = container?.querySelector('.xterm-screen') as HTMLElement | null
-      return screenEl && term.rows ? screenEl.clientHeight / term.rows : 17
-    }
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return
-      touchY = e.touches[0].clientY
-      touchAccum = 0
-    }
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return
-      const y = e.touches[0].clientY
-      touchAccum += touchY - y
-      touchY = y
-      const lines = Math.trunc(touchAccum / cellPx())
-      if (lines !== 0) {
-        term.scrollLines(lines)
-        touchAccum -= lines * cellPx()
-        e.preventDefault()
-      }
-    }
-    // Capture phase so we run before any xterm internal touch handler that
-    // might stopPropagation; passive:false on touchmove so preventDefault works.
-    container?.addEventListener('touchstart', onTouchStart, { capture: true, passive: true })
-    container?.addEventListener('touchmove', onTouchMove, { capture: true, passive: false })
+    // xterm v6's viewport isn't natively touch-scrollable; the shared helper
+    // translates a vertical touch-drag into term.scrollLines so mobile can
+    // reach the scrollback (see lib/xtermTouchScroll).
+    const detachTouch = container ? attachXtermTouchScroll(container, term) : () => {}
 
     // Re-fit when the terminal gains focus (user tapped to type). This
     // self-corrects the size when the page loaded with the keyboard already up
@@ -318,8 +292,7 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
       ro.disconnect()
       window.removeEventListener('resize', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
-      container?.removeEventListener('touchstart', onTouchStart, { capture: true })
-      container?.removeEventListener('touchmove', onTouchMove, { capture: true })
+      detachTouch()
       container?.removeEventListener('focusin', onFocusIn)
       wsCleanup?.()
       term.dispose()
