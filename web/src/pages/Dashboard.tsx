@@ -46,9 +46,9 @@ const CHART_RANGE_MS: Record<ChartRange, number> = {
 }
 
 const FIREWALL_ACTION_COLORS: Record<string, string> = {
-  BLOCK: '#f04452', DROP: '#f04452',
-  ALLOW: '#00c471', ACCEPT: '#00c471',
-  AUDIT: '#3182f6', LIMIT: '#f59e0b',
+  BLOCK: 'var(--destructive)', DROP: 'var(--destructive)',
+  ALLOW: 'var(--success)', ACCEPT: 'var(--success)',
+  AUDIT: 'var(--primary)', LIMIT: 'var(--warning)',
 }
 
 interface ProcessInfo {
@@ -69,10 +69,10 @@ interface ContainerSummary {
 
 const quickActions = [
   { to: '/files', labelKey: 'dashboard.actionFiles', icon: FolderOpen, color: 'bg-primary/8 text-primary' },
-  { to: '/docker', labelKey: 'dashboard.actionDocker', icon: Container, color: 'bg-[#00c471]/8 text-[#00c471]' },
-  { to: '/packages', labelKey: 'dashboard.actionPackages', icon: Package, color: 'bg-[#f59e0b]/8 text-[#f59e0b]' },
+  { to: '/docker', labelKey: 'dashboard.actionDocker', icon: Container, color: 'bg-success/8 text-success' },
+  { to: '/packages', labelKey: 'dashboard.actionPackages', icon: Package, color: 'bg-warning/8 text-warning' },
   { to: '/cron', labelKey: 'dashboard.actionCron', icon: Clock, color: 'bg-[#8b5cf6]/8 text-[#8b5cf6]' },
-  { to: '/logs', labelKey: 'dashboard.actionLogs', icon: FileText, color: 'bg-[#00c471]/8 text-[#00c471]' },
+  { to: '/logs', labelKey: 'dashboard.actionLogs', icon: FileText, color: 'bg-success/8 text-success' },
 ]
 
 export default function Dashboard() {
@@ -208,7 +208,7 @@ export default function Dashboard() {
           <p className="text-muted-foreground text-[13px] mt-0.5">{t('dashboard.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2 bg-card rounded-full px-3 py-1.5 card-shadow">
-          <div className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-[#00c471]' : 'bg-destructive'}`} />
+          <div className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-success' : 'bg-destructive'}`} />
           <span className="text-xs font-medium text-muted-foreground">
             {connected ? t('dashboard.live') : t('dashboard.disconnected')}
           </span>
@@ -217,13 +217,13 @@ export default function Dashboard() {
 
       {/* Update banner */}
       {updateAvailable && (
-        <div className="bg-[#3182f6]/10 border border-[#3182f6]/20 rounded-2xl px-5 py-3 flex items-center justify-between">
-          <span className="text-[13px] font-medium text-[#3182f6]">
+        <div className="bg-primary/10 border border-primary/20 rounded-2xl px-5 py-3 flex items-center justify-between">
+          <span className="text-[13px] font-medium text-primary">
             {t('dashboard.updateBanner', { version: updateAvailable })}
           </span>
           <button
             onClick={() => navigate('/settings?scope=node&tab=system')}
-            className="text-[13px] font-medium text-[#3182f6] hover:underline flex items-center gap-1"
+            className="text-[13px] font-medium text-primary hover:underline flex items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
           >
             {t('dashboard.updateBannerAction')}
             <ArrowUpRight className="h-3.5 w-3.5" />
@@ -320,7 +320,7 @@ export default function Dashboard() {
                   <button
                     key={range}
                     onClick={() => setChartRange(range)}
-                    className={`px-2 md:px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                    className={`px-2 md:px-2.5 py-1 rounded-md text-[11px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                       chartRange === range
                         ? 'bg-card text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
@@ -343,7 +343,7 @@ export default function Dashboard() {
                 <Container className="h-4 w-4 text-muted-foreground" />
                 <span className="text-[13px] font-semibold">{t('dashboard.dockerSummary')}</span>
               </div>
-              <button onClick={() => navigate('/docker')} className="text-xs text-primary font-medium hover:underline">
+              <button onClick={() => navigate('/docker')} className="text-xs text-primary font-medium hover:underline rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0">
                 {t('dashboard.viewAll')}
               </button>
             </div>
@@ -352,8 +352,8 @@ export default function Dashboard() {
             ) : (
               <>
                 <div className="grid grid-cols-3 gap-2 mb-4">
-                  <div className="text-center py-2.5 rounded-xl bg-[#00c471]/8">
-                    <p className="text-xl font-bold text-[#00c471]">{runningContainers}</p>
+                  <div className="text-center py-2.5 rounded-xl bg-success/8">
+                    <p className="text-xl font-bold text-success">{runningContainers}</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">{t('dashboard.containersRunning')}</p>
                   </div>
                   <div className="text-center py-2.5 rounded-xl bg-secondary">
@@ -369,7 +369,7 @@ export default function Dashboard() {
                   {containers.slice(0, 5).map((c) => (
                     <div key={c.Id} className="flex items-center justify-between py-1">
                       <span className="truncate text-[13px] font-medium">{c.Names?.[0]?.replace(/^\//, '') || c.Id.slice(0, 12)}</span>
-                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${c.State === 'running' ? 'bg-[#00c471]/10 text-[#00c471]' : 'bg-secondary text-muted-foreground'}`}>
+                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${c.State === 'running' ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'}`}>
                         {c.State}
                       </span>
                     </div>
@@ -396,7 +396,7 @@ export default function Dashboard() {
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-                    <ArrowDownLeft className="h-3.5 w-3.5 text-[#00c471]" />
+                    <ArrowDownLeft className="h-3.5 w-3.5 text-success" />
                     {t('dashboard.received')}
                   </div>
                   <span className="text-[13px] font-semibold">{formatBytes(netRate.recv)}/s</span>
@@ -445,7 +445,7 @@ export default function Dashboard() {
                     <TableCell className="font-mono text-[11px]">{p.pid}</TableCell>
                     <TableCell className="truncate max-w-[200px] text-[13px]">{p.name}</TableCell>
                     <TableCell className="text-right font-mono text-[11px]">
-                      <span className={p.cpu > 50 ? 'text-destructive' : p.cpu > 20 ? 'text-[#f59e0b]' : ''}>
+                      <span className={p.cpu > 50 ? 'text-destructive' : p.cpu > 20 ? 'text-warning' : ''}>
                         {p.cpu.toFixed(1)}%
                       </span>
                     </TableCell>
@@ -469,7 +469,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-1 bg-secondary/60 rounded-lg p-0.5">
                 <button
                   onClick={() => setLogTab('firewall')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     logTab === 'firewall'
                       ? 'bg-card text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
@@ -479,7 +479,7 @@ export default function Dashboard() {
                 </button>
                 <button
                   onClick={() => setLogTab('syslog')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     logTab === 'syslog'
                       ? 'bg-card text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
@@ -491,7 +491,7 @@ export default function Dashboard() {
             </div>
             <button
               onClick={() => navigate(logTab === 'firewall' ? '/firewall/logs' : '/logs')}
-              className="text-xs text-primary font-medium hover:underline"
+              className="text-xs text-primary font-medium hover:underline rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
             >
               {t('dashboard.viewAll')}
             </button>
@@ -531,8 +531,8 @@ export default function Dashboard() {
                             <span
                               className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium"
                               style={{
-                                backgroundColor: (entry.source === 'UFW' ? '#3182f6' : '#f59e0b') + '15',
-                                color: entry.source === 'UFW' ? '#3182f6' : '#f59e0b',
+                                backgroundColor: (entry.source === 'UFW' ? 'var(--primary)' : 'var(--warning)') + '15',
+                                color: entry.source === 'UFW' ? 'var(--primary)' : 'var(--warning)',
                               }}
                             >
                               {entry.source}
@@ -563,7 +563,7 @@ export default function Dashboard() {
             recentLogs.length === 0 ? (
               <p className="text-[13px] text-muted-foreground">{t('dashboard.noLogs')}</p>
             ) : (
-              <div className="bg-[#191f28] rounded-xl p-3 font-mono text-[11px] text-[#8b95a1] space-y-0.5 overflow-x-auto max-h-[320px]">
+              <div className="bg-terminal rounded-xl p-3 font-mono text-[11px] text-terminal-foreground space-y-0.5 overflow-x-auto max-h-[320px]">
                 {recentLogs.map((line, i) => (
                   // Composite key — line content + position survives the
                   // sliding-window update that re-keys index-only.
@@ -588,7 +588,7 @@ export default function Dashboard() {
             <button
               key={action.to}
               onClick={() => navigate(action.to)}
-              className="shrink-0 w-[120px] md:w-auto flex flex-col items-center gap-2.5 p-4 rounded-2xl bg-secondary/50 hover:bg-secondary transition-all duration-200 cursor-pointer"
+              className="shrink-0 w-[120px] md:w-auto flex flex-col items-center gap-2.5 p-4 rounded-2xl bg-secondary/50 hover:bg-secondary transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
             >
               <div className={`p-2.5 rounded-xl ${action.color}`}>
                 <action.icon className="h-5 w-5" />

@@ -114,10 +114,10 @@ function RuleFormFields({
           value={form.port}
           onChange={(e) => setForm({ ...form, port: e.target.value })}
           placeholder="80, 443, 8000:8080"
-          className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${portError ? 'ring-1 ring-[#f04452]' : ''}`}
+          className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${portError ? 'ring-1 ring-destructive' : ''}`}
         />
         {portError && (
-          <p className="text-[11px] text-[#f04452]">{t('firewall.rules.invalidPort')}</p>
+          <p className="text-[11px] text-destructive">{t('firewall.rules.invalidPort')}</p>
         )}
       </div>
 
@@ -144,10 +144,10 @@ function RuleFormFields({
           value={form.from}
           onChange={(e) => setForm({ ...form, from: e.target.value })}
           placeholder={t('firewall.rules.any')}
-          className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${fromError ? 'ring-1 ring-[#f04452]' : ''}`}
+          className={`h-9 rounded-xl bg-secondary/50 border-0 text-[13px] ${fromError ? 'ring-1 ring-destructive' : ''}`}
         />
         {fromError ? (
-          <p className="text-[11px] text-[#f04452]">{t('firewall.rules.invalidIP')}</p>
+          <p className="text-[11px] text-destructive">{t('firewall.rules.invalidIP')}</p>
         ) : (
           <p className="text-[11px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
         )}
@@ -351,28 +351,32 @@ export default function FirewallRules() {
     if (!editTarget || !isFormValid(editForm)) return
     setEditing(true)
     try {
-      // Step 1: Delete old rule first
-      await api.deleteFirewallRule(editTarget.number)
-      // Step 2: Add new rule
+      // Add the replacement FIRST, so a failure leaves the existing rule intact.
+      // (Deleting first would leave the firewall with NO rule if the add failed —
+      // a real protection gap.) UFW appends, so the old rule's number is unchanged.
+      await api.addFirewallRule({
+        action: editForm.action,
+        port: editForm.port.trim(),
+        protocol: editForm.protocol,
+        from: editForm.from.trim() || 'any',
+        to: '',
+        comment: editForm.comment.trim(),
+      })
+      // Replacement is active — now remove the old rule.
       try {
-        await api.addFirewallRule({
-          action: editForm.action,
-          port: editForm.port.trim(),
-          protocol: editForm.protocol,
-          from: editForm.from.trim() || 'any',
-          to: '',
-          comment: editForm.comment.trim(),
-        })
-      } catch (addErr: unknown) {
-        // Delete succeeded but add failed — warn user
-        const message = addErr instanceof Error ? addErr.message : t('common.error')
-        toast.error(t('firewall.rules.editAddFailed') + ': ' + message)
+        await api.deleteFirewallRule(editTarget.number)
+      } catch (delErr: unknown) {
+        // New rule is in place; the old one just couldn't be removed. Surface it
+        // so the operator can delete the leftover duplicate manually.
+        const message = delErr instanceof Error ? delErr.message : t('common.error')
+        toast.warning(t('firewall.rules.editDeleteFailed') + ': ' + message)
       }
       setEditTarget(null)
       await fetchRules()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('common.error')
-      toast.error(message)
+    } catch (addErr: unknown) {
+      // Add failed — the original rule is untouched, so the firewall is unchanged.
+      const message = addErr instanceof Error ? addErr.message : t('common.error')
+      toast.error(t('firewall.rules.editAddFailed') + ': ' + message)
     } finally {
       setEditing(false)
     }
@@ -381,9 +385,9 @@ export default function FirewallRules() {
   const getActionStyle = (action: string) => {
     const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
     const normalized = action.toUpperCase()
-    if (normalized.startsWith('ALLOW')) return `${base} bg-[#00c471]/10 text-[#00c471]`
-    if (normalized.startsWith('DENY') || normalized.startsWith('REJECT')) return `${base} bg-[#f04452]/10 text-[#f04452]`
-    if (normalized.startsWith('LIMIT')) return `${base} bg-[#f59e0b]/10 text-[#f59e0b]`
+    if (normalized.startsWith('ALLOW')) return `${base} bg-success/10 text-success`
+    if (normalized.startsWith('DENY') || normalized.startsWith('REJECT')) return `${base} bg-destructive/10 text-destructive`
+    if (normalized.startsWith('LIMIT')) return `${base} bg-warning/10 text-warning`
     return `${base} bg-secondary text-muted-foreground`
   }
 
@@ -419,8 +423,8 @@ export default function FirewallRules() {
                 {status && (
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
                     status.active
-                      ? 'bg-[#00c471]/10 text-[#00c471]'
-                      : 'bg-[#f04452]/10 text-[#f04452]'
+                      ? 'bg-success/10 text-success'
+                      : 'bg-destructive/10 text-destructive'
                   }`}>
                     {status.active ? t('firewall.status.active') : t('firewall.status.inactive')}
                   </span>
@@ -468,7 +472,7 @@ export default function FirewallRules() {
 
       {/* Rules Table */}
       {rulesError && rules.length === 0 ? (
-        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium">{t('firewall.rules.loadError')}</p>
@@ -519,8 +523,9 @@ export default function FirewallRules() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
                         title={t('firewall.rules.editRule')}
+                        aria-label={t('firewall.rules.editRule')}
                         onClick={() => handleOpenEdit(rule)}
                       >
                         <Pencil className="h-3.5 w-3.5" />
@@ -528,8 +533,9 @@ export default function FirewallRules() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-600"
+                        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity text-red-500 hover:text-red-600"
                         title={t('firewall.rules.deleteRule')}
+                        aria-label={t('firewall.rules.deleteRule')}
                         onClick={() => setDeleteTarget(rule)}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -575,7 +581,7 @@ export default function FirewallRules() {
       <Dialog open={!!lockout} onOpenChange={(open) => !open && setLockout(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="text-[#f04452]">{t('firewall.lockout.title')}</DialogTitle>
+            <DialogTitle className="text-destructive">{t('firewall.lockout.title')}</DialogTitle>
             <DialogDescription className="whitespace-pre-line">
               {lockout?.message}
               {'\n\n'}

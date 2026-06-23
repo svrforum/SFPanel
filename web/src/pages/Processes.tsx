@@ -207,8 +207,8 @@ export default function Processes() {
   const getStatusStyle = (status: string) => {
     const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
     switch (status) {
-      case 'running': return `${base} bg-[#00c471]/10 text-[#00c471]`
-      case 'zombie': return `${base} bg-[#f04452]/10 text-[#f04452]`
+      case 'running': return `${base} bg-success/10 text-success`
+      case 'zombie': return `${base} bg-destructive/10 text-destructive`
       default: return `${base} bg-secondary text-muted-foreground`
     }
   }
@@ -227,7 +227,7 @@ export default function Processes() {
   const niceBadge = (nice: number) => {
     const base = 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-mono'
     const tone =
-      nice < 0 ? 'bg-[#f59e0b]/10 text-[#f59e0b]'
+      nice < 0 ? 'bg-warning/10 text-warning'
         : nice > 0 ? 'bg-secondary text-muted-foreground'
           : 'bg-primary/10 text-primary'
     return (
@@ -244,6 +244,7 @@ export default function Processes() {
         variant="ghost"
         size="icon-xs"
         title={t('processes.renice')}
+        aria-label={t('processes.renice')}
         onClick={() => openRenice(proc)}
       >
         <Gauge className="h-4 w-4" />
@@ -251,8 +252,9 @@ export default function Processes() {
       <Button
         variant="ghost"
         size="icon-xs"
-        className="text-[#f04452] hover:text-[#f04452]/80"
+        className="text-destructive hover:text-destructive/80"
         title={t('processes.kill')}
+        aria-label={t('processes.kill')}
         onClick={() => setKillTarget(proc)}
       >
         <Skull className="h-4 w-4" />
@@ -281,12 +283,12 @@ export default function Processes() {
       </TableCell>
       <TableCell className="text-xs">{proc.user}</TableCell>
       <TableCell className="text-right font-mono text-xs w-20">
-        <span className={proc.cpu > 50 ? 'text-[#f04452] font-bold' : proc.cpu > 20 ? 'text-[#f59e0b]' : ''}>
+        <span className={proc.cpu > 50 ? 'text-destructive font-bold' : proc.cpu > 20 ? 'text-warning' : ''}>
           {proc.cpu.toFixed(1)}
         </span>
       </TableCell>
       <TableCell className="text-right font-mono text-xs w-20">
-        <span className={proc.memory > 50 ? 'text-[#f04452] font-bold' : proc.memory > 20 ? 'text-[#f59e0b]' : ''}>
+        <span className={proc.memory > 50 ? 'text-destructive font-bold' : proc.memory > 20 ? 'text-warning' : ''}>
           {proc.memory.toFixed(1)}
         </span>
       </TableCell>
@@ -300,7 +302,7 @@ export default function Processes() {
         </span>
       </TableCell>
       <TableCell className="text-right w-24">
-        {rowActions(proc, 'opacity-0 group-hover:opacity-100 transition-opacity')}
+        {rowActions(proc, 'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity')}
       </TableCell>
     </TableRow>
   )
@@ -320,13 +322,13 @@ export default function Processes() {
           <span className="font-mono">PID {proc.pid}</span>
           <span className="flex items-center gap-1">
             <Cpu className="h-3 w-3" />
-            <span className={proc.cpu > 50 ? 'text-[#f04452] font-bold' : proc.cpu > 20 ? 'text-[#f59e0b]' : ''}>
+            <span className={proc.cpu > 50 ? 'text-destructive font-bold' : proc.cpu > 20 ? 'text-warning' : ''}>
               {proc.cpu.toFixed(1)}%
             </span>
           </span>
           <span className="flex items-center gap-1">
             <MemoryStick className="h-3 w-3" />
-            <span className={proc.memory > 50 ? 'text-[#f04452] font-bold' : proc.memory > 20 ? 'text-[#f59e0b]' : ''}>
+            <span className={proc.memory > 50 ? 'text-destructive font-bold' : proc.memory > 20 ? 'text-warning' : ''}>
               {proc.memory.toFixed(1)}%
             </span>
             <span className="text-muted-foreground">({formatBytes(proc.rss)})</span>
@@ -371,7 +373,7 @@ export default function Processes() {
                     className="h-full rounded-full transition-all duration-500"
                     style={{
                       width: `${Math.min(100, sysMetrics.cpu)}%`,
-                      backgroundColor: sysMetrics.cpu > 80 ? '#f04452' : sysMetrics.cpu > 50 ? '#f59e0b' : '#3182f6'
+                      backgroundColor: sysMetrics.cpu > 80 ? 'var(--destructive)' : sysMetrics.cpu > 50 ? 'var(--warning)' : 'var(--primary)'
                     }}
                   />
                 </div>
@@ -381,8 +383,8 @@ export default function Processes() {
 
           <div className="bg-card rounded-2xl p-3 md:p-4 card-shadow">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-[#00c471]/10">
-                <MemoryStick className="h-4 w-4 text-[#00c471]" />
+              <div className="p-2 rounded-xl bg-success/10">
+                <MemoryStick className="h-4 w-4 text-success" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between mb-1">
@@ -394,7 +396,7 @@ export default function Processes() {
                     className="h-full rounded-full transition-all duration-500"
                     style={{
                       width: `${Math.min(100, sysMetrics.mem_percent)}%`,
-                      backgroundColor: sysMetrics.mem_percent > 80 ? '#f04452' : sysMetrics.mem_percent > 50 ? '#f59e0b' : '#00c471'
+                      backgroundColor: sysMetrics.mem_percent > 80 ? 'var(--destructive)' : sysMetrics.mem_percent > 50 ? 'var(--warning)' : 'var(--success)'
                     }}
                   />
                 </div>
@@ -407,8 +409,8 @@ export default function Processes() {
 
           <div className="bg-card rounded-2xl p-3 md:p-4 card-shadow">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-[#f59e0b]/10">
-                <HardDrive className="h-4 w-4 text-[#f59e0b]" />
+              <div className="p-2 rounded-xl bg-warning/10">
+                <HardDrive className="h-4 w-4 text-warning" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between mb-1">
@@ -422,7 +424,7 @@ export default function Processes() {
                     className="h-full rounded-full transition-all duration-500"
                     style={{
                       width: `${Math.min(100, sysMetrics.swap_total > 0 ? sysMetrics.swap_percent : 0)}%`,
-                      backgroundColor: sysMetrics.swap_percent > 80 ? '#f04452' : sysMetrics.swap_percent > 50 ? '#f59e0b' : '#3182f6'
+                      backgroundColor: sysMetrics.swap_percent > 80 ? 'var(--destructive)' : sysMetrics.swap_percent > 50 ? 'var(--warning)' : 'var(--primary)'
                     }}
                   />
                 </div>
@@ -498,7 +500,7 @@ export default function Processes() {
 
       {/* Process list */}
       {error && allProcesses.length === 0 ? (
-        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium">{t('processes.loadError')}</p>
@@ -641,7 +643,7 @@ export default function Processes() {
 
             {/* Destructive: terminate */}
             <div className="space-y-1.5">
-              <span className="text-[11px] font-medium text-[#f04452] uppercase tracking-wide">
+              <span className="text-[11px] font-medium text-destructive uppercase tracking-wide">
                 {t('processes.signalDestructive')}
               </span>
               <div className="flex gap-2">

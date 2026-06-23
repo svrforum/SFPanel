@@ -9,10 +9,10 @@ import { Button } from '@/components/ui/button'
 import { ChevronDown, ChevronRight, Check, Minus, RotateCcw, Zap, Shield, HardDrive, Cpu, MemoryStick, Network, Info, AlertTriangle, Timer } from 'lucide-react'
 
 const CATEGORY_META: Record<string, { icon: typeof Network; color: string }> = {
-  network:    { icon: Network,    color: '#3182f6' },
-  memory:     { icon: MemoryStick, color: '#00c471' },
-  filesystem: { icon: HardDrive,  color: '#f59e0b' },
-  security:   { icon: Shield,     color: '#f04452' },
+  network:    { icon: Network,    color: 'var(--primary)' },
+  memory:     { icon: MemoryStick, color: 'var(--success)' },
+  filesystem: { icon: HardDrive,  color: 'var(--warning)' },
+  security:   { icon: Shield,     color: 'var(--destructive)' },
 }
 
 export default function SettingsTuning() {
@@ -168,10 +168,10 @@ export default function SettingsTuning() {
       <div className="bg-card rounded-2xl p-5 card-shadow">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Zap className="h-4 w-4 text-[#3182f6]" />
+            <Zap className="h-4 w-4 text-primary" />
             <h3 className="text-[15px] font-semibold">{t('settings.tuning.optimizationStatus')}</h3>
           </div>
-          <span className="text-[13px] font-semibold text-[#3182f6]">
+          <span className="text-[13px] font-semibold text-primary">
             {status.applied} / {status.total_params}
           </span>
         </div>
@@ -180,7 +180,7 @@ export default function SettingsTuning() {
             className="h-full rounded-full transition-all duration-500"
             style={{
               width: `${overallPercent}%`,
-              backgroundColor: overallPercent === 100 ? '#00c471' : overallPercent > 50 ? '#3182f6' : '#f59e0b',
+              backgroundColor: overallPercent === 100 ? 'var(--success)' : overallPercent > 50 ? 'var(--primary)' : 'var(--warning)',
             }}
           />
         </div>
@@ -206,10 +206,10 @@ export default function SettingsTuning() {
 
         {/* Rollback Countdown Banner */}
         {countdown > 0 && (
-          <div className="mt-4 bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-xl p-4">
+          <div className="mt-4 bg-warning/10 border border-warning/30 rounded-xl p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Timer className="h-5 w-5 text-[#f59e0b] animate-pulse" />
+                <Timer className="h-5 w-5 text-warning animate-pulse" />
                 <div>
                   <p className="text-[13px] font-semibold">{t('settings.tuning.rollbackCountdown', { seconds: countdown })}</p>
                   <p className="text-[11px] text-muted-foreground">{t('settings.tuning.rollbackHint')}</p>
@@ -218,7 +218,7 @@ export default function SettingsTuning() {
               <Button
                 onClick={handleConfirm}
                 disabled={confirming}
-                className="rounded-xl bg-[#00c471] hover:bg-[#00c471]/90"
+                className="rounded-xl bg-success hover:bg-success/90"
               >
                 <Check className="h-4 w-4 mr-2" />
                 {confirming ? t('settings.tuning.confirming') : t('settings.tuning.keepChanges')}
@@ -226,7 +226,7 @@ export default function SettingsTuning() {
             </div>
             <div className="mt-3 h-1.5 rounded-full bg-secondary overflow-hidden">
               <div
-                className="h-full rounded-full bg-[#f59e0b] transition-all duration-1000"
+                className="h-full rounded-full bg-warning transition-all duration-1000"
                 style={{ width: `${(countdown / 60) * 100}%` }}
               />
             </div>
@@ -236,7 +236,7 @@ export default function SettingsTuning() {
 
       {/* Category Cards */}
       {status.categories.map((cat: TuningCategory) => {
-        const meta = CATEGORY_META[cat.name] || { icon: Zap, color: '#3182f6' }
+        const meta = CATEGORY_META[cat.name] || { icon: Zap, color: 'var(--primary)' }
         const Icon = meta.icon
         const isExpanded = expanded[cat.name] || false
         const allApplied = cat.applied === cat.total
@@ -245,8 +245,11 @@ export default function SettingsTuning() {
           <div key={cat.name} className="bg-card rounded-2xl card-shadow overflow-hidden">
             {/* Category Header */}
             <div
-              className="flex items-center justify-between p-5 cursor-pointer hover:bg-secondary/30 transition-colors"
+              role="button"
+              tabIndex={0}
+              className="flex items-center justify-between p-5 cursor-pointer hover:bg-secondary/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
               onClick={() => toggleExpand(cat.name)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(cat.name) } }}
             >
               <div className="flex items-center gap-3">
                 <div
@@ -265,7 +268,7 @@ export default function SettingsTuning() {
 
               <div className="flex items-center gap-3">
                 {allApplied ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                     <Check className="h-3 w-3 mr-1" />
                     {t('settings.tuning.optimized')}
                   </span>
@@ -301,11 +304,11 @@ export default function SettingsTuning() {
                 {/* Benefit & Caution */}
                 <div className="px-5 py-3 bg-secondary/20 space-y-2">
                   <div className="flex items-start gap-2">
-                    <Info className="h-3.5 w-3.5 text-[#3182f6] mt-0.5 shrink-0" />
+                    <Info className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
                     <p className="text-[12px] text-foreground/80">{t(`settings.tuning.${cat.benefit}`)}</p>
                   </div>
                   <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-3.5 w-3.5 text-[#f59e0b] mt-0.5 shrink-0" />
+                    <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 shrink-0" />
                     <p className="text-[12px] text-foreground/80">{t(`settings.tuning.${cat.caution}`)}</p>
                   </div>
                 </div>
@@ -316,9 +319,9 @@ export default function SettingsTuning() {
                         <div className="flex items-center gap-2">
                           <code className="text-[12px] font-mono text-foreground/80">{param.key}</code>
                           {param.applied ? (
-                            <Check className="h-3.5 w-3.5 text-[#00c471] shrink-0" />
+                            <Check className="h-3.5 w-3.5 text-success shrink-0" />
                           ) : (
-                            <Minus className="h-3.5 w-3.5 text-[#f59e0b] shrink-0" />
+                            <Minus className="h-3.5 w-3.5 text-warning shrink-0" />
                           )}
                         </div>
                         <p className="text-[11px] text-muted-foreground mt-0.5">{param.description}</p>
@@ -327,7 +330,7 @@ export default function SettingsTuning() {
                         <div className="flex items-center gap-2 text-[12px]">
                           <span className="text-muted-foreground">{param.current || '-'}</span>
                           <span className="text-muted-foreground/50">→</span>
-                          <span className={param.applied ? 'text-[#00c471] font-medium' : 'text-[#3182f6] font-medium'}>
+                          <span className={param.applied ? 'text-success font-medium' : 'text-primary font-medium'}>
                             {param.recommended}
                           </span>
                         </div>

@@ -123,7 +123,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => setUseRecovery((v) => !v)}
-                  className="text-xs font-medium text-primary hover:underline"
+                  className="text-xs font-medium text-primary hover:underline outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                 >
                   {useRecovery ? t('login.useAuthenticator') : t('login.useRecoveryCode')}
                 </button>

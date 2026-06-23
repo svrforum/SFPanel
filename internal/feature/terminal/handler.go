@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/creack/pty"
@@ -22,6 +22,9 @@ import (
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/common/safe"
+	"github.com/svrforum/SFPanel/internal/common/wsorigin"
+	sfdb "github.com/svrforum/SFPanel/internal/db"
+	"github.com/svrforum/SFPanel/internal/feature/audit"
 )
 
 // errUnauthenticatedWS is returned by authenticateWS when the upgrade should
@@ -57,34 +60,9 @@ const idleReapAfter = 5 * time.Minute
 const terminalWSPingInterval = 30 * time.Second
 const terminalWSReadDeadline = 70 * time.Second
 
-// tauriOrigins are the desktop wrapper's webview origins — the same three
-// the CORS allowlist in router.go carries. Keys are lowercase. Webviews DO
-// stamp an Origin on WS upgrades, so the empty-Origin allowance alone does
-// not cover the desktop app.
-var tauriOrigins = map[string]bool{
-	"tauri://localhost":       true,
-	"http://tauri.localhost":  true,
-	"https://tauri.localhost": true,
-}
-
-// sameOriginOrEmpty mirrors websocket/handler.go's CheckOrigin: accept
-// when Origin is absent (curl/websocat), matches the request host, or is
-// a Tauri desktop webview origin. Anything else is a foreign Origin from
-// a CSWSH attempt and the upgrade is refused.
-func sameOriginOrEmpty(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return true
-	}
-	if tauriOrigins[strings.ToLower(origin)] {
-		return true
-	}
-	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" {
-		return false
-	}
-	return strings.EqualFold(u.Host, r.Host)
-}
+// sameOriginOrEmpty is the shared CSWSH origin check (see common/wsorigin),
+// aliased here so the Upgrader and the package test refer to it by name.
+var sameOriginOrEmpty = wsorigin.CheckOrigin
 
 var Upgrader = websocket.Upgrader{
 	CheckOrigin: sameOriginOrEmpty,
@@ -188,6 +166,7 @@ func (r *ringBuffer) Bytes() []byte {
 
 type terminalSession struct {
 	mu               sync.Mutex
+	dead             atomic.Bool // set the instant the PTY reader begins teardown (shell exited), before the session leaves the map — closes the reattach race where ProcessState is still nil
 	ptmx             *os.File
 	cmd              *exec.Cmd
 	lastUse          time.Time
@@ -355,14 +334,19 @@ func (s *terminalSession) startReader(sessionKey string) {
 			for {
 				n, err := s.ptmx.Read(buf)
 				if err != nil {
+					// Mark dead before taking the lock so a concurrent reattach
+					// (which holds sessionsMu) observes not-alive immediately,
+					// instead of attaching to a corpse during the window before
+					// cmd.Wait() populates ProcessState.
+					s.dead.Store(true)
 					// PTY closed (shell exited) — clean up session
 					sessionsMu.Lock()
 					if sessions[sessionKey] == s {
 						s.ptmx.Close()
 						if s.cmd.Process != nil {
-							s.cmd.Process.Kill()
+							_ = s.cmd.Process.Kill()
 						}
-						s.cmd.Wait()
+						_ = s.cmd.Wait()
 						delete(sessions, sessionKey)
 					}
 					sessionsMu.Unlock()
@@ -475,7 +459,7 @@ func ListSessions(c echo.Context) error {
 // and bridges it over a WebSocket. Authentication via query param token.
 // Query param session_id identifies the session; on reconnect the scrollback
 // buffer is replayed so the user sees previous output.
-func TerminalWS(jwtSecret string) echo.HandlerFunc {
+func TerminalWS(jwtSecret string, auditWriter *sfdb.AsyncWriter, localNodeIDFn func() string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		username, err := authenticateWS(c, jwtSecret)
 		if err != nil {
@@ -498,11 +482,22 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			"user", username,
 			"session_id", c.QueryParam("session_id"))
 
+		// Durable audit row: /ws/* bypasses AuditMiddleware, so the host shell
+		// — the panel's highest-privilege action — would otherwise leave only
+		// the transient slog line above.
+		nodeID := ""
+		if localNodeIDFn != nil {
+			nodeID = localNodeIDFn()
+		}
+		audit.RecordWSSession(auditWriter, username, c.Request().URL.Path, c.RealIP(), nodeID)
+
 		sessionsMu.Lock()
 		sess, exists := sessions[sessionKey]
 		if exists {
-			// Check if the process is still alive
-			if sess.cmd.ProcessState != nil {
+			// Check if the process is still alive. dead is set the instant the
+			// reader goroutine starts tearing down, covering the sub-ms window
+			// before cmd.Wait() populates ProcessState.
+			if sess.cmd.ProcessState != nil || sess.dead.Load() {
 				sess.ptmx.Close()
 				delete(sessions, sessionKey)
 				exists = false
@@ -540,7 +535,10 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 				return nil
 			}
 
-			// Create new PTY session
+			// Create new PTY session. os/exec is used directly (not exec.Commander)
+			// because pty.Start needs the raw *exec.Cmd to attach a controlling TTY,
+			// and the session deliberately OUTLIVES the request — so it is NOT bound
+			// to ctx.Request().Context().
 			shell := findShell()
 			cmd := exec.Command(shell)
 			home := terminalHome()
@@ -596,6 +594,13 @@ func TerminalWS(jwtSecret string) echo.HandlerFunc {
 			if msgType == websocket.TextMessage {
 				var resize resizeMsg
 				if json.Unmarshal(msg, &resize) == nil && resize.Type == "resize" {
+					// Ignore degenerate dimensions: a cols=0/rows=0 winsize
+					// (reachable via a malformed frame relayed byte-for-byte from a
+					// remote node) wedges curses/full-screen TUIs until the next
+					// valid resize.
+					if resize.Cols == 0 || resize.Rows == 0 {
+						continue
+					}
 					sess.writeMu.Lock()
 					pty.Setsize(sess.ptmx, &pty.Winsize{
 						Cols: resize.Cols,
@@ -700,9 +705,9 @@ func CleanupTerminalSessions(ctx context.Context, db *sql.DB) {
 			for _, e := range toClean {
 				e.sess.ptmx.Close()
 				if e.sess.cmd.Process != nil {
-					e.sess.cmd.Process.Kill()
+					_ = e.sess.cmd.Process.Kill()
 				}
-				e.sess.cmd.Wait()
+				_ = e.sess.cmd.Wait()
 			}
 		}
 	})

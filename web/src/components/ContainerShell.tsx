@@ -6,6 +6,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
+import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import { Button } from '@/components/ui/button'
 
 interface ContainerShellProps {
@@ -53,11 +54,12 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
     term.open(terminalRef.current)
     fitAddon.fit()
     termRef.current = term
+    const detachTouch = attachXtermTouchScroll(terminalRef.current, term)
 
     const token = api.getToken()
     if (!token) {
       term.writeln(`\x1b[31m${t('terminal.notAuthenticated')}\x1b[0m`)
-      return () => { term.dispose() }
+      return () => { detachTouch(); term.dispose() }
     }
 
     // Async because buildWsUrl mints a ws-ticket so the JWT stays out of
@@ -122,6 +124,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
     return () => {
       disposed = true
       window.removeEventListener('resize', handleResize)
+      detachTouch()
       wsCleanup?.()
       term.dispose()
     }
@@ -133,7 +136,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
       <div className="flex items-center justify-between px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <Circle className={`h-2 w-2 fill-current ${connected ? 'text-[#00c471]' : 'text-[#f04452]'}`} />
+            <Circle className={`h-2 w-2 fill-current ${connected ? 'text-success' : 'text-destructive'}`} />
             <span className="text-[11px] text-white/40 font-medium">
               {connected ? t('terminal.connected') : t('terminal.disconnected')}
             </span>
@@ -145,6 +148,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
             size="icon-xs"
             className="text-white/40 hover:text-white hover:bg-white/10"
             title={t('terminal.clear')}
+            aria-label={t('terminal.clear')}
             onClick={handleClear}
           >
             <Eraser className="h-3.5 w-3.5" />
@@ -153,8 +157,9 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
             <Button
               variant="ghost"
               size="icon-xs"
-              className="text-white/40 hover:text-[#f04452] hover:bg-white/10"
+              className="text-white/40 hover:text-destructive hover:bg-white/10"
               title={t('terminal.disconnect')}
+              aria-label={t('terminal.disconnect')}
               onClick={handleDisconnect}
             >
               <Unplug className="h-3.5 w-3.5" />
@@ -166,7 +171,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
       {/* Terminal */}
       <div
         ref={terminalRef}
-        className="h-[420px] w-full px-1 pt-1"
+        className="h-[420px] w-full px-1 pt-1 touch-none"
         onClick={() => termRef.current?.focus()}
       />
     </div>

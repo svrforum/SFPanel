@@ -29,9 +29,9 @@ import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 const FORMAT_FS_TYPES = ['ext4', 'xfs', 'btrfs']
 
 function usageBarColor(percent: number): string {
-  if (percent >= 85) return '#f04452'
-  if (percent >= 70) return '#f59e0b'
-  return '#00c471'
+  if (percent >= 85) return 'var(--destructive)'
+  if (percent >= 70) return 'var(--warning)'
+  return 'var(--success)'
 }
 
 export default function DiskFilesystems() {
@@ -273,7 +273,7 @@ export default function DiskFilesystems() {
                       />
                     </div>
                     <span className={`text-xs font-medium min-w-[36px] text-right ${
-                      fs.use_percent >= 85 ? 'text-[#f04452]' : fs.use_percent >= 70 ? 'text-[#f59e0b]' : 'text-muted-foreground'
+                      fs.use_percent >= 85 ? 'text-destructive' : fs.use_percent >= 70 ? 'text-warning' : 'text-muted-foreground'
                     }`}>
                       {fs.use_percent.toFixed(0)}%
                     </span>
@@ -289,6 +289,7 @@ export default function DiskFilesystems() {
                         variant="ghost"
                         size="icon-xs"
                         title={t('disk.filesystems.unmount')}
+                        aria-label={t('disk.filesystems.unmount')}
                         onClick={() => setUnmountTarget(fs)}
                       >
                         <FolderDown />
@@ -437,9 +438,9 @@ export default function DiskFilesystems() {
 
           <div className="space-y-3">
             {/* General warning */}
-            <div className="flex gap-3 rounded-xl bg-[#f59e0b]/10 p-3">
-              <TriangleAlert className="h-4 w-4 text-[#f59e0b] flex-shrink-0 mt-0.5" />
-              <p className="text-[12px] text-[#f59e0b]/90 leading-relaxed">
+            <div className="flex gap-3 rounded-xl bg-warning/10 p-3">
+              <TriangleAlert className="h-4 w-4 text-warning flex-shrink-0 mt-0.5" />
+              <p className="text-[12px] text-warning/90 leading-relaxed">
                 {t('disk.filesystems.unmountWarning')}
               </p>
             </div>
@@ -448,9 +449,9 @@ export default function DiskFilesystems() {
             {unmountTarget && ['/', '/boot', '/home', '/var', '/tmp', '/usr', '/etc'].some(
               p => unmountTarget.mount_point === p || unmountTarget.mount_point.startsWith('/run')
             ) && (
-              <div className="flex gap-3 rounded-xl bg-[#f04452]/10 p-3">
-                <TriangleAlert className="h-4 w-4 text-[#f04452] flex-shrink-0 mt-0.5" />
-                <p className="text-[12px] text-[#f04452]/90 leading-relaxed font-medium">
+              <div className="flex gap-3 rounded-xl bg-destructive/10 p-3">
+                <TriangleAlert className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
+                <p className="text-[12px] text-destructive/90 leading-relaxed font-medium">
                   {t('disk.filesystems.unmountRootWarning')}
                 </p>
               </div>
@@ -503,7 +504,7 @@ export default function DiskFilesystems() {
                   <span className="text-muted-foreground">{t('disk.filesystems.expandCurrentSize')}</span>
                   <span className="font-mono">{formatBytes(expandTarget.current_size)}</span>
                   <span className="text-muted-foreground">{t('disk.filesystems.expandFreeSpace')}</span>
-                  <span className="font-mono font-semibold text-[#00c471]">+{formatBytes(expandTarget.free_space)}</span>
+                  <span className="font-mono font-semibold text-success">+{formatBytes(expandTarget.free_space)}</span>
                 </div>
               </div>
 
@@ -542,7 +543,7 @@ export default function DiskFilesystems() {
                 <button
                   key={c.source}
                   type="button"
-                  className="w-full text-left bg-muted/20 hover:bg-muted/40 rounded-xl p-4 transition-colors group"
+                  className="w-full text-left bg-muted/20 hover:bg-muted/40 rounded-xl p-4 transition-colors group outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                   onClick={() => setExpandTarget(c)}
                 >
                   <div className="flex items-center justify-between">
@@ -560,7 +561,7 @@ export default function DiskFilesystems() {
                         <span className="text-[11px] text-muted-foreground">
                           {formatBytes(c.current_size)}
                         </span>
-                        <span className="text-[11px] font-semibold text-[#00c471]">
+                        <span className="text-[11px] font-semibold text-success">
                           +{formatBytes(c.free_space)}
                         </span>
                       </div>

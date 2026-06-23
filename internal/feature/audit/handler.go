@@ -3,6 +3,7 @@ package audit
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,7 +11,29 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	sfdb "github.com/svrforum/SFPanel/internal/db"
 )
+
+// RecordWSSession writes a durable audit_logs row for a WebSocket session
+// open. The /ws/* routes register on the root echo instance and a WS upgrade
+// is a GET, so AuditMiddleware never records them — leaving the two highest-
+// privilege actions (host shell, container exec) with no queryable trail.
+// method is "WS" so these are filterable apart from ordinary GETs; status is
+// 101 (Switching Protocols). username already carries the relay's
+// X-SFPanel-Original-User identity for cross-node sessions.
+func RecordWSSession(writer *sfdb.AsyncWriter, username, path, ip, nodeID string) {
+	if writer == nil {
+		return
+	}
+	writer.Submit(func(db *sql.DB) {
+		if _, err := db.Exec(
+			"INSERT INTO audit_logs (username, method, path, status, ip, node_id) VALUES (?, ?, ?, ?, ?, ?)",
+			username, "WS", path, http.StatusSwitchingProtocols, ip, nodeID,
+		); err != nil {
+			slog.Error("ws session audit write failed", "error", err, "path", path)
+		}
+	})
+}
 
 // actionAuditLogCleared is recorded with protected=1 immediately before a
 // clear so the wipe itself survives subsequent wipes. The marker rides in

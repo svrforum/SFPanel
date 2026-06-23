@@ -501,7 +501,8 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
         {/* Close button */}
         <button
           onClick={() => !installing && onClose()}
-          className="absolute top-4 right-4 z-20 p-1.5 rounded-full bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+          aria-label={t('common.close')}
+          className="absolute top-4 right-4 z-20 p-1.5 rounded-full bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
         >
           <X className="h-4 w-4" />
         </button>
@@ -568,7 +569,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                 <div className="flex flex-wrap items-center gap-3 mt-4">
                   {detail.installed ? (
                     <>
-                      <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                      <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-medium bg-success/10 text-success">
                         <Check className="h-4 w-4" />
                         {t('appStore.installed')}
                       </span>
@@ -579,7 +580,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="rounded-xl text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10"
+                        className="rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10"
                         onClick={handleUninstall}
                         disabled={uninstalling}
                       >
@@ -619,7 +620,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                       href={detail.app.website}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                     >
                       <Globe className="h-3.5 w-3.5" />
                       {t('appStore.website')}
@@ -630,7 +631,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                       href={detail.app.source}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                     >
                       <Code2 className="h-3.5 w-3.5" />
                       {t('appStore.source')}
@@ -651,7 +652,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                       href={src}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="shrink-0"
+                      className="shrink-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                     >
                       <img
                         src={src}
@@ -678,7 +679,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                 {/* Mode tabs */}
                 <div className="flex gap-1 p-1 bg-secondary/40 rounded-xl mb-4">
                   <button
-                    className={`flex-1 py-1.5 text-[12px] font-medium rounded-lg transition-colors ${
+                    className={`flex-1 py-1.5 text-[12px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                       installMode === 'simple'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
@@ -688,7 +689,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                     {t('appStore.simpleMode')}
                   </button>
                   <button
-                    className={`flex-1 py-1.5 text-[12px] font-medium rounded-lg transition-colors ${
+                    className={`flex-1 py-1.5 text-[12px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                       installMode === 'advanced'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
@@ -706,7 +707,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                       <div key={envDef.key} className="space-y-1.5">
                         <label className="text-[12px] font-medium text-foreground">
                           {envDef.label[lang] || envDef.label['en'] || envDef.key}
-                          {envDef.required && <span className="text-[#f04452] ml-0.5">*</span>}
+                          {envDef.required && <span className="text-destructive ml-0.5">*</span>}
                         </label>
                         {envDef.type === 'select' && envDef.options ? (
                           <select
@@ -734,7 +735,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                               />
                               <button
                                 type="button"
-                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                                 onClick={() =>
                                   setShowPasswords((prev) => ({
                                     ...prev,
@@ -774,7 +775,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                                   onClick={() => copyToClipboard(envValues[envDef.key] || '', `env-${envDef.key}`)}
                                 >
                                   {copiedKey === `env-${envDef.key}` ? (
-                                    <Check className="h-3 w-3 mr-1 text-[#00c471]" />
+                                    <Check className="h-3 w-3 mr-1 text-success" />
                                   ) : (
                                     <Copy className="h-3 w-3 mr-1" />
                                   )}
@@ -803,7 +804,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                               const ps = detail.port_status?.find(p => p.port === parseInt(envDef.default || '0', 10))
                               if (ps?.in_use) {
                                 return (
-                                  <p className="text-[11px] text-[#f59e0b] mt-1">
+                                  <p className="text-[11px] text-warning mt-1">
                                     {t('appStore.portInUse', { port: ps.port, suggested: ps.suggested || '' })}
                                   </p>
                                 )
@@ -837,7 +838,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                     {/* Sub-tabs */}
                     <div className="flex gap-1 mb-3">
                       <button
-                        className={`px-3 py-1 text-[11px] font-medium rounded-lg transition-colors ${
+                        className={`px-3 py-1 text-[11px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                           advancedTab === 'compose'
                             ? 'bg-primary/10 text-primary'
                             : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -847,7 +848,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                         docker-compose.yml
                       </button>
                       <button
-                        className={`px-3 py-1 text-[11px] font-medium rounded-lg transition-colors ${
+                        className={`px-3 py-1 text-[11px] font-medium rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                           advancedTab === 'env'
                             ? 'bg-primary/10 text-primary'
                             : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
@@ -926,9 +927,9 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                   </h3>
                   {progressDone && (
                     progressSuccess ? (
-                      <CheckCircle2 className="h-5 w-5 text-[#00c471]" />
+                      <CheckCircle2 className="h-5 w-5 text-success" />
                     ) : (
-                      <XCircle className="h-5 w-5 text-[#f04452]" />
+                      <XCircle className="h-5 w-5 text-destructive" />
                     )
                   )}
                   {!progressDone && (
@@ -956,15 +957,15 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                     return (
                       <div key={stage} className="flex items-center gap-1">
                         {isComplete ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-[#00c471]" />
+                          <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                         ) : isFailed ? (
-                          <XCircle className="h-3.5 w-3.5 text-[#f04452]" />
+                          <XCircle className="h-3.5 w-3.5 text-destructive" />
                         ) : isCurrent ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                         ) : (
                           <Circle className="h-3.5 w-3.5 text-muted-foreground/30" />
                         )}
-                        <span className={`text-[11px] ${isCurrent ? 'text-primary font-medium' : isComplete ? 'text-[#00c471]' : isFailed ? 'text-[#f04452]' : 'text-muted-foreground/50'}`}>
+                        <span className={`text-[11px] ${isCurrent ? 'text-primary font-medium' : isComplete ? 'text-success' : isFailed ? 'text-destructive' : 'text-muted-foreground/50'}`}>
                           {stageLabels[stage]}
                         </span>
                         {stage !== 'done' && (
@@ -980,7 +981,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                   {progressLogs.map((log, idx) => (
                     <div
                       key={idx}
-                      className={`${log.success ? 'text-[#cdd6f4]' : 'text-[#f04452]'}`}
+                      className={`${log.success ? 'text-[#cdd6f4]' : 'text-destructive'}`}
                     >
                       <span className="text-[#89b4fa] select-none">[{log.stage}]</span>{' '}
                       {log.message}
@@ -991,7 +992,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
 
                 {progressDone && progressSuccess && (
                   installHealth === 'healthy' ? (
-                    <p className="text-[13px] text-[#00c471] mt-4">{t('appStore.healthHealthy')}</p>
+                    <p className="text-[13px] text-success mt-4">{t('appStore.healthHealthy')}</p>
                   ) : installHealth === 'starting' ? (
                     <p className="text-[13px] text-amber-600 mt-4">{t('appStore.healthStarting')}</p>
                   ) : null
@@ -1075,7 +1076,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
             <div>
               <button
                 onClick={() => setShowCompose(!showCompose)}
-                className="flex items-center gap-2 text-[14px] font-semibold hover:text-primary transition-colors"
+                className="flex items-center gap-2 text-[14px] font-semibold hover:text-primary transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
               >
                 Docker Compose
                 {showCompose ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}

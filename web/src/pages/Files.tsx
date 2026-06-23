@@ -606,7 +606,7 @@ export default function Files() {
         >
           <button
             onClick={(e) => { e.stopPropagation(); navigateToSegment(-1) }}
-            className="flex items-center gap-1 hover:text-foreground transition-colors shrink-0"
+            className="flex items-center gap-1 hover:text-foreground transition-colors shrink-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
           >
             <Home className="h-4 w-4" />
             <span>/</span>
@@ -617,9 +617,10 @@ export default function Files() {
               <button
                 onClick={(e) => { e.stopPropagation(); navigateToSegment(index) }}
                 className={
-                  index === pathSegments.length - 1
+                  'rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ' +
+                  (index === pathSegments.length - 1
                     ? 'font-medium text-foreground'
-                    : 'hover:text-foreground transition-colors'
+                    : 'hover:text-foreground transition-colors')
                 }
               >
                 {segment}
@@ -654,7 +655,8 @@ export default function Files() {
                 type="button"
                 onClick={exitSearch}
                 title={t('files.searchClear')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label={t('files.searchClear')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
               >
                 {searchLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
               </button>
@@ -840,6 +842,7 @@ export default function Files() {
                           variant="ghost"
                           size="icon-xs"
                           title={t('files.edit')}
+                          aria-label={t('files.edit')}
                           onClick={() => handleEditFile(entry)}
                         >
                           <Pencil />
@@ -850,6 +853,7 @@ export default function Files() {
                           variant="ghost"
                           size="icon-xs"
                           title={t('files.download')}
+                          aria-label={t('files.download')}
                           onClick={() => handleDownload(entry)}
                         >
                           <Download />
@@ -859,6 +863,7 @@ export default function Files() {
                         variant="ghost"
                         size="icon-xs"
                         title={t('files.copy')}
+                        aria-label={t('files.copy')}
                         onClick={() => openCopyDialog(entry)}
                       >
                         <Copy />
@@ -868,6 +873,7 @@ export default function Files() {
                           variant="ghost"
                           size="icon-xs"
                           title={t('files.rename')}
+                          aria-label={t('files.rename')}
                           onClick={() => {
                             setRenameTarget(entry)
                             setRenameNewName(entry.name)
@@ -881,6 +887,7 @@ export default function Files() {
                           variant="ghost"
                           size="icon-xs"
                           title={t('common.delete')}
+                          aria-label={t('common.delete')}
                           onClick={() => setDeleteTarget(entry)}
                         >
                           <Trash2 />
@@ -1288,7 +1295,7 @@ export default function Files() {
                 className="h-full rounded-full transition-all duration-300"
                 style={{
                   width: `${uploadProgress?.percent ?? 0}%`,
-                  backgroundColor: '#3182f6',
+                  backgroundColor: 'var(--primary)',
                 }}
               />
             </div>

@@ -25,7 +25,10 @@
       "prompt": "To confirm, type:"
     },
     "confirm": "Confirm",
-    "retry": "Retry"
+    "retry": "Retry",
+    "copy": "Copy",
+    "previous": "Previous",
+    "next": "Next"
   },
   "layout": {
     "brand": "SFPanel",
@@ -811,6 +814,11 @@
     "tabAuditLog": "Audit Log",
     "language": "Language",
     "languageDescription": "Change the display language",
+    "theme": "Theme",
+    "themeDescription": "Use light, dark, or follow your system setting",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System",
     "changePassword": "Change Password",
     "changePasswordDescription": "Update your admin account password",
     "currentPassword": "Current Password",
@@ -1137,6 +1145,7 @@
     "clear": "Clear",
     "disconnect": "Disconnect",
     "connected": "Connected",
+    "reconnecting": "Reconnecting…",
     "disconnected": "Disconnected",
     "reattach": {
       "button": "Reattach session",
@@ -1597,6 +1606,7 @@
     "noMatches": "No matches",
     "prevMatch": "Previous match",
     "nextMatch": "Next match",
+    "closeSearch": "Close search",
     "download": "Download logs",
     "addSource": "Add Source",
     "addSourceTitle": "Add Custom Log Source",
@@ -2093,7 +2103,7 @@
       "editRule": "Edit Rule",
       "editDescription": "Edit rule #{{number}}. The existing rule will be deleted and a new rule will be added.",
       "editDeleteFailed": "New rule was added but failed to delete the old rule. Please delete it manually.",
-      "editAddFailed": "Old rule was deleted but failed to add the new rule",
+      "editAddFailed": "Failed to add the new rule; the original rule is unchanged",
       "invalidPort": "Invalid port format (e.g., 80, 8000:8080)",
       "invalidIP": "Invalid IP address format (e.g., 192.168.1.0/24)",
       "deleteConfirm": "Are you sure you want to delete rule #{{number}}?",

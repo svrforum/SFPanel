@@ -6,6 +6,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
+import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -107,12 +108,14 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
     fitAddonRef.current = fitAddon
     searchAddonRef.current = searchAddon
     logLinesRef.current = []
+    const detachTouch = attachXtermTouchScroll(terminalRef.current, term)
 
     const handleResize = () => fitAddon.fit()
     window.addEventListener('resize', handleResize)
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      detachTouch()
       term.dispose()
       termRef.current = null
       fitAddonRef.current = null
@@ -195,7 +198,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
       <div className="flex items-center justify-between px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
-            <Circle className={`h-2 w-2 fill-current ${connected ? 'text-[#00c471]' : 'text-[#f04452]'}`} />
+            <Circle className={`h-2 w-2 fill-current ${connected ? 'text-success' : 'text-destructive'}`} />
             <span className="text-[11px] text-white/40 font-medium">
               {connected ? t('terminal.connected') : t('terminal.disconnected')}
             </span>
@@ -234,8 +237,9 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             <Button
               variant="ghost"
               size="icon-xs"
-              className={`text-white/40 hover:text-white hover:bg-white/10 ${timestamps ? 'text-[#3182f6]' : ''}`}
+              className={`text-white/40 hover:text-white hover:bg-white/10 ${timestamps ? 'text-primary' : ''}`}
               title="Timestamps"
+              aria-label="Timestamps"
               onClick={() => setTimestamps(!timestamps)}
             >
               <span className="text-[10px] font-mono">T</span>
@@ -246,8 +250,9 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
           <Button
             variant="ghost"
             size="icon-xs"
-            className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-[#3182f6]' : ''}`}
+            className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-primary' : ''}`}
             title="Auto-scroll"
+            aria-label="Auto-scroll"
             onClick={() => {
               setAutoScroll(!autoScroll)
               if (!autoScroll) termRef.current?.scrollToBottom()
@@ -258,8 +263,9 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
           <Button
             variant="ghost"
             size="icon-xs"
-            className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-[#3182f6]' : ''}`}
+            className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-primary' : ''}`}
             title={t('terminal.search')}
+            aria-label={t('terminal.search')}
             onClick={() => {
               setSearchOpen(!searchOpen)
               if (searchOpen) {
@@ -275,6 +281,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             size="icon-xs"
             className="text-white/40 hover:text-white hover:bg-white/10"
             title={t('logs.download')}
+            aria-label={t('logs.download')}
             onClick={handleDownload}
           >
             <Download className="h-3.5 w-3.5" />
@@ -301,22 +308,23 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
                 }
               }}
               placeholder={t('terminal.searchPlaceholder')}
-              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-[#3182f6]/50"
+              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-primary/50"
               autoFocus
             />
           </div>
           <Button variant="ghost" size="icon-xs" onClick={handleSearchPrev}
-            className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.prev')}>
+            className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.prev')} aria-label={t('terminal.prev')}>
             <ChevronUp className="h-3.5 w-3.5" />
           </Button>
           <Button variant="ghost" size="icon-xs" onClick={handleSearchNext}
-            className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.next')}>
+            className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.next')} aria-label={t('terminal.next')}>
             <ChevronDown className="h-3.5 w-3.5" />
           </Button>
           <Button
             variant="ghost"
             size="icon-xs"
             className="text-white/40 hover:text-white hover:bg-white/10"
+            aria-label={t('common.close')}
             onClick={() => {
               setSearchOpen(false)
               setSearchQuery('')
@@ -331,7 +339,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
       {/* Terminal */}
       <div
         ref={terminalRef}
-        className="h-[420px] w-full px-1 pt-1"
+        className="h-[420px] w-full px-1 pt-1 touch-none"
       />
     </div>
   )

@@ -223,7 +223,7 @@ export function HealthcheckComposerDialog({
             <Label htmlFor="hc-preset">프리셋</Label>
             <select
               id="hc-preset"
-              className="w-full h-9 border rounded-md px-2 text-[13px] bg-transparent"
+              className="w-full h-9 border rounded-md px-2 text-[13px] bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
               defaultValue="Custom"
               onChange={(e) => {
                 const p = PRESETS.find((x) => x.label === e.target.value)
@@ -246,7 +246,7 @@ export function HealthcheckComposerDialog({
                 <input
                   type="radio"
                   name="test_type"
-                  className="mt-1"
+                  className="mt-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                   checked={spec.test_type === t}
                   onChange={() => setSpec((s) => ({ ...s, test_type: t }))}
                 />
@@ -323,7 +323,7 @@ export function HealthcheckComposerDialog({
               {testResult && (
                 <div
                   className={`text-[12px] font-mono rounded-md p-2 ${
-                    testResult.exit_code === 0 ? 'bg-[#00c471]/10 text-[#00c471]' : 'bg-[#f04452]/10 text-[#f04452]'
+                    testResult.exit_code === 0 ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'
                   }`}
                 >
                   <div>
@@ -338,14 +338,14 @@ export function HealthcheckComposerDialog({
 
           {hasExisting && (
             <label className="flex items-start gap-2 text-[12px] text-muted-foreground">
-              <input type="checkbox" className="mt-0.5" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+              <input type="checkbox" className="mt-0.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
               이 service에 이미 healthcheck가 있습니다 — 덮어쓰기
             </label>
           )}
 
           <DialogFooter className="flex !justify-between">
             {hasExisting ? (
-              <Button type="button" variant="ghost" className="text-[#f04452] hover:bg-[#f04452]/10" onClick={onRemove} disabled={removing || submitting}>
+              <Button type="button" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={onRemove} disabled={removing || submitting}>
                 {removing ? '제거 중…' : 'Healthcheck 제거'}
               </Button>
             ) : <span />}

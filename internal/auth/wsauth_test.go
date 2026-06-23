@@ -51,4 +51,15 @@ func TestAuthenticateWSRequest_LegacyTokenLoopbackOnly(t *testing.T) {
 	if got := AuthenticateWSRequest(r2, secret); got != "" {
 		t.Errorf("non-loopback ?token=: got %q, want empty (rejected)", got)
 	}
+
+	// Non-loopback WITH a spoofed X-Forwarded-For: 127.0.0.1 must STILL be
+	// rejected — isLoopbackRequest reads RemoteAddr only and must never trust
+	// XFF, or a misconfigured proxy forwarding client XFF could replay a
+	// captured ?token= JWT from off-box. Guards a future RealIP-based refactor.
+	r3, _ := http.NewRequest("GET", "/ws/metrics?token="+token, nil)
+	r3.RemoteAddr = "192.168.1.42:54321"
+	r3.Header.Set("X-Forwarded-For", "127.0.0.1")
+	if got := AuthenticateWSRequest(r3, secret); got != "" {
+		t.Errorf("non-loopback ?token= with spoofed XFF: got %q, want empty (rejected)", got)
+	}
 }

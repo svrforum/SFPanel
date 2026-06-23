@@ -115,7 +115,7 @@ export default function DockerVolumes() {
 
       {/* Load error / loading skeleton (first load only) */}
       {error && volumes.length === 0 ? (
-        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium">{t('docker.volumes.loadError')}</p>
@@ -152,7 +152,7 @@ export default function DockerVolumes() {
                 </div>
                 <div className="mt-1.5">
                   {v.in_use ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                       {t('docker.volumes.inUse')}
                     </span>
                   ) : (
@@ -166,6 +166,7 @@ export default function DockerVolumes() {
                 variant="ghost"
                 size="icon-xs"
                 title={t('common.delete')}
+                aria-label={t('common.delete')}
                 onClick={() => setDeleteTarget(v)}
               >
                 <Trash2 className="h-4 w-4" />
@@ -201,13 +202,13 @@ export default function DockerVolumes() {
             <TableRow key={v.Name}>
               <TableCell className="font-medium font-mono text-sm">
                 <div className="flex items-center gap-1.5">
-                  {v.in_use && <Check className="h-3.5 w-3.5 text-[#00c471] shrink-0" />}
+                  {v.in_use && <Check className="h-3.5 w-3.5 text-success shrink-0" />}
                   {v.Name}
                 </div>
               </TableCell>
               <TableCell>
                 {v.in_use ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]" title={v.used_by.join(', ')}>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success" title={v.used_by.join(', ')}>
                     {t('docker.volumes.inUse')}
                   </span>
                 ) : (
@@ -233,6 +234,7 @@ export default function DockerVolumes() {
                   variant="ghost"
                   size="icon-xs"
                   title={t('common.delete')}
+                  aria-label={t('common.delete')}
                   onClick={() => setDeleteTarget(v)}
                 >
                   <Trash2 />

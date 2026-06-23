@@ -14,6 +14,20 @@
     <link rel="manifest" href="/manifest.json" />
     <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" integrity="sha384-GIdEBaqGN9mNkDkMkzMHW8EKUqtpPIe/sLj1X7DIrnc9uPtLROJgmuDlh+3rBw0j" />
     <title>SFPanel</title>
+    <script>
+      // Pre-paint theme application — runs before the app bundle so there is no
+      // light-to-dark flash (FOUC). Mirrors src/lib/theme.ts precedence:
+      // explicit 'light'/'dark' wins, otherwise follow the OS. Kept tiny and
+      // dependency-free on purpose.
+      (function () {
+        try {
+          var pref = localStorage.getItem('sfpanel-theme') || 'system'
+          var dark = pref === 'dark' || (pref !== 'light' &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) document.documentElement.classList.add('dark')
+        } catch (e) { /* localStorage blocked — fall back to light */ }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

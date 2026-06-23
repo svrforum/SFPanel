@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
 import { Terminal as TerminalIcon, Plus, X, Minus, Search, Eraser, History } from 'lucide-react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -9,8 +8,10 @@ import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
+import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import type { TerminalSession as TerminalSessionInfo } from '@/types/api'
 import { cn } from '@/lib/utils'
+import MobileTerminalBar from '@/components/MobileTerminalBar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
@@ -20,9 +21,17 @@ interface Tab {
   title: string
 }
 
-const STORAGE_KEY = 'sfpanel_terminal_tabs'
-const ACTIVE_TAB_KEY = 'sfpanel_terminal_active'
+// Tabs map 1:1 to server PTY sessions and each node keeps its own session map,
+// so persist tabs PER NODE. A single global key reused the same tab id as the
+// session_id on every node, spawning a duplicate PTY per tab on each node
+// switch (orphaned until the 5-min idle reaper). Font size is a global pref.
+const STORAGE_KEY_BASE = 'sfpanel_terminal_tabs'
+const ACTIVE_TAB_KEY_BASE = 'sfpanel_terminal_active'
 const FONT_SIZE_KEY = 'sfpanel_terminal_fontsize'
+
+const nodeSuffix = () => api.currentNode || 'local'
+const tabsKey = () => `${STORAGE_KEY_BASE}:${nodeSuffix()}`
+const activeTabKey = () => `${ACTIVE_TAB_KEY_BASE}:${nodeSuffix()}`
 
 const MIN_FONT_SIZE = 10
 const MAX_FONT_SIZE = 24
@@ -37,7 +46,7 @@ function generateTabId() {
 
 function loadTabs(): Tab[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(tabsKey())
     if (raw) {
       const tabs = JSON.parse(raw) as Tab[]
       if (Array.isArray(tabs) && tabs.length > 0) {
@@ -55,15 +64,15 @@ function loadTabs(): Tab[] {
 }
 
 function saveTabs(tabs: Tab[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tabs))
+  localStorage.setItem(tabsKey(), JSON.stringify(tabs))
 }
 
 function loadActiveTab(): string {
-  return localStorage.getItem(ACTIVE_TAB_KEY) || ''
+  return localStorage.getItem(activeTabKey()) || ''
 }
 
 function saveActiveTab(id: string) {
-  localStorage.setItem(ACTIVE_TAB_KEY, id)
+  localStorage.setItem(activeTabKey(), id)
 }
 
 function loadFontSize(): number {
@@ -97,6 +106,7 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const initialized = useRef(false)
+  const { t } = useTranslation()
 
   useEffect(() => {
     if (!containerRef.current || initialized.current) return
@@ -173,27 +183,51 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
 
     const token = api.getToken()
     if (!token) {
-      term.writeln('\r\n\x1b[31mNot authenticated. Please log in.\x1b[0m')
+      term.writeln('\r\n\x1b[31m' + t('terminal.notAuthenticated') + '\x1b[0m')
       return
     }
 
-    // WS setup is async (ticket mint) so wrap in IIFE and let the cleanup
-    // ref tear down whatever got allocated even if we unmount mid-await.
+    // WS setup is async (ticket mint). connect() is re-invocable so a dropped
+    // socket transparently reconnects to the SAME session_id: the server keeps
+    // the PTY alive (stable session key, scrollback replay, 5-min idle grace),
+    // so a transient drop (Wi-Fi blip, sleep, reverse-proxy idle timeout)
+    // resumes the live session instead of leaving a dead terminal. The
+    // term-level input/resize listeners are registered once and always target
+    // the current socket via wsRef.
     let disposed = false
     let wsCleanup: (() => void) | null = null
+    let reconnectTimer = 0
+    let stableTimer = 0
+    let attempts = 0
+    const maxReconnectAttempts = 6
 
-    void (async () => {
+    const onDataDisposable = term.onData((data) => {
+      const sock = wsRef.current
+      if (sock && sock.readyState === WebSocket.OPEN) {
+        sock.send(new TextEncoder().encode(data))
+      }
+    })
+    const onResizeDisposable = term.onResize(({ cols, rows }) => {
+      const sock = wsRef.current
+      if (sock && sock.readyState === WebSocket.OPEN) {
+        sock.send(JSON.stringify({ type: 'resize', cols, rows }))
+      }
+    })
+
+    const connect = async () => {
       const wsUrl = await api.buildWsUrl('/ws/terminal', { session_id: sessionId })
       if (disposed) return
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
-
       ws.binaryType = 'arraybuffer'
 
       ws.onopen = () => {
         term.focus()
         const { cols, rows } = term
         ws.send(JSON.stringify({ type: 'resize', cols, rows }))
+        // Only clear the backoff once the socket has proven stable, so a server
+        // that accepts then instantly drops can't spin in a tight reconnect loop.
+        stableTimer = window.setTimeout(() => { attempts = 0 }, 3000)
       }
 
       ws.onmessage = (event) => {
@@ -205,31 +239,36 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
       }
 
       ws.onerror = () => {
-        term.writeln('\r\n\x1b[31mWebSocket error\x1b[0m')
+        // Swallow: onclose fires next and drives the reconnect/disconnect notice.
       }
 
       ws.onclose = () => {
-        term.writeln('\r\n\x1b[33mConnection closed\x1b[0m')
-      }
-
-      const onDataDisposable = term.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(new TextEncoder().encode(data))
+        clearTimeout(stableTimer)
+        if (disposed) return
+        if (attempts < maxReconnectAttempts) {
+          const delay = Math.min(1000 * 2 ** attempts, 10000)
+          attempts += 1
+          term.writeln('\r\n\x1b[33m' + t('terminal.reconnecting') + '\x1b[0m')
+          reconnectTimer = window.setTimeout(() => { void connect() }, delay)
+        } else {
+          term.writeln('\r\n\x1b[31m' + t('terminal.disconnected') + '\x1b[0m')
         }
-      })
-
-      const onResizeDisposable = term.onResize(({ cols, rows }) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'resize', cols, rows }))
-        }
-      })
-
-      wsCleanup = () => {
-        onDataDisposable.dispose()
-        onResizeDisposable.dispose()
-        ws.close()
       }
-    })()
+    }
+
+    void connect()
+
+    wsCleanup = () => {
+      clearTimeout(reconnectTimer)
+      clearTimeout(stableTimer)
+      onDataDisposable.dispose()
+      onResizeDisposable.dispose()
+      const sock = wsRef.current
+      if (sock) {
+        sock.onclose = null // intentional teardown — must not schedule a reconnect
+        sock.close()
+      }
+    }
 
     // ResizeObserver fires AFTER the container's box actually changes (keyboard
     // open/close via --app-h, orientation, tab switch), so the fit measures the
@@ -243,37 +282,10 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     window.addEventListener('resize', handleResize)
     window.visualViewport?.addEventListener('resize', handleResize)
 
-    // xterm v6's viewport scrolls only via wheel events, so on a touch device a
-    // drag can't reach the scrollback (the .xterm-viewport has no natively
-    // scrollable area). Translate a vertical touch-drag into term.scrollLines so
-    // mobile can scroll up through output history.
-    let touchY = 0
-    let touchAccum = 0
-    const cellPx = () => {
-      const screenEl = container?.querySelector('.xterm-screen') as HTMLElement | null
-      return screenEl && term.rows ? screenEl.clientHeight / term.rows : 17
-    }
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return
-      touchY = e.touches[0].clientY
-      touchAccum = 0
-    }
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return
-      const y = e.touches[0].clientY
-      touchAccum += touchY - y
-      touchY = y
-      const lines = Math.trunc(touchAccum / cellPx())
-      if (lines !== 0) {
-        term.scrollLines(lines)
-        touchAccum -= lines * cellPx()
-        e.preventDefault()
-      }
-    }
-    // Capture phase so we run before any xterm internal touch handler that
-    // might stopPropagation; passive:false on touchmove so preventDefault works.
-    container?.addEventListener('touchstart', onTouchStart, { capture: true, passive: true })
-    container?.addEventListener('touchmove', onTouchMove, { capture: true, passive: false })
+    // xterm v6's viewport isn't natively touch-scrollable; the shared helper
+    // translates a vertical touch-drag into term.scrollLines so mobile can
+    // reach the scrollback (see lib/xtermTouchScroll).
+    const detachTouch = container ? attachXtermTouchScroll(container, term) : () => {}
 
     // Re-fit when the terminal gains focus (user tapped to type). This
     // self-corrects the size when the page loaded with the keyboard already up
@@ -288,8 +300,7 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
       ro.disconnect()
       window.removeEventListener('resize', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
-      container?.removeEventListener('touchstart', onTouchStart, { capture: true })
-      container?.removeEventListener('touchmove', onTouchMove, { capture: true })
+      detachTouch()
       container?.removeEventListener('focusin', onFocusIn)
       wsCleanup?.()
       term.dispose()
@@ -323,9 +334,14 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
     el.__termRef = termRef
   }, [])
 
+  // data-terminal-session is a stable hook for the parent's active-session
+  // lookup (search/clear/key forwarding). Querying by Tailwind class substrings
+  // broke silently when a className was reordered during the UI-polish churn;
+  // this attribute is decoupled from styling.
   return (
     <div
       ref={containerRef}
+      data-terminal-session={active ? 'active' : 'inactive'}
       className={cn(
         // touch-none: xterm v6's viewport isn't natively touch-scrollable, so we
         // drive scrollback from a touch-drag handler (see the effect above) —
@@ -334,98 +350,6 @@ function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; a
         active ? 'block' : 'hidden'
       )}
     />
-  )
-}
-
-function MobileTerminalBar({ onSendKey }: { onSendKey: (data: string) => void }) {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
-  const [ctrlActive, setCtrlActive] = useState(false)
-  const [altActive, setAltActive] = useState(false)
-
-  const sendKey = (key: string) => {
-    let data = key
-    if (ctrlActive) {
-      // Convert to ctrl sequence: Ctrl+C = \x03, Ctrl+D = \x04, etc.
-      if (key.length === 1) {
-        const code = key.toUpperCase().charCodeAt(0) - 64
-        if (code > 0 && code < 32) data = String.fromCharCode(code)
-      }
-      setCtrlActive(false)
-    }
-    if (altActive) {
-      data = '\x1b' + key
-      setAltActive(false)
-    }
-    onSendKey(data)
-  }
-
-  const keys = [
-    { label: 'Esc', data: '\x1b' },
-    { label: 'Tab', data: '\t' },
-    { label: 'Ctrl', toggle: 'ctrl' as const },
-    { label: 'Alt', toggle: 'alt' as const },
-    { label: '↑', data: '\x1b[A' },
-    { label: '↓', data: '\x1b[B' },
-    { label: '←', data: '\x1b[D' },
-    { label: '→', data: '\x1b[C' },
-    { label: '|', data: '|' },
-    { label: '/', data: '/' },
-    { label: '~', data: '~' },
-    { label: '-', data: '-' },
-  ]
-
-  return (
-    <div className="md:hidden shrink-0 bg-[#1a1b26] border-t border-[#292e42]">
-      {/* Special keys row */}
-      <div className="flex items-center gap-0.5 px-1 py-1 overflow-x-auto no-scrollbar">
-        {keys.map((k) => (
-          <button
-            key={k.label}
-            className={cn(
-              'shrink-0 px-2.5 py-1.5 rounded text-[11px] font-medium transition-colors',
-              (k.toggle === 'ctrl' && ctrlActive) || (k.toggle === 'alt' && altActive)
-                ? 'bg-[#7aa2f7] text-[#1a1b26]'
-                : 'bg-[#24283b] text-[#a9b1d6] active:bg-[#414868]'
-            )}
-            onClick={() => {
-              if (k.toggle === 'ctrl') { setCtrlActive(!ctrlActive); setAltActive(false) }
-              else if (k.toggle === 'alt') { setAltActive(!altActive); setCtrlActive(false) }
-              else if (k.data) sendKey(k.data)
-            }}
-          >
-            {k.label}
-          </button>
-        ))}
-      </div>
-      {/* Navigation row */}
-      <div className="flex items-center justify-around h-10 pb-safe border-t border-[#292e42]">
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="flex flex-col items-center justify-center flex-1 h-full text-[#565f89] active:text-[#a9b1d6]"
-        >
-          <span className="text-[10px] font-medium">← {t('layout.mobileNav.dashboard')}</span>
-        </button>
-        <button
-          onClick={() => onSendKey('\x03')}
-          className="flex flex-col items-center justify-center flex-1 h-full text-[#f7768e] active:opacity-70"
-        >
-          <span className="text-[10px] font-semibold">Ctrl+C</span>
-        </button>
-        <button
-          onClick={() => onSendKey('\x04')}
-          className="flex flex-col items-center justify-center flex-1 h-full text-[#e0af68] active:opacity-70"
-        >
-          <span className="text-[10px] font-semibold">Ctrl+D</span>
-        </button>
-        <button
-          onClick={() => onSendKey('\x1a')}
-          className="flex flex-col items-center justify-center flex-1 h-full text-[#565f89] active:text-[#a9b1d6]"
-        >
-          <span className="text-[10px] font-semibold">Ctrl+Z</span>
-        </button>
-      </div>
-    </div>
   )
 }
 
@@ -536,7 +460,7 @@ export default function TerminalPage() {
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
     // Find the active terminal's search addon
-    const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
+    const termContainers = document.querySelectorAll('[data-terminal-session="active"]')
     termContainers.forEach(el => {
       const addon = (el as TerminalSessionElement).__searchAddon
       if (addon && query) {
@@ -546,7 +470,7 @@ export default function TerminalPage() {
   }, [])
 
   const handleSearchNext = useCallback(() => {
-    const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
+    const termContainers = document.querySelectorAll('[data-terminal-session="active"]')
     termContainers.forEach(el => {
       const addon = (el as TerminalSessionElement).__searchAddon
       if (addon && searchQuery) addon.findNext(searchQuery)
@@ -554,7 +478,7 @@ export default function TerminalPage() {
   }, [searchQuery])
 
   const handleSearchPrev = useCallback(() => {
-    const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
+    const termContainers = document.querySelectorAll('[data-terminal-session="active"]')
     termContainers.forEach(el => {
       const addon = (el as TerminalSessionElement).__searchAddon
       if (addon && searchQuery) addon.findPrevious(searchQuery)
@@ -562,7 +486,7 @@ export default function TerminalPage() {
   }, [searchQuery])
 
   const clearTerminal = useCallback(() => {
-    const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
+    const termContainers = document.querySelectorAll('[data-terminal-session="active"]')
     termContainers.forEach(el => {
       const termRef = (el as TerminalSessionElement).__termRef
       const wsRef = (el as TerminalSessionElement).__wsRef
@@ -597,7 +521,7 @@ export default function TerminalPage() {
   }, [searchOpen])
 
   const sendKeyToActiveTerminal = useCallback((data: string) => {
-    const termContainers = document.querySelectorAll('[class*="w-full h-full"][class*="block"]')
+    const termContainers = document.querySelectorAll('[data-terminal-session="active"]')
     termContainers.forEach(el => {
       const wsRef = (el as TerminalSessionElement).__wsRef
       const termRef = (el as TerminalSessionElement).__termRef
@@ -624,18 +548,21 @@ export default function TerminalPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Tab Bar */}
-      <div className="flex items-center bg-[#1a1b26] border-b border-[#292e42] px-2 shrink-0">
+      <div className="flex items-center bg-card border-b border-border px-2 shrink-0">
         <div className="flex items-center gap-0.5 overflow-x-auto py-1 flex-1">
           {tabs.map((tab) => (
             <div
               key={tab.id}
+              role="button"
+              tabIndex={0}
               className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs cursor-pointer select-none group transition-colors shrink-0',
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs cursor-pointer select-none group transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                 activeTab === tab.id
-                  ? 'bg-[#24283b] text-[#c0caf5]'
-                  : 'text-[#565f89] hover:text-[#a9b1d6] hover:bg-[#1f2335]'
+                  ? 'bg-secondary text-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
               )}
               onClick={() => setActiveTab(tab.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTab(tab.id) } }}
               onDoubleClick={() => handleDoubleClickTab(tab)}
             >
               <TerminalIcon className="h-3 w-3" />
@@ -651,18 +578,19 @@ export default function TerminalPage() {
                     e.stopPropagation()
                   }}
                   onClick={(e) => e.stopPropagation()}
-                  className="bg-transparent border-b border-[#7aa2f7] outline-none text-[#c0caf5] w-20 text-xs"
+                  className="bg-transparent border-b border-primary outline-none text-foreground w-20 text-xs"
                   autoFocus
                 />
               ) : (
                 <span>{tab.title}</span>
               )}
               <button
+                aria-label={t('common.close')}
                 className={cn(
-                  'ml-1 rounded p-0.5 transition-colors',
-                  'opacity-0 group-hover:opacity-100',
+                  'ml-1 rounded p-0.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
+                  'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
                   activeTab === tab.id && 'opacity-60',
-                  'hover:bg-[#414868] hover:text-[#f7768e]'
+                  'hover:bg-accent hover:text-destructive'
                 )}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -679,30 +607,32 @@ export default function TerminalPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
             onClick={() => adjustFontSize(-1)}
             title={t('terminal.fontSmaller')}
+            aria-label={t('terminal.fontSmaller')}
           >
             <Minus className="h-3 w-3" />
           </Button>
-          <span className="text-[10px] text-[#565f89] min-w-[20px] text-center">{fontSize}</span>
+          <span className="text-[10px] text-muted-foreground min-w-[20px] text-center">{fontSize}</span>
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
             onClick={() => adjustFontSize(1)}
             title={t('terminal.fontLarger')}
+            aria-label={t('terminal.fontLarger')}
           >
             <Plus className="h-3 w-3" />
           </Button>
-          <div className="w-px h-4 bg-[#292e42] mx-1" />
+          <div className="w-px h-4 bg-border mx-1" />
           {/* Search */}
           <Button
             variant="ghost"
             size="sm"
             className={cn(
-              "h-6 w-6 p-0 hover:bg-[#1f2335]",
-              searchOpen ? 'text-[#7aa2f7]' : 'text-[#565f89] hover:text-[#c0caf5]'
+              "h-6 w-6 p-0 hover:bg-accent",
+              searchOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
             )}
             onClick={() => {
               setSearchOpen(!searchOpen)
@@ -710,6 +640,7 @@ export default function TerminalPage() {
               else setSearchQuery('')
             }}
             title={t('terminal.search')}
+            aria-label={t('terminal.search')}
           >
             <Search className="h-3.5 w-3.5" />
           </Button>
@@ -717,34 +648,36 @@ export default function TerminalPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
             onClick={clearTerminal}
             title={t('terminal.clear')}
+            aria-label={t('terminal.clear')}
           >
             <Eraser className="h-3.5 w-3.5" />
           </Button>
-          <div className="w-px h-4 bg-[#292e42] mx-1" />
+          <div className="w-px h-4 bg-border mx-1" />
           {/* Reattach session picker */}
           <div className="relative">
             <Button
               variant="ghost"
               size="sm"
               className={cn(
-                "h-6 w-6 p-0 hover:bg-[#1f2335]",
-                reattachOpen ? 'text-[#7aa2f7]' : 'text-[#565f89] hover:text-[#c0caf5]'
+                "h-6 w-6 p-0 hover:bg-accent",
+                reattachOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
               )}
               onClick={openReattach}
               title={t('terminal.reattach.button')}
+              aria-label={t('terminal.reattach.button')}
             >
               <History className="h-3.5 w-3.5" />
             </Button>
             {reattachOpen && (
-              <div className="absolute right-0 top-8 z-20 w-72 max-h-80 overflow-y-auto rounded-xl bg-[#24283b] border border-[#292e42] shadow-lg py-1">
-                <div className="px-3 py-2 text-[11px] font-semibold text-[#a9b1d6] border-b border-[#292e42]">
+              <div className="absolute right-0 top-8 z-20 w-72 max-h-80 overflow-y-auto rounded-xl bg-secondary border border-border shadow-lg py-1">
+                <div className="px-3 py-2 text-[11px] font-semibold text-foreground border-b border-border">
                   {t('terminal.reattach.title')}
                 </div>
                 {reattachSessions.length === 0 ? (
-                  <div className="px-3 py-3 text-[12px] text-[#565f89]">
+                  <div className="px-3 py-3 text-[12px] text-muted-foreground">
                     {t('terminal.reattach.empty')}
                   </div>
                 ) : (
@@ -752,16 +685,16 @@ export default function TerminalPage() {
                     <button
                       key={s.session_id}
                       onClick={() => reattachSession(s.session_id)}
-                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[#1f2335] transition-colors"
+                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
                     >
                       <div className="min-w-0">
-                        <div className="font-mono text-[12px] text-[#c0caf5] truncate">{s.session_id.slice(0, 12)}</div>
-                        <div className="text-[10px] text-[#565f89]">
+                        <div className="font-mono text-[12px] text-foreground truncate">{s.session_id.slice(0, 12)}</div>
+                        <div className="text-[10px] text-muted-foreground">
                           {new Date(s.last_use).toLocaleString()}
                           {s.attached ? ` · ${t('terminal.reattach.attached')}` : ''}
                         </div>
                       </div>
-                      <span className="shrink-0 text-[10px] text-[#7aa2f7]">{t('terminal.reattach.open')}</span>
+                      <span className="shrink-0 text-[10px] text-primary">{t('terminal.reattach.open')}</span>
                     </button>
                   ))
                 )}
@@ -772,9 +705,10 @@ export default function TerminalPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1f2335]"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
             onClick={addTab}
             title={t('terminal.newTab')}
+            aria-label={t('terminal.newTab')}
           >
             <Plus className="h-3.5 w-3.5" />
           </Button>
@@ -783,8 +717,8 @@ export default function TerminalPage() {
 
       {/* Search bar */}
       {searchOpen && (
-        <div className="flex items-center gap-1.5 bg-[#1f2335] border-b border-[#292e42] px-2 md:px-3 py-1.5">
-          <Search className="h-3.5 w-3.5 text-[#565f89]" />
+        <div className="flex items-center gap-1.5 bg-muted border-b border-border px-2 md:px-3 py-1.5">
+          <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <Input
             ref={searchInputRef}
             value={searchQuery}
@@ -801,13 +735,13 @@ export default function TerminalPage() {
               }
             }}
             placeholder={t('terminal.searchPlaceholder')}
-            className="h-6 text-xs bg-[#1a1b26] border-[#292e42] text-[#c0caf5] flex-1 max-w-[10rem] md:max-w-xs"
+            className="h-6 text-xs bg-card border-border text-foreground flex-1 max-w-[10rem] md:max-w-xs"
             autoFocus
           />
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-1.5 md:px-2 text-xs text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1a1b26]"
+            className="h-6 px-1.5 md:px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-card"
             onClick={handleSearchPrev}
           >
             <span className="hidden md:inline">{t('terminal.prev')}</span>
@@ -816,7 +750,7 @@ export default function TerminalPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-1.5 md:px-2 text-xs text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1a1b26]"
+            className="h-6 px-1.5 md:px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-card"
             onClick={handleSearchNext}
           >
             <span className="hidden md:inline">{t('terminal.next')}</span>
@@ -825,7 +759,7 @@ export default function TerminalPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 p-0 text-[#565f89] hover:text-[#c0caf5] hover:bg-[#1a1b26]"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-card"
             onClick={() => { setSearchOpen(false); setSearchQuery('') }}
           >
             <X className="h-3.5 w-3.5" />
@@ -834,7 +768,7 @@ export default function TerminalPage() {
       )}
 
       {/* Terminal Area */}
-      <div className="flex-1 bg-[#1a1b26] relative min-h-0">
+      <div className="flex-1 bg-card relative min-h-0">
         {tabs.map((tab) => (
           <TerminalSession
             key={tab.id}
@@ -844,14 +778,14 @@ export default function TerminalPage() {
           />
         ))}
         {tabs.length === 0 && (
-          <div className="flex items-center justify-center h-full text-[#565f89]">
+          <div className="flex items-center justify-center h-full text-muted-foreground">
             <div className="text-center">
               <TerminalIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
               <p>{t('terminal.noTabs')}</p>
               <Button
                 variant="outline"
                 size="sm"
-                className="mt-3 border-[#414868] text-[#a9b1d6] hover:bg-[#1f2335]"
+                className="mt-3 border-border text-foreground hover:bg-accent"
                 onClick={addTab}
               >
                 <Plus className="h-4 w-4 mr-1" />

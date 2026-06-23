@@ -159,7 +159,7 @@ export default function AppStore() {
       <div className="bg-card rounded-2xl card-shadow overflow-hidden">
         <button
           onClick={() => setShowGuide(!showGuide)}
-          className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
+          className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-secondary/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
         >
           <Info className="h-4 w-4 text-primary shrink-0" />
           <span className="text-[13px] font-medium flex-1">{t('appStore.guideTitle')}</span>
@@ -208,9 +208,9 @@ export default function AppStore() {
       <div className="flex flex-wrap items-center justify-end gap-2">
         <button
           onClick={() => setInstalledOnly((v) => !v)}
-          className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-[13px] font-medium transition-colors ${
+          className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
             installedOnly
-              ? 'bg-[#00c471]/10 text-[#00c471]'
+              ? 'bg-success/10 text-success'
               : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
           }`}
         >
@@ -246,7 +246,7 @@ export default function AppStore() {
       <div className="flex gap-2 flex-wrap">
         <button
           onClick={() => handleCategoryClick('')}
-          className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+          className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
             selectedCategory === ''
               ? 'bg-primary text-white'
               : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
@@ -258,7 +258,7 @@ export default function AppStore() {
           <button
             key={cat.id}
             onClick={() => handleCategoryClick(cat.id)}
-            className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+            className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
               selectedCategory === cat.id
                 ? 'bg-primary text-white'
                 : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
@@ -276,7 +276,7 @@ export default function AppStore() {
         </div>
       ) : loadError ? (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-          <AlertCircle className="h-10 w-10 mb-3 text-[#f04452] opacity-70" />
+          <AlertCircle className="h-10 w-10 mb-3 text-destructive opacity-70" />
           <p className="text-[13px] mb-4">{t('appStore.loadFailed')}</p>
           <Button variant="outline" size="sm" className="rounded-xl" onClick={handleRetry}>
             <RotateCcw className="h-4 w-4 mr-2" />
@@ -313,8 +313,11 @@ export default function AppStore() {
           {filteredApps.map((app) => (
             <div
               key={app.id}
+              role="button"
+              tabIndex={0}
               onClick={() => openApp(app.id)}
-              className="bg-card rounded-2xl p-5 card-shadow hover:card-shadow-hover cursor-pointer transition-all group"
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openApp(app.id) } }}
+              className="bg-card rounded-2xl p-5 card-shadow hover:card-shadow-hover cursor-pointer transition-all group outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
             >
               <div className="flex items-start gap-4">
                 <div className="h-12 w-12 rounded-xl bg-secondary/30 p-1.5 flex items-center justify-center overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
@@ -346,13 +349,13 @@ export default function AppStore() {
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); navigate(`/docker/stacks/${app.id}`) }}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6]"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                       >
                         {t('appStore.updateAvailable')}
                       </button>
                     )}
                     {app.installed ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471] shrink-0">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success shrink-0">
                         {t('appStore.installed')}
                       </span>
                     ) : (

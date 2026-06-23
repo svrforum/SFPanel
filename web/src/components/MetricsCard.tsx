@@ -9,8 +9,8 @@ interface MetricsCardProps {
 }
 
 function getBarColor(percent: number): string {
-  if (percent > 80) return 'bg-[#f04452]'
-  if (percent >= 60) return 'bg-[#f59e0b]'
+  if (percent > 80) return 'bg-destructive'
+  if (percent >= 60) return 'bg-warning'
   return 'bg-primary'
 }
 

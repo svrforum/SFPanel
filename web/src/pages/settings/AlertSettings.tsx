@@ -76,9 +76,9 @@ const RULE_TYPES: { value: string; i18nKey: string }[] = [
 const CONTAINER_RULE_TYPES = new Set(['container_down', 'container_oom', 'container_restart_loop', 'container_unhealthy'])
 
 const SEVERITY_OPTIONS = [
-  { value: 'info', label: 'Info', color: 'bg-[#3182f6]/10 text-[#3182f6]' },
-  { value: 'warning', label: 'Warning', color: 'bg-[#f59e0b]/10 text-[#f59e0b]' },
-  { value: 'critical', label: 'Critical', color: 'bg-[#f04452]/10 text-[#f04452]' },
+  { value: 'info', label: 'Info', color: 'bg-primary/10 text-primary' },
+  { value: 'warning', label: 'Warning', color: 'bg-warning/10 text-warning' },
+  { value: 'critical', label: 'Critical', color: 'bg-destructive/10 text-destructive' },
 ]
 
 function getSeverityStyle(severity: string) {
@@ -428,13 +428,13 @@ export default function AlertSettings() {
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
                     ch.type === 'discord' ? 'bg-[#5865F2]/10 text-[#5865F2]'
                       : ch.type === 'telegram' ? 'bg-[#0088cc]/10 text-[#0088cc]'
-                      : 'bg-[#00c471]/10 text-[#00c471]'
+                      : 'bg-success/10 text-success'
                   }`}>
                     {ch.type === 'discord' ? 'Discord' : ch.type === 'telegram' ? 'Telegram' : 'Webhook'}
                   </span>
                   <span className="text-[13px] font-medium">{ch.name}</span>
                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
-                    ch.enabled ? 'bg-[#00c471]/10 text-[#00c471]' : 'bg-secondary text-muted-foreground'
+                    ch.enabled ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'
                   }`}>
                     {ch.enabled ? t('common.active') : t('common.disabled')}
                   </span>
@@ -461,8 +461,9 @@ export default function AlertSettings() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="rounded-xl h-7 px-2 text-[#f04452] hover:text-[#f04452]"
+                    className="rounded-xl h-7 px-2 text-destructive hover:text-destructive"
                     onClick={() => handleDeleteChannel(ch.id)}
+                    aria-label={t('common.delete')}
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -638,7 +639,7 @@ export default function AlertSettings() {
                             ...f,
                             nodes: selected ? f.nodes.filter((x) => x !== n.id) : [...f.nodes, n.id],
                           }))}
-                          className={`px-2 py-1 rounded-lg text-[12px] border transition-colors ${selected ? 'bg-primary/10 border-primary/40 text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}
+                          className={`px-2 py-1 rounded-lg text-[12px] border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${selected ? 'bg-primary/10 border-primary/40 text-primary' : 'border-border text-muted-foreground hover:bg-accent'}`}
                         >
                           {n.name}
                         </button>
@@ -677,7 +678,7 @@ export default function AlertSettings() {
                       : t('settings.alerts.rules.summaryThresholdCooldown', { threshold: rule.threshold, cooldown: rule.cooldown })}
                   </span>
                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
-                    rule.enabled ? 'bg-[#00c471]/10 text-[#00c471]' : 'bg-secondary text-muted-foreground'
+                    rule.enabled ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'
                   }`}>
                     {rule.enabled ? t('common.active') : t('common.disabled')}
                   </span>
@@ -694,8 +695,9 @@ export default function AlertSettings() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="rounded-xl h-7 px-2 text-[#f04452] hover:text-[#f04452]"
+                    className="rounded-xl h-7 px-2 text-destructive hover:text-destructive"
                     onClick={() => handleDeleteRule(rule.id)}
+                    aria-label={t('common.delete')}
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -718,7 +720,7 @@ export default function AlertSettings() {
             <Button
               variant="outline"
               size="sm"
-              className="rounded-xl text-[#f04452] hover:text-[#f04452]"
+              className="rounded-xl text-destructive hover:text-destructive"
               onClick={handleClearHistory}
             >
               <Trash2 className="h-3.5 w-3.5 mr-1.5" />
@@ -768,7 +770,7 @@ export default function AlertSettings() {
                         {(() => {
                           const chans = parseSentChannels(entry.sent_channels)
                           return chans.length > 0 ? (
-                            <span className="text-[12px] text-[#00c471]" title={chans.join(', ')}>
+                            <span className="text-[12px] text-success" title={chans.join(', ')}>
                               {t('settings.alerts.history.sent', { count: chans.length })}
                             </span>
                           ) : (
@@ -816,7 +818,7 @@ export default function AlertSettings() {
                     <div className="flex justify-between text-[12px]">
                       <span className="text-muted-foreground">{t('settings.alerts.history.colStatus')}</span>
                       {chans.length > 0 ? (
-                        <span className="text-[#00c471]" title={chans.join(', ')}>
+                        <span className="text-success" title={chans.join(', ')}>
                           {t('settings.alerts.history.sent', { count: chans.length })}
                         </span>
                       ) : (
@@ -839,6 +841,7 @@ export default function AlertSettings() {
                     className="rounded-xl h-7 px-2"
                     disabled={historyPage <= 1}
                     onClick={() => { const p = historyPage - 1; setHistoryPage(p); loadHistory(p) }}
+                    aria-label={t('common.previous')}
                   >
                     <ChevronLeft className="h-3.5 w-3.5" />
                   </Button>
@@ -848,6 +851,7 @@ export default function AlertSettings() {
                     className="rounded-xl h-7 px-2"
                     disabled={historyPage >= Math.ceil(historyTotal / historyLimit)}
                     onClick={() => { const p = historyPage + 1; setHistoryPage(p); loadHistory(p) }}
+                    aria-label={t('common.next')}
                   >
                     <ChevronRight className="h-3.5 w-3.5" />
                   </Button>

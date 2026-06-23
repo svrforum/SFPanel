@@ -724,7 +724,7 @@ export default function Packages() {
                   {t('packages.dockerInstalled')}
                 </p>
                 <div className="flex items-center gap-1.5">
-                  <CheckCircle2 className="h-4 w-4 text-[#00c471]" aria-hidden="true" />
+                  <CheckCircle2 className="h-4 w-4 text-success" aria-hidden="true" />
                   <span className="text-[13px] font-medium">{t('packages.yes')}</span>
                 </div>
               </div>
@@ -743,12 +743,12 @@ export default function Packages() {
                 <div className="flex items-center gap-1.5">
                   {dockerStatus.running ? (
                     <>
-                      <div className="h-2 w-2 rounded-full bg-[#00c471]" />
+                      <div className="h-2 w-2 rounded-full bg-success" />
                       <span className="text-[13px] font-medium">{t('packages.running')}</span>
                     </>
                   ) : (
                     <>
-                      <div className="h-2 w-2 rounded-full bg-[#f04452]" />
+                      <div className="h-2 w-2 rounded-full bg-destructive" />
                       <span className="text-[13px] font-medium">{t('packages.stopped')}</span>
                     </>
                   )}
@@ -761,7 +761,7 @@ export default function Packages() {
                 <div className="flex items-center gap-1.5">
                   {dockerStatus.compose_available ? (
                     <>
-                      <Check className="h-4 w-4 text-[#00c471]" aria-hidden="true" />
+                      <Check className="h-4 w-4 text-success" aria-hidden="true" />
                       <span className="text-[13px] font-medium">{t('packages.available')}</span>
                     </>
                   ) : (
@@ -812,7 +812,7 @@ export default function Packages() {
                 <div className="flex items-center justify-between">
                   <div className="space-y-1">
                     <div className="flex items-center gap-1.5">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-[#00c471]" aria-hidden="true" />
+                      <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />
                       <span className="text-[12px] font-medium font-mono">{nodeStatus.version}</span>
                     </div>
                     {(nodeStatus as DevToolStatus & { npm_version?: string }).npm_version && (
@@ -825,6 +825,7 @@ export default function Packages() {
                     className="h-7 w-7 p-0"
                     onClick={openNodeVersionDialog}
                     title={t('packages.nodeVersionManage')}
+                    aria-label={t('packages.nodeVersionManage')}
                   >
                     <Settings2 className="h-3.5 w-3.5" />
                   </Button>
@@ -870,7 +871,7 @@ export default function Packages() {
               </div>
             ) : claudeStatus?.installed ? (
               <div className="flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-[#00c471]" aria-hidden="true" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />
                 <span className="text-[12px] font-medium font-mono">{claudeStatus.version || t('packages.installed')}</span>
               </div>
             ) : (
@@ -913,7 +914,7 @@ export default function Packages() {
               </div>
             ) : codexStatus?.installed ? (
               <div className="flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-[#00c471]" aria-hidden="true" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />
                 <span className="text-[12px] font-medium font-mono">{codexStatus.version || t('packages.installed')}</span>
               </div>
             ) : (
@@ -960,7 +961,7 @@ export default function Packages() {
               </div>
             ) : geminiStatus?.installed ? (
               <div className="flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-[#00c471]" aria-hidden="true" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />
                 <span className="text-[12px] font-medium font-mono">{geminiStatus.version || t('packages.installed')}</span>
               </div>
             ) : (
@@ -1081,7 +1082,7 @@ export default function Packages() {
                   <div className="flex items-start gap-3">
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-gray-300 accent-[#3182f6] mt-0.5 shrink-0"
+                      className="h-4 w-4 rounded border-gray-300 accent-primary mt-0.5 shrink-0"
                       checked={selectedPackages.has(pkg.name)}
                       onChange={() => togglePackageSelection(pkg.name)}
                       aria-label={pkg.name}
@@ -1091,7 +1092,7 @@ export default function Packages() {
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                         <span className="text-[11px] text-muted-foreground font-mono">{pkg.current_version}</span>
                         <span className="text-[11px] text-muted-foreground">→</span>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                           {pkg.new_version}
                         </span>
                       </div>
@@ -1110,7 +1111,7 @@ export default function Packages() {
                   <TableHead className="w-10">
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-gray-300 accent-[#3182f6]"
+                      className="h-4 w-4 rounded border-gray-300 accent-primary"
                       checked={updates.length > 0 && selectedPackages.size === updates.length}
                       onChange={toggleSelectAll}
                       disabled={updates.length === 0}
@@ -1148,7 +1149,7 @@ export default function Packages() {
                       <TableCell>
                         <input
                           type="checkbox"
-                          className="h-4 w-4 rounded border-gray-300 accent-[#3182f6]"
+                          className="h-4 w-4 rounded border-gray-300 accent-primary"
                           checked={selectedPackages.has(pkg.name)}
                           onChange={() => togglePackageSelection(pkg.name)}
                           aria-label={pkg.name}
@@ -1161,7 +1162,7 @@ export default function Packages() {
                         {pkg.current_version}
                       </TableCell>
                       <TableCell className="text-[13px] font-mono">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                           {pkg.new_version}
                         </span>
                       </TableCell>
@@ -1232,7 +1233,7 @@ export default function Packages() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-[13px] font-medium font-mono">{pkg.name}</p>
                           {pkg.installed && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                               {t('packages.installed')}
                             </span>
                           )}
@@ -1248,6 +1249,7 @@ export default function Packages() {
                             className="rounded-xl"
                             onClick={() => handleInstallPackage(pkg.name)}
                             disabled={loading.install === pkg.name}
+                            aria-label={t('packages.install')}
                           >
                             {loading.install === pkg.name ? (
                               <Loader2 className="animate-spin h-4 w-4" aria-hidden="true" />
@@ -1262,6 +1264,7 @@ export default function Packages() {
                             className="rounded-xl"
                             onClick={() => handleRemovePackage(pkg.name)}
                             disabled={loading.remove === pkg.name}
+                            aria-label={t('packages.remove')}
                           >
                             {loading.remove === pkg.name ? (
                               <Loader2 className="animate-spin h-4 w-4" aria-hidden="true" />
@@ -1293,7 +1296,7 @@ export default function Packages() {
                           <div className="flex items-center gap-2">
                             {pkg.name}
                             {pkg.installed && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                                 {t('packages.installed')}
                               </span>
                             )}
@@ -1411,7 +1414,7 @@ export default function Packages() {
                         <div className="flex items-center justify-between rounded-xl border px-3 py-2">
                           <div className="flex items-center gap-2">
                             <span className="text-[13px] font-mono font-medium">{nodeStatus.version}</span>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                               {t('packages.nodeActive')}
                             </span>
                           </div>
@@ -1426,12 +1429,12 @@ export default function Packages() {
                           <div className="flex items-center gap-2">
                             <span className="text-[13px] font-mono font-medium">{v.version}</span>
                             {v.active && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                                 {t('packages.nodeActive')}
                               </span>
                             )}
                             {v.lts && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary">
                                 LTS
                               </span>
                             )}
@@ -1458,6 +1461,7 @@ export default function Packages() {
                                   className="h-7 w-7 p-0 text-destructive hover:text-destructive"
                                   onClick={() => handleUninstallNodeVersion(v.version)}
                                   disabled={nodeRemoving !== null}
+                                  aria-label={t('common.delete')}
                                 >
                                   {nodeRemoving === v.version ? (
                                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -1534,10 +1538,10 @@ export default function Packages() {
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               )}
               {outputDialog.done && outputDialog.error && (
-                <AlertCircle className="h-4 w-4 text-[#f04452]" aria-hidden="true" />
+                <AlertCircle className="h-4 w-4 text-destructive" aria-hidden="true" />
               )}
               {outputDialog.done && !outputDialog.error && (
-                <CheckCircle2 className="h-4 w-4 text-[#00c471]" aria-hidden="true" />
+                <CheckCircle2 className="h-4 w-4 text-success" aria-hidden="true" />
               )}
               {outputDialog.title}
             </DialogTitle>

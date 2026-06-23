@@ -6,6 +6,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
+import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -88,11 +89,12 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
     fitAddonRef.current = fitAddon
     searchAddonRef.current = searchAddon
     logLinesRef.current = []
+    const detachTouch = attachXtermTouchScroll(terminalRef.current, term)
 
     const token = api.getToken()
     if (!token) {
       term.writeln(`\x1b[31m${t('terminal.notAuthenticated')}\x1b[0m`)
-      return () => { term.dispose() }
+      return () => { detachTouch(); term.dispose() }
     }
 
     const wsPath = `/ws/docker/compose/${encodeURIComponent(project)}/logs`
@@ -138,6 +140,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
     return () => {
       disposed = true
       window.removeEventListener('resize', handleResize)
+      detachTouch()
       wsRefLocal?.close()
       term.dispose()
     }
@@ -164,7 +167,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
       <div className="flex items-center justify-between px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
-            <Circle className={`h-2 w-2 fill-current ${connected ? 'text-[#00c471]' : 'text-[#f04452]'}`} />
+            <Circle className={`h-2 w-2 fill-current ${connected ? 'text-success' : 'text-destructive'}`} />
             <span className="text-[11px] text-white/40 font-medium">
               {connected ? t('terminal.connected') : t('terminal.disconnected')}
             </span>
@@ -174,7 +177,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
           <select
             value={selectedService}
             onChange={(e) => setSelectedService(e.target.value)}
-            className="h-6 px-2 text-[11px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-[#3182f6]/50"
+            className="h-6 px-2 text-[11px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50"
           >
             <option value="">{t('docker.stacks.allServices', 'All services')}</option>
             {serviceNames.map(name => (
@@ -186,7 +189,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
           <select
             value={tail}
             onChange={(e) => setTail(Number(e.target.value))}
-            className="h-6 px-2 text-[11px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-[#3182f6]/50"
+            className="h-6 px-2 text-[11px] bg-white/[0.06] border border-white/[0.08] text-white/70 rounded-md focus:outline-none focus:ring-1 focus:ring-primary/50"
           >
             {TAIL_OPTIONS.map(opt => (
               <option key={opt.value} value={opt.value}>
@@ -199,8 +202,9 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
           <Button
             variant="ghost"
             size="icon-xs"
-            className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-[#3182f6]' : ''}`}
+            className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-primary' : ''}`}
             title="Auto-scroll"
+            aria-label="Auto-scroll"
             onClick={() => {
               setAutoScroll(!autoScroll)
               if (!autoScroll) termRef.current?.scrollToBottom()
@@ -211,8 +215,9 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
           <Button
             variant="ghost"
             size="icon-xs"
-            className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-[#3182f6]' : ''}`}
+            className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-primary' : ''}`}
             title={t('terminal.search')}
+            aria-label={t('terminal.search')}
             onClick={() => {
               setSearchOpen(!searchOpen)
               if (searchOpen) {
@@ -228,6 +233,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
             size="icon-xs"
             className="text-white/40 hover:text-white hover:bg-white/10"
             title={t('logs.download')}
+            aria-label={t('logs.download')}
             onClick={handleDownload}
           >
             <Download className="h-3.5 w-3.5" />
@@ -254,22 +260,23 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
                 }
               }}
               placeholder={t('terminal.searchPlaceholder')}
-              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-[#3182f6]/50"
+              className="h-7 pl-7 text-[12px] bg-white/[0.06] border-white/[0.08] text-white placeholder:text-white/30 rounded-lg focus-visible:ring-primary/50"
               autoFocus
             />
           </div>
           <Button variant="ghost" size="icon-xs" onClick={handleSearchPrev}
-            className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.prev')}>
+            className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.prev')} aria-label={t('terminal.prev')}>
             <ChevronUp className="h-3.5 w-3.5" />
           </Button>
           <Button variant="ghost" size="icon-xs" onClick={handleSearchNext}
-            className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.next')}>
+            className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.next')} aria-label={t('terminal.next')}>
             <ChevronDown className="h-3.5 w-3.5" />
           </Button>
           <Button
             variant="ghost"
             size="icon-xs"
             className="text-white/40 hover:text-white hover:bg-white/10"
+            aria-label={t('common.close')}
             onClick={() => {
               setSearchOpen(false)
               setSearchQuery('')
@@ -284,7 +291,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
       {/* Terminal */}
       <div
         ref={terminalRef}
-        className="h-[500px] w-full px-1 pt-1"
+        className="h-[500px] w-full px-1 pt-1 touch-none"
       />
     </div>
   )

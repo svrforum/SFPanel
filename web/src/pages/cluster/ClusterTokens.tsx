@@ -121,9 +121,9 @@ export default function ClusterTokens() {
             </div>
             <button
               onClick={() => handleCopy(token)}
-              className="absolute right-3 top-3 p-1.5 rounded-lg hover:bg-accent transition-colors"
+              className="absolute right-3 top-3 p-1.5 rounded-lg hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
             >
-              {copied ? <Check className="h-4 w-4 text-[#00c471]" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+              {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
             </button>
           </div>
 
@@ -138,7 +138,7 @@ export default function ClusterTokens() {
               </div>
               <button
                 onClick={() => handleCopy(`sudo sfpanel cluster join ${advertise}:${grpcPort} ${token}`)}
-                className="absolute right-3 top-3 p-1.5 rounded-lg hover:bg-accent transition-colors"
+                className="absolute right-3 top-3 p-1.5 rounded-lg hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
               >
                 <Copy className="h-4 w-4 text-muted-foreground" />
               </button>
@@ -174,9 +174,10 @@ export default function ClusterTokens() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 p-0 shrink-0 text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10"
+                  className="h-7 w-7 p-0 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                   onClick={() => handleRevoke(tok.id)}
                   title={t('cluster.tokens.revoke')}
+                  aria-label={t('cluster.tokens.revoke')}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>

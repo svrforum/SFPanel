@@ -173,7 +173,7 @@ export default function Connect() {
                       key={example}
                       type="button"
                       onClick={() => setUrl(example)}
-                      className="text-[11px] px-2 py-0.5 rounded-full bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                      className="text-[11px] px-2 py-0.5 rounded-full bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                     >
                       {example}
                     </button>
@@ -195,7 +195,7 @@ export default function Connect() {
             <button
               type="button"
               onClick={runDiagnostic}
-              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
             >
               <Bug className="w-3 h-3" />
               {t('connect.diagnose')}
@@ -210,7 +210,7 @@ export default function Connect() {
               <button
                 type="button"
                 onClick={() => { setShowDiag(false); setDiagLog([]) }}
-                className="text-[11px] text-muted-foreground hover:text-foreground"
+                className="text-[11px] text-muted-foreground hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
               >
                 {t('common.close')}
               </button>
@@ -223,7 +223,7 @@ export default function Connect() {
                 <p className="text-muted-foreground">{t('connect.diagEmpty')}</p>
               ) : (
                 diagLog.map((line, i) => (
-                  <p key={i} className={line.includes('❌') ? 'text-[#f04452]' : line.includes('✅') ? 'text-[#00c471]' : ''}>
+                  <p key={i} className={line.includes('❌') ? 'text-destructive' : line.includes('✅') ? 'text-success' : ''}>
                     {line}
                   </p>
                 ))
@@ -238,7 +238,7 @@ export default function Connect() {
         <button
           type="button"
           onClick={() => switchLanguage('ko')}
-          className={`text-[12px] px-2 py-0.5 rounded-full transition-colors ${
+          className={`text-[12px] px-2 py-0.5 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
             currentLang === 'ko'
               ? 'bg-primary/10 text-primary font-medium'
               : 'text-muted-foreground hover:text-foreground'
@@ -250,7 +250,7 @@ export default function Connect() {
         <button
           type="button"
           onClick={() => switchLanguage('en')}
-          className={`text-[12px] px-2 py-0.5 rounded-full transition-colors ${
+          className={`text-[12px] px-2 py-0.5 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
             currentLang === 'en'
               ? 'bg-primary/10 text-primary font-medium'
               : 'text-muted-foreground hover:text-foreground'

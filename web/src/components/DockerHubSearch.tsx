@@ -87,8 +87,16 @@ export default function DockerHubSearch({ value, onChange, placeholder }: Docker
           {results.map((r) => (
             <div
               key={r.name}
-              className="px-3 py-2 cursor-pointer hover:bg-secondary/50 transition-colors first:rounded-t-xl last:rounded-b-xl"
+              role="button"
+              tabIndex={0}
+              className="px-3 py-2 cursor-pointer hover:bg-secondary/50 transition-colors first:rounded-t-xl last:rounded-b-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
               onClick={() => handleSelect(r.name)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  handleSelect(r.name)
+                }
+              }}
             >
               <div className="flex items-center gap-2">
                 <span className="text-[13px] font-medium truncate">{r.name}</span>

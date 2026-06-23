@@ -286,6 +286,7 @@ export default function DiskLVM() {
                           variant="ghost"
                           size="icon-xs"
                           title={t('common.delete')}
+                          aria-label={t('common.delete')}
                           onClick={() => setPvDeleteTarget(pv)}
                           disabled={!!pv.vg_name}
                         >
@@ -389,6 +390,7 @@ export default function DiskLVM() {
                             variant="ghost"
                             size="icon-xs"
                             title={t('disk.lvm.lv.resize')}
+                            aria-label={t('disk.lvm.lv.resize')}
                             onClick={() => openLvResize(lv)}
                           >
                             <Maximize2 />
@@ -397,6 +399,7 @@ export default function DiskLVM() {
                             variant="ghost"
                             size="icon-xs"
                             title={t('common.delete')}
+                            aria-label={t('common.delete')}
                             onClick={() => setLvDeleteTarget(lv)}
                           >
                             <Trash2 />

@@ -118,9 +118,9 @@ export default function ClusterNodes() {
 
   const statusColor = (s: string) => {
     switch (s) {
-      case 'online': return 'bg-[#00c471]/10 text-[#00c471]'
-      case 'suspect': return 'bg-[#f59e0b]/10 text-[#f59e0b]'
-      case 'offline': return 'bg-[#f04452]/10 text-[#f04452]'
+      case 'online': return 'bg-success/10 text-success'
+      case 'suspect': return 'bg-warning/10 text-warning'
+      case 'offline': return 'bg-destructive/10 text-destructive'
       default: return 'bg-muted text-muted-foreground'
     }
   }
@@ -158,7 +158,7 @@ export default function ClusterNodes() {
                   <div className="flex items-center gap-2">
                     <span className="text-[13px] font-medium">{node.name}</span>
                     {node.id === status.leader_id && (
-                      <Crown className="h-3.5 w-3.5 text-[#3182f6]" />
+                      <Crown className="h-3.5 w-3.5 text-primary" />
                     )}
                     {node.id === localId && (
                       <span className="text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>
@@ -184,8 +184,9 @@ export default function ClusterNodes() {
                     {status.is_leader && (
                       <button
                         onClick={() => openLabelDialog(node.id, node.name, node.labels || {})}
-                        className="p-0.5 rounded hover:bg-accent transition-colors"
+                        className="p-0.5 rounded hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                         title={t('cluster.nodes.editLabels')}
+                        aria-label={t('cluster.nodes.editLabels')}
                       >
                         <Tag className="h-3 w-3 text-muted-foreground" />
                       </button>
@@ -202,9 +203,10 @@ export default function ClusterNodes() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 w-7 p-0 text-[#3182f6] hover:text-[#3182f6] hover:bg-[#3182f6]/10"
+                        className="h-7 w-7 p-0 text-primary hover:text-primary hover:bg-primary/10"
                         onClick={() => handleTransferLeadership(node.id, node.name)}
                         title={t('cluster.nodes.transferLeadership')}
+                        aria-label={t('cluster.nodes.transferLeadership')}
                       >
                         <ArrowRightLeft className="h-3.5 w-3.5" />
                       </Button>
@@ -213,8 +215,9 @@ export default function ClusterNodes() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 w-7 p-0 text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10"
+                        className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
                         onClick={() => handleRemove(node.id, node.name)}
+                        aria-label={t('common.delete')}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -243,9 +246,10 @@ export default function ClusterNodes() {
                   </span>
                   <button
                     onClick={() => handleRemoveLabel(k)}
-                    className="p-1 rounded hover:bg-[#f04452]/10 transition-colors"
+                    className="p-1 rounded hover:bg-destructive/10 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                    aria-label={t('common.delete')}
                   >
-                    <Trash2 className="h-3.5 w-3.5 text-[#f04452]" />
+                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
                   </button>
                 </div>
               ))}

@@ -198,6 +198,7 @@ export default function DiskPartitions() {
                     variant="ghost"
                     size="icon-xs"
                     title={t('common.delete')}
+                    aria-label={t('common.delete')}
                     onClick={() => setDeleteTarget(p)}
                     disabled={!!p.mountpoint}
                   >

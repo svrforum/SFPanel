@@ -74,19 +74,17 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       <Dialog open={!!pending} onOpenChange={(open) => { if (!open) settle(false) }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className={opts?.danger ? 'text-[#f04452]' : undefined}>
+            <DialogTitle className={opts?.danger ? 'text-destructive' : undefined}>
               {opts?.title}
             </DialogTitle>
             {opts?.description && <DialogDescription>{opts.description}</DialogDescription>}
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" className="rounded-xl" onClick={() => settle(false)}>
+            <Button variant="outline" onClick={() => settle(false)}>
               {opts?.cancelLabel ?? t('common.cancel')}
             </Button>
             <Button
-              className={opts?.danger
-                ? 'rounded-xl bg-[#f04452] hover:bg-[#f04452]/90 text-white'
-                : 'rounded-xl'}
+              variant={opts?.danger ? 'destructive' : 'default'}
               onClick={() => settle(true)}
             >
               {opts?.confirmLabel ?? t('common.confirm')}

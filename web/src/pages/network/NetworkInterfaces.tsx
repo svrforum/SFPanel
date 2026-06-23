@@ -281,25 +281,25 @@ export default function NetworkInterfaces() {
   // State indicator helpers
   const getStateStyle = (state: string) => {
     const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-    if (state === 'up') return `${base} bg-[#00c471]/10 text-[#00c471]`
-    if (state === 'down') return `${base} bg-[#f04452]/10 text-[#f04452]`
+    if (state === 'up') return `${base} bg-success/10 text-success`
+    if (state === 'down') return `${base} bg-destructive/10 text-destructive`
     return `${base} bg-secondary text-muted-foreground`
   }
 
   const getStateDot = (state: string) => {
-    if (state === 'up') return 'bg-[#00c471]'
-    if (state === 'down') return 'bg-[#f04452]'
+    if (state === 'up') return 'bg-success'
+    if (state === 'down') return 'bg-destructive'
     return 'bg-muted-foreground'
   }
 
   // Interface type icon
   const getInterfaceIcon = (iface: NetworkInterfaceInfo) => {
     if (iface.type === 'loopback') return <Router className="h-4 w-4 text-muted-foreground" />
-    if (iface.bond_info) return <Link2 className="h-4 w-4 text-[#3182f6]" />
-    if (iface.type === 'wireless' || iface.name.startsWith('wl')) return <Wifi className="h-4 w-4 text-[#3182f6]" />
+    if (iface.bond_info) return <Link2 className="h-4 w-4 text-primary" />
+    if (iface.type === 'wireless' || iface.name.startsWith('wl')) return <Wifi className="h-4 w-4 text-primary" />
     if (iface.name.startsWith('docker') || iface.name.startsWith('br-') || iface.name.startsWith('veth'))
-      return <Container className="h-4 w-4 text-[#3182f6]" />
-    return <Cable className="h-4 w-4 text-[#3182f6]" />
+      return <Container className="h-4 w-4 text-primary" />
+    return <Cable className="h-4 w-4 text-primary" />
   }
 
   // Classify interfaces
@@ -339,12 +339,12 @@ export default function NetworkInterfaces() {
             {getInterfaceIcon(iface)}
             <span className="text-[15px] font-semibold truncate min-w-0" title={iface.name}>{iface.name}</span>
             {iface.is_default && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#3182f6]/10 text-[#3182f6] shrink-0">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary shrink-0">
                 {t('network.defaultGateway')}
               </span>
             )}
             {iface.bond_info && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#f59e0b]/10 text-[#f59e0b] shrink-0">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-warning/10 text-warning shrink-0">
                 Bond
               </span>
             )}
@@ -395,13 +395,13 @@ export default function NetworkInterfaces() {
             <div className="flex items-center gap-1">
               <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
               <span className="text-[11px] text-muted-foreground">
-                <span className="text-[#3182f6]">{formatBytes(iface.tx_bytes)}</span>
+                <span className="text-primary">{formatBytes(iface.tx_bytes)}</span>
                 {' / '}
-                <span className="text-[#00c471]">{formatBytes(iface.rx_bytes)}</span>
+                <span className="text-success">{formatBytes(iface.rx_bytes)}</span>
               </span>
             </div>
             {(iface.tx_errors > 0 || iface.rx_errors > 0) && (
-              <span className="text-[11px] text-[#f04452]">
+              <span className="text-[11px] text-destructive">
                 {t('network.errors')}: {iface.tx_errors + iface.rx_errors}
               </span>
             )}
@@ -503,14 +503,14 @@ export default function NetworkInterfaces() {
           {classified.docker.length > 0 && (
             <div>
               <button
-                className="flex items-center gap-2 mb-3 group"
+                className="flex items-center gap-2 mb-3 group outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                 onClick={() => setDockerCollapsed(!dockerCollapsed)}
                 aria-expanded={!dockerCollapsed}
                 aria-controls="docker-interfaces"
               >
-                <Container className="h-4 w-4 text-[#3182f6]" />
+                <Container className="h-4 w-4 text-primary" />
                 <h2 className="text-[15px] font-semibold">Docker</h2>
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-[#3182f6]/10 text-[#3182f6]">
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
                   {classified.docker.length}
                 </span>
                 <span className="text-[11px] text-muted-foreground ml-1">
@@ -624,8 +624,8 @@ export default function NetworkInterfaces() {
                   <TableCell className="font-mono text-[13px]">
                     {route.destination === 'default' ? (
                       <span className="flex items-center gap-1.5">
-                        <Shield className="h-3.5 w-3.5 text-[#3182f6]" />
-                        <span className="text-[#3182f6] font-medium">default</span>
+                        <Shield className="h-3.5 w-3.5 text-primary" />
+                        <span className="text-primary font-medium">default</span>
                       </span>
                     ) : (
                       route.destination
@@ -690,7 +690,7 @@ export default function NetworkInterfaces() {
                   <TableRow key={bond.name}>
                     <TableCell className="font-medium">{bond.name}</TableCell>
                     <TableCell className="text-[13px]">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#f59e0b]/10 text-[#f59e0b]">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-warning/10 text-warning">
                         {bond.bond_info?.mode || '-'}
                       </span>
                     </TableCell>
@@ -706,8 +706,9 @@ export default function NetworkInterfaces() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        className="text-[#f04452] hover:text-[#f04452]"
+                        className="text-destructive hover:text-destructive"
                         onClick={() => setBondDeleteTarget(bond)}
+                        aria-label={t('common.delete')}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -755,7 +756,7 @@ export default function NetworkInterfaces() {
                 <button
                   role="radio"
                   aria-checked={configMode === 'dhcp'}
-                  className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all ${
+                  className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     configMode === 'dhcp'
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-secondary text-muted-foreground hover:text-foreground'
@@ -767,7 +768,7 @@ export default function NetworkInterfaces() {
                 <button
                   role="radio"
                   aria-checked={configMode === 'static'}
-                  className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all ${
+                  className={`flex-1 py-2 rounded-xl text-[13px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     configMode === 'static'
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-secondary text-muted-foreground hover:text-foreground'
@@ -973,15 +974,15 @@ export default function NetworkInterfaces() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-[#f59e0b]" />
+              <AlertTriangle className="h-5 w-5 text-warning" />
               {t('network.applyWarning')}
             </DialogTitle>
             <DialogDescription>
               {t('network.applyWarningDesc')}
             </DialogDescription>
           </DialogHeader>
-          <div className="bg-[#f59e0b]/10 rounded-xl p-3">
-            <p className="text-[13px] text-[#f59e0b] font-medium flex items-center gap-2">
+          <div className="bg-warning/10 rounded-xl p-3">
+            <p className="text-[13px] text-warning font-medium flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               {t('network.applyConfigCaution')}
             </p>

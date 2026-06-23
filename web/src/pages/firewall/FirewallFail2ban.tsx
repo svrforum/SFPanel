@@ -427,8 +427,8 @@ export default function FirewallFail2ban() {
       <div className="space-y-4 mt-4">
         <div className="bg-card rounded-2xl p-6 card-shadow">
           <div className="flex flex-col items-center justify-center py-8 gap-4">
-            <div className="p-3 rounded-2xl bg-[#f04452]/10">
-              <ShieldAlert className="h-8 w-8 text-[#f04452]" />
+            <div className="p-3 rounded-2xl bg-destructive/10">
+              <ShieldAlert className="h-8 w-8 text-destructive" />
             </div>
             <div className="text-center space-y-1">
               <h3 className="text-[15px] font-semibold">{t('firewall.fail2ban.notInstalled')}</h3>
@@ -546,11 +546,11 @@ export default function FirewallFail2ban() {
               <div className="flex items-center gap-2">
                 <span className="text-[15px] font-semibold">{t('firewall.fail2ban.title')}</span>
                 {status.running ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                     {t('firewall.fail2ban.running')}
                   </span>
                 ) : (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#f04452]/10 text-[#f04452]">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-destructive/10 text-destructive">
                     {t('firewall.fail2ban.stopped')}
                   </span>
                 )}
@@ -568,6 +568,7 @@ export default function FirewallFail2ban() {
               size="icon-xs"
               onClick={() => setAboutOpen(true)}
               title={t('firewall.fail2ban.learnMore')}
+              aria-label={t('firewall.fail2ban.learnMore')}
             >
               <Info className="h-4 w-4" />
             </Button>
@@ -636,7 +637,16 @@ export default function FirewallFail2ban() {
                   {jails.map((jail) => (
                     <TableRow
                       key={jail.name}
-                      className={`cursor-pointer transition-colors ${
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => handleSelectJail(jail.name)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          handleSelectJail(jail.name)
+                        }
+                      }}
+                      className={`cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 ${
                         selectedJail === jail.name ? 'bg-primary/5' : 'hover:bg-muted/50'
                       }`}
                     >
@@ -658,11 +668,11 @@ export default function FirewallFail2ban() {
                       </TableCell>
                       <TableCell onClick={() => handleSelectJail(jail.name)}>
                         {jail.enabled ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                             {t('firewall.fail2ban.enabled')}
                           </span>
                         ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#f04452]/10 text-[#f04452]">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-destructive/10 text-destructive">
                             {t('firewall.fail2ban.disabled')}
                           </span>
                         )}
@@ -707,7 +717,8 @@ export default function FirewallFail2ban() {
                               e.stopPropagation()
                               setDeleteJailDialog({ open: true, name: jail.name })
                             }}
-                            className="rounded-xl text-[12px] text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10"
+                            aria-label={t('firewall.fail2ban.deleteJail')}
+                            className="rounded-xl text-[12px] text-destructive hover:text-destructive hover:bg-destructive/10"
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
@@ -807,7 +818,7 @@ export default function FirewallFail2ban() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => setUnbanDialog({ open: true, jail: selectedJail, ip })}
-                                  className="rounded-xl text-[12px] text-[#f04452] hover:text-[#f04452] hover:bg-[#f04452]/10"
+                                  className="rounded-xl text-[12px] text-destructive hover:text-destructive hover:bg-destructive/10"
                                 >
                                   <Unlock className="h-3 w-3" />
                                   {t('firewall.fail2ban.unban')}
@@ -938,9 +949,9 @@ export default function FirewallFail2ban() {
           </DialogHeader>
 
           {/* Warning Banner */}
-          <div className="bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded-xl px-4 py-3 flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-[#f59e0b] shrink-0 mt-0.5" />
-            <p className="text-[13px] text-[#f59e0b] font-medium leading-relaxed">
+          <div className="bg-warning/10 border border-warning/30 rounded-xl px-4 py-3 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
+            <p className="text-[13px] text-warning font-medium leading-relaxed">
               {t('firewall.fail2ban.configWarning')}
             </p>
           </div>
@@ -1051,7 +1062,7 @@ export default function FirewallFail2ban() {
                 <button
                   type="button"
                   onClick={handleSelectCustom}
-                  className={`text-left rounded-xl px-3 py-2.5 border transition-all ${
+                  className={`text-left rounded-xl px-3 py-2.5 border transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     isCustomMode
                       ? 'bg-primary/10 border-primary/30 ring-1 ring-primary/20'
                       : 'bg-card border-border hover:border-primary/30 hover:bg-muted/50'
@@ -1071,7 +1082,7 @@ export default function FirewallFail2ban() {
                       type="button"
                       onClick={() => tmpl.available && handleSelectTemplate(tmpl)}
                       disabled={!tmpl.available}
-                      className={`text-left rounded-xl px-3 py-2.5 border transition-all ${
+                      className={`text-left rounded-xl px-3 py-2.5 border transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                         selectedTemplate?.id === tmpl.id
                           ? 'bg-primary/10 border-primary/30 ring-1 ring-primary/20'
                           : tmpl.available
@@ -1088,7 +1099,7 @@ export default function FirewallFail2ban() {
                             {isActive ? t('firewall.fail2ban.templateActive') : t('firewall.fail2ban.templateUnavailable')}
                           </span>
                         ) : (
-                          <span className="text-[10px] text-[#00c471]">{t('firewall.fail2ban.templateAvailable')}</span>
+                          <span className="text-[10px] text-success">{t('firewall.fail2ban.templateAvailable')}</span>
                         )}
                       </div>
                       <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{tmpl.description}</p>
@@ -1216,7 +1227,7 @@ export default function FirewallFail2ban() {
       <Dialog open={deleteJailDialog.open} onOpenChange={(open) => { if (!deleteJailLoading) setDeleteJailDialog(prev => ({ ...prev, open })) }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-[#f04452]">
+            <DialogTitle className="flex items-center gap-2 text-destructive">
               <Trash2 className="h-4 w-4" />
               {t('firewall.fail2ban.deleteJail')}
             </DialogTitle>

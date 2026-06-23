@@ -497,7 +497,7 @@ export default function Logs() {
       <div className="bg-card rounded-2xl card-shadow overflow-hidden">
         <button
           onClick={() => setShowGuide(!showGuide)}
-          className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
+          className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-secondary/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
         >
           <Info className="h-4 w-4 text-primary shrink-0" />
           <span className="text-[13px] font-medium flex-1">{t('logs.guideTitle')}</span>
@@ -554,6 +554,7 @@ export default function Logs() {
               size="icon-xs"
               onClick={() => setAddDialogOpen(true)}
               title={t('logs.addSource')}
+              aria-label={t('logs.addSource')}
               className="h-6 w-6"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -575,7 +576,7 @@ export default function Logs() {
                 <button
                   onClick={() => handleSourceSelect(source.id)}
                   disabled={!source.exists}
-                  className={`w-full text-left rounded-xl p-3 transition-all duration-200 ${
+                  className={`w-full text-left rounded-xl p-3 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     selectedSource === source.id
                       ? 'bg-primary/10 ring-1 ring-primary/20'
                       : source.exists
@@ -607,7 +608,7 @@ export default function Logs() {
                           </span>
                         )}
                         {source.custom && (
-                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-[#3182f6]/10 text-[#3182f6]">
+                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-primary/10 text-primary">
                             {t('logs.customSource')}
                           </span>
                         )}
@@ -618,8 +619,9 @@ export default function Logs() {
                 {source.custom && source.custom_id && (
                   <button
                     onClick={(e) => { e.stopPropagation(); handleDeleteSourceClick(source) }}
-                    className="absolute top-2 right-2 h-5 w-5 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-destructive/10 hover:bg-destructive/20 text-destructive"
+                    className="absolute top-2 right-2 h-5 w-5 rounded-md flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity bg-destructive/10 hover:bg-destructive/20 text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                     title={t('logs.deleteSource')}
+                    aria-label={t('logs.deleteSource')}
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -639,6 +641,7 @@ export default function Logs() {
               size="icon-sm"
               className="rounded-xl md:hidden"
               onClick={() => setSelectedSource(null)}
+              aria-label={t('common.back')}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -664,7 +667,7 @@ export default function Logs() {
               <div className="flex items-center bg-secondary/50 rounded-xl p-0.5">
                 <button
                   onClick={() => setViewMode('raw')}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     viewMode === 'raw'
                       ? 'bg-background text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
@@ -674,7 +677,7 @@ export default function Logs() {
                 </button>
                 <button
                   onClick={() => setViewMode('parsed')}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
                     viewMode === 'parsed'
                       ? 'bg-background text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
@@ -722,6 +725,7 @@ export default function Logs() {
               onClick={handleRefresh}
               disabled={!selectedSource || logLoading}
               title={t('logs.refresh')}
+              aria-label={t('logs.refresh')}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${logLoading ? 'animate-spin' : ''}`} />
             </Button>
@@ -737,6 +741,7 @@ export default function Logs() {
                 if (searchOpen) setSearchQuery('')
               }}
               title={t('logs.search')}
+              aria-label={t('logs.search')}
             >
               <Search className="h-3.5 w-3.5" />
             </Button>
@@ -749,6 +754,7 @@ export default function Logs() {
               onClick={handleDownload}
               disabled={logLines.length === 0}
               title={t('logs.download')}
+              aria-label={t('logs.download')}
             >
               <Download className="h-3.5 w-3.5" />
             </Button>
@@ -760,6 +766,7 @@ export default function Logs() {
               className="rounded-xl"
               onClick={handleClear}
               title={t('logs.clear')}
+              aria-label={t('logs.clear')}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -800,6 +807,7 @@ export default function Logs() {
                 onClick={() => goToMatch('prev')}
                 disabled={matchingLines.length === 0}
                 title={t('logs.prevMatch')}
+                aria-label={t('logs.prevMatch')}
               >
                 <ChevronUp className="h-4 w-4" />
               </Button>
@@ -809,6 +817,7 @@ export default function Logs() {
                 onClick={() => goToMatch('next')}
                 disabled={matchingLines.length === 0}
                 title={t('logs.nextMatch')}
+                aria-label={t('logs.nextMatch')}
               >
                 <ChevronDown className="h-4 w-4" />
               </Button>
@@ -816,6 +825,7 @@ export default function Logs() {
                 variant="ghost"
                 size="icon-xs"
                 onClick={() => { setSearchOpen(false); setSearchQuery('') }}
+                aria-label={t('common.close')}
               >
                 <X className="h-4 w-4" />
               </Button>

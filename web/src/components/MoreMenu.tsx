@@ -77,9 +77,9 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
 
   const statusColor = (status: string) => {
     switch (status) {
-      case 'online': return 'bg-[#00c471]'
-      case 'suspect': return 'bg-[#f59e0b]'
-      case 'offline': return 'bg-[#f04452]'
+      case 'online': return 'bg-success'
+      case 'suspect': return 'bg-warning'
+      case 'offline': return 'bg-destructive'
       default: return 'bg-muted-foreground'
     }
   }
@@ -113,7 +113,8 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
               <div className="pb-2 mb-2 border-b border-border">
                 <button
                   onClick={() => setNodeOpen(!nodeOpen)}
-                  className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-secondary/50 transition-colors"
+                  aria-expanded={nodeOpen}
+                  className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                 >
                   <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
                   <span className={cn('h-2 w-2 rounded-full shrink-0', statusColor(currentNode?.status || ''))} />
@@ -129,7 +130,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                         key={node.id}
                         onClick={() => handleNodeSelect(node.id)}
                         className={cn(
-                          'flex items-center gap-2 w-full px-3 py-2 text-[13px] transition-colors rounded-lg',
+                          'flex items-center gap-2 w-full px-3 py-2 text-[13px] transition-colors rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
                           (selectedNode === node.id || (!selectedNode && node.id === localId))
                             ? 'bg-primary/10 text-primary'
                             : 'text-foreground/80'
@@ -155,9 +156,9 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                     key={path}
                     onClick={() => handleNavigate(path)}
                     className={cn(
-                      'flex flex-col items-center gap-1.5 rounded-xl py-3 px-1 transition-colors',
+                      'flex flex-col items-center gap-1.5 rounded-xl py-3 px-1 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
                       isActive
-                        ? 'bg-primary/10 text-[#3182f6]'
+                        ? 'bg-primary/10 text-primary'
                         : 'text-muted-foreground active:bg-secondary/80'
                     )}
                   >
@@ -173,7 +174,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
             <div className="border-t border-border mt-2 pt-2 pb-4">
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-2 w-full rounded-xl py-3 px-4 text-[#f04452] active:bg-secondary/80 transition-colors"
+                className="flex items-center gap-2 w-full rounded-xl py-3 px-4 text-destructive active:bg-secondary/80 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               >
                 <LogOut className="h-5 w-5" />
                 <span className="text-[13px] font-medium">{t('layout.logout')}</span>

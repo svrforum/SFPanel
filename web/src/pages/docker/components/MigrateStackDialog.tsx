@@ -165,7 +165,7 @@ export function MigrateStackDialog({
                   setTargetId(e.target.value)
                   setReport(null)
                 }}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
               >
                 <option value="">{t('docker.migrate.selectTarget')}</option>
                 {nodes.map((n) => (
@@ -189,7 +189,7 @@ export function MigrateStackDialog({
                     aria-pressed={disposition === d}
                     onClick={() => setDisposition(d)}
                     className={cn(
-                      'rounded-lg border p-2 text-xs font-medium transition',
+                      'rounded-lg border p-2 text-xs font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                       disposition === d ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent',
                     )}
                   >
@@ -231,7 +231,7 @@ export function MigrateStackDialog({
             {report && (
               <div className="space-y-2 rounded-lg border p-3 text-xs">
                 {report.blocks?.length > 0 && (
-                  <div className="text-[#f04452]">
+                  <div className="text-destructive">
                     <div className="font-semibold">{t('docker.migrate.blocked')}</div>
                     {report.blocks.map((b, i) => (
                       <div key={i}>• {b.message}</div>
@@ -239,7 +239,7 @@ export function MigrateStackDialog({
                   </div>
                 )}
                 {report.warnings?.length > 0 && (
-                  <div className="text-[#f59e0b]">
+                  <div className="text-warning">
                     <div className="font-semibold">{t('docker.migrate.warnings')}</div>
                     {report.warnings.map((w, i) => (
                       <div key={i}>• {w.message}</div>
@@ -247,7 +247,7 @@ export function MigrateStackDialog({
                   </div>
                 )}
                 {report.blocks?.length === 0 && report.warnings?.length === 0 && (
-                  <div className="text-[#00c471]">{t('docker.migrate.preflightOk')}</div>
+                  <div className="text-success">{t('docker.migrate.preflightOk')}</div>
                 )}
               </div>
             )}
@@ -258,9 +258,9 @@ export function MigrateStackDialog({
           <div
             className={cn(
               'rounded-lg border p-3 text-sm',
-              terminal.phase === 'error' && 'border-[#f04452]/30 bg-[#f04452]/10 text-[#f04452]',
-              terminal.phase === 'rollback' && 'border-[#f59e0b]/30 bg-[#f59e0b]/10 text-[#f59e0b]',
-              terminal.phase === 'done' && 'border-[#00c471]/30 bg-[#00c471]/10 text-[#00c471]',
+              terminal.phase === 'error' && 'border-destructive/30 bg-destructive/10 text-destructive',
+              terminal.phase === 'rollback' && 'border-warning/30 bg-warning/10 text-warning',
+              terminal.phase === 'done' && 'border-success/30 bg-success/10 text-success',
             )}
           >
             {terminal.message}
@@ -273,9 +273,9 @@ export function MigrateStackDialog({
               <div
                 key={i}
                 className={cn(
-                  ev.phase === 'error' && 'text-[#f04452]',
-                  ev.phase === 'rollback' && 'text-[#f59e0b]',
-                  ev.phase === 'done' && 'text-[#00c471]',
+                  ev.phase === 'error' && 'text-destructive',
+                  ev.phase === 'rollback' && 'text-warning',
+                  ev.phase === 'done' && 'text-success',
                 )}
               >
                 [{ev.phase}] {ev.message}

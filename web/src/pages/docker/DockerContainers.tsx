@@ -70,13 +70,13 @@ function statusBadge(state: string) {
   const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
   switch (state.toLowerCase()) {
     case 'running':
-      return <span className={`${base} bg-[#00c471]/10 text-[#00c471]`}>running</span>
+      return <span className={`${base} bg-success/10 text-success`}>running</span>
     case 'exited':
-      return <span className={`${base} bg-[#f04452]/10 text-[#f04452]`}>exited</span>
+      return <span className={`${base} bg-destructive/10 text-destructive`}>exited</span>
     case 'created':
       return <span className={`${base} bg-secondary text-muted-foreground`}>created</span>
     case 'paused':
-      return <span className={`${base} bg-[#f59e0b]/10 text-[#f59e0b]`}>paused</span>
+      return <span className={`${base} bg-warning/10 text-warning`}>paused</span>
     default:
       return <span className={`${base} bg-secondary text-muted-foreground`}>{state}</span>
   }
@@ -178,6 +178,7 @@ function ContainerRow({
             variant="ghost"
             size="icon-xs"
             title={t('docker.containers.inspect')}
+            aria-label={t('docker.containers.inspect')}
             onClick={() => onDetail(c)}
           >
             <Info />
@@ -186,6 +187,7 @@ function ContainerRow({
             variant="ghost"
             size="icon-xs"
             title={t('docker.containers.terminal')}
+            aria-label={t('docker.containers.terminal')}
             onClick={() => onTerminal(c)}
           >
             <Terminal />
@@ -196,6 +198,7 @@ function ContainerRow({
                 variant="ghost"
                 size="icon-xs"
                 title={t('docker.containers.pause')}
+                aria-label={t('docker.containers.pause')}
                 disabled={actionLoading === c.Id}
                 onClick={() => onPause(c.Id)}
               >
@@ -205,6 +208,7 @@ function ContainerRow({
                 variant="ghost"
                 size="icon-xs"
                 title={t('docker.containers.stop')}
+                aria-label={t('docker.containers.stop')}
                 disabled={actionLoading === c.Id}
                 onClick={() => onStop(c)}
               >
@@ -216,6 +220,7 @@ function ContainerRow({
               variant="ghost"
               size="icon-xs"
               title={t('docker.containers.unpause')}
+              aria-label={t('docker.containers.unpause')}
               disabled={actionLoading === c.Id}
               onClick={() => onUnpause(c.Id)}
             >
@@ -226,6 +231,7 @@ function ContainerRow({
               variant="ghost"
               size="icon-xs"
               title={t('docker.containers.start')}
+              aria-label={t('docker.containers.start')}
               disabled={actionLoading === c.Id}
               onClick={() => onStart(c.Id)}
             >
@@ -236,6 +242,7 @@ function ContainerRow({
             variant="ghost"
             size="icon-xs"
             title={t('docker.containers.restart')}
+            aria-label={t('docker.containers.restart')}
             disabled={actionLoading === c.Id}
             onClick={() => onRestart(c)}
           >
@@ -245,6 +252,7 @@ function ContainerRow({
             variant="ghost"
             size="icon-xs"
             title={t('common.delete')}
+            aria-label={t('common.delete')}
             disabled={actionLoading === c.Id}
             onClick={() => onDelete(c)}
           >
@@ -423,6 +431,7 @@ function CreateContainerDialog({
                     size="icon-xs"
                     className="shrink-0"
                     title={t('common.delete')}
+                    aria-label={t('common.delete')}
                     onClick={() => setPorts((prev) => prev.filter((_, j) => j !== i))}
                   >
                     <X />
@@ -465,6 +474,7 @@ function CreateContainerDialog({
                     size="icon-xs"
                     className="shrink-0"
                     title={t('common.delete')}
+                    aria-label={t('common.delete')}
                     onClick={() => setEnvs((prev) => prev.filter((_, j) => j !== i))}
                   >
                     <X />
@@ -514,6 +524,7 @@ function CreateContainerDialog({
                     size="icon-xs"
                     className="shrink-0"
                     title={t('common.delete')}
+                    aria-label={t('common.delete')}
                     onClick={() => setVolumes((prev) => prev.filter((_, j) => j !== i))}
                   >
                     <X />
@@ -855,25 +866,34 @@ export default function DockerContainers() {
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-2 md:gap-3">
         <div
-          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 ${filterState === 'all' ? 'bg-primary/10 ring-1 ring-primary/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
+          role="button"
+          tabIndex={0}
+          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${filterState === 'all' ? 'bg-primary/10 ring-1 ring-primary/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
           onClick={() => setFilterState('all')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFilterState('all') } }}
         >
           <span className="text-[13px] text-muted-foreground">{t('docker.containers.total')}</span>
           <div className="text-2xl font-bold mt-1">{containers.length}</div>
         </div>
         <div
-          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 ${filterState === 'running' ? 'bg-[#00c471]/10 ring-1 ring-[#00c471]/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
+          role="button"
+          tabIndex={0}
+          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${filterState === 'running' ? 'bg-success/10 ring-1 ring-success/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
           onClick={() => setFilterState('running')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFilterState('running') } }}
         >
-          <span className="text-[13px] text-[#00c471]">{t('docker.containers.running')}</span>
-          <div className="text-2xl font-bold text-[#00c471] mt-1">{runningCount}</div>
+          <span className="text-[13px] text-success">{t('docker.containers.running')}</span>
+          <div className="text-2xl font-bold text-success mt-1">{runningCount}</div>
         </div>
         <div
-          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 ${filterState === 'stopped' ? 'bg-[#f04452]/10 ring-1 ring-[#f04452]/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
+          role="button"
+          tabIndex={0}
+          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${filterState === 'stopped' ? 'bg-destructive/10 ring-1 ring-destructive/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
           onClick={() => setFilterState('stopped')}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFilterState('stopped') } }}
         >
-          <span className="text-[13px] text-[#f04452]">{t('docker.containers.stopped')}</span>
-          <div className="text-2xl font-bold text-[#f04452] mt-1">{stoppedCount}</div>
+          <span className="text-[13px] text-destructive">{t('docker.containers.stopped')}</span>
+          <div className="text-2xl font-bold text-destructive mt-1">{stoppedCount}</div>
         </div>
       </div>
 
@@ -942,7 +962,7 @@ export default function DockerContainers() {
 
       {/* Load error / loading skeleton (first load only) */}
       {error && containers.length === 0 ? (
-        <div className="bg-[#f04452]/10 text-[#f04452] rounded-xl p-3 flex items-start gap-2">
+        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-medium">{t('docker.containers.loadError')}</p>
@@ -976,8 +996,11 @@ export default function DockerContainers() {
           return (
             <React.Fragment key={`mobile-stack-${stackName}`}>
               <div
-                className="bg-secondary/30 rounded-2xl p-3 cursor-pointer"
+                role="button"
+                tabIndex={0}
+                className="bg-secondary/30 rounded-2xl p-3 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                 onClick={() => toggleStack(stackName)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleStack(stackName) } }}
               >
                 <div className="flex items-center gap-2 min-w-0">
                   {isCollapsed ? (
@@ -987,7 +1010,7 @@ export default function DockerContainers() {
                   )}
                   <Layers className="h-4 w-4 text-primary shrink-0" />
                   <span className="text-[13px] font-semibold truncate">{stackName}</span>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                     {stackRunning}/{stackContainers.length}
                   </span>
                   <div className="flex-1 min-w-0" />
@@ -997,6 +1020,7 @@ export default function DockerContainers() {
                         variant="ghost"
                         size="icon-xs"
                         title={t('docker.compose.up')}
+                        aria-label={t('docker.compose.up')}
                         disabled={isStackLoading}
                         onClick={() => handleStackAction('up', stackName)}
                       >
@@ -1007,6 +1031,7 @@ export default function DockerContainers() {
                         variant="ghost"
                         size="icon-xs"
                         title={t('docker.compose.down')}
+                        aria-label={t('docker.compose.down')}
                         disabled={isStackLoading}
                         onClick={() => setConfirmStackAction({ action: 'down', stackName })}
                       >
@@ -1017,6 +1042,7 @@ export default function DockerContainers() {
                       variant="ghost"
                       size="icon-xs"
                       title={t('docker.containers.restart')}
+                      aria-label={t('docker.containers.restart')}
                       disabled={isStackLoading}
                       onClick={() => setConfirmStackAction({ action: 'restart', stackName })}
                     >
@@ -1026,6 +1052,7 @@ export default function DockerContainers() {
                       variant="ghost"
                       size="icon-xs"
                       title={t('common.delete')}
+                      aria-label={t('common.delete')}
                       disabled={isStackLoading}
                       onClick={() => setConfirmStackAction({ action: 'delete', stackName })}
                     >
@@ -1036,15 +1063,15 @@ export default function DockerContainers() {
               </div>
               {!isCollapsed && stackContainers.map((c) => {
                 const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-                const statusClasses = c.State === 'running' ? `${base} bg-[#00c471]/10 text-[#00c471]`
-                  : c.State === 'exited' ? `${base} bg-[#f04452]/10 text-[#f04452]`
-                  : c.State === 'paused' ? `${base} bg-[#f59e0b]/10 text-[#f59e0b]`
+                const statusClasses = c.State === 'running' ? `${base} bg-success/10 text-success`
+                  : c.State === 'exited' ? `${base} bg-destructive/10 text-destructive`
+                  : c.State === 'paused' ? `${base} bg-warning/10 text-warning`
                   : `${base} bg-secondary text-muted-foreground`
                 const stats = statsMap[c.Id]
                 return (
                   <div key={c.Id} className="bg-card rounded-2xl p-4 card-shadow ml-4">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1 cursor-pointer" onClick={() => openDetail(c)}>
+                      <div role="button" tabIndex={0} className="min-w-0 flex-1 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" onClick={() => openDetail(c)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(c) } }}>
                         <p className="text-[13px] font-semibold truncate">
                           {formatContainerName(c.Names)}
                         </p>
@@ -1072,34 +1099,34 @@ export default function DockerContainers() {
                       </p>
                     )}
                     <div className="flex items-center gap-1 mt-3 justify-end">
-                      <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} onClick={() => openDetail(c)}>
+                      <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')} onClick={() => openDetail(c)}>
                         <Info />
                       </Button>
-                      <Button variant="ghost" size="icon-xs" title={t('docker.containers.terminal')} onClick={() => openTerminal(c)}>
+                      <Button variant="ghost" size="icon-xs" title={t('docker.containers.terminal')} aria-label={t('docker.containers.terminal')} onClick={() => openTerminal(c)}>
                         <Terminal />
                       </Button>
                       {c.State === 'running' ? (
                         <>
-                          <Button variant="ghost" size="icon-xs" title={t('docker.containers.pause')} disabled={actionLoading === c.Id} onClick={() => handlePause(c.Id)}>
+                          <Button variant="ghost" size="icon-xs" title={t('docker.containers.pause')} aria-label={t('docker.containers.pause')} disabled={actionLoading === c.Id} onClick={() => handlePause(c.Id)}>
                             <Pause />
                           </Button>
-                          <Button variant="ghost" size="icon-xs" title={t('docker.containers.stop')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'stop', container: c })}>
+                          <Button variant="ghost" size="icon-xs" title={t('docker.containers.stop')} aria-label={t('docker.containers.stop')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'stop', container: c })}>
                             <Square />
                           </Button>
                         </>
                       ) : c.State === 'paused' ? (
-                        <Button variant="ghost" size="icon-xs" title={t('docker.containers.unpause')} disabled={actionLoading === c.Id} onClick={() => handleUnpause(c.Id)}>
+                        <Button variant="ghost" size="icon-xs" title={t('docker.containers.unpause')} aria-label={t('docker.containers.unpause')} disabled={actionLoading === c.Id} onClick={() => handleUnpause(c.Id)}>
                           <Play />
                         </Button>
                       ) : (
-                        <Button variant="ghost" size="icon-xs" title={t('docker.containers.start')} disabled={actionLoading === c.Id} onClick={() => handleAction('start', c.Id)}>
+                        <Button variant="ghost" size="icon-xs" title={t('docker.containers.start')} aria-label={t('docker.containers.start')} disabled={actionLoading === c.Id} onClick={() => handleAction('start', c.Id)}>
                           <Play />
                         </Button>
                       )}
-                      <Button variant="ghost" size="icon-xs" title={t('docker.containers.restart')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'restart', container: c })}>
+                      <Button variant="ghost" size="icon-xs" title={t('docker.containers.restart')} aria-label={t('docker.containers.restart')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'restart', container: c })}>
                         <RotateCw />
                       </Button>
-                      <Button variant="ghost" size="icon-xs" title={t('common.delete')} disabled={actionLoading === c.Id} onClick={() => setDeleteTarget(c)}>
+                      <Button variant="ghost" size="icon-xs" title={t('common.delete')} aria-label={t('common.delete')} disabled={actionLoading === c.Id} onClick={() => setDeleteTarget(c)}>
                         <Trash2 />
                       </Button>
                     </div>
@@ -1118,15 +1145,15 @@ export default function DockerContainers() {
         {/* Standalone containers */}
         {groupedContainers.standalone.map((c) => {
           const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-          const statusClasses = c.State === 'running' ? `${base} bg-[#00c471]/10 text-[#00c471]`
-            : c.State === 'exited' ? `${base} bg-[#f04452]/10 text-[#f04452]`
-            : c.State === 'paused' ? `${base} bg-[#f59e0b]/10 text-[#f59e0b]`
+          const statusClasses = c.State === 'running' ? `${base} bg-success/10 text-success`
+            : c.State === 'exited' ? `${base} bg-destructive/10 text-destructive`
+            : c.State === 'paused' ? `${base} bg-warning/10 text-warning`
             : `${base} bg-secondary text-muted-foreground`
           const stats = statsMap[c.Id]
           return (
             <div key={c.Id} className="bg-card rounded-2xl p-4 card-shadow">
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1 cursor-pointer" onClick={() => openDetail(c)}>
+                <div role="button" tabIndex={0} className="min-w-0 flex-1 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" onClick={() => openDetail(c)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(c) } }}>
                   <p className="text-[13px] font-semibold truncate">
                     {formatContainerName(c.Names)}
                   </p>
@@ -1154,34 +1181,34 @@ export default function DockerContainers() {
                 </p>
               )}
               <div className="flex items-center gap-1 mt-3 justify-end">
-                <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} onClick={() => openDetail(c)}>
+                <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')} onClick={() => openDetail(c)}>
                   <Info />
                 </Button>
-                <Button variant="ghost" size="icon-xs" title={t('docker.containers.terminal')} onClick={() => openTerminal(c)}>
+                <Button variant="ghost" size="icon-xs" title={t('docker.containers.terminal')} aria-label={t('docker.containers.terminal')} onClick={() => openTerminal(c)}>
                   <Terminal />
                 </Button>
                 {c.State === 'running' ? (
                   <>
-                    <Button variant="ghost" size="icon-xs" title={t('docker.containers.pause')} disabled={actionLoading === c.Id} onClick={() => handlePause(c.Id)}>
+                    <Button variant="ghost" size="icon-xs" title={t('docker.containers.pause')} aria-label={t('docker.containers.pause')} disabled={actionLoading === c.Id} onClick={() => handlePause(c.Id)}>
                       <Pause />
                     </Button>
-                    <Button variant="ghost" size="icon-xs" title={t('docker.containers.stop')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'stop', container: c })}>
+                    <Button variant="ghost" size="icon-xs" title={t('docker.containers.stop')} aria-label={t('docker.containers.stop')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'stop', container: c })}>
                       <Square />
                     </Button>
                   </>
                 ) : c.State === 'paused' ? (
-                  <Button variant="ghost" size="icon-xs" title={t('docker.containers.unpause')} disabled={actionLoading === c.Id} onClick={() => handleUnpause(c.Id)}>
+                  <Button variant="ghost" size="icon-xs" title={t('docker.containers.unpause')} aria-label={t('docker.containers.unpause')} disabled={actionLoading === c.Id} onClick={() => handleUnpause(c.Id)}>
                     <Play />
                   </Button>
                 ) : (
-                  <Button variant="ghost" size="icon-xs" title={t('docker.containers.start')} disabled={actionLoading === c.Id} onClick={() => handleAction('start', c.Id)}>
+                  <Button variant="ghost" size="icon-xs" title={t('docker.containers.start')} aria-label={t('docker.containers.start')} disabled={actionLoading === c.Id} onClick={() => handleAction('start', c.Id)}>
                     <Play />
                   </Button>
                 )}
-                <Button variant="ghost" size="icon-xs" title={t('docker.containers.restart')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'restart', container: c })}>
+                <Button variant="ghost" size="icon-xs" title={t('docker.containers.restart')} aria-label={t('docker.containers.restart')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'restart', container: c })}>
                   <RotateCw />
                 </Button>
-                <Button variant="ghost" size="icon-xs" title={t('common.delete')} disabled={actionLoading === c.Id} onClick={() => setDeleteTarget(c)}>
+                <Button variant="ghost" size="icon-xs" title={t('common.delete')} aria-label={t('common.delete')} disabled={actionLoading === c.Id} onClick={() => setDeleteTarget(c)}>
                   <Trash2 />
                 </Button>
               </div>
@@ -1240,7 +1267,7 @@ export default function DockerContainers() {
                       )}
                       <Layers className="h-4 w-4 text-primary shrink-0" />
                       <span className="text-[13px] font-semibold truncate">{stackName}</span>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-[#00c471]/10 text-[#00c471]">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
                         {stackRunning}/{stackContainers.length}
                       </span>
                       <div className="flex-1 min-w-0" />
@@ -1250,6 +1277,7 @@ export default function DockerContainers() {
                             variant="ghost"
                             size="icon-xs"
                             title={t('docker.compose.up')}
+                            aria-label={t('docker.compose.up')}
                             disabled={isStackLoading}
                             onClick={() => handleStackAction('up', stackName)}
                           >
@@ -1260,6 +1288,7 @@ export default function DockerContainers() {
                             variant="ghost"
                             size="icon-xs"
                             title={t('docker.compose.down')}
+                            aria-label={t('docker.compose.down')}
                             disabled={isStackLoading}
                             onClick={() => setConfirmStackAction({ action: 'down', stackName })}
                           >
@@ -1270,6 +1299,7 @@ export default function DockerContainers() {
                           variant="ghost"
                           size="icon-xs"
                           title={t('docker.containers.restart')}
+                          aria-label={t('docker.containers.restart')}
                           disabled={isStackLoading}
                           onClick={() => setConfirmStackAction({ action: 'restart', stackName })}
                         >
@@ -1279,6 +1309,7 @@ export default function DockerContainers() {
                           variant="ghost"
                           size="icon-xs"
                           title={t('common.delete')}
+                          aria-label={t('common.delete')}
                           disabled={isStackLoading}
                           onClick={() => setConfirmStackAction({ action: 'delete', stackName })}
                         >

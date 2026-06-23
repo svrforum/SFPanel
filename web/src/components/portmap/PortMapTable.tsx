@@ -117,7 +117,7 @@ export function PortMapTable() {
                         <Link
                           key={`${c.id}-${idx}`}
                           to={`/docker/containers?selected=${encodeURIComponent(c.id)}`}
-                          className="inline-flex items-center gap-1 hover:text-primary"
+                          className="inline-flex items-center gap-1 hover:text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                         >
                           <span className="font-medium">{c.name}</span>
                           {c.stack && (
@@ -208,7 +208,7 @@ export function PortMapTable() {
                       <Link
                         key={`${c.id}-${idx}`}
                         to={`/docker/containers?selected=${encodeURIComponent(c.id)}`}
-                        className="inline-flex items-center gap-1 hover:text-primary"
+                        className="inline-flex items-center gap-1 hover:text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                       >
                         <span className="font-medium">{c.name}</span>
                         {c.stack && (
