@@ -133,10 +133,9 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 
 설치 후:
 1. 서비스가 떴는지 확인: `curl http://localhost:3628/api/v1/health` → `{"success":true,"data":{"status":"ok"}}`
-2. `http://<서버IP>:3628` 접속
-3. 셋업 위저드에서 관리자 계정 생성
-4. **설정 → 2단계 인증 → 2FA 활성화** (권장)
-5. 프로덕션이라면 reverse proxy + TLS로 패널 앞단을 감싸고, 방화벽으로 3628을 LAN/VPN으로만 제한
+2. **노출 결정부터.** 패널은 root 권한이므로, 공개 VPS라면 **먼저** 방화벽으로 3628을 LAN/VPN으로만 제한하고 reverse proxy + TLS(Caddy/nginx/Cloudflare Tunnel)로 앞단을 감싸세요. 평문 HTTP 리스너를 공개 인터넷에 직접 노출하지 마세요.
+3. 셋업 위저드로 관리자 계정 생성 — **최초 설정은 LAN/loopback에서만 가능**합니다. LAN이면 `http://<서버IP>:3628`, 공개 호스트면 SSH 터널로: `ssh -L 3628:127.0.0.1:3628 <서버>` 후 `http://127.0.0.1:3628` 접속.
+4. **설정 → 2단계 인증 → 2FA 활성화** (강력 권장)
 6. 설정 파일 수정이 필요하면: `/etc/sfpanel/config.yaml` (변경 후 `systemctl restart sfpanel`)
 
 ### 수동 설치

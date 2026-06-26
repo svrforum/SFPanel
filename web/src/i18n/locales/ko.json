@@ -133,6 +133,8 @@
     "confirmPlaceholder": "비밀번호를 다시 입력하세요",
     "creatingAccount": "계정 생성 중...",
     "createAdmin": "관리자 계정 생성",
+    "restrictedTitle": "설정은 로컬 네트워크에서만 가능합니다",
+    "restrictedBody": "보안을 위해 최초 관리자 설정은 LAN 또는 SSH 터널에서만 할 수 있습니다 — 서버에서 직접 http://127.0.0.1:3628 에 접속하거나, `ssh -L 3628:127.0.0.1:3628 <서버>` 후 이 페이지를 새로고침하세요.",
     "passwordMinLength": "비밀번호는 최소 8자 이상이어야 합니다",
     "passwordMismatch": "비밀번호가 일치하지 않습니다"
   },

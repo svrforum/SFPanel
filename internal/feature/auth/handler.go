@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -675,24 +676,49 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 	return response.OK(c, map[string]string{"message": "Password changed successfully"})
 }
 
+// isLoopbackOrPrivate reports whether ipStr is a loopback or RFC1918/ULA/
+// link-local address. First-run admin setup is restricted to such sources so a
+// fresh install bound to 0.0.0.0 on a public host cannot be claimed by a remote
+// attacker in the window before the operator creates the admin. Operators on a
+// public host run setup over an SSH tunnel (127.0.0.1) or from the LAN.
+func isLoopbackOrPrivate(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+}
+
 func (h *Handler) GetSetupStatus(c echo.Context) error {
+	// setup_allowed_from_here lets the UI explain WHY setup is blocked from a
+	// public source IP (see SetupAdmin's gate) instead of failing on submit.
+	allowed := isLoopbackOrPrivate(c.RealIP())
 	// Cluster mode: FSM is the source of truth for admin presence. A node
 	// that joined an existing cluster has an empty local admin table but
 	// the cluster already has an admin in the FSM; setup must NOT be
 	// required for that node, otherwise a bootstrap attacker could plant
 	// a second admin that the next leadership term would replicate.
 	if h.clusterHasAdmin() {
-		return response.OK(c, map[string]bool{"setup_required": false})
+		return response.OK(c, map[string]bool{"setup_required": false, "setup_allowed_from_here": allowed})
 	}
 	var count int
 	if err := h.DB.QueryRow("SELECT COUNT(*) FROM admin").Scan(&count); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
 	}
-	return response.OK(c, map[string]bool{"setup_required": count == 0})
+	return response.OK(c, map[string]bool{"setup_required": count == 0, "setup_allowed_from_here": allowed})
 }
 
 func (h *Handler) SetupAdmin(c echo.Context) error {
 	ip := c.RealIP()
+	// First-run land-grab guard: a fresh install bound to 0.0.0.0 has no admin
+	// and this route is public, so without this any host that can reach the
+	// port could claim the admin of a root-power panel before the operator
+	// does. Restrict setup to loopback/LAN; public-host operators set up over
+	// an SSH tunnel (127.0.0.1) or from a trusted LAN address.
+	if !isLoopbackOrPrivate(ip) {
+		return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied,
+			"First-run setup is restricted to local/private networks. Connect from the LAN or over an SSH tunnel (http://127.0.0.1).")
+	}
 	now := time.Now()
 	setupLimiter.mu.Lock()
 	// Garbage collect stale entries for all IPs

@@ -133,6 +133,8 @@
     "confirmPlaceholder": "Re-enter your password",
     "creatingAccount": "Creating account...",
     "createAdmin": "Create Admin Account",
+    "restrictedTitle": "Setup is restricted to the local network",
+    "restrictedBody": "For security, first-run admin setup can only be done from the LAN or over an SSH tunnel — open http://127.0.0.1:3628 on the server itself, or run `ssh -L 3628:127.0.0.1:3628 <server>` and reload this page.",
     "passwordMinLength": "Password must be at least 8 characters",
     "passwordMismatch": "Passwords do not match"
   },

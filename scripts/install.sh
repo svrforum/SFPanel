@@ -554,8 +554,16 @@ print_success() {
   echo -e "    systemctl stop ${SERVICE_NAME}"
   echo ""
   if [ "$mode" = "install" ]; then
-    echo -e "  ${YELLOW}First visit: Set up admin account in the browser${NC}"
+    echo -e "  ${YELLOW}First visit: Set up the admin account in the browser.${NC}"
+    echo -e "    ${YELLOW}Setup is restricted to the LAN / loopback. On a public host, tunnel it:${NC}"
+    echo -e "    ${YELLOW}  ssh -L ${port}:127.0.0.1:${port} <this-server>  →  open http://127.0.0.1:${port}${NC}"
     echo ""
+    # Loud warning when no active firewall is obviously confining the port.
+    if ! { command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "Status: active"; }; then
+      echo -e "  ${YELLOW}⚠  No active ufw firewall detected — ${port} may be reachable from anywhere.${NC}"
+      echo -e "  ${YELLOW}   Restrict it before exposing this host (see step 3 below).${NC}"
+      echo ""
+    fi
     echo -e "  ${CYAN}Recommended next steps (do these before exposing the panel):${NC}"
     echo -e "    1. Enable 2FA in Settings → Security after first login."
     echo -e "    2. Front the panel with TLS (Caddy / nginx / Cloudflare Tunnel)."

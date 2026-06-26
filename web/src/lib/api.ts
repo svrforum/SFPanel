@@ -357,7 +357,7 @@ class ApiClient {
   }
 
   getSetupStatus() {
-    return this.request<{ setup_required: boolean }>('/auth/setup-status')
+    return this.request<{ setup_required: boolean; setup_allowed_from_here?: boolean }>('/auth/setup-status')
   }
 
   setupAdmin(username: string, password: string) {
