@@ -14,6 +14,11 @@ export default defineConfig({
       // app never surfaces — that wait is what left upgraded panels serving a
       // stale precached shell pointing at chunk hashes that no longer exist.
       registerType: 'autoUpdate',
+      // The hand-written public/manifest.json (correct name/icons/theme, linked
+      // from index.html) is the source of truth. Disable the plugin's generated
+      // manifest.webmanifest, which otherwise ships a bogus second manifest
+      // (name "web", Vue-green theme, no icons).
+      manifest: false,
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         globPatterns: ['**/*.{css,html,ico,png,svg,woff2}', 'assets/*.js'],

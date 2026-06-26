@@ -700,7 +700,7 @@
       "title": "기존 클러스터에 가입",
       "description": "리더 노드에서 생성한 토큰으로 클러스터에 가입합니다.",
       "leaderAddress": "리더 주소",
-      "leaderAddressPlaceholder": "192.168.1.100:9444",
+      "leaderAddressPlaceholder": "192.168.1.100:3629",
       "leaderAddressDesc": "리더 노드의 gRPC 주소 (IP:포트)",
       "token": "가입 토큰",
       "tokenPlaceholder": "리더에서 생성한 토큰을 입력하세요",
