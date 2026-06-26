@@ -1,0 +1,6 @@
+# Keep blank issues available for now (a bug_report template is planned).
+blank_issues_enabled: true
+contact_links:
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/svrforum/SFPanel/security/advisories/new
+    about: SFPanel runs as root — please report vulnerabilities PRIVATELY, never as a public issue. See SECURITY.md.
