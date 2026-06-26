@@ -36,6 +36,7 @@ archives:
     files:
       - configs/config.example.yaml
       - LICENSE
+      - THIRD-PARTY-LICENSES.md
 
 checksum:
   name_template: "checksums.txt"
