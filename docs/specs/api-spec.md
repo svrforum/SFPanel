@@ -4989,6 +4989,9 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/docker/compose/:project/update-stream` | O | 스택 업데이트 (SSE 스트리밍) |
 | POST | `/api/v1/docker/compose/:project/rollback` | O | 스택 롤백 |
 | GET | `/api/v1/docker/compose/:project/has-rollback` | O | 롤백 가능 여부 확인 |
+| PUT | `/api/v1/docker/compose/:project/healthcheck/:service` | O | 서비스 헬스체크 추가/수정 |
+| DELETE | `/api/v1/docker/compose/:project/healthcheck/:service` | O | 서비스 헬스체크 제거 |
+| POST | `/api/v1/docker/compose/:project/healthcheck/:service/test` | O | 서비스 헬스체크 테스트 실행 |
 
 ### 앱스토어 (6개)
 
