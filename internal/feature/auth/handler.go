@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -634,8 +635,8 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Current password and new password are required")
 	}
 
-	if len(req.NewPassword) < 8 {
-		return response.Fail(c, http.StatusBadRequest, response.ErrWeakPassword, "New password must be at least 8 characters")
+	if msg, ok := validatePassword(req.NewPassword); !ok {
+		return response.Fail(c, http.StatusBadRequest, response.ErrWeakPassword, msg)
 	}
 
 	username, _ := c.Get("username").(string)
@@ -708,6 +709,36 @@ func (h *Handler) GetSetupStatus(c echo.Context) error {
 	return response.OK(c, map[string]bool{"setup_required": count == 0, "setup_allowed_from_here": allowed})
 }
 
+const minPasswordLen = 12
+
+// commonPasswords blocks the most-guessed passwords a length check alone would
+// pass. It is a small embedded denylist (no network egress, no HIBP) — the goal
+// is to stop the worst offenders for the single root-equivalent account, not to
+// be exhaustive. Strong-password enforcement is what actually makes online
+// guessing infeasible behind the per-IP rate limiter.
+var commonPasswords = map[string]bool{
+	"password": true, "password1": true, "password123": true, "passw0rd": true,
+	"passw0rd123": true, "p@ssw0rd": true, "p@ssword1": true, "12345678": true,
+	"123456789": true, "1234567890": true, "qwertyuiop": true, "qwerty123": true,
+	"admin123": true, "administrator": true, "letmein123": true, "welcome123": true,
+	"iloveyou1": true, "sunshine1": true, "princess1": true, "changeme123": true,
+	"baseball1": true, "football1": true, "superman1": true, "abcd1234": true,
+	"abc123456": true, "1q2w3e4r5t": true, "zaq12wsx": true, "qazwsxedc": true,
+	"1qaz2wsx3edc": true, "trustno1!": true, "sfpanel123": true,
+}
+
+// validatePassword enforces the account password policy. Returns a user-facing
+// message and false when the password is rejected.
+func validatePassword(pw string) (string, bool) {
+	if len(pw) < minPasswordLen {
+		return "Password must be at least 12 characters.", false
+	}
+	if commonPasswords[strings.ToLower(pw)] {
+		return "Password is too common — choose something less guessable.", false
+	}
+	return "", true
+}
+
 func (h *Handler) SetupAdmin(c echo.Context) error {
 	ip := c.RealIP()
 	// First-run land-grab guard: a fresh install bound to 0.0.0.0 has no admin
@@ -755,8 +786,8 @@ func (h *Handler) SetupAdmin(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Username or password exceeds bounds")
 	}
 
-	if len(req.Password) < 8 {
-		return response.Fail(c, http.StatusBadRequest, response.ErrWeakPassword, "Password must be at least 8 characters")
+	if msg, ok := validatePassword(req.Password); !ok {
+		return response.Fail(c, http.StatusBadRequest, response.ErrWeakPassword, msg)
 	}
 
 	// Cluster mode: refuse to bootstrap when the FSM already holds an admin.

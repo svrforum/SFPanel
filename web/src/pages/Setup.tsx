@@ -28,7 +28,7 @@ export default function Setup() {
     e.preventDefault()
     setError('')
 
-    if (password.length < 8) {
+    if (password.length < 12) {
       setError(t('setup.passwordMinLength'))
       return
     }
@@ -100,7 +100,7 @@ export default function Setup() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={t('setup.passwordPlaceholder')}
                 required
-                minLength={8}
+                minLength={12}
                 className="h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30"
               />
             </div>
@@ -114,7 +114,7 @@ export default function Setup() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder={t('setup.confirmPlaceholder')}
                 required
-                minLength={8}
+                minLength={12}
                 className="h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30"
               />
             </div>

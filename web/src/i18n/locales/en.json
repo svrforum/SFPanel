@@ -135,7 +135,7 @@
     "createAdmin": "Create Admin Account",
     "restrictedTitle": "Setup is restricted to the local network",
     "restrictedBody": "For security, first-run admin setup can only be done from the LAN or over an SSH tunnel — open http://127.0.0.1:3628 on the server itself, or run `ssh -L 3628:127.0.0.1:3628 <server>` and reload this page.",
-    "passwordMinLength": "Password must be at least 8 characters",
+    "passwordMinLength": "Password must be at least 12 characters",
     "passwordMismatch": "Passwords do not match"
   },
   "dashboard": {
@@ -874,7 +874,7 @@
     "version": "SFPanel Version",
     "operatingSystem": "Operating System",
     "passwordMismatch": "New passwords do not match",
-    "passwordMinLength": "Password must be at least 8 characters",
+    "passwordMinLength": "Password must be at least 12 characters",
     "passwordChanged": "Password changed successfully",
     "passwordChangeFailed": "Failed to change password",
     "invalidCode": "Please enter a valid 6-digit code",

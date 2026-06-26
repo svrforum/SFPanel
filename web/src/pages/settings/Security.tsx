@@ -105,7 +105,7 @@ export default function Security() {
       toast.error(t('settings.passwordMismatch'))
       return
     }
-    if (newPassword.length < 8) {
+    if (newPassword.length < 12) {
       toast.error(t('settings.passwordMinLength'))
       return
     }
@@ -223,7 +223,7 @@ export default function Security() {
               onChange={(e) => setNewPassword(e.target.value)}
               placeholder={t('settings.newPasswordPlaceholder')}
               required
-              minLength={8}
+              minLength={12}
               className="rounded-xl"
             />
           </div>
@@ -236,7 +236,7 @@ export default function Security() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder={t('settings.confirmNewPasswordPlaceholder')}
               required
-              minLength={8}
+              minLength={12}
               className="rounded-xl"
             />
           </div>

@@ -117,6 +117,21 @@ func TestIsLoopbackOrPrivate(t *testing.T) {
 	}
 }
 
+func TestValidatePassword(t *testing.T) {
+	reject := []string{"", "short", "elevenchars", "password123", "ADMIN123", "12345678", "qwerty123"}
+	for _, p := range reject {
+		if _, ok := validatePassword(p); ok {
+			t.Errorf("validatePassword(%q) accepted, want rejected", p)
+		}
+	}
+	accept := []string{"correct horse battery", "Xy7$kLm9!qWz", "a-perfectly-fine-passphrase"}
+	for _, p := range accept {
+		if _, ok := validatePassword(p); !ok {
+			t.Errorf("validatePassword(%q) rejected, want accepted", p)
+		}
+	}
+}
+
 // TestGetSetupStatus_FalseWhenClusterFSMHoldsAdmin pins the same invariant
 // on the status endpoint that the UI polls. With FSM admin present the
 // endpoint must report setup_required=false so the UI doesn't render the

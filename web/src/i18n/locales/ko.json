@@ -135,7 +135,7 @@
     "createAdmin": "관리자 계정 생성",
     "restrictedTitle": "설정은 로컬 네트워크에서만 가능합니다",
     "restrictedBody": "보안을 위해 최초 관리자 설정은 LAN 또는 SSH 터널에서만 할 수 있습니다 — 서버에서 직접 http://127.0.0.1:3628 에 접속하거나, `ssh -L 3628:127.0.0.1:3628 <서버>` 후 이 페이지를 새로고침하세요.",
-    "passwordMinLength": "비밀번호는 최소 8자 이상이어야 합니다",
+    "passwordMinLength": "비밀번호는 최소 12자 이상이어야 합니다",
     "passwordMismatch": "비밀번호가 일치하지 않습니다"
   },
   "dashboard": {
@@ -874,7 +874,7 @@
     "version": "SFPanel 버전",
     "operatingSystem": "운영체제",
     "passwordMismatch": "새 비밀번호가 일치하지 않습니다",
-    "passwordMinLength": "비밀번호는 최소 8자 이상이어야 합니다",
+    "passwordMinLength": "비밀번호는 최소 12자 이상이어야 합니다",
     "passwordChanged": "비밀번호가 변경되었습니다",
     "passwordChangeFailed": "비밀번호 변경 실패",
     "invalidCode": "유효한 6자리 코드를 입력하세요",
