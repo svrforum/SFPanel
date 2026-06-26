@@ -10,6 +10,33 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.54.0] – 2026-06-27
+
+A public-release-readiness pass driven by a whole-project review: security, supply-chain, legal, and onboarding hardening. No new user-facing features.
+
+### Security
+
+- **First-run setup is restricted to loopback/LAN sources.** A fresh install binds `0.0.0.0` with no admin and a public `/auth/setup` route, so a remote host could claim the admin of a root-power panel before the operator. Setup now requires a loopback/RFC1918 source (public hosts use an SSH tunnel); the installer warns when no firewall confines the port, and both READMEs put "restrict + TLS" ahead of "create admin".
+- **Password policy.** The single root-equivalent account now requires 12+ characters and rejects a common-password denylist (was an 8-char minimum with no denylist), in both first-run setup and password change.
+- **Go toolchain bumped to 1.25.11**, clearing 27 reachable Go-stdlib CVEs from shipped binaries.
+
+### Supply chain & CI
+
+- All GitHub Action `uses` are pinned to commit SHAs; added `dependabot.yml` (gomod, npm, github-actions).
+- CI gained a vulnerability-scan gate (`govulncheck` + `npm audit`), least-privilege permissions, and concurrency cancellation; the two tag-triggered release workflows now serialize; Node is unified via `.nvmrc`.
+
+### Legal & onboarding
+
+- Added `THIRD-PARTY-LICENSES.md` (regenerable via `make third-party-licenses`) and now ship it plus `LICENSE` inside the release tarball.
+- Added `SECURITY.md` (private disclosure), `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, bug/feature/PR templates, and release/CI/license README badges.
+
+### Performance & fixes
+
+- **Monaco no longer loads on the login page** — the 3.5 MB editor left the entry bundle and now rides the lazy Files/Compose chunks.
+- One correct PWA manifest ships (the bogus auto-generated `manifest.webmanifest` is disabled); fail2ban error codes moved to `response` constants; cluster WS-relay goroutines recover from panics; the service-name regex no longer accepts a leading hyphen; `crypto/rand` failures are checked; the cluster-join address hint uses the current gRPC port.
+
+---
+
 ## [0.53.0] – 2026-06-23
 
 A UI/UX polish pass — dark mode, semantic design tokens, and an end-to-end keyboard-accessibility sweep — plus a terminal-feature hardening campaign driven by a deep review of the PTY/exec WebSocket path.
