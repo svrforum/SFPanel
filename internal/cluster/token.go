@@ -29,7 +29,11 @@ type TokenManager struct {
 
 func NewTokenManager() *TokenManager {
 	secret := make([]byte, 32)
-	rand.Read(secret)
+	if _, err := rand.Read(secret); err != nil {
+		// crypto/rand failure means the OS entropy source is broken; we can't
+		// mint secure join tokens, so fail loud rather than run with a zero secret.
+		panic("cluster: crypto/rand.Read failed: " + err.Error())
+	}
 	return &TokenManager{
 		tokens: make(map[string]*JoinToken),
 		secret: secret,
