@@ -79,7 +79,11 @@ export default defineConfig({
             return 'i18n'
           }
           if (id.includes('node_modules/uplot/')) return 'uplot'
-          if (id.includes('node_modules/monaco-editor/')) return 'monaco'
+          // monaco-editor / @monaco-editor are intentionally NOT manual-chunked:
+          // forcing them into a named 'monaco' chunk made rolldown co-locate a
+          // shared symbol there that the eager entry needed, statically pulling
+          // the 3.6 MB editor into first paint. Left to default chunking they
+          // ride the lazy Files/DockerStacks chunks that actually import them.
           return undefined
         },
       },
