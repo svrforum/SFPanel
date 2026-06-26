@@ -6,6 +6,12 @@
 
 <p align="center"><a href="README.md">한국어</a> · <strong>English</strong></p>
 
+<p align="center">
+  <a href="https://github.com/svrforum/SFPanel/releases"><img src="https://img.shields.io/github/v/release/svrforum/SFPanel?sort=semver" alt="Release" /></a>
+  <a href="https://github.com/svrforum/SFPanel/actions/workflows/ci.yml"><img src="https://github.com/svrforum/SFPanel/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a>
+</p>
+
 **An all-in-one server management web panel for homelabs, VPSes and NAS boxes.** One single Go binary manages Docker, firewall, disk, network, terminal and an app store — ready the moment it's installed, with zero runtime dependencies.
 
 - 🪶 **Single binary** — Go backend + embedded React SPA. SQLite built in (CGO-free), zero external dependencies. One `curl | sudo bash` and you're done.
@@ -451,7 +457,7 @@ All REST responses use a uniform JSON shape:
 | [docs/specs/frontend-spec.md](docs/specs/frontend-spec.md) | Pages/components/routing/state/build |
 | [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md) | Cluster operator runbook: partition detection/recovery, forced disband, port migration procedure |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
-| [CLAUDE.md](CLAUDE.md) | Contributor guide (code conventions, test scope, cluster awareness) |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor guide (build/test, code conventions, PR workflow) |
 
 ## Security notes
 

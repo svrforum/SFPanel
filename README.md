@@ -6,6 +6,12 @@
 
 <p align="center"><strong>한국어</strong> · <a href="README.en.md">English</a></p>
 
+<p align="center">
+  <a href="https://github.com/svrforum/SFPanel/releases"><img src="https://img.shields.io/github/v/release/svrforum/SFPanel?sort=semver" alt="Release" /></a>
+  <a href="https://github.com/svrforum/SFPanel/actions/workflows/ci.yml"><img src="https://github.com/svrforum/SFPanel/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a>
+</p>
+
 **홈서버·VPS·NAS를 위한 올인원 서버 관리 웹 패널.** 단일 Go 바이너리 하나로 Docker·방화벽·디스크·네트워크·터미널·앱스토어까지 — 설치 즉시, 런타임 의존성 없이.
 
 - 🪶 **단일 바이너리** — Go 백엔드 + 임베디드 React SPA. SQLite 내장(CGO-free), 외부 의존성 0. `curl | sudo bash` 한 줄이면 끝.
@@ -451,7 +457,7 @@ cd e2e && npm run test:headed   # 브라우저 UI
 | [docs/specs/frontend-spec.md](docs/specs/frontend-spec.md) | 페이지/컴포넌트/라우팅/상태/빌드 |
 | [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md) | 클러스터 운영자 런북: 파티션 감지·복구, 강제 disband, 포트 마이그레이션 절차 |
 | [CHANGELOG.md](CHANGELOG.md) | 릴리스 노트 |
-| [CLAUDE.md](CLAUDE.md) | 기여자 가이드 (코드 규약, 테스트 범위, 클러스터 인지) |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 기여자 가이드 (빌드/테스트, 코드 규약, PR 절차) |
 
 ## 보안 주의사항
 
