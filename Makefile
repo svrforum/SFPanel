@@ -1,4 +1,4 @@
-.PHONY: build dev dev-api dev-web lint lint-errcheck clean ci appstore-catalog test test-coverage stub-dist
+.PHONY: build dev dev-api dev-web lint lint-errcheck clean ci appstore-catalog test test-coverage stub-dist third-party-licenses
 
 # Version metadata is injected via ldflags so `make build` matches the artifact
 # that goreleaser ships in CI. Without this the local binary always reported
@@ -41,6 +41,10 @@ lint-errcheck:
 clean:
 	rm -f sfpanel
 	rm -rf web/dist
+
+# 서드파티 라이선스 고지 재생성 (THIRD-PARTY-LICENSES.md)
+third-party-licenses:
+	bash scripts/gen-third-party-licenses.sh
 
 # 테스트 — cmd/ runs too (./internal/... alone silently skipped it). Explicit
 # lists rather than ./... because web/node_modules ships a stray Go package.

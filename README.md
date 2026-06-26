@@ -6,6 +6,12 @@
 
 <p align="center"><strong>한국어</strong> · <a href="README.en.md">English</a></p>
 
+<p align="center">
+  <a href="https://github.com/svrforum/SFPanel/releases"><img src="https://img.shields.io/github/v/release/svrforum/SFPanel?sort=semver" alt="Release" /></a>
+  <a href="https://github.com/svrforum/SFPanel/actions/workflows/ci.yml"><img src="https://github.com/svrforum/SFPanel/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a>
+</p>
+
 **홈서버·VPS·NAS를 위한 올인원 서버 관리 웹 패널.** 단일 Go 바이너리 하나로 Docker·방화벽·디스크·네트워크·터미널·앱스토어까지 — 설치 즉시, 런타임 의존성 없이.
 
 - 🪶 **단일 바이너리** — Go 백엔드 + 임베디드 React SPA. SQLite 내장(CGO-free), 외부 의존성 0. `curl | sudo bash` 한 줄이면 끝.
@@ -133,10 +139,9 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 
 설치 후:
 1. 서비스가 떴는지 확인: `curl http://localhost:3628/api/v1/health` → `{"success":true,"data":{"status":"ok"}}`
-2. `http://<서버IP>:3628` 접속
-3. 셋업 위저드에서 관리자 계정 생성
-4. **설정 → 2단계 인증 → 2FA 활성화** (권장)
-5. 프로덕션이라면 reverse proxy + TLS로 패널 앞단을 감싸고, 방화벽으로 3628을 LAN/VPN으로만 제한
+2. **노출 결정부터.** 패널은 root 권한이므로, 공개 VPS라면 **먼저** 방화벽으로 3628을 LAN/VPN으로만 제한하고 reverse proxy + TLS(Caddy/nginx/Cloudflare Tunnel)로 앞단을 감싸세요. 평문 HTTP 리스너를 공개 인터넷에 직접 노출하지 마세요.
+3. 셋업 위저드로 관리자 계정 생성 — **최초 설정은 LAN/loopback에서만 가능**합니다. LAN이면 `http://<서버IP>:3628`, 공개 호스트면 SSH 터널로: `ssh -L 3628:127.0.0.1:3628 <서버>` 후 `http://127.0.0.1:3628` 접속.
+4. **설정 → 2단계 인증 → 2FA 활성화** (강력 권장)
 6. 설정 파일 수정이 필요하면: `/etc/sfpanel/config.yaml` (변경 후 `systemctl restart sfpanel`)
 
 ### 수동 설치
@@ -452,7 +457,7 @@ cd e2e && npm run test:headed   # 브라우저 UI
 | [docs/specs/frontend-spec.md](docs/specs/frontend-spec.md) | 페이지/컴포넌트/라우팅/상태/빌드 |
 | [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md) | 클러스터 운영자 런북: 파티션 감지·복구, 강제 disband, 포트 마이그레이션 절차 |
 | [CHANGELOG.md](CHANGELOG.md) | 릴리스 노트 |
-| [CLAUDE.md](CLAUDE.md) | 기여자 가이드 (코드 규약, 테스트 범위, 클러스터 인지) |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 기여자 가이드 (빌드/테스트, 코드 규약, PR 절차) |
 
 ## 보안 주의사항
 

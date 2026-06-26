@@ -6,6 +6,12 @@
 
 <p align="center"><a href="README.md">한국어</a> · <strong>English</strong></p>
 
+<p align="center">
+  <a href="https://github.com/svrforum/SFPanel/releases"><img src="https://img.shields.io/github/v/release/svrforum/SFPanel?sort=semver" alt="Release" /></a>
+  <a href="https://github.com/svrforum/SFPanel/actions/workflows/ci.yml"><img src="https://github.com/svrforum/SFPanel/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a>
+</p>
+
 **An all-in-one server management web panel for homelabs, VPSes and NAS boxes.** One single Go binary manages Docker, firewall, disk, network, terminal and an app store — ready the moment it's installed, with zero runtime dependencies.
 
 - 🪶 **Single binary** — Go backend + embedded React SPA. SQLite built in (CGO-free), zero external dependencies. One `curl | sudo bash` and you're done.
@@ -133,10 +139,9 @@ The install script handles the following automatically:
 
 After installing:
 1. Confirm the service is up: `curl http://localhost:3628/api/v1/health` → `{"success":true,"data":{"status":"ok"}}`
-2. Open `http://<server-IP>:3628`
-3. Create the admin account in the setup wizard
-4. **Settings → Two-Factor Authentication → enable 2FA** (recommended)
-5. In production, put a reverse proxy + TLS in front of the panel and restrict port 3628 to LAN/VPN with a firewall
+2. **Decide on exposure first.** The panel runs as root — on a public VPS, restrict port 3628 to LAN/VPN with a firewall and put a reverse proxy + TLS (Caddy / nginx / Cloudflare Tunnel) in front **before** anything else. Never expose the plain-HTTP listener directly to the Internet.
+3. Create the admin account in the setup wizard — **first-run setup is restricted to the LAN / loopback**. On a LAN, open `http://<server-IP>:3628`; on a public host, tunnel it: `ssh -L 3628:127.0.0.1:3628 <server>` then open `http://127.0.0.1:3628`.
+4. **Settings → Two-Factor Authentication → enable 2FA** (strongly recommended)
 6. To edit the config file: `/etc/sfpanel/config.yaml` (run `systemctl restart sfpanel` after changes)
 
 ### Manual installation
@@ -452,7 +457,7 @@ All REST responses use a uniform JSON shape:
 | [docs/specs/frontend-spec.md](docs/specs/frontend-spec.md) | Pages/components/routing/state/build |
 | [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md) | Cluster operator runbook: partition detection/recovery, forced disband, port migration procedure |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
-| [CLAUDE.md](CLAUDE.md) | Contributor guide (code conventions, test scope, cluster awareness) |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor guide (build/test, code conventions, PR workflow) |
 
 ## Security notes
 

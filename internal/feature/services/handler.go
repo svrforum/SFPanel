@@ -15,7 +15,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/common/sysguard"
 )
 
-var validServiceName = regexp.MustCompile(`^[a-zA-Z0-9@._:-]+\.service$`)
+var validServiceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9@._:-]*\.service$`)
 
 // isProtectedServiceUnit delegates to sysguard so the deny-list lives in
 // one place. The local function name is kept so existing call sites stay

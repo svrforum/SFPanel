@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
@@ -14,12 +14,21 @@ export default function Setup() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [gateBlocked, setGateBlocked] = useState(false)
+
+  useEffect(() => {
+    // The server restricts first-run setup to loopback/LAN sources; surface
+    // that here instead of letting the operator fail on submit.
+    api.getSetupStatus()
+      .then((s) => { if (s.setup_required && s.setup_allowed_from_here === false) setGateBlocked(true) })
+      .catch(() => { /* status unreachable — let the form attempt and surface the error */ })
+  }, [])
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
 
-    if (password.length < 8) {
+    if (password.length < 12) {
       setError(t('setup.passwordMinLength'))
       return
     }
@@ -55,6 +64,12 @@ export default function Setup() {
         </div>
 
         <div className="bg-card rounded-2xl card-shadow-lg p-8">
+          {gateBlocked ? (
+            <div className="text-sm space-y-2 text-center">
+              <p className="font-semibold text-foreground">{t('setup.restrictedTitle')}</p>
+              <p className="text-muted-foreground">{t('setup.restrictedBody')}</p>
+            </div>
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
               <div className="bg-destructive/8 text-destructive text-sm p-3 rounded-xl text-center font-medium">
@@ -85,7 +100,7 @@ export default function Setup() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={t('setup.passwordPlaceholder')}
                 required
-                minLength={8}
+                minLength={12}
                 className="h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30"
               />
             </div>
@@ -99,7 +114,7 @@ export default function Setup() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder={t('setup.confirmPlaceholder')}
                 required
-                minLength={8}
+                minLength={12}
                 className="h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30"
               />
             </div>
@@ -112,6 +127,7 @@ export default function Setup() {
               {loading ? t('setup.creatingAccount') : t('setup.createAdmin')}
             </Button>
           </form>
+          )}
         </div>
       </div>
     </div>

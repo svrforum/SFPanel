@@ -1,4 +1,5 @@
 import Editor from '@monaco-editor/react'
+import '@/lib/monaco' // configures the bundled (non-CDN) Monaco; lazy so it stays out of the entry bundle
 
 interface ComposeEditorProps {
   value: string

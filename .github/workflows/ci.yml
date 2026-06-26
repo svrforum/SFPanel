@@ -11,12 +11,23 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
+# Least privilege: CI only reads the repo. Release/signing permissions live in
+# the release workflows, not here.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref so a rapid push sequence doesn't queue
+# redundant CI.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   go-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           # Read the version from go.mod so CI never drifts behind a dep
           # bump that raises the minimum Go toolchain.
@@ -34,22 +45,22 @@ jobs:
   go-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           # Read the version from go.mod so CI never drifts behind a dep
           # bump that raises the minimum Go toolchain.
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          # Pinned to 20 to match release.yml + release-desktop.yml so all
-          # frontend builds in CI produce byte-identical output.
-          node-version: '20'
+          # Read from .nvmrc so every frontend build (here + release workflows)
+          # uses the same Node, and a single bump moves them all.
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
       - run: cd web && npm ci && npm run build
-      - uses: golangci/golangci-lint-action@v7
+      - uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
         with:
           # Pin to a v2.x release built against Go 1.25.x. The 'latest' tag
           # on the v6 action resolved to a v1.x binary built with Go 1.24,
@@ -60,7 +71,7 @@ jobs:
         # repo-wide), but dropped errors on state-mutating calls in the
         # cluster/api/auth/db packages are a correctness/security risk, so
         # run errcheck against just those with a dedicated config.
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
         with:
           version: v2.12.1
           args: -c .golangci-errcheck.yml ./internal/cluster/... ./internal/api/... ./internal/feature/auth/... ./internal/db/...
@@ -68,16 +79,16 @@ jobs:
   go-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           # Read the version from go.mod so CI never drifts behind a dep
           # bump that raises the minimum Go toolchain.
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
       - run: cd web && npm ci && npm run build
@@ -86,10 +97,10 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
       - run: cd web && npm ci
@@ -105,16 +116,16 @@ jobs:
   e2e-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           # Read the version from go.mod so CI never drifts behind a dep
           # bump that raises the minimum Go toolchain.
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version-file: .nvmrc
           cache: 'npm'
           cache-dependency-path: |
             web/package-lock.json
@@ -174,3 +185,28 @@ jobs:
         if: always()
         # PANEL_PID is the sudo wrapper; sudo forwards SIGTERM to the panel.
         run: sudo kill "$PANEL_PID" 2>/dev/null || true
+
+  # Catch reachable CVEs in the Go stdlib/modules and high-severity advisories
+  # in the production frontend deps — the gate that would have caught the
+  # toolchain drift behind the recent stdlib CVEs.
+  vuln-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: govulncheck (Go stdlib + modules)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          # The root package embeds web/dist; a stub lets the embed compile.
+          mkdir -p web/dist && echo '<!doctype html><title>ci-stub</title>' > web/dist/index.html
+          "$(go env GOPATH)/bin/govulncheck" ./cmd/... ./internal/...
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - name: npm audit (production deps, high+)
+        run: cd web && npm ci && npm audit --omit=dev --audit-level=high

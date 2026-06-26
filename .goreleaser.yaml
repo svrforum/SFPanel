@@ -35,6 +35,8 @@ archives:
     name_template: "sfpanel_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - configs/config.example.yaml
+      - LICENSE
+      - THIRD-PARTY-LICENSES.md
 
 checksum:
   name_template: "checksums.txt"

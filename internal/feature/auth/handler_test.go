@@ -52,6 +52,7 @@ func TestSetupAdmin_RefusesWhenClusterFSMHoldsAdmin(t *testing.T) {
 
 	body := strings.NewReader(`{"username":"intruder","password":"verylongpassword12345!"}`)
 	req := httptest.NewRequest("POST", "/api/v1/auth/setup", body)
+	req.RemoteAddr = "127.0.0.1:12345" // setup is restricted to loopback/LAN sources
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)
@@ -74,6 +75,60 @@ func TestSetupAdmin_RefusesWhenClusterFSMHoldsAdmin(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("local admin rows=%d, want 0 (handler must short-circuit before INSERT)", n)
+	}
+}
+
+// TestSetupAdmin_RejectsPublicSourceIP pins the first-run land-grab guard: a
+// fresh install bound to 0.0.0.0 must refuse /auth/setup from a non-private
+// source IP so a remote attacker can't claim the admin before the operator.
+func TestSetupAdmin_RejectsPublicSourceIP(t *testing.T) {
+	h := newAuthHandlerForTest(t)
+	body := strings.NewReader(`{"username":"intruder","password":"verylongpassword12345!"}`)
+	req := httptest.NewRequest("POST", "/api/v1/auth/setup", body)
+	req.RemoteAddr = "203.0.113.7:40000" // TEST-NET-3, public
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	if err := h.SetupAdmin(c); err != nil {
+		t.Fatalf("SetupAdmin returned err: %v", err)
+	}
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status=%d, want 403 (public setup blocked); body=%s", rec.Code, rec.Body.String())
+	}
+	var n int
+	if err := h.DB.QueryRow(`SELECT COUNT(*) FROM admin`).Scan(&n); err != nil {
+		t.Fatalf("count admin: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("local admin rows=%d, want 0 (gate must block before INSERT)", n)
+	}
+}
+
+func TestIsLoopbackOrPrivate(t *testing.T) {
+	cases := map[string]bool{
+		"127.0.0.1": true, "::1": true, "10.1.2.3": true, "172.16.0.1": true,
+		"192.168.1.5": true, "169.254.1.1": true, "fd00::1": true,
+		"203.0.113.7": false, "8.8.8.8": false, "1.1.1.1": false, "": false, "nope": false,
+	}
+	for ip, want := range cases {
+		if got := isLoopbackOrPrivate(ip); got != want {
+			t.Errorf("isLoopbackOrPrivate(%q)=%v, want %v", ip, got, want)
+		}
+	}
+}
+
+func TestValidatePassword(t *testing.T) {
+	reject := []string{"", "short", "elevenchars", "password123", "ADMIN123", "12345678", "qwerty123"}
+	for _, p := range reject {
+		if _, ok := validatePassword(p); ok {
+			t.Errorf("validatePassword(%q) accepted, want rejected", p)
+		}
+	}
+	accept := []string{"correct horse battery", "Xy7$kLm9!qWz", "a-perfectly-fine-passphrase"}
+	for _, p := range accept {
+		if _, ok := validatePassword(p); !ok {
+			t.Errorf("validatePassword(%q) rejected, want accepted", p)
+		}
 	}
 }
 

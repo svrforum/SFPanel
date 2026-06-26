@@ -14,6 +14,11 @@ export default defineConfig({
       // app never surfaces — that wait is what left upgraded panels serving a
       // stale precached shell pointing at chunk hashes that no longer exist.
       registerType: 'autoUpdate',
+      // The hand-written public/manifest.json (correct name/icons/theme, linked
+      // from index.html) is the source of truth. Disable the plugin's generated
+      // manifest.webmanifest, which otherwise ships a bogus second manifest
+      // (name "web", Vue-green theme, no icons).
+      manifest: false,
       workbox: {
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         globPatterns: ['**/*.{css,html,ico,png,svg,woff2}', 'assets/*.js'],
@@ -79,7 +84,11 @@ export default defineConfig({
             return 'i18n'
           }
           if (id.includes('node_modules/uplot/')) return 'uplot'
-          if (id.includes('node_modules/monaco-editor/')) return 'monaco'
+          // monaco-editor / @monaco-editor are intentionally NOT manual-chunked:
+          // forcing them into a named 'monaco' chunk made rolldown co-locate a
+          // shared symbol there that the eager entry needed, statically pulling
+          // the 3.6 MB editor into first paint. Left to default chunking they
+          // ride the lazy Files/DockerStacks chunks that actually import them.
           return undefined
         },
       },

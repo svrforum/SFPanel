@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import Editor from '@monaco-editor/react'
+import '@/lib/monaco' // configures the bundled (non-CDN) Monaco; lazy with this page so it stays out of the entry bundle
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { formatBytes, formatDate } from '@/lib/utils'

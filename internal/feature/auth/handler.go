@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -633,8 +635,8 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Current password and new password are required")
 	}
 
-	if len(req.NewPassword) < 8 {
-		return response.Fail(c, http.StatusBadRequest, response.ErrWeakPassword, "New password must be at least 8 characters")
+	if msg, ok := validatePassword(req.NewPassword); !ok {
+		return response.Fail(c, http.StatusBadRequest, response.ErrWeakPassword, msg)
 	}
 
 	username, _ := c.Get("username").(string)
@@ -675,24 +677,79 @@ func (h *Handler) ChangePassword(c echo.Context) error {
 	return response.OK(c, map[string]string{"message": "Password changed successfully"})
 }
 
+// isLoopbackOrPrivate reports whether ipStr is a loopback or RFC1918/ULA/
+// link-local address. First-run admin setup is restricted to such sources so a
+// fresh install bound to 0.0.0.0 on a public host cannot be claimed by a remote
+// attacker in the window before the operator creates the admin. Operators on a
+// public host run setup over an SSH tunnel (127.0.0.1) or from the LAN.
+func isLoopbackOrPrivate(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+}
+
 func (h *Handler) GetSetupStatus(c echo.Context) error {
+	// setup_allowed_from_here lets the UI explain WHY setup is blocked from a
+	// public source IP (see SetupAdmin's gate) instead of failing on submit.
+	allowed := isLoopbackOrPrivate(c.RealIP())
 	// Cluster mode: FSM is the source of truth for admin presence. A node
 	// that joined an existing cluster has an empty local admin table but
 	// the cluster already has an admin in the FSM; setup must NOT be
 	// required for that node, otherwise a bootstrap attacker could plant
 	// a second admin that the next leadership term would replicate.
 	if h.clusterHasAdmin() {
-		return response.OK(c, map[string]bool{"setup_required": false})
+		return response.OK(c, map[string]bool{"setup_required": false, "setup_allowed_from_here": allowed})
 	}
 	var count int
 	if err := h.DB.QueryRow("SELECT COUNT(*) FROM admin").Scan(&count); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "Database error")
 	}
-	return response.OK(c, map[string]bool{"setup_required": count == 0})
+	return response.OK(c, map[string]bool{"setup_required": count == 0, "setup_allowed_from_here": allowed})
+}
+
+const minPasswordLen = 12
+
+// commonPasswords blocks the most-guessed passwords a length check alone would
+// pass. It is a small embedded denylist (no network egress, no HIBP) — the goal
+// is to stop the worst offenders for the single root-equivalent account, not to
+// be exhaustive. Strong-password enforcement is what actually makes online
+// guessing infeasible behind the per-IP rate limiter.
+var commonPasswords = map[string]bool{
+	"password": true, "password1": true, "password123": true, "passw0rd": true,
+	"passw0rd123": true, "p@ssw0rd": true, "p@ssword1": true, "12345678": true,
+	"123456789": true, "1234567890": true, "qwertyuiop": true, "qwerty123": true,
+	"admin123": true, "administrator": true, "letmein123": true, "welcome123": true,
+	"iloveyou1": true, "sunshine1": true, "princess1": true, "changeme123": true,
+	"baseball1": true, "football1": true, "superman1": true, "abcd1234": true,
+	"abc123456": true, "1q2w3e4r5t": true, "zaq12wsx": true, "qazwsxedc": true,
+	"1qaz2wsx3edc": true, "trustno1!": true, "sfpanel123": true,
+}
+
+// validatePassword enforces the account password policy. Returns a user-facing
+// message and false when the password is rejected.
+func validatePassword(pw string) (string, bool) {
+	if len(pw) < minPasswordLen {
+		return "Password must be at least 12 characters.", false
+	}
+	if commonPasswords[strings.ToLower(pw)] {
+		return "Password is too common — choose something less guessable.", false
+	}
+	return "", true
 }
 
 func (h *Handler) SetupAdmin(c echo.Context) error {
 	ip := c.RealIP()
+	// First-run land-grab guard: a fresh install bound to 0.0.0.0 has no admin
+	// and this route is public, so without this any host that can reach the
+	// port could claim the admin of a root-power panel before the operator
+	// does. Restrict setup to loopback/LAN; public-host operators set up over
+	// an SSH tunnel (127.0.0.1) or from a trusted LAN address.
+	if !isLoopbackOrPrivate(ip) {
+		return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied,
+			"First-run setup is restricted to local/private networks. Connect from the LAN or over an SSH tunnel (http://127.0.0.1).")
+	}
 	now := time.Now()
 	setupLimiter.mu.Lock()
 	// Garbage collect stale entries for all IPs
@@ -729,8 +786,8 @@ func (h *Handler) SetupAdmin(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Username or password exceeds bounds")
 	}
 
-	if len(req.Password) < 8 {
-		return response.Fail(c, http.StatusBadRequest, response.ErrWeakPassword, "Password must be at least 8 characters")
+	if msg, ok := validatePassword(req.Password); !ok {
+		return response.Fail(c, http.StatusBadRequest, response.ErrWeakPassword, msg)
 	}
 
 	// Cluster mode: refuse to bootstrap when the FSM already holds an admin.

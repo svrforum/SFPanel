@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/common/safe"
 )
 
 // RelayWebSocket connects to a remote node's WebSocket endpoint and
@@ -124,7 +125,7 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 		return nil
 	})
 	stopPing := make(chan struct{})
-	go func() {
+	safe.Go("ws-relay-ping", func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -141,10 +142,10 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 				}
 			}
 		}
-	}()
+	})
 
 	// Client → Remote
-	go func() {
+	safe.Go("ws-relay-c2r", func() {
 		defer wg.Done()
 		for {
 			clientWS.SetReadDeadline(time.Now().Add(wsReadTimeout))
@@ -171,10 +172,10 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 				return
 			}
 		}
-	}()
+	})
 
 	// Remote → Client
-	go func() {
+	safe.Go("ws-relay-r2c", func() {
 		defer wg.Done()
 		for {
 			remoteWS.SetReadDeadline(time.Now().Add(wsReadTimeout))
@@ -199,7 +200,7 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 				return
 			}
 		}
-	}()
+	})
 
 	wg.Wait()
 	close(stopPing)
