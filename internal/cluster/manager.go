@@ -21,6 +21,15 @@ import (
 	"github.com/svrforum/SFPanel/internal/config"
 )
 
+// Replicated FSM config keys for the cluster CA. The CA private key is stored
+// alongside jwt_secret in the FSM Config map (never dumped wholesale; read only
+// by key) so any node that becomes leader can materialize it and sign joining
+// nodes' certs — fixing the single-homed-CA join failure (issue #5).
+const (
+	configKeyCACert = "cluster_ca_cert"
+	configKeyCAKey  = "cluster_ca_key"
+)
+
 // Manager is the central coordinator for all cluster operations.
 type Manager struct {
 	config    *config.ClusterConfig
@@ -229,6 +238,14 @@ func (m *Manager) Init(clusterName string) error {
 		return fmt.Errorf("set cluster name: %w", err)
 	}
 
+	// Replicate the freshly-generated CA into the FSM so every future member —
+	// and any node that later becomes leader — can sign joins. Best-effort: the
+	// boot-time syncBootstrapState seeds again as a backstop, so a transient
+	// failure here doesn't abort init.
+	if err := m.SeedClusterCA(); err != nil {
+		slog.Warn("failed to seed cluster CA into FSM (boot sync will retry)", "component", "cluster", "error", err)
+	}
+
 	m.heartbeat.StartMonitor(m.onNodeStatusChange)
 	go m.watchLeader()
 	m.events.Emit(EventNodeJoined, m.nodeID, m.nodeName, "cluster initialized as leader")
@@ -286,6 +303,7 @@ func (m *Manager) Start() error {
 // for the recovery procedure operators reach for after such an alert.
 func (m *Manager) watchLeader() {
 	w := &LeaderWatcher{}
+	wasLeader := false
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -294,7 +312,25 @@ func (m *Manager) watchLeader() {
 			if m.raft == nil {
 				continue
 			}
-			if alert, since := w.Tick(time.Now(), m.raft.IsLeader(), m.raft.LeaderID()); alert {
+			isLeader := m.raft.IsLeader()
+			// Rising edge → (re)seed the CA into the replicated FSM. This is the
+			// self-healing migration path for existing clusters: seeding requires
+			// leadership (a Raft Apply), and the one-shot boot poll in
+			// syncBootstrapState only fires if the key-holder wins election inside
+			// its 30s window. Doing it on every false→true transition guarantees
+			// the founder seeds the moment it ever leads, whenever that happens.
+			// SeedClusterCA is idempotent and early-returns once the FSM carries
+			// the key or this node has no key on disk, so this is cheap.
+			if isLeader && !wasLeader {
+				safe.Go("cluster-ca-seed-on-lead", func() {
+					if err := m.SeedClusterCA(); err != nil && err != ErrNotLeader {
+						slog.Warn("CA seed on leadership acquire failed",
+							"component", "cluster", "error", err)
+					}
+				})
+			}
+			wasLeader = isLeader
+			if alert, since := w.Tick(time.Now(), isLeader, m.raft.LeaderID()); alert {
 				slog.Error("cluster has no leader",
 					"component", "cluster",
 					"seconds_without_leader", since,
@@ -419,6 +455,15 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 	}
 	if _, exists := state.Nodes[nodeID]; exists {
 		return nil, nil, nil, nil, ErrNodeAlreadyExists
+	}
+
+	// Ensure the CA private key is on disk before signing. On a leader that
+	// joined the cluster (rather than founding the CA) the key lives only in
+	// replicated FSM state until first use; materialize it now. If it's nowhere
+	// to be found, fail with the actionable ErrCAKeyUnavailable instead of the
+	// raw ENOENT from deep inside loadCA that broke issue #5.
+	if caKeyErr := m.ensureCAKey(); caKeyErr != nil {
+		return nil, nil, nil, nil, caKeyErr
 	}
 
 	host, _, _ := net.SplitHostPort(grpcAddr)
@@ -897,6 +942,75 @@ func (m *Manager) LeaderNode() *Node {
 // GetTLS returns the TLS manager (for gRPC server setup).
 func (m *Manager) GetTLS() *TLSManager {
 	return m.tls
+}
+
+// SeedClusterCA copies this node's on-disk CA cert+key into the replicated FSM
+// config so any node that later becomes leader can materialize the key and sign
+// joining nodes' certs. Leader-only (the writes are Raft Applies). No-op when the
+// FSM already carries the key, or when this node has no CA key on disk (e.g. a
+// leader that itself never founded the CA — nothing to seed).
+//
+// New clusters seed at Init; existing clusters seed at the next leader boot via
+// syncBootstrapState, which is the migration path for panels upgrading into this
+// fix. Idempotent, so both callers are safe.
+func (m *Manager) SeedClusterCA() error {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return ErrNotLeader
+	}
+	if m.raft.GetFSM().GetState().Config[configKeyCAKey] != "" {
+		return nil // already replicated
+	}
+	if !m.tls.HasCAKey() {
+		return nil // this node has no key to seed; a peer holding it will seed on its turn
+	}
+	caCert, err := m.tls.LoadCACert()
+	if err != nil {
+		return fmt.Errorf("read CA cert: %w", err)
+	}
+	caKey, err := m.tls.LoadCAKey()
+	if err != nil {
+		return fmt.Errorf("read CA key: %w", err)
+	}
+	if err := m.SetConfig(configKeyCACert, string(caCert)); err != nil {
+		return fmt.Errorf("replicate CA cert: %w", err)
+	}
+	if err := m.SetConfig(configKeyCAKey, string(caKey)); err != nil {
+		return fmt.Errorf("replicate CA key: %w", err)
+	}
+	slog.Info("seeded cluster CA into replicated state", "component", "cluster")
+	return nil
+}
+
+// ensureCAKey guarantees this node has the CA private key on disk so it can sign
+// node certs as leader. If the key lives only in replicated FSM state (this node
+// joined the cluster rather than founding the CA), it is materialized to disk on
+// demand — so followers don't carry a loose ca.key file until they actually need
+// to sign. Returns ErrCAKeyUnavailable when the key exists neither on disk nor in
+// the FSM, which is genuinely unrecoverable without operator action.
+func (m *Manager) ensureCAKey() error {
+	if m.tls.HasCAKey() {
+		return nil
+	}
+	if m.raft == nil {
+		return ErrCAKeyUnavailable
+	}
+	cfg := m.raft.GetFSM().GetState().Config
+	keyPEM := cfg[configKeyCAKey]
+	if keyPEM == "" {
+		return ErrCAKeyUnavailable
+	}
+	// A node missing ca.key can also be missing ca.crt (never happens for a
+	// joined node, but cheap insurance): restore the public cert too.
+	if certPEM := cfg[configKeyCACert]; certPEM != "" && !m.tls.HasCA() {
+		if err := m.tls.SaveCACert([]byte(certPEM)); err != nil {
+			return fmt.Errorf("materialize CA cert: %w", err)
+		}
+	}
+	if err := m.tls.SaveCAKey([]byte(keyPEM)); err != nil {
+		return fmt.Errorf("materialize CA key: %w", err)
+	}
+	slog.Info("materialized cluster CA key from replicated state", "component", "cluster")
+	return nil
 }
 
 // ProxySecret returns the cluster-internal proxy authentication secret

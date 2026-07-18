@@ -8,6 +8,10 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cluster join no longer fails when the current leader isn't the founding node.** The cluster CA private key was created only on the node that ran `cluster init` and was never replicated, so a join served by any other leader — after a leadership change, or if the founder's `ca.key` was lost — failed to sign the new node's certificate with `load CA: open …/ca.key: no such file or directory` (issue #5), and reinstalling didn't help because the installer never regenerates a CA. The CA key is now replicated through the Raft FSM alongside the JWT secret and materialized to disk on demand, so any elected leader can sign joins; existing clusters self-heal the next time the key-holding node leads. A leader that genuinely has no CA key anywhere now returns an actionable error instead of a raw file-not-found.
+
 ---
 
 ## [0.54.0] – 2026-06-27

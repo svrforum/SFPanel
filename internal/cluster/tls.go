@@ -302,6 +302,59 @@ func (t *TLSManager) HasCA() bool {
 	return err == nil
 }
 
+// HasCAKey reports whether the CA private key is present on disk. Distinct from
+// HasCA, which checks only the public ca.crt: a node can hold ca.crt — enough to
+// bring up mTLS and serve joins — while lacking the ca.key needed to SIGN a
+// joining node's cert. That asymmetry is exactly issue #5 (a leader that never
+// founded the CA, or whose ca.key was deleted while ca.crt survived).
+func (t *TLSManager) HasCAKey() bool {
+	_, err := os.Stat(filepath.Join(t.certDir, "ca.key"))
+	return err == nil
+}
+
+// SaveCAKey writes the CA private key to disk (0600), materializing it on a node
+// that received the key via the Raft FSM rather than by founding the CA. 0600
+// perms match InitCA/SaveNodeCert — the CA key is the cluster's root signing
+// material and must never be readable by non-root processes.
+//
+// Written atomically (temp + rename), unlike SaveCACert: ensureCAKey can call
+// this concurrently from parallel HandleJoin goroutines on a freshly-promoted
+// leader, and loadCA reads ca.key without a lock. A plain truncating write would
+// let a concurrent reader observe a half-written key and fail with a spurious
+// PEM-decode error; the rename makes every read see either the old file or the
+// complete new one.
+func (t *TLSManager) SaveCAKey(keyPEM []byte) error {
+	if err := os.MkdirAll(t.certDir, 0700); err != nil {
+		return fmt.Errorf("create cert dir: %w", err)
+	}
+	// Unique temp name per call: two concurrent SaveCAKey callers must not share
+	// a fixed temp path, or one's rename races ahead and the other hits ENOENT.
+	// os.CreateTemp creates the file 0600 — the perms the CA key requires.
+	tmp, err := os.CreateTemp(t.certDir, "ca.key.*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp CA key: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op once the rename below consumes tmpName
+	if _, err := tmp.Write(keyPEM); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write CA key: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp CA key: %w", err)
+	}
+	if err := os.Rename(tmpName, filepath.Join(t.certDir, "ca.key")); err != nil {
+		return fmt.Errorf("rename CA key: %w", err)
+	}
+	return nil
+}
+
+// LoadCAKey reads the CA private key PEM from disk, used to replicate the key
+// into the cluster FSM. Returns the raw PEM bytes as written by InitCA/SaveCAKey.
+func (t *TLSManager) LoadCAKey() ([]byte, error) {
+	return os.ReadFile(filepath.Join(t.certDir, "ca.key"))
+}
+
 func (t *TLSManager) loadCA() (*x509.Certificate, *ecdsa.PrivateKey, error) {
 	certPEM, err := os.ReadFile(filepath.Join(t.certDir, "ca.crt"))
 	if err != nil {

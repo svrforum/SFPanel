@@ -16,4 +16,9 @@ var (
 	ErrCertGenFailed      = errors.New("certificate generation failed")
 	ErrRaftTimeout        = errors.New("raft operation timed out")
 	ErrGRPCConnFailed     = errors.New("gRPC connection failed")
+	// ErrCAKeyUnavailable is returned when a leader must sign a joining node's
+	// cert but the cluster CA private key is present neither on local disk nor
+	// in replicated FSM state. Surfaced to the joining operator via
+	// "join rejected: …" so the message must stay actionable.
+	ErrCAKeyUnavailable = errors.New("cluster CA private key unavailable on the leader — the leader cannot sign new node certificates; restore ca.key on the leader or re-initialize the cluster")
 )

@@ -186,6 +186,9 @@ func clusterReissueCert(args []string) {
 	if !tls.HasCA() {
 		log.Fatalf("CA cert not found under %s. This node is not the leader of a standalone-issued CA; only the leader can reissue with the cluster CA on disk. If you are a follower, ask the leader to reissue and redistribute.", certDir)
 	}
+	if !tls.HasCAKey() {
+		log.Fatalf("CA private key (ca.key) not found under %s (ca.crt is present but ca.key is not). Reissuing signs against the CA key, which only a node that holds it has. If you are a follower, ask the leader — which holds the CA key — to reissue and redistribute.", certDir)
+	}
 
 	advertise := cfg.Cluster.AdvertiseAddress
 	if advertise == "" {

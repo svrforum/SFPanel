@@ -62,4 +62,10 @@ func syncBootstrapState(ctx context.Context, mgr *cluster.Manager, database *sql
 			slog.Debug("jwt_secret cluster sync skipped", "error", cErr)
 		}
 	}
+	// Migration path for existing clusters: replicate the leader's on-disk CA
+	// into the FSM so a future non-founder leader can still sign joins. No-op
+	// once seeded, or if this leader has no CA key on disk. See SeedClusterCA.
+	if seedErr := mgr.SeedClusterCA(); seedErr != nil {
+		slog.Debug("cluster CA seed skipped", "error", seedErr)
+	}
 }
