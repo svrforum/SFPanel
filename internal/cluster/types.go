@@ -85,6 +85,17 @@ const (
 	DefaultGRPCPort          = 3629
 	DefaultHeartbeatInterval = 60 * time.Second
 	DefaultHeartbeatTimeout  = 180 * time.Second
+	// metricsStreamSendInterval is how often a follower pushes its metrics to
+	// the leader over the gRPC Heartbeat stream (StartLocalMetrics). The leader
+	// closes a Heartbeat stream idle for metricsStreamIdleTimeout, resetting
+	// that timer on each ping RECEIVED while the follower sends on its own fixed
+	// schedule — so the timeout MUST stay a comfortable multiple of the send
+	// interval. When they were equal (both 30s) any positive latency jitter let
+	// the idle timer fire just before the next ping arrived, killing the stream
+	// and producing an endless reconnect/EOF loop (~1/min per follower). These
+	// two are kept coupled here so they can't silently drift back into a race.
+	metricsStreamSendInterval = 30 * time.Second
+	metricsStreamIdleTimeout  = 3 * metricsStreamSendInterval
 	DefaultTokenTTL          = 24 * time.Hour
 	// MaxTokenTTL caps user-requested join token lifetimes. A join token is
 	// a bearer credential that grants membership in the cluster; an unbounded

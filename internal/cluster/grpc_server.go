@@ -267,7 +267,11 @@ func (s *GRPCServer) Leave(ctx context.Context, req *pb.LeaveRequest) (*pb.Leave
 
 // Heartbeat implements bidirectional heartbeat streaming.
 func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
-	const idleTimeout = 30 * time.Second
+	// Sourced from the package-level constant so it stays coupled to the
+	// follower send interval — an idle timeout equal to (or below) the send
+	// interval races the timer ahead of the next ping and kills the stream.
+	// See metricsStreamSendInterval in types.go.
+	const idleTimeout = metricsStreamIdleTimeout
 
 	// Bind the stream to its mTLS identity. The stream interceptor already
 	// guarantees a verified client cert here; node certs carry CN == node ID,
