@@ -1,6 +1,6 @@
 module github.com/svrforum/SFPanel
 
-go 1.25.11
+go 1.25.12
 
 require (
 	github.com/creack/pty v1.1.24
@@ -16,7 +16,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.5
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.52.0
-	google.golang.org/grpc v1.81.1
+	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.51.0
