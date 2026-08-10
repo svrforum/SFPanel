@@ -101,12 +101,12 @@ func fetchComposeFile(ctx context.Context, req ImportRequest) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("fetch: %w", err)
 	}
-	switch {
-	case status == http.StatusOK:
+	switch status {
+	case http.StatusOK:
 		return string(body), nil
-	case status == http.StatusUnauthorized, status == http.StatusForbidden:
+	case http.StatusUnauthorized, http.StatusForbidden:
 		return "", ErrAuthFailed
-	case status == http.StatusNotFound:
+	case http.StatusNotFound:
 		// The Contents API 404s for both a missing repo and a missing path; one
 		// cheap probe distinguishes them so the user gets the right message.
 		if repoExists(ctx, owner, repo, req.Token) {

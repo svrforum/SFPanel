@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -23,46 +23,54 @@ import (
 // caller's contextual choice (see response.Fail), not a property of the code.
 func TestErrorCodeValuesUnique(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi fs.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("parse response package: %v", err)
+		t.Fatalf("read response package dir: %v", err)
+	}
+	var files []*ast.File
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, perr := parser.ParseFile(fset, name, nil, 0)
+		if perr != nil {
+			t.Fatalf("parse %s: %v", name, perr)
+		}
+		files = append(files, file)
 	}
 
 	seen := make(map[string]string) // value -> first constant name that used it
 	count := 0
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			for _, decl := range file.Decls {
-				gd, ok := decl.(*ast.GenDecl)
-				if !ok || gd.Tok != token.CONST {
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
 					continue
 				}
-				for _, spec := range gd.Specs {
-					vs, ok := spec.(*ast.ValueSpec)
-					if !ok {
+				for i, name := range vs.Names {
+					if !strings.HasPrefix(name.Name, "Err") || i >= len(vs.Values) {
 						continue
 					}
-					for i, name := range vs.Names {
-						if !strings.HasPrefix(name.Name, "Err") || i >= len(vs.Values) {
-							continue
-						}
-						lit, ok := vs.Values[i].(*ast.BasicLit)
-						if !ok || lit.Kind != token.STRING {
-							continue
-						}
-						val, uerr := strconv.Unquote(lit.Value)
-						if uerr != nil {
-							continue
-						}
-						count++
-						if prev, dup := seen[val]; dup {
-							t.Errorf("duplicate error-code value %q shared by %s and %s", val, prev, name.Name)
-							continue
-						}
-						seen[val] = name.Name
+					lit, ok := vs.Values[i].(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						continue
 					}
+					val, uerr := strconv.Unquote(lit.Value)
+					if uerr != nil {
+						continue
+					}
+					count++
+					if prev, dup := seen[val]; dup {
+						t.Errorf("duplicate error-code value %q shared by %s and %s", val, prev, name.Name)
+						continue
+					}
+					seen[val] = name.Name
 				}
 			}
 		}
