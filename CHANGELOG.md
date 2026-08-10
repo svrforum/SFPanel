@@ -12,6 +12,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 - **gRPC bumped to v1.82.1**, clearing GO-2026-6061 — the advisory's vulnerable code paths are reachable through the cluster's mTLS gRPC server (heartbeat/subscribe streams). mTLS already limited exposure to cluster peers; shipped binaries now carry the fixed transport.
 - **Go toolchain bumped to 1.25.12**, clearing the crypto/tls advisory GO-2026-5856 from shipped binaries.
+- **Indirect dependencies lifted past their advisories** — x/net 0.56.0 (GO-2026-5942), x/text 0.39.0 (GO-2026-5970), OpenTelemetry 1.44.0 (GO-2026-5158). None were on called code paths; the bumps clear the vuln-scan gate and shrink the audit surface.
 
 ### CI & build
 
