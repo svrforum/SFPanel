@@ -23,7 +23,8 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         globPatterns: ['**/*.{css,html,ico,png,svg,woff2}', 'assets/*.js'],
         globIgnores: [
-          '**/monaco-*.js', '**/ts.worker-*.js', '**/css.worker-*.js',
+          // rolldown ≥1.1 (vite 8.1+) names the monaco chunk editor.api2-*.js
+          '**/monaco-*.js', '**/editor.api2-*.js', '**/ts.worker-*.js', '**/css.worker-*.js',
           '**/html.worker-*.js', '**/json.worker-*.js', '**/editor.worker-*.js',
           '**/xterm-*.js', '**/lspLanguageFeatures-*.js', '**/tsMode-*.js',
           '**/cssMode-*.js', '**/htmlMode-*.js', '**/jsonMode-*.js',
