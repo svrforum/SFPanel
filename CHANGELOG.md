@@ -6,7 +6,9 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
-## [Unreleased]
+## [0.55.0] – 2026-08-11
+
+A security-and-maintenance release: the CI pipeline is fully green again, every open Dependabot PR was reviewed and either merged or superseded, and all fixable dependency advisories are cleared from shipped binaries. Includes the two cluster fixes that had been sitting unreleased on main since July (issue #5).
 
 ### Security
 
@@ -21,6 +23,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 - The release signing step now pins cosign v2: cosign v3 removed the `--output-signature`/`--output-certificate` flags, and deployed panels verify updates against those legacy artifacts — the bundle-format migration needs its own coordinated release.
 - The vuln-scan gate now keys on fixability (`Fixed in: N/A`) instead of the docker/docker module name — unfixable advisories in other modules (x/crypto's openpgp deprecation) no longer wedge CI red, and a future *fixable* docker/docker advisory now correctly fails the gate.
 - The PWA service worker keeps Monaco out of the precache under vite 8.1+ (rolldown 1.1 renamed the chunk `monaco-*` → `editor.api2-*`, which slipped past the old ignore pattern and would have added ~3.5 MB to every client's SW install).
+
+### Dependencies
+
+The Dependabot backlog (19 PRs, oldest from June) was reviewed per-PR and merged; superseded PRs were closed with the landing commit referenced. Highlights:
+
+- **Go**: echo 4.15.4 (upstream security backport — SFPanel serves its SPA through its own handler, so the static-file advisory never applied), modernc.org/sqlite 1.56.0, gopsutil 4.26.6, docker/go-connections 0.7.0 (adds idle-connection limits to the long-lived Docker client), OpenTelemetry aligned at 1.44.0.
+- **GitHub Actions** (all SHA-pinned, majors verified against this repo's usage): checkout 7.0.1, setup-node 7.0.0, setup-go 6.5.0, goreleaser-action 7.2.2, cosign-installer 4.1.2 (cosign itself pinned to v2 — see above).
+- **Web**: vite 8.1.0, @vitejs/plugin-react 6.0.3, @types/node 26, eslint-plugin-react-refresh 0.5.3.
+- **Desktop**: tauri crate 2.11.1 paired with @tauri-apps/api 2.11.1 and @tauri-apps/cli 2.11.4; serde_with/rand patch bumps.
+- **e2e**: Playwright 1.62.1; typescript aligned with web at ^6.0.3 (the proposed TypeScript 7 jump was declined — nothing in e2e invokes tsc, and web's toolchain needs 6.x).
 
 ### Fixed
 

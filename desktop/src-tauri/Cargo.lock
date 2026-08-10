@@ -3769,7 +3769,7 @@ dependencies = [
 
 [[package]]
 name = "sfpanel-desktop"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "dirs",
  "serde",
