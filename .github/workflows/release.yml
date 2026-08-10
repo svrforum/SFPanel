@@ -52,6 +52,12 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        with:
+          # Pin cosign v2: the sign-blob flags below and the in-binary verifier
+          # (internal/release/cosign.go) expect legacy .sig/.pem artifacts, which
+          # cosign v3 no longer emits (bundle-only). Migrating to bundles needs a
+          # coordinated release so already-deployed panels can still verify.
+          cosign-release: 'v2.6.5'
 
       - name: Sign checksums.txt with cosign keyless
         run: |
