@@ -335,7 +335,7 @@ func (t *TLSManager) SaveCAKey(keyPEM []byte) error {
 		return fmt.Errorf("create temp CA key: %w", err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName) // no-op once the rename below consumes tmpName
+	defer func() { _ = os.Remove(tmpName) }() // no-op once the rename below consumes tmpName
 	if _, err := tmp.Write(keyPEM); err != nil {
 		tmp.Close()
 		return fmt.Errorf("write CA key: %w", err)
