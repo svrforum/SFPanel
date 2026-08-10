@@ -204,14 +204,17 @@ jobs:
           mkdir -p web/dist && echo '<!doctype html><title>ci-stub</title>' > web/dist/index.html
           out=$("$(go env GOPATH)/bin/govulncheck" -show verbose ./cmd/... ./internal/... || true)
           echo "$out"
-          # The github.com/docker/docker advisories currently have no upstream
-          # fix (govulncheck: "Fixed in: N/A"). Acknowledge those, but fail on
-          # any OTHER affected module so genuinely-fixable vulns still gate.
-          if echo "$out" | grep -E '^[[:space:]]+Module:' | grep -qv 'github.com/docker/docker'; then
-            echo "::error::govulncheck found a fixable vulnerability outside docker/docker"
+          # Gate on fixability, not on a module allowlist: advisories with no
+          # upstream fix ("Fixed in: N/A" — the docker/docker set, x/crypto's
+          # openpgp deprecation) are unactionable and acknowledged; any advisory
+          # that HAS a fix fails the gate whatever the module, so a future
+          # docker/docker fix can no longer slip through the old name-based grep.
+          fixable=$(echo "$out" | awk '/^[[:space:]]*Module:/{m=$2} /^[[:space:]]*Fixed in:/{if ($NF != "N/A") print m}' | sort -u)
+          if [ -n "$fixable" ]; then
+            echo "::error::govulncheck found fixable vulnerabilities in: $(echo "$fixable" | tr '\n' ' ')"
             exit 1
           fi
-          echo "OK: only the known unfixable docker/docker advisories remain."
+          echo "OK: only advisories with no upstream fix remain."
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc

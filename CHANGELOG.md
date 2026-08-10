@@ -18,6 +18,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 - CI is green again: fixed the two `staticcheck` violations (`parser.ParseDir` deprecation in the error-code uniqueness test, an untagged switch in the compose git import) that had kept `go-lint` red since the Go 1.25 toolchain bump.
 - The release signing step now pins cosign v2: cosign v3 removed the `--output-signature`/`--output-certificate` flags, and deployed panels verify updates against those legacy artifacts — the bundle-format migration needs its own coordinated release.
+- The vuln-scan gate now keys on fixability (`Fixed in: N/A`) instead of the docker/docker module name — unfixable advisories in other modules (x/crypto's openpgp deprecation) no longer wedge CI red, and a future *fixable* docker/docker advisory now correctly fails the gate.
 - The PWA service worker keeps Monaco out of the precache under vite 8.1+ (rolldown 1.1 renamed the chunk `monaco-*` → `editor.api2-*`, which slipped past the old ignore pattern and would have added ~3.5 MB to every client's SW install).
 
 ### Fixed
