@@ -8,6 +8,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ## [Unreleased]
 
+### Security
+
+- **gRPC bumped to v1.82.1**, clearing GO-2026-6061 — the advisory's vulnerable code paths are reachable through the cluster's mTLS gRPC server (heartbeat/subscribe streams). mTLS already limited exposure to cluster peers; shipped binaries now carry the fixed transport.
+- **Go toolchain bumped to 1.25.12**, clearing the crypto/tls advisory GO-2026-5856 from shipped binaries.
+
+### CI & build
+
+- CI is green again: fixed the two `staticcheck` violations (`parser.ParseDir` deprecation in the error-code uniqueness test, an untagged switch in the compose git import) that had kept `go-lint` red since the Go 1.25 toolchain bump.
+- The release signing step now pins cosign v2: cosign v3 removed the `--output-signature`/`--output-certificate` flags, and deployed panels verify updates against those legacy artifacts — the bundle-format migration needs its own coordinated release.
+- The PWA service worker keeps Monaco out of the precache under vite 8.1+ (rolldown 1.1 renamed the chunk `monaco-*` → `editor.api2-*`, which slipped past the old ignore pattern and would have added ~3.5 MB to every client's SW install).
+
 ### Fixed
 
 - **Cluster follower metrics no longer flap with a constant heartbeat-EOF loop.** The leader closed a follower's metrics-heartbeat gRPC stream after 30 s idle, the exact interval at which the follower sends — and because the idle timer resets on each ping *received* while the follower sends on a fixed schedule, any network/scheduling jitter let the timer fire just before the next ping and killed the stream, reconnecting endlessly (~1/min per follower, so a follower's metrics/online status kept dropping on the leader's dashboard). The stream idle timeout is now 3× the send interval and the two values are coupled in one place so they can't drift back into the race.
