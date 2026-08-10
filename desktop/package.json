@@ -12,6 +12,6 @@
     "@tauri-apps/plugin-updater": "~2.10.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "~2.10.0"
+    "@tauri-apps/cli": "~2.11.4"
   }
 }
