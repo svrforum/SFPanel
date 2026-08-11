@@ -166,6 +166,10 @@ download_binary() {
       # Pin the identity to the release workflow on a TAG ref (mirrors the
       # in-binary policy at internal/release/cosign.go) — the old `/workflows/.*`
       # regexp would accept a signature minted by ANY workflow in the repo.
+      # The detached --signature/--certificate flags work on cosign v2 AND v3
+      # (deprecated-with-warning on v3.1.3, verified against the v0.56.0
+      # assets). If cosign v4 removes them, switch to the release's
+      # checksums.txt.sigstore.json bundle (published since v0.56.0).
       if ! cosign verify-blob \
           --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
           --certificate-identity-regexp "^https://github.com/${REPO}/\.github/workflows/release\.yml@refs/tags/v" \

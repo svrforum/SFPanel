@@ -1,0 +1,2 @@
+a721ce4ba44c289350f42c321d7205dd02e18809fd0128c5a85e2f3aafb8985a  sfpanel_0.56.0_linux_amd64.tar.gz
+eb75c505abbf8420058441fa61d8a0d4da4ffcf6e89381887059ac506beb51dd  sfpanel_0.56.0_linux_arm64.tar.gz

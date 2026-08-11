@@ -178,6 +178,26 @@ func TestVerifyRealBundleFromEnv(t *testing.T) {
 	}
 }
 
+// TestVerifyCosignBundle_RealV056Fixture verifies a REAL cosign v3.1.3
+// bundle — vendored from the published v0.56.0 release — against the
+// production Fulcio roots and identity pin. The synthetic fixtures above
+// share their field model with the verifier, so only a real bundle can catch
+// the model drifting from actual cosign output. The fixture stays valid
+// forever: verifyCosignLeaf pins CurrentTime to the cert's NotBefore.
+func TestVerifyCosignBundle_RealV056Fixture(t *testing.T) {
+	blob, err := os.ReadFile("testdata/v0.56.0-checksums.txt")
+	if err != nil {
+		t.Fatalf("read fixture blob: %v", err)
+	}
+	bundle, err := os.ReadFile("testdata/v0.56.0-checksums.txt.sigstore.json")
+	if err != nil {
+		t.Fatalf("read fixture bundle: %v", err)
+	}
+	if err := VerifyCosignBundle(blob, bundle, SFPanelReleaseIdentity()); err != nil {
+		t.Fatalf("real v0.56.0 bundle failed verification: %v", err)
+	}
+}
+
 // TestVerifyCosignBundle_GoldenPath_ChainForm proves the v0.1/v0.2
 // x509CertificateChain form (leaf-first) is accepted too.
 func TestVerifyCosignBundle_GoldenPath_ChainForm(t *testing.T) {
