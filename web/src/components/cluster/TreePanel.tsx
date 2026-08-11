@@ -1,15 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Crown, ChevronDown, ChevronRight, Server, LogOut, PanelLeftClose, PanelLeftOpen, Coffee } from 'lucide-react'
-
-// lucide-react dropped brand icons; inline the GitHub mark.
-const GithubIcon = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
-    <path d="M12 0C5.374 0 0 5.373 0 12 0 17.302 3.438 21.8 8.207 23.387c.6.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
-  </svg>
-)
 import { useTranslation } from 'react-i18next'
-import { cn } from '@/lib/utils'
+import GithubIcon from '@/components/GithubIcon'
+import { cn, nodeStatusColor } from '@/lib/utils'
 import type { ClusterNode, ClusterStatus } from '@/types/api'
 
 export type TreeSelection =
@@ -56,23 +50,14 @@ export default function TreePanel({
     [nodes, localId],
   )
 
-  const statusColor = (status: string) => {
-    switch (status) {
-      case 'online': return 'bg-success'
-      case 'suspect': return 'bg-warning'
-      case 'offline': return 'bg-destructive'
-      default: return 'bg-muted-foreground'
-    }
-  }
-
   if (collapsed) {
     return (
       <div className="w-[52px] bg-card border-r border-border flex flex-col h-full shrink-0">
         <button
           onClick={onToggleCollapse}
           className="flex items-center justify-center py-3 hover:bg-accent transition-colors border-b border-border outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-          title="Expand tree"
-          aria-label="Expand tree"
+          title={t('layout.expand')}
+          aria-label={t('layout.expand')}
         >
           <PanelLeftOpen className="h-4 w-4 text-foreground/60" />
         </button>
@@ -105,7 +90,7 @@ export default function TreePanel({
               title={node.name}
               aria-label={node.name}
             >
-              <span className={cn('h-2.5 w-2.5 rounded-full', statusColor(node.status))} />
+              <span className={cn('h-2.5 w-2.5 rounded-full', nodeStatusColor(node.status))} />
             </button>
           ))}
         </div>
@@ -126,7 +111,7 @@ export default function TreePanel({
         <Link to="/dashboard" aria-label="SFPanel" className="flex-1 min-w-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
           <img src="/banner.png" alt="SFPanel" className="w-full h-auto" />
         </Link>
-        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" title="Collapse tree" aria-label="Collapse tree">
+        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" title={t('layout.collapse')} aria-label={t('layout.collapse')}>
           <PanelLeftClose className="h-4 w-4 text-foreground/60" />
         </button>
       </div>
@@ -142,6 +127,9 @@ export default function TreePanel({
           <button
             onClick={() => setNodesExpanded(!nodesExpanded)}
             className="p-1 rounded hover:bg-accent transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+            title={t('cluster.tree.toggleNodes')}
+            aria-label={t('cluster.tree.toggleNodes')}
+            aria-expanded={nodesExpanded}
           >
             {nodesExpanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
           </button>
@@ -177,13 +165,13 @@ export default function TreePanel({
                     : 'text-foreground/80 hover:bg-accent'
                 )}
               >
-                <span className={cn('h-2 w-2 rounded-full shrink-0', statusColor(node.status))} />
+                <span className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(node.status))} />
                 <span className="truncate">{node.name}</span>
                 {isLeader && nodes.length > 1 && (
                   <Crown className="h-2.5 w-2.5 text-primary shrink-0 ml-auto" />
                 )}
                 {isLocal && !isLeader && (
-                  <span className="text-[8px] text-muted-foreground ml-auto shrink-0">local</span>
+                  <span className="text-[8px] text-muted-foreground ml-auto shrink-0">{t('cluster.tree.local')}</span>
                 )}
               </button>
             )

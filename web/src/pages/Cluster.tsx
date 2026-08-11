@@ -1,14 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Server, LayoutDashboard, KeyRound, Layers } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const tabs = [
-  { to: 'overview', labelKey: 'cluster.nav.overview', icon: LayoutDashboard },
-  { to: 'nodes', labelKey: 'cluster.nav.nodes', icon: Server },
-  { to: 'stacks', labelKey: 'cluster.nav.stacks', icon: Layers },
-  { to: 'tokens', labelKey: 'cluster.nav.tokens', icon: KeyRound },
-]
+import { CLUSTER_TAB_ITEMS } from '@/components/cluster/datacenterMenu'
 
 export default function Cluster() {
   const { t } = useTranslation()
@@ -17,7 +10,7 @@ export default function Cluster() {
     <div className="space-y-6">
       <h1 className="text-[22px] font-bold tracking-tight">{t('cluster.title')}</h1>
       <div className="flex items-center gap-1">
-        {tabs.map((tab) => (
+        {CLUSTER_TAB_ITEMS.map((tab) => (
           <NavLink
             key={tab.to}
             to={tab.to}

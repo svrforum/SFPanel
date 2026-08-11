@@ -1,33 +1,18 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Loader2, Power, Download, Pencil, LogOut, CheckCircle2, XCircle, Clock, AlertTriangle, MinusCircle, ArrowRightLeft } from 'lucide-react'
+import { Server, Cpu, MemoryStick, HardDrive, Container, Crown, Bell, Power, Download, Pencil, LogOut } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { ClusterOverview as ClusterOverviewType, ClusterStatus, ClusterEvent, ClusterNode, ClusterNodeMetrics } from '@/types/api'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { cn } from '@/lib/utils'
+import { cn, nodeStatusColor } from '@/lib/utils'
+import { waitForServerBack } from '@/lib/restart'
 import { toast } from 'sonner'
-
-// One event from the cluster-update SSE stream. Either a per-node step event
-// (node_id + step) or an overall lifecycle event (overall).
-type UpdateEvent = {
-  node_id?: string
-  node_name?: string
-  step?: string
-  message?: string
-  overall?: string
-  total_nodes?: number
-  updated?: number
-  failed?: number
-  mode?: string
-}
-
-// Per-node update state, reduced from the event stream (latest step wins).
-type NodeUpdateState = { node_id: string; node_name: string; step: string; message: string }
+import { ClusterInitForm } from './components/ClusterInitForm'
+import { ClusterUpdateProgress, type UpdateEvent } from './components/ClusterUpdateProgress'
+import { EditNodeAddressDialog } from './components/EditNodeAddressDialog'
 
 // The combined snapshot pushed over /ws/cluster/overview (status + overview +
 // recent events in one message). Followers serve their replicated FSM view with
@@ -45,22 +30,6 @@ interface ClusterSnapshot {
   events?: ClusterEvent[]
 }
 
-// Terminal "done" steps drive the completed count; error is its own bucket.
-// Remaining steps (updating/waiting/transfer/warning/skipped) render as in-flight
-// or soft-fail in the stepper.
-const ERROR_STEPS = new Set(['error'])
-const DONE_STEPS = new Set(['complete', 'online'])
-
-function stepIcon(step: string) {
-  if (DONE_STEPS.has(step)) return <CheckCircle2 className="h-4 w-4 text-success" />
-  if (ERROR_STEPS.has(step)) return <XCircle className="h-4 w-4 text-destructive" />
-  if (step === 'warning') return <AlertTriangle className="h-4 w-4 text-warning" />
-  if (step === 'skipped') return <MinusCircle className="h-4 w-4 text-muted-foreground" />
-  if (step === 'waiting') return <Clock className="h-4 w-4 text-warning" />
-  if (step === 'transfer') return <ArrowRightLeft className="h-4 w-4 text-primary" />
-  return <Loader2 className="h-4 w-4 text-primary animate-spin" />
-}
-
 export default function ClusterOverview() {
   const { t } = useTranslation()
   const confirm = useConfirm()
@@ -76,15 +45,14 @@ export default function ClusterOverview() {
   // Per-node address editing
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editingNode, setEditingNode] = useState<ClusterNode | null>(null)
-  const [editApiAddr, setEditApiAddr] = useState('')
-  const [editGrpcAddr, setEditGrpcAddr] = useState('')
-  const [savingAddr, setSavingAddr] = useState(false)
 
   const loadData = useCallback(() => {
     Promise.all([
-      api.getClusterStatus(),
-      api.getClusterOverview().catch(() => null),
-      api.getClusterEvents(20).catch(() => ({ events: [] })),
+      // local:true pins the datacenter-scope status to this node so local_id /
+      // is_leader stay correct even while a remote node is selected (?node=).
+      api.getClusterStatus(true),
+      api.getClusterOverview(true).catch(() => null),
+      api.getClusterEvents(20, true).catch(() => ({ events: [] })),
     ]).then(([s, o, e]) => {
       setStatus(s)
       setOverview(o)
@@ -129,39 +97,6 @@ export default function ClusterOverview() {
     }
   }, [loadData])
 
-  // Reduce the raw SSE events into per-node state + an overall summary so the
-  // UI renders a per-node stepper instead of a flat scrolling log. Declared
-  // before any early return to keep hook order stable.
-  const updateProgress = useMemo(() => {
-    const byNode = new Map<string, NodeUpdateState>()
-    let total = 0
-    let overall = ''
-    let done = 0
-    let failed = 0
-    for (const e of updateLog) {
-      if (e.overall) {
-        overall = e.overall
-        if (typeof e.total_nodes === 'number') total = e.total_nodes
-        if (typeof e.updated === 'number') done = e.updated
-        if (typeof e.failed === 'number') failed = e.failed
-        continue
-      }
-      if (e.node_id) {
-        byNode.set(e.node_id, {
-          node_id: e.node_id,
-          node_name: e.node_name || e.node_id,
-          step: e.step || '',
-          message: e.message || '',
-        })
-      }
-    }
-    const list = Array.from(byNode.values())
-    const completed = overall === 'complete' || overall === 'error'
-      ? done
-      : list.filter(n => DONE_STEPS.has(n.step) || n.step === 'warning' || n.step === 'skipped').length
-    return { list, total: total || list.length, completed, overall, failed }
-  }, [updateLog])
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-32">
@@ -176,23 +111,9 @@ export default function ClusterOverview() {
       await api.disbandCluster()
       setDisbandOpen(false)
       toast.success(t('cluster.overview.disbanded'))
-      setTimeout(() => {
-        let attempts = 0
-        const maxAttempts = 15
-        const check = setInterval(() => {
-          attempts++
-          if (attempts >= maxAttempts) {
-            clearInterval(check)
-            window.location.reload()
-            return
-          }
-          fetch(`${api.apiBase}/cluster/status`, {
-            headers: { 'Authorization': `Bearer ${api.getToken()}` },
-          })
-            .then((r) => { if (r.ok) { clearInterval(check); window.location.reload() } })
-            .catch(() => {})
-        }, 2000)
-      }, 1000)
+      // Wait for the self-restart (bounded, lib default 5 min), then reload;
+      // on timeout reload anyway, matching the old inline copy's give-up path.
+      waitForServerBack({ onTimeout: () => window.location.reload() })
     } catch (err) {
       toast.error(String(err))
       setDisbanding(false)
@@ -205,7 +126,7 @@ export default function ClusterOverview() {
     setUpdateLog([])
     try {
       await api.clusterUpdateStream(mode, (data) => {
-        setUpdateLog(prev => [...prev, data as typeof prev[0]])
+        setUpdateLog(prev => [...prev, data as UpdateEvent])
       })
     } catch (err) {
       toast.error(String(err))
@@ -217,24 +138,7 @@ export default function ClusterOverview() {
 
   const openEditAddress = (node: ClusterNode) => {
     setEditingNode(node)
-    setEditApiAddr(node.api_address)
-    setEditGrpcAddr(node.grpc_address)
     setEditDialogOpen(true)
-  }
-
-  const handleSaveAddress = async () => {
-    if (!editingNode) return
-    setSavingAddr(true)
-    try {
-      await api.updateClusterNodeAddress(editingNode.id, editApiAddr.trim(), editGrpcAddr.trim())
-      toast.success(t('cluster.nodes.addressUpdated'))
-      setEditDialogOpen(false)
-      loadData()
-    } catch (err) {
-      toast.error(String(err))
-    } finally {
-      setSavingAddr(false)
-    }
   }
 
   const handleLeave = async () => {
@@ -284,7 +188,7 @@ export default function ClusterOverview() {
           local FSM without leader confirmation. Likely partition or
           mid-election; numbers below may not reflect the real cluster state. */}
       {status.stale && (
-        <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/40 rounded-xl px-4 py-2 text-[12px] text-amber-800 dark:text-amber-200">
+        <div className="bg-warning/10 border border-warning/30 rounded-xl px-4 py-2 text-[12px] text-warning">
           {t('cluster.overview.staleData')}
         </div>
       )}
@@ -341,46 +245,7 @@ export default function ClusterOverview() {
       </div>
 
       {/* Update progress */}
-      {updateLog.length > 0 && (
-        <div className="bg-card rounded-2xl p-5 card-shadow">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-[15px] font-semibold">{t('cluster.overview.updateProgress')}</h3>
-            <span className="text-[12px] text-muted-foreground tabular-nums">
-              {updateProgress.completed} / {updateProgress.total}
-              {updateProgress.failed > 0 && (
-                <span className="text-destructive ml-2">· {t('cluster.overview.updateFailed', { count: updateProgress.failed })}</span>
-              )}
-            </span>
-          </div>
-          {/* Overall progress bar */}
-          <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-4">
-            <div
-              className={cn('h-full rounded-full transition-all duration-500',
-                updateProgress.overall === 'error' ? 'bg-destructive' : 'bg-primary')}
-              style={{ width: `${updateProgress.total > 0 ? (updateProgress.completed / updateProgress.total) * 100 : 0}%` }}
-            />
-          </div>
-          {/* Per-node stepper */}
-          <div className="space-y-2">
-            {updateProgress.list.map((n) => (
-              <div key={n.node_id} className="flex items-center gap-3">
-                <span className="shrink-0">{stepIcon(n.step)}</span>
-                <span className="text-[13px] font-medium w-40 truncate shrink-0">{n.node_name}</span>
-                <span className="text-[12px] text-muted-foreground truncate">
-                  {t(`cluster.overview.step.${n.step}`, { defaultValue: n.step })}
-                  {n.message ? ` — ${n.message}` : ''}
-                </span>
-              </div>
-            ))}
-            {updateProgress.overall === 'complete' && (
-              <div className="flex items-center gap-3 pt-1">
-                <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
-                <span className="text-[13px] font-semibold">{t('cluster.overview.updateComplete')}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {updateLog.length > 0 && <ClusterUpdateProgress updateLog={updateLog} />}
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -404,12 +269,11 @@ export default function ClusterOverview() {
           {nodes.map((node) => {
             const nodeMetrics = metrics.find(m => m.node_id === node.id)
             const isLeader = node.id === status.leader_id
-            const statusColor = node.status === 'online' ? 'var(--success)' : node.status === 'suspect' ? 'var(--warning)' : 'var(--destructive)'
 
             return (
               <div key={node.id} className="px-5 py-4 flex items-center gap-4">
                 <div className="flex items-center gap-3 min-w-[200px]">
-                  <span className={cn('h-2.5 w-2.5 rounded-full')} style={{ backgroundColor: statusColor }} />
+                  <span className={cn('h-2.5 w-2.5 rounded-full', nodeStatusColor(node.status))} />
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-[13px] font-medium">{node.name}</span>
@@ -511,45 +375,12 @@ export default function ClusterOverview() {
       )}
 
       {/* Edit node address dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-[15px]">
-              {t('cluster.nodes.editAddress')}{editingNode ? ` — ${editingNode.name}` : ''}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
-                {t('cluster.nodes.apiAddress')}
-              </label>
-              <Input
-                value={editApiAddr}
-                onChange={(e) => setEditApiAddr(e.target.value)}
-                className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
-                {t('cluster.nodes.grpcAddress')}
-              </label>
-              <Input
-                value={editGrpcAddr}
-                onChange={(e) => setEditGrpcAddr(e.target.value)}
-                className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" className="rounded-xl" onClick={() => setEditDialogOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button className="rounded-xl" onClick={handleSaveAddress} disabled={savingAddr}>
-              {savingAddr ? t('common.saving') : t('common.save')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EditNodeAddressDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        node={editingNode}
+        onSaved={loadData}
+      />
 
       {/* Disband Type-to-Confirm */}
       <TypeToConfirmDialog
@@ -579,230 +410,6 @@ function MetricBar({ label, value }: { label: string; value: number }) {
           className="h-full rounded-full transition-all duration-500"
           style={{ width: `${Math.min(100, value)}%`, backgroundColor: color }}
         />
-      </div>
-    </div>
-  )
-}
-
-function ClusterInitForm() {
-  const { t } = useTranslation()
-  const [clusterName, setClusterName] = useState('sfpanel')
-  const [interfaces, setInterfaces] = useState<{ name: string; address: string }[]>([])
-  const [selectedAddr, setSelectedAddr] = useState('')
-  const [initializing, setInitializing] = useState(false)
-  const [restarting, setRestarting] = useState(false)
-
-  // Join form state
-  const [leaderAddress, setLeaderAddress] = useState('')
-  const [joinToken, setJoinToken] = useState('')
-  const [joining, setJoining] = useState(false)
-
-  useEffect(() => {
-    api.getClusterInterfaces()
-      .then((data) => {
-        setInterfaces(data.interfaces || [])
-        if (data.interfaces?.length > 0) {
-          setSelectedAddr(data.interfaces[0].address)
-        }
-      })
-      .catch(() => {})
-  }, [])
-
-  const handleInit = async () => {
-    if (!clusterName.trim()) return
-    setInitializing(true)
-    try {
-      await api.initCluster(clusterName.trim(), selectedAddr)
-      toast.success(t('cluster.init.success'))
-      setRestarting(true)
-      // Wait for service restart, then reload
-      setTimeout(() => {
-        const check = setInterval(() => {
-          fetch(`${api.apiBase}/cluster/status`, {
-            headers: { 'Authorization': `Bearer ${api.getToken()}` },
-          })
-            .then((r) => {
-              if (r.ok) {
-                clearInterval(check)
-                window.location.reload()
-              }
-            })
-            .catch(() => {})
-        }, 2000)
-      }, 1000)
-    } catch (err) {
-      toast.error(String(err))
-      setInitializing(false)
-    }
-  }
-
-  const handleJoin = async () => {
-    if (!leaderAddress.trim() || !joinToken.trim()) return
-    setJoining(true)
-    try {
-      await api.joinCluster(leaderAddress.trim(), joinToken.trim(), selectedAddr || undefined)
-      toast.success(t('cluster.join.success'))
-      setRestarting(true)
-      setTimeout(() => {
-        const check = setInterval(() => {
-          fetch(`${api.apiBase}/cluster/status`, {
-            headers: { 'Authorization': `Bearer ${api.getToken()}` },
-          })
-            .then((r) => {
-              if (r.ok) {
-                clearInterval(check)
-                window.location.reload()
-              }
-            })
-            .catch(() => {})
-        }, 2000)
-      }, 1000)
-    } catch (err) {
-      toast.error(String(err))
-      setJoining(false)
-    }
-  }
-
-  if (restarting) {
-    return (
-      <div className="bg-card rounded-2xl p-8 card-shadow text-center space-y-4">
-        <Loader2 className="h-10 w-10 text-primary mx-auto animate-spin" />
-        <h2 className="text-[15px] font-semibold">{t('cluster.init.restarting')}</h2>
-        <p className="text-[13px] text-muted-foreground">{t('cluster.init.restartingDesc')}</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="bg-card rounded-2xl p-8 card-shadow space-y-6 max-w-lg mx-auto">
-      <div className="text-center space-y-2">
-        <Server className="h-12 w-12 text-muted-foreground mx-auto" />
-        <h2 className="text-[15px] font-semibold">{t('cluster.notEnabled.title')}</h2>
-        <p className="text-[13px] text-muted-foreground">
-          {t('cluster.notEnabled.description')}
-        </p>
-      </div>
-
-      <div className="space-y-4">
-        {/* Cluster name */}
-        <div className="space-y-1.5">
-          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
-            {t('cluster.init.clusterName')}
-          </label>
-          <Input
-            value={clusterName}
-            onChange={(e) => setClusterName(e.target.value)}
-            placeholder="sfpanel"
-            className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
-          />
-        </div>
-
-        {/* Advertise address */}
-        <div className="space-y-1.5">
-          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
-            {t('cluster.init.advertiseAddress')}
-          </label>
-          {interfaces.length > 0 ? (
-            <div className="space-y-1.5">
-              {interfaces.map((iface) => (
-                <button
-                  key={`${iface.name}-${iface.address}`}
-                  onClick={() => setSelectedAddr(iface.address)}
-                  className={cn(
-                    'w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
-                    selectedAddr === iface.address
-                      ? 'bg-primary/10 ring-1 ring-primary/20'
-                      : 'bg-secondary/50 hover:bg-secondary'
-                  )}
-                >
-                  <span className="font-medium">{iface.address}</span>
-                  <span className="text-[11px] text-muted-foreground">{iface.name}</span>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <Input
-              value={selectedAddr}
-              onChange={(e) => setSelectedAddr(e.target.value)}
-              placeholder="192.168.1.100"
-              className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
-            />
-          )}
-          <p className="text-[11px] text-muted-foreground">
-            {t('cluster.init.advertiseAddressDesc')}
-          </p>
-        </div>
-      </div>
-
-      <Button
-        onClick={handleInit}
-        disabled={initializing || !clusterName.trim()}
-        className="w-full rounded-xl"
-      >
-        {initializing ? (
-          <>
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            {t('cluster.init.initializing')}
-          </>
-        ) : (
-          t('cluster.init.button')
-        )}
-      </Button>
-
-      {/* Divider */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1 h-px bg-border" />
-        <span className="text-[11px] text-muted-foreground">{t('cluster.join.or')}</span>
-        <div className="flex-1 h-px bg-border" />
-      </div>
-
-      {/* Join existing cluster */}
-      <div className="space-y-4">
-        <div className="text-center space-y-1">
-          <h3 className="text-[14px] font-semibold">{t('cluster.join.title')}</h3>
-          <p className="text-[12px] text-muted-foreground">{t('cluster.join.description')}</p>
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
-            {t('cluster.join.leaderAddress')}
-          </label>
-          <Input
-            value={leaderAddress}
-            onChange={(e) => setLeaderAddress(e.target.value)}
-            placeholder={t('cluster.join.leaderAddressPlaceholder')}
-            className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
-          />
-          <p className="text-[11px] text-muted-foreground">{t('cluster.join.leaderAddressDesc')}</p>
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
-            {t('cluster.join.token')}
-          </label>
-          <Input
-            value={joinToken}
-            onChange={(e) => setJoinToken(e.target.value)}
-            placeholder={t('cluster.join.tokenPlaceholder')}
-            className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
-          />
-        </div>
-
-        <Button
-          onClick={handleJoin}
-          disabled={joining || !leaderAddress.trim() || !joinToken.trim()}
-          variant="outline"
-          className="w-full rounded-xl"
-        >
-          {joining ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              {t('cluster.join.joining')}
-            </>
-          ) : (
-            t('cluster.join.button')
-          )}
-        </Button>
       </div>
     </div>
   )

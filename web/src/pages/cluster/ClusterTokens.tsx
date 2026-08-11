@@ -9,6 +9,40 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 
+// Monospace box with a top-right copy button. Each instance tracks its own
+// copied state, so the check feedback shows on the button that was clicked
+// (the old inline pair shared one flag and only the first button ever ticked).
+function CopyBlock({ text }: { text: string }) {
+  const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    if (await copyText(text)) {
+      setCopied(true)
+      toast.success(t('cluster.tokens.copied'))
+      setTimeout(() => setCopied(false), 2000)
+    } else {
+      toast.error(t('cluster.tokens.copyFailed'))
+    }
+  }
+
+  return (
+    <div className="relative">
+      <div className="bg-secondary/50 rounded-xl p-4 pr-12 font-mono text-[12px] break-all">
+        {text}
+      </div>
+      <button
+        onClick={handleCopy}
+        title={t('common.copy')}
+        aria-label={t('common.copy')}
+        className="absolute right-3 top-3 p-1.5 rounded-lg hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+      >
+        {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
+      </button>
+    </div>
+  )
+}
+
 export default function ClusterTokens() {
   const { t } = useTranslation()
   const confirm = useConfirm()
@@ -18,7 +52,6 @@ export default function ClusterTokens() {
   const [expiresAt, setExpiresAt] = useState('')
   const [grpcPort, setGrpcPort] = useState<number>(3629)
   const [advertise, setAdvertise] = useState<string>('<leader-ip>')
-  const [copied, setCopied] = useState(false)
   const [activeTokens, setActiveTokens] = useState<ClusterTokenInfo[]>([])
 
   const loadTokens = () => {
@@ -55,16 +88,6 @@ export default function ClusterTokens() {
       loadTokens()
     } catch (err) {
       toast.error(String(err))
-    }
-  }
-
-  const handleCopy = async (text: string) => {
-    if (await copyText(text)) {
-      setCopied(true)
-      toast.success(t('cluster.tokens.copied'))
-      setTimeout(() => setCopied(false), 2000)
-    } else {
-      toast.error('Failed to copy to clipboard')
     }
   }
 
@@ -115,34 +138,14 @@ export default function ClusterTokens() {
           </div>
 
           {/* Token value */}
-          <div className="relative">
-            <div className="bg-secondary/50 rounded-xl p-4 pr-12 font-mono text-[12px] break-all">
-              {token}
-            </div>
-            <button
-              onClick={() => handleCopy(token)}
-              className="absolute right-3 top-3 p-1.5 rounded-lg hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-            >
-              {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
-            </button>
-          </div>
+          <CopyBlock text={token} />
 
           {/* Join command */}
           <div>
             <label className="text-[11px] text-muted-foreground uppercase tracking-wider block mb-2">
               {t('cluster.tokens.joinCommand')}
             </label>
-            <div className="relative">
-              <div className="bg-secondary/50 rounded-xl p-4 pr-12 font-mono text-[12px]">
-                sudo sfpanel cluster join {advertise}:{grpcPort} {token}
-              </div>
-              <button
-                onClick={() => handleCopy(`sudo sfpanel cluster join ${advertise}:${grpcPort} ${token}`)}
-                className="absolute right-3 top-3 p-1.5 rounded-lg hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-              >
-                <Copy className="h-4 w-4 text-muted-foreground" />
-              </button>
-            </div>
+            <CopyBlock text={`sudo sfpanel cluster join ${advertise}:${grpcPort} ${token}`} />
           </div>
         </div>
       )}

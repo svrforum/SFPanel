@@ -1,11 +1,9 @@
 import { NavLink } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import {
-  LayoutDashboard, Container, FolderOpen, Clock, FileText, Activity,
-  Cog, Network, HardDrive, Shield, Package, Terminal, Store,
-  Server, KeyRound, Settings, PanelLeftClose, PanelLeftOpen,
-} from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { NODE_MENU_ITEMS } from '@/lib/navigation'
+import { DATACENTER_MENU_ITEMS } from './datacenterMenu'
 import type { TreeSelection } from './TreePanel'
 
 interface ContextMenuProps {
@@ -15,6 +13,9 @@ interface ContextMenuProps {
   onToggleCollapse: () => void
 }
 
+// Menu data comes from the shared registries: lib/navigation NODE_MENU_ITEMS
+// for the node scope, datacenterMenu for the cluster scope — the local copies
+// this file used to carry had already drifted (Stacks was missing here).
 interface MenuItem {
   to: string
   labelKey: string
@@ -22,34 +23,10 @@ interface MenuItem {
   matchEnd?: boolean
 }
 
-const datacenterMenuItems: MenuItem[] = [
-  { to: '/cluster/overview', labelKey: 'cluster.nav.overview', icon: LayoutDashboard },
-  { to: '/cluster/nodes', labelKey: 'cluster.nav.nodes', icon: Server },
-  { to: '/cluster/tokens', labelKey: 'cluster.nav.tokens', icon: KeyRound },
-  { to: '/settings', labelKey: 'layout.nav.settings', icon: Settings, matchEnd: true },
-]
-
-const nodeMenuItems: MenuItem[] = [
-  { to: '/dashboard', labelKey: 'layout.nav.dashboard', icon: LayoutDashboard },
-  { to: '/docker', labelKey: 'layout.nav.docker', icon: Container },
-  { to: '/appstore', labelKey: 'layout.nav.appstore', icon: Store },
-  { to: '/files', labelKey: 'layout.nav.files', icon: FolderOpen },
-  { to: '/cron', labelKey: 'layout.nav.cron', icon: Clock },
-  { to: '/logs', labelKey: 'layout.nav.logs', icon: FileText },
-  { to: '/processes', labelKey: 'layout.nav.processes', icon: Activity },
-  { to: '/services', labelKey: 'layout.nav.services', icon: Cog },
-  { to: '/network', labelKey: 'layout.nav.networkVpn', icon: Network },
-  { to: '/disk', labelKey: 'layout.nav.disk', icon: HardDrive },
-  { to: '/firewall', labelKey: 'layout.nav.firewall', icon: Shield },
-  { to: '/packages', labelKey: 'layout.nav.packages', icon: Package },
-  { to: '/terminal', labelKey: 'layout.nav.terminal', icon: Terminal },
-  { to: '/settings?scope=node', labelKey: 'layout.nav.settings', icon: Settings },
-]
-
 export default function ContextMenu({ selection, nodeName, collapsed, onToggleCollapse }: ContextMenuProps) {
   const { t } = useTranslation()
   const isDatacenter = selection.type === 'datacenter'
-  const items = isDatacenter ? datacenterMenuItems : nodeMenuItems
+  const items: MenuItem[] = isDatacenter ? DATACENTER_MENU_ITEMS : NODE_MENU_ITEMS
   const title = isDatacenter ? t('cluster.title') : nodeName
 
   if (collapsed) {
@@ -58,8 +35,8 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
         <button
           onClick={onToggleCollapse}
           className="flex items-center justify-center py-3 border-b border-border hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-          title="Expand menu"
-          aria-label="Expand menu"
+          title={t('layout.expand')}
+          aria-label={t('layout.expand')}
         >
           <PanelLeftOpen className="h-4 w-4 text-foreground/60" />
         </button>
@@ -92,11 +69,11 @@ export default function ContextMenu({ selection, nodeName, collapsed, onToggleCo
       <div className="px-4 py-3 border-b border-border flex items-start justify-between">
         <div className="min-w-0">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-            {isDatacenter ? 'Datacenter' : 'Node'}
+            {isDatacenter ? t('cluster.tree.datacenter') : t('cluster.tree.node')}
           </p>
           <p className="text-[13px] font-semibold text-foreground truncate mt-0.5">{title}</p>
         </div>
-        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors mt-0.5 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" title="Collapse menu" aria-label="Collapse menu">
+        <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors mt-0.5 shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" title={t('layout.collapse')} aria-label={t('layout.collapse')}>
           <PanelLeftClose className="h-4 w-4 text-foreground/60" />
         </button>
       </div>
