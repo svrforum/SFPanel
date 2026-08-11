@@ -6,6 +6,15 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.57.0] – 2026-08-11
+
+The final step of the v1 proxy-credential retirement, plus a permanent real-bundle regression guard for the release verifier.
+
+### Security
+
+- **The legacy v1 static-secret proxy header no longer authenticates anything.** Completing the two-step retirement started in v0.56.0 (send dropped), the receive branch is now removed: a request carrying only `X-SFPanel-Internal-Proxy` is rejected, and only the replay-resistant v2 HMAC authenticates cluster-internal traffic. Peers older than v0.56.0 can no longer relay to a v0.57 node — upgrade them locally first (rolling v0.56 → v0.57 is unaffected; v0.56 senders are already v2-only). The defensive header-strip lists on the relay and gRPC receive paths are kept.
+- **The Sigstore bundle verifier is now regression-guarded by a real release bundle.** The actual cosign v3.1.3 bundle from v0.56.0 is vendored as a test fixture and verified against the embedded production Fulcio roots on every test run — the synthetic fixtures share their field model with the verifier and cannot catch the model drifting from real cosign output. Also verified and documented: `install.sh`'s detached-flag verification works under cosign v3 (deprecated-with-warning), with the bundle asset noted as the migration path if cosign v4 removes the flags.
+
 ## [0.56.0] – 2026-08-11
 
 A security-hardening release executing the deferred backlog from the v0.55.0 audit: the cluster drops its legacy replayable credential from the wire, release signing gains the standardized Sigstore bundle without abandoning already-deployed verifiers, the largest untested surface (netplan) gets frozen under tests, and the two drifted spec documents are re-synced.
