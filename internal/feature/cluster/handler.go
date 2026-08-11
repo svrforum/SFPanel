@@ -993,14 +993,7 @@ func (h *Handler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
 	defer cancel()
 
-	proxySecret := mgr.ProxySecret()
 	headers := make(map[string]string)
-	if proxySecret != "" {
-		// v1 stays alongside v2 so a not-yet-upgraded peer keeps accepting
-		// the request. Fully drop v1 once every node ships a release that
-		// understands v2 — currently there's no harm in carrying both.
-		headers["X-SFPanel-Internal-Proxy"] = proxySecret
-	}
 
 	var bodyBytes []byte
 	if c.Request().Body != nil {
@@ -1012,7 +1005,9 @@ func (h *Handler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
 		proxyPath += "?" + rawQuery
 	}
 
-	// v2 signature binds method + path so a captured header can't be re-targeted.
+	// v2-only signature binds method + path so a captured header can't be
+	// re-targeted; the receiving gRPC server strips and re-signs these
+	// headers for its loopback hop anyway (grpc_server.go ProxyRequest).
 	if v2 := auth.SignProxyRequestV2(c.Request().Method, proxyPath); v2 != "" {
 		headers[auth.InternalProxyHeaderV2] = v2
 	}
@@ -1288,9 +1283,6 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		defer cancel()
 
 		proxyHeaders := make(map[string]string)
-		if secret := mgr.ProxySecret(); secret != "" {
-			proxyHeaders["X-SFPanel-Internal-Proxy"] = secret
-		}
 		if v2 := auth.SignProxyRequestV2("POST", "/api/v1/system/update"); v2 != "" {
 			proxyHeaders[auth.InternalProxyHeaderV2] = v2
 		}
@@ -1401,13 +1393,12 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	sendSSE(map[string]interface{}{"overall": "complete", "updated": updated, "failed": failed})
 
 	if leader.ID != "" {
-		// Snapshot the proxy secret *before* Shutdown. Shutdown currently
-		// leaves the TLSManager intact so ProxySecret() still works, but
-		// relying on that is fragile — if a future change cleans up the
-		// TLS state during shutdown, this call would start returning "".
-		// Sign the v2 header NOW too — we can't rely on the sig path
-		// remaining alive past Shutdown.
-		proxySecret := mgr.ProxySecret()
+		// Sign the v2 header NOW, before Shutdown — we can't rely on the
+		// signing path (TLSManager-derived secret) remaining alive past
+		// Shutdown. Note the pre-signed MAC carries a timestamp: if Shutdown
+		// ever takes longer than the ±30s proxy clock-skew window, this
+		// self-update call will 401 (true before the v1 drop too — a present
+		// v2 header always short-circuits v1).
 		v2Sig := auth.SignProxyRequestV2("POST", "/api/v1/system/update")
 		port := h.Config.Server.Port
 		go func() {
@@ -1423,9 +1414,6 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 			if err != nil {
 				slog.Error("leader self-update: build request", "component", "cluster", "error", err)
 				return
-			}
-			if proxySecret != "" {
-				req.Header.Set("X-SFPanel-Internal-Proxy", proxySecret)
 			}
 			if v2Sig != "" {
 				req.Header.Set(auth.InternalProxyHeaderV2, v2Sig)

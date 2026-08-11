@@ -86,6 +86,8 @@ func TestValidateV2_RejectsStaleTimestamp(t *testing.T) {
 	}
 }
 
+// Receive-only back-compat: senders stopped emitting v1 in v0.56.0. Delete
+// this test together with the v1 branch in IsInternalProxyRequest next release.
 func TestV1Compat_StillWorks(t *testing.T) {
 	resetForTest("test-secret-32-bytes-long-enough!!")
 
@@ -96,6 +98,7 @@ func TestV1Compat_StillWorks(t *testing.T) {
 	}
 }
 
+// Receive-only back-compat: delete with the v1 branch next release.
 func TestV1Compat_RejectsWrongSecret(t *testing.T) {
 	resetForTest("the-real-secret")
 

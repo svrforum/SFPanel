@@ -389,11 +389,10 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 		httpReq.Header.Set(k, v)
 	}
 
-	// Use internal proxy authentication (bypasses JWT validation). Prefer
-	// v2 (HMAC + nonce + timestamp) so a captured loopback header can't be
-	// replayed.
+	// Use internal proxy authentication (bypasses JWT validation): v2-only
+	// (HMAC + nonce + timestamp). The loopback receiver is this same binary,
+	// which accepts v2; the v1 static-secret header is no longer sent.
 	if s.proxySecret != "" {
-		httpReq.Header.Set("X-SFPanel-Internal-Proxy", s.proxySecret)
 		if v2 := auth.SignProxyRequestV2(req.Method, req.Path); v2 != "" {
 			httpReq.Header.Set("X-SFPanel-Internal-Proxy-V2", v2)
 		}

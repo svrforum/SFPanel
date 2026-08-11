@@ -300,8 +300,7 @@ func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string,
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set(migrationShaHeader, sha)
 	req.ContentLength = contentLength
-	if secret := mgr.ProxySecret(); secret != "" {
-		req.Header.Set(auth.InternalProxyHeader, secret)
+	if mgr.ProxySecret() != "" {
 		if v2 := auth.SignProxyRequestV2(http.MethodPost, importPath); v2 != "" {
 			req.Header.Set(auth.InternalProxyHeaderV2, v2)
 		}

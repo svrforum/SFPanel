@@ -89,6 +89,8 @@ func TestJWTMiddleware_RejectsReplayedV2(t *testing.T) {
 
 // TestJWTMiddleware_V1StillAccepted guarantees we didn't break compat with
 // peers that haven't been upgraded yet.
+// Receive-only back-compat: senders stopped emitting v1 in v0.56.0. Delete
+// with the v1 branch in IsInternalProxyRequest next release.
 func TestJWTMiddleware_V1StillAccepted(t *testing.T) {
 	auth.SetClusterProxySecret("test-secret-32-bytes-long-enough!!")
 	defer auth.SetClusterProxySecret("")

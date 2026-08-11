@@ -65,9 +65,9 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 	}
 
 	// Connect to remote node's WS endpoint with internal proxy auth.
-	// Sign both v1 (static secret) and v2 (HMAC + nonce + timestamp) headers
-	// so a captured loopback header can't be replayed. Mirrors the HTTP gRPC
-	// proxy at grpc_server.go:328-332 and proxy.go:141.
+	// Sign the v2 (HMAC + nonce + timestamp) header only — the v1
+	// static-secret send was dropped (peers accept v2 on WS handlers since
+	// v0.11.2). Mirrors the HTTP gRPC proxy and middleware setAuthHeaders.
 	//
 	// The v2 MAC binds method + request-URI (path + query); the receiving
 	// IsInternalProxyRequest validates against r.URL.RequestURI(), which is
@@ -76,7 +76,6 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 	// the wire.
 	headers := http.Header{}
 	if proxySecret != "" {
-		headers.Set("X-SFPanel-Internal-Proxy", proxySecret)
 		signPath := remotePath
 		if remoteQuery != "" {
 			signPath = remotePath + "?" + remoteQuery

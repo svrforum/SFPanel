@@ -405,6 +405,34 @@ func TestRelayAuthRewrite(t *testing.T) {
 	}
 }
 
+// TestRelayStripsClientProxyHeaders: a client must not be able to smuggle its
+// own internal-proxy headers through the relay. Since the v1 send was dropped
+// (v0.56.0) nothing overwrites the v1 slot anymore, so the relay has to strip
+// both proxy headers from the inbound request explicitly — same rule the gRPC
+// receive path applies.
+func TestRelayStripsClientProxyHeaders(t *testing.T) {
+	var sawV1, sawV2 string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawV1 = r.Header.Get(auth.InternalProxyHeader)
+		sawV2 = r.Header.Get(auth.InternalProxyHeaderV2)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	headers := http.Header{}
+	headers.Set(auth.InternalProxyHeader, "client-forged-v1-secret")
+	headers.Set(auth.InternalProxyHeaderV2, "client-forged-v2-mac")
+
+	runRelay(t, "GET", "/api/v1/files/download?path=/x", nil, headers, target, nil)
+
+	if sawV1 != "" {
+		t.Errorf("client-supplied v1 proxy header reached the target: %q", sawV1)
+	}
+	if sawV2 != "" {
+		t.Errorf("client-supplied v2 proxy header reached the target: %q", sawV2)
+	}
+}
+
 // TestProxyToLeader_NilManagerPassesThrough confirms that when cluster mode
 // is disabled (mgr == nil), the helper returns (false, nil) so the FSM-write
 // handler proceeds normally on the single node. Otherwise every admin-account
@@ -480,5 +508,34 @@ func TestSetAuthHeaders_V2SignsPathPlusQuery(t *testing.T) {
 	// path-only, validation fails.
 	if !auth.IsInternalProxyRequest(out) {
 		t.Errorf("receiver rejected v2 sig — signer used path-only but verifier uses path+query")
+	}
+}
+
+// TestSetAuthHeaders_NoV1Outbound pins the v0.56.0 contract that outbound
+// relay traffic is v2-only: the legacy v1 static-secret header must not be
+// attached, and the v2 header alone must satisfy the receiver. This is the
+// representative regression guard for the relay family — the other send
+// sites (grpc_server ProxyRequest, ws_relay, manager.ProxyToNode, the
+// feature/cluster relays, compose migration push) follow the same pattern.
+func TestSetAuthHeaders_NoV1Outbound(t *testing.T) {
+	mgr := newTestManagerWithProxySecret(t, "test-ca-bytes-for-v1-drop")
+	auth.SetClusterProxySecret(mgr.ProxySecret())
+	t.Cleanup(func() { auth.SetClusterProxySecret("") })
+
+	orig := httptest.NewRequest("GET", "/api/v1/system/info", nil)
+	out, err := http.NewRequest("GET", "http://peer:3628/api/v1/system/info", nil)
+	if err != nil {
+		t.Fatalf("build outbound request: %v", err)
+	}
+	setAuthHeaders(out, orig, mgr)
+
+	if v1 := out.Header.Get(auth.InternalProxyHeader); v1 != "" {
+		t.Errorf("v1 static-secret header must no longer be sent, got %q", v1)
+	}
+	if out.Header.Get(auth.InternalProxyHeaderV2) == "" {
+		t.Fatal("v2 header missing — outbound request would be unauthenticated")
+	}
+	if !auth.IsInternalProxyRequest(out) {
+		t.Error("receiver must accept the v2-only outbound request")
 	}
 }

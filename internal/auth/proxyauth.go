@@ -17,6 +17,12 @@ import (
 // JWT authentication when a cluster node forwards a request that is already
 // authenticated via mTLS at the transport layer. v1 is a static-secret
 // header — vulnerable to replay if an mTLS-trusted node ever leaks one.
+//
+// Deprecated (send side): as of v0.56.0 no SFPanel node sends this header —
+// every sender is v2-only. Inbound validation below is kept for one release
+// so mixed v0.55/v0.56 clusters interoperate during a rolling upgrade, and
+// will be REMOVED in the following release (drop the v1 branch in
+// IsInternalProxyRequest plus TestV1Compat_* / TestJWTMiddleware_V1StillAccepted).
 const InternalProxyHeader = "X-SFPanel-Internal-Proxy"
 
 // InternalProxyHeaderV2 carries a timestamp + nonce + HMAC tuple instead of
@@ -69,7 +75,9 @@ func ClusterProxySecret() string {
 
 // IsInternalProxyRequest reports whether the request carries a valid internal
 // proxy header. Tries v2 (replay-resistant) first; falls back to v1 (static
-// secret) for compatibility with not-yet-upgraded peers. Both paths use the
+// secret) for compatibility with not-yet-upgraded peers (receive-only
+// compatibility: senders stopped emitting v1 in v0.56.0; the v1 branch is
+// scheduled for removal next release). Both paths use the
 // same shared secret — operators don't need to coordinate a key rotation
 // for the upgrade.
 func IsInternalProxyRequest(r *http.Request) bool {
@@ -91,7 +99,8 @@ func IsInternalProxyRequest(r *http.Request) bool {
 		return validateV2(secret, v2, r.Method, r.URL.RequestURI())
 	}
 
-	// v1 fallback.
+	// v1 fallback — receive-only back-compat for one release (see deprecation
+	// note on InternalProxyHeader); only reached when the v2 header is absent.
 	proxyToken := r.Header.Get(InternalProxyHeader)
 	if proxyToken == "" {
 		return false
@@ -109,8 +118,9 @@ func SignProxyRequestV2(method, path string) string {
 	}
 	nonceBytes := make([]byte, 16)
 	if _, err := rand.Read(nonceBytes); err != nil {
-		// rand should never fail in practice; degrade to v1-style by
-		// returning empty so caller falls back to v1 header.
+		// Returning empty leaves the outbound request without proxy auth (it
+		// will 401 at the peer); a crypto/rand read failure is effectively
+		// impossible on supported platforms.
 		return ""
 	}
 	nonce := hex.EncodeToString(nonceBytes)

@@ -100,7 +100,8 @@ func (m *Manager) GetConnPool() *ConnPool {
 
 // ProxyToNode issues an authenticated gRPC ProxyRequest to another node's local
 // HTTP handler and returns the status + body. Auth uses the cluster-internal
-// proxy secret (v1 + replay-resistant v2) and carries `username` as the
+// proxy secret (replay-resistant v2 HMAC; the receiving gRPC server re-signs
+// for its loopback hop) and carries `username` as the
 // already-authenticated operator identity for audit attribution. For small
 // requests/responses only — the gRPC unary path caps the response near 4 MB;
 // large transfers must use the HTTP relay path instead.
@@ -110,8 +111,7 @@ func (m *Manager) ProxyToNode(ctx context.Context, nodeID, method, path string, 
 		return 0, nil, fmt.Errorf("unknown node %q", nodeID)
 	}
 	headers := map[string]string{}
-	if secret := m.ProxySecret(); secret != "" {
-		headers[auth.InternalProxyHeader] = secret
+	if m.ProxySecret() != "" {
 		if v2 := auth.SignProxyRequestV2(method, path); v2 != "" {
 			headers[auth.InternalProxyHeaderV2] = v2
 		}

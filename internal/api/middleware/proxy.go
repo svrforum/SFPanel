@@ -140,10 +140,12 @@ func newRemoteHTTPClient(timeout time.Duration, mgr *cluster.Manager) *http.Clie
 
 // setAuthHeaders sets internal proxy or bearer auth headers for remote requests.
 func setAuthHeaders(httpReq *http.Request, origReq *http.Request, mgr *cluster.Manager) {
-	if secret := mgr.ProxySecret(); secret != "" {
-		// v1 stays for back-compat with not-yet-upgraded peers; v2 makes the
-		// request replay-resistant when both sides support it.
-		httpReq.Header.Set(authpkg.InternalProxyHeader, secret)
+	if mgr.ProxySecret() != "" {
+		// v2-only send: the v1 static-secret header is no longer attached
+		// (receivers have accepted v2 on every route since v0.13.2 / commit
+		// a74857a; inbound v1 is still accepted this release and will be
+		// removed next release — see internal/auth/proxyauth.go).
+		//
 		// Sign the OUTBOUND request-URI (httpReq), not the inbound one. Callers
 		// build httpReq pointing at the peer with the routing ?node= stripped, so
 		// signing httpReq.URL.RequestURI() binds the MAC to exactly what the peer
@@ -236,6 +238,15 @@ func executeHTTPRelay(
 	// target trusts more than a forwarded user JWT.
 	copyEndToEndHeaders(httpReq.Header, req.Header)
 	httpReq.Header.Del("Authorization")
+	// Never forward client-supplied internal-proxy headers. Before the v1
+	// send was dropped, setAuthHeaders overwrote the v1 slot on every relay;
+	// now nothing does, so without this Del a JWT-authenticated client could
+	// smuggle its own X-SFPanel-Internal-Proxy value to the peer. Not
+	// exploitable (the peer prefers the v2 header we attach, and a valid v1
+	// requires the secret), but the relay must uphold the same strip rule as
+	// the gRPC path.
+	httpReq.Header.Del(authpkg.InternalProxyHeader)
+	httpReq.Header.Del(authpkg.InternalProxyHeaderV2)
 	// Ask the target for PLAIN — this edge node compresses once for the browser.
 	// Forwarding Accept-Encoding would gzip on the target AND here → a
 	// double-gzipped body the browser can't decode.
