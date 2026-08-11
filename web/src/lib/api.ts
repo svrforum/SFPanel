@@ -8,9 +8,7 @@ import type {
   FileEntry,
   CronJob,
   NetworkInterfaceInfo,
-  InterfaceDetail,
   InterfaceConfig,
-  NetworkRoute,
   PackageUpdate,
   PackageSearchResult,
   BlockDevice,
@@ -34,7 +32,6 @@ import type {
   AppStoreCategory,
   AppStoreApp,
   AppStoreAppDetail,
-  AppStoreInstalledApp,
   HealthcheckSpec,
   HealthcheckTestResult,
   ProcessInfo,
@@ -53,7 +50,6 @@ import type {
   ClusterInitResponse,
   ContainerMetricPoint,
   ContainerEvent,
-  RecentContainerEvent,
   DiffResult,
   ImportRequest,
   PortMapRow,
@@ -122,12 +118,12 @@ class ApiClient {
     }
   }
 
-  setToken(token: string) {
+  private setToken(token: string) {
     this.token = token
     sessionStorage.setItem('token', token)
   }
 
-  setRefreshToken(token: string | null) {
+  private setRefreshToken(token: string | null) {
     this.refreshToken = token
     if (token) {
       sessionStorage.setItem('refresh_token', token)
@@ -430,6 +426,66 @@ class ApiClient {
     return this.request(`/audit/logs${qs}`, { method: 'DELETE' })
   }
 
+  // Alerts. Row shapes live in types/api.ts alongside every other resource.
+  getAlertChannels() {
+    return this.request<import('@/types/api').AlertChannel[]>('/alerts/channels')
+  }
+
+  createAlertChannel(body: { name: string; type: string; config: Record<string, string>; enabled: boolean }) {
+    return this.request('/alerts/channels', { method: 'POST', body: JSON.stringify(body) })
+  }
+
+  // Partial update — UpdateChannel uses NULLIF/COALESCE server-side, so
+  // omitted fields keep their DB values (callers rely on this to avoid
+  // round-tripping masked channel secrets).
+  updateAlertChannel(id: number, body: { enabled?: boolean }) {
+    return this.request(`/alerts/channels/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+  }
+
+  deleteAlertChannel(id: number) {
+    return this.request(`/alerts/channels/${id}`, { method: 'DELETE' })
+  }
+
+  testAlertChannel(id: number) {
+    return this.request(`/alerts/channels/${id}/test`, { method: 'POST' })
+  }
+
+  getAlertRules() {
+    return this.request<import('@/types/api').AlertRule[]>('/alerts/rules')
+  }
+
+  createAlertRule(body: {
+    name: string
+    type: string
+    condition: string // JSON payload per rule type (see RulesSection.buildConditionForSubmit)
+    channel_ids: string // JSON number array
+    severity: string
+    cooldown: number
+    node_scope: string
+    node_ids: string // JSON string array
+    enabled: boolean
+  }) {
+    return this.request('/alerts/rules', { method: 'POST', body: JSON.stringify(body) })
+  }
+
+  updateAlertRule(id: number, body: { enabled?: boolean }) {
+    return this.request(`/alerts/rules/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+  }
+
+  deleteAlertRule(id: number) {
+    return this.request(`/alerts/rules/${id}`, { method: 'DELETE' })
+  }
+
+  getAlertHistory(page: number, limit: number) {
+    return this.request<{ items: import('@/types/api').AlertHistoryEntry[]; total: number }>(
+      `/alerts/history?page=${page}&limit=${limit}`
+    )
+  }
+
+  clearAlertHistory() {
+    return this.request('/alerts/history', { method: 'DELETE' })
+  }
+
   // System
   getSystemInfo() {
     return this.request<{ host: HostInfo; metrics: Metrics; version?: string }>('/system/info')
@@ -437,10 +493,6 @@ class ApiClient {
 
   getTopProcesses() {
     return this.request<Array<{ pid: number; name: string; cpu: number; memory: number; status: string }>>('/system/processes')
-  }
-
-  getMetricsHistory() {
-    return this.request<Array<{ time: number; cpu: number; mem_percent: number }>>('/system/metrics-history')
   }
 
   getDashboardOverview() {
@@ -656,12 +708,6 @@ class ApiClient {
     if (opts.limit) qs.set('limit', String(opts.limit))
     if (opts.before) qs.set('before', String(opts.before))
     return this.request<ContainerEvent[]>(`/docker/containers/${id}/events?${qs.toString()}`)
-  }
-
-  getRecentEvents(opts: { limit?: number } = {}) {
-    const qs = new URLSearchParams()
-    if (opts.limit) qs.set('limit', String(opts.limit))
-    return this.request<RecentContainerEvent[]>(`/docker/events/recent?${qs.toString()}`)
   }
 
   // Docker Images
@@ -929,10 +975,6 @@ class ApiClient {
     return this.request(`/docker/compose/${project}/services/${service}/start`, { method: 'POST' })
   }
 
-  getComposeServiceLogs(project: string, service: string, tail: number = 100) {
-    return this.request<{ logs: string }>(`/docker/compose/${project}/services/${service}/logs?tail=${tail}`)
-  }
-
   getComposeEnv(project: string) {
     return this.request<{ content: string }>(`/docker/compose/${project}/env`)
   }
@@ -950,10 +992,6 @@ class ApiClient {
 
   checkStackUpdates(project: string) {
     return this.request<import('@/types/api').StackUpdateCheck>(`/docker/compose/${encodeURIComponent(project)}/check-updates`, { method: 'POST' })
-  }
-
-  updateStack(project: string) {
-    return this.request<{ output: string }>(`/docker/compose/${encodeURIComponent(project)}/update`, { method: 'POST' })
   }
 
   rollbackStack(project: string) {
@@ -1135,10 +1173,6 @@ class ApiClient {
     return this.request<NetworkInterfaceInfo[]>('/network/interfaces')
   }
 
-  getNetworkInterface(name: string) {
-    return this.request<InterfaceDetail>(`/network/interfaces/${encodeURIComponent(name)}`)
-  }
-
   configureInterface(name: string, config: InterfaceConfig) {
     return this.request(`/network/interfaces/${encodeURIComponent(name)}`, {
       method: 'PUT',
@@ -1152,23 +1186,11 @@ class ApiClient {
     })
   }
 
-  getDNSConfig() {
-    return this.request<{ servers: string[]; search: string[] }>('/network/dns')
-  }
-
   configureDNS(config: { servers: string[] }) {
     return this.request('/network/dns', {
       method: 'PUT',
       body: JSON.stringify(config),
     })
-  }
-
-  getRoutes() {
-    return this.request<NetworkRoute[]>('/network/routes')
-  }
-
-  getBonds() {
-    return this.request<NetworkInterfaceInfo[]>('/network/bonds')
   }
 
   createBond(data: { name: string; mode: string; slaves: string[]; primary?: string }) {
@@ -1187,13 +1209,6 @@ class ApiClient {
   // Packages
   checkUpdates() {
     return this.request<{ updates: PackageUpdate[]; total: number; last_checked: string }>('/packages/updates')
-  }
-
-  upgradePackages(packages?: string[]) {
-    return this.request('/packages/upgrade', {
-      method: 'POST',
-      body: JSON.stringify({ packages }),
-    })
   }
 
   installPackage(name: string) {
@@ -1222,18 +1237,10 @@ class ApiClient {
     )
   }
 
-  installDocker() {
-    return this.request('/packages/install-docker', { method: 'POST' })
-  }
-
   getNodeStatus() {
     return this.request<{ installed: boolean; version: string; nvm_installed: boolean; npm_version: string }>(
       '/packages/node-status',
     )
-  }
-
-  installNode() {
-    return this.request('/packages/install-node', { method: 'POST' })
   }
 
   getNodeVersions() {
@@ -1244,13 +1251,6 @@ class ApiClient {
 
   switchNodeVersion(version: string) {
     return this.request<{ switched: string; output: string }>('/packages/node-switch', {
-      method: 'POST',
-      body: JSON.stringify({ version }),
-    })
-  }
-
-  installNodeVersion(version: string) {
-    return this.request('/packages/node-install-version', {
       method: 'POST',
       body: JSON.stringify({ version }),
     })
@@ -1267,24 +1267,12 @@ class ApiClient {
     return this.request<{ installed: boolean; version: string }>('/packages/claude-status')
   }
 
-  installClaude() {
-    return this.request('/packages/install-claude', { method: 'POST' })
-  }
-
   getCodexStatus() {
     return this.request<{ installed: boolean; version: string }>('/packages/codex-status')
   }
 
-  installCodex() {
-    return this.request('/packages/install-codex', { method: 'POST' })
-  }
-
   getGeminiStatus() {
     return this.request<{ installed: boolean; version: string }>('/packages/gemini-status')
-  }
-
-  installGemini() {
-    return this.request('/packages/install-gemini', { method: 'POST' })
   }
 
   // Disk Management - Tool Status
@@ -1326,10 +1314,6 @@ class ApiClient {
   }
 
   // Disk Management - Partitions
-  getPartitions(device: string) {
-    return this.request<{ device: string; partitions: Array<{ number: number; start: string; end: string; size: string; type: string; filesystem: string; flags: string[] }> }>(`/disks/${encodeURIComponent(device)}/partitions`)
-  }
-
   createPartition(device: string, data: { start: string; end: string; fs_type: string }) {
     return this.request(`/disks/${encodeURIComponent(device)}/partitions`, {
       method: 'POST',
@@ -1366,13 +1350,6 @@ class ApiClient {
     return this.request('/filesystems/unmount', {
       method: 'POST',
       body: JSON.stringify({ mount_point: mountPoint }),
-    })
-  }
-
-  resizeFilesystem(data: { device: string }) {
-    return this.request('/filesystems/resize', {
-      method: 'POST',
-      body: JSON.stringify(data),
     })
   }
 
@@ -1425,10 +1402,6 @@ class ApiClient {
     return this.request(`/lvm/pvs/${encodeURIComponent(name)}`, { method: 'DELETE' })
   }
 
-  removeVG(name: string) {
-    return this.request(`/lvm/vgs/${encodeURIComponent(name)}`, { method: 'DELETE' })
-  }
-
   removeLV(vg: string, name: string) {
     return this.request(`/lvm/lvs/${encodeURIComponent(vg)}/${encodeURIComponent(name)}`, { method: 'DELETE' })
   }
@@ -1443,10 +1416,6 @@ class ApiClient {
   // Disk Management - RAID
   getRAIDArrays() {
     return this.request<RAIDArray[]>('/raid')
-  }
-
-  getRAIDDetail(name: string) {
-    return this.request<RAIDArray>(`/raid/${encodeURIComponent(name)}`)
   }
 
   createRAID(data: { name: string; level: string; devices: string[] }) {
@@ -1533,10 +1502,6 @@ class ApiClient {
 
   getWireGuardInterfaces() {
     return this.request<import('@/types/api').WireGuardInterface[]>('/network/wireguard/interfaces')
-  }
-
-  getWireGuardInterface(name: string) {
-    return this.request<import('@/types/api').WireGuardInterface>(`/network/wireguard/interfaces/${encodeURIComponent(name)}`)
   }
 
   wireGuardInterfaceUp(name: string) {
@@ -1807,10 +1772,6 @@ class ApiClient {
     return this.request<AppStoreAppDetail>(`/appstore/apps/${id}`)
   }
 
-  getInstalledApps() {
-    return this.request<AppStoreInstalledApp[]>('/appstore/installed')
-  }
-
   refreshAppStore() {
     return this.request<{ message: string; apps: number; categories: number }>('/appstore/refresh', { method: 'POST' })
   }
@@ -1881,8 +1842,8 @@ class ApiClient {
     })
   }
 
-  getClusterOverview() {
-    return this.request<ClusterOverview>('/cluster/overview')
+  getClusterOverview(local?: boolean) {
+    return this.request<ClusterOverview>('/cluster/overview', { local })
   }
 
   getClusterNodes(local?: boolean) {
@@ -1931,9 +1892,9 @@ class ApiClient {
     return this.request<{ sessions: TerminalSession[] }>('/terminal/sessions')
   }
 
-  getClusterEvents(limit?: number) {
+  getClusterEvents(limit?: number, local?: boolean) {
     const params = limit ? `?limit=${limit}` : ''
-    return this.request<ClusterEventsResponse>(`/cluster/events${params}`)
+    return this.request<ClusterEventsResponse>(`/cluster/events${params}`, { local })
   }
 
   updateClusterNodeLabels(nodeId: string, labels: Record<string, string>) {

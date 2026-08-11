@@ -5,12 +5,13 @@ interface ComposeEditorProps {
   value: string
   onChange: (value: string) => void
   language?: string
+  height?: string
 }
 
-export default function ComposeEditor({ value, onChange, language = 'yaml' }: ComposeEditorProps) {
+export default function ComposeEditor({ value, onChange, language = 'yaml', height = '400px' }: ComposeEditorProps) {
   return (
     <Editor
-      height="400px"
+      height={height}
       language={language}
       theme="vs-dark"
       value={value}

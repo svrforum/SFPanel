@@ -12,7 +12,8 @@ import { Button } from '@/components/ui/button'
 
 export interface ConfirmOptions {
   title: string
-  description?: string
+  /** Plain text or JSX — callers may pass <strong>-emphasized names. */
+  description?: ReactNode
   confirmLabel?: string
   cancelLabel?: string
   /** Render the confirm button in the destructive (red) style. */

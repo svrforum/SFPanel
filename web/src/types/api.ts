@@ -975,14 +975,39 @@ export interface RecentContainerEvent extends ContainerEvent {
   container_name: string
 }
 
-export type AlertRuleType =
-  | 'cpu'
-  | 'memory'
-  | 'disk'
-  | 'container_down'
-  | 'container_oom'
-  | 'container_restart_loop'
-  | 'container_unhealthy'
+export interface AlertChannel {
+  id: number
+  name: string
+  type: 'discord' | 'telegram' | 'webhook'
+  config: Record<string, string>
+  enabled: boolean
+  created_at: string
+}
+
+export interface AlertRule {
+  id: number
+  name: string
+  type: string
+  threshold: number
+  severity: 'info' | 'warning' | 'critical'
+  cooldown: number
+  channels: number[]
+  node_scope: string
+  nodes: string[]
+  enabled: boolean
+  created_at: string
+}
+
+export interface AlertHistoryEntry {
+  id: number
+  rule_name: string
+  type: string
+  severity: string
+  message: string
+  node_id: string
+  sent_channels: string // JSON array of channel names that received the alert
+  created_at: string
+}
 
 export interface DiffSummary {
   added: number

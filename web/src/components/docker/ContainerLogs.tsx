@@ -210,17 +210,17 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
               onChange={(e) => setTail(e.target.value)}
               className="h-5 text-[10px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
             >
-              <option value="100">100줄</option>
-              <option value="500">500줄</option>
-              <option value="1000">1000줄</option>
-              <option value="all">전체</option>
+              <option value="100">{t('logs.lineCount', '{{n}} lines', { n: 100 })}</option>
+              <option value="500">{t('logs.lineCount', '{{n}} lines', { n: 500 })}</option>
+              <option value="1000">{t('logs.lineCount', '{{n}} lines', { n: 1000 })}</option>
+              <option value="all">{t('logs.all', 'All')}</option>
             </select>
             <select
               value={stream}
               onChange={(e) => setStream(e.target.value)}
               className="h-5 text-[10px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
             >
-              <option value="all">전체</option>
+              <option value="all">{t('logs.all', 'All')}</option>
               <option value="stdout">stdout</option>
               <option value="stderr">stderr</option>
             </select>
@@ -229,17 +229,17 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
               onChange={(e) => setSince(e.target.value)}
               className="h-5 text-[10px] bg-white/[0.06] border border-white/[0.08] text-white/60 rounded px-1 appearance-none cursor-pointer"
             >
-              <option value="all">전체 시간</option>
-              <option value="1h">1시간</option>
-              <option value="6h">6시간</option>
-              <option value="24h">24시간</option>
+              <option value="all">{t('logs.allTime', 'All time')}</option>
+              <option value="1h">{t('logs.lastHours', '{{n}}h', { n: 1 })}</option>
+              <option value="6h">{t('logs.lastHours', '{{n}}h', { n: 6 })}</option>
+              <option value="24h">{t('logs.lastHours', '{{n}}h', { n: 24 })}</option>
             </select>
             <Button
               variant="ghost"
               size="icon-xs"
               className={`text-white/40 hover:text-white hover:bg-white/10 ${timestamps ? 'text-primary' : ''}`}
-              title="Timestamps"
-              aria-label="Timestamps"
+              title={t('logs.timestamps', 'Timestamps')}
+              aria-label={t('logs.timestamps', 'Timestamps')}
               onClick={() => setTimestamps(!timestamps)}
             >
               <span className="text-[10px] font-mono">T</span>
@@ -251,8 +251,8 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             variant="ghost"
             size="icon-xs"
             className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-primary' : ''}`}
-            title="Auto-scroll"
-            aria-label="Auto-scroll"
+            title={t('logs.autoScroll')}
+            aria-label={t('logs.autoScroll')}
             onClick={() => {
               setAutoScroll(!autoScroll)
               if (!autoScroll) termRef.current?.scrollToBottom()

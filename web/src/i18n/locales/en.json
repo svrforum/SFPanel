@@ -72,7 +72,8 @@
       "terminal": "Terminal",
       "processes": "Processes",
       "more": "More"
-    }
+    },
+    "sponsor": "Sponsor"
   },
   "login": {
     "title": "SFPanel",
@@ -87,7 +88,11 @@
     "useRecoveryCode": "Use a recovery code instead",
     "useAuthenticator": "Use your authenticator code instead",
     "recoveryCode": "Recovery Code",
-    "recoveryCodePlaceholder": "abcde-fghij"
+    "recoveryCodePlaceholder": "abcde-fghij",
+    "invalidCredentials": "Invalid username or password",
+    "invalidTotp": "Invalid 2FA code",
+    "invalidRecoveryCode": "Invalid recovery code",
+    "rateLimited": "Too many login attempts. Try again later."
   },
   "connect": {
     "title": "Connect to Server",
@@ -136,7 +141,9 @@
     "restrictedTitle": "Setup is restricted to the local network",
     "restrictedBody": "For security, first-run admin setup can only be done from the LAN or over an SSH tunnel — open http://127.0.0.1:3628 on the server itself, or run `ssh -L 3628:127.0.0.1:3628 <server>` and reload this page.",
     "passwordMinLength": "Password must be at least 12 characters",
-    "passwordMismatch": "Passwords do not match"
+    "passwordMismatch": "Passwords do not match",
+    "alreadySetup": "Setup is already complete. Please sign in.",
+    "rateLimited": "Too many setup attempts. Try again later."
   },
   "dashboard": {
     "title": "Dashboard",
@@ -284,7 +291,8 @@
     "loadError": "Could not load services",
     "dependents": "Services depending on this",
     "requires": "Required services",
-    "wantedBy": "Wanted by"
+    "wantedBy": "Wanted by",
+    "logsLoadFailed": "Failed to load logs"
   },
   "docker": {
     "migrate": {
@@ -392,7 +400,10 @@
       "allServices": "All services",
       "lastLines": "Last",
       "allLogs": "All",
-      "onNode": "on {{node}}"
+      "onNode": "on {{node}}",
+      "manualTab": "Manual",
+      "gitImportTab": "Import from git",
+      "loadError": "Failed to load stacks"
     },
     "search": {
       "placeholder": "Search Docker Hub...",
@@ -491,7 +502,12 @@
       "stackActionFailed": "Stack action failed",
       "stackDownConfirm": "Stop all containers in <strong>{{name}}</strong> stack?",
       "stackRestartConfirm": "Restart <strong>{{name}}</strong> stack?",
-      "stackDeleteConfirm": "Delete <strong>{{name}}</strong> stack? Containers will be stopped and removed."
+      "stackDeleteConfirm": "Delete <strong>{{name}}</strong> stack? Containers will be stopped and removed.",
+      "history": "History",
+      "collectingMetrics": "Collecting…",
+      "events": "Events",
+      "noEvents": "No events",
+      "loadMore": "Load more"
     },
     "create": {
       "button": "Create",
@@ -571,7 +587,9 @@
       "fetchFailed": "Failed to fetch volumes",
       "loadError": "Could not load volumes",
       "inUse": "In use",
-      "unused": "Unused"
+      "unused": "Unused",
+      "size": "Size",
+      "measuring": "Measuring…"
     },
     "networks": {
       "count_one": "{{count}} network",
@@ -630,11 +648,78 @@
       "deleteFailed": "Failed to delete project",
       "fetchFailed": "Failed to fetch compose projects",
       "path": "Path"
-    }
+    },
+    "inUse": "In use",
+    "unused": "Unused"
   },
   "compose": {
     "healthcheck": {
-      "removeConfirm": "Remove the healthcheck for service {{service}}?"
+      "removeConfirm": "Remove the healthcheck for service {{service}}?",
+      "title": "Healthcheck",
+      "description": "Adds or updates the services.{{service}}.healthcheck block in the compose YAML. Nothing is deployed automatically — preview, then Save & Deploy.",
+      "preset": "Preset",
+      "presetHint": "Selecting a preset fills in the command. Edit placeholders like <code>PORT</code> yourself.",
+      "testCommand": "Test command",
+      "typeShell": "run one line in a shell",
+      "typeCmd": "argument array (separated by |)",
+      "typeNone": "disable the image's baked-in healthcheck",
+      "shellCommand": "Shell command",
+      "cmdArgs": "Arguments (| separated)",
+      "interval": "Interval",
+      "timeout": "Timeout",
+      "retries": "Retries",
+      "startPeriod": "Grace period",
+      "testHint": "Validate against the running container",
+      "testing": "Running…",
+      "testNow": "Test now",
+      "overwriteExisting": "This service already has a healthcheck — overwrite",
+      "removing": "Removing…",
+      "remove": "Remove healthcheck",
+      "applying": "Applying…",
+      "apply": "Apply to compose YAML",
+      "appliedToast": "Healthcheck applied to the compose YAML — use Deploy to apply it to the container",
+      "applyFailed": "Failed to apply healthcheck",
+      "removedToast": "Healthcheck removed from the compose YAML — use Deploy to apply it to the container",
+      "removeFailed": "Failed to remove healthcheck",
+      "testFailed": "Test failed"
+    },
+    "diff": {
+      "title": "Preview changes",
+      "description": "Compares the docker-compose.yml on disk with your proposed changes.",
+      "loadFailed": "Failed to load the preview",
+      "noChanges": "No changes",
+      "categories": "Categories",
+      "raw": "Raw text",
+      "apply": "Apply as-is",
+      "added": "Added",
+      "modified": "Changed",
+      "removed": "Removed",
+      "none": "(none)",
+      "hcAdded": "healthcheck added",
+      "hcRemoved": "healthcheck removed",
+      "hcChanged": "healthcheck changed",
+      "categoryImage": "Image",
+      "categoryPorts": "Ports",
+      "categoryVolumes": "Volumes",
+      "categoryEnv": "Environment",
+      "categoryNoChanges": "No changes",
+      "changeCount": "{{n}} changed",
+      "yamlRequired": "Enter YAML first"
+    },
+    "gitImport": {
+      "urlRequired": "Enter a URL",
+      "urlInvalid": "Only GitHub HTTPS URLs are supported",
+      "nameRequired": "Enter a stack name",
+      "nameHint": "Lowercase letters/digits/hyphens, 1-50 chars",
+      "importSuccess": "Imported stack '{{name}}'",
+      "importFailed": "Import failed",
+      "tokenLabel": "Personal Access Token (private repos only)",
+      "tokenHide": "Hide token",
+      "tokenShow": "Show token",
+      "tokenHint": "The token is used once and never stored",
+      "nameLabel": "Stack name",
+      "importing": "Importing…",
+      "import": "Import"
     }
   },
   "sites": {
@@ -777,7 +862,8 @@
       "confirmTransfer": "Transfer leadership to {{name}}?",
       "leaderTransferred": "Leadership transferred to {{name}}",
       "editAddress": "Edit address",
-      "addressUpdated": "Node address updated"
+      "addressUpdated": "Node address updated",
+      "addLabel": "Add label"
     },
     "tokens": {
       "generateTitle": "Generate Join Token",
@@ -794,13 +880,30 @@
       "revoke": "Revoke",
       "revokeConfirm": "Revoke this join token? Nodes can no longer use it to join.",
       "revoked": "Token revoked",
-      "createdBy": "Created by"
+      "createdBy": "Created by",
+      "copyFailed": "Failed to copy to clipboard"
     },
     "leave": {
       "action": "Leave cluster",
       "confirm": "This node will leave the cluster and the service will restart. Continue?",
       "forceConfirm": "Leaving would drop the cluster below quorum. Force leave anyway? Remaining nodes may lose quorum.",
       "success": "Leaving cluster. The service will restart."
+    },
+    "tree": {
+      "datacenter": "Datacenter",
+      "node": "Node",
+      "local": "local",
+      "toggleNodes": "Toggle node list"
+    },
+    "status": {
+      "online": "Online",
+      "suspect": "Suspect",
+      "offline": "Offline",
+      "joining": "Joining"
+    },
+    "role": {
+      "voter": "Voter",
+      "nonvoter": "Non-voter"
     }
   },
   "settings": {
@@ -1069,7 +1172,8 @@
         "confirmDelete": "Delete this channel?",
         "formWebhookUrlLabel": "Webhook URL",
         "formWebhookUrlPlaceholder": "https://your-receiver.example.com/hook",
-        "formWebhookHint": "Posts a JSON body with a Slack/Mattermost-compatible \"text\" field plus structured alert fields. Works with Slack incoming webhooks or any custom receiver."
+        "formWebhookHint": "Posts a JSON body with a Slack/Mattermost-compatible \"text\" field plus structured alert fields. Works with Slack incoming webhooks or any custom receiver.",
+        "errorToggleFailed": "Failed to update channel"
       },
       "rules": {
         "title": "Rules",
@@ -1103,7 +1207,8 @@
         "errorDeleteFailed": "Delete failed",
         "successAdded": "Rule added",
         "successDeleted": "Rule deleted",
-        "confirmDelete": "Delete this rule?"
+        "confirmDelete": "Delete this rule?",
+        "errorToggleFailed": "Failed to update rule"
       },
       "history": {
         "title": "Alert History",
@@ -1119,10 +1224,21 @@
         "sent": "Sent ({{count}})",
         "pageIndicator": "Page {{page}} / {{total}}",
         "confirmClear": "Clear all alert history?",
-        "successCleared": "History cleared"
+        "successCleared": "History cleared",
+        "errorClearFailed": "Failed to clear history"
+      },
+      "severity": {
+        "info": "Info",
+        "warning": "Warning",
+        "critical": "Critical"
       }
     },
-    "disable2FACodePrompt": "Enter your current 2FA code to confirm:"
+    "disable2FACodePrompt": "Enter your current 2FA code to confirm:",
+    "updateCheckFailed": "Failed to check for updates",
+    "updateConnectionLost": "Connection lost",
+    "updateNoReturn": "Panel did not come back within 5 minutes of the update. Check journalctl -u sfpanel.",
+    "auditLoadFailed": "Failed to load audit logs",
+    "auditClearFailed": "Failed to clear audit logs"
   },
   "siteConfig": {
     "loadingConfig": "Loading configuration...",
@@ -1155,7 +1271,9 @@
       "empty": "No reattachable sessions",
       "attached": "attached",
       "open": "Open"
-    }
+    },
+    "tabTitle": "Terminal {{n}}",
+    "reattachedTab": "Reattached {{id}}"
   },
   "files": {
     "title": "File Manager",
@@ -1238,7 +1356,9 @@
       "system": "System",
       "infrastructure": "Infrastructure",
       "tools": "Tools"
-    }
+    },
+    "editorTooLarge": "This file is {{size}} MB — too large to open in the editor (max 5 MB). Download it instead?",
+    "editPath": "Edit path"
   },
   "cron": {
     "title": "Cron Jobs",
@@ -1654,7 +1774,12 @@
     "guideStep3Desc": "Click the Live button to stream new log entries in real-time via WebSocket. Enable auto-scroll to follow the latest entries.",
     "guideStreaming": "Live method",
     "guideSearch": "Search shortcut",
-    "guideParsed": "Structured view"
+    "guideParsed": "Structured view",
+    "lineCount": "{{n}} lines",
+    "all": "All",
+    "allTime": "All time",
+    "lastHours": "{{n}}h",
+    "timestamps": "Timestamps"
   },
   "packages": {
     "title": "Packages",
@@ -1763,7 +1888,8 @@
     "nodeVersionRemoveFailed": "Failed to remove version",
     "nodeNvmNotInstalled": "NVM is not installed. Install NVM to manage multiple Node.js versions.",
     "nodeInstallNvm": "Install NVM",
-    "nodeNoOtherVersions": "To install additional versions, select from the available LTS versions below."
+    "nodeNoOtherVersions": "To install additional versions, select from the available LTS versions below.",
+    "streamStartFailed": "Failed to start the streaming operation"
   },
   "disk": {
     "title": "Disk Management",
@@ -1975,7 +2101,8 @@
         "resizeHint": "e.g. 20G, +5G",
         "resizing": "Resizing...",
         "currentSize": "Current Size",
-        "newSize": "New Size"
+        "newSize": "New Size",
+        "deleteConfirmDesc": "Removing logical volume {{name}} from {{vg}} permanently destroys its data. This cannot be undone."
       }
     },
     "raid": {
@@ -2011,7 +2138,8 @@
       "spareDevices": "Spare",
       "memberDisks": "Member Disks",
       "empty": "No RAID arrays",
-      "fetchFailed": "Failed to load RAID info"
+      "fetchFailed": "Failed to load RAID info",
+      "noUnusedDisks": "No unused disks or partitions available (only devices without a mount point can be selected)."
     },
     "swap": {
       "title": "Swap Management",
@@ -2064,6 +2192,13 @@
       "removeConfirm": "Are you sure you want to remove swap <strong>{{name}}</strong>?",
       "empty": "No swap configured",
       "fetchFailed": "Failed to load swap info"
+    },
+    "volumeCard": {
+      "title": "Docker Volume Usage",
+      "viewAll": "View all →",
+      "empty": "No measured volumes (collection may be in progress)",
+      "total": "Total: {{size}} · {{count}} volumes",
+      "measuredAgo": "Measured {{minutes}} min ago"
     }
   },
   "firewall": {
@@ -2216,7 +2351,11 @@
       "jailDeleted": "Jail deleted successfully",
       "jailDeleteFailed": "Failed to delete jail",
       "ignoreIp": "Whitelist IPs",
-      "ignoreIpHelp": "IPs to exclude from banning (space-separated)"
+      "ignoreIpHelp": "IPs to exclude from banning (space-separated)",
+      "permanent": "Permanent",
+      "minutes": "m",
+      "hours": "h",
+      "days": "d"
     },
     "docker": {
       "title": "Docker Port Firewall",
@@ -2260,6 +2399,16 @@
       "connected": "Connected",
       "rawView": "Raw",
       "parsedView": "Parsed"
+    },
+    "portmap": {
+      "loadFailed": "Failed to load port map.",
+      "port": "Port",
+      "protocol": "Protocol",
+      "state": "State",
+      "firewall": "Firewall",
+      "container": "Container",
+      "process": "Process",
+      "noData": "No data"
     }
   },
   "appStore": {
@@ -2339,6 +2488,7 @@
     "uninstallConfirmKeep": "Remove {{name}} but keep its data volumes?",
     "keepData": "Keep data volumes (don't delete app data)",
     "uninstallSuccess": "{{name}} has been uninstalled",
-    "uninstallFailed": "Uninstall failed"
+    "uninstallFailed": "Uninstall failed",
+    "advancedWarning": "⚠️ Advanced mode runs arbitrary Docker Compose YAML on the host with root privileges. Dangerous patterns (privileged containers, host namespaces, bind mounts into <code>/etc</code>, <code>/root</code>, <code>/var/lib/sfpanel</code>, the Docker socket, etc.) are rejected server-side. Review your file before installing."
   }
 }

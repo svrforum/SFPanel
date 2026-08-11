@@ -1,14 +1,20 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
-import { formatBytes } from '@/lib/utils'
+import { formatBytes, downloadBlob } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
-import { FileText, RefreshCw, Radio, ArrowDown, Trash2, Eye, Search, ChevronUp, ChevronDown, ChevronLeft, X, Download, Plus, Info } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { FileText, RefreshCw, Radio, ArrowDown, Trash2, Eye, Search, ChevronLeft, X, Download, Plus } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { hasParsedView, getParser, parseLogLines, type LogEntry, type ParsedLogEntry, type ColumnDef } from '@/lib/logParsers'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { hasParsedView } from '@/lib/logParsers'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { GuideAccordion } from '@/components/GuideAccordion'
+import { LiveLogSocket } from '@/components/logviewer/LiveLogSocket'
+import { LogSearchBar } from '@/components/logviewer/LogSearchBar'
+import { LogTable } from '@/components/logviewer/LogTable'
+import { useLogViewer } from '@/components/logviewer/useLogViewer'
+import { appendLogLines, LINE_COUNT_OPTIONS, type LineCount } from '@/components/logviewer/logViewUtils'
 
 interface LogSource {
   id: string
@@ -26,76 +32,9 @@ interface LogResponse {
   total_lines: number
 }
 
-type LineCount = 100 | 500 | 1000 | 5000
-
-const LINE_COUNT_OPTIONS: LineCount[] = [100, 500, 1000, 5000]
-
-const ROW_HEIGHT = 20
-
-function highlightText(text: string, query: string) {
-  if (!query) return text
-  const parts: Array<{ text: string; match: boolean }> = []
-  const lower = text.toLowerCase()
-  const qLower = query.toLowerCase()
-  let lastIndex = 0
-  let idx = lower.indexOf(qLower)
-  while (idx !== -1) {
-    if (idx > lastIndex) {
-      parts.push({ text: text.slice(lastIndex, idx), match: false })
-    }
-    parts.push({ text: text.slice(idx, idx + query.length), match: true })
-    lastIndex = idx + query.length
-    idx = lower.indexOf(qLower, lastIndex)
-  }
-  if (lastIndex < text.length) {
-    parts.push({ text: text.slice(lastIndex), match: false })
-  }
-  return (
-    <>
-      {parts.map((part, i) =>
-        part.match ? (
-          <mark key={i} className="bg-yellow-400/80 text-black rounded-sm px-0.5">{part.text}</mark>
-        ) : (
-          <span key={i}>{part.text}</span>
-        )
-      )}
-    </>
-  )
-}
-
-// Pre-compiled regexes for log level detection (avoid re-creating per call)
-const RE_ERROR = /\b(ERROR|FATAL|CRITICAL|PANIC|EMERG)\b/
-const RE_WARN = /\b(WARN|WARNING)\b/
-const RE_INFO = /\b(INFO|NOTICE)\b/
-const RE_DEBUG = /\b(DEBUG|TRACE)\b/
-const RE_EMPTY_ERROR = /"error":""/g
-
-function getLogLevel(line: string): 'error' | 'warn' | 'info' | 'debug' | null {
-  const cleaned = line.replace(RE_EMPTY_ERROR, '')
-  const upper = cleaned.toUpperCase()
-  if (RE_ERROR.test(upper)) return 'error'
-  if (RE_WARN.test(upper)) return 'warn'
-  if (RE_INFO.test(upper)) return 'info'
-  if (RE_DEBUG.test(upper)) return 'debug'
-  return null
-}
-
-const LOG_LEVEL_COLORS: Record<string, string> = {
-  error: 'border-l-2 border-l-red-500/70',
-  warn: 'border-l-2 border-l-yellow-500/70',
-  info: 'border-l-2 border-l-blue-500/50',
-  debug: 'border-l-2 border-l-gray-500/40',
-}
-
-const LOG_LEVEL_TEXT_COLORS: Record<string, string> = {
-  error: 'text-red-400',
-  warn: 'text-yellow-400',
-  info: 'text-gray-200',
-  debug: 'text-gray-500',
-}
-
 export default function Logs() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
 
   // Sources
   const [sources, setSources] = useState<LogSource[]>([])
@@ -113,70 +52,17 @@ export default function Logs() {
   // View mode
   const [viewMode, setViewMode] = useState<'raw' | 'parsed'>('parsed')
 
-  // Search state
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [currentMatch, setCurrentMatch] = useState(0)
-  const searchInputRef = useRef<HTMLInputElement>(null)
-
-  // Delete source dialog
-  const [deleteSourceTarget, setDeleteSourceTarget] = useState<LogSource | null>(null)
-
-  // Guide
-  const [showGuide, setShowGuide] = useState(false)
-
   // Custom source dialog
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [newSourceName, setNewSourceName] = useState('')
   const [newSourcePath, setNewSourcePath] = useState('')
   const [addingSource, setAddingSource] = useState(false)
 
-  // WebSocket state
+  // Live WebSocket state (connection itself lives in <LiveLogSocket />)
   const [wsConnected, setWsConnected] = useState(false)
-  const wsRef = useRef<WebSocket | null>(null)
-  const logContainerRef = useRef<HTMLDivElement>(null)
-  const autoScrollRef = useRef(autoScroll)
 
-  // WebSocket batching: accumulate lines and flush via rAF
-  const wsBatchRef = useRef<string[]>([])
-  const wsRafRef = useRef<number | null>(null)
-
-  // Keep the ref in sync so the WS message handler can read current value
-  useEffect(() => {
-    autoScrollRef.current = autoScroll
-  }, [autoScroll])
-
-  // Parsed log entries (memoized)
-  const parsedEntries = useMemo<LogEntry[]>(() => {
-    if (!selectedSource || viewMode !== 'parsed' || !hasParsedView(selectedSource)) return []
-    return parseLogLines(selectedSource, logLines)
-  }, [selectedSource, viewMode, logLines])
-
-  const activeParser = selectedSource ? getParser(selectedSource) : null
-
-  // Determine which data the virtualizer operates on
-  const isParsedMode = viewMode === 'parsed' && activeParser && parsedEntries.length > 0
-  const rowCount = !selectedSource || (logLoading && logLines.length === 0) || logLines.length === 0
-    ? 0
-    : isParsedMode
-      ? parsedEntries.length
-      : logLines.length
-
-  // Virtual scrolling
-  const rowVirtualizer = useVirtualizer({
-    count: rowCount,
-    getScrollElement: () => logContainerRef.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 30,
-  })
-
-  // Auto-scroll when new lines arrive
-  useEffect(() => {
-    if (autoScroll && rowCount > 0) {
-      rowVirtualizer.scrollToIndex(rowCount - 1, { align: 'end' })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logLines, autoScroll, rowCount])
+  // Shared viewer machinery: parsing, virtual scroll, search, Ctrl+F
+  const viewer = useLogViewer({ sourceId: selectedSource, lines: logLines, viewMode, autoScroll })
 
   // Fetch log sources on mount
   useEffect(() => {
@@ -231,106 +117,29 @@ export default function Logs() {
     }
   }
 
-  // Flush batched WS lines into state in a single rAF tick
-  const flushWsBatch = useCallback(() => {
-    wsRafRef.current = null
-    const batch = wsBatchRef.current
-    if (batch.length === 0) return
-    wsBatchRef.current = []
-    setLogLines((prev) => {
-      const next = prev.concat(batch)
-      // Slack window: only slice when we're well past the cap so the
-      // allocation amortises across many batches instead of running on
-      // every flush during sustained high log rates.
-      return next.length > 5500 ? next.slice(-5000) : next
-    })
-  }, [])
-
-  // WebSocket lifecycle
-  const connectWebSocket = useCallback((source: string) => {
-    if (wsRef.current) {
-      wsRef.current.close()
-      wsRef.current = null
-    }
-
-    void (async () => {
-      const wsUrl = await api.buildWsUrl('/ws/logs', { source })
-      const ws = new WebSocket(wsUrl)
-
-      ws.onopen = () => setWsConnected(true)
-
-      ws.onmessage = (event) => {
-        // Accumulate into batch buffer
-        try {
-          const data = JSON.parse(event.data)
-          if (data.line !== undefined) {
-            wsBatchRef.current.push(data.line)
-          } else if (data.lines && Array.isArray(data.lines)) {
-            wsBatchRef.current.push(...data.lines)
-          }
-        } catch {
-          if (typeof event.data === 'string' && event.data.trim()) {
-            wsBatchRef.current.push(event.data)
-          }
-        }
-        // Schedule a single flush per animation frame
-        if (wsRafRef.current === null) {
-          wsRafRef.current = requestAnimationFrame(flushWsBatch)
-        }
-      }
-
-      ws.onerror = () => {
-        setWsConnected(false)
-        toast.error(t('logs.wsError'))
-      }
-
-      ws.onclose = () => setWsConnected(false)
-
-      wsRef.current = ws
-    })()
-  }, [t, flushWsBatch])
-
-  const disconnectWebSocket = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close()
-      wsRef.current = null
-    }
-    if (wsRafRef.current !== null) {
-      cancelAnimationFrame(wsRafRef.current)
-      wsRafRef.current = null
-    }
-    wsBatchRef.current = []
-    setWsConnected(false)
+  // Append live-tail batches (capped by the shared slack window)
+  const handleLiveLines = useCallback((batch: string[]) => {
+    setLogLines((prev) => appendLogLines(prev, batch))
   }, [])
 
   function handleToggleLive() {
     if (isLive) {
-      disconnectWebSocket()
       setIsLive(false)
+      setWsConnected(false)
     } else {
       if (!selectedSource) {
         toast.error(t('logs.selectSourceFirst'))
         return
       }
       setIsLive(true)
-      connectWebSocket(selectedSource)
     }
   }
 
+  // Stop the live tail when switching sources
   useEffect(() => {
-    if (isLive) {
-      disconnectWebSocket()
-      setIsLive(false)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setIsLive(false)
+    setWsConnected(false)
   }, [selectedSource])
-
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) wsRef.current.close()
-      if (wsRafRef.current !== null) cancelAnimationFrame(wsRafRef.current)
-    }
-  }, [])
 
   function handleSourceSelect(sourceId: string) {
     const source = sources.find((s) => s.id === sourceId)
@@ -372,21 +181,22 @@ export default function Logs() {
     }
   }
 
-  function handleDeleteSourceClick(source: LogSource) {
+  async function handleDeleteSource(source: LogSource) {
     if (!source.custom || !source.custom_id) return
-    setDeleteSourceTarget(source)
-  }
-
-  async function handleConfirmDeleteSource() {
-    if (!deleteSourceTarget?.custom_id) return
+    const ok = await confirm({
+      title: t('logs.deleteSource'),
+      description: `${t('logs.deleteSourceConfirm')} — ${source.name} (${source.path})`,
+      confirmLabel: t('common.delete'),
+      danger: true,
+    })
+    if (!ok) return
     try {
-      await api.deleteCustomLogSource(deleteSourceTarget.custom_id)
+      await api.deleteCustomLogSource(source.custom_id)
       toast.success(t('logs.sourceDeleted'))
-      if (selectedSource === deleteSourceTarget.id) {
+      if (selectedSource === source.id) {
         setSelectedSource(null)
         setLogLines([])
       }
-      setDeleteSourceTarget(null)
       loadSources()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('logs.deleteSourceFailed')
@@ -394,96 +204,14 @@ export default function Logs() {
     }
   }
 
-  // Debounce searchQuery so typing in the search box doesn't trigger an
-  // O(N) scan over 5000 log lines on every keystroke. 150ms feels
-  // instant while keeping the scan rate ~7/sec at worst.
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-  useEffect(() => {
-    const id = setTimeout(() => setDebouncedQuery(searchQuery), 150)
-    return () => clearTimeout(id)
-  }, [searchQuery])
-
-  // Memoized search: matching line indices + Set for O(1) lookup
-  const matchingLines = useMemo(() => {
-    if (!debouncedQuery) return []
-    const q = debouncedQuery.toLowerCase()
-    return logLines.reduce<number[]>((acc, line, i) => {
-      if (line.toLowerCase().includes(q)) acc.push(i)
-      return acc
-    }, [])
-  }, [debouncedQuery, logLines])
-
-  const matchingSet = useMemo(() => new Set(matchingLines), [matchingLines])
-
-  // Memoized log levels for raw view (avoid per-row regex on each render)
-  const logLevels = useMemo(() => {
-    if (isParsedMode) return []
-    return logLines.map(getLogLevel)
-  }, [logLines, isParsedMode])
-
-  // Navigate to a virtual row by index
-  const scrollToLine = useCallback((lineIndex: number) => {
-    rowVirtualizer.scrollToIndex(lineIndex, { align: 'center' })
-  }, [rowVirtualizer])
-
-  const goToMatch = useCallback((direction: 'next' | 'prev') => {
-    if (matchingLines.length === 0) return
-    let next: number
-    if (direction === 'next') {
-      next = currentMatch + 1 >= matchingLines.length ? 0 : currentMatch + 1
-    } else {
-      next = currentMatch - 1 < 0 ? matchingLines.length - 1 : currentMatch - 1
-    }
-    setCurrentMatch(next)
-    scrollToLine(matchingLines[next])
-  }, [matchingLines, currentMatch, scrollToLine])
-
-  // When search query changes, reset to first match and scroll
-  useEffect(() => {
-    if (matchingLines.length > 0) {
-      setCurrentMatch(0)
-      scrollToLine(matchingLines[0])
-    } else {
-      setCurrentMatch(0)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery])
-
-  // Keyboard shortcut: Ctrl+F to open search
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault()
-        setSearchOpen(true)
-        setTimeout(() => searchInputRef.current?.focus(), 0)
-      }
-      if (e.key === 'Escape' && searchOpen) {
-        setSearchOpen(false)
-        setSearchQuery('')
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [searchOpen])
-
   const selectedSourceData = sources.find((s) => s.id === selectedSource)
 
   // Download logs
   const handleDownload = useCallback(() => {
     if (logLines.length === 0) return
-    const content = logLines.join('\n')
-    const blob = new Blob([content], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${selectedSourceData?.name || 'log'}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.log`
-    a.click()
-    URL.revokeObjectURL(url)
+    const blob = new Blob([logLines.join('\n')], { type: 'text/plain' })
+    downloadBlob(blob, `${selectedSourceData?.name || 'log'}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.log`)
   }, [logLines, selectedSourceData])
-
-  // Virtual items
-  const virtualItems = rowVirtualizer.getVirtualItems()
-  const totalSize = rowVirtualizer.getTotalSize()
 
   return (
     <div className="space-y-6">
@@ -494,53 +222,28 @@ export default function Logs() {
       </div>
 
       {/* How it works */}
-      <div className="bg-card rounded-2xl card-shadow overflow-hidden">
-        <button
-          onClick={() => setShowGuide(!showGuide)}
-          className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-secondary/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-        >
-          <Info className="h-4 w-4 text-primary shrink-0" />
-          <span className="text-[13px] font-medium flex-1">{t('logs.guideTitle')}</span>
-          {showGuide ? (
-            <ChevronUp className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          )}
-        </button>
-        {showGuide && (
-          <div className="px-4 pb-4 space-y-3 animate-in slide-in-from-top-1 duration-200">
-            <div className="h-px bg-border" />
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {[
-                { num: '1', title: t('logs.guideStep1Title'), desc: t('logs.guideStep1Desc') },
-                { num: '2', title: t('logs.guideStep2Title'), desc: t('logs.guideStep2Desc') },
-                { num: '3', title: t('logs.guideStep3Title'), desc: t('logs.guideStep3Desc') },
-              ].map((step) => (
-                <div key={step.num} className="flex gap-3">
-                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/10 text-primary text-[11px] font-bold shrink-0 mt-0.5">
-                    {step.num}
-                  </span>
-                  <div>
-                    <p className="text-[12px] font-semibold">{step.title}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{step.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
-              <span className="text-[11px] text-muted-foreground">
-                <span className="font-medium text-foreground">{t('logs.guideStreaming')}</span> WebSocket (tail -F)
-              </span>
-              <span className="text-[11px] text-muted-foreground">
-                <span className="font-medium text-foreground">{t('logs.guideSearch')}</span> Ctrl+F
-              </span>
-              <span className="text-[11px] text-muted-foreground">
-                <span className="font-medium text-foreground">{t('logs.guideParsed')}</span> Firewall, Auth, Fail2ban, SFPanel
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
+      <GuideAccordion
+        title={t('logs.guideTitle')}
+        steps={[
+          { num: '1', title: t('logs.guideStep1Title'), desc: t('logs.guideStep1Desc') },
+          { num: '2', title: t('logs.guideStep2Title'), desc: t('logs.guideStep2Desc') },
+          { num: '3', title: t('logs.guideStep3Title'), desc: t('logs.guideStep3Desc') },
+        ]}
+        facts={[
+          { label: t('logs.guideStreaming'), value: 'WebSocket (tail -F)' },
+          { label: t('logs.guideSearch'), value: 'Ctrl+F' },
+          { label: t('logs.guideParsed'), value: 'Firewall, Auth, Fail2ban, SFPanel' },
+        ]}
+      />
+
+      {/* Live tail connection (mounted only while live mode is on) */}
+      {isLive && selectedSource && (
+        <LiveLogSocket
+          source={selectedSource}
+          onLines={handleLiveLines}
+          onConnectedChange={setWsConnected}
+        />
+      )}
 
       <div className="flex flex-col md:flex-row gap-6">
         {/* Left sidebar: log sources */}
@@ -618,7 +321,7 @@ export default function Logs() {
                 </button>
                 {source.custom && source.custom_id && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleDeleteSourceClick(source) }}
+                    onClick={(e) => { e.stopPropagation(); handleDeleteSource(source) }}
                     className="absolute top-2 right-2 h-5 w-5 rounded-md flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity bg-destructive/10 hover:bg-destructive/20 text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
                     title={t('logs.deleteSource')}
                     aria-label={t('logs.deleteSource')}
@@ -732,14 +435,10 @@ export default function Logs() {
 
             {/* Search toggle */}
             <Button
-              variant={searchOpen ? 'default' : 'outline'}
+              variant={viewer.searchOpen ? 'default' : 'outline'}
               size="icon-sm"
               className="rounded-xl"
-              onClick={() => {
-                setSearchOpen(!searchOpen)
-                if (!searchOpen) setTimeout(() => searchInputRef.current?.focus(), 0)
-                if (searchOpen) setSearchQuery('')
-              }}
+              onClick={viewer.toggleSearch}
               title={t('logs.search')}
               aria-label={t('logs.search')}
             >
@@ -773,64 +472,7 @@ export default function Logs() {
           </div>
 
           {/* Search bar */}
-          {searchOpen && (
-            <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-secondary/50 border-0 rounded-xl">
-              <Search className="h-4 w-4 text-muted-foreground shrink-0" />
-              <Input
-                ref={searchInputRef}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    goToMatch(e.shiftKey ? 'prev' : 'next')
-                  }
-                  if (e.key === 'Escape') {
-                    setSearchOpen(false)
-                    setSearchQuery('')
-                  }
-                }}
-                placeholder={t('logs.searchPlaceholder')}
-                className="h-7 text-sm flex-1"
-                autoFocus
-              />
-              {searchQuery && (
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                  {matchingLines.length > 0
-                    ? `${currentMatch + 1} / ${matchingLines.length}`
-                    : t('logs.noMatches')}
-                </span>
-              )}
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => goToMatch('prev')}
-                disabled={matchingLines.length === 0}
-                title={t('logs.prevMatch')}
-                aria-label={t('logs.prevMatch')}
-              >
-                <ChevronUp className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => goToMatch('next')}
-                disabled={matchingLines.length === 0}
-                title={t('logs.nextMatch')}
-                aria-label={t('logs.nextMatch')}
-              >
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => { setSearchOpen(false); setSearchQuery('') }}
-                aria-label={t('common.close')}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
+          <LogSearchBar viewer={viewer} className="mb-3" />
 
           {/* Log info bar */}
           <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border border-b-0 rounded-t-xl text-xs text-muted-foreground">
@@ -862,194 +504,22 @@ export default function Logs() {
           </div>
 
           {/* Log content — virtualized */}
-          <div
-            ref={logContainerRef}
-            className="flex-1 min-h-[500px] max-h-[calc(100vh-320px)] overflow-auto overflow-x-auto rounded-b-xl border font-mono text-sm"
-            style={{ backgroundColor: '#1e1e1e' }}
-          >
-            {!selectedSource ? (
-              <div className="flex items-center justify-center h-full min-h-[500px] text-gray-500">
+          <LogTable
+            viewer={viewer}
+            lines={logLines}
+            loading={logLoading}
+            loadingText={t('logs.loading')}
+            emptyText={t('logs.empty')}
+            className="flex-1 max-h-[calc(100vh-320px)] overflow-x-auto"
+            placeholder={
+              !selectedSource ? (
                 <div className="text-center space-y-2">
                   <FileText className="h-12 w-12 mx-auto text-gray-600" />
                   <p>{t('logs.selectSourcePrompt')}</p>
                 </div>
-              </div>
-            ) : logLoading && logLines.length === 0 ? (
-              <div className="flex items-center justify-center h-full min-h-[500px] text-gray-500">
-                <div className="text-center space-y-2">
-                  <RefreshCw className="h-8 w-8 mx-auto text-gray-600 animate-spin" />
-                  <p>{t('logs.loading')}</p>
-                </div>
-              </div>
-            ) : logLines.length === 0 ? (
-              <div className="flex items-center justify-center h-full min-h-[500px] text-gray-500">
-                <div className="text-center space-y-2">
-                  <FileText className="h-12 w-12 mx-auto text-gray-600" />
-                  <p>{t('logs.empty')}</p>
-                </div>
-              </div>
-            ) : isParsedMode ? (
-              <table className="border-collapse" style={{ tableLayout: 'fixed' }}>
-                <colgroup>
-                  <col style={{ width: '3.5rem' }} />
-                  {(activeParser!.columns as ColumnDef<ParsedLogEntry>[]).map((col) => (
-                    <col key={col.key} style={{ width: col.width }} />
-                  ))}
-                </colgroup>
-                <thead className="sticky top-0 z-10" style={{ backgroundColor: '#2d2d2d' }}>
-                  <tr>
-                    <th
-                      className="select-none text-right px-3 py-1.5 text-gray-500 border-r border-gray-700/50 border-b border-b-gray-700/50 whitespace-nowrap"
-                      style={{ fontSize: '11px' }}
-                    >
-                      #
-                    </th>
-                    {(activeParser!.columns as ColumnDef<ParsedLogEntry>[]).map((col) => (
-                      <th
-                        key={col.key}
-                        className="text-left px-3 py-1.5 text-gray-400 border-b border-b-gray-700/50 whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider"
-                      >
-                        {t(col.i18nKey)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* Top spacer for virtual scroll */}
-                  {virtualItems.length > 0 && virtualItems[0].start > 0 && (
-                    <tr><td colSpan={activeParser!.columns.length + 1} style={{ height: virtualItems[0].start, padding: 0, border: 0 }} /></tr>
-                  )}
-                  {virtualItems.map((virtualRow) => {
-                    const index = virtualRow.index
-                    const entry = parsedEntries[index]
-                    const isMatch = matchingSet.has(index)
-                    const isCurrentMatch = isMatch && matchingLines[currentMatch] === index
-
-                    if (!entry.parsed) {
-                      return (
-                        <tr
-                          key={virtualRow.key}
-                          data-line={index}
-                          style={{ height: ROW_HEIGHT }}
-                          className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''}`}
-                        >
-                          <td
-                            className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 align-top whitespace-nowrap"
-                            style={{ minWidth: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
-                          >
-                            {index + 1}
-                          </td>
-                          <td
-                            colSpan={activeParser!.columns.length}
-                            className="px-3 py-0 whitespace-nowrap overflow-hidden text-ellipsis text-gray-400"
-                            style={{ fontSize: '12px', lineHeight: '20px' }}
-                            title={entry.rawLine}
-                          >
-                            {searchQuery && isMatch ? highlightText(entry.rawLine, searchQuery) : entry.rawLine}
-                          </td>
-                        </tr>
-                      )
-                    }
-
-                    return (
-                      <tr
-                        key={virtualRow.key}
-                        data-line={index}
-                        style={{ height: ROW_HEIGHT }}
-                        className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''}`}
-                      >
-                        <td
-                          className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 align-top whitespace-nowrap"
-                          style={{ minWidth: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
-                        >
-                          {index + 1}
-                        </td>
-                        {(activeParser!.columns as ColumnDef<ParsedLogEntry>[]).map((col) => {
-                          const rendered = col.render(entry as ParsedLogEntry)
-                          return (
-                            <td
-                              key={col.key}
-                              className={`px-3 py-0 text-left text-gray-200 whitespace-nowrap overflow-hidden ${col.key === 'details' ? 'text-ellipsis' : ''}`}
-                              style={{ fontSize: '12px', lineHeight: '20px' }}
-                              title={col.key === 'details' ? rendered.text : undefined}
-                            >
-                              {rendered.pill && rendered.color ? (
-                                <span
-                                  className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium"
-                                  style={{
-                                    backgroundColor: `${rendered.color}20`,
-                                    color: rendered.color,
-                                  }}
-                                >
-                                  {rendered.text}
-                                </span>
-                              ) : col.key === 'details' ? (
-                                <span className="text-gray-300">
-                                  {searchQuery && isMatch ? highlightText(rendered.text, searchQuery) : rendered.text}
-                                </span>
-                              ) : (
-                                <span>{rendered.text}</span>
-                              )}
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    )
-                  })}
-                  {/* Bottom spacer for virtual scroll */}
-                  {virtualItems.length > 0 && (
-                    <tr><td colSpan={activeParser!.columns.length + 1} style={{ height: totalSize - (virtualItems[virtualItems.length - 1]?.end ?? 0), padding: 0, border: 0 }} /></tr>
-                  )}
-                </tbody>
-              </table>
-            ) : (
-              /* Raw view — virtualized */
-              <div style={{ height: totalSize, position: 'relative' }}>
-                <table className="w-full border-collapse" style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
-                  <tbody>
-                    {virtualItems.map((virtualRow) => {
-                      const index = virtualRow.index
-                      const line = logLines[index]
-                      const isMatch = matchingSet.has(index)
-                      const isCurrentMatch = isMatch && matchingLines[currentMatch] === index
-                      const level = logLevels[index]
-                      const levelBorder = level ? LOG_LEVEL_COLORS[level] : ''
-                      const levelText = level ? LOG_LEVEL_TEXT_COLORS[level] : 'text-gray-200'
-                      return (
-                        <tr
-                          key={virtualRow.key}
-                          data-line={index}
-                          style={{
-                            height: ROW_HEIGHT,
-                            position: 'absolute',
-                            top: virtualRow.start,
-                            left: 0,
-                            right: 0,
-                            display: 'flex',
-                          }}
-                          className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''} ${levelBorder}`}
-                        >
-                          <td
-                            className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 whitespace-nowrap shrink-0"
-                            style={{ minWidth: '3.5rem', width: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
-                          >
-                            {index + 1}
-                          </td>
-                          <td
-                            className={`px-3 py-0 whitespace-nowrap overflow-hidden text-ellipsis flex-1 ${levelText}`}
-                            style={{ fontSize: '12px', lineHeight: '20px' }}
-                            title={line}
-                          >
-                            {searchQuery && isMatch ? highlightText(line, searchQuery) : line}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+              ) : undefined
+            }
+          />
         </div>
       </div>
 
@@ -1091,30 +561,6 @@ export default function Logs() {
               </Button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Custom Source Confirmation Dialog */}
-      <Dialog open={!!deleteSourceTarget} onOpenChange={(open) => !open && setDeleteSourceTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('logs.deleteSource')}</DialogTitle>
-            <DialogDescription>{t('logs.deleteSourceConfirm')}</DialogDescription>
-          </DialogHeader>
-          {deleteSourceTarget && (
-            <div className="rounded-xl bg-secondary/50 px-3 py-2 text-[13px]">
-              <span className="font-medium">{deleteSourceTarget.name}</span>
-              <span className="text-muted-foreground ml-2">{deleteSourceTarget.path}</span>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteSourceTarget(null)} className="rounded-xl">
-              {t('common.cancel')}
-            </Button>
-            <Button variant="destructive" onClick={handleConfirmDeleteSource} className="rounded-xl">
-              {t('common.delete')}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -1,71 +1,18 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
+import { downloadBlob } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { FileText, RefreshCw, Radio, ArrowDown, Trash2, Search, ChevronUp, ChevronDown, X, Download } from 'lucide-react'
-import { hasParsedView, getParser, parseLogLines, type LogEntry, type ParsedLogEntry, type ColumnDef } from '@/lib/logParsers'
+import { RefreshCw, Radio, ArrowDown, Trash2, Search, Download } from 'lucide-react'
+import { hasParsedView } from '@/lib/logParsers'
+import { LiveLogSocket } from '@/components/logviewer/LiveLogSocket'
+import { LogSearchBar } from '@/components/logviewer/LogSearchBar'
+import { LogTable } from '@/components/logviewer/LogTable'
+import { useLogViewer } from '@/components/logviewer/useLogViewer'
+import { appendLogLines, LINE_COUNT_OPTIONS, type LineCount } from '@/components/logviewer/logViewUtils'
 
 type FirewallLogSource = 'firewall' | 'fail2ban'
-type LineCount = 100 | 500 | 1000 | 5000
-
-const LINE_COUNT_OPTIONS: LineCount[] = [100, 500, 1000, 5000]
-
-function highlightText(text: string, query: string) {
-  if (!query) return text
-  const parts: Array<{ text: string; match: boolean }> = []
-  const lower = text.toLowerCase()
-  const qLower = query.toLowerCase()
-  let lastIndex = 0
-  let idx = lower.indexOf(qLower)
-  while (idx !== -1) {
-    if (idx > lastIndex) {
-      parts.push({ text: text.slice(lastIndex, idx), match: false })
-    }
-    parts.push({ text: text.slice(idx, idx + query.length), match: true })
-    lastIndex = idx + query.length
-    idx = lower.indexOf(qLower, lastIndex)
-  }
-  if (lastIndex < text.length) {
-    parts.push({ text: text.slice(lastIndex), match: false })
-  }
-  return (
-    <>
-      {parts.map((part, i) =>
-        part.match ? (
-          <mark key={i} className="bg-yellow-400/80 text-black rounded-sm px-0.5">{part.text}</mark>
-        ) : (
-          <span key={i}>{part.text}</span>
-        )
-      )}
-    </>
-  )
-}
-
-function getLogLevel(line: string): 'error' | 'warn' | 'info' | 'debug' | null {
-  const cleaned = line.replace(/"error":""/g, '')
-  const upper = cleaned.toUpperCase()
-  if (/\b(ERROR|FATAL|CRITICAL|PANIC|EMERG)\b/.test(upper)) return 'error'
-  if (/\b(WARN|WARNING)\b/.test(upper)) return 'warn'
-  if (/\b(INFO|NOTICE)\b/.test(upper)) return 'info'
-  if (/\b(DEBUG|TRACE)\b/.test(upper)) return 'debug'
-  return null
-}
-
-const LOG_LEVEL_COLORS: Record<string, string> = {
-  error: 'border-l-2 border-l-red-500/70',
-  warn: 'border-l-2 border-l-yellow-500/70',
-  info: 'border-l-2 border-l-blue-500/50',
-  debug: 'border-l-2 border-l-gray-500/40',
-}
-
-const LOG_LEVEL_TEXT_COLORS: Record<string, string> = {
-  error: 'text-red-400',
-  warn: 'text-yellow-400',
-  info: 'text-gray-200',
-  debug: 'text-gray-500',
-}
 
 interface LogResponse {
   source: string
@@ -85,33 +32,11 @@ export default function FirewallLogs() {
   const [totalLines, setTotalLines] = useState(0)
   const [viewMode, setViewMode] = useState<'raw' | 'parsed'>('parsed')
 
-  // Search
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [currentMatch, setCurrentMatch] = useState(0)
-  const searchInputRef = useRef<HTMLInputElement>(null)
-
-  // WebSocket
+  // Live WebSocket state (connection itself lives in <LiveLogSocket />)
   const [wsConnected, setWsConnected] = useState(false)
-  const wsRef = useRef<WebSocket | null>(null)
-  const logContainerRef = useRef<HTMLDivElement>(null)
-  const autoScrollRef = useRef(autoScroll)
 
-  useEffect(() => {
-    autoScrollRef.current = autoScroll
-  }, [autoScroll])
-
-  const scrollToBottom = useCallback(() => {
-    if (logContainerRef.current) {
-      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
-    }
-  }, [])
-
-  useEffect(() => {
-    if (autoScroll) {
-      scrollToBottom()
-    }
-  }, [logLines, autoScroll, scrollToBottom])
+  // Shared viewer machinery: parsing, virtual scroll, search, Ctrl+F
+  const viewer = useLogViewer({ sourceId: selectedSource, lines: logLines, viewMode, autoScroll })
 
   // Fetch logs
   useEffect(() => {
@@ -136,84 +61,25 @@ export default function FirewallLogs() {
     }
   }
 
-  // WebSocket
-  const connectWebSocket = useCallback((source: string) => {
-    if (wsRef.current) {
-      wsRef.current.close()
-      wsRef.current = null
-    }
-
-    void (async () => {
-      const wsUrl = await api.buildWsUrl('/ws/logs', { source })
-      const ws = new WebSocket(wsUrl)
-
-      ws.onopen = () => {
-        setWsConnected(true)
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          if (data.line !== undefined) {
-            setLogLines((prev) => [...prev, data.line])
-          } else if (data.lines && Array.isArray(data.lines)) {
-            setLogLines((prev) => [...prev, ...data.lines])
-          }
-        } catch {
-          if (typeof event.data === 'string' && event.data.trim()) {
-            setLogLines((prev) => [...prev, event.data])
-          }
-        }
-      }
-
-      ws.onerror = () => {
-        setWsConnected(false)
-        toast.error(t('logs.wsError'))
-      }
-
-      ws.onclose = () => {
-        setWsConnected(false)
-      }
-
-      wsRef.current = ws
-    })()
-  }, [t])
-
-  const disconnectWebSocket = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close()
-      wsRef.current = null
-    }
-    setWsConnected(false)
+  // Append live-tail batches (capped by the shared slack window)
+  const handleLiveLines = useCallback((batch: string[]) => {
+    setLogLines((prev) => appendLogLines(prev, batch))
   }, [])
 
   function handleToggleLive() {
     if (isLive) {
-      disconnectWebSocket()
       setIsLive(false)
+      setWsConnected(false)
     } else {
       setIsLive(true)
-      connectWebSocket(selectedSource)
     }
   }
 
-  // Disconnect WS on source change
+  // Stop the live tail when switching sources
   useEffect(() => {
-    if (isLive) {
-      disconnectWebSocket()
-      setIsLive(false)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setIsLive(false)
+    setWsConnected(false)
   }, [selectedSource])
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close()
-      }
-    }
-  }, [])
 
   function handleSourceChange(source: FirewallLogSource) {
     setSelectedSource(source)
@@ -229,85 +95,11 @@ export default function FirewallLogs() {
     setTotalLines(0)
   }
 
-  // Search — wrapped in useMemo so matchingLines has a stable identity per
-  // (logLines, searchQuery), preventing the useCallback below from being
-  // re-derived on every render.
-  const matchingLines = useMemo(() => {
-    if (!searchQuery) return [] as number[]
-    const searchLower = searchQuery.toLowerCase()
-    return logLines.reduce<number[]>((acc, line, i) => {
-      if (line.toLowerCase().includes(searchLower)) acc.push(i)
-      return acc
-    }, [])
-  }, [logLines, searchQuery])
-
-  const scrollToLine = useCallback((lineIndex: number) => {
-    const container = logContainerRef.current
-    if (!container) return
-    const row = container.querySelector(`[data-line="${lineIndex}"]`)
-    if (row) {
-      row.scrollIntoView({ block: 'center', behavior: 'smooth' })
-    }
-  }, [])
-
-  const goToMatch = useCallback((direction: 'next' | 'prev') => {
-    if (matchingLines.length === 0) return
-    let next: number
-    if (direction === 'next') {
-      next = currentMatch + 1 >= matchingLines.length ? 0 : currentMatch + 1
-    } else {
-      next = currentMatch - 1 < 0 ? matchingLines.length - 1 : currentMatch - 1
-    }
-    setCurrentMatch(next)
-    scrollToLine(matchingLines[next])
-  }, [matchingLines, currentMatch, scrollToLine])
-
-  useEffect(() => {
-    if (matchingLines.length > 0) {
-      setCurrentMatch(0)
-      scrollToLine(matchingLines[0])
-    } else {
-      setCurrentMatch(0)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery])
-
-  // Ctrl+F
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault()
-        setSearchOpen(true)
-        setTimeout(() => searchInputRef.current?.focus(), 0)
-      }
-      if (e.key === 'Escape' && searchOpen) {
-        setSearchOpen(false)
-        setSearchQuery('')
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [searchOpen])
-
-  // Parsed entries
-  const parsedEntries = useMemo<LogEntry[]>(() => {
-    if (viewMode !== 'parsed' || !hasParsedView(selectedSource)) return []
-    return parseLogLines(selectedSource, logLines)
-  }, [selectedSource, viewMode, logLines])
-
-  const activeParser = getParser(selectedSource)
-
   // Download
   const handleDownload = useCallback(() => {
     if (logLines.length === 0) return
-    const content = logLines.join('\n')
-    const blob = new Blob([content], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${selectedSource}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.log`
-    a.click()
-    URL.revokeObjectURL(url)
+    const blob = new Blob([logLines.join('\n')], { type: 'text/plain' })
+    downloadBlob(blob, `${selectedSource}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.log`)
   }, [logLines, selectedSource])
 
   return (
@@ -317,6 +109,15 @@ export default function FirewallLogs() {
         <h2 className="text-[15px] font-semibold">{t('firewall.logs.title')}</h2>
         <p className="text-[11px] text-muted-foreground mt-0.5">{t('firewall.logs.description')}</p>
       </div>
+
+      {/* Live tail connection (mounted only while live mode is on) */}
+      {isLive && (
+        <LiveLogSocket
+          source={selectedSource}
+          onLines={handleLiveLines}
+          onConnectedChange={setWsConnected}
+        />
+      )}
 
       {/* Source toggle + Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
@@ -426,13 +227,9 @@ export default function FirewallLogs() {
 
         {/* Search */}
         <Button
-          variant={searchOpen ? 'default' : 'outline'}
+          variant={viewer.searchOpen ? 'default' : 'outline'}
           size="icon-sm"
-          onClick={() => {
-            setSearchOpen(!searchOpen)
-            if (!searchOpen) setTimeout(() => searchInputRef.current?.focus(), 0)
-            if (searchOpen) setSearchQuery('')
-          }}
+          onClick={viewer.toggleSearch}
           title={t('logs.search')}
           aria-label={t('logs.search')}
         >
@@ -464,45 +261,7 @@ export default function FirewallLogs() {
       </div>
 
       {/* Search bar */}
-      {searchOpen && (
-        <div className="flex items-center gap-2 px-3 py-2 bg-secondary/50 border-0 rounded-xl">
-          <Search className="h-4 w-4 text-muted-foreground shrink-0" />
-          <Input
-            ref={searchInputRef}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                goToMatch(e.shiftKey ? 'prev' : 'next')
-              }
-              if (e.key === 'Escape') {
-                setSearchOpen(false)
-                setSearchQuery('')
-              }
-            }}
-            placeholder={t('logs.searchPlaceholder')}
-            className="h-7 text-sm flex-1"
-            autoFocus
-          />
-          {searchQuery && (
-            <span className="text-xs text-muted-foreground whitespace-nowrap">
-              {matchingLines.length > 0
-                ? `${currentMatch + 1} / ${matchingLines.length}`
-                : t('logs.noMatches')}
-            </span>
-          )}
-          <Button variant="ghost" size="icon-xs" onClick={() => goToMatch('prev')} disabled={matchingLines.length === 0} aria-label={t('common.previous')}>
-            <ChevronUp className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon-xs" onClick={() => goToMatch('next')} disabled={matchingLines.length === 0} aria-label={t('common.next')}>
-            <ChevronDown className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon-xs" onClick={() => { setSearchOpen(false); setSearchQuery('') }} aria-label={t('logs.closeSearch')}>
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
+      <LogSearchBar viewer={viewer} />
 
       {/* Log info bar */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/50 border border-b-0 rounded-t-xl text-xs text-muted-foreground">
@@ -523,161 +282,15 @@ export default function FirewallLogs() {
         </div>
       </div>
 
-      {/* Log content */}
-      <div
-        ref={logContainerRef}
-        className="min-h-[500px] max-h-[calc(100vh-380px)] overflow-auto rounded-b-xl border border-t-0 font-mono text-sm -mt-4"
-        style={{ backgroundColor: '#1e1e1e' }}
-      >
-        {logLoading && logLines.length === 0 ? (
-          <div className="flex items-center justify-center h-full min-h-[500px] text-gray-500">
-            <div className="text-center space-y-2">
-              <RefreshCw className="h-8 w-8 mx-auto text-gray-600 animate-spin" />
-              <p>{t('logs.loading')}</p>
-            </div>
-          </div>
-        ) : logLines.length === 0 ? (
-          <div className="flex items-center justify-center h-full min-h-[500px] text-gray-500">
-            <div className="text-center space-y-2">
-              <FileText className="h-12 w-12 mx-auto text-gray-600" />
-              <p>{t('firewall.logs.noLogs')}</p>
-            </div>
-          </div>
-        ) : viewMode === 'parsed' && activeParser && parsedEntries.length > 0 ? (
-          <table className="border-collapse" style={{ tableLayout: 'fixed' }}>
-            <colgroup>
-              <col style={{ width: '3.5rem' }} />
-              {(activeParser.columns as ColumnDef<ParsedLogEntry>[]).map((col) => (
-                <col key={col.key} style={{ width: col.width }} />
-              ))}
-            </colgroup>
-            <thead className="sticky top-0 z-10" style={{ backgroundColor: '#2d2d2d' }}>
-              <tr>
-                <th
-                  className="select-none text-right px-3 py-1.5 text-gray-500 border-r border-gray-700/50 border-b border-b-gray-700/50 whitespace-nowrap"
-                  style={{ fontSize: '11px' }}
-                >
-                  #
-                </th>
-                {(activeParser.columns as ColumnDef<ParsedLogEntry>[]).map((col) => (
-                  <th
-                    key={col.key}
-                    className="text-left px-3 py-1.5 text-gray-400 border-b border-b-gray-700/50 whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider"
-                  >
-                    {t(col.i18nKey)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {parsedEntries.map((entry, index) => {
-                const isMatch = searchQuery && matchingLines.includes(index)
-                const isCurrentMatch = isMatch && matchingLines[currentMatch] === index
-
-                if (!entry.parsed) {
-                  return (
-                    <tr
-                      key={index}
-                      data-line={index}
-                      className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''}`}
-                    >
-                      <td
-                        className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 align-top whitespace-nowrap"
-                        style={{ minWidth: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
-                      >
-                        {index + 1}
-                      </td>
-                      <td
-                        colSpan={activeParser.columns.length}
-                        className="px-3 py-0 whitespace-pre-wrap break-all text-gray-400"
-                        style={{ fontSize: '12px', lineHeight: '20px' }}
-                      >
-                        {searchQuery && isMatch ? highlightText(entry.rawLine, searchQuery) : entry.rawLine}
-                      </td>
-                    </tr>
-                  )
-                }
-
-                return (
-                  <tr
-                    key={index}
-                    data-line={index}
-                    className={`hover:bg-white/5 ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''}`}
-                  >
-                    <td
-                      className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 align-top whitespace-nowrap"
-                      style={{ minWidth: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
-                    >
-                      {index + 1}
-                    </td>
-                    {(activeParser.columns as ColumnDef<ParsedLogEntry>[]).map((col) => {
-                      const rendered = col.render(entry as ParsedLogEntry)
-                      return (
-                        <td
-                          key={col.key}
-                          className={`px-3 py-0 text-left text-gray-200 ${col.key === 'details' ? 'truncate' : 'whitespace-nowrap overflow-hidden'}`}
-                          style={{ fontSize: '12px', lineHeight: '20px' }}
-                          title={col.key === 'details' ? rendered.text : undefined}
-                        >
-                          {rendered.pill && rendered.color ? (
-                            <span
-                              className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium"
-                              style={{
-                                backgroundColor: `${rendered.color}20`,
-                                color: rendered.color,
-                              }}
-                            >
-                              {rendered.text}
-                            </span>
-                          ) : col.key === 'details' ? (
-                            <span className="text-gray-300">
-                              {searchQuery && isMatch ? highlightText(rendered.text, searchQuery) : rendered.text}
-                            </span>
-                          ) : (
-                            <span>{rendered.text}</span>
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        ) : (
-          <table className="w-full border-collapse">
-            <tbody>
-              {logLines.map((line, index) => {
-                const isMatch = searchQuery && matchingLines.includes(index)
-                const isCurrentMatch = isMatch && matchingLines[currentMatch] === index
-                const level = getLogLevel(line)
-                const levelBorder = level ? LOG_LEVEL_COLORS[level] : ''
-                const levelText = level ? LOG_LEVEL_TEXT_COLORS[level] : 'text-gray-200'
-                return (
-                  <tr
-                    key={index}
-                    data-line={index}
-                    className={`hover:bg-white/5 group ${isCurrentMatch ? 'bg-yellow-500/20' : isMatch ? 'bg-yellow-500/10' : ''} ${levelBorder}`}
-                  >
-                    <td
-                      className="select-none text-right px-3 py-0 text-gray-600 border-r border-gray-700/50 align-top whitespace-nowrap"
-                      style={{ minWidth: '3.5rem', fontSize: '12px', lineHeight: '20px' }}
-                    >
-                      {index + 1}
-                    </td>
-                    <td
-                      className={`px-3 py-0 whitespace-pre-wrap break-all ${levelText}`}
-                      style={{ fontSize: '12px', lineHeight: '20px' }}
-                    >
-                      {searchQuery && isMatch ? highlightText(line, searchQuery) : line}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {/* Log content — virtualized */}
+      <LogTable
+        viewer={viewer}
+        lines={logLines}
+        loading={logLoading}
+        loadingText={t('logs.loading')}
+        emptyText={t('firewall.logs.noLogs')}
+        className="max-h-[calc(100vh-380px)] border-t-0 -mt-4"
+      />
     </div>
   )
 }

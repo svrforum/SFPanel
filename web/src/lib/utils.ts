@@ -77,6 +77,27 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
+// POSIX-style path helpers shared by the file/disk browsers (Files, DiskUsage)
+// — each used to carry its own copies.
+export function pathBasename(p: string): string {
+  if (p === '/') return '/'
+  const parts = p.replace(/\/+$/, '').split('/')
+  return parts[parts.length - 1] || '/'
+}
+
+export function pathParent(p: string): string {
+  const cleaned = p.replace(/\/+$/, '')
+  const idx = cleaned.lastIndexOf('/')
+  if (idx <= 0) return '/'
+  return cleaned.slice(0, idx)
+}
+
+export function pathJoin(...parts: string[]): string {
+  const [first, ...rest] = parts
+  const joined = [first.replace(/\/+$/, ''), ...rest.map((p) => p.replace(/^\/+/, ''))].join('/')
+  return joined.replace(/\/+/g, '/') || '/'
+}
+
 // Single source for the cluster node status → color-class mapping. The same
 // switch used to be copy-pasted in five components (NodeSelector, MoreMenu,
 // cluster TreePanel, ClusterNodes, ClusterOverview) and had already grown a

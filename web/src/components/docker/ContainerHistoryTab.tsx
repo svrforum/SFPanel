@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { Button } from '@/components/ui/button'
 import { api } from '@/lib/api'
 import type { ContainerMetricPoint, ContainerEvent } from '@/types/api'
-import { EventTimelineRow } from '@/components/EventTimelineRow'
+import { EventTimelineRow } from '@/components/docker/EventTimelineRow'
 
 type Range = '1h' | '6h' | '24h'
 
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function ContainerHistoryTab({ containerId }: Props) {
+  const { t } = useTranslation()
   const [range, setRange] = useState<Range>('1h')
   const [metrics, setMetrics] = useState<ContainerMetricPoint[]>([])
   const [events, setEvents] = useState<ContainerEvent[]>([])
@@ -74,22 +76,22 @@ export function ContainerHistoryTab({ containerId }: Props) {
       </div>
       <div className="border rounded-md p-2" style={{ minHeight: 220 }}>
         {metrics.length === 0 ? (
-          <div className="text-muted-foreground text-[12px] py-8 text-center">수집 중…</div>
+          <div className="text-muted-foreground text-[12px] py-8 text-center">{t('docker.containers.collectingMetrics', 'Collecting…')}</div>
         ) : (
           <div ref={chartRef} />
         )}
       </div>
       <div>
-        <h4 className="text-[13px] font-semibold mb-2">이벤트</h4>
+        <h4 className="text-[13px] font-semibold mb-2">{t('docker.containers.events', 'Events')}</h4>
         <div className="border rounded-md divide-y">
           {events.length === 0 && (
-            <div className="text-muted-foreground text-[12px] py-8 text-center">이벤트 없음</div>
+            <div className="text-muted-foreground text-[12px] py-8 text-center">{t('docker.containers.noEvents', 'No events')}</div>
           )}
           {events.map((ev, i) => <div key={`${ev.ts}-${i}`} className="px-3"><EventTimelineRow event={ev} /></div>)}
         </div>
         {hasMore && (
           <div className="text-center mt-2">
-            <Button size="sm" variant="outline" onClick={loadMore}>더 보기</Button>
+            <Button size="sm" variant="outline" onClick={loadMore}>{t('docker.containers.loadMore', 'Load more')}</Button>
           </div>
         )}
       </div>

@@ -57,6 +57,9 @@ export default function MobileTerminalBar({ onSendKey }: { onSendKey: (data: str
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-secondary text-foreground active:bg-accent'
             )}
+            aria-pressed={
+              k.toggle ? (k.toggle === 'ctrl' ? ctrlActive : altActive) : undefined
+            }
             onClick={() => {
               if (k.toggle === 'ctrl') { setCtrlActive(!ctrlActive); setAltActive(false) }
               else if (k.toggle === 'alt') { setAltActive(!altActive); setCtrlActive(false) }
