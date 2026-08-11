@@ -7,9 +7,6 @@ import {
   RefreshCw,
   Play,
   Pause,
-  Info,
-  ChevronDown,
-  ChevronUp,
   Zap,
   Loader2,
   CheckCircle2,
@@ -20,9 +17,11 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { CronJob } from '@/types/api'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Skeleton } from '@/components/ui/skeleton'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { GuideAccordion } from '@/components/GuideAccordion'
+import { ListLoadState } from '@/components/ListLoadState'
+import { StatusPill } from '@/components/StatusPill'
+import { CronJobDialog } from '@/pages/cron/components/CronJobDialog'
 import {
   Table,
   TableBody,
@@ -39,11 +38,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-
-interface SchedulePreset {
-  label: string
-  value: string
-}
 
 const SCHEDULE_KEYS: Record<string, string> = {
   '* * * * *': 'cron.scheduleDesc.everyMinute',
@@ -70,6 +64,7 @@ const SCHEDULE_KEYS: Record<string, string> = {
 
 export default function CronJobs() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
 
   const describeSchedule = (schedule: string): string | null => {
     const key = SCHEDULE_KEYS[schedule]
@@ -90,13 +85,6 @@ export default function CronJobs() {
   // Create/Edit dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingJob, setEditingJob] = useState<CronJob | null>(null)
-  const [formSchedule, setFormSchedule] = useState('')
-  const [formCommand, setFormCommand] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  // Delete dialog state
-  const [deleteTarget, setDeleteTarget] = useState<CronJob | null>(null)
-  const [showGuide, setShowGuide] = useState(false)
 
   // Cron execution logs (system journal / syslog — when jobs ran)
   const [logsOpen, setLogsOpen] = useState(false)
@@ -119,14 +107,6 @@ export default function CronJobs() {
       setLogsLoading(false)
     }
   }, [t])
-
-  const presets: SchedulePreset[] = [
-    { label: t('cron.presetEveryMinute'), value: '* * * * *' },
-    { label: t('cron.presetEveryHour'), value: '0 * * * *' },
-    { label: t('cron.presetDaily'), value: '0 0 * * *' },
-    { label: t('cron.presetWeekly'), value: '0 0 * * 0' },
-    { label: t('cron.presetMonthly'), value: '0 0 1 * *' },
-  ]
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -153,61 +133,12 @@ export default function CronJobs() {
 
   const openCreateDialog = () => {
     setEditingJob(null)
-    setFormSchedule('')
-    setFormCommand('')
     setDialogOpen(true)
   }
 
   const openEditDialog = (job: CronJob) => {
     setEditingJob(job)
-    setFormSchedule(job.schedule)
-    setFormCommand(job.command)
     setDialogOpen(true)
-  }
-
-  const closeDialog = () => {
-    setDialogOpen(false)
-    setEditingJob(null)
-    setFormSchedule('')
-    setFormCommand('')
-  }
-
-  const handleSave = async () => {
-    if (!formSchedule.trim() || !formCommand.trim()) return
-    if (!isPlausibleCronSchedule(formSchedule.trim())) {
-      toast.error(t('cron.invalidSchedule'))
-      return
-    }
-    setSaving(true)
-    try {
-      if (editingJob) {
-        await api.updateCronJob(editingJob.id, formSchedule.trim(), formCommand.trim(), editingJob.enabled)
-        toast.success(t('cron.updateSuccess'))
-      } else {
-        await api.createCronJob(formSchedule.trim(), formCommand.trim())
-        toast.success(t('cron.createSuccess'))
-      }
-      closeDialog()
-      await fetchJobs()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('cron.saveFailed')
-      toast.error(message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  // isPlausibleCronSchedule does a lightweight shape check so the most
-  // common typos ('every 5 minutes' typed into the field, three-field
-  // entries, etc.) get a clear error before round-tripping to the server.
-  // The server still validates strictly — this is just to short-circuit
-  // obvious garbage with a faster, localized error.
-  function isPlausibleCronSchedule(s: string): boolean {
-    if (s.startsWith('@')) {
-      return /^@(reboot|yearly|annually|monthly|weekly|daily|midnight|hourly)$/.test(s)
-    }
-    const fields = s.split(/\s+/)
-    return fields.length === 5
   }
 
   const handleRunNow = async (job: CronJob) => {
@@ -242,13 +173,18 @@ export default function CronJobs() {
     }
   }
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return
-    setActionLoading(deleteTarget.id)
+  const handleDelete = async (job: CronJob) => {
+    const ok = await confirm({
+      title: t('cron.deleteTitle'),
+      description: `${t('cron.deleteConfirm')} — ${t('cron.schedule')}: ${job.schedule} · ${t('cron.command')}: ${job.command}`,
+      confirmLabel: t('common.delete'),
+      danger: true,
+    })
+    if (!ok) return
+    setActionLoading(job.id)
     try {
-      await api.deleteCronJob(deleteTarget.id)
+      await api.deleteCronJob(job.id)
       toast.success(t('cron.deleteSuccess'))
-      setDeleteTarget(null)
       await fetchJobs()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('cron.deleteFailed')
@@ -283,61 +219,30 @@ export default function CronJobs() {
       </div>
 
       {/* Guide */}
-      <div className="bg-card rounded-2xl card-shadow overflow-hidden">
-        <button
-          onClick={() => setShowGuide(!showGuide)}
-          className="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-secondary/30 transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-        >
-          <Info className="h-4 w-4 text-primary shrink-0" />
-          <span className="text-[13px] font-medium flex-1">{t('cron.guideTitle')}</span>
-          {showGuide ? (
-            <ChevronUp className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          )}
-        </button>
-        {showGuide && (
-          <div className="px-4 pb-4 space-y-3 animate-in slide-in-from-top-1 duration-200">
-            <div className="h-px bg-border" />
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {[
-                { num: '1', title: t('cron.guideTitle'), desc: t('cron.guideWhat') },
-                { num: '2', title: 'root', desc: t('cron.guideWho') },
-                { num: '3', title: t('cron.guideSchedule'), desc: t('cron.guideHow') },
-              ].map((step) => (
-                <div key={step.num} className="flex gap-3">
-                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary/10 text-primary text-[11px] font-bold shrink-0 mt-0.5">
-                    {step.num}
-                  </span>
-                  <div>
-                    <p className="text-[12px] font-semibold">{step.title}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{step.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="rounded-lg bg-secondary/30 px-3 py-2.5 space-y-1.5">
-              <p className="text-[11px] font-semibold text-foreground">{t('cron.guideSchedule')}: <code className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">{t('cron.guideScheduleDesc')}</code></p>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                <span className="text-[11px] text-muted-foreground">
-                  <code className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">0 3 * * *</code> — {t('cron.guideExampleDaily')}
-                </span>
-                <span className="text-[11px] text-muted-foreground">
-                  <code className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">0 0 * * 1</code> — {t('cron.guideExampleWeekly')}
-                </span>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1">
-              <span className="text-[11px] text-muted-foreground">
-                <span className="font-medium text-foreground">{t('cron.guideFile')}</span> /var/spool/cron/crontabs/root
-              </span>
-              <span className="text-[11px] text-muted-foreground">
-                <span className="font-medium text-foreground">{t('cron.guideLog')}</span> /var/log/syslog
-              </span>
-            </div>
+      <GuideAccordion
+        title={t('cron.guideTitle')}
+        steps={[
+          { num: '1', title: t('cron.guideTitle'), desc: t('cron.guideWhat') },
+          { num: '2', title: 'root', desc: t('cron.guideWho') },
+          { num: '3', title: t('cron.guideSchedule'), desc: t('cron.guideHow') },
+        ]}
+        facts={[
+          { label: t('cron.guideFile'), value: '/var/spool/cron/crontabs/root' },
+          { label: t('cron.guideLog'), value: '/var/log/syslog' },
+        ]}
+      >
+        <div className="rounded-lg bg-secondary/30 px-3 py-2.5 space-y-1.5">
+          <p className="text-[11px] font-semibold text-foreground">{t('cron.guideSchedule')}: <code className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">{t('cron.guideScheduleDesc')}</code></p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <span className="text-[11px] text-muted-foreground">
+              <code className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">0 3 * * *</code> — {t('cron.guideExampleDaily')}
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              <code className="font-mono bg-muted px-1 py-0.5 rounded text-[10px]">0 0 * * 1</code> — {t('cron.guideExampleWeekly')}
+            </span>
           </div>
-        )}
-      </div>
+        </div>
+      </GuideAccordion>
 
       {/* Filter bar */}
       <div className="flex items-center justify-between">
@@ -358,25 +263,14 @@ export default function CronJobs() {
       </div>
 
       {/* Load error / loading skeleton (first load only) */}
-      {error && jobs.length === 0 ? (
-        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
-          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium">{t('cron.loadError')}</p>
-            <p className="text-[12px] opacity-80 mt-0.5 break-words">{error}</p>
-          </div>
-          <Button variant="outline" size="sm" className="rounded-xl shrink-0" onClick={fetchJobs}>
-            <RefreshCw className="h-3.5 w-3.5" />
-            {t('common.retry')}
-          </Button>
-        </div>
-      ) : loading && jobs.length === 0 ? (
-        <div className="bg-card rounded-2xl p-3 card-shadow space-y-2">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : null}
+      {jobs.length === 0 && (
+        <ListLoadState
+          loading={loading}
+          error={error}
+          errorTitle={t('cron.loadError')}
+          onRetry={fetchJobs}
+        />
+      )}
 
       {/* Mobile card view */}
       <div className={`md:hidden space-y-2 ${(error || loading) && jobs.length === 0 ? 'hidden' : ''}`}>
@@ -444,7 +338,7 @@ export default function CronJobs() {
                       title={t('common.delete')}
                       aria-label={t('common.delete')}
                       disabled={actionLoading === job.id}
-                      onClick={() => setDeleteTarget(job)}
+                      onClick={() => handleDelete(job)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -533,13 +427,13 @@ export default function CronJobs() {
                   {showAllTypes && (
                     <TableCell>
                       {job.type === 'job' && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary">{t('cron.typeJob')}</span>
+                        <StatusPill tone="primary">{t('cron.typeJob')}</StatusPill>
                       )}
                       {job.type === 'env' && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">{t('cron.typeEnv')}</span>
+                        <StatusPill tone="secondary">{t('cron.typeEnv')}</StatusPill>
                       )}
                       {job.type === 'comment' && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">{t('cron.typeComment')}</span>
+                        <StatusPill tone="secondary">{t('cron.typeComment')}</StatusPill>
                       )}
                     </TableCell>
                   )}
@@ -562,7 +456,7 @@ export default function CronJobs() {
                           title={t('common.delete')}
                           aria-label={t('common.delete')}
                           disabled={actionLoading === job.id}
-                          onClick={() => setDeleteTarget(job)}
+                          onClick={() => handleDelete(job)}
                         >
                           <Trash2 />
                         </Button>
@@ -576,82 +470,17 @@ export default function CronJobs() {
       </div>
 
       {/* Create/Edit dialog */}
-      <Dialog open={dialogOpen} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {editingJob ? t('cron.editTitle') : t('cron.createTitle')}
-            </DialogTitle>
-            <DialogDescription>
-              {editingJob ? t('cron.editDescription') : t('cron.createDescription')}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="cron-schedule">{t('cron.schedule')}</Label>
-              <Input
-                id="cron-schedule"
-                placeholder="* * * * *"
-                value={formSchedule}
-                onChange={(e) => setFormSchedule(e.target.value)}
-                className="font-mono"
-              />
-              <p className="text-xs text-muted-foreground">
-                {t('cron.scheduleHint')}: <code className="bg-muted px-1 py-0.5 rounded">* * * * *</code>{' '}
-                ({t('cron.scheduleFormat')})
-              </p>
-            </div>
+      <CronJobDialog
+        open={dialogOpen}
+        job={editingJob}
+        onOpenChange={(open) => {
+          setDialogOpen(open)
+          if (!open) setEditingJob(null)
+        }}
+        onSaved={fetchJobs}
+        describeSchedule={describeSchedule}
+      />
 
-            <div className="space-y-2">
-              <Label>{t('cron.presets')}</Label>
-              <div className="flex flex-wrap gap-2">
-                {presets.map((preset) => (
-                  <Button
-                    key={preset.value}
-                    type="button"
-                    variant={formSchedule === preset.value ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setFormSchedule(preset.value)}
-                  >
-                    {preset.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="cron-command">{t('cron.command')}</Label>
-              <Input
-                id="cron-command"
-                placeholder={t('cron.commandPlaceholder')}
-                value={formCommand}
-                onChange={(e) => setFormCommand(e.target.value)}
-                className="font-mono w-full"
-              />
-            </div>
-
-            {formSchedule && describeSchedule(formSchedule) && (
-              <div className="rounded-md bg-muted px-3 py-2 text-sm">
-                <span className="text-muted-foreground">{t('cron.preview')}: </span>
-                <span className="font-medium">{describeSchedule(formSchedule)}</span>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog} disabled={saving}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={saving || !formSchedule.trim() || !formCommand.trim()}
-            >
-              {saving ? t('common.saving') : t('common.save')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete confirmation dialog */}
       {/* Run-now output dialog */}
       <Dialog open={!!runJob} onOpenChange={(open) => !open && setRunJob(null)}>
         <DialogContent className="sm:max-w-2xl">
@@ -674,41 +503,6 @@ export default function CronJobs() {
           <DialogFooter>
             <Button variant="outline" className="rounded-xl" onClick={() => setRunJob(null)}>
               {t('common.close')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('cron.deleteTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('cron.deleteConfirm')}
-            </DialogDescription>
-          </DialogHeader>
-          {deleteTarget && (
-            <div className="rounded-md bg-muted px-3 py-2 space-y-1">
-              <p className="text-sm">
-                <span className="text-muted-foreground">{t('cron.schedule')}: </span>
-                <code className="font-mono text-xs">{deleteTarget.schedule}</code>
-              </p>
-              <p className="text-sm">
-                <span className="text-muted-foreground">{t('cron.command')}: </span>
-                <code className="font-mono text-xs break-all">{deleteTarget.command}</code>
-              </p>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={actionLoading === deleteTarget?.id}
-            >
-              {t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

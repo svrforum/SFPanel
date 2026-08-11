@@ -32,6 +32,9 @@ export interface ColumnDef<T extends ParsedLogEntry> {
   key: string
   i18nKey: string
   width?: string
+  // flex marks the free-width text column (no fixed width): the viewer gives
+  // it ellipsis/title overflow handling and applies search-match highlighting.
+  flex?: boolean
   render: (entry: T) => { text: string; color?: string; pill?: boolean }
 }
 
@@ -213,6 +216,7 @@ const authColumns: ColumnDef<AuthLogEntry>[] = [
   {
     key: 'details',
     i18nKey: 'logs.col.details',
+    flex: true,
     render: (e) => ({ text: e.details }),
   },
 ]
@@ -491,6 +495,7 @@ const sfpanelColumns: ColumnDef<SFPanelLogEntry>[] = [
   {
     key: 'details',
     i18nKey: 'logs.col.details',
+    flex: true,
     render: (e) => {
       if (e.logType === 'request') return { text: e.uri }
       return { text: e.message }
@@ -617,6 +622,7 @@ const fail2banColumns: ColumnDef<Fail2banLogEntry>[] = [
   {
     key: 'details',
     i18nKey: 'logs.col.details',
+    flex: true,
     render: (e) => ({ text: e.message }),
   },
 ]

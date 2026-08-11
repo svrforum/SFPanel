@@ -17,7 +17,6 @@ import {
   List,
   ListTree,
   CornerDownRight,
-  AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -27,7 +26,8 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
+import { ListLoadState } from '@/components/ListLoadState'
+import { StatusPill, type StatusPillTone } from '@/components/StatusPill'
 import type { Metrics, ProcessInfo } from '@/types/api'
 import {
   Table,
@@ -52,6 +52,10 @@ const ROW_HEIGHT = 44
 
 // A process plus its computed tree depth (for flattened-DFS tree rendering).
 type TreeRow = { proc: ProcessInfo; depth: number }
+
+// Threshold text color for per-process cpu/mem percent cells.
+const usageTone = (pct: number) =>
+  pct > 50 ? 'text-destructive font-bold' : pct > 20 ? 'text-warning' : ''
 
 export default function Processes() {
   const { t } = useTranslation()
@@ -156,13 +160,21 @@ export default function Processes() {
     return rows
   }, [viewMode, filtered, sorted])
 
-  // Virtual scrolling for large process lists
+  // Virtual scrolling for large process lists — both view modes share the
+  // same virtualizer; tree mode just counts (and indexes into) treeRows.
   const rowVirtualizer = useVirtualizer({
-    count: sorted.length,
+    count: viewMode === 'tree' ? treeRows.length : sorted.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => rowHeight,
     overscan: 20,
   })
+
+  // Row lookup for the virtualizer, normalized to {proc, depth}.
+  const rowAt = (index: number): TreeRow | undefined => {
+    if (viewMode === 'tree') return treeRows[index]
+    const proc = sorted[index]
+    return proc ? { proc, depth: 0 } : undefined
+  }
 
   const handleKill = async (signal: string) => {
     if (!killTarget) return
@@ -204,12 +216,11 @@ export default function Processes() {
     }
   }
 
-  const getStatusStyle = (status: string) => {
-    const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
+  const statusTone = (status: string): StatusPillTone => {
     switch (status) {
-      case 'running': return `${base} bg-success/10 text-success`
-      case 'zombie': return `${base} bg-destructive/10 text-destructive`
-      default: return `${base} bg-secondary text-muted-foreground`
+      case 'running': return 'success'
+      case 'zombie': return 'destructive'
+      default: return 'secondary'
     }
   }
 
@@ -283,12 +294,12 @@ export default function Processes() {
       </TableCell>
       <TableCell className="text-xs">{proc.user}</TableCell>
       <TableCell className="text-right font-mono text-xs w-20">
-        <span className={proc.cpu > 50 ? 'text-destructive font-bold' : proc.cpu > 20 ? 'text-warning' : ''}>
+        <span className={usageTone(proc.cpu)}>
           {proc.cpu.toFixed(1)}
         </span>
       </TableCell>
       <TableCell className="text-right font-mono text-xs w-20">
-        <span className={proc.memory > 50 ? 'text-destructive font-bold' : proc.memory > 20 ? 'text-warning' : ''}>
+        <span className={usageTone(proc.memory)}>
           {proc.memory.toFixed(1)}
         </span>
       </TableCell>
@@ -297,9 +308,9 @@ export default function Processes() {
       </TableCell>
       <TableCell className="w-16">{niceBadge(proc.nice)}</TableCell>
       <TableCell className="w-24">
-        <span className={getStatusStyle(proc.status)}>
+        <StatusPill tone={statusTone(proc.status)}>
           {statusLabel(proc.status)}
-        </span>
+        </StatusPill>
       </TableCell>
       <TableCell className="text-right w-24">
         {rowActions(proc, 'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity')}
@@ -322,13 +333,13 @@ export default function Processes() {
           <span className="font-mono">PID {proc.pid}</span>
           <span className="flex items-center gap-1">
             <Cpu className="h-3 w-3" />
-            <span className={proc.cpu > 50 ? 'text-destructive font-bold' : proc.cpu > 20 ? 'text-warning' : ''}>
+            <span className={usageTone(proc.cpu)}>
               {proc.cpu.toFixed(1)}%
             </span>
           </span>
           <span className="flex items-center gap-1">
             <MemoryStick className="h-3 w-3" />
-            <span className={proc.memory > 50 ? 'text-destructive font-bold' : proc.memory > 20 ? 'text-warning' : ''}>
+            <span className={usageTone(proc.memory)}>
               {proc.memory.toFixed(1)}%
             </span>
             <span className="text-muted-foreground">({formatBytes(proc.rss)})</span>
@@ -358,84 +369,64 @@ export default function Processes() {
       {/* Resource summary cards */}
       {sysMetrics && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 md:gap-4">
-          <div className="bg-card rounded-2xl p-3 md:p-4 card-shadow">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-primary/10">
-                <Cpu className="h-4 w-4 text-primary" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[13px] font-medium">{t('processes.cpuUsage')}</span>
-                  <span className="text-[13px] font-bold">{sysMetrics.cpu.toFixed(1)}%</span>
+          {[
+            {
+              key: 'cpu',
+              icon: Cpu,
+              iconWrap: 'bg-primary/10',
+              iconColor: 'text-primary',
+              label: t('processes.cpuUsage'),
+              value: `${sysMetrics.cpu.toFixed(1)}%`,
+              percent: Math.min(100, sysMetrics.cpu),
+              barColor: sysMetrics.cpu > 80 ? 'var(--destructive)' : sysMetrics.cpu > 50 ? 'var(--warning)' : 'var(--primary)',
+              sub: null as string | null,
+            },
+            {
+              key: 'mem',
+              icon: MemoryStick,
+              iconWrap: 'bg-success/10',
+              iconColor: 'text-success',
+              label: t('processes.memUsage'),
+              value: `${sysMetrics.mem_percent.toFixed(1)}%`,
+              percent: Math.min(100, sysMetrics.mem_percent),
+              barColor: sysMetrics.mem_percent > 80 ? 'var(--destructive)' : sysMetrics.mem_percent > 50 ? 'var(--warning)' : 'var(--success)',
+              sub: `${formatBytes(sysMetrics.mem_used)} / ${formatBytes(sysMetrics.mem_total)}`,
+            },
+            {
+              key: 'swap',
+              icon: HardDrive,
+              iconWrap: 'bg-warning/10',
+              iconColor: 'text-warning',
+              label: t('processes.swapUsage'),
+              value: sysMetrics.swap_total > 0 ? `${sysMetrics.swap_percent.toFixed(1)}%` : t('processes.swapDisabled'),
+              percent: Math.min(100, sysMetrics.swap_total > 0 ? sysMetrics.swap_percent : 0),
+              barColor: sysMetrics.swap_percent > 80 ? 'var(--destructive)' : sysMetrics.swap_percent > 50 ? 'var(--warning)' : 'var(--primary)',
+              sub: sysMetrics.swap_total > 0 ? `${formatBytes(sysMetrics.swap_used)} / ${formatBytes(sysMetrics.swap_total)}` : null,
+            },
+          ].map((card) => (
+            <div key={card.key} className="bg-card rounded-2xl p-3 md:p-4 card-shadow">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-xl ${card.iconWrap}`}>
+                  <card.icon className={`h-4 w-4 ${card.iconColor}`} />
                 </div>
-                <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${Math.min(100, sysMetrics.cpu)}%`,
-                      backgroundColor: sysMetrics.cpu > 80 ? 'var(--destructive)' : sysMetrics.cpu > 50 ? 'var(--warning)' : 'var(--primary)'
-                    }}
-                  />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[13px] font-medium">{card.label}</span>
+                    <span className="text-[13px] font-bold">{card.value}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${card.percent}%`, backgroundColor: card.barColor }}
+                    />
+                  </div>
+                  {card.sub && (
+                    <p className="text-[11px] text-muted-foreground mt-1">{card.sub}</p>
+                  )}
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-card rounded-2xl p-3 md:p-4 card-shadow">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-success/10">
-                <MemoryStick className="h-4 w-4 text-success" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[13px] font-medium">{t('processes.memUsage')}</span>
-                  <span className="text-[13px] font-bold">{sysMetrics.mem_percent.toFixed(1)}%</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${Math.min(100, sysMetrics.mem_percent)}%`,
-                      backgroundColor: sysMetrics.mem_percent > 80 ? 'var(--destructive)' : sysMetrics.mem_percent > 50 ? 'var(--warning)' : 'var(--success)'
-                    }}
-                  />
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {formatBytes(sysMetrics.mem_used)} / {formatBytes(sysMetrics.mem_total)}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-card rounded-2xl p-3 md:p-4 card-shadow">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-warning/10">
-                <HardDrive className="h-4 w-4 text-warning" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[13px] font-medium">{t('processes.swapUsage')}</span>
-                  <span className="text-[13px] font-bold">
-                    {sysMetrics.swap_total > 0 ? `${sysMetrics.swap_percent.toFixed(1)}%` : t('processes.swapDisabled')}
-                  </span>
-                </div>
-                <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${Math.min(100, sysMetrics.swap_total > 0 ? sysMetrics.swap_percent : 0)}%`,
-                      backgroundColor: sysMetrics.swap_percent > 80 ? 'var(--destructive)' : sysMetrics.swap_percent > 50 ? 'var(--warning)' : 'var(--primary)'
-                    }}
-                  />
-                </div>
-                {sysMetrics.swap_total > 0 && (
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    {formatBytes(sysMetrics.swap_used)} / {formatBytes(sysMetrics.swap_total)}
-                  </p>
-                )}
               </div>
             </div>
-          </div>
+          ))}
         </div>
       )}
 
@@ -499,24 +490,13 @@ export default function Processes() {
       </div>
 
       {/* Process list */}
-      {error && allProcesses.length === 0 ? (
-        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
-          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium">{t('processes.loadError')}</p>
-            <p className="text-[12px] opacity-80 mt-0.5 break-words">{error}</p>
-          </div>
-          <Button variant="outline" size="sm" className="rounded-xl shrink-0" onClick={fetchProcesses}>
-            <RefreshCw className="h-3.5 w-3.5" />
-            {t('common.retry')}
-          </Button>
-        </div>
-      ) : loading && allProcesses.length === 0 ? (
-        <div className="bg-card rounded-2xl p-3 card-shadow space-y-2">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full rounded-xl" />
-          ))}
-        </div>
+      {(error || loading) && allProcesses.length === 0 ? (
+        <ListLoadState
+          loading={loading}
+          error={error}
+          errorTitle={t('processes.loadError')}
+          onRetry={fetchProcesses}
+        />
       ) : sorted.length === 0 ? (
         <div className="bg-card rounded-2xl p-8 card-shadow text-center text-muted-foreground">
           {searchQuery ? t('processes.noResults') : t('processes.empty')}
@@ -527,35 +507,27 @@ export default function Processes() {
         <>
           {/* Mobile card view */}
           <div className="md:hidden">
-            {viewMode === 'list' ? (
-              <div
-                ref={isMobile ? scrollRef : undefined}
-                className="overflow-auto space-y-2"
-                style={{ maxHeight: 'calc(100vh - 420px)' }}
-              >
-                <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const proc = sorted[virtualRow.index]
-                    if (!proc) return null
-                    return (
-                      <div
-                        key={proc.pid}
-                        className="absolute left-0 right-0 px-0.5"
-                        style={{ top: virtualRow.start, height: virtualRow.size }}
-                      >
-                        {renderMobileCard(proc)}
-                      </div>
-                    )
-                  })}
-                </div>
+            <div
+              ref={isMobile ? scrollRef : undefined}
+              className="overflow-auto space-y-2"
+              style={{ maxHeight: 'calc(100vh - 420px)' }}
+            >
+              <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const row = rowAt(virtualRow.index)
+                  if (!row) return null
+                  return (
+                    <div
+                      key={row.proc.pid}
+                      className="absolute left-0 right-0 px-0.5"
+                      style={{ top: virtualRow.start, height: virtualRow.size }}
+                    >
+                      {renderMobileCard(row.proc, row.depth)}
+                    </div>
+                  )
+                })}
               </div>
-            ) : (
-              <div className="overflow-auto space-y-2" style={{ maxHeight: 'calc(100vh - 420px)' }}>
-                {treeRows.map(({ proc, depth }) => (
-                  <div key={proc.pid}>{renderMobileCard(proc, depth)}</div>
-                ))}
-              </div>
-            )}
+            </div>
           </div>
 
           {/* Desktop table view */}
@@ -576,25 +548,19 @@ export default function Processes() {
               </TableHeader>
             </Table>
             <div
-              ref={isMobile || viewMode === 'tree' ? undefined : scrollRef}
+              ref={isMobile ? undefined : scrollRef}
               className="overflow-auto"
               style={{ maxHeight: 'calc(100vh - 420px)' }}
             >
               <Table>
                 <TableBody>
-                  {viewMode === 'list' ? (
-                    <>
-                      <tr style={{ height: rowVirtualizer.getVirtualItems()[0]?.start ?? 0 }} />
-                      {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                        const proc = sorted[virtualRow.index]
-                        if (!proc) return null
-                        return renderDesktopRow(proc)
-                      })}
-                      <tr style={{ height: rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems().at(-1)?.end ?? 0) }} />
-                    </>
-                  ) : (
-                    treeRows.map(({ proc, depth }) => renderDesktopRow(proc, depth))
-                  )}
+                  <tr style={{ height: rowVirtualizer.getVirtualItems()[0]?.start ?? 0 }} />
+                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const row = rowAt(virtualRow.index)
+                    if (!row) return null
+                    return renderDesktopRow(row.proc, row.depth)
+                  })}
+                  <tr style={{ height: rowVirtualizer.getTotalSize() - (rowVirtualizer.getVirtualItems().at(-1)?.end ?? 0) }} />
                 </TableBody>
               </Table>
             </div>

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import {
@@ -11,14 +11,15 @@ import {
   FileText,
   Loader2,
   MoreHorizontal,
-  AlertCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import type { ServiceInfo, ServiceDeps } from '@/types/api'
+import type { ServiceInfo } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
+import { ListLoadState } from '@/components/ListLoadState'
+import { StatusPill, type StatusPillTone } from '@/components/StatusPill'
+import { ServiceDetailDialog } from '@/pages/services/components/ServiceDetailDialog'
 import {
   Table,
   TableBody,
@@ -27,12 +28,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,6 +38,26 @@ import {
 
 type FilterType = 'all' | 'running' | 'failed' | 'inactive'
 
+const activeStateTone = (activeState: string, subState: string): StatusPillTone => {
+  if (activeState === 'active' && subState === 'running') return 'success'
+  if (activeState === 'failed') return 'destructive'
+  if (activeState === 'activating' || activeState === 'deactivating') return 'warning'
+  return 'muted'
+}
+
+const enabledTone = (enabled: string): StatusPillTone => {
+  switch (enabled) {
+    case 'enabled':
+      return 'success'
+    case 'static':
+      return 'primary'
+    case 'masked':
+      return 'destructive'
+    default:
+      return 'muted'
+  }
+}
+
 export default function Services() {
   const { t } = useTranslation()
   const [allServices, setAllServices] = useState<ServiceInfo[]>([])
@@ -52,12 +67,6 @@ export default function Services() {
   const [filter, setFilter] = useState<FilterType>('all')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [logService, setLogService] = useState<string | null>(null)
-  const [logs, setLogs] = useState('')
-  const [logsLoading, setLogsLoading] = useState(false)
-  const [serviceDeps, setServiceDeps] = useState<ServiceDeps | null>(null)
-  const [unitFile, setUnitFile] = useState('')
-  const [dialogView, setDialogView] = useState<'logs' | 'unit'>('logs')
-  const logContainerRef = useRef<HTMLDivElement>(null)
 
   const fetchServices = useCallback(async () => {
     try {
@@ -145,61 +154,56 @@ export default function Services() {
     }
   }
 
-  const handleViewLogs = async (name: string) => {
-    setLogService(name)
-    setLogs('')
-    setUnitFile('')
-    setServiceDeps(null)
-    setDialogView('logs')
-    setLogsLoading(true)
-    try {
-      const [logsData, depsData, unitData] = await Promise.all([
-        api.getServiceLogs(name, 200),
-        api.getServiceDeps(name),
-        api.getServiceUnit(name).catch(() => ({ unit: '' })),
-      ])
-      setLogs(logsData.logs || '')
-      setServiceDeps(depsData)
-      setUnitFile(unitData.unit || '')
-      setTimeout(() => {
-        if (logContainerRef.current) {
-          logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
-        }
-      }, 0)
-    } catch {
-      setLogs('Failed to load logs')
-    } finally {
-      setLogsLoading(false)
-    }
-  }
-
-  const getActiveStateStyle = (activeState: string, subState: string) => {
-    const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-    if (activeState === 'active' && subState === 'running') {
-      return `${base} bg-success/10 text-success`
-    }
-    if (activeState === 'failed') {
-      return `${base} bg-destructive/10 text-destructive`
-    }
-    if (activeState === 'activating' || activeState === 'deactivating') {
-      return `${base} bg-warning/10 text-warning`
-    }
-    return `${base} bg-muted text-muted-foreground`
-  }
-
-  const getEnabledStyle = (enabled: string) => {
-    const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-    switch (enabled) {
-      case 'enabled':
-        return `${base} bg-success/10 text-success`
-      case 'static':
-        return `${base} bg-primary/10 text-primary`
-      case 'masked':
-        return `${base} bg-destructive/10 text-destructive`
-      default:
-        return `${base} bg-muted text-muted-foreground`
-    }
-  }
+  // Full action menu (start/stop/restart, boot enable/disable, logs) — shared
+  // by the desktop table cell and the mobile card so both expose the same set.
+  const renderActionsMenu = (svc: ServiceInfo, triggerClassName?: string) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={t('services.actions')}
+          className={triggerClassName}
+          disabled={actionLoading?.startsWith(svc.name + ':') || false}
+        >
+          {actionLoading?.startsWith(svc.name + ':') ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <MoreHorizontal className="h-4 w-4" />
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => handleAction(svc.name, 'start')} disabled={svc.active_state === 'active'}>
+          <Play className="h-4 w-4 mr-2" />
+          {t('services.start')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => handleAction(svc.name, 'stop')} disabled={svc.active_state === 'inactive'}>
+          <Square className="h-4 w-4 mr-2" />
+          {t('services.stop')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => handleAction(svc.name, 'restart')}>
+          <RotateCw className="h-4 w-4 mr-2" />
+          {t('services.restart')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {svc.enabled === 'enabled' ? (
+          <DropdownMenuItem onClick={() => handleAction(svc.name, 'disable')}>
+            {t('services.disable')}
+          </DropdownMenuItem>
+        ) : svc.enabled === 'disabled' ? (
+          <DropdownMenuItem onClick={() => handleAction(svc.name, 'enable')}>
+            {t('services.enable')}
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => setLogService(svc.name)}>
+          <FileText className="h-4 w-4 mr-2" />
+          {t('services.viewLogs')}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 
   const filters: { key: FilterType; labelKey: string }[] = [
     { key: 'all', labelKey: 'services.filterAll' },
@@ -262,25 +266,14 @@ export default function Services() {
       </div>
 
       {/* Load error / loading skeleton (first load only) */}
-      {error && allServices.length === 0 ? (
-        <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
-          <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium">{t('services.loadError')}</p>
-            <p className="text-[12px] opacity-80 mt-0.5 break-words">{error}</p>
-          </div>
-          <Button variant="outline" size="sm" className="rounded-xl shrink-0" onClick={fetchServices}>
-            <RefreshCw className="h-3.5 w-3.5" />
-            {t('common.retry')}
-          </Button>
-        </div>
-      ) : loading && allServices.length === 0 ? (
-        <div className="bg-card rounded-2xl p-3 card-shadow space-y-2">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : null}
+      {allServices.length === 0 && (
+        <ListLoadState
+          loading={loading}
+          error={error}
+          errorTitle={t('services.loadError')}
+          onRetry={fetchServices}
+        />
+      )}
 
       {/* Mobile card view */}
       <div className="md:hidden space-y-2">
@@ -300,12 +293,12 @@ export default function Services() {
                   </p>
                 )}
                 <div className="flex items-center gap-2 mt-2">
-                  <span className={getActiveStateStyle(svc.active_state, svc.sub_state)}>
+                  <StatusPill tone={activeStateTone(svc.active_state, svc.sub_state)}>
                     {svc.sub_state || svc.active_state}
-                  </span>
-                  <span className={getEnabledStyle(svc.enabled)}>
+                  </StatusPill>
+                  <StatusPill tone={enabledTone(svc.enabled)}>
                     {svc.enabled}
-                  </span>
+                  </StatusPill>
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
@@ -339,15 +332,7 @@ export default function Services() {
                 >
                   <RotateCw className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  title={t('services.viewLogs')}
-                  aria-label={t('services.viewLogs')}
-                  onClick={() => handleViewLogs(svc.name)}
-                >
-                  <FileText className="h-4 w-4" />
-                </Button>
+                {renderActionsMenu(svc)}
               </div>
             </div>
           </div>
@@ -385,62 +370,17 @@ export default function Services() {
                   </span>
                 </TableCell>
                 <TableCell>
-                  <span className={getActiveStateStyle(svc.active_state, svc.sub_state)}>
+                  <StatusPill tone={activeStateTone(svc.active_state, svc.sub_state)}>
                     {svc.sub_state || svc.active_state}
-                  </span>
+                  </StatusPill>
                 </TableCell>
                 <TableCell>
-                  <span className={getEnabledStyle(svc.enabled)}>
+                  <StatusPill tone={enabledTone(svc.enabled)}>
                     {svc.enabled}
-                  </span>
+                  </StatusPill>
                 </TableCell>
                 <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={t('services.actions')}
-                        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
-                        disabled={actionLoading?.startsWith(svc.name + ':') || false}
-                      >
-                        {actionLoading?.startsWith(svc.name + ':') ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <MoreHorizontal className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleAction(svc.name, 'start')} disabled={svc.active_state === 'active'}>
-                        <Play className="h-4 w-4 mr-2" />
-                        {t('services.start')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleAction(svc.name, 'stop')} disabled={svc.active_state === 'inactive'}>
-                        <Square className="h-4 w-4 mr-2" />
-                        {t('services.stop')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleAction(svc.name, 'restart')}>
-                        <RotateCw className="h-4 w-4 mr-2" />
-                        {t('services.restart')}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      {svc.enabled === 'enabled' ? (
-                        <DropdownMenuItem onClick={() => handleAction(svc.name, 'disable')}>
-                          {t('services.disable')}
-                        </DropdownMenuItem>
-                      ) : svc.enabled === 'disabled' ? (
-                        <DropdownMenuItem onClick={() => handleAction(svc.name, 'enable')}>
-                          {t('services.enable')}
-                        </DropdownMenuItem>
-                      ) : null}
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => handleViewLogs(svc.name)}>
-                        <FileText className="h-4 w-4 mr-2" />
-                        {t('services.viewLogs')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {renderActionsMenu(svc, 'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity')}
                 </TableCell>
               </TableRow>
             ))}
@@ -448,65 +388,8 @@ export default function Services() {
         </Table>
       </div>
 
-      {/* Log dialog */}
-      <Dialog open={!!logService} onOpenChange={(open) => !open && setLogService(null)}>
-        <DialogContent className="max-w-3xl max-h-[80vh]">
-          <DialogHeader>
-            <DialogTitle>{t('services.logsFor', { name: logService })}</DialogTitle>
-          </DialogHeader>
-          {/* Logs / Unit file toggle */}
-          <div className="flex gap-1 rounded-xl bg-muted p-1 w-fit">
-            <button
-              onClick={() => setDialogView('logs')}
-              className={`px-3 py-1 text-[12px] rounded-lg transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${dialogView === 'logs' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
-            >
-              {t('services.logsTab')}
-            </button>
-            <button
-              onClick={() => setDialogView('unit')}
-              disabled={!unitFile}
-              className={`px-3 py-1 text-[12px] rounded-lg transition-colors disabled:opacity-40 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${dialogView === 'unit' ? 'bg-card font-semibold shadow-sm' : 'text-muted-foreground'}`}
-            >
-              {t('services.unitTab')}
-            </button>
-          </div>
-          {/* Dependency info */}
-          {serviceDeps && (serviceDeps.required_by?.length || serviceDeps.requires?.length || serviceDeps.wanted_by?.length) ? (
-            <div className="space-y-2">
-              {serviceDeps.required_by && serviceDeps.required_by.length > 0 && (
-                <div className="p-3 bg-amber-500/10 rounded-xl">
-                  <p className="text-[11px] font-medium text-amber-500">{t('services.dependents')}</p>
-                  <p className="text-[13px] mt-1">{serviceDeps.required_by.join(', ')}</p>
-                </div>
-              )}
-              {serviceDeps.requires && serviceDeps.requires.length > 0 && (
-                <div className="p-3 bg-primary/10 rounded-xl">
-                  <p className="text-[11px] font-medium text-primary">{t('services.requires')}</p>
-                  <p className="text-[13px] mt-1">{serviceDeps.requires.join(', ')}</p>
-                </div>
-              )}
-              {serviceDeps.wanted_by && serviceDeps.wanted_by.length > 0 && (
-                <div className="p-3 bg-muted rounded-xl">
-                  <p className="text-[11px] font-medium text-muted-foreground">{t('services.wantedBy')}</p>
-                  <p className="text-[13px] mt-1">{serviceDeps.wanted_by.join(', ')}</p>
-                </div>
-              )}
-            </div>
-          ) : null}
-
-          <div ref={logContainerRef} className="bg-[#1a1a2e] rounded-xl p-4 overflow-auto max-h-[60vh]">
-            {logsLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-              </div>
-            ) : (
-              <pre className="text-[12px] leading-5 text-gray-300 font-mono whitespace-pre-wrap break-all">
-                {dialogView === 'unit' ? unitFile || t('services.noUnit') : logs || t('services.noLogs')}
-              </pre>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Log / unit / dependency dialog */}
+      <ServiceDetailDialog serviceName={logService} onClose={() => setLogService(null)} />
     </div>
   )
 }
