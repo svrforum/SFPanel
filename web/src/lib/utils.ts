@@ -76,3 +76,39 @@ export async function copyText(text: string): Promise<boolean> {
     return false
   }
 }
+
+// Single source for the cluster node status → color-class mapping. The same
+// switch used to be copy-pasted in five components (NodeSelector, MoreMenu,
+// cluster TreePanel, ClusterNodes, ClusterOverview) and had already grown a
+// CSS-variable variant — one function keeps a future status grade or color
+// change from drifting across surfaces.
+export function nodeStatusColor(status: string): string {
+  switch (status) {
+    case 'online':
+      return 'bg-success'
+    case 'suspect':
+      return 'bg-warning'
+    case 'offline':
+      return 'bg-destructive'
+    default:
+      return 'bg-muted-foreground'
+  }
+}
+
+// Trigger a browser download for an in-memory blob. Callers used to inline the
+// createElement('a') + objectURL dance (Security 2FA codes, Maintenance
+// backups) — the revoke in a finally keeps the object URL from leaking when
+// click() throws.
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  try {
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}

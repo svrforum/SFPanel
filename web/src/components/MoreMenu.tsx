@@ -2,24 +2,9 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Drawer } from 'vaul'
-import {
-  Activity,
-  Server,
-  Store,
-  FolderOpen,
-  Clock,
-  FileText,
-  Cog,
-  Network,
-  HardDrive,
-  Shield,
-  Package,
-  Settings,
-  LogOut,
-  Monitor,
-  ChevronDown,
-} from 'lucide-react'
+import { LogOut, Monitor, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { MORE_MENU_ITEMS } from '@/lib/navigation'
 import { api } from '@/lib/api'
 import type { ClusterStatus, ClusterNode } from '@/types/api'
 
@@ -28,20 +13,12 @@ interface MoreMenuProps {
   onOpenChange: (open: boolean) => void
 }
 
-const menuItems = [
-  { path: '/processes', icon: Activity, label: 'layout.nav.processes' },
-  { path: '/appstore', icon: Store, label: 'layout.nav.appstore' },
-  { path: '/files', icon: FolderOpen, label: 'layout.nav.files' },
-  { path: '/cron', icon: Clock, label: 'layout.nav.cron' },
-  { path: '/logs', icon: FileText, label: 'layout.nav.logs' },
-  { path: '/services', icon: Cog, label: 'layout.nav.services' },
-  { path: '/network', icon: Network, label: 'layout.nav.networkVpn' },
-  { path: '/disk', icon: HardDrive, label: 'layout.nav.disk' },
-  { path: '/firewall', icon: Shield, label: 'layout.nav.firewall' },
-  { path: '/packages', icon: Package, label: 'layout.nav.packages' },
-  { path: '/cluster', icon: Server, label: 'layout.nav.cluster' },
-  { path: '/settings', icon: Settings, label: 'layout.nav.settings' },
-] as const
+// Derived from the single registry: everything that isn't a bottom-bar tab.
+const menuItems = MORE_MENU_ITEMS.map((i) => ({
+  path: i.to,
+  icon: i.icon,
+  label: i.labelKey,
+}))
 
 export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
   const navigate = useNavigate()

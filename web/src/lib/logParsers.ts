@@ -286,7 +286,10 @@ export function parseFirewallLine(line: string): FirewallLogEntry | RawLogEntry 
   return { parsed: false, rawLine: line }
 }
 
-const FIREWALL_ACTION_COLORS: Record<string, string> = {
+// Exported so the Dashboard's firewall mini-table shares the exact palette
+// instead of redefining it (the two copies had already been maintained
+// separately).
+export const FIREWALL_ACTION_COLORS: Record<string, string> = {
   BLOCK: '#f04452',
   DROP: '#f04452',
   ALLOW: '#00c471',

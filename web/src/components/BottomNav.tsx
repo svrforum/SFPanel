@@ -1,14 +1,8 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { LayoutDashboard, Container, Terminal, FileText, Menu, type LucideIcon } from 'lucide-react'
+import { Menu } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-interface NavItem {
-  to: string
-  icon: LucideIcon
-  label: string
-  end?: boolean
-}
+import { BOTTOM_NAV_ITEMS } from '@/lib/navigation'
 
 interface BottomNavProps {
   onMorePress: () => void
@@ -21,12 +15,11 @@ export default function BottomNav({ onMorePress }: BottomNavProps) {
   // Terminal page has its own mobile toolbar — hide bottom nav there
   if (location.pathname === '/terminal') return null
 
-  const navItems: NavItem[] = [
-    { to: '/dashboard', icon: LayoutDashboard, label: t('layout.mobileNav.dashboard') },
-    { to: '/docker', icon: Container, label: t('layout.mobileNav.docker') },
-    { to: '/terminal', icon: Terminal, label: t('layout.mobileNav.terminal') },
-    { to: '/logs', icon: FileText, label: t('layout.nav.logs') },
-  ]
+  const navItems = BOTTOM_NAV_ITEMS.map((i) => ({
+    to: i.to,
+    icon: i.icon,
+    label: t(i.mobileLabelKey ?? i.labelKey),
+  }))
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card md:hidden">
@@ -35,7 +28,6 @@ export default function BottomNav({ onMorePress }: BottomNavProps) {
           <NavLink
             key={tab.to}
             to={tab.to}
-            end={tab.end}
             className={({ isActive }) =>
               cn(
                 'flex flex-col items-center justify-center gap-0.5 flex-1 h-full active:opacity-70 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40',

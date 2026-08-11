@@ -484,21 +484,35 @@ class ApiClient {
       headers: this.streamHeaders({ 'Content-Type': 'application/json' }),
     })
     if (!res.ok) throw new Error('Update failed')
+    await this.readSSEStream<{ step: string; message: string }>(res, onProgress)
+  }
+
+  /**
+   * POST to a raw-text streaming endpoint and hand chunks to the caller as
+   * they arrive. Pages used to hand-roll this reader loop (and, worse, hit
+   * `apiBase` directly — dropping the ?node= scope, so remote-node package
+   * installs silently ran on the local node). The proxy's streaming allowlist
+   * already covers these paths, so withNode is safe here.
+   */
+  async postTextStream(
+    path: string,
+    onChunk: (text: string) => void,
+    opts: { body?: BodyInit | null; headers?: Record<string, string>; signal?: AbortSignal } = {}
+  ): Promise<void> {
+    const res = await fetch(this.withNode(path), {
+      method: 'POST',
+      headers: this.streamHeaders(opts.headers ?? {}),
+      body: opts.body ?? null,
+      signal: opts.signal,
+    })
+    if (!res.ok) throw new Error(`Stream failed (${res.status})`)
     const reader = res.body?.getReader()
     if (!reader) throw new Error('No stream')
     const decoder = new TextDecoder()
-    let buffer = ''
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try { onProgress(JSON.parse(line.slice(6))) } catch { /* skip */ }
-        }
-      }
+      onChunk(decoder.decode(value, { stream: true }))
     }
   }
 
@@ -1808,6 +1822,40 @@ class ApiClient {
   uninstallApp(id: string, keepData = false) {
     const q = keepData ? '?keep_data=true' : ''
     return this.request<{ message: string }>(`/appstore/apps/${id}${q}`, { method: 'DELETE' })
+  }
+
+  /**
+   * Install an app-store app, streaming SSE progress events. Pre-flight
+   * rejections (port/name conflicts, already installed) arrive as a JSON error
+   * envelope before any SSE — surfaced as a thrown Error carrying the server
+   * error `code` so callers can keep their code-specific toasts.
+   */
+  async installAppStream<T = { phase: string; line: string }>(
+    appId: string,
+    body: unknown,
+    onEvent: (event: T) => void,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const res = await fetch(this.withNode(`/appstore/apps/${encodeURIComponent(appId)}/install`), {
+      method: 'POST',
+      headers: this.streamHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body),
+      signal,
+    })
+    if (!res.ok) {
+      let errBody: { code?: string; message?: string } = {}
+      try {
+        errBody = (await res.json())?.error ?? {}
+      } catch {
+        // non-JSON error body — fall through with the bare status
+      }
+      const err = new Error(errBody.message || `Install failed (${res.status})`) as Error & {
+        code?: string
+      }
+      err.code = errBody.code
+      throw err
+    }
+    await this.readSSEStream<T>(res, onEvent)
   }
 
   // Cluster
