@@ -140,17 +140,20 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
       return
     }
 
-    const params = new URLSearchParams()
-    if (tail !== '100') params.set('tail', tail)
-    if (timestamps) params.set('timestamps', 'true')
-    if (stream !== 'all') params.set('stream', stream)
-    if (since !== 'all') params.set('since', since)
-    const qs = params.toString()
+    // Pass options through buildWsUrl's params argument, never inline in the
+    // path: buildWsUrl unconditionally appends `?${params}`, so a path that
+    // already carries a query string swallows the auth ticket into the last
+    // option value and the socket 401s.
+    const logParams: Record<string, string> = {}
+    if (tail !== '100') logParams.tail = tail
+    if (timestamps) logParams.timestamps = 'true'
+    if (stream !== 'all') logParams.stream = stream
+    if (since !== 'all') logParams.since = since
     let disposed = false
     let wsRefLocal: WebSocket | null = null
 
     void (async () => {
-      const wsUrl = await api.buildWsUrl(`/ws/docker/containers/${containerId}/logs${qs ? '?' + qs : ''}`)
+      const wsUrl = await api.buildWsUrl(`/ws/docker/containers/${containerId}/logs`, logParams)
       if (disposed) return
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws

@@ -1954,6 +1954,10 @@ class ApiClient {
   // Falls back to the legacy ?token= path if the ticket endpoint is
   // unreachable (older backend / network blip) so existing flows don't break
   // mid-upgrade.
+  //
+  // `path` must NOT carry a query string — this appends `?${params}`
+  // unconditionally, so an inline query would swallow the ticket into its last
+  // value and 401 the socket. Endpoint options go through extraParams.
   async buildWsUrl(path: string, extraParams?: Record<string, string>): Promise<string> {
     let host: string
     let protocol: string
