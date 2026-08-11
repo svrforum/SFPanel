@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import AuthShell, { AuthErrorBanner, AUTH_INPUT_CLASS, AUTH_SUBMIT_CLASS } from '@/components/AuthShell'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -30,10 +31,20 @@ export default function Login() {
       api.setTokenPair(result.token, result.refresh_token ?? null)
       navigate('/dashboard')
     } catch (err: unknown) {
+      const code = err instanceof Error ? (err as Error & { code?: string }).code : undefined
       const message = err instanceof Error ? err.message : 'Login failed'
-      if (message.toLowerCase().includes('totp') || message.toLowerCase().includes('2fa')) {
+      // Prefer the structured err.code (repo convention: error code + frontend
+      // translation). Message sniffing stays only as a fallback for servers
+      // that predate the code contract.
+      if (code === 'TOTP_REQUIRED' || (!code && /totp|2fa/i.test(message))) {
         setShowTotp(true)
         setError(t('login.totpRequired'))
+      } else if (code === 'INVALID_TOTP') {
+        setError(t(useRecovery ? 'login.invalidRecoveryCode' : 'login.invalidTotp'))
+      } else if (code === 'INVALID_CREDENTIALS') {
+        setError(t('login.invalidCredentials'))
+      } else if (code === 'RATE_LIMITED') {
+        setError(t('login.rateLimited'))
       } else {
         setError(message)
       }
@@ -43,103 +54,85 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-sm px-6">
-        <div className="text-center mb-8">
-          <img
-            src="/favicon.png"
-            alt="SFPanel"
-            className="mx-auto mb-3 h-16 w-16 rounded-2xl"
+    <AuthShell subtitle={t('login.subtitle')}>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <AuthErrorBanner error={error} />
+
+        <div className="space-y-2">
+          <Label htmlFor="username" className="text-xs font-medium text-muted-foreground">{t('login.username')}</Label>
+          <Input
+            id="username"
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="admin"
+            required
+            autoFocus
+            className={AUTH_INPUT_CLASS}
           />
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">SFPanel</h1>
-          <p className="text-sm text-muted-foreground mt-2">{t('login.subtitle')}</p>
         </div>
 
-        <div className="bg-card rounded-2xl card-shadow-lg p-8">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {error && (
-              <div className="bg-destructive/8 text-destructive text-sm p-3 rounded-xl text-center font-medium">
-                {error}
-              </div>
+        <div className="space-y-2">
+          <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">{t('login.password')}</Label>
+          <Input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={t('login.passwordPlaceholder')}
+            required
+            className={AUTH_INPUT_CLASS}
+          />
+        </div>
+
+        {showTotp && (
+          <div className="space-y-2">
+            {useRecovery ? (
+              <>
+                <Label htmlFor="recovery" className="text-xs font-medium text-muted-foreground">{t('login.recoveryCode')}</Label>
+                <Input
+                  id="recovery"
+                  type="text"
+                  value={recoveryCode}
+                  onChange={(e) => setRecoveryCode(e.target.value)}
+                  placeholder={t('login.recoveryCodePlaceholder')}
+                  autoFocus
+                  className={`${AUTH_INPUT_CLASS} text-center font-mono tracking-[0.15em]`}
+                />
+              </>
+            ) : (
+              <>
+                <Label htmlFor="totp" className="text-xs font-medium text-muted-foreground">{t('login.totpCode')}</Label>
+                <Input
+                  id="totp"
+                  type="text"
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value)}
+                  placeholder="000000"
+                  maxLength={6}
+                  autoFocus
+                  className={`${AUTH_INPUT_CLASS} text-center text-lg tracking-[0.3em]`}
+                />
+              </>
             )}
-
-            <div className="space-y-2">
-              <Label htmlFor="username" className="text-xs font-medium text-muted-foreground">{t('login.username')}</Label>
-              <Input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin"
-                required
-                autoFocus
-                className="h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">{t('login.password')}</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={t('login.passwordPlaceholder')}
-                required
-                className="h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30"
-              />
-            </div>
-
-            {showTotp && (
-              <div className="space-y-2">
-                {useRecovery ? (
-                  <>
-                    <Label htmlFor="recovery" className="text-xs font-medium text-muted-foreground">{t('login.recoveryCode')}</Label>
-                    <Input
-                      id="recovery"
-                      type="text"
-                      value={recoveryCode}
-                      onChange={(e) => setRecoveryCode(e.target.value)}
-                      placeholder={t('login.recoveryCodePlaceholder')}
-                      autoFocus
-                      className="h-11 rounded-xl bg-secondary/50 border-0 text-center font-mono tracking-[0.15em] focus-visible:ring-2 focus-visible:ring-primary/30"
-                    />
-                  </>
-                ) : (
-                  <>
-                    <Label htmlFor="totp" className="text-xs font-medium text-muted-foreground">{t('login.totpCode')}</Label>
-                    <Input
-                      id="totp"
-                      type="text"
-                      value={totpCode}
-                      onChange={(e) => setTotpCode(e.target.value)}
-                      placeholder="000000"
-                      maxLength={6}
-                      autoFocus
-                      className="h-11 rounded-xl bg-secondary/50 border-0 text-center text-lg tracking-[0.3em] focus-visible:ring-2 focus-visible:ring-primary/30"
-                    />
-                  </>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setUseRecovery((v) => !v)}
-                  className="text-xs font-medium text-primary hover:underline outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-                >
-                  {useRecovery ? t('login.useAuthenticator') : t('login.useRecoveryCode')}
-                </button>
-              </div>
-            )}
-
-            <Button
-              type="submit"
-              className="w-full h-11 rounded-xl font-semibold text-sm transition-all duration-200 hover:brightness-110"
-              disabled={loading}
+            <button
+              type="button"
+              onClick={() => setUseRecovery((v) => !v)}
+              className="text-xs font-medium text-primary hover:underline outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
             >
-              {loading ? t('login.signingIn') : t('login.signIn')}
-            </Button>
-          </form>
-        </div>
-      </div>
-    </div>
+              {useRecovery ? t('login.useAuthenticator') : t('login.useRecoveryCode')}
+            </button>
+          </div>
+        )}
+
+        <Button
+          type="submit"
+          className={AUTH_SUBMIT_CLASS}
+          disabled={loading}
+        >
+          {loading ? t('login.signingIn') : t('login.signIn')}
+        </Button>
+      </form>
+    </AuthShell>
   )
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { LogOut, PanelLeftClose, PanelLeftOpen, Coffee } from 'lucide-react'
 
@@ -7,14 +7,24 @@ import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/lib/navigation'
-import NodeSelector from '@/components/NodeSelector'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import ClusterSidebar from '@/components/cluster/ClusterSidebar'
 import BottomNav from '@/components/BottomNav'
 import MoreMenu from '@/components/MoreMenu'
+import type { DashboardOverview } from '@/types/api'
 
 const navItems = NAV_ITEMS
 
 const SIDEBAR_KEY = 'sfpanel-sidebar-collapsed'
+
+// Shared with pages via <Outlet context>. The overview payload Layout already
+// fetches for the sidebar version display is tagged with the node scope and
+// fetch time so the Dashboard can reuse it instead of issuing a duplicate
+// /system/overview call on first entry. data === null means the fetch failed
+// (consumers should fall back to their own fetch).
+export interface LayoutOutletContext {
+  overview: { data: DashboardOverview | null; node: string | null; at: number } | null
+}
 
 export default function Layout() {
   const navigate = useNavigate()
@@ -24,6 +34,7 @@ export default function Layout() {
   })
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [panelVersion, setPanelVersion] = useState('')
+  const [overview, setOverview] = useState<LayoutOutletContext['overview']>(null)
   const [nodeKey, setNodeKey] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
   const [clusterEnabled, setClusterEnabled] = useState(false)
@@ -56,13 +67,17 @@ export default function Layout() {
     // so this one call covers what Layout used to do with two: getSystemInfo
     // + checkUpdate. Eliminates one GitHub round-trip per dashboard mount
     // (checkUpdate hits the release index).
+    const node = api.currentNode
     api.getDashboardOverview()
       .then((data) => {
         if (data.version) setPanelVersion(data.version)
         if (data.update_info) setUpdateAvailable(data.update_info.update_available)
+        setOverview({ data, node, at: Date.now() })
       })
-      .catch(() => {})
+      .catch(() => setOverview({ data: null, node, at: Date.now() }))
   }, [])
+
+  const outletContext = useMemo<LayoutOutletContext>(() => ({ overview }), [overview])
 
   // Track the visual viewport height so the app shell shrinks when the mobile
   // soft keyboard opens, instead of staying 100vh and pushing content (terminal
@@ -149,9 +164,6 @@ export default function Layout() {
 
         {/* Sidebar bottom (fixed, never pushed off-screen) */}
         <div className="shrink-0 mt-auto">
-        {/* Cluster node selector */}
-        <NodeSelector collapsed={collapsed} />
-
         {/* Version info */}
         <div className={cn('border-t border-border', collapsed ? 'px-2 py-2' : 'px-4 py-3')}>
           {collapsed ? (
@@ -236,7 +248,7 @@ export default function Layout() {
                   title="Buy me a coffee"
                 >
                   <Coffee className="h-3 w-3" />
-                  <span>후원</span>
+                  <span>{t('layout.sponsor')}</span>
                 </a>
               </div>
             </div>
@@ -281,7 +293,13 @@ export default function Layout() {
         "flex-1 min-h-0 min-w-0",
         isTerminal ? "p-0 overflow-hidden" : "overflow-y-auto overflow-x-hidden px-5 py-4 pb-bottom-nav md:p-8 md:pb-8"
       )}>
-        <Outlet key={nodeKey} />
+        {/* The nodeKey key moved from <Outlet> to the boundary: remounting the
+            boundary remounts the outlet tree identically, and also clears any
+            caught error when the user switches nodes. The boundary itself keeps
+            a page crash from blanking the whole shell (sidebar/nav stay up). */}
+        <ErrorBoundary key={nodeKey}>
+          <Outlet context={outletContext} />
+        </ErrorBoundary>
       </main>
 
       <BottomNav onMorePress={() => setMoreOpen(true)} />

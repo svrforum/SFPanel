@@ -5,8 +5,8 @@ import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Globe, Bug } from 'lucide-react'
-import { LANGUAGE_KEY } from '@/i18n'
+import { Bug } from 'lucide-react'
+import AuthShell, { AuthErrorBanner, AUTH_INPUT_CLASS, AUTH_SUBMIT_CLASS } from '@/components/AuthShell'
 
 const EXAMPLES = [
   'https://192.168.1.100:3628',
@@ -18,7 +18,7 @@ const isTauri = '__TAURI_INTERNALS__' in window
 
 export default function Connect() {
   const navigate = useNavigate()
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [url, setUrl] = useState(localStorage.getItem('sfpanel_server_url') || '')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -32,13 +32,6 @@ export default function Connect() {
       setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight }, 0)
       return next
     })
-  }
-
-  const currentLang = i18n.language?.startsWith('ko') ? 'ko' : 'en'
-
-  const switchLanguage = (lang: string) => {
-    i18n.changeLanguage(lang)
-    localStorage.setItem(LANGUAGE_KEY, lang)
   }
 
   const getServerUrl = (): string | null => {
@@ -131,134 +124,90 @@ export default function Connect() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-background">
-      <div className="w-full max-w-sm px-6">
-        <div className="text-center mb-8">
-          <img
-            src="/favicon.png"
-            alt="SFPanel"
-            className="mx-auto mb-4 h-16 w-16 rounded-2xl"
-          />
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">SFPanel</h1>
-          <p className="text-sm text-muted-foreground mt-2">{t('connect.subtitle')}</p>
-        </div>
-
-        <div className="bg-card rounded-2xl card-shadow-lg p-8">
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {error && (
-              <div className="bg-destructive/8 text-destructive text-sm p-3 rounded-xl text-center font-medium whitespace-pre-line">
-                {error}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="server-url" className="text-xs font-medium text-muted-foreground">
-                {t('connect.serverUrl')}
-              </Label>
-              <Input
-                id="server-url"
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://192.168.1.100:3628"
-                required
-                autoFocus
-                className="h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30"
-              />
-              <div className="space-y-1 pt-1">
-                <p className="text-[11px] text-muted-foreground">{t('connect.examples')}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {EXAMPLES.map((example) => (
-                    <button
-                      key={example}
-                      type="button"
-                      onClick={() => setUrl(example)}
-                      className="text-[11px] px-2 py-0.5 rounded-full bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-                    >
-                      {example}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <Button
-              type="submit"
-              className="w-full h-11 rounded-xl font-semibold text-sm transition-all duration-200 hover:brightness-110"
-              disabled={loading}
-            >
-              {loading ? t('connect.connecting') : t('connect.connect')}
-            </Button>
-          </form>
-
-          <div className="mt-3 text-center">
+    <AuthShell
+      subtitle={t('connect.subtitle')}
+      below={showDiag ? (
+        <div className="mt-4 bg-card rounded-2xl card-shadow p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[13px] font-semibold">{t('connect.diagTitle')}</span>
             <button
               type="button"
-              onClick={runDiagnostic}
-              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+              onClick={() => { setShowDiag(false); setDiagLog([]) }}
+              className="text-[11px] text-muted-foreground hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
             >
-              <Bug className="w-3 h-3" />
-              {t('connect.diagnose')}
+              {t('common.close')}
             </button>
+          </div>
+          <div
+            ref={logRef}
+            className="bg-secondary/50 rounded-xl p-3 max-h-60 overflow-y-auto font-mono text-[11px] leading-5 space-y-0.5"
+          >
+            {diagLog.length === 0 ? (
+              <p className="text-muted-foreground">{t('connect.diagEmpty')}</p>
+            ) : (
+              diagLog.map((line, i) => (
+                <p key={i} className={line.includes('❌') ? 'text-destructive' : line.includes('✅') ? 'text-success' : ''}>
+                  {line}
+                </p>
+              ))
+            )}
+          </div>
+        </div>
+      ) : undefined}
+    >
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <AuthErrorBanner error={error} />
+
+        <div className="space-y-2">
+          <Label htmlFor="server-url" className="text-xs font-medium text-muted-foreground">
+            {t('connect.serverUrl')}
+          </Label>
+          <Input
+            id="server-url"
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://192.168.1.100:3628"
+            required
+            autoFocus
+            className={AUTH_INPUT_CLASS}
+          />
+          <div className="space-y-1 pt-1">
+            <p className="text-[11px] text-muted-foreground">{t('connect.examples')}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {EXAMPLES.map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  onClick={() => setUrl(example)}
+                  className="text-[11px] px-2 py-0.5 rounded-full bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        {showDiag && (
-          <div className="mt-4 bg-card rounded-2xl card-shadow p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[13px] font-semibold">{t('connect.diagTitle')}</span>
-              <button
-                type="button"
-                onClick={() => { setShowDiag(false); setDiagLog([]) }}
-                className="text-[11px] text-muted-foreground hover:text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-              >
-                {t('common.close')}
-              </button>
-            </div>
-            <div
-              ref={logRef}
-              className="bg-secondary/50 rounded-xl p-3 max-h-60 overflow-y-auto font-mono text-[11px] leading-5 space-y-0.5"
-            >
-              {diagLog.length === 0 ? (
-                <p className="text-muted-foreground">{t('connect.diagEmpty')}</p>
-              ) : (
-                diagLog.map((line, i) => (
-                  <p key={i} className={line.includes('❌') ? 'text-destructive' : line.includes('✅') ? 'text-success' : ''}>
-                    {line}
-                  </p>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+        <Button
+          type="submit"
+          className={AUTH_SUBMIT_CLASS}
+          disabled={loading}
+        >
+          {loading ? t('connect.connecting') : t('connect.connect')}
+        </Button>
+      </form>
 
-      <div className="flex items-center gap-2 mt-6">
-        <Globe className="w-3.5 h-3.5 text-muted-foreground" />
+      <div className="mt-3 text-center">
         <button
           type="button"
-          onClick={() => switchLanguage('ko')}
-          className={`text-[12px] px-2 py-0.5 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
-            currentLang === 'ko'
-              ? 'bg-primary/10 text-primary font-medium'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
+          onClick={runDiagnostic}
+          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
         >
-          한국어
-        </button>
-        <span className="text-muted-foreground text-[11px]">|</span>
-        <button
-          type="button"
-          onClick={() => switchLanguage('en')}
-          className={`text-[12px] px-2 py-0.5 rounded-full transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
-            currentLang === 'en'
-              ? 'bg-primary/10 text-primary font-medium'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          English
+          <Bug className="w-3 h-3" />
+          {t('connect.diagnose')}
         </button>
       </div>
-    </div>
+    </AuthShell>
   )
 }

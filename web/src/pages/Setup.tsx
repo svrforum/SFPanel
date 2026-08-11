@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import AuthShell, { AuthErrorBanner, AUTH_INPUT_CLASS, AUTH_SUBMIT_CLASS } from '@/components/AuthShell'
 
 export default function Setup() {
   const navigate = useNavigate()
@@ -44,92 +45,84 @@ export default function Setup() {
       api.setTokenPair(result.token, result.refresh_token ?? null)
       navigate('/dashboard')
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Setup failed')
+      const code = err instanceof Error ? (err as Error & { code?: string }).code : undefined
+      // Known codes map to translated text (repo convention); unknown codes
+      // fall back to the server's message. WEAK_PASSWORD stays on the raw
+      // message intentionally — it carries the specific requirement that failed.
+      if (code === 'ALREADY_SETUP') {
+        setError(t('setup.alreadySetup'))
+      } else if (code === 'RATE_LIMITED') {
+        setError(t('setup.rateLimited'))
+      } else {
+        setError(err instanceof Error ? err.message : 'Setup failed')
+      }
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-sm px-6">
-        <div className="text-center mb-8">
-          <img
-            src="/favicon.png"
-            alt="SFPanel"
-            className="mx-auto mb-3 h-16 w-16 rounded-2xl"
+    <AuthShell subtitle={t('setup.subtitle')}>
+      {gateBlocked ? (
+        <div className="text-sm space-y-2 text-center">
+          <p className="font-semibold text-foreground">{t('setup.restrictedTitle')}</p>
+          <p className="text-muted-foreground">{t('setup.restrictedBody')}</p>
+        </div>
+      ) : (
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <AuthErrorBanner error={error} />
+
+        <div className="space-y-2">
+          <Label htmlFor="username" className="text-xs font-medium text-muted-foreground">{t('setup.username')}</Label>
+          <Input
+            id="username"
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="admin"
+            required
+            autoFocus
+            className={AUTH_INPUT_CLASS}
           />
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">SFPanel</h1>
-          <p className="text-sm text-muted-foreground mt-2">{t('setup.subtitle')}</p>
         </div>
 
-        <div className="bg-card rounded-2xl card-shadow-lg p-8">
-          {gateBlocked ? (
-            <div className="text-sm space-y-2 text-center">
-              <p className="font-semibold text-foreground">{t('setup.restrictedTitle')}</p>
-              <p className="text-muted-foreground">{t('setup.restrictedBody')}</p>
-            </div>
-          ) : (
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {error && (
-              <div className="bg-destructive/8 text-destructive text-sm p-3 rounded-xl text-center font-medium">
-                {error}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="username" className="text-xs font-medium text-muted-foreground">{t('setup.username')}</Label>
-              <Input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin"
-                required
-                autoFocus
-                className="h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">{t('setup.password')}</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={t('setup.passwordPlaceholder')}
-                required
-                minLength={12}
-                className="h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="confirm-password" className="text-xs font-medium text-muted-foreground">{t('setup.confirmPassword')}</Label>
-              <Input
-                id="confirm-password"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder={t('setup.confirmPlaceholder')}
-                required
-                minLength={12}
-                className="h-11 rounded-xl bg-secondary/50 border-0 focus-visible:ring-2 focus-visible:ring-primary/30"
-              />
-            </div>
-
-            <Button
-              type="submit"
-              className="w-full h-11 rounded-xl font-semibold text-sm transition-all duration-200 hover:brightness-110"
-              disabled={loading}
-            >
-              {loading ? t('setup.creatingAccount') : t('setup.createAdmin')}
-            </Button>
-          </form>
-          )}
+        <div className="space-y-2">
+          <Label htmlFor="password" className="text-xs font-medium text-muted-foreground">{t('setup.password')}</Label>
+          <Input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={t('setup.passwordPlaceholder')}
+            required
+            minLength={12}
+            className={AUTH_INPUT_CLASS}
+          />
         </div>
-      </div>
-    </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="confirm-password" className="text-xs font-medium text-muted-foreground">{t('setup.confirmPassword')}</Label>
+          <Input
+            id="confirm-password"
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder={t('setup.confirmPlaceholder')}
+            required
+            minLength={12}
+            className={AUTH_INPUT_CLASS}
+          />
+        </div>
+
+        <Button
+          type="submit"
+          className={AUTH_SUBMIT_CLASS}
+          disabled={loading}
+        >
+          {loading ? t('setup.creatingAccount') : t('setup.createAdmin')}
+        </Button>
+      </form>
+      )}
+    </AuthShell>
   )
 }

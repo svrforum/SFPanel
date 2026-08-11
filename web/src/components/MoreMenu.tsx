@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Drawer } from 'vaul'
 import { LogOut, Monitor, ChevronDown } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, nodeStatusColor } from '@/lib/utils'
 import { MORE_MENU_ITEMS } from '@/lib/navigation'
 import { api } from '@/lib/api'
-import type { ClusterStatus, ClusterNode } from '@/types/api'
+import { useClusterNodes } from '@/hooks/useClusterNodes'
 
 interface MoreMenuProps {
   open: boolean
@@ -24,46 +24,15 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const { t } = useTranslation()
-  const [clusterEnabled, setClusterEnabled] = useState(false)
-  const [nodes, setNodes] = useState<ClusterNode[]>([])
-  const [localId, setLocalId] = useState('')
-  const [selectedNode, setSelectedNode] = useState<string | null>(api.currentNode)
+  const { clusterStatus, nodes, localId, selectedNode, currentNode, selectNode } = useClusterNodes()
   const [nodeOpen, setNodeOpen] = useState(false)
 
-  useEffect(() => {
-    if (!open) return
-    api.getClusterStatus(true)
-      .then((status: ClusterStatus) => {
-        setClusterEnabled(status.enabled)
-        if (status.enabled && status.local_id) {
-          setLocalId(status.local_id)
-          setSelectedNode(api.currentNode)
-          api.getClusterNodes(true).then((data) => setNodes(data.nodes)).catch(() => {})
-        }
-      })
-      .catch(() => {})
-  }, [open])
+  const clusterEnabled = clusterStatus?.enabled ?? false
 
   const handleNodeSelect = (nodeId: string) => {
-    const newNode = nodeId === localId ? null : nodeId
-    setSelectedNode(newNode)
-    api.setCurrentNode(newNode)
-    window.dispatchEvent(new Event('sfpanel:node-changed'))
+    selectNode(nodeId === localId ? null : nodeId)
     setNodeOpen(false)
   }
-
-  const statusColor = (status: string) => {
-    switch (status) {
-      case 'online': return 'bg-success'
-      case 'suspect': return 'bg-warning'
-      case 'offline': return 'bg-destructive'
-      default: return 'bg-muted-foreground'
-    }
-  }
-
-  const currentNode = selectedNode
-    ? nodes.find((n) => n.id === selectedNode)
-    : nodes.find((n) => n.id === localId)
 
   const handleNavigate = (path: string) => {
     navigate(path)
@@ -94,7 +63,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                   className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl bg-secondary/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                 >
                   <Monitor className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className={cn('h-2 w-2 rounded-full shrink-0', statusColor(currentNode?.status || ''))} />
+                  <span className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(currentNode?.status || ''))} />
                   <span className="text-[13px] font-medium truncate">
                     {currentNode?.name || t('layout.cluster.selectNode')}
                   </span>
@@ -113,7 +82,7 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
                             : 'text-foreground/80'
                         )}
                       >
-                        <span className={cn('h-2 w-2 rounded-full shrink-0', statusColor(node.status))} />
+                        <span className={cn('h-2 w-2 rounded-full shrink-0', nodeStatusColor(node.status))} />
                         <span className="truncate">{node.name}</span>
                         {node.id === localId && (
                           <span className="text-[10px] text-muted-foreground">({t('layout.cluster.localNode')})</span>

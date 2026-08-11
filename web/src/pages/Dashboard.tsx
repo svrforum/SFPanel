@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useNavigate, useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   Cpu,
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import {
   Table,
   TableBody,
@@ -29,13 +30,21 @@ import {
 } from '@/components/ui/table'
 import MetricsCard from '@/components/MetricsCard'
 import MetricsChart from '@/components/MetricsChart'
-import { formatBytes, formatUptime } from '@/lib/utils'
+import FirewallLogMiniTable from '@/components/FirewallLogMiniTable'
+import type { LayoutOutletContext } from '@/components/Layout'
+import { cn, formatBytes, formatUptime } from '@/lib/utils'
 import { parseFirewallLine } from '@/lib/logParsers'
 import type { FirewallLogEntry } from '@/lib/logParsers'
-import type { HostInfo, Metrics } from '@/types/api'
+import type { DashboardOverview, HostInfo, Metrics } from '@/types/api'
 
 // 24h at 30s intervals = 2880 points; cap to keep chart readable
 const MAX_CHART_POINTS = 2880
+
+// How old Layout's shared overview payload may be before we refetch instead of
+// reusing it. Covers the mount-together race on first entry (delta well under
+// a second) while a later navigation back to the dashboard still gets fresh
+// data.
+const OVERVIEW_REUSE_MS = 10_000
 
 type ChartRange = '1h' | '4h' | '12h' | '24h'
 const CHART_RANGE_MS: Record<ChartRange, number> = {
@@ -43,12 +52,6 @@ const CHART_RANGE_MS: Record<ChartRange, number> = {
   '4h': 4 * 60 * 60 * 1000,
   '12h': 12 * 60 * 60 * 1000,
   '24h': 24 * 60 * 60 * 1000,
-}
-
-const FIREWALL_ACTION_COLORS: Record<string, string> = {
-  BLOCK: 'var(--destructive)', DROP: 'var(--destructive)',
-  ALLOW: 'var(--success)', ACCEPT: 'var(--success)',
-  AUDIT: 'var(--primary)', LIMIT: 'var(--warning)',
 }
 
 interface ProcessInfo {
@@ -71,18 +74,55 @@ const quickActions = [
   { to: '/files', labelKey: 'dashboard.actionFiles', icon: FolderOpen, color: 'bg-primary/8 text-primary' },
   { to: '/docker', labelKey: 'dashboard.actionDocker', icon: Container, color: 'bg-success/8 text-success' },
   { to: '/packages', labelKey: 'dashboard.actionPackages', icon: Package, color: 'bg-warning/8 text-warning' },
-  { to: '/cron', labelKey: 'dashboard.actionCron', icon: Clock, color: 'bg-[#8b5cf6]/8 text-[#8b5cf6]' },
+  { to: '/cron', labelKey: 'dashboard.actionCron', icon: Clock, color: 'bg-chart-4/8 text-chart-4' },
   { to: '/logs', labelKey: 'dashboard.actionLogs', icon: FileText, color: 'bg-success/8 text-success' },
 ]
+
+// Shared pill-tab control for the chart-range picker and the log-tab switcher,
+// which used to copy-paste the same wrapper + button class strings.
+function SegmentedControl<T extends string>({
+  options,
+  value,
+  onChange,
+  className,
+  buttonClassName,
+}: {
+  options: Array<{ value: T; label: string }>
+  value: T
+  onChange: (value: T) => void
+  className?: string
+  buttonClassName?: string
+}) {
+  return (
+    <div className={cn('flex items-center gap-1 bg-secondary/60 rounded-lg p-0.5', className)}>
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          className={cn(
+            'py-1 rounded-md text-[11px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
+            buttonClassName ?? 'px-2.5',
+            value === opt.value
+              ? 'bg-card text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 export default function Dashboard() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const outletCtx = useOutletContext<LayoutOutletContext | undefined>()
   const [hostInfo, setHostInfo] = useState<HostInfo | null>(null)
   const [primaryIP, setPrimaryIP] = useState<string>('')
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [netRate, setNetRate] = useState<{ sent: number; recv: number }>({ sent: 0, recv: 0 })
-  const [, setPrevNet] = useState<{ sent: number; recv: number; ts: number } | null>(null)
+  const prevNetRef = useRef<{ sent: number; recv: number; ts: number } | null>(null)
   const [chartData, setChartData] = useState<Array<{ ts: number; cpu: number; memory: number; disk: number }>>([])
   const [chartRange, setChartRange] = useState<ChartRange>('1h')
   const [processes, setProcesses] = useState<ProcessInfo[]>([])
@@ -103,31 +143,51 @@ export default function Dashboard() {
     }).catch(() => {})
   }, [])
 
-  // Fetch host info, metrics, and history in a single call on mount
-  useEffect(() => {
-    api.getDashboardOverview().then((data) => {
-      setHostInfo(data.host)
-      if (data.metrics) {
-        setMetrics(data.metrics)
-      }
-      if (data.metrics_history) {
-        const points = data.metrics_history.map((pt) => ({
-          ts: pt.time,
-          cpu: pt.cpu,
-          memory: pt.mem_percent,
-          disk: pt.disk_percent ?? 0,
-        }))
-        setChartData(points)
-      }
-      if (data.update_info?.update_available) {
-        setUpdateAvailable(data.update_info.latest_version || null)
-      }
-    }).catch(() => {})
+  const applyOverview = useCallback((data: DashboardOverview) => {
+    setHostInfo(data.host)
+    if (data.metrics) {
+      setMetrics(data.metrics)
+    }
+    if (data.metrics_history) {
+      const points = data.metrics_history.map((pt) => ({
+        ts: pt.time,
+        cpu: pt.cpu,
+        memory: pt.mem_percent,
+        disk: pt.disk_percent ?? 0,
+      }))
+      setChartData(points)
+    }
+    if (data.update_info?.update_available) {
+      setUpdateAvailable(data.update_info.latest_version || null)
+    }
   }, [])
+
+  // Host info, metrics, history and update info come from a single aggregate
+  // call. Layout fetches the same endpoint for its sidebar version display and
+  // shares the payload via Outlet context — reuse it when it matches this node
+  // scope and is fresh, so first entry costs one /system/overview round-trip
+  // instead of two.
+  const sharedOverview = outletCtx?.overview
+  useEffect(() => {
+    // Under Layout with its fetch still in flight — its arrival re-runs this
+    // effect (the context value is the effect's dependency).
+    if (outletCtx && !sharedOverview) return
+    const reusable =
+      sharedOverview?.data &&
+      sharedOverview.node === api.currentNode &&
+      Date.now() - sharedOverview.at < OVERVIEW_REUSE_MS
+        ? sharedOverview.data
+        : null
+    // Fetch our own when there's no usable shared payload (rendered outside
+    // Layout, node mismatch after a node switch, stale, or Layout's fetch
+    // failed). Resolving the reused payload through a promise keeps the state
+    // updates async in both branches (react-hooks/set-state-in-effect).
+    const source = reusable ? Promise.resolve(reusable) : api.getDashboardOverview()
+    source.then(applyOverview).catch(() => {})
+  }, [outletCtx, sharedOverview, applyOverview])
 
   // Fetch extra dashboard data
   useEffect(() => {
-    api.getTopProcesses().then(setProcesses).catch(() => {})
     api.getContainers().then((data) => setContainers(data || [])).catch(() => setContainers([]))
     // Go's JSON serializer turns an empty []string into null; defaulting to
     // [] before slicing prevents a TypeError that .catch(() => {}) can't see
@@ -142,31 +202,29 @@ export default function Dashboard() {
     }).catch(() => {})
   }, [])
 
-  // Refresh processes every 10 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      api.getTopProcesses().then(setProcesses).catch(() => {})
-    }, 10000)
-    return () => clearInterval(interval)
+  // Refresh processes every 10 seconds (fires immediately on mount, pauses
+  // while the tab is hidden)
+  const fetchProcesses = useCallback(() => {
+    api.getTopProcesses().then(setProcesses).catch(() => {})
   }, [])
+  useVisibleInterval(fetchProcesses, 10000)
 
   // WebSocket handler
   const onMessage = useCallback((data: Metrics) => {
     setMetrics(data)
     // Calculate network rate (bytes/sec) from cumulative deltas
-    setPrevNet((prev) => {
-      if (prev) {
-        const dtSec = (data.timestamp - prev.ts) / 1000
-        if (dtSec > 0) {
-          const sentRate = Math.max(0, (data.net_bytes_sent - prev.sent) / dtSec)
-          const recvRate = Math.max(0, (data.net_bytes_recv - prev.recv) / dtSec)
-          setNetRate({ sent: sentRate, recv: recvRate })
-        }
+    const prev = prevNetRef.current
+    if (prev) {
+      const dtSec = (data.timestamp - prev.ts) / 1000
+      if (dtSec > 0) {
+        const sentRate = Math.max(0, (data.net_bytes_sent - prev.sent) / dtSec)
+        const recvRate = Math.max(0, (data.net_bytes_recv - prev.recv) / dtSec)
+        setNetRate({ sent: sentRate, recv: recvRate })
       }
-      return { sent: data.net_bytes_sent, recv: data.net_bytes_recv, ts: data.timestamp }
-    })
-    setChartData((prev) => {
-      const next = [...prev, { ts: Date.now(), cpu: data.cpu, memory: data.mem_percent, disk: data.disk_percent }]
+    }
+    prevNetRef.current = { sent: data.net_bytes_sent, recv: data.net_bytes_recv, ts: data.timestamp }
+    setChartData((prevData) => {
+      const next = [...prevData, { ts: Date.now(), cpu: data.cpu, memory: data.mem_percent, disk: data.disk_percent }]
       if (next.length > MAX_CHART_POINTS) {
         return next.slice(next.length - MAX_CHART_POINTS)
       }
@@ -315,21 +373,16 @@ export default function Dashboard() {
             title={t('dashboard.chartTitle')}
             xDomain={chartXDomain}
             headerAction={
-              <div className="flex items-center gap-1 bg-secondary/60 rounded-lg p-0.5 shrink-0">
-                {(['1h', '4h', '12h', '24h'] as ChartRange[]).map((range) => (
-                  <button
-                    key={range}
-                    onClick={() => setChartRange(range)}
-                    className={`px-2 md:px-2.5 py-1 rounded-md text-[11px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
-                      chartRange === range
-                        ? 'bg-card text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {t(`dashboard.chartRange${range.toUpperCase() as '1H' | '4H' | '12H' | '24H'}`)}
-                  </button>
-                ))}
-              </div>
+              <SegmentedControl
+                className="shrink-0"
+                buttonClassName="px-2 md:px-2.5"
+                options={(['1h', '4h', '12h', '24h'] as ChartRange[]).map((range) => ({
+                  value: range,
+                  label: t(`dashboard.chartRange${range.toUpperCase() as '1H' | '4H' | '12H' | '24H'}`),
+                }))}
+                value={chartRange}
+                onChange={setChartRange}
+              />
             }
           />
         </div>
@@ -466,28 +519,14 @@ export default function Dashboard() {
                 <Shield className="h-4 w-4 text-muted-foreground" />
                 <span className="text-[13px] font-semibold">{t('dashboard.recentLogs')}</span>
               </div>
-              <div className="flex items-center gap-1 bg-secondary/60 rounded-lg p-0.5">
-                <button
-                  onClick={() => setLogTab('firewall')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
-                    logTab === 'firewall'
-                      ? 'bg-card text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {t('dashboard.logTabFirewall')}
-                </button>
-                <button
-                  onClick={() => setLogTab('syslog')}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
-                    logTab === 'syslog'
-                      ? 'bg-card text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {t('dashboard.logTabSystem')}
-                </button>
-              </div>
+              <SegmentedControl
+                options={[
+                  { value: 'firewall' as const, label: t('dashboard.logTabFirewall') },
+                  { value: 'syslog' as const, label: t('dashboard.logTabSystem') },
+                ]}
+                value={logTab}
+                onChange={setLogTab}
+              />
             </div>
             <button
               onClick={() => navigate(logTab === 'firewall' ? '/firewall/logs' : '/logs')}
@@ -502,62 +541,7 @@ export default function Dashboard() {
             firewallLogs.length === 0 ? (
               <p className="text-[13px] text-muted-foreground">{t('dashboard.noFirewallLogs')}</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-[11px]">
-                  <thead>
-                    <tr className="text-left text-muted-foreground border-b border-border">
-                      <th className="pb-2 pr-3 font-medium">{t('logs.col.timestamp')}</th>
-                      <th className="pb-2 pr-3 font-medium">{t('logs.col.source')}</th>
-                      <th className="pb-2 pr-3 font-medium">{t('logs.col.action')}</th>
-                      <th className="pb-2 pr-3 font-medium">{t('logs.col.sourceIP')}</th>
-                      <th className="pb-2 pr-3 font-medium">{t('logs.col.destPort')}</th>
-                      <th className="pb-2 font-medium">{t('logs.col.protocol')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {firewallLogs.map((entry, i) => {
-                      const ts = entry.timestamp.includes('T')
-                        ? entry.timestamp.replace(/\d{4}-(\d{2}-\d{2})T(\d{2}:\d{2}:\d{2}).*/, '$1 $2')
-                        : entry.timestamp
-                      // Logs prepend new rows; using i alone re-keys every
-                      // existing row on each refresh, wiping hover state.
-                      // Composite key from timestamp + source + port stays
-                      // stable across the slide-window updates.
-                      const stableKey = `${entry.timestamp}-${entry.sourceIP}-${entry.destPort}-${i}`
-                      return (
-                        <tr key={stableKey} className="border-b border-border/50 hover:bg-secondary/30">
-                          <td className="py-1.5 pr-3 font-mono text-muted-foreground whitespace-nowrap">{ts}</td>
-                          <td className="py-1.5 pr-3">
-                            <span
-                              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium"
-                              style={{
-                                backgroundColor: (entry.source === 'UFW' ? 'var(--primary)' : 'var(--warning)') + '15',
-                                color: entry.source === 'UFW' ? 'var(--primary)' : 'var(--warning)',
-                              }}
-                            >
-                              {entry.source}
-                            </span>
-                          </td>
-                          <td className="py-1.5 pr-3">
-                            <span
-                              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium"
-                              style={{
-                                backgroundColor: (FIREWALL_ACTION_COLORS[entry.action] ?? '#6b7280') + '15',
-                                color: FIREWALL_ACTION_COLORS[entry.action] ?? '#6b7280',
-                              }}
-                            >
-                              {entry.action}
-                            </span>
-                          </td>
-                          <td className="py-1.5 pr-3 font-mono">{entry.sourceIP}</td>
-                          <td className="py-1.5 pr-3 font-mono">{entry.destPort}</td>
-                          <td className="py-1.5 font-mono">{entry.protocol}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <FirewallLogMiniTable entries={firewallLogs} />
             )
           ) : (
             recentLogs.length === 0 ? (
