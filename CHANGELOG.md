@@ -6,7 +6,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
-## [Unreleased]
+## [0.58.0] – 2026-08-11
 
 A frontend modularity release: a menu-by-menu review of the SPA (8 parallel reviewers, 182 accepted improvement points) followed by a full application pass. No backend changes.
 
