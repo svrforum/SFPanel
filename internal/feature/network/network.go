@@ -920,13 +920,18 @@ type netplanNameservers struct {
 	Search    []string `yaml:"search,omitempty"`
 }
 
+// netplanDir is a package-level seam so tests can point netplan file
+// discovery at a temp directory (same pattern as the injectable vars in
+// internal/feature/system/handler.go: releaseAPIURL, osExecutable).
+var netplanDir = "/etc/netplan"
+
 // findNetplanFiles returns all YAML files in /etc/netplan/ sorted alphabetically.
 func findNetplanFiles() ([]string, error) {
-	matches, err := filepath.Glob("/etc/netplan/*.yaml")
+	matches, err := filepath.Glob(filepath.Join(netplanDir, "*.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("glob netplan yaml: %w", err)
 	}
-	yml, err := filepath.Glob("/etc/netplan/*.yml")
+	yml, err := filepath.Glob(filepath.Join(netplanDir, "*.yml"))
 	if err == nil {
 		matches = append(matches, yml...)
 	}
