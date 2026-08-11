@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Loader2, ShieldBan, ShieldCheck } from 'lucide-react'
+import { Plus, Trash2, Loader2, ShieldBan, ShieldCheck, AlertCircle, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -62,6 +63,7 @@ const initialForm: AddRuleForm = {
 
 export default function FirewallDocker() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
 
   const [ports, setPorts] = useState<DockerPublishedPort[]>([])
   const [rules, setRules] = useState<DockerUserRule[]>([])
@@ -72,10 +74,6 @@ export default function FirewallDocker() {
   const [addOpen, setAddOpen] = useState(false)
   const [addForm, setAddForm] = useState<AddRuleForm>(initialForm)
   const [adding, setAdding] = useState(false)
-
-  // Delete confirmation
-  const [deleteTarget, setDeleteTarget] = useState<DockerUserRule | null>(null)
-  const [deleting, setDeleting] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -112,6 +110,10 @@ export default function FirewallDocker() {
     setAddOpen(true)
   }
 
+  // Inline validation for the add-rule port field (1-65535)
+  const addPortNum = parseInt(addForm.port)
+  const addPortInvalid = addForm.port.trim() !== '' && (isNaN(addPortNum) || addPortNum < 1 || addPortNum > 65535)
+
   const handleAddRule = async () => {
     const portNum = parseInt(addForm.port)
     if (isNaN(portNum) || portNum < 1 || portNum > 65535) return
@@ -135,18 +137,18 @@ export default function FirewallDocker() {
     }
   }
 
-  const handleDeleteRule = async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
+  const handleDeleteRule = async (rule: DockerUserRule) => {
+    if (!(await confirm({
+      title: t('firewall.docker.deleteRule'),
+      description: t('firewall.docker.deleteConfirm'),
+      danger: true,
+    }))) return
     try {
-      await api.deleteDockerUserRule(deleteTarget.number)
-      setDeleteTarget(null)
+      await api.deleteDockerUserRule(rule.number)
       await fetchData()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('common.error')
       toast.error(message)
-    } finally {
-      setDeleting(false)
     }
   }
 
@@ -159,9 +161,20 @@ export default function FirewallDocker() {
   }
 
   if (error) {
+    // Surface the real failure (permissions, remote node, …) instead of always
+    // claiming the DOCKER-USER chain is missing — same error+retry block as
+    // FirewallRules.
     return (
-      <div className="bg-card rounded-2xl card-shadow p-8 text-center text-muted-foreground mt-4">
-        <p>{t('firewall.docker.noDockerUserChain')}</p>
+      <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2 mt-4">
+        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium">{t('firewall.docker.noDockerUserChain')}</p>
+          <p className="text-[12px] opacity-80 mt-0.5 break-words">{error}</p>
+        </div>
+        <Button variant="outline" size="sm" className="rounded-xl shrink-0" onClick={fetchData}>
+          <RefreshCw className="h-3.5 w-3.5" />
+          {t('common.retry')}
+        </Button>
       </div>
     )
   }
@@ -309,7 +322,7 @@ export default function FirewallDocker() {
                       className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity text-red-500 hover:text-red-600"
                       title={t('firewall.docker.deleteRule')}
                       aria-label={t('firewall.docker.deleteRule')}
-                      onClick={() => setDeleteTarget(rule)}
+                      onClick={() => handleDeleteRule(rule)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -337,8 +350,11 @@ export default function FirewallDocker() {
                 value={addForm.port}
                 onChange={(e) => setAddForm({ ...addForm, port: e.target.value })}
                 placeholder="80"
-                className="rounded-xl text-[13px]"
+                className={`rounded-xl text-[13px] ${addPortInvalid ? 'ring-1 ring-destructive' : ''}`}
               />
+              {addPortInvalid && (
+                <p className="text-[11px] text-destructive">{t('firewall.rules.invalidPort')}</p>
+              )}
             </div>
 
             {/* Protocol */}
@@ -387,37 +403,11 @@ export default function FirewallDocker() {
             </Button>
             <Button
               onClick={handleAddRule}
-              disabled={adding || !addForm.port}
+              disabled={adding || !addForm.port || addPortInvalid}
               className="rounded-xl"
             >
               {adding && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('firewall.docker.addRule')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Rule Confirmation Dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('firewall.docker.deleteRule')}</DialogTitle>
-            <DialogDescription>
-              {t('firewall.docker.deleteConfirm')}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDeleteTarget(null)} className="rounded-xl">
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteRule}
-              disabled={deleting}
-              className="rounded-xl"
-            >
-              {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
-              {t('common.delete')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -28,9 +28,47 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { ListeningPort } from '@/types/api'
+import { validateFrom } from './ruleValidation'
 
 type SortKey = 'port' | 'process' | 'protocol' | 'address' | 'none'
 type SortDir = 'asc' | 'desc'
+
+/** Sortable column header — keyboard-accessible, exposes aria-sort. */
+function SortableHead({
+  label,
+  active,
+  dir,
+  onSort,
+  className,
+}: {
+  label: string
+  active: boolean
+  dir: SortDir
+  onSort: () => void
+  className?: string
+}) {
+  return (
+    <TableHead
+      className={`cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40 ${className ?? ''}`}
+      role="button"
+      tabIndex={0}
+      aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      onClick={onSort}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort() } }}
+    >
+      <span className="inline-flex items-center text-[11px]">
+        {label}
+        {active ? (
+          dir === 'asc'
+            ? <ArrowUp className="h-3 w-3 ml-1" />
+            : <ArrowDown className="h-3 w-3 ml-1" />
+        ) : (
+          <ArrowUpDown className="h-3 w-3 ml-1 opacity-40" />
+        )}
+      </span>
+    </TableHead>
+  )
+}
 
 export default function FirewallPorts() {
   const { t } = useTranslation()
@@ -78,13 +116,6 @@ export default function FirewallPorts() {
       setSortKey(key)
       setSortDir('asc')
     }
-  }
-
-  const getSortIcon = (key: SortKey) => {
-    if (sortKey !== key) return <ArrowUpDown className="h-3 w-3 ml-1 opacity-40" />
-    return sortDir === 'asc'
-      ? <ArrowUp className="h-3 w-3 ml-1" />
-      : <ArrowDown className="h-3 w-3 ml-1" />
   }
 
   const filteredAndSorted = useMemo(() => {
@@ -156,8 +187,12 @@ export default function FirewallPorts() {
     setRuleComment('')
   }
 
+  // Same source-IP validation as the FirewallRules dialogs — both entry points
+  // feed the same addFirewallRule API.
+  const fromError = !!ruleFrom.trim() && !validateFrom(ruleFrom)
+
   const handleAddRule = async () => {
-    if (!addTarget) return
+    if (!addTarget || fromError) return
     setAdding(true)
     try {
       await api.addFirewallRule({
@@ -225,50 +260,32 @@ export default function FirewallPorts() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead
-                className="w-24 cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
-                role="button"
-                tabIndex={0}
-                onClick={() => handleSort('protocol')}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort('protocol') } }}
-              >
-                <span className="inline-flex items-center text-[11px]">
-                  {t('firewall.ports.protocol')}{getSortIcon('protocol')}
-                </span>
-              </TableHead>
-              <TableHead
-                className="cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
-                role="button"
-                tabIndex={0}
-                onClick={() => handleSort('address')}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort('address') } }}
-              >
-                <span className="inline-flex items-center text-[11px]">
-                  {t('firewall.ports.address')}{getSortIcon('address')}
-                </span>
-              </TableHead>
-              <TableHead
-                className="w-24 cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
-                role="button"
-                tabIndex={0}
-                onClick={() => handleSort('port')}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort('port') } }}
-              >
-                <span className="inline-flex items-center text-[11px]">
-                  {t('firewall.ports.port')}{getSortIcon('port')}
-                </span>
-              </TableHead>
-              <TableHead
-                className="cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
-                role="button"
-                tabIndex={0}
-                onClick={() => handleSort('process')}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort('process') } }}
-              >
-                <span className="inline-flex items-center text-[11px]">
-                  {t('firewall.ports.process')}{getSortIcon('process')}
-                </span>
-              </TableHead>
+              <SortableHead
+                className="w-24"
+                label={t('firewall.ports.protocol')}
+                active={sortKey === 'protocol'}
+                dir={sortDir}
+                onSort={() => handleSort('protocol')}
+              />
+              <SortableHead
+                label={t('firewall.ports.address')}
+                active={sortKey === 'address'}
+                dir={sortDir}
+                onSort={() => handleSort('address')}
+              />
+              <SortableHead
+                className="w-24"
+                label={t('firewall.ports.port')}
+                active={sortKey === 'port'}
+                dir={sortDir}
+                onSort={() => handleSort('port')}
+              />
+              <SortableHead
+                label={t('firewall.ports.process')}
+                active={sortKey === 'process'}
+                dir={sortDir}
+                onSort={() => handleSort('process')}
+              />
               <TableHead className="w-20 text-[11px]">{t('firewall.ports.pid')}</TableHead>
               <TableHead className="text-right w-32 text-[11px]">{t('common.actions')}</TableHead>
             </TableRow>
@@ -373,9 +390,13 @@ export default function FirewallPorts() {
                 value={ruleFrom}
                 onChange={(e) => setRuleFrom(e.target.value)}
                 placeholder={t('firewall.rules.any')}
-                className="rounded-xl text-[13px]"
+                className={`rounded-xl text-[13px] ${fromError ? 'ring-1 ring-destructive' : ''}`}
               />
-              <p className="text-[11px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
+              {fromError ? (
+                <p className="text-[11px] text-destructive">{t('firewall.rules.invalidIP')}</p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">{t('firewall.rules.fromIPHint')}</p>
+              )}
             </div>
 
             {/* Comment */}
@@ -393,7 +414,7 @@ export default function FirewallPorts() {
             <Button variant="outline" onClick={() => setAddTarget(null)} className="rounded-xl">
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleAddRule} disabled={adding} className="rounded-xl">
+            <Button onClick={handleAddRule} disabled={adding || fromError} className="rounded-xl">
               {adding && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('firewall.rules.addRule')}
             </Button>

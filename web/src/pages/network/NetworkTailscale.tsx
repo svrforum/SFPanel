@@ -18,9 +18,12 @@ import {
   Shield,
   Route,
 } from 'lucide-react'
+import { type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import { formatBytes, copyText } from '@/lib/utils'
+import { formatBytes } from '@/lib/utils'
+import { useCopyFeedback } from '@/hooks/useCopyFeedback'
+import { useConfirm } from '@/components/ConfirmDialog'
 import type { TailscaleStatus, TailscalePeer } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -41,6 +44,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface OutputDialog {
   open: boolean
@@ -49,8 +59,134 @@ interface OutputDialog {
   done: boolean
 }
 
+interface UpdateInfo {
+  available: boolean
+  version: string
+}
+
+/** Version badge + update-check button + result label (shared by the
+ * not-connected and connected headers, which used to carry two copies). */
+function VersionHeader({
+  version,
+  checkingUpdate,
+  updateInfo,
+  onCheckUpdate,
+}: {
+  version?: string
+  checkingUpdate: boolean
+  updateInfo: UpdateInfo | null
+  onCheckUpdate: () => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {version && (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
+          {t('network.tailscale.version')}: {version}
+        </span>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 text-[11px] px-2"
+        onClick={onCheckUpdate}
+        disabled={checkingUpdate}
+      >
+        {checkingUpdate ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <ArrowUpCircle className="h-3 w-3" />
+        )}
+        {t('network.tailscale.checkUpdate')}
+      </Button>
+      {updateInfo && (
+        <span className={`text-[11px] ${updateInfo.available ? 'text-warning font-medium' : 'text-success'}`}>
+          {updateInfo.available
+            ? t('network.tailscale.updateAvailable', { version: updateInfo.version })
+            : t('network.tailscale.upToDate')}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// Literal class variants so Tailwind's scanner sees them.
+const TOGGLE_ACCENTS = {
+  success: {
+    on: 'bg-success/10 ring-1 ring-success/20',
+    box: 'bg-success/20',
+    icon: 'text-success',
+    track: 'bg-success',
+  },
+  primary: {
+    on: 'bg-primary/10 ring-1 ring-primary/20',
+    box: 'bg-primary/20',
+    icon: 'text-primary',
+    track: 'bg-primary',
+  },
+} as const
+
+/** Hand-rolled switch row (accept-routes / advertise-exit-node) with proper
+ * switch semantics for screen readers. */
+function ToggleSettingRow({
+  icon: Icon,
+  title,
+  description,
+  checked,
+  busy,
+  accent,
+  onToggle,
+}: {
+  icon: LucideIcon
+  title: string
+  description: string
+  checked: boolean
+  busy: boolean
+  accent: keyof typeof TOGGLE_ACCENTS
+  onToggle: () => void
+}) {
+  const a = TOGGLE_ACCENTS[accent]
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      className={`w-full flex items-center justify-between rounded-xl p-3 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
+        checked ? a.on : 'bg-secondary/50 hover:bg-secondary/80'
+      }`}
+      onClick={onToggle}
+      disabled={busy}
+    >
+      <div className="flex items-center gap-3 text-left">
+        <div className={`flex items-center justify-center w-8 h-8 rounded-lg ${
+          checked ? a.box : 'bg-secondary'
+        }`}>
+          <Icon className={`h-4 w-4 ${checked ? a.icon : 'text-muted-foreground'}`} />
+        </div>
+        <div>
+          <div className="text-[13px] font-medium">{title}</div>
+          <p className="text-[11px] text-muted-foreground">{description}</p>
+        </div>
+      </div>
+      <div className="ml-3 shrink-0">
+        {busy ? (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : (
+          <div className={`w-10 h-6 rounded-full transition-colors relative ${
+            checked ? a.track : 'bg-secondary'
+          }`}>
+            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+              checked ? 'translate-x-5' : 'translate-x-1'
+            }`} />
+          </div>
+        )}
+      </div>
+    </button>
+  )
+}
+
 export default function NetworkTailscale() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
 
   const [status, setStatus] = useState<TailscaleStatus | null>(null)
   const [peers, setPeers] = useState<TailscalePeer[]>([])
@@ -72,7 +208,6 @@ export default function NetworkTailscale() {
 
   // Disconnect / logout
   const [disconnecting, setDisconnecting] = useState(false)
-  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
 
   // Exit node / settings
@@ -82,10 +217,10 @@ export default function NetworkTailscale() {
 
   // Update check
   const [checkingUpdate, setCheckingUpdate] = useState(false)
-  const [updateInfo, setUpdateInfo] = useState<{ available: boolean; version: string } | null>(null)
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
 
-  // Copy
-  const [copiedField, setCopiedField] = useState<string | null>(null)
+  // Copy flash
+  const { copy, copiedKey: copiedField } = useCopyFeedback()
 
   const fetchData = useCallback(async () => {
     try {
@@ -130,24 +265,12 @@ export default function NetworkTailscale() {
     })
 
     try {
-      const res = await fetch(`${api.apiBase}/network/tailscale/install`, {
-        method: 'POST',
-        headers: api.streamHeaders(),
-      })
-
-      if (!res.ok || !res.body) {
-        throw new Error('Failed to start Tailscale installation')
-      }
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
+      // postTextStream applies the cluster ?node= scope (the proxy's streaming
+      // relay allowlist covers this path), so installing while browsing a
+      // remote node runs on that node instead of silently on the local one.
       let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
+      await api.postTextStream('/network/tailscale/install', (chunk) => {
+        buffer += chunk
         const lines = buffer.split('\n')
         buffer = lines.pop() || ''
 
@@ -161,7 +284,7 @@ export default function NetworkTailscale() {
             }
           }
         }
-      }
+      })
 
       toast.success(t('network.tailscale.installSuccess'))
       finishOutput()
@@ -221,11 +344,16 @@ export default function NetworkTailscale() {
   }
 
   const handleLogout = async () => {
+    if (!(await confirm({
+      title: t('network.tailscale.logoutTitle'),
+      description: t('network.tailscale.logoutConfirm'),
+      confirmLabel: t('network.tailscale.logout'),
+      danger: true,
+    }))) return
     setLoggingOut(true)
     try {
       await api.tailscaleLogout()
       toast.success(t('network.tailscale.loggedOut'))
-      setLogoutDialogOpen(false)
       await fetchData()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('network.tailscale.logoutFailed')
@@ -313,12 +441,9 @@ export default function NetworkTailscale() {
   }
 
   const copyToClipboard = async (text: string, field: string) => {
-    if (!(await copyText(text))) {
+    if (!(await copy(text, field))) {
       toast.error('Failed to copy to clipboard')
-      return
     }
-    setCopiedField(field)
-    setTimeout(() => setCopiedField(null), 2000)
   }
 
   // Loading
@@ -395,32 +520,12 @@ export default function NetworkTailscale() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           {status?.version && (
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
-                {t('network.tailscale.version')}: {status.version}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 text-[11px] px-2"
-                onClick={handleCheckUpdate}
-                disabled={checkingUpdate}
-              >
-                {checkingUpdate ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <ArrowUpCircle className="h-3 w-3" />
-                )}
-                {t('network.tailscale.checkUpdate')}
-              </Button>
-              {updateInfo && (
-                <span className={`text-[11px] ${updateInfo.available ? 'text-warning font-medium' : 'text-success'}`}>
-                  {updateInfo.available
-                    ? t('network.tailscale.updateAvailable', { version: updateInfo.version })
-                    : t('network.tailscale.upToDate')}
-                </span>
-              )}
-            </div>
+            <VersionHeader
+              version={status.version}
+              checkingUpdate={checkingUpdate}
+              updateInfo={updateInfo}
+              onCheckUpdate={handleCheckUpdate}
+            />
           )}
           <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
             <RefreshCw className={loading ? 'animate-spin' : ''} />
@@ -482,34 +587,12 @@ export default function NetworkTailscale() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {status?.version && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
-              {t('network.tailscale.version')}: {status.version}
-            </span>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 text-[11px] px-2"
-            onClick={handleCheckUpdate}
-            disabled={checkingUpdate}
-          >
-            {checkingUpdate ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <ArrowUpCircle className="h-3 w-3" />
-            )}
-            {t('network.tailscale.checkUpdate')}
-          </Button>
-          {updateInfo && (
-            <span className={`text-[11px] ${updateInfo.available ? 'text-warning font-medium' : 'text-success'}`}>
-              {updateInfo.available
-                ? t('network.tailscale.updateAvailable', { version: updateInfo.version })
-                : t('network.tailscale.upToDate')}
-            </span>
-          )}
-        </div>
+        <VersionHeader
+          version={status?.version}
+          checkingUpdate={checkingUpdate}
+          updateInfo={updateInfo}
+          onCheckUpdate={handleCheckUpdate}
+        />
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
             <RefreshCw className={loading ? 'animate-spin' : ''} />
@@ -528,9 +611,10 @@ export default function NetworkTailscale() {
             variant="outline"
             size="sm"
             className="text-destructive hover:text-destructive"
-            onClick={() => setLogoutDialogOpen(true)}
+            onClick={handleLogout}
+            disabled={loggingOut}
           >
-            <LogOut className="h-3.5 w-3.5" />
+            {loggingOut ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogOut className="h-3.5 w-3.5" />}
             {t('network.tailscale.logout')}
           </Button>
         </div>
@@ -601,76 +685,26 @@ export default function NetworkTailscale() {
           </h3>
           <div className="space-y-3">
             {/* Accept Routes */}
-            <button
-              className={`w-full flex items-center justify-between rounded-xl p-3 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
-                status?.accept_routes
-                  ? 'bg-success/10 ring-1 ring-success/20'
-                  : 'bg-secondary/50 hover:bg-secondary/80'
-              }`}
-              onClick={() => handleToggleAcceptRoutes(!status?.accept_routes)}
-              disabled={togglingAcceptRoutes}
-            >
-              <div className="flex items-center gap-3 text-left">
-                <div className={`flex items-center justify-center w-8 h-8 rounded-lg ${
-                  status?.accept_routes ? 'bg-success/20' : 'bg-secondary'
-                }`}>
-                  <Route className={`h-4 w-4 ${status?.accept_routes ? 'text-success' : 'text-muted-foreground'}`} />
-                </div>
-                <div>
-                  <div className="text-[13px] font-medium">{t('network.tailscale.acceptRoutes')}</div>
-                  <p className="text-[11px] text-muted-foreground">{t('network.tailscale.acceptRoutesDesc')}</p>
-                </div>
-              </div>
-              <div className="ml-3 shrink-0">
-                {togglingAcceptRoutes ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : (
-                  <div className={`w-10 h-6 rounded-full transition-colors relative ${
-                    status?.accept_routes ? 'bg-success' : 'bg-secondary'
-                  }`}>
-                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                      status?.accept_routes ? 'translate-x-5' : 'translate-x-1'
-                    }`} />
-                  </div>
-                )}
-              </div>
-            </button>
+            <ToggleSettingRow
+              icon={Route}
+              title={t('network.tailscale.acceptRoutes')}
+              description={t('network.tailscale.acceptRoutesDesc')}
+              checked={!!status?.accept_routes}
+              busy={togglingAcceptRoutes}
+              accent="success"
+              onToggle={() => handleToggleAcceptRoutes(!status?.accept_routes)}
+            />
 
             {/* Advertise as Exit Node */}
-            <button
-              className={`w-full flex items-center justify-between rounded-xl p-3 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
-                status?.advertise_exit_node
-                  ? 'bg-primary/10 ring-1 ring-primary/20'
-                  : 'bg-secondary/50 hover:bg-secondary/80'
-              }`}
-              onClick={() => handleToggleAdvertiseExitNode(!status?.advertise_exit_node)}
-              disabled={togglingAdvertise}
-            >
-              <div className="flex items-center gap-3 text-left">
-                <div className={`flex items-center justify-center w-8 h-8 rounded-lg ${
-                  status?.advertise_exit_node ? 'bg-primary/20' : 'bg-secondary'
-                }`}>
-                  <Shield className={`h-4 w-4 ${status?.advertise_exit_node ? 'text-primary' : 'text-muted-foreground'}`} />
-                </div>
-                <div>
-                  <div className="text-[13px] font-medium">{t('network.tailscale.advertiseExitNode')}</div>
-                  <p className="text-[11px] text-muted-foreground">{t('network.tailscale.advertiseExitNodeDesc')}</p>
-                </div>
-              </div>
-              <div className="ml-3 shrink-0">
-                {togglingAdvertise ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                ) : (
-                  <div className={`w-10 h-6 rounded-full transition-colors relative ${
-                    status?.advertise_exit_node ? 'bg-primary' : 'bg-secondary'
-                  }`}>
-                    <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                      status?.advertise_exit_node ? 'translate-x-5' : 'translate-x-1'
-                    }`} />
-                  </div>
-                )}
-              </div>
-            </button>
+            <ToggleSettingRow
+              icon={Shield}
+              title={t('network.tailscale.advertiseExitNode')}
+              description={t('network.tailscale.advertiseExitNodeDesc')}
+              checked={!!status?.advertise_exit_node}
+              busy={togglingAdvertise}
+              accent="primary"
+              onToggle={() => handleToggleAdvertiseExitNode(!status?.advertise_exit_node)}
+            />
 
             {/* Admin Console Hint */}
             {(status?.accept_routes || status?.advertise_exit_node) && (
@@ -698,19 +732,27 @@ export default function NetworkTailscale() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <select
-                      className="flex-1 min-w-0 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] px-3 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      value={status?.current_exit_node || ''}
-                      onChange={(e) => handleSetExitNode(e.target.value)}
+                    {/* Radix Select rejects empty item values — 'none' stands in for "no exit node". */}
+                    <Select
+                      value={status?.current_exit_node || 'none'}
+                      onValueChange={(v) => handleSetExitNode(v === 'none' ? '' : v)}
                       disabled={settingExitNode !== null}
                     >
-                      <option value="">{t('network.tailscale.noExitNode')}</option>
-                      {exitNodePeers.map((p) => (
-                        <option key={p.tailscale_ip} value={p.tailscale_ip}>
-                          {p.hostname} ({p.tailscale_ip}) {p.online ? '' : `— ${t('network.tailscale.offline')}`}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger
+                        className="flex-1 min-w-0 h-9 rounded-xl text-[13px]"
+                        aria-label={t('network.tailscale.selectExitNode')}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">{t('network.tailscale.noExitNode')}</SelectItem>
+                        {exitNodePeers.map((p) => (
+                          <SelectItem key={p.tailscale_ip} value={p.tailscale_ip}>
+                            {p.hostname} ({p.tailscale_ip}) {p.online ? '' : `— ${t('network.tailscale.offline')}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     {settingExitNode !== null && (
                       <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
                     )}
@@ -812,25 +854,6 @@ export default function NetworkTailscale() {
           </div>
         )}
       </div>
-
-      {/* Logout Confirmation Dialog */}
-      <Dialog open={logoutDialogOpen} onOpenChange={setLogoutDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('network.tailscale.logoutTitle')}</DialogTitle>
-            <DialogDescription>{t('network.tailscale.logoutConfirm')}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setLogoutDialogOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="destructive" onClick={handleLogout} disabled={loggingOut}>
-              {loggingOut && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {t('network.tailscale.logout')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

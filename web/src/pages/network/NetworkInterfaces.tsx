@@ -4,7 +4,6 @@ import {
   Network as NetworkIcon,
   RefreshCw,
   Settings2,
-  Wifi,
   Cable,
   Link2,
   Unlink,
@@ -12,7 +11,6 @@ import {
   Shield,
   Globe,
   Router,
-  ArrowUpDown,
   Plus,
   Trash2,
   AlertTriangle,
@@ -20,7 +18,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import { formatBytes } from '@/lib/utils'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -40,22 +38,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { InterfaceCard, getStateStyle } from './components/InterfaceCard'
+import { BondCreateDialog } from './components/BondCreateDialog'
 
 import type { NetworkInterfaceInfo, InterfaceConfig, NetworkRoute } from '@/types/api'
 
 interface DNSConfig {
   servers: string[]
 }
-
-const BOND_MODES = [
-  'balance-rr',
-  'active-backup',
-  'balance-xor',
-  'broadcast',
-  '802.3ad',
-  'balance-tlb',
-  'balance-alb',
-]
 
 // Classify interfaces into categories
 function classifyInterfaces(interfaces: NetworkInterfaceInfo[]) {
@@ -93,12 +83,17 @@ function classifyInterfaces(interfaces: NetworkInterfaceInfo[]) {
 
 export default function NetworkInterfaces() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
 
   // Data state
   const [interfaces, setInterfaces] = useState<NetworkInterfaceInfo[]>([])
   const [routes, setRoutes] = useState<NetworkRoute[]>([])
   const [dnsConfig, setDnsConfig] = useState<DNSConfig>({ servers: [] })
   const [loading, setLoading] = useState(true)
+  // Session-local only: there is no backend endpoint reporting whether the
+  // netplan config on disk differs from the running state, so a page reload
+  // loses the "apply needed" flag (and the floating Apply button) even though
+  // saved-but-unapplied changes may still exist.
   const [hasChanges, setHasChanges] = useState(false)
 
   // Interface config dialog
@@ -118,14 +113,6 @@ export default function NetworkInterfaces() {
 
   // Bond create dialog
   const [bondCreateOpen, setBondCreateOpen] = useState(false)
-  const [bondName, setBondName] = useState('')
-  const [bondMode, setBondMode] = useState('active-backup')
-  const [bondSlaves, setBondSlaves] = useState<string[]>([])
-  const [bondCreating, setBondCreating] = useState(false)
-
-  // Bond delete dialog
-  const [bondDeleteTarget, setBondDeleteTarget] = useState<NetworkInterfaceInfo | null>(null)
-  const [bondDeleting, setBondDeleting] = useState(false)
 
   // Apply config dialog
   const [applyDialogOpen, setApplyDialogOpen] = useState(false)
@@ -215,42 +202,21 @@ export default function NetworkInterfaces() {
     }
   }
 
-  // Create bond
-  const handleCreateBond = async () => {
-    if (!bondName.trim() || bondSlaves.length === 0) return
-    setBondCreating(true)
-    try {
-      await api.createBond({ name: bondName.trim(), mode: bondMode, slaves: bondSlaves })
-      toast.success(t('network.bondCreated', { name: bondName }))
-      setBondCreateOpen(false)
-      setBondName('')
-      setBondMode('active-backup')
-      setBondSlaves([])
-      setHasChanges(true)
-      await fetchData()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('network.bondCreateFailed')
-      toast.error(message)
-    } finally {
-      setBondCreating(false)
-    }
-  }
-
   // Delete bond
-  const handleDeleteBond = async () => {
-    if (!bondDeleteTarget) return
-    setBondDeleting(true)
+  const handleDeleteBond = async (bond: NetworkInterfaceInfo) => {
+    if (!(await confirm({
+      title: t('network.deleteBondTitle'),
+      description: t('network.deleteBondConfirm', { name: bond.name }),
+      danger: true,
+    }))) return
     try {
-      await api.deleteBond(bondDeleteTarget.name)
-      toast.success(t('network.bondDeleted', { name: bondDeleteTarget.name }))
-      setBondDeleteTarget(null)
+      await api.deleteBond(bond.name)
+      toast.success(t('network.bondDeleted', { name: bond.name }))
       setHasChanges(true)
       await fetchData()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('network.bondDeleteFailed')
       toast.error(message)
-    } finally {
-      setBondDeleting(false)
     }
   }
 
@@ -269,37 +235,6 @@ export default function NetworkInterfaces() {
     } finally {
       setApplying(false)
     }
-  }
-
-  // Toggle bond slave selection
-  const toggleBondSlave = (name: string) => {
-    setBondSlaves((prev) =>
-      prev.includes(name) ? prev.filter((s) => s !== name) : [...prev, name]
-    )
-  }
-
-  // State indicator helpers
-  const getStateStyle = (state: string) => {
-    const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-    if (state === 'up') return `${base} bg-success/10 text-success`
-    if (state === 'down') return `${base} bg-destructive/10 text-destructive`
-    return `${base} bg-secondary text-muted-foreground`
-  }
-
-  const getStateDot = (state: string) => {
-    if (state === 'up') return 'bg-success'
-    if (state === 'down') return 'bg-destructive'
-    return 'bg-muted-foreground'
-  }
-
-  // Interface type icon
-  const getInterfaceIcon = (iface: NetworkInterfaceInfo) => {
-    if (iface.type === 'loopback') return <Router className="h-4 w-4 text-muted-foreground" />
-    if (iface.bond_info) return <Link2 className="h-4 w-4 text-primary" />
-    if (iface.type === 'wireless' || iface.name.startsWith('wl')) return <Wifi className="h-4 w-4 text-primary" />
-    if (iface.name.startsWith('docker') || iface.name.startsWith('br-') || iface.name.startsWith('veth'))
-      return <Container className="h-4 w-4 text-primary" />
-    return <Cable className="h-4 w-4 text-primary" />
   }
 
   // Classify interfaces
@@ -321,110 +256,10 @@ export default function NetworkInterfaces() {
     }
   }
 
-  // Render interface card
-  const renderInterfaceCard = (iface: NetworkInterfaceInfo) => {
-    const isLoopback = iface.type === 'loopback'
-    const ipv4 = iface.addresses.find((a) => a.family === 'ipv4' || a.family === 'inet')
-
-    return (
-      <div
-        key={iface.name}
-        className={`bg-card rounded-2xl p-5 card-shadow transition-all ${
-          iface.is_default ? 'ring-1 ring-primary/30' : ''
-        } ${isLoopback ? 'opacity-60' : ''}`}
-      >
-        {/* Header: name + state */}
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2 min-w-0">
-            {getInterfaceIcon(iface)}
-            <span className="text-[15px] font-semibold truncate min-w-0" title={iface.name}>{iface.name}</span>
-            {iface.is_default && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary shrink-0">
-                {t('network.defaultGateway')}
-              </span>
-            )}
-            {iface.bond_info && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-warning/10 text-warning shrink-0">
-                Bond
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className={`h-2 w-2 rounded-full ${getStateDot(iface.state)}`} />
-            <span className={getStateStyle(iface.state)}>
-              {iface.state === 'up' ? t('network.up') : iface.state === 'down' ? t('network.down') : iface.state}
-            </span>
-          </div>
-        </div>
-
-        {/* IP Address */}
-        <div className="space-y-1.5 mb-3">
-          {ipv4 ? (
-            <p className="text-[13px] font-mono">
-              {ipv4.address}/{ipv4.prefix}
-            </p>
-          ) : (
-            <p className="text-[13px] text-muted-foreground">{t('network.noAddresses')}</p>
-          )}
-          {iface.addresses
-            .filter((a) => (a.family === 'ipv6' || a.family === 'inet6') && !a.address.startsWith('fe80'))
-            .slice(0, 1)
-            .map((a, idx) => (
-              <p key={idx} className="text-[11px] text-muted-foreground font-mono truncate" title={`${a.address}/${a.prefix}`}>
-                {a.address}/{a.prefix}
-              </p>
-            ))}
-        </div>
-
-        {/* Details */}
-        <div className="space-y-1 text-[11px] text-muted-foreground">
-          {iface.mac_address && iface.mac_address !== '00:00:00:00:00:00' && (
-            <p>MAC: {iface.mac_address}</p>
-          )}
-          {iface.speed > 0 && (
-            <p>{t('network.speed')}: {iface.speed >= 1000 ? `${iface.speed / 1000} Gbps` : `${iface.speed} Mbps`}</p>
-          )}
-          {iface.bond_info && (
-            <p>{t('network.bondMode')}: {iface.bond_info.mode}</p>
-          )}
-        </div>
-
-        {/* Traffic */}
-        {!isLoopback && (
-          <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border">
-            <div className="flex items-center gap-1">
-              <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground">
-                <span className="text-primary">{formatBytes(iface.tx_bytes)}</span>
-                {' / '}
-                <span className="text-success">{formatBytes(iface.rx_bytes)}</span>
-              </span>
-            </div>
-            {(iface.tx_errors > 0 || iface.rx_errors > 0) && (
-              <span className="text-[11px] text-destructive">
-                {t('network.errors')}: {iface.tx_errors + iface.rx_errors}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Config button */}
-        {!isLoopback && (
-          <div className="mt-3">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full h-8 text-[12px] rounded-xl"
-              onClick={() => openConfigDialog(iface)}
-            >
-              <Settings2 className="h-3.5 w-3.5" />
-              {t('network.configure')}
-            </Button>
-          </div>
-        )}
-      </div>
-    )
-  }
+  const renderCards = (list: NetworkInterfaceInfo[]) =>
+    list.map((iface) => (
+      <InterfaceCard key={iface.name} iface={iface} onConfigure={openConfigDialog} />
+    ))
 
   return (
     <div className="space-y-6">
@@ -465,7 +300,7 @@ export default function NetworkInterfaces() {
                 </span>
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {classified.physical.map(renderInterfaceCard)}
+                {renderCards(classified.physical)}
               </div>
             </div>
           )}
@@ -478,7 +313,7 @@ export default function NetworkInterfaces() {
                 {t('network.loopback')}
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {classified.loopback.map(renderInterfaceCard)}
+                {renderCards(classified.loopback)}
               </div>
             </div>
           )}
@@ -494,7 +329,7 @@ export default function NetworkInterfaces() {
                 </span>
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {classified.virtual.map(renderInterfaceCard)}
+                {renderCards(classified.virtual)}
               </div>
             </div>
           )}
@@ -519,7 +354,7 @@ export default function NetworkInterfaces() {
               </button>
               {!dockerCollapsed && (
                 <div id="docker-interfaces" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {classified.docker.map(renderInterfaceCard)}
+                  {renderCards(classified.docker)}
                 </div>
               )}
             </div>
@@ -707,7 +542,7 @@ export default function NetworkInterfaces() {
                         variant="ghost"
                         size="icon-xs"
                         className="text-destructive hover:text-destructive"
-                        onClick={() => setBondDeleteTarget(bond)}
+                        onClick={() => handleDeleteBond(bond)}
                         aria-label={t('common.delete')}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -860,114 +695,15 @@ export default function NetworkInterfaces() {
       </Dialog>
 
       {/* Bond Create Dialog */}
-      <Dialog open={bondCreateOpen} onOpenChange={setBondCreateOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Link2 className="h-5 w-5" />
-              {t('network.createBond')}
-            </DialogTitle>
-            <DialogDescription>
-              {t('network.createBondDesc')}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="bond-name" className="text-[13px]">{t('network.bondName')}</Label>
-              <Input
-                id="bond-name"
-                value={bondName}
-                onChange={(e) => setBondName(e.target.value)}
-                placeholder="bond0"
-                className="pl-3 h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="bond-mode" className="text-[13px]">{t('network.bondMode')}</Label>
-              <select
-                id="bond-mode"
-                value={bondMode}
-                onChange={(e) => setBondMode(e.target.value)}
-                className="flex h-9 w-full rounded-xl border-0 bg-secondary/50 px-3 py-1 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
-              >
-                {BOND_MODES.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {mode}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-[13px]">{t('network.bondSlaves')}</Label>
-              {availableSlaves.length === 0 ? (
-                <p className="text-[13px] text-muted-foreground">{t('network.noAvailableSlaves')}</p>
-              ) : (
-                <div className="space-y-1">
-                  {availableSlaves.map((iface) => (
-                    <label
-                      key={iface.name}
-                      className={`flex items-center gap-3 px-3 py-2 rounded-xl cursor-pointer transition-all ${
-                        bondSlaves.includes(iface.name)
-                          ? 'bg-primary/10 text-primary'
-                          : 'bg-secondary/50 text-foreground hover:bg-secondary'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={bondSlaves.includes(iface.name)}
-                        onChange={() => toggleBondSlave(iface.name)}
-                        className="rounded"
-                      />
-                      <span className="text-[13px] font-medium">{iface.name}</span>
-                      <span className={getStateStyle(iface.state)}>
-                        {iface.state}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" className="rounded-xl" onClick={() => setBondCreateOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              className="rounded-xl"
-              onClick={handleCreateBond}
-              disabled={bondCreating || !bondName.trim() || bondSlaves.length === 0}
-            >
-              {bondCreating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {t('common.create')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Bond Delete Dialog */}
-      <Dialog open={!!bondDeleteTarget} onOpenChange={(open) => !open && setBondDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('network.deleteBondTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('network.deleteBondConfirm', { name: bondDeleteTarget?.name })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" className="rounded-xl" onClick={() => setBondDeleteTarget(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="destructive" className="rounded-xl" onClick={handleDeleteBond} disabled={bondDeleting}>
-              {bondDeleting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {t('common.delete')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <BondCreateDialog
+        open={bondCreateOpen}
+        onOpenChange={setBondCreateOpen}
+        availableSlaves={availableSlaves}
+        onCreated={() => {
+          setHasChanges(true)
+          fetchData()
+        }}
+      />
 
       {/* Apply Config Warning Dialog */}
       <Dialog open={applyDialogOpen} onOpenChange={setApplyDialogOpen}>

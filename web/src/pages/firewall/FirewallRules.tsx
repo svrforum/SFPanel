@@ -29,6 +29,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { validatePort, validateFrom } from './ruleValidation'
 
 interface FirewallStatus {
   active: boolean
@@ -61,30 +63,15 @@ const initialRuleForm: RuleForm = {
   comment: '',
 }
 
-// Port validation: number, range (8000:8080), or service name
-const PORT_REGEX = /^[a-zA-Z0-9_-]+(:[a-zA-Z0-9_-]+)?$/
-// IP/CIDR validation (basic)
-const IP_CIDR_REGEX = /^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/
-
-function validatePort(port: string): boolean {
-  return PORT_REGEX.test(port.trim())
-}
-
-function validateFrom(from: string): boolean {
-  if (!from || from === 'any') return true
-  return IP_CIDR_REGEX.test(from.trim())
-}
-
 // Shared form fields component
 function RuleFormFields({
   form,
   setForm,
-  t,
 }: {
   form: RuleForm
   setForm: (f: RuleForm) => void
-  t: (key: string) => string
 }) {
+  const { t } = useTranslation()
   const portError = form.port.trim() && !validatePort(form.port)
   const fromError = form.from.trim() && !validateFrom(form.from)
 
@@ -170,12 +157,12 @@ function RuleFormFields({
 
 export default function FirewallRules() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
 
   // Status state
   const [status, setStatus] = useState<FirewallStatus | null>(null)
   const [statusLoading, setStatusLoading] = useState(true)
   const [toggling, setToggling] = useState(false)
-  const [toggleConfirmOpen, setToggleConfirmOpen] = useState(false)
   // Lockout-guard override: set when the backend refuses an enable/add/delete
   // with 409 because it would block SSH/panel access. retry() re-runs with force.
   const [lockout, setLockout] = useState<{ message: string; busy: boolean; retry: () => Promise<void> } | null>(null)
@@ -191,9 +178,8 @@ export default function FirewallRules() {
   const [addForm, setAddForm] = useState<RuleForm>(initialRuleForm)
   const [adding, setAdding] = useState(false)
 
-  // Delete confirmation
-  const [deleteTarget, setDeleteTarget] = useState<FirewallRule | null>(null)
-  const [deleting, setDeleting] = useState(false)
+  // Rule number currently being deleted (disables that row's delete button)
+  const [deleting, setDeleting] = useState<number | null>(null)
 
   // Edit rule (delete + re-add)
   const [editTarget, setEditTarget] = useState<FirewallRule | null>(null)
@@ -263,10 +249,20 @@ export default function FirewallRules() {
       }
     } finally {
       setToggling(false)
-      setToggleConfirmOpen(false)
     }
   }
-  const handleToggleFirewall = () => runToggleFirewall(false)
+  const handleToggleFirewall = async () => {
+    if (!status) return
+    if (!(await confirm({
+      title: status.active ? t('firewall.status.disable') : t('firewall.status.enable'),
+      description: status.active
+        ? t('firewall.status.disableConfirm')
+        : t('firewall.status.enableConfirm'),
+      confirmLabel: status.active ? t('firewall.status.disable') : t('firewall.status.enable'),
+      danger: status.active,
+    }))) return
+    await runToggleFirewall(false)
+  }
 
   const isFormValid = (form: RuleForm): boolean => {
     if (!form.port.trim() || !validatePort(form.port)) return false
@@ -300,23 +296,28 @@ export default function FirewallRules() {
   }
   const handleAddRule = () => runAddRule(false)
 
-  const runDeleteRule = async (force: boolean) => {
-    if (!deleteTarget) return
-    setDeleting(true)
+  const runDeleteRule = async (rule: FirewallRule, force: boolean) => {
+    setDeleting(rule.number)
     try {
-      await api.deleteFirewallRule(deleteTarget.number, force)
-      setDeleteTarget(null)
+      await api.deleteFirewallRule(rule.number, force)
       await fetchRules()
       setLockout(null)
     } catch (err: unknown) {
-      if (!handleLockoutError(err, () => runDeleteRule(true))) {
+      if (!handleLockoutError(err, () => runDeleteRule(rule, true))) {
         toast.error(err instanceof Error ? err.message : t('common.error'))
       }
     } finally {
-      setDeleting(false)
+      setDeleting(null)
     }
   }
-  const handleDeleteRule = () => runDeleteRule(false)
+  const handleDeleteRule = async (rule: FirewallRule) => {
+    if (!(await confirm({
+      title: t('firewall.rules.deleteRule'),
+      description: t('firewall.rules.deleteConfirm', { number: rule.number }),
+      danger: true,
+    }))) return
+    await runDeleteRule(rule, false)
+  }
 
   const parseRuleTo = (to: string): { port: string; protocol: string } => {
     const match = to.match(/^(.+)\/(tcp|udp)$/i)
@@ -446,7 +447,7 @@ export default function FirewallRules() {
             variant={status?.active ? 'destructive' : 'default'}
             size="sm"
             className="rounded-xl"
-            onClick={() => setToggleConfirmOpen(true)}
+            onClick={handleToggleFirewall}
             disabled={toggling || !status}
           >
             {toggling ? (
@@ -536,7 +537,8 @@ export default function FirewallRules() {
                         className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity text-red-500 hover:text-red-600"
                         title={t('firewall.rules.deleteRule')}
                         aria-label={t('firewall.rules.deleteRule')}
-                        onClick={() => setDeleteTarget(rule)}
+                        onClick={() => handleDeleteRule(rule)}
+                        disabled={deleting === rule.number}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -548,34 +550,6 @@ export default function FirewallRules() {
           </Table>
         </div>
       )}
-
-      {/* Enable/Disable Confirmation Dialog */}
-      <Dialog open={toggleConfirmOpen} onOpenChange={setToggleConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{status?.active ? t('firewall.status.disable') : t('firewall.status.enable')}</DialogTitle>
-            <DialogDescription>
-              {status?.active
-                ? t('firewall.status.disableConfirm')
-                : t('firewall.status.enableConfirm')}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setToggleConfirmOpen(false)} className="rounded-xl">
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant={status?.active ? 'destructive' : 'default'}
-              onClick={handleToggleFirewall}
-              disabled={toggling}
-              className="rounded-xl"
-            >
-              {toggling && <Loader2 className="h-4 w-4 animate-spin" />}
-              {status?.active ? t('firewall.status.disable') : t('firewall.status.enable')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Lockout-guard force-override Dialog */}
       <Dialog open={!!lockout} onOpenChange={(open) => !open && setLockout(null)}>
@@ -613,32 +587,6 @@ export default function FirewallRules() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Rule Confirmation Dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('firewall.rules.deleteRule')}</DialogTitle>
-            <DialogDescription>
-              {t('firewall.rules.deleteConfirm', { number: deleteTarget?.number })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDeleteTarget(null)} className="rounded-xl">
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteRule}
-              disabled={deleting}
-              className="rounded-xl"
-            >
-              {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
-              {t('common.delete')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Edit Rule Dialog */}
       <Dialog open={!!editTarget} onOpenChange={(open) => {
         if (!editing && !open) {
@@ -653,7 +601,7 @@ export default function FirewallRules() {
               {t('firewall.rules.editDescription', { number: editTarget?.number })}
             </DialogDescription>
           </DialogHeader>
-          <RuleFormFields form={editForm} setForm={setEditForm} t={t} />
+          <RuleFormFields form={editForm} setForm={setEditForm} />
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setEditTarget(null)} disabled={editing} className="rounded-xl">
               {t('common.cancel')}
@@ -682,7 +630,7 @@ export default function FirewallRules() {
             <DialogTitle>{t('firewall.rules.addRule')}</DialogTitle>
             <DialogDescription>{t('firewall.rules.title')}</DialogDescription>
           </DialogHeader>
-          <RuleFormFields form={addForm} setForm={setAddForm} t={t} />
+          <RuleFormFields form={addForm} setForm={setAddForm} />
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setAddOpen(false)} disabled={adding} className="rounded-xl">
               {t('common.cancel')}
