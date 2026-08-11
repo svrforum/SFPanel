@@ -2,23 +2,10 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw, ArrowUp, Folder, Loader2, AlertCircle } from 'lucide-react'
 import { api } from '@/lib/api'
-import { formatBytes } from '@/lib/utils'
+import { formatBytes, pathBasename, pathParent } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { DiskUsageEntry } from '@/types/api'
-
-function basename(p: string): string {
-  if (p === '/') return '/'
-  const parts = p.replace(/\/+$/, '').split('/')
-  return parts[parts.length - 1] || '/'
-}
-
-function parentOf(p: string): string {
-  const cleaned = p.replace(/\/+$/, '')
-  const idx = cleaned.lastIndexOf('/')
-  if (idx <= 0) return '/'
-  return cleaned.slice(0, idx)
-}
 
 export default function DiskUsage() {
   const { t } = useTranslation()
@@ -55,7 +42,7 @@ export default function DiskUsage() {
   const maxSize = children.length > 0 ? children[0].size : 1
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 mt-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-[17px] font-bold">{t('disk.usage.title')}</h2>
@@ -76,7 +63,7 @@ export default function DiskUsage() {
           title={t('disk.usage.up')}
           aria-label={t('disk.usage.up')}
           disabled={path === '/' || loading}
-          onClick={() => setPath(parentOf(path))}
+          onClick={() => setPath(pathParent(path))}
         >
           <ArrowUp className="h-4 w-4" />
         </Button>
@@ -123,7 +110,7 @@ export default function DiskUsage() {
               >
                 <Folder className="h-4 w-4 text-primary shrink-0" />
                 <span className="text-[13px] font-medium w-48 truncate shrink-0" title={entry.path}>
-                  {basename(entry.path)}
+                  {pathBasename(entry.path)}
                 </span>
                 <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                   <div className="h-full bg-primary/70 rounded-full" style={{ width: `${pct}%` }} />

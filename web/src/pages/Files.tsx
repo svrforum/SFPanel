@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Folder,
@@ -14,20 +14,18 @@ import {
   ChevronRight,
   Home,
   Loader2,
-  Save,
   Search,
   Copy,
   X,
+  type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import Editor from '@monaco-editor/react'
-import '@/lib/monaco' // configures the bundled (non-CDN) Monaco; lazy with this page so it stays out of the entry bundle
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { formatBytes, formatDate } from '@/lib/utils'
+import { usePrompt } from '@/components/PromptDialog'
+import { formatBytes, formatDate, pathJoin } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Table,
@@ -41,7 +39,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -52,67 +49,30 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from '@/components/ui/context-menu'
+import { FileEditorDialog, type EditorTarget } from './files/components/FileEditorDialog'
+import { isTextFile } from './files/components/fileLanguages'
 
 import type { FileEntry } from '@/types/api'
 
-
-function getLanguageFromFilename(filename: string): string {
-  const ext = filename.split('.').pop()?.toLowerCase() || ''
-  const languageMap: Record<string, string> = {
-    js: 'javascript',
-    jsx: 'javascript',
-    ts: 'typescript',
-    tsx: 'typescript',
-    py: 'python',
-    rb: 'ruby',
-    go: 'go',
-    rs: 'rust',
-    java: 'java',
-    c: 'c',
-    cpp: 'cpp',
-    h: 'c',
-    hpp: 'cpp',
-    cs: 'csharp',
-    php: 'php',
-    html: 'html',
-    htm: 'html',
-    css: 'css',
-    scss: 'scss',
-    less: 'less',
-    json: 'json',
-    xml: 'xml',
-    yaml: 'yaml',
-    yml: 'yaml',
-    toml: 'toml',
-    ini: 'ini',
-    conf: 'plaintext',
-    cfg: 'ini',
-    md: 'markdown',
-    sql: 'sql',
-    sh: 'shell',
-    bash: 'shell',
-    zsh: 'shell',
-    dockerfile: 'dockerfile',
-    makefile: 'plaintext',
-    lua: 'lua',
-    r: 'r',
-    swift: 'swift',
-    kt: 'kotlin',
-    vue: 'html',
-    svelte: 'html',
-  }
-  return languageMap[ext] || 'plaintext'
-}
-
-function joinPath(...parts: string[]): string {
-  const [first, ...rest] = parts
-  const joined = [first.replace(/\/+$/, ''), ...rest.map(p => p.replace(/^\/+/, ''))].join('/')
-  return joined.replace(/\/+/g, '/') || '/'
+// One per-row action list, rendered both as the row's icon buttons and as its
+// context-menu items (previously two hand-synced copies of the same five actions).
+interface EntryAction {
+  key: string
+  Icon: LucideIcon
+  show: boolean
+  /** Row button only — the context menu covers it via its open/edit item. */
+  rowOnly?: boolean
+  iconClassName?: string
+  destructive?: boolean
+  label: string
+  menuLabel: string
+  onClick: () => void
 }
 
 export default function Files() {
   const { t } = useTranslation()
   const confirm = useConfirm()
+  const prompt = usePrompt()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Core state
@@ -122,32 +82,8 @@ export default function Files() {
   const currentPathRef = useRef(currentPath)
   useEffect(() => { currentPathRef.current = currentPath }, [currentPath])
 
-  // Edit dialog state
-  const [editOpen, setEditOpen] = useState(false)
-  const [editFilePath, setEditFilePath] = useState('')
-  const [editFileName, setEditFileName] = useState('')
-  const [editContent, setEditContent] = useState('')
-  const [editLoading, setEditLoading] = useState(false)
-  const [editSaving, setEditSaving] = useState(false)
-
-  // New folder dialog state
-  const [newFolderOpen, setNewFolderOpen] = useState(false)
-  const [newFolderName, setNewFolderName] = useState('')
-  const [newFolderCreating, setNewFolderCreating] = useState(false)
-
-  // Delete confirmation dialog state
-  const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null)
-  const [deleteLoading, setDeleteLoading] = useState(false)
-
-  // Rename dialog state
-  const [renameTarget, setRenameTarget] = useState<FileEntry | null>(null)
-  const [renameNewName, setRenameNewName] = useState('')
-  const [renameLoading, setRenameLoading] = useState(false)
-
-  // New file dialog state
-  const [newFileOpen, setNewFileOpen] = useState(false)
-  const [newFileName, setNewFileName] = useState('')
-  const [newFileCreating, setNewFileCreating] = useState(false)
+  // Editor dialog state
+  const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null)
 
   // Upload state
   const [uploading, setUploading] = useState(false)
@@ -161,14 +97,8 @@ export default function Files() {
   const [searchCount, setSearchCount] = useState(0)
   const [searchLoading, setSearchLoading] = useState(false)
 
-  // Copy dialog state
-  const [copyTarget, setCopyTarget] = useState<FileEntry | null>(null)
-  const [copyDest, setCopyDest] = useState('')
-  const [copyLoading, setCopyLoading] = useState(false)
-
   // Multi-select state
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
-  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
   const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const fetchFiles = useCallback(async () => {
@@ -231,26 +161,25 @@ export default function Files() {
   }
 
   // Copy
-  const openCopyDialog = (entry: FileEntry) => {
+  const handleCopy = async (entry: FileEntry) => {
     const dir = entry.path.replace(/\/[^/]*$/, '') || '/'
     const dotIndex = entry.isDir ? -1 : entry.name.lastIndexOf('.')
     const suggested =
       dotIndex > 0
         ? `${entry.name.slice(0, dotIndex)}-copy${entry.name.slice(dotIndex)}`
         : `${entry.name}-copy`
-    setCopyTarget(entry)
-    setCopyDest(joinPath(dir, suggested))
-  }
-
-  const handleCopy = async () => {
-    if (!copyTarget || !copyDest.trim()) return
-    setCopyLoading(true)
+    const dest = await prompt({
+      title: t('files.copyTitle'),
+      description: entry.path,
+      defaultValue: pathJoin(dir, suggested),
+      confirmLabel: t('files.copy'),
+    })
+    const trimmed = dest?.trim()
+    if (!trimmed || trimmed === entry.path) return
     const pathAtStart = currentPathRef.current
     try {
-      await api.copyPath(copyTarget.path, copyDest.trim())
+      await api.copyPath(entry.path, trimmed)
       toast.success(t('files.copySuccess'))
-      setCopyTarget(null)
-      setCopyDest('')
       if (searchActive) {
         await handleSearch()
       } else if (currentPathRef.current === pathAtStart) {
@@ -264,8 +193,6 @@ export default function Files() {
         const message = err instanceof Error ? err.message : t('files.copyFailed')
         toast.error(message)
       }
-    } finally {
-      setCopyLoading(false)
     }
   }
 
@@ -282,6 +209,12 @@ export default function Files() {
   const handleBulkDelete = async () => {
     const paths = Array.from(selectedPaths)
     if (paths.length === 0) return
+    const ok = await confirm({
+      title: t('files.deleteSelected'),
+      description: t('files.deleteSelectedConfirm', { count: paths.length }),
+      danger: true,
+    })
+    if (!ok) return
     setBulkDeleting(true)
     let succeeded = 0
     let failed = 0
@@ -294,7 +227,6 @@ export default function Files() {
       }
     }
     setBulkDeleting(false)
-    setBulkDeleteOpen(false)
     setSelectedPaths(new Set())
     toast.success(t('files.bulkDeleteResult', { succeeded, failed }))
     if (searchActive) {
@@ -323,79 +255,31 @@ export default function Files() {
   }
 
   const handleDirectoryClick = (entry: FileEntry) => {
-    const newPath = joinPath(currentPath, entry.name)
+    const newPath = pathJoin(currentPath, entry.name)
     navigateTo(newPath)
   }
 
-  const handleFileClick = async (entry: FileEntry) => {
-    // Server caps /files/read at 5 MB. If the user clicks a larger file the
-    // editor open path produces a confusing 400 even after the size warning;
-    // route them to download instead — that's almost always what they meant.
-    if (entry.size > editMaxBytes) {
-      const ok = await confirm({
-        title: `이 파일은 ${Math.round(entry.size / 1024 / 1024)} MB로 편집기에서 열 수 없습니다 (최대 5 MB). 다운로드할까요?`,
-        danger: true,
-      })
-      if (ok) handleDownload(entry)
-      return
-    }
-    handleEditFile(entry)
-  }
-
   // Edit file
-  const editAbortRef = useRef<AbortController | null>(null)
   const editMaxBytes = 5 * 1024 * 1024 // 5 MB; server also enforces similar cap
   const handleEditFile = async (entry: FileEntry) => {
-    // Defensive: if a code path bypasses handleFileClick (context menu, etc.)
-    // and tries to open a too-large file, send it to download too.
+    // Server caps /files/read at 5 MB. If the user opens a larger file the
+    // editor open path produces a confusing 400 even after the size warning;
+    // route them to download instead — that's almost always what they meant.
+    // Single guard: every editor-open path funnels through this handler.
     if (entry.size > editMaxBytes) {
       const ok = await confirm({
-        title: `이 파일은 ${Math.round(entry.size / 1024 / 1024)} MB로 편집기에서 열 수 없습니다 (최대 5 MB). 다운로드할까요?`,
+        title: t('files.editorTooLarge', { size: Math.round(entry.size / 1024 / 1024) }),
         danger: true,
       })
-      if (ok) handleDownload(entry)
+      if (ok) void handleDownload(entry)
       return
     }
-    editAbortRef.current?.abort()
-    const controller = new AbortController()
-    editAbortRef.current = controller
-    const filePath = joinPath(currentPath, entry.name)
-    setEditFilePath(filePath)
-    setEditFileName(entry.name)
-    setEditContent('')
-    setEditOpen(true)
-    setEditLoading(true)
-    try {
-      const data = await api.readFile(filePath)
-      if (controller.signal.aborted) return
-      setEditContent(data.content || '')
-    } catch (err: unknown) {
-      if (controller.signal.aborted) return
-      const message = err instanceof Error ? err.message : t('files.readFailed')
-      toast.error(message)
-      setEditOpen(false)
-    } finally {
-      if (!controller.signal.aborted) setEditLoading(false)
-    }
-  }
-
-  const handleSaveFile = async () => {
-    setEditSaving(true)
-    try {
-      await api.writeFile(editFilePath, editContent)
-      toast.success(t('files.saveSuccess'))
-      setEditOpen(false)
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('files.saveFailed')
-      toast.error(message)
-    } finally {
-      setEditSaving(false)
-    }
+    setEditorTarget({ path: pathJoin(currentPath, entry.name), name: entry.name })
   }
 
   // Download file
   const handleDownload = async (entry: FileEntry) => {
-    const filePath = joinPath(currentPath, entry.name)
+    const filePath = pathJoin(currentPath, entry.name)
     try {
       const blob = await api.downloadFile(filePath)
       const url = URL.createObjectURL(blob)
@@ -414,41 +298,41 @@ export default function Files() {
 
   // New file
   const handleCreateFile = async () => {
-    if (!newFileName.trim()) return
-    setNewFileCreating(true)
+    const name = await prompt({
+      title: t('files.newFileTitle'),
+      description: t('files.newFileDescription', { path: currentPath }),
+      placeholder: t('files.fileNamePlaceholder'),
+      confirmLabel: t('files.createFile'),
+    })
+    if (!name?.trim()) return
     const pathAtStart = currentPathRef.current
     try {
-      const filePath = joinPath(pathAtStart, newFileName.trim())
-      await api.writeFile(filePath, '')
+      await api.writeFile(pathJoin(pathAtStart, name.trim()), '')
       toast.success(t('files.fileCreated'))
-      setNewFileOpen(false)
-      setNewFileName('')
       if (currentPathRef.current === pathAtStart) await fetchFiles()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('files.fileCreateFailed')
       toast.error(message)
-    } finally {
-      setNewFileCreating(false)
     }
   }
 
   // New folder
   const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) return
-    setNewFolderCreating(true)
+    const name = await prompt({
+      title: t('files.newFolderTitle'),
+      description: t('files.newFolderDescription', { path: currentPath }),
+      placeholder: t('files.folderNamePlaceholder'),
+      confirmLabel: t('files.createFolder'),
+    })
+    if (!name?.trim()) return
     const pathAtStart = currentPathRef.current
     try {
-      const dirPath = joinPath(pathAtStart, newFolderName.trim())
-      await api.createDir(dirPath)
+      await api.createDir(pathJoin(pathAtStart, name.trim()))
       toast.success(t('files.folderCreated'))
-      setNewFolderOpen(false)
-      setNewFolderName('')
       if (currentPathRef.current === pathAtStart) await fetchFiles()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('files.folderCreateFailed')
       toast.error(message)
-    } finally {
-      setNewFolderCreating(false)
     }
   }
 
@@ -485,42 +369,42 @@ export default function Files() {
   }
 
   // Delete
-  const handleDelete = async () => {
-    if (!deleteTarget) return
-    setDeleteLoading(true)
+  const handleDelete = async (entry: FileEntry) => {
+    const ok = await confirm({
+      title: t('files.deleteTitle'),
+      description: t('files.deleteConfirm', { name: entry.name }),
+      danger: true,
+    })
+    if (!ok) return
     const pathAtStart = currentPathRef.current
     try {
-      const targetPath = joinPath(pathAtStart, deleteTarget.name)
-      await api.deletePath(targetPath)
-      toast.success(t('files.deleteSuccess', { name: deleteTarget.name }))
-      setDeleteTarget(null)
+      await api.deletePath(pathJoin(pathAtStart, entry.name))
+      toast.success(t('files.deleteSuccess', { name: entry.name }))
       if (currentPathRef.current === pathAtStart) await fetchFiles()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('files.deleteFailed')
       toast.error(message)
-    } finally {
-      setDeleteLoading(false)
     }
   }
 
   // Rename
-  const handleRename = async () => {
-    if (!renameTarget || !renameNewName.trim()) return
-    setRenameLoading(true)
+  const handleRename = async (entry: FileEntry) => {
+    const newName = await prompt({
+      title: t('files.renameTitle'),
+      description: t('files.renameDescription', { name: entry.name }),
+      defaultValue: entry.name,
+      confirmLabel: t('files.renameAction'),
+    })
+    const trimmed = newName?.trim()
+    if (!trimmed || trimmed === entry.name) return
     const pathAtStart = currentPathRef.current
     try {
-      const oldPath = joinPath(pathAtStart, renameTarget.name)
-      const newPath = joinPath(pathAtStart, renameNewName.trim())
-      await api.renamePath(oldPath, newPath)
+      await api.renamePath(pathJoin(pathAtStart, entry.name), pathJoin(pathAtStart, trimmed))
       toast.success(t('files.renameSuccess'))
-      setRenameTarget(null)
-      setRenameNewName('')
       if (currentPathRef.current === pathAtStart) await fetchFiles()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('files.renameFailed')
       toast.error(message)
-    } finally {
-      setRenameLoading(false)
     }
   }
 
@@ -564,11 +448,11 @@ export default function Files() {
   // Resolve the absolute path of a displayed entry. Search results carry a full
   // `path`; normal listing entries are relative to currentPath.
   const entryPath = useCallback(
-    (entry: FileEntry) => (searchActive ? entry.path : joinPath(currentPath, entry.name)),
+    (entry: FileEntry) => (searchActive ? entry.path : pathJoin(currentPath, entry.name)),
     [searchActive, currentPath],
   )
 
-  // Open a search-result row: navigate into dirs, edit files (parent dir + editor).
+  // Open a search-result row: navigate into dirs, files jump to the parent dir.
   const handleSearchResultClick = (entry: FileEntry) => {
     if (entry.isDir) {
       const path = entry.path
@@ -580,6 +464,63 @@ export default function Files() {
     exitSearch()
     navigateTo(dir)
   }
+
+  // Open a row: navigate into dirs, open files in the editor.
+  const openEntry = (entry: FileEntry) => {
+    if (searchActive) {
+      handleSearchResultClick(entry)
+    } else if (entry.isDir) {
+      handleDirectoryClick(entry)
+    } else {
+      void handleEditFile(entry)
+    }
+  }
+
+  const entryActions = (entry: FileEntry): EntryAction[] => [
+    {
+      key: 'edit',
+      Icon: Pencil,
+      show: !searchActive && !entry.isDir,
+      rowOnly: true,
+      label: t('files.edit'),
+      menuLabel: t('files.contextMenu.edit'),
+      onClick: () => void handleEditFile(entry),
+    },
+    {
+      key: 'download',
+      Icon: Download,
+      show: !searchActive && !entry.isDir,
+      label: t('files.download'),
+      menuLabel: t('files.contextMenu.download'),
+      onClick: () => void handleDownload(entry),
+    },
+    {
+      key: 'copy',
+      Icon: Copy,
+      show: true,
+      label: t('files.copy'),
+      menuLabel: t('files.copy'),
+      onClick: () => void handleCopy(entry),
+    },
+    {
+      key: 'rename',
+      Icon: Pencil,
+      iconClassName: 'h-3 w-3',
+      show: !searchActive,
+      label: t('files.rename'),
+      menuLabel: t('files.contextMenu.rename'),
+      onClick: () => void handleRename(entry),
+    },
+    {
+      key: 'delete',
+      Icon: Trash2,
+      show: !searchActive,
+      destructive: true,
+      label: t('common.delete'),
+      menuLabel: t('files.contextMenu.delete'),
+      onClick: () => void handleDelete(entry),
+    },
+  ]
 
   return (
     <div className="space-y-4">
@@ -628,6 +569,15 @@ export default function Files() {
               </button>
             </span>
           ))}
+          {/* Keyboard-accessible entry into path editing (the nav itself is click-only) */}
+          <button
+            onClick={(e) => { e.stopPropagation(); handlePathEditStart() }}
+            title={t('files.editPath')}
+            aria-label={t('files.editPath')}
+            className="ml-1 shrink-0 p-0.5 hover:text-foreground transition-colors rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
         </nav>
       )}
 
@@ -677,10 +627,7 @@ export default function Files() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              setNewFileName('')
-              setNewFileOpen(true)
-            }}
+            onClick={handleCreateFile}
           >
             <FilePlus2 />
             {t('files.newFile')}
@@ -688,10 +635,7 @@ export default function Files() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              setNewFolderName('')
-              setNewFolderOpen(true)
-            }}
+            onClick={handleCreateFolder}
           >
             <FolderPlus />
             {t('files.newFolder')}
@@ -734,8 +678,8 @@ export default function Files() {
             <Button variant="ghost" size="sm" onClick={() => setSelectedPaths(new Set())}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
-              <Trash2 />
+            <Button variant="destructive" size="sm" onClick={handleBulkDelete} disabled={bulkDeleting}>
+              {bulkDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
               {t('files.deleteSelected')}
             </Button>
           </div>
@@ -790,18 +734,13 @@ export default function Files() {
           )}
           {displayedFiles.map((entry) => {
             const rowPath = entryPath(entry)
+            const actions = entryActions(entry)
             return (
             <ContextMenu key={rowPath}>
               <ContextMenuTrigger asChild>
                 <TableRow
                   className="cursor-pointer hover:bg-secondary/50"
-                  onClick={() =>
-                    searchActive
-                      ? handleSearchResultClick(entry)
-                      : entry.isDir
-                        ? handleDirectoryClick(entry)
-                        : handleFileClick(entry)
-                  }
+                  onClick={() => openEntry(entry)}
                 >
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Checkbox
@@ -811,10 +750,17 @@ export default function Files() {
                     />
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2">
+                    {/* Real <button> so directories are keyboard-reachable (same
+                        pattern as the DiskUsage rows); mouse users can still
+                        click anywhere on the row. */}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); openEntry(entry) }}
+                      className="flex items-center gap-2 w-full text-left rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+                    >
                       {entry.isDir ? (
                         <Folder className="h-4 w-4 text-blue-500 shrink-0" />
-                      ) : entry.name.match(/\.(txt|md|log|conf|cfg|ini|json|xml|yaml|yml|toml|sh|bash|py|js|ts|jsx|tsx|html|css|scss|less|go|rs|rb|php|java|c|cpp|h|hpp|sql|lua|r|swift|kt|vue|svelte)$/i) ? (
+                      ) : isTextFile(entry.name) ? (
                         <FileText className="h-4 w-4 text-amber-500 shrink-0" />
                       ) : (
                         <File className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -825,7 +771,7 @@ export default function Files() {
                           <span className="truncate block text-xs text-muted-foreground font-mono">{entry.path}</span>
                         )}
                       </div>
-                    </div>
+                    </button>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
                     {entry.isDir ? '-' : formatBytes(entry.size)}
@@ -838,76 +784,24 @@ export default function Files() {
                   </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-1">
-                      {!searchActive && !entry.isDir && (
+                      {actions.filter((a) => a.show).map((a) => (
                         <Button
+                          key={a.key}
                           variant="ghost"
                           size="icon-xs"
-                          title={t('files.edit')}
-                          aria-label={t('files.edit')}
-                          onClick={() => handleEditFile(entry)}
+                          title={a.label}
+                          aria-label={a.label}
+                          onClick={a.onClick}
                         >
-                          <Pencil />
+                          <a.Icon className={a.iconClassName} />
                         </Button>
-                      )}
-                      {!searchActive && !entry.isDir && (
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          title={t('files.download')}
-                          aria-label={t('files.download')}
-                          onClick={() => handleDownload(entry)}
-                        >
-                          <Download />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        title={t('files.copy')}
-                        aria-label={t('files.copy')}
-                        onClick={() => openCopyDialog(entry)}
-                      >
-                        <Copy />
-                      </Button>
-                      {!searchActive && (
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          title={t('files.rename')}
-                          aria-label={t('files.rename')}
-                          onClick={() => {
-                            setRenameTarget(entry)
-                            setRenameNewName(entry.name)
-                          }}
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                      )}
-                      {!searchActive && (
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          title={t('common.delete')}
-                          aria-label={t('common.delete')}
-                          onClick={() => setDeleteTarget(entry)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      )}
+                      ))}
                     </div>
                   </TableCell>
                 </TableRow>
               </ContextMenuTrigger>
               <ContextMenuContent>
-                <ContextMenuItem
-                  onClick={() =>
-                    searchActive
-                      ? handleSearchResultClick(entry)
-                      : entry.isDir
-                        ? handleDirectoryClick(entry)
-                        : handleFileClick(entry)
-                  }
-                >
+                <ContextMenuItem onClick={() => openEntry(entry)}>
                   {entry.isDir ? (
                     <Folder className="h-4 w-4" />
                   ) : (
@@ -917,37 +811,18 @@ export default function Files() {
                     ? t('files.contextMenu.open')
                     : t('files.contextMenu.edit')}
                 </ContextMenuItem>
-                {!searchActive && !entry.isDir && (
-                  <ContextMenuItem onClick={() => handleDownload(entry)}>
-                    <Download className="h-4 w-4" />
-                    {t('files.contextMenu.download')}
-                  </ContextMenuItem>
-                )}
-                <ContextMenuSeparator />
-                <ContextMenuItem onClick={() => openCopyDialog(entry)}>
-                  <Copy className="h-4 w-4" />
-                  {t('files.copy')}
-                </ContextMenuItem>
-                {!searchActive && (
-                  <ContextMenuItem
-                    onClick={() => {
-                      setRenameTarget(entry)
-                      setRenameNewName(entry.name)
-                    }}
-                  >
-                    <Pencil className="h-4 w-4" />
-                    {t('files.contextMenu.rename')}
-                  </ContextMenuItem>
-                )}
-                {!searchActive && (
-                  <ContextMenuItem
-                    variant="destructive"
-                    onClick={() => setDeleteTarget(entry)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {t('files.contextMenu.delete')}
-                  </ContextMenuItem>
-                )}
+                {actions.filter((a) => !a.rowOnly && a.show).map((a) => (
+                  <Fragment key={a.key}>
+                    {a.key === 'copy' && <ContextMenuSeparator />}
+                    <ContextMenuItem
+                      variant={a.destructive ? 'destructive' : undefined}
+                      onClick={a.onClick}
+                    >
+                      <a.Icon className="h-4 w-4" />
+                      {a.menuLabel}
+                    </ContextMenuItem>
+                  </Fragment>
+                ))}
               </ContextMenuContent>
             </ContextMenu>
             )
@@ -967,17 +842,11 @@ export default function Files() {
             {t('files.upload')}
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem onClick={() => {
-            setNewFileName('')
-            setNewFileOpen(true)
-          }}>
+          <ContextMenuItem onClick={handleCreateFile}>
             <FilePlus2 className="h-4 w-4" />
             {t('files.newFile')}
           </ContextMenuItem>
-          <ContextMenuItem onClick={() => {
-            setNewFolderName('')
-            setNewFolderOpen(true)
-          }}>
+          <ContextMenuItem onClick={handleCreateFolder}>
             <FolderPlus className="h-4 w-4" />
             {t('files.newFolder')}
           </ContextMenuItem>
@@ -990,296 +859,7 @@ export default function Files() {
       </ContextMenu>
 
       {/* Edit file dialog */}
-      <Dialog open={editOpen} onOpenChange={(open) => !open && setEditOpen(false)}>
-        <DialogContent className="sm:max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>{t('files.editFile')}</DialogTitle>
-            <DialogDescription>
-              {editFilePath}
-            </DialogDescription>
-          </DialogHeader>
-          {editLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-muted-foreground">{t('files.loadingFile')}</span>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="rounded-md overflow-hidden border">
-                <Editor
-                  height="500px"
-                  language={getLanguageFromFilename(editFileName)}
-                  theme="vs-dark"
-                  value={editContent}
-                  onChange={(val) => setEditContent(val || '')}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 14,
-                    lineNumbers: 'on',
-                    scrollBeyondLastLine: false,
-                    wordWrap: 'on',
-                    tabSize: 2,
-                    insertSpaces: true,
-                    automaticLayout: true,
-                  }}
-                />
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setEditOpen(false)}>
-                  {t('common.cancel')}
-                </Button>
-                <Button onClick={handleSaveFile} disabled={editSaving}>
-                  {editSaving ? (
-                    <>
-                      <Loader2 className="animate-spin" />
-                      {t('common.saving')}
-                    </>
-                  ) : (
-                    <>
-                      <Save />
-                      {t('common.save')}
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* New folder dialog */}
-      <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('files.newFolderTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('files.newFolderDescription', { path: currentPath })}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="folder-name">{t('files.folderName')}</Label>
-            <Input
-              id="folder-name"
-              placeholder={t('files.folderNamePlaceholder')}
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateFolder()
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNewFolderOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={handleCreateFolder}
-              disabled={newFolderCreating || !newFolderName.trim()}
-            >
-              {newFolderCreating ? (
-                <>
-                  <Loader2 className="animate-spin" />
-                  {t('common.creating')}
-                </>
-              ) : (
-                <>
-                  <FolderPlus />
-                  {t('files.createFolder')}
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* New file dialog */}
-      <Dialog open={newFileOpen} onOpenChange={setNewFileOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('files.newFileTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('files.newFileDescription', { path: currentPath })}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="file-name">{t('files.fileName')}</Label>
-            <Input
-              id="file-name"
-              placeholder={t('files.fileNamePlaceholder')}
-              value={newFileName}
-              onChange={(e) => setNewFileName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateFile()
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNewFileOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={handleCreateFile}
-              disabled={newFileCreating || !newFileName.trim()}
-            >
-              {newFileCreating ? (
-                <>
-                  <Loader2 className="animate-spin" />
-                  {t('common.creating')}
-                </>
-              ) : (
-                <>
-                  <FilePlus2 />
-                  {t('files.createFile')}
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete confirmation dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('files.deleteTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('files.deleteConfirm', { name: deleteTarget?.name })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleteLoading}
-            >
-              {deleteLoading ? (
-                <>
-                  <Loader2 className="animate-spin" />
-                  {t('files.deleting')}
-                </>
-              ) : (
-                t('common.delete')
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Rename dialog */}
-      <Dialog open={!!renameTarget} onOpenChange={(open) => !open && setRenameTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('files.renameTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('files.renameDescription', { name: renameTarget?.name })}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="rename-input">{t('files.newName')}</Label>
-            <Input
-              id="rename-input"
-              value={renameNewName}
-              onChange={(e) => setRenameNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleRename()
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameTarget(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={handleRename}
-              disabled={renameLoading || !renameNewName.trim() || renameNewName === renameTarget?.name}
-            >
-              {renameLoading ? (
-                <>
-                  <Loader2 className="animate-spin" />
-                  {t('files.renaming')}
-                </>
-              ) : (
-                t('files.renameAction')
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Copy dialog */}
-      <Dialog open={!!copyTarget} onOpenChange={(open) => !open && setCopyTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('files.copyTitle')}</DialogTitle>
-            <DialogDescription>
-              {copyTarget?.path}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="copy-dest">{t('files.copyDestination')}</Label>
-            <Input
-              id="copy-dest"
-              className="font-mono text-sm"
-              value={copyDest}
-              onChange={(e) => setCopyDest(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCopy()
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCopyTarget(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={handleCopy}
-              disabled={copyLoading || !copyDest.trim() || copyDest.trim() === copyTarget?.path}
-            >
-              {copyLoading ? (
-                <>
-                  <Loader2 className="animate-spin" />
-                  {t('common.loading')}
-                </>
-              ) : (
-                <>
-                  <Copy />
-                  {t('files.copy')}
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Bulk delete confirmation dialog */}
-      <Dialog open={bulkDeleteOpen} onOpenChange={(open) => !open && setBulkDeleteOpen(false)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('files.deleteSelected')}</DialogTitle>
-            <DialogDescription>
-              {t('files.deleteSelectedConfirm', { count: selectedPaths.size })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBulkDeleteOpen(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button variant="destructive" onClick={handleBulkDelete} disabled={bulkDeleting}>
-              {bulkDeleting ? (
-                <>
-                  <Loader2 className="animate-spin" />
-                  {t('files.deleting')}
-                </>
-              ) : (
-                t('common.delete')
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <FileEditorDialog target={editorTarget} onOpenChange={(open) => { if (!open) setEditorTarget(null) }} />
 
       {/* Upload progress dialog */}
       <Dialog open={!!uploadProgress} onOpenChange={() => {}}>

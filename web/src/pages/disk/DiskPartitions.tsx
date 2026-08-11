@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, RefreshCw, HardDrive } from 'lucide-react'
+import { Plus, Trash2, HardDrive } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
+import { useApiAction } from '@/hooks/useApiAction'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,6 +25,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
+import { NativeSelect } from './components/NativeSelect'
+import { TabLoading, RefreshButton } from './components/TabToolbar'
 
 import type { BlockDevice } from '@/types/api'
 
@@ -38,9 +41,7 @@ export default function DiskPartitions() {
   const [loading, setLoading] = useState(true)
   const [selectedDisk, setSelectedDisk] = useState<string>('')
   const [createOpen, setCreateOpen] = useState(false)
-  const [creating, setCreating] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DiskPartitionChild | null>(null)
-  const [actionLoading, setActionLoading] = useState(false)
 
   // Create form state
   const [newStart, setNewStart] = useState('')
@@ -53,8 +54,10 @@ export default function DiskPartitions() {
       const data = await api.getDiskOverview()
       const diskDevices = (data || []).filter((d: PhysicalDisk) => d.type === 'disk' || !d.type)
       setDisks(diskDevices)
-      if (diskDevices.length > 0 && !selectedDisk) {
-        setSelectedDisk(diskDevices[0].name)
+      if (diskDevices.length > 0) {
+        // Functional update keeps selectedDisk out of the deps, so changing the
+        // dropdown selection stays a pure local operation (no lsblk refetch).
+        setSelectedDisk((cur) => cur || diskDevices[0].name)
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('disk.partitions.fetchFailed')
@@ -62,7 +65,7 @@ export default function DiskPartitions() {
     } finally {
       setLoading(false)
     }
-  }, [t, selectedDisk])
+  }, [t])
 
   useEffect(() => {
     fetchDisks()
@@ -71,55 +74,52 @@ export default function DiskPartitions() {
   const currentDisk = disks.find((d) => d.name === selectedDisk)
   const partitions = currentDisk?.children || []
 
-  const handleCreate = async () => {
-    if (!selectedDisk || !newStart.trim() || !newEnd.trim()) return
-    setCreating(true)
-    try {
-      await api.createPartition(selectedDisk, {
-        start: newStart.trim(),
-        end: newEnd.trim(),
-        fs_type: newFsType,
-      })
-      toast.success(t('disk.partitions.createSuccess'))
-      setCreateOpen(false)
-      resetCreateForm()
-      await fetchDisks()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('disk.partitions.createFailed')
-      toast.error(message)
-    } finally {
-      setCreating(false)
-    }
-  }
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return
-    setActionLoading(true)
-    try {
-      await api.deletePartition(selectedDisk, deleteTarget.name)
-      toast.success(t('disk.partitions.deleted'))
-      setDeleteTarget(null)
-      await fetchDisks()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('disk.partitions.deleteFailed')
-      toast.error(message)
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
   const resetCreateForm = () => {
     setNewStart('')
     setNewEnd('')
     setNewFsType('ext4')
   }
 
+  const { run: runCreate, loading: creating } = useApiAction(
+    api.createPartition.bind(api),
+    {
+      successMsg: t('disk.partitions.createSuccess'),
+      errorMsg: t('disk.partitions.createFailed'),
+      onSuccess: () => {
+        setCreateOpen(false)
+        resetCreateForm()
+        void fetchDisks()
+      },
+    },
+  )
+
+  const handleCreate = () => {
+    if (!selectedDisk || !newStart.trim() || !newEnd.trim()) return
+    void runCreate(selectedDisk, {
+      start: newStart.trim(),
+      end: newEnd.trim(),
+      fs_type: newFsType,
+    })
+  }
+
+  const { run: runDelete, loading: deleting } = useApiAction(
+    api.deletePartition.bind(api),
+    {
+      successMsg: t('disk.partitions.deleted'),
+      errorMsg: t('disk.partitions.deleteFailed'),
+      onSuccess: () => {
+        setDeleteTarget(null)
+        void fetchDisks()
+      },
+    },
+  )
+
+  const handleDelete = () => {
+    if (deleteTarget) void runDelete(selectedDisk, deleteTarget.name)
+  }
+
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12 text-muted-foreground">
-        {t('common.loading')}
-      </div>
-    )
+    return <TabLoading />
   }
 
   return (
@@ -131,23 +131,19 @@ export default function DiskPartitions() {
             <HardDrive className="h-4 w-4 text-muted-foreground" />
             <Label className="text-[13px]">{t('disk.partitions.selectDisk')}</Label>
           </div>
-          <select
+          <NativeSelect
             value={selectedDisk}
             onChange={(e) => setSelectedDisk(e.target.value)}
-            className="flex h-9 rounded-xl border-0 bg-secondary/50 px-3 py-1 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
           >
             {disks.map((d) => (
               <option key={d.name} value={d.name}>
                 {d.name} — {d.model || t('disk.overview.unknownModel')} ({formatBytes(d.size)})
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={fetchDisks} disabled={loading} className="rounded-xl">
-            <RefreshCw className={loading ? 'animate-spin' : ''} />
-            {t('common.refresh')}
-          </Button>
+          <RefreshButton onClick={fetchDisks} loading={loading} />
           <Button size="sm" onClick={() => setCreateOpen(true)} disabled={!selectedDisk} className="rounded-xl">
             <Plus />
             {t('disk.partitions.createPartition')}
@@ -243,16 +239,16 @@ export default function DiskPartitions() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="part-fs">{t('disk.partitions.fsType')}</Label>
-              <select
+              <NativeSelect
                 id="part-fs"
                 value={newFsType}
                 onChange={(e) => setNewFsType(e.target.value)}
-                className="flex h-9 w-full rounded-xl border-0 bg-secondary/50 px-3 py-1 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                className="w-full"
               >
                 {FS_TYPES.map((fs) => (
                   <option key={fs} value={fs}>{fs}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
           </div>
           <DialogFooter>
@@ -274,7 +270,7 @@ export default function DiskPartitions() {
         description={t('disk.partitions.deleteConfirmDesc', { name: deleteTarget?.name ?? '' })}
         confirmPhrase={deleteTarget?.name ?? ''}
         confirmLabel={t('common.delete')}
-        loading={actionLoading}
+        loading={deleting}
         onConfirm={handleDelete}
       />
     </div>

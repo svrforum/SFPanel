@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { Plus, Trash2, RefreshCw, Shield, HardDrive, PlusCircle, MinusCircle } from 'lucide-react'
+import { Plus, Trash2, Shield, HardDrive, PlusCircle, MinusCircle, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
+import { useApiAction } from '@/hooks/useApiAction'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,8 +17,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
+import { NativeSelect } from './components/NativeSelect'
+import { TabLoading, CountPill, RefreshButton } from './components/TabToolbar'
 
-import type { RAIDArray } from '@/types/api'
+import type { BlockDevice, RAIDArray } from '@/types/api'
 
 const RAID_LEVELS = ['raid0', 'raid1', 'raid5', 'raid6', 'raid10']
 
@@ -63,24 +66,22 @@ export default function DiskRAID() {
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newLevel, setNewLevel] = useState('raid1')
-  const [newDevices, setNewDevices] = useState('')
-  const [creating, setCreating] = useState(false)
+  const [selectedDevices, setSelectedDevices] = useState<string[]>([])
+  const [candidates, setCandidates] = useState<BlockDevice[]>([])
+  const [candidatesLoading, setCandidatesLoading] = useState(false)
 
   // Delete dialog
   const [deleteTarget, setDeleteTarget] = useState<RAIDArray | null>(null)
-  const [deleting, setDeleting] = useState(false)
 
   // Add disk dialog
   const [addDiskOpen, setAddDiskOpen] = useState(false)
   const [addDiskArray, setAddDiskArray] = useState<RAIDArray | null>(null)
   const [addDiskDevice, setAddDiskDevice] = useState('')
-  const [addingDisk, setAddingDisk] = useState(false)
 
   // Remove disk dialog
   const [removeDiskOpen, setRemoveDiskOpen] = useState(false)
   const [removeDiskArray, setRemoveDiskArray] = useState<RAIDArray | null>(null)
   const [removeDiskDevice, setRemoveDiskDevice] = useState('')
-  const [removingDisk, setRemovingDisk] = useState(false)
 
   const fetchArrays = useCallback(async () => {
     try {
@@ -99,78 +100,127 @@ export default function DiskRAID() {
     fetchArrays()
   }, [fetchArrays])
 
-  const handleCreate = async () => {
-    if (!newName.trim() || !newDevices.trim()) return
-    setCreating(true)
-    try {
-      const devices = newDevices.split(',').map((d) => d.trim()).filter(Boolean)
-      await api.createRAID({
-        name: newName.trim(),
-        level: newLevel,
-        devices,
+  // Load member candidates when the create dialog opens. Unused = a whole disk
+  // with no partitions and no mount point — picking from this list (VG-create
+  // pattern) replaces the old free-text device input so a typo can't pull an
+  // in-use disk into the array.
+  useEffect(() => {
+    if (!createOpen) return
+    let cancelled = false
+    setCandidatesLoading(true)
+    api.getDiskOverview()
+      .then((data) => {
+        if (cancelled) return
+        const unused: typeof data = []
+        for (const d of data || []) {
+          if ((d.type === 'disk' || !d.type) && !(d.children && d.children.length > 0) && !d.mountpoint) {
+            unused.push(d)
+          }
+          // Unmounted partitions stay selectable too — partition RAID members
+          // (e.g. sdb1) are a legitimate layout the old free-text input allowed.
+          for (const c of d.children ?? []) {
+            if (c.type === 'part' && !c.mountpoint && !(c.children && c.children.length > 0)) {
+              unused.push(c)
+            }
+          }
+        }
+        setCandidates(unused)
       })
-      toast.success(t('disk.raid.createSuccess'))
-      setCreateOpen(false)
-      resetCreateForm()
-      await fetchArrays()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('disk.raid.createFailed')
-      toast.error(message)
-    } finally {
-      setCreating(false)
-    }
+      .catch(() => {
+        if (!cancelled) setCandidates([])
+      })
+      .finally(() => {
+        if (!cancelled) setCandidatesLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [createOpen])
+
+  const toggleDeviceSelection = (name: string) => {
+    setSelectedDevices((prev) =>
+      prev.includes(name) ? prev.filter((d) => d !== name) : [...prev, name]
+    )
   }
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try {
-      await api.deleteRAID(deleteTarget.name)
-      toast.success(t('disk.raid.deleted'))
-      setDeleteTarget(null)
-      await fetchArrays()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('disk.raid.deleteFailed')
-      toast.error(message)
-    } finally {
-      setDeleting(false)
-    }
+  const resetCreateForm = () => {
+    setNewName('')
+    setNewLevel('raid1')
+    setSelectedDevices([])
   }
 
-  const handleAddDisk = async () => {
+  const { run: runCreate, loading: creating } = useApiAction(
+    api.createRAID.bind(api),
+    {
+      successMsg: t('disk.raid.createSuccess'),
+      errorMsg: t('disk.raid.createFailed'),
+      onSuccess: () => {
+        setCreateOpen(false)
+        resetCreateForm()
+        void fetchArrays()
+      },
+    },
+  )
+
+  const handleCreate = () => {
+    if (!newName.trim() || selectedDevices.length === 0) return
+    void runCreate({
+      name: newName.trim(),
+      level: newLevel,
+      devices: selectedDevices,
+    })
+  }
+
+  const { run: runDelete, loading: deleting } = useApiAction(
+    api.deleteRAID.bind(api),
+    {
+      successMsg: t('disk.raid.deleted'),
+      errorMsg: t('disk.raid.deleteFailed'),
+      onSuccess: () => {
+        setDeleteTarget(null)
+        void fetchArrays()
+      },
+    },
+  )
+
+  const handleDelete = () => {
+    if (deleteTarget) void runDelete(deleteTarget.name)
+  }
+
+  const { run: runAddDisk, loading: addingDisk } = useApiAction(
+    api.addRAIDDisk.bind(api),
+    {
+      successMsg: t('disk.raid.addDiskSuccess'),
+      errorMsg: t('disk.raid.addDiskFailed'),
+      onSuccess: () => {
+        setAddDiskOpen(false)
+        setAddDiskArray(null)
+        setAddDiskDevice('')
+        void fetchArrays()
+      },
+    },
+  )
+
+  const handleAddDisk = () => {
     if (!addDiskArray || !addDiskDevice.trim()) return
-    setAddingDisk(true)
-    try {
-      await api.addRAIDDisk(addDiskArray.name, addDiskDevice.trim())
-      toast.success(t('disk.raid.addDiskSuccess'))
-      setAddDiskOpen(false)
-      setAddDiskArray(null)
-      setAddDiskDevice('')
-      await fetchArrays()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('disk.raid.addDiskFailed')
-      toast.error(message)
-    } finally {
-      setAddingDisk(false)
-    }
+    void runAddDisk(addDiskArray.name, addDiskDevice.trim())
   }
 
-  const handleRemoveDisk = async () => {
+  const { run: runRemoveDisk, loading: removingDisk } = useApiAction(
+    api.removeRAIDDisk.bind(api),
+    {
+      successMsg: t('disk.raid.removeDiskSuccess'),
+      errorMsg: t('disk.raid.removeDiskFailed'),
+      onSuccess: () => {
+        setRemoveDiskOpen(false)
+        setRemoveDiskArray(null)
+        setRemoveDiskDevice('')
+        void fetchArrays()
+      },
+    },
+  )
+
+  const handleRemoveDisk = () => {
     if (!removeDiskArray || !removeDiskDevice.trim()) return
-    setRemovingDisk(true)
-    try {
-      await api.removeRAIDDisk(removeDiskArray.name, removeDiskDevice.trim())
-      toast.success(t('disk.raid.removeDiskSuccess'))
-      setRemoveDiskOpen(false)
-      setRemoveDiskArray(null)
-      setRemoveDiskDevice('')
-      await fetchArrays()
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('disk.raid.removeDiskFailed')
-      toast.error(message)
-    } finally {
-      setRemovingDisk(false)
-    }
+    void runRemoveDisk(removeDiskArray.name, removeDiskDevice.trim())
   }
 
   const openAddDisk = (arr: RAIDArray) => {
@@ -185,32 +235,17 @@ export default function DiskRAID() {
     setRemoveDiskOpen(true)
   }
 
-  const resetCreateForm = () => {
-    setNewName('')
-    setNewLevel('raid1')
-    setNewDevices('')
-  }
-
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12 text-muted-foreground">
-        {t('common.loading')}
-      </div>
-    )
+    return <TabLoading />
   }
 
   return (
     <div className="space-y-4 mt-4">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
-          {t('disk.raid.arrayCount', { count: arrays.length })}
-        </span>
+        <CountPill>{t('disk.raid.arrayCount', { count: arrays.length })}</CountPill>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={fetchArrays} disabled={loading} className="rounded-xl">
-            <RefreshCw className={loading ? 'animate-spin' : ''} />
-            {t('common.refresh')}
-          </Button>
+          <RefreshButton onClick={fetchArrays} loading={loading} />
           <Button size="sm" onClick={() => setCreateOpen(true)} className="rounded-xl">
             <Plus />
             {t('disk.raid.createArray')}
@@ -348,33 +383,58 @@ export default function DiskRAID() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="raid-level">{t('disk.raid.level')}</Label>
-              <select
+              <NativeSelect
                 id="raid-level"
                 value={newLevel}
                 onChange={(e) => setNewLevel(e.target.value)}
-                className="flex h-9 w-full rounded-xl border-0 bg-secondary/50 px-3 py-1 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                className="w-full"
               >
                 {RAID_LEVELS.map((level) => (
                   <option key={level} value={level}>{level.toUpperCase()}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="raid-devices">{t('disk.raid.devices')}</Label>
-              <Input
-                id="raid-devices"
-                placeholder="e.g., sdb,sdc,sdd"
-                value={newDevices}
-                onChange={(e) => setNewDevices(e.target.value)}
-              />
-              <p className="text-[11px] text-muted-foreground">{t('disk.raid.devicesHint')}</p>
+              <Label>{t('disk.raid.devices')}</Label>
+              {candidatesLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {t('common.loading')}
+                </div>
+              ) : candidates.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t('disk.raid.noUnusedDisks')}</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {candidates.map((d) => (
+                    <label
+                      key={d.name}
+                      className={`flex items-center gap-3 rounded-lg px-3 py-2 cursor-pointer transition-colors ${
+                        selectedDevices.includes(d.name)
+                          ? 'bg-primary/10 ring-1 ring-primary/30'
+                          : 'bg-muted/30 hover:bg-muted/50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedDevices.includes(d.name)}
+                        onChange={() => toggleDeviceSelection(d.name)}
+                        className="rounded"
+                      />
+                      <span className="font-mono text-sm">{d.name}</span>
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {d.model ? `${d.model} · ` : ''}{formatBytes(d.size)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setCreateOpen(false); resetCreateForm() }}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreate} disabled={creating || !newName.trim() || !newDevices.trim()}>
+            <Button onClick={handleCreate} disabled={creating || !newName.trim() || selectedDevices.length === 0}>
               {creating ? t('common.creating') : t('common.create')}
             </Button>
           </DialogFooter>

@@ -1,14 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { Container } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import type { DockerVolume } from '@/types/api'
 
 export function DockerVolumeUsageCard() {
+  const { t } = useTranslation()
   const [vols, setVols] = useState<DockerVolume[]>([])
   const [loading, setLoading] = useState(true)
-  const [now] = useState(() => Date.now())
+  // Reference time for the "measured N min ago" label. Ticks every minute
+  // (while the tab is visible) so a long-open tab doesn't show a stale figure
+  // frozen at mount time.
+  const [now, setNow] = useState(() => Date.now())
+  useVisibleInterval(() => setNow(Date.now()), 60_000)
 
   useEffect(() => {
     let cancelled = false
@@ -39,18 +47,21 @@ export function DockerVolumeUsageCard() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-[14px]">🐳 Docker 볼륨 사용량</CardTitle>
+        <CardTitle className="text-[14px] flex items-center gap-1.5">
+          <Container className="h-4 w-4 text-primary" aria-hidden="true" />
+          {t('disk.volumeCard.title')}
+        </CardTitle>
         <Link
           to="/docker/volumes"
           className="text-[12px] text-primary hover:underline outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
         >
-          전체 보기 →
+          {t('disk.volumeCard.viewAll')}
         </Link>
       </CardHeader>
       <CardContent>
         {sized.length === 0 ? (
           <div className="text-[12px] text-muted-foreground text-center py-4">
-            측정된 볼륨 없음 (수집 중일 수 있음)
+            {t('disk.volumeCard.empty')}
           </div>
         ) : (
           <>
@@ -64,9 +75,9 @@ export function DockerVolumeUsageCard() {
             </div>
             <div className="mt-2 pt-2 border-t text-[11px] text-muted-foreground flex justify-between">
               <span>
-                합계: {formatBytes(total)} · {sized.length}개 볼륨
+                {t('disk.volumeCard.total', { size: formatBytes(total), count: sized.length })}
               </span>
-              {newest > 0 && now > 0 && <span>{Math.round((now - newest) / 60000)}분 전 측정</span>}
+              {newest > 0 && <span>{t('disk.volumeCard.measuredAgo', { minutes: Math.round((now - newest) / 60000) })}</span>}
             </div>
           </>
         )}
