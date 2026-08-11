@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import SettingsTuning from '@/pages/SettingsTuning'
+import Tuning from '@/pages/settings/Tuning'
 import { saveSetting } from '@/lib/saveSetting'
 
 export default function Performance() {
@@ -110,7 +110,7 @@ export default function Performance() {
         </form>
       </div>
 
-      <SettingsTuning />
+      <Tuning />
     </div>
   )
 }

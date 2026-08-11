@@ -4,7 +4,7 @@ import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { usePrompt } from '@/components/PromptDialog'
 import { toast } from 'sonner'
-import { copyText } from '@/lib/utils'
+import { copyText, downloadBlob } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -181,12 +181,7 @@ export default function Security() {
 
   function handleDownloadRecoveryCodes() {
     const blob = new Blob([recoveryCodes.join('\n')], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'sfpanel-recovery-codes.txt'
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, 'sfpanel-recovery-codes.txt')
   }
 
   function getTwoFAButtonLabel(): string {
@@ -343,7 +338,7 @@ export default function Security() {
 
           {recoveryCodes.length > 0 && (
             <div className="space-y-3 max-w-md mb-4">
-              <div className="bg-[#ff6b00]/8 text-[#ff6b00] text-[13px] p-3 rounded-xl font-medium">
+              <div className="bg-warning/10 text-warning text-[13px] p-3 rounded-xl font-medium">
                 {t('settings.recoveryCodes.oneTimeWarning')}
               </div>
               <div className="grid grid-cols-2 gap-2 bg-secondary/30 p-4 rounded-xl">

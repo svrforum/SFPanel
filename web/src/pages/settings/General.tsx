@@ -49,6 +49,7 @@ export default function General() {
             size="sm"
             onClick={() => i18n.changeLanguage('en')}
             className="rounded-xl"
+            aria-pressed={i18n.language === 'en'}
           >
             English
           </Button>
@@ -57,6 +58,7 @@ export default function General() {
             size="sm"
             onClick={() => i18n.changeLanguage('ko')}
             className="rounded-xl"
+            aria-pressed={i18n.language?.startsWith('ko')}
           >
             한국어
           </Button>
@@ -75,6 +77,7 @@ export default function General() {
               size="sm"
               onClick={() => { setThemePref(opt.value); setTheme(opt.value) }}
               className="rounded-xl"
+              aria-pressed={theme === opt.value}
             >
               {opt.label}
             </Button>

@@ -2,10 +2,12 @@ import { useState, useEffect, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { formatUptime, formatBytes } from '@/lib/utils'
+import { formatUptime, formatBytes, downloadBlob } from '@/lib/utils'
+import { waitForServerBack } from '@/lib/restart'
 import type { HostInfo, BackupScheduleConfig, BackupFile } from '@/types/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Download, Upload, RefreshCw, AlertCircle, Clock, Play, Trash2 } from 'lucide-react'
 import { useApiAction } from '@/hooks/useApiAction'
@@ -70,7 +72,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   const { run: runCheckUpdate, loading: updateChecking } = useApiAction(
     api.checkUpdate.bind(api),
     {
-      errorMsg: 'Failed',
+      errorMsg: t('settings.updateCheckFailed'),
       onSuccess: (data) => {
         setUpdateInfo(data)
         if (!data.update_available) {
@@ -98,18 +100,20 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
           setUpdating(false)
         }
         if (event.step === 'complete') {
-          setTimeout(() => {
-            const check = setInterval(() => {
-              fetch(`${api.apiBase}/auth/setup-status`)
-                .then(() => { clearInterval(check); window.location.reload() })
-                .catch(() => {})
-            }, 2000)
-          }, 3000)
+          // Bounded wait (default 5 min) for the panel to come back after the
+          // self-restart — the old inline loop polled forever, leaving an
+          // eternal spinner when the restart failed.
+          waitForServerBack({
+            onTimeout: () => {
+              setUpdating(false)
+              toast.error(t('settings.updateNoReturn'))
+            },
+          })
         }
       })
     } catch {
       setUpdating(false)
-      setUpdateError('Connection lost')
+      setUpdateError(t('settings.updateConnectionLost'))
     }
   }
 
@@ -125,12 +129,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
     setBackupLoading(true)
     try {
       const blob = await api.downloadBackup()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `sfpanel-backup-${new Date().toISOString().slice(0, 10)}.tar.gz`
-      a.click()
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, `sfpanel-backup-${new Date().toISOString().slice(0, 10)}.tar.gz`)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('settings.backupFailed')
       toast.error(message)
@@ -156,25 +155,16 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
     try {
       await api.restoreBackup(file)
       toast.success(t('settings.restoreSuccess'))
-      // Poll until the panel comes back, but cap at 60 attempts (≈2 min)
-      // so a corrupted DB doesn't leave the user staring at a spinner
-      // forever with no error.
-      setTimeout(() => {
-        let attempts = 0
-        const maxAttempts = 60
-        const check = setInterval(() => {
-          attempts++
-          fetch(`${api.apiBase}/auth/setup-status`)
-            .then(() => { clearInterval(check); window.location.reload() })
-            .catch(() => {
-              if (attempts >= maxAttempts) {
-                clearInterval(check)
-                toast.error(t('settings.restoreNoReturn'))
-                setRestoreLoading(false)
-              }
-            })
-        }, 2000)
-      }, 3000)
+      // Wait until the panel comes back, capped at 60 attempts (≈2 min) so a
+      // corrupted DB doesn't leave the user staring at a spinner forever with
+      // no error.
+      waitForServerBack({
+        maxAttempts: 60,
+        onTimeout: () => {
+          toast.error(t('settings.restoreNoReturn'))
+          setRestoreLoading(false)
+        },
+      })
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('settings.restoreFailed')
       toast.error(message)
@@ -225,12 +215,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
   async function handleDownloadBackupFile(name: string) {
     try {
       const blob = await api.downloadBackupFile(name)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = name
-      a.click()
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, name)
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : String(err))
     }
@@ -367,11 +352,9 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
         <p className="text-[13px] text-muted-foreground mt-1 mb-4">{t('settings.backupSchedule.description')}</p>
 
         <label className="flex items-center gap-2 mb-4 cursor-pointer">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={scheduleEnabled}
-            onChange={(e) => setScheduleEnabled(e.target.checked)}
-            className="h-4 w-4 rounded accent-primary"
+            onCheckedChange={(v) => setScheduleEnabled(v === true)}
           />
           <span className="text-[13px] font-medium">{t('settings.backupSchedule.enable')}</span>
         </label>
@@ -409,7 +392,7 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
               <Clock className="h-3.5 w-3.5 text-muted-foreground" />
               <span className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.backupSchedule.lastRun')}</span>
               <span className="text-[12px] font-medium">{new Date(schedule.last_run).toLocaleString()}</span>
-              <span className={`text-[12px] font-medium ${schedule.last_status === 'error' ? 'text-destructive' : 'text-[#16a34a]'}`}>
+              <span className={`text-[12px] font-medium ${schedule.last_status === 'error' ? 'text-destructive' : 'text-success'}`}>
                 {schedule.last_status === 'error' ? t('settings.backupSchedule.statusError') : t('settings.backupSchedule.statusSuccess')}
               </span>
             </div>

@@ -15,7 +15,7 @@ const CATEGORY_META: Record<string, { icon: typeof Network; color: string }> = {
   security:   { icon: Shield,     color: 'var(--destructive)' },
 }
 
-export default function SettingsTuning() {
+export default function Tuning() {
   const { t } = useTranslation()
   const confirm = useConfirm()
   const [status, setStatus] = useState<TuningStatus | null>(null)
@@ -43,8 +43,14 @@ export default function SettingsTuning() {
         return prev - 1
       })
     }, 1000)
-    // loadStatus and t are stable in this component (declared at module
-    // scope). Listing them would only churn the callback identity.
+    // Empty deps pin the first-render closure on purpose. loadStatus is NOT
+    // module-scope — it is re-declared every render, so the pinned copy is the
+    // first-render one (with `countdown` frozen at 0). That still behaves,
+    // because the interval only invokes loadStatus right after the countdown
+    // hits 0 (matching the frozen value) and everything else the closure
+    // touches (setters, the api singleton, toast) is identity-stable. Adding
+    // other state reads to loadStatus would turn this into a real
+    // stale-closure bug — revisit the deps then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
