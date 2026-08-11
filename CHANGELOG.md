@@ -6,6 +6,29 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [Unreleased]
+
+A frontend modularity release: a menu-by-menu review of the SPA (8 parallel reviewers, 182 accepted improvement points) followed by a full application pass. No backend changes.
+
+### Changed
+
+- **Every oversized page decomposed.** Packages 1,580→31 lines (per-card files), AlertSettings 866→31 (three sections on typed api methods), DiskLVM 648→78, Logs 1,122→568, Fail2ban 1,270→634, Files 1,311→891, AppStoreDetail 1,108→790, DockerContainers 1,542→1,073, DockerStacks 1,497→1,218, Terminal 802→547 (session component extracted verbatim). 27 new extracted components follow the existing `pages/<area>/components/` precedent.
+- **Copy-paste infrastructure single-sourced.** One navigation registry replaces four drifted copies (the More drawer regains dashboard/docker/terminal and drops the double-listed logs; Stacks appears in the datacenter sidebar); node-status colors, restart-wait polling, copy feedback, path helpers, sub-nav tabs, pagination, guide accordions, status pills and the log viewer (Logs + FirewallLogs now share one virtualized, auto-reconnecting viewer) each collapse to one implementation.
+- **Dialogs standardize on the shared confirm/prompt primitives** across docker, files, disk, network, firewall, cron and logs pages (in-dialog spinners are replaced by toast/refresh completion; LV deletion gains type-to-confirm).
+
+### Fixed
+
+- **Cluster `?node=` scope was silently dropped by every raw-text stream.** Distribution upgrades, Docker/Node/CLI installs and the Tailscale installer ran on the *local* node even while you were browsing a remote one — and since the package list itself was node-scoped, the UI showed a remote node's pending updates and then upgraded the local host. These streams now route through the api client and execute on the node you are viewing, using the node scope the backend relay already accepted. **Operators upgrading from ≤ v0.57 should note that these actions now target the selected node**, which is what the surrounding UI always claimed.
+- **Container log options broke the WebSocket ticket.** Changing tail/timestamps/stream/since built a URL with two `?` separators, so the auth ticket was parsed as part of the last option and the socket was rejected — container logs only connected with default options. Options now travel as proper query parameters (a comment on `buildWsUrl` documents the constraint).
+- **Dashboard firewall pill tints never rendered** (`'var(--x)'+'15'` is invalid CSS) — the intended 8% tints now actually paint.
+- **Post-join cluster restart polling could 401 forever** (the replicated JWT secret invalidates the browser token; the old loop required an authenticated OK) — restart waits now probe an unauthenticated endpoint with a bounded 5-minute cap, including the previously endless update wait.
+- Wrong-TOTP submissions showed "enter your 2FA code" instead of "code invalid" (error-code-based detection now); login/setup errors are translated; the fail2ban "Filter missing" template label became reachable; IPv6 sources are accepted by firewall rule validation; RAID creation lists unused partitions again alongside whole disks; the firewall live-log buffer no longer grows unbounded.
+- Nine referenced-but-undefined i18n keys added (caught by a changed-files key sweep); 143 new keys total, en/ko parity exact.
+
+### Removed
+
+- Dead frontend surface: the never-rendered NodeSelector sidebar block, MobileHeader, two unused ui-kit components, 21 orphaned api-client methods (~150 lines) and the dead `AlertRuleType`.
+
 ## [0.57.0] – 2026-08-11
 
 The final step of the v1 proxy-credential retirement, plus a permanent real-bundle regression guard for the release verifier.
