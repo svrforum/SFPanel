@@ -3,6 +3,8 @@ import { Trans, useTranslation } from 'react-i18next'
 import { Trash2, RefreshCw, Plus, Sparkles, Check, Info, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { UsagePill } from '@/pages/docker/components/UsagePill'
 import type { DockerNetwork, NetworkInspectDetail } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -34,6 +36,7 @@ function shortId(id: string): string {
 
 export default function DockerNetworks() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [networks, setNetworks] = useState<DockerNetwork[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -44,7 +47,6 @@ export default function DockerNetworks() {
   const [deleteTarget, setDeleteTarget] = useState<DockerNetwork | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [pruning, setPruning] = useState(false)
-  const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false)
   const [inspectTarget, setInspectTarget] = useState<NetworkInspectDetail | null>(null)
   const [inspecting, setInspecting] = useState(false)
 
@@ -117,6 +119,29 @@ export default function DockerNetworks() {
     return PREDEFINED_NETWORKS.includes(name.toLowerCase())
   }
 
+  const handlePrune = async () => {
+    const ok = await confirm({
+      title: t('docker.prune.title'),
+      description: t('docker.prune.networksConfirm'),
+      confirmLabel: t('docker.prune.confirm'),
+      danger: true,
+    })
+    if (!ok) return
+    setPruning(true)
+    try {
+      const r = await api.pruneNetworks()
+      toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
+      fetchNetworks()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Prune failed')
+    } finally {
+      setPruning(false)
+    }
+  }
+
+  // In-use networks first; single sorted list keeps mobile and desktop in sync.
+  const sortedNetworks = [...networks].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1))
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -124,7 +149,7 @@ export default function DockerNetworks() {
           {t('docker.networks.count', { count: networks.length })}
         </span>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setPruneConfirmOpen(true)} disabled={pruning}>
+          <Button variant="outline" size="sm" onClick={handlePrune} disabled={pruning}>
             <Sparkles className={pruning ? 'animate-spin' : ''} />
             {t('docker.sidebar.prune')}
           </Button>
@@ -167,7 +192,7 @@ export default function DockerNetworks() {
             {t('docker.networks.empty')}
           </div>
         )}
-        {[...networks].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1)).map((n) => (
+        {sortedNetworks.map((n) => (
           <div key={n.Id} className="bg-card rounded-2xl p-4 card-shadow">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
@@ -178,23 +203,15 @@ export default function DockerNetworks() {
                   <span className="text-[11px] text-muted-foreground">{n.Scope}</span>
                 </div>
                 <div className="mt-1.5">
-                  {n.in_use ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
-                      {t('docker.networks.inUse')}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
-                      {t('docker.networks.unused')}
-                    </span>
-                  )}
+                  <UsagePill inUse={n.in_use} />
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  title="Inspect"
-                  aria-label="Inspect"
+                  title={t('docker.containers.inspect')}
+                  aria-label={t('docker.containers.inspect')}
                   disabled={inspecting}
                   onClick={() => handleInspect(n.Id)}
                 >
@@ -237,7 +254,7 @@ export default function DockerNetworks() {
               </TableCell>
             </TableRow>
           )}
-          {[...networks].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1)).map((n) => (
+          {sortedNetworks.map((n) => (
             <TableRow key={n.Id}>
               <TableCell className="font-medium">
                 <div className="flex items-center gap-1.5">
@@ -249,15 +266,7 @@ export default function DockerNetworks() {
                 {shortId(n.Id)}
               </TableCell>
               <TableCell>
-                {n.in_use ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success" title={n.used_by.join(', ')}>
-                    {t('docker.networks.inUse')}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
-                    {t('docker.networks.unused')}
-                  </span>
-                )}
+                <UsagePill inUse={n.in_use} usedBy={n.used_by} />
               </TableCell>
               <TableCell className="text-muted-foreground">{n.Driver}</TableCell>
               <TableCell className="text-muted-foreground">{n.Scope}</TableCell>
@@ -266,8 +275,8 @@ export default function DockerNetworks() {
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    title="Inspect"
-                    aria-label="Inspect"
+                    title={t('docker.containers.inspect')}
+                    aria-label={t('docker.containers.inspect')}
                     disabled={inspecting}
                     onClick={() => handleInspect(n.Id)}
                   >
@@ -382,30 +391,6 @@ export default function DockerNetworks() {
               </div>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Prune confirmation dialog */}
-      <Dialog open={pruneConfirmOpen} onOpenChange={setPruneConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('docker.prune.title')}</DialogTitle>
-            <DialogDescription>{t('docker.prune.networksConfirm')}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPruneConfirmOpen(false)}>{t('common.cancel')}</Button>
-            <Button variant="destructive" disabled={pruning} onClick={async () => {
-              setPruning(true)
-              try {
-                const r = await api.pruneNetworks()
-                toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
-                fetchNetworks()
-              } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Prune failed') }
-              finally { setPruning(false); setPruneConfirmOpen(false) }
-            }}>
-              {pruning ? t('docker.prune.pruning') : t('docker.prune.confirm')}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 

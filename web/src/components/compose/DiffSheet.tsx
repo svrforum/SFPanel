@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { DiffEditor } from '@monaco-editor/react'
 import '@/lib/monaco' // configures the bundled (non-CDN) Monaco; lazy so it stays out of the entry bundle
 import {
@@ -26,6 +27,7 @@ interface Props {
 }
 
 export function DiffSheet({ open, onOpenChange, projectName, proposedYaml, onApply }: Props) {
+  const { t } = useTranslation()
   const [data, setData] = useState<DiffResult | null>(null)
   const [deployedYaml, setDeployedYaml] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
@@ -44,12 +46,12 @@ export function DiffSheet({ open, onOpenChange, projectName, proposedYaml, onApp
       setData(diff)
       setDeployedYaml(deployed)
     } catch (e) {
-      const msg = e instanceof Error ? e.message : '미리보기를 불러올 수 없습니다.'
+      const msg = e instanceof Error ? e.message : t('compose.diff.loadFailed', 'Failed to load the preview')
       setError(msg)
     } finally {
       setLoading(false)
     }
-  }, [projectName, proposedYaml])
+  }, [projectName, proposedYaml, t])
 
   useEffect(() => {
     if (open) loadDiff()
@@ -67,9 +69,9 @@ export function DiffSheet({ open, onOpenChange, projectName, proposedYaml, onApp
         className="w-full sm:max-w-[640px] flex flex-col p-0"
       >
         <SheetHeader>
-          <SheetTitle className="text-[14px]">변경사항 미리보기</SheetTitle>
+          <SheetTitle className="text-[14px]">{t('compose.diff.title', 'Preview changes')}</SheetTitle>
           <SheetDescription className="text-[12px]">
-            현재 디스크의 docker-compose.yml과 제안된 변경사항을 비교합니다.
+            {t('compose.diff.description', 'Compares the docker-compose.yml on disk with your proposed changes.')}
           </SheetDescription>
         </SheetHeader>
 
@@ -84,14 +86,14 @@ export function DiffSheet({ open, onOpenChange, projectName, proposedYaml, onApp
 
           {error && !loading && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-[13px] text-destructive">
-              <div className="font-medium mb-1">미리보기를 불러올 수 없습니다</div>
+              <div className="font-medium mb-1">{t('compose.diff.loadFailed', 'Failed to load the preview')}</div>
               <div className="text-[12px] opacity-80">{error}</div>
             </div>
           )}
 
           {data && isEmpty && !loading && (
             <div className="text-center py-12 text-muted-foreground text-[13px]">
-              🟢 변경 사항이 없습니다
+              🟢 {t('compose.diff.noChanges', 'No changes')}
             </div>
           )}
 
@@ -100,8 +102,8 @@ export function DiffSheet({ open, onOpenChange, projectName, proposedYaml, onApp
               <DiffSummaryHeader summary={data.summary} />
               <Tabs defaultValue="categories">
                 <TabsList>
-                  <TabsTrigger value="categories">카테고리</TabsTrigger>
-                  <TabsTrigger value="raw">원본 텍스트</TabsTrigger>
+                  <TabsTrigger value="categories">{t('compose.diff.categories', 'Categories')}</TabsTrigger>
+                  <TabsTrigger value="raw">{t('compose.diff.raw', 'Raw text')}</TabsTrigger>
                 </TabsList>
                 <TabsContent value="categories" className="pt-2">
                   <DiffCategoryList byCategory={data.by_category} />
@@ -130,13 +132,13 @@ export function DiffSheet({ open, onOpenChange, projectName, proposedYaml, onApp
 
         <SheetFooter className="border-t">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            닫기
+            {t('common.close')}
           </Button>
           <Button
             onClick={onApply}
             disabled={!data || isEmpty || !!error || loading}
           >
-            이대로 적용
+            {t('compose.diff.apply', 'Apply as-is')}
           </Button>
         </SheetFooter>
       </SheetContent>

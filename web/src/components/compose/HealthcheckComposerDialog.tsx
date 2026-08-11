@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   Dialog,
@@ -168,11 +168,11 @@ export function HealthcheckComposerDialog({
     try {
       const baseHash = await sha256Hex(baseYaml)
       const res = await api.applyHealthcheck(project, service, spec, replace || hasExisting, baseHash)
-      toast.success('compose YAML에 healthcheck 적용됨 — 배포 버튼으로 컨테이너에 반영하세요')
+      toast.success(t('compose.healthcheck.appliedToast', 'Healthcheck applied to the compose YAML — use Deploy to apply it to the container'))
       onApplied(res.yaml)
       onOpenChange(false)
     } catch (err) {
-      toast.error((err as Error).message || 'Healthcheck 적용 실패')
+      toast.error((err as Error).message || t('compose.healthcheck.applyFailed', 'Failed to apply healthcheck'))
     } finally {
       setSubmitting(false)
     }
@@ -186,7 +186,7 @@ export function HealthcheckComposerDialog({
       const res = await api.testHealthcheck(project, service, spec)
       setTestResult(res)
     } catch (err) {
-      toast.error((err as Error).message || 'Test 실패')
+      toast.error((err as Error).message || t('compose.healthcheck.testFailed', 'Test failed'))
     } finally {
       setTesting(false)
     }
@@ -199,11 +199,11 @@ export function HealthcheckComposerDialog({
     try {
       const baseHash = await sha256Hex(baseYaml)
       const res = await api.removeHealthcheck(project, service, baseHash)
-      toast.success('compose YAML에서 healthcheck 제거됨 — 배포 버튼으로 컨테이너에 반영하세요')
+      toast.success(t('compose.healthcheck.removedToast', 'Healthcheck removed from the compose YAML — use Deploy to apply it to the container'))
       onApplied(res.yaml)
       onOpenChange(false)
     } catch (err) {
-      toast.error((err as Error).message || 'Healthcheck 제거 실패')
+      toast.error((err as Error).message || t('compose.healthcheck.removeFailed', 'Failed to remove healthcheck'))
     } finally {
       setRemoving(false)
     }
@@ -213,14 +213,14 @@ export function HealthcheckComposerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="truncate">Healthcheck — {service}</DialogTitle>
+          <DialogTitle className="truncate">{t('compose.healthcheck.title', 'Healthcheck')} — {service}</DialogTitle>
           <DialogDescription>
-            compose YAML의 services.{service}.healthcheck 블록을 추가/수정합니다. 자동 배포되지 않습니다 — 미리보기 후 Save & Deploy 하세요.
+            {t('compose.healthcheck.description', 'Adds or updates the services.{{service}}.healthcheck block in the compose YAML. Nothing is deployed automatically — preview, then Save & Deploy.', { service })}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="hc-preset">프리셋</Label>
+            <Label htmlFor="hc-preset">{t('compose.healthcheck.preset', 'Preset')}</Label>
             <select
               id="hc-preset"
               className="w-full h-9 border rounded-md px-2 text-[13px] bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
@@ -235,26 +235,30 @@ export function HealthcheckComposerDialog({
               ))}
             </select>
             <p className="text-[11px] text-muted-foreground">
-              프리셋 선택 시 명령어가 채워집니다. <code>PORT</code> 등 플레이스홀더는 직접 수정하세요.
+              <Trans
+                i18nKey="compose.healthcheck.presetHint"
+                defaults="Selecting a preset fills in the command. Edit placeholders like <code>PORT</code> yourself."
+                components={{ code: <code /> }}
+              />
             </p>
           </div>
 
           <div className="space-y-1.5">
-            <Label>Test 명령어</Label>
-            {(['CMD-SHELL', 'CMD', 'NONE'] as HealthcheckTestType[]).map((t) => (
-              <label key={t} className="flex items-start gap-2 cursor-pointer">
+            <Label>{t('compose.healthcheck.testCommand', 'Test command')}</Label>
+            {(['CMD-SHELL', 'CMD', 'NONE'] as HealthcheckTestType[]).map((type) => (
+              <label key={type} className="flex items-start gap-2 cursor-pointer">
                 <input
                   type="radio"
                   name="test_type"
                   className="mt-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-                  checked={spec.test_type === t}
-                  onChange={() => setSpec((s) => ({ ...s, test_type: t }))}
+                  checked={spec.test_type === type}
+                  onChange={() => setSpec((s) => ({ ...s, test_type: type }))}
                 />
                 <span className="text-[13px]">
-                  <strong>{t}</strong>
-                  {t === 'CMD-SHELL' && ' — 셸에서 한 줄 실행'}
-                  {t === 'CMD' && ' — 인자 배열 (| 로 구분)'}
-                  {t === 'NONE' && ' — 이미지의 baked-in healthcheck 비활성'}
+                  <strong>{type}</strong>
+                  {type === 'CMD-SHELL' && ` — ${t('compose.healthcheck.typeShell', 'run one line in a shell')}`}
+                  {type === 'CMD' && ` — ${t('compose.healthcheck.typeCmd', 'argument array (separated by |)')}`}
+                  {type === 'NONE' && ` — ${t('compose.healthcheck.typeNone', "disable the image's baked-in healthcheck")}`}
                 </span>
               </label>
             ))}
@@ -262,7 +266,7 @@ export function HealthcheckComposerDialog({
 
           {spec.test_type !== 'NONE' && (
             <div className="space-y-1.5">
-              <Label htmlFor="hc-test-value">{spec.test_type === 'CMD-SHELL' ? '셸 명령어' : '인자 (| 구분)'}</Label>
+              <Label htmlFor="hc-test-value">{spec.test_type === 'CMD-SHELL' ? t('compose.healthcheck.shellCommand', 'Shell command') : t('compose.healthcheck.cmdArgs', 'Arguments (| separated)')}</Label>
               <Input
                 id="hc-test-value"
                 value={spec.test_value}
@@ -283,15 +287,15 @@ export function HealthcheckComposerDialog({
           {spec.test_type !== 'NONE' && (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="hc-interval">주기 (interval)</Label>
+                <Label htmlFor="hc-interval">{t('compose.healthcheck.interval', 'Interval')}</Label>
                 <Input id="hc-interval" value={spec.interval} onChange={(e) => setSpec((s) => ({ ...s, interval: e.target.value }))} placeholder="30s" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="hc-timeout">타임아웃</Label>
+                <Label htmlFor="hc-timeout">{t('compose.healthcheck.timeout', 'Timeout')}</Label>
                 <Input id="hc-timeout" value={spec.timeout} onChange={(e) => setSpec((s) => ({ ...s, timeout: e.target.value }))} placeholder="10s" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="hc-retries">재시도</Label>
+                <Label htmlFor="hc-retries">{t('compose.healthcheck.retries', 'Retries')}</Label>
                 <Input
                   id="hc-retries"
                   type="number"
@@ -301,7 +305,7 @@ export function HealthcheckComposerDialog({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="hc-start-period">Grace period</Label>
+                <Label htmlFor="hc-start-period">{t('compose.healthcheck.startPeriod', 'Grace period')}</Label>
                 <Input
                   id="hc-start-period"
                   value={spec.start_period}
@@ -315,9 +319,9 @@ export function HealthcheckComposerDialog({
           {spec.test_type !== 'NONE' && (
             <div className="space-y-1.5 pt-1 border-t">
               <div className="flex items-center justify-between">
-                <Label className="text-[12px]">실행 중인 컨테이너에서 미리 검증</Label>
+                <Label className="text-[12px]">{t('compose.healthcheck.testHint', 'Validate against the running container')}</Label>
                 <Button type="button" size="sm" variant="outline" onClick={onTestNow} disabled={!canTest}>
-                  {testing ? '실행 중…' : '지금 테스트'}
+                  {testing ? t('compose.healthcheck.testing', 'Running…') : t('compose.healthcheck.testNow', 'Test now')}
                 </Button>
               </div>
               {testResult && (
@@ -339,22 +343,22 @@ export function HealthcheckComposerDialog({
           {hasExisting && (
             <label className="flex items-start gap-2 text-[12px] text-muted-foreground">
               <input type="checkbox" className="mt-0.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
-              이 service에 이미 healthcheck가 있습니다 — 덮어쓰기
+              {t('compose.healthcheck.overwriteExisting', 'This service already has a healthcheck — overwrite')}
             </label>
           )}
 
           <DialogFooter className="flex !justify-between">
             {hasExisting ? (
               <Button type="button" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={onRemove} disabled={removing || submitting}>
-                {removing ? '제거 중…' : 'Healthcheck 제거'}
+                {removing ? t('compose.healthcheck.removing', 'Removing…') : t('compose.healthcheck.remove', 'Remove healthcheck')}
               </Button>
             ) : <span />}
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-                취소
+                {t('common.cancel')}
               </Button>
               <Button type="submit" disabled={submitting || !canSubmit}>
-                {submitting ? '적용 중…' : 'Compose YAML에 적용'}
+                {submitting ? t('compose.healthcheck.applying', 'Applying…') : t('compose.healthcheck.apply', 'Apply to compose YAML')}
               </Button>
             </div>
           </DialogFooter>

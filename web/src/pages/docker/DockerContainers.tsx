@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Plus, Layers, Pause, CheckSquare, Loader2, Activity, X, Box, AlertCircle } from 'lucide-react'
+import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Plus, Layers, Pause, CheckSquare, Loader2, Activity, Box, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import ContainerInspect from '@/components/ContainerInspect'
-import type { Container, ContainerStatsResult, CreateContainerSpec, PortBindingSpec, DockerNetwork } from '@/types/api'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
+import ContainerInspect from '@/components/docker/ContainerInspect'
+import { CreateContainerDialog } from '@/pages/docker/components/CreateContainerDialog'
+import type { Container, ContainerStatsResult } from '@/types/api'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,24 +25,15 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Label } from '@/components/ui/label'
-import ContainerLogs from '@/components/ContainerLogs'
-import ContainerShell from '@/components/ContainerShell'
-import { ContainerSparkline } from '@/components/ContainerSparkline'
-import { ContainerHistoryTab } from '@/components/ContainerHistoryTab'
+import ContainerLogs from '@/components/docker/ContainerLogs'
+import ContainerShell from '@/components/docker/ContainerShell'
+import { ContainerSparkline } from '@/components/docker/ContainerSparkline'
+import { ContainerHistoryTab } from '@/components/docker/ContainerHistoryTab'
 
 function formatPorts(ports: Container['Ports']): string {
   if (!ports || ports.length === 0) return '-'
@@ -103,6 +97,21 @@ function ContainerStatsCell({ containerId, stats, state }: { containerId: string
   )
 }
 
+// Shared prop shape for the row/card variants below
+interface ContainerItemProps {
+  container: Container
+  actionLoading: string | null
+  onDetail: (c: Container) => void
+  onTerminal: (c: Container) => void
+  onStart: (id: string) => void
+  onStop: (c: Container) => void
+  onPause: (id: string) => void
+  onUnpause: (id: string) => void
+  onRestart: (c: Container) => void
+  onDelete: (c: Container) => void
+  t: (key: string, opts?: Record<string, unknown>) => string
+}
+
 // Extracted row component for reuse in grouped/standalone sections
 function ContainerRow({
   container: c,
@@ -121,23 +130,12 @@ function ContainerRow({
   selected,
   onToggleSelect,
   t,
-}: {
-  container: Container
-  actionLoading: string | null
-  onDetail: (c: Container) => void
-  onTerminal: (c: Container) => void
-  onStart: (id: string) => void
-  onStop: (c: Container) => void
-  onPause: (id: string) => void
-  onUnpause: (id: string) => void
-  onRestart: (c: Container) => void
-  onDelete: (c: Container) => void
+}: ContainerItemProps & {
   showService?: boolean
   statsMap: Record<string, ContainerStatsResult>
   batchMode?: boolean
   selected?: boolean
   onToggleSelect?: (id: string) => void
-  t: (key: string, opts?: Record<string, unknown>) => string
 }) {
   const serviceName = c.Labels?.['com.docker.compose.service']
   return (
@@ -264,350 +262,180 @@ function ContainerRow({
   )
 }
 
-// Row shapes for the create-container form's dynamic lists
-interface PortRow { hostPort: string; containerPort: string; protocol: 'tcp' | 'udp' }
-interface EnvRow { key: string; value: string }
-interface VolumeRow { hostPath: string; containerPath: string; readOnly: boolean }
+// Mobile card twin of ContainerRow — one component for both the stack-grouped
+// (indented) and standalone lists, which used to be two copies of this JSX.
+function MobileContainerCard({
+  container: c,
+  stats,
+  actionLoading,
+  onDetail,
+  onTerminal,
+  onStart,
+  onStop,
+  onPause,
+  onUnpause,
+  onRestart,
+  onDelete,
+  grouped,
+  t,
+}: ContainerItemProps & {
+  stats?: ContainerStatsResult
+  grouped?: boolean
+}) {
+  return (
+    <div className={`bg-card rounded-2xl p-4 card-shadow ${grouped ? 'ml-4' : ''}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div role="button" tabIndex={0} className="min-w-0 flex-1 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" onClick={() => onDetail(c)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDetail(c) } }}>
+          <p className="text-[13px] font-semibold truncate">
+            {formatContainerName(c.Names)}
+          </p>
+          <p className="text-[11px] text-muted-foreground truncate mt-0.5">{c.Image}</p>
+        </div>
+        {statusBadge(c.State)}
+      </div>
+      {c.State === 'running' && stats && (
+        <div className="flex items-center gap-3 text-xs mt-2">
+          <span className="flex items-center gap-1">
+            <Cpu className="h-3 w-3 text-blue-500" />
+            <span className={stats.cpu_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.cpu_percent.toFixed(1)}%</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <MemoryStick className="h-3 w-3 text-purple-500" />
+            <span className={stats.mem_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.mem_percent.toFixed(1)}%</span>
+          </span>
+        </div>
+      )}
+      {c.Ports && c.Ports.length > 0 && formatPorts(c.Ports) !== '-' && (
+        <p className="text-[11px] text-muted-foreground font-mono mt-2 truncate">
+          {formatPorts(c.Ports)}
+        </p>
+      )}
+      <div className="flex items-center gap-1 mt-3 justify-end">
+        <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')} onClick={() => onDetail(c)}>
+          <Info />
+        </Button>
+        <Button variant="ghost" size="icon-xs" title={t('docker.containers.terminal')} aria-label={t('docker.containers.terminal')} onClick={() => onTerminal(c)}>
+          <Terminal />
+        </Button>
+        {c.State === 'running' ? (
+          <>
+            <Button variant="ghost" size="icon-xs" title={t('docker.containers.pause')} aria-label={t('docker.containers.pause')} disabled={actionLoading === c.Id} onClick={() => onPause(c.Id)}>
+              <Pause />
+            </Button>
+            <Button variant="ghost" size="icon-xs" title={t('docker.containers.stop')} aria-label={t('docker.containers.stop')} disabled={actionLoading === c.Id} onClick={() => onStop(c)}>
+              <Square />
+            </Button>
+          </>
+        ) : c.State === 'paused' ? (
+          <Button variant="ghost" size="icon-xs" title={t('docker.containers.unpause')} aria-label={t('docker.containers.unpause')} disabled={actionLoading === c.Id} onClick={() => onUnpause(c.Id)}>
+            <Play />
+          </Button>
+        ) : (
+          <Button variant="ghost" size="icon-xs" title={t('docker.containers.start')} aria-label={t('docker.containers.start')} disabled={actionLoading === c.Id} onClick={() => onStart(c.Id)}>
+            <Play />
+          </Button>
+        )}
+        <Button variant="ghost" size="icon-xs" title={t('docker.containers.restart')} aria-label={t('docker.containers.restart')} disabled={actionLoading === c.Id} onClick={() => onRestart(c)}>
+          <RotateCw />
+        </Button>
+        <Button variant="ghost" size="icon-xs" title={t('common.delete')} aria-label={t('common.delete')} disabled={actionLoading === c.Id} onClick={() => onDelete(c)}>
+          <Trash2 />
+        </Button>
+      </div>
+    </div>
+  )
+}
 
-function CreateContainerDialog({
-  open,
-  onOpenChange,
-  onCreated,
+// Inner header row for a compose-stack group (chevron + name + count + action
+// strip) — shared between the mobile card wrapper and the desktop TableRow.
+function StackGroupHeader({
+  stackName,
+  running,
+  total,
+  collapsed,
+  loading,
+  onUp,
+  onDown,
+  onRestart,
+  onDelete,
   t,
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onCreated: () => void
+  stackName: string
+  running: number
+  total: number
+  collapsed: boolean
+  loading: boolean
+  onUp: () => void
+  onDown: () => void
+  onRestart: () => void
+  onDelete: () => void
   t: (key: string, opts?: Record<string, unknown>) => string
 }) {
-  const [image, setImage] = useState('')
-  const [name, setName] = useState('')
-  const [command, setCommand] = useState('')
-  const [ports, setPorts] = useState<PortRow[]>([])
-  const [envs, setEnvs] = useState<EnvRow[]>([])
-  const [volumes, setVolumes] = useState<VolumeRow[]>([])
-  const [restartPolicy, setRestartPolicy] = useState('no')
-  const [network, setNetwork] = useState('')
-  const [autoStart, setAutoStart] = useState(true)
-  const [networks, setNetworks] = useState<DockerNetwork[]>([])
-  const [submitting, setSubmitting] = useState(false)
-
-  const resetForm = useCallback(() => {
-    setImage('')
-    setName('')
-    setCommand('')
-    setPorts([])
-    setEnvs([])
-    setVolumes([])
-    setRestartPolicy('no')
-    setNetwork('')
-    setAutoStart(true)
-  }, [])
-
-  // Fetch networks when the dialog opens
-  useEffect(() => {
-    if (!open) return
-    let cancelled = false
-    api.getNetworks()
-      .then((data) => { if (!cancelled) setNetworks(data || []) })
-      .catch(() => { /* network list is non-critical */ })
-    return () => { cancelled = true }
-  }, [open])
-
-  const handleSubmit = async () => {
-    const trimmedImage = image.trim()
-    if (!trimmedImage) {
-      toast.error(t('docker.create.imageRequired'))
-      return
-    }
-
-    const spec: CreateContainerSpec = { image: trimmedImage }
-
-    const trimmedName = name.trim()
-    if (trimmedName) spec.name = trimmedName
-
-    const cmdParts = command.trim().split(/\s+/).filter(Boolean)
-    if (cmdParts.length > 0) spec.command = cmdParts
-
-    const portSpecs: PortBindingSpec[] = ports
-      .filter((p) => p.containerPort.trim() !== '')
-      .map((p) => {
-        const binding: PortBindingSpec = { container_port: p.containerPort.trim(), protocol: p.protocol }
-        if (p.hostPort.trim() !== '') binding.host_port = p.hostPort.trim()
-        return binding
-      })
-    if (portSpecs.length > 0) spec.ports = portSpecs
-
-    const envSpecs = envs
-      .filter((e) => e.key.trim() !== '')
-      .map((e) => `${e.key.trim()}=${e.value}`)
-    if (envSpecs.length > 0) spec.env = envSpecs
-
-    const volumeSpecs = volumes
-      .filter((v) => v.hostPath.trim() !== '' && v.containerPath.trim() !== '')
-      .map((v) => `${v.hostPath.trim()}:${v.containerPath.trim()}${v.readOnly ? ':ro' : ''}`)
-    if (volumeSpecs.length > 0) spec.volumes = volumeSpecs
-
-    if (restartPolicy && restartPolicy !== 'no') spec.restart_policy = restartPolicy
-    if (network) spec.network = network
-    spec.auto_start = autoStart
-
-    setSubmitting(true)
-    try {
-      const res = await api.createContainer(spec)
-      toast.success(t('docker.create.success', { id: res.id.substring(0, 12) }))
-      resetForm()
-      onOpenChange(false)
-      onCreated()
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : String(err))
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!submitting) onOpenChange(o) }}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{t('docker.create.title')}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          {/* Image */}
-          <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('docker.create.image')}</Label>
-            <Input
-              value={image}
-              onChange={(e) => setImage(e.target.value)}
-              placeholder={t('docker.create.imagePlaceholder')}
-              className="h-9 rounded-xl text-[13px]"
-            />
-          </div>
-
-          {/* Name */}
-          <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('docker.create.name')}</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t('docker.create.namePlaceholder')}
-              className="h-9 rounded-xl text-[13px]"
-            />
-          </div>
-
-          {/* Ports */}
-          <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('docker.create.ports')}</Label>
-            <div className="space-y-2">
-              {ports.map((p, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input
-                    value={p.hostPort}
-                    onChange={(e) => setPorts((prev) => prev.map((r, j) => j === i ? { ...r, hostPort: e.target.value } : r))}
-                    placeholder={t('docker.create.hostPort')}
-                    className="h-9 rounded-xl text-[13px]"
-                  />
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <Input
-                    value={p.containerPort}
-                    onChange={(e) => setPorts((prev) => prev.map((r, j) => j === i ? { ...r, containerPort: e.target.value } : r))}
-                    placeholder={t('docker.create.containerPort')}
-                    className="h-9 rounded-xl text-[13px]"
-                  />
-                  <Select
-                    value={p.protocol}
-                    onValueChange={(v) => setPorts((prev) => prev.map((r, j) => j === i ? { ...r, protocol: v as 'tcp' | 'udp' } : r))}
-                  >
-                    <SelectTrigger className="w-24 h-9 rounded-xl text-[13px] shrink-0">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="tcp">TCP</SelectItem>
-                      <SelectItem value="udp">UDP</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="shrink-0"
-                    title={t('common.delete')}
-                    aria-label={t('common.delete')}
-                    onClick={() => setPorts((prev) => prev.filter((_, j) => j !== i))}
-                  >
-                    <X />
-                  </Button>
-                </div>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl"
-                onClick={() => setPorts((prev) => [...prev, { hostPort: '', containerPort: '', protocol: 'tcp' }])}
-              >
-                <Plus />
-                {t('docker.create.addPort')}
-              </Button>
-            </div>
-          </div>
-
-          {/* Environment variables */}
-          <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('docker.create.env')}</Label>
-            <div className="space-y-2">
-              {envs.map((e, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input
-                    value={e.key}
-                    onChange={(ev) => setEnvs((prev) => prev.map((r, j) => j === i ? { ...r, key: ev.target.value } : r))}
-                    placeholder={t('docker.create.key')}
-                    className="h-9 rounded-xl text-[13px]"
-                  />
-                  <span className="text-muted-foreground shrink-0">=</span>
-                  <Input
-                    value={e.value}
-                    onChange={(ev) => setEnvs((prev) => prev.map((r, j) => j === i ? { ...r, value: ev.target.value } : r))}
-                    placeholder={t('docker.create.value')}
-                    className="h-9 rounded-xl text-[13px]"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="shrink-0"
-                    title={t('common.delete')}
-                    aria-label={t('common.delete')}
-                    onClick={() => setEnvs((prev) => prev.filter((_, j) => j !== i))}
-                  >
-                    <X />
-                  </Button>
-                </div>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl"
-                onClick={() => setEnvs((prev) => [...prev, { key: '', value: '' }])}
-              >
-                <Plus />
-                {t('docker.create.addEnv')}
-              </Button>
-            </div>
-          </div>
-
-          {/* Volumes */}
-          <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('docker.create.volumes')}</Label>
-            <div className="space-y-2">
-              {volumes.map((v, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input
-                    value={v.hostPath}
-                    onChange={(e) => setVolumes((prev) => prev.map((r, j) => j === i ? { ...r, hostPath: e.target.value } : r))}
-                    placeholder={t('docker.create.hostPath')}
-                    className="h-9 rounded-xl text-[13px]"
-                  />
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <Input
-                    value={v.containerPath}
-                    onChange={(e) => setVolumes((prev) => prev.map((r, j) => j === i ? { ...r, containerPath: e.target.value } : r))}
-                    placeholder={t('docker.create.containerPath')}
-                    className="h-9 rounded-xl text-[13px]"
-                  />
-                  <label className="flex items-center gap-1.5 text-[13px] text-muted-foreground shrink-0 cursor-pointer">
-                    <Checkbox
-                      checked={v.readOnly}
-                      onCheckedChange={(c) => setVolumes((prev) => prev.map((r, j) => j === i ? { ...r, readOnly: c === true } : r))}
-                    />
-                    {t('docker.create.readOnly')}
-                  </label>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="shrink-0"
-                    title={t('common.delete')}
-                    aria-label={t('common.delete')}
-                    onClick={() => setVolumes((prev) => prev.filter((_, j) => j !== i))}
-                  >
-                    <X />
-                  </Button>
-                </div>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl"
-                onClick={() => setVolumes((prev) => [...prev, { hostPath: '', containerPath: '', readOnly: false }])}
-              >
-                <Plus />
-                {t('docker.create.addVolume')}
-              </Button>
-            </div>
-          </div>
-
-          {/* Restart policy + Network */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-[13px]">{t('docker.create.restartPolicy')}</Label>
-              <Select value={restartPolicy} onValueChange={setRestartPolicy}>
-                <SelectTrigger className="h-9 rounded-xl text-[13px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="no">no</SelectItem>
-                  <SelectItem value="always">always</SelectItem>
-                  <SelectItem value="unless-stopped">unless-stopped</SelectItem>
-                  <SelectItem value="on-failure">on-failure</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[13px]">{t('docker.create.network')}</Label>
-              <Select value={network || '__default__'} onValueChange={(v) => setNetwork(v === '__default__' ? '' : v)}>
-                <SelectTrigger className="h-9 rounded-xl text-[13px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__default__">{t('docker.create.networkDefault')}</SelectItem>
-                  {networks.map((n) => (
-                    <SelectItem key={n.Name} value={n.Name}>{n.Name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Command */}
-          <div className="space-y-1.5">
-            <Label className="text-[13px]">{t('docker.create.command')}</Label>
-            <Input
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              placeholder={t('docker.create.commandPlaceholder')}
-              className="h-9 rounded-xl text-[13px]"
-            />
-          </div>
-
-          {/* Auto-start */}
-          <label className="flex items-center gap-2 text-[13px] cursor-pointer">
-            <Checkbox checked={autoStart} onCheckedChange={(c) => setAutoStart(c === true)} />
-            {t('docker.create.autoStart')}
-          </label>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)} disabled={submitting}>
-            {t('common.cancel')}
+    <div className="flex items-center gap-2 min-w-0">
+      {collapsed ? (
+        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+      ) : (
+        <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+      )}
+      <Layers className="h-4 w-4 text-primary shrink-0" />
+      <span className="text-[13px] font-semibold truncate">{stackName}</span>
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
+        {running}/{total}
+      </span>
+      <div className="flex-1 min-w-0" />
+      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+        {running === 0 ? (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            title={t('docker.compose.up')}
+            aria-label={t('docker.compose.up')}
+            disabled={loading}
+            onClick={onUp}
+          >
+            {loading ? <Loader2 className="animate-spin" /> : <Play />}
           </Button>
-          <Button className="rounded-xl" onClick={handleSubmit} disabled={submitting}>
-            {submitting ? <Loader2 className="animate-spin" /> : <Plus />}
-            {submitting ? t('docker.create.creating') : t('docker.create.submit')}
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            title={t('docker.compose.down')}
+            aria-label={t('docker.compose.down')}
+            disabled={loading}
+            onClick={onDown}
+          >
+            {loading ? <Loader2 className="animate-spin" /> : <Square />}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        )}
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          title={t('docker.containers.restart')}
+          aria-label={t('docker.containers.restart')}
+          disabled={loading}
+          onClick={onRestart}
+        >
+          <RotateCw />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          title={t('common.delete')}
+          aria-label={t('common.delete')}
+          disabled={loading}
+          onClick={onDelete}
+        >
+          <Trash2 className="text-destructive" />
+        </Button>
+      </div>
+    </div>
   )
 }
 
 export default function DockerContainers() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const navigate = useNavigate()
   const [containers, setContainers] = useState<Container[]>([])
   const [loading, setLoading] = useState(true)
@@ -616,8 +444,6 @@ export default function DockerContainers() {
   const [selectedContainer, setSelectedContainer] = useState<Container | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailTab, setDetailTab] = useState<string>('inspect')
-  const [deleteTarget, setDeleteTarget] = useState<Container | null>(null)
-  const [confirmAction, setConfirmAction] = useState<{ action: 'stop' | 'restart'; container: Container } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterState, setFilterState] = useState<'all' | 'running' | 'stopped'>('all')
   const [collapsedStacks, setCollapsedStacks] = useState<Set<string>>(new Set())
@@ -625,8 +451,12 @@ export default function DockerContainers() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [batchMode, setBatchMode] = useState(false)
   const [stackActionLoading, setStackActionLoading] = useState<string | null>(null)
-  const [confirmStackAction, setConfirmStackAction] = useState<{ action: 'down' | 'restart' | 'delete'; stackName: string } | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+
+  // The locale confirm strings carry <strong> markup (from the old Trans-based
+  // dialogs); useConfirm renders a plain string, so strip the tags.
+  const confirmText = (key: string, values: Record<string, unknown>) =>
+    t(key, values).replace(/<\/?strong>/g, '')
 
   const fetchContainers = useCallback(async () => {
     try {
@@ -647,42 +477,34 @@ export default function DockerContainers() {
     fetchContainers()
   }, [fetchContainers])
 
-  // Batch poll stats for all running containers every 5 seconds
-  useEffect(() => {
-    const hasRunning = containers.some(c => c.State === 'running')
-    if (!hasRunning) {
-      setStatsMap({})
+  // Batch poll stats for all running containers every 10 seconds; pauses while
+  // the tab is hidden (useVisibleInterval handles visibilitychange).
+  const fetchBatchStats = useCallback(async () => {
+    if (!containers.some((c) => c.State === 'running')) {
+      setStatsMap((prev) => (Object.keys(prev).length === 0 ? prev : {}))
       return
     }
-
-    const fetchBatchStats = async () => {
-      try {
-        const results = await api.containerStatsBatch()
-        const map: Record<string, ContainerStatsResult> = {}
-        if (results) {
-          for (const s of results) {
-            map[s.id] = s
-          }
+    try {
+      const results = await api.containerStatsBatch()
+      const map: Record<string, ContainerStatsResult> = {}
+      if (results) {
+        for (const s of results) {
+          map[s.id] = s
         }
-        setStatsMap(map)
-      } catch {
-        // ignore — stats are non-critical
       }
-    }
-
-    fetchBatchStats()
-    const interval = setInterval(fetchBatchStats, 10000)
-
-    const handleVisibility = () => {
-      if (!document.hidden) fetchBatchStats()
-    }
-    document.addEventListener('visibilitychange', handleVisibility)
-
-    return () => {
-      clearInterval(interval)
-      document.removeEventListener('visibilitychange', handleVisibility)
+      setStatsMap(map)
+    } catch {
+      // ignore — stats are non-critical
     }
   }, [containers])
+
+  useVisibleInterval(fetchBatchStats, 10000)
+
+  // Refresh stats immediately when the container list changes (after actions)
+  // instead of waiting out the polling interval.
+  useEffect(() => {
+    void fetchBatchStats()
+  }, [fetchBatchStats])
 
   const handleAction = async (
     action: 'start' | 'stop' | 'restart',
@@ -703,13 +525,31 @@ export default function DockerContainers() {
     }
   }
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return
-    setActionLoading(deleteTarget.Id)
+  const confirmContainerAction = async (action: 'stop' | 'restart', c: Container) => {
+    const ok = await confirm({
+      title: action === 'stop' ? t('docker.containers.stopTitle') : t('docker.containers.restartTitle'),
+      description: confirmText(
+        action === 'stop' ? 'docker.containers.stopConfirm' : 'docker.containers.restartConfirm',
+        { name: formatContainerName(c.Names) },
+      ),
+      confirmLabel: action === 'stop' ? t('docker.containers.stop') : t('docker.containers.restart'),
+      danger: action === 'stop',
+    })
+    if (ok) await handleAction(action, c.Id)
+  }
+
+  const confirmDelete = async (c: Container) => {
+    const ok = await confirm({
+      title: t('docker.containers.deleteTitle'),
+      description: confirmText('docker.containers.deleteConfirm', { name: formatContainerName(c.Names) }),
+      confirmLabel: t('common.delete'),
+      danger: true,
+    })
+    if (!ok) return
+    setActionLoading(c.Id)
     try {
-      await api.removeContainer(deleteTarget.Id)
+      await api.removeContainer(c.Id)
       toast.success(t('docker.containers.deleted'))
-      setDeleteTarget(null)
       await fetchContainers()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('docker.containers.deleteFailed')
@@ -765,6 +605,20 @@ export default function DockerContainers() {
     } finally {
       setStackActionLoading(null)
     }
+  }
+
+  const confirmStackAction = async (action: 'down' | 'restart' | 'delete', stackName: string) => {
+    const label = action === 'delete' ? t('common.delete') : action === 'down' ? t('docker.compose.down') : t('docker.containers.restart')
+    const key = action === 'delete' ? 'docker.containers.stackDeleteConfirm'
+      : action === 'down' ? 'docker.containers.stackDownConfirm'
+      : 'docker.containers.stackRestartConfirm'
+    const ok = await confirm({
+      title: label,
+      description: confirmText(key, { name: stackName }),
+      confirmLabel: label,
+      danger: action !== 'restart',
+    })
+    if (ok) await handleStackAction(action, stackName)
   }
 
   const handleBatchAction = async (action: 'start' | 'stop' | 'restart' | 'remove') => {
@@ -856,6 +710,20 @@ export default function DockerContainers() {
       else next.add(name)
       return next
     })
+  }
+
+  // Shared action props for ContainerRow / MobileContainerCard
+  const containerItemProps = {
+    actionLoading,
+    onDetail: openDetail,
+    onTerminal: openTerminal,
+    onStart: (id: string) => { void handleAction('start', id) },
+    onStop: (c: Container) => { void confirmContainerAction('stop', c) },
+    onPause: (id: string) => { void handlePause(id) },
+    onUnpause: (id: string) => { void handleUnpause(id) },
+    onRestart: (c: Container) => { void confirmContainerAction('restart', c) },
+    onDelete: (c: Container) => { void confirmDelete(c) },
+    t,
   }
 
   const runningCount = containers.filter(c => c.State === 'running').length
@@ -1002,137 +870,28 @@ export default function DockerContainers() {
                 onClick={() => toggleStack(stackName)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleStack(stackName) } }}
               >
-                <div className="flex items-center gap-2 min-w-0">
-                  {isCollapsed ? (
-                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                  )}
-                  <Layers className="h-4 w-4 text-primary shrink-0" />
-                  <span className="text-[13px] font-semibold truncate">{stackName}</span>
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
-                    {stackRunning}/{stackContainers.length}
-                  </span>
-                  <div className="flex-1 min-w-0" />
-                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {stackRunning === 0 ? (
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        title={t('docker.compose.up')}
-                        aria-label={t('docker.compose.up')}
-                        disabled={isStackLoading}
-                        onClick={() => handleStackAction('up', stackName)}
-                      >
-                        {isStackLoading ? <Loader2 className="animate-spin" /> : <Play />}
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        title={t('docker.compose.down')}
-                        aria-label={t('docker.compose.down')}
-                        disabled={isStackLoading}
-                        onClick={() => setConfirmStackAction({ action: 'down', stackName })}
-                      >
-                        {isStackLoading ? <Loader2 className="animate-spin" /> : <Square />}
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      title={t('docker.containers.restart')}
-                      aria-label={t('docker.containers.restart')}
-                      disabled={isStackLoading}
-                      onClick={() => setConfirmStackAction({ action: 'restart', stackName })}
-                    >
-                      <RotateCw />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      title={t('common.delete')}
-                      aria-label={t('common.delete')}
-                      disabled={isStackLoading}
-                      onClick={() => setConfirmStackAction({ action: 'delete', stackName })}
-                    >
-                      <Trash2 className="text-destructive" />
-                    </Button>
-                  </div>
-                </div>
+                <StackGroupHeader
+                  stackName={stackName}
+                  running={stackRunning}
+                  total={stackContainers.length}
+                  collapsed={isCollapsed}
+                  loading={isStackLoading}
+                  onUp={() => { void handleStackAction('up', stackName) }}
+                  onDown={() => { void confirmStackAction('down', stackName) }}
+                  onRestart={() => { void confirmStackAction('restart', stackName) }}
+                  onDelete={() => { void confirmStackAction('delete', stackName) }}
+                  t={t}
+                />
               </div>
-              {!isCollapsed && stackContainers.map((c) => {
-                const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-                const statusClasses = c.State === 'running' ? `${base} bg-success/10 text-success`
-                  : c.State === 'exited' ? `${base} bg-destructive/10 text-destructive`
-                  : c.State === 'paused' ? `${base} bg-warning/10 text-warning`
-                  : `${base} bg-secondary text-muted-foreground`
-                const stats = statsMap[c.Id]
-                return (
-                  <div key={c.Id} className="bg-card rounded-2xl p-4 card-shadow ml-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div role="button" tabIndex={0} className="min-w-0 flex-1 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" onClick={() => openDetail(c)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(c) } }}>
-                        <p className="text-[13px] font-semibold truncate">
-                          {formatContainerName(c.Names)}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground truncate mt-0.5">{c.Image}</p>
-                      </div>
-                      <span className={statusClasses}>
-                        {c.State}
-                      </span>
-                    </div>
-                    {c.State === 'running' && stats && (
-                      <div className="flex items-center gap-3 text-xs mt-2">
-                        <span className="flex items-center gap-1">
-                          <Cpu className="h-3 w-3 text-blue-500" />
-                          <span className={stats.cpu_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.cpu_percent.toFixed(1)}%</span>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <MemoryStick className="h-3 w-3 text-purple-500" />
-                          <span className={stats.mem_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.mem_percent.toFixed(1)}%</span>
-                        </span>
-                      </div>
-                    )}
-                    {c.Ports && c.Ports.length > 0 && formatPorts(c.Ports) !== '-' && (
-                      <p className="text-[11px] text-muted-foreground font-mono mt-2 truncate">
-                        {formatPorts(c.Ports)}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-1 mt-3 justify-end">
-                      <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')} onClick={() => openDetail(c)}>
-                        <Info />
-                      </Button>
-                      <Button variant="ghost" size="icon-xs" title={t('docker.containers.terminal')} aria-label={t('docker.containers.terminal')} onClick={() => openTerminal(c)}>
-                        <Terminal />
-                      </Button>
-                      {c.State === 'running' ? (
-                        <>
-                          <Button variant="ghost" size="icon-xs" title={t('docker.containers.pause')} aria-label={t('docker.containers.pause')} disabled={actionLoading === c.Id} onClick={() => handlePause(c.Id)}>
-                            <Pause />
-                          </Button>
-                          <Button variant="ghost" size="icon-xs" title={t('docker.containers.stop')} aria-label={t('docker.containers.stop')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'stop', container: c })}>
-                            <Square />
-                          </Button>
-                        </>
-                      ) : c.State === 'paused' ? (
-                        <Button variant="ghost" size="icon-xs" title={t('docker.containers.unpause')} aria-label={t('docker.containers.unpause')} disabled={actionLoading === c.Id} onClick={() => handleUnpause(c.Id)}>
-                          <Play />
-                        </Button>
-                      ) : (
-                        <Button variant="ghost" size="icon-xs" title={t('docker.containers.start')} aria-label={t('docker.containers.start')} disabled={actionLoading === c.Id} onClick={() => handleAction('start', c.Id)}>
-                          <Play />
-                        </Button>
-                      )}
-                      <Button variant="ghost" size="icon-xs" title={t('docker.containers.restart')} aria-label={t('docker.containers.restart')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'restart', container: c })}>
-                        <RotateCw />
-                      </Button>
-                      <Button variant="ghost" size="icon-xs" title={t('common.delete')} aria-label={t('common.delete')} disabled={actionLoading === c.Id} onClick={() => setDeleteTarget(c)}>
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  </div>
-                )
-              })}
+              {!isCollapsed && stackContainers.map((c) => (
+                <MobileContainerCard
+                  key={c.Id}
+                  container={c}
+                  stats={statsMap[c.Id]}
+                  grouped
+                  {...containerItemProps}
+                />
+              ))}
             </React.Fragment>
           )
         })}
@@ -1143,78 +902,14 @@ export default function DockerContainers() {
           </div>
         )}
         {/* Standalone containers */}
-        {groupedContainers.standalone.map((c) => {
-          const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-          const statusClasses = c.State === 'running' ? `${base} bg-success/10 text-success`
-            : c.State === 'exited' ? `${base} bg-destructive/10 text-destructive`
-            : c.State === 'paused' ? `${base} bg-warning/10 text-warning`
-            : `${base} bg-secondary text-muted-foreground`
-          const stats = statsMap[c.Id]
-          return (
-            <div key={c.Id} className="bg-card rounded-2xl p-4 card-shadow">
-              <div className="flex items-start justify-between gap-2">
-                <div role="button" tabIndex={0} className="min-w-0 flex-1 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" onClick={() => openDetail(c)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(c) } }}>
-                  <p className="text-[13px] font-semibold truncate">
-                    {formatContainerName(c.Names)}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground truncate mt-0.5">{c.Image}</p>
-                </div>
-                <span className={statusClasses}>
-                  {c.State}
-                </span>
-              </div>
-              {c.State === 'running' && stats && (
-                <div className="flex items-center gap-3 text-xs mt-2">
-                  <span className="flex items-center gap-1">
-                    <Cpu className="h-3 w-3 text-blue-500" />
-                    <span className={stats.cpu_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.cpu_percent.toFixed(1)}%</span>
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <MemoryStick className="h-3 w-3 text-purple-500" />
-                    <span className={stats.mem_percent > 80 ? 'text-red-500 font-medium' : ''}>{stats.mem_percent.toFixed(1)}%</span>
-                  </span>
-                </div>
-              )}
-              {c.Ports && c.Ports.length > 0 && formatPorts(c.Ports) !== '-' && (
-                <p className="text-[11px] text-muted-foreground font-mono mt-2 truncate">
-                  {formatPorts(c.Ports)}
-                </p>
-              )}
-              <div className="flex items-center gap-1 mt-3 justify-end">
-                <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')} onClick={() => openDetail(c)}>
-                  <Info />
-                </Button>
-                <Button variant="ghost" size="icon-xs" title={t('docker.containers.terminal')} aria-label={t('docker.containers.terminal')} onClick={() => openTerminal(c)}>
-                  <Terminal />
-                </Button>
-                {c.State === 'running' ? (
-                  <>
-                    <Button variant="ghost" size="icon-xs" title={t('docker.containers.pause')} aria-label={t('docker.containers.pause')} disabled={actionLoading === c.Id} onClick={() => handlePause(c.Id)}>
-                      <Pause />
-                    </Button>
-                    <Button variant="ghost" size="icon-xs" title={t('docker.containers.stop')} aria-label={t('docker.containers.stop')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'stop', container: c })}>
-                      <Square />
-                    </Button>
-                  </>
-                ) : c.State === 'paused' ? (
-                  <Button variant="ghost" size="icon-xs" title={t('docker.containers.unpause')} aria-label={t('docker.containers.unpause')} disabled={actionLoading === c.Id} onClick={() => handleUnpause(c.Id)}>
-                    <Play />
-                  </Button>
-                ) : (
-                  <Button variant="ghost" size="icon-xs" title={t('docker.containers.start')} aria-label={t('docker.containers.start')} disabled={actionLoading === c.Id} onClick={() => handleAction('start', c.Id)}>
-                    <Play />
-                  </Button>
-                )}
-                <Button variant="ghost" size="icon-xs" title={t('docker.containers.restart')} aria-label={t('docker.containers.restart')} disabled={actionLoading === c.Id} onClick={() => setConfirmAction({ action: 'restart', container: c })}>
-                  <RotateCw />
-                </Button>
-                <Button variant="ghost" size="icon-xs" title={t('common.delete')} aria-label={t('common.delete')} disabled={actionLoading === c.Id} onClick={() => setDeleteTarget(c)}>
-                  <Trash2 />
-                </Button>
-              </div>
-            </div>
-          )
-        })}
+        {groupedContainers.standalone.map((c) => (
+          <MobileContainerCard
+            key={c.Id}
+            container={c}
+            stats={statsMap[c.Id]}
+            {...containerItemProps}
+          />
+        ))}
       </div>
 
       {/* Desktop table view */}
@@ -1259,86 +954,30 @@ export default function DockerContainers() {
                   onClick={() => toggleStack(stackName)}
                 >
                   <TableCell colSpan={batchMode ? 8 : 7}>
-                    <div className="flex items-center gap-2 min-w-0">
-                      {isCollapsed ? (
-                        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                      )}
-                      <Layers className="h-4 w-4 text-primary shrink-0" />
-                      <span className="text-[13px] font-semibold truncate">{stackName}</span>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
-                        {stackRunning}/{stackContainers.length}
-                      </span>
-                      <div className="flex-1 min-w-0" />
-                      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        {stackRunning === 0 ? (
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            title={t('docker.compose.up')}
-                            aria-label={t('docker.compose.up')}
-                            disabled={isStackLoading}
-                            onClick={() => handleStackAction('up', stackName)}
-                          >
-                            {isStackLoading ? <Loader2 className="animate-spin" /> : <Play />}
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            title={t('docker.compose.down')}
-                            aria-label={t('docker.compose.down')}
-                            disabled={isStackLoading}
-                            onClick={() => setConfirmStackAction({ action: 'down', stackName })}
-                          >
-                            {isStackLoading ? <Loader2 className="animate-spin" /> : <Square />}
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          title={t('docker.containers.restart')}
-                          aria-label={t('docker.containers.restart')}
-                          disabled={isStackLoading}
-                          onClick={() => setConfirmStackAction({ action: 'restart', stackName })}
-                        >
-                          <RotateCw />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          title={t('common.delete')}
-                          aria-label={t('common.delete')}
-                          disabled={isStackLoading}
-                          onClick={() => setConfirmStackAction({ action: 'delete', stackName })}
-                        >
-                          <Trash2 className="text-destructive" />
-                        </Button>
-                      </div>
-                    </div>
+                    <StackGroupHeader
+                      stackName={stackName}
+                      running={stackRunning}
+                      total={stackContainers.length}
+                      collapsed={isCollapsed}
+                      loading={isStackLoading}
+                      onUp={() => { void handleStackAction('up', stackName) }}
+                      onDown={() => { void confirmStackAction('down', stackName) }}
+                      onRestart={() => { void confirmStackAction('restart', stackName) }}
+                      onDelete={() => { void confirmStackAction('delete', stackName) }}
+                      t={t}
+                    />
                   </TableCell>
                 </TableRow>
                 {!isCollapsed && stackContainers.map((c) => (
                   <ContainerRow
                     key={c.Id}
                     container={c}
-                    actionLoading={actionLoading}
-                    onDetail={openDetail}
-                    onTerminal={openTerminal}
-                    onStart={(id) => handleAction('start', id)}
-                    onStop={(ct) => setConfirmAction({ action: 'stop', container: ct })}
-                    onPause={handlePause}
-                    onUnpause={handleUnpause}
-                    onRestart={(ct) => setConfirmAction({ action: 'restart', container: ct })}
-                    onDelete={setDeleteTarget}
-
                     showService
                     statsMap={statsMap}
                     batchMode={batchMode}
                     selected={selectedIds.has(c.Id)}
                     onToggleSelect={toggleSelect}
-                    t={t}
+                    {...containerItemProps}
                   />
                 ))}
               </React.Fragment>
@@ -1359,20 +998,11 @@ export default function DockerContainers() {
             <ContainerRow
               key={c.Id}
               container={c}
-              actionLoading={actionLoading}
-              onDetail={openDetail}
-              onTerminal={openTerminal}
-              onStart={(id) => handleAction('start', id)}
-              onStop={(ct) => setConfirmAction({ action: 'stop', container: ct })}
-              onPause={handlePause}
-              onUnpause={handleUnpause}
-              onRestart={(ct) => setConfirmAction({ action: 'restart', container: ct })}
-              onDelete={setDeleteTarget}
               statsMap={statsMap}
               batchMode={batchMode}
               selected={selectedIds.has(c.Id)}
               onToggleSelect={toggleSelect}
-              t={t}
+              {...containerItemProps}
             />
           ))}
         </TableBody>
@@ -1384,7 +1014,6 @@ export default function DockerContainers() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         onCreated={fetchContainers}
-        t={t}
       />
 
       {/* Container detail dialog */}
@@ -1412,7 +1041,7 @@ export default function DockerContainers() {
                 </TabsTrigger>
                 <TabsTrigger value="history">
                   <Activity className="h-3.5 w-3.5 mr-1" />
-                  History
+                  {t('docker.containers.history', 'History')}
                 </TabsTrigger>
                 <TabsTrigger value="logs">
                   <Terminal className="h-3.5 w-3.5 mr-1" />
@@ -1437,104 +1066,6 @@ export default function DockerContainers() {
               </TabsContent>
             </Tabs>
           )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Stop/Restart confirmation dialog */}
-      <Dialog open={!!confirmAction} onOpenChange={(open) => !open && setConfirmAction(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {confirmAction?.action === 'stop' ? t('docker.containers.stopTitle') : t('docker.containers.restartTitle')}
-            </DialogTitle>
-            <DialogDescription>
-              <Trans
-                i18nKey={confirmAction?.action === 'stop' ? 'docker.containers.stopConfirm' : 'docker.containers.restartConfirm'}
-                values={{ name: confirmAction ? formatContainerName(confirmAction.container.Names) : '' }}
-                components={{ strong: <span className="font-semibold" /> }}
-              />
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmAction(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant={confirmAction?.action === 'stop' ? 'destructive' : 'default'}
-              onClick={() => {
-                if (confirmAction) {
-                  handleAction(confirmAction.action, confirmAction.container.Id)
-                  setConfirmAction(null)
-                }
-              }}
-              disabled={actionLoading === confirmAction?.container.Id}
-            >
-              {confirmAction?.action === 'stop' ? t('docker.containers.stop') : t('docker.containers.restart')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Stack action confirmation dialog */}
-      <Dialog open={!!confirmStackAction} onOpenChange={(open) => !open && setConfirmStackAction(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {confirmStackAction?.action === 'delete' ? t('common.delete') : confirmStackAction?.action === 'down' ? t('docker.compose.down') : t('docker.containers.restart')}
-            </DialogTitle>
-            <DialogDescription>
-              <Trans
-                i18nKey={confirmStackAction?.action === 'delete' ? 'docker.containers.stackDeleteConfirm' : confirmStackAction?.action === 'down' ? 'docker.containers.stackDownConfirm' : 'docker.containers.stackRestartConfirm'}
-                values={{ name: confirmStackAction?.stackName ?? '' }}
-                components={{ strong: <span className="font-semibold" /> }}
-              />
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmStackAction(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant={confirmStackAction?.action === 'down' || confirmStackAction?.action === 'delete' ? 'destructive' : 'default'}
-              onClick={() => {
-                if (confirmStackAction) {
-                  handleStackAction(confirmStackAction.action, confirmStackAction.stackName)
-                  setConfirmStackAction(null)
-                }
-              }}
-              disabled={stackActionLoading === confirmStackAction?.stackName}
-            >
-              {confirmStackAction?.action === 'delete' ? t('common.delete') : confirmStackAction?.action === 'down' ? t('docker.compose.down') : t('docker.containers.restart')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete confirmation dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('docker.containers.deleteTitle')}</DialogTitle>
-            <DialogDescription>
-              <Trans
-                i18nKey="docker.containers.deleteConfirm"
-                values={{ name: deleteTarget ? formatContainerName(deleteTarget.Names) : '' }}
-                components={{ strong: <span className="font-semibold" /> }}
-              />
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={actionLoading === deleteTarget?.Id}
-            >
-              {t('common.delete')}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

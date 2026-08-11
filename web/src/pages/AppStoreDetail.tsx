@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
-import { Marked } from 'marked'
-import DOMPurify from 'dompurify'
 import {
   Eye,
   EyeOff,
@@ -16,12 +14,6 @@ import {
   Copy,
   ChevronDown,
   ChevronUp,
-  X,
-  CheckCircle2,
-  XCircle,
-  Circle,
-  ExternalLink,
-  Boxes,
   Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -32,57 +24,11 @@ import { api } from '@/lib/api'
 import { appStoreIconUrl } from '@/lib/appstore'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import ComposeEditor from '@/components/compose/ComposeEditor'
+import { RenderedReadme } from '@/pages/appstore/components/RenderedReadme'
+import { InstallProgressPanel, type InstallLogLine } from '@/pages/appstore/components/InstallProgressPanel'
 import type { AppStoreAppDetail } from '@/types/api'
-
-// escapeHtmlAttr escapes a value for safe interpolation into an HTML attribute
-// (here: untrusted-README URLs). The rendered HTML is always run through
-// DOMPurify before it touches the DOM (see RenderedReadme), so this is
-// defense-in-depth: it keeps these string builders safe against
-// attribute-breakout even if a future refactor moves or relaxes that sanitize
-// step. Only URLs are escaped — link/image *text* may legitimately carry
-// already-rendered inline HTML, so it is left for DOMPurify to clean.
-function escapeHtmlAttr(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-}
-
-// Convert inline markdown (bold, links) to HTML
-function inlineMarkdownToHtml(text: string): string {
-  return text
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label: string, href: string) =>
-      `<a href="${escapeHtmlAttr(href)}" target="_blank" rel="noopener noreferrer" class="underline">${label}</a>`)
-}
-
-// Convert GitHub Alert syntax to styled HTML
-function processGitHubAlerts(markdown: string): string {
-  const alertIcons: Record<string, string> = {
-    NOTE: 'ℹ️',
-    TIP: '💡',
-    IMPORTANT: '❗',
-    WARNING: '⚠️',
-    CAUTION: '🔴',
-  }
-  return markdown.replace(
-    /^> \[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*\n((?:>.*\n?)*)/gm,
-    (_match, type: string, body: string) => {
-      const icon = alertIcons[type] || ''
-      const content = inlineMarkdownToHtml(body.replace(/^> ?/gm, '').trim())
-      const colors: Record<string, string> = {
-        NOTE: 'border-blue-400 bg-blue-50 dark:bg-blue-950/30',
-        TIP: 'border-green-400 bg-green-50 dark:bg-green-950/30',
-        IMPORTANT: 'border-purple-400 bg-purple-50 dark:bg-purple-950/30',
-        WARNING: 'border-yellow-400 bg-yellow-50 dark:bg-yellow-950/30',
-        CAUTION: 'border-red-400 bg-red-50 dark:bg-red-950/30',
-      }
-      const color = colors[type] || 'border-gray-400 bg-gray-50'
-      return `<div class="rounded-lg border-l-4 ${color} p-3 my-3 text-[12px]"><strong>${icon} ${type}</strong><br/>${content}</div>\n`
-    }
-  )
-}
 
 function generatePassword(): string {
   const bytes = new Uint8Array(16)
@@ -90,82 +36,13 @@ function generatePassword(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-function transformUrl(url: string, baseUrl?: string): string {
-  if (!url) return url
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url
-  if (baseUrl) {
-    const cleanUrl = url.startsWith('./') ? url.slice(2) : url
-    return baseUrl + cleanUrl
-  }
-  return url
-}
-
-function createMarked(baseUrl?: string): Marked {
-  return new Marked({
-    gfm: true,
-    breaks: false,
-    renderer: {
-      // src/href are escaped at interpolation (escapeHtmlAttr); alt/text are
-      // left for DOMPurify since they may carry rendered inline HTML. Output
-      // always passes through DOMPurify in RenderedReadme before the DOM.
-      image({ href, text }: { href: string; text: string }) {
-        const src = transformUrl(href, baseUrl)
-        const safeSrc = escapeHtmlAttr(src)
-        const isBadge = src && (
-          src.includes('shields.io') || src.includes('img.shields') ||
-          src.includes('badge') || src.includes('contrib.rocks') ||
-          src.includes('repobeats') || src.includes('star-history')
-        )
-        if (isBadge) {
-          return `<img src="${safeSrc}" alt="${text}" class="inline-block h-5 my-0.5 mr-1 rounded-none" />`
-        }
-        const isLogo = (src && (src.endsWith('.svg') || src.includes('logo'))) ||
-          (text && text.toLowerCase().includes('logo'))
-        const maxH = isLogo ? 'max-h-20' : 'max-h-64'
-        return `<img src="${safeSrc}" alt="${text}" class="max-w-full h-auto rounded-lg ${maxH}" />`
-      },
-      link({ href, text }: { href: string; text: string }) {
-        const url = transformUrl(href, baseUrl)
-        return `<a href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener noreferrer">${text}</a>`
-      },
-    },
-  })
-}
-
-function RenderedReadme({ markdown, baseUrl }: { markdown: string; baseUrl?: string }) {
-  const html = useMemo(() => {
-    const processed = processGitHubAlerts(markdown)
-    const md = createMarked(baseUrl)
-    const raw = md.parse(processed) as string
-    // README text comes from an untrusted external repo — sanitize before
-    // injecting into the DOM. ADD_ATTR keeps our rendered anchors' target/rel
-    // attributes (opener isolation), which DOMPurify drops by default.
-    return DOMPurify.sanitize(raw, { ADD_ATTR: ['target', 'rel'] })
-  }, [markdown, baseUrl])
-
-  return (
-    <div
-      className="rounded-xl bg-secondary/20 p-5 prose prose-sm dark:prose-invert max-w-none
-        prose-headings:text-foreground prose-headings:font-semibold
-        prose-h1:text-[16px] prose-h1:mt-0 prose-h1:mb-2
-        prose-h2:text-[14px] prose-h2:mt-5 prose-h2:mb-2
-        prose-h3:text-[13px] prose-h3:mt-3 prose-h3:mb-1
-        prose-p:text-[12px] prose-p:text-muted-foreground prose-p:leading-relaxed
-        prose-li:text-[12px] prose-li:text-muted-foreground
-        prose-strong:text-foreground prose-strong:font-medium
-        prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-        prose-code:text-[11px] prose-code:bg-secondary/50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-foreground
-        prose-pre:bg-[#1e1e2e] prose-pre:text-[#cdd6f4] prose-pre:rounded-xl prose-pre:p-4
-        [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[11px] [&_pre_code]:text-[#cdd6f4]
-        prose-table:text-[11px]
-        prose-th:text-[10px] prose-th:font-semibold prose-th:text-muted-foreground prose-th:uppercase prose-th:tracking-wider
-        prose-td:text-[11px]
-        prose-img:rounded-lg prose-img:my-2
-        [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-lg
-      "
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  )
+// Shape of the install SSE events emitted by /appstore/apps/:id/install
+interface InstallEvent {
+  stage: string
+  message: string
+  success: boolean
+  done?: boolean
+  health?: string
 }
 
 interface AppStoreDetailModalProps {
@@ -190,12 +67,11 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
   const [showInstallForm, setShowInstallForm] = useState(false)
   const [showCompose, setShowCompose] = useState(false)
   const [showProgress, setShowProgress] = useState(false)
-  const [progressLogs, setProgressLogs] = useState<Array<{ stage: string; message: string; success: boolean }>>([])
+  const [progressLogs, setProgressLogs] = useState<InstallLogLine[]>([])
   const [progressDone, setProgressDone] = useState(false)
   const [progressSuccess, setProgressSuccess] = useState(false)
   const [installHealth, setInstallHealth] = useState<string>('')
   const [currentStage, setCurrentStage] = useState('')
-  const logEndRef = useRef<HTMLDivElement>(null)
   const [installMode, setInstallMode] = useState<'simple' | 'advanced'>('simple')
   const [customCompose, setCustomCompose] = useState('')
   const [customEnv, setCustomEnv] = useState('')
@@ -322,44 +198,20 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
     }
   }, [open, appId, loadDetail])
 
-  // Close on Escape
+  // Abort any in-flight install SSE stream when the modal closes/unmounts.
+  // (Escape handling, backdrop, focus trap and scroll lock come from Radix.)
   useEffect(() => {
-    if (!open) return
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !installing) onClose()
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [open, installing, onClose])
-
-  // Prevent body scroll when modal is open; abort SSE on close
-  useEffect(() => {
-    if (open) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-      // Abort any in-flight SSE stream when modal closes
-      if (abortRef.current) {
-        abortRef.current.abort()
-        abortRef.current = null
-      }
+    if (!open && abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
     }
     return () => {
-      document.body.style.overflow = ''
       if (abortRef.current) {
         abortRef.current.abort()
         abortRef.current = null
       }
     }
   }, [open])
-
-  // Auto-scroll logs within container only
-  useEffect(() => {
-    const el = logEndRef.current?.parentElement
-    if (el) {
-      el.scrollTop = el.scrollHeight
-    }
-  }, [progressLogs])
 
   const handleInstall = async () => {
     if (!detail) return
@@ -387,94 +239,61 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
     setCurrentStage('')
     setShowInstallForm(false)
 
+    const controller = new AbortController()
+    abortRef.current = controller
+    // Flips once the SSE stream delivers events — a throw before that is a
+    // pre-flight rejection and should restore the install form.
+    let sawEvent = false
+
     try {
-      const controller = new AbortController()
-      abortRef.current = controller
-
-      const nodeParam = api.currentNode ? `?node=${encodeURIComponent(api.currentNode)}` : ''
-      const res = await fetch(`${api.apiBase}/appstore/apps/${detail.app.id}/install${nodeParam}`, {
-        method: 'POST',
-        headers: api.streamHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify(
-          installMode === 'advanced'
-            ? { advanced: true, compose: customCompose, env_raw: customEnv, password: advancedPassword }
-            : { env: envValues }
-        ),
-        signal: controller.signal,
-      })
-
-      if (!res.ok) {
-        // Pre-flight check failed (JSON error response)
-        try {
-          const errData = await res.json()
-          const code = errData?.error?.code || ''
-          const msg = errData?.error?.message || t('appStore.installFailed')
-          if (code === 'PORT_CONFLICT') {
-            toast.error(t('appStore.portConflict') + ': ' + msg.replace('Port conflict: ', ''))
-          } else if (code === 'CONTAINER_CONFLICT') {
-            toast.error(t('appStore.containerConflict') + ': ' + msg.replace('Container name conflict: ', ''))
-          } else if (code === 'ALREADY_EXISTS') {
-            toast.error(t('appStore.alreadyInstalled'))
-          } else {
-            toast.error(msg)
-          }
-        } catch {
-          toast.error(t('appStore.installFailed'))
-        }
-        setShowProgress(false)
-        setInstalling(false)
-        setShowInstallForm(true)
-        return
-      }
-
-      if (!res.body) {
-        toast.error(t('appStore.installFailed'))
-        setShowProgress(false)
-        setInstalling(false)
-        return
-      }
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          try {
-            const event = JSON.parse(line.slice(6))
-            setCurrentStage(event.stage)
-            setProgressLogs(prev => [...prev, {
-              stage: event.stage,
-              message: event.message,
-              success: event.success,
-            }])
-            if (event.done) {
-              setProgressDone(true)
-              setProgressSuccess(event.success)
-              if (event.health) setInstallHealth(event.health)
-              if (event.success) {
-                toast.success(t('appStore.installSuccess', { name: detail.app.name }))
-                onInstalled()
-              } else {
-                toast.error(t('appStore.installFailed'))
-              }
+      await api.installAppStream<InstallEvent>(
+        detail.app.id,
+        installMode === 'advanced'
+          ? { advanced: true, compose: customCompose, env_raw: customEnv, password: advancedPassword }
+          : { env: envValues },
+        (event) => {
+          sawEvent = true
+          setCurrentStage(event.stage)
+          setProgressLogs(prev => [...prev, {
+            stage: event.stage,
+            message: event.message,
+            success: event.success,
+          }])
+          if (event.done) {
+            setProgressDone(true)
+            setProgressSuccess(event.success)
+            if (event.health) setInstallHealth(event.health)
+            if (event.success) {
+              toast.success(t('appStore.installSuccess', { name: detail.app.name }))
+              onInstalled()
+            } else {
+              toast.error(t('appStore.installFailed'))
             }
-          } catch {
-            // skip invalid JSON
           }
-        }
-      }
+        },
+        controller.signal,
+      )
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         // User closed modal during install — no toast needed
+        return
+      }
+      if (!sawEvent) {
+        // Pre-flight check failed (JSON error before any SSE) — keep the
+        // code-specific toasts, then restore the form.
+        const e = err as Error & { code?: string }
+        const msg = e.message || t('appStore.installFailed')
+        if (e.code === 'PORT_CONFLICT') {
+          toast.error(t('appStore.portConflict') + ': ' + msg.replace('Port conflict: ', ''))
+        } else if (e.code === 'CONTAINER_CONFLICT') {
+          toast.error(t('appStore.containerConflict') + ': ' + msg.replace('Container name conflict: ', ''))
+        } else if (e.code === 'ALREADY_EXISTS') {
+          toast.error(t('appStore.alreadyInstalled'))
+        } else {
+          toast.error(msg)
+        }
+        setShowProgress(false)
+        setShowInstallForm(true)
         return
       }
       toast.error(t('appStore.installFailed'))
@@ -486,26 +305,10 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
     }
   }
 
-  if (!open) return null
-
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center">
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200"
-        onClick={() => !installing && onClose()}
-      />
-
-      {/* Modal */}
-      <div className="relative z-10 w-full max-w-2xl mx-4 my-8 max-h-[calc(100vh-4rem)] overflow-y-auto rounded-2xl bg-background card-shadow-lg animate-in slide-in-from-bottom-4 fade-in duration-300">
-        {/* Close button */}
-        <button
-          onClick={() => !installing && onClose()}
-          aria-label={t('common.close')}
-          className="absolute top-4 right-4 z-20 p-1.5 rounded-full bg-secondary/80 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-        >
-          <X className="h-4 w-4" />
-        </button>
+    <Dialog open={open} onOpenChange={(o) => { if (!o && !installing) onClose() }}>
+      <DialogContent className="sm:max-w-2xl rounded-2xl p-0 gap-0" aria-describedby={undefined}>
+        <DialogTitle className="sr-only">{detail?.app.name ?? t('appStore.title')}</DialogTitle>
 
         {loading ? (
           <div className="flex items-center justify-center h-64">
@@ -827,13 +630,11 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                         namespaces, bind mounts into system paths, docker.sock)
                         but a broken file can still brick the stack. */}
                     <div className="mb-3 rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3 text-[11px] text-yellow-900 dark:text-yellow-100">
-                      ⚠️ Advanced mode runs arbitrary Docker Compose YAML on
-                      the host with root privileges. Dangerous patterns
-                      (privileged containers, host namespaces, bind mounts into
-                      {' '}<code>/etc</code>, <code>/root</code>,
-                      {' '}<code>/var/lib/sfpanel</code>, the Docker socket,
-                      etc.) are rejected server-side. Review your file before
-                      installing.
+                      <Trans
+                        i18nKey="appStore.advancedWarning"
+                        defaults="⚠️ Advanced mode runs arbitrary Docker Compose YAML on the host with root privileges. Dangerous patterns (privileged containers, host namespaces, bind mounts into <code>/etc</code>, <code>/root</code>, <code>/var/lib/sfpanel</code>, the Docker socket, etc.) are rejected server-side. Review your file before installing."
+                        components={{ code: <code /> }}
+                      />
                     </div>
                     {/* Sub-tabs */}
                     <div className="flex gap-1 mb-3">
@@ -860,22 +661,15 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                     </div>
 
                     {advancedTab === 'compose' && (
-                      <textarea
-                        className="w-full h-64 rounded-xl bg-[#1e1e2e] text-[#cdd6f4] font-mono text-[11px] p-4 leading-relaxed resize-y border-0 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                        value={customCompose}
-                        onChange={(e) => setCustomCompose(e.target.value)}
-                        spellCheck={false}
-                      />
+                      <div className="rounded-xl overflow-hidden border">
+                        <ComposeEditor value={customCompose} onChange={setCustomCompose} height="256px" />
+                      </div>
                     )}
 
                     {advancedTab === 'env' && (
-                      <textarea
-                        className="w-full h-48 rounded-xl bg-[#1e1e2e] text-[#cdd6f4] font-mono text-[11px] p-4 leading-relaxed resize-y border-0 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                        value={customEnv}
-                        onChange={(e) => setCustomEnv(e.target.value)}
-                        placeholder="KEY=value&#10;DB_PASSWORD=secret&#10;PORT=8080"
-                        spellCheck={false}
-                      />
+                      <div className="rounded-xl overflow-hidden border">
+                        <ComposeEditor value={customEnv} onChange={setCustomEnv} language="ini" height="192px" />
+                      </div>
                     )}
                   </div>
                 )}
@@ -916,136 +710,24 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
 
             {/* Installation Progress */}
             {showProgress && (
-              <div className="bg-secondary/20 rounded-xl p-5 animate-in slide-in-from-top-2 duration-200">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-[14px] font-semibold">
-                    {progressDone
-                      ? progressSuccess
-                        ? t('appStore.installComplete')
-                        : t('appStore.installFailed')
-                      : t('appStore.installing')}
-                  </h3>
-                  {progressDone && (
-                    progressSuccess ? (
-                      <CheckCircle2 className="h-5 w-5 text-success" />
-                    ) : (
-                      <XCircle className="h-5 w-5 text-destructive" />
-                    )
-                  )}
-                  {!progressDone && (
-                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                  )}
-                </div>
-
-                {/* Stage indicators */}
-                <div className="flex items-center gap-2 mb-4">
-                  {['fetch', 'prepare', 'pull', 'start', 'done'].map((stage) => {
-                    const stageLabels: Record<string, string> = {
-                      fetch: t('appStore.stageFetch'),
-                      prepare: t('appStore.stagePrepare'),
-                      pull: t('appStore.stagePull'),
-                      start: t('appStore.stageStart'),
-                      done: t('appStore.stageDone'),
-                    }
-                    const stageOrder = ['fetch', 'prepare', 'pull', 'start', 'done']
-                    const currentIdx = stageOrder.indexOf(currentStage)
-                    const thisIdx = stageOrder.indexOf(stage)
-                    const isComplete = thisIdx < currentIdx || (progressDone && progressSuccess)
-                    const isCurrent = stage === currentStage && !progressDone
-                    const isFailed = progressDone && !progressSuccess && stage === currentStage
-
-                    return (
-                      <div key={stage} className="flex items-center gap-1">
-                        {isComplete ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                        ) : isFailed ? (
-                          <XCircle className="h-3.5 w-3.5 text-destructive" />
-                        ) : isCurrent ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                        ) : (
-                          <Circle className="h-3.5 w-3.5 text-muted-foreground/30" />
-                        )}
-                        <span className={`text-[11px] ${isCurrent ? 'text-primary font-medium' : isComplete ? 'text-success' : isFailed ? 'text-destructive' : 'text-muted-foreground/50'}`}>
-                          {stageLabels[stage]}
-                        </span>
-                        {stage !== 'done' && (
-                          <span className="text-muted-foreground/20 mx-1">›</span>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* Log output */}
-                <div className="rounded-xl bg-[#1e1e2e] p-4 max-h-64 overflow-y-auto font-mono text-[11px] leading-relaxed">
-                  {progressLogs.map((log, idx) => (
-                    <div
-                      key={idx}
-                      className={`${log.success ? 'text-[#cdd6f4]' : 'text-destructive'}`}
-                    >
-                      <span className="text-[#89b4fa] select-none">[{log.stage}]</span>{' '}
-                      {log.message}
-                    </div>
-                  ))}
-                  <div ref={logEndRef} />
-                </div>
-
-                {progressDone && progressSuccess && (
-                  installHealth === 'healthy' ? (
-                    <p className="text-[13px] text-success mt-4">{t('appStore.healthHealthy')}</p>
-                  ) : installHealth === 'starting' ? (
-                    <p className="text-[13px] text-amber-600 mt-4">{t('appStore.healthStarting')}</p>
-                  ) : null
-                )}
-
-                {progressDone && (
-                  <div className="flex flex-wrap gap-3 mt-4">
-                    {progressSuccess && installPort && (
-                      <Button
-                        size="sm"
-                        className="rounded-xl"
-                        onClick={() =>
-                          window.open(
-                            `${window.location.protocol}//${window.location.hostname}:${installPort}`,
-                            '_blank',
-                            'noopener'
-                          )
-                        }
-                      >
-                        <ExternalLink className="h-4 w-4 mr-1.5" />
-                        {t('appStore.openApp')}
-                      </Button>
-                    )}
-                    {progressSuccess && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="rounded-xl"
-                        onClick={() => {
-                          onClose()
-                          navigate(`/docker/stacks/${detail.app.id}`)
-                        }}
-                      >
-                        <Boxes className="h-4 w-4 mr-1.5" />
-                        {t('appStore.manageInStacks')}
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant={progressSuccess ? 'ghost' : 'default'}
-                      className="rounded-xl"
-                      onClick={() => {
-                        setShowProgress(false)
-                        if (progressSuccess) {
-                          loadDetail()
-                        }
-                      }}
-                    >
-                      {t('common.close')}
-                    </Button>
-                  </div>
-                )}
-              </div>
+              <InstallProgressPanel
+                logs={progressLogs}
+                done={progressDone}
+                success={progressSuccess}
+                health={installHealth}
+                currentStage={currentStage}
+                installPort={installPort}
+                onManage={() => {
+                  onClose()
+                  navigate(`/docker/stacks/${detail.app.id}`)
+                }}
+                onClose={() => {
+                  setShowProgress(false)
+                  if (progressSuccess) {
+                    loadDetail()
+                  }
+                }}
+              />
             )}
 
             {/* Features */}
@@ -1102,7 +784,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
             )}
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

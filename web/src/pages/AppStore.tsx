@@ -64,20 +64,20 @@ export default function AppStore() {
     api.getAppStoreStatus().then((s) => setStale(s.stale)).catch(() => {})
   }, [loadData])
 
-  // Lazily check installed apps for available updates (best-effort, never throws).
+  // Lazily check installed apps for available updates (best-effort, never
+  // throws) — in parallel, so a slow registry lookup doesn't delay every
+  // badge behind it.
   useEffect(() => {
     const installed = apps.filter((a) => a.installed)
     let cancelled = false
-    ;(async () => {
-      for (const a of installed) {
-        try {
-          const r = await api.checkStackUpdates(a.id)
-          if (!cancelled && r.has_updates) setUpdates((m) => ({ ...m, [a.id]: true }))
-        } catch {
-          /* docker absent / not scanned — no badge */
-        }
+    void Promise.allSettled(installed.map(async (a) => {
+      try {
+        const r = await api.checkStackUpdates(a.id)
+        if (!cancelled && r.has_updates) setUpdates((m) => ({ ...m, [a.id]: true }))
+      } catch {
+        /* docker absent / not scanned — no badge */
       }
-    })()
+    }))
     return () => { cancelled = true }
   }, [apps])
 

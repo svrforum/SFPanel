@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Container, Network, HardDrive, Settings, RotateCw, Heart } from 'lucide-react'
 import type { DiffByCategory } from '@/types/api'
@@ -9,20 +10,30 @@ interface Props {
 
 interface CatMeta {
   key: keyof DiffByCategory
-  label: string
   icon: React.ComponentType<{ className?: string }>
 }
 
 const CATEGORIES: CatMeta[] = [
-  { key: 'image',       label: '이미지',     icon: Container },
-  { key: 'ports',       label: '포트',       icon: Network },
-  { key: 'volumes',     label: '볼륨',       icon: HardDrive },
-  { key: 'env',         label: '환경변수',   icon: Settings },
-  { key: 'restart',     label: 'restart',   icon: RotateCw },
-  { key: 'healthcheck', label: 'healthcheck', icon: Heart },
+  { key: 'image',       icon: Container },
+  { key: 'ports',       icon: Network },
+  { key: 'volumes',     icon: HardDrive },
+  { key: 'env',         icon: Settings },
+  { key: 'restart',     icon: RotateCw },
+  { key: 'healthcheck', icon: Heart },
 ]
 
 export function DiffCategoryList({ byCategory }: Props) {
+  const { t } = useTranslation()
+  // restart/healthcheck stay as literal compose terms; the rest are translated.
+  const labels: Record<keyof DiffByCategory, string> = {
+    image: t('compose.diff.categoryImage', 'Image'),
+    ports: t('compose.diff.categoryPorts', 'Ports'),
+    volumes: t('compose.diff.categoryVolumes', 'Volumes'),
+    env: t('compose.diff.categoryEnv', 'Environment'),
+    restart: 'restart',
+    healthcheck: 'healthcheck',
+  }
+
   // Categories with ≥1 change are open by default. The shadcn Accordion
   // accepts a `defaultValue` array (multi-mode) to express this.
   const defaultOpen = CATEGORIES
@@ -31,7 +42,7 @@ export function DiffCategoryList({ byCategory }: Props) {
 
   return (
     <Accordion type="multiple" defaultValue={defaultOpen} className="w-full">
-      {CATEGORIES.map(({ key, label, icon: Icon }) => {
+      {CATEGORIES.map(({ key, icon: Icon }) => {
         const items = byCategory[key] ?? []
         const count = items.length
         const isEmpty = count === 0
@@ -40,10 +51,12 @@ export function DiffCategoryList({ byCategory }: Props) {
             <AccordionTrigger className="text-[13px]" disabled={isEmpty}>
               <span className="flex items-center gap-2 flex-1">
                 <Icon className="h-3.5 w-3.5" />
-                <span>{label}</span>
+                <span>{labels[key]}</span>
               </span>
               <span className="text-[12px] text-muted-foreground mr-2">
-                {isEmpty ? '변경 없음' : `${count} 변경`}
+                {isEmpty
+                  ? t('compose.diff.categoryNoChanges', 'No changes')
+                  : t('compose.diff.changeCount', '{{n}} changed', { n: count })}
               </span>
             </AccordionTrigger>
             <AccordionContent>

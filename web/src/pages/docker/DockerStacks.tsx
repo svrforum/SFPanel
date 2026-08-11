@@ -2,20 +2,22 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Plus, Play, Square, RotateCw, ArrowUp, RefreshCw,
-  Trash2, Terminal, ScrollText, FileText, FileCode, Save, Loader2,
-  CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft, Eye,
-  HeartPulse, Info, ArrowRightLeft, Monitor, AlertTriangle,
+  Plus, Play, Square, RotateCw, RefreshCw,
+  Trash2, Terminal, ScrollText, FileCode, Loader2,
+  CheckCircle2, XCircle, Download, Undo2, Search, ChevronLeft,
+  HeartPulse, Info, ArrowRightLeft, Monitor, AlertTriangle, AlertCircle,
 } from 'lucide-react'
 import { HealthcheckComposerDialog } from '@/components/compose/HealthcheckComposerDialog'
 import { MigrateStackDialog } from '@/pages/docker/components/MigrateStackDialog'
+import { CreateStackDialog } from '@/pages/docker/components/CreateStackDialog'
+import { StackEditorPanel } from '@/pages/docker/components/StackEditorPanel'
+import { StackProgressDialog, useStackProgress } from '@/pages/docker/components/StackProgressDialog'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import { useConfirm } from '@/components/ConfirmDialog'
 import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck, RollbackInfo, ClusterNodeStacks } from '@/types/api'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -33,20 +35,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import ComposeEditor from '@/components/ComposeEditor'
-import ComposeLogs from '@/components/ComposeLogs'
-import ContainerLogs from '@/components/ContainerLogs'
-import ContainerShell from '@/components/ContainerShell'
-import ContainerInspect from '@/components/ContainerInspect'
+import ComposeLogs from '@/components/compose/ComposeLogs'
+import ContainerLogs from '@/components/docker/ContainerLogs'
+import ContainerShell from '@/components/docker/ContainerShell'
+import ContainerInspect from '@/components/docker/ContainerInspect'
 import { DiffSheet } from '@/components/compose/DiffSheet'
-import { GitImportForm } from '@/components/compose/GitImportForm'
-
-const DEFAULT_COMPOSE = `services:
-  app:
-    image: nginx:latest
-    ports:
-      - "8080:80"
-`
 
 function statusIcon(status: string) {
   switch (status) {
@@ -74,7 +67,7 @@ function serviceBadge(state: string) {
 }
 
 // Cluster node health dot — a fetch error (stacks couldn't load) takes
-// precedence, otherwise the node's reported health. Mirrors NodeSelector.
+// precedence, otherwise the node's reported health (same mapping as nodeStatusColor).
 function nodeDot(status: string, error?: string) {
   if (error) return 'bg-destructive'
   switch (status) {
@@ -83,6 +76,72 @@ function nodeDot(status: string, error?: string) {
     case 'offline': return 'bg-destructive'
     default: return 'bg-muted-foreground'
   }
+}
+
+// Seven-button action strip for a compose service — shared between the desktop
+// table row and the mobile card, which used to carry two copies of it.
+function ServiceActions({
+  svc,
+  actionLoading,
+  onAction,
+  onHealthcheck,
+  onInspect,
+  onLogs,
+  onShell,
+  className,
+}: {
+  svc: ComposeService
+  actionLoading: string | null
+  onAction: (action: 'restart' | 'stop' | 'start', service: string) => void
+  onHealthcheck: (svc: ComposeService) => void
+  onInspect: (svc: ComposeService) => void
+  onLogs: (svc: ComposeService) => void
+  onShell: (svc: ComposeService) => void
+  className?: string
+}) {
+  const { t } = useTranslation()
+  const busy = actionLoading === svc.name
+  return (
+    <div className={cn('flex items-center gap-1', className)}>
+      {svc.state === 'running' ? (
+        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.stopService')} aria-label={t('docker.stacks.stopService')}
+          disabled={busy}
+          onClick={() => onAction('stop', svc.name)}>
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+        </Button>
+      ) : (
+        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.startService')} aria-label={t('docker.stacks.startService')}
+          disabled={busy}
+          onClick={() => onAction('start', svc.name)}>
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+        </Button>
+      )}
+      <Button variant="ghost" size="icon-xs" title={t('docker.stacks.restartService')} aria-label={t('docker.stacks.restartService')}
+        disabled={busy}
+        onClick={() => onAction('restart', svc.name)}>
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
+      </Button>
+      <Button variant="ghost" size="icon-xs" title={t('compose.healthcheck.title', 'Healthcheck')} aria-label={t('compose.healthcheck.title', 'Healthcheck')}
+        onClick={() => onHealthcheck(svc)}>
+        <HeartPulse className={`h-3.5 w-3.5 ${svc.has_healthcheck ? 'text-success' : ''}`} />
+      </Button>
+      <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')}
+        disabled={!svc.container_id}
+        onClick={() => onInspect(svc)}>
+        <Info className="h-3.5 w-3.5" />
+      </Button>
+      <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')} aria-label={t('docker.stacks.viewLogs')}
+        onClick={() => onLogs(svc)}>
+        <ScrollText className="h-3.5 w-3.5" />
+      </Button>
+      {svc.container_id && svc.state === 'running' && (
+        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.openShell')} aria-label={t('docker.stacks.openShell')}
+          onClick={() => onShell(svc)}>
+          <Terminal className="h-3.5 w-3.5" />
+        </Button>
+      )}
+    </div>
+  )
 }
 
 // clusterMode renders the cluster-wide master-detail (Cluster › Docker): the left
@@ -102,15 +161,13 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
 
   const [projects, setProjects] = useState<ComposeProjectWithStatus[]>([])
   const [loading, setLoading] = useState(true)
+  const [listError, setListError] = useState<string | null>(null)
   const [services, setServices] = useState<ComposeService[]>([])
   const [servicesLoading, setServicesLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   // Create dialog
   const [createOpen, setCreateOpen] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newYaml, setNewYaml] = useState(DEFAULT_COMPOSE)
-  const [creating, setCreating] = useState(false)
 
   // Node-to-node migration. In single-node mode the source is the current node;
   // in cluster mode the left list passes the stack's own node explicitly.
@@ -180,10 +237,8 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   const [editEnv, setEditEnv] = useState('')
   const [editorTab, setEditorTab] = useState<'compose' | 'env'>('compose')
   const [mainTab, setMainTab] = useState<'services' | 'editor' | 'logs'>('services')
+  // Deploy flow (save + up-stream) — the panel's own Save has separate state.
   const [editSaving, setEditSaving] = useState(false)
-  const [envSaving, setEnvSaving] = useState(false)
-  const [validating, setValidating] = useState(false)
-  const [validationResult, setValidationResult] = useState<{ valid: boolean; message: string } | null>(null)
   const [diffOpen, setDiffOpen] = useState(false)
 
   // Delete dialog
@@ -198,22 +253,13 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   const [rollbackInfo, setRollbackInfo] = useState<RollbackInfo | null>(null)
   const [healthcheckTarget, setHealthcheckTarget] = useState<ComposeService | null>(null)
 
-  // Progress modal
-  const [progressOpen, setProgressOpen] = useState(false)
-  const [progressTitle, setProgressTitle] = useState('')
-  const [progressLines, setProgressLines] = useState<string[]>([])
-  const [progressDone, setProgressDone] = useState(false)
-  const [progressError, setProgressError] = useState(false)
-  const progressEndRef = useRef<HTMLDivElement>(null)
+  // Deploy/update progress modal (shared stream handler)
+  const { progress, runProgressStream, closeProgress } = useStackProgress()
 
   // Service logs/shell dialogs
   const [logService, setLogService] = useState<ComposeService | null>(null)
   const [shellService, setShellService] = useState<ComposeService | null>(null)
   const [inspectService, setInspectService] = useState<ComposeService | null>(null)
-
-  useEffect(() => {
-    progressEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [progressLines])
 
   // In cluster mode the selected stack lives in its node group (it isn't in the
   // local `projects` list); otherwise resolve from the single-node list.
@@ -224,10 +270,12 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   const fetchProjects = useCallback(async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true)
+      setListError(null)
       const data = await api.getComposeProjects()
       setProjects(data || [])
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('docker.compose.fetchFailed')
+      setListError(msg)
       toast.error(msg)
     } finally {
       if (showLoading) setLoading(false)
@@ -317,74 +365,15 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     }
   }, [clusterMode])
 
-  useEffect(() => {
-    setValidationResult(null)
-  }, [editYaml])
-
-  const handleValidate = async () => {
-    if (!selectedName) return
-    setValidating(true)
-    setValidationResult(null)
-    try {
-      const result = await api.validateCompose(selectedName)
-      setValidationResult(result)
-      if (result.valid) {
-        toast.success(t('docker.stacks.validateSuccess'))
-      } else {
-        toast.error(t('docker.stacks.validateFailed'))
-      }
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('docker.stacks.validateFailed'))
-    } finally {
-      setValidating(false)
-    }
-  }
-
-  const handleCreate = async () => {
-    if (!newName.trim() || !newYaml.trim()) return
-    setCreating(true)
-    try {
-      await api.createComposeProject(newName.trim(), newYaml)
-      toast.success(t('docker.compose.createSuccess', { name: newName }))
-      setCreateOpen(false)
-      setNewName('')
-      setNewYaml(DEFAULT_COMPOSE)
-      await fetchProjects()
-      navigate(`${basePath}/${newName.trim()}`)
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('docker.compose.createFailed'))
-    } finally {
-      setCreating(false)
-    }
-  }
-
   const handleUp = async (name: string) => {
-    setProgressTitle(t('docker.stacks.deploying'))
-    setProgressLines([])
-    setProgressDone(false)
-    setProgressError(false)
-    setProgressOpen(true)
-
     try {
-      await api.composeUpStream(name, (event) => {
-        if (event.phase === 'error') {
-          setProgressError(true)
-          setProgressLines(prev => [...prev, `❌ ${event.line}`])
-        } else if (event.phase === 'complete') {
-          setProgressLines(prev => [...prev, `✅ ${event.line}`])
-        } else {
-          setProgressLines(prev => [...prev, event.line])
-        }
-      })
-      setProgressDone(true)
+      await runProgressStream(t('docker.stacks.deploying'), (onEvent) => api.composeUpStream(name, onEvent))
       toast.success(t('docker.compose.upSuccess', { name }))
       await Promise.all([
         refreshList(),
         selectedName === name ? fetchServices(name) : Promise.resolve(),
       ])
     } catch (err: unknown) {
-      setProgressError(true)
-      setProgressDone(true)
       toast.error(err instanceof Error ? err.message : t('docker.compose.upFailed'))
     }
   }
@@ -439,58 +428,12 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     setEditSaving(false)
 
     // Open progress modal and stream
-    setProgressTitle(t('docker.stacks.deploying'))
-    setProgressLines([])
-    setProgressDone(false)
-    setProgressError(false)
-    setProgressOpen(true)
-
     try {
-      await api.composeUpStream(selectedName, (event) => {
-        if (event.phase === 'error') {
-          setProgressError(true)
-          setProgressLines(prev => [...prev, `❌ ${event.line}`])
-        } else if (event.phase === 'complete') {
-          setProgressLines(prev => [...prev, `✅ ${event.line}`])
-        } else {
-          setProgressLines(prev => [...prev, event.line])
-        }
-      })
-      setProgressDone(true)
+      await runProgressStream(t('docker.stacks.deploying'), (onEvent) => api.composeUpStream(selectedName, onEvent))
       toast.success(t('docker.stacks.deploySuccess'))
       await Promise.all([refreshList(), fetchServices(selectedName)])
     } catch (err: unknown) {
-      setProgressError(true)
-      setProgressDone(true)
       toast.error(err instanceof Error ? err.message : t('docker.stacks.deployFailed'))
-    }
-  }
-
-  const handleSaveYaml = async () => {
-    if (!selectedName || !editYaml.trim()) return
-    setEditSaving(true)
-    try {
-      await api.updateComposeProject(selectedName, editYaml)
-      toast.success(t('docker.stacks.saved'))
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('docker.stacks.saveFailed'))
-    } finally {
-      setEditSaving(false)
-    }
-  }
-
-  const handleSaveEnv = async () => {
-    if (!selectedName) return
-    setEnvSaving(true)
-    try {
-      await api.updateComposeEnv(selectedName, editEnv)
-      toast.success(t('docker.stacks.envSaved'))
-      // Refresh project to update has_env status
-      refreshList()
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('docker.stacks.envSaveFailed'))
-    } finally {
-      setEnvSaving(false)
     }
   }
 
@@ -525,34 +468,13 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
 
   const handleUpdate = async () => {
     if (!selectedName) return
-
-    setProgressTitle(t('docker.stacks.updating'))
-    setProgressLines([])
-    setProgressDone(false)
-    setProgressError(false)
-    setProgressOpen(true)
-
     try {
-      await api.updateStackStream(selectedName, (event) => {
-        if (event.phase === 'error') {
-          setProgressError(true)
-          setProgressLines(prev => [...prev, `❌ ${event.line}`])
-        } else if (event.phase === 'complete') {
-          setProgressLines(prev => [...prev, `✅ ${event.line}`])
-        } else {
-          setProgressLines(prev => [...prev, event.line])
-        }
-      })
-      setProgressDone(true)
+      await runProgressStream(t('docker.stacks.updating'), (onEvent) => api.updateStackStream(selectedName, onEvent))
       toast.success(t('docker.stacks.updateSuccess'))
       setUpdateCheck(null)
-      if (selectedName) {
-        api.hasRollback(selectedName).then(r => setRollbackInfo(r)).catch(() => {})
-      }
+      api.hasRollback(selectedName).then(r => setRollbackInfo(r)).catch(() => {})
       await Promise.all([refreshList(), fetchServices(selectedName)])
     } catch (err: unknown) {
-      setProgressError(true)
-      setProgressDone(true)
       toast.error(err instanceof Error ? err.message : t('docker.stacks.updateFailed'))
     }
   }
@@ -667,9 +589,25 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
           </div>
         ) : (
         <>
+        {/* Load failure (docker-family error-state pattern, narrow-panel layout) */}
+        {listError && projects.length === 0 && !loading && (
+          <div className="bg-destructive/10 text-destructive rounded-xl p-3 space-y-2">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium">{t('docker.stacks.loadError', 'Failed to load stacks')}</p>
+                <p className="text-[12px] opacity-80 mt-0.5 break-words">{listError}</p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" className="rounded-xl w-full" onClick={() => fetchProjects()}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              {t('common.retry')}
+            </Button>
+          </div>
+        )}
         {/* Desktop stack list */}
         <div className="hidden md:block space-y-1">
-          {projects.length === 0 && !loading && (
+          {projects.length === 0 && !loading && !listError && (
             <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
           )}
           {projects.map(p => (
@@ -696,7 +634,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
 
         {/* Mobile stack cards */}
         <div className="md:hidden space-y-2">
-          {projects.length === 0 && !loading && (
+          {projects.length === 0 && !loading && !listError && (
             <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
           )}
           {projects.map(p => (
@@ -945,10 +883,10 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                   {updateCheck.has_updates && (
                     <Button
                       size="sm" className="rounded-xl bg-primary hover:bg-primary/90 text-white"
-                      disabled={progressOpen && !progressDone}
+                      disabled={progress.open && !progress.done}
                       onClick={handleUpdate}
                     >
-                      {progressOpen && !progressDone ? (
+                      {progress.open && !progress.done ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <Download className="h-3.5 w-3.5" />
@@ -1049,45 +987,16 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                           <TableCell>{serviceBadge(svc.state)}</TableCell>
                           <TableCell className="text-muted-foreground text-xs font-mono">{svc.ports || '-'}</TableCell>
                           <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              {svc.state === 'running' ? (
-                                <Button variant="ghost" size="icon-xs" title={t('docker.stacks.stopService')} aria-label={t('docker.stacks.stopService')}
-                                  disabled={actionLoading === svc.name}
-                                  onClick={() => handleServiceAction('stop', svc.name)}>
-                                  {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
-                                </Button>
-                              ) : (
-                                <Button variant="ghost" size="icon-xs" title={t('docker.stacks.startService')} aria-label={t('docker.stacks.startService')}
-                                  disabled={actionLoading === svc.name}
-                                  onClick={() => handleServiceAction('start', svc.name)}>
-                                  {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                                </Button>
-                              )}
-                              <Button variant="ghost" size="icon-xs" title={t('docker.stacks.restartService')} aria-label={t('docker.stacks.restartService')}
-                                disabled={actionLoading === svc.name}
-                                onClick={() => handleServiceAction('restart', svc.name)}>
-                                {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
-                              </Button>
-                              <Button variant="ghost" size="icon-xs" title="Healthcheck" aria-label="Healthcheck"
-                                onClick={() => setHealthcheckTarget(svc)}>
-                                <HeartPulse className={`h-3.5 w-3.5 ${svc.has_healthcheck ? 'text-success' : ''}`} />
-                              </Button>
-                              <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')}
-                                disabled={!svc.container_id}
-                                onClick={() => setInspectService(svc)}>
-                                <Info className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')} aria-label={t('docker.stacks.viewLogs')}
-                                onClick={() => setLogService(svc)}>
-                                <ScrollText className="h-3.5 w-3.5" />
-                              </Button>
-                              {svc.container_id && svc.state === 'running' && (
-                                <Button variant="ghost" size="icon-xs" title={t('docker.stacks.openShell')} aria-label={t('docker.stacks.openShell')}
-                                  onClick={() => setShellService(svc)}>
-                                  <Terminal className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                            </div>
+                            <ServiceActions
+                              svc={svc}
+                              actionLoading={actionLoading}
+                              onAction={handleServiceAction}
+                              onHealthcheck={setHealthcheckTarget}
+                              onInspect={setInspectService}
+                              onLogs={setLogService}
+                              onShell={setShellService}
+                              className="justify-end"
+                            />
                           </TableCell>
                         </TableRow>
                       ))}
@@ -1120,146 +1029,36 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                       {svc.ports && (
                         <div className="text-[11px] text-muted-foreground font-mono truncate mb-2">{svc.ports}</div>
                       )}
-                      <div className="flex items-center gap-1 pt-2 border-t border-border/50">
-                        {svc.state === 'running' ? (
-                          <Button variant="ghost" size="icon-xs" title={t('docker.stacks.stopService')} aria-label={t('docker.stacks.stopService')}
-                            disabled={actionLoading === svc.name}
-                            onClick={() => handleServiceAction('stop', svc.name)}>
-                            {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
-                          </Button>
-                        ) : (
-                          <Button variant="ghost" size="icon-xs" title={t('docker.stacks.startService')} aria-label={t('docker.stacks.startService')}
-                            disabled={actionLoading === svc.name}
-                            onClick={() => handleServiceAction('start', svc.name)}>
-                            {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                          </Button>
-                        )}
-                        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.restartService')} aria-label={t('docker.stacks.restartService')}
-                          disabled={actionLoading === svc.name}
-                          onClick={() => handleServiceAction('restart', svc.name)}>
-                          {actionLoading === svc.name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
-                        </Button>
-                        <Button variant="ghost" size="icon-xs" title="Healthcheck" aria-label="Healthcheck"
-                          onClick={() => setHealthcheckTarget(svc)}>
-                          <HeartPulse className={`h-3.5 w-3.5 ${svc.has_healthcheck ? 'text-success' : ''}`} />
-                        </Button>
-                        <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')}
-                          disabled={!svc.container_id}
-                          onClick={() => setInspectService(svc)}>
-                          <Info className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')} aria-label={t('docker.stacks.viewLogs')}
-                          onClick={() => setLogService(svc)}>
-                          <ScrollText className="h-3.5 w-3.5" />
-                        </Button>
-                        {svc.container_id && svc.state === 'running' && (
-                          <Button variant="ghost" size="icon-xs" title={t('docker.stacks.openShell')} aria-label={t('docker.stacks.openShell')}
-                            onClick={() => setShellService(svc)}>
-                            <Terminal className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
+                      <ServiceActions
+                        svc={svc}
+                        actionLoading={actionLoading}
+                        onAction={handleServiceAction}
+                        onHealthcheck={setHealthcheckTarget}
+                        onInspect={setInspectService}
+                        onLogs={setLogService}
+                        onShell={setShellService}
+                        className="pt-2 border-t border-border/50"
+                      />
                     </div>
                   ))}
                 </div>
               </TabsContent>
 
               <TabsContent value="editor">
-                <div className="space-y-3">
-                  {/* Compose / Env sub-tabs */}
-                  <div className="flex items-center gap-1 bg-secondary/40 rounded-xl p-1 w-fit overflow-x-auto">
-                    <button
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
-                        editorTab === 'compose' ? 'bg-primary/10 text-primary card-shadow' : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                      onClick={() => setEditorTab('compose')}
-                    >
-                      <FileCode className={`h-3.5 w-3.5 ${editorTab === 'compose' ? 'text-primary' : ''}`} />
-                      {selectedProject?.compose_file || 'docker-compose.yml'}
-                    </button>
-                    <button
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${
-                        editorTab === 'env' ? 'bg-warning/10 text-warning card-shadow' : 'text-muted-foreground hover:text-foreground'
-                      }`}
-                      onClick={() => setEditorTab('env')}
-                    >
-                      <FileText className={`h-3.5 w-3.5 ${editorTab === 'env' ? 'text-warning' : ''}`} />
-                      .env
-                    </button>
-                  </div>
-
-                  {editorTab === 'compose' ? (
-                    <>
-                      <div className="rounded-2xl overflow-hidden border-t-2 border-t-primary card-shadow">
-                        <ComposeEditor value={editYaml} onChange={setEditYaml} />
-                      </div>
-                      {validationResult && (
-                        <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] ${
-                          validationResult.valid
-                            ? 'bg-success/10 text-success'
-                            : 'bg-destructive/10 text-destructive'
-                        }`}>
-                          {validationResult.valid ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                          <span>{validationResult.valid ? t('docker.stacks.configValid') : validationResult.message}</span>
-                        </div>
-                      )}
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          onClick={handleValidate}
-                          disabled={validating || !editYaml.trim()}
-                          className="rounded-xl"
-                        >
-                          {validating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                          {t('docker.stacks.validate')}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() => setDiffOpen(true)}
-                          disabled={!editYaml.trim()}
-                          className="rounded-xl"
-                          title={!editYaml.trim() ? 'YAML을 입력해주세요' : '변경사항 미리보기'}
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          변경사항 미리보기
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={handleSaveYaml}
-                          disabled={editSaving || !editYaml.trim()}
-                          className="rounded-xl"
-                        >
-                          <Save className="h-3.5 w-3.5" />
-                          {editSaving ? t('common.saving') : t('common.save')}
-                        </Button>
-                        <Button
-                          onClick={handleDeploy}
-                          disabled={editSaving || !editYaml.trim()}
-                          className="rounded-xl bg-success hover:bg-success/90"
-                        >
-                          <ArrowUp className="h-3.5 w-3.5" />
-                          {editSaving ? t('common.saving') : t('docker.stacks.deploy')}
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="rounded-2xl overflow-hidden border-t-2 border-t-warning card-shadow">
-                        <ComposeEditor value={editEnv} onChange={setEditEnv} language="ini" />
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          onClick={handleSaveEnv}
-                          disabled={envSaving}
-                          className="rounded-xl"
-                        >
-                          <Save className="h-3.5 w-3.5" />
-                          {envSaving ? t('common.saving') : t('common.save')}
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </div>
+                <StackEditorPanel
+                  project={selectedName}
+                  composeFileName={selectedProject?.compose_file || 'docker-compose.yml'}
+                  yaml={editYaml}
+                  onYamlChange={setEditYaml}
+                  env={editEnv}
+                  onEnvChange={setEditEnv}
+                  tab={editorTab}
+                  onTabChange={setEditorTab}
+                  deploying={editSaving}
+                  onDeploy={handleDeploy}
+                  onOpenDiff={() => setDiffOpen(true)}
+                  onEnvSaved={() => { void refreshList() }}
+                />
               </TabsContent>
 
               <TabsContent value="logs">
@@ -1276,52 +1075,14 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       </div>
 
       {/* Create project dialog */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="w-[calc(100vw-2rem)] md:w-full sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{t('docker.compose.createTitle')}</DialogTitle>
-            <DialogDescription>{t('docker.stacks.createDescription')}</DialogDescription>
-          </DialogHeader>
-          <Tabs defaultValue="manual" className="w-full">
-            <TabsList>
-              <TabsTrigger value="manual">수동 작성</TabsTrigger>
-              <TabsTrigger value="git">git에서 가져오기</TabsTrigger>
-            </TabsList>
-            <TabsContent value="manual" className="space-y-4 pt-2">
-              <div className="space-y-2">
-                <Label htmlFor="project-name">{t('docker.compose.projectName')}</Label>
-                <Input id="project-name" placeholder="e.g., my-project" value={newName}
-                  onChange={(e) => setNewName(e.target.value)} />
-                <p className="text-[11px] text-muted-foreground">
-                  {t('docker.stacks.createPathHint', { path: `/opt/stacks/${newName || '{name}'}` })}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>{t('docker.compose.composeFile')}</Label>
-                <div className="rounded-md overflow-hidden border">
-                  <ComposeEditor value={newYaml} onChange={setNewYaml} />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setCreateOpen(false)}>{t('common.cancel')}</Button>
-                <Button onClick={handleCreate} disabled={creating || !newName.trim() || !newYaml.trim()}>
-                  {creating ? t('common.creating') : t('common.create')}
-                </Button>
-              </DialogFooter>
-            </TabsContent>
-            <TabsContent value="git" className="pt-2">
-              <GitImportForm
-                onSuccess={(projectName) => {
-                  setCreateOpen(false)
-                  void fetchProjects()
-                  navigate(`${basePath}/${projectName}`)
-                }}
-                onCancel={() => setCreateOpen(false)}
-              />
-            </TabsContent>
-          </Tabs>
-        </DialogContent>
-      </Dialog>
+      <CreateStackDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={async (projectName) => {
+          await fetchProjects()
+          navigate(`${basePath}/${projectName}`)
+        }}
+      />
 
       {/* Delete dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => {
@@ -1397,54 +1158,14 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       <Dialog open={!!shellService} onOpenChange={(open) => !open && setShellService(null)}>
         <DialogContent className="w-[calc(100vw-2rem)] md:w-full sm:max-w-3xl h-[90vh] md:h-[80vh]">
           <DialogHeader>
-            <DialogTitle className="truncate">{shellService?.name} — Shell</DialogTitle>
+            <DialogTitle className="truncate">{shellService?.name} — {t('docker.containers.shell')}</DialogTitle>
           </DialogHeader>
           {shellService?.container_id && <ContainerShell containerId={shellService.container_id} />}
         </DialogContent>
       </Dialog>
 
       {/* Deploy/Update progress modal */}
-      <Dialog open={progressOpen} onOpenChange={(open) => {
-        if (!open && progressDone) setProgressOpen(false)
-      }}>
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {!progressDone && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
-              {progressDone && !progressError && <CheckCircle2 className="h-4 w-4 text-success" />}
-              {progressDone && progressError && <XCircle className="h-4 w-4 text-destructive" />}
-              {progressTitle}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="bg-terminal rounded-xl p-4 max-h-[400px] overflow-y-auto font-mono text-[12px] text-terminal-foreground leading-5">
-            {progressLines.map((line, i) => (
-              <div key={i} className={`whitespace-pre-wrap break-all ${
-                line.startsWith('✅') ? 'text-success' :
-                line.startsWith('❌') ? 'text-destructive' :
-                line.startsWith('[pull]') ? 'text-primary' :
-                line.startsWith('[recreate]') ? 'text-warning' :
-                ''
-              }`}>
-                {line}
-              </div>
-            ))}
-            {!progressDone && (
-              <div className="flex items-center gap-1.5 text-muted-foreground mt-1">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-                {t('common.loading')}
-              </div>
-            )}
-            <div ref={progressEndRef} />
-          </div>
-          {progressDone && (
-            <DialogFooter>
-              <Button onClick={() => setProgressOpen(false)} className="rounded-xl">
-                {t('common.close')}
-              </Button>
-            </DialogFooter>
-          )}
-        </DialogContent>
-      </Dialog>
+      <StackProgressDialog progress={progress} onClose={closeProgress} />
 
       {/* Diff preview sheet */}
       {selectedName && (

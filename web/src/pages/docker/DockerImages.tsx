@@ -4,7 +4,9 @@ import { Trash2, RefreshCw, Download, Sparkles, Check, Loader2, AlertCircle } fr
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes, formatDate } from '@/lib/utils'
-import DockerHubSearch from '@/components/DockerHubSearch'
+import { useConfirm } from '@/components/ConfirmDialog'
+import DockerHubSearch from '@/components/docker/DockerHubSearch'
+import { UsagePill } from '@/pages/docker/components/UsagePill'
 import type { DockerImage, ImageUpdateStatus } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -32,6 +34,7 @@ function shortId(id: string): string {
 
 export default function DockerImages() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [images, setImages] = useState<DockerImage[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -42,7 +45,6 @@ export default function DockerImages() {
   const [deleteTarget, setDeleteTarget] = useState<DockerImage | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [pruning, setPruning] = useState(false)
-  const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false)
   const [updateResults, setUpdateResults] = useState<ImageUpdateStatus[]>([])
   const [checkingUpdates, setCheckingUpdates] = useState(false)
 
@@ -134,6 +136,29 @@ export default function DockerImages() {
     return updateResults.find(r => r.image === imageName)
   }
 
+  const handlePrune = async () => {
+    const ok = await confirm({
+      title: t('docker.prune.title'),
+      description: t('docker.prune.imagesConfirm'),
+      confirmLabel: t('docker.prune.confirm'),
+      danger: true,
+    })
+    if (!ok) return
+    setPruning(true)
+    try {
+      const r = await api.pruneImages()
+      toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
+      fetchImages()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Prune failed')
+    } finally {
+      setPruning(false)
+    }
+  }
+
+  // In-use images first; single sorted list keeps mobile and desktop in sync.
+  const sortedImages = [...images].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1))
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -141,7 +166,7 @@ export default function DockerImages() {
           {t('docker.images.count', { count: images.length })}
         </span>
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-          <Button variant="outline" size="sm" className="shrink-0" onClick={() => setPruneConfirmOpen(true)} disabled={pruning}>
+          <Button variant="outline" size="sm" className="shrink-0" onClick={handlePrune} disabled={pruning}>
             <Sparkles className={pruning ? 'animate-spin' : ''} />
             {t('docker.sidebar.prune')}
           </Button>
@@ -189,7 +214,7 @@ export default function DockerImages() {
             {t('docker.images.empty')}
           </div>
         )}
-        {[...images].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1)).map((img) => (
+        {sortedImages.map((img) => (
           <div key={img.Id} className="bg-card rounded-2xl p-4 card-shadow">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
@@ -199,15 +224,7 @@ export default function DockerImages() {
                   <span className="text-[11px] text-muted-foreground">{formatBytes(img.Size)}</span>
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                  {img.in_use ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
-                      {t('docker.images.inUse')}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
-                      {t('docker.images.unused')}
-                    </span>
-                  )}
+                  <UsagePill inUse={img.in_use} />
                   {getUpdateStatus(img.RepoTags?.[0] || '')?.has_update && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary">
                       {t('docker.images.updateAvailable')}
@@ -250,7 +267,7 @@ export default function DockerImages() {
               </TableCell>
             </TableRow>
           )}
-          {[...images].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1)).map((img) => (
+          {sortedImages.map((img) => (
             <TableRow key={img.Id}>
               <TableCell className="font-medium font-mono text-sm">
                 <div className="flex items-center gap-1.5">
@@ -263,15 +280,7 @@ export default function DockerImages() {
               </TableCell>
               <TableCell>
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  {img.in_use ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success" title={img.used_by.join(', ')}>
-                      {t('docker.images.inUse')}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
-                      {t('docker.images.unused')}
-                    </span>
-                  )}
+                  <UsagePill inUse={img.in_use} usedBy={img.used_by} />
                   {getUpdateStatus(img.RepoTags?.[0] || '')?.has_update && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary">
                       {t('docker.images.updateAvailable')}
@@ -326,30 +335,6 @@ export default function DockerImages() {
             </Button>
             <Button onClick={handlePull} disabled={pulling || !pullImage.trim()}>
               {pulling ? t('docker.images.pulling') : t('docker.images.pull')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Prune confirmation dialog */}
-      <Dialog open={pruneConfirmOpen} onOpenChange={setPruneConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('docker.prune.title')}</DialogTitle>
-            <DialogDescription>{t('docker.prune.imagesConfirm')}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPruneConfirmOpen(false)}>{t('common.cancel')}</Button>
-            <Button variant="destructive" disabled={pruning} onClick={async () => {
-              setPruning(true)
-              try {
-                const r = await api.pruneImages()
-                toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
-                fetchImages()
-              } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Prune failed') }
-              finally { setPruning(false); setPruneConfirmOpen(false) }
-            }}>
-              {pruning ? t('docker.prune.pruning') : t('docker.prune.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

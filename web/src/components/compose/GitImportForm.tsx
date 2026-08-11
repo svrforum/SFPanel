@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function GitImportForm({ onSuccess, onCancel }: Props) {
+  const { t } = useTranslation()
   const [url, setUrl] = useState('')
   const [branch, setBranch] = useState('main')
   const [path, setPath] = useState('docker-compose.yml')
@@ -26,10 +28,10 @@ export function GitImportForm({ onSuccess, onCancel }: Props) {
 
   function validate(): boolean {
     const e: Record<string, string> = {}
-    if (!url) e.url = 'URL을 입력해주세요'
-    else if (!GITHUB_URL_RE.test(url)) e.url = 'GitHub HTTPS URL만 지원합니다'
-    if (!name) e.name = '스택 이름을 입력해주세요'
-    else if (!STACK_NAME_RE.test(name)) e.name = '소문자/숫자/하이픈만, 1-50자'
+    if (!url) e.url = t('compose.gitImport.urlRequired', 'Enter a URL')
+    else if (!GITHUB_URL_RE.test(url)) e.url = t('compose.gitImport.urlInvalid', 'Only GitHub HTTPS URLs are supported')
+    if (!name) e.name = t('compose.gitImport.nameRequired', 'Enter a stack name')
+    else if (!STACK_NAME_RE.test(name)) e.name = t('compose.gitImport.nameHint', 'Lowercase letters/digits/hyphens, 1-50 chars')
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -40,13 +42,13 @@ export function GitImportForm({ onSuccess, onCancel }: Props) {
     setSubmitting(true)
     try {
       const res = await api.importFromGit({ url, branch, path, token: token || undefined, name })
-      toast.success(`'${res.project_name}' 스택을 가져왔습니다`)
+      toast.success(t('compose.gitImport.importSuccess', "Imported stack '{{name}}'", { name: res.project_name }))
       onSuccess(res.project_name)
     } catch (err) {
       // The api client throws plain Error(message); the backend's messages
       // are already user-facing Korean (per Task 9 handler error mapping).
       // Show all errors as a form-bottom banner.
-      const msg = (err as Error).message || '가져오기 실패'
+      const msg = (err as Error).message || t('compose.gitImport.importFailed', 'Import failed')
       setErrors({ _form: msg })
     } finally {
       setSubmitting(false)
@@ -66,7 +68,7 @@ export function GitImportForm({ onSuccess, onCancel }: Props) {
         />
         {errors.url
           ? <p className="text-[12px] text-destructive mt-1">{errors.url}</p>
-          : <p className="text-[12px] text-muted-foreground mt-1">GitHub HTTPS URL만 지원</p>}
+          : <p className="text-[12px] text-muted-foreground mt-1">{t('compose.gitImport.urlInvalid', 'Only GitHub HTTPS URLs are supported')}</p>}
       </div>
 
       <div className="grid grid-cols-3 gap-2">
@@ -81,7 +83,7 @@ export function GitImportForm({ onSuccess, onCancel }: Props) {
       </div>
 
       <div>
-        <Label htmlFor="git-token">Personal Access Token (private repo만)</Label>
+        <Label htmlFor="git-token">{t('compose.gitImport.tokenLabel', 'Personal Access Token (private repos only)')}</Label>
         <div className="relative">
           <Input
             id="git-token"
@@ -96,20 +98,20 @@ export function GitImportForm({ onSuccess, onCancel }: Props) {
             type="button"
             onClick={() => setTokenVisible(v => !v)}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-            aria-label={tokenVisible ? '토큰 숨기기' : '토큰 표시'}
+            aria-label={tokenVisible ? t('compose.gitImport.tokenHide', 'Hide token') : t('compose.gitImport.tokenShow', 'Show token')}
           >
             {tokenVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
-        <p className="text-[12px] text-muted-foreground mt-1">토큰은 한 번만 사용되고 저장되지 않습니다</p>
+        <p className="text-[12px] text-muted-foreground mt-1">{t('compose.gitImport.tokenHint', 'The token is used once and never stored')}</p>
       </div>
 
       <div>
-        <Label htmlFor="git-name">stack 이름 *</Label>
+        <Label htmlFor="git-name">{t('compose.gitImport.nameLabel', 'Stack name')} *</Label>
         <Input id="git-name" value={name} onChange={e => setName(e.target.value)} placeholder="my-stack" />
         {errors.name
           ? <p className="text-[12px] text-destructive mt-1">{errors.name}</p>
-          : <p className="text-[12px] text-muted-foreground mt-1">소문자/숫자/하이픈만, 1-50자</p>}
+          : <p className="text-[12px] text-muted-foreground mt-1">{t('compose.gitImport.nameHint', 'Lowercase letters/digits/hyphens, 1-50 chars')}</p>}
       </div>
 
       {errors._form && (
@@ -119,9 +121,9 @@ export function GitImportForm({ onSuccess, onCancel }: Props) {
       )}
 
       <div className="flex justify-end gap-2 pt-2">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>취소</Button>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>{t('common.cancel')}</Button>
         <Button type="submit" disabled={submitting}>
-          {submitting ? '가져오는 중…' : '가져오기'}
+          {submitting ? t('compose.gitImport.importing', 'Importing…') : t('compose.gitImport.import', 'Import')}
         </Button>
       </div>
     </form>

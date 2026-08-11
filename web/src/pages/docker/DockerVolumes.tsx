@@ -4,6 +4,8 @@ import { Trash2, RefreshCw, Plus, Sparkles, Check, AlertCircle } from 'lucide-re
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatDate, formatBytes } from '@/lib/utils'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { UsagePill } from '@/pages/docker/components/UsagePill'
 import type { DockerVolume } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +30,7 @@ import {
 
 export default function DockerVolumes() {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [volumes, setVolumes] = useState<DockerVolume[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -37,7 +40,6 @@ export default function DockerVolumes() {
   const [deleteTarget, setDeleteTarget] = useState<DockerVolume | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [pruning, setPruning] = useState(false)
-  const [pruneConfirmOpen, setPruneConfirmOpen] = useState(false)
 
   const fetchVolumes = useCallback(async () => {
     try {
@@ -91,6 +93,29 @@ export default function DockerVolumes() {
     }
   }
 
+  const handlePrune = async () => {
+    const ok = await confirm({
+      title: t('docker.prune.title'),
+      description: t('docker.prune.volumesConfirm'),
+      confirmLabel: t('docker.prune.confirm'),
+      danger: true,
+    })
+    if (!ok) return
+    setPruning(true)
+    try {
+      const r = await api.pruneVolumes()
+      toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
+      fetchVolumes()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Prune failed')
+    } finally {
+      setPruning(false)
+    }
+  }
+
+  // In-use volumes first; single sorted list keeps mobile and desktop in sync.
+  const sortedVolumes = [...volumes].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1))
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -98,7 +123,7 @@ export default function DockerVolumes() {
           {t('docker.volumes.count', { count: volumes.length })}
         </span>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setPruneConfirmOpen(true)} disabled={pruning}>
+          <Button variant="outline" size="sm" onClick={handlePrune} disabled={pruning}>
             <Sparkles className={pruning ? 'animate-spin' : ''} />
             {t('docker.sidebar.prune')}
           </Button>
@@ -141,25 +166,20 @@ export default function DockerVolumes() {
             {t('docker.volumes.empty')}
           </div>
         )}
-        {[...volumes].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1)).map((v) => (
+        {sortedVolumes.map((v) => (
           <div key={v.Name} className="bg-card rounded-2xl p-4 card-shadow">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] font-medium font-mono truncate">{v.Name}</p>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[11px] text-muted-foreground">{v.Driver}</span>
+                  {typeof v.size_bytes === 'number' && (
+                    <span className="text-[11px] text-muted-foreground font-mono">{formatBytes(v.size_bytes)}</span>
+                  )}
                   <span className="text-[11px] text-muted-foreground">{formatDate(v.CreatedAt)}</span>
                 </div>
                 <div className="mt-1.5">
-                  {v.in_use ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success">
-                      {t('docker.volumes.inUse')}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
-                      {t('docker.volumes.unused')}
-                    </span>
-                  )}
+                  <UsagePill inUse={v.in_use} />
                 </div>
               </div>
               <Button
@@ -185,7 +205,7 @@ export default function DockerVolumes() {
             <TableHead>{t('common.status')}</TableHead>
             <TableHead>{t('docker.volumes.driver')}</TableHead>
             <TableHead>{t('docker.volumes.mountpoint')}</TableHead>
-            <TableHead className="text-right">크기</TableHead>
+            <TableHead className="text-right">{t('docker.volumes.size', 'Size')}</TableHead>
             <TableHead>{t('common.created')}</TableHead>
             <TableHead className="text-right">{t('common.actions')}</TableHead>
           </TableRow>
@@ -198,7 +218,7 @@ export default function DockerVolumes() {
               </TableCell>
             </TableRow>
           )}
-          {[...volumes].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1)).map((v) => (
+          {sortedVolumes.map((v) => (
             <TableRow key={v.Name}>
               <TableCell className="font-medium font-mono text-sm">
                 <div className="flex items-center gap-1.5">
@@ -207,15 +227,7 @@ export default function DockerVolumes() {
                 </div>
               </TableCell>
               <TableCell>
-                {v.in_use ? (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-success/10 text-success" title={v.used_by.join(', ')}>
-                    {t('docker.volumes.inUse')}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
-                    {t('docker.volumes.unused')}
-                  </span>
-                )}
+                <UsagePill inUse={v.in_use} usedBy={v.used_by} />
               </TableCell>
               <TableCell className="text-muted-foreground">{v.Driver}</TableCell>
               <TableCell className="text-muted-foreground text-xs font-mono max-w-[300px] truncate">
@@ -225,7 +237,7 @@ export default function DockerVolumes() {
                 {typeof v.size_bytes === 'number' && v.size_bytes !== null ? (
                   formatBytes(v.size_bytes)
                 ) : (
-                  <span className="text-muted-foreground">측정 중…</span>
+                  <span className="text-muted-foreground">{t('docker.volumes.measuring', 'Measuring…')}</span>
                 )}
               </TableCell>
               <TableCell className="text-muted-foreground">{formatDate(v.CreatedAt)}</TableCell>
@@ -271,30 +283,6 @@ export default function DockerVolumes() {
             </Button>
             <Button onClick={handleCreate} disabled={creating || !newName.trim()}>
               {creating ? t('common.creating') : t('common.create')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Prune confirmation dialog */}
-      <Dialog open={pruneConfirmOpen} onOpenChange={setPruneConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('docker.prune.title')}</DialogTitle>
-            <DialogDescription>{t('docker.prune.volumesConfirm')}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPruneConfirmOpen(false)}>{t('common.cancel')}</Button>
-            <Button variant="destructive" disabled={pruning} onClick={async () => {
-              setPruning(true)
-              try {
-                const r = await api.pruneVolumes()
-                toast.success(t('docker.prune.success') + (r.deleted > 0 ? `: ${r.deleted} deleted` : ''))
-                fetchVolumes()
-              } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Prune failed') }
-              finally { setPruning(false); setPruneConfirmOpen(false) }
-            }}>
-              {pruning ? t('docker.prune.pruning') : t('docker.prune.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>
