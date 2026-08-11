@@ -491,11 +491,25 @@ func updatePanel() {
 	}
 
 	// Mirror the HTTP handler's Sigstore verification: trust checksums.txt
-	// only after the cert chain + identity check pass. Older releases that
-	// lack .sig/.pem fall through to SHA-256-only.
+	// only after the cert chain + identity check pass. Bundle-first — when a
+	// release publishes checksums.txt.sigstore.json (v0.56+) it is the only
+	// accepted proof (no fallback to .sig/.pem on a bad bundle). Older
+	// releases that lack .sig/.pem fall through to SHA-256-only.
+	bundleURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.sigstore.json")
 	sigURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.sig")
 	certURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.pem")
-	if sigURL != "" && certURL != "" {
+	if bundleURL != "" {
+		fmt.Println("Verifying release signature (Sigstore bundle)...")
+		bundleResp, bErr := dlClient.Get(bundleURL)
+		if bErr != nil {
+			log.Fatalf("Signature bundle download failed: %v", bErr)
+		}
+		bundleBody, _ := io.ReadAll(io.LimitReader(bundleResp.Body, 256*1024))
+		bundleResp.Body.Close()
+		if vErr := release.VerifyCosignBundle(checksumBody, bundleBody, release.SFPanelReleaseIdentity()); vErr != nil {
+			log.Fatalf("Signature verification failed: %v", vErr)
+		}
+	} else if sigURL != "" && certURL != "" {
 		fmt.Println("Verifying release signature (Sigstore keyless)...")
 		sigResp, sigErr := dlClient.Get(sigURL)
 		if sigErr != nil {

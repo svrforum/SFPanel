@@ -277,7 +277,7 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 
 릴리스마다 두 단계 검증을 수행합니다:
 
-1. **Sigstore cosign 키리스 OIDC** — `checksums.txt.sig` + `checksums.txt.pem`을 GitHub Actions OIDC 신원으로 검증 (v0.13.0+ 릴리스)
+1. **Sigstore cosign 키리스 OIDC** — Sigstore 번들(`checksums.txt.sigstore.json`, v0.56+ 우선)이나 레거시 쌍(`checksums.txt.sig` + `checksums.txt.pem`)을 GitHub Actions OIDC 신원으로 검증 (v0.13.0+ 릴리스)
 2. **SHA-256 체크섬** — 검증된 `checksums.txt`로 바이너리 아카이브 해시 대조
 
 cosign 자료가 없는 구버전 릴리스로 다운그레이드 시도는 거부되며 (`release.IsForwardUpdate`), SHA-256만으로 fallback합니다.

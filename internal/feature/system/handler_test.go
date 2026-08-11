@@ -5,13 +5,20 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -461,6 +468,136 @@ func TestRunUpdate_RejectsMissingSignatureForRecentTarget(t *testing.T) {
 	// And: the old fallback message must NOT appear — that's the bypass shape.
 	if strings.Contains(body2, "predates Sigstore") {
 		t.Errorf("post-cutoff release fell through to SHA-256-only path: %s", body2)
+	}
+}
+
+// TestRunUpdate_BadBundleRefusedWithoutLegacyFallback: when a release
+// publishes checksums.txt.sigstore.json, that bundle is the only accepted
+// proof — a bundle that parses fine but fails the cryptographic checks must
+// abort the update even though valid-looking .sig/.pem assets sit right next
+// to it, and the legacy assets must never even be fetched. Falling back to
+// the legacy pair on a bad bundle would let corruption be "retried" through
+// a second path.
+func TestRunUpdate_BadBundleRefusedWithoutLegacyFallback(t *testing.T) {
+	var archiveBuf bytes.Buffer
+	gw := gzip.NewWriter(&archiveBuf)
+	tw := tar.NewWriter(gw)
+	body := []byte("fake binary payload")
+	_ = tw.WriteHeader(&tar.Header{Name: "sfpanel", Size: int64(len(body)), Mode: 0755, Typeflag: tar.TypeReg})
+	_, _ = tw.Write(body)
+	_ = tw.Close()
+	_ = gw.Close()
+
+	realHash := sha256.Sum256(archiveBuf.Bytes())
+	const archiveName = "sfpanel_0.56.1_linux_amd64.tar.gz"
+	checksumsBody := fmt.Sprintf("%s  %s\n", hex.EncodeToString(realHash[:]), archiveName)
+
+	// A structurally valid v0.3 bundle: correct media type, correct digest
+	// over checksumsBody, a real (but self-issued, untrusted) certificate —
+	// so it survives every parse-stage check and dies at chain verification.
+	// This pins the crypto stage, not just the cheap shape checks.
+	rogueKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("rogue key: %v", err)
+	}
+	certTmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "rogue-signer"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+	}
+	rogueDER, err := x509.CreateCertificate(rand.Reader, certTmpl, certTmpl, &rogueKey.PublicKey, rogueKey)
+	if err != nil {
+		t.Fatalf("rogue cert: %v", err)
+	}
+	checksumDigest := sha256.Sum256([]byte(checksumsBody))
+	rogueSig, _ := ecdsa.SignASN1(rand.Reader, rogueKey, checksumDigest[:])
+	bundleJSON, err := json.Marshal(map[string]any{
+		"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+		"verificationMaterial": map[string]any{
+			"certificate": map[string]any{"rawBytes": base64.StdEncoding.EncodeToString(rogueDER)},
+		},
+		"messageSignature": map[string]any{
+			"messageDigest": map[string]any{
+				"algorithm": "SHA2_256",
+				"digest":    base64.StdEncoding.EncodeToString(checksumDigest[:]),
+			},
+			"signature": base64.StdEncoding.EncodeToString(rogueSig),
+		},
+	})
+	if err != nil {
+		t.Fatalf("bundle json: %v", err)
+	}
+
+	var legacyAssetHits atomic.Int32
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(archiveBuf.Bytes())
+	})
+	mux.HandleFunc("/checksums", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, checksumsBody)
+	})
+	mux.HandleFunc("/bundle", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(bundleJSON)
+	})
+	mux.HandleFunc("/sig", func(w http.ResponseWriter, r *http.Request) {
+		legacyAssetHits.Add(1)
+		_, _ = io.WriteString(w, "bm90IGEgcmVhbCBzaWc=")
+	})
+	mux.HandleFunc("/cert", func(w http.ResponseWriter, r *http.Request) {
+		legacyAssetHits.Add(1)
+		_, _ = io.WriteString(w, "-----BEGIN CERTIFICATE-----\nnope\n-----END CERTIFICATE-----\n")
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(GitHubRelease{
+			TagName: "v0.56.1",
+			Assets: []release.Asset{
+				{Name: archiveName, BrowserDownloadURL: srv.URL + "/archive"},
+				{Name: "checksums.txt", BrowserDownloadURL: srv.URL + "/checksums"},
+				{Name: "checksums.txt.sigstore.json", BrowserDownloadURL: srv.URL + "/bundle"},
+				{Name: "checksums.txt.sig", BrowserDownloadURL: srv.URL + "/sig"},
+				{Name: "checksums.txt.pem", BrowserDownloadURL: srv.URL + "/cert"},
+			},
+		})
+	})
+	srv = httptest.NewServer(mux)
+	defer srv.Close()
+	withReleaseAPI(t, srv.URL+"/")
+
+	if !strings.Contains(archiveName, "_"+runtime.GOARCH+".") {
+		t.Skipf("test fixture assumes amd64 asset naming, host is %s", runtime.GOARCH)
+	}
+
+	h := newHandler("0.55.0")
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil)
+	ctx := e.NewContext(req, rec)
+
+	if err := h.RunUpdate(ctx); err != nil {
+		t.Fatalf("RunUpdate returned error: %v", err)
+	}
+	sse := rec.Body.String()
+	if !strings.Contains(sse, `"step":"error"`) {
+		t.Errorf("expected step:error in SSE body, got %q", sse)
+	}
+	if !strings.Contains(sse, "Signature verification failed") {
+		t.Errorf("expected bundle verification failure, got %q", sse)
+	}
+	if !strings.Contains(sse, "chain verification failed") {
+		t.Errorf("expected the CRYPTO stage (untrusted chain) to reject, got %q", sse)
+	}
+	// Structural proof that the legacy path was never attempted: the fake
+	// .sig/.pem assets were never even fetched (string checks alone would
+	// silently rot if the sendEvent wording changed).
+	if hits := legacyAssetHits.Load(); hits != 0 {
+		t.Errorf("legacy .sig/.pem assets were fetched %d times — bad bundle fell back to the legacy path", hits)
+	}
+	if strings.Contains(sse, "Sigstore keyless") {
+		t.Errorf("bad bundle fell back to the legacy .sig/.pem path: %s", sse)
 	}
 }
 

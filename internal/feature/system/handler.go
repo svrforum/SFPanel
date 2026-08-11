@@ -351,9 +351,27 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	// (which is no defence at all when they can also rewrite checksums.txt).
 	// Pre-cutoff targets fall back to SHA-256 only so the one-time upgrade
 	// path from old unsigned releases still works.
-	sigURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.sig")
-	certURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.pem")
-	if sigURL == "" || certURL == "" {
+	//
+	// Bundle-first: v0.56+ releases also publish checksums.txt.sigstore.json
+	// (cosign v3 Sigstore bundle). When the bundle asset exists it is the only
+	// accepted proof — a bad bundle hard-fails with NO fallback to .sig/.pem,
+	// so corruption can't be "retried" through a second path. When absent
+	// (all releases ≤ v0.55.0) the legacy path below applies unchanged,
+	// including the SignatureRequiredForUpdate downgrade gate — stripping the
+	// bundle asset therefore never weakens verification.
+	bundleURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.sigstore.json")
+	if bundleURL != "" {
+		sendEvent("verifying", "Verifying release signature (Sigstore bundle)...")
+		bundleBytes, bundleErr := fetchBytes(ctx, dlClient, bundleURL)
+		if bundleErr != nil {
+			sendEvent("error", fmt.Sprintf("Signature bundle download failed: %v", bundleErr))
+			return nil
+		}
+		if vErr := release.VerifyCosignBundle(checksumBody, bundleBytes, release.SFPanelReleaseIdentity()); vErr != nil {
+			sendEvent("error", fmt.Sprintf("Signature verification failed: %v", vErr))
+			return nil
+		}
+	} else if sigURL, certURL := release.FindAssetURL(ghRelease.Assets, "checksums.txt.sig"), release.FindAssetURL(ghRelease.Assets, "checksums.txt.pem"); sigURL == "" || certURL == "" {
 		// Gate on current AND target: a node already running a signed release
 		// (>= cutoff) must never drop to unsigned SHA-only, even if the target
 		// claims a pre-cutoff version — otherwise a rewritten Release advertising

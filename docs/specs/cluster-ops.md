@@ -92,8 +92,11 @@ implicitly requires a restart — there is no hot-reload path for the CA.
   `TeeReader` so memory-constrained nodes (256 MB cluster nodes) can still
   receive a 200 MiB tarball without OOM.
 - `checksums.txt` is verified against a Sigstore keyless cosign signature
-  (`checksums.txt.sig` + `checksums.txt.pem`) before any hash inside it is
-  trusted. The Fulcio cert's SAN URI must start with
+  before any hash inside it is trusted — v0.56+ verifiers prefer the
+  standardized bundle (`checksums.txt.sigstore.json`) when the release
+  publishes one, falling back to the legacy pair
+  (`checksums.txt.sig` + `checksums.txt.pem`) only when the bundle asset is
+  absent. The Fulcio cert's SAN URI must start with
   `https://github.com/svrforum/SFPanel/.github/workflows/release.yml@refs/tags/v`
   and the OIDC issuer extension must be GitHub Actions
   (`https://token.actions.githubusercontent.com`). See

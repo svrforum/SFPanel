@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"encoding/asn1"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -78,6 +79,18 @@ func VerifyCosignBlob(blob, signature, certPEM []byte, expected CosignIdentity) 
 		return fmt.Errorf("cosign: %w", err)
 	}
 
+	// Signature is base64-encoded; decode here, verify inside the shared core.
+	sigDER, err := decodeCosignSig(signature)
+	if err != nil {
+		return fmt.Errorf("cosign: %w", err)
+	}
+	return verifyCosignLeaf(blob, sigDER, leafCert, intermediates, expected)
+}
+
+// verifyCosignLeaf is the verification core shared by the legacy (.sig/.pem)
+// and Sigstore-bundle paths: chain to the embedded Fulcio roots, SAN-URI
+// prefix + OIDC-issuer identity pin, then ECDSA over SHA-256 of blob.
+func verifyCosignLeaf(blob, sigDER []byte, leafCert *x509.Certificate, intermediates *x509.CertPool, expected CosignIdentity) error {
 	roots, err := loadFulcioRoots()
 	if err != nil {
 		return fmt.Errorf("cosign: %w", err)
@@ -129,21 +142,123 @@ func VerifyCosignBlob(blob, signature, certPEM []byte, expected CosignIdentity) 
 			expected.Issuer, issuer)
 	}
 
-	// Signature is base64-encoded; decode and verify against the SHA-256
-	// digest of blob using the cert's public key.
-	sigBytes, err := decodeCosignSig(signature)
-	if err != nil {
-		return fmt.Errorf("cosign: %w", err)
-	}
 	pub, ok := leafCert.PublicKey.(*ecdsa.PublicKey)
 	if !ok {
 		return fmt.Errorf("cosign: unexpected key type %T (want ECDSA)", leafCert.PublicKey)
 	}
 	digest := sha256.Sum256(blob)
-	if !ecdsa.VerifyASN1(pub, digest[:], sigBytes) {
+	if !ecdsa.VerifyASN1(pub, digest[:], sigDER) {
 		return errors.New("cosign: signature verification failed")
 	}
 	return nil
+}
+
+const sigstoreBundleMediaTypePrefix = "application/vnd.dev.sigstore.bundle"
+
+// sigstoreBundle models the subset of the sigstore/protobuf-specs Bundle
+// (protojson encoding) needed for offline verification. tlogEntries and
+// timestampVerificationData are intentionally not modelled — like
+// VerifyCosignBlob, verification uses the embedded Fulcio roots plus the
+// identity pin only (no Rekor lookup).
+type sigstoreBundle struct {
+	MediaType            string `json:"mediaType"`
+	VerificationMaterial struct {
+		Certificate *struct {
+			RawBytes []byte `json:"rawBytes"`
+		} `json:"certificate"`
+		X509CertificateChain *struct {
+			Certificates []struct {
+				RawBytes []byte `json:"rawBytes"`
+			} `json:"certificates"`
+		} `json:"x509CertificateChain"`
+		PublicKey *struct {
+			Hint string `json:"hint"`
+		} `json:"publicKey"`
+	} `json:"verificationMaterial"`
+	MessageSignature *struct {
+		MessageDigest *struct {
+			Algorithm string `json:"algorithm"`
+			Digest    []byte `json:"digest"`
+		} `json:"messageDigest"`
+		Signature []byte `json:"signature"`
+	} `json:"messageSignature"`
+	DSSEEnvelope json.RawMessage `json:"dsseEnvelope"`
+}
+
+// VerifyCosignBundle verifies a Sigstore bundle (`cosign sign-blob --bundle`,
+// bundle spec v0.3; the v0.1/v0.2 certificate-chain form is accepted too)
+// over blob against the embedded Fulcio roots and the expected identity.
+func VerifyCosignBundle(blob, bundleJSON []byte, expected CosignIdentity) error {
+	if len(blob) == 0 {
+		return errors.New("cosign: empty blob")
+	}
+	if len(bundleJSON) == 0 {
+		return errors.New("cosign: empty bundle")
+	}
+	if expected.SubjectPrefix == "" || expected.Issuer == "" {
+		return errors.New("cosign: SubjectPrefix and Issuer are required")
+	}
+	var b sigstoreBundle
+	if err := json.Unmarshal(bundleJSON, &b); err != nil {
+		return fmt.Errorf("cosign: parse bundle: %w", err)
+	}
+	if !strings.HasPrefix(b.MediaType, sigstoreBundleMediaTypePrefix) {
+		return fmt.Errorf("cosign: unexpected bundle media type %q", b.MediaType)
+	}
+	if len(b.DSSEEnvelope) > 0 {
+		return errors.New("cosign: bundle carries a DSSE envelope, not a message signature")
+	}
+	if b.MessageSignature == nil || len(b.MessageSignature.Signature) == 0 {
+		return errors.New("cosign: bundle carries no message signature")
+	}
+	// Fail fast on a digest mismatch — the authoritative check is the ECDSA
+	// verification over sha256(blob) inside verifyCosignLeaf.
+	digest := sha256.Sum256(blob)
+	if md := b.MessageSignature.MessageDigest; md != nil {
+		if md.Algorithm != "SHA2_256" {
+			return fmt.Errorf("cosign: unsupported bundle digest algorithm %q", md.Algorithm)
+		}
+		if !bytes.Equal(md.Digest, digest[:]) {
+			return errors.New("cosign: bundle digest does not match blob")
+		}
+	}
+	leaf, intermediates, err := bundleCertChain(&b)
+	if err != nil {
+		return fmt.Errorf("cosign: %w", err)
+	}
+	return verifyCosignLeaf(blob, b.MessageSignature.Signature, leaf, intermediates, expected)
+}
+
+func bundleCertChain(b *sigstoreBundle) (*x509.Certificate, *x509.CertPool, error) {
+	vm := &b.VerificationMaterial
+	switch {
+	case vm.Certificate != nil:
+		leaf, err := x509.ParseCertificate(vm.Certificate.RawBytes)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parse bundle cert: %w", err)
+		}
+		// v0.3: leaf-only — the embedded Fulcio bundle carries the
+		// intermediate as a trusted root, so the chain still builds
+		// (see the loadFulcioRoots comment).
+		return leaf, x509.NewCertPool(), nil
+	case vm.X509CertificateChain != nil && len(vm.X509CertificateChain.Certificates) > 0:
+		var leaf *x509.Certificate
+		intermediates := x509.NewCertPool()
+		for i, c := range vm.X509CertificateChain.Certificates {
+			cert, err := x509.ParseCertificate(c.RawBytes)
+			if err != nil {
+				return nil, nil, fmt.Errorf("parse bundle cert %d: %w", i, err)
+			}
+			if i == 0 {
+				leaf = cert
+			} else {
+				intermediates.AddCert(cert)
+			}
+		}
+		return leaf, intermediates, nil
+	default:
+		return nil, nil, errors.New("bundle carries no certificate (key-based bundles are not supported)")
+	}
 }
 
 func parseCosignCertChain(certPEM []byte) (leaf *x509.Certificate, intermediates *x509.CertPool, err error) {

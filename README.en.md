@@ -277,7 +277,7 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 
 Each release runs two verification stages:
 
-1. **Sigstore cosign keyless OIDC** — verifies `checksums.txt.sig` + `checksums.txt.pem` against the GitHub Actions OIDC identity (v0.13.0+ releases)
+1. **Sigstore cosign keyless OIDC** — verifies the Sigstore bundle (`checksums.txt.sigstore.json`, preferred by v0.56+) or the legacy pair (`checksums.txt.sig` + `checksums.txt.pem`) against the GitHub Actions OIDC identity (v0.13.0+ releases)
 2. **SHA-256 checksum** — matches the binary archive hash against the verified `checksums.txt`
 
 A downgrade attempt to an old release without cosign material is rejected (`release.IsForwardUpdate`), falling back to SHA-256 only.
