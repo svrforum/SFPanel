@@ -28,7 +28,8 @@
     "retry": "다시 시도",
     "copy": "복사",
     "previous": "이전",
-    "next": "다음"
+    "next": "다음",
+    "error": "오류가 발생했습니다"
   },
   "layout": {
     "brand": "SFPanel",
@@ -507,7 +508,8 @@
       "collectingMetrics": "수집 중…",
       "events": "이벤트",
       "noEvents": "이벤트 없음",
-      "loadMore": "더 보기"
+      "loadMore": "더 보기",
+      "count": "{{count}}개 컨테이너"
     },
     "create": {
       "button": "생성",
@@ -567,7 +569,8 @@
       "updateAvailable": "업데이트 가능",
       "updatesFound": "{{count}}개 업데이트 가능",
       "upToDate": "모든 이미지가 최신 상태입니다",
-      "updateCheckFailed": "업데이트 확인 실패"
+      "updateCheckFailed": "업데이트 확인 실패",
+      "count": "{{count}}개 이미지"
     },
     "volumes": {
       "count_one": "{{count}}개 볼륨",
@@ -589,7 +592,8 @@
       "inUse": "사용 중",
       "unused": "미사용",
       "size": "크기",
-      "measuring": "측정 중…"
+      "measuring": "측정 중…",
+      "count": "{{count}}개 볼륨"
     },
     "networks": {
       "count_one": "{{count}}개 네트워크",
@@ -615,7 +619,8 @@
       "inspectFailed": "네트워크 상세 조회 실패",
       "connectedContainers": "연결된 컨테이너",
       "subnet": "서브넷",
-      "gateway": "게이트웨이"
+      "gateway": "게이트웨이",
+      "count": "{{count}}개 네트워크"
     },
     "compose": {
       "count_one": "{{count}}개 프로젝트",
@@ -1991,7 +1996,8 @@
       "createFailed": "파티션 생성에 실패했습니다",
       "deleted": "파티션이 삭제되었습니다",
       "deleteFailed": "파티션 삭제에 실패했습니다",
-      "fetchFailed": "파티션 정보를 불러올 수 없습니다"
+      "fetchFailed": "파티션 정보를 불러올 수 없습니다",
+      "createDescription": "{{disk}}에 새 파티션을 생성합니다."
     },
     "filesystems": {
       "title": "파일시스템",
@@ -2102,7 +2108,8 @@
         "resizing": "크기 조정 중...",
         "currentSize": "현재 크기",
         "newSize": "새 크기",
-        "deleteConfirmDesc": "{{vg}}의 논리 볼륨 {{name}}을(를) 제거하면 데이터가 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다."
+        "deleteConfirmDesc": "{{vg}}의 논리 볼륨 {{name}}을(를) 제거하면 데이터가 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+        "resizeDescription": "논리 볼륨 {{name}}의 크기를 조정합니다."
       }
     },
     "raid": {
@@ -2139,7 +2146,9 @@
       "memberDisks": "멤버 디스크",
       "empty": "RAID 어레이가 없습니다",
       "fetchFailed": "RAID 정보를 불러올 수 없습니다",
-      "noUnusedDisks": "사용 가능한 미사용 디스크/파티션이 없습니다 (마운트포인트가 없는 장치만 선택할 수 있습니다)."
+      "noUnusedDisks": "사용 가능한 미사용 디스크/파티션이 없습니다 (마운트포인트가 없는 장치만 선택할 수 있습니다).",
+      "addDiskDescription": "어레이 {{array}}에 디스크를 추가합니다.",
+      "arrayCount": "{{count}}개 어레이"
     },
     "swap": {
       "title": "스왑 관리",

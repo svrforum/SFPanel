@@ -28,7 +28,8 @@
     "retry": "Retry",
     "copy": "Copy",
     "previous": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "error": "An error occurred"
   },
   "layout": {
     "brand": "SFPanel",
@@ -507,7 +508,8 @@
       "collectingMetrics": "Collecting…",
       "events": "Events",
       "noEvents": "No events",
-      "loadMore": "Load more"
+      "loadMore": "Load more",
+      "count": "{{count}} containers"
     },
     "create": {
       "button": "Create",
@@ -567,7 +569,8 @@
       "updateAvailable": "Update available",
       "updatesFound": "{{count}} update(s) available",
       "upToDate": "All images are up to date",
-      "updateCheckFailed": "Failed to check for updates"
+      "updateCheckFailed": "Failed to check for updates",
+      "count": "{{count}} images"
     },
     "volumes": {
       "count_one": "{{count}} volume",
@@ -589,7 +592,8 @@
       "inUse": "In use",
       "unused": "Unused",
       "size": "Size",
-      "measuring": "Measuring…"
+      "measuring": "Measuring…",
+      "count": "{{count}} volumes"
     },
     "networks": {
       "count_one": "{{count}} network",
@@ -615,7 +619,8 @@
       "inspectFailed": "Failed to inspect network",
       "connectedContainers": "Connected Containers",
       "subnet": "Subnet",
-      "gateway": "Gateway"
+      "gateway": "Gateway",
+      "count": "{{count}} networks"
     },
     "compose": {
       "count_one": "{{count}} project",
@@ -1991,7 +1996,8 @@
       "createFailed": "Failed to create partition",
       "deleted": "Partition deleted",
       "deleteFailed": "Failed to delete partition",
-      "fetchFailed": "Failed to load partitions"
+      "fetchFailed": "Failed to load partitions",
+      "createDescription": "Create a new partition on {{disk}}."
     },
     "filesystems": {
       "title": "Filesystems",
@@ -2102,7 +2108,8 @@
         "resizing": "Resizing...",
         "currentSize": "Current Size",
         "newSize": "New Size",
-        "deleteConfirmDesc": "Removing logical volume {{name}} from {{vg}} permanently destroys its data. This cannot be undone."
+        "deleteConfirmDesc": "Removing logical volume {{name}} from {{vg}} permanently destroys its data. This cannot be undone.",
+        "resizeDescription": "Resize logical volume {{name}}."
       }
     },
     "raid": {
@@ -2139,7 +2146,9 @@
       "memberDisks": "Member Disks",
       "empty": "No RAID arrays",
       "fetchFailed": "Failed to load RAID info",
-      "noUnusedDisks": "No unused disks or partitions available (only devices without a mount point can be selected)."
+      "noUnusedDisks": "No unused disks or partitions available (only devices without a mount point can be selected).",
+      "addDiskDescription": "Add a disk to array {{array}}.",
+      "arrayCount": "{{count}} arrays"
     },
     "swap": {
       "title": "Swap Management",
