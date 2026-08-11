@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.56.0] – 2026-08-11
+
+A security-hardening release executing the deferred backlog from the v0.55.0 audit: the cluster drops its legacy replayable credential from the wire, release signing gains the standardized Sigstore bundle without abandoning already-deployed verifiers, the largest untested surface (netplan) gets frozen under tests, and the two drifted spec documents are re-synced.
+
+### Security
+
+- **Cluster-internal proxy auth is now v2-only on the wire.** The legacy v1 static-secret header (`X-SFPanel-Internal-Proxy`) is no longer attached to any outbound cluster traffic — HTTP/SSE relay, WebSocket relay, the gRPC loopback hop, rolling cluster updates, leader self-update, and stack migration all authenticate with the replay-resistant v2 HMAC header only. The v1 header was already inert against any peer ≥ v0.11.2 (a present v2 header always short-circuits v1), so this drops a credential that would replay forever if ever captured, without changing behaviour in supported clusters. Inbound v1 validation is retained this release so mixed v0.55/v0.56 clusters interoperate during a rolling upgrade; **it will be removed in the next release.** Peers older than v0.13.2 were already unsupported for cross-version relay.
+- **Release signing now dual-publishes the standardized Sigstore bundle.** Every release keeps the legacy `checksums.txt.sig`/`checksums.txt.pem` pair (cosign v2 pin) so already-deployed panels can keep verifying self-updates indefinitely, and additionally publishes `checksums.txt.sigstore.json` (cosign v3 bundle). The in-binary verifier prefers the bundle when the asset exists — parsed offline against the embedded Fulcio roots with the same release-workflow identity pin, ignoring the transparency-log material — and hard-fails on a bad bundle with no fallback to the legacy pair, so stripping or corrupting the bundle can never weaken verification below the current level. `install.sh` continues to verify the legacy pair.
+
+### Tests & docs
+
+- The netplan write path and the resolvectl/`ip route` text parsers (previously the largest untested surface in the repo, ~1,360 lines) now have 16 table-driven test functions freezing current behaviour, including four documented parser quirks kept as-is for later fixes. File discovery gained a test seam (`netplanDir`) — no production behaviour change.
+- `docs/specs/frontend-spec.md` and `docs/specs/tech-features.md` re-synced to v0.55.0 (they had drifted since v0.40.0).
+
 ## [0.55.0] – 2026-08-11
 
 A security-and-maintenance release: the CI pipeline is fully green again, every open Dependabot PR was reviewed and either merged or superseded, and all fixable dependency advisories are cleared from shipped binaries. Includes the two cluster fixes that had been sitting unreleased on main since July (issue #5).
