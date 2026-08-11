@@ -182,16 +182,16 @@ func TestSessionKey_EmptySessionIDStillBindsToUser(t *testing.T) {
 // err == nil check pass and continue with username == "".
 func TestAuthenticateWS_RefusesEmptyProxyUsername(t *testing.T) {
 	// Configure a proxy secret so IsInternalProxyRequest can validate the
-	// v1 header path. Restore the previous value when the test ends so we
+	// v2 signature. Restore the previous value when the test ends so we
 	// don't leak global state across tests.
 	prev := auth.ClusterProxySecret()
 	auth.SetClusterProxySecret("test-secret")
 	t.Cleanup(func() { auth.SetClusterProxySecret(prev) })
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/terminal/ws", nil)
-	req.Header.Set(auth.InternalProxyHeader, "test-secret")
-	// Intentionally do NOT set X-SFPanel-Original-User. The v1 path will
-	// authenticate the proxy hop, but the username must be absent.
+	req.Header.Set(auth.InternalProxyHeaderV2, auth.SignProxyRequestV2(http.MethodGet, "/api/v1/terminal/ws"))
+	// Intentionally do NOT set X-SFPanel-Original-User. The v2 signature
+	// authenticates the proxy hop, but the username must be absent.
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)
 
@@ -255,7 +255,7 @@ func TestTerminalWS_EmptyUsernameDoesNotCreateSession(t *testing.T) {
 	sessionsMu.Unlock()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/terminal/ws?session_id=hijack", nil)
-	req.Header.Set(auth.InternalProxyHeader, "test-secret")
+	req.Header.Set(auth.InternalProxyHeaderV2, auth.SignProxyRequestV2(http.MethodGet, "/api/v1/terminal/ws?session_id=hijack"))
 	// Deliberately omit X-SFPanel-Original-User to trigger the guard.
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)

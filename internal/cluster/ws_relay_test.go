@@ -41,7 +41,7 @@ func TestResolveRelayUsername_InternalProxyOriginalUser(t *testing.T) {
 	setProxySecret(t, "relay-test-secret")
 
 	c := newRelayContext(t, "/ws/terminal?node=remote")
-	c.Request().Header.Set(auth.InternalProxyHeader, "relay-test-secret")
+	c.Request().Header.Set(auth.InternalProxyHeaderV2, auth.SignProxyRequestV2(http.MethodGet, "/ws/terminal?node=remote"))
 	c.Request().Header.Set("X-SFPanel-Original-User", "bob")
 
 	if got := resolveRelayUsername(c, ""); got != "bob" {
@@ -56,7 +56,7 @@ func TestResolveRelayUsername_InternalProxyMissingUser(t *testing.T) {
 	setProxySecret(t, "relay-test-secret")
 
 	c := newRelayContext(t, "/ws/terminal?node=remote")
-	c.Request().Header.Set(auth.InternalProxyHeader, "relay-test-secret")
+	c.Request().Header.Set(auth.InternalProxyHeaderV2, auth.SignProxyRequestV2(http.MethodGet, "/ws/terminal?node=remote"))
 
 	if got := resolveRelayUsername(c, ""); got != "" {
 		t.Fatalf("resolveRelayUsername = %q, want empty", got)

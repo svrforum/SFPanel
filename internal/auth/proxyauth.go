@@ -13,16 +13,15 @@ import (
 	"time"
 )
 
-// InternalProxyHeader (v1) is set by the gRPC ProxyRequest handler to bypass
-// JWT authentication when a cluster node forwards a request that is already
-// authenticated via mTLS at the transport layer. v1 is a static-secret
-// header — vulnerable to replay if an mTLS-trusted node ever leaks one.
+// InternalProxyHeader (v1) was the original static-secret proxy-bypass
+// header — vulnerable to replay if an mTLS-trusted node ever leaked one.
 //
-// Deprecated (send side): as of v0.56.0 no SFPanel node sends this header —
-// every sender is v2-only. Inbound validation below is kept for one release
-// so mixed v0.55/v0.56 clusters interoperate during a rolling upgrade, and
-// will be REMOVED in the following release (drop the v1 branch in
-// IsInternalProxyRequest plus TestV1Compat_* / TestJWTMiddleware_V1StillAccepted).
+// Retired, dead on the wire (deliberately NOT a formal "Deprecated:" marker:
+// every remaining reference is intentional). Senders went v2-only in v0.56.0
+// and the receive branch was removed in v0.57.0 — a request carrying only
+// this header is rejected. The constant survives solely for the defensive
+// strip lists (HTTP relay, gRPC receive) that must keep removing the header
+// from forwarded requests, and for the tests pinning the rejection.
 const InternalProxyHeader = "X-SFPanel-Internal-Proxy"
 
 // InternalProxyHeaderV2 carries a timestamp + nonce + HMAC tuple instead of
@@ -74,12 +73,10 @@ func ClusterProxySecret() string {
 }
 
 // IsInternalProxyRequest reports whether the request carries a valid internal
-// proxy header. Tries v2 (replay-resistant) first; falls back to v1 (static
-// secret) for compatibility with not-yet-upgraded peers (receive-only
-// compatibility: senders stopped emitting v1 in v0.56.0; the v1 branch is
-// scheduled for removal next release). Both paths use the
-// same shared secret — operators don't need to coordinate a key rotation
-// for the upgrade.
+// proxy header — the replay-resistant v2 HMAC only. The legacy v1
+// static-secret path was retired in two steps (send dropped in v0.56.0,
+// receive dropped in v0.57.0); peers older than v0.56.0 can no longer relay
+// to this node and must be upgraded locally first.
 func IsInternalProxyRequest(r *http.Request) bool {
 	secret := ClusterProxySecret()
 	if secret == "" {
@@ -99,13 +96,11 @@ func IsInternalProxyRequest(r *http.Request) bool {
 		return validateV2(secret, v2, r.Method, r.URL.RequestURI())
 	}
 
-	// v1 fallback — receive-only back-compat for one release (see deprecation
-	// note on InternalProxyHeader); only reached when the v2 header is absent.
-	proxyToken := r.Header.Get(InternalProxyHeader)
-	if proxyToken == "" {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(proxyToken), []byte(secret)) == 1
+	// The legacy v1 static-secret header is no longer accepted: senders went
+	// v2-only in v0.56.0 and the receive branch was removed in v0.57.0. The
+	// header name lives on only in the defensive strip lists (HTTP relay +
+	// gRPC receive) so a forwarded request can never smuggle one.
+	return false
 }
 
 // SignProxyRequestV2 returns the value to put in InternalProxyHeaderV2 for a

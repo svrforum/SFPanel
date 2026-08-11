@@ -34,7 +34,7 @@ func TestMigrateImportRejectsMissingSha(t *testing.T) {
 	auth.SetClusterProxySecret("test-secret")
 	defer auth.SetClusterProxySecret("")
 	h := &Handler{ComposePath: t.TempDir()}
-	c, rec := newImportCtx(echo.New(), "", map[string]string{"X-SFPanel-Internal-Proxy": "test-secret"})
+	c, rec := newImportCtx(echo.New(), "", map[string]string{auth.InternalProxyHeaderV2: auth.SignProxyRequestV2(http.MethodPost, "/api/v1/docker/compose/migrate-import")})
 	_ = h.MigrateImport(c)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400 for missing checksum header, got %d", rec.Code)
@@ -46,7 +46,7 @@ func TestMigrateImportRejectsBadBundle(t *testing.T) {
 	defer auth.SetClusterProxySecret("")
 	h := &Handler{ComposePath: t.TempDir()}
 	c, rec := newImportCtx(echo.New(), "not a tar bundle", map[string]string{
-		"X-SFPanel-Internal-Proxy":   "test-secret",
+		auth.InternalProxyHeaderV2:   auth.SignProxyRequestV2(http.MethodPost, "/api/v1/docker/compose/migrate-import"),
 		"X-SFPanel-Migration-Sha256": "deadbeef",
 	})
 	_ = h.MigrateImport(c)
@@ -65,7 +65,7 @@ func TestMigrateImportRejectsOversizeBundle(t *testing.T) {
 	h := &Handler{ComposePath: t.TempDir()}
 	big := strings.Repeat("A", 1024)
 	c, rec := newImportCtx(echo.New(), big, map[string]string{
-		"X-SFPanel-Internal-Proxy":   "test-secret",
+		auth.InternalProxyHeaderV2:   auth.SignProxyRequestV2(http.MethodPost, "/api/v1/docker/compose/migrate-import"),
 		"X-SFPanel-Migration-Sha256": "deadbeef",
 	})
 	_ = h.MigrateImport(c)

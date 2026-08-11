@@ -143,7 +143,7 @@ func TestCSRFProtect_InternalProxyBypass(t *testing.T) {
 
 	handler := newCSRFHandler()
 	req := httptest.NewRequest("POST", "/api/v1/settings", strings.NewReader("{}"))
-	req.Header.Set(auth.InternalProxyHeader, "test-secret-32-bytes-long-enough!!")
+	req.Header.Set(auth.InternalProxyHeaderV2, auth.SignProxyRequestV2("POST", "/api/v1/settings"))
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)
 	c.SetPath("/api/v1/settings")

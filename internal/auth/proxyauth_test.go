@@ -86,26 +86,16 @@ func TestValidateV2_RejectsStaleTimestamp(t *testing.T) {
 	}
 }
 
-// Receive-only back-compat: senders stopped emitting v1 in v0.56.0. Delete
-// this test together with the v1 branch in IsInternalProxyRequest next release.
-func TestV1Compat_StillWorks(t *testing.T) {
+// TestV1NoLongerAccepted pins the v0.57.0 removal: a request carrying the
+// CORRECT secret in the legacy v1 static-secret header — the strongest v1
+// credential possible — must be rejected. Only the v2 HMAC authenticates.
+func TestV1NoLongerAccepted(t *testing.T) {
 	resetForTest("test-secret-32-bytes-long-enough!!")
 
 	r, _ := http.NewRequest("GET", "http://localhost/x", nil)
 	r.Header.Set(InternalProxyHeader, "test-secret-32-bytes-long-enough!!")
-	if !IsInternalProxyRequest(r) {
-		t.Error("v1 static-secret path should still validate (backward compat)")
-	}
-}
-
-// Receive-only back-compat: delete with the v1 branch next release.
-func TestV1Compat_RejectsWrongSecret(t *testing.T) {
-	resetForTest("the-real-secret")
-
-	r, _ := http.NewRequest("GET", "http://localhost/x", nil)
-	r.Header.Set(InternalProxyHeader, "wrong-secret")
 	if IsInternalProxyRequest(r) {
-		t.Error("v1 with wrong secret should be rejected")
+		t.Error("v1 static-secret header must no longer authenticate (removed v0.57.0)")
 	}
 }
 
