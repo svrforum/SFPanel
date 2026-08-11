@@ -1,11 +1,11 @@
 # SFPanel 기술 스택 & 기능 스펙
 
-> 마지막 전체 동기화: 2026-04-19 · 기능 워크스루 보강: 2026-06-03 (캠페인 v0.19.0–v0.40.0 반영) · 기준 버전: v0.40.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/features-inventory.md`, `CHANGELOG.md`
+> 마지막 전체 동기화: 2026-04-19 · 기능 워크스루 보강: 2026-06-03 (v0.19.0–v0.40.0) · 2026-08-11 (v0.41.0–v0.55.0) · 기준 버전: v0.55.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/features-inventory.md`, `CHANGELOG.md`
 >
 > 경량 서버 관리 웹 패널. 개인 서버 관리자 및 DevOps 팀을 위한 Docker 중심 관리 도구.
 > 올인원 Go 바이너리 아키텍처 — React SPA를 `go:embed`로 포함하여 단일 실행 파일로 배포.
 >
-> 아래 **기능 목록**(§1–§22)은 v0.40.0까지의 모듈 심화 캠페인을 반영합니다. 단, 본 문서 하단의 표 섹션(데이터베이스 스키마, API/WS/SSE 엔드포인트 목록, 프론트엔드 페이지 등)은 아직 v0.9.0 시점 기준이며 캠페인에서 추가된 라우트/테이블/페이지를 일부 누락합니다. 변경 요약은 `CHANGELOG.md`를, 설계 의도는 `docs/superpowers/specs/`의 테마별 디자인 문서를 참조하세요.
+> 아래 **기능 목록**(§1–§23)은 v0.55.0까지의 변경을 반영합니다. 단, 본 문서 하단의 표 섹션(API/WS/SSE 엔드포인트 목록, 프론트엔드 페이지 등)은 v0.9.0 스냅샷에 고가시 누락분만 덧댄 상태로, 이후 추가된 라우트/페이지를 일부 누락합니다. REST/SSE 라우트의 권위 문서는 `docs/specs/api-spec.md`, WS/SSE 스트리밍은 `docs/specs/websocket-spec.md`입니다. 변경 요약은 `CHANGELOG.md`를, 설계 의도는 `docs/superpowers/specs/`의 테마별 디자인 문서를 참조하세요.
 
 ---
 
@@ -15,44 +15,51 @@
 
 | 기술 | 버전 | 용도 |
 |------|------|------|
-| Go | 1.24.0 | 서버 런타임, 올인원 바이너리 빌드 |
-| Echo | v4.15.1 (`labstack/echo/v4`) | HTTP 웹 프레임워크 (라우팅, 미들웨어, CORS) |
-| SQLite | v1.46.1 (`modernc.org/sqlite`) | 설정/세션/Compose 프로젝트 저장 (CGO-free 순수 Go 구현) |
-| Docker Go SDK | v27.5.1 (`docker/docker`) | Docker 소켓 직접 통신 (컨테이너/이미지/볼륨/네트워크 관리) |
+| Go | 1.25.12 | 서버 런타임, 올인원 바이너리 빌드 |
+| Echo | v4.15.4 (`labstack/echo/v4`) | HTTP 웹 프레임워크 (라우팅, 미들웨어, CORS) |
+| SQLite | v1.56.0 (`modernc.org/sqlite`) | 설정/세션/Compose 프로젝트 저장 (CGO-free 순수 Go 구현) |
+| Docker Go SDK | v28.5.2 (`docker/docker`) | Docker 소켓 직접 통신 (컨테이너/이미지/볼륨/네트워크 관리) |
+| docker/go-connections | v0.7.0 | Docker 클라이언트 커넥션 유틸 — 장수 클라이언트에 idle-connection 제한 (v0.55.0) |
 | golang-jwt/jwt | v5.3.1 | JWT 토큰 생성 및 검증 (HS256) |
 | pquerna/otp | v1.5.0 | TOTP 2단계 인증 시크릿 생성 및 코드 검증 |
-| golang.org/x/crypto | v0.47.0 | bcrypt 패스워드 해싱 |
+| golang.org/x/crypto | v0.53.0 | bcrypt 패스워드 해싱 |
 | gorilla/websocket | v1.5.3 | WebSocket 연결 (실시간 메트릭, 로그 스트리밍, 터미널, Docker exec) |
-| gopsutil | v4.26.1 (`shirou/gopsutil/v4`) | 시스템 메트릭 수집 (CPU, 메모리, 디스크, 네트워크, 호스트 정보, 프로세스) |
+| gopsutil | v4.26.6 (`shirou/gopsutil/v4`) | 시스템 메트릭 수집 (CPU, 메모리, 디스크, 네트워크, 호스트 정보, 프로세스) |
 | gopkg.in/yaml.v3 | v3.0.1 | YAML 설정 파일 파싱 |
 | creack/pty | v1.1.24 | 서버 터미널 PTY (pseudo-terminal) 세션 생성 |
 | hashicorp/raft | v1.7.3 | Raft 합의 알고리즘 (클러스터 리더 선출, 로그 복제) |
 | raft-boltdb | v2.3.1 | Raft 로그/스냅샷 저장 (BoltDB 기반, 임베디드) |
-| google.golang.org/grpc | v1.79.2 | 노드 간 gRPC 통신 (클러스터 제어 채널) |
+| google.golang.org/grpc | v1.82.1 | 노드 간 gRPC 통신 (클러스터 제어 채널) |
 | google.golang.org/protobuf | v1.36.11 | Protocol Buffers 직렬화 (gRPC 메시지 정의) |
 
 ### 프론트엔드
 
+버전은 `web/package-lock.json` 해석(설치) 버전 기준 (package.json의 semver range와 다를 수 있음).
+
 | 기술 | 버전 | 용도 |
 |------|------|------|
-| React | ^19.2.0 | UI 라이브러리 (함수형 컴포넌트 + hooks) |
-| TypeScript | ~5.9.3 | 타입 안전성 |
-| Vite | ^7.3.1 | 빌드 도구 및 개발 서버 (HMR) |
-| Tailwind CSS | ^4.2.1 | 유틸리티-퍼스트 CSS 프레임워크 |
-| shadcn/ui | ^3.8.5 (dev) | Radix UI 기반 재사용 컴포넌트 (Dialog, Table, Tabs, Button, Input 등) |
-| Radix UI | ^1.4.3 | 접근성 기반 헤드리스 UI 프리미티브 |
-| React Router DOM | ^7.13.1 | 클라이언트 사이드 라우팅 (SPA) |
-| uplot | ^1.6.32 | 시스템 메트릭 시계열 차트 (CPU/메모리 24시간 히스토리) |
-| xterm.js | ^6.0.0 (`@xterm/xterm`) | 웹 기반 터미널 에뮬레이터 |
-| xterm Addons | fit ^0.11.0, search ^0.16.0, web-links ^0.12.0 | 터미널 자동 크기 조절, 검색, 링크 감지 |
-| Monaco Editor | ^4.7.0 (`@monaco-editor/react`) | 파일 편집기 / Compose YAML 편집 (구문 강조, 자동 완성) |
-| i18next | ^25.8.13 | 다국어 지원 프레임워크 |
-| react-i18next | ^16.5.4 | React용 i18n 바인딩 |
-| i18next-browser-languagedetector | ^8.2.1 | 브라우저 언어 자동 감지 |
-| Lucide React | ^0.575.0 | 아이콘 라이브러리 |
-| Sonner | ^2.0.7 | 토스트 알림 |
-| class-variance-authority | ^0.7.1 | 컴포넌트 변형(variant) 관리 |
-| clsx / tailwind-merge | ^2.1.1 / ^3.5.0 | 조건부 클래스명 결합 |
+| React | 19.2.7 | UI 라이브러리 (함수형 컴포넌트 + hooks) |
+| TypeScript | 6.0.3 | 타입 안전성 |
+| Vite | 8.1.0 (rolldown 기반) | 빌드 도구 및 개발 서버 (HMR) |
+| Tailwind CSS | 4.3.0 | 유틸리티-퍼스트 CSS 프레임워크 |
+| shadcn/ui | 4.10.0 (dev) | Radix UI 기반 재사용 컴포넌트 (Dialog, Table, Tabs, Button, Input 등) |
+| Radix UI | 1.4.3 | 접근성 기반 헤드리스 UI 프리미티브 |
+| React Router DOM | 7.18.2 | 클라이언트 사이드 라우팅 (SPA) |
+| uplot | 1.6.32 | 시스템 메트릭 시계열 차트 (CPU/메모리 24시간 히스토리) |
+| xterm.js | 6.0.0 (`@xterm/xterm`) | 웹 기반 터미널 에뮬레이터 |
+| xterm Addons | fit 0.11.0, search 0.16.0, web-links 0.12.0 | 터미널 자동 크기 조절, 검색, 링크 감지 |
+| Monaco Editor | `@monaco-editor/react` 4.7.0 + monaco-editor 0.55.1 — `editor.api` 슬림 임포트 (v0.49.0) | 파일 편집기 / Compose YAML 편집 (구문 강조, 자동 완성) |
+| i18next | 26.3.1 | 다국어 지원 프레임워크 |
+| react-i18next | 17.0.8 | React용 i18n 바인딩 |
+| i18next-browser-languagedetector | 8.2.1 | 브라우저 언어 자동 감지 |
+| Lucide React | 1.17.0 | 아이콘 라이브러리 |
+| Sonner | 2.0.7 | 토스트 알림 |
+| class-variance-authority | 0.7.1 | 컴포넌트 변형(variant) 관리 |
+| clsx / tailwind-merge | 2.1.1 / 3.6.0 | 조건부 클래스명 결합 |
+| marked / dompurify | 18.0.5 / 3.4.13 | 앱스토어 README 마크다운 렌더링 + sanitize |
+| qrcode.react | 4.2.0 | 2FA 설정 QR + WireGuard 피어 클라이언트 config QR |
+| vite-plugin-pwa | 1.3.0 | PWA 서비스워커 (수기 `public/manifest.json` 단일 매니페스트, v0.54.0) |
+| @tanstack/react-virtual | 3.14.2 | 대용량 목록 가상 스크롤 (프로세스/로그) |
 
 ### 인프라 / 배포
 
@@ -114,14 +121,18 @@
 - **주요 기능**:
   - PTY (pseudo-terminal) 기반 실제 셸 세션 (/bin/bash 또는 /bin/sh)
   - 다중 탭 지원 (생성/닫기/이름 변경, localStorage 지속)
-  - 세션 지속성 — 탭 전환/재연결 시 스크롤백 버퍼 재생 (256KB 링 버퍼)
-  - **보존 세션 재연결(reattach)**: 서버는 연결 끊김 후에도 PTY 세션과 스크롤백을 유지하므로, `GET /terminal/sessions`로 살아 있는 세션 목록을 조회해 피커에서 기존 세션 id에 다시 붙을 수 있음 (이전에는 프론트엔드가 항상 새 세션 id를 생성해 기존 세션에 도달 불가)
-  - 터미널 리사이즈 (PTY 동기화)
+  - 세션 지속성 — 탭 전환/재연결 시 스크롤백 버퍼 재생 (서버 측 256KB 링 버퍼; 클라이언트 xterm 스크롤백 10,000줄과는 별개)
+  - **보존 세션 재연결(reattach)**: 서버는 연결 끊김 후에도 PTY 세션과 스크롤백을 유지하므로, `GET /terminal/sessions`로 살아 있는 세션 목록을 조회해 피커에서 기존 세션 id에 다시 붙을 수 있음 (이전에는 프론트엔드가 항상 새 세션 id를 생성해 기존 세션에 도달 불가). **(v0.53.0)** reattach 시점의 liveness 판정 레이스 폐쇄
+  - **(v0.53.0) 자동 재연결**: 끊긴 WS가 동일 PTY 세션에 bounded exponential backoff로 재접속, 서버 스크롤백 재생으로 세션 지속 (accept 후 즉시 드롭 시 tight-loop 방지 가드)
+  - **(v0.53.0) 탭 per-node 네임스페이스**: 클러스터 노드 전환 시 다른 노드의 탭 상태를 재사용해 중복 PTY가 생기지 않도록 localStorage 키를 노드별로 분리
+  - **(v0.53.0) 터미널/exec 세션 오픈 감사 기록**: `/ws/terminal`·컨테이너 exec 오픈이 `audit_logs`에 남음 (기존 `/ws/*` 감사 우회 폐쇄)
+  - **(v0.53.0) CSWSH origin 검사 중앙화**: WS Origin 검증을 `internal/common/wsorigin`으로 일원화 (Tauri allowlist 포함)
+  - 터미널 리사이즈 (PTY 동기화; **(v0.53.0)** 0×0 리사이즈 프레임 무시)
   - 폰트 크기 조절 (10~24px)
   - 터미널 내 텍스트 검색 (SearchAddon)
   - 웹 링크 자동 감지 및 클릭 (WebLinksAddon), Unicode11 폭 처리 (CJK)
-  - Tokyo Night 컬러 테마, 클리어 버튼 (Ctrl-L 전송)
-  - 모바일 특수키 바 (Esc/Tab/Ctrl/Alt 토글, 방향키, Ctrl+C/D/Z)
+  - xterm 내부 팔레트는 Tokyo Night 고정 — **(v0.53.0)** 페이지 chrome(탭바/툴바/검색바/모바일 바)만 라이트/다크 테마 추종. 클리어 버튼 (Ctrl-L 전송)
+  - 모바일 특수키 바 (Esc/Tab/Ctrl/Alt 토글, 방향키, Ctrl+C/D/Z — v0.53.0에 `MobileTerminalBar` 컴포넌트로 추출)
   - 유휴 세션 자동 정리 (설정 가능한 타임아웃, 기본 30분, 0=무제한) + **빈-리더 세션 5분 강제 회수** (탭 종료 후 PTY 누수 방지)
   - 최대 20 동시 세션, WS keepalive (30초 ping / 70초 read deadline), 사용자별 세션 키 바인딩, HOME 동적 해석(비-root 유닛 지원)
   - 키보드 단축키 (Ctrl+F 검색)
@@ -269,11 +280,15 @@
 
 - **설명**: GitHub 레포 기반 원클릭 Docker Compose 앱 설치
 - **주요 기능**:
+  - **(v0.42.0) 카탈로그 in-repo 이전**: 카탈로그가 본 레포의 `appstore/` 디렉토리로 이동 — 런타임은 `raw.githubusercontent.com/svrforum/SFPanel/main/appstore/`를 fetch하므로 카탈로그 커밋만으로 캐시 TTL 내 전 패널에 반영 (구 별도 카탈로그 레포는 대체됨)
   - 앱 카테고리별 탐색 (모니터링, 보안, 미디어, 클라우드, 개발, 인프라 등)
   - 앱 검색 (이름, 설명 기반)
+  - **(v0.42.0) `/appstore/:appId` 딥링크**: 앱 상세 모달을 URL로 직접 오픈 (뒤로가기 지원)
   - 원클릭 설치: Compose YAML 자동 생성 + 환경변수 폼 + `docker compose up -d`
+  - **(v0.42.0) 언인스톨**: `DELETE /appstore/apps/:id` — compose down + 스택 디렉토리 제거 + 설치 마커 삭제 (파괴 확인 다이얼로그, 데이터 보존 옵션)
+  - **(v0.42.0) 설치 완료 UX**: Open app(`http://<host>:<port>`)/Manage in Docker 버튼, 설치 폼에 접근 URL 미리보기, 생성 비밀번호 복사 버튼
   - 동적 환경변수 설정 (포트, 비밀번호 등 앱별 커스텀)
-  - 자동 비밀번호 생성 (`crypto/rand`, 32바이트 hex)
+  - 자동 비밀번호 생성 (`crypto/rand`, 32바이트 hex) — **(v0.44.0)** `crypto/rand` 실패 시 약한 시크릿으로 진행하지 않고 설치 중단(fail-closed)
   - 캐시 영속화: SQLite `settings.appstore_cache` (1시간 TTL, 5개 동시 HTTP 요청 갱신) — 재시작 후 GitHub 재조회 없이 복원
   - 설치된 앱은 Docker Compose Stacks에서 관리 가능. 설치 경로 `<stacks_path>/<app-id>/`
   - 설치 모드: 심플 모드 (환경변수 폼) / **고급 모드** (docker-compose.yml + .env 직접 편집)
@@ -298,7 +313,12 @@
   - **IP 자동 감지** (`internal/cluster/detect.go`): Tailscale(100.64.0.0/10), 동일 서브넷 매칭, TCP 다이얼 기반 감지, 리더 주소 기반 라우팅 힌트
   - **클러스터 업데이트**: 롤링/동시 모드로 전체 클러스터 SFPanel 업데이트 오케스트레이션 (SSE 진행률 스트리밍, 노드별 step+status 이벤트). UI는 평면 로그 대신 **노드별 스테퍼 + 전체 진행 바**(완료/총 노드, 실패 카운트)로 렌더 — 각 노드의 지역화된 단계 상태(업데이트 중/재시작 대기/리더십 이전/온라인 복귀/느린 재시작/건너뜀/실패)를 백엔드가 이미 내보내던 구조화 SSE에서 도출
   - **노드 주소 편집·탈퇴 (인라인)**: 노드 행에서 광고 주소(advertise address) 인라인 편집(API + gRPC), 로컬 노드 행에서 클러스터 탈퇴 — 정족수 손실 시 force 오버라이드 지원
-  - **CLI 명령어**: `sfpanel cluster init/join/leave/status/token/remove`
+  - **(v0.47.0–v0.48.0) Cluster › Docker 스택 뷰**: 전 노드 compose 스택 집계(`GET /docker/compose/cluster-stacks` — 노드별 동시 fan-out, bounded 타임아웃, 불달 노드는 안정 에러코드 + 빈 목록) + 마스터-디테일(`/cluster/stacks/:node/:name` — 소유 노드가 URL에 포함되어 동명 스택 오타겟 방지). 어느 노드의 스택이든 그 자리에서 마이그레이션 시작 가능. 클러스터 사이드바 트리는 기본 접힘
+  - **(v0.55.0) CA 개인키 Raft FSM 복제**: 클러스터 CA 개인키를 JWT 시크릿과 함께 FSM으로 복제하고 필요 시 디스크에 구체화 — **어떤 리더든 join 서명 가능** (issue #5: founding 노드가 아닌 리더가 join을 받으면 `ca.key` 부재로 실패하던 문제). 기존 클러스터는 키 보유 노드가 리더가 되는 시점에 자가치유
+  - **(v0.55.0) 하트비트 스트림 안정화**: 리더의 메트릭-하트비트 스트림 idle timeout을 송신 주기의 3×로 결합 — 30s 송신 = 30s idle의 경합으로 분당 EOF 재접속이 반복되던 플래핑 제거
+  - **(v0.53.0) WS 릴레이 keepalive**: 릴레이의 클라이언트 레그에 30s ping + auto-pong으로 read deadline 재장전 — 조용한 원격 터미널 세션이 릴레이에서 끊기지 않음
+  - **(v0.49.1–3) 프록시/릴레이 수정**: stale-heartbeat 기반 사전 거부 제거(실제 gRPC/TCP 연결 성패가 진실 소스), ws-ticket은 항상 로컬 노드에서 발급(원격 노드 발급 티켓 401 방지), 프록시 응답 이중 gzip 제거
+  - **CLI 명령어**: `sfpanel cluster init/join/leave/status/token/remove/list/leader-transfer/reissue-cert`
   - **웹 UI API**: 클러스터 초기화/참여/탈퇴/해산/업데이트 REST API (~15개 엔드포인트)
 - **패키지 레이아웃**: `internal/cluster/` — `manager.go`, `raft_fsm.go`, `grpc_server.go`, `join.go`, `detect.go`, `tls.go`, `token.go`, `ws_relay.go` 외 다수. proto는 `proto/cluster.proto`, 생성물 `proto/cluster.pb.go` / `proto/cluster_grpc.pb.go`
 - **설정 확장**: `config.yaml`에 `cluster` 섹션 (enabled, name, node_id, node_name, grpc_port, data_dir, cert_dir, advertise_address, raft_tls)
@@ -395,17 +415,17 @@
 
 ### 22. 설정
 
-- **설명**: 패널/계정/시스템 설정을 묶은 **6-탭 허브** (일반/보안/시스템/튜닝/알림/감사). 단일 노드는 전체 탭, 클러스터에서는 스코프로 분기.
+- **설명**: 패널/계정/시스템 설정을 묶은 **4-탭 허브** (계정/시스템/알림/감사) — **(v0.41.0)** 6개 탭에서 재편: 계정=보안+일반(언어·테마), 시스템=유지보수(업데이트·백업)+성능(터미널/업로드 한도+커널 튜닝). 단일 노드는 전체 탭, 클러스터에서는 스코프로 분기.
 - **주요 기능**:
-  - **일반**: 영어/한국어 전환 (i18next, 클라이언트 전용; Tauri는 연결 서버 해제 블록)
-  - **보안**: 비밀번호 변경(최소 8자, 확인 일치); 2FA(TOTP) — 설정 시작 → **QR(qrcode.react 클라이언트 렌더링)** + 시크릿 → 6자리 검증 → 활성화, **비활성화(비밀번호 + 현재 TOTP 코드 재확인, `DELETE /auth/2fa`)** — 세션만 탈취한 공격자가 2FA를 다운그레이드하지 못하도록 현재 TOTP 코드를 요구하며, 비활성화 시 복구 코드도 함께 폐기(2FA 없이는 무의미하므로 재활성화 시 새 출발)
+  - **일반**: 영어/한국어 전환 (i18next, 클라이언트 전용; Tauri는 연결 서버 해제 블록); **(v0.53.0)** 테마 선택 (라이트/다크/시스템)
+  - **보안**: 비밀번호 변경(**(v0.54.0)** 최소 12자 + 공용 비밀번호 denylist 거부, 확인 일치); 2FA(TOTP) — 설정 시작 → **QR(qrcode.react 클라이언트 렌더링)** + 시크릿 → 6자리 검증 → 활성화, **비활성화(비밀번호 + 현재 TOTP 코드 재확인, `DELETE /auth/2fa`)** — 세션만 탈취한 공격자가 2FA를 다운그레이드하지 못하도록 현재 TOTP 코드를 요구하며, 비활성화 시 복구 코드도 함께 폐기(2FA 없이는 무의미하므로 재활성화 시 새 출발)
     - **2FA 복구 코드**(v0.34.0): 인증기를 분실해도 로그인할 수 있는 1회용 코드 세트 생성(`POST /auth/2fa/recovery`, 2FA 활성 상태 필수; 평문은 생성 시 1회만 표시). 로그인 화면에서 "복구 코드로 로그인" 시 TOTP 필드가 복구 코드 필드로 전환되고 유효 코드는 사용 시 소비됨. 코드는 **SHA-256 해시**로 저장(고엔트로피라 bcrypt 불필요, 로그인 경로 빠른 비교)되고, 클러스터 어드민의 경우 **Raft FSM으로 복제**(마이그레이션 35 + `CmdSetRecoveryCodes`) — 계정 레코드와 분리되어 비밀번호/TOTP 변경이 복구 코드를 지우지 않음. 로컬 계정은 `admin.recovery_codes` 컬럼에 저장. 클러스터 어드민 코드 소비는 리더 쓰기이며, 팔로워에서의 복구 로그인은 재사용 가능 코드를 위험에 빠뜨리지 않도록 "리더 노드 사용" 힌트와 함께 거부
   - **시스템**: 패널 업데이트(체크 + SSE 스트리밍 실행), 백업 다운로드/복원·**예약 백업**(§18), 시스템 정보(버전/호스트/OS/커널/업타임)
     - **업데이트 무결성 검증**: 릴리즈의 `checksums.txt`를 **Cosign keyless(Sigstore) 서명**으로 먼저 검증(인증서가 정식 레포의 `release.yml` 워크플로우/태그에 핀)한 뒤, 거기서 파싱한 **SHA-256** 해시로 다운로드 아카이브를 대조. `SignatureRequiredSince` 컷오프 이후 릴리즈는 `.sig`/`.pem` 자산이 없으면 업데이트를 거부(공격자가 서명 자산을 삭제해 SHA-only로 다운그레이드하는 공급망 공격 방지). 컷오프 이전 구버전은 1회성 업그레이드 경로를 위해 SHA-256 단독 검증으로 폴백
   - **튜닝**: 터미널 유휴 타임아웃(분), 최대 업로드 크기(MB) — per-node `settings`; sysctl 튜닝(적용/확인/리셋, 60초 자동 롤백)
   - **알림**: 채널(Discord/Telegram/Webhook) CRUD + 테스트, 규칙 CRUD, 이력 조회/삭제
   - **감사**: 감사 로그 조회/삭제 (§17)
-  - **클러스터 스코프 분기**: `scope=node` 시 per-node 탭(시스템·튜닝·감사)만, 그 외 클러스터 전역 탭(일반·보안·알림)만 노출. 보안(비밀번호/2FA)은 FSM 복제 admin 행에 반영
+  - **클러스터 스코프 분기**: `scope=node` 시 per-node 탭(시스템·감사)만, 그 외 클러스터 전역 탭(계정·알림)만 노출하고 스코프 배지('이 노드'/'클러스터 전체')를 표시. 보안(비밀번호/2FA)은 FSM 복제 admin 행에 반영
   - 키-값 설정 저장 (SQLite `settings` 테이블, UPSERT)
 - **관련 기술**: i18next, bcrypt, TOTP (pquerna/otp), SQLite
 
@@ -417,6 +437,10 @@
 - **type-to-confirm 게이팅**: 비가역 작업은 파괴 버튼 활성화 전에 정확한 디바이스/배열/클러스터 이름을 직접 타이핑해야 함 — **디스크 포맷**, **파티션 삭제**, **RAID 배열 삭제**, **클러스터 해산(disband)**에 적용. 오클릭으로 데이터 손실 불가
 - **로딩 스켈레톤 + 명시적 에러 상태**: 컨테이너/서비스/프로세스/cron/방화벽 규칙/도커 이미지·볼륨·네트워크 목록 페이지가 **로딩**(스켈레톤 플레이스홀더), **로드 실패**(메시지 + Retry 버튼의 인라인 에러 블록), **실제 빈 상태**(빈 상태)를 구분 — 이전에는 삼켜진 fetch 오류가 빈 목록과 동일하게 보였음. 스켈레톤은 최초 로드에만 표시(백그라운드 갱신 시 기존 행 위로 깜빡이지 않음)
 - **모바일 카드 폴백**: 넓은 데이터 테이블(**감사 로그**, **알림 이력**, **방화벽 포트맵**)이 작은 화면에서 가로 오버플로 대신 라벨/값 **카드 목록**으로 접힘(`hidden md:*`; 데스크톱 테이블은 동일한 필터/페이지네이션 행을 동일 배지·링크·액션으로 렌더)
+- **(v0.41.0) 모바일 정합**: 페이지 가로 오버플로 격리, 상세 다이얼로그 `min-w-0` 전파, visualViewport 추적으로 소프트 키보드가 터미널 입력을 가리지 않음
+- **(v0.46.0) 클립보드 폴백**: 비보안 컨텍스트(plain HTTP)에서도 동작하는 공용 `copyText()` 헬퍼(`web/src/lib/utils.ts`)로 복사 버튼 통일
+- **(v0.53.0) 다크모드 + 시맨틱 토큰 스윕**: `.dark` 팔레트 활성화(light/dark/system, OS 추종 + pre-paint 인라인 스크립트), 하드코딩 hex를 시맨틱 토큰으로 정리
+- **(v0.53.0) 키보드 접근성 스윕**: 전 인터랙티브 표면 focus-visible 링, 아이콘 전용 컨트롤 aria-label(기존 i18n 키 재사용), 클릭 전용 행/셀 keyboard-operable(role/tabIndex/Enter·Space), hover-전용 행 액션 포커스 시 표시
 
 ---
 
@@ -429,10 +453,12 @@
 | **토큰 만료** | 설정 가능 (기본 24시간, `config.yaml`의 `token_expiry`) |
 | **비밀번호 해싱** | bcrypt (golang.org/x/crypto, DefaultCost) |
 | **2단계 인증** | TOTP (pquerna/otp) — Google Authenticator 등 호환, QR 코드 지원. **복구 코드**(SHA-256 해시 1회용, 클러스터는 Raft FSM 복제) 로그인 대체 경로 |
-| **WebSocket 인증** | 쿼리 파라미터 `?token=<JWT>` 방식 (HTTP 헤더 불가능한 환경 대응) |
+| **WebSocket 인증** | **단발성 ws-ticket**(`POST /auth/ws-ticket`, 60초 1회용) 우선 — JWT가 URL에 남지 않음. 레거시 `?token=<JWT>` 쿼리 폴백 |
+| **세션 지속** | 리프레시 토큰 체인 (`refresh_tokens` 테이블, httpOnly 쿠키 + 회전식 `POST /auth/refresh`). **(v0.43.0)** 비밀번호 변경/2FA 토글 시 다른 세션의 체인 폐기 |
 | **JWT 미들웨어** | Echo 미들웨어로 보호 라우트 그룹 인증 처리 |
-| **초기 설정** | 셋업 위저드 — admin 계정 미존재 시 공개 엔드포인트로 최초 계정 생성 |
-| **비밀번호 정책** | 최소 8자 이상 필수 |
+| **초기 설정** | 셋업 위저드 — admin 계정 미존재 시 공개 엔드포인트로 최초 계정 생성. **(v0.54.0)** 첫 설정은 loopback/RFC1918 소스만 허용 (공용 호스트는 SSH 터널) |
+| **비밀번호 정책** | 최소 **12자** + 공용 비밀번호 denylist 거부 (v0.54.0) |
+| **헬스 체크** | `/api/v1/health`는 readiness 프로브 — SQLite ping(2초 바운드) 실패 시 503 (v0.52.0) |
 | **파일 시스템 보호** | 절대 경로 필수, `..` 트래버설 차단, 시스템 핵심 경로 삭제 금지 |
 | **패키지 이름 검증** | 정규식으로 안전한 문자만 허용 (`a-zA-Z0-9._+-`) |
 | **로그 접근 제어** | 허용 목록(allowlist) 기반 — 사전 정의된 로그 소스 및 커스텀 소스만 읽기 가능 |
@@ -455,6 +481,7 @@
 |------|-----|--------|------|
 | `server.host` | host | `0.0.0.0` | 바인딩 호스트 주소 |
 | `server.port` | port | `3628` | 서버 포트 |
+| `server.stacks_path` | stacks_path | `/opt/stacks` | Docker Compose 스택 루트 (앱스토어 설치 위치, 부팅 시 스캔) |
 | `database.path` | path | `./sfpanel.db` | SQLite 데이터베이스 파일 경로 |
 | `auth.jwt_secret` | jwt_secret | (없음) | JWT 서명 시크릿 (반드시 변경 필요) |
 | `auth.token_expiry` | token_expiry | `24h` | JWT 토큰 만료 시간 (Go duration 형식) |
@@ -465,7 +492,7 @@
 | `cluster.name` | name | (없음) | 클러스터 이름 |
 | `cluster.node_id` | node_id | (없음) | 노드 UUID (자동 생성) |
 | `cluster.node_name` | node_name | (없음) | 노드 표시 이름 |
-| `cluster.grpc_port` | grpc_port | `3629` | gRPC 통신 포트 |
+| `cluster.grpc_port` | grpc_port | `3629` | gRPC 통신 포트 (Raft 전송은 `grpc_port + 1` — 기본 3630에 별도 바인딩) |
 | `cluster.data_dir` | data_dir | `/var/lib/sfpanel/cluster` | Raft 데이터 저장 경로 |
 | `cluster.cert_dir` | cert_dir | `/etc/sfpanel/cluster` | mTLS 인증서 저장 경로 |
 | `cluster.advertise_address` | advertise_address | (없음) | 다른 노드가 접근할 IP |
@@ -476,35 +503,45 @@
 | 키 | 기본값 | 설명 |
 |-----|--------|------|
 | `terminal_timeout` | `30` | 터미널 유휴 세션 타임아웃 (분, 0=무제한) |
+| `max_upload_size` | `1024` | 파일 업로드 최대 크기 (MB) |
 
 ---
 
 ## 데이터베이스 스키마
 
-SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(1)`, 추가 프래그마: `synchronous(NORMAL)`, `mmap_size=256MB`, `cache_size=8MB`, `foreign_keys(on)`) — 자동 마이그레이션 **10개 테이블**. 상세 스키마는 `docs/specs/db-schema.md` 참조.
+SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그마: `synchronous(NORMAL)`, `mmap_size=256MB`, `cache_size=8MB`, `foreign_keys(on)`) — `schema_migrations` 테이블로 추적되는 **35단계** 버전 마이그레이션, 테이블 **16개**. 상세 스키마는 `docs/specs/db-schema.md` 참조.
 
 | 테이블 | 용도 |
 |--------|------|
-| `admin` | 관리자 계정 (username, password hash, TOTP secret 평문 저장) |
-| `sessions` | 세션 토큰 해시 (현재 미사용, 향후 블랙리스트/리프레시용 예약) |
+| `admin` | 관리자 계정 (username, password hash, TOTP secret 평문 저장, `recovery_codes` — m35) |
+| `sessions` | 세션 토큰 해시 (현재 미사용, 향후 블랙리스트용 예약) |
 | `compose_projects` | Docker Compose 프로젝트 메타 (name, yaml_path, status) |
 | `settings` | 키-값 설정 (terminal_timeout, max_upload_size, appstore_cache, `appstore_installed_*` 동적 키) |
 | `custom_log_sources` | 커스텀 로그 소스 (source_id, name, path) |
 | `metrics_history` | CPU/메모리 시계열 (60초 간격, 24시간 롤링, ms 단위 time PK) |
 | `audit_logs` | API 감사 로그 (method/path/status/ip/node_id, 최대 50,000행, 5분 주기 정리) |
-| `alert_channels` | 알림 채널 (discord/telegram, config JSON) |
+| `alert_channels` | 알림 채널 (discord/telegram/webhook, config JSON) |
 | `alert_rules` | 알림 규칙 (type/condition JSON/channel_ids/severity/cooldown/node_scope) |
 | `alert_history` | 알림 이력 (자동 정리 없음, 수동 삭제만) |
+| `refresh_tokens` | 회전식 리프레시 토큰 체인 (m14) |
+| `container_metrics_history` | 컨테이너 CPU/메모리 관측성 히스토리 (m16) |
+| `container_events` | 컨테이너 수명주기 이벤트 타임라인 (m17) |
+| `docker_volume_usage` | 볼륨 사용량 캐시 (m20) |
+| `image_signatures` | **dead schema** — v0.13.0에서 제거된 Cosign 이미지 검증 기능의 잔재 (m21, 미사용·재사용 금지) |
+| `backup_schedule` | 예약 백업 설정/마지막 실행 상태 (m33–34) |
 
 ---
 
 ## API 엔드포인트
 
+> **주의**: 아래 표는 v0.9.0 시점 스냅샷에 고가시 누락분만 덧댄 것으로, 이후 추가된 라우트를 다수 누락한다. 전체 카탈로그의 권위 문서는 `docs/specs/api-spec.md`(REST/SSE) · `docs/specs/websocket-spec.md`(WS)이다.
+
 ### 공개 (인증 불필요)
 
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| GET | `/api/v1/health` | 헬스 체크 |
+| GET | `/api/v1/health` | 헬스 체크 — **(v0.52.0)** DB-ping readiness, 실패 시 503 |
+| POST | `/api/v1/auth/refresh` | 리프레시 토큰 회전 (httpOnly 쿠키 기반) |
 | POST | `/api/v1/auth/login` | 로그인 (JWT 토큰 발급) |
 | GET | `/api/v1/auth/setup-status` | 초기 설정 필요 여부 확인 |
 | POST | `/api/v1/auth/setup` | 최초 관리자 계정 생성 |
@@ -515,6 +552,10 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(1)`, 추가 프래그�
 |--------|------|------|
 | POST | `/api/v1/auth/2fa/setup` | 2FA 시크릿 생성 |
 | POST | `/api/v1/auth/2fa/verify` | 2FA 코드 검증 및 활성화 |
+| DELETE | `/api/v1/auth/2fa` | 2FA 비활성화 (비밀번호 + 현재 TOTP 재확인) |
+| GET | `/api/v1/auth/2fa/recovery/status` | 2FA 복구 코드 생성 여부/잔여 개수 |
+| POST | `/api/v1/auth/2fa/recovery` | 2FA 복구 코드 생성/재생성 |
+| POST | `/api/v1/auth/ws-ticket` | 단발성 WS 인증 티켓 발급 (60초 1회용) |
 | POST | `/api/v1/auth/change-password` | 비밀번호 변경 |
 | GET | `/api/v1/settings` | 설정 조회 |
 | PUT | `/api/v1/settings` | 설정 업데이트 |
@@ -605,6 +646,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(1)`, 추가 프래그�
 | GET | `/api/v1/appstore/apps` | 앱 목록 (카테고리 필터) |
 | GET | `/api/v1/appstore/apps/:id` | 앱 상세 정보 + Compose YAML |
 | POST | `/api/v1/appstore/apps/:id/install` | 앱 설치 |
+| DELETE | `/api/v1/appstore/apps/:id` | (v0.42.0) 앱 언인스톨 |
 | GET | `/api/v1/appstore/installed` | 설치된 앱 목록 |
 | POST | `/api/v1/appstore/refresh` | 앱스토어 캐시 갱신 |
 | GET | `/api/v1/firewall/status` | UFW 상태 조회 |
@@ -643,6 +685,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(1)`, 추가 프래그�
 | DELETE | `/api/v1/docker/containers/:id` | 컨테이너 삭제 |
 | GET | `/api/v1/docker/images` | 이미지 목록 |
 | GET | `/api/v1/docker/images/search` | Docker Hub 이미지 검색 |
+| GET | `/api/v1/docker/images/updates` | 실행 중 컨테이너 이미지의 레지스트리 업데이트 확인 |
 | POST | `/api/v1/docker/images/pull` | 이미지 풀 |
 | DELETE | `/api/v1/docker/images/:id` | 이미지 삭제 |
 | GET | `/api/v1/docker/volumes` | 볼륨 목록 |
@@ -670,27 +713,34 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(1)`, 추가 프래그�
 | POST | `/api/v1/docker/compose/:project/services/:service/stop` | Compose 서비스 중지 |
 | POST | `/api/v1/docker/compose/:project/services/:service/start` | Compose 서비스 시작 |
 | GET | `/api/v1/docker/compose/:project/services/:service/logs` | Compose 서비스 로그 |
+| PUT | `/api/v1/docker/compose/:project/healthcheck/:service` | 서비스 healthcheck 적용 |
+| DELETE | `/api/v1/docker/compose/:project/healthcheck/:service` | 서비스 healthcheck 제거 |
+| POST | `/api/v1/docker/compose/:project/healthcheck/:service/test` | healthcheck 명령 시험 실행 |
+| POST | `/api/v1/docker/compose/:project/check-updates` | 스택 업데이트 확인 (서비스별 diff) |
+| POST | `/api/v1/docker/compose/:project/update` | 스택 풀+재생성 적용 |
+| GET | `/api/v1/docker/compose/cluster-stacks` | (v0.47.0) 클러스터 전 노드 스택 집계 |
 | POST | `/api/v1/docker/compose/:project/migrate/preflight` | 노드 간 마이그레이션 사전 점검 |
 | POST | `/api/v1/docker/compose/:project/migrate` | 노드 간 마이그레이션 (SSE) |
 | GET | `/api/v1/docker/compose/migrate/target-info` | 대상 노드 사실 조회 (내부 전용) |
 | POST | `/api/v1/docker/compose/migrate-import` | 마이그레이션 번들 수신 (내부 전용) |
 
-### WebSocket 엔드포인트 (쿼리 파라미터 토큰 인증)
+### WebSocket 엔드포인트 (단발성 ws-ticket 우선 인증, 레거시 `?token=` 폴백)
 
-총 6개. 모두 `?node=X`로 클러스터 원격 릴레이 가능 (`internal/cluster/ws_relay.go`).
+총 7개. `/ws/cluster/overview`를 제외한 6개는 `?node=X`로 클러스터 원격 릴레이 가능 (`internal/cluster/ws_relay.go`).
 
 | 경로 | 설명 |
 |------|------|
 | `/ws/metrics` | 실시간 시스템 메트릭 (약 3초 주기 JSON) |
 | `/ws/logs` | 실시간 로그 스트리밍 (`tail -f`, 쿼리 `source=syslog/auth/kern/sfpanel/dpkg/firewall/fail2ban/custom_*`) |
-| `/ws/terminal` | 서버 PTY 세션 (영속, 256KB 스크롤백, 최대 20 세션, idle 타임아웃 DB `terminal_timeout`) |
+| `/ws/terminal` | 서버 PTY 세션 (영속, 256KB 스크롤백, 최대 20 세션, idle 타임아웃 DB `terminal_timeout`; **(v0.53.0)** 오픈 시 감사 기록) |
 | `/ws/docker/containers/:id/logs` | 컨테이너 로그 (`tail`/`timestamps`/`stream`/`since` 쿼리) |
-| `/ws/docker/containers/:id/exec` | 컨테이너 셸 exec (TextMessage 양방향 + resize JSON) |
+| `/ws/docker/containers/:id/exec` | 컨테이너 셸 exec (TextMessage 양방향 + resize JSON; **(v0.53.0)** 오픈 시 감사 기록) |
 | `/ws/docker/compose/:project/logs` | Compose 프로젝트 로그 (`service` 필터 가능) |
+| `/ws/cluster/overview` | (v0.31.0) 클러스터 status+overview+이벤트 통합 스냅샷 푸시 — 클러스터 로컬, 노드 릴레이 미적용 |
 
 ### SSE 스트리밍 엔드포인트 (`Content-Type: text/event-stream`)
 
-총 9개. JWT 미들웨어 적용. 장시간 실행 작업의 실시간 진행률 스트리밍용. 클러스터 프록시 시 HTTP 직접 릴레이(5분 타임아웃).
+대표 목록 (전체 카탈로그는 `docs/specs/websocket-spec.md`). JWT 미들웨어 적용. 장시간 실행 작업의 실시간 진행률 스트리밍용. 클러스터 프록시 시 HTTP 직접 릴레이(5분 타임아웃).
 
 | 경로 | 용도 | 이벤트 형식 |
 |------|------|-----------|
@@ -699,8 +749,12 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(1)`, 추가 프래그�
 | `POST /api/v1/docker/compose/:project/up-stream` | Compose 프로젝트 시작 | JSON `{phase, line}` |
 | `POST /api/v1/docker/compose/:project/update-stream` | Compose 스택 풀+재생성 | JSON `{phase, line}` |
 | `POST /api/v1/docker/compose/:project/migrate` | 노드 간 스택 마이그레이션 | JSON `{phase, message, done}` (preflight/quiesce/package/transfer/finalize/done) |
+| `POST /api/v1/appstore/apps/:id/install` | 앱스토어 앱 설치 | JSON `{stage, message, done, success}` |
 | `POST /api/v1/packages/install-docker` | Docker 엔진 설치 (get.docker.com) | 평문 라인 + `[DONE]` |
 | `POST /api/v1/packages/install-node` | Node.js/NVM 설치 | 평문 라인 + `[DONE]` |
+| `POST /api/v1/packages/node-install-version` | Node.js 특정 버전 설치 | 평문 라인 + `[DONE]` |
+| `POST /api/v1/packages/upgrade` | 패키지 업그레이드 (전체/선택) | 평문 라인 + `[DONE]` |
+| `POST /api/v1/packages/install-claude` / `install-codex` / `install-gemini` | AI CLI 도구 설치 | 평문 라인 + `[DONE]` |
 | `POST /api/v1/network/tailscale/install` | Tailscale 설치 | 평문 라인 + `[DONE]` |
 | `POST /api/v1/cluster/update` | 멀티노드 업데이트 오케스트레이션 | JSON `{node_id, node_name, step, status, message}` |
 
@@ -724,14 +778,16 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(1)`, 추가 프래그�
 
 | 페이지 | 파일 | 설명 |
 |--------|------|------|
-| Login | `web/src/pages/Login.tsx` | 로그인 (username + password + TOTP) |
+| Connect | `web/src/pages/Connect.tsx` | (Tauri 전용) 원격 서버 접속 (URL 입력 + health check + 진단) |
+| Login | `web/src/pages/Login.tsx` | 로그인 (username + password + TOTP/복구 코드) |
 | Setup | `web/src/pages/Setup.tsx` | 최초 관리자 계정 생성 위저드 |
 | Dashboard | `web/src/pages/Dashboard.tsx` | 시스템 대시보드 |
-| AppStore | `web/src/pages/AppStore.tsx` | 앱스토어 (원클릭 Docker 앱 설치) |
+| AppStore | `web/src/pages/AppStore.tsx` | 앱스토어 (원클릭 Docker 앱 설치, `/appstore/:appId` 딥링크) |
+| Cluster | `web/src/pages/Cluster.tsx` | 클러스터 관리 셸 (사이드 탭 + Outlet) |
+| ClusterOverview / ClusterNodes / ClusterStacks / ClusterTokens | `web/src/pages/cluster/` | 클러스터 개요 / 노드 관리 / (v0.47.0) 전 노드 스택 집계 / 참가 토큰 |
 | Docker | `web/src/pages/Docker.tsx` | Docker 관리 (탭: Stacks, Containers, Images, Volumes, Networks) |
 | DockerStacks | `web/src/pages/docker/DockerStacks.tsx` | Docker Compose 스택 관리 |
-| DockerContainers | `web/src/pages/docker/DockerContainers.tsx` | 컨테이너 관리 |
-| DockerContainerCreate | `web/src/pages/docker/DockerContainerCreate.tsx` | 컨테이너 생성 폼 |
+| DockerContainers | `web/src/pages/docker/DockerContainers.tsx` | 컨테이너 관리 (독립형 컨테이너 생성은 페이지 내 CreateContainerDialog — 별도 페이지 아님) |
 | DockerImages | `web/src/pages/docker/DockerImages.tsx` | 이미지 관리 |
 | DockerVolumes | `web/src/pages/docker/DockerVolumes.tsx` | 볼륨 관리 |
 | DockerNetworks | `web/src/pages/docker/DockerNetworks.tsx` | 네트워크 관리 |
@@ -741,11 +797,13 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(1)`, 추가 프래그�
 | CronJobs | `web/src/pages/CronJobs.tsx` | Cron 작업 관리 |
 | Processes | `web/src/pages/Processes.tsx` | 프로세스 관리 |
 | Network | `web/src/pages/Network.tsx` | 네트워크 관리 |
-| Disk | `web/src/pages/Disk.tsx` | 디스크 관리 (탭: Overview, Partitions, Filesystems, LVM, RAID, Swap) |
+| Disk | `web/src/pages/Disk.tsx` | 디스크 관리 (서브라우트: Overview, Usage, Partitions, Filesystems, LVM, RAID, Swap) |
+| DiskUsage | `web/src/pages/disk/DiskUsage.tsx` | 경로/깊이별 디스크 사용량 탐색기 |
 | Services | `web/src/pages/Services.tsx` | Systemd 서비스 관리 |
-| Firewall | `web/src/pages/Firewall.tsx` | 방화벽 관리 (탭: Rules, Ports, Fail2ban, Docker, Logs) |
+| Firewall | `web/src/pages/Firewall.tsx` | 방화벽 관리 (탭: Rules, Ports, Portmap, Fail2ban, Docker, Logs) |
 | Packages | `web/src/pages/Packages.tsx` | 패키지 관리 + Docker 설치 |
-| Settings | `web/src/pages/Settings.tsx` | 설정 (언어, 터미널, 비밀번호, 2FA, 시스템 정보) |
+| Settings | `web/src/pages/Settings.tsx` | 설정 — 4-탭 허브 (계정/시스템/알림/감사, v0.41.0) |
+| 설정 서브패널 | `web/src/pages/settings/Security·General·Maintenance·Performance·AlertSettings·Audit.tsx` | 코드 분할된 탭 패널 6종 |
 
 ### 다국어 지원
 
@@ -762,8 +820,8 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(1)`, 추가 프래그�
 ```bash
 # 전체 빌드 (Makefile)
 make build
-# 1. cd web && npm install && npm run build  → web/dist/ 생성
-# 2. go build -ldflags="-s -w" -trimpath -o sfpanel ./cmd/sfpanel  → 바이너리 생성 (~16MB)
+# 1. cd web && npm install && npm run build  → web/dist/ 생성 (~9.6MB, v0.49.0 Monaco 슬림화 후)
+# 2. go build -ldflags="-s -w" -trimpath -o sfpanel ./cmd/sfpanel  → 바이너리 생성 (~33MB, web/dist 임베드 포함)
 
 # 개발 모드
 make dev-api   # Go 백엔드 (:3628)
@@ -779,7 +837,7 @@ make lint      # golangci-lint + eslint
 - **워크플로우**: `.github/workflows/release.yml`
   1. Checkout (full history)
   2. Go 설정 (go.mod에서 버전 자동 감지)
-  3. Node.js 20 설정 (npm 캐시)
+  3. Node.js 설정 (`.nvmrc` 기준 — 현재 22, `node-version-file` + npm 캐시)
   4. GoReleaser v2 실행 (`release --clean`)
 
 ### GoReleaser 설정
@@ -787,8 +845,8 @@ make lint      # golangci-lint + eslint
 - **Before Hook**: `cd web && npm ci && npm run build` (프론트엔드 빌드)
 - **빌드 타깃**: linux/amd64, linux/arm64 (CGO_ENABLED=0)
 - **ldflags**: `-s -w` (디버그 심볼 제거) + version/commit/date 주입
-- **아카이브**: `sfpanel_{version}_{os}_{arch}.tar.gz` (config.example.yaml 포함)
-- **체크섬**: `checksums.txt`
+- **아카이브**: `sfpanel_{version}_{os}_{arch}.tar.gz` (config.example.yaml 포함; **(v0.54.0)** `LICENSE` + `THIRD-PARTY-LICENSES.md` 동봉)
+- **체크섬**: `checksums.txt` — **cosign keyless(Sigstore) 서명** `.sig`/`.pem` 첨부. **(v0.55.0)** cosign은 v2로 핀 — v3는 legacy `.sig`/`.pem` 출력 플래그를 제거해 배포된 패널의 업데이트 검증과 비호환. **(v0.56.0)** 표준 Sigstore 번들 `checksums.txt.sigstore.json`(cosign v3)을 **병행 발행** — v0.56+ 검증기는 번들 우선(불량 번들은 폴백 없이 하드 거부), 번들 자산 부재 시에만 legacy 쌍으로 폴백. legacy 발행은 구버전 패널의 셀프업데이트를 위해 무기한 유지
 - **변경 로그**: 자동 생성 (docs/test/ci/chore 제외)
 - **릴리즈**: GitHub Releases (드래프트 아님, 프리릴리즈 자동 감지)
 
@@ -796,38 +854,42 @@ make lint      # golangci-lint + eslint
 
 ```bash
 # 설치
-curl -fsSL https://raw.githubusercontent.com/sfpanel/sfpanel/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash
 
-# 삭제
-curl -fsSL https://raw.githubusercontent.com/sfpanel/sfpanel/main/scripts/install.sh | bash -s uninstall
+# 삭제 (config/DB/로그는 보존; --purge로 완전 제거)
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash -s -- uninstall
 ```
 
 **설치 과정**:
 1. Root 권한, Linux OS, 아키텍처(amd64/arm64) 확인
-2. GitHub API에서 최신 버전 조회
-3. 바이너리 다운로드 및 설치 (`/usr/local/bin/sfpanel`)
+2. GitHub API에서 최신 버전 조회 (`SFPANEL_VERSION=<ver>`로 특정 버전 핀 — 롤백/재현 설치)
+3. 바이너리 다운로드 및 설치 (`/usr/local/bin/sfpanel`) — cosign 가용 시 서명 검증, `SFPANEL_REQUIRE_COSIGN=1`이면 서명 검증 실패/불가 시 설치 거부
 4. 디렉토리 생성 (`/etc/sfpanel`, `/var/lib/sfpanel`, `/var/log/sfpanel`)
 5. JWT 시크릿 자동 생성 포함 `config.yaml` 생성 (chmod 600)
 6. systemd 서비스 등록, 활성화, 시작
-7. 기존 설치 감지 시 서비스 중지 후 업그레이드
+7. 기존 설치 감지 시 서비스 중지 후 업그레이드 — **(v0.52.0)** 업그레이드 실패 시 이전 바이너리 복원 + 재시작(롤백). 클러스터 멤버 uninstall은 cluster leave 선행
 
 ### 프로덕션 디렉토리 구조
 
 ```
 /usr/local/bin/sfpanel           # 바이너리
 /etc/sfpanel/config.yaml         # 설정 파일 (600 권한)
+/etc/sfpanel/cluster/            # mTLS CA + 노드 인증서 (클러스터 모드)
 /var/lib/sfpanel/sfpanel.db      # SQLite 데이터베이스
-/var/lib/sfpanel/compose/        # Docker Compose 프로젝트 YAML 저장
+/var/lib/sfpanel/cluster/        # Raft 로그/스냅샷 (BoltDB, 클러스터 모드)
+/var/lib/sfpanel/backups/        # 예약 백업 아카이브
+/opt/stacks/<appID>/             # Compose 스택 (stacks_path 기본값; 앱스토어 설치 위치)
 /var/log/sfpanel/sfpanel.log     # 로그 파일
-/etc/systemd/system/sfpanel.service  # systemd 서비스
+/etc/systemd/system/sfpanel.service  # systemd 서비스 (Restart=always)
 ```
 
 ---
 
 ## 아키텍처 특징
 
-- **Docker 비의존**: Docker가 없어도 패널 자체는 정상 동작 (Docker 기능만 비활성화, 26개 `/docker/*` 라우트 미등록)
-- **자동 마이그레이션**: 첫 실행 시 SQLite 스키마 자동 생성 (10개 테이블, 멱등)
+- **Docker 비의존**: Docker가 없어도 패널 자체는 정상 동작 — Docker 소켓 불가 시 `/docker/*`·compose·`/ws/docker/*` 라우트 전체 미등록
+- **자동 마이그레이션**: 부팅 시 `schema_migrations` 추적 35단계 마이그레이션 적용 (멱등)
+- **health = readiness 프로브** (v0.52.0): `/api/v1/health`가 SQLite ping 실패 시 503 반환 — LB/모니터가 죽은 DB의 패널을 unhealthy로 인지
 - **백그라운드 수집**: 60초 간격 메트릭 히스토리 수집 (SQLite 저장, 24시간 롤링)
 - **세션 정리**: 1분 간격 유휴 터미널 세션 자동 정리
 - **SPA 라우팅**: 모든 경로에 대해 `index.html` 폴백 제공 (API/WS 경로 제외)
@@ -835,7 +897,7 @@ curl -fsSL https://raw.githubusercontent.com/sfpanel/sfpanel/main/scripts/instal
 - **코드 스플리팅**: 모든 페이지 컴포넌트를 `React.lazy()`로 지연 로딩하여 초기 번들 크기 최소화
 - **SetupGuard 캐싱**: 초기 설정 확인 API를 모듈 레벨 변수로 캐싱하여 불필요한 반복 호출 방지
 - **버전 API 제공**: 서버 빌드 시 주입된 버전 정보를 `/api/v1/system/info` 응답에 포함 (`DashboardHandler.Version`)
-- **Compose 디렉토리 스캔**: `/opt/stacks` 디렉토리를 스캔하여 기존 Compose 프로젝트 자동 발견
+- **Compose 디렉토리 스캔**: 스택 루트(`server.stacks_path`, 기본 `/opt/stacks`)를 스캔하여 기존 Compose 프로젝트 자동 발견
 
 ---
 
@@ -855,11 +917,14 @@ SFPanel 바이너리는 서버 실행 외에도 관리 명령을 지원합니다
 | `sfpanel cluster status` | 클러스터 상태 확인 |
 | `sfpanel cluster token [--ttl]` | 참가 토큰 생성 |
 | `sfpanel cluster remove NODE_ID` | 노드 제거 |
+| `sfpanel cluster list` | 클러스터 멤버 목록 (역할 + 헬스) |
+| `sfpanel cluster leader-transfer NODE_ID` | 리더십 이전 (graceful drain용) |
+| `sfpanel cluster reissue-cert` | 노드 인증서 무중단 재발급 (핫 리로드) |
 | `sfpanel help` | 사용법 도움말 출력 |
 
 **update 동작 과정:**
 1. GitHub API에서 최신 릴리즈 버전 조회
 2. 현재 버전과 비교 (동일하면 "Already up to date" 출력)
-3. 사용자 확인(y/N) 후 바이너리 다운로드 (tar.gz)
-4. 현재 바이너리 경로에 atomic replace (`.new` 임시 파일 → rename)
+3. 사용자 확인(y/N) 후 바이너리 다운로드 (tar.gz) — cosign 서명 검증 (컷오프 이후 릴리즈에 서명 자산이 없으면 다운그레이드 방지를 위해 거부)
+4. 현재 바이너리를 백업하고 atomic replace (`.new` 임시 파일 → rename) — 웹 업데이트와 동일한 **롤백 watchdog** 장전 (실패 시 이전 바이너리 복원)
 5. systemd 서비스 활성 상태이면 `systemctl restart sfpanel` 자동 실행

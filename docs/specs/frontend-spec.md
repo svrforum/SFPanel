@@ -5,11 +5,15 @@
 > v0.10.0 이후 추가된 페이지/컴포넌트는 본 문서에 미반영입니다. 권한 있는 출처는 `web/src/`이며, 변경 요약은 `CHANGELOG.md`를 참조하세요. 본 문서가 코드와 어긋날 경우 코드를 우선시합니다.
 >
 > **부분 갱신: 2026-06-03 · v0.40.0** — v0.19.0~v0.40.0 개선 캠페인에서 추가/변경된 프론트엔드 표면(신규 공용 컴포넌트, 횡단 UI 패턴, 신규 페이지/플로우, API 클라이언트 메서드)을 반영했습니다. 변경 항목에는 `(v0.NN.0)` 표기를 달았습니다. 캠페인 이전 본문은 v0.9.0 기준이며, 일부 페이지(특히 Settings)는 그동안 구조가 바뀌어 해당 섹션에 갱신 노트를 덧붙였습니다.
+>
+> **부분 갱신: 2026-08-11 · v0.55.0** — v0.41.0~v0.55.0 변경 반영: 설정 4-탭 재편(v0.41), 앱스토어 언인스톨·딥링크(v0.42), 스택 마이그레이션 UI(v0.46+), 클러스터 Docker 스택 뷰(v0.47–v0.48), Monaco 슬림화(v0.49), 다크모드·터미널 하드닝·키보드 접근성(v0.53), PWA 매니페스트 단일화(v0.54), 의존성 실측 버전(v0.55). 신규 표기는 동일하게 `(v0.NN.0)`. 의존성 버전은 package-lock 해석(설치) 버전 기준.
 
 ## 개요
 
-- **프레임워크**: React 19 + TypeScript + Vite 7
+- **프레임워크**: React 19 + TypeScript + Vite 8 (rolldown 기반)
 - **스타일**: Tailwind CSS v4 + shadcn/ui (일부 컴포넌트) + Toss 디자인 시스템 영향 (컬러, 라운딩, 그림자)
+- **다크모드**: `web/src/lib/theme.ts` — light/dark/system 3-상태, localStorage `sfpanel-theme`, `<html>`에 `.dark` 클래스 토글, `index.html` 인라인 pre-paint 스크립트로 플래시 방지, system 모드는 OS 변경 라이브 추종 (v0.53.0)
+- **모바일 셸**: BottomNav + MobileHeader + MoreMenu (`useIsMobile` 훅) — md 미만에서 사이드바 대신 하단 네비게이션 (v0.9 동기화 당시 누락분)
 - **상태 관리**: React hooks (useState, useEffect, useCallback, useRef, useMemo)
 - **라우팅**: React Router v7 (BrowserRouter)
 - **국제화**: react-i18next + i18next-browser-languagedetector (한국어/영어)
@@ -37,10 +41,13 @@
 | `/` | - | O | Layout | `/dashboard`로 리다이렉트 |
 | `/dashboard` | Dashboard | O | Layout | 시스템 대시보드 (실시간 메트릭) |
 | `/appstore` | AppStore | O | Layout | 앱스토어 (원클릭 Docker 앱 설치) |
+| `/appstore/:appId` | AppStore | O | Layout | 앱 상세 딥링크 (URL로 상세 모달 직접 오픈, 뒤로가기 지원) (v0.42.0) |
 | `/appstore` (모달) | AppStoreDetailModal | O | AppStore 내장 | 앱 상세 + 설치 모달 (SSE 설치 진행률) |
 | `/cluster` | Cluster | O | Layout | 클러스터 관리 (사이드 탭 + Outlet 구조) |
 | `/cluster/overview` | ClusterOverview | O | Cluster | 클러스터 개요 + 초기화 + **disband(TypeToConfirm, v0.30.0)**. **(v0.31.0)** 마운트 시 1회 fetch 후 `/ws/cluster/overview` WebSocket으로 status+overview+recent events 통합 스냅샷 수신(기존 15s 3회 폴링 대체, follower는 `stale` 플래그+배너). **(v0.22.0)** 클러스터 업데이트 뷰는 **per-node 스테퍼 + 전체 진행률 바**(완료/전체, 실패 수; 구조화 SSE 기반 — `api.clusterUpdateStream`) |
 | `/cluster/nodes` | ClusterNodes | O | Cluster | 노드 목록 + 제거/리더 이전/라벨 편집. **(v0.19.0)** 노드 **advertised 주소 인라인 편집**(`api.updateClusterNodeAddress`) + 로컬 노드 행에서 **클러스터 떠나기**(quorum-loss force 오버라이드, `api.leaveCluster(force?)`) |
+| `/cluster/stacks` | ClusterStacks | O | Cluster | (v0.47.0) 클러스터 전 노드 compose 스택 집계 뷰 (`api.getClusterStacks` — 노드별 그룹, 불달 노드는 에러 표시 + 빈 목록) |
+| `/cluster/stacks/:node/:name` | ClusterStacks | O | Cluster | (v0.48.0) 마스터-디테일 — 스택 선택 시 소유 노드 스코프로 단일노드 Docker 스택 상세를 재사용(`clusterMode` prop). 소유 노드가 URL에 포함되어 동명 스택 오타겟 방지 |
 | `/cluster/tokens` | ClusterTokens | O | Cluster | 참가 토큰 생성 + join 명령어 표시. **(v0.19.0)** 발급된 토큰 **목록/취소**(마스킹된 값 + 짧은 지문만 노출; `api.listClusterTokens`, `api.revokeClusterToken`) |
 | `/docker` | Docker | O | Layout | Docker 관리 (사이드 탭 + Outlet 구조) |
 | `/docker/stacks` | DockerStacks | O | Docker | Docker Compose 스택 목록 (기본 서브라우트) |
@@ -60,6 +67,7 @@
 | `/network/tailscale` | NetworkTailscale | O | Network | Tailscale VPN 클라이언트 관리 |
 | `/disk` | Disk | O | Layout | 디스크/스토리지 관리 (사이드 탭 + Outlet 구조) |
 | `/disk/overview` | DiskOverview | O | Disk | 디스크 개요 + S.M.A.R.T. + I/O 통계 (기본 서브라우트) |
+| `/disk/usage` | DiskUsage | O | Disk | 디스크 사용량 탐색기 (경로/깊이별 분석) |
 | `/disk/partitions` | DiskPartitions | O | Disk | 파티션 관리 |
 | `/disk/filesystems` | DiskFilesystems | O | Disk | 파일시스템 관리 |
 | `/disk/lvm` | DiskLVM | O | Disk | LVM PV/VG/LV 관리 |
@@ -117,7 +125,7 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 
 ### Setup
 - **파일**: `web/src/pages/Setup.tsx`
-- **기능**: 첫 실행 시 관리자 계정 생성 위저드. 사용자명(기본값 "admin"), 비밀번호, 비밀번호 확인 입력. 최소 8자 검증.
+- **기능**: 첫 실행 시 관리자 계정 생성 위저드. 사용자명(기본값 "admin"), 비밀번호, 비밀번호 확인 입력. **(v0.54.0)** 비밀번호는 최소 **12자** + 공용 비밀번호 denylist 거부(서버 검증). 첫 설정 요청은 서버가 loopback/사설망(RFC1918) 소스로 제한하며, 공용 IP에서는 SSH 터널 안내 에러를 반환.
 - **사용 API**: `api.setupAdmin(username, password)`
 - **사용 컴포넌트**: Button, Input, Label (shadcn/ui)
 - **상태**: username, password, confirmPassword, error, loading
@@ -162,9 +170,12 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
   - 서비스별 로그 보기 (ContainerLogs) / 셸 접속 (ContainerShell) 다이얼로그
   - 스택 생성/삭제 다이얼로그
   - 스택 Up/Down/Restart 액션
-  - 스택 마이그레이션 (MigrateStackDialog, v0.50.0 콜드 데이터 이전 / v0.51.0 전송 속도 제한): 클러스터 모드에서 다른 온라인 노드로 스택 이전 — 대상 노드 선택, disposition(retain/delete/clone), 덮어쓰기 ack, 전송 속도 제한, 사전 점검 게이트, SSE 진행 로그
-- **사용 API**: `api.getComposeProjects()`, `api.createComposeProject()`, `api.getComposeProject()`, `api.updateComposeProject()`, `api.deleteComposeProject()`, `api.composeUp()`, `api.composeDown()`, `api.getComposeServices()`, `api.restartComposeService()`, `api.stopComposeService()`, `api.startComposeService()`, `api.getComposeServiceLogs()`, `api.getComposeEnv()`, `api.updateComposeEnv()`, `api.migratePreflight()`, `api.migrateStream()`(SSE), `api.getMigrateTargetInfo()`
-- **사용 컴포넌트**: Table, Dialog, Tabs, Button, Input, Label, ComposeEditor, ContainerLogs, ContainerShell, MigrateStackDialog (shadcn/ui + 커스텀)
+  - **GitHub에서 가져오기** (GitImportForm, `components/compose/GitImportForm.tsx`): repo/branch/경로를 지정해 compose 파일 임포트 (`api.importFromGit`; 백엔드는 v0.49.0부터 go-git 대신 GitHub Contents API 단건 fetch)
+  - **스택 업데이트 확인/적용**: `api.checkStackUpdates` → DiffSheet(우측 슬라이드오버, 변경 미리보기) → `api.updateStack` / `api.updateStackStream`(SSE)
+  - **서비스별 헬스체크 컴포저** (HealthcheckComposerDialog): PUT/DELETE `/docker/compose/:project/healthcheck/:service`, POST `…/test`
+  - 스택 마이그레이션 (MigrateStackDialog, v0.46.0 데이터+이미지 전송 UI / v0.50.0 콜드 데이터 이전·사전 점검 게이트 / v0.51.0 전송 속도 제한): 클러스터 모드에서 다른 온라인 노드로 스택 이전 — 대상 노드 선택, disposition(retain/delete/clone), 덮어쓰기 ack, 전송 속도 제한, 사전 점검 게이트, SSE 진행 로그
+- **사용 API**: `api.getComposeProjects()`, `api.createComposeProject()`, `api.getComposeProject()`, `api.updateComposeProject()`, `api.deleteComposeProject()`, `api.composeUp()`, `api.composeDown()`, `api.getComposeServices()`, `api.restartComposeService()`, `api.stopComposeService()`, `api.startComposeService()`, `api.getComposeServiceLogs()`, `api.getComposeEnv()`, `api.updateComposeEnv()`, `api.checkStackUpdates()`, `api.updateStack()`, `api.updateStackStream()`(SSE), `api.importFromGit()`, `api.applyHealthcheck()`, `api.removeHealthcheck()`, `api.testHealthcheck()`, `api.migratePreflight()`, `api.migrateStream()`(SSE), `api.getMigrateTargetInfo()`
+- **사용 컴포넌트**: Table, Dialog, Tabs, Button, Input, Label, ComposeEditor, ContainerLogs, ContainerShell, GitImportForm, DiffSheet, HealthcheckComposerDialog, MigrateStackDialog (shadcn/ui + 커스텀)
 
 ### Docker > DockerContainers
 - **파일**: `web/src/pages/docker/DockerContainers.tsx`
@@ -349,18 +360,19 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 
 ### Disk
 - **파일**: `web/src/pages/Disk.tsx`
-- **기능**: 디스크 및 스토리지 관리 (탭 구조)
-  - 탭 구조: Overview, Partitions, Filesystems, LVM, RAID, Swap
-- **탭 구성**:
-  - overview (기본값) -> DiskOverview
-  - partitions -> DiskPartitions
-  - filesystems -> DiskFilesystems
-  - lvm -> DiskLVM
-  - raid -> DiskRAID
-  - swap -> DiskSwap
-- **사용 컴포넌트**: Tabs, TabsList, TabsTrigger, TabsContent (shadcn/ui)
+- **기능**: 디스크 및 스토리지 관리 — NavLink 사이드 탭 + `<Outlet/>` 서브라우트 (Docker/Network와 동일 패턴)
+- **서브라우트 구성**:
+  - `/disk/overview` (기본값) -> DiskOverview
+  - `/disk/usage` -> DiskUsage
+  - `/disk/partitions` -> DiskPartitions
+  - `/disk/filesystems` -> DiskFilesystems
+  - `/disk/lvm` -> DiskLVM
+  - `/disk/raid` -> DiskRAID
+  - `/disk/swap` -> DiskSwap
+- **사용 컴포넌트**: NavLink (react-router-dom), Lucide 아이콘
 - **서브 컴포넌트 파일**:
   - `web/src/pages/disk/DiskOverview.tsx` — 디스크 개요 (블록 디바이스, SMART, I/O 통계, 디스크 사용량). **(v0.27.0)** SMART **셀프 테스트 실행 UI**(short/long, smartctl ETA 토스트) + 드라이브 **셀프 테스트 로그**(유형/상태/통과·실패/실행 시 power-on hours) 표시.
+  - `web/src/pages/disk/DiskUsage.tsx` — 경로/깊이별 디스크 사용량 탐색기 (`/disk/usage`)
   - `web/src/pages/disk/DiskPartitions.tsx` — 파티션 관리 (생성/삭제)
   - `web/src/pages/disk/DiskFilesystems.tsx` — 파일시스템 관리 (포맷/마운트/언마운트/리사이즈)
   - `web/src/pages/disk/DiskLVM.tsx` — LVM 관리 (PV/VG/LV 생성/삭제/리사이즈)
@@ -412,24 +424,27 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **기능**: 웹 기반 서버 터미널 (멀티 탭)
   - 탭 관리: 추가, 닫기, 이름 변경(더블클릭), 탭 전환
   - 탭 상태 localStorage 영속화 (탭 목록, 활성 탭, 글꼴 크기)
+  - **(v0.53.0) 탭 노드 스코프**: localStorage 키가 `sfpanel_terminal_tabs:<nodeId|local>` / `sfpanel_terminal_active:<nodeId|local>`로 네임스페이스되어 클러스터 노드 전환 시 중복 PTY 생성 방지. 글꼴 크기(`sfpanel_terminal_fontsize`)만 전역
+  - **(v0.53.0) 자동 재연결**: WS 단절 시 동일 session_id로 bounded exponential backoff 재접속, 서버가 스크롤백을 재생하여 세션 지속 (accept 후 즉시 드롭되는 tight-loop 가드 포함 — 소켓이 안정된 뒤에만 backoff 리셋)
   - 글꼴 크기 조절 (10~24px, 기본 14px)
   - 터미널 검색 (SearchAddon, Ctrl+F)
-  - xterm.js 테마: Tokyo Night 스타일
-  - WebSocket으로 서버 셸 세션 연결 (`/ws/terminal?token=&session_id=`)
+  - xterm 내부 팔레트는 Tokyo Night 고정, **터미널 페이지 chrome(탭바/툴바/검색바/모바일 키 바)은 시맨틱 토큰으로 라이트/다크 테마 추종** (v0.53.0)
+  - WebSocket으로 서버 셸 세션 연결 (`/ws/terminal?session_id=`)
   - 바이너리 데이터(ArrayBuffer) 지원
   - 윈도우 리사이즈 시 자동 피팅
   - 리사이즈 이벤트 서버 전송 (JSON: `{type: "resize", cols, rows}`)
+  - **(v0.53.0)** 터미널/exec 세션 오픈은 서버가 `audit_logs`에 기록
 - **사용 API**: `api.buildWsUrl('/ws/terminal', {session_id})` — 단발성 ws-ticket(`POST /auth/ws-ticket`) 발급 후 URL 구성, 레거시 `?token=` fallback. 추가로 클리어(Ctrl-L), 모바일 키 바, Unicode11Addon 적용
-- **WebSocket**: 직접 관리 (`/ws/terminal?token={token}&session_id={id}`)
-- **사용 컴포넌트**: Button, Input (shadcn/ui)
+- **WebSocket**: 직접 관리 (`/ws/terminal?ticket={ticket}&session_id={id}`)
+- **사용 컴포넌트**: Button, Input (shadcn/ui), **MobileTerminalBar** (`components/MobileTerminalBar.tsx` — v0.53.0에 페이지에서 분리 추출된 모바일 특수키 바)
 - **내부 서브컴포넌트**: `TerminalSession` - 개별 터미널 세션 관리
 
-> **갱신 노트 (v0.40.0)**: Settings는 더 이상 단일 페이지가 아니라 **탭형 셸 + 코드 분할 탭 패널**로 재구성되었다. `Settings.tsx`는 shadcn/ui `Tabs`로 6개 탭(general / security / system / tuning / alerts / audit)을 렌더링하며 각 탭 패널은 `React.lazy()`로 별도 분할된다. `?tab=` 쿼리로 활성 탭을 동기화한다. **클러스터 모드에서는 `?scope`에 따라 탭이 필터링**된다: `?scope=node`면 per-node SQLite를 건드리는 탭(`system`/`tuning`/`audit`), 그 외에는 FSM 복제 대상(`general`/`security`/`alerts`)만 노출(단일 노드 배포는 전체 표시). 탭→패널 매핑: general → `settings/General.tsx`, security → `settings/Security.tsx`, system → `settings/Maintenance.tsx`, tuning → `settings/Performance.tsx`(`SettingsTuning` 래핑), alerts → `settings/AlertSettings.tsx`, audit → `settings/Audit.tsx`. 아래 v0.9.0 기준 단일 페이지 설명은 일부 기능이 이 탭들로 분산된 것으로 읽을 것.
+> **갱신 노트 (v0.41.0)**: Settings는 **탭형 셸 + 코드 분할 탭 패널**이며, v0.41.0에서 6개 탭이 **4개 탭**(account / system / alerts / audit)으로 통합되었다. `?tab=` 유효값은 `account|system|alerts|audit`. **클러스터 모드에서는 `?scope`에 따라 탭이 필터링**된다: `?scope=node`면 per-node SQLite 탭(`system`/`audit`), 그 외에는 FSM 복제/클러스터 전역 탭(`account`/`alerts`)만 노출하고 스코프 배지('이 노드'/'클러스터 전체')를 표시한다(단일 노드 배포는 4탭 전체). 탭→패널 매핑: account → `settings/Security.tsx` + `settings/General.tsx`, system → `settings/Maintenance.tsx` + `settings/Performance.tsx`, alerts → `settings/AlertSettings.tsx`, audit → `settings/Audit.tsx`. 아래 v0.9.0 기준 단일 페이지 설명은 일부 기능이 이 탭들로 분산된 것으로 읽을 것.
 >
-> - **General** (`settings/General.tsx`): 언어 변경(i18n.changeLanguage), 기타 일반 설정.
-> - **Security** (`settings/Security.tsx`): 비밀번호 변경, 2FA 설정(QR `QRCodeSVG` from `qrcode.react`)·검증·비활성화(비활성화 시 `usePrompt`로 **비밀번호 + 현재 TOTP 코드** 입력 — `api.disable2FA(password, totpCode)`), **2FA 복구 코드** 생성/재생성·잔여 개수 표시(`api.get2FARecoveryStatus()`, `api.regenerate2FARecoveryCodes()`). (v0.34.0/v0.36.0/v0.38.0)
-> - **System (Maintenance)** (`settings/Maintenance.tsx`): 시스템 정보, 패널 업데이트(SSE), 백업 다운로드/복원, **예약 백업 스케줄 폼 + 즉시 실행 + 아카이브 목록(다운로드/삭제)** (v0.26.0). `clusterEnabled` prop 수신.
-> - **Performance (Tuning)** (`settings/Performance.tsx`): 터미널 타임아웃·업로드 한도 설정 + `SettingsTuning` 커널 튜닝 컴포넌트 래핑.
+> - **General** (`settings/General.tsx`, account 탭 하단): 언어 변경(i18n.changeLanguage), **(v0.53.0) 테마 선택**(라이트/다크/시스템 — `lib/theme.ts` `setThemePref`).
+> - **Security** (`settings/Security.tsx`, account 탭 상단): 비밀번호 변경, 2FA 설정(QR `QRCodeSVG` from `qrcode.react`)·검증·비활성화(비활성화 시 `usePrompt`로 **비밀번호 + 현재 TOTP 코드** 입력 — `api.disable2FA(password, totpCode)`), **2FA 복구 코드** 생성/재생성·잔여 개수 표시(`api.get2FARecoveryStatus()`, `api.regenerate2FARecoveryCodes()`). (v0.34.0/v0.36.0/v0.38.0)
+> - **Maintenance** (`settings/Maintenance.tsx`, system 탭 상단): 시스템 정보, 패널 업데이트(SSE), 백업 다운로드/복원, **예약 백업 스케줄 폼 + 즉시 실행 + 아카이브 목록(다운로드/삭제)** (v0.26.0). `clusterEnabled` prop 수신.
+> - **Performance** (`settings/Performance.tsx`, system 탭 하단): 터미널 타임아웃·업로드 한도 설정 + `SettingsTuning` 커널 튜닝 컴포넌트 래핑.
 > - **Alerts** (`settings/AlertSettings.tsx`): 알림 채널/규칙/히스토리 (아래 별도 섹션).
 > - **Audit** (`settings/Audit.tsx`): 감사 로그 뷰어(데스크톱 테이블 + **모바일 카드 폴백**, v0.35.0).
 
@@ -503,6 +518,15 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 | PromptDialog | `web/src/components/PromptDialog.tsx` | (v0.36.0) 네이티브 `window.prompt` 대체. `PromptProvider`(`App.tsx` 마운트) + `usePrompt()` 훅이 `prompt(opts) => Promise<string \| null>`를 반환. `PromptOptions`: `title`, `description?`, `placeholder?`, `defaultValue?`, `password?`(마스킹 입력), `confirmLabel?`, `cancelLabel?`. disable-2FA 재인증·appstore 고급 설치 재인증 등 파괴/인증 플로우에서 사용. |
 | TypeToConfirmDialog | `web/src/components/TypeToConfirmDialog.tsx` | (v0.30.0) 비가역 작업 게이트. 정확한 이름(디바이스/배열/클러스터명)을 입력해야 파괴 버튼이 활성화. Props: `open`, `onOpenChange`, `title`, `description?`, `confirmPhrase`(입력해야 할 정확한 문자열), `confirmLabel`, `loading?`, `onConfirm`. 적용: 디스크 포맷, 파티션 삭제, RAID 배열 삭제, 클러스터 disband. |
 | Skeleton | `web/src/components/ui/skeleton.tsx` | (v0.33.0) 로딩 스켈레톤 플레이스홀더. `bg-accent animate-pulse rounded-md` div 래퍼. `className` props로 형태 지정. 목록 페이지 첫 로드 시에만 표시(백그라운드 갱신 시 미표시). |
+| BottomNav / MobileHeader / MoreMenu | `web/src/components/BottomNav.tsx` 외 | 모바일 셸 네비게이션 — md 미만에서 사이드바 대신 하단 탭 바 + 상단 헤더 + "더보기" 시트 (v0.9 동기화 당시 누락분) |
+| ErrorBoundary | `web/src/components/ErrorBoundary.tsx` | 전역 렌더 오류 경계 — 페이지 크래시를 지역화된 오류 화면으로 격리 |
+| ComposeLogs | `web/src/components/ComposeLogs.tsx` | 스택 실시간 로그 스트리밍 (`/ws/docker/compose/:project/logs`, `service` 필터) — DockerStacks/ClusterStacks에서 사용 |
+| MobileTerminalBar | `web/src/components/MobileTerminalBar.tsx` | (v0.53.0) Terminal 페이지에서 추출된 모바일 특수키 바 (Esc/Tab/Ctrl/Alt 토글, 방향키 등) |
+| GitImportForm | `web/src/components/compose/GitImportForm.tsx` | GitHub repo에서 compose 파일 임포트 폼 (`api.importFromGit`) |
+| DiffSheet (+DiffCategoryList/DiffServiceRow/DiffSummaryHeader) | `web/src/components/compose/DiffSheet.tsx` 외 | 스택 업데이트 변경 미리보기 슬라이드오버 (check-updates 결과 렌더) |
+| HealthcheckComposerDialog | `web/src/components/compose/HealthcheckComposerDialog.tsx` | 서비스별 healthcheck 설정 컴포저 (적용/제거/테스트) |
+| PortMapTable | `web/src/components/portmap/PortMapTable.tsx` | 포트 맵 통합 테이블 (UFW+Docker+프로세스; 모바일 카드 폴백 포함) |
+| MigrateStackDialog | `web/src/pages/docker/components/MigrateStackDialog.tsx` | (v0.46.0) 노드 간 스택 마이그레이션 다이얼로그 — 데이터+이미지 전송, v0.50.0 사전 점검 게이트, v0.51.0 전송 속도 제한 |
 
 > **횡단 UI 패턴 (v0.33.0~v0.37.0)**
 > - **로딩/에러/빈 상태 3분기**: 목록 페이지가 **로딩**(Skeleton), **로드 실패**(인라인 빨강 에러 블록 + 메시지 + Retry 버튼), **실제 빈 상태**(empty state)를 구분한다. 이전엔 삼켜진 fetch 에러가 빈 목록과 동일하게 보였다. 적용 페이지: docker 컨테이너/이미지/볼륨/네트워크, services, processes, cron, firewall rules. Skeleton은 첫 로드에만 표시.
@@ -535,7 +559,10 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 
 | 훅 | 파일 | 용도 |
 |----|------|------|
-| useWebSocket | `web/src/hooks/useWebSocket.ts` | WebSocket 연결 관리 훅. JWT 토큰 자동 포함, 자동 재연결(기본 3초), JSON 메시지 자동 파싱. 반환값: `{ connected, send, ws }`. Dashboard와 Processes 페이지에서 사용. |
+| useWebSocket | `web/src/hooks/useWebSocket.ts` | WebSocket 연결 관리 훅. `api.buildWsUrl` 비동기 호출로 **단발성 ws-ticket을 먼저 발급**(JWT가 URL에 남지 않음, 실패 시 `?token=` 폴백), 자동 재연결(기본 3초), JSON 메시지 자동 파싱. 반환값: `{ connected, send, ws }`. Dashboard와 Processes 페이지에서 사용. |
+| useVisibleInterval | `web/src/hooks/useVisibleInterval.ts` | (v0.49.0) 탭 가시성 기반 폴링 — 문서가 숨겨지면 인터벌 일시정지. 클러스터 사이드바/ClusterNodes/Processes/Services 등에 적용. |
+| useIsMobile | `web/src/hooks/useIsMobile.ts` | 뷰포트 브레이크포인트 감지 — 모바일 셸(BottomNav)·카드 폴백 분기용. |
+| useApiAction | `web/src/hooks/useApiAction.ts` | 공통 API 호출 래퍼 — 로딩 상태 + 에러 토스트 처리를 표준화. |
 
 ### useWebSocket 옵션
 
@@ -579,6 +606,10 @@ interface UseWebSocketOptions {
 
 > **(v0.34.0)** `login()`은 4번째 인자 `recoveryCode?`를 받아 `{ username, password, totp_code, recovery_code }`를 전송한다.
 >
+> **리프레시 토큰 체인**: 로그인/셋업 응답의 액세스+리프레시 토큰 쌍을 저장하고(리프레시는 httpOnly 쿠키), 401 발생 시 내부 `tryRefresh()`가 `POST /auth/refresh`(공개 라우트, 회전식)로 **무중단 갱신** 후 원 요청을 1회 재시도한다. 동시 401은 단일 refresh 호출로 dedupe.
+>
+> **WS 티켓**: `buildWsUrl(path)`가 `POST /auth/ws-ticket`으로 60초 단발성 티켓을 로컬 노드에서 발급받아 `?ticket=`으로 URL을 구성한다(JWT가 URL에 남지 않음; 실패 시 레거시 `?token=` 폴백).
+>
 > **(v0.19.0) `streamHeaders(base?)`** — `request()`를 우회하는 raw fetch/XHR 스트리밍 호출(SSE, 바이너리 blob, multipart 업로드)용 헤더 빌더. **Bearer 토큰 + CSRF double-submit 토큰**(`X-CSRF-Token`, `sfpanel_csrf` 쿠키)을 함께 실어 `CSRFProtect`의 403을 방지한다. system 업데이트·backup/restore·image pull·compose deploy·각종 install·파일 업로드 등 모든 스트리밍 POST가 이 헬퍼를 경유.
 
 ### 설정 (Settings)
@@ -621,6 +652,7 @@ interface UseWebSocketOptions {
 | `pullImage(image)` | POST | `/docker/images/pull` | - | 이미지 풀 |
 | `removeImage(id)` | DELETE | `/docker/images/{id}` | - | 이미지 삭제 |
 | `searchDockerHub(query, limit?)` | GET | `/docker/images/search` | `DockerHubSearchResult[]` | Docker Hub 이미지 검색 |
+| `checkImageUpdates()` | GET | `/docker/images/updates` | (이미지별 최신 여부) | 실행 중 컨테이너 이미지의 레지스트리 업데이트 확인 |
 
 ### Docker 볼륨
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
@@ -662,6 +694,14 @@ interface UseWebSocketOptions {
 | `getComposeServiceLogs(project, service, tail?)` | GET | `/docker/compose/{project}/services/{service}/logs` | `{ logs: string }` | 서비스 로그 |
 | `getComposeEnv(project)` | GET | `/docker/compose/{project}/env` | `{ content: string }` | .env 파일 읽기 |
 | `updateComposeEnv(project, content)` | PUT | `/docker/compose/{project}/env` | - | .env 파일 수정 |
+| `checkStackUpdates(project)` | POST | `/docker/compose/{project}/check-updates` | (서비스별 diff) | 스택 이미지/정의 업데이트 확인 |
+| `updateStack(project)` | POST | `/docker/compose/{project}/update` | - | 스택 풀+재생성 적용 |
+| `updateStackStream(project, onEvent)` | POST(SSE) | `/docker/compose/{project}/update-stream` | (SSE) | 스택 업데이트 진행 스트리밍 |
+| `importFromGit(req)` | POST | (compose git import) | - | GitHub repo에서 compose 파일 임포트 (Contents API 기반) |
+| `applyHealthcheck(project, service, …)` | PUT | `/docker/compose/{project}/healthcheck/{service}` | - | 서비스 healthcheck 적용 |
+| `removeHealthcheck(project, service, …)` | DELETE | `/docker/compose/{project}/healthcheck/{service}` | - | 서비스 healthcheck 제거 |
+| `testHealthcheck(project, service, spec)` | POST | `/docker/compose/{project}/healthcheck/{service}/test` | (테스트 결과) | healthcheck 명령 시험 실행 |
+| `getClusterStacks()` | GET | `/docker/compose/cluster-stacks` | (노드별 스택 집계) | (v0.47.0) 클러스터 전 노드 스택 집계 (local 강제 — 항상 현재 노드에서 fan-out) |
 | `migratePreflight` | POST | `/docker/compose/{project}/migrate/preflight` | - | 사전 점검 |
 | `migrateStream` | POST(SSE) | `/docker/compose/{project}/migrate` | - | 노드 간 마이그레이션 |
 
@@ -786,6 +826,7 @@ interface UseWebSocketOptions {
 | `addFirewallRule(data)` | POST | `/firewall/rules` | `{ message, output }` | UFW 규칙 추가 |
 | `deleteFirewallRule(number)` | DELETE | `/firewall/rules/{number}` | `{ message }` | UFW 규칙 삭제 |
 | `getListeningPorts()` | GET | `/firewall/ports` | `{ ports: ListeningPort[], total }` | 리스닝 포트 목록 |
+| `getPortMap()` | GET | `/system/portmap` | (호스트 포트별 통합 뷰) | 포트 맵 — UFW 규칙 + Docker DNAT + 호스트 프로세스 통합 조회 |
 
 ### Fail2ban
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
@@ -810,6 +851,7 @@ interface UseWebSocketOptions {
 | `getAppStoreApp(id)` | GET | `/appstore/apps/{id}` | `{ app, compose, readme, readme_base_url, port_status[] }` | 앱 상세 + Compose + README + 포트 상태 |
 | (직접 `fetch`) | POST | `/appstore/apps/{id}/install` | **SSE** `{stage,message,done,success}` | 앱 설치 (스트리밍; 래퍼 메서드 없음) |
 | `getInstalledApps()` | GET | `/appstore/installed` | `InstalledApp[]` | 설치된 앱 목록 |
+| `uninstallApp(id, keepData?)` | DELETE | `/appstore/apps/{id}` | `{ message }` | (v0.42.0) 앱 언인스톨 — compose down + 스택 디렉토리 제거(옵션으로 데이터 보존) |
 | `refreshAppStore()` | POST | `/appstore/refresh` | `{ message: string; apps: number; categories: number }` | 캐시 갱신 |
 
 ---
@@ -1112,9 +1154,10 @@ interface InstalledApp {
 | `/ws/terminal?session_id={id}` | 서버 셸 세션 (바이너리 + JSON resize) | Terminal |
 | `/ws/docker/containers/{id}/exec` | 컨테이너 셸 접속 | DockerContainers (ContainerShell), DockerStacks (ContainerShell) |
 | `/ws/docker/containers/{id}/logs` | 컨테이너 로그 스트리밍 | DockerContainers (ContainerLogs), DockerStacks (ContainerLogs) |
+| `/ws/docker/compose/{project}/logs` | 스택(Compose 프로젝트) 로그 스트리밍 (`service` 필터) | DockerStacks, ClusterStacks (ComposeLogs) |
 | `/ws/cluster/overview` | (v0.31.0) status + overview + recent events 통합 스냅샷 푸시(5s 샘플러, follower는 `stale`) | ClusterOverview (`useWebSocket`) |
 
-모든 WebSocket 연결은 `?token={JWT}` 쿼리 파라미터로 인증.
+모든 WS는 **단발성 ws-ticket**(`POST /auth/ws-ticket`, `buildWsUrl`이 자동 발급) 우선 인증, 레거시 `?token=` 폴백. `/ws/terminal`·`/ws/docker/containers/{id}/exec` 오픈은 `audit_logs`에 기록된다(v0.53.0). `/ws/cluster/overview`만 노드 릴레이 대상이 아니다(클러스터 로컬 스냅샷).
 
 ---
 
@@ -1123,7 +1166,9 @@ interface InstalledApp {
 - **코드 분할**: 모든 페이지는 `React.lazy()` + `<Suspense>`로 동적 임포트. `PageLoader` 컴포넌트가 로딩 폴백.
 - **카드 스타일**: `bg-card rounded-2xl p-5/p-6 card-shadow` (shadcn/ui Card 미사용, 직접 Tailwind 클래스)
 - **배지 스타일**: 인라인 `span` + `px-2 py-0.5 rounded-full text-[11px] font-medium` + 상태별 색상
-- **색상 체계**: Primary blue(`#3182f6`), Green(`#00c471`), Red(`#f04452`), Yellow(`#f59e0b`), Purple(`#8b5cf6`)
+- **색상 체계**: Primary blue(`#3182f6`), Green(`#00c471`), Red(`#f04452`), Yellow(`#f59e0b`), Purple(`#8b5cf6`) — 라이트 기준 브랜드 값이며, **(v0.53.0)** 실제 렌더는 시맨틱 토큰 경유(하드코딩 hex를 토큰으로 정리, `.dark` 팔레트 활성화)
+- **(v0.53.0) 다크모드**: `lib/theme.ts`가 `<html>`의 `.dark` 클래스를 단독 소유 — light/dark/system 선호(localStorage `sfpanel-theme`) + OS 변경 라이브 추종 + `index.html` pre-paint 인라인 스크립트
+- **(v0.53.0) 키보드 접근성**: 전 인터랙티브 표면 focus-visible 링, 아이콘 전용 컨트롤 aria-label(기존 i18n 키 재사용), 클릭 전용 행/셀 keyboard-operable(role/tabIndex/Enter·Space), hover-전용 행 액션은 포커스 시에도 표시
 - **폰트 크기**: 11px(보조), 13px(본문), 15px(서브타이틀), 22px(페이지 제목)
 - **다이얼로그 패턴**: 확인 다이얼로그는 항상 취소/확인 버튼, 위험 작업은 `variant="destructive"`
 - **(v0.30.0~v0.36.0) 확인/입력 다이얼로그 통일**: 네이티브 `window.confirm`/`window.prompt`는 앱 루트(`App.tsx`)의 `ConfirmProvider`/`PromptProvider` + `useConfirm()`/`usePrompt()` 훅으로 대체. 데이터 손실 가능 작업(디스크 포맷, 파티션/RAID 삭제, 클러스터 disband)은 `TypeToConfirmDialog`로 정확한 이름 입력 게이트.
@@ -1154,7 +1199,10 @@ interface InstalledApp {
 | `sfpanel_current_node` | 클러스터 원격 노드 ID (`?node=` 자동 주입) | `ClusterSidebar`(`api.setCurrentNode`), `ApiClient` |
 | `sfpanel_language` | i18next 선택 언어 | `Settings.tsx`, i18next detector |
 | `sfpanel-sidebar-collapsed` | 사이드바 접기 상태 | `Layout.tsx` |
-| `sfpanel_terminal_tabs` | 터미널 탭 상태 (이름, 순서) | `Terminal.tsx` |
+| `sfpanel-theme` | (v0.53.0) 테마 선호 (light/dark/system) | `lib/theme.ts` |
+| `sfpanel_terminal_tabs:<node>` / `sfpanel_terminal_active:<node>` | (v0.53.0) 터미널 탭 상태 — 노드별 네임스페이스(`<node>` = nodeId 또는 `local`) | `Terminal.tsx` |
+| `sfpanel_terminal_fontsize` | 터미널 글꼴 크기 (전역, 노드 무관) | `Terminal.tsx` |
+| `sfpanel-cluster-tree-collapsed` / `sfpanel-cluster-menu-collapsed` / `sfpanel-cluster-selection` | 클러스터 사이드바 트리/메뉴 접힘 + 선택 상태 (트리 기본값은 접힘) | `ClusterSidebar.tsx` |
 | `sfpanel_file_path` | 파일 관리자 마지막 경로 | `Files.tsx` |
 
 ---
@@ -1177,20 +1225,21 @@ interface InstalledApp {
 ### Vite 설정 (`web/vite.config.ts`)
 
 - 플러그인: `@vitejs/plugin-react`, `@tailwindcss/vite` (Tailwind v4 JIT), `vite-plugin-pwa`
-- **수동 청크** (6개):
-  - `react-vendor` — react, react-dom, react-router-dom
+- **수동 청크** (5개):
+  - `react-vendor` — react, react-dom, react-router(-dom)
   - `ui-vendor` — cva, clsx, tailwind-merge
   - `xterm` — xterm + 애드온
   - `i18n` — i18next 계열
   - `uplot` — 시계열 차트
-  - `monaco` — Monaco Editor
+  - **monaco는 의도적으로 수동 청크에서 제외** (v0.55.0): 명명 청크로 강제하면 rolldown이 공유 심볼을 eager entry로 끌어와 3.6MB 에디터가 첫 페인트에 포함됨. 기본 청킹에 맡겨 lazy Files/DockerStacks 청크에 편승
 - 경고 한계: 1000KB
-- **PWA**: 서비스워커 자동 생성. 캐시 포함 — `*.css/html/ico/png/svg/woff2`, `assets/*.js`. 캐시 제외 — Monaco/xterm/TypeScript 워커 파일 (바이트 큰 WASM/Worker는 네트워크에서만 로드)
+- **Monaco 슬림 임포트** (v0.49.0): `web/src/lib/monaco.ts`가 `monaco-editor` 배럴 대신 `esm/vs/editor/editor.api` + 언어 allowlist만 로드 (TS 언어 서비스의 ~6.9MB ts.worker 제거). **(v0.54.0)** 로그인 페이지 entry에서도 Monaco 제외.
+- **PWA**: 서비스워커 자동 생성(autoUpdate, skipWaiting/clientsClaim). **(v0.54.0)** `manifest: false` — 수기 `public/manifest.json` 단일 매니페스트만 배포(자동 생성 `manifest.webmanifest` 비활성). 캐시 포함 — `*.css/html/ico/png/svg/woff2`, `assets/*.js`. 캐시 제외(globIgnores) — Monaco/xterm/언어 워커류는 네트워크 전용이며, **(v0.55.0)** rolldown ≥1.1의 청크 개명(`monaco-*` → `editor.api2-*`)도 ignore 패턴에 반영
 
 ### 빌드 출력
 
-- `web/dist/` — 약 **16 MB** (정적 자산 포함, Monaco+xterm 번들 영향)
-- Go 바이너리: `web.go`의 `//go:embed all:web/dist`로 전체 통합 → 단일 실행 파일
+- `web/dist/` — 약 **9.6 MB** (v0.49.0 Monaco 슬림화 이후; 이전 ~16 MB)
+- Go 바이너리: `web.go`의 `//go:embed all:web/dist`로 전체 통합 → 단일 실행 파일 (~33 MB)
 
 ### Dev 서버 포트
 
@@ -1201,7 +1250,7 @@ interface InstalledApp {
 
 - ESLint 9 flat config + `typescript-eslint` + `eslint-plugin-react-hooks` + `eslint-plugin-react-refresh`
 - 타입 체크: `tsc -b` (빌드 전)
-- **자동 테스트 없음** — Vitest / Playwright 미설정. 변경 사항 검증은 수동 브라우저 테스트 또는 백엔드 `make test`에 의존.
+- **Playwright e2e 스위트 존재** (v0.43.0) — 저장소 루트 `e2e/` (`@playwright/test`, web과 별도 package.json). CI에서 단일 노드 스모크(`e2e-smoke` job)를 실행하고, 2-노드 클러스터·스택 마이그레이션 spec은 env-gated로 별도 실행. **Vitest 등 단위 테스트는 여전히 없음** — 컴포넌트 단위 검증은 수동 브라우저 테스트 또는 백엔드 `make test`에 의존.
 
 ---
 
