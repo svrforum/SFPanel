@@ -8,7 +8,7 @@ import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { toast } from 'sonner'
-import { cn } from '@/lib/utils'
+import { cn, nodeStatusBadge } from '@/lib/utils'
 import { NodeLabelsDialog } from './components/NodeLabelsDialog'
 
 export default function ClusterNodes() {
@@ -84,17 +84,6 @@ export default function ClusterNodes() {
     )
   }
 
-  // Badge-tint variant of lib/utils nodeStatusColor (which returns the solid
-  // dot classes) — Tailwind needs the tinted classes spelled out literally.
-  const statusColor = (s: string) => {
-    switch (s) {
-      case 'online': return 'bg-success/10 text-success'
-      case 'suspect': return 'bg-warning/10 text-warning'
-      case 'offline': return 'bg-destructive/10 text-destructive'
-      default: return 'bg-muted text-muted-foreground'
-    }
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -136,7 +125,7 @@ export default function ClusterNodes() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium', statusColor(node.status))}>
+                  <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium', nodeStatusBadge(node.status))}>
                     {t(`cluster.status.${node.status}`, { defaultValue: node.status })}
                   </span>
                 </TableCell>

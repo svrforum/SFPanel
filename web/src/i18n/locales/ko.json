@@ -29,7 +29,14 @@
     "copy": "복사",
     "previous": "이전",
     "next": "다음",
-    "error": "오류가 발생했습니다"
+    "error": "오류가 발생했습니다",
+    "output": {
+      "operationRunning": "작업 진행 중...",
+      "operationFailed": "작업 실패 — 아래 로그를 확인하세요",
+      "operationComplete": "작업이 완료되었습니다",
+      "waitingForOutput": "출력 대기 중...",
+      "pleaseWait": "잠시 기다려주세요..."
+    }
   },
   "layout": {
     "brand": "SFPanel",
@@ -1693,11 +1700,6 @@
       "traffic": "트래픽",
       "version": "버전",
       "installingTitle": "Tailscale 설치",
-      "operationRunning": "설치가 진행 중입니다...",
-      "operationComplete": "작업이 완료되었습니다",
-      "waitingForOutput": "출력 대기 중...",
-      "close": "닫기",
-      "pleaseWait": "잠시 기다려 주세요...",
       "checkUpdate": "업데이트 확인",
       "checkingUpdate": "확인 중...",
       "updateAvailable": "업데이트 가능: {{version}}",
@@ -1855,12 +1857,7 @@
     "removeSuccess": "{{name}} 제거 완료",
     "removeFailed": "{{name}} 제거 실패",
     "error": "오류",
-    "operationComplete": "작업이 완료되었습니다",
-    "operationFailed": "작업 실패 — 아래 로그를 확인하세요",
-    "operationRunning": "작업 진행 중...",
-    "waitingForOutput": "출력 대기 중...",
     "close": "닫기",
-    "pleaseWait": "잠시 기다려주세요...",
     "selectAll": "전체 선택",
     "devTools": "개발 도구",
     "devToolsDescription": "Node.js, AI 코딩 CLI 도구를 원클릭으로 설치합니다",

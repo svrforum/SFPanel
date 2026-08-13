@@ -29,7 +29,14 @@
     "copy": "Copy",
     "previous": "Previous",
     "next": "Next",
-    "error": "An error occurred"
+    "error": "An error occurred",
+    "output": {
+      "operationRunning": "Operation in progress...",
+      "operationFailed": "Operation failed — check the log below",
+      "operationComplete": "Operation completed",
+      "waitingForOutput": "Waiting for output...",
+      "pleaseWait": "Please wait..."
+    }
   },
   "layout": {
     "brand": "SFPanel",
@@ -1693,11 +1700,6 @@
       "traffic": "Traffic",
       "version": "Version",
       "installingTitle": "Installing Tailscale",
-      "operationRunning": "Installation in progress...",
-      "operationComplete": "Operation completed",
-      "waitingForOutput": "Waiting for output...",
-      "close": "Close",
-      "pleaseWait": "Please wait...",
       "checkUpdate": "Check Update",
       "checkingUpdate": "Checking...",
       "updateAvailable": "Update available: {{version}}",
@@ -1855,12 +1857,7 @@
     "removeSuccess": "{{name}} removed successfully",
     "removeFailed": "Failed to remove {{name}}",
     "error": "Error",
-    "operationComplete": "Operation completed",
-    "operationFailed": "Operation failed — check the log below",
-    "operationRunning": "Operation in progress...",
-    "waitingForOutput": "Waiting for output...",
     "close": "Close",
-    "pleaseWait": "Please wait...",
     "selectAll": "Select all",
     "devTools": "Dev Tools",
     "devToolsDescription": "One-click install for Node.js and AI coding CLI tools",

@@ -14,7 +14,7 @@ import { StackEditorPanel } from '@/pages/docker/components/StackEditorPanel'
 import { StackProgressDialog, useStackProgress } from '@/pages/docker/components/StackProgressDialog'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { cn, nodeStatusColor } from '@/lib/utils'
 import { useConfirm } from '@/components/ConfirmDialog'
 import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck, RollbackInfo, ClusterNodeStacks } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -67,15 +67,31 @@ function serviceBadge(state: string) {
 }
 
 // Cluster node health dot — a fetch error (stacks couldn't load) takes
-// precedence, otherwise the node's reported health (same mapping as nodeStatusColor).
+// precedence, otherwise the node's reported health.
 function nodeDot(status: string, error?: string) {
-  if (error) return 'bg-destructive'
-  switch (status) {
-    case 'online': return 'bg-success'
-    case 'suspect': return 'bg-warning'
-    case 'offline': return 'bg-destructive'
-    default: return 'bg-muted-foreground'
-  }
+  return error ? 'bg-destructive' : nodeStatusColor(status)
+}
+
+// Load-failure banner for the stack list (docker-family error-state pattern,
+// narrow-panel layout) — shared by the single-node and cluster-mode lists so
+// both failure paths look and behave the same.
+function ListErrorBanner({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="bg-destructive/10 text-destructive rounded-xl p-3 space-y-2">
+      <div className="flex items-start gap-2">
+        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium">{t('docker.stacks.loadError', 'Failed to load stacks')}</p>
+          <p className="text-[12px] opacity-80 mt-0.5 break-words">{message}</p>
+        </div>
+      </div>
+      <Button variant="outline" size="sm" className="rounded-xl w-full" onClick={onRetry}>
+        <RefreshCw className="h-3.5 w-3.5" />
+        {t('common.retry')}
+      </Button>
+    </div>
+  )
 }
 
 // Seven-button action strip for a compose service — shared between the desktop
@@ -187,16 +203,24 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   // also resolves the detail's selectedProject.
   const [clusterStacks, setClusterStacks] = useState<ClusterNodeStacks[]>([])
   const [clusterLoading, setClusterLoading] = useState(false)
+  const [clusterError, setClusterError] = useState<string | null>(null)
+  // Failures surface as a banner + retry (same treatment as the single-node
+  // list below) instead of collapsing into an empty list. Per-node failures
+  // are a different thing — those come back inside a successful response as
+  // node.error and are rendered next to the node header.
   const fetchClusterStacks = useCallback(async () => {
     setClusterLoading(true)
     try {
+      setClusterError(null)
       setClusterStacks(await api.getClusterStacks())
-    } catch {
-      setClusterStacks([])
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : t('docker.compose.fetchFailed')
+      setClusterError(msg)
+      toast.error(msg)
     } finally {
       setClusterLoading(false)
     }
-  }, [])
+  }, [t])
 
   // Single-node mode: resolve the active remote node's name for the header chip.
   const [currentNodeName, setCurrentNodeName] = useState<string | null>(null)
@@ -539,10 +563,13 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
         {clusterMode ? (
           /* Cluster-wide list: every node's stacks grouped by node (responsive) */
           <div className="space-y-1">
+            {clusterError && clusterStacks.length === 0 && !clusterLoading && (
+              <ListErrorBanner message={clusterError} onRetry={() => fetchClusterStacks()} />
+            )}
             {clusterLoading && clusterStacks.length === 0 && (
               <p className="text-[13px] text-muted-foreground py-4 text-center">{t('common.loading')}</p>
             )}
-            {!clusterLoading && clusterStacks.length === 0 && (
+            {!clusterLoading && !clusterError && clusterStacks.length === 0 && (
               <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
             )}
             {clusterStacks.map(node => (
@@ -589,21 +616,9 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
           </div>
         ) : (
         <>
-        {/* Load failure (docker-family error-state pattern, narrow-panel layout) */}
+        {/* Load failure */}
         {listError && projects.length === 0 && !loading && (
-          <div className="bg-destructive/10 text-destructive rounded-xl p-3 space-y-2">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium">{t('docker.stacks.loadError', 'Failed to load stacks')}</p>
-                <p className="text-[12px] opacity-80 mt-0.5 break-words">{listError}</p>
-              </div>
-            </div>
-            <Button variant="outline" size="sm" className="rounded-xl w-full" onClick={() => fetchProjects()}>
-              <RefreshCw className="h-3.5 w-3.5" />
-              {t('common.retry')}
-            </Button>
-          </div>
+          <ListErrorBanner message={listError} onRetry={() => fetchProjects()} />
         )}
         {/* Desktop stack list */}
         <div className="hidden md:block space-y-1">

@@ -13,7 +13,6 @@ import {
   ExternalLink,
   Monitor,
   ArrowUpDown,
-  CheckCircle2,
   ArrowUpCircle,
   Shield,
   Route,
@@ -24,6 +23,7 @@ import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
 import { useCopyFeedback } from '@/hooks/useCopyFeedback'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { OutputDialog, streamErrorMessage, useSSEOutput } from '@/components/OutputDialog'
 import type { TailscaleStatus, TailscalePeer } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,27 +37,12 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-
-interface OutputDialog {
-  open: boolean
-  title: string
-  output: string
-  done: boolean
-}
 
 interface UpdateInfo {
   available: boolean
@@ -193,13 +178,8 @@ export default function NetworkTailscale() {
   const [loading, setLoading] = useState(true)
   const [installing, setInstalling] = useState(false)
 
-  // Install output dialog
-  const [outputDialog, setOutputDialog] = useState<OutputDialog>({
-    open: false,
-    title: '',
-    output: '',
-    done: false,
-  })
+  // Install output dialog (shared streaming-output machinery, same as Packages)
+  const output = useSSEOutput()
 
   // Connect state
   const [authKey, setAuthKey] = useState('')
@@ -247,52 +227,28 @@ export default function NetworkTailscale() {
     fetchData()
   }, [fetchData])
 
-  const appendOutput = useCallback((text: string) => {
-    setOutputDialog((prev) => ({ ...prev, output: prev.output + text }))
-  }, [])
-
-  const finishOutput = useCallback(() => {
-    setOutputDialog((prev) => ({ ...prev, done: true }))
-  }, [])
-
   const handleInstall = async () => {
     setInstalling(true)
-    setOutputDialog({
-      open: true,
-      title: t('network.tailscale.installingTitle'),
-      output: '',
-      done: false,
-    })
+    output.openOutput(t('network.tailscale.installingTitle'))
 
     try {
-      // postTextStream applies the cluster ?node= scope (the proxy's streaming
-      // relay allowlist covers this path), so installing while browsing a
-      // remote node runs on that node instead of silently on the local one.
-      let buffer = ''
-      await api.postTextStream('/network/tailscale/install', (chunk) => {
-        buffer += chunk
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6)
-            if (data === '[DONE]') {
-              finishOutput()
-            } else {
-              appendOutput(data + '\n')
-            }
-          }
-        }
-      })
+      // runStream goes through api.postTextStream, which applies the cluster
+      // ?node= scope (the proxy's streaming relay allowlist covers this path),
+      // so installing while browsing a remote node runs on that node instead of
+      // silently on the local one. The endpoint's `data: `/`[DONE]` framing is
+      // what runStream parses, and [DONE] finishes the dialog by default.
+      await output.runStream('/network/tailscale/install')
 
       toast.success(t('network.tailscale.installSuccess'))
-      finishOutput()
-      await fetchData()
+      output.finishOutput()
+      // The refresh happens when the dialog is dismissed, not here: reloading
+      // now flips status.installed, which swaps this component to its
+      // installed branch and unmounts the dialog before the operator can read
+      // the tail of the install log.
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('network.tailscale.installFailed')
-      appendOutput('\nERROR: ' + msg)
-      finishOutput()
+      const msg = streamErrorMessage(err, t('network.tailscale.installFailed'))
+      output.appendOutput('\nERROR: ' + msg)
+      output.finishOutput()
       toast.error(msg)
     } finally {
       setInstalling(false)
@@ -470,44 +426,14 @@ export default function NetworkTailscale() {
           </Button>
         </div>
 
-        {/* Install Output Dialog */}
-        <Dialog
-          open={outputDialog.open}
-          onOpenChange={(open) => {
-            if (!open && outputDialog.done) {
-              setOutputDialog({ open: false, title: '', output: '', done: false })
-            }
+        {/* Install output dialog */}
+        <OutputDialog
+          state={output.state}
+          onClose={() => {
+            output.closeOutput()
+            void fetchData()
           }}
-        >
-          <DialogContent className="sm:max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                {!outputDialog.done && <Loader2 className="h-4 w-4 animate-spin" />}
-                {outputDialog.done && <CheckCircle2 className="h-4 w-4 text-success" />}
-                {outputDialog.title}
-              </DialogTitle>
-              <DialogDescription>
-                {outputDialog.done
-                  ? t('network.tailscale.operationComplete')
-                  : t('network.tailscale.operationRunning')}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="bg-zinc-950 text-zinc-100 rounded-lg p-4 max-h-96 overflow-y-auto">
-              <pre className="text-xs font-mono whitespace-pre-wrap break-words">
-                {outputDialog.output || t('network.tailscale.waitingForOutput')}
-              </pre>
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setOutputDialog({ open: false, title: '', output: '', done: false })}
-                disabled={!outputDialog.done}
-              >
-                {outputDialog.done ? t('network.tailscale.close') : t('network.tailscale.pleaseWait')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        />
       </>
     )
   }

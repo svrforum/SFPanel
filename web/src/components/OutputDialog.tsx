@@ -149,20 +149,20 @@ export function OutputDialog({ state, onClose }: { state: SSEOutputState; onClos
           </DialogTitle>
           <DialogDescription>
             {!state.done
-              ? t('packages.operationRunning')
+              ? t('common.output.operationRunning')
               : state.error
-                ? t('packages.operationFailed')
-                : t('packages.operationComplete')}
+                ? t('common.output.operationFailed')
+                : t('common.output.operationComplete')}
           </DialogDescription>
         </DialogHeader>
         <div ref={outputRef} className="bg-zinc-950 text-zinc-100 rounded-xl p-4 max-h-96 overflow-y-auto">
           <pre className="text-xs font-mono whitespace-pre-wrap break-words">
-            {state.output || t('packages.waitingForOutput')}
+            {state.output || t('common.output.waitingForOutput')}
           </pre>
         </div>
         <DialogFooter>
           <Button variant="outline" className="rounded-xl" onClick={onClose} disabled={!state.done}>
-            {state.done ? t('packages.close') : t('packages.pleaseWait')}
+            {state.done ? t('common.close') : t('common.output.pleaseWait')}
           </Button>
         </DialogFooter>
       </DialogContent>

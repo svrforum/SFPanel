@@ -116,6 +116,23 @@ export function nodeStatusColor(status: string): string {
   }
 }
 
+// Tinted-badge sibling of nodeStatusColor, for status pills rather than dots
+// (ClusterNodes' node table). Tailwind's scanner only sees class names it can
+// read literally, so the tints are spelled out here instead of being derived
+// from nodeStatusColor's output.
+export function nodeStatusBadge(status: string): string {
+  switch (status) {
+    case 'online':
+      return 'bg-success/10 text-success'
+    case 'suspect':
+      return 'bg-warning/10 text-warning'
+    case 'offline':
+      return 'bg-destructive/10 text-destructive'
+    default:
+      return 'bg-muted text-muted-foreground'
+  }
+}
+
 // Trigger a browser download for an in-memory blob. Callers used to inline the
 // createElement('a') + objectURL dance (Security 2FA codes, Maintenance
 // backups) — the revoke in a finally keeps the object URL from leaking when
