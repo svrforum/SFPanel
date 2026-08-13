@@ -96,6 +96,30 @@ const (
 	// two are kept coupled here so they can't silently drift back into a race.
 	metricsStreamSendInterval = 30 * time.Second
 	metricsStreamIdleTimeout  = 3 * metricsStreamSendInterval
+	// HTTP/2 keepalive on the cluster gRPC connections. Without it, a
+	// connection killed while the process couldn't observe it — host suspend,
+	// a NAT/conntrack entry expiring overnight — stays "open" to the client:
+	// grpcStream.Send() writes into the local buffer and returns nil, so the
+	// redial path in StartLocalMetrics (send error → closeStream → dial next
+	// tick) never fires and the follower heartbeats into a black hole until
+	// someone restarts it. Observed on a node that slept ~13h: it marked
+	// ITSELF offline and stayed that way for 16 hours, with zero "heartbeat
+	// send failed" lines. Same failure mode the WS handler already guards
+	// against (internal/feature/websocket/handler.go).
+	//
+	// clusterKeepaliveTime is the idle interval before a ping; the peer must
+	// ack within clusterKeepaliveTimeout or the transport fails the
+	// connection, surfacing as a stream error the existing redial handles.
+	// Detection therefore takes at most Time+Timeout (30s) — well inside
+	// DefaultHeartbeatTimeout, so a suspend no longer costs a node its
+	// membership. clusterKeepaliveMinTime is the server's tolerance for
+	// client ping frequency and MUST stay <= clusterKeepaliveTime, or the
+	// server answers pings with GOAWAY/ENHANCE_YOUR_CALM and kills the very
+	// connection keepalive exists to preserve.
+	clusterKeepaliveTime    = 20 * time.Second
+	clusterKeepaliveTimeout = 10 * time.Second
+	clusterKeepaliveMinTime = 10 * time.Second
+
 	DefaultTokenTTL          = 24 * time.Hour
 	// MaxTokenTTL caps user-requested join token lifetimes. A join token is
 	// a bearer credential that grants membership in the cluster; an unbounded

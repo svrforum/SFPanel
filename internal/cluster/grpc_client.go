@@ -11,6 +11,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 )
@@ -19,6 +20,19 @@ import (
 type GRPCClient struct {
 	conn   *grpc.ClientConn
 	client pb.ClusterServiceClient
+}
+
+// clusterKeepaliveDialOption arms HTTP/2 keepalive so a connection the OS
+// never told us died (host suspend, expired NAT entry) fails fast instead of
+// silently swallowing every Send — see the constants in types.go.
+// PermitWithoutStream keeps idle connections (the proxy path between RPCs)
+// covered too, which the server's enforcement policy is set to allow.
+func clusterKeepaliveDialOption() grpc.DialOption {
+	return grpc.WithKeepaliveParams(keepalive.ClientParameters{
+		Time:                clusterKeepaliveTime,
+		Timeout:             clusterKeepaliveTimeout,
+		PermitWithoutStream: true,
+	})
 }
 
 // DialNode connects to a peer node with mTLS.
@@ -30,6 +44,7 @@ func DialNode(address string, tlsMgr *TLSManager) (*GRPCClient, error) {
 
 	conn, err := grpc.NewClient(address,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)),
+		clusterKeepaliveDialOption(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", address, err)
@@ -49,6 +64,7 @@ func DialNodeInsecure(address string) (*GRPCClient, error) {
 	}
 	conn, err := grpc.NewClient(address,
 		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
+		clusterKeepaliveDialOption(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", address, err)

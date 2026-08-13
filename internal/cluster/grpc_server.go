@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
@@ -155,6 +156,15 @@ func NewGRPCServer(mgr *Manager, localPort int) (*GRPCServer, error) {
 		grpc.Creds(creds),
 		grpc.UnaryInterceptor(requireClientCertInterceptor),
 		grpc.StreamInterceptor(requireClientCertStreamInterceptor),
+		// Accept the keepalive pings our own clients send (see the constants
+		// in types.go). gRPC's default policy — 5-minute minimum, no pings on
+		// idle connections — would answer them with GOAWAY/ENHANCE_YOUR_CALM
+		// and tear down exactly the connections keepalive is meant to keep
+		// verifiable.
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             clusterKeepaliveMinTime,
+			PermitWithoutStream: true,
+		}),
 	)
 
 	// Derive proxy secret from CA cert (shared across all cluster nodes)

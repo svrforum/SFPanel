@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **A node whose host slept never rejoined the cluster.** The cluster gRPC connections had no keepalive, so a connection killed while the process couldn't observe it — a host suspend, an overnight NAT/conntrack expiry — stayed "open" from the sender's side: every heartbeat `Send()` buffered locally and returned success, so the existing send-error → reconnect path never ran. A node that slept ~13 hours came back, marked *itself* suspect and then offline, and stayed offline for 16 more hours with not one error line to show for it; restarting the service was the only recovery. Cluster connections now run HTTP/2 keepalive (20 s ping, 10 s ack deadline, matching server enforcement policy), so a dead connection surfaces as a stream error within ~30 s — comfortably inside the 180 s heartbeat timeout — and the existing redial takes over. Found while deploying v0.59.0 to a live two-node cluster.
+
 ## [0.59.0] – 2026-08-13
 
 Closes out the deferred items from the v0.58.0 modularity pass.
