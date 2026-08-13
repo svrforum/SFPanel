@@ -3,11 +3,12 @@ package cluster
 import "testing"
 
 // TestKeepaliveParamsAreConsistent guards the invariants behind the cluster
-// gRPC keepalive settings. The bug they exist to prevent: a node whose host
-// slept overnight came back with a connection the OS never reported as dead,
-// so every grpcStream.Send() buffered and returned nil, the redial path in
-// StartLocalMetrics never fired, and the follower marked ITSELF offline and
-// stayed that way for 16 hours until it was restarted.
+// gRPC keepalive settings, which bound how long an unobservably-dead
+// connection can swallow heartbeats before the transport fails it. Note that
+// keepalive does NOT cover an application-level wedge (PING frames are not
+// flow controlled and are ACKed by the transport regardless) — the unread
+// pong stream that caused the incident is handled by the drain goroutine in
+// StartLocalMetrics instead.
 func TestKeepaliveParamsAreConsistent(t *testing.T) {
 	// The server answers pings that arrive faster than its enforcement policy
 	// with GOAWAY/ENHANCE_YOUR_CALM — which would kill the very connections

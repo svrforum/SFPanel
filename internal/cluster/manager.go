@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -1322,6 +1324,44 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						slog.Warn("heartbeat stream failed", "component", "cluster", "error", err)
 						return
 					}
+					// Drain the leader's pongs. Heartbeat is a BIDIRECTIONAL
+					// stream and the leader answers every ping
+					// (grpc_server.go), but nothing here ever reads the
+					// replies — and HTTP/2 only returns stream-level flow
+					// control credit when the application actually reads. So
+					// the unread pongs fill the follower's receive window and
+					// the leader's Send() eventually blocks forever, inside
+					// the branch that handles a received ping, which means the
+					// leader's own idle timeout and context checks never get
+					// evaluated again. Both ends then wedge with nothing
+					// logged: the follower's Send() blocks too once the
+					// leader stops reading, its collect() loop stops, and it
+					// marks ITSELF offline. Restarting was the only recovery.
+					//
+					// This goroutine only ever cancels the stream context —
+					// grpcStream/grpcClient stay owned by this collect()
+					// goroutine, which is what keeps them lock-free.
+					//
+					// Reading also recovers the stream's real termination
+					// status. The Send path can only ever report "EOF" — gRPC
+					// collapses a broken client-stream write to io.EOF and
+					// expects the receive side to supply the reason — so
+					// without this the log never says *why* a heartbeat
+					// stream died (idle timeout? leader stepping down?).
+					safe.Go("cluster-heartbeat-drain", func() {
+						for {
+							if _, rerr := stream.Recv(); rerr != nil {
+								if !errors.Is(rerr, io.EOF) {
+									slog.Warn("heartbeat stream closed", "component", "cluster", "error", rerr)
+								}
+								// Cancelling surfaces as a Send error on the
+								// next tick, and the existing path redials.
+								cancel()
+								return
+							}
+						}
+					})
+
 					grpcClient = client
 					grpcStream = stream
 					streamCancel = cancel

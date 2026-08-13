@@ -22,16 +22,21 @@ type GRPCClient struct {
 	client pb.ClusterServiceClient
 }
 
-// clusterKeepaliveDialOption arms HTTP/2 keepalive so a connection the OS
-// never told us died (host suspend, expired NAT entry) fails fast instead of
-// silently swallowing every Send — see the constants in types.go.
-// PermitWithoutStream keeps idle connections (the proxy path between RPCs)
-// covered too, which the server's enforcement policy is set to allow.
+// clusterKeepaliveDialOption arms HTTP/2 keepalive so a connection that died
+// without the process noticing fails fast instead of swallowing sends — see
+// the constants in types.go.
+//
+// PermitWithoutStream stays false deliberately. Pinging idle connections
+// would buy little (the pool re-dials on use, and an RPC on a dead connection
+// fails on its own deadline) while making a rolling upgrade noisier: a peer
+// still on the previous release runs gRPC's default enforcement policy, which
+// answers pings on stream-less connections with GOAWAY. Connections carrying
+// the heartbeat stream — the ones that matter — always have an active stream,
+// so they are pinged either way.
 func clusterKeepaliveDialOption() grpc.DialOption {
 	return grpc.WithKeepaliveParams(keepalive.ClientParameters{
-		Time:                clusterKeepaliveTime,
-		Timeout:             clusterKeepaliveTimeout,
-		PermitWithoutStream: true,
+		Time:    clusterKeepaliveTime,
+		Timeout: clusterKeepaliveTimeout,
 	})
 }
 
