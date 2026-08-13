@@ -6,7 +6,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
-## [Unreleased]
+## [0.59.0] – 2026-08-13
 
 Closes out the deferred items from the v0.58.0 modularity pass.
 
