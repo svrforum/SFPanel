@@ -107,6 +107,8 @@ jobs:
       # Frontend lint failures used to be silently swallowed via "|| true".
       # Removing the guard so a lint regression actually breaks CI.
       - run: cd web && npm run lint
+      # Vitest over the pure-logic modules only (node environment, no jsdom).
+      - run: cd web && npm test
       - run: cd web && npm run build
 
   # Boots a throwaway panel (temp-dir DB, default port 3628) and runs the
