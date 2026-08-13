@@ -246,6 +246,17 @@ function extractKV(text: string, key: string): string {
   return m?.[1] ?? '-'
 }
 
+// Kernel firewall lines carry the interface as IN= for inbound and OUT= for
+// outbound, with the unused one present but empty. extractKV yields the '-'
+// placeholder for both "absent" and "empty", so the two have to be compared
+// against it explicitly — a plain `IN || OUT` always stops at IN's '-' and
+// outbound entries lose their interface.
+function extractIface(text: string): string {
+  const inIface = extractKV(text, 'IN')
+  if (inIface !== '-') return inIface
+  return extractKV(text, 'OUT')
+}
+
 export function parseFirewallLine(line: string): FirewallLogEntry | RawLogEntry {
   const sysMatch = SYSLOG_RE.exec(line)
   if (!sysMatch) return { parsed: false, rawLine: line }
@@ -264,7 +275,7 @@ export function parseFirewallLine(line: string): FirewallLogEntry | RawLogEntry 
       sourceIP: extractKV(rest, 'SRC'),
       destPort: extractKV(rest, 'DPT'),
       protocol: extractKV(rest, 'PROTO').toUpperCase(),
-      iface: extractKV(rest, 'IN') || extractKV(rest, 'OUT'),
+      iface: extractIface(rest),
     }
   }
 
@@ -283,7 +294,7 @@ export function parseFirewallLine(line: string): FirewallLogEntry | RawLogEntry 
       sourceIP: extractKV(rest, 'SRC'),
       destPort,
       protocol: extractKV(rest, 'PROTO').toUpperCase(),
-      iface: extractKV(rest, 'IN') || extractKV(rest, 'OUT'),
+      iface: extractIface(rest),
     }
   }
 
@@ -637,17 +648,23 @@ const LOG_PARSERS: Record<string, LogParser<any>> = {
   'sfpanel': { parse: parseSFPanelLine, columns: sfpanelColumns },
 }
 
+// Own-property lookups only: source ids reach these from the log-source list,
+// and a plain object literal would answer `in`/index access for inherited
+// names ('constructor', 'toString', …) — hasParsedView would claim a parsed
+// view exists and getParser would hand back Object.prototype's member, which
+// then blows up on .parse(). Not reachable today (the backend prefixes custom
+// sources with `custom-`), but the lookups shouldn't depend on that.
 export function hasParsedView(sourceId: string | null): boolean {
   if (!sourceId) return false
-  return sourceId in LOG_PARSERS
+  return Object.hasOwn(LOG_PARSERS, sourceId)
 }
 
 export function getParser(sourceId: string): LogParser<ParsedLogEntry> | null {
-  return LOG_PARSERS[sourceId] ?? null
+  return Object.hasOwn(LOG_PARSERS, sourceId) ? LOG_PARSERS[sourceId] : null
 }
 
 export function parseLogLines(sourceId: string, lines: string[]): LogEntry[] {
-  const parser = LOG_PARSERS[sourceId]
+  const parser = getParser(sourceId)
   if (!parser) return lines.map((l) => ({ parsed: false, rawLine: l }))
   return lines.map((l) => parser.parse(l))
 }
