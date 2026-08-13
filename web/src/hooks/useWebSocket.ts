@@ -3,15 +3,27 @@ import { api } from '@/lib/api'
 
 interface UseWebSocketOptions<T = unknown> {
   url: string
+  /**
+   * Endpoint query parameters. Never inline them in `url` — buildWsUrl
+   * appends its own `?` and an inline query would swallow the auth ticket.
+   */
+  params?: Record<string, string>
+  /** Pin to this node (skip the cluster ?node= scope) — datacenter-wide sockets. */
+  local?: boolean
   onMessage?: (data: T) => void
   autoReconnect?: boolean
   reconnectInterval?: number
 }
 
-export function useWebSocket<T = unknown>({ url, onMessage, autoReconnect = true, reconnectInterval = 3000 }: UseWebSocketOptions<T>) {
+export function useWebSocket<T = unknown>({ url, params, local, onMessage, autoReconnect = true, reconnectInterval = 3000 }: UseWebSocketOptions<T>) {
   const wsRef = useRef<WebSocket | null>(null)
   const [connected, setConnected] = useState(false)
   const onMessageRef = useRef(onMessage)
+  // Callers pass `params` as an object literal, so depending on it directly
+  // would rebuild connect() — and tear down a healthy socket — on every
+  // render. The serialized form is the dependency, and connect() rebuilds the
+  // object from it, so identity changes only when the contents do.
+  const paramsKey = params ? new URLSearchParams(params).toString() : ''
   const isCleanedUpRef = useRef(false)
   const retryCountRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -49,7 +61,9 @@ export function useWebSocket<T = unknown>({ url, onMessage, autoReconnect = true
     // buildWsUrl is async (mints a single-use ticket so the JWT never lands
     // in the URL). Resolve, then check the cleanup flag again — the user
     // may have unmounted during the await.
-    api.buildWsUrl(url).then((wsUrl) => {
+    const wsParams = paramsKey ? Object.fromEntries(new URLSearchParams(paramsKey)) : undefined
+
+    api.buildWsUrl(url, wsParams, { local }).then((wsUrl) => {
       if (isCleanedUpRef.current) return
       const ws = new WebSocket(wsUrl)
 
@@ -82,7 +96,7 @@ export function useWebSocket<T = unknown>({ url, onMessage, autoReconnect = true
         armReconnect(reconnectInterval)
       }
     })
-  }, [url, autoReconnect, reconnectInterval, armReconnect])
+  }, [url, paramsKey, local, autoReconnect, reconnectInterval, armReconnect])
 
   // Sync the latest connect into the ref so the close-handler closure
   // always reaches the freshest version (deps may have changed since
@@ -93,6 +107,9 @@ export function useWebSocket<T = unknown>({ url, onMessage, autoReconnect = true
 
   useEffect(() => {
     isCleanedUpRef.current = false
+    // A fresh mount — or a url/params change — starts backoff over: the new
+    // endpoint shouldn't inherit the previous one's accumulated delay.
+    retryCountRef.current = 0
     connect()
     return () => {
       isCleanedUpRef.current = true

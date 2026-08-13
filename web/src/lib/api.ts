@@ -1958,7 +1958,15 @@ class ApiClient {
   // `path` must NOT carry a query string — this appends `?${params}`
   // unconditionally, so an inline query would swallow the ticket into its last
   // value and 401 the socket. Endpoint options go through extraParams.
-  async buildWsUrl(path: string, extraParams?: Record<string, string>): Promise<string> {
+  //
+  // opts.local pins the socket to THIS node (no ?node=), for datacenter-wide
+  // endpoints like /ws/cluster/overview whose payload already covers every
+  // node — relaying those to a peer would just proxy an identical stream.
+  async buildWsUrl(
+    path: string,
+    extraParams?: Record<string, string>,
+    opts?: { local?: boolean }
+  ): Promise<string> {
     let host: string
     let protocol: string
     if (this._serverUrl) {
@@ -1981,7 +1989,7 @@ class ApiClient {
     } catch {
       if (this.token) params.set('token', this.token)
     }
-    if (this._currentNode) params.set('node', this._currentNode)
+    if (this._currentNode && !opts?.local) params.set('node', this._currentNode)
     if (extraParams) {
       for (const [k, v] of Object.entries(extraParams)) {
         params.set(k, v)

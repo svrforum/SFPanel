@@ -86,7 +86,9 @@ export default function ClusterOverview() {
     setLoading(false)
   }, [])
 
-  useWebSocket<ClusterSnapshot>({ url: '/ws/cluster/overview', onMessage: applySnapshot })
+  // local: the snapshot already describes every node, so relaying this socket
+  // through ?node= would just proxy an identical stream off a peer.
+  useWebSocket<ClusterSnapshot>({ url: '/ws/cluster/overview', local: true, onMessage: applySnapshot })
 
   useEffect(() => {
     loadData()

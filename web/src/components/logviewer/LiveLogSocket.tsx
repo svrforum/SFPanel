@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useRef } from 'react'
-import { api } from '@/lib/api'
+import { useWebSocket } from '@/hooks/useWebSocket'
+
+interface LogFrame {
+  line?: string
+  lines?: string[]
+}
 
 /**
  * Live-tail WebSocket for /ws/logs. Mount while live mode is on; unmount to
- * disconnect. Incoming lines are batched and flushed once per animation
- * frame so high-rate logs don't trigger a setState per message, and the
- * connection auto-reconnects with the same exponential backoff contract as
- * hooks/useWebSocket (3s base, doubling, 30s cap, cleanup-flag guarded).
- *
- * We can't sit on useWebSocket itself: it resolves its `url` through
- * api.buildWsUrl(path) with no way to add query params, and /ws/logs takes
- * the log source as ?source=. If the hook grows a params option this
- * component should collapse onto it.
+ * disconnect. Reconnection is the shared useWebSocket contract (3s base,
+ * doubling, 30s cap, cleanup-guarded); this component adds the log-specific
+ * parts: extracting lines from either frame shape and batching them into one
+ * flush per animation frame so a high-rate tail doesn't setState per message.
  */
 export function LiveLogSocket({
   source,
@@ -22,12 +22,8 @@ export function LiveLogSocket({
   onLines: (batch: string[]) => void
   onConnectedChange: (connected: boolean) => void
 }) {
-  const wsRef = useRef<WebSocket | null>(null)
   const batchRef = useRef<string[]>([])
   const rafRef = useRef<number | null>(null)
-  const cleanedUpRef = useRef(false)
-  const retryRef = useRef(0)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onLinesRef = useRef(onLines)
   const onConnectedRef = useRef(onConnectedChange)
 
@@ -48,84 +44,46 @@ export function LiveLogSocket({
     onLinesRef.current(batch)
   }, [])
 
-  useEffect(() => {
-    cleanedUpRef.current = false
-    retryRef.current = 0
-
-    const armReconnect = () => {
-      const delay = Math.min(3000 * Math.pow(2, retryRef.current), 30000)
-      retryRef.current += 1
-      if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null
-        connect()
-      }, delay)
-    }
-
-    const connect = () => {
-      if (cleanedUpRef.current) return
-      api
-        .buildWsUrl('/ws/logs', { source })
-        .then((wsUrl) => {
-          if (cleanedUpRef.current) return
-          const ws = new WebSocket(wsUrl)
-
-          ws.onopen = () => {
-            retryRef.current = 0
-            onConnectedRef.current(true)
-          }
-
-          ws.onclose = () => {
-            onConnectedRef.current(false)
-            if (!cleanedUpRef.current) armReconnect()
-          }
-
-          ws.onmessage = (event) => {
-            // Accumulate into the batch buffer
-            try {
-              const data = JSON.parse(event.data)
-              if (data.line !== undefined) {
-                batchRef.current.push(data.line)
-              } else if (Array.isArray(data.lines)) {
-                batchRef.current.push(...data.lines)
-              }
-            } catch {
-              if (typeof event.data === 'string' && event.data.trim()) {
-                batchRef.current.push(event.data)
-              }
-            }
-            // Schedule a single flush per animation frame
-            if (rafRef.current === null) {
-              rafRef.current = requestAnimationFrame(flush)
-            }
-          }
-
-          wsRef.current = ws
-        })
-        .catch(() => {
-          // Ticket mint failed — retry with backoff like a dropped socket.
-          if (!cleanedUpRef.current) armReconnect()
-        })
-    }
-
-    connect()
-
-    return () => {
-      cleanedUpRef.current = true
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
-        timerRef.current = null
+  const handleMessage = useCallback(
+    (data: LogFrame | string) => {
+      if (typeof data === 'string') {
+        // Non-JSON frame — the hook hands the raw payload through.
+        if (data.trim()) batchRef.current.push(data)
+      } else if (data.line !== undefined) {
+        batchRef.current.push(data.line)
+      } else if (Array.isArray(data.lines)) {
+        batchRef.current.push(...data.lines)
       }
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(flush)
+      }
+    },
+    [flush]
+  )
+
+  const params = { source }
+  const { connected } = useWebSocket<LogFrame | string>({
+    url: '/ws/logs',
+    params,
+    onMessage: handleMessage,
+  })
+
+  useEffect(() => {
+    onConnectedRef.current(connected)
+  }, [connected])
+
+  // Drop anything still buffered when live mode is switched off, and report
+  // the disconnect the socket teardown itself can no longer announce.
+  useEffect(() => {
+    return () => {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current)
         rafRef.current = null
       }
       batchRef.current = []
-      wsRef.current?.close()
-      wsRef.current = null
       onConnectedRef.current(false)
     }
-  }, [source, flush])
+  }, [])
 
   return null
 }
