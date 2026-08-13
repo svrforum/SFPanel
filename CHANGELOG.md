@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [Unreleased]
+
+Closes out the deferred items from the v0.58.0 modularity pass.
+
+### Added
+
+- **Unit tests for the frontend's pure-logic modules** — 186 tests over firewall rule validation, the log parsers, the shared formatting/path/status helpers, the navigation registry and the log-view utilities. `vitest` is the only new dependency (25 packages, reusing the existing vite/rolldown tree) and runs in the node environment: no jsdom, no DOM testing library, no component tests. Wired into the existing CI frontend job. It paid for itself immediately — the two parser bugs below are its first catches.
+
+### Fixed
+
+- **Firewall log rows showed a dash instead of the interface for every outbound entry.** The key extractor returns its `-` placeholder for both absent and empty keys, so the intended "IN, else OUT" fallback always stopped at `IN=`'s placeholder and the OUT branch was unreachable.
+- **The log-parser registry answered lookups for inherited object keys** (`constructor`, `toString`, …), reporting a parsed view and handing back a prototype member that dies on use. Unreachable today because the backend prefixes custom source ids, but the lookups no longer depend on that.
+- **Superseded WebSockets were never retired.** Changing a socket's endpoint left the old socket's close handler seeing a cleared cleanup flag (a close event always arrives in a later task, after the effect re-run reset it), so it armed a reconnect and opened a second socket that overwrote the ref — orphaning one nothing would close while it kept delivering duplicate frames. Connections now carry a generation that every async continuation checks, which also covers React StrictMode leaving two ticket mints in flight during development.
+- **Tailscale's installer could be started twice.** The post-install refresh now runs when the output dialog is dismissed (so a successful install no longer unmounts the log before it can be read), which left the install button live until the refresh landed; it is disabled for that window.
+
+### Changed
+
+- The live-log socket now sits on the shared `useWebSocket` hook, which gained endpoint query parameters and a local-node pin; it keeps only the log-specific frame parsing and per-frame batching. `/ws/cluster/overview` — the one WebSocket route with no cluster relay wrapper — pins itself local accordingly.
+- The cluster stack list gained the load-failure banner and retry the single-node list already had, both now rendering the same component; Tailscale dropped its private stream dialog for the shared one; `nodeStatusBadge` retires the last duplicated status-color mapping; the shared dialog's strings moved out of the packages namespace into `common.output`, and five keys orphaned by the migration were pruned.
+
 ## [0.58.0] – 2026-08-11
 
 A frontend modularity release: a menu-by-menu review of the SPA (8 parallel reviewers, 182 accepted improvement points) followed by a full application pass. No backend changes.
