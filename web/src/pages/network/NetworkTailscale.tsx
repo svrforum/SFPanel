@@ -420,8 +420,13 @@ export default function NetworkTailscale() {
           <Globe className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
           <h3 className="text-[15px] font-semibold mb-2">{t('network.tailscale.notInstalled')}</h3>
           <p className="text-[13px] text-muted-foreground mb-6">{t('network.tailscale.notInstalledDesc')}</p>
-          <Button onClick={handleInstall} disabled={installing}>
-            {installing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          {/* `loading` matters here as much as `installing`: after a successful
+              install the refresh runs when the output dialog is dismissed, and
+              until it lands this branch still renders "not installed". Leaving
+              the button live in that window invites a second install whose
+              dialog would be unmounted mid-stream by the arriving status. */}
+          <Button onClick={handleInstall} disabled={installing || loading}>
+            {installing || loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             {installing ? t('network.tailscale.installing') : t('network.tailscale.install')}
           </Button>
         </div>

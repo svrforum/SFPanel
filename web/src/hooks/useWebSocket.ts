@@ -25,6 +25,8 @@ export function useWebSocket<T = unknown>({ url, params, local, onMessage, autoR
   // object from it, so identity changes only when the contents do.
   const paramsKey = params ? new URLSearchParams(params).toString() : ''
   const isCleanedUpRef = useRef(false)
+  // Bumped by every connect(); see the note there.
+  const generationRef = useRef(0)
   const retryCountRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Holds the latest connect callback so the reconnect closure inside
@@ -58,20 +60,33 @@ export function useWebSocket<T = unknown>({ url, params, local, onMessage, autoR
     const token = api.getToken()
     if (!token) return
 
+    // Generation token. isCleanedUpRef alone can't retire an old socket: on a
+    // url/params change the cleanup sets it true and the re-run sets it false
+    // again within the same effect flush, while a WebSocket's close event is
+    // always dispatched in a later task. The superseded socket's onclose would
+    // therefore see `false`, arm a reconnect, and open a second socket that
+    // overwrites wsRef — orphaning one that nothing closes and that keeps
+    // delivering (duplicate) frames. Everything async below is gated on the
+    // generation still being current, which also covers StrictMode's
+    // double-invoked effect leaving two ticket mints in flight.
+    const gen = ++generationRef.current
+
     // buildWsUrl is async (mints a single-use ticket so the JWT never lands
-    // in the URL). Resolve, then check the cleanup flag again — the user
-    // may have unmounted during the await.
+    // in the URL). Resolve, then re-check we're still the live generation —
+    // the user may have unmounted or switched endpoints during the await.
     const wsParams = paramsKey ? Object.fromEntries(new URLSearchParams(paramsKey)) : undefined
 
     api.buildWsUrl(url, wsParams, { local }).then((wsUrl) => {
-      if (isCleanedUpRef.current) return
+      if (isCleanedUpRef.current || gen !== generationRef.current) return
       const ws = new WebSocket(wsUrl)
 
       ws.onopen = () => {
+        if (gen !== generationRef.current) return
         setConnected(true)
         retryCountRef.current = 0
       }
       ws.onclose = () => {
+        if (gen !== generationRef.current) return
         setConnected(false)
         if (autoReconnect && !isCleanedUpRef.current) {
           const delay = Math.min(reconnectInterval * Math.pow(2, retryCountRef.current), 30000)
@@ -80,6 +95,7 @@ export function useWebSocket<T = unknown>({ url, params, local, onMessage, autoR
         }
       }
       ws.onmessage = (event) => {
+        if (isCleanedUpRef.current || gen !== generationRef.current) return
         try {
           const data = JSON.parse(event.data) as T
           onMessageRef.current?.(data)
@@ -92,7 +108,7 @@ export function useWebSocket<T = unknown>({ url, params, local, onMessage, autoR
     }).catch(() => {
       // Ticket mint failed and no token fallback — silently skip; the
       // reconnect timer (if enabled) will retry.
-      if (autoReconnect && !isCleanedUpRef.current) {
+      if (autoReconnect && !isCleanedUpRef.current && gen === generationRef.current) {
         armReconnect(reconnectInterval)
       }
     })
@@ -112,12 +128,17 @@ export function useWebSocket<T = unknown>({ url, params, local, onMessage, autoR
     retryCountRef.current = 0
     connect()
     return () => {
+      // On unmount this flag retires everything; on a url/params change the
+      // re-run's connect() bumps the generation instead, which is what
+      // actually retires the superseded socket (the flag is back to false by
+      // the time its close event arrives).
       isCleanedUpRef.current = true
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null
       }
       wsRef.current?.close()
+      wsRef.current = null
     }
   }, [connect])
 
