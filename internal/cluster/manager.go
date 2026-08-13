@@ -1351,7 +1351,12 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 					safe.Go("cluster-heartbeat-drain", func() {
 						for {
 							if _, rerr := stream.Recv(); rerr != nil {
-								if !errors.Is(rerr, io.EOF) {
+								// ctx.Err() != nil means closeStream cancelled
+								// us — a leader change or shutdown, not a
+								// failure. Only a peer-side termination earns
+								// a line, or this warns on every normal
+								// reconnect.
+								if ctx.Err() == nil && !errors.Is(rerr, io.EOF) {
 									slog.Warn("heartbeat stream closed", "component", "cluster", "error", rerr)
 								}
 								// Cancelling surfaces as a Send error on the

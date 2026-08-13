@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.60.1] – 2026-08-14
+
+### Fixed
+
+- The heartbeat stream's new "closed" warning fired on ordinary reconnects — a leader change or a shutdown cancels the stream from this side, which surfaced as `context canceled` and was logged as a problem. Only a peer-side termination is reported now. (Observed immediately after the v0.60.0 rollout.)
+
 ## [0.60.0] – 2026-08-14
 
 ### Fixed
