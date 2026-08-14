@@ -114,7 +114,7 @@ jobs:
           cp desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig dist/ 2>/dev/null || true
 
       - name: Upload to release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: dist/*
         env:
@@ -211,7 +211,7 @@ jobs:
           cat latest.json
 
       - name: Upload latest.json to release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: latest.json
         env:
