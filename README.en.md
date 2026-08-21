@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="banner.png" alt="SFPanel" width="518" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="banner-dark.png" />
+    <img src="banner.png" alt="SFPanel" width="518" />
+  </picture>
 </p>
 
 # SFPanel

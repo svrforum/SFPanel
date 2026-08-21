@@ -11,6 +11,7 @@ import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import ClusterSidebar from '@/components/cluster/ClusterSidebar'
 import SidebarSkeleton from '@/components/SidebarSkeleton'
+import Logo, { LogoMark } from '@/components/Logo'
 import BottomNav from '@/components/BottomNav'
 import MoreMenu from '@/components/MoreMenu'
 import type { ClusterStatus, DashboardOverview } from '@/types/api'
@@ -170,11 +171,11 @@ export default function Layout() {
         <div className={cn('flex items-center', collapsed ? 'px-3 py-6 justify-center' : 'px-4 py-4')}>
           {collapsed ? (
             <Link to="/dashboard" aria-label="SFPanel" className="rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
-              <img src="/favicon.png" alt="SFPanel" className="h-8 w-8 rounded-lg" />
+              <LogoMark className="h-8 w-8" />
             </Link>
           ) : (
             <Link to="/dashboard" aria-label="SFPanel" className="block w-full rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
-              <img src="/banner.png" alt="SFPanel" className="w-full h-auto" />
+              <Logo />
             </Link>
           )}
         </div>

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Crown, ChevronDown, ChevronRight, Server, LogOut, PanelLeftClose, PanelLeftOpen, Coffee, AlertTriangle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import GithubIcon from '@/components/GithubIcon'
+import Logo from '@/components/Logo'
 import { cn, nodeStatusColor } from '@/lib/utils'
 import type { ClusterNode, ClusterStatus } from '@/types/api'
 
@@ -118,7 +119,7 @@ export default function TreePanel({
       {/* Banner link + collapse button */}
       <div className="px-3 py-3 flex items-center gap-2">
         <Link to="/dashboard" aria-label="SFPanel" className="flex-1 min-w-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
-          <img src="/banner.png" alt="SFPanel" className="w-full h-auto" />
+          <Logo />
         </Link>
         <button onClick={onToggleCollapse} className="p-1.5 rounded-lg hover:bg-accent border border-border transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" title={t('layout.collapse')} aria-label={t('layout.collapse')}>
           <PanelLeftClose className="h-4 w-4 text-foreground/60" />

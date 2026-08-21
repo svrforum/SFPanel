@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Globe } from 'lucide-react'
 import { LANGUAGE_KEY } from '@/i18n'
+import { LogoMark } from '@/components/Logo'
 
 // Shared styling for the auth entry screens (Login/Setup/Connect) — these
 // className strings used to be copy-pasted eight times across the three files.
@@ -45,11 +46,7 @@ export default function AuthShell({ subtitle, children, below }: AuthShellProps)
     <div className="min-h-screen flex flex-col items-center justify-center bg-background">
       <div className="w-full max-w-sm px-6">
         <div className="text-center mb-8">
-          <img
-            src="/favicon.png"
-            alt="SFPanel"
-            className="mx-auto mb-3 h-16 w-16 rounded-2xl"
-          />
+          <LogoMark className="mx-auto mb-3 h-16 w-16" />
           <h1 className="text-2xl font-bold tracking-tight text-foreground">SFPanel</h1>
           <p className="text-sm text-muted-foreground mt-2">{subtitle}</p>
         </div>
