@@ -6,6 +6,22 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.63.0] – 2026-08-21
+
+### Added
+
+- **Network drives — connect an SMB/CIFS or NFS share from a NAS or file server** under Disk. `/etc/fstab` is the only place the configuration lives, so nothing drifts when someone edits it by hand; entries the panel wrote carry a marker comment, and hand-written ones are listed but never rewritten or deleted. Shares can be discovered from a server rather than typed, and the connection is testable before it is saved.
+- Two properties shape it. The share is **mounted before anything is written to fstab**, and persisted only once that succeeded — the reverse order saves an entry nobody has proven works, which is how a bad fstab line reaches the next boot. Every entry gets `_netdev` and `nofail`, so an unreachable NAS cannot drop the host into an emergency shell. Passwords never reach fstab (it is world-readable): they go to a 0600 file referenced by `credentials=`, and the option sanitiser rejects `password=`/`credentials=`/`username=` along with whitespace and `#`, which would otherwise forge extra fstab fields or a whole new entry.
+- Mount attempts are bounded at 25 seconds, and NFS uses `retry=0` interactively — `mount.nfs` against a dead server otherwise grinds for about two minutes, outliving the browser's own request timeout. fstab keeps the default retry, where `nofail` already makes a slow NAS harmless.
+
+### Fixed
+
+- **The filesystem list now sorts network drives first**, then block devices, then pseudo and container-layer mounts. `df` emits kernel order, which put a freshly attached drive last — below thirty-odd Docker overlay entries, the one place its owner would not look.
+- **Server tuning stopped recommending downgrades.** The values were fixed constants, so as distributions raised their defaults the panel began proposing the older, smaller number as an improvement: on a current Ubuntu kernel it offered to cut `vm.max_map_count` from 1048576 to 262144, shrink the `vm.min_free_kbytes` reserve to a quarter, and lower `kernel.unprivileged_bpf_disabled` from 2 to 1 — a write the kernel refuses anyway. Parameters where a larger number is strictly better now keep the host's value when it already meets the recommendation, on the apply path as well as the status view.
+- **`rp_filter` no longer asks for strict mode.** Strict reverse-path filtering drops packets whose reply would leave by a different interface — ordinary on a host running Docker bridges or a Tailscale subnet route — and turns a working peer unreachable with nothing in the logs. Loose mode is what systemd ships and still blocks spoofing.
+- **`vm.swappiness` accounts for zram.** The old value assumed swap is slow; on a host with a zram device it is not, and a low setting defeats the compressed swap it was configured for.
+- `net.ipv4.ip_local_port_range` no longer starts at 1024, where an early outbound connection can squat on a port a service is about to bind. The two `net.bridge` parameters are offered only when `br_netfilter` is loaded, matching the gate the conntrack category already used.
+
 ## [0.62.0] – 2026-08-21
 
 ### Changed
