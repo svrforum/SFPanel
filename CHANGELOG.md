@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.63.1] – 2026-08-21
+
+### Fixed
+
+- **The pre-paint theme script was being blocked by the panel's own CSP**, so dark-mode users got a white flash on every page load. `index.html` carries one inline script — the theme applier that runs before the app bundle precisely to prevent that flash — and `script-src` was `'self'` only. The script had been dead in production since the policy was tightened, with a console entry as the sole symptom. It cannot move into the bundle (that runs after parse, which *is* the flash) or take a nonce (the page is a static embedded asset), so the CSP now allows it by hash. The hash is computed at startup from the embedded `index.html` rather than stored as a constant: a constant goes stale the moment the script is edited and fails just as silently as this bug did. `'unsafe-inline'` is not used, so the policy is no weaker than before.
+- Note when upgrading: the service worker caches the shell response together with its headers, so an existing browser session keeps the old policy until it refreshes.
+
 ## [0.63.0] – 2026-08-21
 
 ### Added
