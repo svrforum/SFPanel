@@ -47,6 +47,21 @@ func clusterErrResponse(c echo.Context, err error) error {
 	}
 }
 
+// Leader-proxy budget for the read endpoints the UI polls on a timer (status,
+// nodes, overview) — the only callers of this handler's own leader proxy. A
+// healthy LAN peer answers in single-digit milliseconds, so the budget only
+// ever matters when the leader is unreachable, and it used to be the 10s an
+// FSM write would want, paid in full by every 15s poll cycle.
+//
+// FSM writes do not come through here: they use middleware.ProxyToLeader.
+const (
+	leaderReadTimeout = 5 * time.Second
+	// leaderReadCooldown suppresses repeat dials after a read-path failure so
+	// a burst of sidebar polls costs one dial, not one per request. Short
+	// enough that a leader coming back is noticed within a poll interval.
+	leaderReadCooldown = 5 * time.Second
+)
+
 type Handler struct {
 	mu           sync.RWMutex
 	joiningMu    sync.Mutex // prevents concurrent Init/Join
@@ -60,6 +75,11 @@ type Handler struct {
 	// OnManagerActivated is called after a manager is set (init/join).
 	// Used to propagate the manager to other handlers (e.g. auth).
 	OnManagerActivated func(*cluster.Manager)
+
+	// Read-path leader-proxy breaker. See proxyToLeaderRead.
+	leaderReadMu   sync.Mutex
+	leaderReadAddr string
+	leaderReadFail time.Time
 }
 
 func (h *Handler) getManager() *cluster.Manager {
@@ -530,7 +550,7 @@ func (h *Handler) GetOverview(c echo.Context) error {
 		// FSM status can be stale by many heartbeat ticks. Prefer an
 		// explicit 503 over silently serving stale data — the frontend can
 		// retry or surface a "leader unreachable" banner.
-		resp, err := h.proxyToLeader(c)
+		resp, err := h.proxyToLeaderRead(c)
 		if err != nil {
 			return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, fmt.Sprintf("leader unreachable: %v", err))
 		}
@@ -574,7 +594,7 @@ func (h *Handler) GetNodes(c echo.Context) error {
 	if !mgr.IsLeader() {
 		// L-06: see GetOverview — follower-local status is stale; refuse
 		// to answer without leader confirmation.
-		resp, err := h.proxyToLeader(c)
+		resp, err := h.proxyToLeaderRead(c)
 		if err != nil {
 			return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, fmt.Sprintf("leader unreachable: %v", err))
 		}
@@ -608,7 +628,7 @@ func (h *Handler) GetStatus(c echo.Context) error {
 		// FSM but flag the response as stale — the UI renders a banner so
 		// operators know they're looking at potentially-out-of-date data
 		// rather than confidently trusting what they see.
-		if resp, err := h.proxyToLeader(c); err == nil {
+		if resp, err := h.proxyToLeaderRead(c); err == nil {
 			return h.returnWithLocalID(c, resp)
 		}
 		stale = true
@@ -977,7 +997,57 @@ func (h *Handler) TransferLeadership(c echo.Context) error {
 	})
 }
 
-func (h *Handler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
+// proxyToLeaderRead forwards one of the UI-polled read endpoints to the
+// leader. It spends leaderReadTimeout and short-circuits while a recent
+// attempt against the same leader address failed, so an unreachable leader
+// costs one dial per leaderReadCooldown instead of one per request.
+//
+// Read-only on purpose: the breaker reports a cached failure without probing,
+// which is fine for a poll that repeats seconds later but would be wrong for
+// a write. FSM writes use middleware.ProxyToLeader and are unaffected.
+func (h *Handler) proxyToLeaderRead(c echo.Context) (*pb.APIResponse, error) {
+	mgr := h.getManager()
+	if mgr == nil {
+		return nil, fmt.Errorf("cluster not configured")
+	}
+	leaderAddr := mgr.GetLeaderGRPCAddress()
+	if leaderAddr == "" {
+		return nil, fmt.Errorf("no leader")
+	}
+	if h.leaderReadBlocked(leaderAddr, time.Now()) {
+		return nil, fmt.Errorf("leader unreachable (recent attempt failed)")
+	}
+	resp, err := h.proxyToLeaderTimeout(c, leaderReadTimeout)
+	h.recordLeaderRead(leaderAddr, err, time.Now())
+	return resp, err
+}
+
+// leaderReadBlocked reports whether a read-path proxy to addr should be
+// skipped because a previous attempt failed within the cooldown. A change of
+// leader address clears the block — the new leader deserves its own probe.
+func (h *Handler) leaderReadBlocked(addr string, now time.Time) bool {
+	h.leaderReadMu.Lock()
+	defer h.leaderReadMu.Unlock()
+	if h.leaderReadAddr != addr || h.leaderReadFail.IsZero() {
+		return false
+	}
+	return now.Sub(h.leaderReadFail) < leaderReadCooldown
+}
+
+// recordLeaderRead opens the breaker on failure and clears it on success.
+func (h *Handler) recordLeaderRead(addr string, err error, now time.Time) {
+	h.leaderReadMu.Lock()
+	defer h.leaderReadMu.Unlock()
+	if err == nil {
+		h.leaderReadAddr = ""
+		h.leaderReadFail = time.Time{}
+		return
+	}
+	h.leaderReadAddr = addr
+	h.leaderReadFail = now
+}
+
+func (h *Handler) proxyToLeaderTimeout(c echo.Context, timeout time.Duration) (*pb.APIResponse, error) {
 	mgr := h.getManager()
 	pool := mgr.GetConnPool()
 	leaderAddr := mgr.GetLeaderGRPCAddress()
@@ -990,7 +1060,7 @@ func (h *Handler) proxyToLeader(c echo.Context) (*pb.APIResponse, error) {
 		return nil, fmt.Errorf("dial leader: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request().Context(), timeout)
 	defer cancel()
 
 	headers := make(map[string]string)

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/cluster"
@@ -59,8 +60,9 @@ func newNilOverviewStub(t *testing.T) *cluster.Manager {
 // which is far too heavy/stateful for a unit test and there's no Raft unit
 // harness. So we exercise the helper in isolation with mgr=nil (Shutdown must
 // be nil-safe) and assert the two contracts that matter:
-//   (a) HTTP 500 with code INTERNAL_ERROR
-//   (b) the on-disk config now has Cluster.Enabled=false
+//
+//	(a) HTTP 500 with code INTERNAL_ERROR
+//	(b) the on-disk config now has Cluster.Enabled=false
 func TestRollbackInit_FlipsConfigDisabledAndReturns500(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
@@ -161,5 +163,46 @@ func TestGetStatus_NilOverviewReturnsStaleEnabled(t *testing.T) {
 	}
 	if !body.Data.Stale {
 		t.Errorf("stale=false, want true (overview unavailable)")
+	}
+}
+
+// The read-path breaker exists so an unreachable leader costs one dial per
+// cooldown instead of one per request: the sidebar polls status + nodes +
+// overview together every 15s, and each was independently paying the full
+// leader-proxy timeout while the peer was down.
+func TestLeaderReadBreaker(t *testing.T) {
+	const addr = "10.0.0.9:3629"
+	base := time.Unix(1700000000, 0)
+	h := &Handler{}
+
+	if h.leaderReadBlocked(addr, base) {
+		t.Fatal("a handler that has never proxied must not block the first attempt")
+	}
+
+	// A success must leave the breaker closed.
+	h.recordLeaderRead(addr, nil, base)
+	if h.leaderReadBlocked(addr, base) {
+		t.Fatal("a successful read must not open the breaker")
+	}
+
+	h.recordLeaderRead(addr, errors.New("deadline exceeded"), base)
+	if !h.leaderReadBlocked(addr, base.Add(leaderReadCooldown-time.Millisecond)) {
+		t.Fatal("a repeat attempt inside the cooldown must be short-circuited")
+	}
+	if h.leaderReadBlocked(addr, base.Add(leaderReadCooldown)) {
+		t.Fatal("the breaker must reopen once the cooldown elapses, so a recovered leader is noticed")
+	}
+
+	// A new leader address deserves its own probe rather than inheriting the
+	// previous leader's failure.
+	h.recordLeaderRead(addr, errors.New("deadline exceeded"), base)
+	if h.leaderReadBlocked("10.0.0.10:3629", base) {
+		t.Fatal("a failure against one leader must not block a different leader address")
+	}
+
+	// Recovery clears the record entirely.
+	h.recordLeaderRead(addr, nil, base)
+	if h.leaderReadBlocked(addr, base) {
+		t.Fatal("a success must clear a previously-opened breaker")
 	}
 }
