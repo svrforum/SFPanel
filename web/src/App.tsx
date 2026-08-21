@@ -35,6 +35,7 @@ const DiskFilesystems = lazy(() => import('@/pages/disk/DiskFilesystems'))
 const DiskLVM = lazy(() => import('@/pages/disk/DiskLVM'))
 const DiskRAID = lazy(() => import('@/pages/disk/DiskRAID'))
 const DiskSwap = lazy(() => import('@/pages/disk/DiskSwap'))
+const DiskNetworkShares = lazy(() => import('@/pages/disk/DiskNetworkShares'))
 const Firewall = lazy(() => import('@/pages/Firewall'))
 const FirewallRules = lazy(() => import('@/pages/firewall/FirewallRules'))
 const FirewallPorts = lazy(() => import('@/pages/firewall/FirewallPorts'))
@@ -185,6 +186,7 @@ export default function App() {
                   <Route path="lvm" element={<DiskLVM />} />
                   <Route path="raid" element={<DiskRAID />} />
                   <Route path="swap" element={<DiskSwap />} />
+                  <Route path="network-shares" element={<DiskNetworkShares />} />
                 </Route>
                 <Route path="firewall" element={<Firewall />}>
                   <Route index element={<Navigate to="rules" replace />} />

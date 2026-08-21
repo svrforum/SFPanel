@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -46,8 +47,39 @@ func (h *Handler) ListFilesystems(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
 			fmt.Sprintf("failed to parse df output: %v", err))
 	}
+	sortFilesystems(filesystems)
 
 	return response.OK(c, filesystems)
+}
+
+// sortFilesystems orders the list for display.
+//
+// df emits mounts in kernel order, which puts the most recently mounted last —
+// exactly where an operator who just attached a network drive will not look
+// for it. Ordering is: network drives, then local block devices, then
+// everything else (pseudo filesystems and container layers). Within a group,
+// by mount point, so the order does not shuffle between refreshes.
+//
+// Sorting lives here rather than in parseDfOutput: that function's job is to
+// reproduce df faithfully, and its tests assert exactly that.
+func sortFilesystems(fs []Filesystem) {
+	rank := func(f Filesystem) int {
+		switch {
+		case isNetworkFstype(f.FsType):
+			return 0
+		case strings.HasPrefix(f.Source, "/dev/"):
+			return 1
+		default:
+			return 2
+		}
+	}
+	sort.SliceStable(fs, func(i, j int) bool {
+		ri, rj := rank(fs[i]), rank(fs[j])
+		if ri != rj {
+			return ri < rj
+		}
+		return fs[i].MountPoint < fs[j].MountPoint
+	})
 }
 
 // CheckExpandable analyzes all filesystems and returns candidates that can be expanded.

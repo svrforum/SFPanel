@@ -17,13 +17,14 @@ import (
 	"github.com/svrforum/SFPanel/internal/config"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
-	featureAudit "github.com/svrforum/SFPanel/internal/feature/audit"
-	featureCron "github.com/svrforum/SFPanel/internal/feature/cron"
-	featureDisk "github.com/svrforum/SFPanel/internal/feature/disk"
+	featureAlert "github.com/svrforum/SFPanel/internal/feature/alert"
 	featureAppstore "github.com/svrforum/SFPanel/internal/feature/appstore"
+	featureAudit "github.com/svrforum/SFPanel/internal/feature/audit"
 	featureAuth "github.com/svrforum/SFPanel/internal/feature/auth"
 	featureCluster "github.com/svrforum/SFPanel/internal/feature/cluster"
 	featureCompose "github.com/svrforum/SFPanel/internal/feature/compose"
+	featureCron "github.com/svrforum/SFPanel/internal/feature/cron"
+	featureDisk "github.com/svrforum/SFPanel/internal/feature/disk"
 	featureDocker "github.com/svrforum/SFPanel/internal/feature/docker"
 	featureFiles "github.com/svrforum/SFPanel/internal/feature/files"
 	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
@@ -36,7 +37,6 @@ import (
 	featureServices "github.com/svrforum/SFPanel/internal/feature/services"
 	featureSettings "github.com/svrforum/SFPanel/internal/feature/settings"
 	featureSystem "github.com/svrforum/SFPanel/internal/feature/system"
-	featureAlert "github.com/svrforum/SFPanel/internal/feature/alert"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	featureWS "github.com/svrforum/SFPanel/internal/feature/websocket"
 )
@@ -97,7 +97,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	e.Use(echoMw.Recover())
 	e.Use(mw.SecurityHeaders())
 	e.Use(echoMw.GzipWithConfig(echoMw.GzipConfig{
-		Level:   5,
+		Level:     5,
 		MinLength: 1024,
 	}))
 	e.Use(mw.RequestLogger())
@@ -424,6 +424,21 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	fsGroup.POST("/resize", diskHandler.ResizeFilesystem)
 	fsGroup.GET("/expand-check", diskHandler.CheckExpandable)
 	fsGroup.POST("/expand", diskHandler.ExpandFilesystem)
+
+	// Network shares (SMB/NFS). Per-node like every other mount: reached with
+	// ?node= in a cluster, never replicated. Mutations take the mount point in
+	// the body rather than the path so a filesystem path needs no URL escaping
+	// — same shape as /fs/mount and /fs/unmount above.
+	shares := authorized.Group("/disks/network-shares")
+	shares.GET("", diskHandler.ListNetShares)
+	shares.POST("", diskHandler.AddNetShare)
+	shares.POST("/remove", diskHandler.RemoveNetShare)
+	shares.POST("/mount", diskHandler.MountNetShare)
+	shares.POST("/unmount", diskHandler.UnmountNetShare)
+	shares.POST("/test", diskHandler.TestNetShare)
+	shares.GET("/discover", diskHandler.DiscoverNetShares)
+	shares.GET("/tools", diskHandler.CheckNetShareTools)
+	shares.POST("/tools/install", diskHandler.InstallNetShareTools)
 
 	// LVM
 	lvm := authorized.Group("/lvm")

@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { Outlet } from 'react-router-dom'
-import { HardDrive, LayoutGrid, Layers, Database, Server, MemoryStick, PieChart } from 'lucide-react'
+import { HardDrive, LayoutGrid, Layers, Database, Server, MemoryStick, PieChart, Network } from 'lucide-react'
 import { SubNavTabs } from '@/components/SubNavTabs'
 
 const navItems = [
@@ -11,6 +11,7 @@ const navItems = [
   { to: '/disk/lvm', icon: Layers, label: 'disk.tabs.lvm' },
   { to: '/disk/raid', icon: Server, label: 'disk.tabs.raid' },
   { to: '/disk/swap', icon: MemoryStick, label: 'disk.tabs.swap' },
+  { to: '/disk/network-shares', icon: Network, label: 'disk.tabs.shares' },
 ]
 
 export default function Disk() {

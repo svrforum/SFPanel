@@ -1109,3 +1109,40 @@ export interface ClusterNodeStacks {
   stacks: ComposeProjectWithStatus[]
   error?: string // stable machine code (unreachable | list_failed), mapped to i18n in the UI
 }
+
+// ---------- Network shares (SMB/NFS) ----------
+
+export interface NetworkShare {
+  type: 'cifs' | 'nfs'
+  /** fstab spec: //server/share or server:/export */
+  source: string
+  server: string
+  share: string
+  mount_point: string
+  options: string
+  /** False for entries a human wrote into fstab; those are read-only here. */
+  managed: boolean
+  /** Live state from findmnt, not what fstab says should be mounted. */
+  mounted: boolean
+  has_credentials: boolean
+  total_bytes?: number
+  used_bytes?: number
+  error?: string
+}
+
+export interface NetworkShareInput {
+  type: string
+  server: string
+  share: string
+  mount_point: string
+  username?: string
+  password?: string
+  domain?: string
+  options?: string
+  read_only?: boolean
+}
+
+export interface NetworkShareTools {
+  cifs: { installed: boolean; package: string }
+  nfs: { installed: boolean; package: string }
+}

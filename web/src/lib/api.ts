@@ -53,6 +53,9 @@ import type {
   DiffResult,
   ImportRequest,
   PortMapRow,
+  NetworkShare,
+  NetworkShareInput,
+  NetworkShareTools,
 } from '@/types/api'
 
 const API_PATH = '/api/v1'
@@ -1355,6 +1358,65 @@ class ApiClient {
 
   checkFilesystemExpand() {
     return this.request<ExpandCandidate[]>('/filesystems/expand-check')
+  }
+
+  // Network shares (SMB/NFS). Mutations post the mount point in the body
+  // rather than the path — a filesystem path in a URL segment needs escaping
+  // that buys nothing here, and /filesystems/unmount already works this way.
+  getNetworkShares() {
+    return this.request<{ shares: NetworkShare[] }>('/disks/network-shares')
+  }
+
+  addNetworkShare(data: NetworkShareInput) {
+    return this.request<{ message: string; mount_point: string }>('/disks/network-shares', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  testNetworkShare(data: NetworkShareInput) {
+    return this.request<{ ok: boolean; message?: string; warning?: string }>('/disks/network-shares/test', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  removeNetworkShare(mountPoint: string) {
+    return this.request<{ message: string }>('/disks/network-shares/remove', {
+      method: 'POST',
+      body: JSON.stringify({ mount_point: mountPoint }),
+    })
+  }
+
+  mountNetworkShare(mountPoint: string) {
+    return this.request<{ message: string }>('/disks/network-shares/mount', {
+      method: 'POST',
+      body: JSON.stringify({ mount_point: mountPoint }),
+    })
+  }
+
+  unmountNetworkShare(mountPoint: string) {
+    return this.request<{ message: string }>('/disks/network-shares/unmount', {
+      method: 'POST',
+      body: JSON.stringify({ mount_point: mountPoint }),
+    })
+  }
+
+  discoverNetworkShares(type: string, server: string, username?: string) {
+    const q = new URLSearchParams({ type, server })
+    if (username) q.set('username', username)
+    return this.request<{ shares: string[] }>(`/disks/network-shares/discover?${q}`)
+  }
+
+  getNetworkShareTools() {
+    return this.request<NetworkShareTools>('/disks/network-shares/tools')
+  }
+
+  installNetworkShareTools(type: string) {
+    return this.request<{ message: string; output: string }>(
+      `/disks/network-shares/tools/install?type=${encodeURIComponent(type)}`,
+      { method: 'POST' },
+    )
   }
 
   expandFilesystem(source: string) {
