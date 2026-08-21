@@ -115,6 +115,10 @@ func (h *TuningHandler) GetTuningStatus(c echo.Context) error {
 		for j, p := range cat.Params {
 			current := readSysctl(h.Cmd, p.Key)
 			categories[i].Params[j].Current = current
+			// Never propose a value the host already beats — see atLeastKeys.
+			// Done here rather than in buildRecommendations because that
+			// function does not read the live system.
+			categories[i].Params[j].Recommended = keepCurrentIfBetter(p.Key, current, p.Recommended)
 			categories[i].Params[j].Applied = configuredKeys[p.Key]
 			if categories[i].Params[j].Applied {
 				applied++
@@ -170,6 +174,15 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 	totalRAMGB := float64(totalRAM) / (1024 * 1024 * 1024)
 
 	categories := buildRecommendations(cpuCores, totalRAMGB, totalRAM)
+	// Same no-downgrade guard the status view applies. This is the path that
+	// actually writes sysctl, so without it a host whose kernel already ships
+	// a better default would be reduced to the older recommendation.
+	for i := range categories {
+		for j, p := range categories[i].Params {
+			categories[i].Params[j].Recommended =
+				keepCurrentIfBetter(p.Key, readSysctl(h.Cmd, p.Key), p.Recommended)
+		}
+	}
 
 	selectedCategories := make(map[string]bool)
 	for _, cat := range req.Categories {
@@ -388,6 +401,81 @@ func conntrackModuleLoaded() bool {
 	return false
 }
 
+// zramSwapActive reports whether a zram device is in use as swap.
+//
+// It changes what vm.swappiness should be. Compressed swap in RAM is orders
+// of magnitude faster than a disk swapfile, so the usual "swap as little as
+// possible" advice inverts: the kernel should prefer pushing cold anonymous
+// pages into zram over evicting page cache. Recommending a low swappiness on
+// a zram host quietly defeats the reason zram was set up.
+func zramSwapActive() bool {
+	data, err := os.ReadFile("/proc/swaps")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "/dev/zram")
+}
+
+// bridgeNetfilterAvailable reports whether the net.bridge.* sysctls exist.
+//
+// They are created by br_netfilter, which is not loaded on every host. Without
+// this check the Docker category advertises two parameters that cannot be read
+// or written, so they show as permanently unapplied. Mirrors the conntrack
+// gate above.
+func bridgeNetfilterAvailable() bool {
+	_, err := os.Stat("/proc/sys/net/bridge/bridge-nf-call-iptables")
+	return err == nil
+}
+
+// atLeastKeys are parameters where a bigger number is strictly better, so a
+// host that already exceeds the recommendation must be left alone.
+//
+// Distributions raise these defaults over time — Ubuntu's vm.max_map_count is
+// 1048576 on current kernels, four times what a 2020-era guide recommends —
+// and a fixed "recommended" value silently becomes a downgrade. Same for the
+// memory reserve, where lowering it costs OOM headroom on a host that is
+// already under pressure.
+var atLeastKeys = map[string]bool{
+	"vm.max_map_count":               true,
+	"vm.min_free_kbytes":             true,
+	"kernel.pid_max":                 true,
+	"fs.file-max":                    true,
+	"fs.inotify.max_user_watches":    true,
+	"fs.inotify.max_user_instances":  true,
+	"fs.aio-max-nr":                  true,
+	"net.core.somaxconn":             true,
+	"net.core.netdev_max_backlog":    true,
+	"net.ipv4.tcp_max_syn_backlog":   true,
+	"net.netfilter.nf_conntrack_max": true,
+	// Hardening levels: the kernel treats a higher value as stricter, and
+	// refuses to lower unprivileged_bpf_disabled once it is 2.
+	"kernel.unprivileged_bpf_disabled": true,
+	"kernel.kptr_restrict":             true,
+	"net.core.bpf_jit_harden":          true,
+	"fs.protected_fifos":               true,
+	"fs.protected_regular":             true,
+}
+
+// keepCurrentIfBetter drops a recommendation the host already beats.
+//
+// Returns the value to recommend: the current one when it is at least as good,
+// otherwise the proposal. Non-numeric or unreadable current values fall
+// through to the proposal unchanged.
+func keepCurrentIfBetter(key, current, recommended string) string {
+	if !atLeastKeys[key] {
+		return recommended
+	}
+	cur, err1 := strconv.ParseInt(strings.TrimSpace(current), 10, 64)
+	rec, err2 := strconv.ParseInt(strings.TrimSpace(recommended), 10, 64)
+	if err1 != nil || err2 != nil {
+		return recommended
+	}
+	if cur >= rec {
+		return current
+	}
+	return recommended
+}
+
 func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64) []TuningCategory {
 	var rmemMax, wmemMax, tcpRmem, tcpWmem string
 	switch {
@@ -415,8 +503,12 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 		backlog = "32768"
 	}
 
+	// With zram, swapping is cheap and preferable to evicting page cache, so
+	// the usual advice inverts. See zramSwapActive.
 	swappiness := "10"
-	if totalRAMGB < 2 {
+	if zramSwapActive() {
+		swappiness = "100"
+	} else if totalRAMGB < 2 {
 		swappiness = "60"
 	} else if totalRAMGB < 4 {
 		swappiness = "30"
@@ -477,12 +569,10 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 				{Key: "net.ipv4.tcp_slow_start_after_idle", Recommended: "0", Description: "Don't reset CWND after an idle period — big win for persistent HTTP/2, WS, gRPC"},
 				{Key: "net.ipv4.tcp_notsent_lowat", Recommended: "131072", Description: "Cap unsent bytes per socket — reduces buffer bloat for streaming / SSE"},
 				{Key: "net.ipv4.tcp_no_metrics_save", Recommended: "1", Description: "Don't cache per-destination TCP metrics (can mis-tune later connections)"},
-				{Key: "net.ipv4.ip_local_port_range", Recommended: "1024 65535", Description: "Expand ephemeral port range for outbound-heavy workloads"},
+				{Key: "net.ipv4.ip_local_port_range", Recommended: "10240 65535", Description: "Expand ephemeral port range for outbound-heavy workloads, staying clear of registered service ports"},
 				{Key: "net.ipv4.tcp_rfc1337", Recommended: "1", Description: "Protect against TIME-WAIT assassination hazards (RFC 1337)"},
 				// --- Docker / bridge networking (required on container hosts) ---
 				{Key: "net.ipv4.ip_forward", Recommended: "1", Description: "Enable IP forwarding (required by Docker; set in sysctl so it survives reboot independently of docker.service ordering)"},
-				{Key: "net.bridge.bridge-nf-call-iptables", Recommended: "1", Description: "Bridged traffic traverses iptables (Docker bridge networks depend on this)"},
-				{Key: "net.bridge.bridge-nf-call-ip6tables", Recommended: "1", Description: "Bridged IPv6 traffic traverses ip6tables (same rationale as the IPv4 variant)"},
 			},
 		},
 		{
@@ -523,8 +613,8 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 			Caution: "caution_security",
 			Params: []TuningParam{
 				{Key: "net.ipv4.tcp_syncookies", Recommended: "1", Description: "SYN flood protection"},
-				{Key: "net.ipv4.conf.all.rp_filter", Recommended: "1", Description: "Reverse path filtering (anti-spoofing)"},
-				{Key: "net.ipv4.conf.default.rp_filter", Recommended: "1", Description: "Default reverse path filtering"},
+				{Key: "net.ipv4.conf.all.rp_filter", Recommended: "2", Description: "Reverse path filtering, loose mode (anti-spoofing without breaking asymmetric routes)"},
+				{Key: "net.ipv4.conf.default.rp_filter", Recommended: "2", Description: "Default reverse path filtering, loose mode"},
 				{Key: "net.ipv4.icmp_echo_ignore_broadcasts", Recommended: "1", Description: "Ignore broadcast ICMP (Smurf attack prevention)"},
 				{Key: "net.ipv4.icmp_ignore_bogus_error_responses", Recommended: "1", Description: "Ignore bogus ICMP error responses"},
 				{Key: "net.ipv4.conf.all.accept_redirects", Recommended: "0", Description: "Disable ICMP redirect acceptance"},
@@ -544,6 +634,20 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 				{Key: "net.core.bpf_jit_harden", Recommended: "2", Description: "Harden BPF JIT against spray-style exploits"},
 			},
 		},
+	}
+
+	// br_netfilter creates these; without it they cannot be read or written and
+	// would sit permanently unapplied.
+	if bridgeNetfilterAvailable() {
+		for i := range cats {
+			if cats[i].Name != "network" {
+				continue
+			}
+			cats[i].Params = append(cats[i].Params,
+				TuningParam{Key: "net.bridge.bridge-nf-call-iptables", Recommended: "1", Description: "Bridged traffic traverses iptables (Docker bridge networks depend on this)"},
+				TuningParam{Key: "net.bridge.bridge-nf-call-ip6tables", Recommended: "1", Description: "Bridged IPv6 traffic traverses ip6tables (same rationale as the IPv4 variant)"},
+			)
+		}
 	}
 
 	if conntrackModuleLoaded() {
