@@ -1,11 +1,18 @@
 package middleware
 
-import "github.com/labstack/echo/v4"
+import (
+	"strings"
+
+	"github.com/labstack/echo/v4"
+)
 
 // SecurityHeaders emits a baseline set of HTTP security response headers on
-// every served response. The panel ships its own bundled assets (no inline
-// scripts in production), proxies to itself only, and serves a single-origin
-// SPA — so a tight CSP is practical without breaking features.
+// every served response. The panel ships its own bundled assets, proxies to
+// itself only, and serves a single-origin SPA — so a tight CSP is practical
+// without breaking features.
+//
+// scriptHashes allows index.html's inline pre-paint theme script by hash; see
+// InlineScriptHashes. Pass none and script-src stays 'self' only.
 //
 // What this catches:
 //   - XSS impact reduced (CSP forbids inline event handlers and external
@@ -20,14 +27,18 @@ import "github.com/labstack/echo/v4"
 //     either has no effect (browsers ignore it) or pins the wrong origin if
 //     the reverse proxy ever terminates differently. Add HSTS at the
 //     reverse-proxy layer instead.
-func SecurityHeaders() echo.MiddlewareFunc {
+func SecurityHeaders(scriptHashes ...string) echo.MiddlewareFunc {
 	// CSP: 'self' covers the bundled SPA + WS + API. cdn.jsdelivr.net is
 	// allowed for the Pretendard font CSS (also pinned via SRI in
 	// index.html). data: is allowed for img-src so xterm.js and chart
 	// canvases can render. connect-src includes wss: for WebSocket
 	// upgrades on either http/https origins behind a reverse proxy.
-	const csp = "default-src 'self'; " +
-		"script-src 'self'; " +
+	scriptSrc := "'self'"
+	if len(scriptHashes) > 0 {
+		scriptSrc += " " + strings.Join(scriptHashes, " ")
+	}
+	csp := "default-src 'self'; " +
+		"script-src " + scriptSrc + "; " +
 		"style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
 		"font-src 'self' data: https://cdn.jsdelivr.net; " +
 		"img-src 'self' data: blob: https:; " +

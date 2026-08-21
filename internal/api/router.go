@@ -95,7 +95,9 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	e.IPExtractor = echo.ExtractIPFromXFFHeader(trustOpts...)
 
 	e.Use(echoMw.Recover())
-	e.Use(mw.SecurityHeaders())
+	// The inline theme script in index.html is allowed by hash, computed from
+	// the embedded file so it can never drift out of sync with the policy.
+	e.Use(mw.SecurityHeaders(mw.InlineScriptHashes(webFS)...))
 	e.Use(echoMw.GzipWithConfig(echoMw.GzipConfig{
 		Level:     5,
 		MinLength: 1024,
