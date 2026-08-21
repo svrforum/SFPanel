@@ -6,6 +6,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.61.0] – 2026-08-21
+
+### Fixed
+
+- **The sidebar disappeared and came back on every page load of a clustered panel.** The shell assumed "not clustered" on mount, drew the standard sidebar, then swapped it for the cluster one once `/cluster/status` answered — at which point the cluster sidebar issued the same call again and rendered *nothing* until it returned. Two sequential round-trips with no sidebar at all in between. `Layout` now owns cluster status and passes it down, remembering the last answer so a reload draws the right sidebar immediately, and a skeleton holds the slot while a lookup is in flight. Loading, "no cluster" and "lookup failed" are three different states; returning `null` conflated them.
+- **A failed node lookup rendered as an empty cluster.** The sidebar substituted an empty array when `/cluster/nodes` failed, so "leader unreachable" looked like "this cluster has no nodes", with nothing on screen to say otherwise. The last good list is kept and the failure is shown, and the local node id now comes from the status payload so it survives a failed lookup.
+- **Leader-proxied reads spent the write timeout.** The three endpoints the UI polls on a timer — status, nodes and overview — used the same 10-second budget as an FSM write. That only ever mattered when the leader was unreachable, and then every 15-second poll cycle paid it in full, parking browser connections for ten seconds at a time. Reads now use a 5-second timeout plus a short breaker keyed on the leader address, so an unreachable leader costs one dial per cooldown rather than one per request. The breaker reports a cached failure without probing, which suits a poll that repeats seconds later but would be wrong for a write — FSM writes take a different path (`middleware.ProxyToLeader`) and are unchanged.
+
 ## [0.60.1] – 2026-08-14
 
 ### Fixed
