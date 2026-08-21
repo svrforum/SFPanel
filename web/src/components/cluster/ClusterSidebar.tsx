@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { api } from '@/lib/api'
 import type { ClusterStatus, ClusterNode } from '@/types/api'
+import SidebarSkeleton from '@/components/SidebarSkeleton'
 import TreePanel, { type TreeSelection } from './TreePanel'
 import ContextMenu from './ContextMenu'
 
@@ -11,16 +12,17 @@ const MENU_COLLAPSE_KEY = 'sfpanel-cluster-menu-collapsed'
 const SELECTION_KEY = 'sfpanel-cluster-selection'
 
 interface ClusterSidebarProps {
+  /** Owned and polled by Layout; null until the first probe answers. */
+  status: ClusterStatus | null
   panelVersion: string
   onLogout: () => void
   onNodeChanged: () => void
 }
 
-export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }: ClusterSidebarProps) {
+export default function ClusterSidebar({ status, panelVersion, onLogout, onNodeChanged }: ClusterSidebarProps) {
   const navigate = useNavigate()
-  const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null)
   const [nodes, setNodes] = useState<ClusterNode[]>([])
-  const [localId, setLocalId] = useState('')
+  const [nodesError, setNodesError] = useState(false)
   // Collapsed by default (a 2-3 node tree is mostly empty otherwise); a user who
   // explicitly expands it ('false') keeps it expanded.
   const [treeCollapsed, setTreeCollapsed] = useState(() => localStorage.getItem(TREE_COLLAPSE_KEY) !== 'false')
@@ -36,25 +38,34 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
     return { type: 'datacenter' }
   })
 
+  // The node list can fail independently (it 503s when the leader is
+  // unreachable) while status still answers, so take the local id from status
+  // — it was previously lost whenever the nodes call failed.
+  const localId = status?.local_id ?? ''
+
   const initialLoad = useRef(true)
   // Set when the selection is being synced FROM an external node switch (the
   // cluster stacks page), so the selection effect updates the highlight only and
   // does NOT re-run its navigate / setCurrentNode side effects.
   const syncing = useRef(false)
 
-  const loadClusterData = useCallback(() => {
-    Promise.all([
-      api.getClusterStatus(true),
-      api.getClusterNodes(true).catch(() => ({ nodes: [], local_id: '', is_leader: false })),
-    ]).then(([status, nodesData]) => {
-      setClusterStatus(status)
-      setNodes(nodesData.nodes)
-      setLocalId(nodesData.local_id)
-    }).catch(() => {})
+  const loadNodes = useCallback(() => {
+    api.getClusterNodes(true)
+      .then((data) => {
+        setNodes(data.nodes)
+        setNodesError(false)
+      })
+      .catch(() => {
+        // Keep the last good list and flag the failure. Substituting an empty
+        // array (the old behaviour) rendered "leader unreachable" as "this
+        // cluster has no nodes", with nothing on screen to say otherwise.
+        setNodesError(true)
+      })
   }, [])
 
   // Load on mount + poll every 15s while visible (paused when the tab is hidden).
-  useVisibleInterval(loadClusterData, 15000)
+  // Status itself comes from Layout — this only refreshes the node list.
+  useVisibleInterval(loadNodes, 15000)
 
   useEffect(() => {
     localStorage.setItem(TREE_COLLAPSE_KEY, String(treeCollapsed))
@@ -111,7 +122,12 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
     }
   }, [selection]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!clusterStatus?.enabled) return null
+  // Loading, not "no cluster": Layout only mounts us once it believes the
+  // cluster is enabled. Returning null here used to remove the sidebar
+  // entirely while the status call was in flight.
+  if (!status) {
+    return <SidebarSkeleton widthPx={(treeCollapsed ? 52 : 180) + (menuCollapsed ? 42 : 180)} />
+  }
 
   const selectedNodeName = selection.type === 'node'
     ? nodes.find(n => n.id === selection.nodeId)?.name || 'Unknown'
@@ -120,8 +136,9 @@ export default function ClusterSidebar({ panelVersion, onLogout, onNodeChanged }
   return (
     <div className="flex h-full">
       <TreePanel
-        clusterStatus={clusterStatus}
+        clusterStatus={status}
         nodes={nodes}
+        nodesError={nodesError}
         localId={localId}
         selection={selection}
         onSelect={setSelection}

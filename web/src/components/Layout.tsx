@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { LogOut, PanelLeftClose, PanelLeftOpen, Coffee } from 'lucide-react'
 
@@ -7,15 +7,18 @@ import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS } from '@/lib/navigation'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import ClusterSidebar from '@/components/cluster/ClusterSidebar'
+import SidebarSkeleton from '@/components/SidebarSkeleton'
 import BottomNav from '@/components/BottomNav'
 import MoreMenu from '@/components/MoreMenu'
-import type { DashboardOverview } from '@/types/api'
+import type { ClusterStatus, DashboardOverview } from '@/types/api'
 
 const navItems = NAV_ITEMS
 
 const SIDEBAR_KEY = 'sfpanel-sidebar-collapsed'
+const CLUSTER_MODE_KEY = 'sfpanel-cluster-mode'
 
 // Shared with pages via <Outlet context>. The overview payload Layout already
 // fetches for the sidebar version display is tagged with the node scope and
@@ -37,7 +40,16 @@ export default function Layout() {
   const [overview, setOverview] = useState<LayoutOutletContext['overview']>(null)
   const [nodeKey, setNodeKey] = useState(0)
   const [moreOpen, setMoreOpen] = useState(false)
-  const [clusterEnabled, setClusterEnabled] = useState(false)
+  // null = mode not yet known. Seeded from the last answer so a reload draws
+  // the correct sidebar immediately instead of assuming standalone, painting
+  // the standard sidebar, then swapping it for the cluster one once
+  // /cluster/status replies — that swap left the shell with NO sidebar while
+  // ClusterSidebar waited on its own probe.
+  const [clusterEnabled, setClusterEnabled] = useState<boolean | null>(() => {
+    const saved = localStorage.getItem(CLUSTER_MODE_KEY)
+    return saved === null ? null : saved === 'true'
+  })
+  const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null)
   const location = useLocation()
   const isTerminal = location.pathname === '/terminal'
 
@@ -52,11 +64,33 @@ export default function Layout() {
     return () => window.removeEventListener('sfpanel:node-changed', handler)
   }, [])
 
-  useEffect(() => {
+  // Latched once the server definitively says "not clustered". A standalone
+  // node's answer can't change while the page lives — cluster init/join
+  // restarts the process, which reloads the SPA — so polling on forever would
+  // be pure noise for the majority of installs.
+  const notClustered = useRef(false)
+
+  const loadClusterStatus = useCallback(() => {
+    if (notClustered.current) return
     api.getClusterStatus(true)
-      .then((status) => setClusterEnabled(status.enabled))
-      .catch(() => setClusterEnabled(false))
+      .then((status) => {
+        if (!status.enabled) notClustered.current = true
+        setClusterStatus(status)
+        setClusterEnabled(status.enabled)
+        localStorage.setItem(CLUSTER_MODE_KEY, String(status.enabled))
+      })
+      .catch(() => {
+        // Keep the mode we already believe — a transient failure must not tear
+        // the sidebar down. Only a definitive answer switches which one renders.
+        setClusterEnabled((prev) => prev ?? false)
+      })
   }, [])
+
+  // Single source of cluster status for the shell: ClusterSidebar used to run
+  // its own copy of this call, so first paint cost two *sequential* round-trips
+  // (Layout's, then the sidebar's) before anything could render. Polling (vs
+  // the previous one-shot) keeps leader/stale changes visible in the tree.
+  useVisibleInterval(loadClusterStatus, 15000)
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, String(collapsed))
@@ -112,10 +146,15 @@ export default function Layout() {
 
   return (
     <div className="flex overflow-hidden bg-background" style={{ height: 'var(--app-h, 100dvh)' }}>
+      {/* First visit only: no remembered mode yet, so neither sidebar can be
+          chosen without guessing. Hold the slot rather than collapsing it. */}
+      {clusterEnabled === null && <SidebarSkeleton />}
+
       {/* Cluster dual-panel sidebar */}
-      {clusterEnabled && (
+      {clusterEnabled === true && (
         <div className="hidden md:flex h-full shrink-0">
           <ClusterSidebar
+            status={clusterStatus}
             panelVersion={panelVersion}
             onLogout={handleLogout}
             onNodeChanged={handleNodeChanged}
@@ -124,7 +163,7 @@ export default function Layout() {
       )}
 
       {/* Standard sidebar (non-cluster mode) */}
-      {!clusterEnabled && <aside className={cn(
+      {clusterEnabled === false && <aside className={cn(
         'bg-card border-r border-border flex-col transition-all duration-300 ease-in-out shrink-0 hidden md:flex h-full',
         collapsed ? 'w-[68px]' : 'w-60'
       )}>

@@ -905,7 +905,8 @@
       "datacenter": "Datacenter",
       "node": "Node",
       "local": "local",
-      "toggleNodes": "Toggle node list"
+      "toggleNodes": "Toggle node list",
+      "nodesUnavailable": "Node list unavailable"
     },
     "status": {
       "online": "Online",

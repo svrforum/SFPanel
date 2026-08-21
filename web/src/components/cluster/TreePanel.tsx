@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Crown, ChevronDown, ChevronRight, Server, LogOut, PanelLeftClose, PanelLeftOpen, Coffee } from 'lucide-react'
+import { Crown, ChevronDown, ChevronRight, Server, LogOut, PanelLeftClose, PanelLeftOpen, Coffee, AlertTriangle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import GithubIcon from '@/components/GithubIcon'
 import { cn, nodeStatusColor } from '@/lib/utils'
@@ -13,6 +13,8 @@ export type TreeSelection =
 interface TreePanelProps {
   clusterStatus: ClusterStatus
   nodes: ClusterNode[]
+  /** The node list call failed — what's shown may be stale or empty. */
+  nodesError?: boolean
   localId: string
   selection: TreeSelection
   onSelect: (sel: TreeSelection) => void
@@ -25,6 +27,7 @@ interface TreePanelProps {
 export default function TreePanel({
   clusterStatus,
   nodes,
+  nodesError,
   localId,
   selection,
   onSelect,
@@ -63,6 +66,12 @@ export default function TreePanel({
         </button>
 
         <div className="flex-1 flex flex-col items-center gap-1 px-1 py-2">
+          {nodesError && (
+            <span className="py-1 text-warning" title={t('cluster.tree.nodesUnavailable')}>
+              <AlertTriangle className="h-3.5 w-3.5" />
+            </span>
+          )}
+
           {/* Datacenter icon */}
           <button
             onClick={() => onSelect({ type: 'datacenter' })}
@@ -149,6 +158,12 @@ export default function TreePanel({
 
         {/* Node list — collapsible */}
         {nodesExpanded && <div className="ml-3 border-l border-border pl-1 mt-0.5">
+          {nodesError && (
+            <p className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] text-warning">
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+              <span className="truncate">{t('cluster.tree.nodesUnavailable')}</span>
+            </p>
+          )}
           {sortedNodes.map((node) => {
             const isSelected = selection.type === 'node' && selection.nodeId === node.id
             const isLeader = node.id === clusterStatus.leader_id
