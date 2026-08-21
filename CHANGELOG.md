@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.62.0] – 2026-08-21
+
+### Changed
+
+- **The logo is now vector artwork.** The old mark was a raster illustration — soft gradients, a bevelled cube, a circuit trace and a miniature server rack in mixed stroke weights — and below roughly 32px the detail turned to mush while the interlocked S and F stopped reading as letters, which covers most of where the mark actually appears. The replacement is constructed on a 64-unit grid: hexagon at R=27 with a 4-unit corner radius, monogram 24x30 on a uniform 6-unit stroke, and counters exactly as wide as the stroke so the S doesn't fill in at favicon size. The S is knocked out with `fill-rule="evenodd"`, so it is a real hole and the mark sits correctly on any background; its upper-left — stem plus the top and middle bars — is an F, which is how one shape carries both letters.
+- **In-app the mark inherits `currentColor`**, so it picks up the primary token in light and dark, and the wordmark is live text in the app's typeface rather than a bitmap. The old banner baked "SERVER MANAGEMENT PANEL" into the image at a size unreadable in a 240px sidebar; the product name alone carries it now.
+- **Icons split into two systems.** Web favicons keep the hexagon, which has to supply its own container. App icons — desktop, PWA, and the iOS home screen, which cannot use transparency — put the same S on a blue rounded square, because the platform already draws a container and nesting a second one only shrinks the letter. Desktop icons were regenerated with the official `tauri icon` CLI.
+- READMEs switch banner artwork on `prefers-color-scheme` via `<picture>`.
+- `web/public` drops from roughly 754 KB to 27 KB, and the repo banner from 147 KB to 15 KB per variant.
+
 ## [0.61.0] – 2026-08-21
 
 ### Fixed
