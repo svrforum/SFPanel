@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -24,17 +25,39 @@ import (
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 )
 
-// localHTTPClient is reused for all proxy requests to 127.0.0.1 to leverage
-// HTTP connection pooling instead of creating a new client per request.
-var localHTTPClient = &http.Client{Timeout: 30 * time.Second}
-
-// localHTTPClientLong serves proxied requests whose local work can exceed 30s
-// (compose up/down/update/import/rollback — first image pull or git clone).
-// The fixed 30s on localHTTPClient would otherwise abort these on the loopback
+// Loopback client timeouts. The long one serves proxied requests whose local
+// work can exceed 30s (compose up/down/update/import/rollback — first image
+// pull or git clone); the fixed 30s would otherwise abort these on the loopback
 // hop even though the proxy middleware grants the gRPC call a 5-minute budget
-// for /docker/compose/ paths — silently turning a slow cross-node compose
+// for /docker/compose/ paths, silently turning a slow cross-node compose
 // operation into a 502.
-var localHTTPClientLong = &http.Client{Timeout: 5 * time.Minute}
+const (
+	localHTTPTimeout     = 30 * time.Second
+	localHTTPLongTimeout = 5 * time.Minute
+)
+
+// localClient returns a cached client for the loopback hop. Clients are built
+// once and reused so the connection pool survives across proxied requests —
+// building one per request would also mean re-reading and re-parsing the CA on
+// every cross-node call.
+func (s *GRPCServer) localClient(long bool) (*http.Client, error) {
+	s.localClientMu.Lock()
+	defer s.localClientMu.Unlock()
+	target := &s.localHTTP
+	timeout := localHTTPTimeout
+	if long {
+		target = &s.localHTTPLong
+		timeout = localHTTPLongTimeout
+	}
+	if *target == nil {
+		c, err := s.local.HTTPClient(timeout)
+		if err != nil {
+			return nil, err
+		}
+		*target = c
+	}
+	return *target, nil
+}
 
 // requiresLongLocalTimeout reports whether a proxied path may legitimately run
 // longer than the default 30s loopback timeout. Kept in sync with the 5-minute
@@ -51,6 +74,23 @@ type GRPCServer struct {
 	listener    net.Listener
 	localPort   int
 	proxySecret string
+	// local describes how to reach this node's own panel port. It replaces the
+	// former hardcoded "http://127.0.0.1:%d" so the hop follows the panel when
+	// it moves to TLS — this is the choke point for EVERY gRPC-relayed
+	// cross-node request, so a missed scheme here breaks all ?node= proxying.
+	local LocalPanel
+
+	localClientMu sync.Mutex
+	localHTTP     *http.Client
+	localHTTPLong *http.Client
+}
+
+// LocalPanel is the subset of paneltls.Self this package needs. It is an
+// interface so internal/cluster does not have to import the TLS package (and
+// so tests can drive the hop against an httptest.Server).
+type LocalPanel interface {
+	URL(path string) string
+	HTTPClient(timeout time.Duration) (*http.Client, error)
 }
 
 // unauthenticatedMethods lists gRPC methods that a joining node can legitimately
@@ -145,7 +185,7 @@ func runHeartbeatRecvLoop(ctx context.Context, recv func() (*pb.HeartbeatPing, e
 
 // NewGRPCServer creates and configures the gRPC server with mTLS.
 // localPort is the HTTP server port for proxying requests locally.
-func NewGRPCServer(mgr *Manager, localPort int) (*GRPCServer, error) {
+func NewGRPCServer(mgr *Manager, localPort int, local LocalPanel) (*GRPCServer, error) {
 	tlsConfig, err := mgr.GetTLS().ServerTLSConfig()
 	if err != nil {
 		return nil, fmt.Errorf("load TLS config: %w", err)
@@ -179,6 +219,7 @@ func NewGRPCServer(mgr *Manager, localPort int) (*GRPCServer, error) {
 		server:      server,
 		localPort:   localPort,
 		proxySecret: proxySecret,
+		local:       local,
 	}
 	pb.RegisterClusterServiceServer(server, s)
 
@@ -360,7 +401,7 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 		body = bytes.NewReader(req.Body)
 	}
 
-	localURL := fmt.Sprintf("http://127.0.0.1:%d%s", s.localPort, req.Path)
+	localURL := s.local.URL(req.Path)
 	httpReq, err := http.NewRequestWithContext(ctx, req.Method, localURL, body)
 	if err != nil {
 		return &pb.APIResponse{
@@ -412,9 +453,12 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 
 	// Execute locally (reuse connection pool). Long-running paths get the
 	// 5-minute client so the loopback hop doesn't cap below the gRPC budget.
-	client := localHTTPClient
-	if requiresLongLocalTimeout(req.Path) {
-		client = localHTTPClientLong
+	client, err := s.localClient(requiresLongLocalTimeout(req.Path))
+	if err != nil {
+		return &pb.APIResponse{
+			StatusCode: 500,
+			Body:       []byte(fmt.Sprintf(`{"success":false,"error":{"code":"PROXY_ERROR","message":"local client: %s"}}`, err.Error())),
+		}, nil
 	}
 	httpResp, err := client.Do(httpReq)
 	if err != nil {

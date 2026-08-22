@@ -10,6 +10,7 @@ const General = lazy(() => import('@/pages/settings/General'))
 const Security = lazy(() => import('@/pages/settings/Security'))
 const Maintenance = lazy(() => import('@/pages/settings/Maintenance'))
 const Performance = lazy(() => import('@/pages/settings/Performance'))
+const TLSCertificate = lazy(() => import('@/pages/settings/TLSCertificate'))
 const AlertSettings = lazy(() => import('@/pages/settings/AlertSettings'))
 const Audit = lazy(() => import('@/pages/settings/Audit'))
 
@@ -99,7 +100,7 @@ export default function Settings() {
           <Suspense fallback={fallback}>{activeTab === 'account' && (<><Security /><General /></>)}</Suspense>
         </TabsContent>
         <TabsContent value="system">
-          <Suspense fallback={fallback}>{activeTab === 'system' && (<><Maintenance clusterEnabled={clusterEnabled} /><Performance /></>)}</Suspense>
+          <Suspense fallback={fallback}>{activeTab === 'system' && (<><TLSCertificate /><Maintenance clusterEnabled={clusterEnabled} /><Performance /></>)}</Suspense>
         </TabsContent>
         <TabsContent value="alerts">
           <Suspense fallback={fallback}>{activeTab === 'alerts' && <AlertSettings />}</Suspense>

@@ -1251,7 +1251,20 @@
     "updateConnectionLost": "Connection lost",
     "updateNoReturn": "Panel did not come back within 5 minutes of the update. Check journalctl -u sfpanel.",
     "auditLoadFailed": "Failed to load audit logs",
-    "auditClearFailed": "Failed to clear audit logs"
+    "auditClearFailed": "Failed to clear audit logs",
+    "tls": {
+      "title": "HTTPS certificate",
+      "description": "This panel issues its own certificate. Install the authority below on each device once and the browser warning stops for good.",
+      "authority": "Authority",
+      "caExpires": "Authority expires",
+      "certExpires": "Certificate expires",
+      "fingerprint": "SHA-256 fingerprint",
+      "validFor": "Valid for",
+      "renewalNote": "The certificate renews itself on restart before it expires, and reissues if this host’s addresses change. The authority does not change, so devices only ever install it once.",
+      "renewPending": "Renewal is due — it happens on the next restart.",
+      "downloadCA": "Download authority (ca.crt)",
+      "downloading": "Downloading…"
+    }
   },
   "siteConfig": {
     "loadingConfig": "Loading configuration...",

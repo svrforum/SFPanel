@@ -278,3 +278,15 @@ const (
 	// other voter is unreachable. Callers pass http.StatusConflict explicitly.
 	ErrClusterQuorum = "CLUSTER_QUORUM"
 )
+
+// TLS error codes
+const (
+	// ErrTLSDisabled is returned (HTTP 404) when a caller asks for panel
+	// certificate material on a panel that serves plain HTTP. There is nothing
+	// to hand out, and it is not an error on the caller's part — the feature is
+	// simply not turned on.
+	ErrTLSDisabled = "TLS_DISABLED"
+	// ErrTLSUnavailable is returned (HTTP 500) when TLS is enabled but the
+	// certificate material cannot be read.
+	ErrTLSUnavailable = "TLS_UNAVAILABLE"
+)

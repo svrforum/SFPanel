@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/svrforum/SFPanel/internal/auth"
@@ -190,15 +189,6 @@ func buildDefinitionManifest(stackID, composeFile string, hasEnv bool, sourceID,
 	}
 }
 
-// migrationNodeBaseURL mirrors the proxy middleware: panels are plain HTTP by
-// default (TLS is a reverse proxy's job); honor an explicit scheme if stored.
-func migrationNodeBaseURL(apiAddr string) string {
-	if strings.HasPrefix(apiAddr, "http://") || strings.HasPrefix(apiAddr, "https://") {
-		return apiAddr
-	}
-	return "http://" + apiAddr
-}
-
 // progressReader wraps the bundle stream and reports cumulative bytes sent at
 // coarse intervals (~5% steps, min 16 MiB) so a multi-GB transfer surfaces
 // progress in the SSE stream without flooding it.
@@ -272,11 +262,19 @@ func (h *Handler) pushBundle(ctx context.Context, targetNodeID, username string,
 		return 0, nil, fmt.Errorf("unknown target node %q", targetNodeID)
 	}
 	const importPath = "/api/v1/docker/compose/migrate-import"
-	target := migrationNodeBaseURL(node.APIAddress) + importPath
+	// Scheme and trust anchor both come from the shared resolver. This file
+	// used to carry its own byte-identical copy of the scheme decision, with a
+	// comment admitting the duplication — and a copy that drifts here fails
+	// mid-transfer on a multi-gigabyte stack push.
+	endpoint := mgr.PanelEndpointFor(node)
+	target := endpoint.BaseURL + importPath
 
 	tlsCfg := &tls.Config{}
 	if cfg, err := mgr.GetTLS().ClientTLSConfig(); err == nil && cfg != nil {
 		tlsCfg = cfg.Clone()
+	}
+	if endpoint.TLSConfig != nil {
+		tlsCfg = endpoint.TLSConfig.Clone()
 	}
 	transport := &http.Transport{TLSClientConfig: tlsCfg}
 	defer transport.CloseIdleConnections() // one-shot push: don't leak the kept-alive conn

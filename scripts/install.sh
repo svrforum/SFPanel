@@ -109,6 +109,22 @@ read_config_port() {
   ' "${CONFIG_DIR}/config.yaml" 2>/dev/null
 }
 
+# Whether server.tls.enabled is on, so the summary prints a URL that actually
+# works. Scoped to the server: block — `enabled:` also appears under
+# docker.observability, and printing the wrong scheme sends the operator to a
+# URL their browser refuses at the transport with no explanation.
+# Same POSIX-awk-only constraint as read_config_port: no `grep -oP` here.
+read_config_tls() {
+  awk '
+    /^server:/        { in_server=1; next }
+    /^[^[:space:]]/   { in_server=0 }
+    in_server && /enabled[[:space:]]*:/ {
+      if ($0 ~ /true/) { print "1" } else { print "0" }
+      exit
+    }
+  ' "${CONFIG_DIR}/config.yaml" 2>/dev/null
+}
+
 # --- Core functions ---
 
 get_latest_version() {
@@ -352,6 +368,21 @@ generate_config() {
 server:
   host: "0.0.0.0"
   port: 3628
+  # HTTPS is on for fresh installs. On first boot the panel generates a local
+  # certificate authority under tls.dir and issues itself a certificate from it;
+  # no openssl, no manual steps. Download the CA from Settings and install it on
+  # your devices once, and the browser warning goes away for good.
+  #
+  # Turn this off if you terminate TLS at a reverse proxy — that arrangement is
+  # still fully supported, and a self-signed backend just makes the proxy config
+  # harder (proxy_ssl_verify off and friends).
+  #
+  # Upgrades never reach this block: the installer leaves an existing
+  # config.yaml alone, so panels installed before this existed keep serving
+  # plain HTTP until their operator opts in.
+  tls:
+    enabled: true
+    dir: "${CONFIG_DIR}/tls"
 
 database:
   path: "${DATA_DIR}/sfpanel.db"
@@ -520,6 +551,10 @@ print_success() {
   local port
   port=$(read_config_port)
   : "${port:=3628}"
+  local scheme="http"
+  if [ "$(read_config_tls)" = "1" ]; then
+    scheme="https"
+  fi
 
   # Whether the service is actually running: systemd present AND active. On a
   # no-systemd host the binary is installed but nothing was launched, so we must
@@ -542,11 +577,11 @@ print_success() {
   echo ""
   echo -e "  Version:   ${GREEN}v${version}${NC}"
   if [ "$running" -eq 1 ]; then
-    echo -e "  Access:    ${GREEN}http://<server-ip>:${port}${NC}"
+    echo -e "  Access:    ${GREEN}${scheme}://<server-ip>:${port}${NC}"
   else
     echo -e "  ${YELLOW}Not running (no systemd detected). Launch it manually:${NC}"
     echo -e "    ${INSTALL_DIR}/sfpanel ${CONFIG_DIR}/config.yaml"
-    echo -e "  Then open: http://<server-ip>:${port}"
+    echo -e "  Then open: ${scheme}://<server-ip>:${port}"
   fi
   echo -e "  Config:    ${CONFIG_DIR}/config.yaml"
   echo -e "  Data:      ${DATA_DIR}/"
@@ -560,7 +595,7 @@ print_success() {
   if [ "$mode" = "install" ]; then
     echo -e "  ${YELLOW}First visit: Set up the admin account in the browser.${NC}"
     echo -e "    ${YELLOW}Setup is restricted to the LAN / loopback. On a public host, tunnel it:${NC}"
-    echo -e "    ${YELLOW}  ssh -L ${port}:127.0.0.1:${port} <this-server>  →  open http://127.0.0.1:${port}${NC}"
+    echo -e "    ${YELLOW}  ssh -L ${port}:127.0.0.1:${port} <this-server>  →  open ${scheme}://127.0.0.1:${port}${NC}"
     echo ""
     # Loud warning when no active firewall is obviously confining the port.
     if ! { command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "Status: active"; }; then

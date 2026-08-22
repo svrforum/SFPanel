@@ -130,6 +130,9 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		// Port lets the update flow point its rollback watchdog at the
 		// local health endpoint after a binary swap.
 		Port:       cfg.Server.Port,
+		TLSEnabled: cfg.Server.TLS.Enabled,
+		TLSDir:     cfg.Server.TLS.Dir,
+		TLSManaged: cfg.Server.TLS.Managed(),
 		Cmd:        cmd,
 		ClusterMgr: clusterMgr,
 	}
@@ -251,6 +254,8 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	authorized.GET("/system/update-check", systemHandler.CheckUpdate)
 	authorized.POST("/system/update", systemHandler.RunUpdate)
 	authorized.POST("/system/backup", systemHandler.CreateBackup)
+	authorized.GET("/system/tls", systemHandler.GetTLSStatus)
+	authorized.GET("/system/tls/ca.crt", systemHandler.DownloadCACert)
 	authorized.POST("/system/restore", systemHandler.RestoreBackup)
 	authorized.GET("/system/backup/schedule", systemHandler.GetBackupSchedule)
 	authorized.PUT("/system/backup/schedule", systemHandler.UpdateBackupSchedule)
@@ -271,6 +276,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	clusterGroup.DELETE("/nodes/:id", clusterHandler.RemoveNode)
 	clusterGroup.PATCH("/nodes/:id/labels", clusterHandler.UpdateNodeLabels)
 	clusterGroup.PATCH("/nodes/:id/address", clusterHandler.UpdateNodeAddress)
+	clusterGroup.POST("/panel-ca", clusterHandler.PublishPanelCA)
 	clusterGroup.GET("/events", clusterHandler.GetEvents)
 	clusterGroup.POST("/leader-transfer", clusterHandler.TransferLeadership)
 	clusterGroup.POST("/init", clusterHandler.InitCluster)

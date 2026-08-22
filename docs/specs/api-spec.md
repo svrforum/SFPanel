@@ -537,6 +537,37 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 
 ---
 
+### GET /api/v1/system/tls
+패널이 브라우저에 제시하는 인증서의 상태. 노드별 상태이므로 `?node=`로 대상 노드의 값을 조회합니다 — 노드마다 자체 CA를 운영합니다.
+
+- **인증 필요**: 예
+
+**Response (200):**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `enabled` | boolean | `server.tls.enabled` 여부. false면 나머지 필드 없음 |
+| `managed` | boolean | 패널이 직접 CA를 운영하는지. 운영자가 인증서를 제공한 경우 false이며 CA 다운로드 불가 |
+| `ca_not_after` | string | CA 만료 시각 (10년) |
+| `ca_fingerprint` | string | CA SHA-256 지문 (콜론 구분 대문자 hex) — 기기에 설치한 것과 대조용 |
+| `ca_subject` | string | CA CommonName |
+| `not_after` | string | 서버 인증서 만료 시각 (1년) |
+| `dns_names` | string[] | 인증서 DNS SAN |
+| `ip_addresses` | string[] | 인증서 IP SAN |
+| `days_until_renew` | number | 자동 갱신까지 남은 일수. 0 이하이면 다음 재시작에 갱신 |
+
+### GET /api/v1/system/tls/ca.crt
+로컬 CA **인증서**를 PEM으로 내려받습니다. 기기에 한 번 설치하면 브라우저 경고가 사라집니다.
+
+- **인증 필요**: 예
+- **Content-Type**: `application/x-x509-ca-cert`
+- **Content-Disposition**: `attachment; filename=sfpanel-ca-<hostname>.crt`
+- `managed`가 false이거나 TLS가 꺼져 있으면 **404 `TLS_DISABLED`**
+
+> 인증서만 반환합니다. CA 개인키와 서버 개인키는 어떤 라우트로도 노출되지 않습니다.
+
+---
+
 ## 프로세스 API (`/api/v1/system/processes`)
 
 ### GET /api/v1/system/processes
@@ -4337,10 +4368,15 @@ Raft 리더십을 지정한 노드로 이전. 리더 노드에서만 실행 가�
 **Request Body:**
 ```json
 {
-  "api_address": "https://192.168.1.10:3628",
+  "api_address": "192.168.1.10:3628",
   "grpc_address": "192.168.1.10:3629"
 }
 ```
+
+> `api_address`는 스킴 없는 `호스트:포트` 형태로 저장합니다. `https://` 접두사를 넣어도
+> **무시하고 제거**합니다 — 피어를 HTTP로 부를지 HTTPS로 부를지는 해당 노드의 패널 CA가
+> 복제 상태에 있는지로 판단합니다. (예전에는 접두사를 존중하도록 되어 있었으나, 부팅 10초 뒤
+> `verifySelfAddress`가 스킴 없는 형태로 덮어쓰기 때문에 실제로는 동작한 적이 없습니다.)
 
 | 필드 | 타입 | 필수 | 설명 |
 |------|------|------|------|
@@ -4367,6 +4403,29 @@ Raft 리더십을 지정한 노드로 이전. 리더 노드에서만 실행 가�
 | `INTERNAL_ERROR` | 500 | 주소 업데이트 실패 |
 
 ---
+
+### POST /api/v1/cluster/panel-ca
+노드의 **패널 CA 인증서**(공개분)를 Raft FSM 복제 상태에 기록합니다. 리더에서만 적용되며,
+팔로워는 자신을 대신해 적용해 달라고 리더에게 이 엔드포인트를 호출합니다.
+
+- **인증 필요**: 예 (클러스터 내부 프록시 경로)
+
+**Request Body:**
+```json
+{
+  "node_id": "<node-uuid>",
+  "ca_cert": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"
+}
+```
+
+**왜 이런 모양인가**: FSM 쓰기는 리더만 가능한데 패널 CA는 노드마다 다릅니다. 리더로 선출된 적 없는
+노드는 자기 인증서를 영영 게시할 수 없으므로, 주소 수정(`PATCH .../address`)과 같은 위임 구조를 씁니다.
+
+**검증**: `ca_cert`를 파싱해 **CA 인증서가 아니면 거부**합니다 (리프 인증서·개인키·비-PEM 모두 400).
+여기에 들어온 값은 다른 노드들의 신뢰 앵커가 되므로, 형식 검증이 유일한 방어선입니다.
+
+**Response (200):** `{"node_id": "<node-uuid>"}`
+**Errors**: 리더가 아니면 503, 알 수 없는 노드면 404, 인증서가 부적합하면 400
 
 ### GET /api/v1/cluster/interfaces
 클러스터 초기화 시 Advertise Address 선택을 위한 네트워크 인터페이스 목록. 활성(UP) 상태의 비-루프백 인터페이스만 반환.
@@ -5017,6 +5076,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | DELETE | `/api/v1/cluster/nodes/:id` | O | 노드 제거 (리더만 가능, `?force=`) |
 | PATCH | `/api/v1/cluster/nodes/:id/labels` | O | 노드 라벨 수정 |
 | PATCH | `/api/v1/cluster/nodes/:id/address` | O | 노드 주소 수정 |
+| POST | `/api/v1/cluster/panel-ca` | O | 노드의 패널 CA를 복제 상태에 등록 (리더 전용, 팔로워가 대신 요청) |
 | GET | `/api/v1/cluster/events` | O | 클러스터 이벤트 로그 |
 | POST | `/api/v1/cluster/leader-transfer` | O | 리더십 이전 |
 | POST | `/api/v1/cluster/init` | O | 클러스터 초기화 (CA 생성, Raft 부트스트랩) |

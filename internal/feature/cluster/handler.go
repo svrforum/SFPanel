@@ -24,6 +24,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/cluster"
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/config"
+	"github.com/svrforum/SFPanel/internal/paneltls"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1470,7 +1471,22 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		// self-update call will 401 (true before the v1 drop too — a present
 		// v2 header always short-circuits v1).
 		v2Sig := auth.SignProxyRequestV2("POST", "/api/v1/system/update")
-		port := h.Config.Server.Port
+		// Resolve the loopback endpoint and its client BEFORE the goroutine:
+		// it runs after mgr.Shutdown(), so anything it needs must be captured
+		// first — the same reason the v2 MAC above is pre-signed.
+		self := paneltls.Self{
+			TLSEnabled: h.Config.Server.TLS.Enabled,
+			Dir:        h.Config.Server.TLS.Dir,
+			CertFile:   h.Config.Server.TLS.CertFile,
+			CAFile:     h.Config.Server.TLS.CAFile,
+			Port:       h.Config.Server.Port,
+		}
+		selfURL := self.URL("/api/v1/system/update")
+		selfClient, selfClientErr := self.HTTPClient(0)
+		if selfClientErr != nil {
+			slog.Error("leader self-update: build client", "component", "cluster", "error", selfClientErr)
+			return response.OK(c, map[string]interface{}{"status": "cluster update dispatched, leader self-update unavailable"})
+		}
 		go func() {
 			time.Sleep(1 * time.Second)
 			mgr.Shutdown()
@@ -1479,8 +1495,7 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 			// loopback connection mid-shutdown.
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
-			url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/system/update", port)
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, selfURL, nil)
 			if err != nil {
 				slog.Error("leader self-update: build request", "component", "cluster", "error", err)
 				return
@@ -1488,7 +1503,7 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 			if v2Sig != "" {
 				req.Header.Set(auth.InternalProxyHeaderV2, v2Sig)
 			}
-			resp, err := (&http.Client{}).Do(req)
+			resp, err := selfClient.Do(req)
 			if err != nil {
 				slog.Error("leader self-update: request failed", "component", "cluster", "error", err)
 				return
@@ -1501,4 +1516,53 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	}
 
 	return nil
+}
+
+// PublishPanelCA records a node's panel certificate authority in replicated
+// state, on behalf of that node.
+//
+// It exists because every FSM write is leader-only while panel CAs are
+// per-node: a follower can generate its own authority but cannot publish it,
+// and a node that is never elected would therefore never appear as an HTTPS
+// peer. Followers call this on the leader over the mTLS-authenticated gRPC
+// proxy, exactly as PATCH /cluster/nodes/:id/address already does for the one
+// other piece of per-node state a follower cannot write itself.
+//
+// Authorisation is the cluster's existing model, not a new one. The caller is
+// an authenticated cluster member — the internal proxy header is HMAC-signed
+// with the shared proxy secret, and members already share the JWT secret, so a
+// member can assert any identity it likes by minting a token directly. The
+// header this reads is attribution, not a credential; see
+// internal/cluster/CLAUDE.md § "Header copy is the trust boundary". What IS
+// enforced is the shape of the material: SetPanelCA parses it and refuses
+// anything that is not a CA certificate, so a leaf, a private key, or garbage
+// cannot become a cluster-wide trust anchor.
+func (h *Handler) PublishPanelCA(c echo.Context) error {
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrInternalError, "cluster is not enabled")
+	}
+	var body cluster.PanelCAPublishRequest
+	if err := c.Bind(&body); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "invalid request body")
+	}
+	if body.NodeID == "" || body.CACert == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "node_id and ca_cert are required")
+	}
+	if mgr.GetNode(body.NodeID) == nil {
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Node not found")
+	}
+	if err := mgr.SetPanelCA(body.NodeID, body.CACert); err != nil {
+		if errors.Is(err, cluster.ErrNotLeader) {
+			// The caller reached the wrong node; it retries against the
+			// current leader on its next tick. clusterErrResponse maps this
+			// to the same 503 every other leader-only route returns.
+			return clusterErrResponse(c, err)
+		}
+		// Anything else here is a rejected certificate, which is a bad request
+		// rather than a server fault.
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
+			response.SanitizeOutput(err.Error()))
+	}
+	return response.OK(c, map[string]interface{}{"node_id": body.NodeID})
 }

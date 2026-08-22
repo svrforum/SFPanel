@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -79,10 +80,36 @@ func watchdogUpdate(args []string) {
 	time.Sleep(3 * time.Second)
 
 	deadline := time.Now().Add(time.Duration(graceSec) * time.Second)
-	client := &http.Client{Timeout: 5 * time.Second}
+	// The probe deliberately does NOT verify the panel's certificate.
+	//
+	// It is a liveness check against 127.0.0.1 that sends no credentials and
+	// reads no response body — there is nothing here for a certificate to
+	// protect. What strictness WOULD buy is the worst failure this program can
+	// produce: a verification error is indistinguishable from a dead panel, so
+	// 90 seconds of them roll the binary and the database back on a perfectly
+	// healthy upgrade. Between "cannot authenticate the loopback interface" and
+	// "reverted the operator's database", the second is far worse.
+	client := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, // #nosec G402 -- loopback liveness probe, see above
+	}
+
+	// Also tolerate a scheme mismatch. The URL is composed by the PRE-upgrade
+	// binary, so an upgrade that flips the panel between HTTP and HTTPS hands
+	// this loop a URL for the old scheme. Retrying with the other one costs a
+	// single request and removes the last way this watchdog can revert a good
+	// upgrade.
+	altURL := otherSchemeURL(checkURL)
 
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(checkURL)
+		if err != nil && altURL != "" {
+			if altResp, altErr := client.Get(altURL); altErr == nil {
+				fmt.Fprintf(os.Stderr, "watchdog-update: %s failed, %s answered — panel changed scheme\n", checkURL, altURL)
+				resp, err = altResp, nil
+				checkURL = altURL
+			}
+		}
 		if err == nil {
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
@@ -205,4 +232,17 @@ func restoreFile(bak, live string, mode os.FileMode, label string) error {
 		return fmt.Errorf("watchdog-update: cannot rename %s rollback: %v", label, err)
 	}
 	return nil
+}
+
+// otherSchemeURL flips http:// to https:// and back, or returns "" when the
+// URL carries neither.
+func otherSchemeURL(u string) string {
+	switch {
+	case strings.HasPrefix(u, "http://"):
+		return "https://" + strings.TrimPrefix(u, "http://")
+	case strings.HasPrefix(u, "https://"):
+		return "http://" + strings.TrimPrefix(u, "https://")
+	default:
+		return ""
+	}
 }

@@ -22,11 +22,20 @@ import (
 //   - Referer leakage on outbound clicks limited to origin.
 //
 // What this does NOT do:
-//   - Force HTTPS via HSTS. The panel binds plain HTTP by design (operator
-//     fronts with a reverse proxy + TLS), and emitting HSTS over plain HTTP
-//     either has no effect (browsers ignore it) or pins the wrong origin if
-//     the reverse proxy ever terminates differently. Add HSTS at the
-//     reverse-proxy layer instead.
+//
+//   - Force HTTPS via HSTS. This is deliberate in BOTH modes, and the reason
+//     changed when server.tls arrived.
+//
+//     Plain-HTTP mode (the default): browsers ignore HSTS over plain HTTP, so
+//     it would do nothing — or pin the wrong origin if a reverse proxy in
+//     front ever terminates differently. Add HSTS at the proxy instead.
+//
+//     TLS mode: emitting HSTS would be actively harmful. The panel's
+//     certificate comes from a local CA the operator installs by hand, and
+//     HSTS removes the browser's "proceed anyway" affordance for certificate
+//     errors. Anyone who has not installed the CA yet — a new phone, a guest
+//     laptop, the operator themselves on first visit — would be locked out
+//     with no way through, on the very page that offers the CA download.
 func SecurityHeaders(scriptHashes ...string) echo.MiddlewareFunc {
 	// CSP: 'self' covers the bundled SPA + WS + API. cdn.jsdelivr.net is
 	// allowed for the Pretendard font CSS (also pinned via SRI in

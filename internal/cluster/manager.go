@@ -704,6 +704,11 @@ func (m *Manager) RemoveNode(nodeID string) error {
 		return fmt.Errorf("remove from state: %w", err)
 	}
 
+	// CmdRemoveNode only deletes the Nodes entry. Nothing else in this package
+	// ever removes a Config key, so a decommissioned node's panel CA would
+	// otherwise remain a trust anchor for the rest of the cluster indefinitely.
+	m.forgetPanelCA(nodeID)
+
 	// Clean up connection pool using pre-removal address
 	if removedGRPCAddr != "" {
 		m.connPool.Remove(removedGRPCAddr)

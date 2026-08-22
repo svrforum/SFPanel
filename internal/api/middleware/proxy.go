@@ -105,8 +105,8 @@ func copyEndToEndHeaders(dst, src http.Header) {
 
 // buildRelayURL composes the absolute URL for a remote node forwarding
 // request, dropping the local "node=" param so we don't loop.
-func buildRelayURL(req *http.Request, targetNode *cluster.Node) string {
-	baseURL := nodeBaseURL(targetNode.APIAddress)
+func buildRelayURL(req *http.Request, targetNode *cluster.Node, mgr *cluster.Manager) string {
+	baseURL := mgr.PanelEndpointFor(targetNode).BaseURL
 	query := req.URL.Query()
 	query.Del("node")
 	url := baseURL + req.URL.Path
@@ -123,11 +123,18 @@ func buildRelayURL(req *http.Request, targetNode *cluster.Node) string {
 // still verifies hostnames against whatever system roots are available;
 // this is strictly safer than InsecureSkipVerify while not crashing during
 // bootstrap.
-func newRemoteHTTPClient(timeout time.Duration, mgr *cluster.Manager) *http.Client {
+func newRemoteHTTPClient(timeout time.Duration, mgr *cluster.Manager, targetNode *cluster.Node) *http.Client {
 	tlsCfg := &tls.Config{}
 	if mgr != nil {
 		if cfg, err := mgr.GetTLS().ClientTLSConfig(); err == nil && cfg != nil {
 			tlsCfg = cfg.Clone()
+		}
+		// A peer serving its panel over TLS presents a certificate from ITS
+		// OWN local CA, not the shared cluster mTLS CA — different trust
+		// domain, so the mTLS pool above would reject it. Replace, don't merge:
+		// each peer is anchored to exactly one authority.
+		if ep := mgr.PanelEndpointFor(targetNode); ep.TLSConfig != nil {
+			tlsCfg = ep.TLSConfig.Clone()
 		}
 	}
 	return &http.Client{
@@ -180,17 +187,6 @@ func writeSSEEvent(w *echo.Response, phase, line string) {
 // and relays the event stream to the client in real-time.
 // If the remote node doesn't support SSE streaming (old version), falls back
 // to the regular non-streaming endpoint and synthesizes SSE events.
-// nodeBaseURL returns the scheme+host for HTTP requests to a cluster peer's
-// panel API. Panels are plain HTTP by default (TLS is a reverse-proxy's
-// job), so we default to http://; only honor an explicit https:// prefix
-// if an operator stored one into APIAddress.
-func nodeBaseURL(apiAddr string) string {
-	if strings.HasPrefix(apiAddr, "http://") || strings.HasPrefix(apiAddr, "https://") {
-		return apiAddr
-	}
-	return "http://" + apiAddr
-}
-
 // relayHTTP forwards an HTTP request to a remote node and streams the
 // response back to the original client. Both request body and response
 // body are streamed via io.Copy so multi-GB transfers don't sit in
@@ -199,11 +195,11 @@ func nodeBaseURL(apiAddr string) string {
 func relayHTTP(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
 	// 30-minute window covers downloads up to a few GB on a slow LAN and
 	// matches the upper bound for the rest of the cluster relay paths.
-	client := newRemoteHTTPClient(30*time.Minute, mgr)
+	client := newRemoteHTTPClient(30*time.Minute, mgr, targetNode)
 	addAuth := func(httpReq *http.Request) {
 		setAuthHeaders(httpReq, c.Request(), mgr)
 	}
-	return executeHTTPRelay(c, buildRelayURL(c.Request(), targetNode), client, addAuth, 30*time.Minute)
+	return executeHTTPRelay(c, buildRelayURL(c.Request(), targetNode, mgr), client, addAuth, 30*time.Minute)
 }
 
 // executeHTTPRelay carries the manager-free body of relayHTTP. Splitting it
@@ -285,7 +281,7 @@ func executeHTTPRelay(
 
 func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
 	req := c.Request()
-	baseURL := nodeBaseURL(targetNode.APIAddress)
+	baseURL := mgr.PanelEndpointFor(targetNode).BaseURL
 	query := req.URL.Query()
 	query.Del("node")
 	queryStr := ""
@@ -314,7 +310,7 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 	ctx, cancel := context.WithTimeout(req.Context(), window)
 	defer cancel()
 
-	client := newRemoteHTTPClient(window, mgr)
+	client := newRemoteHTTPClient(window, mgr, targetNode)
 
 	// Try SSE streaming endpoint first
 	sseURL := baseURL + req.URL.Path + queryStr

@@ -1251,7 +1251,20 @@
     "updateConnectionLost": "연결이 끊어졌습니다",
     "updateNoReturn": "업데이트 후 5분 내 패널이 응답하지 않습니다. journalctl -u sfpanel 확인 필요.",
     "auditLoadFailed": "감사 로그를 불러오지 못했습니다",
-    "auditClearFailed": "감사 로그 삭제에 실패했습니다"
+    "auditClearFailed": "감사 로그 삭제에 실패했습니다",
+    "tls": {
+      "title": "HTTPS 인증서",
+      "description": "이 패널은 자체 인증서를 발급합니다. 아래 인증기관을 기기마다 한 번만 설치하면 브라우저 경고가 사라집니다.",
+      "authority": "인증기관",
+      "caExpires": "인증기관 만료",
+      "certExpires": "인증서 만료",
+      "fingerprint": "SHA-256 지문",
+      "validFor": "적용 대상",
+      "renewalNote": "인증서는 만료 전 재시작 시 자동 갱신되며, 이 호스트의 주소가 바뀌면 재발급됩니다. 인증기관은 바뀌지 않으므로 기기에는 최초 1회만 설치하면 됩니다.",
+      "renewPending": "갱신 시점입니다 — 다음 재시작에 적용됩니다.",
+      "downloadCA": "인증기관 다운로드 (ca.crt)",
+      "downloading": "다운로드 중…"
+    }
   },
   "siteConfig": {
     "loadingConfig": "설정을 불러오는 중...",

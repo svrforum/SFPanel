@@ -99,7 +99,8 @@ func callLocalAPI(cfg *config.Config, method, path string, body interface{}) ([]
 		reader = bytes.NewReader(raw)
 	}
 
-	url := fmt.Sprintf("http://127.0.0.1:%d%s", cfg.Server.Port, path)
+	self := selfPanel(cfg)
+	url := self.URL(path)
 	req, err := http.NewRequest(method, url, reader)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
@@ -113,7 +114,10 @@ func callLocalAPI(cfg *config.Config, method, path string, body interface{}) ([]
 		return nil, err
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client, err := self.HTTPClient(15 * time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("build local client: %w", err)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("reach local sfpanel at %s: %w (is the server running?)", url, err)

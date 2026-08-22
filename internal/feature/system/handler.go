@@ -117,7 +117,7 @@ const maxBinaryEntryBytes int64 = 256 * 1024 * 1024
 const watchdogLivenessDelay = 200 * time.Millisecond
 
 type Handler struct {
-	Version     string
+	Version string
 	// DB is the live SQLite connection — used to force a WAL checkpoint
 	// before copying the DB file to .bak so the snapshot is not stale, and
 	// to take VACUUM INTO snapshots for backup archives. Nil-safe: both
@@ -130,7 +130,20 @@ type Handler struct {
 	// the local health-check URL after binary swap. Zero means "skip
 	// watchdog rollback" (gracefully degrades to the pre-watchdog behavior).
 	Port int
-	Cmd  commonExec.Commander
+	// TLSDir and TLSManaged describe the panel's own certificate material, for
+	// the settings screen and the CA download. Managed is false when the
+	// operator supplied their own pair, in which case there is no CA to hand
+	// out and nothing to renew.
+	TLSDir     string
+	TLSManaged bool
+	// TLSEnabled tells the watchdog which scheme its health probe must use.
+	//
+	// This is load-bearing beyond cosmetics: the watchdog treats 90 seconds of
+	// failed probes as a failed upgrade and rolls BOTH the binary and the
+	// database back. Probing http:// against a TLS-only listener fails every
+	// time, so a panel with TLS on would auto-revert every self-update.
+	TLSEnabled bool
+	Cmd        commonExec.Commander
 	// ClusterMgr is the cluster manager when this node is part of a Raft
 	// cluster; nil in standalone mode. RunUpdate consults it to enforce a
 	// quorum guard before taking the node offline, so an operator running
@@ -209,6 +222,15 @@ func (h *Handler) CheckUpdate(c echo.Context) error {
 }
 
 // RunUpdate downloads the latest release and replaces the current binary, streaming progress via SSE.
+// probeScheme is the scheme the rollback watchdog should use to reach this
+// node after the binary swap.
+func (h *Handler) probeScheme() string {
+	if h.TLSEnabled {
+		return "https"
+	}
+	return "http"
+}
+
 func (h *Handler) RunUpdate(c echo.Context) error {
 	// Refuse a second concurrent update — two callers fighting over execPath+".new"
 	// can install a truncated binary if both writes interleave before the rename.
@@ -590,7 +612,7 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		watchdogCmd := exec.Command(backupPath, "watchdog-update",
 			backupPath,
 			execPath,
-			fmt.Sprintf("http://127.0.0.1:%d/api/v1/system/info", h.Port),
+			fmt.Sprintf("%s://127.0.0.1:%d/api/v1/system/info", h.probeScheme(), h.Port),
 			"90",
 			h.DBPath+".bak",
 			h.DBPath,
@@ -902,8 +924,8 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 	defer restoreMu.Unlock()
 
 	const (
-		maxEntrySize int64 = 100 * 1024 * 1024       // per-entry cap (unchanged)
-		maxTotalSize int64 = 2 * 1024 * 1024 * 1024  // 2 GiB cumulative cap
+		maxEntrySize int64 = 100 * 1024 * 1024      // per-entry cap (unchanged)
+		maxTotalSize int64 = 2 * 1024 * 1024 * 1024 // 2 GiB cumulative cap
 	)
 
 	// Fix 2: stream entries to disk in a staging directory rather than

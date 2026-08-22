@@ -191,7 +191,7 @@ func TestBuildRelayURL_DropsNodeParam(t *testing.T) {
 	req := &http.Request{Method: "GET", URL: u}
 	target := &cluster.Node{APIAddress: "10.0.0.6:9443"}
 
-	got := buildRelayURL(req, target)
+	got := buildRelayURL(req, target, nil)
 	if !strings.HasPrefix(got, "http://10.0.0.6:9443/api/v1/files/download?") {
 		t.Fatalf("base URL wrong: %s", got)
 	}
@@ -208,22 +208,32 @@ func TestBuildRelayURL_NoQuery(t *testing.T) {
 	req := &http.Request{Method: "POST", URL: u}
 	target := &cluster.Node{APIAddress: "10.0.0.6:9443"}
 
-	got := buildRelayURL(req, target)
+	got := buildRelayURL(req, target, nil)
 	want := "http://10.0.0.6:9443/api/v1/system/backup"
 	if got != want {
 		t.Errorf("buildRelayURL = %q, want %q", got, want)
 	}
 }
 
-func TestBuildRelayURL_HonorsHTTPSPrefix(t *testing.T) {
-	// Operators may store https:// in APIAddress for clusters fronted by TLS.
+func TestBuildRelayURL_IgnoresSchemeStoredInAPIAddress(t *testing.T) {
+	// This used to assert the opposite: that an https:// prefix stored in
+	// APIAddress selected the scheme. That escape hatch never worked. Every
+	// writer of APIAddress stores a bare ip:port, and verifySelfAddress applies
+	// a correction back to that bare form ten seconds after each leader boot —
+	// so a prefix an operator managed to set was erased before it mattered.
+	//
+	// The scheme now comes from whether the peer's panel CA is in replicated
+	// state, which nothing overwrites. A stale prefix on an old record must be
+	// stripped rather than obeyed, or the relay would talk HTTPS to a peer that
+	// never enabled it.
 	u, _ := url.Parse("http://10.0.0.5:9443/api/v1/system/backup?node=x")
 	req := &http.Request{Method: "GET", URL: u}
-	target := &cluster.Node{APIAddress: "https://10.0.0.6:9443"}
+	target := &cluster.Node{ID: "peer", APIAddress: "https://10.0.0.6:9443"}
 
-	got := buildRelayURL(req, target)
-	if !strings.HasPrefix(got, "https://") {
-		t.Errorf("https prefix lost: %s", got)
+	got := buildRelayURL(req, target, nil)
+	want := "http://10.0.0.6:9443/api/v1/system/backup"
+	if got != want {
+		t.Errorf("buildRelayURL = %q, want %q (scheme comes from replicated state, not the address)", got, want)
 	}
 }
 

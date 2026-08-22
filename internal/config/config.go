@@ -34,6 +34,38 @@ type ServerConfig struct {
 	// Defaults to ["127.0.0.0/8", "::1/128"] when empty so a same-host
 	// reverse proxy keeps working out of the box.
 	TrustedProxies []string `yaml:"trusted_proxies"`
+	// TLS serves the panel over HTTPS on Port instead of plain HTTP.
+	//
+	// Absent block == disabled, which is what keeps this safe for the installed
+	// base: install.sh never rewrites an existing config.yaml, so every panel
+	// deployed before this existed keeps serving plaintext until its operator
+	// opts in. Reverse-proxy deployments simply never opt in — terminating TLS
+	// upstream stays the supported arrangement.
+	TLS TLSConfig `yaml:"tls"`
+}
+
+// TLSConfig configures HTTPS on the panel port. When Enabled and the files are
+// absent, the panel generates a local CA and issues itself a certificate; see
+// internal/paneltls.
+type TLSConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// Dir holds the generated CA and server certificate. Ignored when CertFile
+	// and KeyFile are both set to operator-supplied paths.
+	Dir      string `yaml:"dir"`
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
+	// CAFile lets an operator name the authority that issued CertFile, so
+	// loopback clients can verify it. Unused in managed mode, where the
+	// generated CA in Dir is the authority.
+	CAFile string `yaml:"ca_file"`
+}
+
+// Managed reports whether the panel generates and renews its own certificate.
+// An operator who supplied both a certificate and a key owns that material: we
+// never overwrite it, never renew it, and fail to start rather than silently
+// replacing it with a self-issued one.
+func (t TLSConfig) Managed() bool {
+	return t.CertFile == "" && t.KeyFile == ""
 }
 
 type DatabaseConfig struct {
@@ -100,6 +132,12 @@ type ClusterConfig struct {
 func (c *Config) Validate() error {
 	if c.Server.Port <= 0 {
 		return fmt.Errorf("server.port must be positive, got %d", c.Server.Port)
+	}
+	// Half a pair is always a mistake, and the failure it produces otherwise —
+	// a certificate paired with a generated key — is a handshake error with no
+	// obvious cause. Catch it where the message can say what is wrong.
+	if (c.Server.TLS.CertFile == "") != (c.Server.TLS.KeyFile == "") {
+		return fmt.Errorf("server.tls.cert_file and server.tls.key_file must be set together")
 	}
 	if c.Database.Path == "" {
 		return fmt.Errorf("database.path is required")
@@ -180,6 +218,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Server.StacksPath == "" {
 		cfg.Server.StacksPath = "/opt/stacks"
+	}
+	if cfg.Server.TLS.Dir == "" {
+		cfg.Server.TLS.Dir = "/etc/sfpanel/tls"
 	}
 	// docker.observability is default-on. Enabled is *bool so a missing block
 	// (nil) means "use default-on" via IsEnabled(); only an explicit

@@ -4,6 +4,10 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
+// Dev-server API target. Override with SFPANEL_DEV_API when the local panel
+// serves HTTPS (server.tls.enabled).
+const devApiTarget = process.env.SFPANEL_DEV_API || 'http://localhost:3628'
+
 export default defineConfig({
   plugins: [
     react(),
@@ -103,13 +107,21 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // The dev API can be either plain HTTP or HTTPS depending on whether the
+      // local panel has server.tls enabled, so make the target switchable
+      // instead of hardcoding one. `SFPANEL_DEV_API=https://localhost:3628 npm
+      // run dev` points the proxy at a TLS panel; `secure: false` is what lets
+      // it accept the locally-issued certificate without installing the CA
+      // into Node's trust store just to run the dev server.
       '/api': {
-        target: 'http://localhost:3628',
+        target: devApiTarget,
         changeOrigin: true,
+        secure: false,
       },
       '/ws': {
-        target: 'ws://localhost:3628',
+        target: devApiTarget.replace(/^http/, 'ws'),
         ws: true,
+        secure: false,
       },
     },
   },

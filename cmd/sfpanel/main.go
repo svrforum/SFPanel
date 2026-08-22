@@ -43,6 +43,7 @@ import (
 	featureSystem "github.com/svrforum/SFPanel/internal/feature/system"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
 	"github.com/svrforum/SFPanel/internal/monitor"
+	"github.com/svrforum/SFPanel/internal/paneltls"
 	"github.com/svrforum/SFPanel/internal/release"
 )
 
@@ -188,7 +189,7 @@ func main() {
 		})
 
 		// Start gRPC server
-		grpcServer, grpcErr := cluster.NewGRPCServer(mgr, activeCfg.Server.Port)
+		grpcServer, grpcErr := cluster.NewGRPCServer(mgr, activeCfg.Server.Port, selfPanel(activeCfg))
 		if grpcErr != nil {
 			if existingMgr == nil {
 				mgr.Shutdown()
@@ -243,6 +244,18 @@ func main() {
 			// rather than outliving the DB it reads.
 			safe.Go("cluster-bootstrap-sync", func() {
 				syncBootstrapState(bgCtx, clusterMgr, database, cfg.Auth.JWTSecret, 30*time.Second)
+			})
+		}
+
+		// Keep this node's panel CA in replicated state so peers know to reach
+		// it over HTTPS and which authority to trust. The certificate is read
+		// fresh on each tick rather than captured here, so a re-issue (address
+		// change, renewal) propagates without a restart.
+		if cfg.Server.TLS.Enabled && cfg.Server.TLS.Managed() {
+			tlsDir := cfg.Server.TLS.Dir
+			clusterMgr.StartPanelCAPublisher(bgCtx, func() (string, error) {
+				pem, err := paneltls.New(tlsDir).CACertPEM()
+				return string(pem), err
 			})
 		}
 	}
@@ -331,11 +344,28 @@ func main() {
 	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	slog.Info("server listening", "addr", addr)
+
+	certFile, keyFile, tlsErr := prepareTLS(cfg)
+	if tlsErr != nil {
+		slog.Error("TLS is enabled but no usable certificate could be prepared", "error", tlsErr)
+		os.Exit(1)
+	}
+
+	scheme := "http"
+	if certFile != "" {
+		scheme = "https"
+	}
+	slog.Info("server listening", "addr", addr, "scheme", scheme)
 
 	// Start server in goroutine
 	go func() {
-		if err := e.Start(addr); err != nil && err != http.ErrServerClosed {
+		var err error
+		if certFile != "" {
+			err = e.StartTLS(addr, certFile, keyFile)
+		} else {
+			err = e.Start(addr)
+		}
+		if err != nil && err != http.ErrServerClosed {
 			slog.Error("server failed", "error", err)
 			os.Exit(1)
 		}
@@ -626,8 +656,8 @@ func updatePanel() {
 	// endpoint and restores bakBin if the new binary doesn't come up within the
 	// grace window (binary-only rollback; the DB snapshot above is for manual
 	// recovery).
-	if port := updateHealthPort(); port > 0 {
-		checkURL := fmt.Sprintf("http://127.0.0.1:%d/api/v1/system/info", port)
+	if cfg := loadCLIConfig(); cfg != nil && cfg.Server.Port > 0 {
+		checkURL := selfPanel(cfg).URL("/api/v1/system/info")
 		wd := exec.Command(bakBin, "watchdog-update", bakBin, execPath, checkURL, "90")
 		// Detach into its own session so the systemctl restart below can't kill it.
 		wd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -666,18 +696,18 @@ func cleanupUpdateTempFiles() {
 	}
 }
 
-// updateHealthPort loads the configured HTTP port for the rollback watchdog's
-// health probe. Returns 0 if config can't be read (watchdog is then skipped).
-func updateHealthPort() int {
+// loadCLIConfig reads the panel config the way every CLI subcommand does.
+// Returns nil when it cannot be read, so callers degrade instead of failing.
+func loadCLIConfig() *config.Config {
 	cfgPath := defaultCfgPath
 	if envPath := os.Getenv("SFPANEL_CONFIG"); envPath != "" {
 		cfgPath = envPath
 	}
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		return 0
+		return nil
 	}
-	return cfg.Server.Port
+	return cfg
 }
 
 // snapshotDBForUpgrade copies the live SQLite DB to a timestamped backup so a

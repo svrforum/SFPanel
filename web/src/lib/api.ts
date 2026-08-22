@@ -46,6 +46,7 @@ import type {
   ClusterNodeStacks,
   TerminalSession,
   TerminalInfo,
+  TLSStatus,
   ClusterEventsResponse,
   ClusterInterfacesResponse,
   ClusterInitResponse,
@@ -602,6 +603,21 @@ class ApiClient {
 
   async downloadBackupFile(name: string): Promise<Blob> {
     const res = await fetch(this.withNode(`/system/backup/files/download?name=${encodeURIComponent(name)}`), {
+      headers: this.streamHeaders(),
+    })
+    if (!res.ok) throw new Error(`Download failed (${res.status})`)
+    return res.blob()
+  }
+
+  getTLSStatus() {
+    return this.request<TLSStatus>('/system/tls')
+  }
+
+  // The CA is a PEM, not JSON, so it cannot go through request(). withNode()
+  // is what keeps it node-aware: each node runs its own authority, so browsing
+  // a remote node must download THAT node's CA, not the local one's.
+  async downloadCACert(): Promise<Blob> {
+    const res = await fetch(this.withNode('/system/tls/ca.crt'), {
       headers: this.streamHeaders(),
     })
     if (!res.ok) throw new Error(`Download failed (${res.status})`)

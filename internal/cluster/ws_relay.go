@@ -32,27 +32,18 @@ import (
 // docker exec) do not re-validate the operator — only the terminal handler
 // has its own non-empty guard. WrapEchoWSHandler rejects unauthenticated
 // relays with 401 before calling this.
-func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url.URL, proxySecret, username string, tlsCfg *crypto_tls.Config) error {
-	// Build remote WS URL.
-	//
-	// SFPanel's HTTP API is plain HTTP by design (TLS is the reverse
-	// proxy's job). Default to ws://. Only switch to wss:// when the stored
-	// APIAddress explicitly carries the https:// prefix, which happens only
-	// if an operator put the panel behind TLS and wrote that form into
-	// config.Cluster.APIAddress. The previous default-to-wss behavior
-	// produced "tls: first record does not look like a TLS handshake" for
-	// every cross-node terminal/exec/logs/metrics relay.
-	apiAddr := remoteNode.APIAddress
-	scheme := "ws"
-	switch {
-	case strings.HasPrefix(apiAddr, "https://"):
-		scheme = "wss"
-		apiAddr = strings.TrimPrefix(apiAddr, "https://")
-	case strings.HasPrefix(apiAddr, "http://"):
-		apiAddr = strings.TrimPrefix(apiAddr, "http://")
-	}
-	if !strings.Contains(apiAddr, ":") {
-		apiAddr += ":3628"
+func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, endpoint PanelEndpoint, originalURL *url.URL, proxySecret, username string, tlsCfg *crypto_tls.Config) error {
+	// The ws/wss decision, and the peer's trust anchor, both come from the
+	// caller-resolved endpoint. It used to be decided here from an https://
+	// prefix on APIAddress — an escape hatch that never fired, because every
+	// writer stores a bare ip:port and verifySelfAddress rewrites it back to
+	// that form after each leader boot. Getting this wrong is loud in one
+	// direction and silent in the other: dialling wss:// at a plaintext peer
+	// produced "tls: first record does not look like a TLS handshake" on every
+	// cross-node terminal/exec/logs/metrics relay.
+	scheme, apiAddr, _ := strings.Cut(endpoint.WSBaseURL, "://")
+	if apiAddr == "" {
+		scheme, apiAddr = "ws", endpoint.WSBaseURL
 	}
 
 	remotePath := originalURL.Path
@@ -90,6 +81,14 @@ func RelayWebSocket(clientWS *websocket.Conn, remoteNode *Node, originalURL *url
 	dialCfg := &crypto_tls.Config{}
 	if tlsCfg != nil {
 		dialCfg = tlsCfg.Clone()
+	}
+	// A peer serving its panel over TLS presents a certificate from its own
+	// local CA — a different trust domain from the shared cluster mTLS CA
+	// above, which would reject it. Replace rather than merge, and clone:
+	// mutating the cached cluster config in place would corrupt the one the
+	// gRPC and Raft transports use.
+	if endpoint.TLSConfig != nil {
+		dialCfg = endpoint.TLSConfig.Clone()
 	}
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 10 * time.Second,
@@ -301,7 +300,7 @@ func WrapEchoWSHandler(getMgr func() *Manager, handler func(c echo.Context) erro
 		// internal-proxy header.
 		relayURL := *c.Request().URL
 		relayURL.RawQuery = stripAuthParams(relayURL.RawQuery)
-		if err := RelayWebSocket(clientWS, node, &relayURL, mgr.ProxySecret(), username, tlsCfg); err != nil {
+		if err := RelayWebSocket(clientWS, node, mgr.PanelEndpointFor(node), &relayURL, mgr.ProxySecret(), username, tlsCfg); err != nil {
 			slog.Warn("WS relay to node failed", "component", "cluster", "node_id", nodeID, "error", err)
 		}
 		return nil

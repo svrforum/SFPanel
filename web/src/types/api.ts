@@ -939,6 +939,18 @@ export interface TerminalInfo {
   is_root: boolean
 }
 
+export interface TLSStatus {
+  enabled: boolean
+  managed: boolean
+  ca_not_after?: string
+  ca_fingerprint?: string
+  ca_subject?: string
+  not_after?: string
+  dns_names?: string[]
+  ip_addresses?: string[]
+  days_until_renew?: number
+}
+
 export interface ClusterEvent {
   id: number
   type: string
