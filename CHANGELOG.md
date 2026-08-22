@@ -6,6 +6,33 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.64.0] – 2026-08-23
+
+### Added
+
+- **HTTPS on the panel port, set up for you.** Set `server.tls.enabled` and the panel generates its own certificate authority on first boot, issues itself a certificate from it, and serves HTTPS on the same port — no `openssl`, no manual steps. Download the authority from Settings → System, install it once per device, and the browser warning stops for good. `install.sh` turns this on for **fresh installs only**: it never rewrites an existing `config.yaml`, so panels already deployed keep serving plain HTTP until their operator opts in, and setups that terminate TLS at a reverse proxy simply never do.
+- The authority lasts ten years, the server certificate one. That split is deliberate: the file you install on your phone and laptop is the authority, so that is what carries the long life, while the certificate itself stays under the 398-day limit platforms enforce. It renews on restart before it expires and reissues if the host's addresses change — the authority is untouched either way, so devices only ever install it once. Docker's per-project bridges are left out of the certificate, or an ordinary `docker compose up` would reissue it.
+- Settings → System shows what the panel is serving: both expiry dates, the authority's SHA-256 fingerprint so you can match it against what your device shows after installing it, and every name and address the certificate covers.
+- Operators who supply their own `cert_file` and `key_file` keep full control: the panel never renews or replaces that material, and refuses to start rather than quietly serving something else in its place.
+
+### Fixed
+
+- **The web terminal dropped you into a shell with no aliases and no prompt.** `ll` was not found and the root prompt was bare, because the session's `HOME` resolution had two steps that failed for the same reason — on Linux the fallback only re-reads `$HOME`, which systemd does not set for a unit with no `User=`. Every session landed in `/tmp`, where there is no `.bashrc`, and nothing reported an error. The home now comes from the OS user database, and `USER`/`LOGNAME`/`SHELL` are set too.
+- **The terminal now names what you are typing into** — the account and host appear in the tab bar, in a warning colour when that is root. In a cluster the same page targets a different machine depending on the node picker, and a root prompt looks identical on all of them.
+- **The terminal follows the app theme** instead of staying dark in light mode, and **Ctrl+Shift+C copies the selection** — xterm draws its selection into a canvas, so the browser's own copy never saw it. Paste already worked and was left alone.
+- The disk overview no longer opens with Docker volume usage above the disks themselves.
+
+### Internal
+
+- Six latent defects in the cluster code, each reproduced before being changed: a nil dereference across twelve `RaftNode` methods; two discarded errors in certificate issuance, one of which could write an empty private key that only failed later mid-handshake; a discarded marshal error that would apply an empty FSM entry silently; a certificate reload that watched only the certificate file, so a key-only rotation was never noticed; a CA seeding guard that could never repair a missing certificate; and a comment describing self-healing behaviour that does not exist in the code.
+- Five separate places used to hardcode a plaintext loopback URL to the panel's own port. They now share one resolver. The update watchdog's copy was the consequential one — ninety seconds of failed health probes rolls back the binary *and* the database, so a panel with TLS on would have reverted every self-update it attempted.
+- Peers learn each other's certificate authority through replicated cluster state, public certificates only, over the existing config-set command so that a node on an older build applies it as an ordinary write and preserves it through its own snapshots. Mixed-version clusters need no negotiation: a peer with no replicated authority is simply still reached over HTTP.
+
+### Upgrade notes
+
+- Nothing changes unless you turn TLS on. When you do, **the origin changes**: `http://host:3628` and `https://host:3628` are different origins, so you will be logged out once and per-origin browser state (terminal tabs, font size) resets. Old `http://` bookmarks fail at the transport with no redirect — the panel serves HTTPS only, with no plaintext fallback by design.
+- The desktop app cannot connect until the operating system trusts the authority. Install it first.
+
 ## [0.63.1] – 2026-08-21
 
 ### Fixed
