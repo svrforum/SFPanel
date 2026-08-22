@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.64.1] – 2026-08-23
+
+### Fixed
+
+- **The desktop auto-updater could not download v0.64.0.** Tauri names its bundles from a version field kept by hand in `tauri.conf.json`, while the update manifest builds its URLs from the release tag. The field still said 0.63.1, so the manifest advertised 0.64.0 and pointed at files that did not exist — every desktop update attempt got a 404. The version is now stamped from the tag at build time, so the two cannot diverge again. Server installs were unaffected.
+- The tuning end-to-end spec asserted that `net.bridge.*` is always offered. Since 0.63.0 those parameters appear only when `br_netfilter` is loaded, which is not the case on a CI runner, so the suite had been failing since that release.
+
 ## [0.64.0] – 2026-08-23
 
 ### Added
