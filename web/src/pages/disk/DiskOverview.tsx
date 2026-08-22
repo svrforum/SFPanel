@@ -102,7 +102,6 @@ export default function DiskOverview() {
 
   return (
     <div className="space-y-4 mt-4">
-      <DockerVolumeUsageCard />
       {/* Smartmontools Install Banner */}
       {smartmontoolsInstalled === false && (
         <div className="flex items-center gap-3 bg-warning/10 border border-warning/30 rounded-2xl px-5 py-3.5" role="alert">
@@ -247,6 +246,9 @@ export default function DiskOverview() {
           })}
         </div>
       )}
+
+      {/* Docker volume usage — supplementary, so it sits below the disks themselves */}
+      <DockerVolumeUsageCard />
 
       {/* Smartmontools Install Modal */}
       <Dialog open={installModalOpen} onOpenChange={(open) => { if (!installingSmartmontools) setInstallModalOpen(open) }}>
