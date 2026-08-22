@@ -45,6 +45,7 @@ import type {
   MigrateDisposition,
   ClusterNodeStacks,
   TerminalSession,
+  TerminalInfo,
   ClusterEventsResponse,
   ClusterInterfacesResponse,
   ClusterInitResponse,
@@ -1952,6 +1953,10 @@ class ApiClient {
 
   getTerminalSessions() {
     return this.request<{ sessions: TerminalSession[] }>('/terminal/sessions')
+  }
+
+  getTerminalInfo() {
+    return this.request<TerminalInfo>('/terminal/info')
   }
 
   getClusterEvents(limit?: number, local?: boolean) {

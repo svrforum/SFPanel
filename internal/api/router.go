@@ -283,6 +283,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	// Terminal: list the caller's live PTY sessions so the UI can reattach to a
 	// preserved shell (scrollback included) instead of always opening a new one.
 	authorized.GET("/terminal/sessions", featureTerminal.ListSessions)
+	authorized.GET("/terminal/info", featureTerminal.GetInfo)
 
 	// Audit logs
 	auditHandler := &featureAudit.Handler{DB: database, LocalNodeIDFn: localNodeIDFn}

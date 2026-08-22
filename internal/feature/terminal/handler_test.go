@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -44,6 +45,116 @@ func TestTerminalHome_EmptyHOMEUsesUserHomeOrTmp(t *testing.T) {
 	if _, err := os.Stat(got); err != nil {
 		t.Errorf("returned path %q is not stat-able: %v", got, err)
 	}
+}
+
+// resolveHome's precedence is what the /tmp bug turned on: the old chain's
+// first two steps both read $HOME, so an unset HOME skipped straight to /tmp
+// and the session lost ~/.bashrc. These cases pin each step independently —
+// the tests above only assert the result is stat-able, which /tmp satisfies.
+func TestResolveHome(t *testing.T) {
+	exists := func(paths ...string) func(string) bool {
+		set := make(map[string]bool, len(paths))
+		for _, p := range paths {
+			set[p] = true
+		}
+		return func(p string) bool { return set[p] }
+	}
+
+	cases := []struct {
+		name       string
+		envHome    string
+		passwdHome string
+		present    []string
+		want       string
+	}{
+		{"env HOME wins when it exists", "/home/op", "/root", []string{"/home/op", "/root"}, "/home/op"},
+		{"unset HOME falls through to passwd", "", "/root", []string{"/root"}, "/root"},
+		{"non-existent HOME falls through to passwd", "/gone", "/root", []string{"/root"}, "/root"},
+		{"both missing lands on /tmp", "", "", nil, "/tmp"},
+		{"neither path exists lands on /tmp", "/gone", "/also-gone", nil, "/tmp"},
+		{"passwd home that does not exist is not used", "", "/nonexistent", nil, "/tmp"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveHome(tc.envHome, tc.passwdHome, exists(tc.present...)); got != tc.want {
+				t.Errorf("resolveHome(%q, %q) = %q, want %q", tc.envHome, tc.passwdHome, got, tc.want)
+			}
+		})
+	}
+}
+
+// The regression itself: with HOME unset, the resolved home must come from the
+// OS user database, not /tmp. Skipped only if this build's account genuinely
+// has no home on disk.
+func TestTerminalHomeUsesPasswdWhenHOMEUnset(t *testing.T) {
+	_, passwdHome := osAccount()
+	if passwdHome == "" {
+		t.Skip("no home in the OS user database for this account")
+	}
+	if _, err := os.Stat(passwdHome); err != nil {
+		t.Skipf("passwd home %q is not present on this machine", passwdHome)
+	}
+	t.Setenv("HOME", "")
+	if got := terminalHome(); got != passwdHome {
+		t.Errorf("terminalHome() with HOME unset = %q, want passwd home %q", got, passwdHome)
+	}
+}
+
+// GetInfo is what the UI's "which box am I typing into" badge reads, so its
+// shape is a contract. It must also refuse an unauthenticated caller: the
+// hostname and account name of every cluster node are not public.
+func TestGetInfo(t *testing.T) {
+	e := echo.New()
+
+	t.Run("rejects an unauthenticated caller", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c := e.NewContext(httptest.NewRequest(http.MethodGet, "/terminal/info", nil), rec)
+		if err := GetInfo(c); err != nil {
+			t.Fatalf("GetInfo returned err: %v", err)
+		}
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("describes the shell this node would spawn", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c := e.NewContext(httptest.NewRequest(http.MethodGet, "/terminal/info", nil), rec)
+		c.Set("username", "admin")
+		if err := GetInfo(c); err != nil {
+			t.Fatalf("GetInfo returned err: %v", err)
+		}
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Success bool `json:"success"`
+			Data    Info `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode: %v (body %s)", err, rec.Body.String())
+		}
+		if !body.Success {
+			t.Fatalf("success = false, body %s", rec.Body.String())
+		}
+		if body.Data.ShellUser == "" {
+			t.Error("shell_user is empty — the badge would render \"@host\"")
+		}
+		if body.Data.Hostname == "" {
+			t.Error("hostname is empty — the badge could not name the node")
+		}
+		// The bug this whole change exists for: /tmp means the .bashrc lookup
+		// failed and the operator loses their aliases and prompt.
+		if body.Data.Home == "/tmp" {
+			t.Error("home resolved to /tmp — passwd lookup failed")
+		}
+		if body.Data.Shell == "" {
+			t.Error("shell is empty")
+		}
+		if body.Data.IsRoot != (os.Geteuid() == 0) {
+			t.Errorf("is_root = %v, want %v", body.Data.IsRoot, os.Geteuid() == 0)
+		}
+	})
 }
 
 func TestSameOriginOrEmpty(t *testing.T) {

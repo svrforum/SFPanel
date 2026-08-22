@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"strconv"
 	"strings"
 	"sync"
@@ -385,25 +386,46 @@ func findShell() string {
 	return "/bin/sh"
 }
 
-// terminalHome resolves the directory the PTY session should chdir into and
-// expose as HOME. Previously this was hardcoded to "/root", which broke
-// installs where sfpanel runs under a non-root systemd unit (the chdir
-// fails and the shell exits immediately with a cryptic error). We prefer
-// the calling process's HOME (set by systemd via User= or by the operator's
-// shell), then fall back to os.UserHomeDir(), then /tmp as a last resort
-// so the PTY at least starts somewhere writable.
-func terminalHome() string {
-	if h := os.Getenv("HOME"); h != "" {
-		if _, err := os.Stat(h); err == nil {
-			return h
-		}
+// osAccount reports the account the panel process runs as, read from the OS
+// user database rather than the environment.
+//
+// This exists because os.UserHomeDir() is NOT an independent lookup on Linux —
+// it just re-reads $HOME. A systemd unit with no User= directive inherits no
+// HOME, so the old "$HOME, else os.UserHomeDir(), else /tmp" chain had its
+// first two steps fail for the same single reason and every session landed in
+// /tmp. There is no .bashrc there, so aliases (`ll`), the coloured root prompt
+// and everything else the operator's shell config provides silently vanished —
+// with no error to point at. /etc/passwd is the authority that does not depend
+// on the environment. (CGO is disabled, so os/user parses it in pure Go.)
+func osAccount() (name, home string) {
+	u, err := user.Current()
+	if err != nil || u == nil {
+		return "", ""
 	}
-	if h, err := os.UserHomeDir(); err == nil && h != "" {
-		if _, err := os.Stat(h); err == nil {
-			return h
+	return u.Username, u.HomeDir
+}
+
+// resolveHome picks the first candidate that exists, falling back to /tmp so
+// the PTY at least starts somewhere writable. Split out from terminalHome so
+// the precedence is testable without mutating the process's real identity.
+func resolveHome(envHome, passwdHome string, exists func(string) bool) string {
+	for _, c := range []string{envHome, passwdHome} {
+		if c != "" && exists(c) {
+			return c
 		}
 	}
 	return "/tmp"
+}
+
+// terminalHome resolves the directory the PTY session should chdir into and
+// expose as HOME. It is deliberately not hardcoded to /root: installs that run
+// sfpanel under a non-root systemd unit must land in that user's home instead.
+func terminalHome() string {
+	_, passwdHome := osAccount()
+	return resolveHome(os.Getenv("HOME"), passwdHome, func(p string) bool {
+		_, err := os.Stat(p)
+		return err == nil
+	})
 }
 
 // SessionInfo describes a live PTY session for the reattach picker.
@@ -453,6 +475,42 @@ func ListSessions(c echo.Context) error {
 		return response.Fail(c, http.StatusUnauthorized, response.ErrMissingToken, "authentication required")
 	}
 	return response.OK(c, map[string]interface{}{"sessions": listSessionsFor(username)})
+}
+
+// Info describes the shell the PTY session will run as. The UI shows it so the
+// operator can see WHICH account on WHICH host they are typing into — in a
+// cluster the same page targets a different machine depending on ?node=, and a
+// root prompt looks identical on every one of them.
+type Info struct {
+	ShellUser string `json:"shell_user"`
+	Hostname  string `json:"hostname"`
+	Home      string `json:"home"`
+	Shell     string `json:"shell"`
+	IsRoot    bool   `json:"is_root"`
+}
+
+// GetInfo reports the identity of the shell this node would spawn. It is a
+// local-only handler: under ?node= the cluster proxy forwards it, so the answer
+// always describes the node the terminal actually attaches to.
+func GetInfo(c echo.Context) error {
+	if username, _ := c.Get("username").(string); username == "" {
+		return response.Fail(c, http.StatusUnauthorized, response.ErrMissingToken, "authentication required")
+	}
+	name, _ := osAccount()
+	if name == "" {
+		name = os.Getenv("USER")
+	}
+	host, err := os.Hostname()
+	if err != nil {
+		host = ""
+	}
+	return response.OK(c, Info{
+		ShellUser: name,
+		Hostname:  host,
+		Home:      terminalHome(),
+		Shell:     findShell(),
+		IsRoot:    os.Geteuid() == 0,
+	})
 }
 
 // TerminalWS creates a new PTY session or reconnects to an existing one
@@ -540,15 +598,29 @@ func TerminalWS(jwtSecret string, auditWriter *sfdb.AsyncWriter, localNodeIDFn f
 			// and the session deliberately OUTLIVES the request — so it is NOT bound
 			// to ctx.Request().Context().
 			shell := findShell()
+			// No -l: a login shell reads ~/.profile, not ~/.bashrc. Ubuntu's
+			// default .profile happens to source .bashrc, but a customised one
+			// need not — and ~/.bashrc is where interactive aliases live. An
+			// interactive non-login shell reads it directly, so it is the more
+			// reliable choice for a "give me my shell" terminal.
 			cmd := exec.Command(shell)
 			home := terminalHome()
+			acctName, _ := osAccount()
 			cmd.Dir = home
-			cmd.Env = append(os.Environ(),
+			// USER/LOGNAME/SHELL are normally set by login(1); nothing sets them
+			// for a systemd-spawned service, so prompts and tools that read them
+			// would otherwise see an empty value.
+			env := append(os.Environ(),
 				"TERM=xterm-256color",
 				"LANG=ko_KR.UTF-8",
 				"LC_ALL=ko_KR.UTF-8",
 				"HOME="+home,
+				"SHELL="+shell,
 			)
+			if acctName != "" {
+				env = append(env, "USER="+acctName, "LOGNAME="+acctName)
+			}
+			cmd.Env = env
 
 			ptmx, err := pty.Start(cmd)
 			if err != nil {

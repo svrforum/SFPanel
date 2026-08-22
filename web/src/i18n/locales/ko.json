@@ -1286,7 +1286,11 @@
       "open": "열기"
     },
     "tabTitle": "터미널 {{n}}",
-    "reattachedTab": "재연결됨 {{id}}"
+    "reattachedTab": "재연결됨 {{id}}",
+    "shellBadgeHint": "{{host}} 에 {{user}} 계정으로 접속됨",
+    "shellBadgeRootHint": "{{host}} 에 root로 접속됨 — 여기서 실행하는 명령에는 제한이 없습니다",
+    "copyFailed": "클립보드에 복사하지 못했습니다",
+    "pasteUseCtrlV": "붙여넣기는 Ctrl+V를 사용하세요 (Ctrl+Shift+V는 HTTPS에서만 동작합니다)"
   },
   "files": {
     "title": "파일 관리자",

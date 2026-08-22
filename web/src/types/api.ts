@@ -931,6 +931,14 @@ export interface TerminalSession {
   reader_count: number
 }
 
+export interface TerminalInfo {
+  shell_user: string
+  hostname: string
+  home: string
+  shell: string
+  is_root: boolean
+}
+
 export interface ClusterEvent {
   id: number
   type: string

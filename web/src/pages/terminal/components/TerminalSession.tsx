@@ -8,7 +8,70 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
 import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
-import { cn } from '@/lib/utils'
+import { cn, copyText } from '@/lib/utils'
+import { toast } from 'sonner'
+
+// xterm paints into its own canvas, so it cannot inherit the app's CSS tokens
+// the way the rest of the UI does — the palette has to be handed over as an
+// object and swapped by hand when the theme flips. Dark is Tokyo Night (what
+// this terminal has always used); light is Tokyo Night Day, its official
+// counterpart, so the two read as one family rather than two products.
+const DARK_THEME = {
+  background: '#1a1b26',
+  foreground: '#c0caf5',
+  cursor: '#c0caf5',
+  cursorAccent: '#1a1b26',
+  selectionBackground: '#33467c',
+  selectionForeground: '#c0caf5',
+  black: '#15161e',
+  red: '#f7768e',
+  green: '#9ece6a',
+  yellow: '#e0af68',
+  blue: '#7aa2f7',
+  magenta: '#bb9af7',
+  cyan: '#7dcfff',
+  white: '#a9b1d6',
+  brightBlack: '#414868',
+  brightRed: '#f7768e',
+  brightGreen: '#9ece6a',
+  brightYellow: '#e0af68',
+  brightBlue: '#7aa2f7',
+  brightMagenta: '#bb9af7',
+  brightCyan: '#7dcfff',
+  brightWhite: '#c0caf5',
+}
+
+const LIGHT_THEME = {
+  background: '#e1e2e7',
+  foreground: '#3760bf',
+  cursor: '#3760bf',
+  cursorAccent: '#e1e2e7',
+  selectionBackground: '#b6bfe2',
+  selectionForeground: '#3760bf',
+  black: '#e9e9ed',
+  red: '#f52a65',
+  green: '#587539',
+  yellow: '#8c6c3e',
+  blue: '#2e7de9',
+  magenta: '#9854f1',
+  cyan: '#007197',
+  white: '#6172b0',
+  brightBlack: '#a1a6c5',
+  brightRed: '#f52a65',
+  brightGreen: '#587539',
+  brightYellow: '#8c6c3e',
+  brightBlue: '#2e7de9',
+  brightMagenta: '#9854f1',
+  brightCyan: '#007197',
+  brightWhite: '#3760bf',
+}
+
+// Matches the convention in MetricsChart: read the `dark` class that
+// lib/theme.ts owns, and re-read it on the `sfpanel:themechange` event it
+// dispatches. There is no theme context to subscribe to.
+function currentTermTheme() {
+  return document.documentElement.classList.contains('dark') ? DARK_THEME : LIGHT_THEME
+}
 
 // Each TerminalSession imperatively attaches its xterm instance, websocket
 // ref, and search addon to its DOM container so the parent (which renders
@@ -38,30 +101,7 @@ export function TerminalSession({ sessionId, active, fontSize }: { sessionId: st
       cursorBlink: true,
       fontSize,
       fontFamily: '"JetBrains Mono", "Fira Code", Menlo, Monaco, "Courier New", monospace',
-      theme: {
-        background: '#1a1b26',
-        foreground: '#c0caf5',
-        cursor: '#c0caf5',
-        cursorAccent: '#1a1b26',
-        selectionBackground: '#33467c',
-        selectionForeground: '#c0caf5',
-        black: '#15161e',
-        red: '#f7768e',
-        green: '#9ece6a',
-        yellow: '#e0af68',
-        blue: '#7aa2f7',
-        magenta: '#bb9af7',
-        cyan: '#7dcfff',
-        white: '#a9b1d6',
-        brightBlack: '#414868',
-        brightRed: '#f7768e',
-        brightGreen: '#9ece6a',
-        brightYellow: '#e0af68',
-        brightBlue: '#7aa2f7',
-        brightMagenta: '#bb9af7',
-        brightCyan: '#7dcfff',
-        brightWhite: '#c0caf5',
-      },
+      theme: currentTermTheme(),
       scrollback: 10000,
       allowProposedApi: true,
     })
@@ -122,6 +162,48 @@ export function TerminalSession({ sessionId, active, fontSize }: { sessionId: st
     let stableTimer = 0
     let attempts = 0
     const maxReconnectAttempts = 6
+
+    // Copy/paste.
+    //
+    // Paste needs nothing: xterm registers a native `paste` listener on both
+    // its textarea and its element, so the browser's own Ctrl+V already
+    // delivers the clipboard through a ClipboardEvent — which, unlike
+    // navigator.clipboard, works on the plain-HTTP origins this panel is
+    // usually served from. Ctrl+Shift+V is bound only as the muscle-memory
+    // alias, and it DOES need the async API, so it degrades to a hint.
+    //
+    // Copy does need a binding: xterm draws its selection into a canvas, so no
+    // DOM selection exists for the browser to copy. Plain Ctrl+C must stay
+    // SIGINT, hence the Shift variant every terminal emulator uses.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown' || !e.ctrlKey || !e.shiftKey) return true
+      const key = e.key.toLowerCase()
+      if (key === 'c') {
+        const selection = term.getSelection()
+        if (!selection) return true
+        void copyText(selection).then((ok) => {
+          if (ok) term.clearSelection()
+          else toast.error(t('terminal.copyFailed', { defaultValue: 'Could not copy to clipboard' }))
+        })
+        return false
+      }
+      if (key === 'v') {
+        if (!window.isSecureContext || !navigator.clipboard?.readText) {
+          toast.info(t('terminal.pasteUseCtrlV', { defaultValue: 'Use Ctrl+V to paste (Ctrl+Shift+V needs HTTPS)' }))
+          return false
+        }
+        void navigator.clipboard.readText().then((text) => {
+          const sock = wsRef.current
+          if (text && sock && sock.readyState === WebSocket.OPEN) {
+            sock.send(new TextEncoder().encode(text))
+          }
+        }).catch(() => {
+          toast.info(t('terminal.pasteUseCtrlV', { defaultValue: 'Use Ctrl+V to paste (Ctrl+Shift+V needs HTTPS)' }))
+        })
+        return false
+      }
+      return true
+    })
 
     const onDataDisposable = term.onData((data) => {
       const sock = wsRef.current
@@ -236,6 +318,24 @@ export function TerminalSession({ sessionId, active, fontSize }: { sessionId: st
       fitAddonRef.current?.fit()
     }
   }, [fontSize])
+
+  // Follow the app theme. 'sfpanel:themechange' covers an explicit toggle; the
+  // matchMedia listener covers an OS flip while the preference is 'system',
+  // which lib/theme.ts also re-dispatches — subscribing to both is harmless
+  // and keeps this working if that ever changes.
+  useEffect(() => {
+    const applyTheme = () => {
+      if (termRef.current) termRef.current.options.theme = currentTermTheme()
+    }
+    applyTheme()
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    window.addEventListener('sfpanel:themechange', applyTheme)
+    media.addEventListener('change', applyTheme)
+    return () => {
+      window.removeEventListener('sfpanel:themechange', applyTheme)
+      media.removeEventListener('change', applyTheme)
+    }
+  }, [])
 
   // Re-fit and focus when tab becomes active
   useEffect(() => {

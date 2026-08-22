@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Terminal as TerminalIcon, Plus, X, Minus, Search, Eraser, History } from 'lucide-react'
+import { Terminal as TerminalIcon, Plus, X, Minus, Search, Eraser, History, ShieldAlert, User as UserIcon } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { TerminalSession as TerminalSessionInfo } from '@/types/api'
+import type { TerminalSession as TerminalSessionInfo, TerminalInfo } from '@/types/api'
 import { cn } from '@/lib/utils'
 import { TerminalSession, type TerminalSessionElement } from '@/pages/terminal/components/TerminalSession'
 import MobileTerminalBar from '@/components/MobileTerminalBar'
@@ -115,6 +115,7 @@ export default function TerminalPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [reattachOpen, setReattachOpen] = useState(false)
   const [reattachSessions, setReattachSessions] = useState<TerminalSessionInfo[]>([])
+  const [shellInfo, setShellInfo] = useState<TerminalInfo | null>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const reattachRef = useRef<HTMLDivElement>(null)
@@ -131,6 +132,25 @@ export default function TerminalPage() {
   useEffect(() => {
     saveFontSize(fontSize)
   }, [fontSize])
+
+  // Which account on which host the PTY will run as. Fetched once per mount:
+  // the page is already scoped to a single node (see nodeSuffix above) and
+  // switching nodes remounts it, so there is nothing to re-poll. A failure
+  // leaves the badge hidden rather than blocking the terminal.
+  useEffect(() => {
+    let cancelled = false
+    api
+      .getTerminalInfo()
+      .then((info) => {
+        if (!cancelled) setShellInfo(info)
+      })
+      .catch(() => {
+        if (!cancelled) setShellInfo(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const addTab = useCallback(() => {
     const id = generateTabId()
@@ -345,6 +365,39 @@ export default function TerminalPage() {
             </div>
           ))}
         </div>
+        {/* Who / where. In a cluster the same page targets a different machine
+            depending on the node picker, and a root prompt looks identical on
+            every one of them — so name the target rather than leave it implied. */}
+        {shellInfo && (
+          <div
+            className={cn(
+              'hidden sm:flex items-center gap-1.5 shrink-0 ml-2 px-2 py-1 rounded-md border text-[11px] font-mono',
+              shellInfo.is_root
+                ? 'bg-warning/10 border-warning/30 text-warning'
+                : 'bg-muted/50 border-transparent text-muted-foreground'
+            )}
+            title={
+              shellInfo.is_root
+                ? t('terminal.shellBadgeRootHint', {
+                    host: shellInfo.hostname,
+                    defaultValue: 'Running as root on {{host}} — commands here are unrestricted',
+                  })
+                : t('terminal.shellBadgeHint', {
+                    user: shellInfo.shell_user,
+                    host: shellInfo.hostname,
+                    defaultValue: 'Connected as {{user}} on {{host}}',
+                  })
+            }
+          >
+            {shellInfo.is_root
+              ? <ShieldAlert className="h-3 w-3 shrink-0" aria-hidden="true" />
+              : <UserIcon className="h-3 w-3 shrink-0" aria-hidden="true" />}
+            <span className="truncate max-w-[22ch]">
+              {shellInfo.shell_user}@{shellInfo.hostname}
+            </span>
+          </div>
+        )}
+
         <div className="flex items-center gap-1 ml-2 shrink-0">
           {/* Font size controls */}
           <Button

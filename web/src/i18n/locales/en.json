@@ -1286,7 +1286,11 @@
       "open": "Open"
     },
     "tabTitle": "Terminal {{n}}",
-    "reattachedTab": "Reattached {{id}}"
+    "reattachedTab": "Reattached {{id}}",
+    "shellBadgeHint": "Connected as {{user}} on {{host}}",
+    "shellBadgeRootHint": "Running as root on {{host}} — commands here are unrestricted",
+    "copyFailed": "Could not copy to clipboard",
+    "pasteUseCtrlV": "Use Ctrl+V to paste (Ctrl+Shift+V needs HTTPS)"
   },
   "files": {
     "title": "File Manager",
