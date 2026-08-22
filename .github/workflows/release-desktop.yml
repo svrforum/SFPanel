@@ -71,6 +71,37 @@ jobs:
       - name: Install Tauri CLI
         run: cd desktop && npm ci
 
+      # Stamp the release version into the Tauri manifests before building.
+      #
+      # Tauri names every bundle from tauri.conf.json's version field, while
+      # latest.json (composed further down) builds its download URLs from the
+      # git tag. Keeping the field in sync by hand is a trap that fires
+      # silently: forget the bump and the release still succeeds, but every
+      # URL in latest.json 404s and the desktop auto-updater is dead until
+      # someone notices. That is exactly what happened on v0.64.0, whose
+      # bundles shipped named 0.63.1. Derive it from the tag so the two can
+      # never diverge again; the checked-in value is now only a dev default.
+      - name: Stamp version from tag
+        shell: bash
+        env:
+          # Read the ref directly: the tag-resolving step lives in the separate
+          # `manifest` job, so its output is not visible here.
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}"
+          python3 - "$VERSION" <<'PYEOF'
+          import json, sys
+          version = sys.argv[1]
+          for path in ("desktop/src-tauri/tauri.conf.json", "desktop/package.json"):
+              with open(path, encoding="utf-8") as fh:
+                  data = json.load(fh)
+              data["version"] = version
+              with open(path, "w", encoding="utf-8") as fh:
+                  json.dump(data, fh, indent=2, ensure_ascii=False)
+                  fh.write("\n")
+              print(f"{path} -> {version}")
+          PYEOF
+
       - name: Build Tauri app
         run: cd desktop && npx tauri build --target ${{ matrix.target }}
         env:
