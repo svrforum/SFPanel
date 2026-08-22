@@ -60,7 +60,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
       - run: cd web && npm ci && npm run build
-      - uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           # Pin to a v2.x release built against Go 1.25.x. The 'latest' tag
           # on the v6 action resolved to a v1.x binary built with Go 1.24,
@@ -71,7 +71,7 @@ jobs:
         # repo-wide), but dropped errors on state-mutating calls in the
         # cluster/api/auth/db packages are a correctness/security risk, so
         # run errcheck against just those with a dedicated config.
-        uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.12.1
           args: -c .golangci-errcheck.yml ./internal/cluster/... ./internal/api/... ./internal/feature/auth/... ./internal/db/...
