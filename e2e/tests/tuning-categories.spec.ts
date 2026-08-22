@@ -29,7 +29,21 @@ test.describe('System tuning categories', () => {
     // Newly-added essentials must be reachable (by key) in their categories.
     const network = cats.find((c) => c.name === 'network')!.params.map((p) => p.key)
     expect(network).toContain('net.ipv4.ip_forward')
-    expect(network).toContain('net.bridge.bridge-nf-call-iptables')
+
+    // net.bridge.* is offered only when br_netfilter is loaded — writing those
+    // keys without the module errors out, so recommending them would hand the
+    // operator a setting that cannot be applied. Same shape as the conntrack
+    // case below: assert the contents when present, note the absence when not.
+    // A CI runner without the module loaded is the common case, and asserting
+    // unconditional presence here is what turned CI red from v0.63.0.
+    const bridgeKeys = network.filter((k) => k.startsWith('net.bridge.'))
+    if (bridgeKeys.length === 0) {
+      test.info().annotations.push({ type: 'note', description: 'br_netfilter not loaded; net.bridge.* intentionally absent' })
+    } else {
+      expect(bridgeKeys).toContain('net.bridge.bridge-nf-call-iptables')
+      expect(bridgeKeys).toContain('net.bridge.bridge-nf-call-ip6tables')
+    }
+
     expect(network).toContain('net.ipv4.tcp_slow_start_after_idle')
     expect(network).toContain('net.ipv4.tcp_notsent_lowat')
     expect(network).toContain('net.ipv4.tcp_rfc1337')
