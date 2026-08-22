@@ -99,7 +99,14 @@ func (t *TLSManager) IssueNodeCert(nodeID string, addresses []string) (certPEM, 
 		return nil, nil, fmt.Errorf("generate node key: %w", err)
 	}
 
-	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	// Both of these errors used to be discarded. A nil serial turns into an
+	// opaque x509 failure at signing time; a nil keyDER is worse — it produces
+	// a syntactically valid but empty PEM block that gets written to node.key
+	// and only fails much later, mid-handshake, as an unexplained TLS error.
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate serial: %w", err)
+	}
 
 	template := &x509.Certificate{
 		SerialNumber: serial,
@@ -130,7 +137,10 @@ func (t *TLSManager) IssueNodeCert(nodeID string, addresses []string) (certPEM, 
 	}
 
 	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	keyDER, _ := x509.MarshalECPrivateKey(nodeKey)
+	keyDER, err := x509.MarshalECPrivateKey(nodeKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal node key: %w", err)
+	}
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
 	return certPEM, keyPEM, nil
@@ -216,8 +226,18 @@ func (t *TLSManager) getNodeCert() (*tls.Certificate, error) {
 		return nil, fmt.Errorf("stat node cert: %w", err)
 	}
 
+	// Watch BOTH files. Keying the reload on node.crt alone left a blind spot:
+	// a rotation that rewrote only the key — including this function's own
+	// half-written-rotation path below, which serves the stale pair when the
+	// key lands after the cert — was never noticed again, because the cert's
+	// mtime had already been recorded. The pair stayed stale until a restart.
+	newest := info.ModTime()
+	if keyInfo, keyErr := os.Stat(keyPath); keyErr == nil && keyInfo.ModTime().After(newest) {
+		newest = keyInfo.ModTime()
+	}
+
 	t.lastStatTime = now
-	if t.cachedCert != nil && info.ModTime().Equal(t.cachedMtime) {
+	if t.cachedCert != nil && newest.Equal(t.cachedMtime) {
 		return t.cachedCert, nil
 	}
 
@@ -231,7 +251,7 @@ func (t *TLSManager) getNodeCert() (*tls.Certificate, error) {
 		return nil, fmt.Errorf("load node cert: %w", err)
 	}
 	t.cachedCert = &cert
-	t.cachedMtime = info.ModTime()
+	t.cachedMtime = newest
 	return t.cachedCert, nil
 }
 

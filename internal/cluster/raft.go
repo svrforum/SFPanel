@@ -183,7 +183,7 @@ func validateRecoveryServers(servers []raft.Server, localID string) error {
 
 // Apply submits a command to the Raft cluster.
 func (rn *RaftNode) Apply(cmd Command, timeout time.Duration) error {
-	if rn.raft.State() != raft.Leader {
+	if !rn.isLeader() {
 		return ErrNotLeader
 	}
 
@@ -211,7 +211,7 @@ func (rn *RaftNode) Apply(cmd Command, timeout time.Duration) error {
 // no longer leader-of-quorum, Barrier returns the underlying Raft error
 // rather than letting the caller proceed with stale state.
 func (rn *RaftNode) Barrier(timeout time.Duration) error {
-	if rn.raft.State() != raft.Leader {
+	if !rn.isLeader() {
 		return ErrNotLeader
 	}
 	f := rn.raft.Barrier(timeout)
@@ -225,7 +225,7 @@ func (rn *RaftNode) Barrier(timeout time.Duration) error {
 // (e.g. mid-partition before the lease timeout fires). Sub-200ms in
 // healthy clusters; errors out at `timeout` when partitioned.
 func (rn *RaftNode) VerifyLeader(timeout time.Duration) error {
-	if rn.raft.State() != raft.Leader {
+	if !rn.isLeader() {
 		return ErrNotLeader
 	}
 	done := make(chan error, 1)
@@ -242,7 +242,7 @@ func (rn *RaftNode) VerifyLeader(timeout time.Duration) error {
 
 // AddVoter adds a new voter node to the Raft cluster.
 func (rn *RaftNode) AddVoter(nodeID, address string) error {
-	if rn.raft.State() != raft.Leader {
+	if !rn.isLeader() {
 		return ErrNotLeader
 	}
 
@@ -259,7 +259,7 @@ func (rn *RaftNode) AddVoter(nodeID, address string) error {
 // without contributing to quorum, so a mid-join crash can't drop the cluster
 // below quorum on a 2-of-3 cluster.
 func (rn *RaftNode) AddNonvoter(nodeID, address string) error {
-	if rn.raft.State() != raft.Leader {
+	if !rn.isLeader() {
 		return ErrNotLeader
 	}
 	f := rn.raft.AddNonvoter(
@@ -275,7 +275,7 @@ func (rn *RaftNode) AddNonvoter(nodeID, address string) error {
 // contribute to quorum. Idempotent — re-promoting a voter is a no-op in
 // HashiCorp Raft.
 func (rn *RaftNode) PromoteToVoter(nodeID, address string) error {
-	if rn.raft.State() != raft.Leader {
+	if !rn.isLeader() {
 		return ErrNotLeader
 	}
 	f := rn.raft.AddVoter(
@@ -288,7 +288,7 @@ func (rn *RaftNode) PromoteToVoter(nodeID, address string) error {
 
 // RemoveServer removes a node from the Raft cluster.
 func (rn *RaftNode) RemoveServer(nodeID string) error {
-	if rn.raft.State() != raft.Leader {
+	if !rn.isLeader() {
 		return ErrNotLeader
 	}
 
@@ -299,13 +299,27 @@ func (rn *RaftNode) RemoveServer(nodeID string) error {
 	return f.Error()
 }
 
+// isLeader reports leadership, treating a RaftNode with no underlying Raft as
+// "not the leader" rather than dereferencing nil.
+//
+// A node without Raft genuinely has no leadership, so ErrNotLeader is the
+// correct answer for every mutating method below — not merely a way to dodge a
+// panic. It also makes the package testable: the FSM-level tests build a
+// RaftNode with only its FSM, which is the arrangement that surfaced this.
+func (rn *RaftNode) isLeader() bool {
+	return rn != nil && rn.raft != nil && rn.raft.State() == raft.Leader
+}
+
 // IsLeader returns true if this node is the Raft leader.
 func (rn *RaftNode) IsLeader() bool {
-	return rn.raft.State() == raft.Leader
+	return rn.isLeader()
 }
 
 // LeaderID returns the current leader's node ID.
 func (rn *RaftNode) LeaderID() string {
+	if rn == nil || rn.raft == nil {
+		return ""
+	}
 	_, id := rn.raft.LeaderWithID()
 	return string(id)
 }
@@ -325,6 +339,9 @@ func (rn *RaftNode) LeaderGRPCAddress() string {
 
 // State returns the current Raft state string.
 func (rn *RaftNode) State() string {
+	if rn == nil || rn.raft == nil {
+		return "Shutdown"
+	}
 	return rn.raft.State().String()
 }
 
@@ -335,7 +352,7 @@ func (rn *RaftNode) GetFSM() *FSM {
 
 // TransferLeadership transfers leadership to the target node.
 func (rn *RaftNode) TransferLeadership(targetNodeID string) error {
-	if rn.raft.State() != raft.Leader {
+	if !rn.isLeader() {
 		return ErrNotLeader
 	}
 
@@ -364,6 +381,9 @@ func (rn *RaftNode) TransferLeadership(targetNodeID string) error {
 
 // Shutdown cleanly stops the Raft node with a timeout.
 func (rn *RaftNode) Shutdown() error {
+	if rn == nil || rn.raft == nil {
+		return nil // nothing was ever started
+	}
 	done := make(chan error, 1)
 	go func() {
 		f := rn.raft.Shutdown()

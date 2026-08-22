@@ -568,9 +568,16 @@ func (m *Manager) ConfirmJoin(nodeID string) error {
 		Type:  CmdAddNode,
 		Value: updatedJSON,
 	}, 5*time.Second); err != nil {
-		// Raft already shows voter; FSM update failed. Surface but don't
-		// undo Raft — leaving FSM out-of-sync is recoverable on the next
-		// heartbeat tick (StartLocalMetrics rewrites the entry).
+		// Raft already shows voter; FSM update failed. Don't undo Raft —
+		// the promotion itself succeeded and reverting it would be worse than
+		// a stale role label.
+		//
+		// This is NOT self-healing. An earlier version of this comment claimed
+		// the next heartbeat tick would rewrite the entry via StartLocalMetrics;
+		// that function only records heartbeats and sends gRPC pings — it
+		// contains no raft.Apply at all, so nothing repairs the role on its own.
+		// The symptom is a node that works as a voter but shows the wrong role
+		// in the UI; the remedy is to re-run the promotion from the leader.
 		slog.Warn("FSM voter-role update failed after promotion",
 			"component", "cluster", "node_id", nodeID, "error", err)
 	}
@@ -959,7 +966,12 @@ func (m *Manager) SeedClusterCA() error {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return ErrNotLeader
 	}
-	if m.raft.GetFSM().GetState().Config[configKeyCAKey] != "" {
+	// Guard on BOTH keys. Guarding on the key alone meant a cluster whose key
+	// had replicated but whose cert had not could never repair the cert: this
+	// returned early every time, and ensureCAKey's opportunistic cert restore
+	// then has nothing to read.
+	replicated := m.raft.GetFSM().GetState().Config
+	if replicated[configKeyCAKey] != "" && replicated[configKeyCACert] != "" {
 		return nil // already replicated
 	}
 	if !m.tls.HasCAKey() {
@@ -1167,8 +1179,21 @@ func (m *Manager) SyncAccountFromDB(username, passwordHash, totpSecret string) e
 	})
 }
 
+// mustJSON encodes a Raft command payload.
+//
+// The error used to be discarded outright, which is the worst option available:
+// a failed marshal yields a nil Value, the command is still applied, and the
+// FSM records an empty entry for a key that looked like it was written. Every
+// value passed today (strings, Node, AdminAccount) is marshalable, so this
+// should never fire — but if it ever does, a log line is what turns silent
+// state corruption into something an operator can see.
 func mustJSON(v interface{}) json.RawMessage {
-	data, _ := json.Marshal(v)
+	data, err := json.Marshal(v)
+	if err != nil {
+		slog.Error("failed to encode raft command payload — the FSM entry will be empty",
+			"component", "cluster", "type", fmt.Sprintf("%T", v), "error", err)
+		return nil
+	}
 	return data
 }
 
@@ -1525,4 +1550,3 @@ func (m *Manager) UpdateNodeAddress(nodeID, apiAddr, grpcAddr string) error {
 	m.events.Emit(EventNodeJoined, nodeID, nodeName, fmt.Sprintf("address updated: api=%s grpc=%s", apiAddr, grpcAddr))
 	return nil
 }
-
