@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.64.2] – 2026-08-23
+
+### Fixed
+
+- **A cluster node could not register its certificate authority with the leader.** Requests forwarded between nodes never declared a content type, so the receiving handler rejected the body outright. Every earlier caller of that path sent a GET with no body, so nothing had exercised it until now — the symptom was a follower repeatedly reporting that the leader had refused its authority, leaving peers reaching it over plain HTTP. Found on a live two-node cluster, not in a test.
+
 ## [0.64.1] – 2026-08-23
 
 ### Fixed

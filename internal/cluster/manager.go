@@ -121,6 +121,15 @@ func (m *Manager) ProxyToNode(ctx context.Context, nodeID, method, path string, 
 	if username != "" {
 		headers["X-SFPanel-Original-User"] = username
 	}
+	if len(body) > 0 {
+		// Echo's c.Bind() refuses a body with no Content-Type (415), which the
+		// receiving handler surfaces as a 400. Every caller before the panel-CA
+		// publish used GET with a nil body, so the omission stayed latent until
+		// the first JSON POST went through here. Set it at the transport rather
+		// than in each caller: the gRPC path carries only what this map puts on
+		// the request, and the next caller would hit the same wall.
+		headers["Content-Type"] = "application/json"
+	}
 	req := &pb.APIRequest{Method: method, Path: path, Body: body, Headers: headers}
 
 	pool := m.GetConnPool()
