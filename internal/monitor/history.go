@@ -210,26 +210,58 @@ func GetHistoryRange(rangeStr string) []MetricsPoint {
 		return []MetricsPoint{}
 	}
 
-	// Downsample to ~120 points if needed
-	const maxPoints = 120
-	if len(filtered) <= maxPoints {
-		result := make([]MetricsPoint, len(filtered))
-		copy(result, filtered)
+	return downsamplePeaks(filtered, historyMaxReturned)
+}
+
+// historyMaxReturned bounds what a range query returns, so a 24h request stays
+// cheap to send and to draw.
+const historyMaxReturned = 120
+
+// downsamplePeaks reduces a series to at most maxPoints, keeping the peak of
+// each bucket rather than an arbitrary member of it.
+//
+// This used to take every Nth sample: with 1440 minutes in a 24h window and a
+// cap of 120, that discarded eleven of every twelve points. A three-minute CPU
+// pin had about a one-in-four chance of surviving, and *which* points survived
+// moved as older rows aged out of the window — so reloading the page made a
+// spike appear or vanish. A chart that is the only evidence of an incident
+// cannot be non-deterministic about whether the incident happened.
+//
+// Each bucket reports the maximum of each series independently, so a memory
+// spike is not hidden by a quiet CPU in the same bucket. That makes a reduced
+// point an envelope rather than one observed sample — the honest trade for a
+// chart whose job is "did anything spike", and the reason the timestamp is
+// taken from a real sample in the bucket (its last) rather than invented.
+func downsamplePeaks(points []MetricsPoint, maxPoints int) []MetricsPoint {
+	if maxPoints < 1 || len(points) <= maxPoints {
+		result := make([]MetricsPoint, len(points))
+		copy(result, points)
 		return result
 	}
 
-	step := len(filtered) / maxPoints
-	if step < 1 {
-		step = 1
-	}
-
-	result := make([]MetricsPoint, 0, maxPoints+1)
-	for i := 0; i < len(filtered); i += step {
-		result = append(result, filtered[i])
-	}
-	// Always include the last point
-	if result[len(result)-1].Time != filtered[len(filtered)-1].Time {
-		result = append(result, filtered[len(filtered)-1])
+	result := make([]MetricsPoint, 0, maxPoints)
+	for i := 0; i < maxPoints; i++ {
+		// Bucket edges computed from the ends, so every sample belongs to
+		// exactly one bucket and none is counted twice or skipped.
+		start := i * len(points) / maxPoints
+		end := (i + 1) * len(points) / maxPoints
+		if end <= start {
+			continue
+		}
+		peak := points[start]
+		for _, pt := range points[start:end] {
+			if pt.CPU > peak.CPU {
+				peak.CPU = pt.CPU
+			}
+			if pt.MemPercent > peak.MemPercent {
+				peak.MemPercent = pt.MemPercent
+			}
+			if pt.DiskPercent > peak.DiskPercent {
+				peak.DiskPercent = pt.DiskPercent
+			}
+		}
+		peak.Time = points[end-1].Time
+		result = append(result, peak)
 	}
 	return result
 }

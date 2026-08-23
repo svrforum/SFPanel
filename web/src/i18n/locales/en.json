@@ -212,7 +212,30 @@
     "totalReceived": "Total Received",
     "diskChart": "Disk Usage",
     "updateBanner": "A new version (v{{version}}) is available.",
-    "updateBannerAction": "Go to Settings"
+    "updateBannerAction": "Go to Settings",
+    "containersAttention": "Needs attention",
+    "containerState": {
+      "running": "running",
+      "unhealthy": "unhealthy",
+      "restarting": "restarting",
+      "crashed": "crashed",
+      "stopped": "stopped"
+    },
+    "backupLabel": "Backup",
+    "backupNever": "never run",
+    "backupDisabled": "off",
+    "attentionTitle": "Attention",
+    "attentionNone": "",
+    "failedUnits_one": "{{count}} failed service",
+    "failedUnits_other": "{{count}} failed services",
+    "attention": {
+      "serviceFailed": "unit failed",
+      "exited": "exited {{code}}",
+      "oom": "out of memory",
+      "kill": "killed",
+      "unhealthy": "healthcheck failing",
+      "restart": "restarting repeatedly"
+    }
   },
   "processes": {
     "title": "Process Manager",

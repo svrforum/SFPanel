@@ -483,6 +483,29 @@ class ApiClient {
     return this.request(`/alerts/rules/${id}`, { method: 'DELETE' })
   }
 
+  // Recent container events. Registered since observability landed and never
+  // called from the SPA — the rows carried exit codes and OOM kills that only
+  // a per-container drawer could show, which meant you had to already suspect
+  // the container.
+  //
+  // Returns {observability_disabled:true, data:[]} rather than an error when
+  // the collector is off, so unwrap both shapes here instead of at each call.
+  async getRecentEvents(limit = 50) {
+    const res = await this.request<
+      import('@/types/api').RecentContainerEvent[] | { observability_disabled?: boolean; data?: unknown }
+    >(`/docker/events/recent?limit=${limit}`)
+    if (Array.isArray(res)) return res
+    return [] as import('@/types/api').RecentContainerEvent[]
+  }
+
+  // ?state=failed keeps a 30s poll from carrying 229 units to render a number
+  // that is almost always zero.
+  getFailedServices() {
+    return this.request<{ services: Array<{ name: string; active_state: string; sub_state: string }>; total: number }>(
+      '/system/services?state=failed'
+    )
+  }
+
   getAlertHistory(page: number, limit: number) {
     return this.request<{ items: import('@/types/api').AlertHistoryEntry[]; total: number }>(
       `/alerts/history?page=${page}&limit=${limit}`
@@ -502,8 +525,21 @@ class ApiClient {
     return this.request<Array<{ pid: number; name: string; cpu: number; memory: number; status: string }>>('/system/processes')
   }
 
-  getDashboardOverview() {
-    return this.request<DashboardOverview>('/system/overview')
+  // The range reaches the server. It always accepted one — GetOverview reads
+  // ?range= and hands it to GetHistoryRange — but the client never sent it, so
+  // every request got the 24h series downsampled to ~120 points and the "1h"
+  // tab drew the five of them that fell inside the hour. Asking for the range
+  // being displayed gets 60 one-minute points instead.
+  getDashboardOverview(range?: string) {
+    const q = range ? `?range=${encodeURIComponent(range)}` : ''
+    return this.request<DashboardOverview>(`/system/overview${q}`)
+  }
+
+  // Just the series, for when the range changes and the host info has not.
+  getMetricsHistory(range: string) {
+    return this.request<import('@/types/api').MetricsPoint[]>(
+      `/system/metrics-history?range=${encodeURIComponent(range)}`
+    )
   }
 
   // System tuning

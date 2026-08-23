@@ -32,17 +32,35 @@ import MetricsCard from '@/components/MetricsCard'
 import MetricsChart from '@/components/MetricsChart'
 import FirewallLogMiniTable from '@/components/FirewallLogMiniTable'
 import type { LayoutOutletContext } from '@/components/Layout'
-import { cn, formatBytes, formatUptime } from '@/lib/utils'
+import { cn, formatBytes, formatDate, formatUptime } from '@/lib/utils'
 import { parseFirewallLine } from '@/lib/logParsers'
 import type { FirewallLogEntry } from '@/lib/logParsers'
-import type { DashboardOverview, HostInfo, Metrics } from '@/types/api'
-import { appendChartPoint, type ChartPoint } from './dashboard/chartSeries'
+import type { AlertHistoryEntry, BackupScheduleConfig, DashboardOverview, Filesystem, HostInfo, Metrics, RecentContainerEvent } from '@/types/api'
+import type { ChartPoint } from './dashboard/chartSeries'
+import { worstFilesystem, rootFilesystem } from '@/lib/filesystems'
+import { AttentionStrip } from './dashboard/AttentionStrip'
+import { buildAttentionItems } from './dashboard/attention'
+import { containerHealth, compareForSummary, needsAttention, type ContainerHealth } from '@/lib/containerState'
 
 // How old Layout's shared overview payload may be before we refetch instead of
 // reusing it. Covers the mount-together race on first entry (delta well under
 // a second) while a later navigation back to the dashboard still gets fresh
 // data.
 const OVERVIEW_REUSE_MS = 10_000
+
+// How often the chart series is refetched. The server collects a point a
+// minute, so anything faster asks for data that does not exist yet.
+const CHART_REFRESH_MS = 30_000
+
+// A stopped container is not a problem; a crashed one is. The palette is the
+// whole point of separating them.
+const CONTAINER_PILL: Record<ContainerHealth, string> = {
+  running: 'bg-success/10 text-success',
+  unhealthy: 'bg-warning/15 text-warning',
+  restarting: 'bg-warning/15 text-warning',
+  crashed: 'bg-destructive/10 text-destructive',
+  stopped: 'bg-secondary text-muted-foreground',
+}
 
 type ChartRange = '1h' | '4h' | '12h' | '24h'
 const CHART_RANGE_MS: Record<ChartRange, number> = {
@@ -65,7 +83,12 @@ interface ContainerSummary {
   Names: string[]
   Image: string
   State: string
+  // Declared before and never read. It carries "(unhealthy)" and the exit
+  // code, which is the whole difference between a crash and a clean stop.
   Status: string
+  // Computed by the handler with a GROUP BY over container_metrics_history on
+  // every call the dashboard already makes, then parsed and discarded here.
+  cpu_avg_1h?: number | null
 }
 
 const quickActions = [
@@ -125,6 +148,11 @@ export default function Dashboard() {
   const [chartRange, setChartRange] = useState<ChartRange>('1h')
   const [processes, setProcesses] = useState<ProcessInfo[]>([])
   const [containers, setContainers] = useState<ContainerSummary[]>([])
+  const [filesystems, setFilesystems] = useState<Filesystem[]>([])
+  const [backup, setBackup] = useState<BackupScheduleConfig | null>(null)
+  const [events, setEvents] = useState<RecentContainerEvent[]>([])
+  const [firedAlerts, setFiredAlerts] = useState<AlertHistoryEntry[]>([])
+  const [failedUnits, setFailedUnits] = useState<Array<{ name: string }>>([])
   const [recentLogs, setRecentLogs] = useState<string[]>([])
   const [logTab, setLogTab] = useState<'firewall' | 'syslog'>('firewall')
   // Latched by the first firewall fetch, or by the operator picking a tab —
@@ -155,15 +183,6 @@ export default function Dashboard() {
     }
     if (data.host && data.metrics) {
       setUptimeAnchor({ uptime: data.host.uptime, at: data.metrics.timestamp })
-    }
-    if (data.metrics_history) {
-      const points = data.metrics_history.map((pt) => ({
-        ts: pt.time,
-        cpu: pt.cpu,
-        memory: pt.mem_percent,
-        disk: pt.disk_percent ?? 0,
-      }))
-      setChartData(points)
     }
     if (data.update_info?.update_available) {
       setUpdateAvailable(data.update_info.latest_version || null)
@@ -205,6 +224,32 @@ export default function Dashboard() {
     api.getContainers().then((data) => setContainers(data || [])).catch(() => setContainers([]))
   }, [])
   useVisibleInterval(fetchContainers, 30000)
+
+  // The disk card read disk.Usage("/") and nothing else, so a media array on
+  // /mnt or a share this panel mounted itself could sit at 99% behind a calm
+  // 34%. df already lists them all.
+  const fetchFilesystems = useCallback(() => {
+    api.getFilesystems().then((data) => setFilesystems(data || [])).catch(() => setFilesystems([]))
+  }, [])
+  useVisibleInterval(fetchFilesystems, 30000)
+
+  // Backup state, read once — it changes on a schedule measured in hours.
+  // The cost of not knowing this is discovered during a restore.
+  useEffect(() => {
+    api.getBackupSchedule().then((d) => setBackup(d?.schedule ?? null)).catch(() => {})
+  }, [])
+
+  // The three feeds behind the attention strip. Every one of them was already
+  // collected on a timer and readable through an existing route; none of them
+  // reached the page an operator actually opens. Failures are swallowed on
+  // purpose — a host without Docker, without alert rules or without systemd
+  // simply contributes nothing to the list.
+  const fetchAttention = useCallback(() => {
+    api.getRecentEvents(50).then(setEvents).catch(() => setEvents([]))
+    api.getAlertHistory(1, 10).then((d) => setFiredAlerts(d?.items ?? [])).catch(() => setFiredAlerts([]))
+    api.getFailedServices().then((d) => setFailedUnits(d?.services ?? [])).catch(() => setFailedUnits([]))
+  }, [])
+  useVisibleInterval(fetchAttention, 30000)
 
   const fetchLogs = useCallback(() => {
     // Go's JSON serializer turns an empty []string into null; defaulting to
@@ -251,20 +296,57 @@ export default function Dashboard() {
       }
     }
     prevNetRef.current = { sent: data.net_bytes_sent, recv: data.net_bytes_recv, ts: data.timestamp }
-    setChartData((prevData) =>
-      appendChartPoint(prevData, {
-        ts: Date.now(),
-        cpu: data.cpu,
-        memory: data.mem_percent,
-        disk: data.disk_percent,
-      }),
-    )
   }, [])
 
   const { connected } = useWebSocket({
     url: '/ws/metrics',
     onMessage,
   })
+
+  // The chart is the server's series for the range on screen, refetched, and
+  // nothing else.
+  //
+  // It used to be one fixed payload filtered on the client. The server always
+  // accepted ?range= and the client never sent it, so every request returned
+  // the 24h series reduced to ~120 points — one every twelve minutes — and the
+  // "1h" tab drew the five that fell inside the hour. Asking for the range
+  // being displayed returns sixty one-minute points instead.
+  //
+  // Live socket samples are no longer appended. The server collects once a
+  // minute, so a two-second sample added nothing the series did not already
+  // have; what it did add was a second source of truth that accumulated past
+  // its own cap, evicted the history behind it, and stamped its points with
+  // the browser's clock while the server's rows carried the host's. The metric
+  // cards remain live at two seconds — the chart is history, and history has
+  // one owner.
+  useEffect(() => {
+    let cancelled = false
+    const load = () => {
+      if (document.hidden) return
+      api
+        .getMetricsHistory(chartRange)
+        .then((points) => {
+          if (cancelled) return
+          setChartData(
+            (points ?? []).map((pt) => ({
+              ts: pt.time,
+              cpu: pt.cpu,
+              memory: pt.mem_percent,
+              disk: pt.disk_percent ?? 0,
+            })),
+          )
+        })
+        .catch(() => {})
+    }
+    load()
+    const timer = window.setInterval(load, CHART_REFRESH_MS)
+    document.addEventListener('visibilitychange', load)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', load)
+    }
+  }, [chartRange])
 
   // Derive 'now' from the latest data point's timestamp — the metrics WS
   // sends a fresh sample every ~2s, so anchoring the rolling window to
@@ -294,8 +376,53 @@ export default function Dashboard() {
       ? uptimeAnchor.uptime + Math.max(0, Math.floor((metrics.timestamp - uptimeAnchor.at) / 1000))
       : hostInfo?.uptime ?? 0
 
-  const runningContainers = containers.filter((c) => c.State === 'running').length
-  const stoppedContainers = containers.length - runningContainers
+  // Three states, not two. `stopped = total - running` put a container in a
+  // crash loop in the same grey box as one deliberately stopped weeks ago.
+  const containerRows = useMemo(
+    () =>
+      containers
+        .map((c) => ({
+          id: c.Id,
+          name: c.Names?.[0]?.replace(/^\//, '') || c.Id.slice(0, 12),
+          health: containerHealth(c.State, c.Status),
+          cpu: c.cpu_avg_1h ?? null,
+        }))
+        .sort(compareForSummary),
+    [containers],
+  )
+  const runningContainers = containerRows.filter((c) => c.health === 'running').length
+  const attentionContainers = containerRows.filter((c) => needsAttention(c.health)).length
+  const stoppedContainers = containerRows.filter((c) => c.health === 'stopped').length
+
+  // Anchored to the server's clock, like uptime, so a browser whose time is
+  // off does not silently filter the whole list away.
+  const attentionItems = useMemo(
+    () =>
+      buildAttentionItems({
+        events,
+        alerts: firedAlerts,
+        failedUnits,
+        now: metrics?.timestamp ?? 0,
+      }),
+    [events, firedAlerts, failedUnits, metrics?.timestamp],
+  )
+
+  // The fullest filesystem an operator can actually fill, and / beneath it.
+  const worstFs = useMemo(() => worstFilesystem(filesystems), [filesystems])
+  const rootFs = useMemo(() => rootFilesystem(filesystems), [filesystems])
+
+  // Backup, said plainly. A failed last run is the one worth a colour; a
+  // schedule that is simply off is a choice, not an alarm.
+  const backupLabel = !backup
+    ? '—'
+    : !backup.enabled
+      ? t('dashboard.backupDisabled')
+      : backup.last_status === 'error'
+        ? t('common.failed', { defaultValue: 'failed' })
+        : backup.last_run
+          ? formatDate(backup.last_run)
+          : t('dashboard.backupNever')
+  const backupTone = backup?.enabled && backup.last_status === 'error' ? 'text-destructive' : ''
 
   return (
     <div className="space-y-4 md:space-y-6 max-w-[1400px]">
@@ -329,6 +456,12 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Things that went wrong, or nothing at all. Directly under the update
+          banner rather than beside Quick Actions at the bottom: a strip that
+          only appears when something is broken has to appear where the eye
+          already is. */}
+      <AttentionStrip items={attentionItems} />
+
       {/* Host info section */}
       {hostInfo && (
         <div className="bg-card rounded-2xl p-4 md:p-6 card-shadow">
@@ -336,7 +469,7 @@ export default function Dashboard() {
             <Server className="h-4 w-4 text-muted-foreground" />
             <span className="text-[13px] font-semibold text-foreground">{t('dashboard.hostInfo')}</span>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 md:gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 md:gap-4">
             {[
               { label: t('dashboard.hostname'), value: hostInfo.hostname },
               { label: t('dashboard.os'), value: hostInfo.os },
@@ -345,10 +478,22 @@ export default function Dashboard() {
               { label: t('dashboard.uptime'), value: formatUptime(liveUptime) },
               { label: t('dashboard.cpuCores'), value: hostInfo.num_cpu },
               { label: t('dashboard.ipAddress'), value: primaryIP || '-', mono: true },
+              // Read only from Settings → Maintenance before this. The cost of
+              // not knowing a backup is off, or last failed, is paid during a
+              // restore — which is the worst moment to discover it.
+              { label: t('dashboard.backupLabel'), value: backupLabel, tone: backupTone },
             ].map((item) => (
               <div key={item.label}>
                 <p className="text-[11px] text-muted-foreground mb-0.5">{item.label}</p>
-                <p className={`text-[13px] font-semibold ${'mono' in item && item.mono ? 'font-mono' : ''}`}>{item.value}</p>
+                <p
+                  className={cn(
+                    'text-[13px] font-semibold',
+                    'mono' in item && item.mono ? 'font-mono' : '',
+                    'tone' in item ? item.tone : '',
+                  )}
+                >
+                  {item.value}
+                </p>
               </div>
             ))}
           </div>
@@ -383,14 +528,30 @@ export default function Dashboard() {
           subPercent={metrics?.swap_percent}
         />
         <MetricsCard
-          title={t('dashboard.disk')}
-          value={
-            metrics
-              ? `${formatBytes(metrics.disk_used)} / ${formatBytes(metrics.disk_total)}`
-              : '--'
+          title={
+            worstFs && worstFs.mount_point !== '/'
+              ? `${t('dashboard.disk')} · ${worstFs.mount_point}`
+              : t('dashboard.disk')
           }
-          percent={metrics?.disk_percent ?? 0}
+          value={
+            worstFs
+              ? `${formatBytes(worstFs.used)} / ${formatBytes(worstFs.size)}`
+              : metrics
+                ? `${formatBytes(metrics.disk_used)} / ${formatBytes(metrics.disk_total)}`
+                : '--'
+          }
+          percent={worstFs ? worstFs.use_percent : (metrics?.disk_percent ?? 0)}
           icon={<HardDrive className="h-5 w-5" />}
+          // Root keeps a line of its own whenever it is not the headline, so
+          // promoting a fuller mount never costs the operator the number they
+          // came for.
+          subLabel={worstFs && worstFs.mount_point !== '/' && rootFs ? '/' : undefined}
+          subValue={
+            worstFs && worstFs.mount_point !== '/' && rootFs
+              ? `${formatBytes(rootFs.used)} / ${formatBytes(rootFs.size)}`
+              : undefined
+          }
+          subPercent={worstFs && worstFs.mount_point !== '/' && rootFs ? rootFs.use_percent : undefined}
         />
         <MetricsCard
           title={t('dashboard.network')}
@@ -449,21 +610,35 @@ export default function Dashboard() {
                     <p className="text-xl font-bold text-success">{runningContainers}</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">{t('dashboard.containersRunning')}</p>
                   </div>
+                  {/* The third tile was "total", which is the one number you
+                      can work out from the other two. It reports trouble
+                      instead — and stays grey at zero rather than shouting. */}
+                  <div className={cn('text-center py-2.5 rounded-xl', attentionContainers > 0 ? 'bg-warning/10' : 'bg-secondary')}>
+                    <p className={cn('text-xl font-bold', attentionContainers > 0 ? 'text-warning' : 'text-muted-foreground')}>
+                      {attentionContainers}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{t('dashboard.containersAttention')}</p>
+                  </div>
                   <div className="text-center py-2.5 rounded-xl bg-secondary">
                     <p className="text-xl font-bold text-muted-foreground">{stoppedContainers}</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">{t('dashboard.containersStopped')}</p>
                   </div>
-                  <div className="text-center py-2.5 rounded-xl bg-primary/8">
-                    <p className="text-xl font-bold text-primary">{containers.length}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">{t('dashboard.containersTotal')}</p>
-                  </div>
                 </div>
                 <div className="space-y-2">
-                  {containers.slice(0, 5).map((c) => (
-                    <div key={c.Id} className="flex items-center justify-between py-1">
-                      <span className="truncate text-[13px] font-medium">{c.Names?.[0]?.replace(/^\//, '') || c.Id.slice(0, 12)}</span>
-                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${c.State === 'running' ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'}`}>
-                        {c.State}
+                  {/* Ordered trouble-first, then by the hourly CPU average the
+                      handler already computes and this page used to discard —
+                      so the five rows explain the chart above them instead of
+                      being whichever five the daemon listed first. */}
+                  {containerRows.slice(0, 5).map((c) => (
+                    <div key={c.id} className="flex items-center justify-between gap-2 py-1">
+                      <span className="truncate text-[13px] font-medium">{c.name}</span>
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        {c.cpu != null && (
+                          <span className="font-mono text-[11px] text-muted-foreground">{c.cpu.toFixed(1)}%</span>
+                        )}
+                        <span className={cn('text-[11px] font-medium px-2 py-0.5 rounded-full', CONTAINER_PILL[c.health])}>
+                          {t(`dashboard.containerState.${c.health}`)}
+                        </span>
                       </span>
                     </div>
                   ))}

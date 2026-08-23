@@ -212,7 +212,30 @@
     "totalReceived": "총 수신",
     "diskChart": "디스크 사용량",
     "updateBanner": "새 버전 (v{{version}})이 사용 가능합니다.",
-    "updateBannerAction": "설정으로 이동"
+    "updateBannerAction": "설정으로 이동",
+    "containersAttention": "주의 필요",
+    "containerState": {
+      "running": "실행 중",
+      "unhealthy": "비정상",
+      "restarting": "재시작 중",
+      "crashed": "비정상 종료",
+      "stopped": "중지"
+    },
+    "backupLabel": "백업",
+    "backupNever": "실행된 적 없음",
+    "backupDisabled": "꺼짐",
+    "attentionTitle": "주의",
+    "attentionNone": "",
+    "failedUnits_one": "실패한 서비스 {{count}}개",
+    "failedUnits_other": "실패한 서비스 {{count}}개",
+    "attention": {
+      "serviceFailed": "서비스 실패",
+      "exited": "종료 코드 {{code}}",
+      "oom": "메모리 부족으로 종료",
+      "kill": "강제 종료됨",
+      "unhealthy": "헬스체크 실패",
+      "restart": "재시작 반복"
+    }
   },
   "processes": {
     "title": "프로세스 관리자",

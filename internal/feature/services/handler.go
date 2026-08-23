@@ -86,10 +86,33 @@ func (h *Handler) ListServices(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrServiceError, "Failed to list services")
 	}
 
+	// ?state=failed narrows the answer to units that need attention. The
+	// dashboard polls this every thirty seconds for a number that is almost
+	// always zero, and the unfiltered list is 229 units on an ordinary host —
+	// paying for that payload to render "0" is the wrong trade.
+	if c.QueryParam("state") == "failed" {
+		services = failedOnly(services)
+	}
+
 	return response.OK(c, map[string]interface{}{
 		"services": services,
 		"total":    len(services),
 	})
+}
+
+// failedOnly keeps the units systemd considers failed.
+//
+// Matched on the state fields only. Substring-matching the whole record would
+// hand back every unit whose *description* happens to contain the word, which
+// is a filter that looks like it works right up until it doesn't.
+func failedOnly(services []ServiceInfo) []ServiceInfo {
+	out := make([]ServiceInfo, 0, 4)
+	for _, s := range services {
+		if s.ActiveState == "failed" || s.SubState == "failed" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // StartService starts a systemd service.

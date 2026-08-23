@@ -14,16 +14,28 @@ function getBarColor(percent: number): string {
   return 'bg-primary'
 }
 
+// The number carries the same warning the bar does.
+//
+// Only a 1.5px track changed colour before, so 92% and 20% were the same
+// glance — the one thing a metric card exists to make instant. Tailwind
+// classes rather than the hex getUsageColor returns, because these have to
+// follow the theme.
+function getValueColor(percent: number): string {
+  if (percent > 80) return 'text-destructive'
+  if (percent >= 60) return 'text-warning'
+  return ''
+}
+
 export default function MetricsCard({ title, value, percent, icon, subLabel, subValue, subPercent }: MetricsCardProps) {
   const clampedPercent = Math.min(100, Math.max(0, percent))
 
   return (
     <div className="bg-card rounded-2xl p-5 card-shadow">
       <div className="flex items-center gap-2.5 mb-4">
-        <div className="text-primary/70">{icon}</div>
+        <div className={getValueColor(clampedPercent) || 'text-primary/70'}>{icon}</div>
         <span className="text-[13px] font-medium text-muted-foreground">{title}</span>
       </div>
-      <div className="text-xl font-bold tracking-tight mb-3">{value}</div>
+      <div className={`text-xl font-bold tracking-tight mb-3 ${getValueColor(clampedPercent)}`}>{value}</div>
       {clampedPercent >= 0 && (
         // Always render the track so a 0% reading (fresh VM, idle CPU) still
         // shows a faint bar — hiding it on '> 0' made new hosts look broken.
