@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.66.0] – 2026-08-23
+
+### Added
+
+- **A grid view for the file manager.** The listing could only be read, never looked at: a directory of photos showed two hundred identical icons, so finding one meant opening them in turn. The grid renders real thumbnails — scaled on the server, cached, and keyed on the file's modification time so an edited image gets a new thumbnail rather than a stale one. JPEG, PNG and GIF; anything else falls back to its icon. The list view stays the default and stays better for everything that is not a picture, since it shows size, date, owner and permissions at a glance.
+- **Context menus that are actually reachable, including on a phone.** Right-click worked on table rows and on a 40-pixel strip below the listing, and nowhere else — not on the empty space that makes up most of a sparse directory, and not at all on touch devices, which have no right-click. The whole listing area is a target now, and a long press opens the same menu at the finger's position on phones and tablets.
+- **New File defaults to a text file** — `untitled.txt`, with `.txt` appended if you type a name without an extension — and opens the editor once created, instead of leaving you to find the new empty file and open it yourself.
+
+### Fixed
+
+- The thumbnail endpoint answered an unsupported format with `NOT_TEXT_FILE`, which says the opposite of what is true about a `.txt`: the file is text, and the reason there is no thumbnail is that the panel has no renderer for that format. It sends `UNSUPPORTED_FORMAT`.
+- The API reference listed ten file-manager routes when eighteen are registered; `chmod`, `chown`, `archive`, `extract` and the three trash routes had been added without the summary table following.
+
+### Security
+
+- **Thumbnailing is where an image file becomes an attack.** Decoding expands an image into raw memory, and the byte size does not bound that: a 20 MB JPEG declaring 20000×20000 is 1.6 GB of RGBA once decoded, and a handful of concurrent requests takes the panel down. The header is parsed first — dimensions without pixels — and an image over 80 megapixels is refused before a single row is allocated. Confirmed against a crafted file: refused in 10 ms, which is the header path; decoding would have taken seconds.
+- Thumbnail reads open with `O_NOFOLLOW`, refusing a leaf symlink in the kernel rather than in a check a local process could race, and the cache lives under `/var/lib/sfpanel` rather than beside the originals, where it would appear in the operator's listings and backups.
+
+---
+
 ## [0.65.0] – 2026-08-23
 
 ### Added
