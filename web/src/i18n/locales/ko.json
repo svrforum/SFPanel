@@ -223,19 +223,7 @@
     },
     "backupLabel": "백업",
     "backupNever": "실행된 적 없음",
-    "backupDisabled": "꺼짐",
-    "attentionTitle": "주의",
-    "attentionNone": "",
-    "failedUnits_one": "실패한 서비스 {{count}}개",
-    "failedUnits_other": "실패한 서비스 {{count}}개",
-    "attention": {
-      "serviceFailed": "서비스 실패",
-      "exited": "종료 코드 {{code}}",
-      "oom": "메모리 부족으로 종료",
-      "kill": "강제 종료됨",
-      "unhealthy": "헬스체크 실패",
-      "restart": "재시작 반복"
-    }
+    "backupDisabled": "꺼짐"
   },
   "processes": {
     "title": "프로세스 관리자",

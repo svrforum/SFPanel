@@ -35,11 +35,9 @@ import type { LayoutOutletContext } from '@/components/Layout'
 import { cn, formatBytes, formatDate, formatUptime } from '@/lib/utils'
 import { parseFirewallLine } from '@/lib/logParsers'
 import type { FirewallLogEntry } from '@/lib/logParsers'
-import type { AlertHistoryEntry, BackupScheduleConfig, DashboardOverview, Filesystem, HostInfo, Metrics, RecentContainerEvent } from '@/types/api'
+import type { BackupScheduleConfig, DashboardOverview, Filesystem, HostInfo, Metrics } from '@/types/api'
 import type { ChartPoint } from './dashboard/chartSeries'
 import { worstFilesystem, rootFilesystem } from '@/lib/filesystems'
-import { AttentionStrip } from './dashboard/AttentionStrip'
-import { buildAttentionItems } from './dashboard/attention'
 import { containerHealth, compareForSummary, needsAttention, type ContainerHealth } from '@/lib/containerState'
 
 // How old Layout's shared overview payload may be before we refetch instead of
@@ -150,9 +148,6 @@ export default function Dashboard() {
   const [containers, setContainers] = useState<ContainerSummary[]>([])
   const [filesystems, setFilesystems] = useState<Filesystem[]>([])
   const [backup, setBackup] = useState<BackupScheduleConfig | null>(null)
-  const [events, setEvents] = useState<RecentContainerEvent[]>([])
-  const [firedAlerts, setFiredAlerts] = useState<AlertHistoryEntry[]>([])
-  const [failedUnits, setFailedUnits] = useState<Array<{ name: string }>>([])
   const [recentLogs, setRecentLogs] = useState<string[]>([])
   const [logTab, setLogTab] = useState<'firewall' | 'syslog'>('firewall')
   // Latched by the first firewall fetch, or by the operator picking a tab —
@@ -239,17 +234,6 @@ export default function Dashboard() {
     api.getBackupSchedule().then((d) => setBackup(d?.schedule ?? null)).catch(() => {})
   }, [])
 
-  // The three feeds behind the attention strip. Every one of them was already
-  // collected on a timer and readable through an existing route; none of them
-  // reached the page an operator actually opens. Failures are swallowed on
-  // purpose — a host without Docker, without alert rules or without systemd
-  // simply contributes nothing to the list.
-  const fetchAttention = useCallback(() => {
-    api.getRecentEvents(50).then(setEvents).catch(() => setEvents([]))
-    api.getAlertHistory(1, 10).then((d) => setFiredAlerts(d?.items ?? [])).catch(() => setFiredAlerts([]))
-    api.getFailedServices().then((d) => setFailedUnits(d?.services ?? [])).catch(() => setFailedUnits([]))
-  }, [])
-  useVisibleInterval(fetchAttention, 30000)
 
   const fetchLogs = useCallback(() => {
     // Go's JSON serializer turns an empty []string into null; defaulting to
@@ -394,19 +378,6 @@ export default function Dashboard() {
   const attentionContainers = containerRows.filter((c) => needsAttention(c.health)).length
   const stoppedContainers = containerRows.filter((c) => c.health === 'stopped').length
 
-  // Anchored to the server's clock, like uptime, so a browser whose time is
-  // off does not silently filter the whole list away.
-  const attentionItems = useMemo(
-    () =>
-      buildAttentionItems({
-        events,
-        alerts: firedAlerts,
-        failedUnits,
-        now: metrics?.timestamp ?? 0,
-      }),
-    [events, firedAlerts, failedUnits, metrics?.timestamp],
-  )
-
   // The fullest filesystem an operator can actually fill, and / beneath it.
   const worstFs = useMemo(() => worstFilesystem(filesystems), [filesystems])
   const rootFs = useMemo(() => rootFilesystem(filesystems), [filesystems])
@@ -455,12 +426,6 @@ export default function Dashboard() {
           </button>
         </div>
       )}
-
-      {/* Things that went wrong, or nothing at all. Directly under the update
-          banner rather than beside Quick Actions at the bottom: a strip that
-          only appears when something is broken has to appear where the eye
-          already is. */}
-      <AttentionStrip items={attentionItems} />
 
       {/* Host info section */}
       {hostInfo && (

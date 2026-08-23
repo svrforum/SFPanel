@@ -483,29 +483,6 @@ class ApiClient {
     return this.request(`/alerts/rules/${id}`, { method: 'DELETE' })
   }
 
-  // Recent container events. Registered since observability landed and never
-  // called from the SPA — the rows carried exit codes and OOM kills that only
-  // a per-container drawer could show, which meant you had to already suspect
-  // the container.
-  //
-  // Returns {observability_disabled:true, data:[]} rather than an error when
-  // the collector is off, so unwrap both shapes here instead of at each call.
-  async getRecentEvents(limit = 50) {
-    const res = await this.request<
-      import('@/types/api').RecentContainerEvent[] | { observability_disabled?: boolean; data?: unknown }
-    >(`/docker/events/recent?limit=${limit}`)
-    if (Array.isArray(res)) return res
-    return [] as import('@/types/api').RecentContainerEvent[]
-  }
-
-  // ?state=failed keeps a 30s poll from carrying 229 units to render a number
-  // that is almost always zero.
-  getFailedServices() {
-    return this.request<{ services: Array<{ name: string; active_state: string; sub_state: string }>; total: number }>(
-      '/system/services?state=failed'
-    )
-  }
-
   getAlertHistory(page: number, limit: number) {
     return this.request<{ items: import('@/types/api').AlertHistoryEntry[]; total: number }>(
       `/alerts/history?page=${page}&limit=${limit}`
