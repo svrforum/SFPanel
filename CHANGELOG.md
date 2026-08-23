@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.66.2] – 2026-08-23
+
+### Fixed
+
+Five things on the dashboard were wrong under a badge that said "live". All five were measured against the running panel rather than reasoned about — over forty seconds `/system/processes` fired five times and `/docker/containers` exactly once.
+
+- **The container summary and both log panes never refreshed.** They were fetched once when the page mounted and never again, so a container stopped from another tab kept showing as running until you navigated away and back. They refresh every thirty seconds now, through the same visibility-aware timer the process table already used, so a hidden tab still costs nothing.
+- **The chart threw away its own history.** The metrics socket sends a sample every two seconds and every one was kept, which made the 2880-point cap worth 96 minutes: a tab open longer than that had evicted the 24 hours of history it loaded at mount, and the 24h button drew an hour and a half. Samples are thinned to one every thirty seconds, which makes the cap mean exactly 24 hours and matches the granularity the server's own history has. Nothing is lost to look at — at the shortest range a two-second sample was a third of a pixel.
+- **Uptime stopped counting.** It was read once, so a dashboard left open on a second monitor reported the uptime the host had when the page loaded. The socket already carries the server's clock, so the reading is carried forward with no timer, no extra request, and no comparison between two machines' clocks.
+- **The recent-logs card opened empty on most hosts.** It defaulted to its firewall tab, which has nothing in it unless ufw logging is on. It picks the system tab when the first firewall read comes back empty — decided once, so a refresh never moves the tab under someone reading it.
+- **The process table did not fit a phone.** Four columns overflowed the card by 115px on a 375px screen, hiding the memory column behind a horizontal scroll with nothing on screen to say it was there: the header read "메도" and the values stopped at "1.". The pid column, which nothing on this page acts on, gives way below the small breakpoint.
+
+---
+
 ## [0.66.1] – 2026-08-23
 
 ### Fixed
