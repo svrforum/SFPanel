@@ -98,8 +98,8 @@ func moveToTrash(path string) (bool, error) {
 // sanitizeTrashName keeps the id filesystem-safe without losing readability.
 func sanitizeTrashName(name string) string {
 	cleaned := strings.Map(func(r rune) rune {
-		switch {
-		case r == '/' || r == 0:
+		switch r {
+		case '/', 0:
 			return '_'
 		default:
 			return r
