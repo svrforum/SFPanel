@@ -515,6 +515,14 @@ export interface TailscalePeer {
 // assuming everything that is not a directory is editable text.
 export type FileKind = 'dir' | 'text' | 'image' | 'binary'
 
+export interface FileOwner {
+  uid: number
+  gid: number
+  /** Empty when the id has no passwd entry — the container case worth showing. */
+  user?: string
+  group?: string
+}
+
 export interface FileEntry {
   name: string
   path: string
@@ -525,6 +533,11 @@ export interface FileEntry {
   // Derived from the name in listings, so treat it as a hint; the read
   // endpoint sniffs the bytes and is the authority.
   kind: FileKind
+  owner?: FileOwner
+  /** Present when this entry is a symbolic link. */
+  linkTarget?: string
+  /** Whether the link resolves to a directory, so a click can navigate. */
+  targetIsDir?: boolean
 }
 
 // Packages

@@ -22,6 +22,10 @@ import {
   ArrowDown,
   FolderInput,
   Server,
+  MoreHorizontal,
+  Lock,
+  FileArchive,
+  PackageOpen,
   Eye,
   EyeOff,
 } from 'lucide-react'
@@ -34,6 +38,12 @@ import { formatBytes, formatDate, pathJoin, downloadBlob, cn } from '@/lib/utils
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Table,
   TableBody,
@@ -63,10 +73,16 @@ import { isTextFile } from './files/components/fileLanguages'
 import { useFileView, useVisibleEntries, sortEntries, type SortKey } from './files/useFileView'
 import { FileCardList } from './files/components/FileCardList'
 import { FolderPickerDialog } from './files/components/FolderPickerDialog'
+import { PermissionsDialog } from './files/components/PermissionsDialog'
 import type { EntryAction } from './files/entryActions'
 
 import type { FileEntry } from '@/types/api'
 
+
+// The actions that stay visible in a desktop row. Everything else moves into
+// the overflow menu — eight icons in a line is a target-picking problem, not a
+// toolbar.
+const PRIMARY_ACTIONS = new Set(['edit', 'download', 'delete'])
 
 export default function Files() {
   const { t } = useTranslation()
@@ -106,6 +122,7 @@ export default function Files() {
   // rename joined the new name onto the current directory, so it could not
   // leave it.
   const [moveTargets, setMoveTargets] = useState<FileEntry[] | null>(null)
+  const [permissionsTarget, setPermissionsTarget] = useState<FileEntry | null>(null)
 
   // Upload state
   const [uploading, setUploading] = useState(false)
@@ -236,6 +253,60 @@ export default function Files() {
     if (searchActive) await handleSearch()
     else if (currentPathRef.current === pathAtStart) await fetchFiles()
   }
+
+  // Pack a selection. The name is suggested rather than demanded — a single
+  // folder becomes folder.tar.gz, a mixed selection takes the directory's name.
+  const handleArchive = async (entries: FileEntry[]) => {
+    if (entries.length === 0) return
+    const base = entries.length === 1
+      ? entries[0].name
+      : (currentPath.split('/').filter(Boolean).pop() || 'archive')
+    const name = await prompt({
+      title: t('files.archiveTitle', { defaultValue: 'Create archive' }),
+      description: t('files.archiveDescription', { count: entries.length, defaultValue: 'Packing {{count}} entries' }),
+      defaultValue: `${base}.tar.gz`,
+      confirmLabel: t('files.createArchive', { defaultValue: 'Create' }),
+    })
+    const trimmed = name?.trim()
+    if (!trimmed) return
+    const format = trimmed.toLowerCase().endsWith('.zip') ? 'zip' : 'tar.gz'
+    const pathAtStart = currentPathRef.current
+    try {
+      await api.createArchive(entries.map((e) => entryPath(e)), pathJoin(pathAtStart, trimmed), format)
+      toast.success(t('files.archiveCreated', { name: trimmed, defaultValue: '{{name}} created' }))
+      setSelectedPaths(new Set())
+      if (currentPathRef.current === pathAtStart) await fetchFiles()
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status
+      toast.error(status === 409
+        ? t('files.archiveExists', { name: trimmed, defaultValue: '{{name}} already exists' })
+        : (err instanceof Error ? err.message : t('files.archiveFailed', { defaultValue: 'Could not create the archive' })))
+    }
+  }
+
+  // Unpack into a folder of the archive's own name, so extracting into a busy
+  // directory does not scatter a hundred files through it.
+  const handleExtract = async (entry: FileEntry) => {
+    const stem = entry.name.replace(/\.(tar\.gz|tgz|tar|zip)$/i, '')
+    const dest = await prompt({
+      title: t('files.extractTitle', { defaultValue: 'Extract archive' }),
+      description: entry.path,
+      defaultValue: pathJoin(currentPath, stem),
+      confirmLabel: t('files.extract', { defaultValue: 'Extract' }),
+    })
+    const trimmed = dest?.trim()
+    if (!trimmed) return
+    const pathAtStart = currentPathRef.current
+    try {
+      const result = await api.extractArchive(entryPath(entry), trimmed)
+      toast.success(t('files.extracted', { count: result.entries, defaultValue: 'Extracted {{count}} entries' }))
+      if (currentPathRef.current === pathAtStart) await fetchFiles()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('files.extractFailed', { defaultValue: 'Could not extract the archive' }))
+    }
+  }
+
+  const isArchiveName = (name: string) => /\.(tar\.gz|tgz|tar|zip)$/i.test(name)
 
   const handleCopy = async (entry: FileEntry) => {
     const dir = entry.path.replace(/\/[^/]*$/, '') || '/'
@@ -822,6 +893,30 @@ export default function Files() {
       onClick: () => setMoveTargets([entry]),
     },
     {
+      key: 'extract',
+      Icon: PackageOpen,
+      show: !entry.isDir && isArchiveName(entry.name),
+      label: t('files.extract', { defaultValue: 'Extract' }),
+      menuLabel: t('files.extractTitle', { defaultValue: 'Extract archive' }),
+      onClick: () => void handleExtract(entry),
+    },
+    {
+      key: 'archive',
+      Icon: FileArchive,
+      show: true,
+      label: t('files.archive', { defaultValue: 'Archive' }),
+      menuLabel: t('files.archiveTitle', { defaultValue: 'Create archive' }),
+      onClick: () => void handleArchive([entry]),
+    },
+    {
+      key: 'permissions',
+      Icon: Lock,
+      show: !searchActive,
+      label: t('files.permissions'),
+      menuLabel: t('files.permissions'),
+      onClick: () => setPermissionsTarget(entry),
+    },
+    {
       key: 'rename',
       Icon: Pencil,
       iconClassName: 'h-3 w-3',
@@ -1090,6 +1185,16 @@ export default function Files() {
               <FolderInput />
               {t('files.moveTo', { defaultValue: 'Move to…' })}
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl"
+              onClick={() => void handleArchive(displayedFiles.filter((e) => selectedPaths.has(entryPath(e))))}
+              disabled={bulkDeleting}
+            >
+              <FileArchive />
+              {t('files.archive', { defaultValue: 'Archive' })}
+            </Button>
             <Button variant="destructive" size="sm" className="rounded-xl" onClick={handleBulkDelete} disabled={bulkDeleting}>
               {bulkDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
               {t('files.deleteSelected')}
@@ -1137,6 +1242,7 @@ export default function Files() {
             <TableHead><SortHeader column="name" label={t('files.name')} /></TableHead>
             <TableHead className="w-28"><SortHeader column="size" label={t('files.size')} /></TableHead>
             <TableHead className="w-44"><SortHeader column="modTime" label={t('files.modified')} /></TableHead>
+            <TableHead className="w-32">{t('files.owner', { defaultValue: 'Owner' })}</TableHead>
             <TableHead className="w-28">{t('files.permissions')}</TableHead>
             <TableHead className="text-right w-36">{t('common.actions')}</TableHead>
           </TableRow>
@@ -1144,14 +1250,14 @@ export default function Files() {
         <TableBody>
           {displayedFiles.length === 0 && !loading && !searchLoading && (
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+              <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                 {searchActive ? t('files.searchEmpty') : t('files.empty')}
               </TableCell>
             </TableRow>
           )}
           {loading && files.length === 0 && (
             <TableRow>
-              <TableCell colSpan={6} className="text-center py-8">
+              <TableCell colSpan={7} className="text-center py-8">
                 <div className="flex items-center justify-center gap-2 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {t('files.loading')}
@@ -1202,6 +1308,11 @@ export default function Files() {
                         {searchActive && (
                           <span className="truncate block text-xs text-muted-foreground font-mono">{entry.path}</span>
                         )}
+                        {entry.linkTarget && (
+                          <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                            → {entry.linkTarget}
+                          </span>
+                        )}
                       </div>
                     </button>
                   </TableCell>
@@ -1211,12 +1322,22 @@ export default function Files() {
                   <TableCell className="text-muted-foreground text-sm">
                     {formatDate(entry.modTime)}
                   </TableCell>
+                  <TableCell className="truncate font-mono text-xs text-muted-foreground">
+                    {entry.owner
+                      ? `${entry.owner.user || entry.owner.uid}:${entry.owner.group || entry.owner.gid}`
+                      : '-'}
+                  </TableCell>
                   <TableCell className="text-muted-foreground text-xs font-mono">
                     {entry.mode || '-'}
                   </TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    {/* The three actions people reach for stay as buttons; the
+                        rest live behind one menu. Adding archive, extract and
+                        permissions took the row to eight 24-pixel targets in a
+                        line — the same mistake the phone layout had just
+                        fixed, with Delete sitting next to Rename. */}
                     <div className="flex items-center justify-end gap-1">
-                      {actions.filter((a) => a.show).map((a) => (
+                      {actions.filter((a) => a.show && PRIMARY_ACTIONS.has(a.key)).map((a) => (
                         <Button
                           key={a.key}
                           variant="ghost"
@@ -1228,6 +1349,27 @@ export default function Files() {
                           <a.Icon className={a.iconClassName} />
                         </Button>
                       ))}
+                      {actions.some((a) => a.show && !PRIMARY_ACTIONS.has(a.key)) && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon-xs" aria-label={t('common.actions')}>
+                              <MoreHorizontal />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {actions.filter((a) => a.show && !PRIMARY_ACTIONS.has(a.key)).map((a) => (
+                              <DropdownMenuItem
+                                key={a.key}
+                                variant={a.destructive ? 'destructive' : undefined}
+                                onClick={a.onClick}
+                              >
+                                <a.Icon className="h-4 w-4" />
+                                {a.menuLabel}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1357,6 +1499,12 @@ export default function Files() {
           setBulkDeleteRequest(null)
           if (request) void runBulkDelete(request.paths)
         }}
+      />
+
+      <PermissionsDialog
+        entry={permissionsTarget}
+        onOpenChange={(open) => { if (!open) setPermissionsTarget(null) }}
+        onApplied={fetchFiles}
       />
 
       <FolderPickerDialog

@@ -610,6 +610,37 @@ class ApiClient {
     return res.blob()
   }
 
+  chmodPath(path: string, mode: string, recursive = false) {
+    return this.request<{ path: string; mode: string }>('/files/chmod', {
+      method: 'POST',
+      body: JSON.stringify({ path, mode, recursive }),
+    })
+  }
+
+  // Names or numeric ids both work: the container uid that caused the problem
+  // is usually the one with no passwd entry, which is exactly when a name
+  // cannot be used.
+  chownPath(path: string, owner: { user?: string; group?: string }, recursive = false) {
+    return this.request<{ path: string; uid: number; gid: number }>('/files/chown', {
+      method: 'POST',
+      body: JSON.stringify({ path, user: owner.user, group: owner.group, recursive }),
+    })
+  }
+
+  createArchive(paths: string[], dest: string, format: 'tar.gz' | 'zip') {
+    return this.request<{ dest: string }>('/files/archive', {
+      method: 'POST',
+      body: JSON.stringify({ paths, dest, format }),
+    })
+  }
+
+  extractArchive(path: string, dest: string) {
+    return this.request<{ dest: string; entries: number }>('/files/extract', {
+      method: 'POST',
+      body: JSON.stringify({ path, dest }),
+    })
+  }
+
   getTLSStatus() {
     return this.request<TLSStatus>('/system/tls')
   }

@@ -101,10 +101,18 @@ export function FileCardList({
                 {searchActive && (
                   <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">{entry.path}</p>
                 )}
+                {entry.linkTarget && (
+                  <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">→ {entry.linkTarget}</p>
+                )}
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
                   <span>{entry.isDir ? t('files.folder', { defaultValue: 'Folder' }) : formatBytes(entry.size)}</span>
                   <span>{formatDate(entry.modTime)}</span>
                   <span className="font-mono">{entry.mode || '-'}</span>
+                  {entry.owner && (
+                    <span className="font-mono">
+                      {entry.owner.user || entry.owner.uid}:{entry.owner.group || entry.owner.gid}
+                    </span>
+                  )}
                 </div>
               </button>
 
