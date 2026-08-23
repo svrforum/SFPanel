@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import {
   Folder,
   File,
@@ -19,6 +20,7 @@ import {
   X,
   ArrowUp,
   ArrowDown,
+  FolderInput,
   Eye,
   EyeOff,
 } from 'lucide-react'
@@ -42,6 +44,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -57,6 +60,7 @@ import { FilePreviewDialog, type PreviewTarget } from './files/components/FilePr
 import { isTextFile } from './files/components/fileLanguages'
 import { useFileView, useVisibleEntries, sortEntries, type SortKey } from './files/useFileView'
 import { FileCardList } from './files/components/FileCardList'
+import { FolderPickerDialog } from './files/components/FolderPickerDialog'
 import type { EntryAction } from './files/entryActions'
 
 import type { FileEntry } from '@/types/api'
@@ -68,20 +72,50 @@ export default function Files() {
   const prompt = usePrompt()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // The directory lives in the URL, not only in component state.
+  //
+  // It used to be state alone, so the browser's Back button had nothing to go
+  // back to: three folders deep, Back left the file manager entirely rather
+  // than stepping up one level. The URL was also unshareable — "look at
+  // /opt/stacks/immich" meant describing the clicks — and a refresh dropped
+  // you at /.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const pathParam = searchParams.get('path') || '/'
+
   // Core state
-  const [currentPath, setCurrentPath] = useState('/')
+  const [currentPath, setCurrentPath] = useState(pathParam)
   const [files, setFiles] = useState<FileEntry[]>([])
   const [loading, setLoading] = useState(true)
   const currentPathRef = useRef(currentPath)
   useEffect(() => { currentPathRef.current = currentPath }, [currentPath])
 
+  // Follow the URL when it changes underneath us — a Back/Forward press, or a
+  // link someone pasted. Writing the URL happens in navigateTo; this is the
+  // read side, and it must not write back or the two would ping-pong.
+  useEffect(() => {
+    setCurrentPath((prev) => (prev === pathParam ? prev : pathParam))
+  }, [pathParam])
+
   // Editor dialog state
   const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null)
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null)
+  // Entries queued for a move, and the picker that chooses where. Move is the
+  // one operation the server has always supported and the UI never offered:
+  // rename joined the new name onto the current directory, so it could not
+  // leave it.
+  const [moveTargets, setMoveTargets] = useState<FileEntry[] | null>(null)
 
   // Upload state
   const [uploading, setUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState<{ fileName: string; percent: number } | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<
+    { fileName: string; percent: number; index: number; total: number } | null
+  >(null)
+  const uploadAbortRef = useRef<AbortController | null>(null)
+  // Drop-target depth. dragenter/dragleave fire for every child element the
+  // pointer crosses, so a boolean flickers the overlay off the moment the
+  // cursor moves over a row; counting keeps it stable.
+  const dragDepth = useRef(0)
+  const [dragActive, setDragActive] = useState(false)
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
@@ -155,6 +189,41 @@ export default function Files() {
   }
 
   // Copy
+  // Move one or more entries into a chosen directory. Uses the rename route,
+  // which takes two absolute paths and creates the missing parent — a
+  // different directory in the destination is a move, not a rename.
+  const performMove = async (entries: FileEntry[], destDir: string) => {
+    const pathAtStart = currentPathRef.current
+    let moved = 0
+    const failed: string[] = []
+    for (const entry of entries) {
+      const from = entryPath(entry)
+      const to = pathJoin(destDir, entry.name)
+      if (from === to) continue
+      try {
+        await api.renamePath(from, to)
+        moved += 1
+      } catch (err: unknown) {
+        const status = (err as { status?: number })?.status
+        failed.push(
+          status === 409
+            ? t('files.moveExists', { name: entry.name, defaultValue: '{{name}} already exists there' })
+            : `${entry.name}: ${err instanceof Error ? err.message : ''}`,
+        )
+      }
+    }
+    if (moved > 0) toast.success(t('files.moveSuccess', { count: moved, defaultValue: 'Moved {{count}}' }))
+    // Name what failed. "Moved 37, 3 failed" without saying which three leaves
+    // the operator to find them by hand.
+    for (const message of failed.slice(0, 5)) toast.error(message)
+    if (failed.length > 5) {
+      toast.error(t('files.andMoreFailed', { count: failed.length - 5, defaultValue: 'and {{count}} more failed' }))
+    }
+    setSelectedPaths(new Set())
+    if (searchActive) await handleSearch()
+    else if (currentPathRef.current === pathAtStart) await fetchFiles()
+  }
+
   const handleCopy = async (entry: FileEntry) => {
     const dir = entry.path.replace(/\/[^/]*$/, '') || '/'
     const dotIndex = entry.isDir ? -1 : entry.name.lastIndexOf('.')
@@ -235,8 +304,12 @@ export default function Files() {
     .split('/')
     .filter((segment) => segment.length > 0)
 
+  // Every navigation goes through here, so the URL and the state move
+  // together. Pushing a history entry is the point: it is what makes Back step
+  // up a directory instead of leaving the page.
   const navigateTo = (path: string) => {
     setCurrentPath(path)
+    setSearchParams(path === '/' ? {} : { path }, { replace: false })
   }
 
   const navigateToSegment = (index: number) => {
@@ -356,31 +429,60 @@ export default function Files() {
     fileInputRef.current?.click()
   }
 
-  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = e.target.files
-    if (!selectedFiles || selectedFiles.length === 0) return
+  // Upload a batch, whether it arrived through the picker or a drop.
+  //
+  // The abort controller is what makes the Cancel button real: before it, the
+  // X on the progress dialog did nothing and the only way to stop an upload
+  // was to reload the page.
+  const uploadFiles = async (list: File[]) => {
+    if (list.length === 0) return
+    const controller = new AbortController()
+    uploadAbortRef.current = controller
     setUploading(true)
     const pathAtStart = currentPathRef.current
     try {
-      for (const file of Array.from(selectedFiles)) {
-        setUploadProgress({ fileName: file.name, percent: 0 })
-        await api.uploadFile(pathAtStart, file, (percent) => {
-          setUploadProgress({ fileName: file.name, percent })
-        })
-        toast.success(t('files.uploadSuccess', { name: file.name }))
+      for (const [index, file] of list.entries()) {
+        setUploadProgress({ fileName: file.name, percent: 0, index: index + 1, total: list.length })
+        try {
+          await api.uploadFile(pathAtStart, file, (percent) => {
+            setUploadProgress({ fileName: file.name, percent, index: index + 1, total: list.length })
+          }, { signal: controller.signal })
+          toast.success(t('files.uploadSuccess', { name: file.name }))
+        } catch (err: unknown) {
+          if (controller.signal.aborted) break
+          const status = (err as { status?: number })?.status
+          if (status === 409) {
+            // The server refuses to clobber unless asked. Ask.
+            const replace = await confirm({
+              title: t('files.uploadExistsTitle', { defaultValue: 'Replace existing file?' }),
+              description: t('files.uploadExists', { name: file.name, defaultValue: '{{name}} already exists in this folder.' }),
+              confirmLabel: t('files.replace', { defaultValue: 'Replace' }),
+              danger: true,
+            })
+            if (replace) {
+              await api.uploadFile(pathAtStart, file, (percent) => {
+                setUploadProgress({ fileName: file.name, percent, index: index + 1, total: list.length })
+              }, { overwrite: true, signal: controller.signal })
+              toast.success(t('files.uploadSuccess', { name: file.name }))
+            }
+            continue
+          }
+          toast.error(`${file.name}: ${err instanceof Error ? err.message : t('files.uploadFailed')}`)
+        }
       }
-      setUploadProgress(null)
-      if (currentPathRef.current === pathAtStart) await fetchFiles()
-    } catch (err: unknown) {
-      setUploadProgress(null)
-      const message = err instanceof Error ? err.message : t('files.uploadFailed')
-      toast.error(message)
     } finally {
+      uploadAbortRef.current = null
+      setUploadProgress(null)
       setUploading(false)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      if (currentPathRef.current === pathAtStart) await fetchFiles()
     }
+  }
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = e.target.files
+    if (!selectedFiles || selectedFiles.length === 0) return
+    await uploadFiles(Array.from(selectedFiles))
   }
 
   // Delete
@@ -545,6 +647,14 @@ export default function Files() {
       onClick: () => void handleCopy(entry),
     },
     {
+      key: 'move',
+      Icon: FolderInput,
+      show: true,
+      label: t('files.move', { defaultValue: 'Move' }),
+      menuLabel: t('files.moveTo', { defaultValue: 'Move to…' }),
+      onClick: () => setMoveTargets([entry]),
+    },
+    {
       key: 'rename',
       Icon: Pencil,
       iconClassName: 'h-3 w-3',
@@ -565,7 +675,51 @@ export default function Files() {
   ]
 
   return (
-    <div className="space-y-4">
+    <div
+      className="relative space-y-4"
+      onDragEnter={(e) => {
+        // Only react to an actual file drag. Dragging text or a link inside
+        // the page would otherwise arm an upload overlay for nothing.
+        if (!e.dataTransfer?.types?.includes('Files')) return
+        e.preventDefault()
+        dragDepth.current += 1
+        setDragActive(true)
+      }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer?.types?.includes('Files')) return
+        // Without preventDefault the browser navigates away to the dropped
+        // file — the default action for a drop is "open this".
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+      }}
+      onDragLeave={() => {
+        dragDepth.current = Math.max(0, dragDepth.current - 1)
+        if (dragDepth.current === 0) setDragActive(false)
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer?.types?.includes('Files')) return
+        e.preventDefault()
+        dragDepth.current = 0
+        setDragActive(false)
+        if (searchActive) {
+          // There is no single directory to drop into while showing results
+          // gathered from all over the tree.
+          toast.error(t('files.dropDuringSearch', { defaultValue: 'Leave search to upload here' }))
+          return
+        }
+        void uploadFiles(Array.from(e.dataTransfer.files))
+      }}
+    >
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/5">
+          <div className="flex items-center gap-2 rounded-xl bg-card px-4 py-2 card-shadow">
+            <Upload className="h-4 w-4 text-primary" aria-hidden="true" />
+            <span className="text-[13px] font-medium">
+              {t('files.dropHere', { path: currentPath, defaultValue: 'Drop to upload into {{path}}' })}
+            </span>
+          </div>
+        </div>
+      )}
       <h1 className="text-[22px] font-bold tracking-tight">{t('files.title')}</h1>
 
       {/* Breadcrumb navigation / path input */}
@@ -738,11 +892,23 @@ export default function Files() {
           <span className="text-[13px] font-medium">
             {t('files.selectedCount', { count: selectedPaths.size })}
           </span>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setSelectedPaths(new Set())}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" size="sm" className="rounded-xl" onClick={() => setSelectedPaths(new Set())}>
               {t('common.cancel')}
             </Button>
-            <Button variant="destructive" size="sm" onClick={handleBulkDelete} disabled={bulkDeleting}>
+            {/* Selecting rows used to lead to exactly one action. Deleting is
+                rarely the only thing you want done to forty files. */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl"
+              onClick={() => setMoveTargets(displayedFiles.filter((e) => selectedPaths.has(entryPath(e))))}
+              disabled={bulkDeleting}
+            >
+              <FolderInput />
+              {t('files.moveTo', { defaultValue: 'Move to…' })}
+            </Button>
+            <Button variant="destructive" size="sm" className="rounded-xl" onClick={handleBulkDelete} disabled={bulkDeleting}>
               {bulkDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
               {t('files.deleteSelected')}
             </Button>
@@ -944,6 +1110,24 @@ export default function Files() {
         onSaved={fetchFiles}
       />
 
+      <FolderPickerDialog
+        open={!!moveTargets}
+        title={t('files.moveTitle', { defaultValue: 'Move to folder' })}
+        description={
+          moveTargets && moveTargets.length === 1
+            ? entryPath(moveTargets[0])
+            : t('files.moveCount', { count: moveTargets?.length ?? 0, defaultValue: '{{count}} items' })
+        }
+        initialPath={currentPath}
+        confirmLabel={t('files.move', { defaultValue: 'Move' })}
+        onOpenChange={(open) => { if (!open) setMoveTargets(null) }}
+        onConfirm={(dest) => {
+          const targets = moveTargets ?? []
+          setMoveTargets(null)
+          void performMove(targets, dest)
+        }}
+      />
+
       <FilePreviewDialog
         target={previewTarget}
         onOpenChange={(open) => { if (!open) setPreviewTarget(null) }}
@@ -973,9 +1157,27 @@ export default function Files() {
               />
             </div>
             <p className="text-center text-[13px] text-muted-foreground">
-              {uploadProgress?.percent ?? 0}%
+              {uploadProgress && uploadProgress.total > 1
+                ? t('files.uploadingNth', {
+                    index: uploadProgress.index,
+                    total: uploadProgress.total,
+                    percent: uploadProgress.percent,
+                    defaultValue: '{{index}} of {{total}} · {{percent}}%',
+                  })
+                : `${uploadProgress?.percent ?? 0}%`}
             </p>
           </div>
+          <DialogFooter>
+            {/* A real cancel. The dialog previously had no way out at all —
+                an upload could only be stopped by reloading the page. */}
+            <Button
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => uploadAbortRef.current?.abort()}
+            >
+              {t('common.cancel')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
