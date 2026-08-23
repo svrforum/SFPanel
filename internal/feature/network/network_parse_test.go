@@ -162,14 +162,35 @@ func TestParseRouteLine(t *testing.T) {
 			want: Route{},
 		},
 		{
-			// QUIRK (frozen current behavior, reported separately):
-			// route-type keywords at the head of the line
-			// (blackhole/unreachable/prohibit) are misread as the
-			// Destination — the real destination "10.0.0.0/24" is
-			// dropped. Fixing the parser must update this expectation.
-			name: "blackhole type keyword misparsed as destination",
+			// Was a frozen quirk: the keyword was read as the destination
+			// and the real network dropped, so the routes table showed a
+			// destination called "blackhole".
+			name: "blackhole keeps its type and its destination",
 			line: "blackhole 10.0.0.0/24 proto static",
-			want: Route{Destination: "blackhole", Protocol: "static"},
+			want: Route{Type: "blackhole", Destination: "10.0.0.0/24", Protocol: "static"},
+		},
+		{
+			name: "unreachable route",
+			line: "unreachable 192.0.2.0/24 dev eth0 metric 100",
+			want: Route{Type: "unreachable", Destination: "192.0.2.0/24", Interface: "eth0", Metric: 100},
+		},
+		{
+			name: "prohibit route",
+			line: "prohibit 198.51.100.0/24",
+			want: Route{Type: "prohibit", Destination: "198.51.100.0/24"},
+		},
+		{
+			// A destination that happens to start with the same letters is
+			// not a type keyword — matching on a prefix instead of the whole
+			// field would eat it.
+			name: "destination is not mistaken for a type keyword",
+			line: "blackholenet via 10.0.0.1",
+			want: Route{Destination: "blackholenet", Gateway: "10.0.0.1"},
+		},
+		{
+			name: "type keyword with nothing after it",
+			line: "blackhole",
+			want: Route{Type: "blackhole"},
 		},
 	}
 

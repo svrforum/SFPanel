@@ -238,7 +238,20 @@ func (h *Handler) DeleteChannel(c echo.Context) error {
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidID, "invalid channel id")
 	}
-	res, err := h.DB.Exec("DELETE FROM alert_channels WHERE id=?", id)
+	// Delete the channel and drop it out of every rule together, or not at
+	// all. There are no foreign keys here, and nothing used to reconcile
+	// alert_rules.channel_ids — so deleting a channel (rotating a Discord
+	// webhook, say) left rules pointing at an id that no longer resolves.
+	// Delivery skipped the missing id silently, the fire returned before
+	// writing history, and the rule went on reporting itself as Active while
+	// reaching nobody, permanently.
+	tx, err := h.DB.Begin()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "failed to delete channel")
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.Exec("DELETE FROM alert_channels WHERE id=?", id)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "failed to delete channel")
 	}
@@ -246,7 +259,73 @@ func (h *Handler) DeleteChannel(c echo.Context) error {
 	if n == 0 {
 		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "channel not found")
 	}
+	if err := pruneChannelFromRules(tx, id); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "failed to update rules")
+	}
+	if err := tx.Commit(); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "failed to delete channel")
+	}
 	return response.OK(c, nil)
+}
+
+// pruneChannelFromRules removes a channel id from every rule that references
+// it.
+//
+// channel_ids is a JSON array in a TEXT column, so this reads, filters and
+// writes back rather than issuing one UPDATE — a string replace would happily
+// turn [1,12] into [2] when deleting channel 1.
+func pruneChannelFromRules(tx *sql.Tx, channelID int) error {
+	rows, err := tx.Query("SELECT id, channel_ids FROM alert_rules")
+	if err != nil {
+		return err
+	}
+	type update struct {
+		id  int
+		ids string
+	}
+	var updates []update
+	for rows.Next() {
+		var ruleID int
+		var raw string
+		if err := rows.Scan(&ruleID, &raw); err != nil {
+			rows.Close()
+			return err
+		}
+		var ids []int
+		if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+			// A rule whose channel_ids will not parse is left alone: rewriting
+			// it here would replace something unreadable with something
+			// definitely wrong.
+			continue
+		}
+		kept := make([]int, 0, len(ids))
+		for _, existing := range ids {
+			if existing != channelID {
+				kept = append(kept, existing)
+			}
+		}
+		if len(kept) == len(ids) {
+			continue
+		}
+		encoded, err := json.Marshal(kept)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		updates = append(updates, update{id: ruleID, ids: string(encoded)})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, u := range updates {
+		if _, err := tx.Exec("UPDATE alert_rules SET channel_ids=? WHERE id=?", u.ids, u.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *Handler) TestChannel(c echo.Context) error {

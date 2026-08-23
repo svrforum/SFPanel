@@ -306,6 +306,27 @@ var validDiskPath = regexp.MustCompile(`^[a-zA-Z0-9/._-]+$`)
 // validateDeviceName checks that a device name is safe for use in commands.
 // It only validates the *shape* of the name; verifyBlockDevice confirms the
 // resolved /dev/<name> is actually a block device on this host.
+// normalizeDevicePath accepts either "/dev/sdb1" or "sdb1" and returns the
+// full path, having validated the device-name part.
+//
+// LVM's own tools report PVs as full paths — `pvs -o pv_name` prints
+// /dev/sdb1 — and the panel handed that straight back to handlers that
+// validated it with a regex excluding slashes and then prefixed /dev/
+// themselves. Remove PV could therefore never succeed with the name the list
+// endpoint had just given the UI, and the Create dialog's own placeholder
+// ("e.g., /dev/sdb1") was a string its handler rejected. CreateVG already
+// carried this logic inline; the rest did not.
+func normalizeDevicePath(input string) (string, error) {
+	name := strings.TrimPrefix(strings.TrimSpace(input), "/dev/")
+	// Only one level of prefix is stripped: "/dev/dev/x" or "//dev/x" still
+	// contains a slash and fails validation below, rather than being peeled
+	// until something passes.
+	if err := validateDeviceName(name); err != nil {
+		return "", err
+	}
+	return "/dev/" + name, nil
+}
+
 func validateDeviceName(name string) error {
 	if name == "" {
 		return fmt.Errorf("device name is required")

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+ import { gatewayField } from './gatewayField'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -100,6 +101,9 @@ export default function NetworkInterfaces() {
   const [configTarget, setConfigTarget] = useState<NetworkInterfaceInfo | null>(null)
   const [configMode, setConfigMode] = useState<'dhcp' | 'static'>('dhcp')
   const [configAddresses, setConfigAddresses] = useState('')
+  // Whether the dialog managed to read the interface's saved gateway. False
+  // means "we do not know", which is different from "there is none".
+  const [gatewayKnown, setGatewayKnown] = useState(false)
   const [configGateway4, setConfigGateway4] = useState('')
   const [configGateway6, setConfigGateway6] = useState('')
   const [configDns, setConfigDns] = useState('')
@@ -155,6 +159,24 @@ export default function NetworkInterfaces() {
     setConfigGateway6('')
     setConfigDns(dnsConfig.servers.join(', '))
     setConfigMtu(iface.mtu > 0 ? String(iface.mtu) : '')
+
+    // Fill the gateway in from what is actually saved. The dialog opened blank
+    // and sent that blank on save, so changing an MTU deleted the host's
+    // default route — on a remote machine, that is the last request it ever
+    // serves. The list endpoint does not carry the gateway, so ask for the
+    // interface's own config.
+    setGatewayKnown(false)
+    api
+      .getInterfaceDetail(iface.name)
+      .then((detail) => {
+        if (!detail?.config) return
+        setConfigGateway4(detail.config.gateway4 ?? '')
+        setConfigGateway6(detail.config.gateway6 ?? '')
+        setGatewayKnown(true)
+      })
+      .catch(() => {
+        // Stays unknown, and an unknown gateway is not sent at all.
+      })
   }
 
   // Save interface configuration
@@ -166,8 +188,14 @@ export default function NetworkInterfaces() {
         dhcp4: configMode === 'dhcp',
         dhcp6: false,
         addresses: configMode === 'static' ? configAddresses.split('\n').map((a) => a.trim()).filter(Boolean) : [],
-        gateway4: configMode === 'static' ? configGateway4.trim() : '',
-        gateway6: configMode === 'static' ? configGateway6.trim() : '',
+        // Omitted when we never learned the saved value and the operator has
+        // not typed one: the server leaves a missing gateway alone, and a
+        // blank box the dialog could not fill is not a request to delete the
+        // default route. On hosts whose netplan the panel cannot read — a
+        // NetworkManager-rendered file, for instance — that blank box is the
+        // normal case.
+        gateway4: gatewayField(configMode, configGateway4, gatewayKnown),
+        gateway6: gatewayField(configMode, configGateway6, gatewayKnown),
         dns: configMode === 'static' ? configDns.split(',').map((d) => d.trim()).filter(Boolean) : [],
         mtu: configMtu ? parseInt(configMtu, 10) : undefined,
       }

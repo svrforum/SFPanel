@@ -203,8 +203,10 @@ export interface InterfaceConfig {
   dhcp4: boolean
   dhcp6: boolean
   addresses: string[]
-  gateway4: string
-  gateway6: string
+  // Optional on the way out: omitting a gateway leaves the saved one alone,
+  // an empty string clears it. Always present on the way in.
+  gateway4?: string
+  gateway6?: string
   dns: string[]
   mtu?: number
 }

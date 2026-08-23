@@ -198,7 +198,7 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 		if info, err := os.Stat(req.Path); err == nil {
 			if info.Mode().IsRegular() {
 				return response.Fail(c, http.StatusConflict, response.ErrInvalidPath,
-					fmt.Sprintf("Refusing to overwrite existing file at %s — delete it first if you really want to recreate the swap", req.Path))
+					fmt.Sprintf("Refusing to overwrite existing file at %s — delete it in the file manager first if you really want to recreate the swap", req.Path))
 			}
 			return response.Fail(c, http.StatusConflict, response.ErrInvalidPath,
 				fmt.Sprintf("Path %s exists and is not a regular file", req.Path))
@@ -212,6 +212,15 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 			"bs=1M", "count="+sizeMB)
 		ddCancel()
 		if err != nil {
+			// Remove what dd managed to write. Without this a cancelled
+			// request — and the browser gives up long before dd's own
+			// deadline — left a partial file that the guard above then
+			// refused to overwrite, so the operator could neither create the
+			// swap nor get past the refusal from inside the panel.
+			if rmErr := os.Remove(req.Path); rmErr != nil && !os.IsNotExist(rmErr) {
+				slog.Warn("could not remove partial swap file",
+					"component", "disk", "path", req.Path, "error", rmErr)
+			}
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 				fmt.Sprintf("dd failed: %s", response.SanitizeOutput(strings.TrimSpace(ddOut))))
 		}
@@ -256,15 +265,53 @@ func (h *Handler) RemoveSwap(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, err.Error())
 	}
 
+	// swapoff first, and tolerate its failure when the target is a plain file
+	// that was never activated.
+	//
+	// A swap file that dd only half wrote — the ordinary result of a request
+	// the browser gave up on — has never been mkswap'd or swapon'd, so
+	// swapoff answers "Invalid argument". Returning 500 there left the
+	// operator with a file the panel refused to overwrite and refused to
+	// remove: the only way out was a terminal. Nothing about swapoff failing
+	// on an inactive path means the removal should not proceed.
+	active := swapDeviceIsActive(req.Path)
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "swapoff", req.Path)
-	if err != nil {
+	if err != nil && active {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 			fmt.Sprintf("swapoff failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
+	// This route switches swap off; it does not delete anything.
+	//
+	// Removing the file here was tried and reverted: validateDiskPath accepts
+	// any ordinary-looking path, so "stop using this swap" would have become
+	// "delete this file" for /etc/passwd as readily as for /swapfile — with
+	// no confirmation and none of the file manager's trash behind it. Deleting
+	// files is that module's job, and it has the undo.
 	return response.OK(c, map[string]string{
 		"message": fmt.Sprintf("swap disabled on %s", req.Path),
 	})
+}
+
+// swapDeviceIsActive reports whether the kernel currently has this path
+// switched on, read from /proc/swaps via the same parser GetSwapInfo uses.
+//
+// It decides whether a swapoff failure is worth surfacing: on an active swap
+// it means something went wrong, on an inactive file it means there was
+// nothing to switch off.
+func swapDeviceIsActive(path string) bool {
+	data, err := os.ReadFile("/proc/swaps")
+	if err != nil {
+		// Unknown. Treat as active so a real swapoff failure is still
+		// reported rather than silently swallowed.
+		return true
+	}
+	for _, s := range parseSwapEntries(string(data)) {
+		if s.Name == path {
+			return true
+		}
+	}
+	return false
 }
 
 // SetSwappiness sets the vm.swappiness kernel parameter.

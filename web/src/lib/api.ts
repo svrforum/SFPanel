@@ -79,6 +79,22 @@ function readCookie(name: string): string | null {
   return null
 }
 
+/**
+ * How long to wait for the operations the server itself bounds at five minutes.
+ *
+ * Every request used to abort after thirty seconds, which is shorter than the
+ * work several handlers deliberately allow for: mkfs on a large volume, a
+ * `docker compose down`, an apt install, and `dd` writing a swap file — whose
+ * comment reads "so pathologically slow disks still complete". The subprocess
+ * is bound to the request context, so the browser giving up killed it midway.
+ * For swap that was worse than a failure: the partial file it left behind was
+ * then refused by the handler's own overwrite guard.
+ *
+ * Slightly under the server's five minutes, so the server's own error is what
+ * the operator sees rather than a bare timeout.
+ */
+const LONG_OP_TIMEOUT = 290_000
+
 class ApiClient {
   private token: string | null = null
   private refreshToken: string | null = null
@@ -1308,6 +1324,16 @@ class ApiClient {
     return this.request<NetworkInterfaceInfo[]>('/network/interfaces')
   }
 
+  // The interface's saved netplan config, which the list endpoint does not
+  // carry. The config dialog needs it to prefill the gateway: it used to open
+  // with the field blank and send that blank back, deleting the default route
+  // on every save.
+  getInterfaceDetail(name: string) {
+    return this.request<import('@/types/api').InterfaceDetail>(
+      `/network/interfaces/${encodeURIComponent(name)}`
+    )
+  }
+
   configureInterface(name: string, config: InterfaceConfig) {
     return this.request(`/network/interfaces/${encodeURIComponent(name)}`, {
       method: 'PUT',
@@ -1350,6 +1376,7 @@ class ApiClient {
     return this.request('/packages/install', {
       method: 'POST',
       body: JSON.stringify({ name }),
+      timeout: LONG_OP_TIMEOUT,
     })
   }
 
@@ -1471,6 +1498,7 @@ class ApiClient {
     return this.request('/filesystems/format', {
       method: 'POST',
       body: JSON.stringify(data),
+      timeout: LONG_OP_TIMEOUT,
     })
   }
 
@@ -1593,7 +1621,11 @@ class ApiClient {
   }
 
   removePV(name: string) {
-    return this.request(`/lvm/pvs/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    // LVM reports PVs as "/dev/sdb1"; an encoded slash in a path segment is
+    // at best awkward to route, so the device name travels bare and the
+    // handler puts the prefix back. It accepts either form regardless.
+    const device = name.replace(/^\/dev\//, '')
+    return this.request(`/lvm/pvs/${encodeURIComponent(device)}`, { method: 'DELETE' })
   }
 
   removeLV(vg: string, name: string) {
@@ -1646,6 +1678,7 @@ class ApiClient {
     return this.request('/swap', {
       method: 'POST',
       body: JSON.stringify(data),
+      timeout: LONG_OP_TIMEOUT,
     })
   }
 
@@ -1682,6 +1715,7 @@ class ApiClient {
     }>('/swap/resize', {
       method: 'PUT',
       body: JSON.stringify(data),
+      timeout: LONG_OP_TIMEOUT,
     })
   }
 
@@ -1976,7 +2010,10 @@ class ApiClient {
 
   uninstallApp(id: string, keepData = false) {
     const q = keepData ? '?keep_data=true' : ''
-    return this.request<{ message: string }>(`/appstore/apps/${id}${q}`, { method: 'DELETE' })
+    return this.request<{ message: string }>(`/appstore/apps/${id}${q}`, {
+      method: 'DELETE',
+      timeout: LONG_OP_TIMEOUT,
+    })
   }
 
   /**

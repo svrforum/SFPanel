@@ -198,11 +198,10 @@ func (h *Handler) CreatePV(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
 
-	if err := validateDeviceName(req.Device); err != nil {
+	devPath, err := normalizeDevicePath(req.Device)
+	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
-
-	devPath := "/dev/" + req.Device
 	if err := verifyBlockDevice(devPath); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
@@ -240,21 +239,10 @@ func (h *Handler) CreateVG(c echo.Context) error {
 	// Validate all PV paths
 	pvPaths := make([]string, 0, len(req.PVs))
 	for _, pv := range req.PVs {
-		// PVs can be provided as full paths (/dev/sdb1) or device names (sdb1)
-		pvPath := pv
-		if !strings.HasPrefix(pv, "/dev/") {
-			if err := validateDeviceName(pv); err != nil {
-				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
-					fmt.Sprintf("invalid PV device: %s", err.Error()))
-			}
-			pvPath = "/dev/" + pv
-		} else {
-			// Validate the part after /dev/
-			devName := strings.TrimPrefix(pv, "/dev/")
-			if err := validateDeviceName(devName); err != nil {
-				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
-					fmt.Sprintf("invalid PV device: %s", err.Error()))
-			}
+		pvPath, err := normalizeDevicePath(pv)
+		if err != nil {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
+				fmt.Sprintf("invalid PV device: %s", err.Error()))
 		}
 		pvPaths = append(pvPaths, pvPath)
 	}
@@ -311,23 +299,21 @@ func (h *Handler) RemovePV(c echo.Context) error {
 			"LVM tools are not installed. Install lvm2: apt install lvm2")
 	}
 
-	name := c.Param("name")
-	if err := validateDeviceName(name); err != nil {
+	devPath, err := normalizeDevicePath(c.Param("name"))
+	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
-
-	devPath := "/dev/" + name
 	if err := verifyBlockDevice(devPath); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 	}
-	out, err := h.Cmd.RunCtx(c.Request().Context(), "pvremove", devPath)
-	if err != nil {
+	out, runErr := h.Cmd.RunCtx(c.Request().Context(), "pvremove", devPath)
+	if runErr != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrLVMError,
 			fmt.Sprintf("pvremove failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
 	return response.OK(c, map[string]string{
-		"message": fmt.Sprintf("physical volume %s removed", name),
+		"message": fmt.Sprintf("physical volume %s removed", devPath),
 	})
 }
 

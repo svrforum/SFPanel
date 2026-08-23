@@ -86,10 +86,16 @@ type ConfigureInterfaceRequest struct {
 	DHCP4     *bool    `json:"dhcp4"`
 	DHCP6     *bool    `json:"dhcp6"`
 	Addresses []string `json:"addresses"`
-	Gateway4  string   `json:"gateway4"`
-	Gateway6  string   `json:"gateway6"`
-	DNS       []string `json:"dns"`
-	MTU       *int     `json:"mtu"`
+	// Pointers so that omitting a gateway and clearing one are different
+	// requests. They were plain strings assigned unconditionally, while
+	// Addresses, DNS and MTU beside them were all nil-guarded — so any
+	// partial update deleted the host's default route, and the config dialog
+	// (which never prefilled the field) sent an empty one on every save.
+	// nil leaves the existing value; "" clears it; a value sets it.
+	Gateway4 *string  `json:"gateway4"`
+	Gateway6 *string  `json:"gateway6"`
+	DNS      []string `json:"dns"`
+	MTU      *int     `json:"mtu"`
 }
 
 // DNSConfig holds the system-wide DNS configuration.
@@ -106,6 +112,9 @@ type Route struct {
 	Metric      int    `json:"metric"`
 	Protocol    string `json:"protocol"`
 	Scope       string `json:"scope"`
+	// "blackhole", "unreachable", "prohibit" or "throw" when `ip route`
+	// prefixed the line with a route type; empty for an ordinary route.
+	Type string `json:"type,omitempty"`
 }
 
 // CreateBondRequest is the payload for POST /network/bonds.
@@ -309,20 +318,21 @@ func (h *Handler) ConfigureInterface(c echo.Context) error {
 		}
 	}
 
-	// Validate gateway4 (must be valid IPv4)
-	if req.Gateway4 != "" {
-		ip := net.ParseIP(req.Gateway4)
+	// Validate gateway4 (must be valid IPv4). An explicit "" is a request to
+	// clear it and needs no validation; nil means the caller said nothing.
+	if req.Gateway4 != nil && *req.Gateway4 != "" {
+		ip := net.ParseIP(*req.Gateway4)
 		if ip == nil || ip.To4() == nil {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
-				fmt.Sprintf("Invalid gateway4 %q: must be a valid IPv4 address", req.Gateway4))
+				fmt.Sprintf("Invalid gateway4 %q: must be a valid IPv4 address", *req.Gateway4))
 		}
 	}
 
 	// Validate gateway6 (must be valid IPv6, including IPv4-mapped like ::ffff:x.x.x.x)
-	if req.Gateway6 != "" {
-		if net.ParseIP(req.Gateway6) == nil || !strings.Contains(req.Gateway6, ":") {
+	if req.Gateway6 != nil && *req.Gateway6 != "" {
+		if net.ParseIP(*req.Gateway6) == nil || !strings.Contains(*req.Gateway6, ":") {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue,
-				fmt.Sprintf("Invalid gateway6 %q: must be a valid IPv6 address", req.Gateway6))
+				fmt.Sprintf("Invalid gateway6 %q: must be a valid IPv6 address", *req.Gateway6))
 		}
 	}
 
@@ -823,9 +833,25 @@ func parseRouteLine(line string) Route {
 		return r
 	}
 
-	r.Destination = fields[0]
+	// `ip route` prefixes non-unicast routes with their type:
+	//   blackhole 10.0.0.0/24 proto static
+	// Taking fields[0] as the destination read the keyword as the network and
+	// dropped the real one, so a blackhole route showed up in the table as a
+	// destination literally named "blackhole".
+	start := 0
+	switch fields[0] {
+	case "blackhole", "unreachable", "prohibit", "throw":
+		r.Type = fields[0]
+		start = 1
+	}
+	if start >= len(fields) {
+		// The type keyword with nothing after it. Keep the type rather than
+		// inventing a destination.
+		return r
+	}
+	r.Destination = fields[start]
 
-	for i := 1; i < len(fields); i++ {
+	for i := start + 1; i < len(fields); i++ {
 		switch fields[i] {
 		case "via":
 			if i+1 < len(fields) {
@@ -868,12 +894,20 @@ type netplanData struct {
 }
 
 type netplanNetwork struct {
-	Version   int                           `yaml:"version,omitempty"`
-	Renderer  string                        `yaml:"renderer,omitempty"`
-	Ethernets map[string]*netplanEthernet   `yaml:"ethernets,omitempty"`
-	Bonds     map[string]*netplanBond       `yaml:"bonds,omitempty"`
-	Bridges   map[string]*netplanBridge     `yaml:"bridges,omitempty"`
-	Vlans     map[string]*netplanVlan       `yaml:"vlans,omitempty"`
+	Version   int                         `yaml:"version,omitempty"`
+	Renderer  string                      `yaml:"renderer,omitempty"`
+	Ethernets map[string]*netplanEthernet `yaml:"ethernets,omitempty"`
+	Bonds     map[string]*netplanBond     `yaml:"bonds,omitempty"`
+	Bridges   map[string]*netplanBridge   `yaml:"bridges,omitempty"`
+	Vlans     map[string]*netplanVlan     `yaml:"vlans,omitempty"`
+	// Everything netplan supports that this struct does not model: wifis,
+	// tunnels (which is where netplan-managed WireGuard lives), vrfs, modems,
+	// dummy-devices. saveNetplanFile marshals this struct over the whole file,
+	// so without a catch-all an MTU change on one ethernet silently deleted
+	// the operator's Wi-Fi and VPN configuration — permanently, since the
+	// write is atomic and there is no backup. Every nested sibling struct
+	// below already had this; the top level was the one that did not.
+	Extra map[string]interface{} `yaml:",inline"`
 }
 
 type netplanEthernet struct {
@@ -1172,8 +1206,12 @@ func applyConfigToEthernet(eth *netplanEthernet, req *ConfigureInterfaceRequest)
 		if req.Addresses != nil {
 			eth.Addresses = req.Addresses
 		}
-		eth.Gateway4 = req.Gateway4
-		eth.Gateway6 = req.Gateway6
+		if req.Gateway4 != nil {
+			eth.Gateway4 = *req.Gateway4
+		}
+		if req.Gateway6 != nil {
+			eth.Gateway6 = *req.Gateway6
+		}
 		if req.DNS != nil {
 			if eth.Nameservers == nil {
 				eth.Nameservers = &netplanNameservers{}
@@ -1206,8 +1244,12 @@ func applyConfigToBond(bond *netplanBond, req *ConfigureInterfaceRequest) {
 		if req.Addresses != nil {
 			bond.Addresses = req.Addresses
 		}
-		bond.Gateway4 = req.Gateway4
-		bond.Gateway6 = req.Gateway6
+		if req.Gateway4 != nil {
+			bond.Gateway4 = *req.Gateway4
+		}
+		if req.Gateway6 != nil {
+			bond.Gateway6 = *req.Gateway6
+		}
 		if req.DNS != nil {
 			if bond.Nameservers == nil {
 				bond.Nameservers = &netplanNameservers{}
@@ -1320,14 +1362,26 @@ func updateNetplanDNS(servers []string) error {
 			continue
 		}
 
-		// Set DNS on the first ethernet interface found
-		for _, eth := range np.Network.Ethernets {
-			if eth.Nameservers == nil {
-				eth.Nameservers = &netplanNameservers{}
-			}
-			eth.Nameservers.Addresses = servers
-			return saveNetplanFile(f, np)
+		// Set DNS on one ethernet, chosen deterministically.
+		//
+		// This used to range over the map and write to whichever entry came
+		// out first. Go randomises map iteration, so on a file with two or
+		// more ethernets the DNS servers landed on a different interface
+		// each time — and the operator had no way to tell which. Sorting by
+		// name at least makes the same file always produce the same result;
+		// the interface that gets it is now a stated rule rather than a coin
+		// toss.
+		names := make([]string, 0, len(np.Network.Ethernets))
+		for name := range np.Network.Ethernets {
+			names = append(names, name)
 		}
+		sort.Strings(names)
+		eth := np.Network.Ethernets[names[0]]
+		if eth.Nameservers == nil {
+			eth.Nameservers = &netplanNameservers{}
+		}
+		eth.Nameservers.Addresses = servers
+		return saveNetplanFile(f, np)
 	}
 
 	return fmt.Errorf("no ethernet interface found in netplan configuration to set DNS")

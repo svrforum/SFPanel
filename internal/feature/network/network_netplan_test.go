@@ -434,7 +434,7 @@ func TestUpdateNetplanInterface(t *testing.T) {
 		req := &ConfigureInterfaceRequest{
 			DHCP4:     boolPtr(false),
 			Addresses: []string{"192.168.1.30/24"},
-			Gateway4:  "192.168.1.1",
+			Gateway4:  strPtr("192.168.1.1"),
 		}
 		if err := updateNetplanInterface("eth0", req); err != nil {
 			t.Fatalf("updateNetplanInterface: %v", err)
@@ -597,12 +597,11 @@ func TestApplyConfigToEthernet(t *testing.T) {
 			want: &netplanEthernet{DHCP4: boolPtr(true)},
 		},
 		{
-			// QUIRK (frozen current behavior, reported separately):
-			// Gateway4/Gateway6 are assigned unconditionally in the
-			// non-DHCP branch, so a request that omits the gateway
-			// (empty string) deletes any existing gateway. Addresses
-			// and DNS have nil-guards; only the gateways do not.
-			name: "omitted gateway clears existing gateway",
+			// Was a frozen quirk: the gateways were assigned unconditionally
+			// while Addresses, DNS and MTU beside them were nil-guarded, so a
+			// partial update — an MTU change, or any save from a dialog that
+			// never prefilled the field — deleted the host's default route.
+			name: "omitted gateway keeps the existing gateway",
 			eth: &netplanEthernet{
 				DHCP4:     boolPtr(false),
 				Addresses: []string{"192.168.1.10/24"},
@@ -613,6 +612,25 @@ func TestApplyConfigToEthernet(t *testing.T) {
 			want: &netplanEthernet{
 				DHCP4:     boolPtr(false),
 				Addresses: []string{"192.168.1.10/24"},
+				Gateway4:  "192.168.1.1",
+				Gateway6:  "fd00::1",
+			},
+		},
+		{
+			// Clearing still has to be possible, and an explicit empty string
+			// is how the caller asks for it. If this passed while the case
+			// above also passed under the old code, the guard would be
+			// meaningless.
+			name: "explicit empty gateway clears it",
+			eth: &netplanEthernet{
+				DHCP4:     boolPtr(false),
+				Addresses: []string{"192.168.1.10/24"},
+				Gateway4:  "192.168.1.1",
+			},
+			req: ConfigureInterfaceRequest{DHCP4: boolPtr(false), Gateway4: strPtr("")},
+			want: &netplanEthernet{
+				DHCP4:     boolPtr(false),
+				Addresses: []string{"192.168.1.10/24"},
 			},
 		},
 		{
@@ -620,7 +638,7 @@ func TestApplyConfigToEthernet(t *testing.T) {
 			eth: &netplanEthernet{
 				Nameservers: &netplanNameservers{Addresses: []string{"8.8.8.8"}, Search: []string{"lan"}},
 			},
-			req: ConfigureInterfaceRequest{Gateway4: "192.168.1.1"},
+			req: ConfigureInterfaceRequest{Gateway4: strPtr("192.168.1.1")},
 			want: &netplanEthernet{
 				Gateway4:    "192.168.1.1",
 				Nameservers: &netplanNameservers{Addresses: []string{"8.8.8.8"}, Search: []string{"lan"}},
@@ -629,7 +647,7 @@ func TestApplyConfigToEthernet(t *testing.T) {
 		{
 			name: "nil Addresses keeps existing addresses",
 			eth:  &netplanEthernet{Addresses: []string{"192.168.1.10/24"}},
-			req:  ConfigureInterfaceRequest{Gateway4: "192.168.1.1"},
+			req:  ConfigureInterfaceRequest{Gateway4: strPtr("192.168.1.1")},
 			want: &netplanEthernet{
 				Addresses: []string{"192.168.1.10/24"},
 				Gateway4:  "192.168.1.1",
@@ -847,4 +865,57 @@ func TestReadNetplanConfigForInterface(t *testing.T) {
 			t.Errorf("config = %+v, want nil", got)
 		}
 	})
+}
+
+// strPtr is the gateway fields' equivalent of boolPtr: nil means "leave it
+// alone", a pointer to "" means "clear it".
+func strPtr(s string) *string { return &s }
+
+// A netplan file holds more than this struct models. saveNetplanFile marshals
+// the whole struct over the file, so anything unmodelled and uncaught is
+// deleted — permanently, since the write is atomic and keeps no backup.
+// Reproduced before the fix: an MTU-only edit removed the operator's wifis and
+// tunnels sections outright.
+func TestNetplanRoundTripKeepsUnmodelledSections(t *testing.T) {
+	dir := withNetplanDir(t)
+	const src = `network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    eth0:
+      dhcp4: true
+  wifis:
+    wlan0:
+      dhcp4: true
+      access-points:
+        homenet:
+          password: hunter2
+  tunnels:
+    wg0:
+      mode: wireguard
+      addresses:
+      - 10.9.0.1/24
+`
+	path := writeNetplan(t, dir, "01-netcfg.yaml", src)
+
+	mtu := 1400
+	if err := updateNetplanInterface("eth0", &ConfigureInterfaceRequest{MTU: &mtu}); err != nil {
+		t.Fatalf("updateNetplanInterface: %v", err)
+	}
+
+	out, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	// Assert the content, not just the key: a section that survives as an
+	// empty map would satisfy a substring check on "wifis" alone.
+	for _, want := range []string{"wifis:", "wlan0:", "homenet:", "hunter2", "tunnels:", "wg0:", "wireguard", "10.9.0.1/24"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q was lost by the rewrite:\n%s", want, got)
+		}
+	}
+	if !strings.Contains(got, "mtu: 1400") {
+		t.Errorf("the change that prompted the write is missing:\n%s", got)
+	}
 }

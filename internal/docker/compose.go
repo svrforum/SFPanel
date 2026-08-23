@@ -374,8 +374,24 @@ func (m *ComposeManager) DeleteProject(ctx context.Context, name string, removeI
 	if removeVolumes {
 		args = append(args, "-v")
 	}
-	// Attempt docker compose down; ignore errors
-	_, _ = m.runCompose(ctx, name, args...)
+	// A failed teardown used to be ignored, and the directory removed anyway.
+	// The handler then answered "deleted": the containers stayed up — past the
+	// next daemon restart, with `restart: always` — the stack vanished from
+	// the list, and the only copy of the compose file and its .env was gone,
+	// os.RemoveAll being outside the files module's trash.
+	//
+	// A non-zero exit is not proof that anything survived, though: with
+	// --rmi all, compose can remove every container and still fail on an image
+	// another project shares. So ask what is actually left, and refuse only
+	// when something is. The appstore's uninstall already works this way and
+	// keeps the directory "so the operator can inspect/retry".
+	if out, err := m.runCompose(ctx, name, args...); err != nil {
+		remaining, psErr := m.runCompose(ctx, name, "ps", "-q")
+		if psErr != nil || strings.TrimSpace(remaining) != "" {
+			return fmt.Errorf("teardown failed, leaving the project in place: %s",
+				strings.TrimSpace(out))
+		}
+	}
 
 	projectDir := filepath.Join(m.baseDir, name)
 	return os.RemoveAll(projectDir)

@@ -141,7 +141,7 @@ export function PVSection({ pvs, onChanged }: {
             <Label htmlFor="pv-device">{t('disk.lvm.pv.device')}</Label>
             <Input
               id="pv-device"
-              placeholder="e.g., /dev/sdb1"
+              placeholder="/dev/sdb1"
               value={device}
               onChange={(e) => setDevice(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
