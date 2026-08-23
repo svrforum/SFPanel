@@ -1388,7 +1388,17 @@
       "tools": "Tools"
     },
     "editorTooLarge": "This file is {{size}} MB — too large to open in the editor (max 5 MB). Download it instead?",
-    "editPath": "Edit path"
+    "editPath": "Edit path",
+    "conflictTitle": "This file changed on disk",
+    "conflictBody": "Someone or something modified this file after you opened it. Saving now replaces their version with yours.",
+    "conflictOverwrite": "Overwrite anyway",
+    "discardTitle": "Discard unsaved changes?",
+    "discardBody": "This file has edits that have not been saved. Closing loses them.",
+    "discardConfirm": "Discard",
+    "unsaved": "unsaved",
+    "saveHint": "Ctrl+S saves",
+    "previewTooLarge": "Too large to preview — download it to open it.",
+    "previewBinary": "This file is not text and cannot be shown here."
   },
   "cron": {
     "title": "Cron Jobs",

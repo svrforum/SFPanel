@@ -46,6 +46,7 @@ import type {
   ClusterNodeStacks,
   TerminalSession,
   TerminalInfo,
+  FileKind,
   TLSStatus,
   ClusterEventsResponse,
   ClusterInterfacesResponse,
@@ -1041,14 +1042,29 @@ class ApiClient {
     return this.request<FileEntry[]>(`/files?path=${encodeURIComponent(path)}`)
   }
 
+  // Reads text only. A binary answers 415 with NOT_TEXT_FILE — the caller is
+  // expected to route those to a preview or a download rather than an editor,
+  // because handing invalid bytes to Monaco and back rewrites the file as
+  // U+FFFD replacement characters.
   readFile(path: string) {
-    return this.request<{ content: string; size: number }>(`/files/read?path=${encodeURIComponent(path)}`)
+    return this.request<{ content: string; size: number; kind: FileKind; modTime: string }>(
+      `/files/read?path=${encodeURIComponent(path)}`,
+    )
   }
 
-  writeFile(path: string, content: string) {
+  // expectModTime carries the timestamp the editor read, so a save can be
+  // refused when the file moved on since. createOnly refuses to touch an
+  // existing file at all, which is what "New file" needs — sharing this route
+  // without it truncated whatever was already there.
+  writeFile(path: string, content: string, opts?: { expectModTime?: string; createOnly?: boolean }) {
     return this.request('/files/write', {
       method: 'POST',
-      body: JSON.stringify({ path, content }),
+      body: JSON.stringify({
+        path,
+        content,
+        expect_mod_time: opts?.expectModTime,
+        create_only: opts?.createOnly,
+      }),
     })
   }
 
@@ -1063,10 +1079,13 @@ class ApiClient {
     return this.request(`/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' })
   }
 
-  renamePath(oldPath: string, newPath: string) {
+  // Also the move: the server takes two absolute paths and creates the missing
+  // parent, so a different directory in newPath moves rather than renames.
+  // Without overwrite an existing destination answers 409 DESTINATION_EXISTS.
+  renamePath(oldPath: string, newPath: string, opts?: { overwrite?: boolean }) {
     return this.request('/files/rename', {
       method: 'POST',
-      body: JSON.stringify({ old_path: oldPath, new_path: newPath }),
+      body: JSON.stringify({ old_path: oldPath, new_path: newPath, overwrite: opts?.overwrite }),
     })
   }
 
@@ -1083,9 +1102,24 @@ class ApiClient {
     )
   }
 
-  uploadFile(destPath: string, file: File, onProgress?: (percent: number) => void): Promise<void> {
+  uploadFile(
+    destPath: string,
+    file: File,
+    onProgress?: (percent: number) => void,
+    opts?: { overwrite?: boolean; signal?: AbortSignal },
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
+      // An upload used to be unstoppable short of reloading the page. The
+      // abort here is what makes the Cancel button real.
+      if (opts?.signal) {
+        if (opts.signal.aborted) {
+          reject(new DOMException('Aborted', 'AbortError'))
+          return
+        }
+        opts.signal.addEventListener('abort', () => xhr.abort(), { once: true })
+      }
+      xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'))
       xhr.open('POST', this.withNode('/files/upload'))
 
       for (const [k, v] of Object.entries(this.streamHeaders())) {
@@ -1115,6 +1149,7 @@ class ApiClient {
 
       const formData = new FormData()
       formData.append('path', destPath)
+      if (opts?.overwrite) formData.append('overwrite', 'true')
       formData.append('file', file)
       xhr.send(formData)
     })

@@ -511,6 +511,10 @@ export interface TailscalePeer {
 }
 
 // File Manager
+// What a file is, so a click can be routed to the right viewer instead of
+// assuming everything that is not a directory is editable text.
+export type FileKind = 'dir' | 'text' | 'image' | 'binary'
+
 export interface FileEntry {
   name: string
   path: string
@@ -518,6 +522,9 @@ export interface FileEntry {
   size: number
   modTime: string
   mode: string
+  // Derived from the name in listings, so treat it as a hint; the read
+  // endpoint sniffs the bytes and is the authority.
+  kind: FileKind
 }
 
 // Packages

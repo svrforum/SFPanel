@@ -23,7 +23,7 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { usePrompt } from '@/components/PromptDialog'
-import { formatBytes, formatDate, pathJoin } from '@/lib/utils'
+import { formatBytes, formatDate, pathJoin, downloadBlob } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -50,6 +50,7 @@ import {
   ContextMenuSeparator,
 } from '@/components/ui/context-menu'
 import { FileEditorDialog, type EditorTarget } from './files/components/FileEditorDialog'
+import { FilePreviewDialog, type PreviewTarget } from './files/components/FilePreviewDialog'
 import { isTextFile } from './files/components/fileLanguages'
 
 import type { FileEntry } from '@/types/api'
@@ -84,6 +85,7 @@ export default function Files() {
 
   // Editor dialog state
   const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null)
+  const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null)
 
   // Upload state
   const [uploading, setUploading] = useState(false)
@@ -262,6 +264,23 @@ export default function Files() {
   // Edit file
   const editMaxBytes = 5 * 1024 * 1024 // 5 MB; server also enforces similar cap
   const handleEditFile = async (entry: FileEntry) => {
+    // Route by what the file IS, before anything else.
+    //
+    // Every non-directory used to land in Monaco. A PNG or a database came
+    // back as a string of replacement characters, rendered as mojibake with
+    // Save enabled — and saving wrote those characters over the original. The
+    // listing's kind is derived from the name, so it is a hint; the read
+    // endpoint sniffs the bytes and refuses a non-text file outright, which
+    // catches an extensionless binary this branch would have missed.
+    if (entry.kind === 'image' || entry.kind === 'binary') {
+      setPreviewTarget({
+        path: pathJoin(currentPath, entry.name),
+        name: entry.name,
+        size: entry.size,
+        kind: entry.kind,
+      })
+      return
+    }
     // Server caps /files/read at 5 MB. If the user opens a larger file the
     // editor open path produces a confusing 400 even after the size warning;
     // route them to download instead — that's almost always what they meant.
@@ -277,23 +296,24 @@ export default function Files() {
     setEditorTarget({ path: pathJoin(currentPath, entry.name), name: entry.name })
   }
 
-  // Download file
-  const handleDownload = async (entry: FileEntry) => {
-    const filePath = pathJoin(currentPath, entry.name)
+  // Fetch a file and hand it to the browser as a download. Split out from
+  // handleDownload so callers that already hold an absolute path — the preview
+  // dialog, search results — do not have to fabricate a FileEntry.
+  const downloadByPath = async (filePath: string, name: string) => {
     try {
       const blob = await api.downloadFile(filePath)
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = entry.name
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
+      downloadBlob(blob, name)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('files.downloadFailed')
-      toast.error(message)
+      toast.error(err instanceof Error ? err.message : t('files.downloadFailed'))
     }
+  }
+
+  // Download file
+  const handleDownload = async (entry: FileEntry) => {
+    // Prefer the entry's own absolute path. Re-joining onto currentPath is
+    // wrong for anything that did not come from the current directory —
+    // search results carry a path from wherever they were found.
+    await downloadByPath(entry.path || pathJoin(currentPath, entry.name), entry.name)
   }
 
   // New file
@@ -307,7 +327,10 @@ export default function Files() {
     if (!name?.trim()) return
     const pathAtStart = currentPathRef.current
     try {
-      await api.writeFile(pathJoin(pathAtStart, name.trim()), '')
+      // createOnly, or typing the name of an existing file EMPTIES it — the
+      // dialog says create and the effect was erase, with no warning and no
+      // way back.
+      await api.writeFile(pathJoin(pathAtStart, name.trim()), '', { createOnly: true })
       toast.success(t('files.fileCreated'))
       if (currentPathRef.current === pathAtStart) await fetchFiles()
     } catch (err: unknown) {
@@ -859,7 +882,20 @@ export default function Files() {
       </ContextMenu>
 
       {/* Edit file dialog */}
-      <FileEditorDialog target={editorTarget} onOpenChange={(open) => { if (!open) setEditorTarget(null) }} />
+      <FileEditorDialog
+        target={editorTarget}
+        onOpenChange={(open) => { if (!open) setEditorTarget(null) }}
+        onSaved={fetchFiles}
+      />
+
+      <FilePreviewDialog
+        target={previewTarget}
+        onOpenChange={(open) => { if (!open) setPreviewTarget(null) }}
+        onDownload={(target) => {
+          void downloadByPath(target.path, target.name)
+          setPreviewTarget(null)
+        }}
+      />
 
       {/* Upload progress dialog */}
       <Dialog open={!!uploadProgress} onOpenChange={() => {}}>

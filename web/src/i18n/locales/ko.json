@@ -1388,7 +1388,17 @@
       "tools": "도구"
     },
     "editorTooLarge": "이 파일은 {{size}} MB로 편집기에서 열 수 없습니다 (최대 5 MB). 다운로드할까요?",
-    "editPath": "경로 직접 입력"
+    "editPath": "경로 직접 입력",
+    "conflictTitle": "이 파일이 디스크에서 바뀌었습니다",
+    "conflictBody": "파일을 연 뒤에 누군가 또는 무언가가 이 파일을 수정했습니다. 지금 저장하면 그 내용을 덮어씁니다.",
+    "conflictOverwrite": "그래도 덮어쓰기",
+    "discardTitle": "저장하지 않은 변경을 버릴까요?",
+    "discardBody": "저장하지 않은 편집이 있습니다. 닫으면 사라집니다.",
+    "discardConfirm": "버리기",
+    "unsaved": "저장 안 됨",
+    "saveHint": "Ctrl+S로 저장",
+    "previewTooLarge": "미리보기에는 너무 큽니다 — 내려받아서 여세요.",
+    "previewBinary": "텍스트 파일이 아니라 여기서는 볼 수 없습니다."
   },
   "cron": {
     "title": "크론 작업",
