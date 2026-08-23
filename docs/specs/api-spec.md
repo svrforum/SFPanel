@@ -758,6 +758,8 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
       "path": "/etc",
       "size": 4096,
       "mode": "drwxr-xr-x",
+      "kind": "dir",
+      "owner": { "uid": 0, "gid": 0, "user": "root", "group": "root" },
       "modTime": "2026-01-15T10:30:00Z",
       "isDir": true
     },
@@ -898,6 +900,10 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
 | `NOT_FOUND` | 404 | 경로 없음 |
 
 ---
+
+> **삭제는 휴지통을 거칩니다.** `DELETE /api/v1/files`는 항목을 `/var/lib/sfpanel/trash`로 옮기고 7일간 보관합니다. 응답의 `trashed`가 실제로 휴지통에 들어갔는지 알려줍니다 — 다른 파일시스템의 항목은 `rename`으로 옮길 수 없어 영구 삭제로 떨어집니다(되돌릴 수 없다는 이유로 삭제를 거부하는 것보다 나은 선택). `?permanent=true`로 휴지통을 건너뜁니다.
+>
+> 시스템이 즉시 멈추는 디렉터리(`/bin` `/sbin` `/lib` `/lib64` `/boot` `/proc` `/sys` `/dev` `/run` `/usr`, `/`)는 **정확히 일치할 때만** 거부합니다. 보안 통제가 아니라 오조작 방지입니다 — 같은 패널이 옆 탭에서 root 터미널을 제공합니다.
 
 ### POST /api/v1/files/rename
 파일 또는 디렉토리 이름 변경/이동.
@@ -1067,6 +1073,74 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
 |------|-----------|------|
 | `MISSING_FILE` | 400 | 'file' 필드에 파일 없음 |
 | `INVALID_FILENAME` | 400 | 유효하지 않은 파일명 |
+
+---
+
+### POST /api/v1/files/chmod
+권한 비트 변경.
+
+- **인증 필요**: 예
+- **Body**: `{ "path": "/opt/stacks/app/run.sh", "mode": "0755", "recursive": false }`
+
+`mode`는 3~4자리 8진수만 받습니다. **setuid·setgid·sticky는 거부**합니다 — 텍스트 필드에 네 자리를 쳐서 setuid를 켜는 건 파일 관리자가 제공할 동작이 아닙니다.
+
+**심볼릭 링크는 거부**합니다(400 `INVALID_PATH`). chmod는 링크를 따라가므로, 링크 행에서 실행하면 사용자가 지목하지 않은 파일의 권한이 바뀝니다. 리눅스는 링크 자체에 권한을 저장하지 않고 `lchmod`도 없습니다.
+
+`recursive`는 트리를 순회하되 **심볼릭 링크는 건너뜁니다** — 트리에 심어진 링크가 chmod를 트리 밖으로 유도하지 못하게.
+
+### POST /api/v1/files/chown
+소유자·그룹 변경.
+
+- **인증 필요**: 예
+- **Body**: `{ "path": "/srv/data", "user": "www-data", "group": "www-data", "recursive": true }`
+
+이름과 **숫자 id를 모두** 받습니다. 문제를 일으킨 컨테이너 uid는 대개 passwd 항목이 없는 쪽이라, 이름으로는 지정할 수 없습니다. 빈 필드는 "그대로 두기"(`chown`의 `-1`)입니다. 링크를 따라가지 않도록 `lchown`을 씁니다.
+
+### POST /api/v1/files/archive
+선택 항목을 `.tar.gz` 또는 `.zip`으로 묶습니다.
+
+- **인증 필요**: 예
+- **Body**: `{ "paths": ["/opt/stacks/app"], "dest": "/opt/backups/app.tar.gz", "format": "tar.gz" }`
+- 목적지가 이미 있으면 **409 `DESTINATION_EXISTS`**
+
+임시 이름으로 쓴 뒤 성공 시 rename합니다 — 반쯤 쓰인 아카이브가 최종 이름으로 남으면 **완성된 백업처럼 보이는** 최악의 실패가 됩니다. tar는 심볼릭 링크를 따라가지 않고 링크로 저장하며, zip은 이식 가능한 표현이 없어 건너뜁니다.
+
+### POST /api/v1/files/extract
+`.tar` / `.tar.gz` / `.tgz` / `.zip`을 지정한 디렉터리에 풉니다.
+
+- **인증 필요**: 예
+- **Body**: `{ "path": "/opt/backups/app.tar.gz", "dest": "/opt/restore" }`
+
+**보안상 세 겹의 방어가 있습니다.** 압축 해제는 이 모듈에서 가장 위험한 방향입니다.
+
+1. **항목 경로 봉쇄** — `../../etc/cron.d/x` 같은 이름은 거부합니다. 구분자를 붙여 비교하므로 `dest-evil`이 `dest`의 자식으로 통과하지 못합니다. 절대 경로 항목명은 거부가 아니라 **목적지 안으로 가둡니다**(GNU tar이 선행 `/`를 떼는 것과 동일).
+2. **링크 항목 거부** — 심볼릭·하드 링크를 만들지 않습니다. 만들면 `evil -> /etc/sfpanel` + `evil/config.yaml` 두 항목으로 봉쇄 검사를 통과한 채 밖에 쓸 수 있습니다. 디렉터리 체인도 한 단계씩 `lstat`하며 만들어, **이미 존재하던** 링크를 통과하지 않습니다. 리프는 `unlink` 후 `O_NOFOLLOW`로 엽니다.
+3. **팽창 상한** — 전체 4GB, 항목 20 000개. zip bomb은 수 KB가 수 GB로 펼쳐집니다. 항목별이 아니라 **누적** 예산이라 쪼개서 우회할 수 없습니다.
+
+장치 노드·FIFO·소켓은 건너뜁니다.
+
+### GET /api/v1/files/trash
+휴지통 목록(최신순).
+
+- **인증 필요**: 예
+
+**Response (200):** `{ "entries": [...], "retentionDays": 7 }`
+
+각 항목은 `id`, `originalPath`, `name`, `deletedAt`, `size`, `isDir`. `originalPath`가 복원을 의미 있게 만드는 유일한 정보입니다.
+
+### POST /api/v1/files/trash/restore
+휴지통 항목을 원래 자리로 되돌립니다.
+
+- **인증 필요**: 예
+- **Body**: `{ "id": "<trash-id>", "to": "/optional/override" }`
+- 원래 경로에 이미 무언가 있으면 **409 `DESTINATION_EXISTS`** — 더 새 파일을 덮어써서 옛 파일을 되살리는 건 요청한 것의 반대입니다.
+
+`id`에 경로 구분자가 있으면 거부합니다. id는 휴지통 디렉터리 안의 한 파일만 가리켜야 합니다.
+
+### DELETE /api/v1/files/trash
+`?id=` 로 한 항목을, 생략하면 전체를 영구 삭제합니다.
+
+- **인증 필요**: 예
 
 ---
 

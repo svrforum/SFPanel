@@ -6,6 +6,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.65.0] – 2026-08-23
+
+### Added
+
+- **The file manager can write where you actually work.** It could read the whole filesystem and change almost none of it: `/etc`, `/opt`, `/home`, `/var`, `/srv` and `/root` were refused by a prefix rule that gated every write in the module. You could open `/opt/stacks/<app>/docker-compose.yml`, fix a port, press Save, and be told "access to critical system path is not allowed" with no hint where writing *was* allowed — in practice `/tmp`, `/mnt` and `/data`. That rule is gone. Delete keeps a much narrower guard on the directories whose removal stops the machine outright, and writes are refused only under `/etc/sfpanel`, `/root/.ssh` and `/etc/sudoers.d`, which hold the panel's own credentials.
+- **A trash.** Deleting was immediate and total, with no undo and no record of what had just gone — on a mounted disk or a network share that is somebody's only copy. Deleted entries wait a week and can be put back, with a dialog showing where each came from. Restoring never overwrites: clobbering a newer file to recover an older one is the opposite of what was asked.
+- **Move, at last.** The server has always supported it; the UI only ever renamed within the current directory. Destinations are browsed rather than typed from memory, for move and copy alike.
+- **Ownership and permissions.** The listing showed `drwxr-xr-x` — what the owner may do — and never said who the owner is, which leaves the most common homelab problem (a container writing as a uid you cannot touch) visible as a symptom with no cause. Owner and group are columns now, and both permissions and ownership are editable.
+- **Archives.** Create `.tar.gz` or `.zip` from a selection, and extract in place.
+- Sortable columns, a dotfile toggle, drag-and-drop upload, arrow-key navigation, and the current directory in the URL — Back used to leave the file manager entirely instead of stepping up one level, and a refresh dropped you at `/`.
+- **A phone layout.** 891 lines contained one responsive class: six columns do not fit 390 pixels, so size, modified and permissions were off-screen rather than cramped, Upload was past the right edge, and the five row actions were 24-pixel targets with Delete beside Rename.
+
+### Fixed
+
+- **Opening a binary could destroy it.** Every non-directory went to the text editor, so a PNG or a database came back as replacement characters with an enabled Save button — and saving wrote those characters over the original. Images preview, other binaries offer a download, and the read endpoint refuses non-text outright.
+- **The editor lost work four ways**: Escape and backdrop clicks discarded edits with no prompt, Ctrl+S opened the browser's Save Page dialog, two tabs on one file ended with the second save silently discarding the first, and "New file" with an existing name emptied that file.
+- **Rename and upload overwrote silently** while Copy, on the same screen, refused the identical collision. All three now agree.
+- **Bulk delete reported nothing useful.** Forty serial requests behind one spinner, a Cancel button that only cleared the selection while files kept disappearing, and a closing "Deleted 37, 3 failed" that named none of the three. It shows progress, cancels for real, and says what failed.
+- Symlinks no longer masquerade as broken files, the breadcrumb names which cluster node you are browsing, and a directory of thousands of entries no longer renders every row.
+
+### Security
+
+- **Archive extraction had a symlink escape.** Entry-path containment alone is not enough: an archive carrying `evil -> /etc/sfpanel` followed by `evil/config.yaml` passes both checks lexically and writes outside the destination. Link entries are refused, directory chains are built one `lstat` at a time so an already-planted link cannot be traversed either, and leaves open `O_NOFOLLOW`. Confirmed by building that archive and watching the bytes land outside before the fix.
+- **Upload could overwrite the panel's own database.** The destination directory was validated and the filename joined onto it, but the result never was — `/var/lib/sfpanel` plus `sfpanel.db` reached the live database, and with it the admin account row.
+- Extraction is bounded by a total size and an entry count, so an archive that is kilobytes on disk cannot expand to fill the filesystem the panel runs on. `chmod` refuses setuid, setgid and sticky, and refuses to act on a symlink.
+
 ## [0.64.2] – 2026-08-23
 
 ### Fixed
