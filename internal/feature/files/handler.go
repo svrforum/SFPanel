@@ -617,14 +617,41 @@ func (h *Handler) DeletePath(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
-	if err := os.RemoveAll(targetPath); err != nil {
-		if os.IsPermission(err) {
+	// Move to the trash rather than removing outright, unless the caller asked
+	// for a permanent delete.
+	//
+	// Delete was immediate and total: os.RemoveAll on a directory tree with no
+	// undo and no way to see what had just gone. On a mounted disk or a network
+	// share that is somebody's only copy.
+	//
+	// A failed move is not a failed delete. The trash lives on the panel's own
+	// filesystem, so an entry on a different mount cannot be renamed into it —
+	// refusing to delete something because it cannot be UNdeleted would be a
+	// worse trade than proceeding without the safety net.
+	trashed := false
+	if c.QueryParam("permanent") != "true" {
+		ok, err := moveToTrash(targetPath)
+		if err != nil && os.IsPermission(err) {
 			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
-		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
+		trashed = ok
 	}
 
-	return response.OK(c, map[string]string{"message": "path deleted", "path": targetPath})
+	if !trashed {
+		if err := os.RemoveAll(targetPath); err != nil {
+			if os.IsPermission(err) {
+				return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
+			}
+			return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
+		}
+	}
+
+	return response.OK(c, map[string]interface{}{
+		"message": "path deleted",
+		"path":    targetPath,
+		// So the UI can offer an undo only when there is something to undo.
+		"trashed": trashed,
+	})
 }
 
 // ---------- RenamePath ----------
@@ -840,7 +867,7 @@ func (h *Handler) SearchFiles(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Search path must be a directory")
 	}
 
-	needle := strings.ToLower(query)
+	matches := NewMatcher(query)
 	deadline := time.Now().Add(maxSearchDuration)
 	results := make([]FileEntry, 0, limit)
 	truncated := false
@@ -856,7 +883,7 @@ func (h *Handler) SearchFiles(c echo.Context) error {
 		if p == root {
 			return nil
 		}
-		if strings.Contains(strings.ToLower(d.Name()), needle) {
+		if matches(d.Name()) {
 			if fi, ierr := d.Info(); ierr == nil {
 				results = append(results, FileEntry{
 					Name:    d.Name(),

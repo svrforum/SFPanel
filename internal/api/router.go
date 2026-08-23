@@ -349,6 +349,9 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	files.POST("/chown", filesHandler.ChangeOwner)
 	files.POST("/archive", filesHandler.CreateArchive)
 	files.POST("/extract", filesHandler.ExtractArchive)
+	files.GET("/trash", filesHandler.ListTrash)
+	files.POST("/trash/restore", filesHandler.RestoreFromTrash)
+	files.DELETE("/trash", filesHandler.PurgeTrash)
 
 	// Cron job management routes
 	cronHandler := &featureCron.Handler{Cmd: cmd}

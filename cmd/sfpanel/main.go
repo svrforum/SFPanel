@@ -39,6 +39,7 @@ import (
 	featureAlert "github.com/svrforum/SFPanel/internal/feature/alert"
 	featureauth "github.com/svrforum/SFPanel/internal/feature/auth"
 	featureCompose "github.com/svrforum/SFPanel/internal/feature/compose"
+	featureFiles "github.com/svrforum/SFPanel/internal/feature/files"
 	featureFirewall "github.com/svrforum/SFPanel/internal/feature/firewall"
 	featureSystem "github.com/svrforum/SFPanel/internal/feature/system"
 	featureTerminal "github.com/svrforum/SFPanel/internal/feature/terminal"
@@ -265,6 +266,10 @@ func main() {
 
 	// Start the scheduled-backup loop (no-op until an operator enables it).
 	featureSystem.StartBackupScheduler(bgCtx, database, cfg.Database.Path, cfgPath, cfg.Server.StacksPath)
+
+	// Deleted files wait in the trash for a week. Without a sweeper that is not
+	// a safety net but a slow leak on the filesystem the operator was clearing.
+	featureFiles.StartTrashSweeper(bgCtx)
 
 	// Single drain for all audit_logs INSERTs (request middleware + auth
 	// security events). Per-request goroutines used to fan out unbounded
