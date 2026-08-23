@@ -97,18 +97,18 @@ func TestIsReadProtectedPath_KnownSensitiveFiles(t *testing.T) {
 	}{
 		{"/etc/shadow", true},
 		{"/etc/gshadow", true},
-		{"/etc/sudoers", true},                          // new
-		{"/etc/sudoers.d/00-foo", true},                 // new — sudoers.d/ tree
-		{"/etc/ssh/ssh_host_rsa_key", true},             // new — private host key
-		{"/etc/ssh/ssh_host_ed25519_key", true},         // new — private host key
-		{"/etc/ssh/ssh_host_rsa_key.pub", false},        // public key — readable
-		{"/etc/ssh/sshd_config", false},                 // config — readable
-		{"/root/.ssh/id_rsa", true},                     // new
-		{"/root/.ssh/authorized_keys", true},            // new — also sensitive
-		{"/home/user/.ssh/id_ed25519", true},            // new — generic /home/*/.ssh
-		{"/var/lib/sfpanel/sfpanel.db", true},           // new — SQLite live DB
-		{"/var/lib/sfpanel/sfpanel.db-wal", true},       // new
-		{"/var/lib/sfpanel/sfpanel.db-shm", true},       // new
+		{"/etc/sudoers", true},                    // new
+		{"/etc/sudoers.d/00-foo", true},           // new — sudoers.d/ tree
+		{"/etc/ssh/ssh_host_rsa_key", true},       // new — private host key
+		{"/etc/ssh/ssh_host_ed25519_key", true},   // new — private host key
+		{"/etc/ssh/ssh_host_rsa_key.pub", false},  // public key — readable
+		{"/etc/ssh/sshd_config", false},           // config — readable
+		{"/root/.ssh/id_rsa", true},               // new
+		{"/root/.ssh/authorized_keys", true},      // new — also sensitive
+		{"/home/user/.ssh/id_ed25519", true},      // new — generic /home/*/.ssh
+		{"/var/lib/sfpanel/sfpanel.db", true},     // new — SQLite live DB
+		{"/var/lib/sfpanel/sfpanel.db-wal", true}, // new
+		{"/var/lib/sfpanel/sfpanel.db-shm", true}, // new
 		{"/etc/sfpanel/config.yaml", true},
 		{"/etc/sfpanel/cluster/ca.key", true},
 		{"/etc/sfpanel/cluster/node.key", true},
@@ -167,56 +167,65 @@ func TestIsReadProtectedPath_SymlinkBypassBlocked(t *testing.T) {
 	}
 }
 
-// TestIsCriticalPath_TableDriven is the regression fence for the 2026-04-19
-// P0 R3 N-01 fix that switched isCriticalPath from exact-match to prefix-match.
-// Any future "optimization" that re-introduces exact-match must fail these.
-func TestIsCriticalPath_TableDriven(t *testing.T) {
+// TestSystemFatalPath_TableDriven replaces the former TestIsCriticalPath fence.
+//
+// That test guarded a prefix rule covering /etc, /usr, /var, /home, /opt, /srv
+// and /root, added on 2026-04-19 to keep /etc/cron.d/*, /etc/sudoers.d/* and
+// /usr/local/bin/* out of reach. The rule gated every WRITE in the module, not
+// just delete, which left the file manager able to read the whole filesystem
+// and change almost none of it — an operator could open a compose file, edit
+// it, press Save and be refused.
+//
+// The policy is now split in two, and this covers the delete half: an exact
+// match on the directories whose removal stops the running machine. It is a
+// mis-click guard, not a security control — the credential half lives in
+// TestWritesRefusedOnPanelCredentials, and the rest is deliberately open
+// because the same panel hands out a root terminal.
+func TestSystemFatalPath_TableDriven(t *testing.T) {
 	rejects := []string{
-		// Exact matches of every entry in criticalPaths
-		"/", "/etc", "/usr", "/bin", "/sbin", "/var", "/boot",
-		"/proc", "/sys", "/dev", "/home", "/root", "/lib",
-		"/lib64", "/opt", "/run", "/srv",
-		// 2026-04-19 attack vectors (must be rejected via prefix)
-		"/etc/cron.d/backdoor",
-		"/etc/sudoers.d/zz_pwn",
-		"/etc/systemd/system/evil.service",
-		"/usr/local/bin/sfpanel",
-		"/etc/init.d/evil",
-		"/etc/profile.d/evil.sh",
-		"/root/.ssh/authorized_keys",
+		"/", "/bin", "/sbin", "/lib", "/lib64",
+		"/boot", "/proc", "/sys", "/dev", "/run", "/usr",
 	}
 	for _, p := range rejects {
-		if !isCriticalPath(p) {
-			t.Errorf("isCriticalPath(%q) = false, want true", p)
+		if !isSystemFatalPath(p) {
+			t.Errorf("isSystemFatalPath(%q) = false, want true", p)
 		}
 	}
+
 	accepts := []string{
-		"/tmp/file",
-		"/tmp",
-		"/mnt/storage/x",
-		"/data/x",
+		// Working directories: freed on purpose.
+		"/etc", "/var", "/home", "/opt", "/srv", "/root",
+		"/etc/cron.d/backdoor",
+		"/etc/systemd/system/app.service",
+		"/usr/local/bin/sfpanel",
+		// Exact match only — a file inside a fatal directory is fair game.
+		"/bin/ls", "/lib/systemd/system/x.service",
+		"/tmp/file", "/tmp", "/mnt/storage/x", "/data/x",
 		"/etcd-config", // looks like /etc but isn't
 	}
 	for _, p := range accepts {
-		if isCriticalPath(p) {
-			t.Errorf("isCriticalPath(%q) = true, want false", p)
+		if isSystemFatalPath(p) {
+			t.Errorf("isSystemFatalPath(%q) = true, want false", p)
 		}
 	}
 }
 
-// TestValidatePathForWrite_RejectsSymlinkLeafToCritical exercises P0-11:
-// UploadFile + MkDir pass destDir as the validated path. If destDir IS a
-// symlink to /etc/cron.d, validatePathForWrite must reject — otherwise
-// MkdirAll/os.Create follow the symlink into a protected tree.
-func TestValidatePathForWrite_RejectsSymlinkLeafToCritical(t *testing.T) {
+// TestValidatePathForWrite_RejectsSymlinkLeafToProtected keeps the symlink
+// resolution honest: a link in a permissive directory must not be a way to
+// reach a protected one, or upload and mkdir would follow it there.
+//
+// The target changed with the policy. This used to aim at /etc/cron.d, which is
+// now ordinary administration; it aims at the panel's own credential directory
+// instead, which is the one thing the file API still refuses to write. The
+// mechanism under test is unchanged.
+func TestValidatePathForWrite_RejectsSymlinkLeafToProtected(t *testing.T) {
 	tmp := t.TempDir()
 	link := filepath.Join(tmp, "sneaky")
-	if err := os.Symlink("/etc/cron.d", link); err != nil {
+	if err := os.Symlink("/etc/sfpanel/cluster", link); err != nil {
 		t.Fatalf("create symlink: %v", err)
 	}
-	err := validatePathForWrite(link)
-	if err == nil {
-		t.Fatalf("validatePathForWrite(%q) accepted symlink to /etc/cron.d; want rejection", link)
+	if err := validatePathForWrite(link); err == nil {
+		t.Fatalf("validatePathForWrite(%q) accepted a symlink into the panel's credential directory", link)
 	}
 }
 

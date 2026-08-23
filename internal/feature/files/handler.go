@@ -29,36 +29,44 @@ const maxWriteSize = 10 * 1024 * 1024
 // maxDownloadSize is the maximum file size (2 GB) for DownloadFile.
 const maxDownloadSize = 2 * 1024 * 1024 * 1024
 
-
-// criticalPaths are system directories that must never be deleted.
-var criticalPaths = map[string]bool{
-	"/":      true,
-	"/etc":   true,
-	"/usr":   true,
-	"/bin":   true,
-	"/sbin":  true,
-	"/var":   true,
-	"/boot":  true,
-	"/proc":  true,
-	"/sys":   true,
-	"/dev":   true,
-	"/home":  true,
-	"/root":  true,
-	"/lib":   true,
-	"/lib64": true,
-	"/opt":   true,
-	"/run":   true,
-	"/srv":   true,
+// systemFatalPaths are the directories whose removal kills the running machine
+// outright — no reboot, no recovery, no "reinstall the package".
+//
+// This list is NOT a security control and must not be mistaken for one. The
+// same panel hands out a root terminal in the next tab and the compose module
+// already writes into /opt/stacks, so a caller who wants to damage the host has
+// easier routes. What this defends against is a mis-click: `rm -rf /lib` takes
+// deliberate typing, while a checkbox and a Delete button take one slip.
+//
+// It deliberately does NOT list /etc, /opt, /home, /var, /srv or /root. Those
+// are where operators actually work, and an earlier prefix rule over them made
+// every write in the file manager fail — you could open
+// /opt/stacks/<app>/docker-compose.yml, edit it, press Save, and be refused.
+var systemFatalPaths = map[string]bool{
+	"/":         true,
+	"/bin":      true,
+	"/sbin":     true,
+	"/lib":      true,
+	"/lib64":    true,
+	"/boot":     true,
+	"/proc":     true,
+	"/sys":      true,
+	"/dev":      true,
+	"/run":      true,
+	"/usr":      true,
+	"/usr/bin":  true,
+	"/usr/lib":  true,
+	"/usr/sbin": true,
 }
 
 // FileEntry represents a single file or directory in a listing.
 type FileEntry struct {
-	Name    string      `json:"name"`
-	Path    string      `json:"path"`
-	Size    int64       `json:"size"`
-	Mode    string      `json:"mode"`
-	ModTime time.Time   `json:"modTime"`
-	IsDir   bool        `json:"isDir"`
+	Name    string    `json:"name"`
+	Path    string    `json:"path"`
+	Size    int64     `json:"size"`
+	Mode    string    `json:"mode"`
+	ModTime time.Time `json:"modTime"`
+	IsDir   bool      `json:"isDir"`
 }
 
 // Handler exposes REST handlers for server-side file management.
@@ -98,62 +106,88 @@ func validatePath(p string) error {
 }
 
 // validatePathForWrite checks symlink resolution for write/delete operations.
+// validatePathForWrite validates a path a write is about to target.
+//
+// It no longer refuses whole subtrees. The only structural rule left is that a
+// symlink must not be used to reach somewhere the caller did not name — the
+// path is resolved and the resolved form is what later checks see.
 func validatePathForWrite(p string) error {
 	if err := validatePath(p); err != nil {
 		return err
 	}
-	parentDir := filepath.Dir(p)
-	realDir, err := filepath.EvalSymlinks(parentDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Parent doesn't exist yet — MkdirAll will create it; validate the literal path
-			realDir = filepath.Clean(parentDir)
-		} else {
-			return fmt.Errorf("cannot resolve parent directory: %w", err)
+	// A symlink in a permissive directory must not be a way to reach a
+	// protected one, so every form the write could land on is checked: the
+	// literal path, the fully resolved path, and — crucially — the raw link
+	// target when resolution fails.
+	//
+	// That last one is not belt-and-braces. EvalSymlinks returns an error when
+	// the target does not exist yet, and falling back to the literal path there
+	// means a symlink pointing at a not-yet-created credential file sails
+	// through: mkdir would then create the directory chain and the write would
+	// land exactly where it was refused. A dangling link is the easy case to
+	// plant, so it is the one to check hardest.
+	candidates := []string{filepath.Clean(p)}
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		candidates = append(candidates, resolved)
+	} else if target, rerr := os.Readlink(p); rerr == nil {
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(p), target)
 		}
+		candidates = append(candidates, filepath.Clean(target))
 	}
-	resolved := filepath.Join(realDir, filepath.Base(p))
-	if isCriticalPath(resolved) {
-		return fmt.Errorf("access to critical system path is not allowed")
-	}
-	if isCriticalPath(realDir) {
-		return fmt.Errorf("writing inside critical system directory is not allowed")
-	}
-	// Leaf-symlink check: if p itself is a symlink (e.g. /tmp/sneaky ->
-	// /etc/cron.d), MkdirAll/os.Create would follow it into a critical path
-	// even though parent + literal-resolved checks above pass. Resolve the
-	// symlink chain and re-check the final target.
-	if info, lerr := os.Lstat(p); lerr == nil && info.Mode()&os.ModeSymlink != 0 {
-		target, terr := filepath.EvalSymlinks(p)
-		if terr != nil {
-			return fmt.Errorf("cannot resolve symlink target: %w", terr)
-		}
-		if isCriticalPath(target) {
-			return fmt.Errorf("path resolves to a critical system path via symlink")
+	for _, c := range candidates {
+		if isWriteProtectedPath(c) {
+			return fmt.Errorf("this path holds panel credentials and cannot be written through the file API")
 		}
 	}
 	return nil
 }
 
-// isCriticalPath returns true if the cleaned path is a protected system
-// directory *or is located anywhere under one*. Prefix-matching is required
-// because the previous exact-match behaviour left /etc/cron.d, /etc/sudoers.d,
-// /usr/local/bin, etc. writable even though their parents (/etc, /usr) were
-// in the protected set.
-func isCriticalPath(p string) bool {
+// writeProtectedPrefixes are the few subtrees the file API must not write into
+// even though it may write everywhere else.
+//
+// This is a genuine boundary rather than a mis-click guard: /etc/sfpanel holds
+// the JWT signing secret and the cluster CA key, and the read side already
+// refuses to serve them. A file API that could overwrite them would let anyone
+// who reaches this one route mint tokens and node certificates — a strictly
+// larger capability than the route is supposed to grant, and one the root
+// terminal argument does not excuse, because the terminal is not what an
+// attacker who found a hole in THIS handler would have.
+//
+// Everything else that a previous revision blocked — /etc/cron.d, /etc/systemd,
+// /usr/local/bin and the rest — is unblocked deliberately. Those are ordinary
+// administration for an authenticated operator, and blocking them bought
+// nothing against an attacker who already has the panel's own root shell.
+var writeProtectedPrefixes = []string{
+	"/etc/sfpanel/",
+	"/root/.ssh/",
+	"/etc/sudoers.d/",
+}
+
+// isWriteProtectedPath reports whether a write must be refused outright.
+func isWriteProtectedPath(p string) bool {
 	cleaned := filepath.Clean(p)
-	if criticalPaths[cleaned] {
+	if readProtectedPaths[cleaned] {
 		return true
 	}
-	for critical := range criticalPaths {
-		if critical == "/" {
-			continue
-		}
-		if strings.HasPrefix(cleaned, critical+"/") {
+	for _, prefix := range writeProtectedPrefixes {
+		if cleaned == strings.TrimSuffix(prefix, "/") || strings.HasPrefix(cleaned, prefix) {
 			return true
 		}
 	}
 	return false
+}
+
+// isSystemFatalPath reports whether removing this path would kill the running
+// machine. Exact match only: /bin is fatal, /bin/ls is the operator's business.
+//
+// The predecessor of this function matched by PREFIX over a list that included
+// /etc, /opt, /home, /var, /srv and /usr, and it gated every write in the
+// module — save, mkdir, rename, copy destination, upload and delete alike. The
+// result was a file manager that could read the whole filesystem and write
+// almost none of it, failing only after the operator had done the work.
+func isSystemFatalPath(p string) bool {
+	return systemFatalPaths[filepath.Clean(p)]
 }
 
 // readProtectedPaths are files that must not be readable via the file API.
@@ -491,9 +525,12 @@ func (h *Handler) DeletePath(c echo.Context) error {
 
 	targetPath = filepath.Clean(targetPath)
 
-	if isCriticalPath(targetPath) {
+	// The one place a guard survives. Delete is an unbounded os.RemoveAll, and
+	// losing one of these takes the running machine down immediately — not on
+	// the next boot, now. Everywhere else writes freely.
+	if isSystemFatalPath(targetPath) {
 		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath,
-			fmt.Sprintf("Deleting '%s' is not allowed: critical system path", targetPath))
+			fmt.Sprintf("Refusing to delete '%s': removing it would stop this server immediately", targetPath))
 	}
 
 	if _, err := os.Stat(targetPath); err != nil {
@@ -539,13 +576,13 @@ func (h *Handler) RenamePath(c echo.Context) error {
 	req.OldPath = filepath.Clean(req.OldPath)
 	req.NewPath = filepath.Clean(req.NewPath)
 
-	if isCriticalPath(req.OldPath) {
+	// Moving one of these away is the same as deleting it. The DESTINATION is
+	// deliberately unguarded: placing a file into /usr/local/bin is ordinary
+	// administration, and refusing it was half of why this module could not
+	// write anywhere useful.
+	if isSystemFatalPath(req.OldPath) {
 		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath,
-			fmt.Sprintf("Renaming '%s' is not allowed: critical system path", req.OldPath))
-	}
-	if isCriticalPath(req.NewPath) {
-		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath,
-			fmt.Sprintf("Renaming to '%s' is not allowed: critical system path", req.NewPath))
+			fmt.Sprintf("Refusing to move '%s': it would stop this server immediately", req.OldPath))
 	}
 
 	if _, err := os.Stat(req.OldPath); err != nil {
@@ -642,11 +679,6 @@ func (h *Handler) CopyPath(c echo.Context) error {
 	}
 	req.Src = filepath.Clean(req.Src)
 	req.Dst = filepath.Clean(req.Dst)
-
-	if isCriticalPath(req.Dst) {
-		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath,
-			fmt.Sprintf("Copying to '%s' is not allowed: critical system path", req.Dst))
-	}
 
 	srcInfo, err := os.Stat(req.Src)
 	if err != nil {
@@ -867,11 +899,6 @@ func (h *Handler) UploadFile(c echo.Context) error {
 	}
 
 	destPath := filepath.Join(destDir, filename)
-
-	if isCriticalPath(destPath) {
-		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath,
-			fmt.Sprintf("Uploading to '%s' is not allowed: critical system path", destPath))
-	}
 
 	// Per-extension blocklist for known web-serving directories. The intent
 	// is to keep an operator from accidentally dropping an executable script
