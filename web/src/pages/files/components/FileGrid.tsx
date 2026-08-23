@@ -18,6 +18,19 @@ import { useInnerTrigger } from '../innerTrigger'
 /** Formats the panel can render a thumbnail for. Anything else gets an icon. */
 const THUMBNAILABLE = /\.(jpe?g|png|gif)$/i
 
+/**
+ * Pixels to ask the server for.
+ *
+ * A tile is roughly 150 CSS pixels, but a phone draws that with two or three
+ * device pixels each, and a 192px thumbnail stretched over 450 is visibly
+ * soft. Doubling covers every display worth the bytes; beyond 2x the file
+ * grows faster than the improvement shows.
+ */
+function thumbSize() {
+  const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
+  return dpr > 1 ? 384 : 192
+}
+
 function TileIcon({ entry }: { entry: FileEntry }) {
   const cls = 'h-10 w-10'
   if (entry.isDir) return <Folder className={cn(cls, 'text-blue-500')} aria-hidden="true" />
@@ -48,7 +61,7 @@ function Thumbnail({ entry }: { entry: FileEntry }) {
   }
   return (
     <img
-      src={api.thumbnailUrl(entry.path, 192)}
+      src={api.thumbnailUrl(entry.path, thumbSize())}
       alt=""
       // Native lazy loading rather than an observer: the browser already knows
       // where the viewport is, and a grid of tiles is exactly what the
@@ -56,7 +69,12 @@ function Thumbnail({ entry }: { entry: FileEntry }) {
       loading="lazy"
       decoding="async"
       onError={() => setFailed(true)}
-      className="h-full w-full rounded-lg object-cover"
+      // Contain, not cover. A tile is square and most images are not: cover
+      // crops a wide banner to its middle third and then enlarges what is
+      // left, so the thumbnail is both incomplete and blurry — which defeats
+      // the point of showing it. Every desktop file manager fits rather than
+      // fills for the same reason.
+      className="h-full w-full rounded-lg object-contain"
     />
   )
 }
