@@ -1,9 +1,18 @@
 package files
 
 import (
+	"bytes"
+	"encoding/json"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
 // The file manager used to refuse every write under /etc, /opt, /home, /var,
@@ -160,5 +169,124 @@ func TestWriteAllowsBenignSymlink(t *testing.T) {
 	}
 	if err := validatePathForWrite(link); err != nil {
 		t.Errorf("benign symlink refused: %v", err)
+	}
+}
+
+// Upload validates the destination DIRECTORY and then joins the filename onto
+// it. The joined path was never re-checked, so a directory that passes plus a
+// filename that lands on a protected file slipped through: destDir
+// /var/lib/sfpanel with filename sfpanel.db overwrites the panel's live
+// database, and with it the admin account row.
+//
+// filepath.Base already strips separators and .. from the filename, so the
+// hole is not traversal — it is that the two halves are checked separately and
+// the result never is.
+func TestUploadDestinationIsCheckedAfterJoin(t *testing.T) {
+	cases := []struct {
+		dir, name string
+	}{
+		{"/var/lib/sfpanel", "sfpanel.db"},
+		{"/var/lib/sfpanel", "sfpanel.db-wal"},
+		{"/etc", "shadow"},
+		{"/etc", "sudoers"},
+	}
+	for _, c := range cases {
+		if err := validatePathForWrite(c.dir); err != nil {
+			continue // the directory itself is already refused; nothing to prove
+		}
+		dest := filepath.Join(c.dir, c.name)
+		if err := validatePathForWrite(dest); err == nil {
+			t.Errorf("upload could land on %s — the joined destination is not protected", dest)
+		}
+	}
+}
+
+// The ordinary case must keep working: a directory that passes and a filename
+// that is nobody's business but the operator's.
+func TestUploadDestinationAllowsOrdinaryTargets(t *testing.T) {
+	for _, dest := range []string{
+		"/opt/stacks/app/docker-compose.yml",
+		"/home/operator/photo.png",
+		"/var/www/html/index.html",
+		"/usr/local/bin/deploy.sh",
+	} {
+		if err := validatePathForWrite(dest); err != nil {
+			t.Errorf("upload to %s refused: %v", dest, err)
+		}
+	}
+}
+
+// uploadTo drives UploadFile end to end with a real multipart body.
+//
+// The unit tests above prove the VALIDATOR refuses a protected destination.
+// They cannot prove the handler asks it — and that was exactly the bug: upload
+// validated the directory, joined the filename, and never checked the result.
+// This exercises the handler itself, which is the only level the gap was
+// visible at.
+func uploadTo(t *testing.T, destDir, filename, content string) (int, string) {
+	t.Helper()
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	if err := w.WriteField("path", destDir); err != nil {
+		t.Fatal(err)
+	}
+	part, err := w.CreateFormFile("file", filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/files/upload", &body)
+	req.Header.Set(echo.HeaderContentType, w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	h := &Handler{}
+	if err := h.UploadFile(c); err != nil {
+		t.Fatalf("UploadFile returned err: %v", err)
+	}
+	var decoded struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &decoded)
+	return rec.Code, decoded.Error.Code
+}
+
+func TestUploadHandlerRefusesProtectedJoinedDestination(t *testing.T) {
+	// Assert the REASON, not just the status.
+	//
+	// Both the protection and an ordinary permission error answer 403, and the
+	// first version of this test only checked the code. It passed with the fix
+	// removed — the unprivileged test process was simply being denied by the
+	// filesystem a few lines later, which proves nothing about the guard. The
+	// error code is what distinguishes "refused because it is protected" from
+	// "refused because this process happens to lack write permission".
+	for _, c := range []struct{ dir, name string }{
+		{"/var/lib/sfpanel", "sfpanel.db"}, // would replace the admin account row
+		{"/etc", "shadow"},
+	} {
+		status, code := uploadTo(t, c.dir, c.name, "overwritten")
+		if status != http.StatusForbidden || code != response.ErrCriticalPath {
+			t.Errorf("upload to %s/%s returned %d/%s, want 403/%s",
+				c.dir, c.name, status, code, response.ErrCriticalPath)
+		}
+	}
+}
+
+func TestUploadHandlerAllowsOrdinaryDestination(t *testing.T) {
+	dir := t.TempDir()
+	if status, code := uploadTo(t, dir, "notes.txt", "hello"); status != http.StatusOK {
+		t.Fatalf("upload to a temp dir returned %d/%s, want 200", status, code)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "notes.txt"))
+	if err != nil {
+		t.Fatalf("uploaded file missing: %v", err)
+	}
+	if string(got) != "hello" {
+		t.Errorf("content = %q, want %q", got, "hello")
 	}
 }

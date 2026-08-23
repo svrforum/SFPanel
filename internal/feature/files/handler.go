@@ -900,6 +900,18 @@ func (h *Handler) UploadFile(c echo.Context) error {
 
 	destPath := filepath.Join(destDir, filename)
 
+	// Re-validate the JOINED path, not just the directory it goes into.
+	//
+	// The two halves were checked separately and the result never was, so a
+	// permitted directory plus an ordinary-looking filename could land on a
+	// protected file: /var/lib/sfpanel + sfpanel.db overwrites the panel's live
+	// database, and with it the admin account row. filepath.Base above already
+	// strips separators and "..", so this is not traversal — it is that the
+	// destination only exists once the two are joined.
+	if err := validatePathForWrite(destPath); err != nil {
+		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath, err.Error())
+	}
+
 	// Per-extension blocklist for known web-serving directories. The intent
 	// is to keep an operator from accidentally dropping an executable script
 	// into a path the host serves (Apache/Nginx will then run it). Outside
