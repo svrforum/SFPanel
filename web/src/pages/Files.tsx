@@ -74,7 +74,7 @@ import { FilePreviewDialog, type PreviewTarget } from './files/components/FilePr
 import { isTextFile } from './files/components/fileLanguages'
 import { useFileView, useVisibleEntries, sortEntries, type SortKey } from './files/useFileView'
 import { FileGrid } from './files/components/FileGrid'
-import { dispatchContextMenu, useLongPress } from './files/useLongPress'
+import { useInnerTrigger } from './files/innerTrigger'
 import { useVirtualRows, VIRTUALIZE_THRESHOLD } from './files/useVirtualRows'
 import { FileCardList } from './files/components/FileCardList'
 import { FolderPickerDialog } from './files/components/FolderPickerDialog'
@@ -130,10 +130,9 @@ export default function Files() {
   const [moveTargets, setMoveTargets] = useState<FileEntry[] | null>(null)
   const [permissionsTarget, setPermissionsTarget] = useState<FileEntry | null>(null)
   const [trashOpen, setTrashOpen] = useState(false)
-  // The background menu's long-press target. On touch there is no right-click,
-  // so without this the "new file / new folder / upload" menu is unreachable.
-  const backgroundRef = useRef<HTMLDivElement>(null)
-  const backgroundLongPress = useLongPress((x, y) => dispatchContextMenu(backgroundRef.current, x, y))
+  // Shared by every table row: one instance is enough because only one press
+  // is ever in flight, and a hook cannot be called inside the row map.
+  const rowTrigger = useInnerTrigger()
 
   // Upload state
   const [uploading, setUploading] = useState(false)
@@ -1278,13 +1277,18 @@ export default function Files() {
           It used to be a 40-pixel strip below the table, so right-clicking
           "empty space" meant finding a thin band by eye — the menu was there
           all along and effectively undiscoverable. A row or tile still wins:
-          nested triggers resolve to the innermost one. */}
+          nested triggers resolve to the innermost one.
+
+          The bottom padding is the part that matters at length. A minimum
+          height alone only helps a short directory: five entries already fill
+          240px exactly, the table's bottom becomes the trigger's bottom, and
+          "empty space" is gone again — measured at zero slack. Padding sits
+          inside the border box, so it is right-clickable and it survives a
+          listing of any size. */}
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
-            className="min-h-[240px]"
-            ref={backgroundRef}
-            {...backgroundLongPress}
+            className="min-h-[240px] pb-24"
           >
       {mode === 'grid' ? (
         <FileGrid
@@ -1378,6 +1382,7 @@ export default function Files() {
             <ContextMenu key={rowPath}>
               <ContextMenuTrigger asChild>
                 <TableRow
+                  {...rowTrigger}
                   data-row-index={displayedFiles.indexOf(entry)}
                   aria-selected={selectedPaths.has(rowPath)}
                   className={cn(

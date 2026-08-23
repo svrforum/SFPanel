@@ -1,4 +1,3 @@
-import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { File, FileText, Folder, Image as ImageIcon, Loader2, MoreVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -20,7 +19,7 @@ import {
 import { formatBytes, formatDate } from '@/lib/utils'
 import type { FileEntry } from '@/types/api'
 import type { EntryAction } from '../entryActions'
-import { dispatchContextMenu, useLongPress } from '../useLongPress'
+import { useInnerTrigger } from '../innerTrigger'
 
 function EntryIcon({ entry }: { entry: FileEntry }) {
   if (entry.isDir) return <Folder className="h-5 w-5 shrink-0 text-blue-500" aria-hidden="true" />
@@ -108,16 +107,12 @@ function FileCard({ entry, rowPath, selected, actions, onToggleSelect, onOpen, s
   searchActive: boolean
 }) {
   const { t } = useTranslation()
-  const cardRef = useRef<HTMLDivElement>(null)
-  // The overflow button is already a 44px target, so this is a convenience
-  // rather than the only way in — but holding a row is what people try first,
-  // and doing nothing when they do is its own kind of broken.
-  const longPress = useLongPress((x, y) => dispatchContextMenu(cardRef.current, x, y))
+  const innerTrigger = useInnerTrigger()
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-          <div ref={cardRef} {...longPress} className="rounded-2xl bg-card p-3 card-shadow">
+          <div {...innerTrigger} className="rounded-2xl bg-card p-3 card-shadow">
             <div className="flex items-start gap-3">
               {/* A 44px hit area around the checkbox: the desktop one is a
                   16px square, which is a coin-flip with a thumb. */}

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { File, FileArchive, FileText, Folder, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/context-menu'
 import type { FileEntry } from '@/types/api'
 import type { EntryAction } from '../entryActions'
-import { dispatchContextMenu, useLongPress } from '../useLongPress'
+import { useInnerTrigger } from '../innerTrigger'
 
 /** Formats the panel can render a thumbnail for. Anything else gets an icon. */
 const THUMBNAILABLE = /\.(jpe?g|png|gif)$/i
@@ -130,24 +130,18 @@ function GridTile({ entry, selected, active, onToggleSelect, onOpen, actions }: 
   onOpen: () => void
   actions: EntryAction[]
 }) {
-  const tileRef = useRef<HTMLDivElement>(null)
-  // Long-press is the touch equivalent of a right-click. Without it every
-  // action on a phone means finding a small button by eye. Radix opens its
-  // menu from the native event, so the press dispatches one at its own
-  // coordinates rather than flipping a prop.
-  const longPress = useLongPress((x, y) => dispatchContextMenu(tileRef.current, x, y))
+  const innerTrigger = useInnerTrigger()
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
-          ref={tileRef}
           className={cn(
             'group relative rounded-2xl bg-card p-2 card-shadow transition-colors',
             selected && 'ring-2 ring-primary',
             active && !selected && 'ring-1 ring-ring/40',
           )}
-          {...longPress}
+          {...innerTrigger}
         >
           {/* A 44px target around a 16px checkbox. It sits over the tile
               rather than beside it so the thumbnail keeps the full width. */}
