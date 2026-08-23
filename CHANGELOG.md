@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.66.1] – 2026-08-23
+
+### Fixed
+
+- **Grid thumbnails were cropped and blurry.** A wide banner came out as its middle third, enlarged three times over: filling a square tile means cropping whatever does not fit, which removes exactly the part that would have told you which file this is. They fit the tile now, the way every desktop file manager does. The other half of the blur was resolution — a tile is about 150 CSS pixels but a phone draws that with two or three device pixels each, so displays above 1x ask for a 384px thumbnail instead of 192.
+
+### Documentation
+
+- The file manager's frontend spec still described the pre-0.65 page: no trash, no move, no owner or permissions columns, no archives, no phone layout, and a fixed alphabetical order that sortable columns had replaced.
+- Corrected the thumbnail sweep comments. Cache age is measured from when a thumbnail was written, not when it was last looked at: a read leaves no mark on the file, and atime is unreliable on a relatime or noatime mount.
+
+---
+
 ## [0.66.0] – 2026-08-23
 
 ### Added
