@@ -13,9 +13,10 @@ import (
 // running for months does not accumulate a backlog that all expires at once.
 const trashSweepInterval = time.Hour
 
-// thumbCacheMaxAge is how long an unused thumbnail survives. The cache keys on
-// modification time, so an edited file orphans its old entry rather than
-// replacing it — without a sweep the directory only ever grows.
+// thumbCacheMaxAge is how long a rendered thumbnail survives before it is
+// re-rendered on demand. The cache keys on the source file's modification time,
+// so an edited file orphans its old entry rather than replacing it — without a
+// sweep the directory only ever grows.
 const thumbCacheMaxAge = 30 * 24 * time.Hour
 
 // StartTrashSweeper clears trash past its retention window, and unused

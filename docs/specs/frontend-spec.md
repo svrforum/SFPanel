@@ -262,18 +262,21 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 ### Files
 - **파일**: `web/src/pages/Files.tsx`
 - **기능**: 서버 파일 관리자
-  - 브레드크럼 경로 네비게이션 (클릭 시 경로 직접 입력 가능)
-  - 파일/폴더 테이블: 이름(아이콘 구분), 크기, 수정일, 권한
-  - 디렉토리 우선 정렬 (알파벳순)
-  - 파일 클릭 시 Monaco 에디터로 편집 (언어 자동 감지: 30+ 확장자 지원)
-  - 새 파일 생성, 새 폴더 생성, 파일 업로드 (XHR + FormData, 진행률 표시), 다운로드
-  - 이름 변경, 삭제 확인 다이얼로그
-  - **우클릭 컨텍스트 메뉴**(행 + 배경 빈 영역): 열기/편집/다운로드/이름변경/삭제, 업로드/새파일/새폴더/새로고침
-  - 5MB 초과 파일은 편집기 대신 다운로드로 안내(confirm)
-  - 도구 모음: 새로고침, 새 파일, 새 폴더, 업로드
-  - **(v0.21.0) 검색/복사/다중 삭제**: 현재 디렉토리 하위 **재귀 이름 검색**(결과 캡 + 데드라인, 잘림 플래그), 파일/디렉토리 트리 **복사**, **다중 선택 삭제**(행별 체크박스 + 일괄 삭제 + 항목별 결과 요약).
-- **사용 API**: `api.listFiles()`, `api.readFile()`, `api.writeFile()`, `api.createDir()`, `api.deletePath()`, `api.renamePath()`, `api.uploadFile()`, `api.downloadFile()`, `api.searchFiles(path, q, limit?)`, `api.copyPath(src, dst)`
-- **사용 컴포넌트**: Table, Dialog, ContextMenu, Button, Input, Label, Monaco Editor (shadcn/ui + @monaco-editor/react)
+  - 브레드크럼 경로 네비게이션 (클릭 시 경로 직접 입력 가능), 현재 경로는 URL `?path=`에 보존 — 뒤로가기가 상위 디렉토리로 올라갑니다
+  - **두 가지 보기** (v0.66.0): 목록과 격자를 도구 모음에서 전환하며, 선택은 `localStorage`에 남습니다
+    - **목록**: 이름 · 크기 · 수정일 · 소유자 · 그룹 · 권한. 이름/크기/수정일 열은 정렬 가능(디렉토리는 항상 위)
+    - **격자**: 서버에서 축소한 실제 썸네일(JPEG/PNG/GIF, 그 외는 아이콘). 타일에 맞춰 잘리지 않게 축소하고, 레티나 화면은 384px를 요청합니다
+  - 숨김 파일 토글, 화살표 키 이동, 드래그 앤 드롭 업로드
+  - 파일 클릭 시 Monaco 에디터로 편집 (언어 자동 감지: 30+ 확장자 지원). 이미지는 미리보기, 그 밖의 바이너리는 다운로드로 안내 — 텍스트가 아닌 파일은 읽기 엔드포인트가 415로 거부합니다
+  - 새 파일(기본 `untitled.txt`, 확장자 없으면 `.txt` 부여, 생성 후 편집기 열림), 새 폴더, 업로드(XHR + FormData, 진행률), 다운로드
+  - 이동 · 복사 대상은 폴더 브라우저로 고르고, 이름 변경 · 업로드 · 복사 모두 기존 파일을 덮어쓰지 않고 409로 거부합니다
+  - 권한(chmod)과 소유자(chown) 편집, 선택 항목 압축(`.tar.gz` / `.zip`)과 제자리 해제
+  - 삭제는 휴지통을 거치며(7일) 되돌릴 수 있고, 다중 삭제는 진행률·실제 취소·실패 항목 명시를 제공합니다
+  - **컨텍스트 메뉴**: 행/카드/타일과 목록 영역 전체(빈 공간 포함). 터치에서는 길게 눌러 엽니다 (v0.66.0)
+  - **모바일 레이아웃**: 폰에서는 표 대신 카드 목록, 격자는 2열
+  - **(v0.21.0) 검색**: 현재 디렉토리 하위 재귀 이름 검색(결과 캡 + 데드라인, 잘림 플래그)
+- **사용 API**: `api.listFiles()`, `api.readFile()`, `api.writeFile()`, `api.createDir()`, `api.deletePath()`, `api.renamePath()`, `api.uploadFile()`, `api.downloadFile()`, `api.searchFiles(path, q, limit?)`, `api.copyPath(src, dst)`, `api.thumbnailUrl(path, size?)`, `api.chmodPath()`, `api.chownPath()`, `api.createArchive()`, `api.extractArchive()`, `api.listTrash()`, `api.restoreFromTrash()`, `api.purgeTrash()`
+- **사용 컴포넌트**: Table, Dialog, ContextMenu, Checkbox, Button, Input, Label, Monaco Editor (shadcn/ui + @monaco-editor/react)
 
 ### CronJobs
 - **파일**: `web/src/pages/CronJobs.tsx`
@@ -718,6 +721,7 @@ interface UseWebSocketOptions {
 | `downloadFile(path)` | GET | `/files/download?path=` | `Blob` | 파일 다운로드 |
 | `searchFiles(path, q, limit?)` | GET | `/files/search` | (검색 결과 + 잘림 플래그) | (v0.21.0) 재귀 이름 검색 |
 | `copyPath(src, dst)` | POST | `/files/copy` | - | (v0.21.0) 파일/디렉토리 복사 |
+| `thumbnailUrl(path, size?)` | GET | `/files/thumbnail?path=&size=` | URL 문자열 | (v0.66.0) 격자 뷰 썸네일 URL. `<img>`는 헤더를 못 붙이므로 토큰이 쿼리에 실립니다 |
 
 ### 로그
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |

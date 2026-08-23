@@ -281,11 +281,17 @@ func scaleToFit(width, height, box int) (int, int) {
 	return w, box
 }
 
-// SweepThumbnails removes cached thumbnails that have not been read recently.
+// SweepThumbnails removes cached thumbnails older than maxAge.
 //
-// The cache is keyed on modification time, so an edited file simply orphans its
-// old entry rather than replacing it. Without a sweep the directory only ever
-// grows.
+// Age is measured from when the thumbnail was written, not when it was last
+// looked at: a read leaves no mark on the file, and atime is unreliable on a
+// relatime or noatime mount. So a thumbnail viewed every day is still dropped
+// once, and rendered again on the next request. That costs one decode a month
+// and keeps the sweep honest about what it can actually observe.
+//
+// The cache is keyed on the source file's modification time, so an edited file
+// orphans its old entry rather than replacing it. Without a sweep the directory
+// only ever grows.
 func SweepThumbnails(maxAge time.Duration) (int, error) {
 	entries, err := os.ReadDir(thumbDir())
 	if err != nil {
