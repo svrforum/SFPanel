@@ -109,18 +109,3 @@ func (s Self) HTTPClient(timeout time.Duration) (*http.Client, error) {
 		Transport: &http.Transport{TLSClientConfig: cfg},
 	}, nil
 }
-
-// PeerPool builds the trust pool for reaching OTHER nodes' panel ports, from
-// the CA certificates replicated through the cluster FSM.
-//
-// Each node runs its own CA, so this pool is a growing, shrinking set rather
-// than the single fixed anchor internal/cluster's mTLS pool uses — which is
-// why it cannot reuse that pool (documented there as "loaded lazily, never
-// invalidated"). Callers rebuild this whenever cluster membership changes.
-func PeerPool(caPEMs map[string]string) *x509.CertPool {
-	pool := x509.NewCertPool()
-	for _, pem := range caPEMs {
-		pool.AppendCertsFromPEM([]byte(pem))
-	}
-	return pool
-}
