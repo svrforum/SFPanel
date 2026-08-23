@@ -71,6 +71,18 @@ type FileEntry struct {
 	// name only — listing a directory must not open every file in it — so it
 	// is a hint; ReadFile sniffs the bytes and is the authority.
 	Kind Kind `json:"kind"`
+	// Owner answers "who does this belong to", which a permission string never
+	// did. A container writing as a uid with no passwd entry is the most
+	// common cause of a file the operator cannot touch, and the panel could
+	// show the symptom without ever showing the cause.
+	Owner *OwnerInfo `json:"owner,omitempty"`
+	// Symlink target, when this entry is one. A link to a directory reports
+	// IsDir false because the listing lstats rather than follows, so without
+	// this the UI drew a file icon and tried to open the editor.
+	LinkTarget string `json:"linkTarget,omitempty"`
+	// TargetIsDir says whether the link resolves to a directory, so a click
+	// can navigate into it instead of failing.
+	TargetIsDir bool `json:"targetIsDir,omitempty"`
 }
 
 // Handler exposes REST handlers for server-side file management.
@@ -300,6 +312,7 @@ func (h *Handler) ListDir(c echo.Context) error {
 	const listDirCap = 10000
 	filesList := make([]FileEntry, 0, len(entries))
 	truncated := false
+	owners := newOwnerLookup()
 	for _, entry := range entries {
 		if len(filesList) >= listDirCap {
 			truncated = true
@@ -317,7 +330,7 @@ func (h *Handler) ListDir(c echo.Context) error {
 		if isReadProtectedPath(fullPath) {
 			continue
 		}
-		filesList = append(filesList, FileEntry{
+		fe := FileEntry{
 			Name:    entry.Name(),
 			Path:    fullPath,
 			Size:    info.Size(),
@@ -325,7 +338,23 @@ func (h *Handler) ListDir(c echo.Context) error {
 			ModTime: info.ModTime(),
 			IsDir:   entry.IsDir(),
 			Kind:    KindForName(entry.Name(), entry.IsDir()),
-		})
+			Owner:   owners.describe(info),
+		}
+		// Resolve a symlink enough to say where it goes and whether following
+		// it lands in a directory. Stat (not Lstat) follows; a broken link
+		// simply reports no target rather than failing the whole listing.
+		if info.Mode()&os.ModeSymlink != 0 {
+			if target, lerr := os.Readlink(fullPath); lerr == nil {
+				fe.LinkTarget = target
+			}
+			if resolved, serr := os.Stat(fullPath); serr == nil {
+				fe.TargetIsDir = resolved.IsDir()
+				if fe.TargetIsDir {
+					fe.Kind = KindDir
+				}
+			}
+		}
+		filesList = append(filesList, fe)
 	}
 
 	// Sort: directories first, then alphabetical by name.
