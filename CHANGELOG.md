@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.67.0] – 2026-08-23
+
+### Added
+
+- **An attention strip.** Three things the panel has been recording on a timer never reached the page an operator actually opens: container events — persisted with exit codes and OOM kills since observability landed, with no frontend caller at all — alerts that fired, evaluated every sixty seconds and readable only through Settings, and failed systemd units. They fold into one short list at the top of the dashboard, deduplicated so a container in a restart loop is one row rather than forty, and it renders nothing at all when there is nothing to say.
+- **The Docker card can tell a crash from a deliberate stop.** `stopped = total − running` put a container in a restart loop in the same grey box as one stopped three weeks ago, and painted a running-but-unhealthy container green. Both distinctions were already in the response the page fetched: `State` carries "restarting" and `Status` carries the "(unhealthy)" suffix and the exit code. The five rows now sort trouble first, then by the hourly CPU average the handler computes on every one of those calls and the dashboard was discarding.
+- **The disk card measures more than `/`.** It read `disk.Usage("/")` and nothing else, so a media array on `/mnt` — or a share this panel mounted itself — could sit at 99% behind a calm 34%. It leads with the fullest filesystem you can actually fill and keeps `/` on a line of its own. The collector and the disk alert threshold are deliberately untouched: changing what `disk_percent` means would silently change every stored history row and every rule already configured against it.
+- **Backup state on the front page** — off, last run, or failed. It was visible only in Settings → Maintenance, and the cost of not knowing is discovered during a restore.
+- Metric values carry the colour their bars already had, so 92% and 20% are no longer the same glance.
+- `GET /system/services` accepts `?state=failed`, so a thirty-second poll for a number that is almost always zero stops carrying 229 units.
+
+### Fixed
+
+- **The chart's range tabs did not fetch anything.** `1h / 4h / 12h / 24h` was a client-side filter over one payload always requested at the 24h default, so the tab the page opens on drew about five points. The server had accepted `?range=` all along. Measured against the running panel: no range returns 122 points twelve minutes apart, `?range=1h` returns 61 points a minute apart.
+- **History reduction threw away spikes, non-deterministically.** Reducing to ~120 points took every Nth sample, discarding eleven of every twelve across a day; a three-minute CPU pin survived roughly one time in four, and which samples survived shifted as old rows aged out — so reloading the page made a spike appear or vanish. It now reduces by time bucket and reports each bucket's peak for each series independently, so a memory spike is not hidden by a quiet CPU beside it. A reduced point is therefore an envelope rather than one observed sample, which is the honest trade for a chart whose job is "did anything spike".
+- **The chart no longer accumulates live socket samples.** The server collects once a minute, so a two-second sample added nothing the series did not already have. What it did add was a second source of truth that outgrew its own cap, evicted the history behind it, and stamped its points with the browser's clock while the server's rows carried the host's. The metric cards remain live at two seconds.
+
+---
+
 ## [0.66.2] – 2026-08-23
 
 ### Fixed
