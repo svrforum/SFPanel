@@ -95,7 +95,7 @@ func (h *Handler) Thumbnail(c echo.Context) error {
 		return response.Fail(c, http.StatusForbidden, response.ErrReadProtected, "Access to this file is not allowed")
 	}
 	if !CanThumbnail(filePath) {
-		return response.Fail(c, http.StatusUnsupportedMediaType, response.ErrNotTextFile,
+		return response.Fail(c, http.StatusUnsupportedMediaType, response.ErrUnsupportedFormat,
 			"No thumbnail is available for this format")
 	}
 

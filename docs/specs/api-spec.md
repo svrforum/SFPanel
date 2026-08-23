@@ -1043,6 +1043,36 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
 
 ---
 
+### GET /api/v1/files/thumbnail
+이미지 축소본 (JPEG 바이너리). 파일 관리자 그리드 뷰가 사용합니다. (v0.66.0+)
+
+- **인증 필요**: 예 — `<img>`는 헤더를 붙일 수 없으므로 `?token=` 쿼리 토큰도 허용됩니다.
+
+**Query Parameters:**
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `path` | string | 예 | 이미지의 절대 경로 |
+| `size` | int | 아니오 | 정사각 박스 한 변(기본 192, 최대 512). 종횡비는 유지되고 원본보다 커지지 않습니다 |
+
+**Response:** JPEG 바이너리 + `Cache-Control: private, max-age=86400`. 캐시 키가 경로·mtime·크기를 모두 포함하므로 한 URL의 내용은 절대 바뀌지 않습니다 — 파일이 수정되면 URL 자체가 달라집니다.
+
+지원 포맷은 JPEG · PNG · GIF. WebP/AVIF는 표준 라이브러리가 디코딩하지 못해 의도적으로 빠져 있고, UI는 아이콘으로 대체합니다.
+
+**디코딩 상한.** 바이트 상한(25 MB)과 픽셀 상한(8천만)은 서로 다른 것을 막습니다. 20 MB JPEG이 20000×20000이면 디코딩 후 RGBA로 1.6 GB이므로, 헤더만 먼저 파싱해 **선언된 크기로 거부**합니다 — 픽셀을 한 줄도 할당하기 전에.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_PATH` | 400 | 경로가 유효하지 않거나 일반 파일이 아님 |
+| `FILE_TOO_LARGE` | 400 | 원본이 25 MB 초과 |
+| `FILE_ERROR` | 400 | 픽셀 상한 초과 · 디코딩 실패 |
+| `READ_PROTECTED` | 403 | 읽기 보호 경로 |
+| `PERMISSION_DENIED` | 403 | 파일을 읽을 권한 없음 |
+| `NOT_FOUND` | 404 | 파일 없음 |
+| `UNSUPPORTED_FORMAT` | 415 | 썸네일을 만들 수 없는 포맷 |
+
+---
+
 ### POST /api/v1/files/upload
 파일 업로드 (최대 100 MB). multipart/form-data 사용.
 
@@ -4844,7 +4874,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/audit/logs` | O | 감사 로그 목록 |
 | DELETE | `/api/v1/audit/logs` | O | 감사 로그 전체 삭제 |
 
-### 파일 관리 (10개)
+### 파일 관리 (18개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -4852,12 +4882,20 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/files/read` | O | 파일 읽기 |
 | POST | `/api/v1/files/write` | O | 파일 쓰기 |
 | POST | `/api/v1/files/mkdir` | O | 디렉토리 생성 |
-| DELETE | `/api/v1/files` | O | 파일/디렉토리 삭제 |
+| DELETE | `/api/v1/files` | O | 파일/디렉토리 삭제 (휴지통 경유) |
 | POST | `/api/v1/files/rename` | O | 이름 변경/이동 |
 | POST | `/api/v1/files/copy` | O | 파일/디렉토리 트리 복사 (v0.21.0+) |
 | GET | `/api/v1/files/search` | O | 재귀 이름 검색 (v0.21.0+) |
 | GET | `/api/v1/files/download` | O | 파일 다운로드 |
 | POST | `/api/v1/files/upload` | O | 파일 업로드 |
+| POST | `/api/v1/files/chmod` | O | 권한 변경 |
+| POST | `/api/v1/files/chown` | O | 소유자 변경 |
+| POST | `/api/v1/files/archive` | O | 압축 생성 |
+| POST | `/api/v1/files/extract` | O | 압축 해제 |
+| GET | `/api/v1/files/thumbnail` | O | 이미지 썸네일 (v0.66.0+) |
+| GET | `/api/v1/files/trash` | O | 휴지통 목록 |
+| POST | `/api/v1/files/trash/restore` | O | 휴지통 복원 |
+| DELETE | `/api/v1/files/trash` | O | 휴지통 비우기 |
 
 ### Cron (4개)
 

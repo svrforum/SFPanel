@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
 func withTempThumbs(t *testing.T) string {
@@ -222,7 +224,7 @@ func TestThumbnailHandler(t *testing.T) {
 	src := filepath.Join(dir, "photo.png")
 	writePNG(t, src, 300, 300, color.RGBA{G: 180, A: 255})
 
-	call := func(path string) (int, string) {
+	call := func(path string) (int, string, string) {
 		req := httptest.NewRequest(http.MethodGet, "/files/thumbnail?path="+path, nil)
 		rec := httptest.NewRecorder()
 		c := echo.New().NewContext(req, rec)
@@ -230,10 +232,10 @@ func TestThumbnailHandler(t *testing.T) {
 		if err := (&Handler{}).Thumbnail(c); err != nil {
 			t.Fatalf("Thumbnail: %v", err)
 		}
-		return rec.Code, rec.Header().Get("Content-Type")
+		return rec.Code, rec.Header().Get("Content-Type"), rec.Body.String()
 	}
 
-	status, ctype := call(src)
+	status, ctype, _ := call(src)
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
@@ -247,8 +249,15 @@ func TestThumbnailHandler(t *testing.T) {
 	if err := os.WriteFile(notImage, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if status, _ := call(notImage); status != http.StatusUnsupportedMediaType {
+	// The code is asserted, not just the status: the UI keys its icon fallback
+	// on it, and a .txt answering NOT_TEXT_FILE — which is what this used to
+	// send — says the opposite of what is true about the file.
+	status, _, body := call(notImage)
+	if status != http.StatusUnsupportedMediaType {
 		t.Errorf("a non-image returned %d, want 415", status)
+	}
+	if !strings.Contains(body, response.ErrUnsupportedFormat) {
+		t.Errorf("body = %s, want code %s", body, response.ErrUnsupportedFormat)
 	}
 }
 

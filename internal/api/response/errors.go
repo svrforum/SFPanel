@@ -299,6 +299,12 @@ const (
 	// mojibake with Save enabled, and saving writes the replacement characters
 	// over the original.
 	ErrNotTextFile = "NOT_TEXT_FILE"
+	// ErrUnsupportedFormat is returned (HTTP 415) when a file is a perfectly
+	// valid file that this panel has no renderer for — a WebP asked of the
+	// thumbnailer, say. Distinct from ErrNotTextFile, which says the file is
+	// the wrong kind for the request; this says the request is fine and the
+	// panel is the one that falls short.
+	ErrUnsupportedFormat = "UNSUPPORTED_FORMAT"
 	// ErrStaleWrite is returned (HTTP 409) when a file changed on disk between
 	// the read the editor did and the save it is attempting.
 	ErrStaleWrite = "STALE_WRITE"
