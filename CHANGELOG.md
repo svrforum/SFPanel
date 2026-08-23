@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.68.0] – 2026-08-24
+
+### Fixed
+
+Six operations that failed outright, deleted something quietly, or left the operator with no way forward. Each was reproduced before it was changed.
+
+- **Editing a network interface deleted the default route.** The gateway fields were assigned unconditionally while the addresses, DNS and MTU beside them were all guarded, and the config dialog never filled the box — it opened blank and sent that blank back. Changing an MTU on a static interface therefore removed the host's default gateway, which on a remote machine is the last request the panel serves. Omitting a gateway now leaves the saved one alone; clearing it takes an explicit empty value. The dialog reads the interface's own configuration to fill the field, and where it cannot — a NetworkManager-rendered netplan, for instance — it says nothing about the gateway rather than sending a blank it never filled.
+- **Saving netplan deleted the sections it does not model.** The top-level structure was the only one in its family without a catch-all for unknown keys, and the file is rewritten whole, so an MTU change removed `wifis:`, `tunnels:` — where netplan-managed WireGuard lives — `vrfs:` and `modems:`. Permanently: the write is atomic and keeps no backup.
+- **Blackhole routes lost their destination.** `blackhole 10.0.0.0/24` was read as a route to a destination literally named "blackhole". Route types are parsed as types now, and a destination that merely begins with the same letters is not mistaken for one.
+- **DNS landed on a whichever interface came out of a map first.** Go randomises that, so a netplan file with two ethernets sent the servers somewhere different each time. Sorted by name.
+- **Removing an LVM physical volume could never succeed.** `pvs` reports `/dev/sdb1`, and the handler validated that with a rule excluding slashes before adding the prefix itself. Creating one was broken from the other side: the dialog's own placeholder was a string its handler refused. Both accept either form now, using the normalisation the volume-group handler already carried, and it is tested against path traversal.
+- **The browser abandoned operations the server allows five minutes.** Every request gave up after thirty seconds, and the subprocess is tied to the request, so `mkfs`, `apt install`, `docker compose down` and the `dd` behind a swap file all died halfway. For swap that was worse than a failure — the half-written file it left was then refused by the handler's own overwrite guard, with no way past it from inside the panel. Those calls wait as long as the server does, and a failed `dd` clears up after itself.
+- **Deleting a compose stack removed the definition even when the teardown had failed.** The containers stayed up, the stack disappeared from the list, and the compose file and its `.env` went with it, outside the file manager's trash. It now checks what is actually still running first: a non-zero exit alone is not proof, since `down --rmi all` can remove every container and still fail on a shared image.
+- **Deleting an alert channel left rules pointing at nothing.** Nothing reconciled the rules' channel lists, delivery skipped the missing entry silently, and the rule went on reporting itself as active while reaching nobody — rotate a webhook and the alerts stop, with no sign of it. The reference is pruned in the same transaction as the delete.
+
+---
+
 ## [0.67.1] – 2026-08-24
 
 ### Removed
