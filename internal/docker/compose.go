@@ -1042,13 +1042,3 @@ func (m *ComposeManager) GetRollbackInfo(ctx context.Context, name string) Rollb
 	}
 	return RollbackInfo{HasRollback: true, Details: details}
 }
-
-// HasRollback checks if rollback data exists for a project.
-func (m *ComposeManager) HasRollback(name string) bool {
-	if err := m.validateProjectName(name); err != nil {
-		return false
-	}
-	rbPath := filepath.Join(m.baseDir, name, ".sfpanel-rollback.json")
-	_, err := os.Stat(rbPath)
-	return err == nil
-}

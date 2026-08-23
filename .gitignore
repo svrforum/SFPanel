@@ -36,8 +36,8 @@ e2e/test-results/
 e2e/playwright-report/
 
 # Screenshots (Playwright MCP, 개발 중 캡처) — 전체 *.png 차단은 너무 광범위해
-# 스크린샷 디렉토리로 한정. 루트의 banner.png / favicon.png, web/public 하위
-# 아이콘 등 프로젝트 자산은 계속 추적되도록 남김.
+# 스크린샷 디렉토리로 한정. 루트의 banner.png / banner-dark.png, web/public
+# 하위 아이콘 등 프로젝트 자산은 계속 추적되도록 남김.
 screenshots/
 .playwright-mcp/
 

@@ -9,20 +9,15 @@ import (
 	"github.com/svrforum/SFPanel/internal/auth"
 )
 
-// InternalProxyHeader / IsInternalProxyRequest / SetClusterProxySecret were
-// moved into internal/auth so feature modules can consult the proxy check
-// without importing api/middleware (which would be a feature → middleware
-// reverse dependency). The names below are kept as thin aliases so existing
-// callers inside this package continue to compile.
-const InternalProxyHeader = auth.InternalProxyHeader
+// The proxy-check helpers live in internal/auth so feature modules can consult
+// them without importing api/middleware (which would be a feature → middleware
+// reverse dependency). Only the wiring entry point is still re-exported here;
+// the InternalProxyHeader constant and IsInternalProxyRequest aliases that used
+// to sit alongside it had no callers left and were removed.
 
 // SetClusterProxySecret forwards to internal/auth; kept here because main.go
 // originally wired the startup call through middleware.
 func SetClusterProxySecret(secret string) { auth.SetClusterProxySecret(secret) }
-
-// IsInternalProxyRequest forwards to internal/auth; kept for external callers
-// that imported it from middleware in the past.
-func IsInternalProxyRequest(r *http.Request) bool { return auth.IsInternalProxyRequest(r) }
 
 // allowsQueryToken returns true for the few endpoints that legitimately need
 // to pass a JWT through a URL (plain file download via <a>, backup download).

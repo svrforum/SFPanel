@@ -1113,15 +1113,6 @@ func (m *Manager) SetOnDisband(cb func(fromNodeID string)) {
 	m.raft.GetFSM().SetOnDisband(cb)
 }
 
-// GetFSMConfig reads a value from the Raft FSM config map.
-func (m *Manager) GetFSMConfig(key string) string {
-	if m.raft == nil {
-		return ""
-	}
-	state := m.raft.GetFSM().GetState()
-	return state.Config[key]
-}
-
 // SetAccount proposes an account upsert to the Raft cluster.
 // Only the leader can apply this; returns ErrNotLeader on followers.
 func (m *Manager) SetAccount(acct AdminAccount) error {

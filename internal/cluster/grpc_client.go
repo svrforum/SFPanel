@@ -95,20 +95,6 @@ func (c *GRPCClient) PreFlight(ctx context.Context, token string) (*pb.PreFlight
 	return c.client.PreFlight(ctx, &pb.PreFlightRequest{Token: token})
 }
 
-// Leave notifies the leader that this node is leaving.
-func (c *GRPCClient) Leave(ctx context.Context, nodeID string) (*pb.LeaveResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	return c.client.Leave(ctx, &pb.LeaveRequest{NodeId: nodeID})
-}
-
-// GetMetrics requests metrics for a specific node.
-func (c *GRPCClient) GetMetrics(ctx context.Context, nodeID string) (*pb.MetricsResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	return c.client.GetMetrics(ctx, &pb.MetricsRequest{NodeId: nodeID})
-}
-
 // ProxyRequest forwards an API request to the remote node.
 func (c *GRPCClient) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.APIResponse, error) {
 	return c.client.ProxyRequest(ctx, req)

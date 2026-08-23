@@ -923,10 +923,3 @@ func (c *Client) ListContainersByComposeProject(ctx context.Context, project str
 	f.Add("label", fmt.Sprintf("com.docker.compose.project=%s", project))
 	return c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
 }
-
-// ListContainersByComposeWorkingDir returns containers belonging to a compose project by working directory.
-func (c *Client) ListContainersByComposeWorkingDir(ctx context.Context, workingDir string) ([]container.Summary, error) {
-	f := filters.NewArgs()
-	f.Add("label", fmt.Sprintf("com.docker.compose.project.working_dir=%s", workingDir))
-	return c.cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
-}

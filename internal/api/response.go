@@ -5,11 +5,8 @@ import (
 	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
-// Re-export types and functions from the response package
-// so existing code using api.OK / api.Fail continues to work.
-
-type Response = response.Response
-type ErrorBody = response.ErrorBody
+// Thin re-exports so callers inside this package can use OK/Fail without
+// importing the response package directly.
 
 func OK(c echo.Context, data interface{}) error {
 	return response.OK(c, data)

@@ -173,11 +173,6 @@ func saveToDB(pt MetricsPoint) {
 // Kept for API compatibility.
 func FlushPending() {}
 
-// GetHistory returns a copy of the collected metrics history.
-func GetHistory() []MetricsPoint {
-	return GetHistoryRange("")
-}
-
 // GetHistoryRange returns metrics history for the given time range.
 // Supported ranges: "1h", "4h", "12h", "24h" (default).
 // Longer ranges are downsampled to ~120 points for consistent client performance.

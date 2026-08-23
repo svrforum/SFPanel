@@ -240,20 +240,6 @@ func (rn *RaftNode) VerifyLeader(timeout time.Duration) error {
 	}
 }
 
-// AddVoter adds a new voter node to the Raft cluster.
-func (rn *RaftNode) AddVoter(nodeID, address string) error {
-	if !rn.isLeader() {
-		return ErrNotLeader
-	}
-
-	f := rn.raft.AddVoter(
-		raft.ServerID(nodeID),
-		raft.ServerAddress(address),
-		0, 30*time.Second,
-	)
-	return f.Error()
-}
-
 // AddNonvoter adds a node as a non-voting member. Used during the first phase
 // of two-phase join — the node receives Raft state and replicates the log
 // without contributing to quorum, so a mid-join crash can't drop the cluster
