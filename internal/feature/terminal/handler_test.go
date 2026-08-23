@@ -137,16 +137,28 @@ func TestGetInfo(t *testing.T) {
 		if !body.Success {
 			t.Fatalf("success = false, body %s", rec.Body.String())
 		}
-		if body.Data.ShellUser == "" {
+		// A uid with no passwd entry is a real configuration — a container, or
+		// a build sandbox — and the code falls back deliberately rather than
+		// failing. Assert the fallback there instead of demanding a name that
+		// genuinely does not exist.
+		_, passwdHome := osAccount()
+		namelessAccount := passwdHome == ""
+
+		if !namelessAccount && body.Data.ShellUser == "" {
 			t.Error("shell_user is empty — the badge would render \"@host\"")
 		}
 		if body.Data.Hostname == "" {
 			t.Error("hostname is empty — the badge could not name the node")
 		}
 		// The bug this whole change exists for: /tmp means the .bashrc lookup
-		// failed and the operator loses their aliases and prompt.
-		if body.Data.Home == "/tmp" {
-			t.Error("home resolved to /tmp — passwd lookup failed")
+		// failed and the operator loses their aliases and prompt. It is only a
+		// bug when there was a passwd home to find — /tmp is the correct answer
+		// for an account that has none.
+		if !namelessAccount && body.Data.Home == "/tmp" {
+			t.Error("home resolved to /tmp even though the account has a home in the passwd database")
+		}
+		if namelessAccount && body.Data.Home != "/tmp" {
+			t.Errorf("home = %q for a nameless account, want the /tmp fallback", body.Data.Home)
 		}
 		if body.Data.Shell == "" {
 			t.Error("shell is empty")

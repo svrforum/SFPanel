@@ -265,9 +265,19 @@ func TestUploadHandlerRefusesProtectedJoinedDestination(t *testing.T) {
 	// filesystem a few lines later, which proves nothing about the guard. The
 	// error code is what distinguishes "refused because it is protected" from
 	// "refused because this process happens to lack write permission".
+	// Both directories exist on every machine this can run on, which matters:
+	// an earlier version used /var/lib/sfpanel, and on a host without the panel
+	// installed the MkdirAll a few lines earlier failed first and answered
+	// PERMISSION_DENIED. The test passed here and failed in CI, which is the
+	// wrong way round for a guard test to behave.
+	//
+	// The panel's own database is the more alarming target — uploading over it
+	// replaces the admin account row — and it is covered at the validator level
+	// by TestUploadDestinationIsCheckedAfterJoin, which needs no directory to
+	// exist.
 	for _, c := range []struct{ dir, name string }{
-		{"/var/lib/sfpanel", "sfpanel.db"}, // would replace the admin account row
 		{"/etc", "shadow"},
+		{"/etc", "sudoers"},
 	} {
 		status, code := uploadTo(t, c.dir, c.name, "overwritten")
 		if status != http.StatusForbidden || code != response.ErrCriticalPath {
