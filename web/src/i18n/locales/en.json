@@ -1449,7 +1449,22 @@
     "extract": "Extract",
     "extractTitle": "Extract archive",
     "extracted": "Extracted {{count}} entries",
-    "extractFailed": "Could not extract the archive"
+    "extractFailed": "Could not extract the archive",
+    "trash": "Trash",
+    "trashRetention": "Deleted files are kept for {{days}} days, then removed automatically.",
+    "trashEmpty": "The trash is empty",
+    "trashLoadFailed": "Could not read the trash",
+    "restore": "Restore",
+    "restored": "Restored to {{path}}",
+    "restoreExists": "Something already exists at the original path",
+    "restoreFailed": "Could not restore",
+    "purge": "Delete permanently",
+    "purgeTitle": "Delete permanently?",
+    "purgeBody": "{{name}} cannot be recovered after this.",
+    "purgeFailed": "Could not empty",
+    "emptyTrash": "Empty trash",
+    "emptyTrashTitle": "Empty the trash?",
+    "emptyTrashBody": "{{count}} entries will be gone for good."
   },
   "cron": {
     "title": "Cron Jobs",

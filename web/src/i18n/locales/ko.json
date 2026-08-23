@@ -1449,7 +1449,22 @@
     "extract": "압축 풀기",
     "extractTitle": "압축 풀기",
     "extracted": "{{count}}개 항목을 풀었습니다",
-    "extractFailed": "압축을 풀지 못했습니다"
+    "extractFailed": "압축을 풀지 못했습니다",
+    "trash": "휴지통",
+    "trashRetention": "삭제한 파일은 {{days}}일간 보관 후 자동으로 지워집니다.",
+    "trashEmpty": "휴지통이 비어 있습니다",
+    "trashLoadFailed": "휴지통을 읽지 못했습니다",
+    "restore": "복원",
+    "restored": "{{path}} 로 복원했습니다",
+    "restoreExists": "원래 경로에 이미 무언가 있습니다",
+    "restoreFailed": "복원하지 못했습니다",
+    "purge": "영구 삭제",
+    "purgeTitle": "영구 삭제할까요?",
+    "purgeBody": "{{name}} 은(는) 이후 복구할 수 없습니다.",
+    "purgeFailed": "비우지 못했습니다",
+    "emptyTrash": "휴지통 비우기",
+    "emptyTrashTitle": "휴지통을 비울까요?",
+    "emptyTrashBody": "{{count}}개 항목이 영구히 사라집니다."
   },
   "cron": {
     "title": "크론 작업",

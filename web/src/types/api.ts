@@ -515,6 +515,16 @@ export interface TailscalePeer {
 // assuming everything that is not a directory is editable text.
 export type FileKind = 'dir' | 'text' | 'image' | 'binary'
 
+export interface TrashEntry {
+  id: string
+  /** Where it came from — the only thing that makes a restore meaningful. */
+  originalPath: string
+  name: string
+  deletedAt: string
+  size: number
+  isDir: boolean
+}
+
 export interface FileOwner {
   uid: number
   gid: number

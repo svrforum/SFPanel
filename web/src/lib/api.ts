@@ -47,6 +47,7 @@ import type {
   TerminalSession,
   TerminalInfo,
   FileKind,
+  TrashEntry,
   TLSStatus,
   ClusterEventsResponse,
   ClusterInterfacesResponse,
@@ -610,6 +611,23 @@ class ApiClient {
     return res.blob()
   }
 
+  listTrash() {
+    return this.request<{ entries: TrashEntry[]; retentionDays: number }>('/files/trash')
+  }
+
+  restoreFromTrash(id: string, to?: string) {
+    return this.request<{ restored: string }>('/files/trash/restore', {
+      method: 'POST',
+      body: JSON.stringify({ id, to }),
+    })
+  }
+
+  /** Omit the id to empty the trash entirely. */
+  purgeTrash(id?: string) {
+    const q = id ? `?id=${encodeURIComponent(id)}` : ''
+    return this.request<{ purged: string }>(`/files/trash${q}`, { method: 'DELETE' })
+  }
+
   chmodPath(path: string, mode: string, recursive = false) {
     return this.request<{ path: string; mode: string }>('/files/chmod', {
       method: 'POST',
@@ -1106,8 +1124,15 @@ class ApiClient {
     })
   }
 
-  deletePath(path: string) {
-    return this.request(`/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' })
+  // Deletes move to the trash unless permanent is set. The response says
+  // whether it actually landed there — an entry on a different filesystem
+  // cannot be renamed into the trash and is removed outright.
+  deletePath(path: string, permanent = false) {
+    const q = permanent ? '&permanent=true' : ''
+    return this.request<{ path: string; trashed: boolean }>(
+      `/files?path=${encodeURIComponent(path)}${q}`,
+      { method: 'DELETE' },
+    )
   }
 
   // Also the move: the server takes two absolute paths and creates the missing

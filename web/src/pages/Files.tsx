@@ -71,9 +71,11 @@ import { FileEditorDialog, type EditorTarget } from './files/components/FileEdit
 import { FilePreviewDialog, type PreviewTarget } from './files/components/FilePreviewDialog'
 import { isTextFile } from './files/components/fileLanguages'
 import { useFileView, useVisibleEntries, sortEntries, type SortKey } from './files/useFileView'
+import { useVirtualRows, VIRTUALIZE_THRESHOLD } from './files/useVirtualRows'
 import { FileCardList } from './files/components/FileCardList'
 import { FolderPickerDialog } from './files/components/FolderPickerDialog'
 import { PermissionsDialog } from './files/components/PermissionsDialog'
+import { TrashDialog } from './files/components/TrashDialog'
 import type { EntryAction } from './files/entryActions'
 
 import type { FileEntry } from '@/types/api'
@@ -123,6 +125,7 @@ export default function Files() {
   // leave it.
   const [moveTargets, setMoveTargets] = useState<FileEntry[] | null>(null)
   const [permissionsTarget, setPermissionsTarget] = useState<FileEntry | null>(null)
+  const [trashOpen, setTrashOpen] = useState(false)
 
   // Upload state
   const [uploading, setUploading] = useState(false)
@@ -839,6 +842,17 @@ export default function Files() {
       ?.scrollIntoView({ block: 'nearest' })
   }, [activeIndex])
 
+  // Only window the list when it is big enough to be worth it. Windowing costs
+  // a scroll container and breaks find-in-page for rows that are not rendered,
+  // which is a bad trade on the tens-of-entries directory people actually open.
+  const virtualized = displayedFiles.length > VIRTUALIZE_THRESHOLD
+  const rows = useVirtualRows({
+    count: displayedFiles.length,
+    rowHeight: 45,
+    enabled: virtualized,
+  })
+  const windowedFiles = virtualized ? displayedFiles.slice(rows.start, rows.end) : displayedFiles
+
   // A real button, so the column is reachable by keyboard and announced as
   // sortable rather than being a bare clickable heading.
   const SortHeader = ({ column, label }: { column: SortKey; label: string }) => {
@@ -1101,6 +1115,16 @@ export default function Files() {
             variant="outline"
             size="sm"
             className="rounded-xl"
+            onClick={() => setTrashOpen(true)}
+            title={t('files.trash', { defaultValue: 'Trash' })}
+          >
+            <Trash2 />
+            <span className="hidden sm:inline">{t('files.trash', { defaultValue: 'Trash' })}</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-xl"
             onClick={toggleHidden}
             title={showHidden ? t('files.hideHidden', { defaultValue: 'Hide dotfiles' }) : t('files.showHidden', { defaultValue: 'Show dotfiles' })}
             aria-pressed={showHidden}
@@ -1219,7 +1243,13 @@ export default function Files() {
       />
 
       {/* File listing table */}
-      <div className="hidden bg-card rounded-2xl card-shadow overflow-hidden md:block">
+      <div
+        ref={rows.scrollRef}
+        className={cn(
+          'hidden rounded-2xl bg-card card-shadow md:block',
+          virtualized ? 'max-h-[calc(100vh-20rem)] overflow-auto' : 'overflow-hidden',
+        )}
+      >
       <Table>
         <TableHeader>
           <TableRow>
@@ -1265,7 +1295,10 @@ export default function Files() {
               </TableCell>
             </TableRow>
           )}
-          {displayedFiles.map((entry) => {
+          {virtualized && rows.padTop > 0 && (
+            <TableRow aria-hidden="true"><TableCell colSpan={7} style={{ height: rows.padTop, padding: 0 }} /></TableRow>
+          )}
+          {windowedFiles.map((entry) => {
             const rowPath = entryPath(entry)
             const actions = entryActions(entry)
             return (
@@ -1401,6 +1434,9 @@ export default function Files() {
             </ContextMenu>
             )
           })}
+          {virtualized && rows.padBottom > 0 && (
+            <TableRow aria-hidden="true"><TableCell colSpan={7} style={{ height: rows.padBottom, padding: 0 }} /></TableRow>
+          )}
         </TableBody>
       </Table>
       </div>
@@ -1499,6 +1535,12 @@ export default function Files() {
           setBulkDeleteRequest(null)
           if (request) void runBulkDelete(request.paths)
         }}
+      />
+
+      <TrashDialog
+        open={trashOpen}
+        onOpenChange={setTrashOpen}
+        onRestored={fetchFiles}
       />
 
       <PermissionsDialog
