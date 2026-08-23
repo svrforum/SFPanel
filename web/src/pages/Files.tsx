@@ -17,7 +17,10 @@ import {
   Search,
   Copy,
   X,
-  type LucideIcon,
+  ArrowUp,
+  ArrowDown,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -52,23 +55,12 @@ import {
 import { FileEditorDialog, type EditorTarget } from './files/components/FileEditorDialog'
 import { FilePreviewDialog, type PreviewTarget } from './files/components/FilePreviewDialog'
 import { isTextFile } from './files/components/fileLanguages'
+import { useFileView, useVisibleEntries, sortEntries, type SortKey } from './files/useFileView'
+import { FileCardList } from './files/components/FileCardList'
+import type { EntryAction } from './files/entryActions'
 
 import type { FileEntry } from '@/types/api'
 
-// One per-row action list, rendered both as the row's icon buttons and as its
-// context-menu items (previously two hand-synced copies of the same five actions).
-interface EntryAction {
-  key: string
-  Icon: LucideIcon
-  show: boolean
-  /** Row button only — the context menu covers it via its open/edit item. */
-  rowOnly?: boolean
-  iconClassName?: string
-  destructive?: boolean
-  label: string
-  menuLabel: string
-  onClick: () => void
-}
 
 export default function Files() {
   const { t } = useTranslation()
@@ -458,15 +450,23 @@ export default function Files() {
     }
   }
 
-  // Sort: directories first, then files, both alphabetical
-  const sortedFiles = useMemo(() =>
-    [...files].sort((a, b) => {
-      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
-      return a.name.localeCompare(b.name)
-    }), [files])
+  // Ordering and the dotfile filter, both remembered per browser.
+  const { sort, toggleSort, showHidden, toggleHidden } = useFileView()
+  const sortedFiles = useVisibleEntries(files, sort, showHidden)
+
+  // Search results get the same ordering but keep every hit: a search for
+  // ".env" that then hid its own results would be indefensible.
+  const sortedSearchResults = useMemo(() => sortEntries(searchResults, sort), [searchResults, sort])
 
   // Rows currently shown: search results when searching, otherwise the directory listing.
-  const displayedFiles = searchActive ? searchResults : sortedFiles
+  const displayedFiles = searchActive ? sortedSearchResults : sortedFiles
+
+  // How many rows the dotfile filter is holding back, so the count is honest
+  // about what it is not showing.
+  const hiddenCount = useMemo(
+    () => (showHidden ? 0 : files.filter((e) => e.name.startsWith('.')).length),
+    [files, showHidden],
+  )
 
   // Resolve the absolute path of a displayed entry. Search results carry a full
   // `path`; normal listing entries are relative to currentPath.
@@ -497,6 +497,25 @@ export default function Files() {
     } else {
       void handleEditFile(entry)
     }
+  }
+
+  // A real button, so the column is reachable by keyboard and announced as
+  // sortable rather than being a bare clickable heading.
+  const SortHeader = ({ column, label }: { column: SortKey; label: string }) => {
+    const active = sort.key === column
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSort(column)}
+        aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+        className="inline-flex items-center gap-1 rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+      >
+        {label}
+        {active && (sort.direction === 'asc'
+          ? <ArrowUp className="h-3 w-3" aria-hidden="true" />
+          : <ArrowDown className="h-3 w-3" aria-hidden="true" />)}
+      </button>
+    )
   }
 
   const entryActions = (entry: FileEntry): EntryAction[] => [
@@ -604,15 +623,24 @@ export default function Files() {
         </nav>
       )}
 
-      {/* Toolbar */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+      {/* Toolbar.
+          Wraps, and the search box is fluid below sm. It used to be a single
+          non-wrapping row holding a fixed 224px input and four buttons, which
+          pushed Upload off the right edge of a 390px screen entirely — the
+          control was not small, it was unreachable. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-1 items-center gap-2 min-w-0">
           <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary shrink-0">
             {searchActive
               ? t('files.searchResultCount', { count: searchCount })
-              : t('files.count', { count: files.length })}
+              : t('files.count', { count: displayedFiles.length })}
           </span>
-          <div className="relative">
+          {hiddenCount > 0 && (
+            <span className="hidden text-[11px] text-muted-foreground sm:inline">
+              {t('files.hiddenCount', { count: hiddenCount, defaultValue: '{{count}} hidden' })}
+            </span>
+          )}
+          <div className="relative min-w-0 flex-1 sm:flex-none">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <Input
               value={searchQuery}
@@ -622,7 +650,7 @@ export default function Files() {
                 else if (e.key === 'Escape' && searchActive) exitSearch()
               }}
               placeholder={t('files.searchPlaceholder')}
-              className="h-8 w-56 pl-8 pr-8 text-sm"
+              className="h-8 w-full pl-8 pr-8 text-sm sm:w-56"
             />
             {(searchActive || searchQuery) && (
               <button
@@ -637,7 +665,20 @@ export default function Files() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-xl"
+            onClick={toggleHidden}
+            title={showHidden ? t('files.hideHidden', { defaultValue: 'Hide dotfiles' }) : t('files.showHidden', { defaultValue: 'Show dotfiles' })}
+            aria-pressed={showHidden}
+          >
+            {showHidden ? <Eye /> : <EyeOff />}
+            <span className="hidden sm:inline">
+              {showHidden ? t('files.hideHidden', { defaultValue: 'Hide dotfiles' }) : t('files.showHidden', { defaultValue: 'Show dotfiles' })}
+            </span>
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -709,8 +750,23 @@ export default function Files() {
         </div>
       )}
 
+      {/* Phone view. The table below is six columns wide and simply does not
+          fit a 390px screen — size, modified and permissions were off-screen
+          entirely rather than merely cramped. */}
+      <FileCardList
+        entries={displayedFiles}
+        loading={loading || searchLoading}
+        emptyMessage={searchActive ? t('files.searchEmpty') : t('files.empty')}
+        selectedPaths={selectedPaths}
+        entryPath={entryPath}
+        onToggleSelect={toggleSelected}
+        onOpen={openEntry}
+        actionsFor={entryActions}
+        searchActive={searchActive}
+      />
+
       {/* File listing table */}
-      <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+      <div className="hidden bg-card rounded-2xl card-shadow overflow-hidden md:block">
       <Table>
         <TableHeader>
           <TableRow>
@@ -730,9 +786,9 @@ export default function Files() {
                 aria-label={t('files.selectAll')}
               />
             </TableHead>
-            <TableHead>{t('files.name')}</TableHead>
-            <TableHead className="w-28">{t('files.size')}</TableHead>
-            <TableHead className="w-44">{t('files.modified')}</TableHead>
+            <TableHead><SortHeader column="name" label={t('files.name')} /></TableHead>
+            <TableHead className="w-28"><SortHeader column="size" label={t('files.size')} /></TableHead>
+            <TableHead className="w-44"><SortHeader column="modTime" label={t('files.modified')} /></TableHead>
             <TableHead className="w-28">{t('files.permissions')}</TableHead>
             <TableHead className="text-right w-36">{t('common.actions')}</TableHead>
           </TableRow>

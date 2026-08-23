@@ -1398,7 +1398,11 @@
     "unsaved": "unsaved",
     "saveHint": "Ctrl+S saves",
     "previewTooLarge": "Too large to preview — download it to open it.",
-    "previewBinary": "This file is not text and cannot be shown here."
+    "previewBinary": "This file is not text and cannot be shown here.",
+    "hiddenCount": "{{count}} hidden",
+    "showHidden": "Show dotfiles",
+    "hideHidden": "Hide dotfiles",
+    "folder": "Folder"
   },
   "cron": {
     "title": "Cron Jobs",
