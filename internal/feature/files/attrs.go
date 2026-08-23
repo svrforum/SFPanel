@@ -93,6 +93,20 @@ func (h *Handler) ChangeMode(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, err.Error())
 	}
 
+	// Refuse to act on a symlink.
+	//
+	// chmod follows one, so clicking Permissions on a link row would change
+	// the TARGET's mode with nothing on screen saying so — the operator names
+	// one file and a different one changes. Linux has no lchmod and stores no
+	// permissions on a link anyway, so there is nothing sensible to do here
+	// except say which file was actually meant. (A link into the panel's
+	// credential directory is already refused by validatePathForWrite, which
+	// resolves before it checks; this is about the ordinary case.)
+	if info, lerr := os.Lstat(req.Path); lerr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath,
+			"This is a symbolic link; change permissions on the file it points to")
+	}
+
 	if req.Recursive {
 		// Walk rather than shelling out, so a failure names the path it
 		// happened on instead of returning chmod's exit status.

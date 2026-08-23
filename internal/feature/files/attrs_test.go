@@ -1,8 +1,12 @@
 package files
 
 import (
+	"net/http"
 	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/svrforum/SFPanel/internal/api/response"
 )
 
 func TestParseFileMode(t *testing.T) {
@@ -67,5 +71,51 @@ func TestResolveOwner(t *testing.T) {
 	}
 	if _, _, err := resolveOwner("definitely-not-a-real-account-name", ""); err == nil {
 		t.Error("an unknown user name should be refused rather than silently skipped")
+	}
+}
+
+// chmod follows a symlink, so acting on a link row would change the target's
+// mode with nothing on screen saying so — the operator names one file and a
+// different one changes. Linux stores no permissions on a link anyway.
+func TestChangeModeRefusesASymlink(t *testing.T) {
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "victim.txt")
+	if err := os.WriteFile(victim, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(victim, link); err != nil {
+		t.Fatal(err)
+	}
+
+	status, code := postJSON(t, (&Handler{}).ChangeMode, "/files/chmod", map[string]any{
+		"path": link, "mode": "0777",
+	})
+	if status != http.StatusBadRequest || code != response.ErrInvalidPath {
+		t.Fatalf("chmod on a symlink returned %d/%s, want 400/%s", status, code, response.ErrInvalidPath)
+	}
+	info, err := os.Stat(victim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("target mode = %v — the link was followed", info.Mode().Perm())
+	}
+}
+
+func TestChangeModeWorksOnARealFile(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "script.sh")
+	if err := os.WriteFile(target, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if status, code := postJSON(t, (&Handler{}).ChangeMode, "/files/chmod", map[string]any{
+		"path": target, "mode": "0755",
+	}); status != http.StatusOK {
+		t.Fatalf("chmod returned %d/%s, want 200", status, code)
+	}
+	info, _ := os.Stat(target)
+	if info.Mode().Perm() != 0o755 {
+		t.Errorf("mode = %v, want 0755", info.Mode().Perm())
 	}
 }

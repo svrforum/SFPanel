@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
@@ -240,6 +241,51 @@ func (h *Handler) ExtractArchive(c echo.Context) error {
 	return response.OK(c, map[string]interface{}{"dest": req.Dest, "entries": count})
 }
 
+// mkdirAllContained creates a directory chain, refusing to traverse a symlink.
+//
+// os.MkdirAll follows an existing symlink component without comment, so a link
+// planted anywhere between dest and the target redirects everything written
+// underneath it. Each component is lstat'd on the way down; an existing
+// symlink is refused rather than followed, which closes the path the archive
+// itself cannot create any more but that an earlier extraction — or anything
+// else on the box — may already have left behind.
+func mkdirAllContained(dest, target string) error {
+	rel, err := filepath.Rel(dest, target)
+	if err != nil {
+		return fmt.Errorf("cannot place %q under the destination", target)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("archive entry would be written outside the destination")
+	}
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return err
+	}
+	current := dest
+	if rel == "." {
+		return nil
+	}
+	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		if part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, lerr := os.Lstat(current)
+		switch {
+		case lerr == nil && info.Mode()&os.ModeSymlink != 0:
+			return fmt.Errorf("refusing to extract through the symlink %q", current)
+		case lerr == nil && !info.IsDir():
+			return fmt.Errorf("%q exists and is not a directory", current)
+		case os.IsNotExist(lerr):
+			if err := os.Mkdir(current, 0o755); err != nil {
+				return err
+			}
+		case lerr != nil:
+			return lerr
+		}
+	}
+	return nil
+}
+
 // safeJoin resolves an archive entry name against the destination and refuses
 // anything that would land outside it.
 //
@@ -296,22 +342,34 @@ func extractTar(archivePath, dest string) (int, error) {
 		}
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(header.Mode).Perm()); err != nil {
+			if err := mkdirAllContained(dest, target); err != nil {
 				return count, err
 			}
-		case tar.TypeSymlink:
-			// The link TARGET is not resolved here — creating the link is
-			// harmless, and following it during extraction is what would let
-			// an archive write through it.
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := os.Chmod(target, os.FileMode(header.Mode).Perm()); err != nil {
 				return count, err
 			}
-			os.Remove(target)
-			if err := os.Symlink(header.Linkname, target); err != nil {
-				return count, err
-			}
+		case tar.TypeSymlink, tar.TypeLink:
+			// Refused, not created.
+			//
+			// An earlier version created them and reasoned that a link is
+			// harmless because nothing follows it "during extraction". That is
+			// exactly backwards, and it was exploitable: an archive holds
+			//
+			//     entry 1:  evil        -> /etc/sfpanel   (symlink)
+			//     entry 2:  evil/config.yaml              (regular file)
+			//
+			// Both pass the containment check, because dest/evil and
+			// dest/evil/config.yaml are lexically inside dest. Writing the
+			// second follows the first and lands in /etc/sfpanel. Verified by
+			// building that tarball and watching the bytes appear outside the
+			// destination.
+			//
+			// Hard links are refused for the same family of reason: one
+			// pointing at /etc/shadow would expose its contents under a name
+			// inside the destination.
+			continue
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := mkdirAllContained(dest, filepath.Dir(target)); err != nil {
 				return count, err
 			}
 			n, err := writeExtracted(target, tr, os.FileMode(header.Mode).Perm(), maxExtractedBytes-written)
@@ -348,12 +406,18 @@ func extractZip(archivePath, dest string) (int, error) {
 			return count, err
 		}
 		if entry.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, entry.Mode().Perm()); err != nil {
+			if err := mkdirAllContained(dest, target); err != nil {
 				return count, err
 			}
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		// A zip entry can also declare a symlink. Writing its body as a plain
+		// file is harmless, but a pre-existing link anywhere in the path is
+		// not, which is what the contained mkdir below checks.
+		if entry.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		if err := mkdirAllContained(dest, filepath.Dir(target)); err != nil {
 			return count, err
 		}
 		rc, err := entry.Open()
@@ -383,7 +447,17 @@ func writeExtracted(target string, src io.Reader, mode os.FileMode, budget int64
 	if mode == 0 {
 		mode = 0o644
 	}
-	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	// Remove whatever is there and refuse to follow a link at the leaf.
+	//
+	// O_NOFOLLOW is the kernel-level half of the symlink defence: even if a
+	// link is planted between the containment check and this open, the write
+	// fails rather than landing on the target. The unlink first means an
+	// existing regular file is replaced as expected while a link is simply
+	// gone before the open.
+	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+		return 0, err
+	}
+	f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, mode)
 	if err != nil {
 		return 0, err
 	}

@@ -181,3 +181,89 @@ func TestWriteExtractedRespectsTheBudget(t *testing.T) {
 		t.Errorf("wrote %d bytes, want 5", n)
 	}
 }
+
+// The symlink variant of Zip Slip, which the containment check alone does not
+// stop and which an earlier revision of this file was exploitable to.
+//
+// An archive holds two entries:
+//
+//	evil              -> /somewhere/outside   (symlink)
+//	evil/planted.txt                          (regular file)
+//
+// Both are lexically inside the destination, so safeJoin passes both. Writing
+// the second follows the first and lands outside. The fix refuses to create
+// link entries at all; this proves the bytes stay put.
+func TestExtractRefusesSymlinkTraversal(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(dir, "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(dir, "dest")
+	archive := filepath.Join(dir, "evil.tar.gz")
+
+	f, err := os.Create(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "evil", Typeflag: tar.TypeSymlink, Linkname: outside, Mode: 0o777}); err != nil {
+		t.Fatal(err)
+	}
+	body := "PWNED"
+	if err := tw.WriteHeader(&tar.Header{Name: "evil/planted.txt", Typeflag: tar.TypeReg, Size: int64(len(body)), Mode: 0o644}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	tw.Close()
+	gz.Close()
+	f.Close()
+
+	if _, err := extractTar(archive, dest); err != nil {
+		t.Logf("extraction reported: %v", err)
+	}
+	if data, rerr := os.ReadFile(filepath.Join(outside, "planted.txt")); rerr == nil {
+		t.Fatalf("escaped the destination: wrote %q outside it", data)
+	}
+	// The link entry must have been ignored rather than created. What is at
+	// that name afterwards is an ordinary directory, made on the way to the
+	// second entry — which is the safe outcome: the file lands inside the
+	// destination instead of following a link out of it.
+	if info, lerr := os.Lstat(filepath.Join(dest, "evil")); lerr == nil && info.Mode()&os.ModeSymlink != 0 {
+		t.Error("a symlink entry was created; link entries are refused")
+	}
+	if data, rerr := os.ReadFile(filepath.Join(dest, "evil", "planted.txt")); rerr != nil || string(data) != "PWNED" {
+		t.Errorf("the file should have landed inside the destination; got %q, %v", data, rerr)
+	}
+}
+
+// The archive can no longer create a link, but one may already be there —
+// left by an earlier extraction or by anything else on the box. os.MkdirAll
+// follows an existing symlink component without comment.
+func TestExtractRefusesPreExistingSymlinkInPath(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(dir, "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(dir, "dest")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dest, "evil")); err != nil {
+		t.Fatal(err)
+	}
+
+	archive := filepath.Join(dir, "ordinary.tar.gz")
+	writeTarball(t, archive, map[string]string{"evil/planted.txt": "PWNED"})
+
+	if _, err := extractTar(archive, dest); err == nil {
+		t.Error("extraction through a pre-existing symlink was allowed")
+	}
+	if data, rerr := os.ReadFile(filepath.Join(outside, "planted.txt")); rerr == nil {
+		t.Fatalf("escaped through a pre-existing symlink: wrote %q outside dest", data)
+	}
+}
