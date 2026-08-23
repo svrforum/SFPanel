@@ -611,6 +611,17 @@ class ApiClient {
     return res.blob()
   }
 
+  // <img src> cannot carry an Authorization header, so the thumbnail route is
+  // reached the same way plain-link downloads are. withNode keeps a grid on a
+  // remote node showing that node's files.
+  thumbnailUrl(path: string, size = 192) {
+    const url = this.withNode(`/files/thumbnail?path=${encodeURIComponent(path)}&size=${size}`)
+    // An <img> cannot carry an Authorization header, so the token rides in the
+    // query the way the download link already does. See allowsQueryToken in
+    // internal/api/middleware/auth.go for what that costs.
+    return this.token ? `${url}&token=${encodeURIComponent(this.token)}` : url
+  }
+
   listTrash() {
     return this.request<{ entries: TrashEntry[]; retentionDays: number }>('/files/trash')
   }

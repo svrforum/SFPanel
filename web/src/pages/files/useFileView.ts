@@ -11,6 +11,10 @@ export interface SortState {
 
 const SORT_STORAGE_KEY = 'sfpanel-files-sort'
 const HIDDEN_STORAGE_KEY = 'sfpanel-files-hidden'
+const MODE_STORAGE_KEY = 'sfpanel-files-mode'
+
+/** How the listing is drawn. */
+export type ViewMode = 'list' | 'grid'
 
 function readStored<T>(key: string, fallback: T, parse: (raw: string) => T | null): T {
   try {
@@ -82,7 +86,17 @@ export function useFileView() {
     })
   }, [])
 
-  return { sort, toggleSort, showHidden, toggleHidden }
+  // The grid exists to look at images; the list is better for everything else,
+  // so list stays the default and the choice is remembered per browser.
+  const [mode, setModeState] = useState<ViewMode>(() =>
+    readStored<ViewMode>(MODE_STORAGE_KEY, 'list', (raw) => (raw === 'grid' ? 'grid' : 'list')),
+  )
+  const setMode = useCallback((next: ViewMode) => {
+    store(MODE_STORAGE_KEY, next)
+    setModeState(next)
+  }, [])
+
+  return { sort, toggleSort, showHidden, toggleHidden, mode, setMode }
 }
 
 /** True for dotfiles, which the hidden toggle filters out. */

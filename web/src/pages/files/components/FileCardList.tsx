@@ -1,7 +1,15 @@
+import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { File, FileText, Folder, Image as ImageIcon, Loader2, MoreVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,6 +20,7 @@ import {
 import { formatBytes, formatDate } from '@/lib/utils'
 import type { FileEntry } from '@/types/api'
 import type { EntryAction } from '../entryActions'
+import { dispatchContextMenu, useLongPress } from '../useLongPress'
 
 function EntryIcon({ entry }: { entry: FileEntry }) {
   if (entry.isDir) return <Folder className="h-5 w-5 shrink-0 text-blue-500" aria-hidden="true" />
@@ -73,17 +82,48 @@ export function FileCardList({
 
   return (
     <div className="space-y-2 md:hidden">
-      {entries.map((entry) => {
-        const rowPath = entryPath(entry)
-        const actions = actionsFor(entry).filter((a) => a.show)
-        return (
-          <div key={rowPath} className="rounded-2xl bg-card p-3 card-shadow">
+      {entries.map((entry) => (
+        <FileCard
+          key={entryPath(entry)}
+          entry={entry}
+          rowPath={entryPath(entry)}
+          selected={selectedPaths.has(entryPath(entry))}
+          actions={actionsFor(entry).filter((a) => a.show)}
+          onToggleSelect={onToggleSelect}
+          onOpen={onOpen}
+          searchActive={searchActive}
+        />
+      ))}
+    </div>
+  )
+}
+
+function FileCard({ entry, rowPath, selected, actions, onToggleSelect, onOpen, searchActive }: {
+  entry: FileEntry
+  rowPath: string
+  selected: boolean
+  actions: EntryAction[]
+  onToggleSelect: (path: string) => void
+  onOpen: (entry: FileEntry) => void
+  searchActive: boolean
+}) {
+  const { t } = useTranslation()
+  const cardRef = useRef<HTMLDivElement>(null)
+  // The overflow button is already a 44px target, so this is a convenience
+  // rather than the only way in — but holding a row is what people try first,
+  // and doing nothing when they do is its own kind of broken.
+  const longPress = useLongPress((x, y) => dispatchContextMenu(cardRef.current, x, y))
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+          <div ref={cardRef} {...longPress} className="rounded-2xl bg-card p-3 card-shadow">
             <div className="flex items-start gap-3">
               {/* A 44px hit area around the checkbox: the desktop one is a
                   16px square, which is a coin-flip with a thumb. */}
               <label className="flex h-11 w-11 shrink-0 items-center justify-center">
                 <Checkbox
-                  checked={selectedPaths.has(rowPath)}
+                  checked={selected}
                   onCheckedChange={() => onToggleSelect(rowPath)}
                   aria-label={entry.name}
                 />
@@ -148,8 +188,18 @@ export function FileCardList({
               )}
             </div>
           </div>
-        )
-      })}
-    </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        {actions.map((a, i) => (
+          <div key={a.key}>
+            {a.destructive && i > 0 && <ContextMenuSeparator />}
+            <ContextMenuItem variant={a.destructive ? 'destructive' : undefined} onClick={a.onClick}>
+              <a.Icon className="h-4 w-4" />
+              {a.menuLabel}
+            </ContextMenuItem>
+          </div>
+        ))}
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }

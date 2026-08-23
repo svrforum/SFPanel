@@ -1464,7 +1464,9 @@
     "purgeFailed": "Could not empty",
     "emptyTrash": "Empty trash",
     "emptyTrashTitle": "Empty the trash?",
-    "emptyTrashBody": "{{count}} entries will be gone for good."
+    "emptyTrashBody": "{{count}} entries will be gone for good.",
+    "viewList": "List",
+    "viewGrid": "Grid"
   },
   "cron": {
     "title": "Cron Jobs",

@@ -349,6 +349,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	files.POST("/chown", filesHandler.ChangeOwner)
 	files.POST("/archive", filesHandler.CreateArchive)
 	files.POST("/extract", filesHandler.ExtractArchive)
+	files.GET("/thumbnail", filesHandler.Thumbnail)
 	files.GET("/trash", filesHandler.ListTrash)
 	files.POST("/trash/restore", filesHandler.RestoreFromTrash)
 	files.DELETE("/trash", filesHandler.PurgeTrash)

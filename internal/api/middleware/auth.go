@@ -20,10 +20,24 @@ import (
 func SetClusterProxySecret(secret string) { auth.SetClusterProxySecret(secret) }
 
 // allowsQueryToken returns true for the few endpoints that legitimately need
-// to pass a JWT through a URL (plain file download via <a>, backup download).
-// Everything else must use the Authorization header.
+// to pass a JWT through a URL (plain file download via <a>, backup download,
+// image thumbnails via <img>). Everything else must use the Authorization
+// header.
+//
+// The thumbnail route is here because an <img> element cannot carry a header,
+// and the alternative — fetching every tile with a header and holding a blob
+// URL per file — costs native lazy loading, HTTP caching, and the lifecycle
+// management of two hundred object URLs on one screen.
+//
+// The trade is that the token appears in the request line. This panel's own
+// access log records the route pattern rather than the URI (see
+// request_logger.go), so nothing leaks there, and an <img> src creates no
+// browser history entry. A reverse proxy in front WILL log the full URI,
+// which is the same exposure the download route above already carries — worth
+// knowing before adding a third caller.
 func allowsQueryToken(path string) bool {
 	return path == "/api/v1/files/download" ||
+		path == "/api/v1/files/thumbnail" ||
 		path == "/api/v1/system/backup"
 }
 

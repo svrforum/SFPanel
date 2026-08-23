@@ -20,6 +20,8 @@ import {
   X,
   ArrowUp,
   ArrowDown,
+  LayoutGrid,
+  List as ListIcon,
   FolderInput,
   Server,
   MoreHorizontal,
@@ -71,6 +73,8 @@ import { FileEditorDialog, type EditorTarget } from './files/components/FileEdit
 import { FilePreviewDialog, type PreviewTarget } from './files/components/FilePreviewDialog'
 import { isTextFile } from './files/components/fileLanguages'
 import { useFileView, useVisibleEntries, sortEntries, type SortKey } from './files/useFileView'
+import { FileGrid } from './files/components/FileGrid'
+import { dispatchContextMenu, useLongPress } from './files/useLongPress'
 import { useVirtualRows, VIRTUALIZE_THRESHOLD } from './files/useVirtualRows'
 import { FileCardList } from './files/components/FileCardList'
 import { FolderPickerDialog } from './files/components/FolderPickerDialog'
@@ -126,6 +130,10 @@ export default function Files() {
   const [moveTargets, setMoveTargets] = useState<FileEntry[] | null>(null)
   const [permissionsTarget, setPermissionsTarget] = useState<FileEntry | null>(null)
   const [trashOpen, setTrashOpen] = useState(false)
+  // The background menu's long-press target. On touch there is no right-click,
+  // so without this the "new file / new folder / upload" menu is unreachable.
+  const backgroundRef = useRef<HTMLDivElement>(null)
+  const backgroundLongPress = useLongPress((x, y) => dispatchContextMenu(backgroundRef.current, x, y))
 
   // Upload state
   const [uploading, setUploading] = useState(false)
@@ -536,17 +544,29 @@ export default function Files() {
       title: t('files.newFileTitle'),
       description: t('files.newFileDescription', { path: currentPath }),
       placeholder: t('files.fileNamePlaceholder'),
+      // A default rather than an empty box. Typing "memo" produced a file with
+      // no extension, which then opened as plain text anyway but told the
+      // operator nothing about what it was.
+      defaultValue: 'untitled.txt',
       confirmLabel: t('files.createFile'),
     })
     if (!name?.trim()) return
+    let fileName = name.trim()
+    // A name with no dot gets .txt. Dotfiles are left alone — ".env" is a
+    // complete name, not an extensionless one.
+    if (!fileName.startsWith('.') && !fileName.includes('.')) fileName += '.txt'
     const pathAtStart = currentPathRef.current
     try {
       // createOnly, or typing the name of an existing file EMPTIES it — the
       // dialog says create and the effect was erase, with no warning and no
       // way back.
-      await api.writeFile(pathJoin(pathAtStart, name.trim()), '', { createOnly: true })
+      const filePath = pathJoin(pathAtStart, fileName)
+      await api.writeFile(filePath, '', { createOnly: true })
       toast.success(t('files.fileCreated'))
       if (currentPathRef.current === pathAtStart) await fetchFiles()
+      // Open it. Creating an empty file and stopping meant finding it again in
+      // the listing before a single character could be typed into it.
+      setEditorTarget({ path: filePath, name: fileName })
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('files.fileCreateFailed')
       toast.error(message)
@@ -722,7 +742,7 @@ export default function Files() {
   }, [])
 
   // Ordering and the dotfile filter, both remembered per browser.
-  const { sort, toggleSort, showHidden, toggleHidden } = useFileView()
+  const { sort, toggleSort, showHidden, toggleHidden, mode, setMode } = useFileView()
   const sortedFiles = useVisibleEntries(files, sort, showHidden)
 
   // Search results get the same ordering but keep every hit: a search for
@@ -1111,6 +1131,33 @@ export default function Files() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* List stays the default: it shows size, date, owner and permissions
+              at a glance and fits more rows. The grid is for looking at images,
+              which is the one thing the list cannot do. */}
+          <div className="flex items-center rounded-xl border p-0.5">
+            <Button
+              variant={mode === 'list' ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              className="rounded-lg"
+              onClick={() => setMode('list')}
+              aria-pressed={mode === 'list'}
+              title={t('files.viewList', { defaultValue: 'List' })}
+              aria-label={t('files.viewList', { defaultValue: 'List' })}
+            >
+              <ListIcon />
+            </Button>
+            <Button
+              variant={mode === 'grid' ? 'secondary' : 'ghost'}
+              size="icon-xs"
+              className="rounded-lg"
+              onClick={() => setMode('grid')}
+              aria-pressed={mode === 'grid'}
+              title={t('files.viewGrid', { defaultValue: 'Grid' })}
+              aria-label={t('files.viewGrid', { defaultValue: 'Grid' })}
+            >
+              <LayoutGrid />
+            </Button>
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -1227,6 +1274,32 @@ export default function Files() {
         </div>
       )}
 
+      {/* The whole listing area is the background context target.
+          It used to be a 40-pixel strip below the table, so right-clicking
+          "empty space" meant finding a thin band by eye — the menu was there
+          all along and effectively undiscoverable. A row or tile still wins:
+          nested triggers resolve to the innermost one. */}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            className="min-h-[240px]"
+            ref={backgroundRef}
+            {...backgroundLongPress}
+          >
+      {mode === 'grid' ? (
+        <FileGrid
+          entries={displayedFiles}
+          loading={loading || searchLoading}
+          emptyMessage={searchActive ? t('files.searchEmpty') : t('files.empty')}
+          selectedPaths={selectedPaths}
+          entryPath={entryPath}
+          onToggleSelect={toggleSelected}
+          onOpen={openEntry}
+          actionsFor={entryActions}
+          activeIndex={activeIndex}
+        />
+      ) : (
+        <>
       {/* Phone view. The table below is six columns wide and simply does not
           fit a 390px screen — size, modified and permissions were off-screen
           entirely rather than merely cramped. */}
@@ -1441,10 +1514,9 @@ export default function Files() {
       </Table>
       </div>
 
-      {/* Background context menu (right-click on empty space below table) */}
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div className="min-h-[40px]" />
+        </>
+      )}
+          </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onClick={handleUploadClick}>

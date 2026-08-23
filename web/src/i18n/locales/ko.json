@@ -1464,7 +1464,9 @@
     "purgeFailed": "비우지 못했습니다",
     "emptyTrash": "휴지통 비우기",
     "emptyTrashTitle": "휴지통을 비울까요?",
-    "emptyTrashBody": "{{count}}개 항목이 영구히 사라집니다."
+    "emptyTrashBody": "{{count}}개 항목이 영구히 사라집니다.",
+    "viewList": "목록",
+    "viewGrid": "격자"
   },
   "cron": {
     "title": "크론 작업",
