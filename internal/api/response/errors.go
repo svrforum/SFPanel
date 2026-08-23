@@ -290,3 +290,19 @@ const (
 	// certificate material cannot be read.
 	ErrTLSUnavailable = "TLS_UNAVAILABLE"
 )
+
+// File manager error codes
+const (
+	// ErrNotTextFile is returned (HTTP 415) when a caller asks to read a file
+	// as text that is not text. Answering with the bytes anyway is what
+	// corrupted files: Go replaces invalid UTF-8 with U+FFFD, the editor shows
+	// mojibake with Save enabled, and saving writes the replacement characters
+	// over the original.
+	ErrNotTextFile = "NOT_TEXT_FILE"
+	// ErrStaleWrite is returned (HTTP 409) when a file changed on disk between
+	// the read the editor did and the save it is attempting.
+	ErrStaleWrite = "STALE_WRITE"
+	// ErrDestinationExists is returned (HTTP 409) when a rename, upload or copy
+	// would overwrite something and the caller did not ask for that.
+	ErrDestinationExists = "DESTINATION_EXISTS"
+)

@@ -67,6 +67,10 @@ type FileEntry struct {
 	Mode    string    `json:"mode"`
 	ModTime time.Time `json:"modTime"`
 	IsDir   bool      `json:"isDir"`
+	// Kind lets the UI route a click to the right viewer. Derived from the
+	// name only — listing a directory must not open every file in it — so it
+	// is a hint; ReadFile sniffs the bytes and is the authority.
+	Kind Kind `json:"kind"`
 }
 
 // Handler exposes REST handlers for server-side file management.
@@ -320,6 +324,7 @@ func (h *Handler) ListDir(c echo.Context) error {
 			Mode:    info.Mode().String(),
 			ModTime: info.ModTime(),
 			IsDir:   entry.IsDir(),
+			Kind:    KindForName(entry.Name(), entry.IsDir()),
 		})
 	}
 
@@ -402,9 +407,23 @@ func (h *Handler) ReadFile(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
 
+	// Sniff before answering. Handing a binary back as a JSON string is not
+	// merely useless: Go replaces the invalid bytes with U+FFFD, the editor
+	// shows mojibake with an enabled Save button, and saving writes the
+	// replacement characters over the original. Two clicks, file destroyed.
+	kind := KindForContent(filePath, content)
+	if kind != KindText {
+		return response.Fail(c, http.StatusUnsupportedMediaType, response.ErrNotTextFile,
+			"This file is not text; open a preview or download it instead")
+	}
+
 	return response.OK(c, map[string]interface{}{
 		"content": string(content),
 		"size":    info.Size(),
+		"kind":    kind,
+		// The editor sends this back on save so a write can refuse to clobber
+		// a change made since the read.
+		"modTime": info.ModTime().UTC(),
 	})
 }
 
@@ -418,6 +437,15 @@ func (h *Handler) WriteFile(c echo.Context) error {
 	var req struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
+		// ExpectModTime is the modification time the caller last read. When
+		// set, the write is refused if the file changed since — two browser
+		// tabs, or two operators, would otherwise silently last-write-wins and
+		// the loser would never learn their edit was discarded.
+		ExpectModTime *time.Time `json:"expect_mod_time,omitempty"`
+		// CreateOnly refuses to touch an existing file. "New file" used to
+		// share this route with Save, so typing the name of an existing file
+		// TRUNCATED it — the dialog said create and the effect was erase.
+		CreateOnly bool `json:"create_only,omitempty"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -428,6 +456,23 @@ func (h *Handler) WriteFile(c echo.Context) error {
 	}
 
 	req.Path = filepath.Clean(req.Path)
+
+	if existing, statErr := os.Stat(req.Path); statErr == nil {
+		if req.CreateOnly {
+			return response.Fail(c, http.StatusConflict, response.ErrDestinationExists,
+				"A file with that name already exists")
+		}
+		// Compare at second resolution: JSON round-trips RFC3339 and most
+		// filesystems report whole seconds anyway, so a finer comparison would
+		// reject writes that are in fact unchanged.
+		if req.ExpectModTime != nil && !existing.ModTime().UTC().Truncate(time.Second).Equal(req.ExpectModTime.UTC().Truncate(time.Second)) {
+			return response.Fail(c, http.StatusConflict, response.ErrStaleWrite,
+				"This file changed on disk since you opened it")
+		}
+	} else if req.ExpectModTime != nil && os.IsNotExist(statErr) {
+		return response.Fail(c, http.StatusConflict, response.ErrStaleWrite,
+			"This file no longer exists")
+	}
 
 	// Create parent directories if they do not exist.
 	dir := filepath.Dir(req.Path)
@@ -561,6 +606,9 @@ func (h *Handler) RenamePath(c echo.Context) error {
 	var req struct {
 		OldPath string `json:"old_path"`
 		NewPath string `json:"new_path"`
+		// Overwrite lets the caller proceed after being told the destination
+		// exists. Absent it, an existing destination is a 409.
+		Overwrite bool `json:"overwrite,omitempty"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -593,6 +641,15 @@ func (h *Handler) RenamePath(c echo.Context) error {
 			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
+	}
+
+	// Refuse a silent clobber. os.Rename overwrites without a word, so a
+	// rename onto an existing name destroyed it — while Copy, on the same
+	// screen, refused the same collision with a 409. Same operation, opposite
+	// outcome, no way for the operator to know which they were about to get.
+	if _, err := os.Stat(req.NewPath); err == nil && !req.Overwrite {
+		return response.Fail(c, http.StatusConflict, response.ErrDestinationExists,
+			fmt.Sprintf("'%s' already exists", filepath.Base(req.NewPath)))
 	}
 
 	// Ensure the parent directory of the new path exists.
@@ -779,6 +836,7 @@ func (h *Handler) SearchFiles(c echo.Context) error {
 					Mode:    fi.Mode().String(),
 					ModTime: fi.ModTime(),
 					IsDir:   d.IsDir(),
+					Kind:    KindForName(d.Name(), d.IsDir()),
 				})
 			}
 		}
@@ -910,6 +968,17 @@ func (h *Handler) UploadFile(c echo.Context) error {
 	// destination only exists once the two are joined.
 	if err := validatePathForWrite(destPath); err != nil {
 		return response.Fail(c, http.StatusForbidden, response.ErrCriticalPath, err.Error())
+	}
+
+	// Protection first, then existence. The other order answers "it already
+	// exists" for a protected path, which is both the wrong reason and a
+	// needless confirmation that the file is there.
+	//
+	// Upload overwrote an existing file with no prompt, no 409 and no .bak —
+	// the one write path in the module with no safety net at all.
+	if _, statErr := os.Stat(destPath); statErr == nil && c.FormValue("overwrite") != "true" {
+		return response.Fail(c, http.StatusConflict, response.ErrDestinationExists,
+			fmt.Sprintf("'%s' already exists in that folder", filename))
 	}
 
 	// Per-extension blocklist for known web-serving directories. The intent
