@@ -1353,7 +1353,7 @@
     "deleteConfirm": "\"{{name}}\"을(를) 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
     "deleteSuccess": "\"{{name}}\" 삭제 완료",
     "deleteFailed": "삭제 실패",
-    "deleting": "삭제 중...",
+    "deleting": "삭제 중",
     "uploading": "파일 업로드 중",
     "downloadFailed": "파일 다운로드 실패",
     "searchPlaceholder": "이 폴더에서 검색...",
@@ -1418,7 +1418,13 @@
     "uploadingNth": "{{total}}개 중 {{index}}번째 · {{percent}}%",
     "uploadExistsTitle": "기존 파일을 바꿀까요?",
     "uploadExists": "{{name}} 이(가) 이 폴더에 이미 있습니다.",
-    "replace": "바꾸기"
+    "replace": "바꾸기",
+    "bulkDeleted": "{{count}}개 삭제함",
+    "bulkCancelled": "{{done}}개 후 중단 — {{remaining}}개는 그대로",
+    "deletingNth": "{{total}}개 중 {{index}}번째",
+    "deleteDirWarning": "이 중 {{count}}개는 폴더입니다 — 안의 내용도 함께 사라집니다.",
+    "deleteManyWarning": "{{count}}개 항목(그중 폴더 {{dirs}}개)을 삭제합니다. 폴더 안의 내용도 함께 사라지며 되돌릴 수 없습니다.",
+    "browsingNode": "{{node}} 탐색 중"
   },
   "cron": {
     "title": "크론 작업",

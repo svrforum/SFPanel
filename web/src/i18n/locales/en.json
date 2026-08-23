@@ -1353,7 +1353,7 @@
     "deleteConfirm": "Are you sure you want to delete \"{{name}}\"? This action cannot be undone.",
     "deleteSuccess": "\"{{name}}\" deleted",
     "deleteFailed": "Failed to delete",
-    "deleting": "Deleting...",
+    "deleting": "Deleting",
     "uploading": "Uploading file",
     "downloadFailed": "File download failed",
     "searchPlaceholder": "Search this folder...",
@@ -1418,7 +1418,13 @@
     "uploadingNth": "{{index}} of {{total}} · {{percent}}%",
     "uploadExistsTitle": "Replace existing file?",
     "uploadExists": "{{name}} already exists in this folder.",
-    "replace": "Replace"
+    "replace": "Replace",
+    "bulkDeleted": "Deleted {{count}}",
+    "bulkCancelled": "Stopped after {{done}} — {{remaining}} left untouched",
+    "deletingNth": "{{index}} of {{total}}",
+    "deleteDirWarning": "{{count}} of these are folders — everything inside goes too.",
+    "deleteManyWarning": "About to delete {{count}} entries, {{dirs}} of them folders. Everything inside a folder goes with it, and none of this can be undone.",
+    "browsingNode": "Browsing {{node}}"
   },
   "cron": {
     "title": "Cron Jobs",

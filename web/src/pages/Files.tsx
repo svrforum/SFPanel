@@ -21,6 +21,7 @@ import {
   ArrowUp,
   ArrowDown,
   FolderInput,
+  Server,
   Eye,
   EyeOff,
 } from 'lucide-react'
@@ -28,7 +29,8 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { usePrompt } from '@/components/PromptDialog'
-import { formatBytes, formatDate, pathJoin, downloadBlob } from '@/lib/utils'
+import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
+import { formatBytes, formatDate, pathJoin, downloadBlob, cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -116,6 +118,11 @@ export default function Files() {
   // cursor moves over a row; counting keeps it stable.
   const dragDepth = useRef(0)
   const [dragActive, setDragActive] = useState(false)
+  // Which machine's filesystem this is. In a cluster the same page targets a
+  // different host depending on the node picker, and a path like /etc looks
+  // identical on every one of them — deleting the right file on the wrong
+  // machine is a mistake the UI was doing nothing to prevent.
+  const [nodeName, setNodeName] = useState<string | null>(null)
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
@@ -128,6 +135,12 @@ export default function Files() {
   // Multi-select state
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState<{ current: string; index: number; total: number } | null>(null)
+  const [bulkDeleteRequest, setBulkDeleteRequest] = useState<{ paths: string[]; dirCount: number } | null>(null)
+  // A flag rather than an AbortController: the requests already in flight
+  // should finish rather than leave a half-deleted directory, so cancelling
+  // means "stop starting new ones".
+  const bulkCancelRef = useRef(false)
 
   const fetchFiles = useCallback(async () => {
     try {
@@ -269,34 +282,96 @@ export default function Files() {
     })
   }
 
+  // Delete a selection, reporting as it goes.
+  //
+  // This used to be a bare loop behind one spinner: forty serial DELETEs with
+  // no indication of where it had got to, no way to stop it, and a closing
+  // toast reading "Deleted 37, 3 failed" that named none of the three — the
+  // operator was left to find them by eye. Worse, the Cancel button beside it
+  // only cleared the selection, so pressing it looked like a stop while files
+  // kept disappearing.
+  const runBulkDelete = async (paths: string[]) => {
+    setBulkDeleting(true)
+    bulkCancelRef.current = false
+    const failures: string[] = []
+    let done = 0
+    for (const [index, p] of paths.entries()) {
+      if (bulkCancelRef.current) break
+      setBulkProgress({ current: p.split('/').pop() || p, index: index + 1, total: paths.length })
+      try {
+        await api.deletePath(p)
+        done += 1
+      } catch (err: unknown) {
+        failures.push(`${p}: ${err instanceof Error ? err.message : ''}`)
+      }
+    }
+    const cancelled = bulkCancelRef.current
+    setBulkProgress(null)
+    setBulkDeleting(false)
+    setSelectedPaths(new Set())
+
+    if (done > 0) toast.success(t('files.bulkDeleted', { count: done, defaultValue: 'Deleted {{count}}' }))
+    if (cancelled) {
+      // Say what actually happened. A cancel part-way through is not "nothing
+      // happened", and pretending otherwise leaves the operator with a wrong
+      // model of their own filesystem.
+      toast.info(t('files.bulkCancelled', {
+        done,
+        remaining: paths.length - done - failures.length,
+        defaultValue: 'Stopped after {{done}} — {{remaining}} left untouched',
+      }))
+    }
+    for (const message of failures.slice(0, 5)) toast.error(message)
+    if (failures.length > 5) {
+      toast.error(t('files.andMoreFailed', { count: failures.length - 5 }))
+    }
+
+    if (searchActive) await handleSearch()
+    else await fetchFiles()
+  }
+
+  // Above this many entries the confirmation asks for the count to be typed.
+  // Small selections stay one click; a bulk delete of a whole directory should
+  // cost a deliberate keystroke.
+  const typeToConfirmThreshold = 5
+
   const handleBulkDelete = async () => {
     const paths = Array.from(selectedPaths)
     if (paths.length === 0) return
+
+    const entries = displayedFiles.filter((e) => selectedPaths.has(entryPath(e)))
+    const dirCount = entries.filter((e) => e.isDir).length
+
+    if (paths.length > typeToConfirmThreshold) {
+      setBulkDeleteRequest({ paths, dirCount })
+      return
+    }
+
+    // Name what is going, rather than only counting it. "Delete 4 items?" tells
+    // the operator nothing about whether they picked the right four.
+    const names = entries.map((e) => e.name)
     const ok = await confirm({
       title: t('files.deleteSelected'),
-      description: t('files.deleteSelectedConfirm', { count: paths.length }),
+      description: (
+        <span>
+          {t('files.deleteSelectedConfirm', { count: paths.length })}
+          <span className="mt-2 block font-mono text-[12px] text-muted-foreground">
+            {names.join(', ')}
+          </span>
+          {dirCount > 0 && (
+            <span className="mt-2 block text-warning">
+              {t('files.deleteDirWarning', {
+                count: dirCount,
+                defaultValue: '{{count}} of these are folders — everything inside goes too.',
+              })}
+            </span>
+          )}
+        </span>
+      ),
       danger: true,
     })
     if (!ok) return
-    setBulkDeleting(true)
-    let succeeded = 0
-    let failed = 0
-    for (const p of paths) {
-      try {
-        await api.deletePath(p)
-        succeeded += 1
-      } catch {
-        failed += 1
-      }
-    }
-    setBulkDeleting(false)
-    setSelectedPaths(new Set())
-    toast.success(t('files.bulkDeleteResult', { succeeded, failed }))
-    if (searchActive) {
-      await handleSearch()
-    } else {
-      await fetchFiles()
-    }
+    await runBulkDelete(paths)
   }
 
   // Breadcrumb segments
@@ -552,6 +627,26 @@ export default function Files() {
     }
   }
 
+  useEffect(() => {
+    let cancelled = false
+    // Only meaningful in a cluster; a standalone panel has one filesystem and
+    // naming it would be noise.
+    if (!api.currentNode) {
+      setNodeName(null)
+      return
+    }
+    api.getClusterNodes(true)
+      .then((data) => {
+        if (cancelled) return
+        const node = data?.nodes?.find((n) => n.id === api.currentNode)
+        // Fall back to the id: a name we could not resolve is still better
+        // than no indication of which machine this is.
+        setNodeName(node?.name || api.currentNode)
+      })
+      .catch(() => { if (!cancelled) setNodeName(api.currentNode) })
+    return () => { cancelled = true }
+  }, [])
+
   // Ordering and the dotfile filter, both remembered per browser.
   const { sort, toggleSort, showHidden, toggleHidden } = useFileView()
   const sortedFiles = useVisibleEntries(files, sort, showHidden)
@@ -600,6 +695,78 @@ export default function Files() {
       void handleEditFile(entry)
     }
   }
+
+  // Arrow-key navigation over the listing.
+  //
+  // Every row's name was already a real button, so Tab reached them — but Tab
+  // walks every control in every row, which on a directory of two hundred
+  // files means a hundred presses to reach the next name. Arrow keys move by
+  // row, Enter opens, Space selects. Bound on the page rather than per-row so
+  // it works before anything inside the list has focus.
+  const listRef = useRef<HTMLDivElement>(null)
+  const [activeIndex, setActiveIndex] = useState(-1)
+
+  // A row that no longer exists must not stay "active" — deleting the last
+  // entry would otherwise leave the cursor pointing past the end.
+  useEffect(() => {
+    setActiveIndex((prev) => (prev >= displayedFiles.length ? displayedFiles.length - 1 : prev))
+  }, [displayedFiles.length])
+
+  const handleListKeyDown = (e: React.KeyboardEvent) => {
+    // Never steal keys from a field: the path editor and the search box both
+    // live on this page.
+    const target = e.target as HTMLElement
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+    if (displayedFiles.length === 0) return
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        setActiveIndex((prev) => Math.min(prev + 1, displayedFiles.length - 1))
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        setActiveIndex((prev) => Math.max(prev - 1, 0))
+        break
+      case 'Home':
+        e.preventDefault()
+        setActiveIndex(0)
+        break
+      case 'End':
+        e.preventDefault()
+        setActiveIndex(displayedFiles.length - 1)
+        break
+      case 'Enter':
+        if (activeIndex >= 0) {
+          e.preventDefault()
+          openEntry(displayedFiles[activeIndex])
+        }
+        break
+      case ' ':
+        if (activeIndex >= 0) {
+          e.preventDefault()
+          toggleSelected(entryPath(displayedFiles[activeIndex]))
+        }
+        break
+      case 'Backspace':
+        // Up a directory, the way a file manager is expected to behave.
+        if (!searchActive && currentPath !== '/') {
+          e.preventDefault()
+          navigateToSegment(pathSegments.length - 2)
+        }
+        break
+      default:
+        break
+    }
+  }
+
+  // Keep the active row on screen when the arrows walk past the fold.
+  useEffect(() => {
+    if (activeIndex < 0) return
+    listRef.current
+      ?.querySelector(`[data-row-index="${activeIndex}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex])
 
   // A real button, so the column is reachable by keyboard and announced as
   // sortable rather than being a bare clickable heading.
@@ -676,7 +843,10 @@ export default function Files() {
 
   return (
     <div
-      className="relative space-y-4"
+      ref={listRef}
+      className="relative space-y-4 outline-none"
+      tabIndex={-1}
+      onKeyDown={handleListKeyDown}
       onDragEnter={(e) => {
         // Only react to an actual file drag. Dragging text or a link inside
         // the page would otherwise arm an upload overlay for nothing.
@@ -739,9 +909,21 @@ export default function Files() {
         </div>
       ) : (
         <nav
-          className="flex items-center gap-1 text-sm text-muted-foreground overflow-x-auto cursor-text rounded-md border border-transparent hover:border-border px-2 py-1.5 -mx-2 transition-colors"
+          className="-mx-2 flex items-center gap-1 overflow-x-auto rounded-md border border-transparent px-2 py-1.5 text-sm text-muted-foreground transition-colors cursor-text hover:border-border"
           onClick={handlePathEditStart}
         >
+          {/* Name the machine before the path. In a cluster /etc looks the
+              same on every host, and the sidebar that would otherwise say
+              which one is not there on a phone. */}
+          {nodeName && (
+            <span
+              className="mr-1 inline-flex shrink-0 items-center gap-1 rounded-md bg-warning/10 px-1.5 py-0.5 font-mono text-[11px] text-warning"
+              title={t('files.browsingNode', { node: nodeName, defaultValue: 'Browsing {{node}}' })}
+            >
+              <Server className="h-3 w-3" aria-hidden="true" />
+              {nodeName}
+            </span>
+          )}
           <button
             onClick={(e) => { e.stopPropagation(); navigateToSegment(-1) }}
             className="flex items-center gap-1 hover:text-foreground transition-colors shrink-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
@@ -984,8 +1166,13 @@ export default function Files() {
             <ContextMenu key={rowPath}>
               <ContextMenuTrigger asChild>
                 <TableRow
-                  className="cursor-pointer hover:bg-secondary/50"
-                  onClick={() => openEntry(entry)}
+                  data-row-index={displayedFiles.indexOf(entry)}
+                  aria-selected={selectedPaths.has(rowPath)}
+                  className={cn(
+                    'cursor-pointer hover:bg-secondary/50',
+                    displayedFiles.indexOf(entry) === activeIndex && 'bg-secondary/70 ring-1 ring-inset ring-ring/40',
+                  )}
+                  onClick={() => { setActiveIndex(displayedFiles.indexOf(entry)); openEntry(entry) }}
                 >
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <Checkbox
@@ -1108,6 +1295,68 @@ export default function Files() {
         target={editorTarget}
         onOpenChange={(open) => { if (!open) setEditorTarget(null) }}
         onSaved={fetchFiles}
+      />
+
+      {/* Bulk delete progress. The Cancel here actually stops the run — the
+          button that sat beside the Delete action only cleared the selection,
+          so pressing it looked like a stop while files kept disappearing. */}
+      <Dialog open={!!bulkProgress} onOpenChange={() => {}}>
+        <DialogContent className="sm:max-w-md" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>{t('files.deleting', { defaultValue: 'Deleting' })}</DialogTitle>
+            <DialogDescription className="truncate font-mono">
+              {bulkProgress?.current}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full transition-all duration-200"
+                style={{
+                  width: `${bulkProgress ? Math.round((bulkProgress.index / bulkProgress.total) * 100) : 0}%`,
+                  backgroundColor: 'var(--destructive)',
+                }}
+              />
+            </div>
+            <p className="text-center text-[13px] text-muted-foreground">
+              {t('files.deletingNth', {
+                index: bulkProgress?.index ?? 0,
+                total: bulkProgress?.total ?? 0,
+                defaultValue: '{{index}} of {{total}}',
+              })}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => { bulkCancelRef.current = true }}
+            >
+              {t('common.cancel')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Past a handful of entries, deleting costs a typed confirmation. */}
+      <TypeToConfirmDialog
+        open={!!bulkDeleteRequest}
+        onOpenChange={(open) => { if (!open) setBulkDeleteRequest(null) }}
+        title={t('files.deleteSelected')}
+        description={t('files.deleteManyWarning', {
+          count: bulkDeleteRequest?.paths.length ?? 0,
+          dirs: bulkDeleteRequest?.dirCount ?? 0,
+          defaultValue:
+            'About to delete {{count}} entries, {{dirs}} of them folders. Everything inside a folder goes with it, and none of this can be undone.',
+        })}
+        confirmPhrase={String(bulkDeleteRequest?.paths.length ?? '')}
+        confirmLabel={t('files.deleteSelected')}
+        loading={bulkDeleting}
+        onConfirm={() => {
+          const request = bulkDeleteRequest
+          setBulkDeleteRequest(null)
+          if (request) void runBulkDelete(request.paths)
+        }}
       />
 
       <FolderPickerDialog
