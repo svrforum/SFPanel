@@ -36,9 +36,7 @@ import { cn, formatBytes, formatUptime } from '@/lib/utils'
 import { parseFirewallLine } from '@/lib/logParsers'
 import type { FirewallLogEntry } from '@/lib/logParsers'
 import type { DashboardOverview, HostInfo, Metrics } from '@/types/api'
-
-// 24h at 30s intervals = 2880 points; cap to keep chart readable
-const MAX_CHART_POINTS = 2880
+import { appendChartPoint, type ChartPoint } from './dashboard/chartSeries'
 
 // How old Layout's shared overview payload may be before we refetch instead of
 // reusing it. Covers the mount-together race on first entry (delta well under
@@ -123,14 +121,21 @@ export default function Dashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [netRate, setNetRate] = useState<{ sent: number; recv: number }>({ sent: 0, recv: 0 })
   const prevNetRef = useRef<{ sent: number; recv: number; ts: number } | null>(null)
-  const [chartData, setChartData] = useState<Array<{ ts: number; cpu: number; memory: number; disk: number }>>([])
+  const [chartData, setChartData] = useState<ChartPoint[]>([])
   const [chartRange, setChartRange] = useState<ChartRange>('1h')
   const [processes, setProcesses] = useState<ProcessInfo[]>([])
   const [containers, setContainers] = useState<ContainerSummary[]>([])
   const [recentLogs, setRecentLogs] = useState<string[]>([])
   const [logTab, setLogTab] = useState<'firewall' | 'syslog'>('firewall')
+  // Latched by the first firewall fetch, or by the operator picking a tab —
+  // whichever happens first. After that the tab is theirs.
+  const logTabDecided = useRef(false)
   const [firewallLogs, setFirewallLogs] = useState<FirewallLogEntry[]>([])
   const [updateAvailable, setUpdateAvailable] = useState<string | null>(null)
+  // Where the uptime reading came from, so it can be carried forward.
+  // `at` is the server's own clock — the timestamp on the metrics sample that
+  // arrived with it — so the elapsed time below never mixes two clocks.
+  const [uptimeAnchor, setUptimeAnchor] = useState<{ uptime: number; at: number } | null>(null)
 
   // Fetch primary IP address
   useEffect(() => {
@@ -147,6 +152,9 @@ export default function Dashboard() {
     setHostInfo(data.host)
     if (data.metrics) {
       setMetrics(data.metrics)
+    }
+    if (data.host && data.metrics) {
+      setUptimeAnchor({ uptime: data.host.uptime, at: data.metrics.timestamp })
     }
     if (data.metrics_history) {
       const points = data.metrics_history.map((pt) => ({
@@ -186,9 +194,19 @@ export default function Dashboard() {
     source.then(applyOverview).catch(() => {})
   }, [outletCtx, sharedOverview, applyOverview])
 
-  // Fetch extra dashboard data
-  useEffect(() => {
+  // Containers and both log panes used to be fetched once on mount and never
+  // again, while the header advertised the page as live. A container stopped
+  // from another tab left this summary claiming it was running until the
+  // operator navigated away and back. Measured against the running panel:
+  // /system/processes fired five times in forty seconds, /docker/containers
+  // exactly once. Thirty seconds is slow enough to be cheap and fast enough
+  // that the count is never meaningfully wrong.
+  const fetchContainers = useCallback(() => {
     api.getContainers().then((data) => setContainers(data || [])).catch(() => setContainers([]))
+  }, [])
+  useVisibleInterval(fetchContainers, 30000)
+
+  const fetchLogs = useCallback(() => {
     // Go's JSON serializer turns an empty []string into null; defaulting to
     // [] before slicing prevents a TypeError that .catch(() => {}) can't see
     // because it's thrown inside the .then.
@@ -199,8 +217,18 @@ export default function Dashboard() {
         .filter((e): e is FirewallLogEntry => e.parsed)
         .slice(-15)
       setFirewallLogs(parsed)
+      // Firewall is the better default when there is anything in it, but ufw
+      // logging is off on most hosts, and on those this card opened as an
+      // empty box while the system tab beside it had content. Decided once,
+      // on the first answer: switching tabs under someone reading them is
+      // worse than the empty box was.
+      if (!logTabDecided.current) {
+        logTabDecided.current = true
+        if (parsed.length === 0) setLogTab('syslog')
+      }
     }).catch(() => {})
   }, [])
+  useVisibleInterval(fetchLogs, 30000)
 
   // Refresh processes every 10 seconds (fires immediately on mount, pauses
   // while the tab is hidden)
@@ -223,13 +251,14 @@ export default function Dashboard() {
       }
     }
     prevNetRef.current = { sent: data.net_bytes_sent, recv: data.net_bytes_recv, ts: data.timestamp }
-    setChartData((prevData) => {
-      const next = [...prevData, { ts: Date.now(), cpu: data.cpu, memory: data.mem_percent, disk: data.disk_percent }]
-      if (next.length > MAX_CHART_POINTS) {
-        return next.slice(next.length - MAX_CHART_POINTS)
-      }
-      return next
-    })
+    setChartData((prevData) =>
+      appendChartPoint(prevData, {
+        ts: Date.now(),
+        cpu: data.cpu,
+        memory: data.mem_percent,
+        disk: data.disk_percent,
+      }),
+    )
   }, [])
 
   const { connected } = useWebSocket({
@@ -253,6 +282,17 @@ export default function Dashboard() {
   const chartXDomain = useMemo<[number, number]>(() => {
     return [now - CHART_RANGE_MS[chartRange], now]
   }, [chartRange, now])
+
+  // Uptime was read once at mount and then sat there: a dashboard left open on
+  // a second monitor kept reporting the uptime the host had when the page
+  // loaded. The metrics socket already carries the server's clock every two
+  // seconds, so carrying the reading forward needs no timer and no second
+  // request — and staying inside the server's clock means a browser whose time
+  // is off does not make the number wrong.
+  const liveUptime =
+    uptimeAnchor && metrics
+      ? uptimeAnchor.uptime + Math.max(0, Math.floor((metrics.timestamp - uptimeAnchor.at) / 1000))
+      : hostInfo?.uptime ?? 0
 
   const runningContainers = containers.filter((c) => c.State === 'running').length
   const stoppedContainers = containers.length - runningContainers
@@ -302,7 +342,7 @@ export default function Dashboard() {
               { label: t('dashboard.os'), value: hostInfo.os },
               { label: t('dashboard.platform'), value: hostInfo.platform_version ? `${hostInfo.platform} ${hostInfo.platform_version}` : hostInfo.platform },
               { label: t('dashboard.kernel'), value: hostInfo.kernel },
-              { label: t('dashboard.uptime'), value: formatUptime(hostInfo.uptime) },
+              { label: t('dashboard.uptime'), value: formatUptime(liveUptime) },
               { label: t('dashboard.cpuCores'), value: hostInfo.num_cpu },
               { label: t('dashboard.ipAddress'), value: primaryIP || '-', mono: true },
             ].map((item) => (
@@ -525,7 +565,10 @@ export default function Dashboard() {
                   { value: 'syslog' as const, label: t('dashboard.logTabSystem') },
                 ]}
                 value={logTab}
-                onChange={setLogTab}
+                onChange={(tab) => {
+                  logTabDecided.current = true
+                  setLogTab(tab)
+                }}
               />
             </div>
             <button
