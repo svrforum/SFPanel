@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.67.1] – 2026-08-24
+
+### Removed
+
+- **The dashboard's attention strip.** It reported ordinary operation as if it were trouble: Docker emits a `kill` event on every `docker stop`, and exit codes 137 and 143 are SIGKILL and SIGTERM — what stopping a container looks like, not what a crash looks like. On a normal day that is seventy such events, and every row the strip showed on first contact was a `compose down` or a container someone ran by hand. An alarm that is always on is worse than no alarm. Whether a container needs looking at is a question about its *current* state, which the Docker card beside it already answers correctly; a log of past events was a worse second opinion. Worth revisiting from the alerting side if rules start being used, rather than by scraping the event log.
+- `GET /system/services` no longer accepts `?state=failed`. It was added for the strip and had no other caller.
+
+Everything else from 0.67.0 stays: the chart fetching the range it displays, peak-preserving reduction, the disk card leading with the fullest filesystem, the Docker card's crash/stop distinction, and backup state on the host card.
+
+---
+
 ## [0.67.0] – 2026-08-23
 
 ### Added
