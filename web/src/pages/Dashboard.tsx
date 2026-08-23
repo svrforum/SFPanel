@@ -526,17 +526,23 @@ export default function Dashboard() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-16">{t('dashboard.pid')}</TableHead>
+                  {/* PID is the first thing to go on a phone: four columns
+                      overflowed the card by 115px on a 375px screen, which
+                      hid the memory column behind a horizontal scroll nobody
+                      knows is there. Nothing on this page acts on a PID —
+                      that is the processes page — so it is the column whose
+                      absence costs least. */}
+                  <TableHead className="hidden w-16 sm:table-cell">{t('dashboard.pid')}</TableHead>
                   <TableHead>{t('dashboard.processName')}</TableHead>
-                  <TableHead className="w-20 text-right">{t('dashboard.processCpu')}</TableHead>
-                  <TableHead className="w-20 text-right">{t('dashboard.processMemory')}</TableHead>
+                  <TableHead className="w-16 text-right sm:w-20">{t('dashboard.processCpu')}</TableHead>
+                  <TableHead className="w-16 text-right sm:w-20">{t('dashboard.processMemory')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {processes.map((p) => (
                   <TableRow key={p.pid}>
-                    <TableCell className="font-mono text-[11px]">{p.pid}</TableCell>
-                    <TableCell className="truncate max-w-[200px] text-[13px]">{p.name}</TableCell>
+                    <TableCell className="hidden font-mono text-[11px] sm:table-cell">{p.pid}</TableCell>
+                    <TableCell className="truncate max-w-[120px] text-[13px] sm:max-w-[200px]">{p.name}</TableCell>
                     <TableCell className="text-right font-mono text-[11px]">
                       <span className={p.cpu > 50 ? 'text-destructive' : p.cpu > 20 ? 'text-warning' : ''}>
                         {p.cpu.toFixed(1)}%
