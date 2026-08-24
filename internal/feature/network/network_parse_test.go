@@ -55,28 +55,45 @@ func TestParseResolvectlOutput(t *testing.T) {
 		wantSearch  []string
 	}{
 		{
-			// KNOWN LIMITATION (frozen current behavior, reported
-			// separately): the wrapped continuation line under
-			// "DNS Domain:" ("~68.100.in-addr.arpa …") has no
-			// recognized prefix and is dropped entirely — only the
-			// domain on the prefixed line is collected.
+			// Was a frozen limitation: the wrapped continuation under
+			// "DNS Domain:" has no prefix and used to be dropped, so the
+			// routing-only search domains never appeared.
 			name:  "modern multi-server output",
 			input: resolvectlModernFixture,
 			wantServers: []string{
 				"1.1.1.1", "8.8.8.8", "192.168.1.1",
 				"100.100.100.100", "fd7a:115c:a1e0::53",
 			},
-			wantSearch: []string{"example.ts.net"},
+			wantSearch: []string{"example.ts.net", "~68.100.in-addr.arpa", "~69.100.in-addr.arpa"},
 		},
 		{
-			// KNOWN LIMITATION (frozen current behavior, reported
-			// separately): legacy systemd (Ubuntu 20.04, systemd
-			// 245) prints one server per line; the continuation
-			// line "8.8.8.8" lacks the "DNS Servers:" prefix and
-			// is dropped, so only the first server is collected.
-			name:        "legacy one-server-per-line output drops continuation",
+			// Was a frozen limitation, and the one that mattered most:
+			// systemd 245 (Ubuntu 20.04) prints one server per line, so a
+			// host with three resolvers reported exactly one.
+			name:        "legacy one-server-per-line output",
 			input:       resolvectlLegacyFixture,
-			wantServers: []string{"192.168.1.1"},
+			wantServers: []string{"192.168.1.1", "8.8.8.8"},
+			wantSearch:  []string{},
+		},
+		{
+			// The keys that follow a value block must end it. "Current DNS
+			// Server:" in particular is a single address that would look
+			// exactly like a continuation if only the fields were checked.
+			name: "a following key ends the block",
+			input: "       DNS Servers: 1.1.1.1\n" +
+				"                     8.8.8.8\n" +
+				"Current DNS Server: 9.9.9.9\n" +
+				"         Protocols: -LLMNR\n",
+			wantServers: []string{"1.1.1.1", "8.8.8.8"},
+			wantSearch:  []string{},
+		},
+		{
+			// A blank line ends it too — links are separated that way.
+			name: "a blank line ends the block",
+			input: "       DNS Servers: 1.1.1.1\n" +
+				"\n" +
+				"8.8.8.8\n",
+			wantServers: []string{"1.1.1.1"},
 			wantSearch:  []string{},
 		},
 		{

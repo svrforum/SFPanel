@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -254,6 +255,15 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 	var lines []string
 	lines = append(lines, "# SFPanel System Tuning")
 	lines = append(lines, "# Auto-generated — do not edit manually")
+	// What each key held before the panel touched it, recorded so Reset can
+	// actually put it back. Removing this file and running `sysctl --system`
+	// does not restore anything: a key no other file mentions simply keeps
+	// the value already in the kernel, so "reset to system defaults" left the
+	// host exactly as tuned as it was and said otherwise. The record lives in
+	// the file it describes — it needs no storage of its own and survives a
+	// restart, and if someone deletes the file by hand there is correctly
+	// nothing left to restore.
+	lines = append(lines, previousValueComments(preApplyValues, keys)...)
 	lines = append(lines, "")
 	for _, k := range keys {
 		lines = append(lines, fmt.Sprintf("%s = %s", k, existingParams[k]))
@@ -364,22 +374,103 @@ func (h *TuningHandler) ResetTuning(c echo.Context) error {
 	rollbackHadFile = false
 	rollbackMu.Unlock()
 
-	if _, err := os.Stat(sysctlConfPath); os.IsNotExist(err) {
-		return response.OK(c, map[string]interface{}{
-			"message": "No tuning configuration to reset",
-		})
+	data, readErr := os.ReadFile(sysctlConfPath)
+	if readErr != nil {
+		if os.IsNotExist(readErr) {
+			return response.OK(c, map[string]interface{}{
+				"message": "No tuning configuration to reset",
+			})
+		}
+		return response.Fail(c, http.StatusInternalServerError, response.ErrTuningError,
+			"Failed to read config: "+readErr.Error())
 	}
+	previous := parsePreviousValues(string(data))
 
 	if err := os.Remove(sysctlConfPath); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTuningError,
 			"Failed to remove config: "+err.Error())
 	}
 
+	// Put the recorded values back before reloading. The reload alone only
+	// re-applies whatever files remain; it cannot know what a key held before
+	// this panel wrote it.
+	restored := 0
+	for _, key := range sortedKeys(previous) {
+		if _, err := runTuningCommand(h.Cmd, "sysctl", "-w", key+"="+previous[key]); err != nil {
+			slog.Warn("tuning reset: could not restore a value",
+				"component", "tuning", "key", key, "error", err)
+			continue
+		}
+		restored++
+	}
 	_, _ = runTuningCommand(h.Cmd, "sysctl", "--system")
 
+	msg := "Tuning reset to the values recorded before it was applied"
+	if len(previous) == 0 {
+		// An older file, written before the values were recorded. Say what
+		// actually happened rather than claiming a reset that did not occur.
+		msg = "Tuning configuration removed. It will not be applied at the next boot, but values already set stay in effect until then."
+	}
 	return response.OK(c, map[string]interface{}{
-		"message": "Tuning reset to system defaults",
+		"message":  msg,
+		"restored": restored,
 	})
+}
+
+// previousValueComments renders the pre-apply values as comments.
+//
+// Comments rather than a sidecar file: sysctl ignores them, an operator
+// reading the file can see what it displaced, and the two cannot drift apart.
+func previousValueComments(previous map[string]string, keys []string) []string {
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		v, ok := previous[k]
+		if !ok || strings.TrimSpace(v) == "" {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s%s = %s", previousMarker, k, v))
+	}
+	return out
+}
+
+// previousMarker prefixes the recorded values.
+const previousMarker = "# sfpanel-previous: "
+
+// validSysctlKey is what a key may look like coming back out of a file the
+// operator can edit — dotted lowercase segments, nothing else.
+var validSysctlKey = regexp.MustCompile(`^[a-z0-9_]+(\.[a-z0-9_]+)+$`)
+
+// parsePreviousValues reads back what previousValueComments wrote.
+func parsePreviousValues(content string) map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, previousMarker) {
+			continue
+		}
+		rest := strings.TrimPrefix(trimmed, previousMarker)
+		key, value, ok := strings.Cut(rest, "=")
+		if !ok {
+			continue
+		}
+		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+		// A key must look like a sysctl key and a value must be non-empty:
+		// this file is world-readable and an operator may have edited it.
+		if key == "" || value == "" || !validSysctlKey.MatchString(key) {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ---------- Recommendations ----------

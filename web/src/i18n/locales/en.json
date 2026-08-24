@@ -1255,7 +1255,8 @@
         "pageIndicator": "Page {{page}} / {{total}}",
         "confirmClear": "Clear all alert history?",
         "successCleared": "History cleared",
-        "errorClearFailed": "Failed to clear history"
+        "errorClearFailed": "Failed to clear history",
+        "undelivered": "not delivered"
       },
       "severity": {
         "info": "Info",

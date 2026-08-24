@@ -537,6 +537,42 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 // sites (ClusterProxyMiddleware, ProxyToLeader) all treat the proxy as
 // terminal — they return the relay response directly and never fall back
 // to a local handler that would need the body.
+// longProxyPaths are the operations the target node deliberately allows five
+// minutes for.
+//
+// The proxy capped every ?node= request at thirty seconds and exempted only
+// /docker/compose/, so the same work that succeeds locally — mkfs on a large
+// volume, an apt install, writing a swap file with dd, tearing down a stack —
+// was cut off partway when it was aimed at another node. The subprocess is
+// bound to the proxied request, so it died with it: the operator got a
+// timeout, the remote host got a half-finished operation, and neither said so.
+//
+// Matched on substrings rather than exact paths because these carry ids and
+// names, and kept as a list rather than "anything that might be slow" so the
+// default stays short — a genuinely stuck request should not hold a proxy
+// connection for five minutes.
+var longProxyPaths = []string{
+	"/docker/compose/",
+	"/appstore/apps/",
+	"/packages/install",
+	"/packages/remove",
+	"/filesystems/format",
+	"/filesystems/resize",
+	"/swap",
+	"/system/restore",
+	"/disks/network-shares/tools/install",
+}
+
+// proxyTimeoutFor returns how long a proxied request may take.
+func proxyTimeoutFor(path string) time.Duration {
+	for _, p := range longProxyPaths {
+		if strings.Contains(path, p) {
+			return 5 * time.Minute
+		}
+	}
+	return 30 * time.Second
+}
+
 func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
 	req := c.Request()
 	var bodyBytes []byte
@@ -603,10 +639,7 @@ func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Mana
 		apiReq.Path = req.URL.Path + "?" + encoded
 	}
 
-	proxyTimeout := 30 * time.Second
-	if strings.Contains(req.URL.Path, "/docker/compose/") {
-		proxyTimeout = 5 * time.Minute
-	}
+	proxyTimeout := proxyTimeoutFor(req.URL.Path)
 	ctx, cancel := context.WithTimeout(c.Request().Context(), proxyTimeout)
 	defer cancel()
 

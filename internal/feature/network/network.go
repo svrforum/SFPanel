@@ -834,26 +834,99 @@ func parseResolvectlOutput(output string) DNSConfig {
 		Search:  []string{},
 	}
 
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
+	// resolvectl wraps. Values that do not fit continue on the next line with
+	// no key in front of them, and reading only prefixed lines dropped every
+	// one of those: on systemd 245 (Ubuntu 20.04) the servers are printed one
+	// per line, so a host with three resolvers reported one, and on modern
+	// systemd the extra search domains under a wrapped "DNS Domain:" vanished.
+	//
+	// Which block a bare line belongs to is decided by what is on it rather
+	// than by indentation, because indentation is not guaranteed and a key
+	// test cannot be "contains a colon" — an IPv6 resolver is full of them.
+	const (
+		none = iota
+		servers
+		search
+	)
+	block := none
+
+	for _, line := range strings.Split(output, "\n") {
 		trimmed := strings.TrimSpace(line)
 
-		// "DNS Servers: 8.8.8.8" or "DNS Servers: 8.8.8.8 1.1.1.1"
-		if strings.HasPrefix(trimmed, "DNS Servers:") {
-			rest := strings.TrimPrefix(trimmed, "DNS Servers:")
-			for _, s := range strings.Fields(rest) {
-				if net.ParseIP(s) != nil {
-					cfg.Servers = append(cfg.Servers, s)
-				}
-			}
+		switch {
+		case strings.HasPrefix(trimmed, "DNS Servers:"):
+			block = servers
+			cfg.Servers = appendIPs(cfg.Servers, strings.TrimPrefix(trimmed, "DNS Servers:"))
+			continue
+		case strings.HasPrefix(trimmed, "DNS Domain:"):
+			block = search
+			cfg.Search = append(cfg.Search, strings.Fields(strings.TrimPrefix(trimmed, "DNS Domain:"))...)
+			continue
 		}
-		// "DNS Domain: example.com"
-		if strings.HasPrefix(trimmed, "DNS Domain:") {
-			rest := strings.TrimPrefix(trimmed, "DNS Domain:")
-			cfg.Search = append(cfg.Search, strings.Fields(rest)...)
+
+		if trimmed == "" {
+			block = none
+			continue
+		}
+
+		switch block {
+		case servers:
+			// Every field has to be an address, or this is the next key —
+			// "Current DNS Server:" and "Protocols:" both land here.
+			if fields := strings.Fields(trimmed); allParseAsIP(fields) {
+				cfg.Servers = append(cfg.Servers, fields...)
+			} else {
+				block = none
+			}
+		case search:
+			if fields := strings.Fields(trimmed); allLookLikeDomains(fields) {
+				cfg.Search = append(cfg.Search, fields...)
+			} else {
+				block = none
+			}
 		}
 	}
 	return cfg
+}
+
+// appendIPs adds the fields of s that parse as addresses.
+func appendIPs(dst []string, s string) []string {
+	for _, f := range strings.Fields(s) {
+		if net.ParseIP(f) != nil {
+			dst = append(dst, f)
+		}
+	}
+	return dst
+}
+
+func allParseAsIP(fields []string) bool {
+	if len(fields) == 0 {
+		return false
+	}
+	for _, f := range fields {
+		if net.ParseIP(f) == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// allLookLikeDomains is the search-list equivalent: a routing-only domain
+// starts with '~', an ordinary one contains a dot, and neither contains a
+// colon — which is what separates them from the next key.
+func allLookLikeDomains(fields []string) bool {
+	if len(fields) == 0 {
+		return false
+	}
+	for _, f := range fields {
+		if strings.Contains(f, ":") {
+			return false
+		}
+		if !strings.HasPrefix(f, "~") && !strings.Contains(f, ".") {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------- Routes ----------

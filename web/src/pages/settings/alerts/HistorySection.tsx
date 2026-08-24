@@ -12,8 +12,13 @@ import { RULE_TYPES, SEVERITY_OPTIONS, getSeverityStyle } from './shared'
 
 const HISTORY_LIMIT = 20
 
-// Parse the sent_channels JSON array; history rows are only stored when at
-// least one channel succeeded, so a non-empty list means "delivered".
+// Parse the sent_channels JSON array.
+//
+// An empty list is a real state now, and the one worth seeing: the fire
+// happened and reached nobody. Rows used to be written only on a successful
+// send, so a rule whose channels had all failed — a rotated webhook, a deleted
+// channel — left nothing here at all, and an empty history read as "nothing
+// has gone wrong".
 function parseSentChannels(raw: string): string[] {
   try {
     const v = JSON.parse(raw || '[]')
@@ -132,7 +137,9 @@ export function HistorySection() {
                             {t('settings.alerts.history.sent', { count: chans.length })}
                           </span>
                         ) : (
-                          <span className="text-[12px] text-muted-foreground">-</span>
+                          <span className="text-[12px] font-medium text-destructive">
+                            {t('settings.alerts.history.undelivered')}
+                          </span>
                         )
                       })()}
                     </TableCell>
@@ -180,7 +187,9 @@ export function HistorySection() {
                         {t('settings.alerts.history.sent', { count: chans.length })}
                       </span>
                     ) : (
-                      <span className="text-muted-foreground">-</span>
+                      <span className="font-medium text-destructive">
+                        {t('settings.alerts.history.undelivered')}
+                      </span>
                     )}
                   </div>
                 </div>

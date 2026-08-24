@@ -262,9 +262,17 @@ func (m *Manager) runFire(f AlertFire) {
 	}
 	m.mu.Unlock()
 
+	// A fire that reached nobody is still a fire, and the one worth seeing.
+	//
+	// The history row used to be written only on a successful send, so an
+	// alert whose channels had all failed — a rotated Discord webhook, a
+	// deleted channel, a webhook host that is down — left nothing behind but
+	// a line in the server log. The rule went on listing itself as Active,
+	// the history stayed empty, and the operator's evidence that alerting
+	// works was the absence of evidence that it does not. sent_channels is an
+	// empty array in that case, which is exactly what happened.
 	if len(sentChannelNames) == 0 {
-		logger.Warn("all channel sends failed, skipping history", "rule", f.RuleName, "type", f.Type)
-		return
+		logger.Warn("all channel sends failed", "rule", f.RuleName, "type", f.Type)
 	}
 
 	sentJSON, _ := json.Marshal(sentChannelNames)
@@ -272,7 +280,8 @@ func (m *Manager) runFire(f AlertFire) {
 		f.RuleID, f.RuleName, f.Type, f.Severity, f.Message, "", string(sentJSON)); err != nil {
 		logger.Warn("failed to record history", "error", err)
 	}
-	logger.Info("triggered", "rule", f.RuleName, "type", f.Type, "severity", f.Severity)
+	logger.Info("triggered", "rule", f.RuleName, "type", f.Type, "severity", f.Severity,
+		"delivered", len(sentChannelNames))
 }
 
 // deliverToChannels routes a fire to its configured channels and returns the
