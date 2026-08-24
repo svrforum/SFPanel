@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.70.1] – 2026-08-24
+
+### Fixed
+
+- **Installing a package behaved differently depending on which screen you did it from.** Six handlers ran `apt-get` and no two agreed. Three never set `DEBIAN_FRONTEND=noninteractive`, so a package that asks a debconf question — a kernel upgrade about a config file, iptables-persistent about saving rules — waited on a terminal that does not exist until the five-minute timeout, with nothing in the answer to say why. Two let the command outlive the request that started it. Only one checked whether another package operation was already running, so everywhere else you waited out the timeout instead of being told. They share one path now, and it carries all of it: the lock check, the non-interactive environment, the request's own lifetime, and the `--` that stops a package name beginning with a dash from being read as a flag.
+
+The cause was in the shared code rather than the handlers — nothing there could take an environment and a request lifetime at the same time, so each caller gave up whichever seemed to matter less. A test now walks the tree and fails on any new caller written the old way, naming the file and line.
+
+---
+
 ## [0.70.0] – 2026-08-24
 
 ### Added
