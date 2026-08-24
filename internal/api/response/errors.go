@@ -311,4 +311,12 @@ const (
 	// ErrDestinationExists is returned (HTTP 409) when a rename, upload or copy
 	// would overwrite something and the caller did not ask for that.
 	ErrDestinationExists = "DESTINATION_EXISTS"
+
+	// ErrDockerUnavailable is returned (HTTP 503) for a /docker or /compose
+	// route on a host where Docker is not reachable. Those routes are not
+	// registered at all in that case, so without this the caller got echo's
+	// own 404 body, which is not the envelope the client parses — every
+	// Docker page then reported "Unknown error" rather than saying Docker
+	// was missing.
+	ErrDockerUnavailable = "DOCKER_UNAVAILABLE"
 )

@@ -20,6 +20,27 @@ const menuItems = MORE_MENU_ITEMS.map((i) => ({
   label: i.labelKey,
 }))
 
+/**
+ * The same list, with settings pointing at the current node's own scope.
+ *
+ * In cluster mode Settings splits in two: the plain page carries the
+ * cluster-wide account and alert settings, and ?scope=node carries this node's
+ * panel update, backup schedule, restore, TLS, tuning and audit log. The only
+ * routes to that second half were the desktop sidebar, which is hidden below
+ * the md breakpoint, and the cluster tree's right-click menu, which a phone
+ * has no way to open — so on a phone in cluster mode none of it was reachable
+ * at all.
+ *
+ * Derived from MORE_MENU_ITEMS rather than NODE_MENU_ITEMS: the latter is the
+ * whole registry, which would put the bottom bar's own tabs into the drawer
+ * beside themselves — the duplication navigation.ts says it fixed.
+ */
+const nodeMenuItems = MORE_MENU_ITEMS.map((i) => ({
+  path: i.to === '/settings' ? '/settings?scope=node' : i.to,
+  icon: i.icon,
+  label: i.labelKey,
+}))
+
 export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -95,8 +116,8 @@ export default function MoreMenu({ open, onOpenChange }: MoreMenuProps) {
             )}
 
             <div className="grid grid-cols-4 gap-2 py-2">
-              {menuItems.map(({ path, icon: Icon, label }) => {
-                const isActive = location.pathname.startsWith(path)
+              {(clusterEnabled ? nodeMenuItems : menuItems).map(({ path, icon: Icon, label }) => {
+                const isActive = location.pathname.startsWith(path.split('?')[0])
                 return (
                   <button
                     key={path}

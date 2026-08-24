@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	featureFiles "github.com/svrforum/SFPanel/internal/feature/files"
+
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/common/exec"
@@ -972,10 +974,16 @@ func (h *Handler) UninstallApp(c echo.Context) error {
 			"Failed to stop app: "+response.SanitizeOutput(out))
 	}
 
-	if err := os.RemoveAll(stackDir); err != nil {
-		slog.Warn("appstore uninstall: failed to remove stack dir", "component", "appstore", "app_id", id, "error", err)
-		return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError,
-			"Failed to remove app files: "+err.Error())
+	// Through the trash, not RemoveAll: an app's stack directory holds its
+	// relative bind mounts, so "uninstall" was deleting the operator's data
+	// with no undo — and keep_data, which reads like it prevents exactly that,
+	// only controls whether named volumes go with it.
+	if _, err := featureFiles.MoveToTrash(stackDir); err != nil {
+		if rmErr := os.RemoveAll(stackDir); rmErr != nil {
+			slog.Warn("appstore uninstall: failed to remove stack dir", "component", "appstore", "app_id", id, "error", rmErr)
+			return response.Fail(c, http.StatusInternalServerError, response.ErrAppStoreError,
+				"Failed to remove app files: "+rmErr.Error())
+		}
 	}
 
 	_, _ = h.DB.Exec("DELETE FROM settings WHERE key = ?", "appstore_installed_"+id)

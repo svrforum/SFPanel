@@ -70,6 +70,39 @@ type ComposeProjectWithStatus struct {
 type ComposeManager struct {
 	baseDir      string // e.g., /opt/stacks
 	dockerClient *Client
+	// trash moves a path into the file manager's trash instead of deleting
+	// it. Injected rather than imported so this package keeps no dependency
+	// on a feature module; nil falls back to os.RemoveAll.
+	trash func(string) (bool, error)
+}
+
+// SetTrash wires the deleter used when a project directory is removed.
+//
+// A stack directory is not just its compose file. The /opt/stacks layout puts
+// relative bind mounts inside it, so `./data:/var/lib/postgresql/data` — the
+// most ordinary way to persist a database — lives there too. Deleting a stack
+// was an os.RemoveAll over all of it, gigabytes included, while the dialog's
+// only data checkbox spoke about named volumes: an operator who left it
+// unchecked to keep their data lost it anyway, with no undo. Routed through
+// the trash it is recoverable for a week, which is the decision this product
+// already made for the file manager.
+func (m *ComposeManager) SetTrash(fn func(string) (bool, error)) {
+	m.trash = fn
+}
+
+// removeProjectDir deletes a project directory, preferring the trash.
+//
+// A false from the trash means it could not be moved there — a different
+// filesystem, typically — and the caller asked for a delete, so it proceeds.
+// The distinction is reported to the operator by the files module and is not
+// worth failing a stack deletion over.
+func (m *ComposeManager) removeProjectDir(dir string) error {
+	if m.trash != nil {
+		if _, err := m.trash(dir); err == nil {
+			return nil
+		}
+	}
+	return os.RemoveAll(dir)
 }
 
 func (m *ComposeManager) validateProjectName(name string) error {
@@ -393,8 +426,7 @@ func (m *ComposeManager) DeleteProject(ctx context.Context, name string, removeI
 		}
 	}
 
-	projectDir := filepath.Join(m.baseDir, name)
-	return os.RemoveAll(projectDir)
+	return m.removeProjectDir(filepath.Join(m.baseDir, name))
 }
 
 // Up starts a compose project in detached mode.

@@ -1620,6 +1620,13 @@ class ApiClient {
     })
   }
 
+  // DELETE /lvm/vgs/:name has been registered and implemented since LVM
+  // landed, with no caller — so an operator who created a volume group by
+  // mistake could not remove it from the panel at all.
+  removeVG(name: string) {
+    return this.request(`/lvm/vgs/${encodeURIComponent(name)}`, { method: 'DELETE' })
+  }
+
   removePV(name: string) {
     // LVM reports PVs as "/dev/sdb1"; an encoded slash in a path segment is
     // at best awkward to route, so the device name travels bare and the

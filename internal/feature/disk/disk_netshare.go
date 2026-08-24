@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -658,8 +659,14 @@ func writeFstab(lines []fstabLine) error {
 	}
 	if existing, err := os.ReadFile(fstabPath); err == nil {
 		// Best-effort backup; a failure here must not block the write, but
-		// it is worth not silently skipping.
-		_ = config.AtomicWriteFile(fstabPath+".sfpanel.bak", existing, 0644)
+		// the comment saying it "is worth not silently skipping" sat above a
+		// discarded error, which is exactly silently skipping. This copy is
+		// the operator's only undo if the panel ever writes a valid-but-wrong
+		// fstab, so its absence is worth a line in the log.
+		if err := config.AtomicWriteFile(fstabPath+".sfpanel.bak", existing, 0644); err != nil {
+			slog.Warn("could not back up fstab before rewriting it",
+				"component", "disk", "path", fstabPath, "error", err)
+		}
 	}
 	return config.AtomicWriteFile(fstabPath, []byte(content), 0644)
 }

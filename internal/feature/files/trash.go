@@ -65,6 +65,11 @@ type trashMeta struct {
 // The caller then deletes outright rather than failing: refusing to delete
 // something because it cannot be *undeleted* would be a worse trade than the
 // missing safety net.
+// MoveToTrash is moveToTrash for callers outside this package — the compose
+// and appstore deletions, which remove a whole stack directory and used to do
+// it with an unrecoverable os.RemoveAll.
+func MoveToTrash(path string) (bool, error) { return moveToTrash(path) }
+
 func moveToTrash(path string) (bool, error) {
 	info, err := os.Lstat(path)
 	if err != nil {

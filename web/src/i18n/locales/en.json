@@ -223,7 +223,8 @@
     },
     "backupLabel": "Backup",
     "backupNever": "never run",
-    "backupDisabled": "off"
+    "backupDisabled": "off",
+    "backupFailed": "failed"
   },
   "processes": {
     "title": "Process Manager",
@@ -422,7 +423,9 @@
       "onNode": "on {{node}}",
       "manualTab": "Manual",
       "gitImportTab": "Import from git",
-      "loadError": "Failed to load stacks"
+      "loadError": "Failed to load stacks",
+      "deleteVolumesDesc": "Also remove the named Docker volumes this project created.",
+      "deleteDataNote": "The stack folder ({{path}}) is removed either way, along with any bind-mounted data inside it. It goes to the trash and can be restored for seven days."
     },
     "search": {
       "placeholder": "Search Docker Hub...",
@@ -2187,7 +2190,12 @@
         "lvCount": "LV Count",
         "selectPVs": "Select PVs",
         "noFreePVs": "No available PVs",
-        "empty": "No volume groups"
+        "empty": "No volume groups",
+        "deleted": "Volume group removed",
+        "deleteFailed": "Could not remove the volume group",
+        "deleteTitle": "Remove volume group",
+        "deleteDesc": "Remove the volume group {{name}}. Its physical volumes become free again.",
+        "hasLvs": "Still holds logical volumes"
       },
       "lv": {
         "title": "Logical Volumes (LV)",

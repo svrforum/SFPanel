@@ -107,6 +107,23 @@ func (h *Handler) DeletePartition(c echo.Context) error {
 			"parted is not installed. Install it: apt install parted")
 	}
 
+	// The same guard format carries, for the operation that is strictly worse:
+	// formatting a mounted partition destroys its contents, deleting it takes
+	// the partition table entry with them. Deleting the partition backing /boot
+	// or / leaves a host that does not come back.
+	//
+	// The check is on the partition, not the disk: /dev/sda3 is what parted is
+	// told to remove, and /dev/sda itself is not what gets mounted.
+	partPath := fmt.Sprintf("/dev/%s%d", device, partNum)
+	if mp, err := findDeviceMountpoint(partPath); err == nil && mp != "" {
+		if isProtectedMountpoint(mp) {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
+				fmt.Sprintf("partition is mounted at %s, a protected system path", mp))
+		}
+		return response.Fail(c, http.StatusConflict, response.ErrInvalidDevice,
+			fmt.Sprintf("partition is mounted at %s — unmount it first", mp))
+	}
+
 	devPath := "/dev/" + device
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "parted", "-s", devPath, "rm", number)
 	if err != nil {

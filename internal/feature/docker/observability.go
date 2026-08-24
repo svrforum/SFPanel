@@ -29,7 +29,13 @@ func (h *ObservabilityHandler) GetMetrics(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "range must be 1h, 6h, or 24h")
 	}
 	if !h.ObservabilityEnabled {
-		return response.OK(c, map[string]any{"observability_disabled": true, "data": []any{}})
+		// An empty array, matching what the enabled path returns and what
+		// ObservabilityConfig's own comment promises. It used to answer with
+		// an object wrapping the array, so a supported setting —
+		// docker.observability.enabled: false — handed the client something
+		// it types as a slice and iterates, breaking the container history
+		// and events tabs rather than showing them empty.
+		return response.OK(c, []any{})
 	}
 	cutoff := time.Now().Add(-dur).UnixMilli()
 	rows, err := h.DB.Query(
@@ -84,7 +90,13 @@ func (h *ObservabilityHandler) GetEvents(c echo.Context) error {
 		}
 	}
 	if !h.ObservabilityEnabled {
-		return response.OK(c, map[string]any{"observability_disabled": true, "data": []any{}})
+		// An empty array, matching what the enabled path returns and what
+		// ObservabilityConfig's own comment promises. It used to answer with
+		// an object wrapping the array, so a supported setting —
+		// docker.observability.enabled: false — handed the client something
+		// it types as a slice and iterates, breaking the container history
+		// and events tabs rather than showing them empty.
+		return response.OK(c, []any{})
 	}
 	q := `SELECT ts, event_type, exit_code, detail FROM container_events WHERE container_id = ?`
 	args := []any{id}
@@ -137,7 +149,13 @@ func (h *ObservabilityHandler) GetRecentEvents(c echo.Context) error {
 		}
 	}
 	if !h.ObservabilityEnabled {
-		return response.OK(c, map[string]any{"observability_disabled": true, "data": []any{}})
+		// An empty array, matching what the enabled path returns and what
+		// ObservabilityConfig's own comment promises. It used to answer with
+		// an object wrapping the array, so a supported setting —
+		// docker.observability.enabled: false — handed the client something
+		// it types as a slice and iterates, breaking the container history
+		// and events tabs rather than showing them empty.
+		return response.OK(c, []any{})
 	}
 	rows, err := h.DB.Query(
 		`SELECT container_id, container_name, ts, event_type, exit_code, detail FROM container_events ORDER BY ts DESC LIMIT ?`,

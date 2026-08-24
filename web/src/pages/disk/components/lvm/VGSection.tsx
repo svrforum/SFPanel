@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useApiAction } from '@/hooks/useApiAction'
 import { Button } from '@/components/ui/button'
@@ -35,8 +35,21 @@ export function VGSection({ vgs, pvs, onChanged }: {
 }) {
   const { t } = useTranslation()
   const [createOpen, setCreateOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<VolumeGroup | null>(null)
   const [vgName, setVgName] = useState('')
   const [selectedPvs, setSelectedPvs] = useState<string[]>([])
+
+  const { run: runDelete, loading: deleting } = useApiAction(
+    api.removeVG.bind(api),
+    {
+      successMsg: t('disk.lvm.vg.deleted'),
+      errorMsg: t('disk.lvm.vg.deleteFailed'),
+      onSuccess: () => {
+        setDeleteTarget(null)
+        onChanged()
+      },
+    },
+  )
 
   // Unassigned PVs for VG creation
   const freePvs = pvs.filter((pv) => !pv.vg_name)
@@ -90,12 +103,13 @@ export function VGSection({ vgs, pvs, onChanged }: {
                 <TableHead className="text-[11px]">{t('disk.lvm.vg.pvCount')}</TableHead>
                 <TableHead className="text-[11px]">{t('disk.lvm.vg.lvCount')}</TableHead>
                 <TableHead className="text-[11px]">{t('disk.lvm.attr')}</TableHead>
+                <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {vgs.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                     {t('disk.lvm.vg.empty')}
                   </TableCell>
                 </TableRow>
@@ -108,12 +122,49 @@ export function VGSection({ vgs, pvs, onChanged }: {
                   <TableCell className="text-muted-foreground">{vg.pv_count}</TableCell>
                   <TableCell className="text-muted-foreground">{vg.lv_count}</TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">{vg.attr}</TableCell>
+                  <TableCell className="text-right">
+                    {/* Disabled while the group still holds logical volumes:
+                        vgremove refuses that anyway, and a button that always
+                        errors is worse than one that says why. */}
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="text-destructive hover:text-destructive"
+                      disabled={vg.lv_count > 0}
+                      title={vg.lv_count > 0 ? t('disk.lvm.vg.hasLvs') : t('common.delete')}
+                      aria-label={t('common.delete')}
+                      onClick={() => setDeleteTarget(vg)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
       </div>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('disk.lvm.vg.deleteTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('disk.lvm.vg.deleteDesc', { name: deleteTarget?.name ?? '' })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>{t('common.cancel')}</Button>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => { if (deleteTarget) void runDelete(deleteTarget.name) }}
+            >
+              {t('common.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create VG Dialog */}
       <Dialog open={createOpen} onOpenChange={(open) => { if (open) setCreateOpen(true); else closeCreate() }}>

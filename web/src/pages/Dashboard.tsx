@@ -389,7 +389,7 @@ export default function Dashboard() {
     : !backup.enabled
       ? t('dashboard.backupDisabled')
       : backup.last_status === 'error'
-        ? t('common.failed', { defaultValue: 'failed' })
+        ? t('dashboard.backupFailed')
         : backup.last_run
           ? formatDate(backup.last_run)
           : t('dashboard.backupNever')

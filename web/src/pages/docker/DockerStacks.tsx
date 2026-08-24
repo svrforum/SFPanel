@@ -1140,6 +1140,13 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 <p className="text-[11px] text-muted-foreground">{t('docker.compose.deleteVolumesDesc')}</p>
               </div>
             </label>
+            {/* The checkbox above only ever governed named volumes, but it was
+                the dialog's only mention of data — so unchecking it read as
+                "keep my data" while the stack folder, bind mounts and all,
+                went regardless. Say what actually happens. */}
+            <p className="rounded-xl bg-secondary/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+              {t('docker.compose.deleteDataNote', { path: deleteTarget?.path ?? deleteTarget?.name ?? '' })}
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>{t('common.cancel')}</Button>

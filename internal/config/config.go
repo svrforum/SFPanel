@@ -84,7 +84,8 @@ type DockerConfig struct {
 
 // ObservabilityConfig controls the per-container metrics + events feature
 // (theme F). Disabled means the collector / events listener / pruners do
-// not start; new endpoints return empty arrays + observability_disabled flag.
+// not start; the endpoints return empty arrays, the same shape they return
+// when enabled and there is simply nothing recorded yet.
 //
 // Enabled is a pointer so we can distinguish three states in YAML:
 //   - field absent (nil)        → default-on (IsEnabled() = true)

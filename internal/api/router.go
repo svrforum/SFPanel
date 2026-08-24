@@ -6,6 +6,7 @@ import (
 	"embed"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -69,6 +70,37 @@ func healthHandler(db *sql.DB, version string) echo.HandlerFunc {
 func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *featureAlert.Manager, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc) (*echo.Echo, func()) {
 	e := echo.New()
 	e.HideBanner = true
+
+	// Docker is optional, and when its socket is unreachable none of the
+	// /api/v1/docker or compose routes are registered at all. Echo then
+	// answers them with its own {"message":"Not Found"}, which is not the
+	// envelope the client parses — so every Docker page on a host without
+	// Docker reported "Unknown error" instead of saying Docker is missing.
+	// Unmatched API paths get the standard envelope, and the docker prefix
+	// gets a reason.
+	// Set below, once the docker client has been probed. The closure captures
+	// the variable, not its value, and only runs per-request — long after.
+	var dockerAvailable bool
+
+	defaultErrorHandler := e.HTTPErrorHandler
+	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		he, ok := err.(*echo.HTTPError)
+		if !ok || he.Code != http.StatusNotFound || c.Response().Committed ||
+			!strings.HasPrefix(c.Request().URL.Path, "/api/") {
+			defaultErrorHandler(err, c)
+			return
+		}
+		path := c.Request().URL.Path
+		// Only when Docker really is missing. On a host that has it, an
+		// unmatched /docker path is an ordinary typo and saying "Docker is
+		// not available" would send the operator to fix the wrong thing.
+		if !dockerAvailable && (strings.Contains(path, "/docker/") || strings.Contains(path, "/compose/")) {
+			_ = response.Fail(c, http.StatusServiceUnavailable, response.ErrDockerUnavailable,
+				"Docker is not available on this node. Install it from Packages, or check that the daemon is running.")
+			return
+		}
+		_ = response.Fail(c, http.StatusNotFound, response.ErrNotFound, "No such endpoint")
+	}
 
 	// Source-IP extraction: trust X-Forwarded-For / X-Real-IP only when the
 	// request arrives from an allowlisted upstream. Without this, a client
@@ -147,12 +179,17 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	if dockerClient != nil {
 		dockerHandler = &featureDocker.Handler{Docker: dockerClient, DB: database}
 	}
+	dockerAvailable = dockerHandler != nil
 
 	// Unified port map handler — Cmd for ufw/ss, Docker (nil-safe) for DNAT.
 	portmapHandler := &portmap.Handler{Cmd: cmd, Docker: dockerClient}
 
 	// Initialize Compose manager — scans cfg.Server.StacksPath for compose projects
 	composeManager := docker.NewComposeManager(cfg.Server.StacksPath, dockerClient)
+	// Stack directories hold relative bind-mount data, so their removal goes
+	// through the same trash the file manager uses rather than an
+	// unrecoverable RemoveAll.
+	composeManager.SetTrash(featureFiles.MoveToTrash)
 	composeHandler := &featureCompose.Handler{Compose: composeManager, DB: database, ComposePath: cfg.Server.StacksPath}
 	composeHandler.SetClusterMgr(clusterMgr) // boot-time manager (nil if cluster disabled); updated on runtime activation below
 
