@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.69.0] – 2026-08-24
+
+### Added
+
+- **A network change now has to be confirmed, or it is undone.** Applying netplan validated the file's syntax and nothing else, so a perfectly valid configuration that moved the host off the address you were reaching it on took the panel with it — the handler's own comment had named that risk for a long time and settled for what `netplan generate` could catch. The previous files are kept, a sixty-second timer is armed, and they come back unless the panel hears otherwise. Reaching the confirm button is the proof, since it can only be pressed over a connection the change did not break. Files the apply introduced are removed on the way back too, or they would keep overriding the restored ones.
+- **Volume groups can be removed.** `DELETE /lvm/vgs/:name` has been implemented and registered since LVM landed, with no caller anywhere — so a volume group created by mistake could not be undone from the panel. Disabled while the group still holds logical volumes, which `vgremove` refuses anyway.
+
+### Fixed
+
+- **Deleting a stack took its data with it, with no way back.** Relative bind mounts live inside the project directory — `./data:/var/lib/postgresql/data` is the ordinary way to persist a database — and deletion was an unrecoverable `RemoveAll` over all of it, while the dialog's only mention of data was a checkbox about named volumes. Unchecking it read as "keep my data" and the data went anyway; on one stack here that is 2.5 GB. Both the compose and app-store paths move the directory to the same trash the file manager uses, recoverable for a week, and the dialog says what actually happens.
+- **Restore installed a `config.yaml` it had never read.** The archive's copy was renamed over the live one and the panel exited for systemd, so a corrupt or foreign config took it down at exactly the moment there was no way back in. It is parsed and checked first, by the same rules the loader applies — no stricter, or it would refuse backups that work.
+- **Deleting a partition had no in-use check**, though formatting one — right beside it, and less destructive — has had one all along. Deleting the partition behind `/boot` leaves a host that does not come back.
+- **Turning `docker.observability` off broke two Docker tabs.** The disabled branch answered with an object wrapping an array where the enabled branch, the client, and the setting's own documentation all say array.
+- **A host without Docker answered every Docker route with a bare 404** that is not the envelope the client parses, so the pages reported "Unknown error" instead of saying Docker was missing. Unmatched API paths get a proper answer now, and the Docker prefix gets a reason — but only when Docker really is absent.
+- **On a phone in cluster mode there was no way to reach node-scoped settings** — panel update, backup, restore, TLS, tuning and the audit log all live behind a scope reachable only from the desktop sidebar and a right-click menu a phone cannot open.
+- The fstab backup discarded its error under a comment saying that was worth not doing silently. It is the operator's only undo if the panel ever writes a valid-but-wrong fstab.
+- The dashboard's backup status used a translation key present in neither locale, so a Korean interface read "failed" in English.
+
+---
+
 ## [0.68.0] – 2026-08-24
 
 ### Fixed
