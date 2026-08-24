@@ -3,6 +3,7 @@ package network
 import (
 	"bufio"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -34,11 +35,11 @@ type Handler struct {
 // NetworkInterface represents a host network interface with its state and statistics.
 type NetworkInterface struct {
 	Name       string    `json:"name"`
-	Type       string    `json:"type"`        // ethernet, loopback, bond, bridge, vlan, virtual
-	State      string    `json:"state"`       // up, down
+	Type       string    `json:"type"`  // ethernet, loopback, bond, bridge, vlan, virtual
+	State      string    `json:"state"` // up, down
 	MacAddress string    `json:"mac_address"`
 	MTU        int       `json:"mtu"`
-	Speed      int       `json:"speed"`       // Mbps (-1 if unavailable)
+	Speed      int       `json:"speed"` // Mbps (-1 if unavailable)
 	Addresses  []IPAddr  `json:"addresses"`
 	IsDefault  bool      `json:"is_default"`
 	Driver     string    `json:"driver"`
@@ -374,13 +375,69 @@ func (h *Handler) ApplyNetplan(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrNetplanError,
 			"netplan config invalid: "+response.SanitizeOutput(strings.TrimSpace(out)))
 	}
+
+	// Snapshot before applying. `generate` above rejects a malformed file;
+	// nothing rejects a valid one that moves the host off the address the
+	// operator is reaching it on, and that is the way this goes wrong.
+	snapshot, snapErr := snapshotNetplan()
+	if snapErr != nil {
+		slog.Warn("netplan apply: could not snapshot the current config, applying without a rollback",
+			"component", "network", "error", snapErr)
+	}
+
 	out, err := h.Cmd.Run("netplan", "apply")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrNetplanError,
 			"netplan apply failed: "+response.SanitizeOutput(strings.TrimSpace(out)))
 	}
 	invalidateNetworkCache()
-	return response.OK(c, map[string]string{"message": "netplan applied successfully"})
+
+	if snapshot == nil {
+		return response.OK(c, map[string]any{
+			"message":          "netplan applied successfully",
+			"rollback_pending": false,
+		})
+	}
+	deadline := armNetplanRollback(snapshot, netplanDir, h.Cmd)
+	return response.OK(c, map[string]any{
+		"message":          "netplan applied — confirm within 60 seconds or the previous configuration is restored",
+		"rollback_pending": true,
+		"timeout":          int(netplanRollbackTimeout.Seconds()),
+		"deadline":         deadline.UnixMilli(),
+	})
+}
+
+// ConfirmNetplan cancels the pending auto-rollback.
+//
+// Reaching this endpoint is the proof: it can only be called over a working
+// connection to the panel, which is exactly the thing a bad network change
+// takes away. Silence is not ambiguous here — it means the request could not
+// be made.
+func (h *Handler) ConfirmNetplan(c echo.Context) error {
+	if !confirmNetplan() {
+		return response.OK(c, map[string]any{
+			"message":          "nothing to confirm",
+			"rollback_pending": false,
+		})
+	}
+	slog.Info("netplan apply confirmed, rollback cancelled", "component", "network")
+	return response.OK(c, map[string]any{
+		"message":          "network configuration confirmed",
+		"rollback_pending": false,
+	})
+}
+
+// GetNetplanApplyStatus reports whether an apply is still waiting to be
+// confirmed, so a page reloaded mid-window can pick the countdown back up.
+func (h *Handler) GetNetplanApplyStatus(c echo.Context) error {
+	deadline, pending := pendingNetplanRollback()
+	if !pending {
+		return response.OK(c, map[string]any{"rollback_pending": false})
+	}
+	return response.OK(c, map[string]any{
+		"rollback_pending": true,
+		"deadline":         deadline.UnixMilli(),
+	})
 }
 
 // GetDNS returns the current system DNS configuration.
@@ -936,8 +993,8 @@ type netplanBond struct {
 }
 
 type netplanBondParameters struct {
-	Mode    string `yaml:"mode,omitempty"`
-	Primary string `yaml:"primary,omitempty"`
+	Mode    string                 `yaml:"mode,omitempty"`
+	Primary string                 `yaml:"primary,omitempty"`
 	Extra   map[string]interface{} `yaml:",inline"`
 }
 

@@ -1342,7 +1342,19 @@ class ApiClient {
   }
 
   applyNetworkConfig() {
-    return this.request<{ message: string }>('/network/apply', {
+    return this.request<{
+      message: string
+      rollback_pending: boolean
+      timeout?: number
+      deadline?: number
+    }>('/network/apply', { method: 'POST' })
+  }
+
+  // Reaching this proves the network still works, which is the one thing a
+  // bad apply takes away. Without it the previous configuration comes back
+  // after a minute.
+  confirmNetworkConfig() {
+    return this.request<{ message: string; rollback_pending: boolean }>('/network/apply/confirm', {
       method: 'POST',
     })
   }

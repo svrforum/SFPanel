@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { ApplyConfirmBar } from './ApplyConfirmBar'
  import { gatewayField } from './gatewayField'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
@@ -103,6 +104,8 @@ export default function NetworkInterfaces() {
   const [configAddresses, setConfigAddresses] = useState('')
   // Whether the dialog managed to read the interface's saved gateway. False
   // means "we do not know", which is different from "there is none".
+  // Unix ms deadline of an unconfirmed apply, or null.
+  const [confirmDeadline, setConfirmDeadline] = useState<number | null>(null)
   const [gatewayKnown, setGatewayKnown] = useState(false)
   const [configGateway4, setConfigGateway4] = useState('')
   const [configGateway6, setConfigGateway6] = useState('')
@@ -249,19 +252,49 @@ export default function NetworkInterfaces() {
   }
 
   // Apply network config
+  //
+  // The server arms a sixty-second rollback and waits to be told the panel is
+  // still reachable. If this page can show the countdown and send the
+  // confirmation, the network survived the change; if it cannot, nothing
+  // arrives and the previous configuration comes back on its own. That is the
+  // whole mechanism — the silence is the signal.
   const handleApplyConfig = async () => {
     setApplying(true)
     try {
-      await api.applyNetworkConfig()
-      toast.success(t('network.applySuccess'))
+      const res = await api.applyNetworkConfig()
       setApplyDialogOpen(false)
       setHasChanges(false)
+      if (res?.rollback_pending && res.deadline) {
+        setConfirmDeadline(res.deadline)
+      } else {
+        toast.success(t('network.applySuccess'))
+      }
       await fetchData()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('network.applyFailed')
       toast.error(message)
     } finally {
       setApplying(false)
+    }
+  }
+
+  // The window closed without a confirmation. The server has already put the
+  // previous configuration back, so the page just has to stop counting and
+  // show what is actually in effect now.
+  const handleApplyExpired = useCallback(() => {
+    setConfirmDeadline(null)
+    toast.error(t('network.applyRolledBack'))
+    void fetchData()
+  }, [t])
+
+  const handleConfirmApply = async () => {
+    try {
+      await api.confirmNetworkConfig()
+      setConfirmDeadline(null)
+      toast.success(t('network.applyConfirmed'))
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t('network.applyFailed')
+      toast.error(message)
     }
   }
 
@@ -291,6 +324,14 @@ export default function NetworkInterfaces() {
 
   return (
     <div className="space-y-6">
+      {/* Sits above everything: it is the only thing on the page that matters
+          while it is showing, and it disappears on its own either way. */}
+      <ApplyConfirmBar
+        deadline={confirmDeadline}
+        onConfirm={handleConfirmApply}
+        onExpired={handleApplyExpired}
+      />
+
       {/* Top actions */}
       <div className="flex items-center justify-end">
         <Button variant="outline" size="sm" className="rounded-xl" onClick={fetchData} disabled={loading}>

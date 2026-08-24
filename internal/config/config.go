@@ -184,6 +184,70 @@ func (c *Config) ApplyEnvOverrides() {
 	}
 }
 
+// CheckFile reports whether a config file at path would load.
+//
+// It exists for the restore path, which replaces the live config.yaml from an
+// uploaded archive and then exits for systemd to restart the panel. A file
+// that will not load takes the panel down at exactly the moment the operator
+// has no way back in, so it has to be checked before it is moved into place.
+//
+// Deliberately shares Load's defaulting: a config.yaml that omits
+// database.path is fine, because Load fills it — a checker stricter than the
+// loader would refuse backups that actually work. It stops short of Load's
+// side effects, writing nothing and generating no secret.
+func CheckFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("unreadable: %w", err)
+	}
+	cfg := defaultConfig()
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return fmt.Errorf("not valid YAML: %w", err)
+	}
+	applyDefaults(cfg)
+	// Load generates one when it is empty, so an absent secret is not a
+	// reason to refuse the archive; a short one still is.
+	if cfg.Auth.JWTSecret == "" {
+		cfg.Auth.JWTSecret = generateRandomSecret()
+	}
+	return cfg.Validate()
+}
+
+// defaultConfig is the seed Load starts from.
+func defaultConfig() *Config {
+	return &Config{
+		Server:   ServerConfig{Host: "0.0.0.0", Port: 3628, StacksPath: "/opt/stacks"},
+		Database: DatabaseConfig{Path: "./sfpanel.db"},
+		Auth:     AuthConfig{TokenExpiry: "24h"},
+		Docker:   DockerConfig{Socket: "unix:///var/run/docker.sock"},
+		Log:      LogConfig{Level: "info"},
+		Cluster: ClusterConfig{
+			GRPCPort: 3629,
+			DataDir:  "/var/lib/sfpanel/cluster",
+			CertDir:  "/etc/sfpanel/cluster",
+		},
+	}
+}
+
+// applyDefaults fills the fields Load fills after unmarshalling.
+func applyDefaults(cfg *Config) {
+	if cfg.Server.StacksPath == "" {
+		cfg.Server.StacksPath = "/opt/stacks"
+	}
+	if cfg.Server.TLS.Dir == "" {
+		cfg.Server.TLS.Dir = "/etc/sfpanel/tls"
+	}
+	if cfg.Database.Path == "" {
+		cfg.Database.Path = "./sfpanel.db"
+	}
+	if cfg.Docker.Observability.MetricsRetention == "" {
+		cfg.Docker.Observability.MetricsRetention = "24h"
+	}
+	if cfg.Docker.Observability.EventsRetention == "" {
+		cfg.Docker.Observability.EventsRetention = "30d"
+	}
+}
+
 func Load(path string) (*Config, error) {
 	cfg := &Config{
 		Server:   ServerConfig{Host: "0.0.0.0", Port: 3628, StacksPath: "/opt/stacks"},

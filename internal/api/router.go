@@ -418,6 +418,10 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	net.GET("/interfaces/:name", networkHandler.GetInterface)
 	net.PUT("/interfaces/:name", networkHandler.ConfigureInterface)
 	net.POST("/apply", networkHandler.ApplyNetplan)
+	// Confirm-or-revert, the same shape /system/tuning/apply uses: reaching
+	// the confirm endpoint proves the network still works.
+	net.POST("/apply/confirm", networkHandler.ConfirmNetplan)
+	net.GET("/apply/status", networkHandler.GetNetplanApplyStatus)
 	net.GET("/dns", networkHandler.GetDNS)
 	net.PUT("/dns", networkHandler.ConfigureDNS)
 	net.GET("/routes", networkHandler.GetRoutes)

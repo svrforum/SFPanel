@@ -1815,7 +1815,12 @@
       "updateAvailable": "Update available: {{version}}",
       "upToDate": "Up to date",
       "updateCheckFailed": "Update check failed"
-    }
+    },
+    "confirmTitle": "Confirm the network change",
+    "confirmDesc": "The previous configuration comes back in {{count}}s unless you confirm. Seeing this means the connection survived.",
+    "confirmAction": "Keep it",
+    "applyConfirmed": "Network configuration confirmed",
+    "applyRolledBack": "No confirmation — the previous network configuration was restored"
   },
   "logs": {
     "title": "Log Viewer",

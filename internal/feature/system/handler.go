@@ -26,6 +26,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
+	"github.com/svrforum/SFPanel/internal/config"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/release"
 )
@@ -173,6 +174,17 @@ type UpdateCheckResponse struct {
 }
 
 // CheckUpdate queries GitHub releases API and returns version comparison.
+// validateStagedConfig checks a config.yaml from a restore archive the way
+// the loader would, before it is moved over the live one.
+//
+// The check lives in the config package so it stays in step with Load's
+// defaults; a checker stricter than the loader would refuse backups that
+// actually work, which the restore test caught the first time this was
+// written by hand here.
+func validateStagedConfig(path string) error {
+	return config.CheckFile(path)
+}
+
 func (h *Handler) CheckUpdate(c echo.Context) error {
 	client := &http.Client{Timeout: 15 * time.Second}
 	req, reqErr := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, releaseAPIURL, nil)
@@ -1083,6 +1095,19 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 	}
 
 	if cfgEntry, ok := stagedByName["config.yaml"]; ok {
+		// Read it before trusting it. This file decides the port the panel
+		// listens on, the secret it signs tokens with and where its database
+		// lives, and it was moved into place with nothing but a Chmod — so an
+		// archive carrying a corrupt or foreign config.yaml took the panel
+		// down on the restart that follows, with no way back in. The sibling
+		// update path validates its payload; this one did not.
+		if err := validateStagedConfig(cfgEntry.path); err != nil {
+			if bakData, bakErr := os.ReadFile(h.DBPath + ".bak"); bakErr == nil {
+				_ = os.WriteFile(h.DBPath, bakData, 0o600)
+			}
+			return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed,
+				"Refusing to restore: the archive's config.yaml is not usable — "+err.Error())
+		}
 		cfgNewPath := h.ConfigPath + ".new"
 		if err := os.Rename(cfgEntry.path, cfgNewPath); err != nil {
 			// Rollback DB to the .bak we made above.
