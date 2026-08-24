@@ -3,6 +3,7 @@ package disk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // ---------- Disk cache ----------
@@ -85,7 +87,11 @@ func (h *Handler) CheckSmartmontools(c echo.Context) error {
 
 // InstallSmartmontools installs smartmontools via apt.
 func (h *Handler) InstallSmartmontools(c echo.Context) error {
-	out, err := h.Cmd.RunCtx(c.Request().Context(), "apt-get", "install", "-y", "smartmontools")
+	out, err := exec.AptInstall(c.Request().Context(), h.Cmd, "smartmontools")
+	if errors.Is(err, exec.ErrDpkgLocked) {
+		return response.Fail(c, http.StatusConflict, response.ErrAPTInstallError,
+			"Another package manager operation is in progress; try again shortly")
+	}
 	output := strings.TrimSpace(out)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInstallError,
@@ -406,8 +412,8 @@ func parseSmartctlJSON(devPath string, data []byte) (*SmartInfo, error) {
 					}
 				}
 				// Compute status based on threshold
-			sa.Status = computeSmartStatus(sa.Value, sa.Worst, sa.Threshold)
-			info.Attributes = append(info.Attributes, sa)
+				sa.Status = computeSmartStatus(sa.Value, sa.Worst, sa.Threshold)
+				info.Attributes = append(info.Attributes, sa)
 			}
 		}
 	}

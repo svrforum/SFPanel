@@ -46,6 +46,10 @@ func (m *cancelObservingCommander) RunWithEnv(_ []string, name string, args ...s
 func (m *cancelObservingCommander) RunWithInput(_ string, name string, args ...string) (string, error) {
 	return "", nil
 }
+func (m *cancelObservingCommander) RunWithEnvCtx(ctx context.Context, _ []string, name string, args ...string) (string, error) {
+	return m.RunCtx(ctx, name, args...)
+}
+
 func (m *cancelObservingCommander) RunCtx(ctx context.Context, name string, args ...string) (string, error) {
 	m.mu.Lock()
 	m.runCtxHits++

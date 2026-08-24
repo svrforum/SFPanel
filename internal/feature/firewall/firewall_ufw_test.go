@@ -154,11 +154,11 @@ func TestParseAddressPort_Wildcard(t *testing.T) {
 // this small test-local Commander that dispatches on the joined args.
 
 type ufwArgsCommander struct {
-	mu       sync.Mutex
-	outputs  map[string]string // key: name + " " + args
-	errs     map[string]error
-	exists   map[string]bool
-	calls    []string
+	mu      sync.Mutex
+	outputs map[string]string // key: name + " " + args
+	errs    map[string]error
+	exists  map[string]bool
+	calls   []string
 }
 
 func newUFWArgsCommander() *ufwArgsCommander {
@@ -204,6 +204,10 @@ func (m *ufwArgsCommander) RunWithEnv(_ []string, name string, args ...string) (
 func (m *ufwArgsCommander) RunWithInput(_ string, name string, args ...string) (string, error) {
 	return m.record(name, args...)
 }
+func (m *ufwArgsCommander) RunWithEnvCtx(ctx context.Context, _ []string, name string, args ...string) (string, error) {
+	return m.RunCtx(ctx, name, args...)
+}
+
 func (m *ufwArgsCommander) RunCtx(_ context.Context, name string, args ...string) (string, error) {
 	return m.record(name, args...)
 }

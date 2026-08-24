@@ -3,6 +3,7 @@ package disk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/config"
 )
 
@@ -116,7 +118,14 @@ func (h *Handler) InstallNetShareTools(c echo.Context) error {
 	}
 	_, pkg := requiredTool(typ)
 
-	out, err := h.Cmd.RunCtx(c.Request().Context(), "apt-get", "install", "-y", pkg)
+	// Through the shared helper: this used to run without
+	// DEBIAN_FRONTEND, so a package with a debconf prompt blocked on a
+	// terminal that does not exist until the timeout.
+	out, err := exec.AptInstall(c.Request().Context(), h.Cmd, pkg)
+	if errors.Is(err, exec.ErrDpkgLocked) {
+		return response.Fail(c, http.StatusConflict, response.ErrAPTInstallError,
+			"Another package manager operation is in progress; try again shortly")
+	}
 	output := strings.TrimSpace(out)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInstallError,

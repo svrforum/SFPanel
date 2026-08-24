@@ -213,13 +213,13 @@ func (h *WireGuardHandler) GetStatus(c echo.Context) error {
 // Install installs wireguard-tools via apt.
 // POST /network/wireguard/install
 func (h *WireGuardHandler) Install(c echo.Context) error {
-	_, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "update")
+	_, err := exec.AptUpdate(c.Request().Context(), h.Cmd)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
 			"Failed to update package lists: "+response.SanitizeOutput(err.Error()))
 	}
 
-	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "install", "-y", "wireguard-tools")
+	output, err := exec.AptInstall(c.Request().Context(), h.Cmd, "wireguard-tools")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrWGInstallError,
 			"Failed to install wireguard-tools: "+response.SanitizeOutput(err.Error()))

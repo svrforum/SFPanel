@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // ---------- Fail2ban Handlers ----------
@@ -47,14 +48,14 @@ func (h *Handler) GetFail2banStatus(c echo.Context) error {
 // POST /fail2ban/install
 func (h *Handler) InstallFail2ban(c echo.Context) error {
 	// Step 1: apt-get update
-	_, err := h.Cmd.RunWithEnv(aptEnv(), "apt-get", "update")
+	_, err := exec.AptUpdate(c.Request().Context(), h.Cmd)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
 			"Failed to update package lists: "+response.SanitizeOutput(err.Error()))
 	}
 
 	// Step 2: install fail2ban
-	output, err := h.Cmd.RunWithEnv(aptEnv(), "apt-get", "install", "-y", "fail2ban")
+	output, err := exec.AptInstall(c.Request().Context(), h.Cmd, "fail2ban")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFail2banInstall,
 			"Failed to install fail2ban: "+response.SanitizeOutput(err.Error()))

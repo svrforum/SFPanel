@@ -29,11 +29,6 @@ type Handler struct {
 	dockerRuleMu sync.Mutex
 }
 
-// aptEnv returns the standard environment variables for non-interactive apt operations.
-func aptEnv() []string {
-	return []string{"DEBIAN_FRONTEND=noninteractive"}
-}
-
 // requireTool returns a structured "not installed" response when the named
 // tool is missing from PATH. Mutation handlers call this at entry to keep
 // remote cluster nodes (which may legitimately lack ufw / fail2ban /
@@ -95,16 +90,16 @@ type Fail2banStatus struct {
 
 // Fail2banJail represents a fail2ban jail with its configuration and state.
 type Fail2banJail struct {
-	Name         string   `json:"name"`
-	Enabled      bool     `json:"enabled"`
-	Filter       string   `json:"filter"`
-	BannedCount  int      `json:"banned_count"`
-	TotalBanned  int      `json:"total_banned"`
-	MaxRetry     int      `json:"max_retry"`
-	BanTime      string   `json:"ban_time"`
-	FindTime     string   `json:"find_time"`
-	IgnoreIP     string   `json:"ignoreip"`
-	BannedIPs    []string `json:"banned_ips"`
+	Name        string   `json:"name"`
+	Enabled     bool     `json:"enabled"`
+	Filter      string   `json:"filter"`
+	BannedCount int      `json:"banned_count"`
+	TotalBanned int      `json:"total_banned"`
+	MaxRetry    int      `json:"max_retry"`
+	BanTime     string   `json:"ban_time"`
+	FindTime    string   `json:"find_time"`
+	IgnoreIP    string   `json:"ignoreip"`
+	BannedIPs   []string `json:"banned_ips"`
 }
 
 // ---------- Validation ----------

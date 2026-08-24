@@ -60,6 +60,10 @@ func (m *MockCommander) RunWithEnv(_ []string, name string, args ...string) (str
 	return m.record(name, args...)
 }
 
+func (m *MockCommander) RunWithEnvCtx(_ context.Context, _ []string, name string, args ...string) (string, error) {
+	return m.record(name, args...)
+}
+
 func (m *MockCommander) RunWithInput(_ string, name string, args ...string) (string, error) {
 	return m.record(name, args...)
 }

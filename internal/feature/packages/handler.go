@@ -3,6 +3,7 @@ package packages
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -83,7 +84,7 @@ func validateSearchQuery(q string) bool {
 func (h *Handler) CheckUpdates(c echo.Context) error {
 	// Refresh package lists first so results are up-to-date
 	env := exec.AptEnv()
-	if _, err := h.Cmd.RunWithEnv(env, "apt-get", "update"); err != nil {
+	if _, err := exec.AptUpdate(c.Request().Context(), h.Cmd); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
 			"Failed to update package lists: "+response.SanitizeOutput(err.Error()))
 	}
@@ -208,8 +209,9 @@ func (h *Handler) UpgradePackages(c echo.Context) error {
 	// Refuse early if another package-manager run holds the dpkg front-end
 	// lock — otherwise apt-get would block on it for the full streaming
 	// timeout (30 min) before either acquiring or failing with a noisy
-	// stderr message. See dpkg_lock.go for the race-vs-friendliness tradeoff.
-	if dpkgLockHeld() {
+	// stderr message. See exec.DpkgLockHeld for the race-vs-friendliness
+	// tradeoff.
+	if exec.DpkgLockHeld() {
 		return response.Fail(c, http.StatusConflict, response.ErrAPTUpgradeError,
 			"Another package manager operation is in progress; try again shortly")
 	}
@@ -298,15 +300,14 @@ func (h *Handler) InstallPackage(c echo.Context) error {
 			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
 
-	// Pre-check the dpkg front-end lock so we can return 409 instantly
-	// rather than blocking apt-get on the lock for the full 5-min Commander
-	// timeout. See dpkg_lock.go.
-	if dpkgLockHeld() {
+	// The lock pre-check, the non-interactive environment, the request
+	// context and the "--" all live in exec.AptInstall now — they used to be
+	// six different combinations across six handlers.
+	output, err := exec.AptInstall(c.Request().Context(), h.Cmd, req.Name)
+	if errors.Is(err, exec.ErrDpkgLocked) {
 		return response.Fail(c, http.StatusConflict, response.ErrAPTInstallError,
 			"Another package manager operation is in progress; try again shortly")
 	}
-
-	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "install", "-y", "--", req.Name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTInstallError,
 			"Failed to install package: "+response.SanitizeOutput(err.Error()))
@@ -338,15 +339,11 @@ func (h *Handler) RemovePackage(c echo.Context) error {
 			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
 
-	// Pre-check the dpkg front-end lock so we can return 409 instantly
-	// rather than blocking apt-get on the lock for the full 5-min Commander
-	// timeout. See dpkg_lock.go.
-	if dpkgLockHeld() {
+	output, err := exec.AptRemove(c.Request().Context(), h.Cmd, req.Name)
+	if errors.Is(err, exec.ErrDpkgLocked) {
 		return response.Fail(c, http.StatusConflict, response.ErrAPTRemoveError,
 			"Another package manager operation is in progress; try again shortly")
 	}
-
-	output, err := h.Cmd.RunWithEnv(exec.AptEnv(), "apt-get", "remove", "-y", "--", req.Name)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTRemoveError,
 			"Failed to remove package: "+response.SanitizeOutput(err.Error()))

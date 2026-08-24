@@ -27,6 +27,11 @@ type Commander interface {
 	RunWithEnv(env []string, name string, args ...string) (string, error)
 	RunWithInput(input string, name string, args ...string) (string, error)
 	RunCtx(ctx context.Context, name string, args ...string) (string, error)
+	// RunWithEnvCtx is RunWithEnv and RunCtx together. Its absence is why
+	// the apt callers drifted: each one had to choose between setting
+	// DEBIAN_FRONTEND (RunWithEnv, no context) and dying with the request
+	// (RunCtx, no environment), and different handlers chose differently.
+	RunWithEnvCtx(ctx context.Context, env []string, name string, args ...string) (string, error)
 	Exists(name string) bool
 }
 
@@ -79,6 +84,27 @@ func (c *SystemCommander) RunWithEnv(env []string, name string, args ...string) 
 	return string(out), err
 }
 
+func (c *SystemCommander) RunWithEnvCtx(ctx context.Context, env []string, name string, args ...string) (string, error) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, DefaultTimeout)
+		defer cancel()
+	}
+	start := time.Now()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = append(cmd.Environ(), env...)
+	out, err := cmd.CombinedOutput()
+	duration := time.Since(start)
+	if ctx.Err() == context.DeadlineExceeded {
+		slog.Warn("command timeout", "cmd", name, "duration_ms", duration.Milliseconds())
+		return string(out), fmt.Errorf("command timed out after %s", DefaultTimeout)
+	}
+	if err != nil {
+		slog.Debug("command failed", "cmd", name, "duration_ms", duration.Milliseconds(), "error", err)
+	}
+	return string(out), err
+}
+
 func (c *SystemCommander) RunWithInput(input string, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 	defer cancel()
@@ -123,9 +149,4 @@ func (c *SystemCommander) RunCtx(ctx context.Context, name string, args ...strin
 func (c *SystemCommander) Exists(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
-}
-
-// AptEnv returns the standard environment variables for non-interactive apt operations.
-func AptEnv() []string {
-	return []string{"DEBIAN_FRONTEND=noninteractive"}
 }
