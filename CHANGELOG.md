@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.71.0] – 2026-08-24
+
+### Fixed
+
+- **Only the first DNS server was read on Ubuntu 20.04.** `resolvectl` wraps — a value that does not fit continues on the next line with no key in front of it — and the parser read only the lines with a key. systemd 245 prints one server per line, so a host with three resolvers reported one, and the panel showed a DNS configuration that was not the host's. On newer systemd it was the wrapped search domains that disappeared instead. This was the last of four defects in this area recorded as known and unfixed; the previous release resolved the other three.
+- **"Reset to Defaults" in system tuning reset nothing.** It removed the panel's sysctl file and reloaded, which re-applies the files that remain — a setting no other file mentions simply keeps whatever is already in the kernel. The host stayed exactly as tuned as it was while the answer said otherwise. What each setting held before the panel changed it is now recorded alongside the change, and put back on reset. A configuration written before this says what actually happened rather than claiming a reset it cannot perform.
+- **Work sent to another node was cut off after thirty seconds** although the node receiving it allows five minutes. Formatting a filesystem, installing a package, writing a swap file and tearing down a stack all died partway when aimed at a different node, and because the work is tied to the request that asked for it, the far side was left half-finished with nothing said. The exceptions are listed explicitly, so a genuinely stuck request still cannot hold a connection open.
+- **An alert that reached nobody left no trace.** The history recorded a firing only when at least one channel accepted it, so a rule whose channels had all failed — a rotated webhook, a deleted channel — wrote a line to the log and nothing else: the rule went on showing as active and the history stayed empty, which reads as nothing having gone wrong. Every firing is recorded now, and one that was delivered nowhere says so.
+
+---
+
 ## [0.70.1] – 2026-08-24
 
 ### Fixed
