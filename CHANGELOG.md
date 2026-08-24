@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.70.0] – 2026-08-24
+
+### Added
+
+- **Restore straight from a backup the panel already holds.** The backup half was finished — a schedule, retention, run-now, and the archives listed with Download and Delete beside each — while restore only ever accepted an upload, so recovering from a scheduled backup meant downloading it out and posting the same bytes back in. Each archive has a Restore button now. The name is matched against the listing rather than turned into a path, so there is no string that names a file outside the directory and also appears in it.
+- **A disk mounted from the panel can be kept after a reboot.** Network shares always wrote an `/etc/fstab` entry; block devices never did, so a data disk attached here quietly disappeared on the next boot while an SMB share attached on the same screen did not. Mounting offers it, on by default, and unmounting offers the reverse — an entry left behind makes the unmount look like it did not take. The entry carries `nofail`, which is the difference between a missing disk and a host that will not boot, and only entries with the panel's own marker are ever touched.
+
+### Fixed
+
+- **Alerts were presented as cluster-wide settings and are not.** The rules and channels live in each node's own database — nothing replicates them — and each node's evaluator reads only its own, so a rule created from the cluster-wide tab existed on no other node. The rule form's node picker made it worse by offering to target one of those other nodes, producing a rule stored where nothing would ever evaluate it, listed as Active for good. Alerts move to the per-node scope, and the picker offers the node you are editing.
+- **Copying onto an existing file reported a different error than renaming or uploading onto one**, though all three refuse the same collision with the same status. The interface picks its wording by that code, so the most common collision was the one it could not describe. Copy also had no way through, leaving "delete the destination first" as the only route — a more dangerous operation than the one being asked for; it takes the same overwrite option rename has.
+- The API reference was missing the entire network-shares group and a dozen other routes, found by diffing the document against every route the router registers.
+
+---
+
 ## [0.69.0] – 2026-08-24
 
 ### Added
