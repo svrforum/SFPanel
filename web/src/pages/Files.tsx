@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, Fragment, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import {
@@ -69,7 +69,20 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from '@/components/ui/context-menu'
-import { FileEditorDialog, type EditorTarget } from './files/components/FileEditorDialog'
+import type { EditorTarget } from './files/components/FileEditorDialog'
+
+/**
+ * The editor arrives when a file is opened, not when a directory is listed.
+ *
+ * Monaco and its language workers are 3.5 MB, and a static import put them in
+ * this page's chunk — so browsing to /files pulled the whole editor down
+ * before knowing whether anything would be edited. Measured on the running
+ * panel: the file manager transferred 5.49 MB against 1.79 MB for the
+ * dashboard, and most visits here are navigation, not editing.
+ */
+const FileEditorDialog = lazy(() =>
+  import('./files/components/FileEditorDialog').then((m) => ({ default: m.FileEditorDialog })),
+)
 import { FilePreviewDialog, type PreviewTarget } from './files/components/FilePreviewDialog'
 import { isTextFile } from './files/components/fileLanguages'
 import { useFileView, useVisibleEntries, sortEntries, type SortKey } from './files/useFileView'
@@ -1545,12 +1558,17 @@ export default function Files() {
         </ContextMenuContent>
       </ContextMenu>
 
-      {/* Edit file dialog */}
-      <FileEditorDialog
-        target={editorTarget}
-        onOpenChange={(open) => { if (!open) setEditorTarget(null) }}
-        onSaved={fetchFiles}
-      />
+      {/* Edit file dialog. Mounted only once there is something to edit, so
+          the import above is not triggered by merely landing on the page. */}
+      {editorTarget && (
+        <Suspense fallback={null}>
+          <FileEditorDialog
+            target={editorTarget}
+            onOpenChange={(open) => { if (!open) setEditorTarget(null) }}
+            onSaved={fetchFiles}
+          />
+        </Suspense>
+      )}
 
       {/* Bulk delete progress. The Cancel here actually stops the run — the
           button that sat beside the Delete action only cleared the selection,
