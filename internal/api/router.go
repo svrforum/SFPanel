@@ -294,6 +294,9 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	authorized.GET("/system/tls", systemHandler.GetTLSStatus)
 	authorized.GET("/system/tls/ca.crt", systemHandler.DownloadCACert)
 	authorized.POST("/system/restore", systemHandler.RestoreBackup)
+	// Restore from an archive already on disk, so recovering from a scheduled
+	// backup does not mean downloading it out and posting it back in.
+	authorized.POST("/system/restore/file", systemHandler.RestoreBackupFile)
 	authorized.GET("/system/backup/schedule", systemHandler.GetBackupSchedule)
 	authorized.PUT("/system/backup/schedule", systemHandler.UpdateBackupSchedule)
 	authorized.POST("/system/backup/schedule/run", systemHandler.RunBackupNow)

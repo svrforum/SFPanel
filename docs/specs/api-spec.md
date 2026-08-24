@@ -1174,6 +1174,24 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
 
 ---
 
+## 네트워크 공유 API (`/api/v1/disks/network-shares`)
+
+SMB/CIFS·NFS 공유를 fstab에 등록해 네트워크 드라이브로 붙입니다 (v0.63.0+). 진실의 원천은 `/etc/fstab` 하나이며, 패널이 만든 항목은 앞줄의 `# sfpanel-netshare` 마커로 구분합니다 — 손으로 쓴 항목은 읽되 절대 고치거나 지우지 않습니다. SMB 비밀번호는 fstab에 넣지 않고 0600 자격증명 파일에 따로 둡니다.
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| GET | `/disks/network-shares` | 등록된 공유 목록(마운트 상태 포함) |
+| POST | `/disks/network-shares` | 공유 등록 + 마운트. Body: `{ type: "smb"\|"nfs", source, mount_point, username?, password?, options? }` |
+| POST | `/disks/network-shares/remove` | fstab 항목까지 제거 |
+| POST | `/disks/network-shares/mount` | 등록된 공유 마운트 |
+| POST | `/disks/network-shares/unmount` | 언마운트(등록은 유지) |
+| POST | `/disks/network-shares/test` | 등록 전 접속 확인 |
+| GET | `/disks/network-shares/discover` | 호스트가 내보내는 공유 검색 |
+| GET | `/disks/network-shares/tools` | `cifs-utils` / `nfs-common` 설치 여부 |
+| POST | `/disks/network-shares/tools/install` | 위 패키지 설치 |
+
+---
+
 ## Cron 작업 API (`/api/v1/cron`)
 
 ### GET /api/v1/cron
@@ -4896,6 +4914,22 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/files/trash` | O | 휴지통 목록 |
 | POST | `/api/v1/files/trash/restore` | O | 휴지통 복원 |
 | DELETE | `/api/v1/files/trash` | O | 휴지통 비우기 |
+
+### 그 밖의 라우트
+
+문서화가 밀려 있던 것들. 각 절의 상세 설명은 아직 없고, 형태만 기록합니다.
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| GET | `/api/v1/appstore/status` | 앱스토어 카탈로그 동기화 상태 |
+| POST | `/api/v1/cron/:id/run` | cron 작업 즉시 실행 |
+| GET | `/api/v1/cron/logs` | cron 실행 로그 |
+| GET | `/api/v1/docker/events/recent` | 최근 컨테이너 이벤트(observability). 꺼져 있으면 빈 배열 |
+| GET | `/api/v1/system/services/:name/cat` | systemd 유닛 파일 원문 |
+| GET | `/api/v1/terminal/info` | 터미널 세션이 쓸 셸·홈·사용자 정보 |
+| POST | `/api/v1/network/apply/confirm` | netplan 적용 확정(60초 자동 되돌리기 취소) (v0.69.0+) |
+| GET | `/api/v1/network/apply/status` | 확정 대기 중인 적용이 있는지 (v0.69.0+) |
+| POST | `/api/v1/system/restore/file` | 서버에 이미 있는 백업 아카이브로 복원. Body: `{ name }` (v0.70.0+) |
 
 ### Cron (4개)
 

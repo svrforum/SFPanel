@@ -64,6 +64,11 @@ export default function DiskFilesystems() {
   const [mountPoint, setMountPoint] = useState('')
   const [mountFsType, setMountFsType] = useState('')
   const [mountOptions, setMountOptions] = useState('')
+  // Default on: someone mounting a disk from the panel almost always means it
+  // to still be there tomorrow, and the surprise runs the other way — a data
+  // disk that silently vanished on the next boot.
+  const [mountPersist, setMountPersist] = useState(true)
+  const [unmountForget, setUnmountForget] = useState(true)
 
   // Unmount
   const [unmountTarget, setUnmountTarget] = useState<Filesystem | null>(null)
@@ -99,6 +104,7 @@ export default function DiskFilesystems() {
     setMountPoint('')
     setMountFsType('')
     setMountOptions('')
+    setMountPersist(true)
   }
 
   const { run: runFormat, loading: formatting } = useApiAction(
@@ -144,6 +150,7 @@ export default function DiskFilesystems() {
       mount_point: mountPoint.trim(),
       fs_type: mountFsType.trim() || undefined,
       options: mountOptions.trim() || undefined,
+      persist: mountPersist,
     })
   }
 
@@ -160,7 +167,9 @@ export default function DiskFilesystems() {
   )
 
   const handleUnmount = () => {
-    if (unmountTarget) void runUnmount(unmountTarget.mount_point)
+    // Forget the fstab entry too, or the disk comes back at the next boot and
+    // the unmount looks like it did not take.
+    if (unmountTarget) void runUnmount(unmountTarget.mount_point, unmountForget)
   }
 
   if (loading) {
@@ -374,6 +383,18 @@ export default function DiskFilesystems() {
                 onChange={(e) => setMountOptions(e.target.value)}
               />
             </div>
+            <label className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={mountPersist}
+                onChange={(e) => setMountPersist(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+              />
+              <span>
+                <span className="block text-[13px] font-medium">{t('disk.filesystems.persist')}</span>
+                <span className="block text-[11px] text-muted-foreground">{t('disk.filesystems.persistDesc')}</span>
+              </span>
+            </label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setMountOpen(false); resetMountForm() }}>
@@ -418,6 +439,22 @@ export default function DiskFilesystems() {
                 </p>
               </div>
             )}
+            {/* The fstab side of the same action. Leaving the entry behind
+                means the disk returns at the next boot, which reads as the
+                unmount not having worked. Only entries this panel wrote are
+                touched — a hand-written one is left alone by the server. */}
+            <label className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={unmountForget}
+                onChange={(e) => setUnmountForget(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+              />
+              <span>
+                <span className="block text-[13px] font-medium">{t('disk.filesystems.forget')}</span>
+                <span className="block text-[11px] text-muted-foreground">{t('disk.filesystems.forgetDesc')}</span>
+              </span>
+            </label>
           </div>
 
           <DialogFooter>

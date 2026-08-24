@@ -33,13 +33,21 @@ export default function Settings() {
   // In cluster mode: filter tabs by context.
   //   ?scope=node → per-node SQLite settings: system (update/backup + terminal
   //                 timeout + upload limit, all node-local) and audit.
-  //   otherwise   → cluster-wide settings: account (password/2FA hit the
-  //                 replicated FSM admin row; language is browser-local) and
-  //                 alerts. Single-node deployments show all 4 (no scope split).
+  //   otherwise   → cluster-wide settings: account only (password/2FA hit the
+  //                 replicated FSM admin row; language is browser-local).
+  //                 Single-node deployments show all 4 (no scope split).
+  //
+  // Alerts moved to the node scope because that is where they actually live.
+  // alert_rules and alert_channels are ordinary local SQLite tables — nothing
+  // in internal/cluster replicates them — and the evaluator reads the local
+  // database every sixty seconds. Presenting them as cluster-wide meant a rule
+  // created here existed on no other node, while the rule form's node picker
+  // offered to target one of those other nodes, producing a rule that lived
+  // where it could never be evaluated and reported itself Active forever.
   const scope = searchParams.get('scope')
   const isNodeScope = clusterEnabled && scope === 'node'
   const visibleTabs = clusterEnabled
-    ? (isNodeScope ? ['system', 'audit'] : ['account', 'alerts'])
+    ? (isNodeScope ? ['system', 'alerts', 'audit'] : ['account'])
     : VALID_TABS
 
   const defaultTab = visibleTabs[0]

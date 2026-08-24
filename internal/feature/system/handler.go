@@ -920,6 +920,59 @@ func (h *Handler) RestoreBackup(c echo.Context) error {
 	}
 	defer src.Close()
 
+	return h.restoreFrom(c, src)
+}
+
+// RestoreBackupFile restores from an archive already sitting in the backup
+// directory.
+//
+// The backup half of this feature was finished — a schedule, retention, run
+// now, and a list of the archives on disk with Download and Delete beside each
+// one — while restore only ever accepted an upload. So recovering from a
+// scheduled backup meant downloading it out of the panel and posting it back
+// in, which on a large archive is two transfers of the thing you already have,
+// over a connection you may be recovering precisely because it is bad.
+//
+// POST /system/restore/file  body: { "name": "sfpanel-backup-….tar.gz" }
+func (h *Handler) RestoreBackupFile(c echo.Context) error {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
+	}
+
+	// Matched against the listing rather than sanitised into a path. The name
+	// has to be one this panel is already showing, so traversal and symlinks
+	// have nothing to attach to — there is no string an attacker can supply
+	// that names a file outside the directory and also appears in its
+	// listing.
+	files, err := listBackupFiles(h.backupDir())
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, "failed to list backups")
+	}
+	var found bool
+	for _, f := range files {
+		if f.Name == req.Name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "No such backup")
+	}
+
+	src, err := os.Open(filepath.Join(h.backupDir(), req.Name))
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrRestoreFailed, "Failed to open backup")
+	}
+	defer src.Close()
+
+	return h.restoreFrom(c, src)
+}
+
+// restoreFrom is the restore itself, from wherever the archive came.
+func (h *Handler) restoreFrom(c echo.Context, src io.Reader) error {
 	gzr, err := gzip.NewReader(src)
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed, "Invalid gzip file")

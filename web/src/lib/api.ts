@@ -714,6 +714,16 @@ class ApiClient {
     return res.blob()
   }
 
+  // Restore from an archive the panel already holds. The upload path stays
+  // for archives kept elsewhere.
+  restoreBackupFile(name: string) {
+    return this.request<{ message: string }>('/system/restore/file', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+      timeout: LONG_OP_TIMEOUT,
+    })
+  }
+
   deleteBackupFile(name: string) {
     return this.request<{ message: string }>(`/system/backup/files?name=${encodeURIComponent(name)}`, {
       method: 'DELETE',
@@ -1185,10 +1195,12 @@ class ApiClient {
     })
   }
 
-  copyPath(src: string, dst: string) {
+  // Without overwrite an existing destination answers 409 DESTINATION_EXISTS,
+  // the same code rename and upload use for the same collision.
+  copyPath(src: string, dst: string, opts?: { overwrite?: boolean }) {
     return this.request<{ message: string; src: string; dst: string }>('/files/copy', {
       method: 'POST',
-      body: JSON.stringify({ src, dst }),
+      body: JSON.stringify({ src, dst, overwrite: opts?.overwrite || undefined }),
     })
   }
 
@@ -1514,17 +1526,29 @@ class ApiClient {
     })
   }
 
-  mountFilesystem(data: { device: string; mount_point: string; fs_type?: string; options?: string }) {
-    return this.request('/filesystems/mount', {
+  // persist writes an fstab entry so the mount survives a reboot. Network
+  // shares always got one; block devices never did, so a data disk attached
+  // here vanished on the next boot while an SMB share attached on the same
+  // screen did not.
+  mountFilesystem(data: {
+    device: string
+    mount_point: string
+    fs_type?: string
+    options?: string
+    persist?: boolean
+  }) {
+    return this.request<{ message: string; persisted: boolean }>('/filesystems/mount', {
       method: 'POST',
       body: JSON.stringify(data),
     })
   }
 
-  unmountFilesystem(mountPoint: string) {
-    return this.request('/filesystems/unmount', {
+  // forget drops the fstab entry too. Without it, unmounting a persisted disk
+  // looks like it worked and then undoes itself at the next restart.
+  unmountFilesystem(mountPoint: string, forget = false) {
+    return this.request<{ message: string; unmounted: boolean; forgot: boolean }>('/filesystems/unmount', {
       method: 'POST',
-      body: JSON.stringify({ mount_point: mountPoint }),
+      body: JSON.stringify({ mount_point: mountPoint, forget }),
     })
   }
 

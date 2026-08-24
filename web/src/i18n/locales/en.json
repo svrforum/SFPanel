@@ -1085,7 +1085,10 @@
       "download": "Download",
       "delete": "Delete",
       "deleteConfirm": "Delete backup \"{{name}}\"? This cannot be undone.",
-      "deleted": "Backup deleted"
+      "deleted": "Backup deleted",
+      "restore": "Restore",
+      "restoreConfirmTitle": "Restore from this backup",
+      "restoreConfirm": "Restore from {{name}}. This replaces the current database and configuration, and the panel restarts."
     },
     "updateConfirm": "The panel will be updated and the service will restart. Continue?",
     "auditLog": "Audit Log",
@@ -2163,7 +2166,11 @@
       "expanding": "Expanding...",
       "expandConfirm": "The following steps will be executed in order. Continue?",
       "expandLVM": "LVM",
-      "fetchFailed": "Failed to load filesystems"
+      "fetchFailed": "Failed to load filesystems",
+      "persist": "Keep it after a reboot",
+      "persistDesc": "Adds an /etc/fstab entry, with nofail so a missing disk cannot stop the host from booting.",
+      "forget": "Do not mount it after a reboot",
+      "forgetDesc": "Removes the /etc/fstab entry the panel created. Entries you wrote yourself are left alone."
     },
     "lvm": {
       "title": "LVM Management",

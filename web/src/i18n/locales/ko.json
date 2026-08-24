@@ -1085,7 +1085,10 @@
       "download": "다운로드",
       "delete": "삭제",
       "deleteConfirm": "백업 \"{{name}}\"을(를) 삭제하시겠습니까? 되돌릴 수 없습니다.",
-      "deleted": "백업이 삭제되었습니다"
+      "deleted": "백업이 삭제되었습니다",
+      "restore": "복원",
+      "restoreConfirmTitle": "이 백업으로 복원",
+      "restoreConfirm": "{{name}} 으로 복원합니다. 현재 데이터베이스와 설정을 덮어쓰고 패널이 재시작됩니다."
     },
     "updateConfirm": "패널이 업데이트되고 서비스가 재시작됩니다. 계속하시겠습니까?",
     "auditLog": "감사 로그",
@@ -2163,7 +2166,11 @@
       "expanding": "확장 중...",
       "expandConfirm": "다음 단계가 순서대로 실행됩니다. 계속하시겠습니까?",
       "expandLVM": "LVM",
-      "fetchFailed": "파일시스템 정보를 불러올 수 없습니다"
+      "fetchFailed": "파일시스템 정보를 불러올 수 없습니다",
+      "persist": "재부팅 후에도 유지",
+      "persistDesc": "/etc/fstab 에 항목을 추가합니다. 디스크가 없어도 부팅이 멈추지 않도록 nofail 이 함께 붙습니다.",
+      "forget": "재부팅 후에도 마운트하지 않기",
+      "forgetDesc": "패널이 만든 /etc/fstab 항목을 제거합니다. 직접 작성한 항목은 건드리지 않습니다."
     },
     "lvm": {
       "title": "LVM 관리",

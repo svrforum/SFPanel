@@ -208,11 +208,23 @@ type MountFilesystemRequest struct {
 	MountPoint string `json:"mount_point"`
 	FsType     string `json:"fs_type"`
 	Options    string `json:"options"`
+	// Persist writes an fstab entry so the mount survives a reboot.
+	//
+	// Opt-in rather than automatic: mounting a disk from the panel and
+	// mounting it permanently are different intentions, and the panel had no
+	// way to express the second — network shares got an fstab entry and block
+	// devices did not, so a data disk attached here quietly disappeared on the
+	// next boot while an SMB share attached on the same screen did not.
+	Persist bool `json:"persist"`
 }
 
 // UnmountFilesystemRequest is the payload for POST /filesystems/unmount.
 type UnmountFilesystemRequest struct {
 	MountPoint string `json:"mount_point"`
+	// Forget removes the fstab entry too, so the mount does not come back on
+	// the next boot. Without it, unmounting a persisted disk looks like it
+	// worked and then undoes itself at the next restart.
+	Forget bool `json:"forget"`
 }
 
 // ResizeFilesystemRequest is the payload for POST /filesystems/resize.

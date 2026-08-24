@@ -35,12 +35,26 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
   const [windowSeconds, setWindowSeconds] = useState(300)
   // Cluster nodes for the specific-scope multi-select (empty in single-node mode).
   const [clusterNodes, setClusterNodes] = useState<{ id: string; name: string }[]>([])
+  // The node whose rules these are. Rules live in the local database of
+  // whichever node the request reached — nothing replicates alert_rules — and
+  // the evaluator only ever reads its own. A rule scoped to a different node
+  // is therefore stored where nothing will evaluate it and never fires, while
+  // still listing itself as Active. The picker offers this node only.
+  const [localNodeId, setLocalNodeId] = useState<string | null>(null)
 
   useEffect(() => {
     api.getClusterNodes()
-      .then((res) => setClusterNodes((res.nodes ?? []).map((n) => ({ id: n.id, name: n.name || n.id }))))
+      .then((res) => {
+        setClusterNodes((res.nodes ?? []).map((n) => ({ id: n.id, name: n.name || n.id })))
+        setLocalNodeId(res.local_id ?? null)
+      })
       .catch(() => setClusterNodes([]))
   }, [])
+
+  // Restricted to the node being edited, for the reason above.
+  const selectableNodes = localNodeId
+    ? clusterNodes.filter((n) => n.id === localNodeId)
+    : clusterNodes
 
   const loadRules = useCallback(() => {
     api.getAlertRules()
@@ -286,10 +300,10 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
             </Select>
             {ruleForm.node_scope === 'specific' && (
               <div className="flex flex-wrap gap-1.5 pt-1">
-                {clusterNodes.length === 0 ? (
+                {selectableNodes.length === 0 ? (
                   <span className="text-[12px] text-muted-foreground">{t('settings.alerts.rules.noNodes')}</span>
                 ) : (
-                  clusterNodes.map((n) => {
+                  selectableNodes.map((n) => {
                     const selected = ruleForm.nodes.includes(n.id)
                     return (
                       <button

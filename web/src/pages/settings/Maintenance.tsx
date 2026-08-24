@@ -9,7 +9,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Download, Upload, RefreshCw, AlertCircle, Clock, Play, Trash2 } from 'lucide-react'
+import { Download, Upload, RefreshCw, AlertCircle, Clock, Play, RotateCcw, Trash2 } from 'lucide-react'
 import { useApiAction } from '@/hooks/useApiAction'
 
 type MaintenanceProps = {
@@ -216,6 +216,23 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
     try {
       const blob = await api.downloadBackupFile(name)
       downloadBlob(blob, name)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  // Restore straight from the archive the panel is already holding. Before
+  // this, the only entry point was an upload, so recovering from a scheduled
+  // backup meant downloading it out and posting the same bytes back in.
+  async function handleRestoreBackupFile(name: string) {
+    if (!(await confirm({
+      title: t('settings.backupSchedule.restoreConfirmTitle'),
+      description: t('settings.backupSchedule.restoreConfirm', { name }),
+      danger: true,
+    }))) return
+    try {
+      await api.restoreBackupFile(name)
+      toast.success(t('settings.restoreSuccess'))
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : String(err))
     }
@@ -433,6 +450,15 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
                 >
                   <Download className="h-4 w-4 mr-1" />
                   {t('settings.backupSchedule.download')}
+                </Button>
+                <Button
+                  onClick={() => handleRestoreBackupFile(file.name)}
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl shrink-0"
+                >
+                  <RotateCcw className="h-4 w-4 mr-1" />
+                  {t('settings.backupSchedule.restore')}
                 </Button>
                 <Button
                   onClick={() => handleDeleteBackupFile(file.name)}

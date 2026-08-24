@@ -737,7 +737,7 @@ func (h *Handler) RenamePath(c echo.Context) error {
 // file contents copied; non-regular files (symlinks, devices, sockets) are
 // skipped rather than dereferenced, so a copy can't be tricked into reading
 // through a symlink to a critical path.
-func copyRecursive(src, dst string, info os.FileInfo) error {
+func copyRecursive(src, dst string, info os.FileInfo, overwrite bool) error {
 	if info.IsDir() {
 		if err := os.MkdirAll(dst, info.Mode().Perm()); err != nil {
 			return err
@@ -751,7 +751,7 @@ func copyRecursive(src, dst string, info os.FileInfo) error {
 			if err != nil {
 				return err
 			}
-			if err := copyRecursive(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name()), ci); err != nil {
+			if err := copyRecursive(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name()), ci, overwrite); err != nil {
 				return err
 			}
 		}
@@ -765,7 +765,14 @@ func copyRecursive(src, dst string, info os.FileInfo) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+	// O_EXCL unless the caller asked to overwrite. Kept as the default so a
+	// tree copy still refuses to clobber file by file — the handler's own
+	// check only sees the top-level destination.
+	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	if overwrite {
+		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	}
+	out, err := os.OpenFile(dst, flags, info.Mode().Perm())
 	if err != nil {
 		return err
 	}
@@ -780,6 +787,11 @@ func (h *Handler) CopyPath(c echo.Context) error {
 	var req struct {
 		Src string `json:"src"`
 		Dst string `json:"dst"`
+		// Overwrite matches rename's flag. Copy refused a collision with no
+		// way through at all, so the operator's only route was to delete the
+		// destination first — a strictly more dangerous operation than the
+		// one they asked for.
+		Overwrite bool `json:"overwrite,omitempty"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -803,9 +815,14 @@ func (h *Handler) CopyPath(c echo.Context) error {
 		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
-	// Refuse to clobber: copy must not overwrite an existing destination.
-	if _, err := os.Stat(req.Dst); err == nil {
-		return response.Fail(c, http.StatusConflict, response.ErrInvalidRequest, "Destination already exists")
+	// Refuse to clobber unless asked. This answered ErrInvalidRequest where
+	// rename and upload both answer ErrDestinationExists — the same collision,
+	// the same status, a different code — and the frontend picks its message
+	// by code, so the one case the operator meets most often was the one it
+	// could not name.
+	if _, err := os.Stat(req.Dst); err == nil && !req.Overwrite {
+		return response.Fail(c, http.StatusConflict, response.ErrDestinationExists,
+			fmt.Sprintf("'%s' already exists", filepath.Base(req.Dst)))
 	}
 	// Block copying a directory into its own subtree (would recurse forever).
 	if srcInfo.IsDir() && strings.HasPrefix(req.Dst+string(filepath.Separator), req.Src+string(filepath.Separator)) {
@@ -815,7 +832,7 @@ func (h *Handler) CopyPath(c echo.Context) error {
 	if err := os.MkdirAll(filepath.Dir(req.Dst), 0755); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFileError, err.Error())
 	}
-	if err := copyRecursive(req.Src, req.Dst, srcInfo); err != nil {
+	if err := copyRecursive(req.Src, req.Dst, srcInfo, req.Overwrite); err != nil {
 		if os.IsPermission(err) {
 			return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied, "Permission denied")
 		}

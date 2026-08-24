@@ -740,9 +740,69 @@ func (h *Handler) MountFilesystem(c echo.Context) error {
 			fmt.Sprintf("mount failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
-	return response.OK(c, map[string]string{
-		"message": fmt.Sprintf("%s mounted at %s", req.Device, req.MountPoint),
+	// Mount first, record second — the same order the network-share path
+	// uses. An fstab entry written before a mount that then fails would
+	// promise the next boot something that has never worked.
+	persisted := false
+	if req.Persist {
+		if err := persistBlockMount(devPath, req.MountPoint, req.FsType, req.Options); err != nil {
+			// The mount itself succeeded, and saying otherwise would be
+			// wrong; what failed is only its survival across a reboot.
+			return response.OK(c, map[string]any{
+				"message":   fmt.Sprintf("%s mounted at %s, but it will not survive a reboot: %s", req.Device, req.MountPoint, err.Error()),
+				"persisted": false,
+			})
+		}
+		persisted = true
+	}
+
+	return response.OK(c, map[string]any{
+		"message":   fmt.Sprintf("%s mounted at %s", req.Device, req.MountPoint),
+		"persisted": persisted,
 	})
+}
+
+// persistBlockMount records a block-device mount in fstab so it comes back
+// after a reboot.
+//
+// Mirrors the network-share path: same marker so hand-written entries are
+// never touched, same single source of truth in /etc/fstab rather than a table
+// this panel would have to keep in step, and nofail so a disk that is absent
+// at boot — an external drive, a disk pulled for maintenance — does not drop
+// the host into emergency mode. That last one is the difference between a
+// missing disk and an unbootable server.
+func persistBlockMount(devPath, mountPoint, fsType, options string) error {
+	if fsType == "" {
+		fsType = "auto"
+	}
+	opts := options
+	if opts == "" {
+		opts = "defaults"
+	}
+	if !hasMountOption(opts, "nofail") {
+		opts += ",nofail"
+	}
+
+	content, err := os.ReadFile(fstabPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read fstab: %w", err)
+	}
+	lines, err := upsertShareEntry(parseFstab(string(content)), devPath, mountPoint, fsType, opts)
+	if err != nil {
+		return err
+	}
+	return writeFstab(lines)
+}
+
+// hasMountOption reports whether a comma-separated option list already carries
+// name, matching whole options only — "nofailover" is not "nofail".
+func hasMountOption(options, name string) bool {
+	for _, o := range strings.Split(options, ",") {
+		if strings.TrimSpace(o) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // UnmountFilesystem unmounts a filesystem from a mount point.
@@ -766,9 +826,42 @@ func (h *Handler) UnmountFilesystem(c echo.Context) error {
 			fmt.Sprintf("umount failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
-	return response.OK(c, map[string]string{
-		"message": fmt.Sprintf("%s unmounted", req.MountPoint),
+	if req.Forget {
+		if err := forgetBlockMount(req.MountPoint); err != nil {
+			return response.OK(c, map[string]any{
+				"message":   fmt.Sprintf("%s unmounted, but its fstab entry could not be removed and it will return on the next boot: %s", req.MountPoint, err.Error()),
+				"forgot":    false,
+				"unmounted": true,
+			})
+		}
+	}
+
+	return response.OK(c, map[string]any{
+		"message":   fmt.Sprintf("%s unmounted", req.MountPoint),
+		"forgot":    req.Forget,
+		"unmounted": true,
 	})
+}
+
+// forgetBlockMount drops the fstab entry this panel wrote for mountPoint.
+//
+// Only its own: removeShareEntry refuses an entry without the marker, so an
+// fstab line the operator wrote by hand survives an unmount here. Losing
+// somebody's hand-written entry because they clicked unmount would be the
+// worse failure by far.
+func forgetBlockMount(mountPoint string) error {
+	content, err := os.ReadFile(fstabPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read fstab: %w", err)
+	}
+	lines, err := removeShareEntry(parseFstab(string(content)), mountPoint)
+	if err != nil {
+		return err
+	}
+	return writeFstab(lines)
 }
 
 // ResizeFilesystem resizes a filesystem on a given device.
