@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.71.1] – 2026-08-25
+
+### Performance
+
+- **The file manager no longer downloads the editor to show you a directory.** Monaco and its language workers are 3.5 MB, and they were part of the page rather than the editor, so opening a folder fetched the whole thing before knowing whether anything would be edited — which for most visits is never. It arrives when a file is opened instead: **5.49 MB → 1.93 MB** transferred, and 1836 ms → 1565 ms to settle. Listing a directory now fetches none of it; opening a file fetches it and the editor appears as before.
+
+Nothing else needed changing, which was worth measuring rather than assuming. Idle, the panel holds 44 MB and uses two tenths of one percent of a core with 28 containers running; one open dashboard costs 5.3% and 49 MB; the most memory the process has ever held is 59 MB. A directory of 2245 entries lists in 65 ms and moves memory by 1 MB, and downloading a 1.6 GB file leaves the resident set where it started, because it is streamed rather than buffered. The metrics sampler already stops when the last viewer disconnects, so an unattended panel samples nothing at all.
+
+---
+
 ## [0.71.0] – 2026-08-24
 
 ### Fixed
