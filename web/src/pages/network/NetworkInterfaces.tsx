@@ -285,7 +285,7 @@ export default function NetworkInterfaces() {
     setConfirmDeadline(null)
     toast.error(t('network.applyRolledBack'))
     void fetchData()
-  }, [t])
+  }, [t, fetchData])
 
   const handleConfirmApply = async () => {
     try {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
@@ -9,8 +9,6 @@ import {
 } from 'lucide-react'
 import { HealthcheckComposerDialog } from '@/components/compose/HealthcheckComposerDialog'
 import { MigrateStackDialog } from '@/pages/docker/components/MigrateStackDialog'
-import { CreateStackDialog } from '@/pages/docker/components/CreateStackDialog'
-import { StackEditorPanel } from '@/pages/docker/components/StackEditorPanel'
 import { StackProgressDialog, useStackProgress } from '@/pages/docker/components/StackProgressDialog'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -39,7 +37,6 @@ import ComposeLogs from '@/components/compose/ComposeLogs'
 import ContainerLogs from '@/components/docker/ContainerLogs'
 import ContainerShell from '@/components/docker/ContainerShell'
 import ContainerInspect from '@/components/docker/ContainerInspect'
-import { DiffSheet } from '@/components/compose/DiffSheet'
 
 function statusIcon(status: string) {
   switch (status) {
@@ -164,6 +161,25 @@ function ServiceActions({
 // list is every node's stacks grouped by node. Selecting one navigates to
 // /cluster/stacks/:node/:name; the detail panel is identical to the single-node
 // page and scopes its fetches to the route node (api.currentNode = routeNode).
+/**
+ * Everything that carries the compose editor arrives when it is opened.
+ *
+ * All three of these pull in Monaco and its language workers — 3.5 MB — and
+ * static imports put that in this page's chunk, so listing stacks fetched the
+ * whole editor before knowing whether anything would be edited. Measured after
+ * the same fix landed on the file manager: this page transferred 5.18 MB
+ * against 1.19 MB for the file manager beside it.
+ */
+const CreateStackDialog = lazy(() =>
+  import('@/pages/docker/components/CreateStackDialog').then((m) => ({ default: m.CreateStackDialog })),
+)
+const StackEditorPanel = lazy(() =>
+  import('@/pages/docker/components/StackEditorPanel').then((m) => ({ default: m.StackEditorPanel })),
+)
+const DiffSheet = lazy(() =>
+  import('@/components/compose/DiffSheet').then((m) => ({ default: m.DiffSheet })),
+)
+
 export default function DockerStacks({ clusterMode = false }: { clusterMode?: boolean }) {
   const { t } = useTranslation()
   const confirm = useConfirm()
@@ -1060,6 +1076,9 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
               </TabsContent>
 
               <TabsContent value="editor">
+                {/* Only once the editor tab is the active one — a TabsContent
+                    that is not selected still mounts its children. */}
+                <Suspense fallback={<div className="py-16 text-center text-[13px] text-muted-foreground">{t('common.loading')}</div>}>
                 <StackEditorPanel
                   project={selectedName}
                   composeFileName={selectedProject?.compose_file || 'docker-compose.yml'}
@@ -1074,6 +1093,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                   onOpenDiff={() => setDiffOpen(true)}
                   onEnvSaved={() => { void refreshList() }}
                 />
+                </Suspense>
               </TabsContent>
 
               <TabsContent value="logs">
@@ -1089,15 +1109,20 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
         )}
       </div>
 
-      {/* Create project dialog */}
-      <CreateStackDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onCreated={async (projectName) => {
-          await fetchProjects()
-          navigate(`${basePath}/${projectName}`)
-        }}
-      />
+      {/* Create project dialog. Mounted only when open, so the editor it
+          carries is not fetched by the stack list. */}
+      {createOpen && (
+        <Suspense fallback={null}>
+          <CreateStackDialog
+            open={createOpen}
+            onOpenChange={setCreateOpen}
+            onCreated={async (projectName) => {
+              await fetchProjects()
+              navigate(`${basePath}/${projectName}`)
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Delete dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => {
@@ -1190,7 +1215,8 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       <StackProgressDialog progress={progress} onClose={closeProgress} />
 
       {/* Diff preview sheet */}
-      {selectedName && (
+      {selectedName && diffOpen && (
+        <Suspense fallback={null}>
         <DiffSheet
           open={diffOpen}
           onOpenChange={setDiffOpen}
@@ -1201,6 +1227,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
             handleDeploy()
           }}
         />
+        </Suspense>
       )}
 
       {/* Healthcheck composer */}
