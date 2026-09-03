@@ -10,6 +10,7 @@ import (
 	osExec "os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -31,6 +32,61 @@ type PackageInfo struct {
 // Handler exposes REST handlers for system package management via apt.
 type Handler struct {
 	Cmd exec.Commander
+
+	// status memoises the Get*Status answers. Opening the packages page runs
+	// five CLIs to ask their versions — node, npm, claude, codex, docker,
+	// each a couple of hundred milliseconds of process start-up, measured —
+	// for answers that change only when something is installed or switched,
+	// and this handler is what does the installing. Kept for statusTTL and
+	// dropped by every mutation here; an install done from a shell shows up
+	// within the TTL. Docker's running state is not memoised: it is one cheap
+	// systemctl query and it can change under the panel at any moment.
+	statusMu sync.Mutex
+	status   map[string]statusEntry
+}
+
+type statusEntry struct {
+	value map[string]interface{}
+	at    time.Time
+}
+
+const statusTTL = 10 * time.Minute
+
+// cachedStatus returns a copy of the memoised answer for key, if fresh.
+func (h *Handler) cachedStatus(key string) (map[string]interface{}, bool) {
+	h.statusMu.Lock()
+	defer h.statusMu.Unlock()
+	e, ok := h.status[key]
+	if !ok || time.Since(e.at) > statusTTL {
+		return nil, false
+	}
+	out := make(map[string]interface{}, len(e.value))
+	for k, v := range e.value {
+		out[k] = v
+	}
+	return out, true
+}
+
+func (h *Handler) storeStatus(key string, value map[string]interface{}) {
+	h.statusMu.Lock()
+	defer h.statusMu.Unlock()
+	if h.status == nil {
+		h.status = map[string]statusEntry{}
+	}
+	cp := make(map[string]interface{}, len(value))
+	for k, v := range value {
+		cp[k] = v
+	}
+	h.status[key] = statusEntry{value: cp, at: time.Now()}
+}
+
+// invalidateStatus forgets every memoised answer. Deferred at the top of
+// each mutation so it runs after the install stream has finished, whatever
+// the outcome — a failed install may still have changed what is on disk.
+func (h *Handler) invalidateStatus() {
+	h.statusMu.Lock()
+	h.status = nil
+	h.statusMu.Unlock()
 }
 
 // validPackageName matches only safe package name characters.
@@ -464,33 +520,31 @@ func (h *Handler) GetDockerStatus(c echo.Context) error {
 		"compose_available": false,
 	}
 
-	// Check if docker is installed
 	if !h.Cmd.Exists("docker") {
 		return response.OK(c, status)
 	}
 	status["installed"] = true
 
-	// Get docker version
-	versionOutput, err := h.Cmd.Run("docker", "--version")
-	if err == nil {
-		status["version"] = strings.TrimSpace(versionOutput)
+	if cached, ok := h.cachedStatus("docker"); ok {
+		status = cached
+	} else {
+		versionOutput, err := h.Cmd.Run("docker", "--version")
+		if err == nil {
+			status["version"] = strings.TrimSpace(versionOutput)
+		}
+		if _, err := h.Cmd.Run("docker", "compose", "version"); err == nil {
+			status["compose_available"] = true
+		} else if h.Cmd.Exists("docker-compose") {
+			status["compose_available"] = true
+		}
+		h.storeStatus("docker", status)
 	}
 
-	// Check if docker service is running
+	// Live, never memoised.
+	status["running"] = false
 	activeOutput, err := h.Cmd.Run("systemctl", "is-active", "docker")
 	if err == nil && strings.TrimSpace(activeOutput) == "active" {
 		status["running"] = true
-	}
-
-	// Check if docker compose is available (plugin form first, then standalone)
-	_, err = h.Cmd.Run("docker", "compose", "version")
-	if err == nil {
-		status["compose_available"] = true
-	} else {
-		// Fallback: check for standalone docker-compose binary
-		if h.Cmd.Exists("docker-compose") {
-			status["compose_available"] = true
-		}
 	}
 
 	return response.OK(c, status)
@@ -529,6 +583,7 @@ func downloadInstaller(ctx context.Context, url string) (string, string, error) 
 // Uses Server-Sent Events (SSE) to stream installation output in real-time.
 // POST /packages/install-docker
 func (h *Handler) InstallDocker(c echo.Context) error {
+	defer h.invalidateStatus()
 	// Set SSE headers for streaming
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
@@ -620,12 +675,16 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 // GetNodeStatus checks whether Node.js and NVM are installed.
 // GET /packages/node-status
 func (h *Handler) GetNodeStatus(c echo.Context) error {
+	if cached, ok := h.cachedStatus("node"); ok {
+		return response.OK(c, cached)
+	}
 	status := map[string]interface{}{
 		"installed":     false,
 		"version":       "",
 		"nvm_installed": false,
 		"npm_version":   "",
 	}
+	defer h.storeStatus("node", status)
 
 	// Check NVM (search root and user home directories)
 	nvmDir := findNVMDir()
@@ -676,6 +735,7 @@ func (h *Handler) GetNodeStatus(c echo.Context) error {
 // Uses Server-Sent Events (SSE) to stream installation output in real-time.
 // POST /packages/install-node
 func (h *Handler) InstallNode(c echo.Context) error {
+	defer h.invalidateStatus()
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
@@ -913,6 +973,7 @@ func (h *Handler) GetNodeVersions(c echo.Context) error {
 // SwitchNodeVersion switches the active Node.js version via NVM.
 // POST /packages/node-switch
 func (h *Handler) SwitchNodeVersion(c echo.Context) error {
+	defer h.invalidateStatus()
 	var body struct {
 		Version string `json:"version"`
 	}
@@ -951,6 +1012,7 @@ func (h *Handler) SwitchNodeVersion(c echo.Context) error {
 // InstallNodeVersion installs a specific Node.js version via NVM.
 // POST /packages/node-install-version
 func (h *Handler) InstallNodeVersion(c echo.Context) error {
+	defer h.invalidateStatus()
 	var body struct {
 		Version string `json:"version"`
 	}
@@ -1029,6 +1091,7 @@ func (h *Handler) InstallNodeVersion(c echo.Context) error {
 // UninstallNodeVersion removes a specific Node.js version via NVM.
 // POST /packages/node-uninstall-version
 func (h *Handler) UninstallNodeVersion(c echo.Context) error {
+	defer h.invalidateStatus()
 	var body struct {
 		Version string `json:"version"`
 	}
@@ -1118,10 +1181,14 @@ func findBinaryPath(name string) string {
 // GetClaudeStatus checks whether Claude Code CLI is installed.
 // GET /packages/claude-status
 func (h *Handler) GetClaudeStatus(c echo.Context) error {
+	if cached, ok := h.cachedStatus("claude"); ok {
+		return response.OK(c, cached)
+	}
 	status := map[string]interface{}{
 		"installed": false,
 		"version":   "",
 	}
+	defer h.storeStatus("claude", status)
 
 	claudePath := findBinaryPath("claude")
 	if claudePath == "" {
@@ -1143,6 +1210,7 @@ func (h *Handler) GetClaudeStatus(c echo.Context) error {
 // Uses Server-Sent Events (SSE) to stream installation output in real-time.
 // POST /packages/install-claude
 func (h *Handler) InstallClaude(c echo.Context) error {
+	defer h.invalidateStatus()
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
@@ -1225,10 +1293,14 @@ func (h *Handler) InstallClaude(c echo.Context) error {
 // GetCodexStatus checks whether OpenAI Codex CLI is installed.
 // GET /packages/codex-status
 func (h *Handler) GetCodexStatus(c echo.Context) error {
+	if cached, ok := h.cachedStatus("codex"); ok {
+		return response.OK(c, cached)
+	}
 	status := map[string]interface{}{
 		"installed": false,
 		"version":   "",
 	}
+	defer h.storeStatus("codex", status)
 
 	codexPath := findBinaryPath("codex")
 	if codexPath == "" {
@@ -1250,6 +1322,7 @@ func (h *Handler) GetCodexStatus(c echo.Context) error {
 // Uses Server-Sent Events (SSE) to stream installation output in real-time.
 // POST /packages/install-codex
 func (h *Handler) InstallCodex(c echo.Context) error {
+	defer h.invalidateStatus()
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
@@ -1316,10 +1389,14 @@ func (h *Handler) InstallCodex(c echo.Context) error {
 // GetGeminiStatus checks whether Google Gemini CLI is installed.
 // GET /packages/gemini-status
 func (h *Handler) GetGeminiStatus(c echo.Context) error {
+	if cached, ok := h.cachedStatus("gemini"); ok {
+		return response.OK(c, cached)
+	}
 	status := map[string]interface{}{
 		"installed": false,
 		"version":   "",
 	}
+	defer h.storeStatus("gemini", status)
 
 	geminiPath := findBinaryPath("gemini")
 	if geminiPath == "" {
@@ -1341,6 +1418,7 @@ func (h *Handler) GetGeminiStatus(c echo.Context) error {
 // Uses Server-Sent Events (SSE) to stream installation output in real-time.
 // POST /packages/install-gemini
 func (h *Handler) InstallGemini(c echo.Context) error {
+	defer h.invalidateStatus()
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
