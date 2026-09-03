@@ -170,6 +170,70 @@ func MetricsWS(jwtSecret string) echo.HandlerFunc {
 	}
 }
 
+// Frame coalescing for log streams.
+//
+// A log stream used to send one WebSocket frame per line: 5000 lines of
+// initial tail was 5000 frames, each a write deadline, a syscall and a TLS
+// record here and a message event in the browser. Docker hands over those
+// 5000 lines in 50 ms; delivered a frame at a time they took two to three
+// seconds to land in the page. Lines are gathered into a frame of up to
+// frameBatchBytes, flushed when it fills or frameBatchDelay after the first
+// line went in — 25 ms is below what a reader can notice on a live tail and
+// turns a 5000-line burst into a few dozen frames. Frames may now carry many
+// lines, each still newline-terminated; the log viewers split on it.
+const (
+	frameBatchBytes = 16 * 1024
+	frameBatchDelay = 25 * time.Millisecond
+)
+
+// batchFrames drains lines into write until lines closes or ctx ends. Every
+// line must already end with its newline. write returns false to stop.
+func batchFrames(ctx context.Context, lines <-chan []byte, write func([]byte) bool) {
+	buf := make([]byte, 0, frameBatchBytes)
+	timer := time.NewTimer(frameBatchDelay)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	armed := false
+	flush := func() bool {
+		if len(buf) == 0 {
+			return true
+		}
+		ok := write(buf)
+		buf = buf[:0]
+		return ok
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case line, ok := <-lines:
+			if !ok {
+				flush()
+				return
+			}
+			buf = append(buf, line...)
+			if len(buf) >= frameBatchBytes {
+				if !flush() {
+					return
+				}
+				if armed && !timer.Stop() {
+					<-timer.C
+				}
+				armed = false
+			} else if !armed {
+				timer.Reset(frameBatchDelay)
+				armed = true
+			}
+		case <-timer.C:
+			armed = false
+			if !flush() {
+				return
+			}
+		}
+	}
+}
+
 // ContainerLogsWS streams container logs over a WebSocket connection.
 func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -228,26 +292,34 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 		writer := &safeWSWriter{conn: ws}
 		startWSKeepalive(ctx, ws, writer)
 
-		scanDone := make(chan struct{})
+		lines := make(chan []byte, 256)
 		go func() {
-			defer close(scanDone)
+			defer close(lines)
 			scanner := bufio.NewScanner(logReader)
 			commonExec.PrepareScanner(scanner)
 			for scanner.Scan() {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
 				line := scanner.Bytes()
 				if len(line) > 8 && (line[0] == 1 || line[0] == 2) {
 					line = line[8:]
 				}
-				line = append(line, '\n')
-				if err := writer.WriteMessage(websocket.TextMessage, line); err != nil {
+				// Copied: the scanner reuses its buffer and the batcher
+				// holds lines past the next Scan.
+				out := make([]byte, 0, len(line)+1)
+				out = append(append(out, line...), '\n')
+				select {
+				case lines <- out:
+				case <-ctx.Done():
 					return
 				}
 			}
+		}()
+
+		scanDone := make(chan struct{})
+		go func() {
+			defer close(scanDone)
+			batchFrames(ctx, lines, func(frame []byte) bool {
+				return writer.WriteMessage(websocket.TextMessage, frame) == nil
+			})
 		}()
 
 		select {
@@ -301,16 +373,31 @@ func ComposeLogsWS(composeManager *docker.ComposeManager, jwtSecret string) echo
 
 		writer := &safeWSWriter{conn: ws}
 
+		lines := make(chan []byte, 256)
 		streamDone := make(chan struct{})
 		go func() {
 			defer close(streamDone)
-			err := composeManager.StreamLogs(ctx, project, tail, service, func(line string) {
-				if writeErr := writer.WriteMessage(websocket.TextMessage, []byte(line+"\n")); writeErr != nil {
+			batchFrames(ctx, lines, func(frame []byte) bool {
+				if writeErr := writer.WriteMessage(websocket.TextMessage, frame); writeErr != nil {
 					cancel()
+					return false
+				}
+				return true
+			})
+		}()
+		go func() {
+			defer close(lines)
+			err := composeManager.StreamLogs(ctx, project, tail, service, func(line string) {
+				select {
+				case lines <- []byte(line + "\n"):
+				case <-ctx.Done():
 				}
 			})
 			if err != nil {
-				_ = writer.WriteMessage(websocket.TextMessage, []byte("error: "+response.SanitizeOutput(err.Error())+"\n"))
+				select {
+				case lines <- []byte("error: " + response.SanitizeOutput(err.Error()) + "\n"):
+				case <-ctx.Done():
+				}
 			}
 		}()
 

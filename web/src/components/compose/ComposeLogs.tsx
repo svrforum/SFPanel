@@ -117,9 +117,13 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
       }
 
       ws.onmessage = (event) => {
-        const data = event.data as string
-        logLinesRef.current.push(data.replace(/\n$/, ''))
-        term.write(data)
+        // A frame carries one or more newline-terminated lines: the server
+        // coalesces a burst into frames of up to 16 KB instead of sending
+        // one per line, so split here rather than treat a frame as a line.
+        const lines = (event.data as string).split('\n')
+        if (lines[lines.length - 1] === '') lines.pop()
+        for (const line of lines) logLinesRef.current.push(line)
+        term.write(lines.join('\n') + '\n')
       }
 
       ws.onerror = () => {
