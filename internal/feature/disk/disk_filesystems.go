@@ -11,9 +11,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // validLabel matches safe filesystem labels (alphanumeric, spaces, underscores, dots, hyphens; max 16 chars).
@@ -36,20 +39,164 @@ func (h *Handler) ListFilesystems(c echo.Context) error {
 	if !h.Cmd.Exists("df") {
 		return response.OK(c, []Filesystem{})
 	}
-	out, err := h.Cmd.RunCtx(c.Request().Context(), "df", "-B1", "--output=source,fstype,size,used,avail,pcent,target")
+	filesystems, err := listFilesystems(c.Request().Context(), h.Cmd)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
-			fmt.Sprintf("df failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
-	}
-
-	filesystems, err := parseDfOutput(out)
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
-			fmt.Sprintf("failed to parse df output: %v", err))
+			fmt.Sprintf("df failed: %s", response.SanitizeOutput(err.Error())))
 	}
 	sortFilesystems(filesystems)
-
 	return response.OK(c, filesystems)
+}
+
+// networkMountTimeout bounds how long one network mount may hold the listing.
+//
+// A single `df` over every mount blocks in statfs on a share whose server has
+// gone away, and it blocks for as long as the caller waits: the dashboard
+// polls this every thirty seconds and gave up after thirty, so a dead NFS
+// server turned into one hung df per viewer per poll, and the disk page's
+// filesystems tab into a spinner. Measured on this host with its NAS off:
+// `df -B1` did not return in twenty seconds. Three seconds is long enough
+// for a share on a slow WAN link to answer and short enough that a dead one
+// costs one badge instead of the page.
+const networkMountTimeout = 3 * time.Second
+
+// unresponsiveMemo remembers which mounts recently failed to answer.
+//
+// Probing a dead mount costs a df that has to be killed, and on a kernel where
+// a hard NFS mount still cannot be interrupted that df stays behind in D
+// state. One probe per mount per interval bounds how many of those can
+// accumulate while a server is down.
+var unresponsiveMemo = struct {
+	sync.Mutex
+	until map[string]time.Time
+}{until: map[string]time.Time{}}
+
+const unresponsiveMemoTTL = 30 * time.Second
+
+// mountEntry is one line of /proc/mounts, as much of it as the listing needs.
+type mountEntry struct {
+	source, mountPoint, fstype string
+}
+
+// readMountTable is overridable in tests.
+var readMountTable = func() ([]mountEntry, error) {
+	data, err := os.ReadFile("/proc/self/mounts")
+	if err != nil {
+		return nil, err
+	}
+	var out []mountEntry
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 {
+			continue
+		}
+		out = append(out, mountEntry{source: unescapeMount(f[0]), mountPoint: unescapeMount(f[1]), fstype: f[2]})
+	}
+	return out, nil
+}
+
+// unescapeMount undoes the octal escapes /proc/mounts uses for whitespace.
+func unescapeMount(s string) string {
+	return strings.NewReplacer(`\\040`, " ", `\\011`, "\t", `\\012`, "\n", `\\134`, `\\`).Replace(s)
+}
+
+// isRemoteMount reports whether a mount lives on another machine.
+//
+// Broader than isNetworkFstype on purpose: that list is what the panel itself
+// can attach, while this has to catch everything df would block on — sshfs
+// (user@host:/path), GlusterFS (host:/vol), 9p, anything whose source names a
+// host. The two signals together cover what df's own remote test does.
+func isRemoteMount(m mountEntry) bool {
+	if isNetworkFstype(m.fstype) {
+		return true
+	}
+	switch m.fstype {
+	case "fuse.sshfs", "glusterfs", "fuse.glusterfs", "ceph", "9p", "afs", "ncpfs", "fuse.rclone":
+		return true
+	}
+	return strings.HasPrefix(m.source, "//") || strings.Contains(m.source, ":/")
+}
+
+// listFilesystems runs df in two parts so a dead network mount cannot hold
+// the local ones hostage.
+//
+// Local filesystems come from one `df -l`, which skips remote mounts without
+// touching them. Each remote mount is then asked on its own, concurrently,
+// under networkMountTimeout; one that does not answer is listed as
+// unresponsive with no numbers rather than dropped, because a share that has
+// gone quiet is exactly what an operator opens this page to find out.
+func listFilesystems(ctx context.Context, cmd exec.Commander) ([]Filesystem, error) {
+	const cols = "--output=source,fstype,size,used,avail,pcent,target"
+
+	out, err := cmd.RunCtx(ctx, "df", "-B1", "-l", cols)
+	if err != nil {
+		return nil, fmt.Errorf("%s", strings.TrimSpace(out))
+	}
+	local, err := parseDfOutput(out)
+	if err != nil {
+		return nil, err
+	}
+
+	mounts, mErr := readMountTable()
+	if mErr != nil {
+		// No mount table means no way to find the remote ones; the local
+		// list is still correct and still worth returning.
+		return local, nil
+	}
+	var remote []mountEntry
+	seen := map[string]bool{}
+	for _, m := range mounts {
+		if !isRemoteMount(m) || seen[m.mountPoint] {
+			continue
+		}
+		seen[m.mountPoint] = true
+		remote = append(remote, m)
+	}
+	if len(remote) == 0 {
+		return local, nil
+	}
+
+	results := make([]Filesystem, len(remote))
+	var wg sync.WaitGroup
+	for i, m := range remote {
+		wg.Add(1)
+		go func(i int, m mountEntry) {
+			defer wg.Done()
+			results[i] = probeRemoteMount(ctx, cmd, m, cols)
+		}(i, m)
+	}
+	wg.Wait()
+	return append(local, results...), nil
+}
+
+// probeRemoteMount asks df about one mount, bounded, and remembers a silence.
+func probeRemoteMount(ctx context.Context, cmd exec.Commander, m mountEntry, cols string) Filesystem {
+	silent := Filesystem{Source: m.source, FsType: m.fstype, MountPoint: m.mountPoint, Unresponsive: true}
+
+	unresponsiveMemo.Lock()
+	until, remembered := unresponsiveMemo.until[m.mountPoint]
+	unresponsiveMemo.Unlock()
+	if remembered && time.Now().Before(until) {
+		return silent
+	}
+
+	pctx, cancel := context.WithTimeout(ctx, networkMountTimeout)
+	defer cancel()
+	out, err := cmd.RunCtx(pctx, "df", "-B1", cols, m.mountPoint)
+	if err != nil {
+		unresponsiveMemo.Lock()
+		unresponsiveMemo.until[m.mountPoint] = time.Now().Add(unresponsiveMemoTTL)
+		unresponsiveMemo.Unlock()
+		return silent
+	}
+	parsed, perr := parseDfOutput(out)
+	if perr != nil || len(parsed) == 0 {
+		return silent
+	}
+	unresponsiveMemo.Lock()
+	delete(unresponsiveMemo.until, m.mountPoint)
+	unresponsiveMemo.Unlock()
+	return parsed[0]
 }
 
 // sortFilesystems orders the list for display.

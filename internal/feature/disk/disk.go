@@ -23,14 +23,14 @@ type Handler struct {
 type BlockDevice struct {
 	Name       string        `json:"name"`
 	Size       int64         `json:"size"`
-	Type       string        `json:"type"`        // disk, part, lvm, raid, loop
+	Type       string        `json:"type"` // disk, part, lvm, raid, loop
 	FsType     string        `json:"fstype"`
 	MountPoint string        `json:"mountpoint"`
 	Model      string        `json:"model"`
 	Serial     string        `json:"serial"`
-	Rotational bool          `json:"rotational"`  // true=HDD, false=SSD
+	Rotational bool          `json:"rotational"` // true=HDD, false=SSD
 	ReadOnly   bool          `json:"readonly"`
-	Transport  string        `json:"transport"`   // sata, nvme, usb, etc
+	Transport  string        `json:"transport"` // sata, nvme, usb, etc
 	State      string        `json:"state"`
 	Vendor     string        `json:"vendor"`
 	Children   []BlockDevice `json:"children,omitempty"`
@@ -38,24 +38,24 @@ type BlockDevice struct {
 
 // SmartInfo holds S.M.A.R.T. data for a disk device.
 type SmartInfo struct {
-	DevicePath    string     `json:"device_path"`
-	ModelName     string     `json:"model_name"`
-	SerialNumber  string     `json:"serial_number"`
-	FirmwareVer   string     `json:"firmware_version"`
-	Healthy       *bool      `json:"healthy"`        // nil = unknown (SMART not supported)
-	SmartSupported bool      `json:"smart_supported"`
-	Temperature   int        `json:"temperature"`
-	PowerOnHours  int        `json:"power_on_hours"`
-	Attributes    []SmartAttr `json:"attributes"`
-	SelfTests     []SmartSelfTest `json:"self_tests"`
+	DevicePath     string          `json:"device_path"`
+	ModelName      string          `json:"model_name"`
+	SerialNumber   string          `json:"serial_number"`
+	FirmwareVer    string          `json:"firmware_version"`
+	Healthy        *bool           `json:"healthy"` // nil = unknown (SMART not supported)
+	SmartSupported bool            `json:"smart_supported"`
+	Temperature    int             `json:"temperature"`
+	PowerOnHours   int             `json:"power_on_hours"`
+	Attributes     []SmartAttr     `json:"attributes"`
+	SelfTests      []SmartSelfTest `json:"self_tests"`
 }
 
 // SmartSelfTest is one entry from the device's self-test log, so the UI can
 // show prior short/long test outcomes (and the most recent result after a
 // test the operator just triggered).
 type SmartSelfTest struct {
-	Type          string `json:"type"`           // e.g. "Short offline", "Extended offline"
-	Status        string `json:"status"`         // e.g. "Completed without error"
+	Type          string `json:"type"`   // e.g. "Short offline", "Extended offline"
+	Status        string `json:"status"` // e.g. "Completed without error"
 	Passed        bool   `json:"passed"`
 	LifetimeHours int    `json:"lifetime_hours"` // power-on hours when the test ran
 }
@@ -80,6 +80,11 @@ type Filesystem struct {
 	Available  int64   `json:"available"`
 	UsePercent float64 `json:"use_percent"`
 	MountPoint string  `json:"mount_point"`
+	// Unresponsive marks a network mount whose server did not answer in
+	// time. The entry is still listed — a share that has gone quiet is the
+	// thing an operator most needs to see — but its numbers are unknown, so
+	// they are zero rather than stale.
+	Unresponsive bool `json:"unresponsive,omitempty"`
 }
 
 // ExpandStep describes one step in the filesystem expansion chain.
@@ -92,12 +97,12 @@ type ExpandStep struct {
 // ExpandCandidate describes a filesystem that can be expanded, along with the
 // chain of commands that will be executed.
 type ExpandCandidate struct {
-	Source     string       `json:"source"`      // e.g. /dev/mapper/ubuntu--vg-ubuntu--lv
-	FsType     string       `json:"fstype"`
-	MountPoint string       `json:"mount_point"`
-	CurrentSize int64       `json:"current_size"`
-	FreeSpace   int64       `json:"free_space"`  // available space that can be reclaimed
-	IsLVM       bool        `json:"is_lvm"`
+	Source      string       `json:"source"` // e.g. /dev/mapper/ubuntu--vg-ubuntu--lv
+	FsType      string       `json:"fstype"`
+	MountPoint  string       `json:"mount_point"`
+	CurrentSize int64        `json:"current_size"`
+	FreeSpace   int64        `json:"free_space"` // available space that can be reclaimed
+	IsLVM       bool         `json:"is_lvm"`
 	Steps       []ExpandStep `json:"steps"`
 }
 
@@ -154,7 +159,7 @@ type RAIDDisk struct {
 // SwapEntry represents a single swap area.
 type SwapEntry struct {
 	Name     string `json:"name"`
-	Type     string `json:"type"`     // partition, file
+	Type     string `json:"type"` // partition, file
 	Size     int64  `json:"size"`
 	Used     int64  `json:"used"`
 	Priority int    `json:"priority"`
@@ -284,7 +289,7 @@ type RemoveSwapRequest struct {
 
 // ResizeSwapRequest is the payload for PUT /swap/resize.
 type ResizeSwapRequest struct {
-	Path      string `json:"path"`       // swap file path
+	Path      string `json:"path"`        // swap file path
 	NewSizeMB int64  `json:"new_size_mb"` // new size in MB
 }
 

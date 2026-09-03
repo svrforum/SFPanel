@@ -231,6 +231,16 @@ export default function DiskFilesystems() {
                     {fs.fstype}
                   </span>
                 </TableCell>
+                {fs.unresponsive ? (
+                  <TableCell colSpan={4}>
+                    {/* The server behind this share did not answer. Saying so
+                        beats a row of zeros, which reads as an empty disk. */}
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                      <span className="h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
+                      {t('disk.filesystems.unresponsive')}
+                    </span>
+                  </TableCell>
+                ) : (<>
                 <TableCell className="text-muted-foreground text-sm">{formatBytes(fs.size)}</TableCell>
                 <TableCell className="text-muted-foreground text-sm">{formatBytes(fs.used)}</TableCell>
                 <TableCell className="text-muted-foreground text-sm">{formatBytes(fs.available)}</TableCell>
@@ -252,6 +262,7 @@ export default function DiskFilesystems() {
                     </span>
                   </div>
                 </TableCell>
+                </>)}
                 <TableCell className="text-muted-foreground font-mono text-xs max-w-[150px] truncate" title={fs.mount_point}>
                   {fs.mount_point}
                 </TableCell>

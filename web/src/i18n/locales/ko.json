@@ -2171,7 +2171,8 @@
       "persist": "재부팅 후에도 유지",
       "persistDesc": "/etc/fstab 에 항목을 추가합니다. 디스크가 없어도 부팅이 멈추지 않도록 nofail 이 함께 붙습니다.",
       "forget": "재부팅 후에도 마운트하지 않기",
-      "forgetDesc": "패널이 만든 /etc/fstab 항목을 제거합니다. 직접 작성한 항목은 건드리지 않습니다."
+      "forgetDesc": "패널이 만든 /etc/fstab 항목을 제거합니다. 직접 작성한 항목은 건드리지 않습니다.",
+      "unresponsive": "서버 응답 없음"
     },
     "lvm": {
       "title": "LVM 관리",

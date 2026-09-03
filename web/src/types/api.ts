@@ -302,6 +302,9 @@ export interface Filesystem {
   available: number
   use_percent: number
   mount_point: string
+  // A network mount whose server did not answer within the listing's bound.
+  // Listed rather than dropped, with no numbers.
+  unresponsive?: boolean
 }
 
 export interface ExpandStep {

@@ -17,7 +17,9 @@ const NETWORK_FSTYPES = new Set(['cifs', 'smbfs', 'nfs', 'nfs4'])
  * itself.
  */
 export function isRealFilesystem(fs: Filesystem): boolean {
-  if (!fs || fs.size <= 0) return false
+  // An unresponsive share has no numbers to rank by; it is the disk page's
+  // job to show that it is down, not the dashboard's to call it 0% full.
+  if (!fs || fs.size <= 0 || fs.unresponsive) return false
   if (NETWORK_FSTYPES.has(fs.fstype)) return true
   return fs.source.startsWith('/dev/')
 }

@@ -2171,7 +2171,8 @@
       "persist": "Keep it after a reboot",
       "persistDesc": "Adds an /etc/fstab entry, with nofail so a missing disk cannot stop the host from booting.",
       "forget": "Do not mount it after a reboot",
-      "forgetDesc": "Removes the /etc/fstab entry the panel created. Entries you wrote yourself are left alone."
+      "forgetDesc": "Removes the /etc/fstab entry the panel created. Entries you wrote yourself are left alone.",
+      "unresponsive": "server not responding"
     },
     "lvm": {
       "title": "LVM Management",
