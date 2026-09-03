@@ -29,10 +29,20 @@ export default function DiskUsage() {
     }
   }, [t])
 
+  // Whether the operator has asked for the root scan. Everything below root
+  // loads on navigation; root itself waits for a click.
+  const [rootRequested, setRootRequested] = useState(false)
+
   useEffect(() => {
     setPathInput(path)
+    // Not for /. du over the whole root filesystem is the one scan that
+    // cannot be assumed cheap: measured on this host it did not finish in
+    // thirty seconds (4.5 M inodes), which is longer than the browser waits,
+    // so opening the tab auto-ran a scan that always died with an error.
+    // Root is scanned when asked for; subdirectories load as before.
+    if (path === '/' && !rootRequested) return
     load(path)
-  }, [path, load])
+  }, [path, load, rootRequested])
 
   // Immediate children of the queried dir, largest first.
   const children = useMemo(() => {
@@ -87,7 +97,14 @@ export default function DiskUsage() {
         )}
       </div>
 
-      {error ? (
+      {path === '/' && !rootRequested && !data ? (
+        <div className="rounded-2xl bg-secondary/40 px-5 py-8 text-center">
+          <p className="text-[13px] text-muted-foreground">{t('disk.usage.rootPrompt')}</p>
+          <Button className="mt-3 rounded-xl" onClick={() => setRootRequested(true)}>
+            {t('disk.usage.scanRoot')}
+          </Button>
+        </div>
+      ) : error ? (
         <div className="flex items-center gap-2 text-[13px] text-destructive bg-destructive/10 rounded-xl p-3">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}

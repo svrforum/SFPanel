@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -122,8 +123,8 @@ type LogSource struct {
 // LogOutput represents the response payload from ReadLog.
 type LogOutput struct {
 	Source     string   `json:"source"`
-	Lines     []string `json:"lines"`
-	TotalLines int     `json:"total_lines"`
+	Lines      []string `json:"lines"`
+	TotalLines int      `json:"total_lines"`
 }
 
 // Handler exposes REST handlers for viewing system and application logs.
@@ -273,6 +274,53 @@ func (h *Handler) allSources() map[string]logSourceInfo {
 	return merged
 }
 
+// filteredTail runs grep -E filter over path and returns the last n matching
+// lines plus the match count, streaming so memory is bounded by n.
+func filteredTail(ctx context.Context, filter, path string, n int) ([]byte, int) {
+	// #nosec G204 — filter and path come from the hardcoded source table.
+	cmd := exec.CommandContext(ctx, "grep", "-E", filter, path)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil || cmd.Start() != nil {
+		return nil, 0
+	}
+	out, total := tailOfStream(stdout, n)
+	_ = cmd.Wait() // grep exits 1 on no matches — that is fine
+	return out, total
+}
+
+// tailOfStream reads lines from r, returning the last n joined with newlines
+// and the total number of lines seen. Memory is bounded by n lines, not by
+// the stream.
+func tailOfStream(r io.Reader, n int) ([]byte, int) {
+	if n <= 0 {
+		n = 1
+	}
+	ring := make([]string, n)
+	total := 0
+	sc := bufio.NewScanner(r)
+	// A kernel log line can run long; the default 64 KB token limit would
+	// stop the scan at the first oversize line and silently truncate the tail.
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for sc.Scan() {
+		ring[total%n] = sc.Text()
+		total++
+	}
+	if total == 0 {
+		return nil, 0
+	}
+	count := total
+	if count > n {
+		count = n
+	}
+	var buf bytes.Buffer
+	start := total - count
+	for i := 0; i < count; i++ {
+		buf.WriteString(ring[(start+i)%n])
+		buf.WriteByte('\n')
+	}
+	return buf.Bytes(), total
+}
+
 // ReadLog reads the last N lines from the requested log source.
 // Query parameters:
 //   - source (required): one of the keys in logSources or a custom source
@@ -318,19 +366,15 @@ func (h *Handler) ReadLog(c echo.Context) error {
 	if info.Filter != "" {
 		// grep filter + tail: grep first to filter, then tail for line count
 		// #nosec G204 — info.Filter is from the hardcoded allowlist, not user input.
-		cmd := exec.CommandContext(c.Request().Context(), "grep", "-E", info.Filter, info.Path)
-		filtered, _ := cmd.Output() // grep returns exit 1 if no matches — that's fine
-		if len(filtered) > 0 {
-			// The full filtered set is already in memory; count from it rather
-			// than a second whole-file `grep -c` pass.
-			totalLines = bytes.Count(filtered, []byte{'\n'})
-			if filtered[len(filtered)-1] != '\n' {
-				totalLines++
-			}
-			tailCmd := exec.CommandContext(c.Request().Context(), "tail", "-n", strconv.Itoa(lines))
-			tailCmd.Stdin = bytes.NewReader(filtered)
-			output, _ = tailCmd.Output()
-		}
+		// Stream grep's output through a ring of the last N lines rather than
+		// holding every match. The full match set used to be read into the
+		// heap and then piped into a tail process: on a host with UFW logging
+		// on, the firewall filter over kern.log matches hundreds of megabytes,
+		// all of it resident for the length of the request, for a page that
+		// shows a hundred lines. Counting and keeping the tail as the lines
+		// go by is O(N returned), needs no second process, and yields the same
+		// bytes tail would have.
+		output, totalLines = filteredTail(c.Request().Context(), info.Filter, info.Path, lines)
 	} else {
 		cmd := exec.CommandContext(c.Request().Context(), "tail", "-n", strconv.Itoa(lines), info.Path)
 		var err2 error
@@ -360,7 +404,7 @@ func (h *Handler) ReadLog(c echo.Context) error {
 
 	return response.OK(c, LogOutput{
 		Source:     sourceKey,
-		Lines:     logLines,
+		Lines:      logLines,
 		TotalLines: totalLines,
 	})
 }

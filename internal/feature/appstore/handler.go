@@ -624,22 +624,28 @@ func (h *Handler) GetApp(c echo.Context) error {
 
 	readmeResult := <-readmeCh
 
+	// One `ss` for the whole detail page. isPortInUse forks ss once per
+	// port and findFreePort walks upward forking again per candidate, so an
+	// app declaring a handful of ports on a host where they were taken cost a
+	// dozen forks to open its page. The snapshot helper the installer already
+	// uses answers every port from a single listing.
+	used := h.portsInUseSnapshot()
+	status := func(port int) portStatus {
+		_, inUse := used[port]
+		ps := portStatus{Port: port, InUse: inUse}
+		if inUse {
+			ps.Suggested = h.findFreePortInUsed(port, used)
+		}
+		return ps
+	}
 	ports := make([]portStatus, 0)
 	for _, p := range found.Ports {
-		ps := portStatus{Port: p, InUse: h.isPortInUse(p)}
-		if ps.InUse {
-			ps.Suggested = h.findFreePort(p)
-		}
-		ports = append(ports, ps)
+		ports = append(ports, status(p))
 	}
 	for _, env := range found.Env {
 		if env.Type == "port" && env.Default != "" {
 			if port := parsePort(env.Default); port > 0 {
-				ps := portStatus{Port: port, InUse: h.isPortInUse(port)}
-				if ps.InUse {
-					ps.Suggested = h.findFreePort(port)
-				}
-				ports = append(ports, ps)
+				ports = append(ports, status(port))
 			}
 		}
 	}
@@ -1178,14 +1184,6 @@ func (h *Handler) portsInUseSnapshot() map[int]struct{} {
 	return used
 }
 
-func (h *Handler) isPortInUse(port int) bool {
-	out, err := h.Cmd.Run("ss", "-tlnH", "sport", "=", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return false
-	}
-	return len(strings.TrimSpace(out)) > 0
-}
-
 // findFreePortInUsed scans candidates [from+1, from+100] against the
 // pre-built set, returning the first unused port or 0 if every candidate
 // is taken. Splitting the snapshot from the search lets checkPortConflicts
@@ -1201,12 +1199,6 @@ func (h *Handler) findFreePortInUsed(from int, used map[int]struct{}) int {
 		}
 	}
 	return 0
-}
-
-// findFreePort retained for callers that don't pre-build the set; one
-// snapshot per call is still O(1) subprocesses instead of O(N).
-func (h *Handler) findFreePort(from int) int {
-	return h.findFreePortInUsed(from, h.portsInUseSnapshot())
 }
 
 func (h *Handler) checkContainerNameConflicts(composeData []byte) []string {

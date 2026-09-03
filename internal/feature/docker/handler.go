@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/docker"
+	"github.com/svrforum/SFPanel/internal/monitor"
 )
 
 // validImageRef matches the character set used by every legitimate
@@ -243,24 +244,24 @@ func (h *Handler) InspectContainer(c echo.Context) error {
 	// Build a clean response with the most useful fields
 	ports := []map[string]interface{}{}
 	if data.NetworkSettings != nil {
-	for containerPort, bindings := range data.NetworkSettings.Ports {
-		for _, b := range bindings {
-			ports = append(ports, map[string]interface{}{
-				"container_port": containerPort.Port(),
-				"protocol":       containerPort.Proto(),
-				"host_ip":        b.HostIP,
-				"host_port":      b.HostPort,
-			})
+		for containerPort, bindings := range data.NetworkSettings.Ports {
+			for _, b := range bindings {
+				ports = append(ports, map[string]interface{}{
+					"container_port": containerPort.Port(),
+					"protocol":       containerPort.Proto(),
+					"host_ip":        b.HostIP,
+					"host_port":      b.HostPort,
+				})
+			}
+			if len(bindings) == 0 {
+				ports = append(ports, map[string]interface{}{
+					"container_port": containerPort.Port(),
+					"protocol":       containerPort.Proto(),
+					"host_ip":        "",
+					"host_port":      "",
+				})
+			}
 		}
-		if len(bindings) == 0 {
-			ports = append(ports, map[string]interface{}{
-				"container_port": containerPort.Port(),
-				"protocol":       containerPort.Proto(),
-				"host_ip":        "",
-				"host_port":      "",
-			})
-		}
-	}
 	}
 
 	envVars := []string{}
@@ -283,9 +284,9 @@ func (h *Handler) InspectContainer(c echo.Context) error {
 	if data.NetworkSettings != nil {
 		for name, net := range data.NetworkSettings.Networks {
 			networks = append(networks, map[string]string{
-				"name":       name,
-				"ip_address": net.IPAddress,
-				"gateway":    net.Gateway,
+				"name":        name,
+				"ip_address":  net.IPAddress,
+				"gateway":     net.Gateway,
 				"mac_address": net.MacAddress,
 			})
 		}
@@ -508,6 +509,9 @@ func (h *Handler) CheckImageUpdates(c echo.Context) error {
 // the whole list.
 func (h *Handler) ListVolumes(c echo.Context) error {
 	ctx := c.Request().Context()
+	// Sizes are measured because this page asked, not on a clock. The first
+	// open of a fresh install shows no sizes and the next refresh has them.
+	monitor.RefreshVolumeUsage()
 	volumes, err := h.Docker.ListVolumesWithUsage(ctx)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))

@@ -323,7 +323,8 @@ func main() {
 	}
 
 	// Docker volume usage cache (Theme B Phase 1) — independent of the
-	// observability flag. 5-min ticker measures `du -sb` per volume.
+	// observability flag. Measured on demand from the Volumes page, at most
+	// once per five minutes; nothing runs while nobody is looking.
 	if dockerCli, dockerErr := docker.NewClient(cfg.Docker.Socket); dockerErr == nil {
 		monitor.StartVolumeUsageCollector(bgCtx, database, dockerCli)
 	}

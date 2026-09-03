@@ -74,12 +74,38 @@ func runTuningCommand(cmd commonExec.Commander, name string, args ...string) (st
 	return cmd.RunWithTimeout(commandTimeout, name, args...)
 }
 
+// readSysctl returns a kernel parameter's current value.
+//
+// Straight from /proc/sys: `sysctl -n key` does nothing but open that file,
+// and the tuning page read sixty-two parameters through sixty-two forks on
+// every open — about 400 ms here, closer to a second of visible lag on a
+// single-vCPU box, for values the kernel hands over in microseconds. The
+// subprocess remains as the fallback for a key that has no /proc/sys entry
+// (a module's parameter under a name sysctl resolves but the path does not).
 func readSysctl(cmd commonExec.Commander, key string) string {
+	if v, ok := readProcSys(key); ok {
+		return v
+	}
 	out, err := runTuningCommand(cmd, "sysctl", "-n", key)
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(out)
+}
+
+// readProcSys maps a dotted key onto /proc/sys and reads it. A key with a
+// component containing a slash is refused rather than resolved: the keys
+// here come from the panel's own tables, but the mapping must not be able to
+// escape /proc/sys regardless.
+func readProcSys(key string) (string, bool) {
+	if key == "" || strings.Contains(key, "/") || strings.Contains(key, "..") {
+		return "", false
+	}
+	data, err := os.ReadFile("/proc/sys/" + strings.ReplaceAll(key, ".", "/"))
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(data)), true
 }
 
 // ---------- GetTuningStatus ----------

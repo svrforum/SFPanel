@@ -2028,7 +2028,9 @@
       "title": "Disk Usage",
       "description": "Find what's using space — click a folder to drill in",
       "up": "Up one level",
-      "empty": "No subdirectories"
+      "empty": "No subdirectories",
+      "rootPrompt": "Scanning the whole root filesystem can take minutes, depending on how many files it holds. Enter a subdirectory above to look at that instead.",
+      "scanRoot": "Scan / now"
     },
     "overview": {
       "title": "Disk Overview",

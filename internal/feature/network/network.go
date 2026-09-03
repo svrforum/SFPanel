@@ -722,6 +722,20 @@ func readInterfaceSpeed(name string) int {
 	return val
 }
 
+// driverMemo remembers the ethtool answer per interface name.
+//
+// Virtual interfaces — every veth, bridge and tunnel — have no device/driver
+// symlink in sysfs, so they all fell through to `ethtool -i`: one fork per
+// interface per cache miss, which on a host running thirty containers is
+// forty forks every time the network status is refreshed, to learn forty
+// times that a veth's driver is "veth". A driver does not change while the
+// interface exists, so the answer is kept for the interface's lifetime; a
+// name that disappears and comes back is re-asked.
+var driverMemo = struct {
+	sync.Mutex
+	byName map[string]string
+}{byName: map[string]string{}}
+
 // readInterfaceDriver tries to determine the driver for an interface.
 func (h *Handler) readInterfaceDriver(name string) string {
 	// Try the sysfs device/driver symlink first
@@ -730,17 +744,29 @@ func (h *Handler) readInterfaceDriver(name string) string {
 		return filepath.Base(link)
 	}
 
+	driverMemo.Lock()
+	cached, ok := driverMemo.byName[name]
+	driverMemo.Unlock()
+	if ok {
+		return cached
+	}
+
 	// Fallback: ethtool -i
 	out, err := h.Cmd.Run("ethtool", "-i", name)
 	if err != nil {
 		return ""
 	}
+	driver := ""
 	for _, line := range strings.Split(out, "\n") {
 		if strings.HasPrefix(line, "driver:") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "driver:"))
+			driver = strings.TrimSpace(strings.TrimPrefix(line, "driver:"))
+			break
 		}
 	}
-	return ""
+	driverMemo.Lock()
+	driverMemo.byName[name] = driver
+	driverMemo.Unlock()
+	return driver
 }
 
 // readSysStat reads a numeric statistic from /sys/class/net/{name}/statistics/{stat}.

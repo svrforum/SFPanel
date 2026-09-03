@@ -106,6 +106,13 @@ func StartAuditRetention(ctx context.Context, db *sql.DB) {
 }
 
 func pruneAuditLogs(db *sql.DB) {
+	// Ordered by created_at, not id: the (protected, created_at) index then
+	// serves both the filter and the order, where ordering by id made SQLite
+	// sort the whole unprotected set through a temporary B-tree — every five
+	// minutes, over the full 50k rows once the table reaches its cap. The
+	// two orders agree: the table is append-only and both columns rise with
+	// every insert.
+	//
 	// Only consider unprotected rows for the row-count cap. Protected rows
 	// (audit_log_cleared tombstones, today) are excluded both from the cap
 	// and from the deletion target, so a flood of normal traffic can't
@@ -116,7 +123,7 @@ func pruneAuditLogs(db *sql.DB) {
 		     AND id IN (
 		         SELECT id FROM audit_logs
 		           WHERE protected = 0
-		           ORDER BY id DESC
+		           ORDER BY created_at DESC
 		           LIMIT -1 OFFSET ?
 		     )`,
 		auditMaxRows,

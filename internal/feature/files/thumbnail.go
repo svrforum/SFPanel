@@ -46,6 +46,11 @@ const (
 // directories would show up in their listings and their backups.
 const thumbCacheDir = "/var/lib/sfpanel/thumbs"
 
+// renderSem limits concurrent decodes. Two: enough to keep a grid moving on a
+// multi-core box, few enough that the transient RGBA of two large photos fits
+// beside everything else on a small one.
+var renderSem = make(chan struct{}, 2)
+
 // thumbCacheDirOverride redirects the cache during tests.
 var thumbCacheDirOverride string
 
@@ -131,7 +136,14 @@ func (h *Handler) Thumbnail(c echo.Context) error {
 		return serveThumb(c, data)
 	}
 
+	// One decode at a time per… well, two. A grid mounts six tiles at once
+	// and each cache miss decodes a full image before scaling it: a 12 MP
+	// JPEG is ~50 MB of RGBA in flight, six of them is 300 MB, and on a
+	// 512 MB host that is the panel gone. The pixel cap above bounds one
+	// decode; this bounds how many. Waiting tiles just render a beat later.
+	renderSem <- struct{}{}
 	data, err := renderThumbnail(filePath, size)
+	<-renderSem
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrFileError, response.SanitizeOutput(err.Error()))
 	}

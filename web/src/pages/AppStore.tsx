@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Search, RotateCcw, Loader2, Package, Info, ChevronDown, ChevronUp, X, AlertCircle, Star, ArrowDownUp, CheckCircle2 } from 'lucide-react'
@@ -67,10 +67,22 @@ export default function AppStore() {
   // Lazily check installed apps for available updates (best-effort, never
   // throws) — in parallel, so a slow registry lookup doesn't delay every
   // badge behind it.
+  //
+  // Once per app per visit. This effect is keyed on `apps`, and `apps` is
+  // replaced by every category click and every retry — so each click re-ran
+  // a registry lookup per installed app (a DistributionInspect against
+  // Docker Hub or wherever the image lives, with no cache behind it). Ten
+  // installed apps meant ten remote HTTPS calls per click, for a badge that
+  // was already on screen. The set of checked ids lives in a ref so the
+  // effect can still run when the list changes and simply skip what it has
+  // already asked about.
+  const checkedRef = useRef<Set<string>>(new Set())
   useEffect(() => {
-    const installed = apps.filter((a) => a.installed)
+    const pending = apps.filter((a) => a.installed && !checkedRef.current.has(a.id))
+    if (pending.length === 0) return
+    for (const a of pending) checkedRef.current.add(a.id)
     let cancelled = false
-    void Promise.allSettled(installed.map(async (a) => {
+    void Promise.allSettled(pending.map(async (a) => {
       try {
         const r = await api.checkStackUpdates(a.id)
         if (!cancelled && r.has_updates) setUpdates((m) => ({ ...m, [a.id]: true }))
