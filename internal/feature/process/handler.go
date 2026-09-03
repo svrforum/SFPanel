@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/process"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/sysguard"
@@ -262,28 +263,57 @@ func (h *Handler) ReniceProcess(c echo.Context) error {
 // It calls CPUPercent() twice with a 200ms interval to get accurate CPU usage,
 // since the first call to gopsutil's CPUPercent() returns a value over the
 // process lifetime rather than the current rate.
+func init() {
+	// Every CreateTime — and Percent needs one per process — re-read
+	// /proc/stat for the boot time unless told to cache it. With ~700
+	// processes and two passes that was thousands of reads of the same file
+	// per collection, every ten seconds while the dashboard is open. Boot time
+	// does not change while the process is running.
+	process.EnableBootTimeCache(true)
+}
+
 func collectProcesses() ([]ProcessInfo, error) {
 	procs, err := process.Processes()
 	if err != nil {
 		return nil, err
 	}
 
-	// First pass: prime CPU measurement for all processes
+	// First pass: take a CPU-time reading per process so the second pass can
+	// report the rate over the interval between them.
+	//
+	// This used to call CPUPercent() here and again below, believing the
+	// first call primed a delta. It does not: CPUPercent is the process's
+	// lifetime average — total CPU time over its age — so the first pass did
+	// nothing but cost a boot-time lookup per process, and the number shown
+	// as "current CPU" was history. A process that burned an hour of CPU last
+	// night and is idle now outranked one spiking this second. Percent(0) is
+	// the delta-since-last-call reading the comment always described.
 	for _, p := range procs {
-		p.CPUPercent()
+		_, _ = p.Percent(0)
 	}
 
 	// Wait for a short interval to measure actual CPU rate
 	time.Sleep(200 * time.Millisecond)
 
+	// Total memory once, not per process. gopsutil's MemoryPercent re-reads
+	// /proc/meminfo on every call, which at 640 processes was 640 reads of the
+	// same file per collection — a third of the whole walk's cost. The
+	// percentage is RSS over a total that does not change between two rows.
+	var totalMem uint64
+	if vm, err := mem.VirtualMemory(); err == nil {
+		totalMem = vm.Total
+	}
+	// uid → name once per uid, not per process. Username resolves through the
+	// passwd database each time, and a host runs a few dozen distinct users
+	// across hundreds of processes.
+	usernames := map[uint32]string{}
+
 	// Second pass: collect actual data
 	infos := make([]ProcessInfo, 0, len(procs))
 	for _, p := range procs {
 		name, _ := p.Name()
-		cpuPct, _ := p.CPUPercent()
-		memPct, _ := p.MemoryPercent()
+		cpuPct, _ := p.Percent(0)
 		status, _ := p.Status()
-		username, _ := p.Username()
 		cmdline, _ := p.Cmdline()
 		ppid, _ := p.Ppid()
 		nice, _ := p.Nice()
@@ -294,6 +324,21 @@ func collectProcesses() ([]ProcessInfo, error) {
 		var rss uint64
 		if mi, err := p.MemoryInfo(); err == nil && mi != nil {
 			rss = mi.RSS
+		}
+		var memPct float64
+		if totalMem > 0 {
+			memPct = float64(rss) / float64(totalMem) * 100
+		}
+
+		username := ""
+		if uids, err := p.Uids(); err == nil && len(uids) > 0 {
+			uid := uids[0]
+			if cached, ok := usernames[uid]; ok {
+				username = cached
+			} else {
+				username, _ = p.Username()
+				usernames[uid] = username
+			}
 		}
 
 		statusStr := ""
@@ -310,7 +355,7 @@ func collectProcesses() ([]ProcessInfo, error) {
 			PPID:    ppid,
 			Name:    name,
 			CPU:     cpuPct,
-			Memory:  float64(memPct),
+			Memory:  memPct,
 			RSS:     rss,
 			Nice:    nice,
 			Status:  statusStr,
