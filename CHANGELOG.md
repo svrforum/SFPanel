@@ -6,6 +6,32 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.72.0] – 2026-09-03
+
+### Fixed
+
+- **A network share whose server stopped answering held the whole filesystem listing.** One `df` covered every mount, and `df` on a hard NFS mount whose server is gone does not return — it sits in the kernel until the server comes back. The dashboard asks for the listing every thirty seconds, so every open dashboard had a request hanging for thirty seconds and failing, forever, because a NAS was off. Local filesystems are read with `df -l` now, which never touches a remote mount; each network share is asked separately, with three seconds to answer, and one that does not is still listed — a share that has gone quiet is the thing an operator most needs to see — marked *server not responding* with no numbers, and not asked again for thirty seconds so a dead share cannot pile up stuck processes.
+- **The CPU column showed a process's lifetime average, not what it is using now.** The collector took two readings two hundred milliseconds apart, believing the first primed a delta; it did not, because the function it called reports total CPU time over the process's age. A process that burned an hour of CPU last night and is idle now outranked one spiking this second, and the first reading did nothing but cost a boot-time lookup per process. It reads the delta the comment always described, and caches boot time.
+
+### Performance
+
+The second half of the low-spec pass, per module this time. Everything below was measured on a host with 28 containers and 640 processes before and after; the idle numbers from 0.71.1 were already fine, so this is about what a page costs while it is open.
+
+- **The process list costs half what it did.** 440 ms of CPU per listing → 210 ms. The dashboard asks every ten seconds, so one open dashboard now costs about 2% of a core instead of 4.4%. Besides the double reading above, memory percentage re-read `/proc/meminfo` once per process and every username went through the passwd database; total memory is read once and names are kept per uid.
+- **The services page no longer asks systemd for the unit-file list on every poll.** `systemctl list-unit-files` costs PID 1 the better part of a second — 830 ms here, against 14 ms for `list-units` — and the page polls every fifteen seconds with a three-second cache, so every poll paid it. The unit-file map answers a question only enable and disable change, and this panel is the one doing those: it is kept for five minutes and dropped by both. A refresh after the cache expires now takes 20 ms.
+- **The tuning page reads `/proc/sys` instead of forking `sysctl` sixty-two times.** ~400 ms → 15 ms per open, byte-identical values.
+- **Docker volume sizes are measured when the Volumes tab asks, not every five minutes from boot.** 99 volumes was 3.9 seconds of `du` per sweep, 288 sweeps a day, for a number one tab reads. Nothing runs until that tab is opened; then at most once per five minutes, in the background, and the page shows when it was measured.
+- **The disk usage tab no longer scans `/` the moment it opens.** `du` over the root filesystem did not finish in thirty seconds here (4.5 million inodes), which is longer than the browser waits — so the tab auto-ran a scan that always died with an error. Root waits for a click; every other path loads as before.
+- **The app store checks the registry once per app per visit,** not once per category click: the check was keyed on the app list, and the list is replaced by every click. Opening an app's page runs one `ss` for all its ports instead of one per port.
+- **Thumbnails decode two at a time.** A grid mounts six tiles at once and each cache miss decodes the full image before scaling it — a 12 MP JPEG is ~50 MB of pixels, six of them is 300 MB, and on a 512 MB host that is the panel gone. Waiting tiles render a beat later.
+- **The driver of a virtual interface is remembered.** Every veth, bridge and tunnel has no driver link in sysfs, so each one fell through to an `ethtool` fork on every refresh of the network status — forty forks on this host, to learn forty times that a veth's driver is "veth".
+- **The firewall log is streamed, not buffered.** The filtered source read every matching line of `kern.log` into memory and then piped it into a `tail` process — hundreds of megabytes resident on a host with UFW logging on, for a page that shows a hundred lines. The last N lines are kept as the stream goes by; no second process.
+- **The audit log prune uses its index.** Ordering the subquery by id made SQLite sort every unprotected row through a temporary B-tree, every five minutes, over the full 50k rows once the table reaches its cap; ordering by timestamp — the same order, the table is append-only — is served by the existing index with no sort.
+
+Reviewed and left alone, because measuring said so: compose, the Docker hot paths, the app-store catalog, port map, cluster, WebSocket, terminal, auth, cron, settings, alerts, backups, the update checker and the metrics broadcaster. The services page's cold load and fail2ban were on the list and turned out to be systemd and the jail count, not the panel.
+
+---
+
 ## [0.71.2] – 2026-08-25
 
 ### Performance
