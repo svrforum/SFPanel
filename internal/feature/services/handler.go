@@ -63,9 +63,23 @@ type serviceCacheData struct {
 	sync.RWMutex
 	services []ServiceInfo
 	fetched  time.Time
+	// enabled is the unit-file map, cached on its own clock. `systemctl
+	// list-unit-files` costs PID 1 the better part of a second — measured
+	// 830 ms here against 14 ms for list-units — and it answers a question
+	// whose answer changes only when someone runs enable or disable, which
+	// this handler is the one doing. So it lives for minutes, and the two
+	// mutation handlers drop it. The 3-second cache below is for list-units,
+	// which is cheap and does change on its own.
+	enabled        map[string]string
+	enabledFetched time.Time
 }
 
 const serviceCacheTTL = 3 * time.Second
+
+// enabledCacheTTL bounds how stale the unit-file map may be when nothing in
+// the panel changed it — an operator running `systemctl enable` in a shell
+// is the only way it drifts.
+const enabledCacheTTL = 5 * time.Minute
 
 // ListServices returns all systemd services.
 // GET /system/services
@@ -162,6 +176,7 @@ func (h *Handler) EnableService(c echo.Context) error {
 			fmt.Sprintf("Failed to enable %s: %s", name, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
+	h.invalidateEnabledCache()
 	h.invalidateServiceCache()
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("Service %s enabled", name)})
 }
@@ -182,6 +197,7 @@ func (h *Handler) DisableService(c echo.Context) error {
 			fmt.Sprintf("Failed to disable %s: %s", name, response.SanitizeOutput(strings.TrimSpace(out))))
 	}
 
+	h.invalidateEnabledCache()
 	h.invalidateServiceCache()
 	return response.OK(c, map[string]string{"message": fmt.Sprintf("Service %s disabled", name)})
 }
@@ -301,7 +317,7 @@ func (h *Handler) getCachedServices() ([]ServiceInfo, error) {
 	// systemctl execs; holding the write lock across them would serialize every
 	// concurrent list caller behind that multi-hundred-ms pair. Concurrent
 	// misses may each fetch (bounded by the 3s TTL); we lock only to publish.
-	svcs, err := fetchAllServices(h.Cmd)
+	svcs, err := fetchAllServices(h.Cmd, h.cachedEnabledStates())
 	if err != nil {
 		return nil, err
 	}
@@ -322,13 +338,39 @@ func (h *Handler) invalidateServiceCache() {
 	h.cache.Unlock()
 }
 
-func fetchAllServices(cmd exec.Commander) ([]ServiceInfo, error) {
+// cachedEnabledStates serves the unit-file map from cache while it is fresh.
+// Fetched outside the lock for the same reason the unit list is.
+func (h *Handler) cachedEnabledStates() map[string]string {
+	h.cache.RLock()
+	if h.cache.enabled != nil && time.Since(h.cache.enabledFetched) < enabledCacheTTL {
+		m := h.cache.enabled
+		h.cache.RUnlock()
+		return m
+	}
+	h.cache.RUnlock()
+
+	m := getEnabledStates(h.Cmd)
+
+	h.cache.Lock()
+	h.cache.enabled = m
+	h.cache.enabledFetched = time.Now()
+	h.cache.Unlock()
+	return m
+}
+
+// invalidateEnabledCache is for enable and disable only: start, stop and
+// restart change a unit's active state, not whether it is enabled.
+func (h *Handler) invalidateEnabledCache() {
+	h.cache.Lock()
+	h.cache.enabled = nil
+	h.cache.Unlock()
+}
+
+func fetchAllServices(cmd exec.Commander, enabledMap map[string]string) ([]ServiceInfo, error) {
 	out, err := cmd.Run("systemctl", "list-units", "--type=service", "--all", "--no-pager", "--plain", "--no-legend")
 	if err != nil {
 		return nil, err
 	}
-
-	enabledMap := getEnabledStates(cmd)
 
 	svcs := make([]ServiceInfo, 0)
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
