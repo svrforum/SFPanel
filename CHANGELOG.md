@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.72.2] – 2026-09-03
+
+### Performance
+
+The rest of the per-module audit, again measured before and after on the same host.
+
+- **Log streams send frames, not lines.** A container or compose log stream emitted one WebSocket frame per line — a write deadline, a syscall and a TLS record each here, a message event each in the browser — so a 5000-line tail was 5000 frames. Lines are gathered into frames of up to 16 KB, flushed when one fills or 25 ms after the first line went in, which a reader of a live tail cannot notice. The same 5000-line tail is 43 frames and lands in the page in 70–170 ms instead of 240–375 ms; the log viewers split a frame on its newlines, so nothing looks different.
+- **The packages page remembers what it asked the CLIs.** Opening it ran five programs to read their versions — node, npm, claude, codex, docker, each a couple of hundred milliseconds of process start-up — for answers that change only when something is installed or switched, and the panel is what does the installing. Answers are kept for ten minutes and dropped by every install and version switch; a second open costs 5 ms per card instead of 25–120. Whether the Docker daemon is running is still asked every time: it is one cheap query and it can change under the panel at any moment.
+
+Measured and left alone: the cluster nodes page repeats two requests the shell already makes on the same cadence — 2 ms of CPU each, every fifteen seconds, not worth the plumbing; and folding the Node version dialog's three `nvm` invocations into one turned out slower, not faster, so it stays as it is.
+
+Two things 0.72.0 could not show live on the development host, verified since in a real browser with the API answers stubbed: an app store category click no longer re-checks installed apps against their registries, and a share whose server has gone quiet shows *server not responding* in its row, no numbers, and stays off the dashboard.
+
+---
+
 ## [0.72.1] – 2026-09-03
 
 ### Security
