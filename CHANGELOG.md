@@ -6,6 +6,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.72.1] – 2026-09-03
+
+### Security
+
+- **Rebuilt with Go 1.26.8 and x/crypto 0.56.** Seven advisories against the standard library — `net/http`, `crypto/tls`, `net/url`, `html/template`, `encoding/xml`, `encoding/asn1` — were published against Go 1.25.12, which 0.72.0 was built with; the fixes landed in 1.25.13 and 1.26.6. The panel serves HTTPS from exactly those packages, so this is a rebuild rather than a change: no line of the panel's own code differs from 0.72.0. Go 1.25 has left support, so the module moves to 1.26 instead of the last 1.25 patch, which also takes the x/crypto fix (in its `ssh` package, which the panel does not import, but the gate does not distinguish and should not have to). The CI vulnerability job is what caught it — one red job on an otherwise green run, minutes after the release was cut. The advisories that remain are the ones with no upstream fix, as before.
+
+---
+
 ## [0.72.0] – 2026-09-03
 
 ### Fixed
