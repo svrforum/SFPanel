@@ -6,6 +6,31 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.73.0] – 2026-09-14
+
+### Added
+
+**AI 코딩 — Claude Code, Codex and Gemini CLI in sessions that survive.** A new page runs the AI command-line tools on the machine the panel manages, in sessions that keep running when the browser closes, when the network drops, and when the panel itself restarts for an update. Each session is a tmux session started by systemd as its own service, so it lives outside the panel's own process tree; reopening the page attaches to the session that was last open, replays what scrolled past, and puts the cursor back where it was. Two browsers can watch the same session at once, and what one types the other sees.
+
+A session is created by choosing the account it runs as, then the tool, the working directory and a name. The account comes first because it decides the rest: a tool the account has not installed is greyed out, and the directory suggestions are that account's recent directories, the compose stacks under the stacks path, and its home. Running as a normal user rather than root is what makes Claude Code's permission-skipping mode available, and it reuses that account's own login and settings. Tabs can be renamed, killed, and — when the tool exits or the host reboots — restarted with the same tool, directory and account.
+
+A tab whose tool has been quiet for five seconds is marked as waiting, and the number of waiting sessions is prefixed to the browser tab's title, so a long build or a question from the CLI is visible from another page. Only the tab on screen holds a connection, which keeps the cost to one process per open page.
+
+**Install and update the CLIs, per account.** The tool chips along the top of the page show what the selected account's own shell would run, the latest published version, and whether the tool has been logged in. Updating is a button: Claude Code through its official installer, Codex and Gemini through npm, streamed into the output dialog like every other install in the panel.
+
+### Fixed
+
+- **The version shown was not the version that would run.** The packages page resolved a CLI by scanning `/root/.local/bin` and every user's `~/.local/bin` and picking whichever binary was newest on disk. On a machine where two accounts had Claude Code installed, the card showed one account's version while the terminal ran the other's — on the development host, 2.1.265 on the card and 2.1.92 in the root shell. Resolution now happens inside the chosen account's own login shell, so the answer is the account's answer.
+- **There was no way to update a CLI from the panel at all.** Once a tool was installed, its card showed a version and nothing else, and the panel never looked up what the current release was. Root's Claude Code on the development host had been sitting at an April build, six months and 178 releases behind, with nothing to say so.
+- **A tool installed in an account's home could not be launched at all for some accounts.** The probe and the session both used a non-interactive shell, which never reads `.bashrc` — and `.bashrc` is where `~/.local/bin` joins the path. Debian's root profile returns early for non-interactive shells, so on that account the tools read as missing and a session died with "command not found". Both now run the same interactive login shell the operator gets.
+
+### Changed
+
+- The Claude Code, Codex and Gemini cards have left the packages page, and the six `/api/v1/packages/*` routes behind them are gone; `/api/v1/ai/*` replaces them. The packages page keeps Node.js and Docker and links to the new page.
+- tmux 3.2 or newer is required for sessions, which is Ubuntu 22.04 and Debian 12 onward. An older tmux is refused with both versions named rather than failing on a usage error.
+
+---
+
 ## [0.72.2] – 2026-09-03
 
 ### Performance
