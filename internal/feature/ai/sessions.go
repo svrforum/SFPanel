@@ -228,21 +228,34 @@ func (h *Handler) CreateSession(c echo.Context) error {
 		State: StateWorking, Persistence: h.persistence(), CreatedAt: h.now().UTC().Format("2006-01-02 15:04:05")})
 }
 
-// lookupRow resolves :id to a row and its account, writing the failure
-// itself. ok=false means the response is already written.
-func (h *Handler) lookupRow(c echo.Context) (sessionRow, Account, bool) {
+// lookupSessionRow resolves :id to a row, writing the failure itself.
+// ok=false means the response is already written. It deliberately says
+// nothing about the row's account: a route that only needs the row (delete)
+// must not be blocked by an account that has left the allowlist.
+func (h *Handler) lookupSessionRow(c echo.Context) (sessionRow, bool) {
 	id := c.Param("id")
 	if !validSessionID(id) {
 		_ = response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
-		return sessionRow{}, Account{}, false
+		return sessionRow{}, false
 	}
 	row, found, err := getSessionRow(h.DB, id)
 	if err != nil {
 		_ = response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not read the session")
-		return sessionRow{}, Account{}, false
+		return sessionRow{}, false
 	}
 	if !found {
 		_ = response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
+		return sessionRow{}, false
+	}
+	return row, true
+}
+
+// lookupRow is lookupSessionRow plus the row's account, for the routes that
+// genuinely have to spawn as it (rerun, restart). ok=false means the response
+// is already written.
+func (h *Handler) lookupRow(c echo.Context) (sessionRow, Account, bool) {
+	row, ok := h.lookupSessionRow(c)
+	if !ok {
 		return sessionRow{}, Account{}, false
 	}
 	acct, ok := h.resolveAccount(row.RunAs)
@@ -331,12 +344,17 @@ func (h *Handler) RestartSession(c echo.Context) error {
 }
 
 // DeleteSession — DELETE /ai/sessions/:id: kill it if alive, forget the row.
+// The account is needed only for the kill. When it has left the allowlist —
+// removed, its shell changed to nologin, or the panel no longer running as
+// root — there is by definition no session of ours left running as it, so the
+// kill is skipped and the row still goes. Refusing here would leave the
+// operator an undeletable tab.
 func (h *Handler) DeleteSession(c echo.Context) error {
-	row, acct, ok := h.lookupRow(c)
+	row, ok := h.lookupSessionRow(c)
 	if !ok {
 		return nil
 	}
-	if h.rowState(row, acct) != StateEnded {
+	if acct, resolved := h.resolveAccount(row.RunAs); resolved && h.rowState(row, acct) != StateEnded {
 		if out, err := h.tmux(acct, "kill-session", "-t", row.ID); err != nil {
 			slog.Warn("ai kill-session", "component", "ai", "id", row.ID, "err", err, "out", response.SanitizeOutput(out))
 		}
@@ -344,7 +362,7 @@ func (h *Handler) DeleteSession(c echo.Context) error {
 	if _, err := deleteSessionRow(h.DB, row.ID); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not delete the session")
 	}
-	slog.Info("ai session deleted", "component", "ai", "id", row.ID, "account", acct.Name)
+	slog.Info("ai session deleted", "component", "ai", "id", row.ID, "account", row.RunAs)
 	return response.OK(c, map[string]string{"deleted": row.ID})
 }
 

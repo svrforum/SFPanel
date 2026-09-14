@@ -254,6 +254,42 @@ func TestRenameAndDelete(t *testing.T) {
 	}
 }
 
+// A row whose run_as has left the allowlist (removed, shell set to nologin,
+// or the panel no longer root) must still be deletable: the tmux session it
+// names is gone by definition, and the operator needs the tab closable.
+// Rerun and restart still refuse, because they spawn as that account.
+func TestDelete_AccountOffTheAllowlist(t *testing.T) {
+	m := tmuxMock("")
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	// bob is nologin in the passwd fixture, so resolveAccount("bob") fails.
+	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolClaude, Title: "a", RunAs: "bob", CWD: "/"})
+	_ = insertSession(h.DB, sessionRow{ID: "bbbbbbbbbbbb", Tool: ToolClaude, Title: "b", RunAs: "bob", CWD: "/"})
+
+	rec := call(t, h.DeleteSession, http.MethodDelete, "", "aaaaaaaaaaaa", "")
+	if rec.Code != http.StatusOK {
+		code, msg := failCode(t, rec)
+		t.Fatalf("delete with an off-allowlist account: got %s %q, want 200", code, msg)
+	}
+	if _, ok, _ := getSessionRow(h.DB, "aaaaaaaaaaaa"); ok {
+		t.Error("row must be gone even when its account cannot be resolved")
+	}
+	for _, c := range m.Calls {
+		if c.Name == "tmux" {
+			t.Errorf("no account to run as, yet tmux ran: %+v", c)
+		}
+	}
+
+	rec = call(t, h.RerunSession, http.MethodPost, "", "bbbbbbbbbbbb", "")
+	if code, _ := failCode(t, rec); code != response.ErrInvalidAccount {
+		t.Errorf("rerun needs the account: got %s, want INVALID_ACCOUNT", code)
+	}
+	rec = call(t, h.RestartSession, http.MethodPost, "", "bbbbbbbbbbbb", "")
+	if code, _ := failCode(t, rec); code != response.ErrInvalidAccount {
+		t.Errorf("restart needs the account: got %s, want INVALID_ACCOUNT", code)
+	}
+}
+
 func TestDirs(t *testing.T) {
 	h := newTestHandler(t, tmuxMock(""))
 	h.DB = openTestDB(t)
