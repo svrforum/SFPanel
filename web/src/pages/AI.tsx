@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { AISession, AITools } from '@/types/api'
-import { aiErrorMessage, titlePrefix, waitingCount } from '@/lib/aiSessions'
+import { aiErrorMessage, formatTimestamp, titlePrefix, waitingCount } from '@/lib/aiSessions'
 import { OutputDialog, useSSEOutput } from '@/components/OutputDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
 import MobileTerminalBar from '@/components/MobileTerminalBar'
@@ -95,7 +95,7 @@ export default function AI() {
     await act(() => api.deleteAISession(s.id))
   }
   const info = (s: AISession) => {
-    toast.info(`${t('ai.tabs.infoAccount')}: ${s.run_as} · ${t('ai.tabs.infoDir')}: ${s.cwd} · ${t('ai.tabs.infoCreated')}: ${s.created_at}`)
+    toast.info(`${t('ai.tabs.infoAccount')}: ${s.run_as} · ${t('ai.tabs.infoDir')}: ${s.cwd} · ${t('ai.tabs.infoCreated')}: ${formatTimestamp(s.created_at)}`)
   }
 
   const sendKey = useCallback((data: string) => {
