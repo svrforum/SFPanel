@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,13 @@ const (
 	// lifetime through a different door.
 	defaultSocketRoot = "/run/sfpanel/ai"
 	socketName        = "sfpanel"
+
+	// tmuxMinVersion is the floor for the option set in tmuxOptions.
+	// `window-size latest` arrived in 3.1, and the set as a whole is verified
+	// only from 3.2 — Ubuntu 22.04 and Debian 12, both older releases being out
+	// of support. Below it tmux answers a create with a usage error, which
+	// reached the operator as a bare COMMAND_FAILED naming nothing useful.
+	tmuxMinVersion = "3.2"
 
 	historyLines = 2000
 	// waitingAfter: a tool that has printed nothing for this long is at a
@@ -158,6 +166,58 @@ func (h *Handler) defaultTerminal() string {
 }
 
 func (h *Handler) haveSystemdRun() bool { return h.Cmd.Exists("systemd-run") }
+
+// leadingVersion is the major.minor at the *start* of a tmux version string:
+// "3.2a" and "3.6a" parse, "next-3.5" and "" do not. ok=false is the answer
+// for anything unreadable, and every caller treats that as supported — a
+// version string we cannot parse is no reason to refuse to run.
+var leadingVersionRe = regexp.MustCompile(`^(\d+)\.(\d+)`)
+
+func leadingVersion(v string) (int, int, bool) {
+	m := leadingVersionRe.FindStringSubmatch(strings.TrimSpace(v))
+	if m == nil {
+		return 0, 0, false
+	}
+	major, err1 := strconv.Atoi(m[1])
+	minor, err2 := strconv.Atoi(m[2])
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	return major, minor, true
+}
+
+// tmuxVersionSupported takes `tmux -V`'s output minus its "tmux " prefix.
+func tmuxVersionSupported(v string) bool {
+	major, minor, ok := leadingVersion(v)
+	if !ok {
+		return true
+	}
+	wantMajor, wantMinor, _ := leadingVersion(tmuxMinVersion)
+	return major > wantMajor || (major == wantMajor && minor >= wantMinor)
+}
+
+// tmuxVersion is `tmux -V` without its prefix, probed once per process — the
+// binary does not change under a running panel, and the page asks for it every
+// time it polls.
+func (h *Handler) tmuxVersion() string {
+	h.tmuxVerOnce.Do(func() {
+		if out, err := h.Cmd.Run("tmux", "-V"); err == nil {
+			h.tmuxVer = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out), "tmux "))
+		}
+	})
+	return h.tmuxVer
+}
+
+// tmuxTooOld is the refusal message for a tmux below the floor, or "" when the
+// host is fine. Both versions are named: "tmux 3.2 is required" alone leaves
+// the operator guessing what they have.
+func (h *Handler) tmuxTooOld() string {
+	v := h.tmuxVersion()
+	if tmuxVersionSupported(v) {
+		return ""
+	}
+	return fmt.Sprintf("tmux %s or newer is required (found %s)", tmuxMinVersion, v)
+}
 
 // unitName is the transient unit that holds one account's tmux server. Per
 // uid, never per session: the server outlives every session it carries, and

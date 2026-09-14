@@ -61,6 +61,9 @@ type Handler struct {
 	termOnce sync.Once
 	term     string // default-terminal chosen once per process
 
+	tmuxVerOnce sync.Once
+	tmuxVer     string // `tmux -V` minus its prefix, probed once per process
+
 	memoMu     sync.Mutex
 	toolMemo   map[string]toolMemoEntry   // "<account>\x00<tool>"
 	latestMemo map[string]latestMemoEntry // "<tool>"

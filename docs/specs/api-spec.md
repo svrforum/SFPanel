@@ -3640,7 +3640,7 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
 {
   "success": true,
   "data": {
-    "tmux": { "installed": true, "version": "3.6a" },
+    "tmux": { "installed": true, "version": "3.6a", "supported": true, "min_version": "3.2" },
     "systemd_run": true,
     "accounts": ["root", "<user>"],
     "panel_account": "root",
@@ -3659,6 +3659,7 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
 | `tools.*.version` | 그 계정의 `bash -l`이 실제로 실행하는 바이너리의 버전 (계정·도구별 10분 캐시, 설치/업데이트 시 무효화) |
 | `tools.*.latest` | Claude: `downloads.claude.ai/claude-code-releases/latest`, Codex/Gemini: npm 레지스트리. 1시간 캐시, 실패 시 `""` |
 | `tools.*.logged_in` | 계정 홈의 자격증명 파일 존재 여부 (힌트) |
+| `tmux.supported` | `tmux -V`가 `min_version`(3.2) 이상인지. 설치돼 있으나 낮으면 세션 생성/재시작이 `TMUX_MISSING`(503)으로 거절되고 배너가 업그레이드를 안내한다. 버전을 읽지 못하면 `true`(막지 않음) |
 
 | 코드 | HTTP | 조건 |
 |------|------|------|
@@ -3724,7 +3725,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 | `INVALID_TOOL` | 400 | `claude`·`codex`·`gemini`·`shell` 외 |
 | `INVALID_ACCOUNT` | 400 | `run_as`가 허용 목록에 없음 |
 | `INVALID_PATH` | 400 | `cwd`가 상대경로 / 없음 / 디렉터리 아님 (메시지에 사유) |
-| `TMUX_MISSING` | 503 | tmux 미설치 |
+| `TMUX_MISSING` | 503 | tmux 미설치, 또는 3.2 미만 (메시지에 요구 버전과 발견 버전) |
 | `AI_SESSION_LIMIT` | 409 | 살아있는 세션 20개 |
 | `COMMAND_FAILED` | 500 | tmux/systemd-run 실패 |
 
@@ -3737,7 +3738,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 `shell` 상태의 창에 도구 이름을 다시 입력한다. `AI_SESSION_STATE`(409, shell 상태가 아니거나 셸 세션).
 
 ### POST /api/v1/ai/sessions/:id/restart
-`ended` 세션을 같은 도구·디렉터리·계정으로 다시 만든다. `AI_SESSION_STATE`(409, 아직 살아있음) · `INVALID_PATH`(400, 디렉터리가 사라짐) · `TMUX_MISSING`(503).
+`ended` 세션을 같은 도구·디렉터리·계정으로 다시 만든다. `AI_SESSION_STATE`(409, 아직 살아있음) · `INVALID_PATH`(400, 디렉터리가 사라짐) · `TMUX_MISSING`(503, 미설치 또는 3.2 미만).
 
 ### DELETE /api/v1/ai/sessions/:id
 살아있으면 `kill-session`, 행 삭제. `AI_SESSION_NOT_FOUND`(404). **Response:** `{ "deleted": "<id>" }`

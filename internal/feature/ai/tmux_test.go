@@ -341,6 +341,57 @@ func TestDefaultTerminal_FallsBackWhenTerminfoMissing(t *testing.T) {
 	}
 }
 
+// The floor exists because tmuxOptions does not parse on an older tmux; an
+// unreadable version is not a reason to refuse, so it counts as supported.
+func TestTmuxVersionSupported(t *testing.T) {
+	cases := []struct {
+		v    string
+		want bool
+	}{
+		{"3.2a", true},
+		{"3.2", true},
+		{"3.6a", true},
+		{"4.0", true},
+		{"10.0", true}, // two-digit major, not string order
+		{"3.0a", false},
+		{"3.1c", false},
+		{"2.9a", false},
+		{"next-3.5", true}, // no leading d.d — never block on what we cannot read
+		{"", true},
+		{"unknown", true},
+	}
+	for _, tc := range cases {
+		if got := tmuxVersionSupported(tc.v); got != tc.want {
+			t.Errorf("tmuxVersionSupported(%q) = %v, want %v", tc.v, got, tc.want)
+		}
+	}
+}
+
+// The probe costs a fork and the binary does not change under a running
+// panel, so it happens once.
+func TestTmuxVersion_ProbedOnce(t *testing.T) {
+	m := exec.NewMockCommander()
+	m.SetOutput("tmux", "tmux 3.6a\n", nil)
+	h := newTestHandler(t, m)
+	for i := 0; i < 3; i++ {
+		if got := h.tmuxVersion(); got != "3.6a" {
+			t.Fatalf("tmuxVersion = %q, want 3.6a", got)
+		}
+	}
+	n := 0
+	for _, c := range m.Calls {
+		if c.Name == "tmux" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("tmux -V ran %d times, want 1", n)
+	}
+	if h.tmuxTooOld() != "" {
+		t.Errorf("3.6a must be accepted, got %q", h.tmuxTooOld())
+	}
+}
+
 func TestParseListWindows_KeepsOnlyTheCurrentWindow(t *testing.T) {
 	out := "abc\t0\tvim\t0\t1789348000\t0\nabc\t1\tclaude\t1\t1789348400\t0\nxyz\t1\tbash\t0\t1789348300\t1\ngarbage line\n"
 	live := parseListWindows(out)

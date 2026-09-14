@@ -1233,7 +1233,8 @@ export interface AIToolStatus {
 }
 
 export interface AITools {
-  tmux: { installed: boolean; version: string }
+  /** supported = installed and at least min_version; below it sessions are refused */
+  tmux: { installed: boolean; version: string; supported: boolean; min_version: string }
   systemd_run: boolean
   accounts: string[]
   panel_account: string

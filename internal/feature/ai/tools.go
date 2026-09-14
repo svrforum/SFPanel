@@ -153,6 +153,10 @@ type toolsResponse struct {
 	Tmux struct {
 		Installed bool   `json:"installed"`
 		Version   string `json:"version"`
+		// Supported is false only for a tmux we could read and that is below
+		// tmuxMinVersion; the page then says upgrade instead of install.
+		Supported  bool   `json:"supported"`
+		MinVersion string `json:"min_version"`
 	} `json:"tmux"`
 	SystemdRun   bool                  `json:"systemd_run"`
 	Accounts     []string              `json:"accounts"`
@@ -171,10 +175,10 @@ func (h *Handler) Tools(c echo.Context) error {
 	var resp toolsResponse
 	resp.Tmux.Installed = h.Cmd.Exists("tmux")
 	if resp.Tmux.Installed {
-		if out, err := h.Cmd.Run("tmux", "-V"); err == nil {
-			resp.Tmux.Version = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out), "tmux "))
-		}
+		resp.Tmux.Version = h.tmuxVersion()
 	}
+	resp.Tmux.Supported = tmuxVersionSupported(resp.Tmux.Version)
+	resp.Tmux.MinVersion = tmuxMinVersion
 	resp.SystemdRun = h.haveSystemdRun()
 	resp.Accounts = []string{}
 	for _, a := range h.accounts() {

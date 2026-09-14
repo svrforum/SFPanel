@@ -445,6 +445,7 @@
 - **설명**: (v0.73.0) Claude Code · Codex · Gemini CLI와 로그인 셸을 패널이 관리하는 tmux 세션으로 띄우고 브라우저를 그 세션에 붙인다. 브라우저를 닫아도 세션은 계속 돌아간다
 - **주요 기능**:
   - **영속 세션**: 계정별 tmux 서버(`-S /run/sfpanel/ai/<uid>/sfpanel`)를 `systemd-run --unit=sfpanel-ai-<uid> --collect --uid=<계정> --gid=<gid> -p Type=forking`으로 PID 1이 띄우는 transient **서비스**로 만들어 패널 재시작에도 생존(`persistence: service`). scope가 아니라 service인 이유: scope는 호출자를 fork하므로 패널의 `PrivateTmp` 마운트 네임스페이스와 환경변수를 물려받고, 패널이 재시작하면 살아남은 세션의 `/tmp`가 사라진다. 같은 이유로 소켓도 `/tmp`가 아닌 `/run` 아래에 둔다(패널이 root가 아니면 상태 디렉터리 아래). 두 번째 세션부터는 같은 소켓에 `new-session`만 보낸다. systemd-run이 없거나 패널이 root가 아니면 `setsid`만 적용되어 패널 재시작 시 종료(`process`). 살아있는 세션 최대 20개
+  - **tmux 3.2 이상 필요**: 패널이 인라인으로 주는 옵션 집합(`window-size latest` 등)의 하한 = Ubuntu 22.04 / Debian 12. 그보다 낮으면 생성·재시작을 `TMUX_MISSING`(503)으로 거절하고 요구 버전과 발견 버전을 함께 알린다. 버전을 파싱하지 못하면 막지 않는다
   - **세션 상태**: `working`(5초 내 출력) · `waiting`(조용하거나 벨) · `shell`(도구 종료, 셸 프롬프트) · `ended`(tmux 세션 없음). 이름 변경 · 다시 실행 · 다시 시작 · 종료 지원
   - **계정별 실행**: 허용 목록은 패널 계정 + uid ≥ 1000 로그인 계정. 다른 계정은 `runuser -u <계정> --`로 실행하고 CLI 설치 상태·버전도 그 계정의 `bash -l` 기준으로 조회
   - **CLI 설치/업데이트**: Claude는 공식 install.sh, Codex/Gemini는 `npm install -g <pkg>@latest` — 둘 다 SSE 스트리밍. 최신 버전은 Claude 릴리스 채널/npm 레지스트리에서 1시간 캐시로 조회해 업데이트 여부를 표시

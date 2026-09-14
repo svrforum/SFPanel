@@ -129,8 +129,10 @@ func TestTools_BundleAndAccountGuard(t *testing.T) {
 	var env struct {
 		Data struct {
 			Tmux struct {
-				Installed bool
-				Version   string
+				Installed  bool
+				Version    string
+				Supported  bool
+				MinVersion string `json:"min_version"`
 			} `json:"tmux"`
 			SystemdRun bool                  `json:"systemd_run"`
 			Accounts   []string              `json:"accounts"`
@@ -145,6 +147,24 @@ func TestTools_BundleAndAccountGuard(t *testing.T) {
 	if !d.Tmux.Installed || d.Tmux.Version != "3.6a" || !d.SystemdRun || d.Account != "alice" || strings.Join(d.Accounts, " ") != "root alice dave" || len(d.Tools) != 3 {
 		t.Errorf("bundle = %+v", d)
 	}
+	// The page needs both halves to tell "install it" from "upgrade it".
+	if !d.Tmux.Supported || d.Tmux.MinVersion != tmuxMinVersion {
+		t.Errorf("tmux support = %+v, want supported with min_version %s", d.Tmux, tmuxMinVersion)
+	}
+
+	old := &exec.MockCommander{Outputs: map[string]exec.MockResult{
+		"exists:tmux": {}, "exists:systemd-run": {}, "tmux": {Output: "tmux 3.0a\n"},
+	}}
+	old.SetOutput("env", "", errTest)
+	ho := newTestHandler(t, old)
+	rec = call(t, ho.Tools, http.MethodGet, "", "", "?user=alice")
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if !env.Data.Tmux.Installed || env.Data.Tmux.Supported {
+		t.Errorf("3.0a = %+v, want installed but not supported — the banner says upgrade, not install", env.Data.Tmux)
+	}
+
 	rec = call(t, h.Tools, http.MethodGet, "", "", "?user=bob")
 	if code, _ := failCode(t, rec); code != response.ErrInvalidAccount {
 		t.Errorf("bob: %s, want INVALID_ACCOUNT", code)

@@ -247,6 +247,9 @@ func (h *Handler) CreateSession(c echo.Context) error {
 	if !h.Cmd.Exists("tmux") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrTmuxMissing, "tmux is not installed on this node")
 	}
+	if msg := h.tmuxTooOld(); msg != "" {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrTmuxMissing, msg)
+	}
 	liveCount, err := h.liveSessionCount()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not list sessions")
@@ -381,6 +384,9 @@ func (h *Handler) RestartSession(c echo.Context) error {
 	}
 	if !h.Cmd.Exists("tmux") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrTmuxMissing, "tmux is not installed on this node")
+	}
+	if msg := h.tmuxTooOld(); msg != "" {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrTmuxMissing, msg)
 	}
 	// A restart adds a live session just as a create does, so it has to meet
 	// the same ceiling — otherwise twenty ended tabs are twenty free sessions.

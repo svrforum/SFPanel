@@ -1348,6 +1348,7 @@
     },
     "tmux": {
       "missing": "tmux is not installed on this node, so sessions cannot be created.",
+      "tooOld": "tmux {{min}} or newer is required (found {{version}}). Upgrade it from the Packages page.",
       "install": "Install tmux",
       "installing": "Installing tmux…",
       "installed": "tmux installed",

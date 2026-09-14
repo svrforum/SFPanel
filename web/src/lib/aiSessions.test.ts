@@ -3,7 +3,7 @@ import type { AISession, AITools } from '@/types/api'
 import { aiErrorMessage, defaultTitle, stateDotClass, titlePrefix, toolInstalledFor, toolsFor, waitingCount } from './aiSessions'
 
 const bundle = (account: string, installed: Partial<Record<'claude' | 'codex' | 'gemini', boolean>>): AITools => ({
-  tmux: { installed: true, version: '3.6' },
+  tmux: { installed: true, version: '3.6', supported: true, min_version: '3.2' },
   systemd_run: true,
   accounts: ['root', 'alice'],
   panel_account: 'root',

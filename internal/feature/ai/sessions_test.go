@@ -105,6 +105,43 @@ func TestCreateSession_RefusesWithoutTmux(t *testing.T) {
 	}
 }
 
+// A tmux below the floor produced a bare COMMAND_FAILED from the usage error
+// tmuxOptions triggers. Assert the reason: TMUX_MISSING/503, both versions in
+// the message so the operator knows what to upgrade from, and no spawn at all.
+func TestCreateSession_RefusesTooOldTmux(t *testing.T) {
+	for _, fn := range []struct {
+		name string
+		call func(*Handler) *httptest.ResponseRecorder
+	}{
+		{"create", func(h *Handler) *httptest.ResponseRecorder {
+			return call(t, h.CreateSession, http.MethodPost, `{"tool":"shell","cwd":"/"}`, "", "")
+		}},
+		{"restart", func(h *Handler) *httptest.ResponseRecorder {
+			_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolClaude, Title: "a", RunAs: "root", CWD: "/"})
+			_ = setSessionEnded(h.DB, "aaaaaaaaaaaa", true)
+			return call(t, h.RestartSession, http.MethodPost, "", "aaaaaaaaaaaa", "")
+		}},
+	} {
+		m := noServerMock()
+		m.Outputs["tmux"] = exec.MockResult{Output: "tmux 3.0a\n"}
+		h := newTestHandler(t, m)
+		h.DB = openTestDB(t)
+		rec := fn.call(h)
+		code, msg := failCode(t, rec)
+		if code != response.ErrTmuxMissing || rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s: got %s/%d, want TMUX_MISSING/503", fn.name, code, rec.Code)
+		}
+		if !strings.Contains(msg, "3.2") || !strings.Contains(msg, "3.0a") {
+			t.Errorf("%s: message %q must name both the required and the found version", fn.name, msg)
+		}
+		for _, c := range m.Calls {
+			if c.Name == "systemd-run" || c.Name == "setsid" || slices.Contains(c.Args, "new-session") {
+				t.Errorf("%s: a refused create must not spawn: %+v", fn.name, c)
+			}
+		}
+	}
+}
+
 // The first session for an account starts its tmux server as a transient
 // service owned by PID 1 — the whole point of the design, because a scope
 // would inherit the panel's PrivateTmp namespace and lose its /tmp on every
