@@ -367,28 +367,63 @@ func TestTmuxVersionSupported(t *testing.T) {
 	}
 }
 
-// The probe costs a fork and the binary does not change under a running
-// panel, so it happens once.
-func TestTmuxVersion_ProbedOnce(t *testing.T) {
+// The probe costs a fork and the page asks for the version on every poll, so
+// it is memoised — but only for the TTL. Pinned for the panel's lifetime, the
+// refusal kept naming the old version after the operator did exactly what the
+// banner told them to do, and the upgrade only took effect on a restart.
+func TestTmuxVersion_MemoisedForTheTTLThenReprobed(t *testing.T) {
 	m := exec.NewMockCommander()
-	m.SetOutput("tmux", "tmux 3.6a\n", nil)
+	m.SetOutput("tmux", "tmux 3.0a\n", nil)
 	h := newTestHandler(t, m)
+	now := testNow
+	h.now = func() time.Time { return now }
+	probes := func() int {
+		n := 0
+		for _, c := range m.Calls {
+			if c.Name == "tmux" {
+				n++
+			}
+		}
+		return n
+	}
+
 	for i := 0; i < 3; i++ {
-		if got := h.tmuxVersion(); got != "3.6a" {
-			t.Fatalf("tmuxVersion = %q, want 3.6a", got)
+		if got := h.tmuxVersion(); got != "3.0a" {
+			t.Fatalf("tmuxVersion = %q, want 3.0a", got)
 		}
 	}
-	n := 0
-	for _, c := range m.Calls {
-		if c.Name == "tmux" {
-			n++
-		}
+	if n := probes(); n != 1 {
+		t.Errorf("tmux -V ran %d times inside the window, want 1", n)
 	}
-	if n != 1 {
-		t.Errorf("tmux -V ran %d times, want 1", n)
+	if h.tmuxTooOld() == "" {
+		t.Error("3.0a is below the floor and must be refused")
 	}
-	if h.tmuxTooOld() != "" {
-		t.Errorf("3.6a must be accepted, got %q", h.tmuxTooOld())
+
+	// The operator upgrades tmux from the Packages page. Nothing restarts the
+	// panel, so only the TTL can let the new version through.
+	m.SetOutput("tmux", "tmux 3.6a\n", nil)
+	now = now.Add(tmuxVersionTTL - time.Second)
+	if got := h.tmuxVersion(); got != "3.0a" || probes() != 1 {
+		t.Errorf("inside the window: version %q after %d probes, want the memo untouched", got, probes())
+	}
+	now = now.Add(2 * time.Second)
+	if got := h.tmuxVersion(); got != "3.6a" {
+		t.Errorf("past the TTL: version = %q, want the upgraded 3.6a", got)
+	}
+	if n := probes(); n != 2 {
+		t.Errorf("tmux -V ran %d times, want a second probe past the TTL", n)
+	}
+	if msg := h.tmuxTooOld(); msg != "" {
+		t.Errorf("the upgrade must lift the refusal without a restart, got %q", msg)
+	}
+
+	// A tmux that has gone away mid-flight must not clear a version we know is
+	// below the floor: "" reads as supported and would let a create through to
+	// the usage error the floor exists to replace.
+	m.SetOutput("tmux", "", errTest)
+	now = now.Add(2 * tmuxVersionTTL)
+	if got := h.tmuxVersion(); got != "3.6a" {
+		t.Errorf("a failed probe = %q, want the last known answer kept", got)
 	}
 }
 

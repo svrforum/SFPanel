@@ -61,12 +61,11 @@ type Handler struct {
 	termOnce sync.Once
 	term     string // default-terminal chosen once per process
 
-	tmuxVerOnce sync.Once
-	tmuxVer     string // `tmux -V` minus its prefix, probed once per process
-
 	memoMu     sync.Mutex
 	toolMemo   map[string]toolMemoEntry   // "<account>\x00<tool>"
 	latestMemo map[string]latestMemoEntry // "<tool>"
+	tmuxVer    string                     // `tmux -V` minus its prefix
+	tmuxVerAt  time.Time                  // when tmuxVer was probed; zero = never
 
 	now func() time.Time
 }

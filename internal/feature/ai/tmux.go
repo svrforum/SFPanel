@@ -205,16 +205,32 @@ func tmuxVersionSupported(v string) bool {
 	return major > wantMajor || (major == wantMajor && minor >= wantMinor)
 }
 
-// tmuxVersion is `tmux -V` without its prefix, probed once per process — the
-// binary does not change under a running panel, and the page asks for it every
-// time it polls.
+// tmuxVersionTTL is how long `tmux -V` is believed. Not sync.Once: the page
+// asks for the version on every poll, so the probe has to be memoised, but the
+// refusal below the floor tells the operator to upgrade tmux from the Packages
+// page — and a value pinned for the panel's lifetime kept naming the old one
+// afterwards, so the banner asked for something that did not work until the
+// panel restarted. Ten minutes, the same window toolStatus uses.
+const tmuxVersionTTL = 10 * time.Minute
+
+// tmuxVersion is `tmux -V` without its prefix, re-probed after tmuxVersionTTL.
+// A failed probe keeps the last answer rather than clearing it: "" reads as
+// supported, so forgetting a version we know is below the floor would let a
+// create through to a usage error.
 func (h *Handler) tmuxVersion() string {
-	h.tmuxVerOnce.Do(func() {
-		if out, err := h.Cmd.Run("tmux", "-V"); err == nil {
-			h.tmuxVer = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out), "tmux "))
-		}
-	})
-	return h.tmuxVer
+	h.memoMu.Lock()
+	v, at := h.tmuxVer, h.tmuxVerAt
+	h.memoMu.Unlock()
+	if !at.IsZero() && h.now().Sub(at) < tmuxVersionTTL {
+		return v
+	}
+	if out, err := h.Cmd.Run("tmux", "-V"); err == nil {
+		v = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out), "tmux "))
+	}
+	h.memoMu.Lock()
+	h.tmuxVer, h.tmuxVerAt = v, h.now()
+	h.memoMu.Unlock()
+	return v
 }
 
 // tmuxTooOld is the refusal message for a tmux below the floor, or "" when the
