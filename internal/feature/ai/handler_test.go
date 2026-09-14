@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +21,8 @@ this line is broken
 `
 
 var testNow = time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC)
+
+var errTest = errors.New("test failure")
 
 // newTestHandler is a root panel on a host whose /etc/passwd is the fixture
 // above; Cmd is the given mock. DB is nil — tasks that need rows open one.
