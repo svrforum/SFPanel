@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -547,4 +548,97 @@ func TestDirs(t *testing.T) {
 	if code, _ := failCode(t, rec); code != response.ErrInvalidAccount {
 		t.Errorf("bob: got %s, want INVALID_ACCOUNT", code)
 	}
+}
+
+// gateCommander holds the first new-session for one account inside the
+// Commander until the test lets it out, and announces every later one. Every
+// other call answers from the embedded mock. This is how the spawn lock is
+// asserted by ordering rather than by wall-clock timing: MockCommander records
+// argv but cannot block, and a "it took less than 45 s" assertion would prove
+// nothing about which lock was held.
+type gateCommander struct {
+	*exec.MockCommander
+	socket  string // whose new-session is gated: the account's socket path
+	mu      sync.Mutex
+	held    bool
+	entered chan struct{} // closed once the gated call is inside
+	release chan struct{} // close to let it out
+	arrived chan struct{} // one send per later new-session on that socket
+}
+
+func newGateCommander(m *exec.MockCommander, socket string) *gateCommander {
+	return &gateCommander{MockCommander: m, socket: socket,
+		entered: make(chan struct{}), release: make(chan struct{}), arrived: make(chan struct{}, 4)}
+}
+
+func (g *gateCommander) RunWithTimeout(d time.Duration, name string, args ...string) (string, error) {
+	out, err := g.MockCommander.RunWithTimeout(d, name, args...)
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, g.socket) || !slices.Contains(args, "new-session") {
+		return out, err
+	}
+	g.mu.Lock()
+	first := !g.held
+	g.held = true
+	g.mu.Unlock()
+	if !first {
+		g.arrived <- struct{}{}
+		return out, err
+	}
+	close(g.entered)
+	<-g.release
+	return out, err
+}
+
+// The spawn lock is per account. It is held across the check-then-act pair and
+// up to three 15 s command runs, so a process-wide one turned a single
+// account's hung systemd-run into a 45 s stall on every other account's
+// creates. Both halves are asserted: while alice's spawn is held inside the
+// Commander, dave's must finish, and a second one for alice must not.
+func TestSpawn_LocksPerAccountNotProcessWide(t *testing.T) {
+	// Exit 0 on the socket means the server is up, so each spawn is a single
+	// client-form call and the gate is the only thing that can block it.
+	m := tmuxMock("")
+	h := newTestHandler(t, m)
+	alice, _ := h.resolveAccount("alice")
+	dave, _ := h.resolveAccount("dave")
+	g := newGateCommander(m, h.socketPath(alice))
+	h.Cmd = g
+
+	first := make(chan error, 1)
+	go func() { first <- h.spawn("0123456789ab", "/", ToolShell, alice) }()
+	<-g.entered // alice's new-session is inside the Commander; her lock is held
+
+	other := make(chan error, 1)
+	go func() { other <- h.spawn("0123456789ac", "/", ToolShell, dave) }()
+	select {
+	case err := <-other:
+		if err != nil {
+			t.Fatalf("dave's spawn: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("dave's spawn never finished while alice's was held: the lock is shared between accounts")
+	}
+
+	// Only the first new-session on alice's socket is gated, so a second one
+	// that got past her lock would sail straight through the Commander — that
+	// is what makes this fail when the per-account lock is taken out.
+	second := make(chan error, 1)
+	go func() { second <- h.spawn("0123456789ad", "/", ToolShell, alice) }()
+	select {
+	case <-g.arrived:
+		t.Fatal("a second spawn for alice reached tmux while the first still held her lock")
+	case err := <-second:
+		t.Fatalf("a second spawn for alice finished while the first still held her lock: %v", err)
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	close(g.release)
+	if err := <-first; err != nil {
+		t.Fatalf("alice's first spawn: %v", err)
+	}
+	if err := <-second; err != nil {
+		t.Fatalf("alice's second spawn: %v", err)
+	}
+	<-g.arrived // it ran, and only after the first was let go
 }

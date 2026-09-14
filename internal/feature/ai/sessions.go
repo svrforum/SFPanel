@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -187,6 +188,24 @@ func (h *Handler) liveSessionCount() (int, error) {
 	return n, nil
 }
 
+// spawnLock is the lock one account's spawns take turns on, created on first
+// use. Accounts do not share it: the lock is held across the check-then-act
+// pair and up to three 15 s command runs, so a process-wide one made a hung
+// systemd-run for a single account everyone else's problem.
+func (h *Handler) spawnLock(acct Account) *sync.Mutex {
+	h.spawnMu.Lock()
+	defer h.spawnMu.Unlock()
+	if h.spawnLocks == nil {
+		h.spawnLocks = map[string]*sync.Mutex{}
+	}
+	mu, ok := h.spawnLocks[acct.Name]
+	if !ok {
+		mu = &sync.Mutex{}
+		h.spawnLocks[acct.Name] = mu
+	}
+	return mu
+}
+
 // spawn creates one session, starting the account's tmux server first if it
 // has none. The lock is what makes "has none" safe to act on: the server form
 // claims the fixed unit name sfpanel-ai-<uid>, so two concurrent creates for
@@ -195,8 +214,9 @@ func (h *Handler) spawn(id, cwd, tool string, acct Account) error {
 	if err := h.ensureSocketDir(acct); err != nil {
 		return fmt.Errorf("could not prepare the session socket directory: %w", err)
 	}
-	h.spawnMu.Lock()
-	defer h.spawnMu.Unlock()
+	mu := h.spawnLock(acct)
+	mu.Lock()
+	defer mu.Unlock()
 	form := h.spawnFormFor(acct)
 	name, argv := h.spawnArgv(id, cwd, tool, acct, form)
 	out, err := h.Cmd.RunWithTimeout(tmuxTimeout, name, argv...)

@@ -53,10 +53,15 @@ type Handler struct {
 	socketRoot string                       // where the tmux sockets live; tests use a temp dir
 	chown      func(string, int, int) error // os.Chown; a test binary is not root
 
-	// spawnMu serialises session creation. The server form claims one fixed
-	// unit name per account, so the "is there a server yet" check and the
-	// spawn that acts on it have to be one step.
-	spawnMu sync.Mutex
+	// spawnLocks serialises session creation per account; spawnMu guards the
+	// map, not the spawns. The server form claims one fixed unit name per
+	// account, so the "is there a server yet" check and the spawn that acts
+	// on it have to be one step — but only for that account. The step is held
+	// across up to three 15 s command runs, so a process-wide lock let one
+	// account whose systemd-run hung stall creates for every other account
+	// for as long as 45 s. Created lazily in spawnLock.
+	spawnMu    sync.Mutex
+	spawnLocks map[string]*sync.Mutex
 
 	termOnce sync.Once
 	term     string // default-terminal chosen once per process
