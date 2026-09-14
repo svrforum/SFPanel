@@ -84,10 +84,7 @@ func findShell() string {
 	return "/bin/sh"
 }
 
-// Temporary stubs so the package compiles until Tasks 3 and 7 land; they are
+// Temporary stubs so the package compiles until Task 7 lands; they are
 // replaced by the real types, not kept.
 type toolMemoEntry struct{}
 type latestMemoEntry struct{}
-type Account struct{ Name string }
-
-func panelAccount() Account { return Account{Name: "root"} }
