@@ -41,6 +41,12 @@ func TestParseProbe(t *testing.T) {
 // The version shown must be the one the account's own login shell resolves
 // — the old resolver picked the newest binary across every home and showed
 // a user's 2.1.265 for a root terminal that ran 2.1.92.
+//
+// And it must be an *interactive* login shell. `~/.local/bin` joins PATH in
+// the account's .bashrc, which the Debian/Ubuntu skeleton opens with
+// `[ -z "$PS1" ] && return` — root's own .bashrc is that skeleton — so a
+// non-interactive `-lc` probe returns before the line that extends PATH and
+// reports /root/.local/bin/claude as not installed while the session runs it.
 func TestToolStatus_ProbesInTheAccountsLoginShell(t *testing.T) {
 	stubLatest(t, ToolClaude, "2.1.270", http.StatusOK) // every toolStatus ends in a latest lookup; keep it local
 	m := exec.NewMockCommander()
@@ -53,9 +59,9 @@ func TestToolStatus_ProbesInTheAccountsLoginShell(t *testing.T) {
 		t.Errorf("status = %+v", st)
 	}
 	c := m.Calls[0]
-	want := append(h.envArgv(alice)[1:], "runuser", "-u", "alice", "--", findShell(), "-lc", probeScript, "claude")
+	want := append(h.envArgv(alice)[1:], "runuser", "-u", "alice", "--", findShell(), "-lic", probeScript, "claude")
 	if c.Name != "env" || strings.Join(c.Args, "\x00") != strings.Join(want, "\x00") {
-		t.Errorf("probe = %s %q\nwant env %q", c.Name, c.Args, want)
+		t.Errorf("probe = %s %q\nwant env %q\n(-lic, not -lc: only an interactive login shell reads .bashrc, where ~/.local/bin joins PATH)", c.Name, c.Args, want)
 	}
 
 	// The panel's own account probes in a plain login shell — but not with the
@@ -66,9 +72,9 @@ func TestToolStatus_ProbesInTheAccountsLoginShell(t *testing.T) {
 	m2.SetOutput("env", "SFP\t/root/.local/bin/claude\t2.1.92 (Claude Code)\n", nil)
 	h2 := newTestHandler(t, m2)
 	_ = h2.toolStatus(h2.panel, ToolClaude)
-	want2 := append(h2.envArgv(h2.panel)[1:], findShell(), "-lc", probeScript, "claude")
+	want2 := append(h2.envArgv(h2.panel)[1:], findShell(), "-lic", probeScript, "claude")
 	if m2.Calls[0].Name != "env" || strings.Join(m2.Calls[0].Args, "\x00") != strings.Join(want2, "\x00") {
-		t.Errorf("panel probe = %s %q\nwant env %q", m2.Calls[0].Name, m2.Calls[0].Args, want2)
+		t.Errorf("panel probe = %s %q\nwant env %q\n(-lic, not -lc: root's .bashrc is where ~/.local/bin joins PATH, and only an interactive shell reads it)", m2.Calls[0].Name, m2.Calls[0].Args, want2)
 	}
 	if lastEnv(h2.envArgv(h2.panel), "HOME") != "/root" {
 		t.Errorf("the panel probe must name its HOME: %q", h2.envArgv(h2.panel))

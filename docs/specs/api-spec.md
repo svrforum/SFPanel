@@ -3656,7 +3656,7 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
 
 | 필드 | 설명 |
 |------|------|
-| `tools.*.version` | 그 계정의 `bash -l`이 실제로 실행하는 바이너리의 버전 (계정·도구별 10분 캐시, 설치/업데이트 시 무효화) |
+| `tools.*.version` | 그 계정의 대화형 로그인 셸(`bash -lic`)이 실제로 실행하는 바이너리의 버전 — 세션이 띄우는 것과 같은 셸이어야 카드와 세션이 어긋나지 않는다 (계정·도구별 10분 캐시, 설치/업데이트 시 무효화) |
 | `tools.*.latest` | Claude: `downloads.claude.ai/claude-code-releases/latest`, Codex/Gemini: npm 레지스트리. 1시간 캐시, 실패 시 `""` |
 | `tools.*.logged_in` | 계정 홈의 자격증명 파일 존재 여부 (힌트) |
 | `tmux.supported` | `tmux -V`가 `min_version`(3.2) 이상인지. 설치돼 있으나 낮으면 세션 생성/재시작이 `TMUX_MISSING`(503)으로 거절되고 배너가 업그레이드를 안내한다. 버전을 읽지 못하면 `true`(막지 않음). `tmux -V` 결과는 10분 캐시 |

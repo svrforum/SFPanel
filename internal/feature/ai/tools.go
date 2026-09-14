@@ -88,17 +88,31 @@ func parseProbe(out string) (string, string, bool) {
 	return "", "", false
 }
 
-// shellAs runs script in a login shell as the account, behind the same
-// explicit environment every session gets (accounts.go): runuser only when the
-// account is not the panel's own, and the env prefix in both cases — without a
-// HOME the profile's `$HOME/.local/bin` expands to `/.local/bin` and the probe
-// reports a tool the account can actually run as "not installed".
+// shellAs runs script in an *interactive* login shell as the account, behind
+// the same explicit environment every session gets (accounts.go): runuser only
+// when the account is not the panel's own, and the env prefix in both cases —
+// without a HOME the profile's `$HOME/.local/bin` expands to `/.local/bin` and
+// the probe reports a tool the account can actually run as "not installed".
+//
+// -lic, not -lc, for the same reason one level down: `~/.local/bin` joins PATH
+// from the account's .bashrc, and the Debian/Ubuntu skeleton opens that file
+// with `[ -z "$PS1" ] && return`, so a *non*-interactive shell returns before
+// the line that extends PATH. Root's own .bashrc is that skeleton on this
+// distribution, which is how `bash -lc 'command -v claude'` answered nothing
+// for the panel's default account while /root/.local/bin/claude ran fine.
+// Only -i makes the shell read .bashrc at all, and the session the operator
+// gets is interactive — so without it the card contradicts the session.
+//
+// There is no tty here, so bash now writes "cannot set terminal process group"
+// and "no job control in this shell" to stderr. Neither reaches stdout and
+// neither changes the exit status; parseProbe picks its answer out by the
+// SFP\t marker line regardless.
 func (h *Handler) shellAs(acct Account, script, arg string) (string, error) {
 	argv := h.envArgv(acct)
 	if acct.Name != h.panel.Name {
 		argv = append(argv, "runuser", "-u", acct.Name, "--")
 	}
-	argv = append(argv, findShell(), "-lc", script, arg)
+	argv = append(argv, findShell(), "-lic", script, arg)
 	return h.Cmd.RunWithTimeout(20*time.Second, argv[0], argv[1:]...)
 }
 

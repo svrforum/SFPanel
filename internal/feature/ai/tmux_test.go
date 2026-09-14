@@ -59,7 +59,7 @@ func TestSpawnArgv_ServerFormIsATransientService(t *testing.T) {
 		t.Errorf("options must be applied before new-session so they govern the first window: %q", argv)
 	}
 	tail := argv[ns:]
-	want := []string{"new-session", "-d", "-s", "0123456789ab", "-c", "/opt/stacks/app", "--", "/bin/bash", "-l", "-c", `command "$0" "$@"; exec /bin/bash -l`, "claude"}
+	want := []string{"new-session", "-d", "-s", "0123456789ab", "-c", "/opt/stacks/app", "--", "/bin/bash", "-lic", `command "$0" "$@"; exec /bin/bash -l`, "claude"}
 	if !slices.Equal(tail, want) {
 		t.Errorf("new-session tail = %q\nwant %q", tail, want)
 	}
@@ -296,6 +296,39 @@ func TestSpawnArgv_ShellToolIsAPlainLoginShell(t *testing.T) {
 	_, argv := h.spawnArgv("0123456789ab", "/root", ToolShell, h.panel, spawnClient)
 	if cmd := command(argv); !slices.Equal(cmd, []string{"/bin/bash", "-l"}) {
 		t.Errorf("shell session must run `/bin/bash -l` and carry no -c wrapper: %q", cmd)
+	}
+}
+
+// The tool wrapper runs in an *interactive* login shell. `~/.local/bin` — the
+// Claude native installer's directory — joins PATH in the account's .bashrc,
+// and the Debian/Ubuntu skeleton opens that file with `[ -z "$PS1" ] && return`,
+// so a non-interactive `bash -l -c` never reads it: the wrapper exited 127 with
+// "claude: command not found" for root and dropped the pane to the fallback
+// shell. Assert the reason on both sides — the flag is on the wrapper, and the
+// `shell` tool must not gain it: that one has tmux's tty and `bash -l` is
+// already interactive, so -i would only add job-control noise.
+func TestSessionCommands_ToolWrapperIsAnInteractiveLoginShell(t *testing.T) {
+	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
+	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
+
+	for _, form := range []spawnForm{spawnService, spawnClient, spawnSetsid} {
+		for _, tool := range []string{ToolClaude, ToolCodex, ToolGemini} {
+			_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", tool, alice, form)
+			want := []string{"/bin/bash", "-lic", `command "$0" "$@"; exec /bin/bash -l`, tool}
+			if cmd := command(argv); !slices.Equal(cmd, want) {
+				t.Errorf("form %d, %s: wrapper = %q\nwant %q\n(only an interactive login shell reads .bashrc, where ~/.local/bin joins PATH)", form, tool, cmd, want)
+			}
+		}
+		_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolShell, alice, form)
+		cmd := command(argv)
+		if !slices.Equal(cmd, []string{"/bin/bash", "-l"}) {
+			t.Errorf("form %d, shell: = %q, want [/bin/bash -l] — tmux gives the pane a tty, so it is interactive without a flag", form, cmd)
+		}
+		for _, bad := range []string{"-lic", "-i", "-li"} {
+			if slices.Contains(cmd, bad) {
+				t.Errorf("form %d, shell: %s adds job-control noise to a shell that is already interactive: %q", form, bad, cmd)
+			}
+		}
 	}
 }
 

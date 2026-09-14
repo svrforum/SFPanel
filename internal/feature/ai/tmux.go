@@ -293,6 +293,14 @@ func (h *Handler) serverRunning(acct Account) bool {
 // restores the account's PATH (~/.local/bin, nvm); the wrapper drops into an
 // interactive shell when the tool exits instead of closing the session.
 //
+// The wrapper is -lic, not -l -c: ~/.local/bin joins PATH from the account's
+// .bashrc, and the Debian/Ubuntu skeleton opens that file with
+// `[ -z "$PS1" ] && return`, so a *non*-interactive shell returns before the
+// line that extends PATH and never sees the tool. `bash -l -c` exited 127 with
+// "claude: command not found" for root — the panel's own default account —
+// and dropped the pane straight to the fallback shell. The `shell` tool takes
+// no flag: `bash -l` on tmux's tty is interactive already.
+//
 // No `-e` pairs: the session environment is the server's, and the server got
 // it from systemd (--setenv) or from the env prefix that started it.
 func sessionCommands(term, id, cwd, tool string) []string {
@@ -306,7 +314,7 @@ func sessionCommands(term, id, cwd, tool string) []string {
 	if tool == ToolShell {
 		return append(argv, shell, "-l")
 	}
-	return append(argv, shell, "-l", "-c", fmt.Sprintf(`command "$0" "$@"; exec %s -l`, shell), tool)
+	return append(argv, shell, "-lic", fmt.Sprintf(`command "$0" "$@"; exec %s -l`, shell), tool)
 }
 
 // spawnArgv builds the one command that creates a session (spec §1):
