@@ -33,6 +33,14 @@ export function ToolChips({
   const { t } = useTranslation()
   const [busy, setBusy] = useState<CliTool | null>(null)
 
+  // Before GET /ai/tools resolves, `account` is '' (no per-node localStorage
+  // entry yet). Radix throws on <SelectItem value="">, and a closed
+  // <SelectContent> still renders its items into a detached fragment, so an
+  // empty account must never become an item — an empty list plus the
+  // placeholder is what the trigger shows during the probe. '' stays legal as
+  // the Root value; it is what selects the placeholder.
+  const accounts = tools?.accounts ?? (account ? [account] : [])
+
   const run = useCallback(async (tool: CliTool, action: 'install' | 'update') => {
     const label = TOOL_META[tool].label
     setBusy(tool)
@@ -57,11 +65,11 @@ export function ToolChips({
       <div className="flex items-center gap-2">
         <span className="text-[12px] text-muted-foreground">{t('ai.account')}</span>
         <Select value={account} onValueChange={onAccountChange}>
-          <SelectTrigger className="h-8 w-[10rem] rounded-xl text-[12px] font-mono" aria-label={t('ai.account')} title={t('ai.accountHint')}>
-            <SelectValue />
+          <SelectTrigger className="h-8 w-[10rem] rounded-xl text-[12px] font-mono" aria-label={t('ai.account')} title={t('ai.accountHint')} disabled={accounts.length === 0}>
+            <SelectValue placeholder={t('ai.account')} />
           </SelectTrigger>
           <SelectContent>
-            {(tools?.accounts ?? [account]).map((a) => (
+            {accounts.map((a) => (
               <SelectItem key={a} value={a} className="font-mono text-[12px]">{a}</SelectItem>
             ))}
           </SelectContent>
