@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { AIDirs, AISession, AITool, AITools } from '@/types/api'
-import type { AILastSession } from '@/lib/aiSessions'
-import { TOOL_META, aiErrorMessage, aiPrefill, defaultTitle, toolInstalledFor, toolsFor } from '@/lib/aiSessions'
+import type { AILastSession, AITouched } from '@/lib/aiSessions'
+import { TOOL_META, aiErrorMessage, aiPrefill, defaultTitle, toolInstalledFor, toolsFor, untouchedPrefill } from '@/lib/aiSessions'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -44,6 +44,10 @@ export function NewSessionDialog({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const prefilled = useRef(false)
+  // What the operator has set by hand since the dialog opened. The prefill is
+  // deferred while the account is unresolved and therefore runs again once it
+  // arrives; these are the fields it must not take back.
+  const touched = useRef<AITouched>({ tool: false, cwd: false })
 
   // The name and the last error belong to one opening of the dialog, so they
   // are cleared on the closed -> open transition and nowhere else. In
@@ -52,6 +56,7 @@ export function NewSessionDialog({
     if (!open) { prefilled.current = false; return }
     setError(null)
     setTitle('')
+    touched.current = { tool: false, cwd: false }
   }, [open])
 
   // Prefill once — but only once it can produce a real account. Opening the
@@ -67,9 +72,10 @@ export function NewSessionDialog({
     const pre = aiPrefill(last, tools?.accounts, account)
     if (!pre) return
     prefilled.current = true
-    if (pre.tool && TOOLS.includes(pre.tool)) setTool(pre.tool)
-    if (pre.cwd) setCwd(pre.cwd)
-    setRunAs(pre.runAs)
+    const use = untouchedPrefill(pre, touched.current)
+    if (use.tool && TOOLS.includes(use.tool)) setTool(use.tool)
+    if (use.cwd) setCwd(use.cwd)
+    setRunAs(use.runAs)
   }, [open, account, node, tools])
 
   // Directories and install state both belong to the chosen account, so both
@@ -143,7 +149,7 @@ export function NewSessionDialog({
                 return (
                   <button key={tl} type="button" role="radio" aria-checked={tool === tl} disabled={!ok}
                     title={ok ? meta.label : t('ai.dialog.toolNotInstalled', { account: runAs })}
-                    onClick={() => setTool(tl)}
+                    onClick={() => { touched.current.tool = true; setTool(tl) }}
                     className={cn('flex flex-col items-center gap-1 rounded-xl border p-2 text-[12px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
                       tool === tl ? 'border-primary bg-primary/5' : 'hover:bg-accent', !ok && 'opacity-40 cursor-not-allowed')}>
                     <span className="h-7 w-7 rounded-lg flex items-center justify-center text-[13px] font-bold"
@@ -156,7 +162,7 @@ export function NewSessionDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="ai-cwd">{t('ai.dialog.dir')}</Label>
-            <Input id="ai-cwd" list="ai-dir-suggestions" value={cwd} onChange={(e) => setCwd(e.target.value)}
+            <Input id="ai-cwd" list="ai-dir-suggestions" value={cwd} onChange={(e) => { touched.current.cwd = true; setCwd(e.target.value) }}
               placeholder={t('ai.dialog.dirPlaceholder')} className="font-mono text-[12px]" spellCheck={false} />
             <datalist id="ai-dir-suggestions">
               {dirs?.recent.map((d) => <option key={'r' + d} value={d}>{t('ai.dialog.dirRecent')}</option>)}

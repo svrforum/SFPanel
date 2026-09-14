@@ -65,6 +65,13 @@ export interface AILastSession {
   run_as?: string
 }
 
+/** The fields aiPrefill hands the dialog to open with. */
+export interface AIPrefill {
+  tool?: AITool
+  cwd?: string
+  runAs: string
+}
+
 /**
  * The dialog's opening values, or null while there is nothing to open with.
  *
@@ -76,13 +83,15 @@ export interface AILastSession {
  *
  * There is deliberately no title here. The prefill may run a second time, and
  * a name the operator typed while waiting for the account must survive it —
- * the closed-to-open reset is the only thing that clears the name.
+ * the closed-to-open reset is the only thing that clears the name. The other
+ * two fields are protected by untouchedPrefill below rather than structurally,
+ * because the remembered values are worth applying when nobody has.
  */
 export function aiPrefill(
   last: AILastSession,
   accounts: string[] | undefined,
   account: string
-): { tool?: AITool; cwd?: string; runAs: string } | null {
+): AIPrefill | null {
   const runAs = last.run_as && accounts?.includes(last.run_as) ? last.run_as : account
   if (!runAs) return null
   return {
@@ -90,6 +99,39 @@ export function aiPrefill(
     cwd: last.cwd || undefined,
     runAs,
   }
+}
+
+/** Which of the prefillable fields the operator has set by hand. */
+export interface AITouched {
+  tool: boolean
+  cwd: boolean
+}
+
+/**
+ * The prefill narrowed to the fields nobody has touched.
+ *
+ * aiPrefill defers while `account` is '', so it runs again on the render that
+ * resolves the account — and by then the operator may already have picked a
+ * tool or typed a directory. Re-applying the remembered ones took that back.
+ * `runAs` is always applied: its absence is what deferred the prefill, and
+ * until it arrives the account select has nothing else to offer.
+ */
+export function untouchedPrefill(pre: AIPrefill, touched: AITouched): AIPrefill {
+  return {
+    tool: touched.tool ? undefined : pre.tool,
+    cwd: touched.cwd ? undefined : pre.cwd,
+    runAs: pre.runAs,
+  }
+}
+
+/**
+ * A session timestamp in the operator's own locale, the way the audit table
+ * renders one. A value that will not parse is shown as it came: a raw ISO
+ * string is a poor label, but "Invalid Date" is a worse one.
+ */
+export function formatTimestamp(value: string): string {
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString()
 }
 
 /** document.title prefix while the page is open. */

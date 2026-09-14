@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AISession, AITools } from '@/types/api'
-import { aiErrorMessage, aiPrefill, defaultTitle, stateDotClass, titlePrefix, toolInstalledFor, toolsFor, waitingCount } from './aiSessions'
+import { aiErrorMessage, aiPrefill, defaultTitle, formatTimestamp, stateDotClass, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, waitingCount } from './aiSessions'
 
 const bundle = (account: string, installed: Partial<Record<'claude' | 'codex' | 'gemini', boolean>>): AITools => ({
   tmux: { installed: true, version: '3.6', supported: true, min_version: '3.2' },
@@ -116,5 +116,46 @@ describe('aiPrefill', () => {
   it('drops a remembered tool that is not one of ours', () => {
     expect(aiPrefill({ tool: 'vim' as never }, ['root'], 'root')?.tool).toBeUndefined()
     expect(aiPrefill({ tool: 'gemini' }, ['root'], 'root')?.tool).toBe('gemini')
+  })
+})
+
+describe('untouchedPrefill', () => {
+  // The reachable sequence: the operator presses + before GET /ai/tools has
+  // answered, picks Codex and types a directory while they wait, and the
+  // prefill then runs a second time on the render that brings the account.
+  // What it remembers from the last session must not take their choices back.
+  it('applies only the fields the operator has not set', () => {
+    const pre = aiPrefill({ tool: 'gemini', cwd: '/srv/old', run_as: 'alice' }, ['root', 'alice'], 'root')!
+    expect(untouchedPrefill(pre, { tool: true, cwd: true })).toEqual({ tool: undefined, cwd: undefined, runAs: 'alice' })
+    expect(untouchedPrefill(pre, { tool: true, cwd: false })).toEqual({ tool: undefined, cwd: '/srv/old', runAs: 'alice' })
+    expect(untouchedPrefill(pre, { tool: false, cwd: true })).toEqual({ tool: 'gemini', cwd: undefined, runAs: 'alice' })
+  })
+
+  // Nothing touched is the first run, which is the whole point of remembering.
+  it('applies everything on an untouched dialog', () => {
+    const pre = aiPrefill({ tool: 'codex', cwd: '/srv', run_as: 'root' }, ['root'], 'root')!
+    expect(untouchedPrefill(pre, { tool: false, cwd: false })).toEqual(pre)
+  })
+
+  // runAs is never withheld: its absence is what deferred the prefill, and
+  // until it arrives the account select has nothing else to show.
+  it('always applies the account', () => {
+    const pre = aiPrefill({}, ['root'], 'root')!
+    expect(untouchedPrefill(pre, { tool: true, cwd: true }).runAs).toBe('root')
+  })
+})
+
+describe('formatTimestamp', () => {
+  it('renders a stored timestamp in the local locale, not as raw ISO', () => {
+    const got = formatTimestamp('2026-09-14T01:02:03Z')
+    expect(got).toBe(new Date('2026-09-14T01:02:03Z').toLocaleString())
+    expect(got).not.toContain('T')
+  })
+
+  // A value that will not parse is shown as it came: "Invalid Date" tells the
+  // operator nothing, the raw string at least tells them what was stored.
+  it('falls back to the raw value when it will not parse', () => {
+    expect(formatTimestamp('not a date')).toBe('not a date')
+    expect(formatTimestamp('')).toBe('')
   })
 })
