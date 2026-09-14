@@ -123,10 +123,12 @@ func TestDeriveState(t *testing.T) {
 }
 
 // "no server running" is the normal answer when every session has ended;
-// it must read as an empty map, not an error.
+// it must read as an empty map, not an error. The fixture is a line that
+// *would* parse into one session if the error path were not taken, so an
+// empty result can only mean the error was honoured.
 func TestLiveWindows_NoServerIsEmpty(t *testing.T) {
 	m := exec.NewMockCommander()
-	m.SetOutput("tmux", "no server running on /tmp/tmux-0/sfpanel", errTest)
+	m.SetOutput("tmux", "abc\t1\tclaude\t1\t1789348400\t0\n", errTest)
 	h := newTestHandler(t, m)
 	if got := h.liveWindows(h.panel); len(got) != 0 {
 		t.Errorf("got %v, want empty", got)
