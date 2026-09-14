@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -27,14 +26,6 @@ import (
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/feature/audit"
 )
-
-// errUnauthenticatedWS is returned by authenticateWS when the upgrade should
-// be refused. The 401 response is already written; the caller need only
-// propagate err so Echo treats the request as terminal. Without this sentinel
-// the previous "return c.JSON(401, …)" form returned nil on a successful
-// header write, leaving the caller to proceed with username == "" and
-// reopening the per-user binding hijack that authenticateWS exists to close.
-var errUnauthenticatedWS = errors.New("terminal: WebSocket not authenticated")
 
 const scrollbackBufSize = 256 * 1024 // 256 KB ring buffer per session
 const maxTerminalSessions = 20       // Maximum concurrent terminal sessions
@@ -69,42 +60,10 @@ var Upgrader = websocket.Upgrader{
 	CheckOrigin: sameOriginOrEmpty,
 }
 
-// authenticateWS verifies the WebSocket upgrade and returns the authenticated
-// username so the caller can bind per-user state (e.g. PTY session key).
-//
-// For direct requests the username comes from the ticket/JWT verified by
-// auth.AuthenticateWSRequest. For cluster-internal forwards (gated by the
-// HMAC-validated X-SFPanel-Internal-Proxy headers) the originating node has
-// already authenticated the operator and stamps the verified username into
-// X-SFPanel-Original-User; the proxy middleware strips any caller-supplied
-// copy of that header before re-setting it from the JWT-derived username, so
-// it is authoritative here.
+// authenticateWS is the terminal's name for the shared PTY-route upgrade
+// check; see auth.AuthenticateWSUpgrade for the contract.
 func authenticateWS(c echo.Context, jwtSecret string) (string, error) {
-	if auth.IsInternalProxyRequest(c.Request()) {
-		// Defence-in-depth: the proxy middleware already strips and rewrites
-		// X-SFPanel-Original-User from the JWT-derived username, so this
-		// header should never be empty here. If it ever is, refuse rather
-		// than letting buildSessionKey("", id) yield a key that collides
-		// across every empty-username request — the exact hijack defect
-		// this binding was added to close. We can't fall back to "admin"
-		// the way the JWT middleware does for non-terminal handlers,
-		// because that would shadow a real admin's PTY sessions.
-		user := c.Request().Header.Get("X-SFPanel-Original-User")
-		if user == "" {
-			_ = c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-			return "", errUnauthenticatedWS
-		}
-		return user, nil
-	}
-	if user := auth.AuthenticateWSRequest(c.Request(), jwtSecret); user != "" {
-		return user, nil
-	}
-	// c.JSON returns nil on a successful write — propagating that would
-	// leave the caller's err-check passing and the handler proceeding
-	// with an empty username. Always return a non-nil error so empty
-	// username can never reach buildSessionKey.
-	_ = c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-	return "", errUnauthenticatedWS
+	return auth.AuthenticateWSUpgrade(c.Response(), c.Request(), jwtSecret)
 }
 
 // ringBuffer is a fixed-size circular byte buffer that keeps the most recent
