@@ -16,7 +16,7 @@ export function TmuxBanner({ tools, onChanged }: { tools: AITools | null; onChan
   if (tools.tmux.installed) {
     return tools.systemd_run ? null : (
       <p className="text-[12px] text-muted-foreground flex items-center gap-1.5">
-        <AlertTriangle className="h-3.5 w-3.5 text-warning" aria-hidden="true" />{t('ai.tmux.noScope')}
+        <AlertTriangle className="h-3.5 w-3.5 text-warning" aria-hidden="true" />{t('ai.tmux.noService')}
       </p>
     )
   }

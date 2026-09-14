@@ -1351,7 +1351,7 @@
       "install": "Install tmux",
       "installing": "Installing tmux…",
       "installed": "tmux installed",
-      "noScope": "systemd-run is missing: sessions will not survive a panel restart"
+      "noService": "systemd-run is missing: sessions will not survive a panel restart"
     },
     "state": {
       "working": "Working",
@@ -1371,7 +1371,7 @@
       "removeEnded": "Close tab",
       "ended": "Session ended",
       "endedHint": "The host rebooted, the shell exited, or it was killed elsewhere. You can restart it with the same settings.",
-      "processMode": "This session will not survive a panel restart (no systemd-run)",
+      "processMode": "This session will not survive a panel restart (the panel could not hand its tmux server to systemd)",
       "unknown": "Session not in the panel's records",
       "noSessions": "No sessions yet",
       "noSessionsHint": "Create a Claude, Codex, Gemini or shell session — it keeps running when you close the browser or restart the panel.",

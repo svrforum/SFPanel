@@ -26,7 +26,7 @@ type Session struct {
 	RunAs          string `json:"run_as"`
 	CWD            string `json:"cwd"`
 	State          string `json:"state"`
-	Persistence    string `json:"persistence"` // "scope" | "process"
+	Persistence    string `json:"persistence"` // "service" | "process"
 	Attached       bool   `json:"attached"`
 	Unknown        bool   `json:"unknown,omitempty"` // live on the socket, no row
 	CreatedAt      string `json:"created_at"`
@@ -38,8 +38,9 @@ var sessionIDRe = regexp.MustCompile(`^[0-9a-f]{12}$`)
 
 func validSessionID(id string) bool { return sessionIDRe.MatchString(id) }
 
-// newSessionID is 12 hex chars: the tmux session name, the scope unit
-// suffix and the primary key. Never client-supplied.
+// newSessionID is 12 hex chars: the tmux session name and the primary key
+// (the transient unit is named per account, not per session). Never
+// client-supplied.
 func newSessionID() (string, error) {
 	var b [6]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -82,9 +83,13 @@ func validateCWD(p string) (string, string) {
 	return clean, ""
 }
 
+// persistence is what the tab marker reports: "service" when the next spawn
+// can hand the account's tmux server to PID 1 as a transient unit — the only
+// arrangement that outlives a panel restart — and "process" when it cannot
+// and the server is merely setsid'd off the panel.
 func (h *Handler) persistence() string {
-	if h.haveSystemdRun() {
-		return "scope"
+	if h.isRoot() && h.haveSystemdRun() {
+		return "service"
 	}
 	return "process"
 }
@@ -177,12 +182,28 @@ func (h *Handler) liveSessionCount() (int, error) {
 	return n, nil
 }
 
+// spawn creates one session, starting the account's tmux server first if it
+// has none. The lock is what makes "has none" safe to act on: the server form
+// claims the fixed unit name sfpanel-ai-<uid>, so two concurrent creates for
+// one account must not both decide there is no server and both ask for it.
 func (h *Handler) spawn(id, cwd, tool string, acct Account) error {
 	if err := h.ensureSocketDir(acct); err != nil {
 		return fmt.Errorf("could not prepare the session socket directory: %w", err)
 	}
-	name, argv := h.spawnArgv(id, cwd, tool, acct, h.haveSystemdRun())
+	h.spawnMu.Lock()
+	defer h.spawnMu.Unlock()
+	form := h.spawnFormFor(acct)
+	name, argv := h.spawnArgv(id, cwd, tool, acct, form)
 	out, err := h.Cmd.RunWithTimeout(tmuxTimeout, name, argv...)
+	if err != nil && form == spawnService && h.serverRunning(acct) {
+		// The unit was claimed between the check and the call — by another
+		// panel process, or by a server this one started and has not seen
+		// yet. There is a server now, so talk to it; that is not a failure
+		// the operator should be shown.
+		slog.Debug("ai spawn retrying on the running server", "component", "ai", "id", id, "account", acct.Name, "err", err)
+		name, argv = h.spawnArgv(id, cwd, tool, acct, spawnClient)
+		out, err = h.Cmd.RunWithTimeout(tmuxTimeout, name, argv...)
+	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", strings.TrimSpace(out), err)
 	}

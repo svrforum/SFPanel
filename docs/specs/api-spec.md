@@ -3699,7 +3699,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
   "success": true,
   "data": [
     { "id": "3f9a1c2b7d4e", "tool": "claude", "title": "Claude · app", "run_as": "root", "cwd": "/opt/stacks/app",
-      "state": "waiting", "persistence": "scope", "attached": false, "created_at": "2026-09-14 01:02:03" }
+      "state": "waiting", "persistence": "service", "attached": false, "created_at": "2026-09-14T01:02:03Z" }
   ]
 }
 ```
@@ -3707,13 +3707,13 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 | 필드 | 설명 |
 |------|------|
 | `state` | `working`(도구 실행 중, 5초 내 출력) · `waiting`(도구가 5초 이상 조용하거나 벨) · `shell`(도구 종료, 셸 프롬프트) · `ended`(tmux 세션 없음) |
-| `persistence` | `scope`(systemd-run scope, 패널 재시작 생존) · `process`(setsid만, 패널 재시작 시 종료) |
+| `persistence` | `service`(계정의 tmux 서버가 `systemd-run`이 만든 transient 서비스 = PID 1 소유, 패널 재시작 생존) · `process`(setsid만, 패널 재시작 시 종료) |
 | `unknown` | tmux 소켓에는 있으나 표에 없는 세션 (DB 유실) |
 
 ---
 
 ### POST /api/v1/ai/sessions
-세션 생성. `systemd-run --scope` 아래 `tmux -f /dev/null -S /run/sfpanel/ai/<uid>/sfpanel new-session`.
+세션 생성. 계정에 tmux 서버가 없으면 `systemd-run --unit=sfpanel-ai-<uid> --collect --uid=<계정> --gid=<gid> -p Type=forking -- tmux -f /dev/null -S /run/sfpanel/ai/<uid>/sfpanel …`(PID 1이 띄우는 transient 서비스), 이미 있으면 같은 소켓에 `new-session`만 보낸다. scope가 아니라 service인 이유: scope는 호출자(패널)를 fork하므로 `PrivateTmp` 마운트 네임스페이스와 패널 환경변수를 그대로 물려받고, 패널을 재시작하면 살아남은 세션의 `/tmp`가 사라진다.
 
 **Request:** `{ "tool": "claude", "cwd": "/opt/stacks/app", "run_as": "root", "title": "선택" }`
 

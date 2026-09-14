@@ -1351,7 +1351,7 @@
       "install": "tmux 설치",
       "installing": "tmux 설치 중…",
       "installed": "tmux가 설치되었습니다",
-      "noScope": "systemd-run이 없어 세션이 패널 재시작을 넘기지 못합니다"
+      "noService": "systemd-run이 없어 세션이 패널 재시작을 넘기지 못합니다"
     },
     "state": {
       "working": "작업 중",
@@ -1371,7 +1371,7 @@
       "removeEnded": "탭 닫기",
       "ended": "세션이 종료되었습니다",
       "endedHint": "재부팅됐거나, 셸에서 exit 했거나, 다른 곳에서 종료됐습니다. 같은 설정으로 다시 시작할 수 있습니다.",
-      "processMode": "패널을 재시작하면 이 세션은 끊깁니다 (systemd-run 없음)",
+      "processMode": "패널을 재시작하면 이 세션은 끊깁니다 (tmux 서버를 systemd에 넘기지 못했습니다)",
       "unknown": "패널 기록에 없는 세션",
       "noSessions": "아직 세션이 없습니다",
       "noSessionsHint": "Claude, Codex, Gemini 또는 셸 세션을 만들면 브라우저를 닫아도, 패널을 재시작해도 이어집니다.",

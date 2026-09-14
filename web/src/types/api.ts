@@ -1213,8 +1213,8 @@ export interface AISession {
   run_as: string
   cwd: string
   state: AISessionState
-  /** scope = under systemd-run, survives a panel restart; process = setsid only */
-  persistence: 'scope' | 'process'
+  /** service = the account's tmux server is a transient systemd unit and survives a panel restart; process = setsid only */
+  persistence: 'service' | 'process'
   attached: boolean
   /** live on the tmux socket but no row — the DB was lost */
   unknown?: boolean

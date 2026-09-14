@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -47,12 +48,23 @@ func failCode(t *testing.T, rec *httptest.ResponseRecorder) (string, string) {
 
 // tmuxMock answers "tmux exists, systemd-run exists, list-windows says X".
 // The key is "env": every tmux invocation runs behind the account's explicit
-// environment (accounts.go), so that is the command the Commander sees.
+// environment (accounts.go), so that is the command the Commander sees. Exit 0
+// on that key also means serverRunning is true, i.e. a spawn takes the client
+// form — use noServerMock for the first-session case.
 func tmuxMock(listWindows string) *exec.MockCommander {
 	return &exec.MockCommander{Outputs: map[string]exec.MockResult{
 		"exists:tmux": {}, "exists:systemd-run": {}, "infocmp": {},
 		"env": {Output: listWindows}, "systemd-run": {},
 	}}
+}
+
+// noServerMock is a host where the account has no tmux server yet: every
+// client command fails, which is exactly what list-sessions and list-windows
+// do with nothing on the socket.
+func noServerMock() *exec.MockCommander {
+	m := tmuxMock("")
+	m.Outputs["env"] = exec.MockResult{Err: errTest}
+	return m
 }
 
 func TestCreateSession_RefusesBadInput(t *testing.T) {
@@ -93,8 +105,13 @@ func TestCreateSession_RefusesWithoutTmux(t *testing.T) {
 	}
 }
 
-func TestCreateSession_SpawnsUnderScopeAndStoresRow(t *testing.T) {
-	m := tmuxMock("")
+// The first session for an account starts its tmux server as a transient
+// service owned by PID 1 — the whole point of the design, because a scope
+// would inherit the panel's PrivateTmp namespace and lose its /tmp on every
+// restart. Assert the reason: --uid/--gid and Type=forking, and no runuser or
+// env prefix, which systemd makes unnecessary.
+func TestCreateSession_StartsTheServerAsAServiceAndStoresRow(t *testing.T) {
+	m := noServerMock()
 	h := newTestHandler(t, m)
 	h.DB = openTestDB(t)
 	dir := t.TempDir()
@@ -107,22 +124,95 @@ func TestCreateSession_SpawnsUnderScopeAndStoresRow(t *testing.T) {
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &env)
 	s := env.Data
-	if !validSessionID(s.ID) || s.Tool != "claude" || s.RunAs != "alice" || s.Title != "Claude · "+filepath.Base(dir) || s.State != StateWorking || s.Persistence != "scope" {
+	if !validSessionID(s.ID) || s.Tool != "claude" || s.RunAs != "alice" || s.Title != "Claude · "+filepath.Base(dir) || s.State != StateWorking || s.Persistence != "service" {
 		t.Errorf("created = %+v", s)
 	}
 	alice, _ := h.resolveAccount("alice")
-	want := "--unit=sfpanel-ai-" + s.ID + " -- env " + envPrefix(h, alice) + " runuser -u alice -- tmux -f /dev/null -S " + h.socketPath(alice)
+	want := "--unit=sfpanel-ai-1000 --collect --uid=alice --gid=1000 -p Type=forking -E LANG=C.UTF-8 -E COLORTERM=truecolor -- tmux -f /dev/null -S " + h.socketPath(alice)
 	var spawned bool
 	for _, c := range m.Calls {
-		if c.Name == "systemd-run" && strings.Contains(strings.Join(c.Args, " "), want) {
+		if c.Name != "systemd-run" {
+			continue
+		}
+		joined := strings.Join(c.Args, " ")
+		if !strings.HasPrefix(joined, want) {
+			t.Errorf("spawn argv = %q\nwant prefix %q", joined, want)
+		}
+		for _, bad := range []string{"--scope", "runuser", "env", "-e"} {
+			if slices.Contains(c.Args, bad) {
+				t.Errorf("the service form must not carry %s: %q", bad, c.Args)
+			}
+		}
+		spawned = true
+	}
+	if !spawned {
+		t.Errorf("no transient-service spawn for alice in %+v", m.Calls)
+	}
+	if _, ok, _ := getSessionRow(h.DB, s.ID); !ok {
+		t.Error("row not stored")
+	}
+}
+
+// A second session for the same account must not ask for the unit again — the
+// unit name is per account and systemd would refuse it. When list-sessions
+// answers, the spawn is an ordinary client on the running server.
+func TestCreateSession_SecondSessionUsesTheRunningServer(t *testing.T) {
+	m := tmuxMock("")
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	rec := call(t, h.CreateSession, http.MethodPost, `{"tool":"claude","cwd":"`+t.TempDir()+`","run_as":"alice"}`, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	alice, _ := h.resolveAccount("alice")
+	want := envPrefix(h, alice) + " runuser -u alice -- tmux -f /dev/null -S " + h.socketPath(alice)
+	var spawned bool
+	for _, c := range m.Calls {
+		if c.Name == "systemd-run" {
+			t.Errorf("the server is already up; no unit may be requested: %+v", c)
+		}
+		if c.Name == "env" && slices.Contains(c.Args, "new-session") {
+			if joined := strings.Join(c.Args, " "); !strings.HasPrefix(joined, want) {
+				t.Errorf("spawn argv = %q\nwant prefix %q", joined, want)
+			}
 			spawned = true
 		}
 	}
 	if !spawned {
-		t.Errorf("no scope spawn for alice in %+v", m.Calls)
+		t.Errorf("no client-form spawn for alice in %+v", m.Calls)
 	}
-	if _, ok, _ := getSessionRow(h.DB, s.ID); !ok {
-		t.Error("row not stored")
+}
+
+// A panel that is not root cannot ask PID 1 to run a unit as anyone, so it
+// never emits systemd-run and must say so: persistence "process" is what puts
+// the warning marker on the tab.
+func TestCreateSession_NonRootPanelIsProcessMode(t *testing.T) {
+	m := noServerMock()
+	h := newTestHandler(t, m)
+	h.isRoot = func() bool { return false }
+	h.DB = openTestDB(t)
+	rec := call(t, h.CreateSession, http.MethodPost, `{"tool":"shell","cwd":"`+t.TempDir()+`"}`, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Data Session `json:"data"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	if env.Data.Persistence != "process" {
+		t.Errorf("persistence = %q, want process", env.Data.Persistence)
+	}
+	var spawned bool
+	for _, c := range m.Calls {
+		if c.Name == "systemd-run" {
+			t.Errorf("a non-root panel must never invoke systemd-run: %+v", c)
+		}
+		if c.Name == "setsid" {
+			spawned = true
+		}
+	}
+	if !spawned {
+		t.Errorf("no setsid fallback spawn in %+v", m.Calls)
 	}
 }
 
@@ -242,7 +332,7 @@ func TestRestart_OnlyWhenEnded(t *testing.T) {
 		t.Errorf("restart while live: got %s, want AI_SESSION_STATE", code)
 	}
 
-	m := tmuxMock("")
+	m := noServerMock()
 	h.Cmd = m
 	_ = setSessionEnded(h.DB, "aaaaaaaaaaaa", true)
 	rec = call(t, h.RestartSession, http.MethodPost, "", "aaaaaaaaaaaa", "")
@@ -278,7 +368,7 @@ func TestRestart_CountsAgainstTheSessionLimit(t *testing.T) {
 		t.Errorf("restart at the ceiling: got %s, want AI_SESSION_LIMIT", code)
 	}
 	for _, c := range m.Calls {
-		if c.Name == "systemd-run" {
+		if c.Name == "systemd-run" || c.Name == "setsid" || slices.Contains(c.Args, "new-session") {
 			t.Errorf("a refused restart must not spawn: %+v", c)
 		}
 	}

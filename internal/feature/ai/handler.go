@@ -53,6 +53,11 @@ type Handler struct {
 	socketRoot string                       // where the tmux sockets live; tests use a temp dir
 	chown      func(string, int, int) error // os.Chown; a test binary is not root
 
+	// spawnMu serialises session creation. The server form claims one fixed
+	// unit name per account, so the "is there a server yet" check and the
+	// spawn that acts on it have to be one step.
+	spawnMu sync.Mutex
+
 	termOnce sync.Once
 	term     string // default-terminal chosen once per process
 

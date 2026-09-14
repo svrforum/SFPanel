@@ -14,7 +14,7 @@ const bundle = (account: string, installed: Partial<Record<'claude' | 'codex' | 
 })
 
 const s = (id: string, state: AISession['state']): AISession => ({
-  id, tool: 'claude', title: id, run_as: 'root', cwd: '/', state, persistence: 'scope', attached: false, created_at: '',
+  id, tool: 'claude', title: id, run_as: 'root', cwd: '/', state, persistence: 'service', attached: false, created_at: '',
 })
 
 describe('aiSessions helpers', () => {

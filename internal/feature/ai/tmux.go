@@ -128,38 +128,110 @@ func (h *Handler) defaultTerminal() string {
 
 func (h *Handler) haveSystemdRun() bool { return h.Cmd.Exists("systemd-run") }
 
-// spawnArgv builds the one command that creates a session (spec §1):
-//
-//	systemd-run --scope --collect --unit=sfpanel-ai-<id> -- env [-i] HOME=… …
-//	  [runuser -u <acct> --] tmux -f /dev/null -S <socket> <options…> ;
-//	  new-session -d -s <id> -c <cwd>
-//	  -- bash -l -c 'command "$0" "$@"; exec bash -l' <tool>
-//
-// The scope puts the tmux server outside sfpanel.service's cgroup so it
-// survives a panel restart. The env prefix comes before runuser so nothing of
-// the panel's environment reaches the account (accounts.go) — and so the
-// account has a HOME at all. The login shell restores the account's PATH
-// (~/.local/bin, nvm); the wrapper drops into an interactive shell when the
-// tool exits instead of closing the session. Without systemd-run the session
-// is merely setsid'd: it survives the browser but not a panel restart.
-func (h *Handler) spawnArgv(id, cwd, tool string, acct Account, haveSystemdRun bool) (string, []string) {
+// unitName is the transient unit that holds one account's tmux server. Per
+// uid, never per session: the server outlives every session it carries, and
+// the unit ends only when the last one exits (exit-empty on).
+func unitName(acct Account) string { return "sfpanel-ai-" + strconv.Itoa(acct.UID) }
+
+// spawnForm is which of the two shapes in spec §1 a spawn takes.
+type spawnForm int
+
+const (
+	// spawnService asks PID 1 for a transient service that *is* the account's
+	// tmux server. Only when no server is running for the account.
+	spawnService spawnForm = iota
+	// spawnClient talks to a server that is already up: an ordinary tmux
+	// client, which exits as soon as new-session has been created.
+	spawnClient
+	// spawnSetsid is the fallback that has to start the server itself without
+	// systemd's help — it survives the browser, not a panel restart.
+	spawnSetsid
+)
+
+// spawnFormFor picks the form for the next spawn. The server form needs all
+// three of: no server yet, a panel that is root (only root may ask PID 1 to
+// run a unit as another account), and systemd-run on the host.
+func (h *Handler) spawnFormFor(acct Account) spawnForm {
+	if h.serverRunning(acct) {
+		return spawnClient
+	}
+	if h.isRoot() && h.haveSystemdRun() {
+		return spawnService
+	}
+	return spawnSetsid
+}
+
+// serverRunning asks the socket whether the account already has a tmux server.
+// Deliberately not liveWindows: that one folds every failure into an empty map,
+// and "no windows" and "no server" must not be the same answer here — the first
+// means talk to the socket, the second means start a unit.
+func (h *Handler) serverRunning(acct Account) bool {
 	name, argv := h.tmuxCmd(acct)
-	for _, opt := range tmuxOptions(h.defaultTerminal()) {
+	_, err := h.Cmd.RunWithTimeout(tmuxTimeout, name, append(argv, "list-sessions")...)
+	return err == nil
+}
+
+// sessionCommands is every tmux argument after `-f /dev/null -S <socket>`: the
+// panel's options, applied in the same invocation and before new-session so
+// they govern the very first window, then the session itself. The login shell
+// restores the account's PATH (~/.local/bin, nvm); the wrapper drops into an
+// interactive shell when the tool exits instead of closing the session.
+//
+// No `-e` pairs: the session environment is the server's, and the server got
+// it from systemd (-E) or from the env prefix that started it.
+func sessionCommands(term, id, cwd, tool string) []string {
+	var argv []string
+	for _, opt := range tmuxOptions(term) {
 		argv = append(argv, opt...)
 		argv = append(argv, ";")
 	}
 	shell := findShell()
-	argv = append(argv, "new-session", "-d", "-s", id, "-c", cwd,
-		"-e", "LANG=C.UTF-8", "-e", "COLORTERM=truecolor", "--")
+	argv = append(argv, "new-session", "-d", "-s", id, "-c", cwd, "--")
 	if tool == ToolShell {
-		argv = append(argv, shell, "-l")
-	} else {
-		argv = append(argv, shell, "-l", "-c", fmt.Sprintf(`command "$0" "$@"; exec %s -l`, shell), tool)
+		return append(argv, shell, "-l")
 	}
-	if haveSystemdRun {
-		return "systemd-run", append([]string{"--scope", "--quiet", "--collect", "--unit=sfpanel-ai-" + id, "--", name}, argv...)
+	return append(argv, shell, "-l", "-c", fmt.Sprintf(`command "$0" "$@"; exec %s -l`, shell), tool)
+}
+
+// spawnArgv builds the one command that creates a session (spec §1):
+//
+//	# server form — the account has no tmux server yet
+//	systemd-run --unit=sfpanel-ai-<uid> --collect --uid=<acct> --gid=<gid>
+//	  -p Type=forking -E LANG=C.UTF-8 -E COLORTERM=truecolor --
+//	  tmux -f /dev/null -S <socket> <options…> ; new-session -d -s <id> …
+//
+//	# client form — the server is already up (or the setsid fallback)
+//	[setsid] env [-i] HOME=… … [runuser -u <acct> --]
+//	  tmux -f /dev/null -S <socket> <options…> ; new-session -d -s <id> …
+//
+// A *service*, not a scope. systemd-run --scope forks the caller, so the tmux
+// server would inherit the panel's environment (SFPANEL_JWT_SECRET included,
+// readable by the account in /proc/<pid>/environ) and the panel's PrivateTmp
+// mount namespace — which systemd tears down on every `systemctl restart
+// sfpanel`, leaving the sessions this design exists to preserve with a /tmp
+// that no longer exists. A service is spawned by PID 1 instead: its cgroup is
+// /system.slice/sfpanel-ai-<uid>.service, its mount namespace is the host's,
+// and --uid makes systemd set HOME/USER/LOGNAME/SHELL itself, so no runuser
+// and no env prefix are needed. The client form keeps both, because there it
+// is the panel that forks (accounts.go explains the env -i boundary).
+func (h *Handler) spawnArgv(id, cwd, tool string, acct Account, form spawnForm) (string, []string) {
+	cmds := sessionCommands(h.defaultTerminal(), id, cwd, tool)
+	if form == spawnService {
+		argv := []string{
+			"--unit=" + unitName(acct), "--collect",
+			"--uid=" + acct.Name, "--gid=" + strconv.Itoa(acct.GID),
+			"-p", "Type=forking",
+			"-E", "LANG=C.UTF-8", "-E", "COLORTERM=truecolor",
+			"--", "tmux", "-f", "/dev/null", "-S", h.socketPath(acct),
+		}
+		return "systemd-run", append(argv, cmds...)
 	}
-	return "setsid", append([]string{name}, argv...)
+	name, argv := h.tmuxCmd(acct)
+	argv = append(argv, cmds...)
+	if form == spawnSetsid {
+		return "setsid", append([]string{name}, argv...)
+	}
+	return name, argv
 }
 
 // liveWindow is one line of listWindowsFormat for a session's current window.

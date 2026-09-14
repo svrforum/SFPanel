@@ -25,45 +25,155 @@ func command(argv []string) []string {
 	return nil
 }
 
-// A non-panel account is entered with runuser, inside the systemd scope,
-// behind `env -i`, and tmux always gets -f /dev/null -S <socket> — the
-// operator's ~/.tmux.conf auto-restores sessions and must never load.
-func TestSpawnArgv_NonPanelAccountUnderScope(t *testing.T) {
+// The account's tmux server is started by PID 1 as a transient *service*, not
+// as a scope. A scope forks the caller, so the server would inherit the
+// panel's environment (SFPANEL_JWT_SECRET included) and the panel's
+// PrivateTmp mount namespace — which systemd deletes on every restart,
+// exactly the event the surviving sessions exist to outlive. Assert the
+// reason: --uid/--gid and Type=forking rather than --scope, and no runuser or
+// env prefix, because systemd sets the account's environment itself.
+func TestSpawnArgv_ServerFormIsATransientService(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
 	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
 
-	name, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, alice, true)
+	name, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, alice, spawnService)
 	if name != "systemd-run" {
 		t.Fatalf("name = %q, want systemd-run", name)
 	}
-	prefix := []string{"--scope", "--quiet", "--collect", "--unit=sfpanel-ai-0123456789ab", "--",
-		"env", "-i", "PATH=" + accountPath, "HOME=/home/alice", "USER=alice", "LOGNAME=alice", "SHELL=/bin/bash", "LANG=C.UTF-8", "COLORTERM=truecolor",
-		"runuser", "-u", "alice", "--", "tmux", "-f", "/dev/null", "-S", h.socketPath(alice)}
+	prefix := []string{"--unit=sfpanel-ai-1000", "--collect", "--uid=alice", "--gid=1000",
+		"-p", "Type=forking", "-E", "LANG=C.UTF-8", "-E", "COLORTERM=truecolor",
+		"--", "tmux", "-f", "/dev/null", "-S", h.socketPath(alice)}
 	if !slices.Equal(argv[:len(prefix)], prefix) {
 		t.Errorf("argv prefix = %q\nwant %q", argv[:len(prefix)], prefix)
+	}
+	if slices.Contains(argv, "--scope") {
+		t.Errorf("a scope inherits the panel's mount namespace and environment: %q", argv)
+	}
+	for _, bad := range []string{"runuser", "env", "setsid"} {
+		if slices.Contains(argv, bad) {
+			t.Errorf("systemd --uid already enters the account; %s must not appear: %q", bad, argv)
+		}
 	}
 	ns := indexOf(argv, "new-session")
 	if ns < 0 || indexOf(argv, "prefix") > ns || indexOf(argv, "history-limit") > ns {
 		t.Errorf("options must be applied before new-session so they govern the first window: %q", argv)
 	}
 	tail := argv[ns:]
-	want := []string{"new-session", "-d", "-s", "0123456789ab", "-c", "/opt/stacks/app", "-e", "LANG=C.UTF-8", "-e", "COLORTERM=truecolor", "--", "/bin/bash", "-l", "-c", `command "$0" "$@"; exec /bin/bash -l`, "claude"}
+	want := []string{"new-session", "-d", "-s", "0123456789ab", "-c", "/opt/stacks/app", "--", "/bin/bash", "-l", "-c", `command "$0" "$@"; exec /bin/bash -l`, "claude"}
 	if !slices.Equal(tail, want) {
 		t.Errorf("new-session tail = %q\nwant %q", tail, want)
 	}
 }
 
+// Once the server is up, a session is created by an ordinary client: the
+// env-prefixed, runuser-entered form, and never a second systemd unit — the
+// unit name is per account, so a second one would fail as already claimed.
+func TestSpawnArgv_ClientFormTalksToTheRunningServer(t *testing.T) {
+	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
+	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
+
+	name, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, alice, spawnClient)
+	if name != "env" {
+		t.Fatalf("name = %q, want env", name)
+	}
+	prefix := []string{"-i", "PATH=" + accountPath, "HOME=/home/alice", "USER=alice", "LOGNAME=alice", "SHELL=/bin/bash", "LANG=C.UTF-8", "COLORTERM=truecolor",
+		"runuser", "-u", "alice", "--", "tmux", "-f", "/dev/null", "-S", h.socketPath(alice)}
+	if !slices.Equal(argv[:len(prefix)], prefix) {
+		t.Errorf("argv prefix = %q\nwant %q", argv[:len(prefix)], prefix)
+	}
+	for _, bad := range []string{"systemd-run", "--unit=sfpanel-ai-1000", "setsid"} {
+		if slices.Contains(argv, bad) {
+			t.Errorf("a server that is already up needs no unit; %s must not appear: %q", bad, argv)
+		}
+	}
+}
+
+// new-session carries no -e in either form: the session environment is the
+// server's, and the server got it from systemd (-E) or from the env prefix
+// that started it. A -e pair here would be the only copy that disagreed.
+func TestSpawnArgv_NoPerSessionEnvironmentPairs(t *testing.T) {
+	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
+	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
+	for _, form := range []spawnForm{spawnService, spawnClient, spawnSetsid} {
+		_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, alice, form)
+		ns := indexOf(argv, "new-session")
+		if ns < 0 {
+			t.Fatalf("form %d: no new-session in %q", form, argv)
+		}
+		if slices.Contains(argv[ns:], "-e") {
+			t.Errorf("form %d: new-session must not set its own environment: %q", form, argv[ns:])
+		}
+	}
+}
+
 func TestSpawnArgv_PanelAccountHasNoRunuser(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
-	_, argv := h.spawnArgv("0123456789ab", "/root", ToolCodex, h.panel, true)
+	name, argv := h.spawnArgv("0123456789ab", "/root", ToolCodex, h.panel, spawnClient)
 	if slices.Contains(argv, "runuser") {
 		t.Errorf("the panel's own account must not go through runuser: %q", argv)
 	}
-	if argv[5] != "env" || slices.Contains(argv, "-i") {
-		t.Errorf("the panel's own account is not a boundary: it keeps its environment with the account's variables pinned on top, got %q", argv)
+	if name != "env" || slices.Contains(argv, "-i") {
+		t.Errorf("the panel's own account is not a boundary: it keeps its environment with the account's variables pinned on top, got %s %q", name, argv)
 	}
 	if i := indexOf(argv, "tmux"); i < 0 || argv[i-1] != "COLORTERM=truecolor" {
 		t.Errorf("tmux must follow the env prefix directly: %q", argv)
+	}
+}
+
+// The form is chosen from three facts, and each one alone decides it: a
+// server already on the socket means client, no server plus root plus
+// systemd-run means service, and anything less means the setsid fallback.
+func TestSpawnFormFor(t *testing.T) {
+	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
+	cases := []struct {
+		name       string
+		listErr    error
+		haveRun    bool
+		root       bool
+		want       spawnForm
+		wantPersis string
+	}{
+		{"server already running", nil, true, true, spawnClient, "service"},
+		{"no server, root, systemd-run", errTest, true, true, spawnService, "service"},
+		{"no server, no systemd-run", errTest, false, true, spawnSetsid, "process"},
+		{"no server, panel is not root", errTest, true, false, spawnSetsid, "process"},
+	}
+	for _, tc := range cases {
+		m := exec.NewMockCommander()
+		m.SetOutput("env", "", tc.listErr)
+		if tc.haveRun {
+			m.SetOutput("exists:systemd-run", "", nil)
+		}
+		h := newTestHandler(t, m)
+		h.isRoot = func() bool { return tc.root }
+		if got := h.spawnFormFor(alice); got != tc.want {
+			t.Errorf("%s: form = %d, want %d", tc.name, got, tc.want)
+		}
+		if got := h.persistence(); got != tc.wantPersis {
+			t.Errorf("%s: persistence = %q, want %q", tc.name, got, tc.wantPersis)
+		}
+	}
+}
+
+// serverRunning must not be liveWindows: that one folds a failed client into
+// an empty map, so "no windows" and "no server" would be the same answer and
+// every spawn after the first would try to claim the unit again. The fixture
+// is a non-zero exit with output that *would* parse, so only honouring the
+// error can produce false.
+func TestServerRunning_HonoursTheExitStatus(t *testing.T) {
+	m := exec.NewMockCommander()
+	m.SetOutput("env", "sfpanel: 1 windows\n", errTest)
+	h := newTestHandler(t, m)
+	if h.serverRunning(h.panel) {
+		t.Error("a non-zero list-sessions means no server")
+	}
+	if last := m.Calls[len(m.Calls)-1]; !slices.Contains(last.Args, "list-sessions") {
+		t.Errorf("expected a list-sessions probe, got %q", last.Args)
+	}
+	m2 := exec.NewMockCommander()
+	m2.SetOutput("env", "", nil)
+	if !newTestHandler(t, m2).serverRunning(h.panel) {
+		t.Error("exit 0 means the server is there, even with no sessions listed")
 	}
 }
 
@@ -85,7 +195,7 @@ func TestSocketPath_IsAnAbsoluteRunPathPerAccount(t *testing.T) {
 		t.Errorf("the panel's socket = %q, want /run/sfpanel/ai/0/sfpanel", got)
 	}
 	for _, acct := range []Account{alice, h.panel} {
-		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolShell, acct, true)
+		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolShell, acct, spawnClient)
 		if slices.Contains(argv, "-L") {
 			t.Errorf("%s: -L derives the socket from /tmp: %q", acct.Name, argv)
 		}
@@ -136,7 +246,7 @@ func TestEnsureSocketDir_OwnedByTheAccountUnderATraversableRoot(t *testing.T) {
 
 func TestSpawnArgv_ShellToolIsAPlainLoginShell(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
-	_, argv := h.spawnArgv("0123456789ab", "/root", ToolShell, h.panel, true)
+	_, argv := h.spawnArgv("0123456789ab", "/root", ToolShell, h.panel, spawnClient)
 	if cmd := command(argv); !slices.Equal(cmd, []string{"/bin/bash", "-l"}) {
 		t.Errorf("shell session must run `/bin/bash -l` and carry no -c wrapper: %q", cmd)
 	}
@@ -144,7 +254,7 @@ func TestSpawnArgv_ShellToolIsAPlainLoginShell(t *testing.T) {
 
 func TestSpawnArgv_FallsBackToSetsidWithoutSystemdRun(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
-	name, argv := h.spawnArgv("0123456789ab", "/root", ToolClaude, h.panel, false)
+	name, argv := h.spawnArgv("0123456789ab", "/root", ToolClaude, h.panel, spawnSetsid)
 	if name != "setsid" || argv[0] != "env" || !slices.Contains(argv, "HOME=/root") {
 		t.Errorf("got %s %q, want setsid env HOME=/root … — the fallback needs the environment too", name, argv[:3])
 	}
