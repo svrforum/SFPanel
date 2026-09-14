@@ -3,6 +3,7 @@ package disk
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,17 +12,31 @@ import (
 
 // hangingCommander answers df normally except for one mount point, on which it
 // blocks until the context expires — a server that has gone away.
+//
+// listFilesystems probes the mounts concurrently, so the recorder needs its
+// own lock: appending to calls from several goroutines is a data race, and
+// `go test -race` reports it.
 type hangingCommander struct {
 	exec.MockCommander
 	hangOn string
+	mu     sync.Mutex
 	calls  []string
+}
+
+// recorded is the calls seen so far, copied under the lock.
+func (h *hangingCommander) recorded() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.calls...)
 }
 
 const localDf = "Filesystem     Type  1B-blocks      Used     Avail Use% Mounted on\n" +
 	"/dev/sda2      ext4  500000000 200000000 300000000  40% /\n"
 
 func (h *hangingCommander) RunCtx(ctx context.Context, name string, args ...string) (string, error) {
+	h.mu.Lock()
 	h.calls = append(h.calls, strings.Join(args, " "))
+	h.mu.Unlock()
 	if len(args) > 0 && args[len(args)-1] == h.hangOn {
 		<-ctx.Done()
 		return "", ctx.Err()
@@ -100,8 +115,9 @@ func TestListFilesystemsAsksForLocalOnlyFirst(t *testing.T) {
 	if _, err := listFilesystems(context.Background(), cmd); err != nil {
 		t.Fatal(err)
 	}
-	if len(cmd.calls) == 0 || !strings.Contains(cmd.calls[0], "-l") {
-		t.Errorf("first df call = %q, want the local-only form", cmd.calls)
+	calls := cmd.recorded()
+	if len(calls) == 0 || !strings.Contains(calls[0], "-l") {
+		t.Errorf("first df call = %q, want the local-only form", calls)
 	}
 }
 
@@ -116,15 +132,15 @@ func TestListFilesystemsRemembersASilentMount(t *testing.T) {
 	if _, err := listFilesystems(context.Background(), cmd); err != nil {
 		t.Fatal(err)
 	}
-	probesAfterFirst := len(cmd.calls)
+	probesAfterFirst := len(cmd.recorded())
 
 	start := time.Now()
 	got, err := listFilesystems(context.Background(), cmd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cmd.calls) != probesAfterFirst+1 { // +1 is the local df
-		t.Errorf("the dead mount was probed again within the memo window (%d calls, want %d)", len(cmd.calls), probesAfterFirst+1)
+	if n := len(cmd.recorded()); n != probesAfterFirst+1 { // +1 is the local df
+		t.Errorf("the dead mount was probed again within the memo window (%d calls, want %d)", n, probesAfterFirst+1)
 	}
 	if time.Since(start) > time.Second {
 		t.Errorf("second listing took %v; a remembered dead mount must not be waited on", time.Since(start))
