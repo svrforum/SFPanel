@@ -1,0 +1,157 @@
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Loader2 } from 'lucide-react'
+import { api } from '@/lib/api'
+import type { AIDirs, AISession, AITool, AITools } from '@/types/api'
+import { TOOL_META, aiErrorMessage, defaultTitle } from '@/lib/aiSessions'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+
+const TOOLS: AITool[] = ['claude', 'codex', 'gemini', 'shell']
+const lastKey = (node: string) => `sfpanel_ai_last:${node}`
+
+// Account, then tool, directory, name — the account comes first because it
+// decides which tools are installed and which directories are suggested.
+// The directory field is a free-text input with the server's suggestions as
+// a datalist: recent directories, the compose stacks, the account's home.
+// The server validates on submit and its code becomes the inline message.
+export function NewSessionDialog({
+  open,
+  onOpenChange,
+  account,
+  tools,
+  onCreated,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  account: string
+  tools: AITools | null
+  onCreated: (s: AISession) => void
+}) {
+  const { t } = useTranslation()
+  const node = api.currentNode || 'local'
+  const [tool, setTool] = useState<AITool>('claude')
+  const [cwd, setCwd] = useState('')
+  const [runAs, setRunAs] = useState(account)
+  const [title, setTitle] = useState('')
+  const [dirs, setDirs] = useState<AIDirs | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setError(null)
+    setTitle('')
+    try {
+      const last = JSON.parse(localStorage.getItem(lastKey(node)) || '{}') as { tool?: AITool; cwd?: string; run_as?: string }
+      if (last.tool && TOOLS.includes(last.tool)) setTool(last.tool)
+      if (last.cwd) setCwd(last.cwd)
+      setRunAs(last.run_as && tools?.accounts.includes(last.run_as) ? last.run_as : account)
+    } catch {
+      setRunAs(account)
+    }
+  }, [open, account, node, tools])
+
+  useEffect(() => {
+    if (!open || !runAs) return
+    let cancelled = false
+    api.getAIDirs(runAs).then((d) => {
+      if (cancelled) return
+      setDirs(d)
+      setCwd((c) => c || d.recent[0] || d.stacks[0] || d.home)
+    }).catch(() => setDirs(null))
+    return () => { cancelled = true }
+  }, [open, runAs])
+
+  const installedFor = (tl: AITool) => tl === 'shell' || (tools?.account === runAs ? tools?.tools[tl]?.installed ?? true : true)
+  useEffect(() => {
+    // Switching to an account that lacks the chosen tool must not leave a
+    // disabled radio selected.
+    if (!installedFor(tool)) setTool('shell')
+  }, [runAs, tools]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submit = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const s = await api.createAISession({ tool, cwd: cwd.trim(), run_as: runAs, title: title.trim() || undefined })
+      try { localStorage.setItem(lastKey(node), JSON.stringify({ tool, cwd: cwd.trim(), run_as: runAs })) } catch { /* private mode */ }
+      onCreated(s)
+      onOpenChange(false)
+    } catch (err: unknown) {
+      setError(aiErrorMessage(err, t))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('ai.dialog.title')}</DialogTitle>
+          <DialogDescription>{t('ai.subtitle')}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          {/* Account first: it decides which tools are installed and which
+              directories are suggested, so everything below reacts to it. */}
+          <div className="space-y-1.5">
+            <Label>{t('ai.dialog.account')}</Label>
+            <Select value={runAs} onValueChange={(a) => { setRunAs(a); setCwd('') }}>
+              <SelectTrigger className="font-mono text-[12px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(tools?.accounts ?? [runAs]).map((a) => <SelectItem key={a} value={a} className="font-mono text-[12px]">{a}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">{t('ai.accountHint')}</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>{t('ai.dialog.tool')}</Label>
+            <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label={t('ai.dialog.tool')}>
+              {TOOLS.map((tl) => {
+                const meta = TOOL_META[tl]
+                const ok = installedFor(tl)
+                return (
+                  <button key={tl} type="button" role="radio" aria-checked={tool === tl} disabled={!ok}
+                    title={ok ? meta.label : t('ai.dialog.toolNotInstalled', { account: runAs })}
+                    onClick={() => setTool(tl)}
+                    className={cn('flex flex-col items-center gap-1 rounded-xl border p-2 text-[12px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                      tool === tl ? 'border-primary bg-primary/5' : 'hover:bg-accent', !ok && 'opacity-40 cursor-not-allowed')}>
+                    <span className="h-7 w-7 rounded-lg flex items-center justify-center text-[13px] font-bold"
+                      style={{ backgroundColor: `${meta.color}1a`, color: meta.color }}>{meta.initial}</span>
+                    {meta.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ai-cwd">{t('ai.dialog.dir')}</Label>
+            <Input id="ai-cwd" list="ai-dir-suggestions" value={cwd} onChange={(e) => setCwd(e.target.value)}
+              placeholder={t('ai.dialog.dirPlaceholder')} className="font-mono text-[12px]" spellCheck={false} />
+            <datalist id="ai-dir-suggestions">
+              {dirs?.recent.map((d) => <option key={'r' + d} value={d}>{t('ai.dialog.dirRecent')}</option>)}
+              {dirs?.stacks.map((d) => <option key={'s' + d} value={d}>{t('ai.dialog.dirStacks')}</option>)}
+              {dirs?.home && <option value={dirs.home}>{t('ai.dialog.dirHome')}</option>}
+            </datalist>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ai-title">{t('ai.dialog.name')}</Label>
+            <Input id="ai-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={defaultTitle(tool, cwd || '/')} maxLength={64} />
+          </div>
+          {error && <p role="alert" className="text-[12px] text-destructive">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)} disabled={busy}>{t('common.cancel')}</Button>
+          <Button className="rounded-xl" onClick={submit} disabled={busy || !cwd.trim()}>
+            {busy ? <><Loader2 className="animate-spin" aria-hidden="true" />{t('ai.dialog.creating')}</> : t('ai.dialog.create')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}

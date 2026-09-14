@@ -40,3 +40,27 @@ export function defaultTitle(tool: AITool, cwd: string): string {
 export function titlePrefix(n: number): string {
   return n > 0 ? `(${n}) ` : ''
 }
+
+type Translate = (key: string, opts?: Record<string, unknown>) => string
+
+/** Turns an api.request failure into the inline message the dialog shows. */
+export function aiErrorMessage(err: unknown, t: Translate): string {
+  if (!(err instanceof Error)) return t('ai.errors.generic')
+  const code = (err as Error & { code?: string }).code
+  switch (code) {
+    case 'INVALID_PATH':
+      return t('ai.errors.invalidPath', { reason: err.message.replace(/^cwd:\s*/, '') })
+    case 'INVALID_ACCOUNT':
+      return t('ai.errors.invalidAccount')
+    case 'INVALID_TOOL':
+      return t('ai.errors.invalidTool')
+    case 'AI_SESSION_LIMIT':
+      return t('ai.errors.limit')
+    case 'TMUX_MISSING':
+      return t('ai.errors.tmuxMissing')
+    case 'AI_SESSION_STATE':
+      return t('ai.errors.state')
+    default:
+      return err.message || t('ai.errors.generic')
+  }
+}
