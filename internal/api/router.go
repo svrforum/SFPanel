@@ -18,6 +18,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/config"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/docker"
+	featureAI "github.com/svrforum/SFPanel/internal/feature/ai"
 	featureAlert "github.com/svrforum/SFPanel/internal/feature/alert"
 	featureAppstore "github.com/svrforum/SFPanel/internal/feature/appstore"
 	featureAudit "github.com/svrforum/SFPanel/internal/feature/audit"
@@ -582,6 +583,18 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	packages.POST("/install-codex", packagesHandler.InstallCodex)
 	packages.GET("/gemini-status", packagesHandler.GetGeminiStatus)
 	packages.POST("/install-gemini", packagesHandler.InstallGemini)
+
+	// AI workspace: tmux-backed Claude/Codex/Gemini sessions and per-account
+	// CLI status. Per-node, local-only handlers; ?node= is the proxy's job.
+	aiHandler := featureAI.NewHandler(database, cmd, cfg.Server.StacksPath)
+	ai := authorized.Group("/ai")
+	ai.GET("/sessions", aiHandler.ListSessions)
+	ai.POST("/sessions", aiHandler.CreateSession)
+	ai.PATCH("/sessions/:id", aiHandler.RenameSession)
+	ai.POST("/sessions/:id/rerun", aiHandler.RerunSession)
+	ai.POST("/sessions/:id/restart", aiHandler.RestartSession)
+	ai.DELETE("/sessions/:id", aiHandler.DeleteSession)
+	ai.GET("/dirs", aiHandler.Dirs)
 
 	// Docker routes (only registered when Docker is available)
 	if dockerHandler != nil {
