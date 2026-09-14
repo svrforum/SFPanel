@@ -2,7 +2,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Menu } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { BOTTOM_NAV_ITEMS } from '@/lib/navigation'
+import { BOTTOM_NAV_ITEMS, isTerminalRoute } from '@/lib/navigation'
 
 interface BottomNavProps {
   onMorePress: () => void
@@ -12,8 +12,9 @@ export default function BottomNav({ onMorePress }: BottomNavProps) {
   const { t } = useTranslation()
   const location = useLocation()
 
-  // Terminal page has its own mobile toolbar — hide bottom nav there
-  if (location.pathname === '/terminal') return null
+  // The terminal pages have their own mobile key bar — hide the bottom nav
+  // there rather than stacking the two.
+  if (isTerminalRoute(location.pathname)) return null
 
   const navItems = BOTTOM_NAV_ITEMS.map((i) => ({
     to: i.to,

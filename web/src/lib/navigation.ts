@@ -53,6 +53,18 @@ export const NAV_ITEMS: NavEntry[] = [
   { to: '/settings', labelKey: 'layout.nav.settings', icon: Settings },
 ]
 
+/**
+ * Pages whose body is a full-bleed xterm with its own mobile key bar. The app
+ * shell drops its padding and hides the bottom nav on these: /ai hosts the
+ * same TerminalSession and the same MobileTerminalBar as /terminal, and the
+ * bottom bar sat on top of that key bar. Exact match — /ai/anything is not one.
+ */
+export const TERMINAL_ROUTES = ['/terminal', '/ai']
+
+export function isTerminalRoute(pathname: string): boolean {
+  return TERMINAL_ROUTES.includes(pathname)
+}
+
 /** The four mobile bottom-bar tabs — explicit order (terminal before logs). */
 const BOTTOM_NAV_ORDER = ['/dashboard', '/docker', '/terminal', '/logs']
 export const BOTTOM_NAV_ITEMS = BOTTOM_NAV_ORDER.map(

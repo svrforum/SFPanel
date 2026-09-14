@@ -6,7 +6,7 @@ import GithubIcon from '@/components/GithubIcon'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { NAV_ITEMS } from '@/lib/navigation'
+import { NAV_ITEMS, isTerminalRoute } from '@/lib/navigation'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import ClusterSidebar from '@/components/cluster/ClusterSidebar'
@@ -52,7 +52,7 @@ export default function Layout() {
   })
   const [clusterStatus, setClusterStatus] = useState<ClusterStatus | null>(null)
   const location = useLocation()
-  const isTerminal = location.pathname === '/terminal'
+  const isTerminal = isTerminalRoute(location.pathname)
 
   const handleNodeChanged = useCallback(() => {
     setNodeKey((k) => k + 1)

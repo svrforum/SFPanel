@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BOTTOM_NAV_ITEMS, MORE_MENU_ITEMS, NAV_ITEMS, NODE_MENU_ITEMS } from './navigation'
+import { BOTTOM_NAV_ITEMS, MORE_MENU_ITEMS, NAV_ITEMS, NODE_MENU_ITEMS, TERMINAL_ROUTES, isTerminalRoute } from './navigation'
 
 describe('NAV_ITEMS registry', () => {
   it('has a unique route per entry', () => {
@@ -68,5 +68,27 @@ describe('NODE_MENU_ITEMS', () => {
 
   it('does not mutate the shared registry entries', () => {
     expect(NAV_ITEMS.find((i) => i.labelKey === 'layout.nav.settings')?.to).toBe('/settings')
+  })
+})
+
+describe('isTerminalRoute', () => {
+  // Both pages host the same xterm and the same MobileTerminalBar; the shell
+  // has to drop its padding and hide the bottom nav on each, or the bar and
+  // the nav stack on mobile.
+  it('covers the terminal and the AI workspace', () => {
+    expect(isTerminalRoute('/terminal')).toBe(true)
+    expect(isTerminalRoute('/ai')).toBe(true)
+    expect(TERMINAL_ROUTES).toEqual(['/terminal', '/ai'])
+  })
+
+  it('matches exactly, so a child route is an ordinary page', () => {
+    expect(isTerminalRoute('/ai/x')).toBe(false)
+    expect(isTerminalRoute('/docker')).toBe(false)
+    expect(isTerminalRoute('')).toBe(false)
+  })
+
+  it('names routes that exist in the registry', () => {
+    const routes = new Set(NAV_ITEMS.map((i) => i.to))
+    for (const r of TERMINAL_ROUTES) expect(routes.has(r)).toBe(true)
   })
 })
