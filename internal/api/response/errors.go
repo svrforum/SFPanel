@@ -101,6 +101,16 @@ const (
 	ErrToolNotInstalled = "TOOL_NOT_INSTALLED"
 )
 
+// AI workspace error codes (internal/feature/ai)
+const (
+	ErrInvalidAccount    = "INVALID_ACCOUNT"      // run_as not in the allowlist (400)
+	ErrInvalidTool       = "INVALID_TOOL"         // tool not claude|codex|gemini|shell (400)
+	ErrTmuxMissing       = "TMUX_MISSING"         // tmux not installed on this node (503)
+	ErrAISessionNotFound = "AI_SESSION_NOT_FOUND" // no such row (404)
+	ErrAISessionLimit    = "AI_SESSION_LIMIT"     // 20 live sessions already (409)
+	ErrAISessionState    = "AI_SESSION_STATE"     // rerun/restart in the wrong state (409)
+)
+
 // Package (APT) error codes
 const (
 	ErrAPTError           = "APT_ERROR"

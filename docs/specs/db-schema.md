@@ -308,7 +308,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - `alert_history` 테이블 생성 (알림 발송 이력)
 - `idx_alert_history_created_at` 인덱스 생성
 
-### v4 이후 (migrations.go ID 8 – 35, v0.11.x – v0.51.x)
+### v4 이후 (migrations.go ID 8 – 36, v0.11.x – v0.51.x)
 
 권한 있는 출처는 `internal/db/migrations.go`. 본 단락은 변경 이력 요약입니다.
 
@@ -326,6 +326,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - **ID 32** — `metrics_history.disk_percent REAL NOT NULL DEFAULT 0`. 메트릭 히스토리에 디스크 사용률 열 추가.
 - **ID 33–34** — `backup_schedule` 테이블 + 기본 행(`id=1`, `enabled=0`, `interval_hours=24`, `retention=7`). 단일 행으로 예약 백업 설정을 보관.
 - **ID 35** — `admin.recovery_codes TEXT`. 2FA 복구 코드(단일 사용, 해시 저장)를 admin 행에 보관.
+- **ID 36** — `ai_sessions` (v0.73.0 AI 워크스페이스). 패널이 관리하는 tmux 세션의 식별자·도구·제목·실행 계정·작업 디렉터리. 생존 여부는 tmux가 진실이고 이 표는 신원과 이력만 보관 — `ended_at`이 채워진 행은 "다시 시작" 후보로 남는다. 노드 로컬(FSM 복제 없음).
 
 ---
 

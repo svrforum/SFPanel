@@ -205,6 +205,16 @@ var migrations = []migration{
 	// unused code hashes. Cluster accounts store the same list in the Raft FSM
 	// (RecoveryCodes map). NULL/empty = no codes generated.
 	{ID: 35, Up: `ALTER TABLE admin ADD COLUMN recovery_codes TEXT`},
+	{ID: 36, Up: `CREATE TABLE IF NOT EXISTS ai_sessions (
+		id               TEXT PRIMARY KEY,
+		tool             TEXT NOT NULL,
+		title            TEXT NOT NULL,
+		run_as           TEXT NOT NULL,
+		cwd              TEXT NOT NULL,
+		created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+		last_attached_at DATETIME,
+		ended_at         DATETIME
+	)`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been
