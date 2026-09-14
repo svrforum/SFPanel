@@ -48,6 +48,30 @@ func (h *Handler) attachArgv(acct Account, id string) (string, []string) {
 	return name, append(argv, "attach-session", "-t", id)
 }
 
+// What the attach client runs with.
+const (
+	attachTerm = "TERM=xterm-256color"
+	attachPath = "PATH=/usr/local/bin:/usr/bin:/bin"
+	attachLang = "LANG=C.UTF-8"
+)
+
+// attachEnv is the environment of the tmux client. The panel's own account
+// gets the panel's environment — same account, same privileges, nothing to
+// cross. Any other account gets these four variables and nothing else: the
+// client is exec'd through runuser and then runs as *them*, and after that
+// exec its /proc/self/environ is readable by them, so the panel's environment
+// would be theirs to read. `SFPANEL_JWT_SECRET` is a supported config
+// override (internal/config/config.go), i.e. the ability to mint admin
+// tokens; systemd's `NOTIFY_SOCKET` is a smaller instance of the same leak.
+// A tmux client needs no more than this: -f /dev/null leaves no config to
+// find and the socket path is derived from the uid, not from HOME.
+func attachEnv(base []string, acct, panel Account) []string {
+	if acct.Name == panel.Name {
+		return append(base, attachTerm)
+	}
+	return []string{attachTerm, attachPath, attachLang, "HOME=" + acct.Home}
+}
+
 type resizeMsg struct {
 	Type string `json:"type"`
 	Cols uint16 `json:"cols"`
@@ -64,13 +88,13 @@ func (h *Handler) AttachWS(jwtSecret string, auditWriter *sfdb.AsyncWriter, loca
 		}
 		id := c.QueryParam("session_id")
 		if !validSessionID(id) {
-			return c.JSON(http.StatusNotFound, map[string]string{"error": "no such session"})
+			return response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
 		}
 		acct := h.panel // a live session without a row is attached as the panel account
 		if row, found, err := getSessionRow(h.DB, id); err == nil && found {
 			a, ok := h.resolveAccount(row.RunAs)
 			if !ok {
-				return c.JSON(http.StatusBadRequest, map[string]string{"error": "the session's account no longer exists"})
+				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidAccount, "the session's account no longer exists")
 			}
 			acct = a
 		}
@@ -117,7 +141,7 @@ func (h *Handler) AttachWS(jwtSecret string, auditWriter *sfdb.AsyncWriter, loca
 		// *exec.Cmd, and the process lives exactly as long as this socket.
 		name, argv := h.attachArgv(acct, id)
 		cmd := osExec.Command(name, argv...)
-		cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+		cmd.Env = attachEnv(os.Environ(), acct, h.panel)
 		ptmx, err := pty.Start(cmd)
 		if err != nil {
 			_ = send(websocket.TextMessage, []byte("Failed to attach: "+response.SanitizeOutput(err.Error())))

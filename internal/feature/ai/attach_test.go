@@ -1,6 +1,9 @@
 package ai
 
 import (
+	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -9,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/common/exec"
 )
@@ -88,7 +92,84 @@ func TestAttachWS_RefusesBadIDBeforeUpgrade(t *testing.T) {
 	defer srv.Close()
 	tok, _ := auth.GenerateToken("admin", "test-secret", time.Minute)
 	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/ai/attach?session_id=../work&token=" + tok
-	if _, resp, err := websocket.DefaultDialer.Dial(url, nil); err == nil || resp == nil || resp.StatusCode != 404 {
-		t.Errorf("a malformed id must be a 404 before the upgrade; got err=%v resp=%v", err, resp)
+	_, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if err == nil || resp == nil || resp.StatusCode != 404 {
+		t.Fatalf("a malformed id must be a 404 before the upgrade; got err=%v resp=%v", err, resp)
+	}
+	// The refusal is the module's own code, not a bare English sentence: the
+	// page keys its i18n string off it, as it does for /ai/sessions/:id.
+	if code, _ := dialFailCode(t, resp); code != response.ErrAISessionNotFound {
+		t.Errorf("code = %s, want %s", code, response.ErrAISessionNotFound)
+	}
+}
+
+// The row's account left the allowlist (bob has a nologin shell), so there is
+// no account to attach as. Refused before the upgrade, with the same code the
+// REST routes use for it.
+func TestAttachWS_RefusesAGoneAccountBeforeUpgrade(t *testing.T) {
+	h := newTestHandler(t, &exec.MockCommander{})
+	h.DB = openTestDB(t)
+	if err := insertSession(h.DB, sessionRow{ID: "bbbbbbbbbbbb", Tool: ToolClaude, Title: "b", RunAs: "bob", CWD: "/"}); err != nil {
+		t.Fatal(err)
+	}
+	e := echo.New()
+	e.GET("/ws/ai/attach", h.AttachWS("test-secret", nil, nil))
+	srv := httptest.NewServer(e)
+	defer srv.Close()
+	tok, _ := auth.GenerateToken("admin", "test-secret", time.Minute)
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/ai/attach?session_id=bbbbbbbbbbbb&token=" + tok
+	_, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if err == nil || resp == nil || resp.StatusCode != 400 {
+		t.Fatalf("a vanished account must be a 400 before the upgrade; got err=%v resp=%v", err, resp)
+	}
+	if code, _ := dialFailCode(t, resp); code != response.ErrInvalidAccount {
+		t.Errorf("code = %s, want %s", code, response.ErrInvalidAccount)
+	}
+}
+
+// dialFailCode reads the failure envelope out of a refused WS handshake.
+// gorilla keeps up to 1 KiB of the response body on ErrBadHandshake.
+func dialFailCode(t *testing.T, resp *http.Response) (string, string) {
+	t.Helper()
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env response.Response
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("bad envelope %q: %v", body, err)
+	}
+	if env.Success || env.Error == nil {
+		t.Fatalf("expected a failure envelope, got %q", body)
+	}
+	return env.Error.Code, env.Error.Message
+}
+
+// The client is exec'd through runuser and then runs as the account, which can
+// read its own /proc/self/environ. SFPANEL_JWT_SECRET is a supported config
+// override, so inheriting the panel's environment would hand a less privileged
+// account the JWT signing key — the ability to mint admin tokens, which is the
+// boundary runuser is there to draw.
+func TestAttachEnv_ANonPanelAccountInheritsNothing(t *testing.T) {
+	h := newTestHandler(t, nil)
+	base := []string{"PATH=/usr/sbin:/usr/bin", "HOME=/root", "SFPANEL_JWT_SECRET=signing-key", "NOTIFY_SOCKET=/run/systemd/notify"}
+
+	env := attachEnv(base, Account{Name: "alice", Home: "/home/alice"}, h.panel)
+	for _, key := range []string{"SFPANEL_JWT_SECRET", "NOTIFY_SOCKET"} {
+		if got := lastEnv(env, key); got != "" {
+			t.Errorf("alice's client carries %s=%q; env = %q", key, got, env)
+		}
+	}
+	if lastEnv(env, "TERM") != "xterm-256color" || lastEnv(env, "HOME") != "/home/alice" ||
+		lastEnv(env, "PATH") == "" || lastEnv(env, "LANG") != "C.UTF-8" {
+		t.Errorf("alice's client needs TERM, PATH, LANG and its own HOME; env = %q", env)
+	}
+
+	// The panel's own account is not a boundary — the client has exactly the
+	// privileges the panel already has — so it keeps the inherited environment.
+	env = attachEnv(base, h.panel, h.panel)
+	if lastEnv(env, "SFPANEL_JWT_SECRET") != "signing-key" || lastEnv(env, "TERM") != "xterm-256color" {
+		t.Errorf("the panel account's client = %q", env)
 	}
 }
