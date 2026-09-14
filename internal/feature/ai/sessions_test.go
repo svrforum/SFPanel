@@ -171,7 +171,7 @@ func TestCreateSession_StartsTheServerAsAServiceAndStoresRow(t *testing.T) {
 		t.Errorf("created_at %q is not RFC 3339: %v", s.CreatedAt, err)
 	}
 	alice, _ := h.resolveAccount("alice")
-	want := "--unit=sfpanel-ai-1000 --collect --uid=alice --gid=1000 -p Type=forking -E LANG=C.UTF-8 -E COLORTERM=truecolor -- tmux -f /dev/null -S " + h.socketPath(alice)
+	want := "--unit=sfpanel-ai-1000 --collect --uid=alice --gid=1000 -p Type=forking --setenv=LANG=C.UTF-8 --setenv=COLORTERM=truecolor -- tmux -f /dev/null -S " + h.socketPath(alice)
 	var spawned bool
 	for _, c := range m.Calls {
 		if c.Name != "systemd-run" {

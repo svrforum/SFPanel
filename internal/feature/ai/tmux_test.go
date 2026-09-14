@@ -41,7 +41,7 @@ func TestSpawnArgv_ServerFormIsATransientService(t *testing.T) {
 		t.Fatalf("name = %q, want systemd-run", name)
 	}
 	prefix := []string{"--unit=sfpanel-ai-1000", "--collect", "--uid=alice", "--gid=1000",
-		"-p", "Type=forking", "-E", "LANG=C.UTF-8", "-E", "COLORTERM=truecolor",
+		"-p", "Type=forking", "--setenv=LANG=C.UTF-8", "--setenv=COLORTERM=truecolor",
 		"--", "tmux", "-f", "/dev/null", "-S", h.socketPath(alice)}
 	if !slices.Equal(argv[:len(prefix)], prefix) {
 		t.Errorf("argv prefix = %q\nwant %q", argv[:len(prefix)], prefix)
@@ -89,7 +89,7 @@ func TestSpawnArgv_ClientFormTalksToTheRunningServer(t *testing.T) {
 }
 
 // new-session carries no -e in either form: the session environment is the
-// server's, and the server got it from systemd (-E) or from the env prefix
+// server's, and the server got it from systemd (--setenv) or from the env prefix
 // that started it. A -e pair here would be the only copy that disagreed.
 func TestSpawnArgv_NoPerSessionEnvironmentPairs(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})

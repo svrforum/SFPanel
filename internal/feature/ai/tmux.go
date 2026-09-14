@@ -294,7 +294,7 @@ func (h *Handler) serverRunning(acct Account) bool {
 // interactive shell when the tool exits instead of closing the session.
 //
 // No `-e` pairs: the session environment is the server's, and the server got
-// it from systemd (-E) or from the env prefix that started it.
+// it from systemd (--setenv) or from the env prefix that started it.
 func sessionCommands(term, id, cwd, tool string) []string {
 	var argv []string
 	for _, opt := range tmuxOptions(term) {
@@ -313,7 +313,7 @@ func sessionCommands(term, id, cwd, tool string) []string {
 //
 //	# server form — the account has no tmux server yet
 //	systemd-run --unit=sfpanel-ai-<uid> --collect --uid=<acct> --gid=<gid>
-//	  -p Type=forking -E LANG=C.UTF-8 -E COLORTERM=truecolor --
+//	  -p Type=forking --setenv=LANG=C.UTF-8 --setenv=COLORTERM=truecolor --
 //	  tmux -f /dev/null -S <socket> <options…> ; new-session -d -s <id> …
 //
 //	# client form — the server is already up (or the setsid fallback)
@@ -337,7 +337,7 @@ func (h *Handler) spawnArgv(id, cwd, tool string, acct Account, form spawnForm) 
 			"--unit=" + unitName(acct), "--collect",
 			"--uid=" + acct.Name, "--gid=" + strconv.Itoa(acct.GID),
 			"-p", "Type=forking",
-			"-E", "LANG=C.UTF-8", "-E", "COLORTERM=truecolor",
+			"--setenv=LANG=C.UTF-8", "--setenv=COLORTERM=truecolor",
 			"--", "tmux", "-f", "/dev/null", "-S", h.socketPath(acct),
 		}
 		return "systemd-run", append(argv, cmds...)
