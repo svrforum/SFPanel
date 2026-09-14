@@ -577,12 +577,6 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	packages.POST("/node-switch", packagesHandler.SwitchNodeVersion)
 	packages.POST("/node-install-version", packagesHandler.InstallNodeVersion)
 	packages.POST("/node-uninstall-version", packagesHandler.UninstallNodeVersion)
-	packages.GET("/claude-status", packagesHandler.GetClaudeStatus)
-	packages.POST("/install-claude", packagesHandler.InstallClaude)
-	packages.GET("/codex-status", packagesHandler.GetCodexStatus)
-	packages.POST("/install-codex", packagesHandler.InstallCodex)
-	packages.GET("/gemini-status", packagesHandler.GetGeminiStatus)
-	packages.POST("/install-gemini", packagesHandler.InstallGemini)
 
 	// AI workspace: tmux-backed Claude/Codex/Gemini sessions and per-account
 	// CLI status. Per-node, local-only handlers; ?node= is the proxy's job.
@@ -596,6 +590,8 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	ai.DELETE("/sessions/:id", aiHandler.DeleteSession)
 	ai.GET("/dirs", aiHandler.Dirs)
 	ai.GET("/tools", aiHandler.Tools)
+	ai.POST("/tools/:tool/install-stream", aiHandler.InstallStream)
+	ai.POST("/tools/:tool/update-stream", aiHandler.UpdateStream)
 
 	// Docker routes (only registered when Docker is available)
 	if dockerHandler != nil {

@@ -28,6 +28,7 @@ func isStreamingEndpoint(path string) bool {
 	switch {
 	case strings.HasSuffix(path, "/up-stream"),
 		strings.HasSuffix(path, "/update-stream"),
+		strings.HasSuffix(path, "/install-stream"),
 		strings.HasSuffix(path, "/system/update"):
 		return true
 	case strings.Contains(path, "/appstore/apps/") && strings.HasSuffix(path, "/install"):
@@ -36,9 +37,6 @@ func isStreamingEndpoint(path string) bool {
 	case strings.HasSuffix(path, "/packages/upgrade"),
 		strings.HasSuffix(path, "/packages/install-docker"),
 		strings.HasSuffix(path, "/packages/install-node"),
-		strings.HasSuffix(path, "/packages/install-claude"),
-		strings.HasSuffix(path, "/packages/install-codex"),
-		strings.HasSuffix(path, "/packages/install-gemini"),
 		strings.HasSuffix(path, "/packages/node-install-version"):
 		return true
 	// Docker image pull (SSE progress events from the daemon).

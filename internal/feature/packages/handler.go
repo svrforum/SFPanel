@@ -34,13 +34,13 @@ type Handler struct {
 	Cmd exec.Commander
 
 	// status memoises the Get*Status answers. Opening the packages page runs
-	// five CLIs to ask their versions — node, npm, claude, codex, docker,
-	// each a couple of hundred milliseconds of process start-up, measured —
-	// for answers that change only when something is installed or switched,
-	// and this handler is what does the installing. Kept for statusTTL and
-	// dropped by every mutation here; an install done from a shell shows up
-	// within the TTL. Docker's running state is not memoised: it is one cheap
-	// systemctl query and it can change under the panel at any moment.
+	// node, npm and docker to ask their versions — each a couple of hundred
+	// milliseconds of process start-up, measured — for answers that change
+	// only when something is installed or switched, and this handler is what
+	// does the installing. Kept for statusTTL and dropped by every mutation
+	// here; an install done from a shell shows up within the TTL. Docker's
+	// running state is not memoised: it is one cheap systemctl query and it
+	// can change under the panel at any moment.
 	statusMu sync.Mutex
 	status   map[string]statusEntry
 }
@@ -550,33 +550,6 @@ func (h *Handler) GetDockerStatus(c echo.Context) error {
 	return response.OK(c, status)
 }
 
-// downloadInstaller fetches an installer script into a freshly created
-// private temp file (random name, 0600) and returns its path plus curl's
-// combined output for SSE replay. A fixed name in world-writable /tmp would
-// let a local unprivileged user pre-create or swap the script between the
-// release.VerifyInstaller hash check and execution (TOCTOU → root code
-// execution). Scripts run via "sh/bash <path>", so no +x bit is needed.
-// On success the caller must os.Remove the returned path (defer).
-func downloadInstaller(ctx context.Context, url string) (string, string, error) {
-	f, err := os.CreateTemp("", "sfpanel-installer-*.sh")
-	if err != nil {
-		return "", "", fmt.Errorf("create installer temp file: %w", err)
-	}
-	path := f.Name()
-	f.Close()
-
-	// Part of the documented SSE install flow (os/exec exception); ctx kills
-	// the download with the request. curl -o truncates the existing file in
-	// place, preserving the 0600 mode and owner set by CreateTemp.
-	cmd := osExec.CommandContext(ctx, "curl", "-fsSL", url, "-o", path)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		os.Remove(path)
-		return "", string(out), err
-	}
-	return path, string(out), nil
-}
-
 // ---------- InstallDocker ----------
 
 // InstallDocker installs Docker Engine using the official get.docker.com script.
@@ -607,7 +580,7 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 	// Step 1: Download get-docker.sh (30s timeout) into a private temp file
 	dlCtx, dlCancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 	defer dlCancel()
-	scriptPath, dlOut, err := downloadInstaller(dlCtx, "https://get.docker.com")
+	scriptPath, dlOut, err := release.DownloadInstaller(dlCtx, "https://get.docker.com")
 	for _, line := range strings.Split(dlOut, "\n") {
 		if line != "" {
 			sendLine(line)
@@ -762,7 +735,7 @@ func (h *Handler) InstallNode(c echo.Context) error {
 
 		dlCtx, dlCancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 		defer dlCancel()
-		scriptPath, dlOut, err := downloadInstaller(dlCtx, "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh")
+		scriptPath, dlOut, err := release.DownloadInstaller(dlCtx, "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh")
 		for _, line := range strings.Split(dlOut, "\n") {
 			if line != "" {
 				sendLine(line)
@@ -1117,8 +1090,6 @@ func (h *Handler) UninstallNodeVersion(c echo.Context) error {
 	return response.OK(c, map[string]string{"removed": body.Version, "output": strings.TrimSpace(out)})
 }
 
-// ---------- GetClaudeStatus ----------
-
 // findNVMDir searches for NVM installation across root and user home directories.
 var safePathRe = regexp.MustCompile(`^[a-zA-Z0-9/_.-]+$`)
 
@@ -1140,342 +1111,4 @@ func findNVMDir() string {
 		}
 	}
 	return ""
-}
-
-// findBinaryPath searches for a binary in PATH and common user-local directories.
-// When multiple candidates exist (e.g. /root/.local/bin/claude AND
-// /home/devuser/.local/bin/claude), pick the most-recently-modified one — without
-// this, an old root install would shadow a fresh user install and the version
-// shown in the UI would be stale.
-func findBinaryPath(name string) string {
-	if p, err := osExec.LookPath(name); err == nil && p != "" {
-		return p
-	}
-	candidates := []string{
-		"/root/.local/bin/" + name,
-		"/usr/local/bin/" + name,
-	}
-	if entries, err := os.ReadDir("/home"); err == nil {
-		for _, e := range entries {
-			if e.IsDir() {
-				candidates = append(candidates, "/home/"+e.Name()+"/.local/bin/"+name)
-			}
-		}
-	}
-
-	var bestPath string
-	var bestMtime time.Time
-	for _, p := range candidates {
-		info, err := os.Stat(p)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		if info.ModTime().After(bestMtime) {
-			bestMtime = info.ModTime()
-			bestPath = p
-		}
-	}
-	return bestPath
-}
-
-// GetClaudeStatus checks whether Claude Code CLI is installed.
-// GET /packages/claude-status
-func (h *Handler) GetClaudeStatus(c echo.Context) error {
-	if cached, ok := h.cachedStatus("claude"); ok {
-		return response.OK(c, cached)
-	}
-	status := map[string]interface{}{
-		"installed": false,
-		"version":   "",
-	}
-	defer h.storeStatus("claude", status)
-
-	claudePath := findBinaryPath("claude")
-	if claudePath == "" {
-		return response.OK(c, status)
-	}
-	status["installed"] = true
-
-	versionOutput, err := h.Cmd.Run(claudePath, "--version")
-	if err == nil {
-		status["version"] = strings.TrimSpace(versionOutput)
-	}
-
-	return response.OK(c, status)
-}
-
-// ---------- InstallClaude ----------
-
-// InstallClaude installs Claude Code CLI using the official install script.
-// Uses Server-Sent Events (SSE) to stream installation output in real-time.
-// POST /packages/install-claude
-func (h *Handler) InstallClaude(c echo.Context) error {
-	defer h.invalidateStatus()
-	c.Response().Header().Set("Content-Type", "text/event-stream")
-	c.Response().Header().Set("Cache-Control", "no-cache")
-	c.Response().Header().Set("Connection", "keep-alive")
-	c.Response().WriteHeader(http.StatusOK)
-
-	flusher, ok := c.Response().Writer.(http.Flusher)
-	if !ok {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrSSEError, "Streaming not supported")
-	}
-
-	sendLine := func(line string) {
-		// Sanitize centrally so every SSE line — status, error, and streamed
-		// command output — is stripped of ANSI and secret patterns uniformly.
-		fmt.Fprintf(c.Response(), "data: %s\n\n", response.SanitizeOutput(line))
-		flusher.Flush()
-	}
-
-	sendLine(">>> Installing Claude Code CLI ...")
-
-	dlCtx, dlCancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
-	defer dlCancel()
-	scriptPath, dlOut, err := downloadInstaller(dlCtx, "https://claude.ai/install.sh")
-	for _, line := range strings.Split(dlOut, "\n") {
-		if line != "" {
-			sendLine(line)
-		}
-	}
-	if err != nil {
-		sendLine("ERROR: Failed to download Claude install script: " + err.Error())
-		sendLine("[DONE]")
-		return nil
-	}
-	defer os.Remove(scriptPath)
-
-	// Verify SHA-256 if operator pinned one. Soft-pass when env unset.
-	if err := release.VerifyInstaller(scriptPath, "SFPANEL_CLAUDE_INSTALLER_SHA256", "claude"); err != nil {
-		sendLine("ERROR: " + response.SanitizeOutput(err.Error()))
-		sendLine("[DONE]")
-		return nil
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
-	defer cancel()
-
-	cmd := osExec.CommandContext(ctx, "bash", scriptPath)
-	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		sendLine("ERROR: " + err.Error())
-		sendLine("[DONE]")
-		return nil
-	}
-	cmd.Stderr = cmd.Stdout
-
-	if err := cmd.Start(); err != nil {
-		sendLine("ERROR: Failed to start Claude install: " + err.Error())
-		sendLine("[DONE]")
-		return nil
-	}
-
-	scanner := bufio.NewScanner(stdout)
-	exec.PrepareScanner(scanner)
-	for scanner.Scan() {
-		sendLine(scanner.Text())
-	}
-
-	if err := cmd.Wait(); err != nil {
-		sendLine("ERROR: Claude install failed: " + err.Error())
-		sendLine("[DONE]")
-		return nil
-	}
-
-	sendLine(">>> Claude Code CLI installed successfully!")
-	sendLine("[DONE]")
-	return nil
-}
-
-// ---------- GetCodexStatus ----------
-
-// GetCodexStatus checks whether OpenAI Codex CLI is installed.
-// GET /packages/codex-status
-func (h *Handler) GetCodexStatus(c echo.Context) error {
-	if cached, ok := h.cachedStatus("codex"); ok {
-		return response.OK(c, cached)
-	}
-	status := map[string]interface{}{
-		"installed": false,
-		"version":   "",
-	}
-	defer h.storeStatus("codex", status)
-
-	codexPath := findBinaryPath("codex")
-	if codexPath == "" {
-		return response.OK(c, status)
-	}
-	status["installed"] = true
-
-	versionOutput, err := h.Cmd.Run(codexPath, "--version")
-	if err == nil {
-		status["version"] = strings.TrimSpace(versionOutput)
-	}
-
-	return response.OK(c, status)
-}
-
-// ---------- InstallCodex ----------
-
-// InstallCodex installs OpenAI Codex CLI via npm.
-// Uses Server-Sent Events (SSE) to stream installation output in real-time.
-// POST /packages/install-codex
-func (h *Handler) InstallCodex(c echo.Context) error {
-	defer h.invalidateStatus()
-	c.Response().Header().Set("Content-Type", "text/event-stream")
-	c.Response().Header().Set("Cache-Control", "no-cache")
-	c.Response().Header().Set("Connection", "keep-alive")
-	c.Response().WriteHeader(http.StatusOK)
-
-	flusher, ok := c.Response().Writer.(http.Flusher)
-	if !ok {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrSSEError, "Streaming not supported")
-	}
-
-	sendLine := func(line string) {
-		// Sanitize centrally so every SSE line — status, error, and streamed
-		// command output — is stripped of ANSI and secret patterns uniformly.
-		fmt.Fprintf(c.Response(), "data: %s\n\n", response.SanitizeOutput(line))
-		flusher.Flush()
-	}
-
-	// Check npm is available
-	if !h.Cmd.Exists("npm") {
-		sendLine("ERROR: npm is not installed. Please install Node.js first.")
-		sendLine("[DONE]")
-		return nil
-	}
-
-	sendLine(">>> Installing OpenAI Codex CLI via npm ...")
-
-	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
-	defer cancel()
-
-	cmd := osExec.CommandContext(ctx, "npm", "install", "-g", "@openai/codex")
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		sendLine("ERROR: " + err.Error())
-		sendLine("[DONE]")
-		return nil
-	}
-	cmd.Stderr = cmd.Stdout
-
-	if err := cmd.Start(); err != nil {
-		sendLine("ERROR: Failed to start Codex install: " + err.Error())
-		sendLine("[DONE]")
-		return nil
-	}
-
-	scanner := bufio.NewScanner(stdout)
-	exec.PrepareScanner(scanner)
-	for scanner.Scan() {
-		sendLine(scanner.Text())
-	}
-
-	if err := cmd.Wait(); err != nil {
-		sendLine("ERROR: Codex install failed: " + err.Error())
-		sendLine("[DONE]")
-		return nil
-	}
-
-	sendLine(">>> OpenAI Codex CLI installed successfully!")
-	sendLine("[DONE]")
-	return nil
-}
-
-// ---------- GetGeminiStatus ----------
-
-// GetGeminiStatus checks whether Google Gemini CLI is installed.
-// GET /packages/gemini-status
-func (h *Handler) GetGeminiStatus(c echo.Context) error {
-	if cached, ok := h.cachedStatus("gemini"); ok {
-		return response.OK(c, cached)
-	}
-	status := map[string]interface{}{
-		"installed": false,
-		"version":   "",
-	}
-	defer h.storeStatus("gemini", status)
-
-	geminiPath := findBinaryPath("gemini")
-	if geminiPath == "" {
-		return response.OK(c, status)
-	}
-	status["installed"] = true
-
-	versionOutput, err := h.Cmd.Run(geminiPath, "--version")
-	if err == nil {
-		status["version"] = strings.TrimSpace(versionOutput)
-	}
-
-	return response.OK(c, status)
-}
-
-// ---------- InstallGemini ----------
-
-// InstallGemini installs Google Gemini CLI via npm.
-// Uses Server-Sent Events (SSE) to stream installation output in real-time.
-// POST /packages/install-gemini
-func (h *Handler) InstallGemini(c echo.Context) error {
-	defer h.invalidateStatus()
-	c.Response().Header().Set("Content-Type", "text/event-stream")
-	c.Response().Header().Set("Cache-Control", "no-cache")
-	c.Response().Header().Set("Connection", "keep-alive")
-	c.Response().WriteHeader(http.StatusOK)
-
-	flusher, ok := c.Response().Writer.(http.Flusher)
-	if !ok {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrSSEError, "Streaming not supported")
-	}
-
-	sendLine := func(line string) {
-		// Sanitize centrally so every SSE line — status, error, and streamed
-		// command output — is stripped of ANSI and secret patterns uniformly.
-		fmt.Fprintf(c.Response(), "data: %s\n\n", response.SanitizeOutput(line))
-		flusher.Flush()
-	}
-
-	// Check npm is available
-	if !h.Cmd.Exists("npm") {
-		sendLine("ERROR: npm is not installed. Please install Node.js first.")
-		sendLine("[DONE]")
-		return nil
-	}
-
-	sendLine(">>> Installing Google Gemini CLI via npm ...")
-
-	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
-	defer cancel()
-
-	cmd := osExec.CommandContext(ctx, "npm", "install", "-g", "@google/gemini-cli")
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		sendLine("ERROR: " + err.Error())
-		sendLine("[DONE]")
-		return nil
-	}
-	cmd.Stderr = cmd.Stdout
-
-	if err := cmd.Start(); err != nil {
-		sendLine("ERROR: Failed to start Gemini install: " + err.Error())
-		sendLine("[DONE]")
-		return nil
-	}
-
-	scanner := bufio.NewScanner(stdout)
-	exec.PrepareScanner(scanner)
-	for scanner.Scan() {
-		sendLine(scanner.Text())
-	}
-
-	if err := cmd.Wait(); err != nil {
-		sendLine("ERROR: Gemini install failed: " + err.Error())
-		sendLine("[DONE]")
-		return nil
-	}
-
-	sendLine(">>> Google Gemini CLI installed successfully!")
-	sendLine("[DONE]")
-	return nil
 }

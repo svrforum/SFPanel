@@ -59,9 +59,6 @@ func TestIsStreamingEndpoint(t *testing.T) {
 		// fall through to gRPC unary (30s + 4MB cap) on remote-node calls.
 		{"/api/v1/packages/install-docker", true},
 		{"/api/v1/packages/install-node", true},
-		{"/api/v1/packages/install-claude", true},
-		{"/api/v1/packages/install-codex", true},
-		{"/api/v1/packages/install-gemini", true},
 		{"/api/v1/packages/node-install-version", true},
 		{"/api/v1/packages/upgrade", true},
 		// Long-running docker image pull (SSE).
@@ -70,6 +67,9 @@ func TestIsStreamingEndpoint(t *testing.T) {
 		{"/api/v1/network/tailscale/install", true},
 		// Cluster orchestrated rolling update (SSE on the leader).
 		{"/api/v1/cluster/update", true},
+		// AI CLI install/update (SSE, minutes for a cold npm install).
+		{"/api/v1/ai/tools/claude/install-stream", true},
+		{"/api/v1/ai/tools/codex/update-stream", true},
 		// Stack migrate orchestrator (SSE phase stream).
 		{"/api/v1/docker/compose/myproj/migrate", true},
 		// Sync POSTs that intentionally stay unary.
@@ -112,9 +112,6 @@ func TestStreamingAllowlist_KnownSSEHandlers(t *testing.T) {
 		"/api/v1/packages/upgrade",
 		"/api/v1/packages/install-docker",
 		"/api/v1/packages/install-node",
-		"/api/v1/packages/install-claude",
-		"/api/v1/packages/install-codex",
-		"/api/v1/packages/install-gemini",
 		"/api/v1/packages/node-install-version",
 		// compose (project-templated)
 		"/api/v1/docker/compose/myproj/up-stream",
@@ -124,6 +121,9 @@ func TestStreamingAllowlist_KnownSSEHandlers(t *testing.T) {
 		"/api/v1/network/tailscale/install",
 		// cluster orchestrator
 		"/api/v1/cluster/update",
+		// ai (tool-templated)
+		"/api/v1/ai/tools/claude/install-stream",
+		"/api/v1/ai/tools/claude/update-stream",
 	}
 	for _, p := range sseRoutes {
 		if !isStreamingEndpoint(p) {

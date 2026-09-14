@@ -1,4 +1,4 @@
-package packages
+package release
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// downloadInstaller must place the script in a private, randomly named temp
+// DownloadInstaller must place the script in a private, randomly named temp
 // file — the fixed /tmp names it replaced were a TOCTOU hole (a local user
 // could swap the file between the hash check and execution).
 func TestDownloadInstaller_PrivateTempFile(t *testing.T) {
@@ -26,9 +26,9 @@ func TestDownloadInstaller_PrivateTempFile(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	path, out, err := downloadInstaller(context.Background(), srv.URL)
+	path, out, err := DownloadInstaller(context.Background(), srv.URL)
 	if err != nil {
-		t.Fatalf("downloadInstaller failed: %v (curl output: %q)", err, out)
+		t.Fatalf("DownloadInstaller failed: %v (curl output: %q)", err, out)
 	}
 	defer os.Remove(path)
 
@@ -70,7 +70,7 @@ func TestDownloadInstaller_CleansUpOnFailure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	path, _, err := downloadInstaller(context.Background(), srv.URL)
+	path, _, err := DownloadInstaller(context.Background(), srv.URL)
 	if err == nil {
 		os.Remove(path)
 		t.Fatal("expected error for HTTP 404 download")
