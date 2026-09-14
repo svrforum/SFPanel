@@ -3659,7 +3659,8 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
 | `tools.*.version` | 그 계정의 `bash -l`이 실제로 실행하는 바이너리의 버전 (계정·도구별 10분 캐시, 설치/업데이트 시 무효화) |
 | `tools.*.latest` | Claude: `downloads.claude.ai/claude-code-releases/latest`, Codex/Gemini: npm 레지스트리. 1시간 캐시, 실패 시 `""` |
 | `tools.*.logged_in` | 계정 홈의 자격증명 파일 존재 여부 (힌트) |
-| `tmux.supported` | `tmux -V`가 `min_version`(3.2) 이상인지. 설치돼 있으나 낮으면 세션 생성/재시작이 `TMUX_MISSING`(503)으로 거절되고 배너가 업그레이드를 안내한다. 버전을 읽지 못하면 `true`(막지 않음) |
+| `tmux.supported` | `tmux -V`가 `min_version`(3.2) 이상인지. 설치돼 있으나 낮으면 세션 생성/재시작이 `TMUX_MISSING`(503)으로 거절되고 배너가 업그레이드를 안내한다. 버전을 읽지 못하면 `true`(막지 않음). `tmux -V` 결과는 10분 캐시 |
+| `systemd_run` | 다음 spawn이 서버 폼(transient 서비스)을 쓸 수 있는지 = 패널이 root **그리고** 호스트에 `systemd-run`이 있음. 세션의 `persistence`와 같은 판정이며, `false`면 페이지 배너가 탭의 `process` 표시를 설명한다 |
 
 | 코드 | HTTP | 조건 |
 |------|------|------|

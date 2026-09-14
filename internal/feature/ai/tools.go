@@ -158,6 +158,9 @@ type toolsResponse struct {
 		Supported  bool   `json:"supported"`
 		MinVersion string `json:"min_version"`
 	} `json:"tmux"`
+	// SystemdRun is serviceFormAvailable(), not merely "systemd-run is on the
+	// host": it is what the page's banner reads to explain the per-tab
+	// "process" marker, and the marker is set by the same predicate.
 	SystemdRun   bool                  `json:"systemd_run"`
 	Accounts     []string              `json:"accounts"`
 	PanelAccount string                `json:"panel_account"`
@@ -179,7 +182,7 @@ func (h *Handler) Tools(c echo.Context) error {
 	}
 	resp.Tmux.Supported = tmuxVersionSupported(resp.Tmux.Version)
 	resp.Tmux.MinVersion = tmuxMinVersion
-	resp.SystemdRun = h.haveSystemdRun()
+	resp.SystemdRun = h.serviceFormAvailable()
 	resp.Accounts = []string{}
 	for _, a := range h.accounts() {
 		resp.Accounts = append(resp.Accounts, a.Name)

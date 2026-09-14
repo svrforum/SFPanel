@@ -167,6 +167,15 @@ func (h *Handler) defaultTerminal() string {
 
 func (h *Handler) haveSystemdRun() bool { return h.Cmd.Exists("systemd-run") }
 
+// serviceFormAvailable is whether the next spawn could take the server form:
+// only root may ask PID 1 to run a unit as another account, and systemd-run
+// has to be on the host. The one predicate behind all three of spawnFormFor,
+// persistence() and the systemd_run field of the /ai/tools bundle — when the
+// bundle asked haveSystemdRun() alone, a non-root panel put the "will not
+// survive a panel restart" marker on every tab and answered the page that
+// everything was fine, so nothing on it explained the marker.
+func (h *Handler) serviceFormAvailable() bool { return h.isRoot() && h.haveSystemdRun() }
+
 // leadingVersion is the major.minor at the *start* of a tmux version string:
 // "3.2a" and "3.6a" parse, "next-3.5" and "" do not. ok=false is the answer
 // for anything unreadable, and every caller treats that as supported — a
@@ -246,7 +255,7 @@ func (h *Handler) spawnFormFor(acct Account) spawnForm {
 	if h.serverRunning(acct) {
 		return spawnClient
 	}
-	if h.isRoot() && h.haveSystemdRun() {
+	if h.serviceFormAvailable() {
 		return spawnService
 	}
 	return spawnSetsid

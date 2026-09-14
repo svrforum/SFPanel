@@ -1352,7 +1352,7 @@
       "install": "tmux 설치",
       "installing": "tmux 설치 중…",
       "installed": "tmux가 설치되었습니다",
-      "noService": "systemd-run이 없어 세션이 패널 재시작을 넘기지 못합니다"
+      "noService": "세션이 패널 재시작을 넘기지 못합니다 (systemd 서비스로 띄울 수 없음)"
     },
     "state": {
       "working": "작업 중",

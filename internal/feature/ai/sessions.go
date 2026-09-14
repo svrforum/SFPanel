@@ -89,7 +89,7 @@ func validateCWD(p string) (string, string) {
 // arrangement that outlives a panel restart — and "process" when it cannot
 // and the server is merely setsid'd off the panel.
 func (h *Handler) persistence() string {
-	if h.isRoot() && h.haveSystemdRun() {
+	if h.serviceFormAvailable() {
 		return "service"
 	}
 	return "process"

@@ -170,3 +170,40 @@ func TestTools_BundleAndAccountGuard(t *testing.T) {
 		t.Errorf("bob: %s, want INVALID_ACCOUNT", code)
 	}
 }
+
+// systemd_run is "the service form is available", not "the binary is on the
+// host". A non-root panel cannot ask PID 1 to run a unit as anyone, so every
+// tab it creates carries the "process" marker — and while the bundle reported
+// the binary alone, the page suppressed the one line that explains the marker
+// and the operator was left with an unexplained warning on every tab.
+func TestTools_SystemdRunMeansTheServiceFormIsAvailable(t *testing.T) {
+	for _, tool := range cliTools {
+		stubLatest(t, tool, "", http.StatusOK)
+	}
+	m := &exec.MockCommander{Outputs: map[string]exec.MockResult{
+		"exists:tmux": {}, "exists:systemd-run": {}, "tmux": {Output: "tmux 3.6a\n"},
+	}}
+	m.SetOutput("env", "", errTest)
+	h := newTestHandler(t, m)
+	h.isRoot = func() bool { return false }
+
+	rec := call(t, h.Tools, http.MethodGet, "", "", "?user=root")
+	var env struct {
+		Data struct {
+			SystemdRun bool `json:"systemd_run"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	// The fixture has systemd-run, so only the root half can produce false.
+	if !h.haveSystemdRun() {
+		t.Fatal("fixture: systemd-run must be present, or this test proves nothing")
+	}
+	if env.Data.SystemdRun {
+		t.Error("systemd_run must be false for a non-root panel: the page reads it to explain the per-tab process marker, which persistence() already sets")
+	}
+	if got := h.persistence(); got != "process" {
+		t.Errorf("persistence = %q, want process — systemd_run and the marker must come from one predicate", got)
+	}
+}

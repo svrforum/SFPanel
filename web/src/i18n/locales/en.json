@@ -1352,7 +1352,7 @@
       "install": "Install tmux",
       "installing": "Installing tmux…",
       "installed": "tmux installed",
-      "noService": "systemd-run is missing: sessions will not survive a panel restart"
+      "noService": "Sessions will not survive a panel restart (they cannot be started as a systemd service)"
     },
     "state": {
       "working": "Working",

@@ -9,9 +9,12 @@ import { Button } from '@/components/ui/button'
 // Sessions need tmux; hosts without it get one button that uses the ordinary
 // apt install route. A tmux that is present but below the floor gets the same
 // warning box and no button — the distribution package is what has to move,
-// and installing the one already installed would do nothing. The systemd-run
+// and installing the one already installed would do nothing. The systemd_run
 // note is informational — sessions still work, they just do not outlive a
-// panel restart.
+// panel restart. It is the page-level explanation of the per-tab "process"
+// marker, so it has to read the same predicate the marker does: systemd_run
+// is serviceFormAvailable(), false for a non-root panel as well as for a host
+// without systemd-run.
 export function TmuxBanner({ tools, onChanged }: { tools: AITools | null; onChanged: () => void }) {
   const { t } = useTranslation()
   const [installing, setInstalling] = useState(false)
