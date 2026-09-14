@@ -6,6 +6,7 @@ import (
 	"embed"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -580,7 +581,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 
 	// AI workspace: tmux-backed Claude/Codex/Gemini sessions and per-account
 	// CLI status. Per-node, local-only handlers; ?node= is the proxy's job.
-	aiHandler := featureAI.NewHandler(database, cmd, cfg.Server.StacksPath)
+	aiHandler := featureAI.NewHandler(database, cmd, cfg.Server.StacksPath, filepath.Dir(cfg.Database.Path))
 	ai := authorized.Group("/ai")
 	ai.GET("/sessions", aiHandler.ListSessions)
 	ai.POST("/sessions", aiHandler.CreateSession)

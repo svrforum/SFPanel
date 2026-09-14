@@ -11,17 +11,22 @@ import (
 )
 
 const (
-	// defaultSocketRoot is where the panel's tmux sockets live. Deliberately
-	// not /tmp (`-L sfpanel` would put them in /tmp/tmux-<uid>): the shipped
-	// unit sets PrivateTmp=true, so the service's /tmp is a private mount that
-	// systemd *deletes* when the service stops — and every `systemctl restart
-	// sfpanel`, self-update included, is a stop. The tmux servers themselves do
-	// survive, in their own scopes; their sockets would not. The restarted
-	// panel would get a fresh empty /tmp, report every session `ended`, and
-	// leave the servers running with no handle at all — not even `tmux -L
-	// sfpanel ls` from a root SSH shell, which is in a different mount
-	// namespace. /run is shared and nothing removes it (never give the unit a
-	// RuntimeDirectory=sfpanel: that would).
+	// defaultSocketRoot is where a root panel's tmux sockets live.
+	// Deliberately not /tmp (`-L sfpanel` would put them in /tmp/tmux-<uid>):
+	// the shipped unit sets PrivateTmp=true, so the service's /tmp is a
+	// private mount that systemd *deletes* when the service stops — and every
+	// `systemctl restart sfpanel`, self-update included, is a stop. The tmux
+	// servers themselves do survive, in their own transient units; their
+	// sockets would not. The restarted panel would get a fresh empty /tmp,
+	// report every session `ended`, and leave the servers running with no
+	// handle at all — not even `tmux -L sfpanel ls` from a root SSH shell,
+	// which is in a different mount namespace.
+	//
+	// /run is shared and nothing removes it. **Never make this a
+	// RuntimeDirectory= on sfpanel.service**: systemd deletes a
+	// RuntimeDirectory when the unit stops, which is the very failure this
+	// path exists to avoid — it would put the sockets back inside the panel's
+	// lifetime through a different door.
 	defaultSocketRoot = "/run/sfpanel/ai"
 	socketName        = "sfpanel"
 
@@ -32,6 +37,17 @@ const (
 	tmuxTimeout  = 15 * time.Second
 )
 
+// socketRoot picks where the sockets live. /run is only the root panel's to
+// create; a panel running as an ordinary account cannot write /run/sfpanel at
+// all, which used to fail every session on such an install. It has a single
+// account — itself — so its own state directory serves.
+func socketRoot(stateDir string, panelIsRoot bool) string {
+	if panelIsRoot {
+		return defaultSocketRoot
+	}
+	return filepath.Join(stateDir, "ai")
+}
+
 // socketPath is the account's socket, one directory per uid so tmux can bind
 // it (and its lock file) while running as them.
 func (h *Handler) socketPath(acct Account) string {
@@ -39,17 +55,29 @@ func (h *Handler) socketPath(acct Account) string {
 }
 
 // ensureSocketDir prepares the socket directory for the spawn that starts an
-// account's tmux server. The levels above are 0711 root — every account can
-// traverse to its own, none can write or list — and the leaf is 0700 owned by
-// the account.
+// account's tmux server. Under a root panel the levels above are 0711 root —
+// every account can traverse to its own, none can write or list — and the leaf
+// is 0700 owned by the account.
+//
+// A non-root panel gets neither half, on purpose. It has only its own account,
+// so nothing has to traverse in; and its root's parent is the panel state
+// directory, which is 0700 and holds the database — widening it to 0711 to
+// make room for accounts that cannot exist would be a real loss for no gain.
+// Giving a directory away is root's privilege too, and there is nobody to give
+// it to.
 func (h *Handler) ensureSocketDir(acct Account) error {
-	for _, d := range []string{filepath.Dir(h.socketRoot), h.socketRoot} {
-		if err := os.MkdirAll(d, 0o711); err != nil {
-			return err
+	panelIsRoot := h.isRoot()
+	if panelIsRoot {
+		for _, d := range []string{filepath.Dir(h.socketRoot), h.socketRoot} {
+			if err := os.MkdirAll(d, 0o711); err != nil {
+				return err
+			}
+			if err := os.Chmod(d, 0o711); err != nil { // MkdirAll applies the umask
+				return err
+			}
 		}
-		if err := os.Chmod(d, 0o711); err != nil { // MkdirAll applies the umask
-			return err
-		}
+	} else if err := os.MkdirAll(h.socketRoot, 0o700); err != nil {
+		return err
 	}
 	dir := filepath.Dir(h.socketPath(acct))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -57,6 +85,9 @@ func (h *Handler) ensureSocketDir(acct Account) error {
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return err
+	}
+	if !panelIsRoot {
+		return nil
 	}
 	return h.chown(dir, acct.UID, acct.GID)
 }

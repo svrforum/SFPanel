@@ -244,6 +244,53 @@ func TestEnsureSocketDir_OwnedByTheAccountUnderATraversableRoot(t *testing.T) {
 	}
 }
 
+// /run/sfpanel is root's to create: MkdirAll("/run/sfpanel/ai") fails outright
+// for a panel running as an ordinary account, which took the whole module down
+// on such an install. It falls back to the panel state directory — and must not
+// pay for that with the state directory's own 0700, which guards the database,
+// nor attempt a chown it cannot perform and does not need (its only account is
+// itself).
+func TestSocketRoot_NonRootPanelUsesTheStateDirectory(t *testing.T) {
+	state := t.TempDir()
+	if got := socketRoot(state, true); got != defaultSocketRoot {
+		t.Errorf("root panel socket root = %q, want %q", got, defaultSocketRoot)
+	}
+	if got := socketRoot(state, false); got != filepath.Join(state, "ai") {
+		t.Errorf("non-root panel socket root = %q, want %q", got, filepath.Join(state, "ai"))
+	}
+
+	// t.TempDir() is 0755&~umask; the real /var/lib/sfpanel is 0700.
+	if err := os.Chmod(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	h := newTestHandler(t, &exec.MockCommander{})
+	h.isRoot = func() bool { return false }
+	h.socketRoot = socketRoot(state, false)
+	chowns := 0
+	h.chown = func(string, int, int) error { chowns++; return nil }
+	if err := h.ensureSocketDir(h.panel); err != nil {
+		t.Fatalf("a non-root panel must be able to prepare its own socket directory: %v", err)
+	}
+	if chowns != 0 {
+		t.Errorf("chown ran %d times; a non-root panel has nobody to give the directory to", chowns)
+	}
+	leaf := filepath.Dir(h.socketPath(h.panel))
+	fi, err := os.Stat(leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o700 {
+		t.Errorf("%s mode = %v, want 0700", leaf, fi.Mode().Perm())
+	}
+	sfi, err := os.Stat(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sfi.Mode().Perm() != 0o700 {
+		t.Errorf("state directory mode = %v, want 0700 — it holds the panel database and must not be widened for accounts that cannot exist", sfi.Mode().Perm())
+	}
+}
+
 func TestSpawnArgv_ShellToolIsAPlainLoginShell(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
 	_, argv := h.spawnArgv("0123456789ab", "/root", ToolShell, h.panel, spawnClient)

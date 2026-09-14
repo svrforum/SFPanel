@@ -68,15 +68,19 @@ type Handler struct {
 	now func() time.Time
 }
 
-func NewHandler(db *sql.DB, cmd exec.Commander, stacksPath string) *Handler {
+// NewHandler wires the module. stateDir is the panel's state directory (the
+// directory holding the SQLite database); it is where the tmux sockets go when
+// the panel is not root and /run/sfpanel is out of reach.
+func NewHandler(db *sql.DB, cmd exec.Commander, stacksPath, stateDir string) *Handler {
+	isRoot := func() bool { return os.Geteuid() == 0 }
 	return &Handler{
 		DB:         db,
 		Cmd:        cmd,
 		StacksPath: stacksPath,
 		panel:      panelAccount(),
 		passwdPath: "/etc/passwd",
-		isRoot:     func() bool { return os.Geteuid() == 0 },
-		socketRoot: defaultSocketRoot,
+		isRoot:     isRoot,
+		socketRoot: socketRoot(stateDir, isRoot()),
 		chown:      os.Chown,
 		toolMemo:   map[string]toolMemoEntry{},
 		latestMemo: map[string]latestMemoEntry{},
