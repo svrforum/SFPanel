@@ -42,6 +42,7 @@ func TestParseProbe(t *testing.T) {
 // — the old resolver picked the newest binary across every home and showed
 // a user's 2.1.265 for a root terminal that ran 2.1.92.
 func TestToolStatus_ProbesInTheAccountsLoginShell(t *testing.T) {
+	stubLatest(t, ToolClaude, "2.1.270", http.StatusOK) // every toolStatus ends in a latest lookup; keep it local
 	m := exec.NewMockCommander()
 	m.SetOutput("runuser", "SFP\t/home/alice/.local/bin/claude\t2.1.92 (Claude Code)\n", nil)
 	h := newTestHandler(t, m)
@@ -67,6 +68,7 @@ func TestToolStatus_ProbesInTheAccountsLoginShell(t *testing.T) {
 }
 
 func TestToolStatus_MemoisedUntilInstall(t *testing.T) {
+	stubLatest(t, ToolCodex, "", http.StatusOK) // no assertion reads Latest; the stub only keeps the test off the network
 	m := exec.NewMockCommander()
 	m.SetOutput(findShell(), "", errTest) // exit 3: not installed
 	h := newTestHandler(t, m)
@@ -106,6 +108,9 @@ func TestToolStatus_UpdateAvailableAndLogin(t *testing.T) {
 }
 
 func TestTools_BundleAndAccountGuard(t *testing.T) {
+	for _, tool := range cliTools { // the bundle looks all three up; none of them upstream
+		stubLatest(t, tool, "", http.StatusOK)
+	}
 	m := &exec.MockCommander{Outputs: map[string]exec.MockResult{
 		"exists:tmux": {}, "exists:systemd-run": {}, "tmux": {Output: "tmux 3.6a\n"},
 	}}
