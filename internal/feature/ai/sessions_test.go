@@ -642,3 +642,79 @@ func TestSpawn_LocksPerAccountNotProcessWide(t *testing.T) {
 	}
 	<-g.arrived // it ran, and only after the first was let go
 }
+
+// argvCommander answers by what the argv says, not by the command name alone:
+// every tmux invocation in this module is an `env` call, so a test that needs
+// list-sessions to answer while new-session refuses cannot say so through
+// MockCommander's name-keyed Outputs. A nil answer falls through to the mock.
+type argvCommander struct {
+	*exec.MockCommander
+	answer func(name string, args []string) *exec.MockResult
+}
+
+func (a *argvCommander) Run(name string, args ...string) (string, error) {
+	return a.RunWithTimeout(0, name, args...)
+}
+
+func (a *argvCommander) RunWithTimeout(d time.Duration, name string, args ...string) (string, error) {
+	out, err := a.MockCommander.RunWithTimeout(d, name, args...)
+	if r := a.answer(name, args); r != nil {
+		return r.Output, r.Err
+	}
+	return out, err
+}
+
+// systemd-run can exit non-zero *after* the new-session in its argv has taken
+// hold. The retry then asked for a second session of the same name, tmux said
+// "duplicate session", and the create failed with COMMAND_FAILED — leaving a
+// live session on the socket that no row knew about, which the page could only
+// show as unknown. has-session settles it before the retry: the spawn that
+// already happened is the one that counts.
+func TestCreateSession_KeepsTheSessionARacedUnitAlreadyCreated(t *testing.T) {
+	m := noServerMock()
+	m.Outputs["systemd-run"] = exec.MockResult{Output: "Job for sfpanel-ai-1000.service failed", Err: errTest}
+	var listSessions, hasSession, newSession int
+	cmd := &argvCommander{MockCommander: m, answer: func(name string, args []string) *exec.MockResult {
+		if name != "env" {
+			return nil
+		}
+		switch {
+		case slices.Contains(args, "list-sessions"):
+			listSessions++
+			if listSessions == 1 {
+				return &exec.MockResult{Err: errTest} // no server yet: the spawn takes the service form
+			}
+			return &exec.MockResult{} // the unit did leave a server behind
+		case slices.Contains(args, "has-session"):
+			hasSession++
+			return &exec.MockResult{} // and the session it created is on it
+		case slices.Contains(args, "new-session"):
+			newSession++
+			return &exec.MockResult{Output: "duplicate session: 0123456789ab", Err: errTest}
+		}
+		return nil
+	}}
+	h := newTestHandler(t, m)
+	h.Cmd = cmd
+	h.DB = openTestDB(t)
+
+	rec := call(t, h.CreateSession, http.MethodPost, `{"tool":"claude","cwd":"`+t.TempDir()+`","run_as":"alice"}`, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s — the session the unit created must not be thrown away", rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Data Session `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := getSessionRow(h.DB, env.Data.ID); !ok {
+		t.Error("no row stored: the live session would be reachable only as an unknown tab")
+	}
+	if hasSession != 1 {
+		t.Errorf("has-session ran %d times, want exactly one probe before the retry", hasSession)
+	}
+	if newSession != 0 {
+		t.Errorf("new-session was re-issued %d times; tmux would answer \"duplicate session\" and the create would fail", newSession)
+	}
+}

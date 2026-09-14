@@ -221,6 +221,16 @@ func (h *Handler) spawn(id, cwd, tool string, acct Account) error {
 	name, argv := h.spawnArgv(id, cwd, tool, acct, form)
 	out, err := h.Cmd.RunWithTimeout(tmuxTimeout, name, argv...)
 	if err != nil && form == spawnService && h.serverRunning(acct) {
+		// The session may already be there: systemd-run can exit non-zero
+		// *after* the new-session in its argv took hold, and then the retry
+		// below asks tmux for a second session of the same name. tmux answers
+		// "duplicate session", the create fails with COMMAND_FAILED — and a
+		// live session with that id is left on the socket with no row behind
+		// it, i.e. an unattended agent the page can only show as unknown.
+		if _, probeErr := h.tmux(acct, "has-session", "-t", id); probeErr == nil {
+			slog.Debug("ai spawn: the unit failed after its session took hold", "component", "ai", "id", id, "account", acct.Name, "err", err)
+			return nil
+		}
 		// The unit was claimed between the check and the call — by another
 		// panel process, or by a server this one started and has not seen
 		// yet. There is a server now, so talk to it; that is not a failure
