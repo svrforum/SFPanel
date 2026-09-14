@@ -43,6 +43,36 @@ func TestInstallStream_GuardsAnswerJSON(t *testing.T) {
 	}
 }
 
+// lastEnv reads a key the way os/exec resolves Cmd.Env: the last entry wins.
+func lastEnv(env []string, key string) string {
+	val := ""
+	for _, e := range env {
+		if strings.HasPrefix(e, key+"=") {
+			val = strings.TrimPrefix(e, key+"=")
+		}
+	}
+	return val
+}
+
+// Design §3: the installer runs "with the account's HOME". The panel process
+// has none to inherit (systemd system unit) and claude.ai/install.sh uses
+// $HOME with no fallback, so installEnv must name the account's home whether
+// the panel environment carries a different HOME or none at all.
+func TestInstallEnv_CarriesTheAccountHome(t *testing.T) {
+	for _, base := range [][]string{
+		{"PATH=/usr/bin", "USER=root"},
+		{"PATH=/usr/bin", "HOME=/root"},
+	} {
+		env := installEnv(base, "/home/alice")
+		if got := lastEnv(env, "HOME"); got != "/home/alice" {
+			t.Errorf("base %v: HOME = %q, want /home/alice", base, got)
+		}
+		if got := lastEnv(env, "DEBIAN_FRONTEND"); got != "noninteractive" {
+			t.Errorf("base %v: DEBIAN_FRONTEND = %q, want noninteractive", base, got)
+		}
+	}
+}
+
 func TestInstallStream_NpmMissingIsReportedInTheStream(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{}) // no "exists:npm"
 	rec := stream(t, h, h.InstallStream, "codex", "?user=alice")

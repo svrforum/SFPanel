@@ -97,7 +97,7 @@ func (h *Handler) streamInstall(c echo.Context) error {
 		} else {
 			cmd = osExec.CommandContext(ctx, "bash", scriptPath)
 		}
-		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+		cmd.Env = installEnv(os.Environ(), acct.Home)
 	default:
 		if !h.Cmd.Exists("npm") {
 			sendLine("ERROR: npm is not installed. Please install Node.js first.")
@@ -135,6 +135,17 @@ func (h *Handler) streamInstall(c echo.Context) error {
 	sendLine(">>> " + toolNames[tool] + " installed successfully!")
 	sendLine("[DONE]")
 	return nil
+}
+
+// installEnv is the environment an installer subprocess runs with: the panel
+// process environment plus a noninteractive apt and, crucially, the account's
+// HOME. The panel inherits no HOME of its own — a systemd system unit is
+// started without one (see accounts.go) — and claude.ai/install.sh
+// dereferences $HOME with no fallback, so without this the script would put
+// ~/.claude at the filesystem root. os/exec keeps the last value of a
+// duplicated key, so the appended HOME wins over any inherited one.
+func installEnv(base []string, home string) []string {
+	return append(base, "DEBIAN_FRONTEND=noninteractive", "HOME="+home)
 }
 
 func splitLines(s string) []string {
