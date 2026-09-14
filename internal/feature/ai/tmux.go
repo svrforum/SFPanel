@@ -3,13 +3,28 @@ package ai
 import (
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	tmuxSocket   = "sfpanel"
+	// defaultSocketRoot is where the panel's tmux sockets live. Deliberately
+	// not /tmp (`-L sfpanel` would put them in /tmp/tmux-<uid>): the shipped
+	// unit sets PrivateTmp=true, so the service's /tmp is a private mount that
+	// systemd *deletes* when the service stops — and every `systemctl restart
+	// sfpanel`, self-update included, is a stop. The tmux servers themselves do
+	// survive, in their own scopes; their sockets would not. The restarted
+	// panel would get a fresh empty /tmp, report every session `ended`, and
+	// leave the servers running with no handle at all — not even `tmux -L
+	// sfpanel ls` from a root SSH shell, which is in a different mount
+	// namespace. /run is shared and nothing removes it (never give the unit a
+	// RuntimeDirectory=sfpanel: that would).
+	defaultSocketRoot = "/run/sfpanel/ai"
+	socketName        = "sfpanel"
+
 	historyLines = 2000
 	// waitingAfter: a tool that has printed nothing for this long is at a
 	// prompt — every one of these CLIs animates a spinner while it works.
@@ -17,21 +32,59 @@ const (
 	tmuxTimeout  = 15 * time.Second
 )
 
+// socketPath is the account's socket, one directory per uid so tmux can bind
+// it (and its lock file) while running as them.
+func (h *Handler) socketPath(acct Account) string {
+	return filepath.Join(h.socketRoot, strconv.Itoa(acct.UID), socketName)
+}
+
+// ensureSocketDir prepares the socket directory for the spawn that starts an
+// account's tmux server. The levels above are 0711 root — every account can
+// traverse to its own, none can write or list — and the leaf is 0700 owned by
+// the account.
+func (h *Handler) ensureSocketDir(acct Account) error {
+	for _, d := range []string{filepath.Dir(h.socketRoot), h.socketRoot} {
+		if err := os.MkdirAll(d, 0o711); err != nil {
+			return err
+		}
+		if err := os.Chmod(d, 0o711); err != nil { // MkdirAll applies the umask
+			return err
+		}
+	}
+	dir := filepath.Dir(h.socketPath(acct))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	return h.chown(dir, acct.UID, acct.GID)
+}
+
 // tmuxBase is how every tmux invocation starts: never the account's own
 // config (-f /dev/null — the operator's ~/.tmux.conf auto-restores sessions),
-// always the panel's socket, and runuser only when the account is not the
-// panel's own (the socket is then /tmp/tmux-<uid>/sfpanel, owned by them).
+// always the panel's own socket named absolutely (-S, see defaultSocketRoot),
+// and runuser only when the account is not the panel's own.
 func (h *Handler) tmuxBase(acct Account) (string, []string) {
-	argv := []string{"-f", "/dev/null", "-L", tmuxSocket}
+	argv := []string{"-f", "/dev/null", "-S", h.socketPath(acct)}
 	if acct.Name != h.panel.Name {
 		return "runuser", append([]string{"-u", acct.Name, "--", "tmux"}, argv...)
 	}
 	return "tmux", argv
 }
 
+// tmuxCmd is tmuxBase behind the account's explicit environment (accounts.go).
+// Every tmux invocation goes through it except the attach client, which sets
+// its own environment through cmd.Env — and must, because it needs a TERM.
+func (h *Handler) tmuxCmd(acct Account) (string, []string) {
+	prefix := h.envArgv(acct)
+	name, argv := h.tmuxBase(acct)
+	return prefix[0], append(append(prefix[1:], name), argv...)
+}
+
 // tmux runs one tmux command as the account.
 func (h *Handler) tmux(acct Account, args ...string) (string, error) {
-	name, argv := h.tmuxBase(acct)
+	name, argv := h.tmuxCmd(acct)
 	return h.Cmd.RunWithTimeout(tmuxTimeout, name, append(argv, args...)...)
 }
 
@@ -77,17 +130,20 @@ func (h *Handler) haveSystemdRun() bool { return h.Cmd.Exists("systemd-run") }
 
 // spawnArgv builds the one command that creates a session (spec §1):
 //
-//	systemd-run --scope --collect --unit=sfpanel-ai-<id> -- [runuser -u <acct> --]
-//	  tmux -f /dev/null -L sfpanel <options…> ; new-session -d -s <id> -c <cwd>
+//	systemd-run --scope --collect --unit=sfpanel-ai-<id> -- env [-i] HOME=… …
+//	  [runuser -u <acct> --] tmux -f /dev/null -S <socket> <options…> ;
+//	  new-session -d -s <id> -c <cwd>
 //	  -- bash -l -c 'command "$0" "$@"; exec bash -l' <tool>
 //
 // The scope puts the tmux server outside sfpanel.service's cgroup so it
-// survives a panel restart. The login shell restores the account's PATH
+// survives a panel restart. The env prefix comes before runuser so nothing of
+// the panel's environment reaches the account (accounts.go) — and so the
+// account has a HOME at all. The login shell restores the account's PATH
 // (~/.local/bin, nvm); the wrapper drops into an interactive shell when the
 // tool exits instead of closing the session. Without systemd-run the session
 // is merely setsid'd: it survives the browser but not a panel restart.
 func (h *Handler) spawnArgv(id, cwd, tool string, acct Account, haveSystemdRun bool) (string, []string) {
-	name, argv := h.tmuxBase(acct)
+	name, argv := h.tmuxCmd(acct)
 	for _, opt := range tmuxOptions(h.defaultTerminal()) {
 		argv = append(argv, opt...)
 		argv = append(argv, ";")

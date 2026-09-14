@@ -44,33 +44,41 @@ func TestParseProbe(t *testing.T) {
 func TestToolStatus_ProbesInTheAccountsLoginShell(t *testing.T) {
 	stubLatest(t, ToolClaude, "2.1.270", http.StatusOK) // every toolStatus ends in a latest lookup; keep it local
 	m := exec.NewMockCommander()
-	m.SetOutput("runuser", "SFP\t/home/alice/.local/bin/claude\t2.1.92 (Claude Code)\n", nil)
+	m.SetOutput("env", "SFP\t/home/alice/.local/bin/claude\t2.1.92 (Claude Code)\n", nil)
 	h := newTestHandler(t, m)
-	alice := Account{Name: "alice", UID: 1000, Home: t.TempDir(), Shell: "/bin/bash"}
+	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: t.TempDir(), Shell: "/bin/bash"}
 
 	st := h.toolStatus(alice, ToolClaude)
 	if !st.Installed || st.Path != "/home/alice/.local/bin/claude" || st.Version != "2.1.92 (Claude Code)" {
 		t.Errorf("status = %+v", st)
 	}
 	c := m.Calls[0]
-	want := []string{"-u", "alice", "--", findShell(), "-lc", probeScript, "claude"}
-	if c.Name != "runuser" || strings.Join(c.Args, "\x00") != strings.Join(want, "\x00") {
-		t.Errorf("probe = %s %q\nwant runuser %q", c.Name, c.Args, want)
+	want := append(h.envArgv(alice)[1:], "runuser", "-u", "alice", "--", findShell(), "-lc", probeScript, "claude")
+	if c.Name != "env" || strings.Join(c.Args, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("probe = %s %q\nwant env %q", c.Name, c.Args, want)
 	}
 
+	// The panel's own account probes in a plain login shell — but not with the
+	// panel's environment: a systemd system unit has no HOME, so without an
+	// explicit one the profile's $HOME/.local/bin becomes /.local/bin and
+	// root's own Claude reads as "not installed".
 	m2 := exec.NewMockCommander()
-	m2.SetOutput(findShell(), "SFP\t/root/.local/bin/claude\t2.1.92 (Claude Code)\n", nil)
+	m2.SetOutput("env", "SFP\t/root/.local/bin/claude\t2.1.92 (Claude Code)\n", nil)
 	h2 := newTestHandler(t, m2)
 	_ = h2.toolStatus(h2.panel, ToolClaude)
-	if m2.Calls[0].Name != findShell() || m2.Calls[0].Args[0] != "-lc" {
-		t.Errorf("the panel account probes in a plain login shell, got %s %q", m2.Calls[0].Name, m2.Calls[0].Args)
+	want2 := append(h2.envArgv(h2.panel)[1:], findShell(), "-lc", probeScript, "claude")
+	if m2.Calls[0].Name != "env" || strings.Join(m2.Calls[0].Args, "\x00") != strings.Join(want2, "\x00") {
+		t.Errorf("panel probe = %s %q\nwant env %q", m2.Calls[0].Name, m2.Calls[0].Args, want2)
+	}
+	if lastEnv(h2.envArgv(h2.panel), "HOME") != "/root" {
+		t.Errorf("the panel probe must name its HOME: %q", h2.envArgv(h2.panel))
 	}
 }
 
 func TestToolStatus_MemoisedUntilInstall(t *testing.T) {
 	stubLatest(t, ToolCodex, "", http.StatusOK) // no assertion reads Latest; the stub only keeps the test off the network
 	m := exec.NewMockCommander()
-	m.SetOutput(findShell(), "", errTest) // exit 3: not installed
+	m.SetOutput("env", "", errTest) // exit 3: not installed
 	h := newTestHandler(t, m)
 	_ = h.toolStatus(h.panel, ToolCodex)
 	st := h.toolStatus(h.panel, ToolCodex)
@@ -92,7 +100,7 @@ func TestToolStatus_MemoisedUntilInstall(t *testing.T) {
 func TestToolStatus_UpdateAvailableAndLogin(t *testing.T) {
 	stubLatest(t, ToolClaude, "2.1.270", http.StatusOK)
 	m := exec.NewMockCommander()
-	m.SetOutput(findShell(), "SFP\t/root/.local/bin/claude\t2.1.92 (Claude Code)\n", nil)
+	m.SetOutput("env", "SFP\t/root/.local/bin/claude\t2.1.92 (Claude Code)\n", nil)
 	h := newTestHandler(t, m)
 	h.panel.Home = t.TempDir()
 
@@ -114,7 +122,7 @@ func TestTools_BundleAndAccountGuard(t *testing.T) {
 	m := &exec.MockCommander{Outputs: map[string]exec.MockResult{
 		"exists:tmux": {}, "exists:systemd-run": {}, "tmux": {Output: "tmux 3.6a\n"},
 	}}
-	m.SetOutput(findShell(), "", errTest)
+	m.SetOutput("env", "", errTest)
 	h := newTestHandler(t, m)
 
 	rec := call(t, h.Tools, http.MethodGet, "", "", "?user=alice")

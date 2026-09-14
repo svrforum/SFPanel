@@ -144,11 +144,43 @@ func (h *Handler) sessionsSnapshot() ([]Session, error) {
 				Attached: w.Attached, Persistence: persistence, Unknown: true})
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
+	// Creation order, and total: an unknown session has no row and therefore no
+	// CreatedAt, so comparing that field alone left the unknowns interleaved in
+	// whatever order the socket happened to list them — a different tab order
+	// on every 5 s poll. Unknowns go last, ids break a same-second tie.
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if (a.CreatedAt == "") != (b.CreatedAt == "") {
+			return b.CreatedAt == ""
+		}
+		if a.CreatedAt != b.CreatedAt {
+			return a.CreatedAt < b.CreatedAt
+		}
+		return a.ID < b.ID
+	})
 	return out, nil
 }
 
+// liveSessionCount is what the 20-session ceiling counts: every session the
+// node still has, rows and row-less alike.
+func (h *Handler) liveSessionCount() (int, error) {
+	snap, err := h.sessionsSnapshot()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, s := range snap {
+		if s.State != StateEnded {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (h *Handler) spawn(id, cwd, tool string, acct Account) error {
+	if err := h.ensureSocketDir(acct); err != nil {
+		return fmt.Errorf("could not prepare the session socket directory: %w", err)
+	}
 	name, argv := h.spawnArgv(id, cwd, tool, acct, h.haveSystemdRun())
 	out, err := h.Cmd.RunWithTimeout(tmuxTimeout, name, argv...)
 	if err != nil {
@@ -194,15 +226,9 @@ func (h *Handler) CreateSession(c echo.Context) error {
 	if !h.Cmd.Exists("tmux") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrTmuxMissing, "tmux is not installed on this node")
 	}
-	snap, err := h.sessionsSnapshot()
+	liveCount, err := h.liveSessionCount()
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not list sessions")
-	}
-	liveCount := 0
-	for _, s := range snap {
-		if s.State != StateEnded {
-			liveCount++
-		}
 	}
 	if liveCount >= maxSessions {
 		return response.Fail(c, http.StatusConflict, response.ErrAISessionLimit, fmt.Sprintf("maximum of %d live sessions reached", maxSessions))
@@ -229,9 +255,9 @@ func (h *Handler) CreateSession(c echo.Context) error {
 }
 
 // lookupSessionRow resolves :id to a row, writing the failure itself.
-// ok=false means the response is already written. It deliberately says
-// nothing about the row's account: a route that only needs the row (delete)
-// must not be blocked by an account that has left the allowlist.
+// ok=false means the response is already written. It says nothing about the
+// row's account; the account is resolved by whoever needs it (lookupRow for
+// the routes that spawn, DeleteSession for the kill it can skip).
 func (h *Handler) lookupSessionRow(c echo.Context) (sessionRow, bool) {
 	id := c.Param("id")
 	if !validSessionID(id) {
@@ -335,6 +361,15 @@ func (h *Handler) RestartSession(c echo.Context) error {
 	if !h.Cmd.Exists("tmux") {
 		return response.Fail(c, http.StatusServiceUnavailable, response.ErrTmuxMissing, "tmux is not installed on this node")
 	}
+	// A restart adds a live session just as a create does, so it has to meet
+	// the same ceiling — otherwise twenty ended tabs are twenty free sessions.
+	liveCount, err := h.liveSessionCount()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not list sessions")
+	}
+	if liveCount >= maxSessions {
+		return response.Fail(c, http.StatusConflict, response.ErrAISessionLimit, fmt.Sprintf("maximum of %d live sessions reached", maxSessions))
+	}
 	if err := h.spawn(row.ID, cwd, row.Tool, acct); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCommandFailed, response.SanitizeOutput(err.Error()))
 	}
@@ -349,10 +384,21 @@ func (h *Handler) RestartSession(c echo.Context) error {
 // root — there is by definition no session of ours left running as it, so the
 // kill is skipped and the row still goes. Refusing here would leave the
 // operator an undeletable tab.
+//
+// An id with no row is not automatically a 404: it may still name a live
+// session (spec §1 — the DB was lost, and such a session "can still be
+// attached or killed"). See deleteLiveRowless.
 func (h *Handler) DeleteSession(c echo.Context) error {
-	row, ok := h.lookupSessionRow(c)
-	if !ok {
-		return nil
+	id := c.Param("id")
+	if !validSessionID(id) {
+		return response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
+	}
+	row, found, err := getSessionRow(h.DB, id)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not read the session")
+	}
+	if !found {
+		return h.deleteLiveRowless(c, id)
 	}
 	if acct, resolved := h.resolveAccount(row.RunAs); resolved && h.rowState(row, acct) != StateEnded {
 		if out, err := h.tmux(acct, "kill-session", "-t", row.ID); err != nil {
@@ -364,6 +410,33 @@ func (h *Handler) DeleteSession(c echo.Context) error {
 	}
 	slog.Info("ai session deleted", "component", "ai", "id", row.ID, "account", row.RunAs)
 	return response.OK(c, map[string]string{"deleted": row.ID})
+}
+
+// deleteLiveRowless kills a session that is live on one of the sockets but has
+// no row. The tab bar offers 종료 for it (it is listed as unknown), so the 404
+// the row lookup would give left the operator a tab they could not close and a
+// tmux session — possibly an unattended agent — they could not reach. Only an
+// id that is neither in the table nor on any socket is a 404.
+func (h *Handler) deleteLiveRowless(c echo.Context, id string) error {
+	snap, err := h.sessionsSnapshot()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not list sessions")
+	}
+	for _, s := range snap {
+		if s.ID != id || s.State == StateEnded {
+			continue
+		}
+		acct, resolved := h.resolveAccount(s.RunAs)
+		if !resolved {
+			break // listed as live, but no account to run kill-session as
+		}
+		if out, err := h.tmux(acct, "kill-session", "-t", id); err != nil {
+			slog.Warn("ai kill-session", "component", "ai", "id", id, "err", err, "out", response.SanitizeOutput(out))
+		}
+		slog.Info("ai session deleted", "component", "ai", "id", id, "account", s.RunAs)
+		return response.OK(c, map[string]string{"deleted": id})
+	}
+	return response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
 }
 
 // Dirs — GET /ai/dirs?user= feeds the working-directory picker.

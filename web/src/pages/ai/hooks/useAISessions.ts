@@ -10,10 +10,9 @@ const POLL_MS = 5000
  * tab stops polling entirely — `useVisibleInterval` clears the timer and
  * refreshes again the moment the tab comes back (one list-windows fork per
  * poll on the host is fine while someone is looking, pointless when nobody
- * is). `enabled` gates the fetch for callers that mount the hook before the
- * page is ready.
+ * is).
  */
-export function useAISessions(enabled: boolean) {
+export function useAISessions() {
   const [sessions, setSessions] = useState<AISession[]>([])
   const [loaded, setLoaded] = useState(false)
 
@@ -26,7 +25,7 @@ export function useAISessions(enabled: boolean) {
     }
   }, [])
 
-  useVisibleInterval(() => { if (enabled) void refresh() }, POLL_MS)
+  useVisibleInterval(() => { void refresh() }, POLL_MS)
 
   return { sessions, loaded, refresh }
 }

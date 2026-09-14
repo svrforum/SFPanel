@@ -40,15 +40,19 @@ export default function AI() {
     const n = parseInt(readLS(FONT_SIZE_KEY), 10)
     return Number.isFinite(n) && n >= 10 && n <= 24 ? n : 14
   }, [])
-  const { sessions, loaded, refresh } = useAISessions(true)
+  const { sessions, loaded, refresh } = useAISessions()
 
   // Promise callbacks rather than await: the effect below kicks this off
   // synchronously on mount, and an async body would trip
   // react-hooks/set-state-in-effect (same reason as ClusterNodes/Dashboard).
+  //
+  // First load asks with an empty user, which the server answers for its own
+  // account and names in `account`; adopting that name must not send the
+  // identical request a second time.
   const loadTools = useCallback(() => {
     api.getAITools(account).then((data) => {
       setTools(data)
-      if (!account) setAccount(data.panel_account)
+      if (!account && data.account !== data.panel_account) setAccount(data.panel_account)
     }).catch(() => {
       // Header degrades to "checking"; the session list is independent.
     })

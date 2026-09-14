@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { AIDirs, AISession, AITool, AITools } from '@/types/api'
-import { TOOL_META, aiErrorMessage, defaultTitle } from '@/lib/aiSessions'
+import { TOOL_META, aiErrorMessage, defaultTitle, toolInstalledFor, toolsFor } from '@/lib/aiSessions'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -39,11 +39,18 @@ export function NewSessionDialog({
   const [runAs, setRunAs] = useState(account)
   const [title, setTitle] = useState('')
   const [dirs, setDirs] = useState<AIDirs | null>(null)
+  const [runAsTools, setRunAsTools] = useState<AITools | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const prefilled = useRef(false)
 
+  // Prefill on the closed -> open transition only. Re-running it whenever
+  // `tools` lands (the page loads it in parallel) wiped a name the operator
+  // had already typed.
   useEffect(() => {
-    if (!open) return
+    if (!open) { prefilled.current = false; return }
+    if (prefilled.current) return
+    prefilled.current = true
     setError(null)
     setTitle('')
     try {
@@ -56,6 +63,11 @@ export function NewSessionDialog({
     }
   }, [open, account, node, tools])
 
+  // Directories and install state both belong to the chosen account, so both
+  // are fetched here and both are dropped when it changes. The page's bundle
+  // covers only its own account; asking for another is one memoised call per
+  // (account, tool) on the server, 10 min.
+  const pageAccount = tools?.account
   useEffect(() => {
     if (!open || !runAs) return
     let cancelled = false
@@ -64,15 +76,19 @@ export function NewSessionDialog({
       setDirs(d)
       setCwd((c) => c || d.recent[0] || d.stacks[0] || d.home)
     }).catch(() => setDirs(null))
+    if (runAs !== pageAccount) {
+      api.getAITools(runAs).then((tl) => { if (!cancelled) setRunAsTools(tl) }).catch(() => { if (!cancelled) setRunAsTools(null) })
+    }
     return () => { cancelled = true }
-  }, [open, runAs])
+  }, [open, runAs, pageAccount])
 
-  const installedFor = (tl: AITool) => tl === 'shell' || (tools?.account === runAs ? tools?.tools[tl]?.installed ?? true : true)
+  const bundle = toolsFor(runAs, tools, runAsTools)
+  const installedFor = (tl: AITool) => toolInstalledFor(bundle, tl)
   useEffect(() => {
     // Switching to an account that lacks the chosen tool must not leave a
     // disabled radio selected.
     if (!installedFor(tool)) setTool('shell')
-  }, [runAs, tools]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [runAs, bundle]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = async () => {
     setBusy(true)

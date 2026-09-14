@@ -29,14 +29,17 @@ func TestReplayHistory(t *testing.T) {
 	}
 }
 
+// The attach client is the one invocation without an `env` prefix: it needs a
+// TERM, and it gets its environment through cmd.Env (attachEnv) instead.
 func TestAttachArgv(t *testing.T) {
 	h := newTestHandler(t, nil)
-	name, argv := h.attachArgv(Account{Name: "alice"}, "aaaaaaaaaaaa")
-	if name != "runuser" || strings.Join(argv, " ") != "-u alice -- tmux -f /dev/null -L sfpanel attach-session -t aaaaaaaaaaaa" {
+	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
+	name, argv := h.attachArgv(alice, "aaaaaaaaaaaa")
+	if name != "runuser" || strings.Join(argv, " ") != "-u alice -- tmux -f /dev/null -S "+h.socketPath(alice)+" attach-session -t aaaaaaaaaaaa" {
 		t.Errorf("alice: %s %q", name, argv)
 	}
 	name, argv = h.attachArgv(h.panel, "aaaaaaaaaaaa")
-	if name != "tmux" || strings.Join(argv, " ") != "-f /dev/null -L sfpanel attach-session -t aaaaaaaaaaaa" {
+	if name != "tmux" || strings.Join(argv, " ") != "-f /dev/null -S "+h.socketPath(h.panel)+" attach-session -t aaaaaaaaaaaa" {
 		t.Errorf("root: %s %q", name, argv)
 	}
 }
@@ -47,7 +50,8 @@ func TestAttachWS_GoneSessionSendsOneFrameAndCloses(t *testing.T) {
 	// NewMockCommander, not a zero value: SetOutput writes to Outputs, which
 	// the zero value leaves nil.
 	m := exec.NewMockCommander()
-	m.SetOutput("tmux", "can't find session: aaaaaaaaaaaa", errTest)
+	// Every tmux invocation but the attach client runs behind `env`.
+	m.SetOutput("env", "can't find session: aaaaaaaaaaaa", errTest)
 	h := newTestHandler(t, m)
 	h.DB = openTestDB(t)
 	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolClaude, Title: "a", RunAs: "root", CWD: "/"})
@@ -124,6 +128,28 @@ func TestAttachWS_RefusesAGoneAccountBeforeUpgrade(t *testing.T) {
 	}
 	if code, _ := dialFailCode(t, resp); code != response.ErrInvalidAccount {
 		t.Errorf("code = %s, want %s", code, response.ErrInvalidAccount)
+	}
+}
+
+// A read error is not a not-found. Treating both as "no row" attached the
+// session as the panel account — the wrong account, silently — instead of
+// saying the table could not be read.
+func TestAttachWS_ADatabaseErrorIsNotAMissingRow(t *testing.T) {
+	h := newTestHandler(t, &exec.MockCommander{})
+	h.DB = openTestDB(t)
+	h.DB.Close() // every query now errors
+	e := echo.New()
+	e.GET("/ws/ai/attach", h.AttachWS("test-secret", nil, nil))
+	srv := httptest.NewServer(e)
+	defer srv.Close()
+	tok, _ := auth.GenerateToken("admin", "test-secret", time.Minute)
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/ai/attach?session_id=aaaaaaaaaaaa&token=" + tok
+	_, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if err == nil || resp == nil || resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("an unreadable table must be a 500 before the upgrade; got err=%v resp=%v", err, resp)
+	}
+	if code, _ := dialFailCode(t, resp); code != response.ErrInternalError {
+		t.Errorf("code = %s, want %s", code, response.ErrInternalError)
 	}
 }
 

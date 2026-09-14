@@ -1,4 +1,4 @@
-import type { AISession, AISessionState, AITool } from '@/types/api'
+import type { AISession, AISessionState, AITool, AITools } from '@/types/api'
 
 /** Brand glyphs, the same colours the packages page used for these CLIs. */
 export const TOOL_META: Record<AITool, { label: string; initial: string; color: string }> = {
@@ -34,6 +34,28 @@ export function waitingCount(sessions: AISession[], activeId: string | null): nu
 export function defaultTitle(tool: AITool, cwd: string): string {
   const base = cwd.replace(/\/+$/, '').split('/').pop() || '/'
   return `${TOOL_META[tool].label} · ${base}`
+}
+
+/**
+ * The bundle that answers for `account`, or null when none of the ones at hand
+ * does. A `/ai/tools` response is resolved *as one account*, so the page's
+ * bundle says nothing about the account the dialog switched to — a tool root
+ * has and alice lacks is the whole reason the selector exists.
+ */
+export function toolsFor(account: string, ...bundles: (AITools | null | undefined)[]): AITools | null {
+  return bundles.find((b) => b?.account === account) ?? null
+}
+
+/**
+ * Whether `tool` can be started as the account the bundle describes. Unknown
+ * (no bundle yet, or a tool the response does not carry) stays enabled: the
+ * server validates on submit, and greying a radio out on a guess is worse than
+ * an inline error. A shell is always available.
+ */
+export function toolInstalledFor(bundle: AITools | null, tool: AITool): boolean {
+  if (tool === 'shell') return true
+  if (!bundle) return true
+  return bundle.tools[tool]?.installed ?? true
 }
 
 /** document.title prefix while the page is open. */

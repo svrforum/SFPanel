@@ -56,3 +56,33 @@ func TestLatestVersion_MemoisedAndFailureIsEmpty(t *testing.T) {
 		t.Errorf("a failing source must give %q, got %q", "", v)
 	}
 }
+
+// A failure is memoised too — an offline host must not re-dial on every
+// request — but for minutes, not the full hour: a blip while the panel boots
+// (network-online.target is not the internet) would otherwise hide the update
+// badge for an hour.
+func TestLatestVersion_AFailureExpiresSooner(t *testing.T) {
+	hits := stubLatest(t, ToolGemini, "", http.StatusInternalServerError)
+	h := newTestHandler(t, nil)
+	if v := h.latestVersion(ToolGemini); v != "" {
+		t.Fatalf("got %q", v)
+	}
+	h.now = func() time.Time { return testNow.Add(latestFailTTL - time.Minute) }
+	_ = h.latestVersion(ToolGemini)
+	if atomic.LoadInt32(hits) != 1 {
+		t.Errorf("inside the failure TTL the source must not be asked again; fetches = %d", *hits)
+	}
+	h.now = func() time.Time { return testNow.Add(latestFailTTL + time.Minute) }
+	_ = h.latestVersion(ToolGemini)
+	if atomic.LoadInt32(hits) != 2 {
+		t.Errorf("a failure must be retried after %v, not after %v; fetches = %d", latestFailTTL, latestTTL, *hits)
+	}
+	// An answer keeps the long TTL: the failure path must not shorten it.
+	okHits := stubLatest(t, ToolClaude, "2.1.270", http.StatusOK)
+	h.now = func() time.Time { return testNow }
+	_ = h.latestVersion(ToolClaude)
+	h.now = func() time.Time { return testNow.Add(latestFailTTL + time.Minute) }
+	if v := h.latestVersion(ToolClaude); v != "2.1.270" || atomic.LoadInt32(okHits) != 1 {
+		t.Errorf("an answer must stay memoised for %v: %q after %d fetches", latestTTL, v, *okHits)
+	}
+}

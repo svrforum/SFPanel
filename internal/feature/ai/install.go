@@ -42,16 +42,24 @@ func (h *Handler) streamInstall(c echo.Context) error {
 	if !ok {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidAccount, "user is not a login account on this node")
 	}
-	defer h.invalidateTool(acct.Name, tool)
+	defer func() {
+		if tool == ToolClaude {
+			h.invalidateTool(acct.Name, tool) // per-user installer: ~/.local/bin
+			return
+		}
+		h.invalidateToolEveryAccount(tool) // npm -g: system-wide
+	}()
 
-	c.Response().Header().Set("Content-Type", "text/event-stream")
-	c.Response().Header().Set("Cache-Control", "no-cache")
-	c.Response().Header().Set("Connection", "keep-alive")
-	c.Response().WriteHeader(http.StatusOK)
+	// Assert the flusher while the response is still uncommitted, so this
+	// failure can answer with a code like the guards above it.
 	flusher, ok := c.Response().Writer.(http.Flusher)
 	if !ok {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSSEError, "Streaming not supported")
 	}
+	c.Response().Header().Set("Content-Type", "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().Header().Set("Connection", "keep-alive")
+	c.Response().WriteHeader(http.StatusOK)
 	sendLine := func(line string) {
 		// Every line — status, error, streamed output — is sanitised here.
 		fmt.Fprintf(c.Response(), "data: %s\n\n", response.SanitizeOutput(line))
@@ -97,8 +105,10 @@ func (h *Handler) streamInstall(c echo.Context) error {
 		} else {
 			cmd = osExec.CommandContext(ctx, "bash", scriptPath)
 		}
-		cmd.Env = installEnv(os.Environ(), acct.Home)
-	default:
+		cmd.Env = installEnv(os.Environ(), acct, h.panel)
+	case ToolCodex, ToolGemini:
+		// Named rather than `default`: a fourth tool must arrive with its own
+		// install command instead of falling into `npm install -g …@latest`.
 		if !h.Cmd.Exists("npm") {
 			sendLine("ERROR: npm is not installed. Please install Node.js first.")
 			sendLine("[DONE]")
@@ -107,6 +117,11 @@ func (h *Handler) streamInstall(c echo.Context) error {
 		pkg := npmPackages[tool]
 		sendLine(">>> Installing " + pkg + "@latest via npm ...")
 		cmd = osExec.CommandContext(ctx, "npm", "install", "-g", pkg+"@latest")
+	default:
+		// Unreachable: validTool above rejects everything else.
+		sendLine("ERROR: no install command for this tool")
+		sendLine("[DONE]")
+		return nil
 	}
 
 	stdout, err := cmd.StdoutPipe()
@@ -137,15 +152,25 @@ func (h *Handler) streamInstall(c echo.Context) error {
 	return nil
 }
 
-// installEnv is the environment an installer subprocess runs with: the panel
-// process environment plus a noninteractive apt and, crucially, the account's
-// HOME. The panel inherits no HOME of its own — a systemd system unit is
-// started without one (see accounts.go) — and claude.ai/install.sh
-// dereferences $HOME with no fallback, so without this the script would put
-// ~/.claude at the filesystem root. os/exec keeps the last value of a
-// duplicated key, so the appended HOME wins over any inherited one.
-func installEnv(base []string, home string) []string {
-	return append(base, "DEBIAN_FRONTEND=noninteractive", "HOME="+home)
+// installEnv is the environment an installer subprocess runs with.
+//
+// The panel's own account gets the panel environment plus a noninteractive apt
+// and, crucially, its HOME: the panel inherits no HOME of its own — a systemd
+// system unit is started without one (see accounts.go) — and
+// claude.ai/install.sh dereferences $HOME with no fallback, so without this
+// the script would put ~/.claude at the filesystem root. os/exec keeps the
+// last value of a duplicated key, so the appended HOME wins over any
+// inherited one.
+//
+// Any other account gets the fixed account base and nothing else, for the
+// reason attachEnv gives: the script runs as *them* under runuser, so the
+// panel's environment — `SFPANEL_JWT_SECRET` among it — would be theirs to
+// read out of /proc/self/environ.
+func installEnv(base []string, acct, panel Account) []string {
+	if acct.Name != panel.Name {
+		return append(accountEnv(acct), "DEBIAN_FRONTEND=noninteractive")
+	}
+	return append(base, "DEBIAN_FRONTEND=noninteractive", "HOME="+acct.Home)
 }
 
 func splitLines(s string) []string {

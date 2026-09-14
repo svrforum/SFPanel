@@ -88,13 +88,18 @@ func parseProbe(out string) (string, string, bool) {
 	return "", "", false
 }
 
-// shellAs runs script in a login shell as the account; runuser only when
-// the account is not the panel's own.
+// shellAs runs script in a login shell as the account, behind the same
+// explicit environment every session gets (accounts.go): runuser only when the
+// account is not the panel's own, and the env prefix in both cases — without a
+// HOME the profile's `$HOME/.local/bin` expands to `/.local/bin` and the probe
+// reports a tool the account can actually run as "not installed".
 func (h *Handler) shellAs(acct Account, script, arg string) (string, error) {
+	argv := h.envArgv(acct)
 	if acct.Name != h.panel.Name {
-		return h.Cmd.RunWithTimeout(20*time.Second, "runuser", "-u", acct.Name, "--", findShell(), "-lc", script, arg)
+		argv = append(argv, "runuser", "-u", acct.Name, "--")
 	}
-	return h.Cmd.RunWithTimeout(20*time.Second, findShell(), "-lc", script, arg)
+	argv = append(argv, findShell(), "-lc", script, arg)
+	return h.Cmd.RunWithTimeout(20*time.Second, argv[0], argv[1:]...)
 }
 
 func (h *Handler) toolStatus(acct Account, tool string) ToolStatus {
@@ -129,6 +134,19 @@ func (h *Handler) invalidateTool(account, tool string) {
 	h.memoMu.Lock()
 	delete(h.toolMemo, account+"\x00"+tool)
 	h.memoMu.Unlock()
+}
+
+// invalidateToolEveryAccount drops one tool's memo for every account. Codex
+// and Gemini are installed with `npm install -g`, i.e. system-wide: the
+// install changes what every account resolves, not just the one that asked.
+func (h *Handler) invalidateToolEveryAccount(tool string) {
+	h.memoMu.Lock()
+	defer h.memoMu.Unlock()
+	for key := range h.toolMemo {
+		if strings.HasSuffix(key, "\x00"+tool) {
+			delete(h.toolMemo, key)
+		}
+	}
 }
 
 type toolsResponse struct {

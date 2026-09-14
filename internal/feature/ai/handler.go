@@ -50,6 +50,9 @@ type Handler struct {
 	passwdPath string      // /etc/passwd; tests point it at a fixture
 	isRoot     func() bool // os.Geteuid() == 0; tests override
 
+	socketRoot string                       // where the tmux sockets live; tests use a temp dir
+	chown      func(string, int, int) error // os.Chown; a test binary is not root
+
 	termOnce sync.Once
 	term     string // default-terminal chosen once per process
 
@@ -68,6 +71,8 @@ func NewHandler(db *sql.DB, cmd exec.Commander, stacksPath string) *Handler {
 		panel:      panelAccount(),
 		passwdPath: "/etc/passwd",
 		isRoot:     func() bool { return os.Geteuid() == 0 },
+		socketRoot: defaultSocketRoot,
+		chown:      os.Chown,
 		toolMemo:   map[string]toolMemoEntry{},
 		latestMemo: map[string]latestMemoEntry{},
 		now:        time.Now,

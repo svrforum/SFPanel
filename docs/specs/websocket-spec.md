@@ -485,7 +485,7 @@ redis-1  | 1:M 10 Apr 2026 10:23:46.123 * Ready to accept connections\n
 
 1. 세션이 없으면 Text `[session ended]` 한 프레임 후 종료 (클라이언트 없이).
 2. `tmux capture-pane -p -e -J -S -2000 -E -1` 결과를 CR LF로 바꿔 Binary 한 프레임으로 먼저 보낸다 — 화면 위의 이력이 xterm 스크롤백에 먼저 채워진다.
-3. PTY에서 `[runuser -u <계정> --] tmux -f /dev/null -L sfpanel attach-session -t <id>`를 띄운다. 이후는 `/ws/terminal`과 같은 루프 (resize → `pty.Setsize`, 0×0 무시, 30초 ping / 70초 read deadline).
+3. PTY에서 `[runuser -u <계정> --] tmux -f /dev/null -S /run/sfpanel/ai/<uid>/sfpanel attach-session -t <id>`를 띄운다. 이후는 `/ws/terminal`과 같은 루프 (resize → `pty.Setsize`, 0×0 무시, 30초 ping / 70초 read deadline).
 4. 소켓이 닫히면 클라이언트만 죽고(SIGHUP) 세션은 그대로다. 클라이언트가 먼저 끝나면(다른 곳에서 kill) Text `[detached]` 후 소켓을 닫는다.
 
 **세션 유지:** 서버 측 세션 객체나 스크롤백 링버퍼는 없다 — tmux가 세션이다. 페이지는 활성 탭 하나에만 소켓을 연다(백그라운드 탭의 벨 플래그가 유지되도록, 그리고 페이지당 프로세스 하나).
@@ -589,7 +589,7 @@ const send = (data: any) => {
 | `/ws/docker/containers/:id/logs` | 서버->클라 | Text (+`\n`) | 직접 관리 | 없음 | 없음 |
 | `/ws/docker/containers/:id/exec` | 양방향 | Text | 직접 관리 | 없음 | 없음 |
 | `/ws/docker/compose/:project/logs` | 서버->클라 | Text (+`\n`) | 직접 관리 | 없음 | 없음 |
-| `/ws/terminal` | 양방향 | Binary + Text(resize) | 직접 관리 | 없음 | 있음 (PTY 영속) |
+| `/ws/terminal` | 양방향 | Binary + Text(resize) | 직접 관리 (`TerminalSession`) | 있음 (6회 백오프) | 있음 (PTY 영속) |
 | `/ws/ai/attach` | 양방향 | Binary + Text(resize) | 직접 관리 (`TerminalSession`) | 있음 (6회 백오프) | 있음 (tmux 세션) |
 
 ---
@@ -675,6 +675,7 @@ go func() {
 | `/ws/metrics?node=X` | 원격 노드 실시간 메트릭 |
 | `/ws/logs?node=X` | 원격 노드 로그 스트리밍 |
 | `/ws/terminal?node=X` | 원격 노드 터미널 접속 |
+| `/ws/ai/attach?node=X` | 원격 노드 AI 세션 접속 (tmux) |
 | `/ws/docker/containers/:id/logs?node=X` | 원격 노드 컨테이너 로그 |
 | `/ws/docker/containers/:id/exec?node=X` | 원격 노드 컨테이너 셸 |
 | `/ws/docker/compose/:project/logs?node=X` | 원격 노드 Compose 로그 |

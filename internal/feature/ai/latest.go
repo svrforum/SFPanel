@@ -17,7 +17,14 @@ var latestSources = map[string]string{
 	ToolGemini: "https://registry.npmjs.org/@google/gemini-cli/latest",
 }
 
-const latestTTL = time.Hour
+const (
+	latestTTL = time.Hour
+	// latestFailTTL: a lookup that failed is memoised too, or an offline host
+	// would re-dial on every request — but for minutes, not an hour. A blip
+	// while the panel boots (network-online.target is not the internet) must
+	// not hide the update badge until the hour is up.
+	latestFailTTL = 5 * time.Minute
+)
 
 var latestHTTP = &http.Client{Timeout: 10 * time.Second}
 
@@ -60,15 +67,22 @@ func fetchLatest(tool string) string {
 	return parseLatest(tool, string(body))
 }
 
-// latestVersion is a network call on a request path, so it is memoised for
-// an hour and a failure is simply "" — the card then shows no badge. Never an
-// error: an offline host must still get its page.
+// latestVersion is a network call on a request path, so it is memoised — an
+// hour for an answer, latestFailTTL for a failure — and a failure is simply ""
+// so the card shows no badge. Never an error: an offline host must still get
+// its page.
 func (h *Handler) latestVersion(tool string) string {
 	h.memoMu.Lock()
 	e, ok := h.latestMemo[tool]
 	h.memoMu.Unlock()
-	if ok && h.now().Sub(e.at) < latestTTL {
-		return e.version
+	if ok {
+		ttl := latestTTL
+		if e.version == "" {
+			ttl = latestFailTTL
+		}
+		if h.now().Sub(e.at) < ttl {
+			return e.version
+		}
 	}
 	v := fetchLatest(tool)
 	h.memoMu.Lock()

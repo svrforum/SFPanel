@@ -46,10 +46,12 @@ func failCode(t *testing.T, rec *httptest.ResponseRecorder) (string, string) {
 }
 
 // tmuxMock answers "tmux exists, systemd-run exists, list-windows says X".
+// The key is "env": every tmux invocation runs behind the account's explicit
+// environment (accounts.go), so that is the command the Commander sees.
 func tmuxMock(listWindows string) *exec.MockCommander {
 	return &exec.MockCommander{Outputs: map[string]exec.MockResult{
 		"exists:tmux": {}, "exists:systemd-run": {}, "infocmp": {},
-		"tmux": {Output: listWindows}, "systemd-run": {},
+		"env": {Output: listWindows}, "systemd-run": {},
 	}}
 }
 
@@ -108,9 +110,11 @@ func TestCreateSession_SpawnsUnderScopeAndStoresRow(t *testing.T) {
 	if !validSessionID(s.ID) || s.Tool != "claude" || s.RunAs != "alice" || s.Title != "Claude · "+filepath.Base(dir) || s.State != StateWorking || s.Persistence != "scope" {
 		t.Errorf("created = %+v", s)
 	}
+	alice, _ := h.resolveAccount("alice")
+	want := "--unit=sfpanel-ai-" + s.ID + " -- env " + envPrefix(h, alice) + " runuser -u alice -- tmux -f /dev/null -S " + h.socketPath(alice)
 	var spawned bool
 	for _, c := range m.Calls {
-		if c.Name == "systemd-run" && strings.Contains(strings.Join(c.Args, " "), "--unit=sfpanel-ai-"+s.ID+" -- runuser -u alice -- tmux -f /dev/null -L sfpanel") {
+		if c.Name == "systemd-run" && strings.Contains(strings.Join(c.Args, " "), want) {
 			spawned = true
 		}
 	}
@@ -172,6 +176,41 @@ func TestListSessions_StatesAndUnknown(t *testing.T) {
 	}
 }
 
+// Creation order has to be total. An unknown session has no row and therefore
+// no created_at, so comparing that field alone let the unknowns land wherever
+// the socket happened to list them — a different tab order on every 5 s poll.
+func TestListSessions_OrderIsTotalWithUnknownsLast(t *testing.T) {
+	h := newTestHandler(t, nil)
+	h.DB = openTestDB(t)
+	for _, id := range []string{"ffffffffffff", "eeeeeeeeeeee"} {
+		_ = insertSession(h.DB, sessionRow{ID: id, Tool: ToolShell, Title: id, RunAs: "root", CWD: "/"})
+	}
+	// e was created first, f second, whatever their ids say.
+	if _, err := h.DB.Exec(`UPDATE ai_sessions SET created_at = '2026-09-13 00:00:00' WHERE id = 'eeeeeeeeeeee'`); err != nil {
+		t.Fatal(err)
+	}
+	h.Cmd = tmuxMock(strings.Join([]string{
+		"ffffffffffff\t1\tbash\t0\t1789348400\t0",
+		"eeeeeeeeeeee\t1\tbash\t0\t1789348400\t0",
+		"bbbbbbbbbbbb\t1\tbash\t0\t1789348400\t0",
+		"aaaaaaaaaaaa\t1\tbash\t0\t1789348400\t0",
+	}, "\n"))
+	want := "eeeeeeeeeeee ffffffffffff aaaaaaaaaaaa bbbbbbbbbbbb"
+	for i := 0; i < 20; i++ { // the live map is iterated in random order
+		snap, err := h.sessionsSnapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids := make([]string, 0, len(snap))
+		for _, s := range snap {
+			ids = append(ids, s.ID)
+		}
+		if strings.Join(ids, " ") != want {
+			t.Fatalf("poll %d: order = %v, want %q (rows in creation order, unknowns last by id)", i, ids, want)
+		}
+	}
+}
+
 func TestRerun_OnlyFromShell(t *testing.T) {
 	h := newTestHandler(t, tmuxMock("aaaaaaaaaaaa\t1\tclaude\t0\t1789348400\t0"))
 	h.DB = openTestDB(t)
@@ -188,8 +227,9 @@ func TestRerun_OnlyFromShell(t *testing.T) {
 		t.Fatalf("rerun from shell: %d %s", rec.Code, rec.Body.String())
 	}
 	last := m.Calls[len(m.Calls)-1]
-	if strings.Join(last.Args, " ") != "-f /dev/null -L sfpanel send-keys -t aaaaaaaaaaaa claude Enter" {
-		t.Errorf("send-keys = %q", last.Args)
+	want := envPrefix(h, h.panel) + " tmux -f /dev/null -S " + h.socketPath(h.panel) + " send-keys -t aaaaaaaaaaaa claude Enter"
+	if last.Name != "env" || strings.Join(last.Args, " ") != want {
+		t.Errorf("send-keys = %s %q\nwant env %q", last.Name, last.Args, want)
 	}
 }
 
@@ -214,6 +254,63 @@ func TestRestart_OnlyWhenEnded(t *testing.T) {
 	}
 	if r, _, _ := getSessionRow(h.DB, "aaaaaaaaaaaa"); r.EndedAt.Valid {
 		t.Error("ended_at must be cleared by a restart")
+	}
+}
+
+// A restart adds a live session, so it meets the same ceiling a create does.
+// Without the check, twenty ended tabs were twenty free sessions.
+func TestRestart_CountsAgainstTheSessionLimit(t *testing.T) {
+	h := newTestHandler(t, nil)
+	h.DB = openTestDB(t)
+	var lines []string
+	for i := 0; i < maxSessions; i++ {
+		id := strings.Repeat(string(rune('a'+i%6)), 11) + string(rune('0'+i%10))
+		_ = insertSession(h.DB, sessionRow{ID: id, Tool: ToolShell, Title: id, RunAs: "root", CWD: "/"})
+		lines = append(lines, id+"\t1\tbash\t0\t1789348400\t0")
+	}
+	_ = insertSession(h.DB, sessionRow{ID: "fedcba987654", Tool: ToolClaude, Title: "ended", RunAs: "root", CWD: "/"})
+	_ = setSessionEnded(h.DB, "fedcba987654", true)
+	m := tmuxMock(strings.Join(lines, "\n"))
+	h.Cmd = m
+
+	rec := call(t, h.RestartSession, http.MethodPost, "", "fedcba987654", "")
+	if code, _ := failCode(t, rec); code != response.ErrAISessionLimit {
+		t.Errorf("restart at the ceiling: got %s, want AI_SESSION_LIMIT", code)
+	}
+	for _, c := range m.Calls {
+		if c.Name == "systemd-run" {
+			t.Errorf("a refused restart must not spawn: %+v", c)
+		}
+	}
+}
+
+// Spec §1: a live session with no row "can still be attached or killed". The
+// tab bar offers 종료 for it, so the row lookup's 404 left the operator a tab
+// they could not close and a tmux session they could not reach.
+func TestDelete_LiveSessionWithoutARow(t *testing.T) {
+	m := tmuxMock("cccccccccccc\t1\tclaude\t0\t1789348400\t0")
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+
+	rec := call(t, h.DeleteSession, http.MethodDelete, "", "cccccccccccc", "")
+	if rec.Code != http.StatusOK {
+		code, msg := failCode(t, rec)
+		t.Fatalf("row-less live session: got %s %q, want 200", code, msg)
+	}
+	var killed bool
+	for _, c := range m.Calls {
+		if strings.HasSuffix(strings.Join(c.Args, " "), "kill-session -t cccccccccccc") {
+			killed = true
+		}
+	}
+	if !killed {
+		t.Errorf("the tmux session must be killed; calls %+v", m.Calls)
+	}
+
+	// An id that is neither in the table nor on any socket is still a 404.
+	rec = call(t, h.DeleteSession, http.MethodDelete, "", "dddddddddddd", "")
+	if code, _ := failCode(t, rec); code != response.ErrAISessionNotFound || rec.Code != http.StatusNotFound {
+		t.Errorf("unknown id: got %s/%d, want AI_SESSION_NOT_FOUND/404", code, rec.Code)
 	}
 }
 
@@ -242,7 +339,7 @@ func TestRenameAndDelete(t *testing.T) {
 	}
 	var killed bool
 	for _, c := range m.Calls {
-		if strings.Join(c.Args, " ") == "-f /dev/null -L sfpanel kill-session -t aaaaaaaaaaaa" {
+		if strings.HasSuffix(strings.Join(c.Args, " "), "tmux -f /dev/null -S "+h.socketPath(h.panel)+" kill-session -t aaaaaaaaaaaa") {
 			killed = true
 		}
 	}
@@ -275,7 +372,7 @@ func TestDelete_AccountOffTheAllowlist(t *testing.T) {
 		t.Error("row must be gone even when its account cannot be resolved")
 	}
 	for _, c := range m.Calls {
-		if c.Name == "tmux" {
+		if strings.Contains(strings.Join(c.Args, " "), "kill-session") {
 			t.Errorf("no account to run as, yet tmux ran: %+v", c)
 		}
 	}

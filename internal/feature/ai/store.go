@@ -26,7 +26,10 @@ func insertSession(db *sql.DB, r sessionRow) error {
 }
 
 func listSessionRows(db *sql.DB) ([]sessionRow, error) {
-	rows, err := db.Query(`SELECT ` + sessionColumns + ` FROM ai_sessions ORDER BY created_at, id`)
+	// rowid, not id, breaks a tie: created_at has second resolution, and id is
+	// 6 random bytes — ordering two same-second sessions by it is a coin toss,
+	// while rowid is insertion order, which is what "creation order" means.
+	rows, err := db.Query(`SELECT ` + sessionColumns + ` FROM ai_sessions ORDER BY created_at, rowid`)
 	if err != nil {
 		return nil, err
 	}

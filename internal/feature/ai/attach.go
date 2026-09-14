@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	osExec "os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -64,7 +65,8 @@ const (
 // override (internal/config/config.go), i.e. the ability to mint admin
 // tokens; systemd's `NOTIFY_SOCKET` is a smaller instance of the same leak.
 // A tmux client needs no more than this: -f /dev/null leaves no config to
-// find and the socket path is derived from the uid, not from HOME.
+// find and the socket is named absolutely with -S, so neither HOME nor
+// TMUX_TMPDIR decides where it looks.
 func attachEnv(base []string, acct, panel Account) []string {
 	if acct.Name == panel.Name {
 		return append(base, attachTerm)
@@ -90,8 +92,15 @@ func (h *Handler) AttachWS(jwtSecret string, auditWriter *sfdb.AsyncWriter, loca
 		if !validSessionID(id) {
 			return response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
 		}
-		acct := h.panel // a live session without a row is attached as the panel account
-		if row, found, err := getSessionRow(h.DB, id); err == nil && found {
+		// A live session without a row is attached as the panel account — but
+		// only when the table really has no row for it. A read error is not a
+		// not-found: silently switching the account would attach the wrong one.
+		acct := h.panel
+		row, found, err := getSessionRow(h.DB, id)
+		if err != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not read the session")
+		}
+		if found {
 			a, ok := h.resolveAccount(row.RunAs)
 			if !ok {
 				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidAccount, "the session's account no longer exists")
@@ -129,7 +138,7 @@ func (h *Handler) AttachWS(jwtSecret string, auditWriter *sfdb.AsyncWriter, loca
 
 		// 2. History above the visible screen, so xterm's scrollback is full
 		// before the live screen repaints.
-		if out, err := h.tmux(acct, "capture-pane", "-p", "-e", "-J", "-t", id, "-S", "-2000", "-E", "-1"); err == nil {
+		if out, err := h.tmux(acct, "capture-pane", "-p", "-e", "-J", "-t", id, "-S", "-"+strconv.Itoa(historyLines), "-E", "-1"); err == nil {
 			if b := replayHistory(out); len(b) > 0 {
 				if err := send(websocket.BinaryMessage, b); err != nil {
 					return nil

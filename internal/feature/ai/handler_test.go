@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,8 +38,17 @@ func newTestHandler(t *testing.T, m *exec.MockCommander) *Handler {
 		panel:      Account{Name: "root", UID: 0, GID: 0, Home: "/root", Shell: "/bin/bash"},
 		passwdPath: pw,
 		isRoot:     func() bool { return true },
+		socketRoot: filepath.Join(t.TempDir(), "run", "sfpanel", "ai"),
+		// A test binary is not root, so it cannot chown a directory to uid 0.
+		chown:      func(string, int, int) error { return nil },
 		toolMemo:   map[string]toolMemoEntry{},
 		latestMemo: map[string]latestMemoEntry{},
 		now:        func() time.Time { return testNow },
 	}
+}
+
+// envPrefix is the `env` argv prefix a call is expected to carry, as one
+// string: `env -i …` for an account the panel is not, `env …` for its own.
+func envPrefix(h *Handler, acct Account) string {
+	return strings.Join(h.envArgv(acct)[1:], " ")
 }

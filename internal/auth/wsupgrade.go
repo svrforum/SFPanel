@@ -23,6 +23,10 @@ var ErrUnauthenticatedWS = errors.New("websocket upgrade not authenticated")
 // caller-supplied copy before re-setting it, so it is authoritative here. An
 // empty value is refused rather than defaulted, because a default would
 // shadow the real admin's sessions on the target node.
+//
+// An echo caller passes c.Response(), never c.Response().Writer: the 401 has
+// to go through echo's ResponseWriter so the status is recorded and the
+// response counts as committed.
 func AuthenticateWSUpgrade(w http.ResponseWriter, r *http.Request, jwtSecret string) (string, error) {
 	if IsInternalProxyRequest(r) {
 		if user := r.Header.Get("X-SFPanel-Original-User"); user != "" {

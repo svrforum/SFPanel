@@ -3713,7 +3713,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 ---
 
 ### POST /api/v1/ai/sessions
-세션 생성. `systemd-run --scope` 아래 `tmux -f /dev/null -L sfpanel new-session`.
+세션 생성. `systemd-run --scope` 아래 `tmux -f /dev/null -S /run/sfpanel/ai/<uid>/sfpanel new-session`.
 
 **Request:** `{ "tool": "claude", "cwd": "/opt/stacks/app", "run_as": "root", "title": "선택" }`
 
@@ -4817,7 +4817,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 ## 전체 엔드포인트 요약
 
-`internal/api/router.go` 기준 등록 라우트 총 279개 (REST/SSE + WebSocket 7개). 이 외에 SSE 스트리밍 엔드포인트는 REST 숫자에 포함됩니다. Docker 소켓 미사용 시 `/api/v1/docker/*` 라우트는 미등록. 실제 등록 라우트는 서버 시작 로그 또는 `internal/api/router.go`에서 확인.
+`internal/api/router.go` 기준 등록 라우트 총 279개 (REST/SSE + WebSocket 8개). 이 외에 SSE 스트리밍 엔드포인트는 REST 숫자에 포함됩니다. Docker 소켓 미사용 시 `/api/v1/docker/*` 라우트는 미등록. 실제 등록 라우트는 서버 시작 로그 또는 `internal/api/router.go`에서 확인.
 
 ### 인증/설정 (15개)
 

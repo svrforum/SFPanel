@@ -3,6 +3,7 @@ package ai
 import (
 	"bufio"
 	"io"
+	"log/slog"
 	"os"
 	"os/user"
 	"path"
@@ -82,10 +83,61 @@ func (h *Handler) accounts() []Account {
 	}
 	f, err := os.Open(h.passwdPath)
 	if err != nil {
+		// Degrading to the panel account alone is safe but silent: the run-as
+		// selector would simply lose every other account, which looks like a
+		// product decision rather than an unreadable /etc/passwd.
+		slog.Warn("ai could not read the account database", "component", "ai", "path", h.passwdPath, "err", err)
 		return allowedAccounts(h.panel, true, nil)
 	}
 	defer f.Close()
 	return allowedAccounts(h.panel, true, parsePasswd(f))
+}
+
+// accountPath is the PATH every account-facing subprocess starts with: the
+// distribution default, the same one systemd gives a system unit. The login
+// shell inside the session replaces it with the account's own.
+const accountPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+// accountEnv is the environment of everything the module runs as an account —
+// tmux servers and clients, the tool probe, an installer. It is built, never
+// inherited, for two independent reasons:
+//
+//   - The panel has no HOME to pass on. systemd.exec sets $HOME only for units
+//     with User=, and the panel's unit has none; bash does not fill it in, and
+//     tmux copies its spawn environment into the session. `$HOME/.local/bin`
+//     in /etc/skel/.profile (and in Claude's own installer) then expands to
+//     `/.local/bin`, so root's Claude reads as "not installed" and a root
+//     session drops straight to `claude: command not found`.
+//   - What crosses runuser into another account has to be chosen. The panel's
+//     environment carries `SFPANEL_JWT_SECRET` when the operator uses that
+//     supported override (internal/config/config.go) and whatever else their
+//     unit's `Environment=` lines add; a process running as that account can
+//     read its own /proc/self/environ, and the JWT secret is the ability to
+//     mint admin tokens. Same boundary attachEnv draws for the attach client.
+func accountEnv(acct Account) []string {
+	return []string{
+		"PATH=" + accountPath,
+		"HOME=" + acct.Home,
+		"USER=" + acct.Name,
+		"LOGNAME=" + acct.Name,
+		"SHELL=" + acct.Shell,
+		"LANG=C.UTF-8",
+		"COLORTERM=truecolor",
+	}
+}
+
+// envArgv is accountEnv as an `env` argv prefix — exec.Commander can only
+// append to the panel's own environment, so the prefix is the honest route,
+// and it covers the setsid fallback too. A non-panel account gets `env -i`:
+// nothing of the panel's environment survives. The panel's own account is not
+// a boundary (same uid, same privileges), so there it only pins the variables
+// above on top of what the process already has.
+func (h *Handler) envArgv(acct Account) []string {
+	argv := []string{"env"}
+	if acct.Name != h.panel.Name {
+		argv = append(argv, "-i")
+	}
+	return append(argv, accountEnv(acct)...)
 }
 
 // resolveAccount maps a client-supplied name onto the allowlist. An empty

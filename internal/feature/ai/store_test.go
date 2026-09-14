@@ -43,6 +43,36 @@ func TestStore_RoundTripInCreationOrder(t *testing.T) {
 	}
 }
 
+// "Creation order" is time first, insertion second — never the id, which is
+// 6 random bytes. Both halves are asserted so both ORDER BY terms are
+// observable: b is inserted before a (a tie inside one second must keep that
+// order), then a is backdated (time must win over insertion).
+func TestStore_ListOrderIsTimeThenInsertion(t *testing.T) {
+	db := openTestDB(t)
+	for _, id := range []string{"bbbbbbbbbbbb", "aaaaaaaaaaaa"} {
+		if err := insertSession(db, sessionRow{ID: id, Tool: ToolShell, Title: id, RunAs: "root", CWD: "/"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`UPDATE ai_sessions SET created_at = '2026-09-14 00:00:00'`); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := listSessionRows(db)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("rows = %+v, err = %v", rows, err)
+	}
+	if rows[0].ID != "bbbbbbbbbbbb" {
+		t.Errorf("same-second order = %s %s, want insertion order (b, a) — id order is a coin toss", rows[0].ID, rows[1].ID)
+	}
+	if _, err := db.Exec(`UPDATE ai_sessions SET created_at = '2026-09-13 00:00:00' WHERE id = 'aaaaaaaaaaaa'`); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = listSessionRows(db)
+	if rows[0].ID != "aaaaaaaaaaaa" {
+		t.Errorf("order = %s %s, want the older created_at first", rows[0].ID, rows[1].ID)
+	}
+}
+
 func TestStore_TitleEndedAttachedDelete(t *testing.T) {
 	db := openTestDB(t)
 	if err := insertSession(db, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolCodex, Title: "x", RunAs: "root", CWD: "/root"}); err != nil {
