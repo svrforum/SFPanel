@@ -83,8 +83,3 @@ func findShell() string {
 	}
 	return "/bin/sh"
 }
-
-// Temporary stubs so the package compiles until Task 7 lands; they are
-// replaced by the real types, not kept.
-type toolMemoEntry struct{}
-type latestMemoEntry struct{}

@@ -595,6 +595,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	ai.POST("/sessions/:id/restart", aiHandler.RestartSession)
 	ai.DELETE("/sessions/:id", aiHandler.DeleteSession)
 	ai.GET("/dirs", aiHandler.Dirs)
+	ai.GET("/tools", aiHandler.Tools)
 
 	// Docker routes (only registered when Docker is available)
 	if dockerHandler != nil {
