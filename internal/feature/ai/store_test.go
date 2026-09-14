@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 )
@@ -31,6 +32,13 @@ func TestStore_RoundTripInCreationOrder(t *testing.T) {
 	}
 	if rows[0].CreatedAt == "" || rows[0].EndedAt.Valid || rows[0].LastAttachedAt.Valid {
 		t.Errorf("fresh row: %+v", rows[0])
+	}
+	// The columns are DATETIME, so the driver parses them and hands the value
+	// back as RFC 3339 — not the "2006-01-02 15:04:05" SQLite wrote. Anything
+	// the handlers format themselves has to match this, or one field carries
+	// two formats and the client's Date() disagrees with itself.
+	if _, err := time.Parse(time.RFC3339, rows[0].CreatedAt); err != nil {
+		t.Errorf("created_at %q is not RFC 3339: %v", rows[0].CreatedAt, err)
 	}
 	got, ok, err := getSessionRow(db, "bbbbbbbbbbbb")
 	if err != nil || !ok || got.CWD != "/opt/stacks/app" {

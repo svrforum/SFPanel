@@ -3710,6 +3710,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 | `state` | `working`(도구 실행 중, 5초 내 출력) · `waiting`(도구가 5초 이상 조용하거나 벨) · `shell`(도구 종료, 셸 프롬프트) · `ended`(tmux 세션 없음) |
 | `persistence` | `service`(계정의 tmux 서버가 `systemd-run`이 만든 transient 서비스 = PID 1 소유, 패널 재시작 생존) · `process`(setsid만, 패널 재시작 시 종료) |
 | `unknown` | tmux 소켓에는 있으나 표에 없는 세션 (DB 유실) |
+| `created_at` · `last_attached_at` · `ended_at` | RFC 3339 UTC (`2026-09-14T01:02:03Z`). 표의 컬럼이 `DATETIME`이라 드라이버가 이 형식으로 돌려준다 — 서버가 직접 만드는 값(생성 응답의 `created_at`, 방금 종료로 표시한 `ended_at`)도 같은 형식 |
 
 ---
 

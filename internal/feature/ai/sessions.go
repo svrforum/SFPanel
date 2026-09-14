@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v4"
@@ -134,7 +135,11 @@ func (h *Handler) sessionsSnapshot() ([]Session, error) {
 			s.State = StateEnded
 			if !r.EndedAt.Valid {
 				_ = setSessionEnded(h.DB, r.ID, true)
-				s.EndedAt = now.UTC().Format("2006-01-02 15:04:05")
+				// The same format the row will read back as. The columns are
+				// DATETIME, so the driver hands them to us as RFC 3339; a
+				// "2006-01-02 15:04:05" string here was a second format in the
+				// same field, differing only on rows the poll had just stamped.
+				s.EndedAt = now.UTC().Format(time.RFC3339)
 			}
 		}
 		seen[r.ID] = true
@@ -275,7 +280,7 @@ func (h *Handler) CreateSession(c echo.Context) error {
 	}
 	slog.Info("ai session created", "component", "ai", "id", id, "tool", req.Tool, "account", acct.Name, "cwd", cwd)
 	return response.OK(c, Session{ID: id, Tool: req.Tool, Title: title, RunAs: acct.Name, CWD: cwd,
-		State: StateWorking, Persistence: h.persistence(), CreatedAt: h.now().UTC().Format("2006-01-02 15:04:05")})
+		State: StateWorking, Persistence: h.persistence(), CreatedAt: h.now().UTC().Format(time.RFC3339)})
 }
 
 // lookupSessionRow resolves :id to a row, writing the failure itself.

@@ -164,6 +164,11 @@ func TestCreateSession_StartsTheServerAsAServiceAndStoresRow(t *testing.T) {
 	if !validSessionID(s.ID) || s.Tool != "claude" || s.RunAs != "alice" || s.Title != "Claude · "+filepath.Base(dir) || s.State != StateWorking || s.Persistence != "service" {
 		t.Errorf("created = %+v", s)
 	}
+	// The create response is built in Go, not read back, so its created_at
+	// must already be the format the very next list will return.
+	if _, err := time.Parse(time.RFC3339, s.CreatedAt); err != nil {
+		t.Errorf("created_at %q is not RFC 3339: %v", s.CreatedAt, err)
+	}
 	alice, _ := h.resolveAccount("alice")
 	want := "--unit=sfpanel-ai-1000 --collect --uid=alice --gid=1000 -p Type=forking -E LANG=C.UTF-8 -E COLORTERM=truecolor -- tmux -f /dev/null -S " + h.socketPath(alice)
 	var spawned bool
@@ -294,6 +299,11 @@ func TestListSessions_StatesAndUnknown(t *testing.T) {
 	}
 	if got["bbbbbbbbbbbb"].State != StateEnded || got["bbbbbbbbbbbb"].EndedAt == "" {
 		t.Errorf("b = %+v", got["bbbbbbbbbbbb"])
+	}
+	// The freshly stamped ended_at goes out before the row is re-read, so it
+	// has to be formatted the way the row will come back: RFC 3339.
+	if _, err := time.Parse(time.RFC3339, got["bbbbbbbbbbbb"].EndedAt); err != nil {
+		t.Errorf("ended_at %q is not RFC 3339: %v", got["bbbbbbbbbbbb"].EndedAt, err)
 	}
 	if !got["cccccccccccc"].Unknown || got["cccccccccccc"].Title != "cccccccccccc" {
 		t.Errorf("c = %+v", got["cccccccccccc"])
