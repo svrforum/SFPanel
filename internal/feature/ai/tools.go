@@ -74,7 +74,16 @@ var loginFiles = map[string]string{
 // probeScript runs inside the account's login shell so PATH is theirs
 // (~/.local/bin, nvm). $0 is the tool name. Exit 3 = not installed. The
 // SFP-prefixed line survives whatever the account's profile prints.
-const probeScript = `p=$(command -v "$0") || exit 3; v=$("$0" --version 2>/dev/null | head -n1); printf "SFP\t%s\t%s\n" "$p" "$v"`
+//
+// `type -P`, not `command -v`: the shell is *interactive* (see shellAs), which
+// is the only way the account's .bashrc is read and therefore the only way
+// ~/.local/bin reaches PATH — but it also puts the account's aliases in scope,
+// and `command -v claude` then answers `alias claude='claude --verbose'`
+// instead of a path. That string is what the tool chip shows as the tool's
+// path. `type -P` forces a PATH search and ignores aliases, functions and
+// builtins, which is what this probe means. The version is then read from the
+// resolved path, so the version reported always belongs to the path reported.
+const probeScript = `p=$(type -P "$0") || exit 3; v=$("$p" --version 2>/dev/null | head -n1); printf "SFP\t%s\t%s\n" "$p" "$v"`
 
 func parseProbe(out string) (string, string, bool) {
 	for _, line := range strings.Split(out, "\n") {

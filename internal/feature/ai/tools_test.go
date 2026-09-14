@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	osExec "os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -211,5 +212,73 @@ func TestTools_SystemdRunMeansTheServiceFormIsAvailable(t *testing.T) {
 	}
 	if got := h.persistence(); got != "process" {
 		t.Errorf("persistence = %q, want process — systemd_run and the marker must come from one predicate", got)
+	}
+}
+
+// The probe must answer with a path, never an alias. The shell is interactive
+// (that is what reads .bashrc, and .bashrc is where ~/.local/bin joins PATH),
+// so the account's aliases are in scope and `command -v claude` answers with
+// the alias definition — which the tool chip then shows the operator as the
+// tool's "path". This runs the real probeScript through a real bash against a
+// fixture HOME that both defines such an alias and extends PATH.
+func TestProbeScript_ResolvesAPathNotAnAlias(t *testing.T) {
+	shell := findShell()
+	if filepath.Base(shell) != "bash" {
+		t.Skip("bash not available; the probe's resolution semantics are bash's")
+	}
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tool := filepath.Join(bin, "sfpfaketool")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\necho '9.9.9 (fake)'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The Debian/Ubuntu skeleton: a login shell reads .profile, and .profile
+	// sources .bashrc — which is where both the PATH line and the alias live.
+	if err := os.WriteFile(filepath.Join(home, ".profile"),
+		[]byte("if [ -n \"$BASH_VERSION\" ] && [ -f \"$HOME/.bashrc\" ]; then . \"$HOME/.bashrc\"; fi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".bashrc"),
+		[]byte("PATH=\"$HOME/bin:$PATH\"\nalias sfpfaketool='sfpfaketool --verbose'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	acct := Account{Name: "probe", Home: home, Shell: shell}
+	probe := func(arg string) (string, error) {
+		cmd := osExec.Command(shell, "-lic", probeScript, arg)
+		cmd.Env = accountEnv(acct) // same environment shellAs builds
+		// CombinedOutput like RunWithTimeout: with no tty bash writes its
+		// job-control warnings to stderr, and parseProbe picks the SFP line
+		// out of the noise — exactly as it does in production.
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	out, err := probe("sfpfaketool")
+	if err != nil {
+		t.Fatalf("probe failed: %v (output: %q)", err, out)
+	}
+	p, v, ok := parseProbe(out)
+	if !ok {
+		t.Fatalf("probe produced no SFP line: %q", out)
+	}
+	if p != tool {
+		t.Errorf("probe resolved %q, want the executable's path %q\n(an alias is in scope in the interactive shell; the resolved value is shown to the operator as the tool's path)", p, tool)
+	}
+	if !strings.Contains(v, "9.9.9") {
+		t.Errorf("version = %q, want the version of the resolved binary (9.9.9)", v)
+	}
+
+	// exit 3 stays the not-installed signal: toolStatus reads any error as
+	// "not installed", so a name that is nowhere on PATH must not print SFP.
+	out, err = probe("sfpnosuchtool")
+	if err == nil {
+		t.Errorf("a missing tool must fail the probe; got %q", out)
+	}
+	if _, _, ok := parseProbe(out); ok {
+		t.Errorf("a missing tool must not print an SFP line: %q", out)
 	}
 }
