@@ -2,7 +2,9 @@
 
 > 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/ws-inventory.md`
 >
-> WebSocket 6개 + SSE(Server-Sent Events) 9개. SSE 섹션은 문서 하단 참조.
+> WebSocket 7개 + SSE(Server-Sent Events) 9개. SSE 섹션은 문서 하단 참조.
+>
+> WebSocket 7개는 번호가 붙은 섹션 기준이다 — 별도 번호의 `1b. /ws/cluster/overview`까지 더하면 `router.go`에 등록된 WS 라우트는 8개(`tech-features.md`의 "총 8개"가 이 기준). SSE의 9개도 하단 카탈로그에 실린 항목 수이며, 그 뒤에 추가된 스트리밍 라우트(`/api/v1/ai/tools/:tool/{install,update}-stream` 등)는 포함하지 않는다.
 >
 > v0.10.0 이후 추가된 SSE 엔드포인트(예: `/system/update`, `/appstore/.../install`, `/compose/.../up-stream`, `/compose/.../update-stream`)는 본 문서에 부분적으로만 반영되어 있습니다. 권한 있는 출처는 `internal/api/router.go` + `internal/api/middleware/proxy.go`(스트리밍 엔드포인트 화이트리스트). 변경 요약은 `CHANGELOG.md`를 참조하세요.
 

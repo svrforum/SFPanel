@@ -214,7 +214,7 @@
 - **주요 기능**:
   - **Docker 상태 확인**: 설치 여부, 버전, 실행 상태, Docker Compose 사용 가능 여부
   - **Docker 원클릭 설치**: get.docker.com 스크립트 실행, SSE(Server-Sent Events)로 실시간 출력 스트리밍
-  - **개발 도구 설치**: Node.js(NVM/LTS — 설치·버전 전환·삭제, LTS 원격 목록), Claude Code(claude.ai), Codex(`@openai/codex`), Gemini CLI(`@google/gemini-cli`) — 전부 SSE 스트리밍, Node 미설치 시 Codex/Gemini 버튼 비활성화
+  - **개발 도구 설치**: Node.js(NVM/LTS — 설치·버전 전환·삭제, LTS 원격 목록)
   - **시스템 업데이트 확인**: `apt list --upgradable` 파싱 (패키지명, 현재/신규 버전, 아키텍처)
   - **패키지 업그레이드**: 전체 또는 선택적 업그레이드 (`apt-get upgrade`, **SSE 스트리밍**)
   - **패키지 설치/제거**: 이름으로 설치/제거 (`apt-get install`/`remove`)
@@ -376,16 +376,14 @@
   - **클러스터 경고**: 클러스터 모드에서 백업/복원은 FSM 복제 상태(admin·jwt_secret·cluster_node)와 desync 위험 → UI에서 추가 확인 후 진행
 - **관련 기술**: archive/tar, compress/gzip, multipart 업로드, systemctl
 
-### 19. AI 도구 설치
+### 19. Node.js 런타임 관리
 
-- **설명**: AI 코딩 어시스턴트 CLI 도구 설치 상태 확인 및 원클릭 설치
+- **설명**: 패키지 관리 페이지의 개발 도구 카드 — NVM 기반 Node.js 런타임 설치 및 버전 관리
 - **주요 기능**:
-  - **Claude CLI**: 설치 상태/버전 확인, 공식 install.sh로 원클릭 설치 (SSE 실시간 출력)
-  - **Codex CLI**: 설치 상태/버전 확인, npm 글로벌 설치 (`@openai/codex`, SSE 스트리밍)
-  - **Gemini CLI**: 설치 상태/버전 확인, npm 글로벌 설치 (`@google/gemini-cli`, SSE 스트리밍)
   - **Node.js 버전 관리**: NVM 기반 설치된 버전 목록, 버전 전환, 신규 버전 설치, 버전 삭제
   - **원격 LTS 조회**: NVM을 통해 사용 가능한 LTS 버전 목록 제공
-- **관련 기술**: NVM, npm, curl, SSE 스트리밍, exec.Command
+  - AI CLI(Claude Code · Codex · Gemini)의 설치·실행은 v0.73.0에서 AI 코딩 워크스페이스(§24)로 이동했다
+- **관련 기술**: NVM, SSE 스트리밍, exec.Command
 
 ### 20. Tauri 데스크톱 클라이언트
 
@@ -441,6 +439,19 @@
 - **(v0.46.0) 클립보드 폴백**: 비보안 컨텍스트(plain HTTP)에서도 동작하는 공용 `copyText()` 헬퍼(`web/src/lib/utils.ts`)로 복사 버튼 통일
 - **(v0.53.0) 다크모드 + 시맨틱 토큰 스윕**: `.dark` 팔레트 활성화(light/dark/system, OS 추종 + pre-paint 인라인 스크립트), 하드코딩 hex를 시맨틱 토큰으로 정리
 - **(v0.53.0) 키보드 접근성 스윕**: 전 인터랙티브 표면 focus-visible 링, 아이콘 전용 컨트롤 aria-label(기존 i18n 키 재사용), 클릭 전용 행/셀 keyboard-operable(role/tabIndex/Enter·Space), hover-전용 행 액션 포커스 시 표시
+
+### 24. AI 코딩 워크스페이스
+
+- **설명**: (v0.73.0) Claude Code · Codex · Gemini CLI와 로그인 셸을 패널이 관리하는 tmux 세션으로 띄우고 브라우저를 그 세션에 붙인다. 브라우저를 닫아도 세션은 계속 돌아간다
+- **주요 기능**:
+  - **영속 세션**: `tmux -f /dev/null -L sfpanel` 세션을 `systemd-run --scope --unit=sfpanel-ai-<id>`로 감싸 패널 재시작에도 생존(`persistence: scope`). systemd-run이 없으면 `setsid`만 적용되어 패널 재시작 시 종료(`process`). 살아있는 세션 최대 20개
+  - **세션 상태**: `working`(5초 내 출력) · `waiting`(조용하거나 벨) · `shell`(도구 종료, 셸 프롬프트) · `ended`(tmux 세션 없음). 이름 변경 · 다시 실행 · 다시 시작 · 종료 지원
+  - **계정별 실행**: 허용 목록은 패널 계정 + uid ≥ 1000 로그인 계정. 다른 계정은 `runuser -u <계정> --`로 실행하고 CLI 설치 상태·버전도 그 계정의 `bash -l` 기준으로 조회
+  - **CLI 설치/업데이트**: Claude는 공식 install.sh, Codex/Gemini는 `npm install -g <pkg>@latest` — 둘 다 SSE 스트리밍. 최신 버전은 Claude 릴리스 채널/npm 레지스트리에서 1시간 캐시로 조회해 업데이트 여부를 표시
+  - **브라우저 접속**: `/ws/ai/attach?session_id=<id>`가 `tmux attach-session`을 PTY로 띄우며, 붙기 전에 `capture-pane` 스크롤백을 한 프레임 먼저 보낸다. 소켓이 끊겨도 세션은 유지
+  - 노드 로컬 기능 — 세션 표(`ai_sessions`, 마이그레이션 36)는 FSM 복제 없이 노드별로 보관하고, 다른 노드는 `?node=`로 조회
+- **관련 기술**: tmux, systemd-run, runuser, creack/pty, SSE 스트리밍, SQLite
+- **관련 문서**: `docs/specs/api-spec.md` § AI 워크스페이스 API, `docs/specs/websocket-spec.md` § 7 `/ws/ai/attach`
 
 ---
 
@@ -726,7 +737,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 
 ### WebSocket 엔드포인트 (단발성 ws-ticket 우선 인증, 레거시 `?token=` 폴백)
 
-총 7개. `/ws/cluster/overview`를 제외한 6개는 `?node=X`로 클러스터 원격 릴레이 가능 (`internal/cluster/ws_relay.go`).
+총 8개. `/ws/cluster/overview`를 제외한 7개는 `?node=X`로 클러스터 원격 릴레이 가능 (`internal/cluster/ws_relay.go`).
 
 | 경로 | 설명 |
 |------|------|
@@ -736,6 +747,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 | `/ws/docker/containers/:id/logs` | 컨테이너 로그 (`tail`/`timestamps`/`stream`/`since` 쿼리) |
 | `/ws/docker/containers/:id/exec` | 컨테이너 셸 exec (TextMessage 양방향 + resize JSON; **(v0.53.0)** 오픈 시 감사 기록) |
 | `/ws/docker/compose/:project/logs` | Compose 프로젝트 로그 (`service` 필터 가능) |
+| `/ws/ai/attach` | (v0.73.0) AI 세션 접속 — 패널이 관리하는 tmux 세션에 붙는 PTY (`session_id` 쿼리) |
 | `/ws/cluster/overview` | (v0.31.0) 클러스터 status+overview+이벤트 통합 스냅샷 푸시 — 클러스터 로컬, 노드 릴레이 미적용 |
 
 ### SSE 스트리밍 엔드포인트 (`Content-Type: text/event-stream`)
@@ -792,6 +804,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 | DockerVolumes | `web/src/pages/docker/DockerVolumes.tsx` | 볼륨 관리 |
 | DockerNetworks | `web/src/pages/docker/DockerNetworks.tsx` | 네트워크 관리 |
 | Terminal | `web/src/pages/Terminal.tsx` | 웹 터미널 (다중 탭) |
+| AI | `web/src/pages/AI.tsx` | (v0.73.0) AI 코딩 — Claude/Codex/Gemini CLI를 tmux 세션으로 실행 + 접속 |
 | Files | `web/src/pages/Files.tsx` | 파일 관리자 |
 | Logs | `web/src/pages/Logs.tsx` | 로그 뷰어 |
 | CronJobs | `web/src/pages/CronJobs.tsx` | Cron 작업 관리 |
