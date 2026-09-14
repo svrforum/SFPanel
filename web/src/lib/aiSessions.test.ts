@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AISession, AITools } from '@/types/api'
-import { aiErrorMessage, defaultTitle, stateDotClass, titlePrefix, toolInstalledFor, toolsFor, waitingCount } from './aiSessions'
+import { aiErrorMessage, aiPrefill, defaultTitle, stateDotClass, titlePrefix, toolInstalledFor, toolsFor, waitingCount } from './aiSessions'
 
 const bundle = (account: string, installed: Partial<Record<'claude' | 'codex' | 'gemini', boolean>>): AITools => ({
   tmux: { installed: true, version: '3.6', supported: true, min_version: '3.2' },
@@ -84,5 +84,37 @@ describe('aiErrorMessage', () => {
     // `instanceof Error` guard: without it, that message would reach the
     // dialog as if the server had sent it.
     expect(aiErrorMessage({ message: 'not from the server' }, t)).toBe('ai.errors.generic')
+  })
+})
+
+describe('aiPrefill', () => {
+  // The reachable sequence: the operator presses + before GET /ai/tools has
+  // answered, so `account` is still ''. Prefilling that emptied the account
+  // select and short-circuited the dirs/tools effect on !runAs, and the
+  // once-only flag meant the dialog never recovered.
+  it('defers while the account is unresolved, then prefills when it arrives', () => {
+    expect(aiPrefill({}, undefined, '')).toBeNull()
+    expect(aiPrefill({}, ['root'], 'root')).toEqual({ tool: undefined, cwd: undefined, runAs: 'root' })
+  })
+
+  // Deferring means the prefill can run a second time, so it must not carry
+  // anything the operator may have touched in between. The name is the one
+  // such field, and it is cleared only by the closed -> open reset.
+  it('never produces a title', () => {
+    const pre = aiPrefill({ tool: 'codex', cwd: '/srv', run_as: 'alice' }, ['root', 'alice'], 'root')
+    expect(pre).not.toBeNull()
+    expect('title' in pre!).toBe(false)
+    expect(Object.keys(pre!).sort()).toEqual(['cwd', 'runAs', 'tool'])
+  })
+
+  it('uses the remembered account only while it is still on the allowlist', () => {
+    expect(aiPrefill({ run_as: 'alice' }, ['root', 'alice'], 'root')?.runAs).toBe('alice')
+    expect(aiPrefill({ run_as: 'alice' }, ['root'], 'root')?.runAs).toBe('root')
+    expect(aiPrefill({ run_as: 'alice' }, undefined, 'root')?.runAs).toBe('root')
+  })
+
+  it('drops a remembered tool that is not one of ours', () => {
+    expect(aiPrefill({ tool: 'vim' as never }, ['root'], 'root')?.tool).toBeUndefined()
+    expect(aiPrefill({ tool: 'gemini' }, ['root'], 'root')?.tool).toBe('gemini')
   })
 })

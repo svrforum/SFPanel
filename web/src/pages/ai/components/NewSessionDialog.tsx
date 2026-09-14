@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { AIDirs, AISession, AITool, AITools } from '@/types/api'
-import { TOOL_META, aiErrorMessage, defaultTitle, toolInstalledFor, toolsFor } from '@/lib/aiSessions'
+import type { AILastSession } from '@/lib/aiSessions'
+import { TOOL_META, aiErrorMessage, aiPrefill, defaultTitle, toolInstalledFor, toolsFor } from '@/lib/aiSessions'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -44,23 +45,31 @@ export function NewSessionDialog({
   const [busy, setBusy] = useState(false)
   const prefilled = useRef(false)
 
-  // Prefill on the closed -> open transition only. Re-running it whenever
-  // `tools` lands (the page loads it in parallel) wiped a name the operator
-  // had already typed.
+  // The name and the last error belong to one opening of the dialog, so they
+  // are cleared on the closed -> open transition and nowhere else. In
+  // particular not in the prefill below, which may have to run again.
   useEffect(() => {
     if (!open) { prefilled.current = false; return }
-    if (prefilled.current) return
-    prefilled.current = true
     setError(null)
     setTitle('')
+  }, [open])
+
+  // Prefill once — but only once it can produce a real account. Opening the
+  // dialog before GET /ai/tools resolves used to set runAs to '', which left
+  // the account select empty and stopped the effect below on !runAs, and the
+  // flag meant it never retried.
+  useEffect(() => {
+    if (!open || prefilled.current) return
+    let last: AILastSession = {}
     try {
-      const last = JSON.parse(localStorage.getItem(lastKey(node)) || '{}') as { tool?: AITool; cwd?: string; run_as?: string }
-      if (last.tool && TOOLS.includes(last.tool)) setTool(last.tool)
-      if (last.cwd) setCwd(last.cwd)
-      setRunAs(last.run_as && tools?.accounts.includes(last.run_as) ? last.run_as : account)
-    } catch {
-      setRunAs(account)
-    }
+      last = JSON.parse(localStorage.getItem(lastKey(node)) || '{}') as AILastSession
+    } catch { /* private mode, or a value someone else wrote */ }
+    const pre = aiPrefill(last, tools?.accounts, account)
+    if (!pre) return
+    prefilled.current = true
+    if (pre.tool && TOOLS.includes(pre.tool)) setTool(pre.tool)
+    if (pre.cwd) setCwd(pre.cwd)
+    setRunAs(pre.runAs)
   }, [open, account, node, tools])
 
   // Directories and install state both belong to the chosen account, so both

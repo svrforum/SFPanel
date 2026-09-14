@@ -58,6 +58,40 @@ export function toolInstalledFor(bundle: AITools | null, tool: AITool): boolean 
   return bundle.tools[tool]?.installed ?? true
 }
 
+/** What the new-session dialog remembers per node in localStorage. */
+export interface AILastSession {
+  tool?: AITool
+  cwd?: string
+  run_as?: string
+}
+
+/**
+ * The dialog's opening values, or null while there is nothing to open with.
+ *
+ * `account` is '' until GET /ai/tools resolves, and the dialog can be opened
+ * before that. Prefilling '' left the account select empty and short-circuited
+ * the effect that loads directories and per-account tool status, so the dialog
+ * stayed stuck; null tells the caller to leave its "already prefilled" flag
+ * down and try again on the render that brings a real account.
+ *
+ * There is deliberately no title here. The prefill may run a second time, and
+ * a name the operator typed while waiting for the account must survive it —
+ * the closed-to-open reset is the only thing that clears the name.
+ */
+export function aiPrefill(
+  last: AILastSession,
+  accounts: string[] | undefined,
+  account: string
+): { tool?: AITool; cwd?: string; runAs: string } | null {
+  const runAs = last.run_as && accounts?.includes(last.run_as) ? last.run_as : account
+  if (!runAs) return null
+  return {
+    tool: last.tool && last.tool in TOOL_META ? last.tool : undefined,
+    cwd: last.cwd || undefined,
+    runAs,
+  }
+}
+
 /** document.title prefix while the page is open. */
 export function titlePrefix(n: number): string {
   return n > 0 ? `(${n}) ` : ''
