@@ -3625,128 +3625,122 @@ data: [DONE]
 
 ---
 
-## 패키지 관리 — AI CLI API (`/api/v1/packages`)
+## AI 워크스페이스 API (`/api/v1/ai`)
 
-### GET /api/v1/packages/claude-status
-Claude Code CLI 설치 상태 확인.
+Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 실행하고, 계정별 설치 상태를 조회한다. 모든 라우트는 노드 로컬이며 `?node=`로 다른 노드를 지정한다. v0.73.0에서 `/packages/{claude,codex,gemini}-status`·`/packages/install-{claude,codex,gemini}`를 대체했다.
+
+### GET /api/v1/ai/tools
+선택한 계정의 로그인 셸 기준 CLI 상태. `?user=` 생략 시 패널 계정.
 
 - **인증 필요**: 예
+- **Query**: `user` — 실행 계정 (허용 목록: 패널 계정 + uid ≥ 1000 로그인 계정)
 
 **Response (200):**
 ```json
 {
   "success": true,
   "data": {
-    "installed": true,
-    "version": "1.0.0"
+    "tmux": { "installed": true, "version": "3.6a" },
+    "systemd_run": true,
+    "accounts": ["root", "<user>"],
+    "panel_account": "root",
+    "account": "root",
+    "tools": {
+      "claude": { "installed": true, "version": "2.1.92 (Claude Code)", "path": "/root/.local/bin/claude", "latest": "2.1.270", "update_available": true, "logged_in": false },
+      "codex":  { "installed": true, "version": "codex-cli 0.141.0", "path": "/usr/bin/codex", "latest": "0.154.0", "update_available": true, "logged_in": false },
+      "gemini": { "installed": false, "version": "", "path": "", "latest": "0.59.0", "update_available": false, "logged_in": false }
+    }
   }
 }
 ```
 
-| 필드 | 타입 | 설명 |
+| 필드 | 설명 |
+|------|------|
+| `tools.*.version` | 그 계정의 `bash -l`이 실제로 실행하는 바이너리의 버전 (계정·도구별 10분 캐시, 설치/업데이트 시 무효화) |
+| `tools.*.latest` | Claude: `downloads.claude.ai/claude-code-releases/latest`, Codex/Gemini: npm 레지스트리. 1시간 캐시, 실패 시 `""` |
+| `tools.*.logged_in` | 계정 홈의 자격증명 파일 존재 여부 (힌트) |
+
+| 코드 | HTTP | 조건 |
 |------|------|------|
-| `installed` | boolean | Claude CLI 설치 여부 |
-| `version` | string | Claude CLI 버전 (미설치 시 빈 문자열) |
+| `INVALID_ACCOUNT` | 400 | `user`가 허용 목록에 없음 |
 
 ---
 
-### POST /api/v1/packages/install-claude
-Claude Code CLI 설치 (공식 설치 스크립트 사용). SSE(Server-Sent Events)로 진행 상황 스트리밍.
+### POST /api/v1/ai/tools/:tool/install-stream · /update-stream
+CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gemini는 `npm install -g <pkg>@latest`. SSE 평문 라인 + `[DONE]`.
 
 - **인증 필요**: 예
-- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+- **Path**: `tool` ∈ `claude` · `codex` · `gemini`
+- **Query**: `user` — Claude는 이 계정으로 실행(`~/.local/bin`에 설치); npm 패키지는 시스템 전역
+- **응답 형식**: `text/event-stream`
 
-**Response:** SSE 스트림
-```
-data: >>> Installing Claude Code CLI ...
-
-data: [설치 로그...]
-
-data: >>> Claude Code CLI installed successfully!
-
-data: [DONE]
-```
+| 코드 | HTTP | 조건 |
+|------|------|------|
+| `INVALID_TOOL` | 400 | `shell`이거나 알 수 없는 도구 (스트림 시작 전 JSON 응답) |
+| `INVALID_ACCOUNT` | 400 | `user`가 허용 목록에 없음 |
 
 ---
 
-### GET /api/v1/packages/codex-status
-OpenAI Codex CLI 설치 상태 확인.
+### GET /api/v1/ai/dirs
+새 세션 대화상자의 작업 디렉터리 제안.
 
-- **인증 필요**: 예
+- **Query**: `user`
+
+**Response (200):** `{ "recent": ["/opt/stacks/app"], "stacks": ["/opt/stacks/app", "/opt/stacks/db"], "home": "/root" }`
+
+---
+
+### GET /api/v1/ai/sessions
+세션 목록. 표(`ai_sessions`)와 tmux(`list-windows`)를 합쳐 생성순으로 반환.
 
 **Response (200):**
 ```json
 {
   "success": true,
-  "data": {
-    "installed": true,
-    "version": "0.1.0"
-  }
+  "data": [
+    { "id": "3f9a1c2b7d4e", "tool": "claude", "title": "Claude · app", "run_as": "root", "cwd": "/opt/stacks/app",
+      "state": "waiting", "persistence": "scope", "attached": false, "created_at": "2026-09-14 01:02:03" }
+  ]
 }
 ```
 
----
-
-### POST /api/v1/packages/install-codex
-OpenAI Codex CLI 설치 (`npm install -g @openai/codex`). Node.js가 먼저 설치되어 있어야 합니다. SSE(Server-Sent Events)로 진행 상황 스트리밍.
-
-- **인증 필요**: 예
-- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
-
-**Response:** SSE 스트림
-```
-data: >>> Installing OpenAI Codex CLI via npm ...
-
-data: [npm 로그...]
-
-data: >>> OpenAI Codex CLI installed successfully!
-
-data: [DONE]
-```
-
-npm 미설치 시:
-```
-data: ERROR: npm is not installed. Please install Node.js first.
-
-data: [DONE]
-```
+| 필드 | 설명 |
+|------|------|
+| `state` | `working`(도구 실행 중, 5초 내 출력) · `waiting`(도구가 5초 이상 조용하거나 벨) · `shell`(도구 종료, 셸 프롬프트) · `ended`(tmux 세션 없음) |
+| `persistence` | `scope`(systemd-run scope, 패널 재시작 생존) · `process`(setsid만, 패널 재시작 시 종료) |
+| `unknown` | tmux 소켓에는 있으나 표에 없는 세션 (DB 유실) |
 
 ---
 
-### GET /api/v1/packages/gemini-status
-Google Gemini CLI 설치 상태 확인.
+### POST /api/v1/ai/sessions
+세션 생성. `systemd-run --scope` 아래 `tmux -f /dev/null -L sfpanel new-session`.
 
-- **인증 필요**: 예
+**Request:** `{ "tool": "claude", "cwd": "/opt/stacks/app", "run_as": "root", "title": "선택" }`
 
-**Response (200):**
-```json
-{
-  "success": true,
-  "data": {
-    "installed": false,
-    "version": ""
-  }
-}
-```
+**Response (200):** 생성된 세션 객체 (`state: "working"`).
+
+| 코드 | HTTP | 조건 |
+|------|------|------|
+| `INVALID_TOOL` | 400 | `claude`·`codex`·`gemini`·`shell` 외 |
+| `INVALID_ACCOUNT` | 400 | `run_as`가 허용 목록에 없음 |
+| `INVALID_PATH` | 400 | `cwd`가 상대경로 / 없음 / 디렉터리 아님 (메시지에 사유) |
+| `TMUX_MISSING` | 503 | tmux 미설치 |
+| `AI_SESSION_LIMIT` | 409 | 살아있는 세션 20개 |
+| `COMMAND_FAILED` | 500 | tmux/systemd-run 실패 |
 
 ---
 
-### POST /api/v1/packages/install-gemini
-Google Gemini CLI 설치 (`npm install -g @google/gemini-cli`). Node.js가 먼저 설치되어 있어야 합니다. SSE(Server-Sent Events)로 진행 상황 스트리밍.
+### PATCH /api/v1/ai/sessions/:id
+`{ "title": "새 이름" }` — 표에만 반영(최대 64자). `INVALID_BODY`(400, 빈 제목) · `AI_SESSION_NOT_FOUND`(404).
 
-- **인증 필요**: 예
-- **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+### POST /api/v1/ai/sessions/:id/rerun
+`shell` 상태의 창에 도구 이름을 다시 입력한다. `AI_SESSION_STATE`(409, shell 상태가 아니거나 셸 세션).
 
-**Response:** SSE 스트림
-```
-data: >>> Installing Google Gemini CLI via npm ...
+### POST /api/v1/ai/sessions/:id/restart
+`ended` 세션을 같은 도구·디렉터리·계정으로 다시 만든다. `AI_SESSION_STATE`(409, 아직 살아있음) · `INVALID_PATH`(400, 디렉터리가 사라짐) · `TMUX_MISSING`(503).
 
-data: [npm 로그...]
-
-data: >>> Google Gemini CLI installed successfully!
-
-data: [DONE]
-```
+### DELETE /api/v1/ai/sessions/:id
+살아있으면 `kill-session`, 행 삭제. `AI_SESSION_NOT_FOUND`(404). **Response:** `{ "deleted": "<id>" }`
 
 ---
 
@@ -5092,7 +5086,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | PUT | `/api/v1/fail2ban/jails/:name/config` | O | Jail 설정 변경 |
 | POST | `/api/v1/fail2ban/jails/:name/unban` | O | IP 차단 해제 |
 
-### 패키지 관리 (19개)
+### 패키지 관리 (13개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
@@ -5109,12 +5103,21 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/packages/node-switch` | O | Node.js 버전 전환 |
 | POST | `/api/v1/packages/node-install-version` | O | Node.js 특정 버전 설치 (SSE) |
 | POST | `/api/v1/packages/node-uninstall-version` | O | Node.js 특정 버전 삭제 |
-| GET | `/api/v1/packages/claude-status` | O | Claude CLI 설치 상태 |
-| POST | `/api/v1/packages/install-claude` | O | Claude CLI 설치 (SSE) |
-| GET | `/api/v1/packages/codex-status` | O | Codex CLI 설치 상태 |
-| POST | `/api/v1/packages/install-codex` | O | Codex CLI 설치 (SSE) |
-| GET | `/api/v1/packages/gemini-status` | O | Gemini CLI 설치 상태 |
-| POST | `/api/v1/packages/install-gemini` | O | Gemini CLI 설치 (SSE) |
+
+### AI 워크스페이스 (10개)
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/api/v1/ai/tools` | O | 계정별 CLI 설치 상태 |
+| POST | `/api/v1/ai/tools/:tool/install-stream` | O | AI CLI 설치 (SSE) |
+| POST | `/api/v1/ai/tools/:tool/update-stream` | O | AI CLI 업데이트 (SSE) |
+| GET | `/api/v1/ai/dirs` | O | 작업 디렉터리 제안 |
+| GET | `/api/v1/ai/sessions` | O | 세션 목록 |
+| POST | `/api/v1/ai/sessions` | O | 세션 생성 |
+| PATCH | `/api/v1/ai/sessions/:id` | O | 세션 이름 변경 |
+| POST | `/api/v1/ai/sessions/:id/rerun` | O | 도구 다시 실행 |
+| POST | `/api/v1/ai/sessions/:id/restart` | O | 종료된 세션 다시 시작 |
+| DELETE | `/api/v1/ai/sessions/:id` | O | 세션 종료 |
 
 ### Docker - 컨테이너 (11개)
 

@@ -415,11 +415,11 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **파일**: `web/src/pages/Packages.tsx`
 - **기능**: 시스템 패키지 관리
   - Docker 상태 카드: 설치 여부, 버전, 실행 상태, Compose 가용성 표시. 미설치 시 Docker 설치 버튼 (SSE 스트리밍 출력)
-  - **개발 도구 카드**: Node.js(버전 관리 다이얼로그 — 설치/전환/삭제, LTS), Claude Code, Codex, Gemini CLI (각 SSE 설치; Node 미설치 시 Codex/Gemini 비활성화)
+  - **개발 도구 카드**: Node.js(버전 관리 다이얼로그 — 설치/전환/삭제, LTS). Claude/Codex/Gemini는 AI 코딩 페이지로 이동(v0.73.0)
   - 시스템 업데이트: 업데이트 확인, 전체/선택 업그레이드(SSE), 패키지 체크박스 선택
   - 패키지 검색/설치: 검색 결과에서 설치/제거 (설치 상태 표시)
   - 작업 출력 다이얼로그: 설치/업그레이드/제거 진행 상황 실시간 표시
-- **사용 API**: `api.getDockerStatus()`, `api.installDocker()`(SSE), `api.checkUpdates()`, `api.upgradePackages()`(SSE), `api.installPackage()`, `api.removePackage()`, `api.searchPackages()`, `getNodeStatus/getNodeVersions/switchNodeVersion/uninstallNodeVersion`, `getClaudeStatus/getCodexStatus/getGeminiStatus`, `install-node/claude/codex/gemini`(fetch SSE)
+- **사용 API**: `api.getDockerStatus()`, `api.installDocker()`(SSE), `api.checkUpdates()`, `api.upgradePackages()`(SSE), `api.installPackage()`, `api.removePackage()`, `api.searchPackages()`, `getNodeStatus/getNodeVersions/switchNodeVersion/uninstallNodeVersion`, `install-node`(fetch SSE)
 - **사용 컴포넌트**: Table, Dialog, Button, Input (shadcn/ui)
 
 ### Terminal
@@ -441,6 +441,13 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **WebSocket**: 직접 관리 (`/ws/terminal?ticket={ticket}&session_id={id}`)
 - **사용 컴포넌트**: Button, Input (shadcn/ui), **MobileTerminalBar** (`components/MobileTerminalBar.tsx` — v0.53.0에 페이지에서 분리 추출된 모바일 특수키 바)
 - **내부 서브컴포넌트**: `TerminalSession` - 개별 터미널 세션 관리
+
+### AI 코딩
+- **파일**: `web/src/pages/AI.tsx`, `web/src/pages/ai/components/{ToolChips,TmuxBanner,SessionTabs,NewSessionDialog,SessionPane}.tsx`, `web/src/pages/ai/hooks/useAISessions.ts`, `web/src/lib/aiSessions.ts`
+- **기능**: Claude Code · Codex · Gemini CLI를 tmux 세션으로 실행. 상단은 실행 계정 선택 + 도구 칩(설치 버전·↑최신·설치/업데이트 SSE·로그인 힌트) + tmux 설치 배너. 아래는 세션 탭(서버 목록, 생성순, 상태 점: working/waiting/shell/ended, 우클릭·길게누르기 메뉴: 이름 변경·정보·다시 실행·다시 시작·종료)과 `TerminalSession`(`wsPath="/ws/ai/attach"`). 활성 탭만 소켓을 연다. 페이지가 보일 때만 5초 폴링, 대기 세션 수를 `document.title`에 접두.
+- **새 세션 대화상자**: 도구(4개 라디오, 미설치는 비활성) · 작업 디렉터리(`datalist`: 최근·스택·홈) · 실행 계정 · 이름. 마지막 선택은 노드별 `localStorage`(`sfpanel_ai_last:<node>`). 활성 탭·계정도 노드별 저장.
+- **사용 API**: `api.getAITools/getAIDirs/getAISessions/createAISession/renameAISession/rerunAISession/restartAISession/deleteAISession`, `/ai/tools/:tool/{install,update}-stream`(fetch SSE), `api.installPackage('tmux')`
+- **사용 컴포넌트**: DropdownMenu, Select, ContextMenu, Dialog, Input, Label, Button, OutputDialog, ConfirmDialog, MobileTerminalBar
 
 > **갱신 노트 (v0.41.0)**: Settings는 **탭형 셸 + 코드 분할 탭 패널**이며, v0.41.0에서 6개 탭이 **4개 탭**(account / system / alerts / audit)으로 통합되었다. `?tab=` 유효값은 `account|system|alerts|audit`. **클러스터 모드에서는 `?scope`에 따라 탭이 필터링**된다: `?scope=node`면 per-node SQLite 탭(`system`/`audit`), 그 외에는 FSM 복제/클러스터 전역 탭(`account`/`alerts`)만 노출하고 스코프 배지('이 노드'/'클러스터 전체')를 표시한다(단일 노드 배포는 4탭 전체). 탭→패널 매핑: account → `settings/Security.tsx` + `settings/General.tsx`, system → `settings/Maintenance.tsx` + `settings/Performance.tsx`, alerts → `settings/AlertSettings.tsx`, audit → `settings/Audit.tsx`. 아래 v0.9.0 기준 단일 페이지 설명은 일부 기능이 이 탭들로 분산된 것으로 읽을 것.
 >

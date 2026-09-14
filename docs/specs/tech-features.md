@@ -754,7 +754,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 | `POST /api/v1/packages/install-node` | Node.js/NVM 설치 | 평문 라인 + `[DONE]` |
 | `POST /api/v1/packages/node-install-version` | Node.js 특정 버전 설치 | 평문 라인 + `[DONE]` |
 | `POST /api/v1/packages/upgrade` | 패키지 업그레이드 (전체/선택) | 평문 라인 + `[DONE]` |
-| `POST /api/v1/packages/install-claude` / `install-codex` / `install-gemini` | AI CLI 도구 설치 | 평문 라인 + `[DONE]` |
+| `POST /api/v1/ai/tools/:tool/install-stream` · `update-stream` | AI CLI 설치/업데이트 (계정별) | 평문 라인 + `[DONE]` |
 | `POST /api/v1/network/tailscale/install` | Tailscale 설치 | 평문 라인 + `[DONE]` |
 | `POST /api/v1/cluster/update` | 멀티노드 업데이트 오케스트레이션 | JSON `{node_id, node_name, step, status, message}` |
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { CheckCircle2, Package, Settings2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -123,7 +124,8 @@ export function DevToolsCard({ output }: { output: SSEOutput }) {
           {t('packages.devTools')}
         </h3>
         <p className="text-[13px] text-muted-foreground mt-1">
-          {t('packages.devToolsDescription')}
+          {t('packages.devToolsDescription')}{' '}
+          <Link to="/ai" className="text-primary hover:underline">{t('packages.devToolsAiLink')}</Link>
         </p>
       </div>
       <div className="px-6 pb-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">

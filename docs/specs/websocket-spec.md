@@ -466,6 +466,30 @@ redis-1  | 1:M 10 Apr 2026 10:23:46.123 * Ready to accept connections\n
 
 ---
 
+### 7. `/ws/ai/attach` -- AI 세션 접속 (tmux 클라이언트)
+
+| 항목 | 값 |
+|------|-----|
+| **용도** | 패널이 관리하는 tmux 세션(Claude/Codex/Gemini/셸)에 브라우저를 붙인다 |
+| **인증** | `?ticket=` (또는 루프백 한정 `?token=`) — `/ws/terminal`과 동일한 `auth.AuthenticateWSUpgrade` |
+| **통신 방향** | 양방향 |
+| **메시지 타입** | Binary (출력·입력), Text (`{"type":"resize"}` 및 안내 문구) |
+| **사용 페이지** | `AI.tsx` (`SessionPane` → `TerminalSession wsPath="/ws/ai/attach"`) |
+| **라우트 등록** | `e.GET("/ws/ai/attach", cluster.WrapEchoWSHandler(...))` |
+
+**쿼리 파라미터:** `session_id` (필수, 12자리 hex — 표의 id).
+
+**동작 순서:**
+
+1. 세션이 없으면 Text `[session ended]` 한 프레임 후 종료 (클라이언트 없이).
+2. `tmux capture-pane -p -e -J -S -2000 -E -1` 결과를 CR LF로 바꿔 Binary 한 프레임으로 먼저 보낸다 — 화면 위의 이력이 xterm 스크롤백에 먼저 채워진다.
+3. PTY에서 `[runuser -u <계정> --] tmux -f /dev/null -L sfpanel attach-session -t <id>`를 띄운다. 이후는 `/ws/terminal`과 같은 루프 (resize → `pty.Setsize`, 0×0 무시, 30초 ping / 70초 read deadline).
+4. 소켓이 닫히면 클라이언트만 죽고(SIGHUP) 세션은 그대로다. 클라이언트가 먼저 끝나면(다른 곳에서 kill) Text `[detached]` 후 소켓을 닫는다.
+
+**세션 유지:** 서버 측 세션 객체나 스크롤백 링버퍼는 없다 — tmux가 세션이다. 페이지는 활성 탭 하나에만 소켓을 연다(백그라운드 탭의 벨 플래그가 유지되도록, 그리고 페이지당 프로세스 하나).
+
+---
+
 ## 프론트엔드 훅: `useWebSocket`
 
 ### 위치
@@ -564,6 +588,7 @@ const send = (data: any) => {
 | `/ws/docker/containers/:id/exec` | 양방향 | Text | 직접 관리 | 없음 | 없음 |
 | `/ws/docker/compose/:project/logs` | 서버->클라 | Text (+`\n`) | 직접 관리 | 없음 | 없음 |
 | `/ws/terminal` | 양방향 | Binary + Text(resize) | 직접 관리 | 없음 | 있음 (PTY 영속) |
+| `/ws/ai/attach` | 양방향 | Binary + Text(resize) | 직접 관리 (`TerminalSession`) | 있음 (6회 백오프) | 있음 (tmux 세션) |
 
 ---
 
@@ -574,6 +599,7 @@ e (Echo 루트)
 ├── /ws/metrics                           <- 항상 등록, 자체 JWT 검증
 ├── /ws/logs                              <- 항상 등록, 자체 JWT 검증
 ├── /ws/terminal                          <- 항상 등록, 자체 JWT 검증
+├── /ws/ai/attach                         <- 항상 등록, 자체 인증
 ├── /ws/docker/containers/:id/logs        <- Docker 가용 시에만 등록
 ├── /ws/docker/containers/:id/exec        <- Docker 가용 시에만 등록
 ├── /ws/docker/compose/:project/logs      <- Docker 가용 시에만 등록
