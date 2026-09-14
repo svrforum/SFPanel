@@ -696,6 +696,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	e.GET("/ws/cluster/overview", featureWS.ClusterOverviewWS(clusterHandler.GetManager, cfg.Auth.JWTSecret))
 	e.GET("/ws/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureLogs.LogStreamWS(cfg.Auth.JWTSecret, database)))
 	e.GET("/ws/terminal", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureTerminal.TerminalWS(cfg.Auth.JWTSecret, auditWriter, localNodeIDFn)))
+	e.GET("/ws/ai/attach", cluster.WrapEchoWSHandler(clusterHandler.GetManager, aiHandler.AttachWS(cfg.Auth.JWTSecret, auditWriter, localNodeIDFn)))
 
 	// SPA static file serving — catch-all AFTER all API and WS routes
 	e.GET("/*", spaHandler(webFS))
