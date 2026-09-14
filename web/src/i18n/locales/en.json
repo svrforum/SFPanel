@@ -56,6 +56,7 @@
       "firewall": "Firewall",
       "sites": "Sites",
       "terminal": "Terminal",
+      "ai": "AI Coding",
       "appstore": "App Store",
       "cluster": "Cluster",
       "settings": "Settings"
@@ -1322,6 +1323,85 @@
     "shellBadgeRootHint": "Running as root on {{host}} — commands here are unrestricted",
     "copyFailed": "Could not copy to clipboard",
     "pasteUseCtrlV": "Use Ctrl+V to paste (Ctrl+Shift+V needs HTTPS)"
+  },
+  "ai": {
+    "title": "AI Coding",
+    "subtitle": "Run Claude Code, Codex and Gemini CLI in sessions that never drop",
+    "account": "Run as",
+    "accountHint": "Sessions and tool status are for this account. A non-root account uses its own login and settings.",
+    "tools": {
+      "installed": "Installed",
+      "notInstalled": "Not installed",
+      "updateAvailable": "{{version}} available",
+      "latest": "Latest",
+      "path": "Path",
+      "checking": "Checking…",
+      "install": "Install",
+      "update": "Update",
+      "installing": "Installing {{tool}}…",
+      "updating": "Updating {{tool}}…",
+      "installSuccess": "{{tool}} installed",
+      "updateSuccess": "{{tool}} updated",
+      "loginRequired": "Login required on first run",
+      "loggedIn": "Logged in",
+      "upToDate": "Up to date"
+    },
+    "tmux": {
+      "missing": "tmux is not installed on this node, so sessions cannot be created.",
+      "install": "Install tmux",
+      "installing": "Installing tmux…",
+      "installed": "tmux installed",
+      "noScope": "systemd-run is missing: sessions will not survive a panel restart"
+    },
+    "state": {
+      "working": "Working",
+      "waiting": "Waiting for input",
+      "shell": "Shell",
+      "ended": "Ended"
+    },
+    "tabs": {
+      "new": "New session",
+      "rename": "Rename",
+      "info": "Info",
+      "rerun": "Run again",
+      "restart": "Restart",
+      "close": "Kill",
+      "closeConfirmTitle": "Kill this session?",
+      "closeConfirmDesc": "The running {{title}} session ends immediately and the tab disappears.",
+      "removeEnded": "Close tab",
+      "ended": "Session ended",
+      "endedHint": "The host rebooted, the shell exited, or it was killed elsewhere. You can restart it with the same settings.",
+      "processMode": "This session will not survive a panel restart (no systemd-run)",
+      "unknown": "Session not in the panel's records",
+      "noSessions": "No sessions yet",
+      "noSessionsHint": "Create a Claude, Codex, Gemini or shell session — it keeps running when you close the browser or restart the panel.",
+      "infoAccount": "Account",
+      "infoDir": "Directory",
+      "infoCreated": "Created"
+    },
+    "dialog": {
+      "title": "New session",
+      "tool": "Tool",
+      "toolNotInstalled": "Not installed for {{account}}",
+      "dir": "Working directory",
+      "dirPlaceholder": "/opt/stacks/myapp",
+      "dirRecent": "Recent",
+      "dirStacks": "Stacks",
+      "dirHome": "Home",
+      "account": "Run as",
+      "name": "Name (optional)",
+      "create": "Create",
+      "creating": "Creating…"
+    },
+    "errors": {
+      "invalidPath": "The working directory must be an existing absolute path ({{reason}})",
+      "invalidAccount": "That account cannot log in on this node",
+      "invalidTool": "Unsupported tool",
+      "limit": "At most 20 live sessions. Kill one you no longer need",
+      "tmuxMissing": "tmux is not installed",
+      "state": "That action is not possible in the session's current state",
+      "generic": "The request failed"
+    }
   },
   "files": {
     "title": "File Manager",

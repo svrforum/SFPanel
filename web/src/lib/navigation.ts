@@ -12,6 +12,7 @@ import {
   Server,
   Settings,
   Shield,
+  Sparkles,
   Store,
   Terminal,
   type LucideIcon,
@@ -47,6 +48,7 @@ export const NAV_ITEMS: NavEntry[] = [
   { to: '/firewall', labelKey: 'layout.nav.firewall', icon: Shield },
   { to: '/packages', labelKey: 'layout.nav.packages', icon: Package },
   { to: '/terminal', labelKey: 'layout.nav.terminal', icon: Terminal, bottomNav: true, mobileLabelKey: 'layout.mobileNav.terminal' },
+  { to: '/ai', labelKey: 'layout.nav.ai', icon: Sparkles },
   { to: '/cluster', labelKey: 'layout.nav.cluster', icon: Server },
   { to: '/settings', labelKey: 'layout.nav.settings', icon: Settings },
 ]

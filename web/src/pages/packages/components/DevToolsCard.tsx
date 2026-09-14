@@ -14,13 +14,10 @@ export interface DevToolStatus {
   [key: string]: unknown
 }
 
-type ToolId = 'node' | 'claude' | 'codex' | 'gemini'
+type ToolId = 'node'
 
 const STATUS_CALLS: Record<ToolId, () => Promise<DevToolStatus>> = {
   node: () => api.getNodeStatus(),
-  claude: () => api.getClaudeStatus(),
-  codex: () => api.getCodexStatus(),
-  gemini: () => api.getGeminiStatus(),
 }
 
 const TOOLS: {
@@ -36,26 +33,18 @@ const TOOLS: {
   requiresNode?: boolean
 }[] = [
   { id: 'node', title: 'Node.js', subtitle: 'NVM + LTS', color: '#68a063', initial: 'N', path: '/packages/install-node', installingKey: 'packages.installingNode', successKey: 'packages.nodeInstallSuccess', installKey: 'packages.installNode' },
-  { id: 'claude', title: 'Claude Code', subtitle: 'Anthropic CLI', color: '#d97757', initial: 'C', path: '/packages/install-claude', installingKey: 'packages.installingClaude', successKey: 'packages.claudeInstallSuccess', installKey: 'packages.installClaude' },
-  { id: 'codex', title: 'Codex', subtitle: 'OpenAI CLI', color: '#10a37f', initial: 'X', path: '/packages/install-codex', installingKey: 'packages.installingCodex', successKey: 'packages.codexInstallSuccess', installKey: 'packages.installCodex', requiresNode: true },
-  { id: 'gemini', title: 'Gemini CLI', subtitle: 'Google CLI', color: '#4285f4', initial: 'G', path: '/packages/install-gemini', installingKey: 'packages.installingGemini', successKey: 'packages.geminiInstallSuccess', installKey: 'packages.installGemini', requiresNode: true },
 ]
 
-// Dev tools grid (Node/Claude/Codex/Gemini) + the NVM version dialog. Installs
-// stream into the shared output dialog via postTextStream (keeps ?node=).
+// Dev tools grid (Node) + the NVM version dialog. Installs stream into the
+// shared output dialog via postTextStream (keeps ?node=). Claude/Codex/Gemini
+// left this card for the AI page, which installs them per account.
 export function DevToolsCard({ output }: { output: SSEOutput }) {
   const { t } = useTranslation()
   const [statuses, setStatuses] = useState<Record<ToolId, DevToolStatus | null>>({
     node: null,
-    claude: null,
-    codex: null,
-    gemini: null,
   })
   const [checking, setChecking] = useState<Record<ToolId, boolean>>({
     node: false,
-    claude: false,
-    codex: false,
-    gemini: false,
   })
   const [installing, setInstalling] = useState<ToolId | null>(null)
   const [nodeVersionDialog, setNodeVersionDialog] = useState(false)
@@ -137,7 +126,7 @@ export function DevToolsCard({ output }: { output: SSEOutput }) {
           {t('packages.devToolsDescription')}
         </p>
       </div>
-      <div className="px-6 pb-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="px-6 pb-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
         {TOOLS.map((tool) => {
           const status = statuses[tool.id]
           const nodeMissing = !!tool.requiresNode && !nodeStatus?.installed

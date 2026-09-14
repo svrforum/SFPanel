@@ -60,6 +60,10 @@ import type {
   NetworkShare,
   NetworkShareInput,
   NetworkShareTools,
+  AITool,
+  AISession,
+  AITools,
+  AIDirs,
 } from '@/types/api'
 
 const API_PATH = '/api/v1'
@@ -1449,16 +1453,40 @@ class ApiClient {
     })
   }
 
-  getClaudeStatus() {
-    return this.request<{ installed: boolean; version: string }>('/packages/claude-status')
+  // AI workspace — tmux-backed CLI sessions (internal/feature/ai)
+  getAITools(user: string) {
+    return this.request<AITools>(`/ai/tools?user=${encodeURIComponent(user)}`)
   }
 
-  getCodexStatus() {
-    return this.request<{ installed: boolean; version: string }>('/packages/codex-status')
+  getAIDirs(user: string) {
+    return this.request<AIDirs>(`/ai/dirs?user=${encodeURIComponent(user)}`)
   }
 
-  getGeminiStatus() {
-    return this.request<{ installed: boolean; version: string }>('/packages/gemini-status')
+  getAISessions() {
+    return this.request<AISession[]>('/ai/sessions')
+  }
+
+  createAISession(body: { tool: AITool; cwd: string; run_as: string; title?: string }) {
+    return this.request<AISession>('/ai/sessions', { method: 'POST', body: JSON.stringify(body) })
+  }
+
+  renameAISession(id: string, title: string) {
+    return this.request<{ id: string; title: string }>(`/ai/sessions/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    })
+  }
+
+  rerunAISession(id: string) {
+    return this.request<{ id: string; state: string }>(`/ai/sessions/${encodeURIComponent(id)}/rerun`, { method: 'POST' })
+  }
+
+  restartAISession(id: string) {
+    return this.request<{ id: string; state: string }>(`/ai/sessions/${encodeURIComponent(id)}/restart`, { method: 'POST' })
+  }
+
+  deleteAISession(id: string) {
+    return this.request<{ deleted: string }>(`/ai/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
   // Disk Management - Tool Status

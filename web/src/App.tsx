@@ -52,6 +52,7 @@ const AppStore = lazy(() => import('@/pages/AppStore'))
 const Packages = lazy(() => import('@/pages/Packages'))
 const Settings = lazy(() => import('@/pages/Settings'))
 const Terminal = lazy(() => import('@/pages/Terminal'))
+const AI = lazy(() => import('@/pages/AI'))
 const Connect = lazy(() => import('@/pages/Connect'))
 
 function PageLoader() {
@@ -199,6 +200,7 @@ export default function App() {
                 </Route>
                 <Route path="packages" element={<Packages />} />
                 <Route path="terminal" element={<Terminal />} />
+                <Route path="ai" element={<AI />} />
                 <Route path="settings" element={<Settings />} />
               </Route>
             </Routes>

@@ -1201,3 +1201,48 @@ export interface NetworkShareTools {
   cifs: { installed: boolean; package: string }
   nfs: { installed: boolean; package: string }
 }
+
+// ---- AI workspace (internal/feature/ai) ----
+export type AITool = 'claude' | 'codex' | 'gemini' | 'shell'
+export type AISessionState = 'working' | 'waiting' | 'shell' | 'ended'
+
+export interface AISession {
+  id: string
+  tool: AITool
+  title: string
+  run_as: string
+  cwd: string
+  state: AISessionState
+  /** scope = under systemd-run, survives a panel restart; process = setsid only */
+  persistence: 'scope' | 'process'
+  attached: boolean
+  /** live on the tmux socket but no row — the DB was lost */
+  unknown?: boolean
+  created_at: string
+  last_attached_at?: string
+  ended_at?: string
+}
+
+export interface AIToolStatus {
+  installed: boolean
+  version: string
+  path: string
+  latest: string
+  update_available: boolean
+  logged_in: boolean
+}
+
+export interface AITools {
+  tmux: { installed: boolean; version: string }
+  systemd_run: boolean
+  accounts: string[]
+  panel_account: string
+  account: string
+  tools: Record<'claude' | 'codex' | 'gemini', AIToolStatus>
+}
+
+export interface AIDirs {
+  recent: string[]
+  stacks: string[]
+  home: string
+}

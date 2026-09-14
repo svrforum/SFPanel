@@ -84,7 +84,20 @@ export interface TerminalSessionElement extends HTMLElement {
   __wsRef?: RefObject<WebSocket | null>
 }
 
-export function TerminalSession({ sessionId, active, fontSize }: { sessionId: string; active: boolean; fontSize: number }) {
+export function TerminalSession({
+  sessionId,
+  active,
+  fontSize,
+  wsPath = '/ws/terminal',
+  wsParams,
+}: {
+  sessionId: string
+  active: boolean
+  fontSize: number
+  /** The AI page attaches through /ws/ai/attach; the terminal keeps its default. */
+  wsPath?: string
+  wsParams?: Record<string, string>
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -219,7 +232,7 @@ export function TerminalSession({ sessionId, active, fontSize }: { sessionId: st
     })
 
     const connect = async () => {
-      const wsUrl = await api.buildWsUrl('/ws/terminal', { session_id: sessionId })
+      const wsUrl = await api.buildWsUrl(wsPath, wsParams ?? { session_id: sessionId })
       if (disposed) return
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
