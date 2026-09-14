@@ -120,8 +120,12 @@ export default function AI() {
         </div>
         <MobileTerminalBar onSendKey={sendKey} />
       </div>
+      {/* Focus the new tab only once the list that contains it has landed:
+          setting activeId first would leave it pointing at an id the
+          realignment effect above cannot find, and it would snap back to
+          sessions[0] before the refresh arrived. */}
       <NewSessionDialog open={dialogOpen} onOpenChange={setDialogOpen} account={account || tools?.panel_account || ''} tools={tools}
-        onCreated={(s) => { setActiveId(s.id); void refresh() }} />
+        onCreated={(s) => { void refresh().then(() => setActiveId(s.id)) }} />
       <OutputDialog state={output.state} onClose={output.closeOutput} />
     </div>
   )
