@@ -314,7 +314,7 @@ sudo systemctl start sfpanel
 
 Android 8.0 이상에서 서버 연결과 전체 웹 관리 화면을 사용할 수 있습니다. 터미널·AI 코딩을 위한 Shift/Ctrl/Alt 키, 출력 기록 이동, 여러 줄 프롬프트 편집, 출력 읽기·검색을 제공합니다. 큰 터치 영역, 시스템 글자 크기, TalkBack 레이블과 한국어/영어를 지원합니다.
 
-빌드·설치 방법과 검증 범위는 [Android 앱 안내](android/README.md)를 참고하세요. [GitHub 릴리즈](https://github.com/svrforum/SFPanel/releases/tag/android-v0.1.0)에서 서명된 APK를 받을 수 있습니다. `android-v*` 태그를 push하면 테스트와 서명 검증 후 자동 배포됩니다.
+빌드·설치 방법과 검증 범위는 [Android 앱 안내](android/README.md)를 참고하세요. [GitHub 릴리즈](https://github.com/svrforum/SFPanel/releases/tag/android-v0.1.1)에서 서명된 APK를 받을 수 있습니다. `android-v*` 태그를 push하면 테스트와 서명 검증 후 자동 배포됩니다.
 
 ## 데스크탑 앱 (Tauri)
 
