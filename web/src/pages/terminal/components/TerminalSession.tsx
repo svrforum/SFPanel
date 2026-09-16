@@ -10,6 +10,7 @@ import { api } from '@/lib/api'
 import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import { cn, copyText } from '@/lib/utils'
 import { toast } from 'sonner'
+import { MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, NO_MODIFIERS, terminalKey, type TerminalModifiers } from '@/lib/terminalKeys'
 
 // xterm paints into its own canvas, so it cannot inherit the app's CSS tokens
 // the way the rest of the UI does — the palette has to be handed over as an
@@ -80,6 +81,7 @@ function currentTermTheme() {
 // dynamic list of refs to the parent.
 export interface TerminalSessionElement extends HTMLElement {
   __searchAddon?: SearchAddon
+  __fitAddon?: FitAddon
   __termRef?: RefObject<XTerm | null>
   __wsRef?: RefObject<WebSocket | null>
 }
@@ -103,12 +105,13 @@ export function TerminalSession({
   const wsRef = useRef<WebSocket | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
-  const initialized = useRef(false)
   const { t } = useTranslation()
 
   useEffect(() => {
-    if (!containerRef.current || initialized.current) return
-    initialized.current = true
+    // React StrictMode replays setup → cleanup → setup in development. The
+    // effect owns this instance; a sticky initialized ref would skip the second
+    // setup and leave both Terminal and AI with a disposed, empty terminal.
+    if (!containerRef.current) return
 
     const term = new XTerm({
       cursorBlink: true,
@@ -143,8 +146,9 @@ export function TerminalSession({
         try {
           const dims = fitAddon.proposeDimensions()
           if (dims && (dims.rows !== term.rows || dims.cols !== term.cols)) {
+            const wasAtBottom = term.buffer.active.viewportY >= term.buffer.active.baseY
             fitAddon.fit()
-            term.scrollToBottom()
+            if (wasAtBottom) requestAnimationFrame(() => { if (termRef.current === term) term.scrollLines(term.buffer.active.length) })
           }
         } catch { /* container not laid out yet */ }
       }, 140)
@@ -159,7 +163,7 @@ export function TerminalSession({
     const token = api.getToken()
     if (!token) {
       term.writeln('\r\n\x1b[31m' + t('terminal.notAuthenticated') + '\x1b[0m')
-      return
+      return () => { clearTimeout(fitTimer); term.dispose(); termRef.current = null }
     }
 
     // WS setup is async (ticket mint). connect() is re-invocable so a dropped
@@ -218,10 +222,17 @@ export function TerminalSession({
       return true
     })
 
+    let mobileModifiers: TerminalModifiers = NO_MODIFIERS
+    const onModifiers = (event: Event) => {
+      mobileModifiers = (event as CustomEvent<TerminalModifiers>).detail
+    }
+    window.addEventListener(MODIFIERS_EVENT, onModifiers)
     const onDataDisposable = term.onData((data) => {
       const sock = wsRef.current
       if (sock && sock.readyState === WebSocket.OPEN) {
-        sock.send(new TextEncoder().encode(data))
+        sock.send(new TextEncoder().encode(terminalKey(data, mobileModifiers)))
+        mobileModifiers = NO_MODIFIERS
+        window.dispatchEvent(new Event(MODIFIERS_CONSUMED_EVENT))
       }
     })
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
@@ -279,6 +290,7 @@ export function TerminalSession({
       clearTimeout(reconnectTimer)
       clearTimeout(stableTimer)
       onDataDisposable.dispose()
+      window.removeEventListener(MODIFIERS_EVENT, onModifiers)
       onResizeDisposable.dispose()
       const sock = wsRef.current
       if (sock) {
@@ -321,6 +333,8 @@ export function TerminalSession({
       container?.removeEventListener('focusin', onFocusIn)
       wsCleanup?.()
       term.dispose()
+      termRef.current = null
+      wsRef.current = null
     }
   }, [sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -365,6 +379,7 @@ export function TerminalSession({
     const el = containerRef.current as TerminalSessionElement | null
     if (!el) return
     if (searchAddonRef.current) el.__searchAddon = searchAddonRef.current
+    if (fitAddonRef.current) el.__fitAddon = fitAddonRef.current
     el.__wsRef = wsRef
     el.__termRef = termRef
   }, [])

@@ -1293,6 +1293,25 @@
     "saveConfig": "설정 저장"
   },
   "terminal": {
+    "mobile": {
+      "keys": "터미널 키: 옆으로 스크롤하면 더 많은 키가 있어요",
+      "history": "출력 기록과 화면 이동",
+      "modifier": "다음 키에 {{key}} 조합 켜기 또는 끄기",
+      "escape": "이스케이프",
+      "tab": "탭",
+      "enter": "엔터",
+      "up": "커서 위로",
+      "down": "커서 아래로",
+      "left": "커서 왼쪽으로",
+      "right": "커서 오른쪽으로",
+      "pageUp": "프로그램에 Page Up 키 보내기",
+      "pageDown": "프로그램에 Page Down 키 보내기",
+      "home": "홈",
+      "end": "엔드",
+      "scrollUp": "기록 위로",
+      "scrollDown": "기록 아래로",
+      "latest": "최신 출력"
+    },
     "connectingLogs": "컨테이너 로그에 연결 중...",
     "connectingShell": "컨테이너 쉘에 연결 중...",
     "wsError": "WebSocket 오류가 발생했습니다.",

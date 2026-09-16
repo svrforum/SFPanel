@@ -107,7 +107,7 @@ export default function AI() {
   }, [])
 
   return (
-    <div className="flex flex-col h-full gap-3 overflow-hidden">
+    <div data-ai-workspace className="flex flex-col h-full gap-3 overflow-hidden">
       <div className="flex flex-wrap items-start justify-between gap-3 shrink-0">
         <div>
           <h1 className="text-[22px] font-bold tracking-tight">{t('ai.title')}</h1>
@@ -116,7 +116,7 @@ export default function AI() {
         <ToolChips tools={tools} account={account || tools?.panel_account || ''} onAccountChange={(a) => { setTools(null); setAccount(a) }} onChanged={loadTools} output={output} />
       </div>
       <TmuxBanner tools={tools} onChanged={loadTools} />
-      <div className="flex flex-col flex-1 min-h-0 rounded-2xl overflow-hidden border border-border bg-card">
+      <div className="flex flex-col flex-1 min-h-0 rounded-2xl overflow-clip border border-border bg-card">
         <SessionTabs sessions={sessions} activeId={activeId} onSelect={setActiveId} onNew={() => setDialogOpen(true)}
           onRename={rename} onRerun={rerun} onRestart={restart} onKill={kill} onRemoveEnded={removeEnded} onInfo={info} />
         <div className="flex-1 min-h-0 relative">

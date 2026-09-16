@@ -179,6 +179,7 @@ jobs:
             tests/connect-port.spec.ts \
             tests/sidebar-banner.spec.ts \
             tests/tuning-categories.spec.ts \
+            tests/mobile-terminal.spec.ts \
             tests/cluster-lifecycle.spec.ts
       - name: Dump panel log on failure
         if: failure()

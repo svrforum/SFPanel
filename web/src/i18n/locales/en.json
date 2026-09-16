@@ -1293,6 +1293,25 @@
     "saveConfig": "Save Configuration"
   },
   "terminal": {
+    "mobile": {
+      "keys": "Terminal keys: scroll horizontally for more",
+      "history": "Output history and navigation",
+      "modifier": "Toggle {{key}} for the next key",
+      "escape": "Escape",
+      "tab": "Tab",
+      "enter": "Enter",
+      "up": "Move cursor up",
+      "down": "Move cursor down",
+      "left": "Move cursor left",
+      "right": "Move cursor right",
+      "pageUp": "Send Page Up to the application",
+      "pageDown": "Send Page Down to the application",
+      "home": "Home",
+      "end": "End",
+      "scrollUp": "Scroll up",
+      "scrollDown": "Scroll down",
+      "latest": "Latest output"
+    },
     "connectingLogs": "Connecting to container logs...",
     "connectingShell": "Connecting to container shell...",
     "wsError": "WebSocket error occurred.",

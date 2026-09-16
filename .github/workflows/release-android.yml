@@ -1,0 +1,89 @@
+name: Release Android
+
+on:
+  push:
+    tags: ['android-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-android-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Validate tag and derive Android version
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          match = re.fullmatch(r'refs/tags/android-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', os.environ['RELEASE_REF'])
+          if not match:
+              raise SystemExit('Run against an android-vMAJOR.MINOR.PATCH tag')
+          major, minor, patch = map(int, match.groups())
+          code = major * 1000000 + minor * 1000 + patch + 1
+          if minor >= 1000 or patch >= 1000 or code > 2100000000:
+              raise SystemExit('Version exceeds Android versionCode limits')
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write(f'ANDROID_VERSION_NAME={major}.{minor}.{patch}\nANDROID_VERSION_CODE={code}\n')
+          PY
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Restore release signing key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE" && test -n "$KEY_PASSWORD"
+          umask 077
+          printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/sfpanel-release.p12"
+      - name: Test, lint and build signed APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/sfpanel-release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: ./gradlew --no-daemon :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease
+      - name: Verify and package
+        run: |
+          mkdir -p release-assets
+          cp android/app/build/outputs/apk/release/app-release.apk "release-assets/SFPanel-Android-${ANDROID_VERSION_NAME}.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "release-assets/SFPanel-Android-${ANDROID_VERSION_NAME}.apk"
+          cd release-assets
+          sha256sum *.apk > android-checksums.txt
+      - name: Publish Android release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cat > "$RUNNER_TEMP/android-release-notes.md" <<'NOTES'
+          SFPanel Android 앱 (Android 8.0 이상).
+
+          - SFPanel 서버 연결 및 기존 관리 화면 사용
+          - AI 코딩·터미널: Shift/Ctrl/Alt, 기록 스크롤, 프롬프트 편집, 출력 읽기·검색
+          - 한국어 UI, 큰 터치 영역, 글자 크기 설정
+
+          APK를 내려받아 설치하고 SFPanel 서버 주소를 입력하세요.
+          이전 개발용 debug APK를 설치했다면 서명이 다르므로 삭제 후 설치해야 합니다.
+          이후 GitHub 릴리즈 APK끼리는 같은 서명으로 업데이트할 수 있습니다.
+          실제 기기·TalkBack·CLI별 호환성 검증 범위는 android/TESTING.md를 참고하세요.
+          NOTES
+          gh release create "$RELEASE_TAG" --verify-tag --draft --latest=false \
+            --title "SFPanel Android ${ANDROID_VERSION_NAME}" \
+            --notes-file "$RUNNER_TEMP/android-release-notes.md" release-assets/*
+          gh release edit "$RELEASE_TAG" --draft=false --latest=false
+      - name: Remove signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sfpanel-release.p12"

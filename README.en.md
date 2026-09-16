@@ -310,6 +310,12 @@ What the backup includes:
 
 > Docker data (volumes, images, containers) is not included in the backup.
 
+## Android app
+
+The Android 8.0+ client combines native server connections and coding tools with the server's full web interface. It provides Shift/Ctrl/Alt keys, scrollback controls, multiline prompt composition, and output reading/search, with large touch targets, system font scaling, TalkBack labels, and Korean/English localization.
+
+See the [Android guide](android/README.md) for build instructions and validation scope. Development APKs are available through the build workflow; distribution builds require your own signing key.
+
 ## Desktop app (Tauri)
 
 Separate from the server binary, **Windows / macOS / Linux desktop apps** ship in the same release. The app is a simple WebView wrapper — it doesn't run a server of its own; you enter the address of an already-running SFPanel instance (`http://<server-IP>:3628`) and it opens that panel in a desktop window. There's no feature difference from a browser tab; it's handy when you want a separate window, or OS-native notifications/shortcuts.
