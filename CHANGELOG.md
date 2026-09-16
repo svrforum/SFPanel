@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.74.0] – 2026-09-17
+
+### Added
+
+**Several accounts per CLI, chosen per session.** An operator with two OpenAI accounts — or two Anthropic ones — could not use both from the AI workspace, because each CLI keeps one set of credentials under one configuration directory and every session pointed at that one directory. A session can now run under a named **profile**, which is a configuration directory of its own: create `work` for Codex and the session that uses it signs in separately, keeps its own settings, and leaves the account's normal login untouched. The picker sits in the new-session dialog between the tool and the working directory — after the account, because the account decides which profiles exist — and each entry shows whether it has been signed in and when it was last used. Profiles are listed, created and deleted from the tool's chip, and deleting one says plainly that it signs that account out of that tool and removes its settings; a profile a running session depends on cannot be deleted.
+
+The panel never reads, writes or parses a credential file. Creating a profile creates an empty directory; signing in happens inside the session, through the CLI's own flow. Claude Code and Codex are covered. Gemini is not: no configuration-directory override has been verified for it, so it simply offers no picker rather than offering one that would not work.
+
+### Fixed
+
+- **A profile could have applied to the wrong session, silently.** Measured on the development host: tmux hands a new session the *server's* environment, not the environment of the client that asked for the session — it copies only what `update-environment` names. A profile passed the way the first design intended would therefore have reached only the first session of an account, and worse, a profile placed in the server's environment would have been inherited by every later session, including one created explicitly on the default profile. The operator would have been typing into the wrong account with nothing on screen to say so. The profile now rides on the one command that creates a session, so it applies to that session and to nothing else, and the server's environment never names a profile at all. The same change closes a second path: a session whose creation raced another and was retried would have run on the default credentials while labelled with the profile.
+- The profile listing walked its directories by joining strings, so a symbolic link planted at `~/.sfpanel-ai` or one level below would have been followed while every other profile path was already anchored. It now uses the same anchored walk as the rest.
+
 ## [0.73.1] – 2026-09-17
 
 ### Fixed
