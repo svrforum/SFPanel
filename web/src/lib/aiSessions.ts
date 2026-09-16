@@ -30,10 +30,73 @@ export function waitingCount(sessions: AISession[], activeId: string | null): nu
   return sessions.filter((s) => s.state === 'waiting' && s.id !== activeId).length
 }
 
-/** Mirrors the server's default: "<Tool> · <basename of cwd>". */
-export function defaultTitle(tool: AITool, cwd: string): string {
+/**
+ * The tools that can run under a profile: the two whose configuration
+ * directory the project has verified an override for (CODEX_HOME,
+ * CLAUDE_CONFIG_DIR). Gemini has no such override and a shell session runs
+ * no tool, so the picker is not rendered for them — GET /ai/profiles answers
+ * INVALID_TOOL rather than an empty list, and a picker that cannot work is
+ * worse than none.
+ */
+export const PROFILE_TOOLS: AITool[] = ['claude', 'codex']
+
+export function supportsProfiles(tool: AITool): boolean {
+  return PROFILE_TOOLS.includes(tool)
+}
+
+/**
+ * What the operator types to log a fresh profile in. The two CLIs disagree:
+ * Codex is logged in from the shell, Claude from its own prompt. Empty for a
+ * tool without profiles, whose hint is never rendered.
+ */
+export function loginCommandFor(tool: AITool): string {
+  switch (tool) {
+    case 'codex':
+      return 'codex login'
+    case 'claude':
+      return '/login'
+    default:
+      return ''
+  }
+}
+
+/**
+ * Mirrors the server's default: "<Tool>(<profile>) · <basename of cwd>". The
+ * profile belongs in the title because two tabs on the same tool and
+ * directory are otherwise identical while running as different logins; the
+ * default profile is the empty string and adds nothing.
+ */
+export function defaultTitle(tool: AITool, cwd: string, profile?: string): string {
   const base = cwd.replace(/\/+$/, '').split('/').pop() || '/'
-  return `${TOOL_META[tool].label} · ${base}`
+  const name = profile ? `${TOOL_META[tool].label}(${profile})` : TOOL_META[tool].label
+  return `${name} · ${base}`
+}
+
+/**
+ * Coarse-to-fine units for relativeSince. The last entry ends the walk, so
+ * its divisor is 0.
+ */
+const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['second', 60], ['minute', 60], ['hour', 24], ['day', 30], ['month', 12], ['year', 0],
+]
+
+/**
+ * "30분 전" / "30 minutes ago" for a profile's last use, in the operator's
+ * own language. A value that will not parse — including the '' the server
+ * sends for a profile no session has ever run on — produces nothing, because
+ * a zero date would otherwise read as "56 years ago".
+ */
+export function relativeSince(value: string, lang: string, now = Date.now()): string {
+  const ms = new Date(value).getTime()
+  if (Number.isNaN(ms)) return ''
+  let n = Math.round((ms - now) / 1000)
+  for (const [unit, per] of RELATIVE_UNITS) {
+    if (per === 0 || Math.abs(n) < per) {
+      return new Intl.RelativeTimeFormat(lang, { numeric: 'always' }).format(n, unit)
+    }
+    n = Math.round(n / per)
+  }
+  return ''
 }
 
 /**
@@ -158,6 +221,10 @@ export function aiErrorMessage(err: unknown, t: Translate): string {
       return t('ai.errors.tmuxMissing')
     case 'AI_SESSION_STATE':
       return t('ai.errors.state')
+    case 'AI_PROFILE_EXISTS':
+      return t('ai.profiles.errors.exists')
+    case 'AI_PROFILE_IN_USE':
+      return t('ai.profiles.errors.inUse')
     default:
       return err.message || t('ai.errors.generic')
   }

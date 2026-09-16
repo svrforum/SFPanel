@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { AIDirs, AISession, AITool, AITools } from '@/types/api'
+import type { AIDirs, AIProfile, AISession, AITool, AITools } from '@/types/api'
 import type { AILastSession, AITouched } from '@/lib/aiSessions'
-import { TOOL_META, aiErrorMessage, aiPrefill, defaultTitle, toolInstalledFor, toolsFor, untouchedPrefill } from '@/lib/aiSessions'
+import { TOOL_META, aiErrorMessage, aiPrefill, defaultTitle, loginCommandFor, relativeSince, supportsProfiles, toolInstalledFor, toolsFor, untouchedPrefill } from '@/lib/aiSessions'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -15,7 +15,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 const TOOLS: AITool[] = ['claude', 'codex', 'gemini', 'shell']
 const lastKey = (node: string) => `sfpanel_ai_last:${node}`
 
-// Account, then tool, directory, name — the account comes first because it
+// The two rows of the profile Select that are not a profile: the default
+// profile, whose name is the empty string the picker cannot use (Radix reads
+// an empty item value as "cleared"), and the row that opens the create
+// field. A profile name is letters, digits, dot, dash and underscore only,
+// so neither sentinel can collide with one.
+const DEFAULT_PROFILE = '(default)'
+const NEW_PROFILE = '(new)'
+
+// The default profile's row before the server has described one: the picker
+// has to read 기본 rather than show an empty trigger, and a create must not
+// append to a list that never arrived — that would leave the default profile
+// out of the only place it can be picked back. A row the panel invented has
+// no path, which is how the dot below knows to claim nothing about its login.
+const DEFAULT_ROW: AIProfile = { name: '', default: true, path: '', logged_in: false }
+
+// Account, then tool, profile, directory, name — the account comes first because it
 // decides which tools are installed and which directories are suggested.
 // The directory field is a free-text input with the server's suggestions as
 // a datalist: recent directories, the compose stacks, the account's home.
@@ -33,12 +48,17 @@ export function NewSessionDialog({
   tools: AITools | null
   onCreated: (s: AISession) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const node = api.currentNode || 'local'
   const [tool, setTool] = useState<AITool>('claude')
   const [cwd, setCwd] = useState('')
   const [runAs, setRunAs] = useState(account)
   const [title, setTitle] = useState('')
+  const [profile, setProfile] = useState('')
+  const [profiles, setProfiles] = useState<AIProfile[] | null>(null)
+  // null = the picker; a string = the create row, holding what is typed in it.
+  const [newName, setNewName] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
   const [dirs, setDirs] = useState<AIDirs | null>(null)
   const [runAsTools, setRunAsTools] = useState<AITools | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -97,6 +117,47 @@ export function NewSessionDialog({
     return () => { cancelled = true }
   }, [open, runAs, pageAccount])
 
+  // A profile is per (account, tool): alice's "work" and root's "work" are
+  // different directories, and a tool decides whether there are any at all.
+  // So a change to either drops the selection back to the default and
+  // refetches — carrying a name over would have started the session on a
+  // directory belonging to another account, or on one that does not exist.
+  const withProfiles = supportsProfiles(tool)
+  useEffect(() => {
+    setProfile('')
+    setNewName(null)
+    setProfiles(null)
+    if (!open || !runAs || !withProfiles) return
+    let cancelled = false
+    api.getAIProfiles(runAs, tool)
+      .then((r) => { if (!cancelled) setProfiles(r.profiles) })
+      .catch(() => { if (!cancelled) setProfiles(null) })
+    return () => { cancelled = true }
+  }, [open, runAs, tool, withProfiles])
+
+  const createProfile = async () => {
+    const name = (newName ?? '').trim()
+    if (!name) return
+    setCreating(true)
+    setError(null)
+    try {
+      // The server answers with the directory it made, logged_in false: the
+      // hint below then tells the operator to log it in, which the panel
+      // never does for them.
+      const p = await api.createAIProfile({ user: runAs, tool, name })
+      setProfiles((list) => [...(list ?? [DEFAULT_ROW]), p])
+      setProfile(p.name)
+      setNewName(null)
+    } catch (err: unknown) {
+      setError(aiErrorMessage(err, t))
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const chosen = profiles?.find((p) => (p.default ? '' : p.name) === profile) ?? null
+  const shown: AIProfile[] = profiles ?? [DEFAULT_ROW]
+
   const bundle = toolsFor(runAs, tools, runAsTools)
   const installedFor = (tl: AITool) => toolInstalledFor(bundle, tl)
   useEffect(() => {
@@ -109,7 +170,7 @@ export function NewSessionDialog({
     setBusy(true)
     setError(null)
     try {
-      const s = await api.createAISession({ tool, cwd: cwd.trim(), run_as: runAs, title: title.trim() || undefined })
+      const s = await api.createAISession({ tool, cwd: cwd.trim(), run_as: runAs, title: title.trim() || undefined, profile: profile || undefined })
       try { localStorage.setItem(lastKey(node), JSON.stringify({ tool, cwd: cwd.trim(), run_as: runAs })) } catch { /* private mode */ }
       onCreated(s)
       onOpenChange(false)
@@ -160,6 +221,58 @@ export function NewSessionDialog({
               })}
             </div>
           </div>
+          {/* Profile: which of the tool's logins the session runs under. The
+              account decides which profiles exist, so the field sits between
+              the account and the directory; it is absent for a tool with no
+              profile support, whose route would answer INVALID_TOOL. */}
+          {withProfiles && (
+            <div className="space-y-1.5">
+              <Label>{t('ai.profiles.label')}</Label>
+              {newName === null ? (
+                <Select
+                  value={profile || DEFAULT_PROFILE}
+                  onValueChange={(v) => {
+                    if (v === NEW_PROFILE) { setNewName(''); return }
+                    setProfile(v === DEFAULT_PROFILE ? '' : v)
+                  }}
+                >
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {shown.map((p) => {
+                      const value = p.default ? DEFAULT_PROFILE : p.name
+                      const used = relativeSince(p.last_used_at || '', i18n.language)
+                      return (
+                        <SelectItem key={value} value={value}>
+                          {p.path !== '' && <>
+                            <span className={cn('h-1.5 w-1.5 rounded-full', p.logged_in ? 'bg-success' : 'bg-muted-foreground/40')} aria-hidden="true" />
+                            <span className="sr-only">{p.logged_in ? t('ai.profiles.loggedIn') : t('ai.profiles.notLoggedIn')}</span>
+                          </>}
+                          <span className={p.default ? undefined : 'font-mono text-[12px]'}>{p.default ? t('ai.profiles.default') : p.name}</span>
+                          {used && <span className="text-[11px] text-muted-foreground">{t('ai.profiles.lastUsed', { when: used })}</span>}
+                        </SelectItem>
+                      )
+                    })}
+                    <SelectItem value={NEW_PROFILE}>{t('ai.profiles.create')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                /* A Select row cannot hold a button, so the create row replaces
+                   the picker instead of nesting inside it. */
+                <div className="flex gap-2">
+                  <Input value={newName} onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void createProfile() } }}
+                    placeholder={t('ai.profiles.namePlaceholder')} className="font-mono text-[12px]" maxLength={32} spellCheck={false} />
+                  <Button variant="outline" className="rounded-xl" onClick={createProfile} disabled={creating || !newName.trim()}>
+                    {creating ? <><Loader2 className="animate-spin" aria-hidden="true" />{t('ai.profiles.creating')}</> : t('common.create')}
+                  </Button>
+                  <Button variant="ghost" className="rounded-xl" onClick={() => setNewName(null)} disabled={creating}>{t('common.cancel')}</Button>
+                </div>
+              )}
+              {chosen && chosen.path !== '' && !chosen.logged_in && (
+                <p className="text-[11px] text-warning">{t('ai.profiles.loginHint', { command: loginCommandFor(tool) })}</p>
+              )}
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="ai-cwd">{t('ai.dialog.dir')}</Label>
             <Input id="ai-cwd" list="ai-dir-suggestions" value={cwd} onChange={(e) => { touched.current.cwd = true; setCwd(e.target.value) }}
@@ -172,7 +285,7 @@ export function NewSessionDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="ai-title">{t('ai.dialog.name')}</Label>
-            <Input id="ai-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={defaultTitle(tool, cwd || '/')} maxLength={64} />
+            <Input id="ai-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={defaultTitle(tool, cwd || '/', profile)} maxLength={64} />
           </div>
           {error && <p role="alert" className="text-[12px] text-destructive">{error}</p>}
         </div>

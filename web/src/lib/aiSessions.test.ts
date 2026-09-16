@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AISession, AITools } from '@/types/api'
-import { aiErrorMessage, aiPrefill, defaultTitle, formatTimestamp, stateDotClass, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, waitingCount } from './aiSessions'
+import { PROFILE_TOOLS, aiErrorMessage, aiPrefill, defaultTitle, formatTimestamp, loginCommandFor, relativeSince, stateDotClass, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, waitingCount } from './aiSessions'
 
 const bundle = (account: string, installed: Partial<Record<'claude' | 'codex' | 'gemini', boolean>>): AITools => ({
   tmux: { installed: true, version: '3.6', supported: true, min_version: '3.2' },
@@ -34,6 +34,16 @@ describe('aiSessions helpers', () => {
     expect(defaultTitle('claude', '/opt/stacks/myapp')).toBe('Claude · myapp')
     expect(defaultTitle('shell', '/')).toBe('Shell · /')
     expect(defaultTitle('codex', '/home/alice/')).toBe('Codex · alice')
+  })
+
+  // Mirrors the server's own defaultTitle: two tabs on the same tool and
+  // directory are otherwise identical while running as different logins.
+  it('names the profile in the title, and nothing for the default one', () => {
+    expect(defaultTitle('codex', '/opt/stacks/myapp', 'work')).toBe('Codex(work) · myapp')
+    expect(defaultTitle('claude', '/opt/stacks/myapp', 'client-a')).toBe('Claude(client-a) · myapp')
+    // The default profile is the empty string and adds nothing — not '()'.
+    expect(defaultTitle('codex', '/opt/stacks/myapp', '')).toBe('Codex · myapp')
+    expect(defaultTitle('codex', '/opt/stacks/myapp')).toBe('Codex · myapp')
   })
 
   it('prefixes the document title only when something waits', () => {
@@ -75,6 +85,10 @@ describe('aiErrorMessage', () => {
     expect(aiErrorMessage(err('AI_SESSION_LIMIT', 'x'), t)).toBe('ai.errors.limit')
     expect(aiErrorMessage(err('TMUX_MISSING', 'x'), t)).toBe('ai.errors.tmuxMissing')
     expect(aiErrorMessage(err('AI_SESSION_STATE', 'x'), t)).toBe('ai.errors.state')
+    // The profile codes carry a server message the operator cannot act on
+    // ("a profile of that name already exists"), so they get their own keys.
+    expect(aiErrorMessage(err('AI_PROFILE_EXISTS', 'a profile of that name already exists'), t)).toBe('ai.profiles.errors.exists')
+    expect(aiErrorMessage(err('AI_PROFILE_IN_USE', '2 live session(s) still use this profile'), t)).toBe('ai.profiles.errors.inUse')
   })
 
   it('falls back to the server message, then the generic key', () => {
@@ -157,5 +171,51 @@ describe('formatTimestamp', () => {
   it('falls back to the raw value when it will not parse', () => {
     expect(formatTimestamp('not a date')).toBe('not a date')
     expect(formatTimestamp('')).toBe('')
+  })
+})
+
+describe('profile support', () => {
+  // Only the two tools with a verified config-directory variable
+  // (CLAUDE_CONFIG_DIR, CODEX_HOME) can carry a profile, so the picker is
+  // rendered for those two and for nothing else: Gemini has no override the
+  // project has verified and a shell session runs no tool. A picker that
+  // cannot work must never reach the dialog — the route answers
+  // INVALID_TOOL for the rest.
+  it('supports profiles for claude and codex only', () => {
+    expect(PROFILE_TOOLS).toEqual(['claude', 'codex'])
+    expect(supportsProfiles('claude')).toBe(true)
+    expect(supportsProfiles('codex')).toBe(true)
+    expect(supportsProfiles('gemini')).toBe(false)
+    expect(supportsProfiles('shell')).toBe(false)
+  })
+
+  // The hint tells the operator what to type; the two CLIs do not agree on
+  // it, and telling a Codex operator to run '/login' in their shell is worse
+  // than saying nothing.
+  it('names the login command each CLI actually uses', () => {
+    expect(loginCommandFor('codex')).toBe('codex login')
+    expect(loginCommandFor('claude')).toBe('/login')
+    // No profile, so no hint is ever rendered for these.
+    expect(loginCommandFor('gemini')).toBe('')
+    expect(loginCommandFor('shell')).toBe('')
+  })
+})
+
+describe('relativeSince', () => {
+  const now = Date.parse('2026-09-17T12:00:00Z')
+
+  it('says how long ago a profile was last used, in the operator\'s language', () => {
+    expect(relativeSince('2026-09-17T11:59:10Z', 'en', now)).toBe('50 seconds ago')
+    expect(relativeSince('2026-09-17T11:30:00Z', 'en', now)).toBe('30 minutes ago')
+    expect(relativeSince('2026-09-16T12:00:00Z', 'en', now)).toBe('1 day ago')
+    expect(relativeSince('2026-09-16T12:00:00Z', 'ko', now)).toBe('1일 전')
+  })
+
+  // A profile that has never been started carries last_used_at: '' (the
+  // server omits it), and the picker must show no hint at all rather than
+  // "56 years ago" from a zero date.
+  it('says nothing for a value that is missing or will not parse', () => {
+    expect(relativeSince('', 'en', now)).toBe('')
+    expect(relativeSince('not a date', 'en', now)).toBe('')
   })
 })

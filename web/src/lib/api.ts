@@ -64,6 +64,8 @@ import type {
   AISession,
   AITools,
   AIDirs,
+  AIProfile,
+  AIProfiles,
 } from '@/types/api'
 
 const API_PATH = '/api/v1'
@@ -1466,7 +1468,22 @@ class ApiClient {
     return this.request<AISession[]>('/ai/sessions')
   }
 
-  createAISession(body: { tool: AITool; cwd: string; run_as: string; title?: string }) {
+  getAIProfiles(user: string, tool: string) {
+    return this.request<AIProfiles>(`/ai/profiles?user=${encodeURIComponent(user)}&tool=${encodeURIComponent(tool)}`)
+  }
+
+  createAIProfile(body: { user: string; tool: AITool; name: string }) {
+    return this.request<AIProfile>('/ai/profiles', { method: 'POST', body: JSON.stringify(body) })
+  }
+
+  deleteAIProfile(user: string, tool: string, name: string) {
+    return this.request<{ deleted: string; tool: string; account: string }>(
+      `/ai/profiles/${encodeURIComponent(tool)}/${encodeURIComponent(name)}?user=${encodeURIComponent(user)}`,
+      { method: 'DELETE' }
+    )
+  }
+
+  createAISession(body: { tool: AITool; cwd: string; run_as: string; title?: string; profile?: string }) {
     return this.request<AISession>('/ai/sessions', { method: 'POST', body: JSON.stringify(body) })
   }
 

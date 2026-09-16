@@ -1413,6 +1413,27 @@
       "create": "Create",
       "creating": "Creating…"
     },
+    "profiles": {
+      "label": "Profile",
+      "default": "Default",
+      "create": "New profile…",
+      "creating": "Creating…",
+      "namePlaceholder": "work, client-a",
+      "loggedIn": "Logged in",
+      "notLoggedIn": "Not logged in",
+      "loginHint": "This profile is not logged in yet. Open the session and run {{command}}.",
+      "lastUsed": "Last used {{when}}",
+      "manage": "Profiles",
+      "delete": "Delete profile",
+      "deleteConfirmTitle": "Delete the {{name}} profile?",
+      "deleteConfirmDesc": "This signs {{account}} out of {{tool}} on this profile and deletes the login and settings stored in it. The default profile and the other profiles are untouched.",
+      "deleted": "Profile {{name}} deleted",
+      "errors": {
+        "exists": "A profile of that name already exists",
+        "inUse": "A live session is still using this profile. Kill it first",
+        "name": "The name must be 1-32 characters starting with a letter or digit, using only letters, digits, dot, dash and underscore"
+      }
+    },
     "errors": {
       "invalidPath": "The working directory must be an existing absolute path ({{reason}})",
       "invalidAccount": "That account cannot log in on this node",

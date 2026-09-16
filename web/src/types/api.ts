@@ -1212,6 +1212,8 @@ export interface AISession {
   title: string
   run_as: string
   cwd: string
+  /** the tool configuration directory this session runs against; absent = the tool's own */
+  profile?: string
   state: AISessionState
   /** service = the account's tmux server is a transient systemd unit and survives a panel restart; process = setsid only */
   persistence: 'service' | 'process'
@@ -1240,6 +1242,28 @@ export interface AITools {
   panel_account: string
   account: string
   tools: Record<'claude' | 'codex' | 'gemini', AIToolStatus>
+}
+
+/**
+ * One selectable tool configuration directory — CODEX_HOME for Codex,
+ * CLAUDE_CONFIG_DIR for Claude — so one CLI can hold several logins. The
+ * default profile has an empty name and is the tool's own directory: the
+ * panel neither created nor can delete it.
+ */
+export interface AIProfile {
+  name: string
+  default: boolean
+  path: string
+  /** the tool's credential file is present; a hint, not a guarantee the token still works */
+  logged_in: boolean
+  /** newest session created on this profile, absent when it has never been used */
+  last_used_at?: string
+}
+
+export interface AIProfiles {
+  tool: string
+  account: string
+  profiles: AIProfile[]
 }
 
 export interface AIDirs {
