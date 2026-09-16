@@ -204,6 +204,23 @@ export function titlePrefix(n: number): string {
 
 type Translate = (key: string, opts?: Record<string, unknown>) => string
 
+/**
+ * The one line a tab's 정보 action toasts. The profile is named only when the
+ * session runs on one: the default profile is the empty string — the tool's
+ * own configuration directory — and a label with nothing after it reads as a
+ * value the panel failed to load. It sits next to the directory because the
+ * two together are what distinguishes otherwise identical tabs.
+ */
+export function sessionInfoLine(s: AISession, t: Translate): string {
+  const parts = [
+    `${t('ai.tabs.infoAccount')}: ${s.run_as}`,
+    `${t('ai.tabs.infoDir')}: ${s.cwd}`,
+  ]
+  if (s.profile) parts.push(`${t('ai.tabs.infoProfile')}: ${s.profile}`)
+  parts.push(`${t('ai.tabs.infoCreated')}: ${formatTimestamp(s.created_at)}`)
+  return parts.join(' · ')
+}
+
 /** Turns an api.request failure into the inline message the dialog shows. */
 export function aiErrorMessage(err: unknown, t: Translate): string {
   if (!(err instanceof Error)) return t('ai.errors.generic')

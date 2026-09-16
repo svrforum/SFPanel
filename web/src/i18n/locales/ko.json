@@ -1397,6 +1397,7 @@
       "noSessionsHint": "Claude, Codex, Gemini 또는 셸 세션을 만들면 브라우저를 닫아도, 패널을 재시작해도 이어집니다.",
       "infoAccount": "계정",
       "infoDir": "디렉터리",
+      "infoProfile": "프로파일",
       "infoCreated": "생성"
     },
     "dialog": {

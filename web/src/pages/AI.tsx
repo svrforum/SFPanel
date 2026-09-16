@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { AISession, AITools } from '@/types/api'
-import { aiErrorMessage, formatTimestamp, titlePrefix, waitingCount } from '@/lib/aiSessions'
+import { aiErrorMessage, sessionInfoLine, titlePrefix, waitingCount } from '@/lib/aiSessions'
 import { OutputDialog, useSSEOutput } from '@/components/OutputDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
 import MobileTerminalBar from '@/components/MobileTerminalBar'
@@ -95,7 +95,7 @@ export default function AI() {
     await act(() => api.deleteAISession(s.id))
   }
   const info = (s: AISession) => {
-    toast.info(`${t('ai.tabs.infoAccount')}: ${s.run_as} · ${t('ai.tabs.infoDir')}: ${s.cwd} · ${t('ai.tabs.infoCreated')}: ${formatTimestamp(s.created_at)}`)
+    toast.info(sessionInfoLine(s, t))
   }
 
   const sendKey = useCallback((data: string) => {
@@ -113,7 +113,7 @@ export default function AI() {
           <h1 className="text-[22px] font-bold tracking-tight">{t('ai.title')}</h1>
           <p className="text-[13px] text-muted-foreground mt-1">{t('ai.subtitle')}</p>
         </div>
-        <ToolChips tools={tools} account={account || tools?.panel_account || ''} onAccountChange={(a) => { setTools(null); setAccount(a) }} onChanged={loadTools} output={output} />
+        <ToolChips tools={tools} account={account || tools?.panel_account || ''} onAccountChange={(a) => { setTools(null); setAccount(a) }} onChanged={loadTools} onSessionsChanged={() => { void refresh() }} output={output} />
       </div>
       <TmuxBanner tools={tools} onChanged={loadTools} />
       <div className="flex flex-col flex-1 min-h-0 rounded-2xl overflow-clip border border-border bg-card">

@@ -1397,6 +1397,7 @@
       "noSessionsHint": "Create a Claude, Codex, Gemini or shell session — it keeps running when you close the browser or restart the panel.",
       "infoAccount": "Account",
       "infoDir": "Directory",
+      "infoProfile": "Profile",
       "infoCreated": "Created"
     },
     "dialog": {

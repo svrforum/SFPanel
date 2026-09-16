@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AISession, AITools } from '@/types/api'
-import { PROFILE_TOOLS, aiErrorMessage, aiPrefill, defaultTitle, formatTimestamp, loginCommandFor, relativeSince, stateDotClass, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, waitingCount } from './aiSessions'
+import { PROFILE_TOOLS, aiErrorMessage, aiPrefill, defaultTitle, formatTimestamp, loginCommandFor, relativeSince, sessionInfoLine, stateDotClass, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, waitingCount } from './aiSessions'
 
 const bundle = (account: string, installed: Partial<Record<'claude' | 'codex' | 'gemini', boolean>>): AITools => ({
   tmux: { installed: true, version: '3.6', supported: true, min_version: '3.2' },
@@ -217,5 +217,33 @@ describe('relativeSince', () => {
   it('says nothing for a value that is missing or will not parse', () => {
     expect(relativeSince('', 'en', now)).toBe('')
     expect(relativeSince('not a date', 'en', now)).toBe('')
+  })
+})
+
+describe('sessionInfoLine', () => {
+  // The keys pass through untouched so the assertion reads as the layout the
+  // operator sees, without pulling i18next into a unit test.
+  const tr = (key: string) => key
+  const created = '2026-09-14T01:02:03Z'
+  const sess = (profile?: string): AISession => ({
+    ...s('x', 'working'), run_as: 'alice', cwd: '/opt/stacks/myapp', created_at: created, profile,
+  })
+
+  // A tab's 정보 action is the only place that names the profile in full:
+  // the pill on the tab truncates, and two sessions on the same tool and
+  // directory are otherwise indistinguishable.
+  it('names the profile between the directory and the creation time', () => {
+    expect(sessionInfoLine(sess('work'), tr)).toBe(
+      `ai.tabs.infoAccount: alice · ai.tabs.infoDir: /opt/stacks/myapp · ai.tabs.infoProfile: work · ai.tabs.infoCreated: ${formatTimestamp(created)}`
+    )
+  })
+
+  // The default profile is the empty string — the tool's own configuration
+  // directory. A '프로파일:' label with nothing after it reads as a value the
+  // panel failed to load, so the segment is absent instead.
+  it('omits the profile for a session on the tool\'s own directory', () => {
+    const expected = `ai.tabs.infoAccount: alice · ai.tabs.infoDir: /opt/stacks/myapp · ai.tabs.infoCreated: ${formatTimestamp(created)}`
+    expect(sessionInfoLine(sess(undefined), tr)).toBe(expected)
+    expect(sessionInfoLine(sess(''), tr)).toBe(expected)
   })
 })

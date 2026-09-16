@@ -91,6 +91,14 @@ export function SessionTabs({
                   ) : (
                     <span className="max-w-[18ch] truncate">{s.title}</span>
                   )}
+                  {/* Which login the session runs under. Only a non-default
+                      profile has a name; two tabs on the same tool and
+                      directory are otherwise identical on screen while
+                      talking to different accounts. */}
+                  {s.profile && editingId !== s.id && (
+                    <span className="px-1 rounded bg-muted text-[10px] font-mono max-w-[10ch] truncate shrink-0"
+                      title={`${t('ai.profiles.label')}: ${s.profile}`}>{s.profile}</span>
+                  )}
                   <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', stateDotClass(s.state, active))}
                     role="status" aria-label={t('ai.state.' + s.state)} />
                   {s.persistence === 'process' && s.state !== 'ended' && (
