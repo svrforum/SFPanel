@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AISession, AITools } from '@/types/api'
-import { PROFILE_TOOLS, aiErrorMessage, aiPrefill, defaultTitle, formatTimestamp, loginCommandFor, relativeSince, sessionInfoLine, stateDotClass, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, waitingCount } from './aiSessions'
+import { PROFILE_TOOLS, aiErrorMessage, aiPrefill, defaultTitle, formatTimestamp, loginCommandFor, profileErrorMessage, relativeSince, sessionInfoLine, stateDotClass, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, waitingCount } from './aiSessions'
 
 const bundle = (account: string, installed: Partial<Record<'claude' | 'codex' | 'gemini', boolean>>): AITools => ({
   tmux: { installed: true, version: '3.6', supported: true, min_version: '3.2' },
@@ -98,6 +98,27 @@ describe('aiErrorMessage', () => {
     // `instanceof Error` guard: without it, that message would reach the
     // dialog as if the server had sent it.
     expect(aiErrorMessage({ message: 'not from the server' }, t)).toBe('ai.errors.generic')
+  })
+
+  // The name-format refusal is INVALID_BODY carrying the server's English
+  // sentence. aiErrorMessage has no case for it on purpose — a body the panel
+  // built wrongly is better described by the server — so the create surfaces
+  // take profileErrorMessage, which is the only thing that turns it into the
+  // rule spelled out in the operator's language.
+  it('maps the name-format refusal on the create surfaces only', () => {
+    const nameErr = err('INVALID_BODY', 'name must be 1-32 characters of letters, digits, dot, dash or underscore, starting with a letter or digit')
+    expect(profileErrorMessage(nameErr, t)).toBe('ai.profiles.errors.name')
+    expect(aiErrorMessage(nameErr, t)).toBe(nameErr.message)
+  })
+
+  // Everything else still goes through aiErrorMessage: a create can also come
+  // back AI_PROFILE_EXISTS, INVALID_ACCOUNT or INVALID_TOOL, and those keys
+  // must not be swallowed by the name message.
+  it('hands every other code to aiErrorMessage', () => {
+    expect(profileErrorMessage(err('AI_PROFILE_EXISTS', 'x'), t)).toBe('ai.profiles.errors.exists')
+    expect(profileErrorMessage(err('INVALID_TOOL', 'x'), t)).toBe('ai.errors.invalidTool')
+    expect(profileErrorMessage(err(undefined, 'boom'), t)).toBe('boom')
+    expect(profileErrorMessage('not an error', t)).toBe('ai.errors.generic')
   })
 })
 
@@ -217,6 +238,22 @@ describe('relativeSince', () => {
   it('says nothing for a value that is missing or will not parse', () => {
     expect(relativeSince('', 'en', now)).toBe('')
     expect(relativeSince('not a date', 'en', now)).toBe('')
+  })
+
+  // "Last used" is a row the host wrote, so a value ahead of the browser's
+  // clock is the two disagreeing, not a future use. Unclamped, a profile the
+  // operator had just started read "0초 후", and a browser a few minutes
+  // behind its host read "in 3 minutes".
+  it('never reads as the future when the browser clock is behind the host', () => {
+    expect(relativeSince('2026-09-17T12:00:01Z', 'en', now)).toBe('0 seconds ago')
+    // Exactly now is the same case: Intl reads the sign, so +0 would still
+    // have formatted as "in 0 seconds".
+    expect(relativeSince('2026-09-17T12:00:00Z', 'en', now)).toBe('0 seconds ago')
+    expect(relativeSince('2026-09-17T12:00:00Z', 'ko', now)).toBe('0초 전')
+    expect(relativeSince('2026-09-17T12:03:00Z', 'en', now)).toBe('0 seconds ago')
+    expect(relativeSince('2026-09-17T12:03:00Z', 'ko', now)).toBe('0초 전')
+    // The past still reads as the past, at the same granularity as before.
+    expect(relativeSince('2026-09-17T11:59:59Z', 'en', now)).toBe('1 second ago')
   })
 })
 

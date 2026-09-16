@@ -4,7 +4,7 @@ import { ArrowUpCircle, CheckCircle2, Download, KeyRound, Loader2, Trash2 } from
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import type { AIProfile, AITools } from '@/types/api'
-import { TOOL_META, aiErrorMessage, relativeSince, supportsProfiles } from '@/lib/aiSessions'
+import { TOOL_META, aiErrorMessage, profileErrorMessage, relativeSince, supportsProfiles } from '@/lib/aiSessions'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -64,7 +64,7 @@ function ProfileSection({ tool, account, onSessionsChanged }: {
       setName('')
       load()
     } catch (err: unknown) {
-      setError(aiErrorMessage(err, t))
+      setError(profileErrorMessage(err, t))
     } finally {
       setBusy(false)
     }
@@ -132,7 +132,9 @@ function ProfileSection({ tool, account, onSessionsChanged }: {
           onKeyDown={(e) => {
             if (e.key === 'Escape') return
             e.stopPropagation()
-            if (e.key === 'Enter') { e.preventDefault(); void create() }
+            // Guarded like the dialog's: a second Enter in flight posts the
+            // same name and paints its 409 over a create that succeeded.
+            if (e.key === 'Enter') { e.preventDefault(); if (!busy) void create() }
           }}
           placeholder={t('ai.profiles.namePlaceholder')} className="h-7 font-mono text-[12px]" maxLength={32} spellCheck={false}
           aria-label={t('ai.profiles.label')} />

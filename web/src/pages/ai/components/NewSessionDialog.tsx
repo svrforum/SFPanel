@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { AIDirs, AIProfile, AISession, AITool, AITools } from '@/types/api'
 import type { AILastSession, AITouched } from '@/lib/aiSessions'
-import { TOOL_META, aiErrorMessage, aiPrefill, defaultTitle, loginCommandFor, relativeSince, supportsProfiles, toolInstalledFor, toolsFor, untouchedPrefill } from '@/lib/aiSessions'
+import { TOOL_META, aiErrorMessage, aiPrefill, defaultTitle, loginCommandFor, profileErrorMessage, relativeSince, supportsProfiles, toolInstalledFor, toolsFor, untouchedPrefill } from '@/lib/aiSessions'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -149,7 +149,7 @@ export function NewSessionDialog({
       setProfile(p.name)
       setNewName(null)
     } catch (err: unknown) {
-      setError(aiErrorMessage(err, t))
+      setError(profileErrorMessage(err, t))
     } finally {
       setCreating(false)
     }
@@ -260,7 +260,10 @@ export function NewSessionDialog({
                    the picker instead of nesting inside it. */
                 <div className="flex gap-2">
                   <Input value={newName} onChange={(e) => setNewName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void createProfile() } }}
+                    // A second Enter while the first is in flight would post
+                    // the same name again and paint that 409 over a create
+                    // that had already succeeded.
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (!creating) void createProfile() } }}
                     placeholder={t('ai.profiles.namePlaceholder')} className="font-mono text-[12px]" maxLength={32} spellCheck={false} />
                   <Button variant="outline" className="rounded-xl" onClick={createProfile} disabled={creating || !newName.trim()}>
                     {creating ? <><Loader2 className="animate-spin" aria-hidden="true" />{t('ai.profiles.creating')}</> : t('common.create')}

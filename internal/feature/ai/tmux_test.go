@@ -544,8 +544,17 @@ func TestSpawnArgv_ProfileRidesOnNewSessionE(t *testing.T) {
 		if i < 0 || i+1 >= len(argv) || argv[i+1] != want {
 			t.Errorf("form %v: want `-e %s` on new-session, got %q", form, want, argv)
 		}
-		if ns := slices.Index(argv, "new-session"); ns < 0 || i < ns {
+		ns := slices.Index(argv, "new-session")
+		if ns < 0 || i < ns {
 			t.Errorf("form %v: the -e pair must sit on new-session, got %q", form, argv)
+			continue
+		}
+		// And before the `--` that ends new-session's options: after it the
+		// pair is argv for the command the session runs, not the session's
+		// environment. The search starts at new-session because the server
+		// form has systemd-run's own `--` earlier in the line.
+		if end := slices.Index(argv[ns:], "--"); end < 0 || i+1 >= ns+end {
+			t.Errorf("form %v: the -e pair must sit before new-session's --, got %q", form, argv)
 		}
 		// It must NOT reach the server's global environment.
 		for _, a := range argv {

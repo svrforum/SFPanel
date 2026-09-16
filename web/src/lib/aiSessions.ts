@@ -85,11 +85,19 @@ const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
  * own language. A value that will not parse — including the '' the server
  * sends for a profile no session has ever run on — produces nothing, because
  * a zero date would otherwise read as "56 years ago".
+ *
+ * Clamped to the past. "Last used" is a row the host wrote, so a value ahead
+ * of Date.now() means the two clocks disagree, not that a profile will be
+ * used later: a profile used a moment ago read "0초 후", and a browser a few
+ * minutes behind its host read "in 3 minutes". -0 rather than 0, and >= not
+ * >, because Intl reads the *sign* of the value: +0 formats as "in 0
+ * seconds", which is the same defect for a profile used this very second.
  */
 export function relativeSince(value: string, lang: string, now = Date.now()): string {
   const ms = new Date(value).getTime()
   if (Number.isNaN(ms)) return ''
-  let n = Math.round((ms - now) / 1000)
+  const delta = Math.round((ms - now) / 1000)
+  let n = delta >= 0 ? -0 : delta
   for (const [unit, per] of RELATIVE_UNITS) {
     if (per === 0 || Math.abs(n) < per) {
       return new Intl.RelativeTimeFormat(lang, { numeric: 'always' }).format(n, unit)
@@ -245,4 +253,23 @@ export function aiErrorMessage(err: unknown, t: Translate): string {
     default:
       return err.message || t('ai.errors.generic')
   }
+}
+
+/**
+ * aiErrorMessage for the two surfaces that create a profile. The server
+ * refuses a name it will not turn into a directory with INVALID_BODY and an
+ * English sentence naming the allowed shape; passed through, that sentence is
+ * the one message a Korean operator cannot read, and it is also the only
+ * refusal here they can act on — so it gets the key that spells the rule out
+ * in their language.
+ *
+ * Only the create calls take this. Everywhere else INVALID_BODY means a body
+ * the panel itself built wrongly, where the server's own message is the more
+ * useful of the two.
+ */
+export function profileErrorMessage(err: unknown, t: Translate): string {
+  if (err instanceof Error && (err as Error & { code?: string }).code === 'INVALID_BODY') {
+    return t('ai.profiles.errors.name')
+  }
+  return aiErrorMessage(err, t)
 }
