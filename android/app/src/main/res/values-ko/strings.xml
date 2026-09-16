@@ -24,7 +24,7 @@
     <string name="http_message">%1$s 주소는 HTTP를 사용합니다. 로그인 정보와 서버 데이터가 암호화되지 않습니다. 신뢰할 수 있는 네트워크에서만 사용하거나 HTTPS를 설정하세요.</string>
     <string name="invalid_address">HTTP 또는 HTTPS 서버 주소와 포트를 입력하세요. 경로, 비밀번호, 쿼리 문자열은 지원하지 않습니다.</string>
     <string name="connection_failed">연결하지 못했어요. 주소, 포트, 네트워크와 서버 상태를 확인한 뒤 다시 시도하세요.</string>
-    <string name="certificate_failed">인증서를 확인할 수 없어요. 신뢰할 수 있는 HTTPS 인증서를 사용하거나 Android 설정에 서버의 CA 인증서를 설치하세요.</string>
+    <string name="certificate_failed">인증서를 확인할 수 없어요. 다시 연결해 사설 인증서를 확인하세요. 만료된 인증서는 서버에서 갱신해야 해요.</string>
     <string name="not_sfpanel">정상적인 SFPanel 응답이 아니에요. 서버 주소와 데이터베이스 상태를 확인하세요.</string>
     <string name="servers">내 서버</string>
     <string name="options">보기 설정</string>
@@ -83,4 +83,23 @@
     <string name="key_right">커서 오른쪽으로</string>
     <string name="modifier_on">다음 키에 적용</string>
     <string name="modifier_off">꺼짐</string>
+    <string name="private_certificate">사설 서버 인증서</string>
+    <string name="certificate_changed">서버 인증서가 변경되었어요</string>
+    <string name="certificate_prompt">서버: %1$s\n\n발급 대상: %2$s\n발급자: %3$s\n만료일: %4$s\n\nSHA-256 지문:\n%5$s\n\n서버 관리자가 알려준 지문과 비교하세요. 주소 불일치를 포함해 이 서버 주소의 이 인증서만 신뢰합니다. 인증서가 바뀌면 다시 확인합니다.</string>
+    <string name="forget_certificate">저장한 인증서 신뢰 해제</string>
+    <string name="trust_certificate">신뢰하고 연결</string>
+    <string name="check_updates">앱 업데이트 확인</string>
+    <string name="auto_updates">자동 업데이트 확인</string>
+    <string name="auto_updates_description">앱 실행 시 하루 한 번 GitHub에서 확인</string>
+    <string name="update_checking">Android 업데이트를 확인하고 있어요…</string>
+    <string name="update_failed">업데이트를 확인하거나 검증하지 못했어요. 연결을 확인하고 다시 시도하세요. 개발용 앱은 정식 버전으로 덮어 설치할 수 없어요.</string>
+    <string name="update_current">최신 Android 버전을 사용하고 있어요.</string>
+    <string name="update_available">새 앱 버전이 있어요</string>
+    <string name="update_message">%1$s 버전이 있어요. 현재 네트워크로 APK를 내려받아 검증한 뒤 Android 설치 화면을 엽니다. 서버 연결 정보는 유지되며 설치 시 앱이 다시 시작됩니다.</string>
+    <string name="later">나중에</string>
+    <string name="update_download">다운로드 및 설치</string>
+    <string name="update_downloading">업데이트를 다운로드하고 검증하고 있어요…</string>
+    <string name="update_permission">앱 업데이트 설치 허용</string>
+    <string name="update_permission_message">SFPanel의 “이 출처 허용”을 켜고 돌아오면 검증된 업데이트를 설치할 수 있어요.</string>
+    <string name="open_settings">설정 열기</string>
 </resources>

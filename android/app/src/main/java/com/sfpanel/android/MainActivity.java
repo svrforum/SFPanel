@@ -68,6 +68,9 @@ public final class MainActivity extends Activity {
     private boolean awaitingLogin;
     private ValueCallback<Uri[]> fileCallback;
     private PanelDownloads downloads;
+    private CertificateTrust certificates;
+    private AppUpdates updates;
+    CertificateTrust certificateTrust() { return certificates; }
     private LinearLayout terminalBar;
     private boolean shift, ctrl, alt;
     private Button shiftButton, ctrlButton, altButton;
@@ -77,11 +80,14 @@ public final class MainActivity extends Activity {
         prefs = getSharedPreferences("sfpanel", MODE_PRIVATE);
         store = new ServerStore(prefs);
         downloads = new PanelDownloads(this);
+        certificates = new CertificateTrust(this);
+        updates = new AppUpdates(this, prefs);
         if (android.os.Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::goBack);
         }
         showHome();
+        updates.check(false);
         if (state != null) {
             nameInput.setText(state.getString("draftName", ""));
             addressInput.setText(state.getString("draftAddress", ""));
@@ -166,7 +172,10 @@ public final class MainActivity extends Activity {
             open.setContentDescription(getString(R.string.open_server, server.name()) + ", " + server.address()); saved.addView(open);
             Button remove = button(getString(R.string.remove), false, () -> new AlertDialog.Builder(this)
                     .setTitle(getString(R.string.remove_server, server.name())).setMessage(R.string.remove_message)
-                    .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { store.remove(server); showHome(); }).show());
+                    .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { store.remove(server); certificates.remove(server.address()); showHome(); }).show());
+            if (certificates.pin(server.address()) != null) saved.addView(button(getString(R.string.forget_certificate), false, () ->
+                    new AlertDialog.Builder(this).setTitle(R.string.forget_certificate).setMessage(server.address())
+                        .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { certificates.remove(server.address()); showHome(); }).show()));
             remove.setContentDescription(getString(R.string.remove_server, server.name())); saved.addView(remove);
         }
         body.addView(button(getString(R.string.options), false, this::showOptions));
@@ -196,14 +205,36 @@ public final class MainActivity extends Activity {
         ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(addressInput.getWindowToken(), 0);
         int request = ++generation;
         worker.execute(() -> {
-            int error = HealthCheck.check(server.address());
+            int error = HealthCheck.check(server.address(), certificates.pin(server.address()));
+            java.security.cert.X509Certificate inspected = null;
+            if (error == R.string.certificate_failed) {
+                try { inspected = PrivateTls.inspect(server.address()); } catch (Exception ignored) { }
+            }
+            java.security.cert.X509Certificate candidate = inspected;
             runOnUiThread(() -> {
                 if (isDestroyed() || request != generation) return;
                 connecting = false; connectButton.setEnabled(true);
+                if (error == R.string.certificate_failed && candidate != null) { confirmCertificate(server, candidate, request); return; }
                 if (error != 0) { status.setText(error); status.setTextColor(0xffa32638); return; }
                 store.save(server); openPanel(server);
             });
         });
+    }
+
+    private void confirmCertificate(ServerStore.Server server, java.security.cert.X509Certificate cert, int request) {
+        try {
+            String pin = PrivateTls.fingerprint(cert);
+            String details = getString(R.string.certificate_prompt, server.address(), cert.getSubjectX500Principal().getName(),
+                    cert.getIssuerX500Principal().getName(), cert.getNotAfter().toString(), pin.replaceAll("(..)(?!$)", "$1:"));
+            TextView content = text(details, 15, INK, false); content.setTextIsSelectable(true); content.setPadding(dp(20), dp(12), dp(20), dp(12));
+            ScrollView scroll = new ScrollView(this); scroll.addView(content);
+            new AlertDialog.Builder(this).setTitle(certificates.pin(server.address()) == null ? R.string.private_certificate : R.string.certificate_changed)
+                    .setView(scroll).setNegativeButton(R.string.cancel, (d, w) -> status.setText(R.string.certificate_failed))
+                    .setPositiveButton(R.string.trust_certificate, (d, w) -> {
+                        if (request != generation || isDestroyed()) return;
+                        certificates.save(server.address(), pin); connect(server);
+                    }).show();
+        } catch (Exception e) { status.setText(R.string.certificate_failed); }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -262,8 +293,12 @@ public final class MainActivity extends Activity {
             @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
                 if (request.isForMainFrame() && response.getStatusCode() >= 400) showPageError(R.string.page_failed);
             }
+            // Only an explicitly approved, unexpired leaf certificate for this
+            // exact origin may proceed. All other TLS failures are cancelled.
+            @SuppressLint("WebViewClientOnReceivedSslError")
             @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                handler.cancel(); showPageError(R.string.certificate_failed);
+                if (certificates.accepts(server.address(), error)) handler.proceed();
+                else { handler.cancel(); showPageError(R.string.certificate_failed); }
             }
             @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
                 showHome(); status.setText(R.string.page_failed); return true;
@@ -456,7 +491,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showOptions() {
-        String[] options = { getString(R.string.reading_size), getString(R.string.start_page), getString(R.string.privacy), getString(R.string.clear_data) };
+        String[] options = { getString(R.string.reading_size), getString(R.string.start_page), getString(R.string.privacy), getString(R.string.clear_data), getString(R.string.check_updates), getString(R.string.auto_updates) };
         new AlertDialog.Builder(this).setTitle(R.string.options).setItems(options, (d, which) -> {
             if (which == 0) {
                 int[] sizes = {100, 120, 140};
@@ -472,6 +507,10 @@ public final class MainActivity extends Activity {
                             startPath = new String[]{"/ai", "/terminal", "/dashboard"}[index]; prefs.edit().putString("startPath", startPath).apply();
                         }).show();
             } else if (which == 2) new AlertDialog.Builder(this).setTitle(R.string.privacy).setMessage(R.string.privacy_help).setPositiveButton(R.string.close, null).show();
+            else if (which == 4) updates.check(true);
+            else if (which == 5) new AlertDialog.Builder(this).setTitle(R.string.auto_updates)
+                    .setMultiChoiceItems(new String[]{getString(R.string.auto_updates_description)}, new boolean[]{prefs.getBoolean("autoUpdates", true)},
+                            (dialog, index, checked) -> prefs.edit().putBoolean("autoUpdates", checked).apply()).setPositiveButton(R.string.close, null).show();
             else new AlertDialog.Builder(this).setTitle(R.string.clear_data).setMessage(R.string.clear_data_message)
                         .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.clear_data, (dialog, w) -> {
                             if (web != null) web.clearCache(true); showHome(); WebStorage.getInstance().deleteAllData();
@@ -507,14 +546,14 @@ public final class MainActivity extends Activity {
         if (web == null) { out.putString("draftName", nameInput.getText().toString()); out.putString("draftAddress", addressInput.getText().toString()); }
     }
     @Override protected void onResume() {
-        super.onResume(); startPath = prefs.getString("startPath", "/ai");
+        super.onResume(); if (updates != null) updates.resumeInstall(); startPath = prefs.getString("startPath", "/ai");
         if (web != null) { web.onResume(); evaluate("window.dispatchEvent(new Event('online'));return true;", null); }
     }
     @Override protected void onPause() { if (web != null) web.onPause(); CookieManager.getInstance().flush(); super.onPause(); }
-    @Override protected void onDestroy() { generation++; closeWeb(); downloads.close(); worker.shutdownNow(); super.onDestroy(); }
+    @Override protected void onDestroy() { generation++; closeWeb(); downloads.close(); updates.close(); worker.shutdownNow(); super.onDestroy(); }
     private void closeWeb() {
         if (fileCallback != null) { fileCallback.onReceiveValue(null); fileCallback = null; }
-        if (web != null) { ((ViewGroup) web.getParent()).removeView(web); web.stopLoading(); web.destroy(); web = null; }
+        if (web != null) { ((ViewGroup) web.getParent()).removeView(web); web.stopLoading(); web.clearSslPreferences(); web.destroy(); web = null; }
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);

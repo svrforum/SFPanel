@@ -24,7 +24,7 @@
     <string name="http_message">%1$s uses HTTP. Credentials and server data travel without encryption. Use this only on a trusted network, or configure HTTPS.</string>
     <string name="invalid_address">Enter an HTTP or HTTPS server address with an optional port. Paths, passwords and query strings are not supported.</string>
     <string name="connection_failed">Could not connect. Check the address, port, network and server status, then try again.</string>
-    <string name="certificate_failed">The certificate could not be verified. Use a trusted HTTPS certificate or install your server’s CA certificate in Android settings.</string>
+    <string name="certificate_failed">The certificate could not be verified. Reconnect to review a private certificate. Expired certificates must be renewed.</string>
     <string name="not_sfpanel">This address did not return a healthy SFPanel response. Check the address and server database status.</string>
     <string name="servers">Servers</string>
     <string name="options">Options</string>
@@ -83,4 +83,23 @@
     <string name="key_right">Cursor right</string>
     <string name="modifier_on">On for the next key</string>
     <string name="modifier_off">Off</string>
+    <string name="private_certificate">Private server certificate</string>
+    <string name="certificate_changed">Server certificate changed</string>
+    <string name="certificate_prompt">Server: %1$s\n\nSubject: %2$s\nIssuer: %3$s\nValid until: %4$s\n\nSHA-256 fingerprint:\n%5$s\n\nCompare this fingerprint with your server administrator. Trust applies only to this certificate at this server address, including an address mismatch. A changed certificate needs confirmation again.</string>
+    <string name="forget_certificate">Forget trusted certificate</string>
+    <string name="trust_certificate">Trust and connect</string>
+    <string name="check_updates">Check for app updates</string>
+    <string name="auto_updates">Automatic update checks</string>
+    <string name="auto_updates_description">Check GitHub once a day when the app starts</string>
+    <string name="update_checking">Checking for an Android update…</string>
+    <string name="update_failed">Update verification failed. Check your connection and try again. Debug builds cannot install release updates over themselves.</string>
+    <string name="update_current">You have the latest Android version.</string>
+    <string name="update_available">App update available</string>
+    <string name="update_message">Version %1$s is available. Download over your current network and verify the APK before opening Android’s installation screen. Your server connections are kept. Installation restarts the app.</string>
+    <string name="later">Later</string>
+    <string name="update_download">Download and install</string>
+    <string name="update_downloading">Downloading and verifying the update…</string>
+    <string name="update_permission">Allow app updates</string>
+    <string name="update_permission_message">Enable “Allow from this source” for SFPanel, then return to install the verified update.</string>
+    <string name="open_settings">Open settings</string>
 </resources>

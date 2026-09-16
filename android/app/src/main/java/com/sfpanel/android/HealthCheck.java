@@ -9,10 +9,11 @@ import java.nio.charset.StandardCharsets;
 
 final class HealthCheck {
     // Only public readiness is read; credentials never pass through this client.
-    static int check(String server) {
+    static int check(String server, String pin) {
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(server + "/api/v1/health").openConnection();
+            PrivateTls.configure(connection, pin);
             connection.setConnectTimeout(8000);
             connection.setReadTimeout(8000);
             connection.setInstanceFollowRedirects(false);

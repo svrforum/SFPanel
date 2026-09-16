@@ -111,6 +111,7 @@ final class PanelDownloads {
         boolean success = false;
         try {
             connection = (HttpURLConnection) new URL(target).openConnection();
+            PrivateTls.configure(connection, activity.certificateTrust().pin(ServerAddress.normalize(new URL(target).getProtocol() + "://" + new URL(target).getAuthority())));
             connection.setConnectTimeout(15000); connection.setReadTimeout(30000); connection.setInstanceFollowRedirects(false);
             if (bearer != null) connection.setRequestProperty("Authorization", "Bearer " + bearer);
             if (cookies != null) connection.setRequestProperty("Cookie", cookies);

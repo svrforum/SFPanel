@@ -30,3 +30,12 @@ Lint 경고는 동적 LAN 서버를 위한 HTTP 허용, 사용자가 설치한 C
 ## 남은 기기 검증
 
 실제 삼성 키보드/Gboard의 한글 조합과 음성 입력, TalkBack 탐색, Android 8~14 및 16 기기, VPN/셀룰러 전환, 오래 백그라운드에 둔 세션, 실제 서버의 TOTP와 CLI별 키 해석은 추가 확인 대상입니다. Shift+Enter 해석은 실행 중인 CLI와 tmux의 확장 키 지원에도 좌우됩니다. [tmux 키 지원 설명](https://github.com/tmux/tmux/wiki/Modifier-Keys)과 [Claude Code 터미널 설정](https://code.claude.com/docs/en/terminal-config)을 참고하세요.
+
+## 0.1.1 사설 인증서·업데이트
+
+- JVM 테스트 총 10개: 승인한 인증서만 허용, 인증서 변경·미승인·만료 거부, 주소/포트 경계, Android 태그 버전 계산 및 서버 태그 제외.
+- Lint 오류 0, 경고 6. 기존 4개 외 사용자 승인 지문 검증·인증서 조회용 X509TrustManager 경고 2개. 조회용 핸드셰이크는 인증서를 확보한 뒤 항상 중단하고 HTTP를 보내지 않습니다.
+- Android 15 에뮬레이터의 자체 서명 HTTPS fixture에서 인증서 확인 창 → health 확인 → 실제 React AI 화면 → WSS readyState=1까지 확인. 인증서 이름과 접속 IP가 다른 조건도 포함했습니다.
+- 같은 주소의 인증서를 교체한 뒤 재연결하면 새 지문과 변경 안내를 표시하고 재승인 전 연결하지 않음을 확인했습니다.
+- 업데이트 검사는 GitHub의 Android 태그 인덱스와 해당 릴리즈만 읽습니다. 실제 저장소 전체 릴리즈 응답이 2 MiB를 초과하는 문제를 재현하고 전체 릴리즈 조회를 제거했습니다.
+- 같은 정식 키로 서명한 로컬 테스트 클라이언트(versionCode 1000)에서 공개된 0.1.0(versionCode 1001)을 탐지하고 다운로드했습니다. 체크섬·패키지·서명 검증 → 설치 출처 허용 → 시스템 업데이트 승인 → versionCode 1001 설치 완료까지 검증했습니다. 테스트 클라이언트는 배포하지 않았습니다.
