@@ -17,7 +17,7 @@
     <string name="open_server">%1$s 서버 연결</string>
     <string name="remove_server">%1$s 서버 목록에서 삭제</string>
     <string name="remove">삭제</string>
-    <string name="remove_message">저장된 주소를 삭제할까요? 서버와 서버의 데이터는 유지됩니다.</string>
+    <string name="remove_message">이 기기에 저장한 서버 주소, 로그인 정보와 인증서 신뢰를 삭제할까요? 서버의 데이터는 유지됩니다.</string>
     <string name="cancel">취소</string>
     <string name="continue_action">계속</string>
     <string name="http_title">암호화 없이 연결할까요?</string>
@@ -36,7 +36,7 @@
     <string name="privacy">이 기기의 개인정보</string>
     <string name="privacy_help">서버 주소는 이 기기에 저장합니다. 로그인과 2단계 인증은 서버에서 처리하며, 앱에 별도 사용 분석 기능은 없습니다.</string>
     <string name="clear_data">기기의 로그인 정보 지우기</string>
-    <string name="clear_data_message">관리 화면을 닫고 모든 서버의 쿠키, 사이트 저장소와 캐시를 이 기기에서 지울까요?</string>
+    <string name="clear_data_message">관리 화면을 닫고 모든 서버의 저장된 로그인 정보, 쿠키, 사이트 저장소와 캐시를 이 기기에서 지울까요?</string>
     <string name="data_cleared">기기의 로그인 정보를 지웠어요.</string>
     <string name="leave_title">내 서버 목록으로 돌아갈까요?</string>
     <string name="leave_message">현재 관리 화면을 닫습니다. 업로드 중인 파일이나 저장하지 않은 편집 내용을 먼저 확인하세요.</string>
@@ -112,4 +112,6 @@
     <string name="keys_short">키</string>
     <string name="session_actions">세션 관리</string>
     <string name="page_tools">화면 도구</string>
+    <string name="session_webview_update">로그인 유지를 사용하려면 Android System WebView를 업데이트해주세요.</string>
+    <string name="session_save_failed">로그인 정보를 안전하게 저장하지 못했어요. 다시 접속할 때 로그인이 필요할 수 있어요.</string>
 </resources>

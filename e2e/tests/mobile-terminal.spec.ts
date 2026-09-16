@@ -57,6 +57,15 @@ for (const path of ['/terminal', '/ai']) {
       const session = el as HTMLElement & { __termRef?: { current?: { write: (s: string) => void } } }
       session.__termRef?.current?.write(Array.from({ length: 300 }, (_, i) => `output line ${i}\r\n`).join(''))
     })
+    const swipe = async (delta: number) => {
+      const box = (await terminal.boundingBox())!
+      const client = await page.context().newCDPSession(page)
+      const x = box.x + box.width / 2, y = box.y + box.height / 2
+      await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+      for (let i = 1; i <= 6; i++) await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + delta * i / 6 }] })
+      await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      await client.detach()
+    }
     const scrollPosition = () => terminal.evaluate(el => {
       const session = el as HTMLElement & { __termRef?: { current?: { buffer: { active: { viewportY: number; baseY: number } } } } }
       const b = session.__termRef!.current!.buffer.active
@@ -80,8 +89,8 @@ for (const path of ['/terminal', '/ai']) {
       const box = await button.boundingBox()
       expect(box?.height).toBeGreaterThanOrEqual(48)
     }
+    await page.addScriptTag({ path: resolve(__dirname, '../../android/app/src/main/assets/panel.js') })
     if (path === '/ai') {
-      await page.addScriptTag({ path: resolve(__dirname, '../../android/app/src/main/assets/panel.js') })
       const overview = page.locator('[data-ai-workspace] > :first-child')
       await expect(overview).toBeHidden()
       await expect(bar).toBeHidden()
@@ -91,5 +100,26 @@ for (const path of ['/terminal', '/ai']) {
       await expect(overview).toBeVisible()
       await expect(page.getByRole('combobox', { name: 'Run as' })).toBeVisible()
     }
+    await page.evaluate(() => document.documentElement.removeAttribute('data-ai-tools-open'))
+    // A real touch drag, not the native history buttons, must move scrollback.
+    await swipe(100)
+    await expect.poll(async () => { const p = await scrollPosition(); return p.viewport < p.bottom }).toBe(true)
+    await swipe(-100)
+    // Full-screen CLI mode has no scrollback: forward wheel input through xterm.
+    await terminal.evaluate(async el => {
+      const t = (el as any).__termRef.current
+      await new Promise<void>(resolve => t.write('\x1b[?1049h\x1b[?1000h\x1b[?1006h', resolve))
+    })
+    const beforeWheel = input.length
+    await swipe(100)
+    await expect.poll(() => input.slice(beforeWheel).some(value => /\x1b\[<64;/.test(value))).toBe(true)
+    // Mouse-disabled alternate buffers use xterm's arrow-key fallback.
+    await terminal.evaluate(async el => {
+      await new Promise<void>(resolve => (el as any).__termRef.current.write('\x1b[?1000l\x1b[?1006l', resolve))
+    })
+    const beforeArrow = input.length
+    await swipe(-100)
+    await expect.poll(() => input.slice(beforeArrow).some(value => value.includes('\x1b[B'))).toBe(true)
+
   })
 }

@@ -25,7 +25,13 @@ export function attachXtermTouchScroll(container: HTMLElement, term: Terminal): 
     touchY = y
     const lines = Math.trunc(touchAccum / cellPx())
     if (lines !== 0) {
-      term.scrollLines(lines)
+      if (term.buffer.active.type === 'alternate' || term.modes.mouseTrackingMode !== 'none') {
+        const screen = container.querySelector('.xterm-screen')
+        screen?.dispatchEvent(new WheelEvent('wheel', {
+          bubbles: true, cancelable: true, deltaY: lines * cellPx(),
+          clientX: e.touches[0].clientX, clientY: y,
+        }))
+      } else term.scrollLines(lines)
       touchAccum -= lines * cellPx()
       e.preventDefault()
     }

@@ -17,7 +17,7 @@
     <string name="open_server">Connect to %1$s</string>
     <string name="remove_server">Remove %1$s</string>
     <string name="remove">Remove</string>
-    <string name="remove_message">Remove this saved address? The server and its data will remain available.</string>
+    <string name="remove_message">Remove this server address, saved login and certificate trust from this device? Server data will remain available.</string>
     <string name="cancel">Cancel</string>
     <string name="continue_action">Continue</string>
     <string name="http_title">Use an unencrypted connection?</string>
@@ -36,7 +36,7 @@
     <string name="privacy">Privacy on this device</string>
     <string name="privacy_help">Server addresses stay on this device. Sign-in and two-factor authentication are handled by your server. The app adds no analytics.</string>
     <string name="clear_data">Clear local sign-in data</string>
-    <string name="clear_data_message">Close the panel and clear cookies, site storage and cached pages for all servers on this device?</string>
+    <string name="clear_data_message">Close the panel and clear saved logins, cookies, site storage and cached pages for all servers on this device?</string>
     <string name="data_cleared">Local sign-in data cleared.</string>
     <string name="leave_title">Return to your servers?</string>
     <string name="leave_message">This closes the current panel. Finish any uploads or unsaved edits first.</string>
@@ -112,4 +112,6 @@
     <string name="keys_short">Keys</string>
     <string name="session_actions">Session actions</string>
     <string name="page_tools">Page tools</string>
+    <string name="session_webview_update">Update Android System WebView to keep sign-in across connections.</string>
+    <string name="session_save_failed">Could not securely save sign-in. You may need to sign in again next time.</string>
 </resources>

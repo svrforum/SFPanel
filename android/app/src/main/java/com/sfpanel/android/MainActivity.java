@@ -68,6 +68,8 @@ public final class MainActivity extends Activity {
     private boolean awaitingLogin;
     private ValueCallback<Uri[]> fileCallback;
     private PanelDownloads downloads;
+    private SessionVault sessions;
+    private PanelSession panelSession;
     private CertificateTrust certificates;
     private AppUpdates updates;
     CertificateTrust certificateTrust() { return certificates; }
@@ -82,6 +84,7 @@ public final class MainActivity extends Activity {
         store = new ServerStore(prefs);
         downloads = new PanelDownloads(this);
         certificates = new CertificateTrust(this);
+        sessions = new SessionVault(this);
         updates = new AppUpdates(this, prefs);
         if (android.os.Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -172,7 +175,7 @@ public final class MainActivity extends Activity {
             open.setContentDescription(getString(R.string.open_server, server.name()) + ", " + server.address()); saved.addView(open);
             Button remove = button(getString(R.string.remove), false, () -> new AlertDialog.Builder(this)
                     .setTitle(getString(R.string.remove_server, server.name())).setMessage(R.string.remove_message)
-                    .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { store.remove(server); certificates.remove(server.address()); showHome(); }).show());
+                    .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { store.remove(server); sessions.remove(server.address()); certificates.remove(server.address()); showHome(); }).show());
             if (certificates.pin(server.address()) != null) saved.addView(button(getString(R.string.forget_certificate), false, () ->
                     new AlertDialog.Builder(this).setTitle(R.string.forget_certificate).setMessage(server.address())
                         .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { certificates.remove(server.address()); showHome(); }).show()));
@@ -326,6 +329,7 @@ public final class MainActivity extends Activity {
         web.setDownloadListener((url, ua, disposition, mime, length) -> downloads.request(web, server.address(), url, disposition, mime));
         root.addView(web, new LinearLayout.LayoutParams(-1, 0, 1));
         addTerminalBar();
+        panelSession = PanelSession.attach(this, web, sessions, server.address());
         web.loadUrl(server.address() + startPath);
     }
 
@@ -432,7 +436,7 @@ public final class MainActivity extends Activity {
         shift = false; ctrl = false; alt = false; updateModifiers();
     }
     private void scroll(int pages) {
-        evaluate(ACTIVE + "if(!t)return false;" + (pages == 0 ? "e.__fitAddon?.fit();requestAnimationFrame(()=>t.scrollLines(t.buffer.active.length));" : "t.scrollPages(" + pages + ");") + "return true;",
+        evaluate(ACTIVE + "if(!t)return false;" + (pages == 0 ? "e.__fitAddon?.fit();requestAnimationFrame(()=>t.scrollLines(t.buffer.active.length));" : "if(window.__sfpanelScrollTerminal)window.__sfpanelScrollTerminal(e," + pages + "*e.clientHeight);else t.scrollPages(" + pages + ");") + "return true;",
                 result -> { if (!"true".equals(result)) toast(R.string.no_session); });
     }
 
@@ -571,7 +575,7 @@ public final class MainActivity extends Activity {
                             (dialog, index, checked) -> prefs.edit().putBoolean("autoUpdates", checked).apply()).setPositiveButton(R.string.close, null).show();
             else new AlertDialog.Builder(this).setTitle(R.string.clear_data).setMessage(R.string.clear_data_message)
                         .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.clear_data, (dialog, w) -> {
-                            if (web != null) web.clearCache(true); showHome(); WebStorage.getInstance().deleteAllData();
+                            if (web != null) web.clearCache(true); showHome(); sessions.clear(); WebStorage.getInstance().deleteAllData();
                             CookieManager.getInstance().removeAllCookies(done -> { CookieManager.getInstance().flush(); toast(R.string.data_cleared); });
                         }).show();
         }).show();
@@ -610,6 +614,7 @@ public final class MainActivity extends Activity {
     @Override protected void onPause() { if (web != null) web.onPause(); CookieManager.getInstance().flush(); super.onPause(); }
     @Override protected void onDestroy() { generation++; closeWeb(); downloads.close(); updates.close(); worker.shutdownNow(); super.onDestroy(); }
     private void closeWeb() {
+        if (panelSession != null) { panelSession.close(); panelSession = null; }
         if (fileCallback != null) { fileCallback.onReceiveValue(null); fileCallback = null; }
         if (web != null) { ((ViewGroup) web.getParent()).removeView(web); web.stopLoading(); web.clearSslPreferences(); web.destroy(); web = null; }
     }
