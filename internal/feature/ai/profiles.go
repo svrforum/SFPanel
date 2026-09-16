@@ -120,7 +120,7 @@ func profileLoggedIn(dir, tool string) bool {
 
 // profileList is the default profile first, then every directory under
 // profileRoot in name order. Anything that is not a directory is skipped —
-// a symlink included, because os.ReadDir reports the link itself, which is
+// a symlink included, because a readdir reports the link itself, which is
 // how a planted link never reaches the picker — and so is any name the
 // module would refuse to create.
 func (h *Handler) profileList(acct Account, tool string) ([]Profile, error) {
@@ -130,11 +130,8 @@ func (h *Handler) profileList(acct Account, tool string) ([]Profile, error) {
 	}
 	def := profileDefaultDir(acct, tool)
 	out := []Profile{{Default: true, Path: def, LoggedIn: profileLoggedIn(def, tool), LastUsedAt: lastUsed[""]}}
-	entries, err := os.ReadDir(profileRoot(acct, tool))
+	entries, err := h.readProfileRoot(acct, tool)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return out, nil // this account has no profile for this tool yet
-		}
 		return nil, err
 	}
 	for _, e := range entries {
@@ -149,6 +146,44 @@ func (h *Handler) profileList(acct Account, tool string) ([]Profile, error) {
 			LoggedIn: profileLoggedIn(dir, tool), LastUsedAt: lastUsed[e.Name()]})
 	}
 	return out, nil
+}
+
+// readProfileRoot is the listing side of the anchored walk create and delete
+// already take — never os.ReadDir on a joined string. The account owns its
+// home, so it can replace ~/.sfpanel-ai or its <tool> level with a link and
+// have this panel, running as root, read a listing from somewhere else and
+// offer that directory's contents to the picker as this account's profiles.
+// Entries that are links were already skipped; it was the level above them
+// that decided which directory was read at all.
+//
+// A level that is missing and a level that is not a real directory mean the
+// same thing to a reader — this account has no profile for this tool, so the
+// default is the whole list. The refusal is logged rather than returned: a
+// picker that cannot be opened is worse than one offering only 기본, and the
+// create and delete routes still answer INVALID_PATH for the same tree.
+func (h *Handler) readProfileRoot(acct Account, tool string) ([]os.DirEntry, error) {
+	toolDir, err := h.openProfileTool(acct, tool, false)
+	if err != nil {
+		switch {
+		case errors.Is(err, errProfileMissing):
+			return nil, nil
+		case errors.Is(err, errProfilePath):
+			slog.Warn("ai refused to list through a profile path that is not a directory",
+				"component", "ai", "account", acct.Name, "tool", tool, "err", err)
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer toolDir.Close()
+	// "." is the verified descriptor itself, so the names below come from the
+	// directory the walk approved and not from a path resolved a second time.
+	dir, err := toolDir.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+	// ReadDir sorts by name, which is the order the picker renders.
+	return dir.ReadDir(-1)
 }
 
 // liveSessionsOnProfile counts the sessions still running on one (account,

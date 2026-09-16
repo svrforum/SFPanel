@@ -114,6 +114,57 @@ func TestProfiles_ListsTheDefaultFirstAndReportsLogin(t *testing.T) {
 	}
 }
 
+// The listing walks the same anchored levels the delete path walks. The
+// account owns its home, so ~/.sfpanel-ai/<tool> can be a symlink, and a
+// listing read through one — os.ReadDir over a joined string — describes a
+// directory somewhere else entirely and hands its contents to the picker as
+// this account's profiles. The default profile has to be the whole answer.
+func TestProfiles_DoesNotListThroughASymlinkedLevel(t *testing.T) {
+	home := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "decoy"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, profileRootName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(home, profileRootName, "codex")); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	h := newTestHandler(t, tmuxMock(""))
+	h.DB = openTestDB(t)
+	h.panel.Home = home
+
+	ps := listProfiles(t, h, "codex")
+	if len(ps) != 1 || !ps[0].Default {
+		t.Fatalf("profiles = %+v, want only the default: a symlinked level is never followed, so the %q behind the link must not be listed",
+			ps, filepath.Join(outside, "decoy"))
+	}
+	// And a tool whose level is simply not there answers the same way — the
+	// account has no profile for it yet, which is not an error.
+	if ps := listProfiles(t, h, "claude"); len(ps) != 1 || !ps[0].Default {
+		t.Errorf("profiles = %+v, want only the default for a tool with no directory yet", ps)
+	}
+}
+
+// listProfiles is GET /ai/profiles for the handler's own account.
+func listProfiles(t *testing.T, h *Handler, tool string) []Profile {
+	t.Helper()
+	rec := call(t, h.Profiles, http.MethodGet, "", "", "?tool="+tool)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list %s: %d %s", tool, rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Data struct {
+			Profiles []Profile `json:"profiles"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	return env.Data.Profiles
+}
+
 func TestProfiles_RefusesUnsupportedToolAndUnknownAccount(t *testing.T) {
 	h := newTestHandler(t, tmuxMock(""))
 	h.DB = openTestDB(t)
