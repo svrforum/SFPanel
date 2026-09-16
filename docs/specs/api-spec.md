@@ -3627,7 +3627,7 @@ data: [DONE]
 
 ## AI 워크스페이스 API (`/api/v1/ai`)
 
-Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 실행하고, 계정별 설치 상태를 조회한다. 모든 라우트는 노드 로컬이며 `?node=`로 다른 노드를 지정한다. v0.73.0에서 `/packages/{claude,codex,gemini}-status`·`/packages/install-{claude,codex,gemini}`를 대체했다.
+Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 실행하고, 계정별 설치 상태를 조회한다. 모든 라우트는 노드 로컬이며 `?node=`로 다른 노드를 지정한다. v0.73.0에서 `/packages/{claude,codex,gemini}-status`·`/packages/install-{claude,codex,gemini}`를 대체했다. 세션은 **프로파일**(도구가 설정과 자격증명을 두는 디렉터리) 하나를 골라 실행한다 — `/ai/profiles` 세 라우트가 그 목록·생성·삭제를 담당한다.
 
 ### GET /api/v1/ai/tools
 선택한 계정의 로그인 셸 기준 CLI 상태. `?user=` 생략 시 패널 계정.
@@ -3683,6 +3683,99 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 
 ---
 
+### GET /api/v1/ai/profiles
+한 계정·도구의 **프로파일** 목록. 프로파일은 도구가 설정과 자격증명을 두는 디렉터리 하나이고, 세션마다 고른다 — 각 CLI는 설정 디렉터리 한 곳에 자격증명 한 벌만 두므로, 같은 CLI로 계정을 여러 개(개인/업무 OpenAI, 고객사별 Anthropic) 쓰는 방법은 그 디렉터리를 갈아끼우는 것뿐이다.
+
+- **인증 필요**: 예
+- **Query**: `user` — 실행 계정 (생략 시 패널 계정) · `tool` — `claude` 또는 `codex`
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "tool": "codex",
+    "account": "root",
+    "profiles": [
+      { "name": "",     "default": true,  "path": "/root/.codex",                 "logged_in": true,  "last_used_at": "2026-09-16T04:10:00Z" },
+      { "name": "work", "default": false, "path": "/root/.sfpanel-ai/codex/work", "logged_in": false }
+    ]
+  }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `name` | 프로파일 이름 = 디렉터리 이름. 빈 문자열은 기본 프로파일 |
+| `default` | 기본 프로파일 = 도구 자신의 디렉터리(`~/.codex`·`~/.claude`)이며 패널이 만들지도 지우지도 않는다. 이 프로파일로 만든 세션은 환경변수를 **하나도** 설정하지 않으므로 프로파일이 없던 v0.73.0과 동작이 같다 (마이그레이션 37 이전의 모든 행이 이미 이것이다) |
+| `path` | 그 프로파일의 디렉터리. 기본이 아니면 항상 `<계정 홈>/.sfpanel-ai/<도구>/<이름>` — 경로는 패널이 소유하고 클라이언트는 이름만 보낸다. `/tmp` 아래가 아닌 이유: Codex가 임시 디렉터리에 헬퍼 바이너리 만들기를 거부한다 |
+| `logged_in` | 그 디렉터리에 도구의 자격증명 파일(Codex `auth.json`, Claude Code `.credentials.json`)이 있는지. **존재 여부만** 보는 힌트 — 패널은 자격증명 파일을 열지도 읽지도 복사하지도 않으며, 만료된 토큰도 파일은 남긴다 |
+| `last_used_at` | 그 (계정, 도구, 프로파일)로 만든 세션 중 가장 최근 `created_at`. 쓴 적이 없으면 필드 없음 |
+
+목록은 기본 프로파일이 먼저, 그다음 `.sfpanel-ai/<도구>/` 아래 디렉터리가 이름 순. 디렉터리가 아닌 항목은 건너뛴다 — 심링크도 포함해서(따라가지 않고 링크 자신을 본다), 패널이 만들 수 없는 이름의 디렉터리도.
+
+프로파일을 지원하지 않는 도구는 빈 목록이 아니라 `INVALID_TOOL`로 거절한다 — UI가 동작할 수 없는 선택기를 그리지 않게. `gemini`는 설정 디렉터리 override를 검증한 바 없고, `shell`은 도구를 실행하지 않는다.
+
+| 코드 | HTTP | 조건 |
+|------|------|------|
+| `INVALID_ACCOUNT` | 400 | `user`가 허용 목록에 없음 |
+| `INVALID_TOOL` | 400 | `claude`·`codex` 외 |
+| `INTERNAL_ERROR` | 500 | 프로파일 루트를 읽을 수 없음 |
+
+---
+
+### POST /api/v1/ai/profiles
+프로파일 생성 = **빈 디렉터리 하나**를 만드는 것, 그것뿐이다. 로그인은 세션 안에서 CLI 자신의 흐름으로 하고, 패널은 다른 프로파일의 자격증명을 복사해 오지 않는다.
+
+- **인증 필요**: 예
+
+**Request:** `{ "user": "root", "tool": "codex", "name": "work" }` (`user`는 쿼리 파라미터로도 받는다 — 세 라우트가 같은 표기를 받게)
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `user` | string | 아니오 | 실행 계정 (생략 시 패널 계정). 프로파일은 계정별 — `alice`의 `work`와 `root`의 `work`는 다른 디렉터리다 |
+| `tool` | string | 예 | `claude` 또는 `codex` |
+| `name` | string | 예 | `^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$`이고 `..`를 포함하지 않음. 이름이 곧 디렉터리 이름이므로 점으로 시작할 수 없고(`.`·`..`·숨은 디렉터리 불가), 구분자를 넣을 수 없다 |
+
+**Response (200):** `{ "name": "work", "default": false, "path": "/root/.sfpanel-ai/codex/work", "logged_in": false }`
+
+디렉터리는 `0700`으로 만들고, 패널이 root면 실행 계정에 넘긴다 — 자격증명을 쓰는 것은 그 계정이다. 검증 순서는 계정 → 도구 → 이름 → 경로이고, 이름은 검증한 뒤 이어붙이고 **이어붙인 경로**를 다시 기대 접두와 대조한다. 두 단계(`.sfpanel-ai`, `<도구>`)를 내려갈 때마다 그 단계가 실제 디렉터리인지 확인하고 심링크는 따라가지 않으며, 그 아래 작업은 모두 계정 홈의 디스크립터를 기준으로 수행한다 — 중간 단계를 갈아끼워 `mkdir`·소유권 변경·삭제를 홈 밖으로 유도할 수 없게.
+
+| 코드 | HTTP | 조건 |
+|------|------|------|
+| `INVALID_BODY` | 400 | 본문 파싱 실패, 또는 `name`이 위 형식에 맞지 않음 (메시지가 허용 형식을 알려준다) |
+| `INVALID_ACCOUNT` | 400 | `user`가 허용 목록에 없음 |
+| `INVALID_TOOL` | 400 | `claude`·`codex` 외 |
+| `AI_PROFILE_EXISTS` | 409 | 같은 이름의 항목이 이미 있음 (디렉터리가 아닌 항목·심링크 포함) — 내용을 패널이 만들지 않은 디렉터리를 조용히 접수하지 않는다 |
+| `INVALID_PATH` | 400 | `.sfpanel-ai` 또는 `<도구>` 단계가 심링크이거나 디렉터리가 아님 |
+| `DIR_ERROR` | 500 | 디렉터리 생성 또는 소유권 지정 실패 (소유권 실패 시 방금 만든 빈 디렉터리는 되돌린다 — 쓸 수 없는 디렉터리가 남아 재시도를 `AI_PROFILE_EXISTS`로 막는 편이 더 나쁘다) |
+
+---
+
+### DELETE /api/v1/ai/profiles/:tool/:name
+프로파일 디렉터리를 지운다. 되돌릴 수 없다 — 그 계정을 그 도구에서 로그아웃시키고 그 프로파일의 설정을 함께 없앤다(UI의 확인 대화상자가 이 문장을 그대로 띄운다).
+
+- **인증 필요**: 예
+- **Path**: `tool` ∈ `claude` · `codex` · `name` — 프로파일 이름
+- **Query**: `user` — 실행 계정 (생략 시 패널 계정)
+
+**Response (200):** `{ "deleted": "work", "tool": "codex", "account": "root" }`
+
+| 코드 | HTTP | 조건 |
+|------|------|------|
+| `INVALID_ACCOUNT` | 400 | `user`가 허용 목록에 없음 |
+| `INVALID_TOOL` | 400 | `claude`·`codex` 외 |
+| `INVALID_BODY` | 400 | `name`이 비어 있음 — 기본 프로파일은 도구 자신의 디렉터리이고 패널이 지울 것이 아니다 |
+| `AI_PROFILE_IN_USE` | 409 | 그 (계정, 도구, 프로파일)로 살아있는 세션이 있음 (메시지에 개수) — 돌고 있는 CLI의 자격증명을 도중에 빼앗지 않는다 |
+| `INVALID_PATH` | 400 | 그 이름의 디렉터리가 없음, 또는 경로의 어느 단계나 말단이 심링크이거나 디렉터리가 아님 |
+| `INTERNAL_ERROR` | 500 | 세션 목록을 읽을 수 없어 사용 중인지 판단 못 함 |
+| `DIR_ERROR` | 500 | 프로파일 경로를 준비할 수 없음 (계정 홈을 열 수 없는 등) |
+| `DELETE_ERROR` | 500 | 삭제 실패 |
+
+말단은 `Stat`이 아니라 `Lstat`으로 본다 — 심링크는 따라가지 않고 거절한다 — 그리고 재귀 삭제에 넘기기 직전에 이름과 경로를 다시 대조한 뒤 검증된 디스크립터 기준으로 삭제한다. 두 호출 전에 한 검사를 근거로 `RemoveAll`하지 않는다.
+
+---
+
 ### GET /api/v1/ai/dirs
 새 세션 대화상자의 작업 디렉터리 제안.
 
@@ -3700,7 +3793,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 {
   "success": true,
   "data": [
-    { "id": "3f9a1c2b7d4e", "tool": "claude", "title": "Claude · app", "run_as": "root", "cwd": "/opt/stacks/app",
+    { "id": "3f9a1c2b7d4e", "tool": "claude", "title": "Claude(work) · app", "run_as": "root", "cwd": "/opt/stacks/app", "profile": "work",
       "state": "waiting", "persistence": "service", "attached": false, "created_at": "2026-09-14T01:02:03Z" }
   ]
 }
@@ -3708,6 +3801,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 
 | 필드 | 설명 |
 |------|------|
+| `profile` | 그 세션이 쓰는 도구 설정 디렉터리(프로파일) 이름. 기본 프로파일이면 **필드 없음** — 탭 막대가 기본이 아닌 프로파일만 칩으로 보이고, 프로파일 삭제가 어떤 프로파일이 쓰이고 있는지 알기 위해 세션에 실려 있다 |
 | `state` | `working`(도구 실행 중, 5초 내 출력) · `waiting`(도구가 5초 이상 조용하거나 벨) · `shell`(도구 종료, 셸 프롬프트) · `ended`(tmux 세션 없음) |
 | `persistence` | `service`(계정의 tmux 서버가 `systemd-run`이 만든 transient 서비스 = PID 1 소유, 패널 재시작 생존) · `process`(setsid만, 패널 재시작 시 종료) |
 | `unknown` | tmux 소켓에는 있으나 표에 없는 세션 (DB 유실) |
@@ -3718,14 +3812,19 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 ### POST /api/v1/ai/sessions
 세션 생성. 계정에 tmux 서버가 없으면 `systemd-run --unit=sfpanel-ai-<uid> --collect --uid=<계정> --gid=<gid> -p Type=forking -- tmux -f /dev/null -S /run/sfpanel/ai/<uid>/sfpanel …`(PID 1이 띄우는 transient 서비스), 이미 있으면 같은 소켓에 `new-session`만 보낸다. scope가 아니라 service인 이유: scope는 호출자(패널)를 fork하므로 `PrivateTmp` 마운트 네임스페이스와 패널 환경변수를 그대로 물려받고, 패널을 재시작하면 살아남은 세션의 `/tmp`가 사라진다.
 
-**Request:** `{ "tool": "claude", "cwd": "/opt/stacks/app", "run_as": "root", "title": "선택" }`
+**Request:** `{ "tool": "claude", "cwd": "/opt/stacks/app", "run_as": "root", "title": "선택", "profile": "선택" }`
 
 **Response (200):** 생성된 세션 객체 (`state: "working"`).
+
+`profile`은 그 (계정, 도구)의 `/ai/profiles` 목록에 있는 이름이어야 한다 — 선택기가 제시할 수 있었던 것만 받고, 없는 이름을 즉석에서 디렉터리로 만들지 않는다. 생략하거나 빈 문자열이면 기본 프로파일이고, 검증은 `cwd`보다 **먼저** 한다: 거절된 요청이 엉뚱한 자격증명으로 세션을 띄운 뒤여서는 안 된다. 기본이 아닌 프로파일은 세션을 만드는 그 명령에 `new-session -e <VAR>=<계정 홈>/.sfpanel-ai/<도구>/<이름>` 한 쌍으로 실린다(`VAR`은 Codex `CODEX_HOME`, Claude Code `CLAUDE_CONFIG_DIR`). 기본 프로파일은 쌍을 **아무것도** 붙이지 않는다.
+
+프로세스 환경(`env -i …` 접두, `systemd-run --setenv=`)이 아니라 `-e`인 이유: tmux는 클라이언트의 환경을 세션에 복사하지 않고 `update-environment`가 지정한 것만 가져오며, 나머지는 tmux **서버**의 환경에서 온다. 접두에 실으면 그 계정의 *첫* 세션에만 닿고, 그 값이 서버의 전역 환경이 되어 이후 '기본'으로 만든 세션까지 조용히 같은 프로파일로 돌아간다 — 화면에 아무 표시도 없이 다른 계정에 타이핑하게 된다. `new-session -e`는 tmux 3.1a부터 있어 이 기능이 이미 요구하는 3.2 하한 아래다. 제목을 비우면 프로파일이 기본 제목에 들어간다: `Codex(work) · myapp`.
 
 | 코드 | HTTP | 조건 |
 |------|------|------|
 | `INVALID_TOOL` | 400 | `claude`·`codex`·`gemini`·`shell` 외 |
 | `INVALID_ACCOUNT` | 400 | `run_as`가 허용 목록에 없음 |
+| `INVALID_BODY` | 400 | `profile`이 그 계정·도구의 목록에 없음, 또는 프로파일이 없는 도구(`gemini`·`shell`)에 이름을 줌 (메시지가 `profile:`로 시작) |
 | `INVALID_PATH` | 400 | `cwd`가 상대경로 / 없음 / 디렉터리 아님 (메시지에 사유) |
 | `TMUX_MISSING` | 503 | tmux 미설치, 또는 3.2 미만 (메시지에 요구 버전과 발견 버전) |
 | `AI_SESSION_LIMIT` | 409 | 살아있는 세션 20개 |
@@ -3740,7 +3839,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 `shell` 상태의 창에 도구 이름을 다시 입력한다. `AI_SESSION_STATE`(409, shell 상태가 아니거나 셸 세션).
 
 ### POST /api/v1/ai/sessions/:id/restart
-`ended` 세션을 같은 도구·디렉터리·계정으로 다시 만든다. `AI_SESSION_STATE`(409, 아직 살아있음) · `INVALID_PATH`(400, 디렉터리가 사라짐) · `TMUX_MISSING`(503, 미설치 또는 3.2 미만).
+`ended` 세션을 같은 도구·디렉터리·계정·프로파일로 다시 만든다 — 만들 때의 로그인으로 돌아온다. `AI_SESSION_STATE`(409, 아직 살아있음) · `INVALID_PATH`(400, 디렉터리가 사라짐) · `TMUX_MISSING`(503, 미설치 또는 3.2 미만).
 
 ### DELETE /api/v1/ai/sessions/:id
 살아있으면 `kill-session`, 행 삭제. `AI_SESSION_NOT_FOUND`(404). **Response:** `{ "deleted": "<id>" }`
