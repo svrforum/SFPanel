@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { resolve } from 'node:path'
 
 // These tests never contact a host shell: REST and WebSocket are both fixtures.
 // Run against a frontend dev server or a built panel; no admin seed is needed.
@@ -78,6 +79,17 @@ for (const path of ['/terminal', '/ai']) {
     for (const button of await bar.getByRole('button').all()) {
       const box = await button.boundingBox()
       expect(box?.height).toBeGreaterThanOrEqual(48)
+    }
+    if (path === '/ai') {
+      await page.addScriptTag({ path: resolve(__dirname, '../../android/app/src/main/assets/panel.js') })
+      const overview = page.locator('[data-ai-workspace] > :first-child')
+      await expect(overview).toBeHidden()
+      await expect(bar).toBeHidden()
+      await expect.poll(async () => (await terminal.boundingBox())?.height ?? 0).toBeGreaterThan(450)
+      // Compact mode must retain account/tool controls on demand.
+      await page.evaluate(() => document.documentElement.setAttribute('data-ai-tools-open', ''))
+      await expect(overview).toBeVisible()
+      await expect(page.getByRole('combobox', { name: 'Run as' })).toBeVisible()
     }
   })
 }

@@ -102,4 +102,14 @@
     <string name="update_permission">앱 업데이트 설치 허용</string>
     <string name="update_permission_message">SFPanel의 “이 출처 허용”을 켜고 돌아오면 검증된 업데이트를 설치할 수 있어요.</string>
     <string name="open_settings">설정 열기</string>
+    <string name="all_features">전체 기능</string>
+    <string name="find_feature">기능 검색</string>
+    <string name="input_short">입력</string>
+    <string name="keys_more">키·스크롤</string>
+    <string name="terminal_controls">터미널 조작</string>
+    <string name="ai_setup">AI 도구·계정 설정 열기/닫기</string>
+    <string-array name="feature_names"><item>대시보드</item><item>AI 코딩</item><item>터미널</item><item>파일 관리</item><item>Docker · Compose</item><item>앱 스토어</item><item>서비스</item><item>프로세스</item><item>예약 작업</item><item>로그</item><item>네트워크 · VPN</item><item>방화벽 · 포트</item><item>디스크 · 저장소</item><item>패키지</item><item>클러스터 · 노드</item><item>서버 설정</item></string-array>
+    <string name="keys_short">키</string>
+    <string name="session_actions">세션 관리</string>
+    <string name="page_tools">화면 도구</string>
 </resources>

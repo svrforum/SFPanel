@@ -64,7 +64,7 @@ public final class MainActivity extends Activity {
     private ServerStore.Server current;
     private boolean connecting, pageFailed;
     private int generation;
-    private String startPath = "/ai";
+    private String startPath = "/dashboard";
     private boolean awaitingLogin;
     private ValueCallback<Uri[]> fileCallback;
     private PanelDownloads downloads;
@@ -73,7 +73,8 @@ public final class MainActivity extends Activity {
     CertificateTrust certificateTrust() { return certificates; }
     private LinearLayout terminalBar;
     private boolean shift, ctrl, alt;
-    private Button shiftButton, ctrlButton, altButton;
+    private Button shiftButton, ctrlButton, altButton, moreKeysButton;
+    private TextView panelTitle;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -142,10 +143,8 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true);
         LinearLayout body = column(); body.setPadding(dp(24), dp(20), dp(24), dp(32));
         scroll.addView(body); root.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
-        body.addView(text("SFPanel", 21, TEAL, true));
-        body.addView(text(getString(R.string.home_eyebrow), 12, MUTED, true));
-        body.addView(heading(R.string.home_title, 32));
-        body.addView(text(getString(R.string.home_description), 16, MUTED, false));
+        body.addView(text("SFPanel", 24, INK, true));
+        body.addView(text(getString(R.string.home_description), 14, MUTED, false));
 
         LinearLayout card = column(); card.setPadding(dp(20), dp(16), dp(20), dp(22)); card.setBackground(surface(Color.WHITE, 24));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2); cardParams.topMargin = dp(24);
@@ -162,12 +161,13 @@ public final class MainActivity extends Activity {
         });
         card.addView(connectButton);
         status = text("", 15, MUTED, false); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); card.addView(status);
-        body.addView(heading(R.string.saved_servers, 22));
-        body.addView(text(getString(R.string.saved_help), 14, MUTED, false));
-        if (store.list().isEmpty()) body.addView(text(getString(R.string.empty_servers), 16, MUTED, false));
+        LinearLayout savedSection = column(); body.addView(savedSection, 2);
+        savedSection.addView(heading(R.string.saved_servers, 22));
+        savedSection.addView(text(getString(R.string.saved_help), 14, MUTED, false));
+        if (store.list().isEmpty()) savedSection.addView(text(getString(R.string.empty_servers), 16, MUTED, false));
         for (ServerStore.Server server : store.list()) {
             LinearLayout saved = column(); saved.setPadding(dp(16), dp(12), dp(16), dp(16)); saved.setBackground(surface(Color.WHITE, 18));
-            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2); sp.topMargin = dp(12); body.addView(saved, sp);
+            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2); sp.topMargin = dp(12); savedSection.addView(saved, sp);
             Button open = button(server.name() + "\n" + server.address(), false, () -> requestConnect(server));
             open.setContentDescription(getString(R.string.open_server, server.name()) + ", " + server.address()); saved.addView(open);
             Button remove = button(getString(R.string.remove), false, () -> new AlertDialog.Builder(this)
@@ -178,6 +178,12 @@ public final class MainActivity extends Activity {
                         .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { certificates.remove(server.address()); showHome(); }).show()));
             remove.setContentDescription(getString(R.string.remove_server, server.name())); saved.addView(remove);
         }
+        if (!store.list().isEmpty()) {
+            card.setVisibility(View.GONE);
+            Button addServer = compactButton(getString(R.string.add_server), () -> card.setVisibility(card.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+            body.addView(addServer, body.indexOfChild(card));
+        }
+        card.removeView(status); body.addView(status, body.indexOfChild(card));
         body.addView(button(getString(R.string.options), false, this::showOptions));
         body.addView(text(getString(R.string.privacy_help), 14, MUTED, false));
     }
@@ -240,13 +246,12 @@ public final class MainActivity extends Activity {
     @SuppressLint("SetJavaScriptEnabled")
     private void openPanel(ServerStore.Server server) {
         closeWeb(); current = server; setRoot();
-        LinearLayout toolbar = new LinearLayout(this); toolbar.setGravity(Gravity.CENTER_VERTICAL); toolbar.setPadding(dp(8), dp(4), dp(8), dp(4));
-        Button home = button(getString(R.string.servers), false, this::confirmHome);
-        toolbar.addView(home, new LinearLayout.LayoutParams(-2, -2));
-        TextView title = text(server.name(), 16, INK, true); title.setMaxLines(1); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        title.setPadding(dp(12), 0, dp(8), 0); toolbar.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        toolbar.addView(button(getString(R.string.coding_tools), false, this::showTools), new LinearLayout.LayoutParams(-2, -2));
-        root.addView(toolbar);
+        LinearLayout toolbar = new LinearLayout(this); toolbar.setGravity(Gravity.CENTER_VERTICAL); toolbar.setBackgroundColor(Color.WHITE);
+        toolbar.addView(compactButton(getString(R.string.all_features), this::showNavigation), new LinearLayout.LayoutParams(-2, dp(48)));
+        panelTitle = text(server.name(), 14, INK, true); panelTitle.setMaxLines(1); panelTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        panelTitle.setPadding(dp(8), 0, dp(8), 0); toolbar.addView(panelTitle, new LinearLayout.LayoutParams(0, dp(48), 1)); panelTitle.setGravity(Gravity.CENTER_VERTICAL);
+        Button tools = compactButton("⋯", this::showTools); tools.setContentDescription(getString(R.string.page_tools));
+        toolbar.addView(tools, new LinearLayout.LayoutParams(dp(48), dp(48))); root.addView(toolbar);
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); progress.setMax(100); root.addView(progress, new LinearLayout.LayoutParams(-1, dp(3)));
         status = text(getString(R.string.page_loading), 14, MUTED, false); status.setPadding(dp(16), dp(4), dp(16), dp(4));
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); root.addView(status);
@@ -324,52 +329,99 @@ public final class MainActivity extends Activity {
         web.loadUrl(server.address() + startPath);
     }
 
-    private LinearLayout keyRow() {
-        android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(true);
-        scroll.setScrollbarFadingEnabled(false);
-        LinearLayout row = new LinearLayout(this); row.setPadding(dp(4), dp(2), dp(4), dp(2));
-        scroll.addView(row); terminalBar.addView(scroll); return row;
-    }
-    private Button key(LinearLayout row, String label, Runnable action) {
-        Button b = button(label, false, action); b.setTextSize(14 * readingScale()); b.setMinWidth(dp(48)); b.setMinimumWidth(dp(48));
-        b.setMinHeight(dp(48)); b.setMinimumHeight(dp(48));
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.setMarginEnd(dp(4));
-        row.addView(b, p); return b;
+    private Button compactButton(String label, Runnable action) {
+        Button b = button(label, false, action); b.setTextSize(13 * readingScale());
+        b.setPadding(dp(8), 0, dp(8), 0); b.setMinHeight(dp(48)); b.setMinimumHeight(dp(48));
+        b.setMinWidth(dp(48)); b.setMinimumWidth(dp(48)); b.setBackgroundColor(Color.TRANSPARENT); b.setStateListAnimator(null); b.setElevation(0);
+        b.setLayoutParams(new LinearLayout.LayoutParams(-2, dp(48))); return b;
     }
     private void addTerminalBar() {
-        terminalBar = column(); terminalBar.setVisibility(View.GONE); root.addView(terminalBar);
-        LinearLayout row = keyRow();
-        shiftButton = key(row, "Shift", () -> { shift = !shift; updateModifiers(); });
-        ctrlButton = key(row, "Ctrl", () -> { ctrl = !ctrl; updateModifiers(); });
-        altButton = key(row, "Alt", () -> { alt = !alt; updateModifiers(); });
-        String[][] keys = {{"Esc", "\u001b"}, {"Tab", "\t"}, {"Enter", "\r"}, {"↑", "\u001b[A"}, {"↓", "\u001b[B"},
-                {"←", "\u001b[D"}, {"→", "\u001b[C"}, {"PgUp", "\u001b[5~"}, {"PgDn", "\u001b[6~"}, {"Home", "\u001b[H"}, {"End", "\u001b[F"}, {"c", "c"}, {"d", "d"}, {"z", "z"}};
-        for (String[] k : keys) {
-            Button b = key(row, k[0], () -> sendKey(k[1]));
-            int label = switch (k[0]) { case "↑" -> R.string.key_up; case "↓" -> R.string.key_down; case "←" -> R.string.key_left; case "→" -> R.string.key_right; default -> 0; };
-            if (label != 0) b.setContentDescription(getString(label));
+        terminalBar = column(); terminalBar.setBackgroundColor(Color.WHITE); terminalBar.setVisibility(View.GONE); root.addView(terminalBar);
+        LinearLayout row = new LinearLayout(this); terminalBar.addView(row);
+        row.addView(compactButton(getString(R.string.input_short), () -> compose("")));
+        shiftButton = compactButton("Shift", () -> { shift = !shift; updateModifiers(); }); row.addView(shiftButton);
+        ctrlButton = compactButton("Ctrl", () -> { ctrl = !ctrl; updateModifiers(); }); row.addView(ctrlButton);
+        row.addView(compactButton("Esc", () -> sendKey("\u001b")));
+        row.addView(compactButton("Tab", () -> sendKey("\t")));
+        row.addView(compactButton("Enter", () -> sendKey("\r")));
+        moreKeysButton = compactButton(getString(R.string.keys_short), this::showKeypad);
+        moreKeysButton.setContentDescription(getString(R.string.keys_more)); row.addView(moreKeysButton);
+        for (int i = 0; i < row.getChildCount(); i++) row.getChildAt(i).setLayoutParams(new LinearLayout.LayoutParams(0, dp(48), 1));
+    }
+    private void showKeypad() {
+        LinearLayout body = column(); body.setPadding(dp(12), dp(8), dp(12), dp(8));
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(R.string.terminal_controls).setView(body).setNegativeButton(R.string.close, null).create();
+        String[][] labels = {{"Alt", "↑", "PgUp", "Home"}, {"←", "↓", "→", "End"}, {"Ctrl+C", "Ctrl+D", "Ctrl+Z", "PgDn"}};
+        String[][] codes = {{"", "\u001b[A", "\u001b[5~", "\u001b[H"}, {"\u001b[D", "\u001b[B", "\u001b[C", "\u001b[F"}, {"\u0003", "\u0004", "\u001a", "\u001b[6~"}};
+        for (int i = 0; i < labels.length; i++) {
+            LinearLayout row = new LinearLayout(this); body.addView(row);
+            for (int j = 0; j < labels[i].length; j++) {
+                String label = labels[i][j], code = codes[i][j];
+                Button key = compactButton(label, () -> { if (label.equals("Alt")) { alt = !alt; updateModifiers(); dialog.dismiss(); } else { if (label.startsWith("Ctrl+")) { shift = false; ctrl = false; alt = false; } sendKey(code); } });
+                int description = switch (label) { case "↑" -> R.string.key_up; case "↓" -> R.string.key_down; case "←" -> R.string.key_left; case "→" -> R.string.key_right; default -> 0; };
+                if (description != 0) key.setContentDescription(getString(description));
+                row.addView(key, new LinearLayout.LayoutParams(0, dp(48), 1));
+            }
         }
-        LinearLayout history = keyRow();
-        key(history, getString(R.string.scroll_up), () -> scroll(-1));
-        key(history, getString(R.string.scroll_down), () -> scroll(1));
-        key(history, getString(R.string.scroll_bottom), () -> scroll(0));
-        key(history, "Ctrl+C", () -> { shift = false; ctrl = false; alt = false; sendKey("\u0003"); });
-        key(history, getString(R.string.compose_prompt), () -> compose(""));
-        key(history, getString(R.string.read_output), this::readOutput);
+        LinearLayout history = new LinearLayout(this); body.addView(history);
+        history.addView(compactButton(getString(R.string.scroll_up), () -> scroll(-1)), new LinearLayout.LayoutParams(0, dp(48), 1));
+        history.addView(compactButton(getString(R.string.scroll_down), () -> scroll(1)), new LinearLayout.LayoutParams(0, dp(48), 1));
+        history.addView(compactButton(getString(R.string.scroll_bottom), () -> scroll(0)), new LinearLayout.LayoutParams(0, dp(48), 1));
+        body.addView(compactButton(getString(R.string.read_output), () -> { dialog.dismiss(); readOutput(); }));
+        body.addView(compactButton(getString(R.string.search_output), () -> { dialog.dismiss(); searchOutput(); }));
+        dialog.show();
+    }
+    private void showNavigation() {
+        String[] paths = {"/dashboard", "/ai", "/terminal", "/files", "/docker", "/appstore", "/services", "/processes", "/cron", "/logs", "/network", "/firewall", "/disk", "/packages", "/cluster", "/settings"};
+        String[] names = getResources().getStringArray(R.array.feature_names);
+        LinearLayout body = column(); body.setPadding(dp(16), dp(8), dp(16), dp(16));
+        TextView server = text(current.name() + " · " + current.address(), 13, MUTED, false); body.addView(server);
+        EditText search = new EditText(this); search.setSingleLine(true); search.setHint(R.string.find_feature); search.setContentDescription(getString(R.string.find_feature)); search.setMinHeight(dp(48)); body.addView(search);
+        ScrollView scroll = new ScrollView(this); LinearLayout entries = column(); scroll.addView(entries); body.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(R.string.all_features).setView(body).setNegativeButton(R.string.close, null).create();
+        java.util.List<Button> buttons = new java.util.ArrayList<>();
+        LinearLayout row = null;
+        for (int i = 0; i < paths.length; i++) {
+            if (i % 2 == 0) { row = new LinearLayout(this); entries.addView(row); }
+            String path = paths[i]; Button item = compactButton(names[i], () -> { dialog.dismiss(); navigate(path); });
+            item.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); item.setMaxLines(2);
+            String pagePath = web == null || web.getUrl() == null ? null : Uri.parse(web.getUrl()).getPath();
+            boolean selected = path.equals(pagePath) || (pagePath != null && pagePath.startsWith(path + "/"));
+            item.setBackground(surface(selected ? TEAL : BG, 10)); item.setTextColor(selected ? Color.WHITE : INK);
+            LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, dp(52), 1); cell.setMargins(dp(2), dp(2), dp(2), dp(2));
+            row.addView(item, cell); buttons.add(item);
+        }
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                String query = s.toString().toLowerCase(java.util.Locale.ROOT);
+                for (int i = 0; i < buttons.size(); i++) buttons.get(i).setVisibility((names[i] + " " + paths[i]).toLowerCase(java.util.Locale.ROOT).contains(query) ? View.VISIBLE : View.GONE);
+            }
+            public void afterTextChanged(android.text.Editable s) { }
+        });
+        body.addView(compactButton(getString(R.string.servers), () -> { dialog.dismiss(); confirmHome(); }));
+        body.addView(compactButton(getString(R.string.options), () -> { dialog.dismiss(); showOptions(); }));
+        if (web != null) ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(web.getWindowToken(), 0);
+        dialog.setOnShowListener(d -> {
+            dialog.getWindow().setLayout(-1, (int) (getResources().getDisplayMetrics().heightPixels * .9));
+            dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN | android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        });
+        dialog.show();
     }
     private void updateTerminalBar(String url) {
         if (terminalBar == null) return;
         String path = Uri.parse(url).getPath();
+        if (panelTitle != null && current != null) panelTitle.setText(current.name() + ("/ai".equals(path) ? " · AI" : "/terminal".equals(path) ? " · " + getString(R.string.terminal) : ""));
         terminalBar.setVisibility("/ai".equals(path) || "/terminal".equals(path) ? View.VISIBLE : View.GONE);
         shift = false; ctrl = false; alt = false; updateModifiers();
     }
     private void updateModifiers() {
+        if (moreKeysButton != null) moreKeysButton.setText(alt ? "Alt" : getString(R.string.keys_short));
         Button[] buttons = {shiftButton, ctrlButton, altButton}; boolean[] values = {shift, ctrl, alt};
         for (int i = 0; i < buttons.length; i++) {
             if (buttons[i] == null) continue;
             buttons[i].setSelected(values[i]); buttons[i].setTextColor(values[i] ? Color.WHITE : INK);
-            buttons[i].setBackground(surface(values[i] ? TEAL : 0xffe9eff5, 12));
+            buttons[i].setBackground(surface(values[i] ? TEAL : Color.WHITE, 8));
             if (android.os.Build.VERSION.SDK_INT >= 30) buttons[i].setStateDescription(getString(values[i] ? R.string.modifier_on : R.string.modifier_off));
         }
     }
@@ -416,28 +468,34 @@ public final class MainActivity extends Activity {
     private static final String ACTIVE = "const e=document.querySelector('[data-terminal-session=active]');const t=e?.__termRef?.current;const w=e?.__wsRef?.current;";
 
     private void showTools() {
-        int[] labels = {R.string.ai_sessions, R.string.terminal, R.string.dashboard, R.string.compose_prompt,
-                R.string.paste_prompt, R.string.read_output, R.string.search_output, R.string.show_keyboard, R.string.options, R.string.reload};
-        String[] names = java.util.Arrays.stream(labels).mapToObj(this::getString).toArray(String[]::new);
+        String path = web == null || web.getUrl() == null ? "" : Uri.parse(web.getUrl()).getPath();
+        if (!"/ai".equals(path) && !"/terminal".equals(path)) {
+            new AlertDialog.Builder(this).setTitle(R.string.page_tools)
+                    .setItems(new String[]{getString(R.string.options), getString(R.string.reload)}, (d, which) -> { if (which == 0) showOptions(); else if (web != null) web.reload(); }).show();
+            return;
+        }
+        boolean ai = "/ai".equals(path);
+        int[] labels = {R.string.ai_setup, R.string.session_actions, R.string.show_keyboard, R.string.paste_prompt,
+                R.string.read_output, R.string.search_output, R.string.terminal_controls, R.string.options, R.string.reload};
+        String[] names = java.util.Arrays.stream(labels).skip(ai ? 0 : 2).mapToObj(this::getString).toArray(String[]::new);
         new AlertDialog.Builder(this).setTitle(R.string.coding_tools).setItems(names, (d, which) -> {
-            switch (which) {
-                case 0 -> navigate("/ai");
-                case 1 -> navigate("/terminal");
-                case 2 -> navigate("/dashboard");
-                case 3 -> compose("");
-                case 4 -> {
+            switch (which + (ai ? 0 : 2)) {
+                case 0 -> evaluate("document.documentElement.toggleAttribute('data-ai-tools-open');window.dispatchEvent(new Event('resize'));return true;", null);
+                case 1 -> evaluate("const tab=document.querySelector('[role=tab][aria-selected=true]');if(!tab)return false;const r=tab.getBoundingClientRect();tab.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:r.x+r.width/2,clientY:r.bottom}));return true;", result -> { if (!"true".equals(result)) toast(R.string.no_session); });
+                case 2 -> evaluate(ACTIVE + "if(!t)return false;t.focus();return true;", result -> {
+                    if (!"true".equals(result)) toast(R.string.no_session);
+                    else if (web != null) { web.requestFocus(); ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(web, InputMethodManager.SHOW_IMPLICIT); }
+                });
+                case 3 -> {
                     ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                     ClipData clip = clipboard.getPrimaryClip();
                     compose(clip != null && clip.getItemCount() > 0 ? clip.getItemAt(0).coerceToText(this).toString() : "");
                 }
-                case 5 -> readOutput();
-                case 6 -> searchOutput();
-                case 7 -> evaluate(ACTIVE + "if(!t)return false;t.focus();return true;", result -> {
-                    if (!"true".equals(result)) toast(R.string.no_session);
-                    else if (web != null) { web.requestFocus(); ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(web, InputMethodManager.SHOW_IMPLICIT); }
-                });
-                case 8 -> showOptions();
-                case 9 -> { if (web != null) web.reload(); }
+                case 4 -> readOutput();
+                case 5 -> searchOutput();
+                case 6 -> showKeypad();
+                case 7 -> showOptions();
+                case 8 -> { if (web != null) web.reload(); }
                 default -> { }
             }
         }).show();
@@ -546,7 +604,7 @@ public final class MainActivity extends Activity {
         if (web == null) { out.putString("draftName", nameInput.getText().toString()); out.putString("draftAddress", addressInput.getText().toString()); }
     }
     @Override protected void onResume() {
-        super.onResume(); if (updates != null) updates.resumeInstall(); startPath = prefs.getString("startPath", "/ai");
+        super.onResume(); if (updates != null) updates.resumeInstall(); startPath = prefs.getString("startPath", "/dashboard");
         if (web != null) { web.onResume(); evaluate("window.dispatchEvent(new Event('online'));return true;", null); }
     }
     @Override protected void onPause() { if (web != null) web.onPause(); CookieManager.getInstance().flush(); super.onPause(); }

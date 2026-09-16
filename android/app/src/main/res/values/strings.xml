@@ -102,4 +102,14 @@
     <string name="update_permission">Allow app updates</string>
     <string name="update_permission_message">Enable “Allow from this source” for SFPanel, then return to install the verified update.</string>
     <string name="open_settings">Open settings</string>
+    <string name="all_features">All features</string>
+    <string name="find_feature">Find a feature</string>
+    <string name="input_short">Write</string>
+    <string name="keys_more">Keys / scroll</string>
+    <string name="terminal_controls">Terminal controls</string>
+    <string name="ai_setup">Show/hide AI tools and account</string>
+    <string-array name="feature_names"><item>Dashboard</item><item>AI coding</item><item>Terminal</item><item>Files</item><item>Docker · Compose</item><item>App store</item><item>Services</item><item>Processes</item><item>Scheduled tasks</item><item>Logs</item><item>Network · VPN</item><item>Firewall · Ports</item><item>Disks · Storage</item><item>Packages</item><item>Cluster · Nodes</item><item>Server settings</item></string-array>
+    <string name="keys_short">Keys</string>
+    <string name="session_actions">Session actions</string>
+    <string name="page_tools">Page tools</string>
 </resources>

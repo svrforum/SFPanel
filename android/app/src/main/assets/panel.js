@@ -6,7 +6,7 @@
   style.textContent = `
     html[data-sfpanel-android] { --muted-foreground:#526278; --primary:#1264cc; }
     html.dark[data-sfpanel-android] { --muted-foreground:#b0bdcb; --primary:#75b5ff; --primary-foreground:#101923; }
-    [data-sfpanel-android] :is(button,[role=button],[role=tab],input:not([type=checkbox]):not([type=radio]),select) { min-height:48px; }
+    [data-sfpanel-android] :is(button,[role=button],[role=tab],[role=menuitem],[role=menuitemcheckbox],[role=menuitemradio],[role=option],input:not([type=checkbox]):not([type=radio]),select) { min-height:48px; }
     [data-sfpanel-android] :is(button,[role=button],[role=tab]) { min-width:48px; }
     [data-sfpanel-android] :is(input,textarea,select) { font-size:max(16px,1em); }
     [data-sfpanel-android] .xterm-helper-textarea { min-height:0 !important; font-size:inherit; }
@@ -14,9 +14,10 @@
     [data-sfpanel-android] nav span { font-size:12px; }
     /* Prevent keyboard focus from scrolling the session frame itself. */
     [data-sfpanel-android] [data-ai-workspace] > .overflow-hidden { overflow:clip; }
-    @media(max-height:520px) {
-      [data-sfpanel-android] [data-ai-workspace] > :first-child { display:none; }
-    }
+    [data-sfpanel-android] [data-ai-workspace] { gap:0 !important; }
+    [data-sfpanel-android]:not([data-ai-tools-open]) [data-ai-workspace] > :first-child { display:none; }
+    [data-sfpanel-android] [data-ai-workspace] > .rounded-2xl { border-radius:0; }
+    [data-sfpanel-android] [data-ai-workspace] [role=tablist] { padding-block:0; }
     @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms !important; transition-duration:.01ms !important; scroll-behavior:auto !important; } }
   `;
   document.head.append(style);

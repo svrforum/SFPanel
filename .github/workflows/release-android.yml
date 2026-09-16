@@ -74,7 +74,9 @@ jobs:
           cat > "$RUNNER_TEMP/android-release-notes.md" <<'NOTES'
           SFPanel Android 앱 (Android 8.0 이상).
 
-          - SFPanel 서버 연결 및 기존 관리 화면 사용
+          - 전체 기능 검색 메뉴: 서버 관리 16개 화면으로 바로 이동
+          - 대시보드 기본 시작, 저장한 서버 우선 표시
+          - AI 화면 안내 영역 접기, 기본 키 한 줄, 세션 관리 메뉴
           - AI 코딩·터미널: Shift/Ctrl/Alt, 기록 스크롤, 프롬프트 편집, 출력 읽기·검색
           - 한국어 UI, 큰 터치 영역, 글자 크기 설정
           - 사설 인증서: 서버별 인증서 지문 확인 후 신뢰 저장

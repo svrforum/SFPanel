@@ -8,8 +8,8 @@ android {
         applicationId 'com.sfpanel.android'
         minSdk 26
         targetSdk 36
-        versionCode Integer.parseInt(System.getenv('ANDROID_VERSION_CODE') ?: '1002')
-        versionName System.getenv('ANDROID_VERSION_NAME') ?: '0.1.1'
+        versionCode Integer.parseInt(System.getenv('ANDROID_VERSION_CODE') ?: '1003')
+        versionName System.getenv('ANDROID_VERSION_NAME') ?: '0.1.2'
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
     }
     compileOptions {
