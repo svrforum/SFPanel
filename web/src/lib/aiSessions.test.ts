@@ -30,20 +30,14 @@ describe('aiSessions helpers', () => {
     expect(waitingCount(list, null)).toBe(2)
   })
 
-  it('titles a session after its tool and directory', () => {
-    expect(defaultTitle('claude', '/opt/stacks/myapp')).toBe('Claude · myapp')
-    expect(defaultTitle('shell', '/')).toBe('Shell · /')
-    expect(defaultTitle('codex', '/home/alice/')).toBe('Codex · alice')
-  })
-
-  // Mirrors the server's own defaultTitle: two tabs on the same tool and
-  // directory are otherwise identical while running as different logins.
-  it('names the profile in the title, and nothing for the default one', () => {
-    expect(defaultTitle('codex', '/opt/stacks/myapp', 'work')).toBe('Codex(work) · myapp')
-    expect(defaultTitle('claude', '/opt/stacks/myapp', 'client-a')).toBe('Claude(client-a) · myapp')
-    // The default profile is the empty string and adds nothing — not '()'.
-    expect(defaultTitle('codex', '/opt/stacks/myapp', '')).toBe('Codex · myapp')
-    expect(defaultTitle('codex', '/opt/stacks/myapp')).toBe('Codex · myapp')
+  // Tool and directory only. Mirrors the server's own defaultTitle, which
+  // takes no profile either, so the profile has nowhere to enter the
+  // generated title; the message spells out why it stays out.
+  it('titles a session after its tool and directory, never its profile', () => {
+    const why = "the tab's pill is the profile indicator, and a second copy in the title costs width in a strip that truncates around 18 characters and goes stale on a rename the pill survives"
+    expect(defaultTitle('claude', '/opt/stacks/myapp'), why).toBe('Claude · myapp')
+    expect(defaultTitle('shell', '/'), why).toBe('Shell · /')
+    expect(defaultTitle('codex', '/home/alice/'), why).toBe('Codex · alice')
   })
 
   it('prefixes the document title only when something waits', () => {

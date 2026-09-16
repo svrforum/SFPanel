@@ -61,15 +61,14 @@ export function loginCommandFor(tool: AITool): string {
 }
 
 /**
- * Mirrors the server's default: "<Tool>(<profile>) · <basename of cwd>". The
- * profile belongs in the title because two tabs on the same tool and
- * directory are otherwise identical while running as different logins; the
- * default profile is the empty string and adds nothing.
+ * Mirrors the server's default: "<Tool> · <basename of cwd>". The profile is
+ * deliberately absent — the tab renders it as its own pill, so a second copy
+ * in the title costs width in a strip that truncates around 18 characters and
+ * goes stale on a rename the pill survives.
  */
-export function defaultTitle(tool: AITool, cwd: string, profile?: string): string {
+export function defaultTitle(tool: AITool, cwd: string): string {
   const base = cwd.replace(/\/+$/, '').split('/').pop() || '/'
-  const name = profile ? `${TOOL_META[tool].label}(${profile})` : TOOL_META[tool].label
-  return `${name} · ${base}`
+  return `${TOOL_META[tool].label} · ${base}`
 }
 
 /**

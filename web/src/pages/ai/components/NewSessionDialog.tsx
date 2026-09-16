@@ -297,7 +297,7 @@ export function NewSessionDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="ai-title">{t('ai.dialog.name')}</Label>
-            <Input id="ai-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={defaultTitle(tool, cwd || '/', profile)} maxLength={64} />
+            <Input id="ai-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={defaultTitle(tool, cwd || '/')} maxLength={64} />
           </div>
           {error && <p role="alert" className="text-[12px] text-destructive">{error}</p>}
         </div>

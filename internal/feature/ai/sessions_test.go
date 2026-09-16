@@ -776,8 +776,13 @@ func TestCreateSession_ProfileMustBeOneThatExists(t *testing.T) {
 		Data Session `json:"data"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &env)
-	if env.Data.Profile != "work" || !strings.HasPrefix(env.Data.Title, "Codex(work) · ") {
-		t.Errorf("session = %+v", env.Data)
+	if env.Data.Profile != "work" {
+		t.Errorf("session profile = %q, want work: %+v", env.Data.Profile, env.Data)
+	}
+	// Spelled out rather than compared against defaultTitle, which is the
+	// function under test here: a re-added parenthetical would match itself.
+	if want := "Codex · " + filepath.Base(dir); env.Data.Title != want {
+		t.Errorf("generated title = %q, want %q: the tab's pill is the profile indicator, and a second copy in the title costs width in a strip that truncates around 18 characters and goes stale on a rename the pill survives", env.Data.Title, want)
 	}
 	row, _, _ := getSessionRow(h.DB, env.Data.ID)
 	if row.Profile != "work" {
@@ -807,7 +812,7 @@ func TestRestart_ReusesTheRowsProfile(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, profileRootName, "codex", "work"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolCodex, Title: "Codex(work) · x", RunAs: "root", CWD: dir, Profile: "work"})
+	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolCodex, Title: "Codex · x", RunAs: "root", CWD: dir, Profile: "work"})
 	_ = setSessionEnded(h.DB, "aaaaaaaaaaaa", true)
 
 	rec := call(t, h.RestartSession, http.MethodPost, "", "aaaaaaaaaaaa", "")

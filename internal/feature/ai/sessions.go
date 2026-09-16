@@ -57,16 +57,13 @@ func newSessionID() (string, error) {
 
 var toolNames = map[string]string{ToolClaude: "Claude", ToolCodex: "Codex", ToolGemini: "Gemini", ToolShell: "Shell"}
 
-// defaultTitle names the tool, the profile when it is not the default one,
-// and the directory: "Codex(work) · myapp". The profile belongs in the title
-// because two tabs on the same tool and directory are otherwise identical
-// while running as different logins (spec §5).
-func defaultTitle(tool, cwd, profile string) string {
-	name := toolNames[tool]
-	if profile != "" {
-		name += "(" + profile + ")"
-	}
-	return fmt.Sprintf("%s · %s", name, filepath.Base(cwd))
+// defaultTitle names the tool and the directory: "Codex · myapp". The
+// profile is deliberately not in it (spec §5): the tab renders the profile as
+// its own pill, so a second copy in the title costs width in a strip that
+// truncates around 18 characters, and it goes stale the moment the operator
+// renames the session — while the pill survives the rename.
+func defaultTitle(tool, cwd string) string {
+	return fmt.Sprintf("%s · %s", toolNames[tool], filepath.Base(cwd))
 }
 
 const maxTitleRunes = 64
@@ -347,7 +344,7 @@ func (h *Handler) CreateSession(c echo.Context) error {
 	}
 	title := cleanTitle(req.Title)
 	if title == "" {
-		title = defaultTitle(req.Tool, cwd, req.Profile)
+		title = defaultTitle(req.Tool, cwd)
 	}
 	if err := h.spawn(id, cwd, req.Tool, req.Profile, acct); err != nil {
 		slog.Error("ai session spawn failed", "component", "ai", "id", id, "account", acct.Name, "err", err)

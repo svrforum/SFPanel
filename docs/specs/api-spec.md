@@ -3794,7 +3794,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 {
   "success": true,
   "data": [
-    { "id": "3f9a1c2b7d4e", "tool": "claude", "title": "Claude(work) · app", "run_as": "root", "cwd": "/opt/stacks/app", "profile": "work",
+    { "id": "3f9a1c2b7d4e", "tool": "claude", "title": "Claude · app", "run_as": "root", "cwd": "/opt/stacks/app", "profile": "work",
       "state": "waiting", "persistence": "service", "attached": false, "created_at": "2026-09-14T01:02:03Z" }
   ]
 }
@@ -3819,7 +3819,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 
 `profile`은 그 (계정, 도구)의 `/ai/profiles` 목록에 있는 이름이어야 한다 — 선택기가 제시할 수 있었던 것만 받고, 없는 이름을 즉석에서 디렉터리로 만들지 않는다. 생략하거나 빈 문자열이면 기본 프로파일이고, 검증은 `cwd`보다 **먼저** 한다: 거절된 요청이 엉뚱한 자격증명으로 세션을 띄운 뒤여서는 안 된다. 기본이 아닌 프로파일은 세션을 만드는 그 명령에 `new-session -e <VAR>=<계정 홈>/.sfpanel-ai/<도구>/<이름>` 한 쌍으로 실린다(`VAR`은 Codex `CODEX_HOME`, Claude Code `CLAUDE_CONFIG_DIR`). 기본 프로파일은 쌍을 **아무것도** 붙이지 않는다.
 
-프로세스 환경(`env -i …` 접두, `systemd-run --setenv=`)이 아니라 `-e`인 이유: tmux는 클라이언트의 환경을 세션에 복사하지 않고 `update-environment`가 지정한 것만 가져오며, 나머지는 tmux **서버**의 환경에서 온다. 접두에 실으면 그 계정의 *첫* 세션에만 닿고, 그 값이 서버의 전역 환경이 되어 이후 '기본'으로 만든 세션까지 조용히 같은 프로파일로 돌아간다 — 화면에 아무 표시도 없이 다른 계정에 타이핑하게 된다. `new-session -e`는 tmux 3.1a부터 있어 이 기능이 이미 요구하는 3.2 하한 아래다. 제목을 비우면 프로파일이 기본 제목에 들어간다: `Codex(work) · myapp`.
+프로세스 환경(`env -i …` 접두, `systemd-run --setenv=`)이 아니라 `-e`인 이유: tmux는 클라이언트의 환경을 세션에 복사하지 않고 `update-environment`가 지정한 것만 가져오며, 나머지는 tmux **서버**의 환경에서 온다. 접두에 실으면 그 계정의 *첫* 세션에만 닿고, 그 값이 서버의 전역 환경이 되어 이후 '기본'으로 만든 세션까지 조용히 같은 프로파일로 돌아간다 — 화면에 아무 표시도 없이 다른 계정에 타이핑하게 된다. `new-session -e`는 tmux 3.1a부터 있어 이 기능이 이미 요구하는 3.2 하한 아래다. 제목을 비우면 기본 제목은 도구와 디렉터리만 담는다: `Codex · myapp`. 프로파일은 탭의 칩이 보여준다 — 제목에 한 번 더 넣으면 18자쯤에서 잘리는 탭 폭을 깎고, 이름을 바꾸는 순간 그 사본만 낡는다(칩은 그대로 남는다).
 
 | 코드 | HTTP | 조건 |
 |------|------|------|
