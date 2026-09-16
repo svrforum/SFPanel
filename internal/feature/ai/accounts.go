@@ -140,6 +140,40 @@ func (h *Handler) envArgv(acct Account) []string {
 	return append(argv, accountEnv(acct)...)
 }
 
+// profileVar is the single environment entry a profile adds: the variable the
+// tool reads for its configuration and credential directory (profiles.go),
+// pointed at that profile's directory.
+//
+// ok=false means "no variable at all", and it is an answer, not an error the
+// caller has to handle: the default profile is the tool's own directory and
+// must leave the variable unset rather than set it to something, a tool
+// outside profileEnv has no variable to set, and a name profileDir refuses is
+// one that never passed CreateSession's membership check — the refusal
+// belongs there, where it can be answered with a code, not here.
+func profileVar(acct Account, tool, profile string) (string, bool) {
+	name, ok := profileEnv[tool]
+	if !ok || profile == "" {
+		return "", false
+	}
+	dir, err := profileDir(acct, tool, profile)
+	if err != nil {
+		return "", false
+	}
+	return name + "=" + dir, true
+}
+
+// sessionEnvArgv is envArgv plus that entry: the environment of a spawn that
+// carries one session's tool. Only the spawn takes it — the probe and the
+// installer keep envArgv, because they answer whether a tool is installed and
+// no profile changes that.
+func (h *Handler) sessionEnvArgv(acct Account, tool, profile string) []string {
+	argv := h.envArgv(acct)
+	if v, ok := profileVar(acct, tool, profile); ok {
+		argv = append(argv, v)
+	}
+	return argv
+}
+
 // resolveAccount maps a client-supplied name onto the allowlist. An empty
 // name means the panel account.
 func (h *Handler) resolveAccount(name string) (Account, bool) {

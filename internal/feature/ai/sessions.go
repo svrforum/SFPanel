@@ -57,8 +57,16 @@ func newSessionID() (string, error) {
 
 var toolNames = map[string]string{ToolClaude: "Claude", ToolCodex: "Codex", ToolGemini: "Gemini", ToolShell: "Shell"}
 
-func defaultTitle(tool, cwd string) string {
-	return fmt.Sprintf("%s · %s", toolNames[tool], filepath.Base(cwd))
+// defaultTitle names the tool, the profile when it is not the default one,
+// and the directory: "Codex(work) · myapp". The profile belongs in the title
+// because two tabs on the same tool and directory are otherwise identical
+// while running as different logins (spec §5).
+func defaultTitle(tool, cwd, profile string) string {
+	name := toolNames[tool]
+	if profile != "" {
+		name += "(" + profile + ")"
+	}
+	return fmt.Sprintf("%s · %s", name, filepath.Base(cwd))
 }
 
 const maxTitleRunes = 64
@@ -214,7 +222,7 @@ func (h *Handler) spawnLock(acct Account) *sync.Mutex {
 // has none. The lock is what makes "has none" safe to act on: the server form
 // claims the fixed unit name sfpanel-ai-<uid>, so two concurrent creates for
 // one account must not both decide there is no server and both ask for it.
-func (h *Handler) spawn(id, cwd, tool string, acct Account) error {
+func (h *Handler) spawn(id, cwd, tool, profile string, acct Account) error {
 	if err := h.ensureSocketDir(acct); err != nil {
 		return fmt.Errorf("could not prepare the session socket directory: %w", err)
 	}
@@ -222,7 +230,7 @@ func (h *Handler) spawn(id, cwd, tool string, acct Account) error {
 	mu.Lock()
 	defer mu.Unlock()
 	form := h.spawnFormFor(acct)
-	name, argv := h.spawnArgv(id, cwd, tool, acct, form)
+	name, argv := h.spawnArgv(id, cwd, tool, profile, acct, form)
 	out, err := h.Cmd.RunWithTimeout(tmuxTimeout, name, argv...)
 	if err != nil && form == spawnService && h.serverRunning(acct) {
 		// The session may already be there: systemd-run can exit non-zero
@@ -240,7 +248,7 @@ func (h *Handler) spawn(id, cwd, tool string, acct Account) error {
 		// yet. There is a server now, so talk to it; that is not a failure
 		// the operator should be shown.
 		slog.Debug("ai spawn retrying on the running server", "component", "ai", "id", id, "account", acct.Name, "err", err)
-		name, argv = h.spawnArgv(id, cwd, tool, acct, spawnClient)
+		name, argv = h.spawnArgv(id, cwd, tool, profile, acct, spawnClient)
 		out, err = h.Cmd.RunWithTimeout(tmuxTimeout, name, argv...)
 	}
 	if err != nil {
@@ -259,10 +267,36 @@ func (h *Handler) ListSessions(c echo.Context) error {
 }
 
 type createSessionReq struct {
-	Tool  string `json:"tool"`
-	CWD   string `json:"cwd"`
-	RunAs string `json:"run_as"`
-	Title string `json:"title"`
+	Tool    string `json:"tool"`
+	CWD     string `json:"cwd"`
+	RunAs   string `json:"run_as"`
+	Title   string `json:"title"`
+	Profile string `json:"profile"`
+}
+
+// profileRefusal is the membership check POST /ai/sessions makes on a
+// client-supplied profile: it must be one the picker could have offered, i.e.
+// a directory profileList already reports, never a name the panel creates on
+// the fly (spec §3). The default profile is always valid, and a non-empty one
+// needs a tool that has a profile at all. A non-empty first return value is
+// the refusal message; an error is the node's failure to look.
+func (h *Handler) profileRefusal(acct Account, tool, profile string) (string, error) {
+	if profile == "" {
+		return "", nil
+	}
+	if !toolSupportsProfiles(tool) {
+		return "profile: a " + tool + " session has no profile", nil
+	}
+	list, err := h.profileList(acct, tool)
+	if err != nil {
+		return "", err
+	}
+	for _, p := range list {
+		if !p.Default && p.Name == profile {
+			return "", nil
+		}
+	}
+	return "profile: no profile of that name for this account and tool", nil
 }
 
 // CreateSession — POST /ai/sessions. Validation order is fixed: nothing
@@ -278,6 +312,17 @@ func (h *Handler) CreateSession(c echo.Context) error {
 	acct, ok := h.resolveAccount(req.RunAs)
 	if !ok {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidAccount, "run_as is not a login account on this node")
+	}
+	// Before the cwd, and well before anything runs: the profile decides
+	// which credentials the tool will use, and a refused request must not
+	// have spawned a session on the wrong one.
+	refusal, err := h.profileRefusal(acct, req.Tool, req.Profile)
+	if err != nil {
+		slog.Error("ai could not list profiles for a create", "component", "ai", "account", acct.Name, "tool", req.Tool, "err", err)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not list the profiles")
+	}
+	if refusal != "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, refusal)
 	}
 	cwd, reason := validateCWD(req.CWD)
 	if reason != "" {
@@ -302,18 +347,18 @@ func (h *Handler) CreateSession(c echo.Context) error {
 	}
 	title := cleanTitle(req.Title)
 	if title == "" {
-		title = defaultTitle(req.Tool, cwd)
+		title = defaultTitle(req.Tool, cwd, req.Profile)
 	}
-	if err := h.spawn(id, cwd, req.Tool, acct); err != nil {
+	if err := h.spawn(id, cwd, req.Tool, req.Profile, acct); err != nil {
 		slog.Error("ai session spawn failed", "component", "ai", "id", id, "account", acct.Name, "err", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCommandFailed, response.SanitizeOutput(err.Error()))
 	}
-	if err := insertSession(h.DB, sessionRow{ID: id, Tool: req.Tool, Title: title, RunAs: acct.Name, CWD: cwd}); err != nil {
+	if err := insertSession(h.DB, sessionRow{ID: id, Tool: req.Tool, Title: title, RunAs: acct.Name, CWD: cwd, Profile: req.Profile}); err != nil {
 		_, _ = h.tmux(acct, "kill-session", "-t", id)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not store the session")
 	}
-	slog.Info("ai session created", "component", "ai", "id", id, "tool", req.Tool, "account", acct.Name, "cwd", cwd)
-	return response.OK(c, Session{ID: id, Tool: req.Tool, Title: title, RunAs: acct.Name, CWD: cwd,
+	slog.Info("ai session created", "component", "ai", "id", id, "tool", req.Tool, "account", acct.Name, "cwd", cwd, "profile", req.Profile)
+	return response.OK(c, Session{ID: id, Tool: req.Tool, Title: title, RunAs: acct.Name, CWD: cwd, Profile: req.Profile,
 		State: StateWorking, Persistence: h.persistence(), CreatedAt: h.now().UTC().Format(time.RFC3339)})
 }
 
@@ -408,7 +453,7 @@ func (h *Handler) RerunSession(c echo.Context) error {
 }
 
 // RestartSession — POST /ai/sessions/:id/restart: a new tmux session with
-// the row's tool, directory and account.
+// the row's tool, directory, account and profile.
 func (h *Handler) RestartSession(c echo.Context) error {
 	row, acct, ok := h.lookupRow(c)
 	if !ok {
@@ -436,11 +481,13 @@ func (h *Handler) RestartSession(c echo.Context) error {
 	if liveCount >= maxSessions {
 		return response.Fail(c, http.StatusConflict, response.ErrAISessionLimit, fmt.Sprintf("maximum of %d live sessions reached", maxSessions))
 	}
-	if err := h.spawn(row.ID, cwd, row.Tool, acct); err != nil {
+	// row.Profile, not the default: the session comes back on the login it
+	// was created with.
+	if err := h.spawn(row.ID, cwd, row.Tool, row.Profile, acct); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCommandFailed, response.SanitizeOutput(err.Error()))
 	}
 	_ = setSessionEnded(h.DB, row.ID, false)
-	slog.Info("ai session restarted", "component", "ai", "id", row.ID, "tool", row.Tool, "account", acct.Name)
+	slog.Info("ai session restarted", "component", "ai", "id", row.ID, "tool", row.Tool, "account", acct.Name, "profile", row.Profile)
 	return response.OK(c, map[string]string{"id": row.ID, "state": StateWorking})
 }
 

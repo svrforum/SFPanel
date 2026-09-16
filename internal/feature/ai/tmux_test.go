@@ -36,7 +36,7 @@ func TestSpawnArgv_ServerFormIsATransientService(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
 	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
 
-	name, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, alice, spawnService)
+	name, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, "", alice, spawnService)
 	if name != "systemd-run" {
 		t.Fatalf("name = %q, want systemd-run", name)
 	}
@@ -72,7 +72,7 @@ func TestSpawnArgv_ClientFormTalksToTheRunningServer(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
 	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
 
-	name, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, alice, spawnClient)
+	name, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, "", alice, spawnClient)
 	if name != "env" {
 		t.Fatalf("name = %q, want env", name)
 	}
@@ -95,7 +95,7 @@ func TestSpawnArgv_NoPerSessionEnvironmentPairs(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
 	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
 	for _, form := range []spawnForm{spawnService, spawnClient, spawnSetsid} {
-		_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, alice, form)
+		_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, "", alice, form)
 		ns := indexOf(argv, "new-session")
 		if ns < 0 {
 			t.Fatalf("form %d: no new-session in %q", form, argv)
@@ -108,7 +108,7 @@ func TestSpawnArgv_NoPerSessionEnvironmentPairs(t *testing.T) {
 
 func TestSpawnArgv_PanelAccountHasNoRunuser(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
-	name, argv := h.spawnArgv("0123456789ab", "/root", ToolCodex, h.panel, spawnClient)
+	name, argv := h.spawnArgv("0123456789ab", "/root", ToolCodex, "", h.panel, spawnClient)
 	if slices.Contains(argv, "runuser") {
 		t.Errorf("the panel's own account must not go through runuser: %q", argv)
 	}
@@ -195,7 +195,7 @@ func TestSocketPath_IsAnAbsoluteRunPathPerAccount(t *testing.T) {
 		t.Errorf("the panel's socket = %q, want /run/sfpanel/ai/0/sfpanel", got)
 	}
 	for _, acct := range []Account{alice, h.panel} {
-		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolShell, acct, spawnClient)
+		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolShell, "", acct, spawnClient)
 		if slices.Contains(argv, "-L") {
 			t.Errorf("%s: -L derives the socket from /tmp: %q", acct.Name, argv)
 		}
@@ -293,7 +293,7 @@ func TestSocketRoot_NonRootPanelUsesTheStateDirectory(t *testing.T) {
 
 func TestSpawnArgv_ShellToolIsAPlainLoginShell(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
-	_, argv := h.spawnArgv("0123456789ab", "/root", ToolShell, h.panel, spawnClient)
+	_, argv := h.spawnArgv("0123456789ab", "/root", ToolShell, "", h.panel, spawnClient)
 	if cmd := command(argv); !slices.Equal(cmd, []string{"/bin/bash", "-l"}) {
 		t.Errorf("shell session must run `/bin/bash -l` and carry no -c wrapper: %q", cmd)
 	}
@@ -313,13 +313,13 @@ func TestSessionCommands_ToolWrapperIsAnInteractiveLoginShell(t *testing.T) {
 
 	for _, form := range []spawnForm{spawnService, spawnClient, spawnSetsid} {
 		for _, tool := range []string{ToolClaude, ToolCodex, ToolGemini} {
-			_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", tool, alice, form)
+			_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", tool, "", alice, form)
 			want := []string{"/bin/bash", "-lic", `command "$0" "$@"; exec /bin/bash -l`, tool}
 			if cmd := command(argv); !slices.Equal(cmd, want) {
 				t.Errorf("form %d, %s: wrapper = %q\nwant %q\n(only an interactive login shell reads .bashrc, where ~/.local/bin joins PATH)", form, tool, cmd, want)
 			}
 		}
-		_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolShell, alice, form)
+		_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolShell, "", alice, form)
 		cmd := command(argv)
 		if !slices.Equal(cmd, []string{"/bin/bash", "-l"}) {
 			t.Errorf("form %d, shell: = %q, want [/bin/bash -l] — tmux gives the pane a tty, so it is interactive without a flag", form, cmd)
@@ -334,7 +334,7 @@ func TestSessionCommands_ToolWrapperIsAnInteractiveLoginShell(t *testing.T) {
 
 func TestSpawnArgv_FallsBackToSetsidWithoutSystemdRun(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
-	name, argv := h.spawnArgv("0123456789ab", "/root", ToolClaude, h.panel, spawnSetsid)
+	name, argv := h.spawnArgv("0123456789ab", "/root", ToolClaude, "", h.panel, spawnSetsid)
 	if name != "setsid" || argv[0] != "env" || !slices.Contains(argv, "HOME=/root") {
 		t.Errorf("got %s %q, want setsid env HOME=/root … — the fallback needs the environment too", name, argv[:3])
 	}
@@ -508,5 +508,52 @@ func TestLiveWindows_NoServerIsEmpty(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(m.Calls[0].Args, " "), "list-windows -a -F") {
 		t.Errorf("expected a list-windows call, got %q", m.Calls[0].Args)
+	}
+}
+
+// The profile is one more entry in the same strict allowlist, and it reaches
+// the tool through the variable that tool reads — nothing else changes.
+func TestProfileVar(t *testing.T) {
+	acct := Account{Name: "alice", Home: "/home/alice"}
+	if v, ok := profileVar(acct, ToolCodex, "work"); !ok || v != "CODEX_HOME=/home/alice/.sfpanel-ai/codex/work" {
+		t.Errorf("codex: got (%q, %v)", v, ok)
+	}
+	if v, ok := profileVar(acct, ToolClaude, "b"); !ok || v != "CLAUDE_CONFIG_DIR=/home/alice/.sfpanel-ai/claude/b" {
+		t.Errorf("claude: got (%q, %v)", v, ok)
+	}
+	for _, c := range []struct{ tool, profile string }{{ToolCodex, ""}, {ToolShell, "work"}, {ToolGemini, "work"}, {ToolCodex, "../x"}} {
+		if v, ok := profileVar(acct, c.tool, c.profile); ok {
+			t.Errorf("%+v must produce no variable, got %q", c, v)
+		}
+	}
+}
+
+// Each form passes the variable the way it already passes LANG: systemd's
+// --setenv in the service form, the `env` prefix in the client and setsid
+// forms. The default profile adds nothing anywhere — an empty CODEX_HOME
+// would be a third meaning of "default" for the tool to interpret.
+func TestSpawnArgv_CarriesTheProfileInEveryForm(t *testing.T) {
+	h := newTestHandler(t, tmuxMock(""))
+	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
+	want := "CODEX_HOME=/home/alice/.sfpanel-ai/codex/work"
+
+	_, service := h.spawnArgv("0123456789ab", "/tmp", ToolCodex, "work", alice, spawnService)
+	if !slices.Contains(service, "--setenv="+want) {
+		t.Errorf("service form must pass the variable to systemd: %q", service)
+	}
+	for _, form := range []spawnForm{spawnClient, spawnSetsid} {
+		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolCodex, "work", alice, form)
+		if !slices.Contains(argv, want) {
+			t.Errorf("form %d must carry the variable in the env prefix: %q", form, argv)
+		}
+	}
+	// and no profile means no variable anywhere
+	for _, form := range []spawnForm{spawnService, spawnClient, spawnSetsid} {
+		_, plain := h.spawnArgv("0123456789ab", "/tmp", ToolCodex, "", alice, form)
+		for _, a := range plain {
+			if strings.Contains(a, "CODEX_HOME=") {
+				t.Errorf("form %d: the default profile must set nothing: %q", form, plain)
+			}
+		}
 	}
 }

@@ -625,11 +625,11 @@ func TestSpawn_LocksPerAccountNotProcessWide(t *testing.T) {
 	h.Cmd = g
 
 	first := make(chan error, 1)
-	go func() { first <- h.spawn("0123456789ab", "/", ToolShell, alice) }()
+	go func() { first <- h.spawn("0123456789ab", "/", ToolShell, "", alice) }()
 	<-g.entered // alice's new-session is inside the Commander; her lock is held
 
 	other := make(chan error, 1)
-	go func() { other <- h.spawn("0123456789ac", "/", ToolShell, dave) }()
+	go func() { other <- h.spawn("0123456789ac", "/", ToolShell, "", dave) }()
 	select {
 	case err := <-other:
 		if err != nil {
@@ -643,7 +643,7 @@ func TestSpawn_LocksPerAccountNotProcessWide(t *testing.T) {
 	// that got past her lock would sail straight through the Commander — that
 	// is what makes this fail when the per-account lock is taken out.
 	second := make(chan error, 1)
-	go func() { second <- h.spawn("0123456789ad", "/", ToolShell, alice) }()
+	go func() { second <- h.spawn("0123456789ad", "/", ToolShell, "", alice) }()
 	select {
 	case <-g.arrived:
 		t.Fatal("a second spawn for alice reached tmux while the first still held her lock")
@@ -735,5 +735,93 @@ func TestCreateSession_KeepsTheSessionARacedUnitAlreadyCreated(t *testing.T) {
 	}
 	if newSession != 0 {
 		t.Errorf("new-session was re-issued %d times; tmux would answer \"duplicate session\" and the create would fail", newSession)
+	}
+}
+
+// A profile is validated against the list the picker was built from, before
+// anything is spawned: an unknown name is a refusal, never a directory the
+// panel creates on the fly (spec §3). Assert the reason — INVALID_BODY naming
+// the field — and that no command ran.
+func TestCreateSession_ProfileMustBeOneThatExists(t *testing.T) {
+	m := tmuxMock("")
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	home := t.TempDir()
+	h.panel.Home = home
+	dir := t.TempDir()
+
+	rec := call(t, h.CreateSession, http.MethodPost, `{"tool":"codex","cwd":"`+dir+`","profile":"ghost"}`, "", "")
+	if code, msg := failCode(t, rec); code != response.ErrInvalidBody || !strings.Contains(msg, "profile") {
+		t.Errorf("unknown profile: got %s %q, want INVALID_BODY naming the field", code, msg)
+	}
+	if len(m.Calls) != 0 {
+		t.Errorf("a refused profile must never reach tmux: %+v", m.Calls)
+	}
+	// The wording is part of the assertion here, not decoration: the
+	// membership check below refuses a shell session too (it has no profile
+	// directory of any name), so only the message proves the tool half of the
+	// guard is the one that answered.
+	rec = call(t, h.CreateSession, http.MethodPost, `{"tool":"shell","cwd":"`+dir+`","profile":"work"}`, "", "")
+	if code, msg := failCode(t, rec); code != response.ErrInvalidBody || !strings.Contains(msg, "shell") {
+		t.Errorf("shell + profile: got %s %q, want INVALID_BODY saying a shell session has no profile", code, msg)
+	}
+
+	// a profile that exists is stored, titled and spawned with the variable
+	_ = os.MkdirAll(filepath.Join(home, profileRootName, "codex", "work"), 0o700)
+	rec = call(t, h.CreateSession, http.MethodPost, `{"tool":"codex","cwd":"`+dir+`","profile":"work"}`, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create: %s", rec.Body.String())
+	}
+	var env struct {
+		Data Session `json:"data"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	if env.Data.Profile != "work" || !strings.HasPrefix(env.Data.Title, "Codex(work) · ") {
+		t.Errorf("session = %+v", env.Data)
+	}
+	row, _, _ := getSessionRow(h.DB, env.Data.ID)
+	if row.Profile != "work" {
+		t.Errorf("row profile = %q", row.Profile)
+	}
+	var spawned bool
+	for _, c := range m.Calls {
+		if strings.Contains(strings.Join(c.Args, " "), "CODEX_HOME="+filepath.Join(home, profileRootName, "codex", "work")) {
+			spawned = true
+		}
+	}
+	if !spawned {
+		t.Errorf("spawn did not carry the profile: %+v", m.Calls)
+	}
+}
+
+// A restart re-spawns from the row, so it has to carry the row's profile: a
+// Codex session created on "work" that came back on the default profile would
+// silently be a different login in the same tab.
+func TestRestart_ReusesTheRowsProfile(t *testing.T) {
+	m := noServerMock()
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	home := t.TempDir()
+	h.panel.Home = home
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, profileRootName, "codex", "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolCodex, Title: "Codex(work) · x", RunAs: "root", CWD: dir, Profile: "work"})
+	_ = setSessionEnded(h.DB, "aaaaaaaaaaaa", true)
+
+	rec := call(t, h.RestartSession, http.MethodPost, "", "aaaaaaaaaaaa", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("restart: %s", rec.Body.String())
+	}
+	want := "CODEX_HOME=" + filepath.Join(home, profileRootName, "codex", "work")
+	var spawned bool
+	for _, c := range m.Calls {
+		if slices.Contains(c.Args, want) || slices.Contains(c.Args, "--setenv="+want) {
+			spawned = true
+		}
+	}
+	if !spawned {
+		t.Errorf("the restart spawn dropped the row's profile: %+v", m.Calls)
 	}
 }

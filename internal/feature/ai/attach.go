@@ -70,6 +70,12 @@ const (
 // A tmux client needs no more than this: -f /dev/null leaves no config to
 // find and the socket is named absolutely with -S, so neither HOME nor
 // TMUX_TMPDIR decides where it looks.
+//
+// The session's profile is deliberately not among them. The variable belongs
+// to the process running the tool, and that process's environment was fixed
+// when the session was spawned (spec §4); this client only draws the pane it
+// attaches to, so setting it here would change nothing and could only
+// disagree with what the pane actually runs on.
 func attachEnv(base []string, acct, panel Account) []string {
 	if acct.Name == panel.Name {
 		return append(base, attachTerm)

@@ -113,10 +113,23 @@ func (h *Handler) tmuxBase(acct Account) (string, []string) {
 }
 
 // tmuxCmd is tmuxBase behind the account's explicit environment (accounts.go).
-// Every tmux invocation goes through it except the attach client, which sets
-// its own environment through cmd.Env — and must, because it needs a TERM.
+// Every tmux invocation goes through it except the spawn, which adds the
+// session's profile variable (tmuxSessionCmd), and the attach client, which
+// sets its own environment through cmd.Env — and must, because it needs a TERM.
 func (h *Handler) tmuxCmd(acct Account) (string, []string) {
-	prefix := h.envArgv(acct)
+	return h.tmuxCmdEnv(h.envArgv(acct), acct)
+}
+
+// tmuxSessionCmd is the spawn's own: tmuxCmd carrying the profile variable
+// the session's tool reads. It is the spawn that needs it because the spawn
+// is what may start the account's tmux server, and the server's environment
+// is what its panes inherit; every other invocation is a short-lived client
+// that reads none of it.
+func (h *Handler) tmuxSessionCmd(acct Account, tool, profile string) (string, []string) {
+	return h.tmuxCmdEnv(h.sessionEnvArgv(acct, tool, profile), acct)
+}
+
+func (h *Handler) tmuxCmdEnv(prefix []string, acct Account) (string, []string) {
 	name, argv := h.tmuxBase(acct)
 	return prefix[0], append(append(prefix[1:], name), argv...)
 }
@@ -338,7 +351,11 @@ func sessionCommands(term, id, cwd, tool string) []string {
 // and --uid makes systemd set HOME/USER/LOGNAME/SHELL itself, so no runuser
 // and no env prefix are needed. The client form keeps both, because there it
 // is the panel that forks (accounts.go explains the env -i boundary).
-func (h *Handler) spawnArgv(id, cwd, tool string, acct Account, form spawnForm) (string, []string) {
+// The session's profile (spec §4) rides along by whichever of those two
+// routes the form already uses: one more --setenv for systemd, one more entry
+// in the env prefix otherwise. The default profile adds nothing — see
+// profileVar.
+func (h *Handler) spawnArgv(id, cwd, tool, profile string, acct Account, form spawnForm) (string, []string) {
 	cmds := sessionCommands(h.defaultTerminal(), id, cwd, tool)
 	if form == spawnService {
 		argv := []string{
@@ -346,11 +363,14 @@ func (h *Handler) spawnArgv(id, cwd, tool string, acct Account, form spawnForm) 
 			"--uid=" + acct.Name, "--gid=" + strconv.Itoa(acct.GID),
 			"-p", "Type=forking",
 			"--setenv=LANG=C.UTF-8", "--setenv=COLORTERM=truecolor",
-			"--", "tmux", "-f", "/dev/null", "-S", h.socketPath(acct),
 		}
+		if v, ok := profileVar(acct, tool, profile); ok {
+			argv = append(argv, "--setenv="+v)
+		}
+		argv = append(argv, "--", "tmux", "-f", "/dev/null", "-S", h.socketPath(acct))
 		return "systemd-run", append(argv, cmds...)
 	}
-	name, argv := h.tmuxCmd(acct)
+	name, argv := h.tmuxSessionCmd(acct, tool, profile)
 	argv = append(argv, cmds...)
 	if form == spawnSetsid {
 		return "setsid", append([]string{name}, argv...)
