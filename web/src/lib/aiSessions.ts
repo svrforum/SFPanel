@@ -255,20 +255,28 @@ export function aiErrorMessage(err: unknown, t: Translate): string {
   }
 }
 
+/** Which profile route answered, because the two disagree about INVALID_BODY. */
+export type ProfileSurface = 'create' | 'delete'
+
 /**
- * aiErrorMessage for the two surfaces that create a profile. The server
- * refuses a name it will not turn into a directory with INVALID_BODY and an
- * English sentence naming the allowed shape; passed through, that sentence is
- * the one message a Korean operator cannot read, and it is also the only
- * refusal here they can act on — so it gets the key that spells the rule out
- * in their language.
+ * aiErrorMessage for the profile surfaces.
  *
- * Only the create calls take this. Everywhere else INVALID_BODY means a body
- * the panel itself built wrongly, where the server's own message is the more
- * useful of the two.
+ * `create` refuses a name it will not turn into a directory with INVALID_BODY
+ * and an English sentence naming the allowed shape; passed through, that
+ * sentence is the one message a Korean operator cannot read, and it is also
+ * the only refusal here they can act on — so it gets the key that spells the
+ * rule out in their language.
+ *
+ * `delete` answers the same code for the default profile ("the default profile
+ * is the tool's own directory and is not the panel's to delete"), which the
+ * name rule would describe falsely — so the surface decides, not the code.
+ *
+ * Everywhere outside these two routes INVALID_BODY means a body the panel
+ * itself built wrongly, where the server's own message is the more useful of
+ * the two; those callers take aiErrorMessage directly.
  */
-export function profileErrorMessage(err: unknown, t: Translate): string {
-  if (err instanceof Error && (err as Error & { code?: string }).code === 'INVALID_BODY') {
+export function profileErrorMessage(err: unknown, t: Translate, surface: ProfileSurface): string {
+  if (surface === 'create' && err instanceof Error && (err as Error & { code?: string }).code === 'INVALID_BODY') {
     return t('ai.profiles.errors.name')
   }
   return aiErrorMessage(err, t)

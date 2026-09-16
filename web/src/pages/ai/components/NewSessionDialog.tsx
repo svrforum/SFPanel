@@ -154,7 +154,7 @@ export function NewSessionDialog({
       setProfile(p.name)
       setNewName(null)
     } catch (err: unknown) {
-      setError(profileErrorMessage(err, t))
+      setError(profileErrorMessage(err, t, 'create'))
     } finally {
       setCreating(false)
     }

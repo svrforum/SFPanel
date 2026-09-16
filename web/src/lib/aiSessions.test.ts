@@ -107,18 +107,32 @@ describe('aiErrorMessage', () => {
   // rule spelled out in the operator's language.
   it('maps the name-format refusal on the create surfaces only', () => {
     const nameErr = err('INVALID_BODY', 'name must be 1-32 characters of letters, digits, dot, dash or underscore, starting with a letter or digit')
-    expect(profileErrorMessage(nameErr, t)).toBe('ai.profiles.errors.name')
+    expect(profileErrorMessage(nameErr, t, 'create')).toBe('ai.profiles.errors.name')
     expect(aiErrorMessage(nameErr, t)).toBe(nameErr.message)
+  })
+
+  // DELETE answers INVALID_BODY too, for the default profile, and the name
+  // rule would describe that refusal falsely — the name it was given is fine,
+  // the profile is simply not the panel's to remove. The surface decides which
+  // of the two INVALID_BODY means, because the code alone cannot.
+  it('does not read the delete surface INVALID_BODY as the name rule', () => {
+    const defaultErr = err('INVALID_BODY', "the default profile is the tool's own directory and is not the panel's to delete")
+    expect(profileErrorMessage(defaultErr, t, 'delete')).toBe(defaultErr.message)
+    expect(profileErrorMessage(defaultErr, t, 'create')).toBe('ai.profiles.errors.name')
   })
 
   // Everything else still goes through aiErrorMessage: a create can also come
   // back AI_PROFILE_EXISTS, INVALID_ACCOUNT or INVALID_TOOL, and those keys
-  // must not be swallowed by the name message.
+  // must not be swallowed by the name message. A delete's own refusals —
+  // AI_PROFILE_IN_USE, INVALID_PATH — reach it the same way.
   it('hands every other code to aiErrorMessage', () => {
-    expect(profileErrorMessage(err('AI_PROFILE_EXISTS', 'x'), t)).toBe('ai.profiles.errors.exists')
-    expect(profileErrorMessage(err('INVALID_TOOL', 'x'), t)).toBe('ai.errors.invalidTool')
-    expect(profileErrorMessage(err(undefined, 'boom'), t)).toBe('boom')
-    expect(profileErrorMessage('not an error', t)).toBe('ai.errors.generic')
+    expect(profileErrorMessage(err('AI_PROFILE_EXISTS', 'x'), t, 'create')).toBe('ai.profiles.errors.exists')
+    expect(profileErrorMessage(err('INVALID_TOOL', 'x'), t, 'create')).toBe('ai.errors.invalidTool')
+    expect(profileErrorMessage(err(undefined, 'boom'), t, 'create')).toBe('boom')
+    expect(profileErrorMessage('not an error', t, 'create')).toBe('ai.errors.generic')
+    expect(profileErrorMessage(err('AI_PROFILE_IN_USE', '2 live session(s) still use this profile'), t, 'delete')).toBe('ai.profiles.errors.inUse')
+    expect(profileErrorMessage(err('INVALID_PATH', 'no profile directory of that name'), t, 'delete'))
+      .toBe('ai.errors.invalidPath:{"reason":"no profile directory of that name"}')
   })
 })
 
