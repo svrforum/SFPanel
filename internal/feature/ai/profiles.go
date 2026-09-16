@@ -248,26 +248,29 @@ func (h *Handler) CreateProfile(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-	if err := h.ensureProfileRoot(acct, req.Tool); err != nil {
-		slog.Error("ai could not prepare a profile root", "component", "ai", "account", acct.Name, "tool", req.Tool, "err", err)
-		return response.Fail(c, http.StatusInternalServerError, response.ErrDirError, "could not prepare the profile directory")
+	toolDir, err := h.openProfileTool(acct, req.Tool, true)
+	if err != nil {
+		return h.failProfileWalk(c, acct, req.Tool, err)
 	}
-	// os.Mkdir, not a stat followed by a create: the refusal and the creation
+	defer toolDir.Close()
+	// Mkdir, not a stat followed by a create: the refusal and the creation
 	// have to be one step, and EEXIST covers an entry of that name which is
-	// not a directory at all. The panel never adopts a directory whose
-	// contents it did not make.
-	if err := os.Mkdir(dir, 0o700); err != nil {
+	// not a directory at all — a planted symlink, dangling or not, included.
+	// The panel never adopts a directory whose contents it did not make.
+	// Root-relative, so the name lands under the descriptor openProfileTool
+	// verified and no string join decides where it goes.
+	if err := toolDir.Mkdir(req.Name, 0o700); err != nil {
 		if os.IsExist(err) {
 			return response.Fail(c, http.StatusConflict, response.ErrAIProfileExists, "a profile of that name already exists")
 		}
 		slog.Error("ai could not create a profile", "component", "ai", "account", acct.Name, "tool", req.Tool, "name", req.Name, "err", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDirError, "could not create the profile directory")
 	}
-	if err := h.ownProfileDir(acct, dir); err != nil {
+	if err := h.ownProfileDir(toolDir, acct, req.Name); err != nil {
 		// An empty directory nobody can use is worse than none: leaving it
-		// would answer the retry with AI_PROFILE_EXISTS. os.Remove, not
+		// would answer the retry with AI_PROFILE_EXISTS. Remove, not
 		// RemoveAll — it was created one statement ago and is empty.
-		_ = os.Remove(dir)
+		_ = toolDir.Remove(req.Name)
 		slog.Error("ai could not hand a profile to its account", "component", "ai", "account", acct.Name, "tool", req.Tool, "name", req.Name, "err", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDirError, "could not set the profile directory owner")
 	}
@@ -299,22 +302,33 @@ func (h *Handler) DeleteProfile(c echo.Context) error {
 		return response.Fail(c, http.StatusConflict, response.ErrAIProfileInUse,
 			fmt.Sprintf("%d live session(s) still use this profile", n))
 	}
-	// os.Lstat, not os.Stat: the leaf has to be a real directory. A symlink
-	// is refused rather than followed, because with Stat a link pointing
+	// The walk refuses a symlink at either level above the leaf; without it
+	// os.Lstat below would report the leaf honestly while every component
+	// above it had already been followed, and the delete would land wherever
+	// the link pointed.
+	toolDir, err := h.openProfileTool(acct, tool, false)
+	if err != nil {
+		return h.failProfileWalk(c, acct, tool, err)
+	}
+	defer toolDir.Close()
+	// Lstat, not Stat: the leaf has to be a real directory too. A symlink is
+	// refused rather than followed, because with Stat a link pointing
 	// anywhere would decide what the panel believes it is deleting.
-	info, err := os.Lstat(dir)
+	info, err := toolDir.Lstat(name)
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "no profile directory of that name")
 	}
 	if !info.IsDir() {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "the profile path is not a directory; a symlink is never followed")
 	}
-	// The string handed to an unbounded recursive delete is the string that
-	// has to have been checked, so it is checked here, at the call site.
-	if root := profileRoot(acct, tool); dir == root || filepath.Dir(dir) != root {
+	// The argument handed to an unbounded recursive delete is re-checked at
+	// the call site, not two calls earlier: the name must still be one
+	// element the module would itself create, and it resolves under the
+	// verified descriptor rather than through a joined string.
+	if !validProfileName(name) || dir != filepath.Join(profileRoot(acct, tool), name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "the profile path is outside the panel's profile directory")
 	}
-	if err := os.RemoveAll(dir); err != nil {
+	if err := toolDir.RemoveAll(name); err != nil {
 		slog.Error("ai could not remove a profile", "component", "ai", "account", acct.Name, "tool", tool, "name", name, "err", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDeleteError, "could not remove the profile directory")
 	}
@@ -322,43 +336,117 @@ func (h *Handler) DeleteProfile(c echo.Context) error {
 	return response.OK(c, map[string]string{"deleted": name, "tool": tool, "account": acct.Name})
 }
 
-// ensureProfileRoot creates <home>/.sfpanel-ai/<tool> and hands both levels
-// to the account. ensureSocketDir chowns only its leaf because the levels
-// above it there are 0711 root and anyone can traverse them; these two are
-// 0700 inside the account's own home, so an account that does not own them
-// cannot reach — or log in to — its own profile.
-func (h *Handler) ensureProfileRoot(acct Account, tool string) error {
-	// Never create the home directory itself: under a root panel MkdirAll
-	// would make it root-owned, which is a mess for the account that needs it
-	// and is not this handler's business to fix.
-	info, err := os.Stat(acct.Home)
+// errProfilePath is a level of the profile path that is not the real
+// directory the panel expects — a symlink, or an entry of another type — and
+// errProfileMissing is a level that is not there at all on a read path.
+var (
+	errProfilePath    = errors.New("ai: a level of the profile path is not a directory")
+	errProfileMissing = errors.New("ai: no such profile directory")
+)
+
+// openProfileTool opens <home>/.sfpanel-ai/<tool> as an os.Root, refusing to
+// walk anything that is not a real directory on the way down. create=true
+// makes the two levels (the read paths take create=false, where a missing
+// level is errProfileMissing rather than a directory the caller gets to make).
+//
+// Two defences, both load-bearing, and neither is the leaf check callers do
+// afterwards:
+//
+//   - The Root anchors every operation below on a descriptor for the
+//     account's home, so a level swapped underneath us cannot redirect a
+//     Mkdir, a Chmod, a chown or a RemoveAll out of that home. os.MkdirAll,
+//     os.Chmod and os.Chown each follow a symlink component without comment,
+//     and under a root panel every regular login account is selectable
+//     (allowedAccounts) while its home is its own to rearrange — the same
+//     hostile boundary accountEnv already draws.
+//   - The Lstat at each level refuses a link that was on disk before the
+//     operator acted, which the Root alone would follow as long as it pointed
+//     back inside the home. This is the chain-of-lstat defence
+//     internal/feature/files/archive.go applies, for the same reason.
+//
+// The home directory itself is never created: os.OpenRoot makes nothing,
+// which is the point — a MkdirAll here would leave somebody's home root-owned.
+func (h *Handler) openProfileTool(acct Account, tool string, create bool) (*os.Root, error) {
+	if !toolSupportsProfiles(tool) {
+		return nil, fmt.Errorf("ai: %s has no profile support", tool)
+	}
+	if !filepath.IsAbs(acct.Home) {
+		return nil, fmt.Errorf("ai: account home %q is not absolute", acct.Home)
+	}
+	cur, err := os.OpenRoot(acct.Home)
 	if err != nil {
-		return fmt.Errorf("ai: account home %q: %w", acct.Home, err)
+		return nil, fmt.Errorf("ai: account home %q: %w", acct.Home, err)
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("ai: account home %q is not a directory", acct.Home)
-	}
-	root := profileRoot(acct, tool)
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		return err
-	}
-	for _, d := range []string{filepath.Dir(root), root} {
-		if err := h.ownProfileDir(acct, d); err != nil {
-			return err
+	for _, level := range []string{profileRootName, tool} {
+		next, err := h.descendProfileLevel(cur, acct, level, create)
+		_ = cur.Close() // the descriptor we came from; next holds its own
+		if err != nil {
+			return nil, err
 		}
+		cur = next
 	}
-	return nil
+	return cur, nil
 }
 
-// ownProfileDir pins 0700 (MkdirAll and Mkdir both apply the umask) and, when
-// the panel is root, hands the directory to the account that will write
-// credentials into it — the same sequence ensureSocketDir uses.
-func (h *Handler) ownProfileDir(acct Account, dir string) error {
-	if err := os.Chmod(dir, 0o700); err != nil {
+// descendProfileLevel is one step of that walk: refuse a non-directory,
+// create the level when asked, pin its mode and owner, and open it.
+func (h *Handler) descendProfileLevel(parent *os.Root, acct Account, name string, create bool) (*os.Root, error) {
+	full := filepath.Join(parent.Name(), name)
+	info, err := parent.Lstat(name)
+	switch {
+	case err == nil && info.Mode()&os.ModeSymlink != 0:
+		return nil, fmt.Errorf("%w: %s is a symlink", errProfilePath, full)
+	case err == nil && !info.IsDir():
+		return nil, fmt.Errorf("%w: %s", errProfilePath, full)
+	case os.IsNotExist(err):
+		if !create {
+			return nil, fmt.Errorf("%w: %s", errProfileMissing, full)
+		}
+		if err := parent.Mkdir(name, 0o700); err != nil {
+			return nil, err
+		}
+	case err != nil:
+		return nil, err
+	}
+	// ensureSocketDir hands only its leaf to the account because the levels
+	// above it there are 0711 root and anyone can traverse them. These two
+	// are 0700 inside the account's own home, so an account that does not own
+	// them cannot reach — or log in to — its own profile.
+	if create {
+		if err := h.ownProfileDir(parent, acct, name); err != nil {
+			return nil, err
+		}
+	}
+	return parent.OpenRoot(name)
+}
+
+// ownProfileDir pins 0700 (Mkdir applies the umask) and, when the panel is
+// root, hands the directory to the account that will write credentials into
+// it. Both calls are root-relative, and the ownership one is Lchown rather
+// than os.Chown: it must land on the entry the check above saw and never on
+// whatever a link put in its place afterwards.
+func (h *Handler) ownProfileDir(parent *os.Root, acct Account, name string) error {
+	if err := parent.Chmod(name, 0o700); err != nil {
 		return err
 	}
 	if !h.isRoot() {
 		return nil
 	}
-	return h.chown(dir, acct.UID, acct.GID)
+	return h.lchownAt(parent, name, acct.UID, acct.GID)
+}
+
+// failProfileWalk answers a profile path the module refuses to walk. A level
+// that is a symlink or missing is the client's problem (INVALID_PATH, 400);
+// anything else is the node's, and gets logged.
+func (h *Handler) failProfileWalk(c echo.Context, acct Account, tool string, err error) error {
+	switch {
+	case errors.Is(err, errProfilePath):
+		slog.Warn("ai refused to walk a profile path", "component", "ai", "account", acct.Name, "tool", tool, "err", err)
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath,
+			"a level of the profile path is not a directory; a symlink is never followed")
+	case errors.Is(err, errProfileMissing):
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "no profile directory of that name")
+	}
+	slog.Error("ai could not prepare a profile root", "component", "ai", "account", acct.Name, "tool", tool, "err", err)
+	return response.Fail(c, http.StatusInternalServerError, response.ErrDirError, "could not prepare the profile directory")
 }

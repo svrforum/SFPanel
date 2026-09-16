@@ -223,6 +223,102 @@ func TestDeleteProfile_Guards(t *testing.T) {
 	}
 }
 
+// A symlink at a level ABOVE the leaf is refused, not walked. os.Lstat does
+// not follow the final component but follows every component above it, so a
+// guard on the leaf alone leaves os.RemoveAll — and a chmod, and a chown —
+// pointed at whatever a level above it names. Under a root panel every
+// regular login account is selectable and its home is its own to rearrange,
+// which is the boundary accountEnv already treats as hostile.
+func TestProfileLevels_RefuseASymlinkedLevel(t *testing.T) {
+	home := t.TempDir()
+	outside := t.TempDir()
+	// the tree behind the link, laid out exactly as the panel's own
+	if err := os.MkdirAll(filepath.Join(outside, "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "work", "keep"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, profileRootName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(home, profileRootName, "codex")); err != nil {
+		t.Skip("symlinks unavailable")
+	}
+	mk := func() *Handler {
+		h := newTestHandler(t, tmuxMock(""))
+		h.DB = openTestDB(t)
+		h.panel.Home = home
+		return h
+	}
+
+	// delete: the link is not walked, so the tree behind it lives
+	h := mk()
+	rec := callParams(t, h.DeleteProfile, http.MethodDelete, "", map[string]string{"tool": "codex", "name": "work"}, "")
+	if code, _ := failCode(t, rec); code != response.ErrInvalidPath {
+		t.Errorf("delete through a symlinked level: got %s, want INVALID_PATH", code)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "work", "keep")); err != nil {
+		t.Errorf("the symlink target must be untouched: %v", err)
+	}
+
+	// create: the same refusal, nothing made behind the link, and no
+	// ownership handed out past the level where the walk stopped
+	h = mk()
+	var chowned []string
+	h.lchownAt = func(r *os.Root, name string, uid, gid int) error {
+		chowned = append(chowned, filepath.Join(r.Name(), name))
+		return nil
+	}
+	rec = call(t, h.CreateProfile, http.MethodPost, `{"tool":"codex","name":"fresh"}`, "", "")
+	if code, _ := failCode(t, rec); code != response.ErrInvalidPath {
+		t.Errorf("create through a symlinked level: got %s, want INVALID_PATH", code)
+	}
+	if _, err := os.Lstat(filepath.Join(outside, "fresh")); !os.IsNotExist(err) {
+		t.Errorf("a directory was created behind the symlink: %v", err)
+	}
+	if want := []string{filepath.Join(home, profileRootName)}; len(chowned) != 1 || chowned[0] != want[0] {
+		t.Errorf("chowned %v, want the walk to stop at the link: %v", chowned, want)
+	}
+}
+
+// The two levels the panel owns inside the home are handed to the account —
+// they are 0700, so root-owned levels would leave the account unable to
+// traverse to, or log in to, its own profile. Each call is root-relative:
+// the directory named is resolved under the descriptor the walk verified,
+// never by joining a string a moment later.
+func TestCreateProfile_HandsThePanelLevelsToTheAccount(t *testing.T) {
+	h := newTestHandler(t, tmuxMock(""))
+	h.DB = openTestDB(t)
+	home := t.TempDir()
+	h.panel.Home = home
+	var chowned []string
+	h.lchownAt = func(r *os.Root, name string, uid, gid int) error {
+		if uid != h.panel.UID || gid != h.panel.GID {
+			t.Errorf("chown %s to %d:%d, want the account %d:%d", name, uid, gid, h.panel.UID, h.panel.GID)
+		}
+		chowned = append(chowned, filepath.Join(r.Name(), name))
+		return nil
+	}
+	rec := call(t, h.CreateProfile, http.MethodPost, `{"tool":"codex","name":"work"}`, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	want := []string{
+		filepath.Join(home, profileRootName),
+		filepath.Join(home, profileRootName, "codex"),
+		filepath.Join(home, profileRootName, "codex", "work"),
+	}
+	if len(chowned) != len(want) {
+		t.Fatalf("chowned %v, want %v", chowned, want)
+	}
+	for i, w := range want {
+		if chowned[i] != w {
+			t.Errorf("chowned[%d] = %q, want %q", i, chowned[i], w)
+		}
+	}
+}
+
 // profileLastUsed reads MAX(created_at), and an aggregate carries no declared
 // column type: the driver hands a direct created_at read back as RFC 3339 but
 // MAX(created_at) back as SQLite's own "2006-01-02 15:04:05". One field

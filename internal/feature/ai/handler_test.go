@@ -41,6 +41,7 @@ func newTestHandler(t *testing.T, m *exec.MockCommander) *Handler {
 		socketRoot: filepath.Join(t.TempDir(), "run", "sfpanel", "ai"),
 		// A test binary is not root, so it cannot chown a directory to uid 0.
 		chown:      func(string, int, int) error { return nil },
+		lchownAt:   func(*os.Root, string, int, int) error { return nil },
 		toolMemo:   map[string]toolMemoEntry{},
 		latestMemo: map[string]latestMemoEntry{},
 		now:        func() time.Time { return testNow },
