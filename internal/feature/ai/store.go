@@ -6,22 +6,25 @@ import "database/sql"
 // alive; the row is identity, title and history (spec §1).
 type sessionRow struct {
 	ID, Tool, Title, RunAs, CWD string
-	CreatedAt                   string
-	LastAttachedAt              sql.NullString
-	EndedAt                     sql.NullString
+	// Profile is the tool configuration directory the session runs against;
+	// "" is the tool's own default directory (see profiles.go).
+	Profile        string
+	CreatedAt      string
+	LastAttachedAt sql.NullString
+	EndedAt        sql.NullString
 }
 
-const sessionColumns = `id, tool, title, run_as, cwd, created_at, last_attached_at, ended_at`
+const sessionColumns = `id, tool, title, run_as, cwd, profile, created_at, last_attached_at, ended_at`
 
 func scanSession(sc interface{ Scan(...any) error }) (sessionRow, error) {
 	var r sessionRow
-	err := sc.Scan(&r.ID, &r.Tool, &r.Title, &r.RunAs, &r.CWD, &r.CreatedAt, &r.LastAttachedAt, &r.EndedAt)
+	err := sc.Scan(&r.ID, &r.Tool, &r.Title, &r.RunAs, &r.CWD, &r.Profile, &r.CreatedAt, &r.LastAttachedAt, &r.EndedAt)
 	return r, err
 }
 
 func insertSession(db *sql.DB, r sessionRow) error {
-	_, err := db.Exec(`INSERT INTO ai_sessions (id, tool, title, run_as, cwd) VALUES (?, ?, ?, ?, ?)`,
-		r.ID, r.Tool, r.Title, r.RunAs, r.CWD)
+	_, err := db.Exec(`INSERT INTO ai_sessions (id, tool, title, run_as, cwd, profile) VALUES (?, ?, ?, ?, ?, ?)`,
+		r.ID, r.Tool, r.Title, r.RunAs, r.CWD, r.Profile)
 	return err
 }
 

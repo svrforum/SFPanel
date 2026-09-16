@@ -215,6 +215,7 @@ var migrations = []migration{
 		last_attached_at DATETIME,
 		ended_at         DATETIME
 	)`},
+	{ID: 37, Up: `ALTER TABLE ai_sessions ADD COLUMN profile TEXT NOT NULL DEFAULT ''`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been

@@ -148,3 +148,23 @@ func TestStore_RecentDirsAreDistinctNewestFirst(t *testing.T) {
 		t.Errorf("recent = %v, want [/c /a /b]", got)
 	}
 }
+
+func TestStore_ProfileRoundTrip(t *testing.T) {
+	db := openTestDB(t)
+	if err := insertSession(db, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolCodex, Title: "t", RunAs: "root", CWD: "/", Profile: "work"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertSession(db, sessionRow{ID: "bbbbbbbbbbbb", Tool: ToolCodex, Title: "t", RunAs: "root", CWD: "/"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := getSessionRow(db, "aaaaaaaaaaaa")
+	if err != nil || got.Profile != "work" {
+		t.Errorf("profile = %q, err = %v, want work", got.Profile, err)
+	}
+	// The default profile is the empty string, which is what every row
+	// written before migration 37 already means.
+	plain, _, _ := getSessionRow(db, "bbbbbbbbbbbb")
+	if plain.Profile != "" {
+		t.Errorf("default profile = %q, want empty", plain.Profile)
+	}
+}

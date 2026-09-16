@@ -64,10 +64,15 @@ type toolMemoEntry struct {
 const toolTTL = 10 * time.Minute
 
 // loginFiles are the credential files each CLI writes after its OAuth flow —
-// a hint for the UI ("첫 실행 시 로그인 필요"), never a gate.
+// a hint for the UI ("첫 실행 시 로그인 필요"), never a gate. This is the
+// default profile's credential file, i.e. the tool's own directory under the
+// account's home; non-default profiles use profileLoginFile under their own
+// directory (see profiles.go), so the two are expressed through the same
+// constants and cannot drift. Gemini keeps a literal path — it has no
+// verified config-directory override and therefore no profiles.
 var loginFiles = map[string]string{
-	ToolClaude: ".claude/.credentials.json",
-	ToolCodex:  ".codex/auth.json",
+	ToolClaude: ".claude/" + profileLoginFile[ToolClaude],
+	ToolCodex:  ".codex/" + profileLoginFile[ToolCodex],
 	ToolGemini: ".gemini/oauth_creds.json",
 }
 

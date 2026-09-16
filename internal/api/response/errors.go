@@ -109,6 +109,8 @@ const (
 	ErrAISessionNotFound = "AI_SESSION_NOT_FOUND" // no such row (404)
 	ErrAISessionLimit    = "AI_SESSION_LIMIT"     // 20 live sessions already (409)
 	ErrAISessionState    = "AI_SESSION_STATE"     // rerun/restart in the wrong state (409)
+	ErrAIProfileExists   = "AI_PROFILE_EXISTS"    // a directory of that name is already there (409)
+	ErrAIProfileInUse    = "AI_PROFILE_IN_USE"    // a live session is using it (409)
 )
 
 // Package (APT) error codes
