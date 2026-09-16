@@ -130,10 +130,15 @@ export function NewSessionDialog({
     if (!open || !runAs || !withProfiles) return
     let cancelled = false
     api.getAIProfiles(runAs, tool)
-      .then((r) => { if (!cancelled) setProfiles(r.profiles) })
-      .catch(() => { if (!cancelled) setProfiles(null) })
+      .then((r) => { if (!cancelled) { setProfiles(r.profiles); setError(null) } })
+      // A failed fetch used to be swallowed into the null above, which renders
+      // a picker holding only 기본: an operator who *has* profiles could not
+      // select one and was told nothing. The default row still works — it is
+      // the tool's own directory, which needs no list — so the picker stays
+      // usable and the inline line below says which part failed.
+      .catch((err: unknown) => { if (!cancelled) setError(aiErrorMessage(err, t)) })
     return () => { cancelled = true }
-  }, [open, runAs, tool, withProfiles])
+  }, [open, runAs, tool, withProfiles, t])
 
   const createProfile = async () => {
     const name = (newName ?? '').trim()
@@ -227,7 +232,11 @@ export function NewSessionDialog({
               profile support, whose route would answer INVALID_TOOL. */}
           {withProfiles && (
             <div className="space-y-1.5">
-              <Label>{t('ai.profiles.label')}</Label>
+              {/* The create row replaces the picker rather than sitting beside
+                  it, so the one label points at whichever control is
+                  rendered. Without it the name field's only accessible name
+                  was its placeholder. */}
+              <Label htmlFor={newName === null ? 'ai-profile' : 'ai-profile-name'}>{t('ai.profiles.label')}</Label>
               {newName === null ? (
                 <Select
                   value={profile || DEFAULT_PROFILE}
@@ -236,7 +245,7 @@ export function NewSessionDialog({
                     setProfile(v === DEFAULT_PROFILE ? '' : v)
                   }}
                 >
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="ai-profile" className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {shown.map((p) => {
                       const value = p.default ? DEFAULT_PROFILE : p.name
@@ -259,7 +268,7 @@ export function NewSessionDialog({
                 /* A Select row cannot hold a button, so the create row replaces
                    the picker instead of nesting inside it. */
                 <div className="flex gap-2">
-                  <Input value={newName} onChange={(e) => setNewName(e.target.value)}
+                  <Input id="ai-profile-name" value={newName} onChange={(e) => setNewName(e.target.value)}
                     // A second Enter while the first is in flight would post
                     // the same name again and paint that 409 over a create
                     // that had already succeeded.
