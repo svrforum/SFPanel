@@ -40,7 +40,7 @@ export ANDROID_HOME=/path/to/android-sdk
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-디버그 APK는 개발용 키로 서명됩니다. 정식 배포는 소유한 서명 키로 Android Studio의 **Generate Signed App Bundle / APK**를 이용하세요. 서명 키는 저장소에 넣지 않습니다. GitHub Actions의 Android workflow도 테스트·린트 후 디버그 APK를 artifact로 생성합니다.
+디버그 APK는 개발용 키로 서명됩니다. 정식 배포는 아래 GitHub 릴리즈 자동화를 사용하며, 직접 빌드할 때는 소유한 서명 키로 Android Studio의 **Generate Signed App Bundle / APK**를 이용하세요. 서명 키는 저장소에 넣지 않습니다. GitHub Actions의 Android workflow도 테스트·린트 후 디버그 APK를 artifact로 생성합니다.
 
 브라우저 회귀 테스트는 실제 서버 명령을 실행하지 않는 REST/WS fixture를 사용합니다.
 
