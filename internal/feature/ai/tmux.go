@@ -113,23 +113,15 @@ func (h *Handler) tmuxBase(acct Account) (string, []string) {
 }
 
 // tmuxCmd is tmuxBase behind the account's explicit environment (accounts.go).
-// Every tmux invocation goes through it except the spawn, which adds the
-// session's profile variable (tmuxSessionCmd), and the attach client, which
-// sets its own environment through cmd.Env — and must, because it needs a TERM.
+// Every tmux invocation goes through it except the attach client, which sets
+// its own environment through cmd.Env — and must, because it needs a TERM.
+//
+// The spawn goes through it unchanged. The process environment here is the
+// *client's*, and tmux gives a session none of it (only update-environment
+// crosses), so a session's own variable cannot ride along here — it rides on
+// new-session -e instead. See sessionCommands.
 func (h *Handler) tmuxCmd(acct Account) (string, []string) {
-	return h.tmuxCmdEnv(h.envArgv(acct), acct)
-}
-
-// tmuxSessionCmd is the spawn's own: tmuxCmd carrying the profile variable
-// the session's tool reads. It is the spawn that needs it because the spawn
-// is what may start the account's tmux server, and the server's environment
-// is what its panes inherit; every other invocation is a short-lived client
-// that reads none of it.
-func (h *Handler) tmuxSessionCmd(acct Account, tool, profile string) (string, []string) {
-	return h.tmuxCmdEnv(h.sessionEnvArgv(acct, tool, profile), acct)
-}
-
-func (h *Handler) tmuxCmdEnv(prefix []string, acct Account) (string, []string) {
+	prefix := h.envArgv(acct)
 	name, argv := h.tmuxBase(acct)
 	return prefix[0], append(append(prefix[1:], name), argv...)
 }
@@ -314,16 +306,30 @@ func (h *Handler) serverRunning(acct Account) bool {
 // and dropped the pane straight to the fallback shell. The `shell` tool takes
 // no flag: `bash -l` on tmux's tty is interactive already.
 //
-// No `-e` pairs: the session environment is the server's, and the server got
-// it from systemd (--setenv) or from the env prefix that started it.
-func sessionCommands(term, id, cwd, tool string) []string {
+// The session's profile (spec §4) is one `-e` pair on this new-session, and
+// this is the only place it can be. A tmux session's environment is the
+// *server's*, plus whatever -e names: tmux copies only update-environment
+// (DISPLAY, SSH_*) from the client that asks, so the env prefix in front of a
+// client-form spawn reaches the client and stops there. Passing it at server
+// start instead — systemd's --setenv, or the prefix on the spawn that starts
+// the server — makes it the server's global environment, which every later
+// session of that account then inherits, including one the operator opened on
+// the default profile: it would run on someone else's login with nothing on
+// screen to say so. `-e` is per session and arrived in tmux 3.1a, below the
+// 3.2 floor tmuxMinVersion enforces. The default profile adds no pair at all
+// (profileVar), so it inherits a server environment that names no profile.
+func sessionCommands(term, id, cwd, tool, profile string, acct Account) []string {
 	var argv []string
 	for _, opt := range tmuxOptions(term) {
 		argv = append(argv, opt...)
 		argv = append(argv, ";")
 	}
 	shell := findShell()
-	argv = append(argv, "new-session", "-d", "-s", id, "-c", cwd, "--")
+	argv = append(argv, "new-session", "-d", "-s", id, "-c", cwd)
+	if v, ok := profileVar(acct, tool, profile); ok {
+		argv = append(argv, "-e", v)
+	}
+	argv = append(argv, "--")
 	if tool == ToolShell {
 		return append(argv, shell, "-l")
 	}
@@ -351,26 +357,24 @@ func sessionCommands(term, id, cwd, tool string) []string {
 // and --uid makes systemd set HOME/USER/LOGNAME/SHELL itself, so no runuser
 // and no env prefix are needed. The client form keeps both, because there it
 // is the panel that forks (accounts.go explains the env -i boundary).
-// The session's profile (spec §4) rides along by whichever of those two
-// routes the form already uses: one more --setenv for systemd, one more entry
-// in the env prefix otherwise. The default profile adds nothing — see
-// profileVar.
+// Neither route carries the session's profile: both of them are the *server's*
+// environment, which outlives the session and is inherited by every later one.
+// --setenv keeps LANG and COLORTERM because those are identical for every
+// session of the account. The profile is per session, so it rides on
+// new-session -e inside cmds — see sessionCommands.
 func (h *Handler) spawnArgv(id, cwd, tool, profile string, acct Account, form spawnForm) (string, []string) {
-	cmds := sessionCommands(h.defaultTerminal(), id, cwd, tool)
+	cmds := sessionCommands(h.defaultTerminal(), id, cwd, tool, profile, acct)
 	if form == spawnService {
 		argv := []string{
 			"--unit=" + unitName(acct), "--collect",
 			"--uid=" + acct.Name, "--gid=" + strconv.Itoa(acct.GID),
 			"-p", "Type=forking",
 			"--setenv=LANG=C.UTF-8", "--setenv=COLORTERM=truecolor",
+			"--", "tmux", "-f", "/dev/null", "-S", h.socketPath(acct),
 		}
-		if v, ok := profileVar(acct, tool, profile); ok {
-			argv = append(argv, "--setenv="+v)
-		}
-		argv = append(argv, "--", "tmux", "-f", "/dev/null", "-S", h.socketPath(acct))
 		return "systemd-run", append(argv, cmds...)
 	}
-	name, argv := h.tmuxSessionCmd(acct, tool, profile)
+	name, argv := h.tmuxCmd(acct)
 	argv = append(argv, cmds...)
 	if form == spawnSetsid {
 		return "setsid", append([]string{name}, argv...)

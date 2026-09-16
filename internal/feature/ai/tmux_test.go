@@ -528,31 +528,39 @@ func TestProfileVar(t *testing.T) {
 	}
 }
 
-// Each form passes the variable the way it already passes LANG: systemd's
-// --setenv in the service form, the `env` prefix in the client and setsid
-// forms. The default profile adds nothing anywhere — an empty CODEX_HOME
-// would be a third meaning of "default" for the tool to interpret.
-func TestSpawnArgv_CarriesTheProfileInEveryForm(t *testing.T) {
+// The profile is a PER-SESSION variable and must ride on new-session -e.
+// Measured on this host: a client's environment never reaches the session it
+// creates (tmux copies only update-environment), and a variable given at
+// server start becomes the server's global environment — so the next session,
+// the one the operator picked 기본 for, would silently run on that profile.
+func TestSpawnArgv_ProfileRidesOnNewSessionE(t *testing.T) {
 	h := newTestHandler(t, tmuxMock(""))
 	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
 	want := "CODEX_HOME=/home/alice/.sfpanel-ai/codex/work"
 
-	_, service := h.spawnArgv("0123456789ab", "/tmp", ToolCodex, "work", alice, spawnService)
-	if !slices.Contains(service, "--setenv="+want) {
-		t.Errorf("service form must pass the variable to systemd: %q", service)
-	}
-	for _, form := range []spawnForm{spawnClient, spawnSetsid} {
+	for _, form := range []spawnForm{spawnService, spawnClient, spawnSetsid} {
 		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolCodex, "work", alice, form)
-		if !slices.Contains(argv, want) {
-			t.Errorf("form %d must carry the variable in the env prefix: %q", form, argv)
+		i := slices.Index(argv, "-e")
+		if i < 0 || i+1 >= len(argv) || argv[i+1] != want {
+			t.Errorf("form %v: want `-e %s` on new-session, got %q", form, want, argv)
+		}
+		if ns := slices.Index(argv, "new-session"); ns < 0 || i < ns {
+			t.Errorf("form %v: the -e pair must sit on new-session, got %q", form, argv)
+		}
+		// It must NOT reach the server's global environment.
+		for _, a := range argv {
+			if strings.HasPrefix(a, "--setenv=CODEX_HOME=") {
+				t.Errorf("form %v: a profile in the server environment leaks into later sessions: %q", form, argv)
+			}
 		}
 	}
-	// and no profile means no variable anywhere
+
+	// A default-profile session sets nothing, so it inherits nothing.
 	for _, form := range []spawnForm{spawnService, spawnClient, spawnSetsid} {
-		_, plain := h.spawnArgv("0123456789ab", "/tmp", ToolCodex, "", alice, form)
-		for _, a := range plain {
-			if strings.Contains(a, "CODEX_HOME=") {
-				t.Errorf("form %d: the default profile must set nothing: %q", form, plain)
+		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolCodex, "", alice, form)
+		for _, a := range argv {
+			if strings.Contains(a, "CODEX_HOME") {
+				t.Errorf("form %v: the default profile must name no config home: %q", form, argv)
 			}
 		}
 	}

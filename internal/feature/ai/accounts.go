@@ -144,6 +144,13 @@ func (h *Handler) envArgv(acct Account) []string {
 // tool reads for its configuration and credential directory (profiles.go),
 // pointed at that profile's directory.
 //
+// Deliberately not part of envArgv. That prefix is a *process* environment,
+// and the only caller that wants a profile is the session spawn, where the
+// process in question is a tmux client whose environment the session never
+// sees; the pair goes on `new-session -e` instead (sessionCommands). The tool
+// probe and the installer keep envArgv untouched — they answer whether a tool
+// is installed, which no profile changes.
+//
 // ok=false means "no variable at all", and it is an answer, not an error the
 // caller has to handle: the default profile is the tool's own directory and
 // must leave the variable unset rather than set it to something, a tool
@@ -160,18 +167,6 @@ func profileVar(acct Account, tool, profile string) (string, bool) {
 		return "", false
 	}
 	return name + "=" + dir, true
-}
-
-// sessionEnvArgv is envArgv plus that entry: the environment of a spawn that
-// carries one session's tool. Only the spawn takes it — the probe and the
-// installer keep envArgv, because they answer whether a tool is installed and
-// no profile changes that.
-func (h *Handler) sessionEnvArgv(acct Account, tool, profile string) []string {
-	argv := h.envArgv(acct)
-	if v, ok := profileVar(acct, tool, profile); ok {
-		argv = append(argv, v)
-	}
-	return argv
 }
 
 // resolveAccount maps a client-supplied name onto the allowlist. An empty

@@ -817,7 +817,10 @@ func TestRestart_ReusesTheRowsProfile(t *testing.T) {
 	want := "CODEX_HOME=" + filepath.Join(home, profileRootName, "codex", "work")
 	var spawned bool
 	for _, c := range m.Calls {
-		if slices.Contains(c.Args, want) || slices.Contains(c.Args, "--setenv="+want) {
+		// The pair, not just the value: `--setenv=<var>` would put the
+		// profile in the tmux server's environment, where every later
+		// session of the account would inherit it.
+		if i := slices.Index(c.Args, "-e"); i >= 0 && i+1 < len(c.Args) && c.Args[i+1] == want {
 			spawned = true
 		}
 	}
