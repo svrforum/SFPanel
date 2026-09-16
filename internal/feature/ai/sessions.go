@@ -22,11 +22,15 @@ import (
 
 // Session is what the page renders: a row joined with tmux's view of it.
 type Session struct {
-	ID             string `json:"id"`
-	Tool           string `json:"tool"`
-	Title          string `json:"title"`
-	RunAs          string `json:"run_as"`
-	CWD            string `json:"cwd"`
+	ID    string `json:"id"`
+	Tool  string `json:"tool"`
+	Title string `json:"title"`
+	RunAs string `json:"run_as"`
+	CWD   string `json:"cwd"`
+	// Profile is the row's configuration directory; "" is the tool's own
+	// (see profiles.go). Carried on the session because a delete has to see
+	// which profiles are in use, and the tab bar shows a non-default one.
+	Profile        string `json:"profile,omitempty"`
 	State          string `json:"state"`
 	Persistence    string `json:"persistence"` // "service" | "process"
 	Attached       bool   `json:"attached"`
@@ -123,7 +127,7 @@ func (h *Handler) sessionsSnapshot() ([]Session, error) {
 	seen := map[string]bool{}
 	out := make([]Session, 0, len(rows))
 	for _, r := range rows {
-		s := Session{ID: r.ID, Tool: r.Tool, Title: r.Title, RunAs: r.RunAs, CWD: r.CWD, Persistence: persistence,
+		s := Session{ID: r.ID, Tool: r.Tool, Title: r.Title, RunAs: r.RunAs, CWD: r.CWD, Profile: r.Profile, Persistence: persistence,
 			CreatedAt: r.CreatedAt, LastAttachedAt: r.LastAttachedAt.String, EndedAt: r.EndedAt.String}
 		if w, alive := lookup(r.RunAs)[r.ID]; alive {
 			s.State = deriveState(w, now)

@@ -1,6 +1,9 @@
 package ai
 
-import "database/sql"
+import (
+	"database/sql"
+	"time"
+)
 
 // sessionRow is one ai_sessions row. tmux decides whether the session is
 // alive; the row is identity, title and history (spec §1).
@@ -111,4 +114,40 @@ func recentSessionDirs(db *sql.DB, limit int) ([]string, error) {
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+// profileLastUsed is the newest session per profile for one account and tool,
+// so the picker can show which login was used last.
+func profileLastUsed(db *sql.DB, runAs, tool string) (map[string]string, error) {
+	rows, err := db.Query(`SELECT profile, MAX(created_at) FROM ai_sessions WHERE run_as = ? AND tool = ? GROUP BY profile`, runAs, tool)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var profile string
+		var last sql.NullString
+		if err := rows.Scan(&profile, &last); err != nil {
+			return nil, err
+		}
+		if last.Valid {
+			out[profile] = normalizeStoredTime(last.String)
+		}
+	}
+	return out, rows.Err()
+}
+
+// normalizeStoredTime turns SQLite's own CURRENT_TIMESTAMP text into RFC 3339
+// and leaves a value that is already RFC 3339 alone. It is needed because an
+// aggregate carries no declared column type: the driver parses a direct
+// created_at read into a time and hands it back as RFC 3339, but
+// MAX(created_at) comes back as the stored "2006-01-02 15:04:05" (UTC). One
+// field carrying two formats is exactly the bug sessionsSnapshot documents
+// for ended_at.
+func normalizeStoredTime(s string) string {
+	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
+		return t.UTC().Format(time.RFC3339)
+	}
+	return s
 }

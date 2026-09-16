@@ -35,6 +35,25 @@ func call(t *testing.T, fn echo.HandlerFunc, method, body, id string, query stri
 	return rec
 }
 
+// callParams is `call` with several path parameters.
+func callParams(t *testing.T, fn echo.HandlerFunc, method, body string, params map[string]string, query string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, "/ai"+query, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	names, values := make([]string, 0, len(params)), make([]string, 0, len(params))
+	for k, v := range params {
+		names, values = append(names, k), append(values, v)
+	}
+	c.SetParamNames(names...)
+	c.SetParamValues(values...)
+	if err := fn(c); err != nil {
+		t.Fatal(err)
+	}
+	return rec
+}
+
 func failCode(t *testing.T, rec *httptest.ResponseRecorder) (string, string) {
 	t.Helper()
 	var env response.Response
