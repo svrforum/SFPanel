@@ -138,16 +138,20 @@ export function LaunchOptions({
         )}
         <div className="space-y-1.5">
           <Label htmlFor="ai-launch-model">{t('ai.launch.model')}</Label>
-          {/* Trimmed as it is typed: the field is one CLI token, so
-              surrounding whitespace is never part of a model name — and a
-              name pasted out of a document arrives with it. What the trim
-              cannot rescue (a `/` or an `@`, which no model name either CLI
-              takes may carry) is named below instead of being posted for the
+          {/* Held as typed, not trimmed as it is typed: trimming on every
+              keystroke turned a typed `gpt 5` into `gpt5`, a name both
+              validators accept — so a character vanished under the cursor
+              and the session got a model nobody chose. Whitespace inside the
+              name is now one of the unusable characters modelError names,
+              and the edges a pasted name carries are dropped once, where the
+              request is built (launchModel). What no trim could ever rescue
+              (a `/` or an `@`, which no model name either CLI takes may
+              carry) is still named below instead of being posted for the
               server to refuse in English. */}
           <Input
             id="ai-launch-model"
             value={value.model ?? ''}
-            onChange={(e) => set({ model: e.target.value.trim() || undefined })}
+            onChange={(e) => set({ model: e.target.value || undefined })}
             placeholder={t('ai.launch.modelPlaceholder')}
             className="font-mono text-[12px]"
             maxLength={64}

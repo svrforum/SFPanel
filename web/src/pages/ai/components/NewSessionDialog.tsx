@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { AIDirs, AILaunchOptions, AIProfile, AISession, AITool, AITools } from '@/types/api'
 import type { AILastSession, AITouched, LaunchExtraError } from '@/lib/aiSessions'
-import { TOOL_META, aiErrorMessage, aiPrefill, dangerousBlocked, defaultTitle, launchKey, launchSummary, loginCommandFor, parseLaunch, profileErrorMessage, relativeSince, supportsLaunch, supportsProfiles, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra, validateModel } from '@/lib/aiSessions'
+import { TOOL_META, aiErrorMessage, aiPrefill, dangerousBlocked, defaultTitle, launchKey, launchModel, launchSummary, loginCommandFor, parseLaunch, profileErrorMessage, relativeSince, supportsLaunch, supportsProfiles, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra } from '@/lib/aiSessions'
 import { cn } from '@/lib/utils'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { LaunchOptions } from './LaunchOptions'
@@ -200,10 +200,12 @@ export function NewSessionDialog({
   const withLaunch = supportsLaunch(tool)
   const parsedExtra = validateExtra(extraRaw)
   const extraError: LaunchExtraError | null = 'error' in parsedExtra ? parsedExtra.error : null
-  // The model field's one rule, the server's own. Derived here rather than in
-  // the section so the message beside the field and the guard on 만들기 are
-  // the same check.
-  const modelError = withLaunch && !validateModel(launch.model ?? '')
+  // The model field's one rule, the server's own, run on the string the
+  // field is actually holding. Derived here rather than in the section so the
+  // message beside the field and the guard on 만들기 are the same check, and
+  // `model` is the one trim, taken where the body is built.
+  const model = withLaunch ? launchModel(launch.model ?? '') : ''
+  const modelError = model === null
   // An empty summary is exactly an empty option set (see launchSummary), and
   // that is what decides both whether the section opens itself and whether
   // the body carries a `launch` at all.
@@ -263,8 +265,13 @@ export function NewSessionDialog({
     const dir = cwd.trim()
     const opts: AILaunchOptions = withLaunch
       // The checkbox is disabled for a root Claude, so the body says the same
-      // — the server refuses it too, with the account named.
-      ? { ...launch, dangerous: (launch.dangerous === true && !dangerousBlocked(tool, runAs)) || undefined }
+      // — the server refuses it too, with the account named. The model is
+      // trimmed here and nowhere else: the field keeps what was typed.
+      ? {
+          ...launch,
+          model: model || undefined,
+          dangerous: (launch.dangerous === true && !dangerousBlocked(tool, runAs)) || undefined,
+        }
       : {}
     if (opts.dangerous && !(await confirm({
       title: t('ai.launch.confirmTitle'),

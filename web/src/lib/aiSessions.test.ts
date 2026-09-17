@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AISession, AITools } from '@/types/api'
-import { LAUNCH_CATALOGUE, PROFILE_TOOLS, aiErrorMessage, aiPrefill, dangerousBlocked, dangerousFlagFor, defaultTitle, formatTimestamp, launchKey, launchSummary, loginCommandFor, parseLaunch, profileErrorMessage, relativeSince, sessionInfoLine, stateDotClass, supportsLaunch, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra, validateModel, waitingCount } from './aiSessions'
+import { LAUNCH_CATALOGUE, PROFILE_TOOLS, aiErrorMessage, aiPrefill, dangerousBlocked, dangerousFlagFor, defaultTitle, formatTimestamp, launchKey, launchModel, launchSummary, loginCommandFor, parseLaunch, profileErrorMessage, relativeSince, sessionInfoLine, stateDotClass, supportsLaunch, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra, validateModel, waitingCount } from './aiSessions'
 
 const bundle = (account: string, installed: Partial<Record<'claude' | 'codex' | 'gemini', boolean>>): AITools => ({
   tmux: { installed: true, version: '3.6', supported: true, min_version: '3.2' },
@@ -442,14 +442,44 @@ describe('validateModel', () => {
     expect(validateModel('o'.repeat(64))).toBe(true)
   })
 
-  // The two shapes an operator actually pastes, plus the stray space the
-  // field's own trim would have removed first.
+  // The two shapes an operator actually pastes, plus the space that reaches
+  // this rule now that the field no longer closes it up (see launchModel).
   it('refuses a vendor prefix, a dated tag, a space and 65 characters', () => {
     expect(validateModel('openai/gpt-5')).toBe(false)
     expect(validateModel('model@2025-09')).toBe(false)
     expect(validateModel('opus 5')).toBe(false)
     expect(validateModel('-opus')).toBe(false)
     expect(validateModel('o'.repeat(65))).toBe(false)
+  })
+})
+
+describe('launchModel', () => {
+  // The defect this replaces: the field trimmed on every keystroke, so a
+  // typed `gpt 5` became `gpt5` — a name this rule and the server's both
+  // accept. The operator watched a character vanish under the cursor and the
+  // session got a model they never asked for, where the same input used to
+  // draw a refusal. The check runs on the string the field is holding, so an
+  // inner space is one of the unusable characters modelError names.
+  it('refuses a space inside the name instead of closing it up', () => {
+    expect(launchModel('gpt 5')).toBeNull()
+    expect(launchModel('gpt 5')).not.toBe('gpt5')
+    expect(launchModel('openai/gpt-5')).toBeNull()
+  })
+
+  // The edges are the exception and the only one: they are what a pasted
+  // name carries, ` gpt-5 ` names the same model as `gpt-5`, and "쓸 수 없는
+  // 문자" would be a false thing to say about that paste. Dropped once, where
+  // the body is built.
+  it('drops the whitespace a pasted name carries and posts the name', () => {
+    expect(launchModel(' gpt-5 ')).toBe('gpt-5')
+    expect(launchModel('\tclaude-opus-4.5\n')).toBe('claude-opus-4.5')
+  })
+
+  // An empty field is the tool's own default, which is what the placeholder
+  // says — not a refusal. Whitespace alone is the same thing typed.
+  it('reads an empty or blank field as the tool default', () => {
+    expect(launchModel('')).toBe('')
+    expect(launchModel('   ')).toBe('')
   })
 })
 

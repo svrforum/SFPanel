@@ -200,9 +200,40 @@ const MAX_EXTRA_LEN = 64
  *
  * Empty is valid — it means the tool's own default, which is what the field's
  * placeholder says.
+ *
+ * This is the rule on a finished name. What the *field* holds is not one yet,
+ * so the dialog calls launchModel below rather than this directly.
  */
 export function validateModel(model: string): boolean {
   return model === '' || /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(model)
+}
+
+/**
+ * The 모델 field as typed, turned into the name that gets posted — or null,
+ * meaning the field is showing something that is not a model name.
+ *
+ * The field keeps what the operator typed, and the check runs on that. It
+ * used to be trimmed on every keystroke instead, which turned a typed
+ * `gpt 5` into `gpt5`: a name this rule and the server's both accept, so the
+ * operator watched a character vanish under the cursor and got a model they
+ * had not asked for, where the same input used to draw a refusal. Whitespace
+ * *inside* a name is therefore one of the unusable characters
+ * ai.launch.modelError names.
+ *
+ * The edges are the exception, and the only one: they are what a name pasted
+ * out of a document carries, ` gpt-5 ` and `gpt-5` are the same model, and
+ * "쓸 수 없는 문자" would be a false thing to say about that paste. So they
+ * are dropped once, here, where the request body is built — not under the
+ * cursor.
+ *
+ * `''` (the whole field, or all whitespace) is not an error: it means the
+ * tool's own default. A boolean-or-value rather than validateExtra's tagged
+ * union because there is one rule here, not four, so there is no *which* to
+ * carry back.
+ */
+export function launchModel(raw: string): string | null {
+  const model = raw.trim()
+  return validateModel(model) ? model : null
 }
 
 /**
