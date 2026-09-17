@@ -6,6 +6,20 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.75.0] – 2026-09-17
+
+### Added
+
+**Start a session the way you want it started.** Opening a folder used to start the CLI bare, so continuing yesterday's conversation or letting the tool work without stopping for permission meant typing a flag by hand — and the flags that only apply at launch could not be typed at all. The new-session dialog now has a 실행 옵션 section: continue the last conversation (or pick from the list), choose how much the tool asks before acting, name a model, and add arguments of your own. The choices are remembered per folder and tool, so the next session in that directory starts the same way, and the collapsed section shows a summary so nothing is ever applied invisibly.
+
+The two CLIs do not agree on shape and the panel absorbs that: Claude takes `--continue`, while Codex continues with a subcommand (`codex resume --last`), which the panel assembles for you. Options are stored on the session as the choices themselves rather than as a command line, so 다시 실행 and 다시 시작 reproduce exactly how a session was started, and a future change to a flag's name cannot turn an old session into an unrunnable command.
+
+**Skipping permission prompts is offered, with the guard rails the tool itself has.** The option carries a warning, asks for confirmation once, and marks the tab of any session running that way. For Claude it is disabled when the run-as account is root, because Claude refuses that combination — the panel says so while you are still looking at the account selector instead of letting the tool die with it after the session opens. Codex has no such rule of its own, so the panel does not invent one.
+
+Every value is checked against the installed tool's own vocabulary before anything starts, and a free-text argument must be a single unquoted token: options reach the tool as separate words, never as a string a shell gets to re-read.
+
+---
+
 ## [0.74.1] – 2026-09-17
 
 ### Security
