@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
 
 // These tests never contact a host shell: REST and WebSocket are both fixtures.
 // Run against a frontend dev server or a built panel; no admin seed is needed.
@@ -89,7 +90,9 @@ for (const path of ['/terminal', '/ai']) {
       const box = await button.boundingBox()
       expect(box?.height).toBeGreaterThanOrEqual(48)
     }
-    await page.addScriptTag({ path: resolve(__dirname, '../../android/app/src/main/assets/panel.js') })
+    // Match WebView.evaluateJavascript; a DOM script tag is blocked by the
+    // production CSP and does not model how the Android asset is installed.
+    await page.evaluate(readFileSync(resolve(__dirname, '../../android/app/src/main/assets/panel.js'), 'utf8'))
     if (path === '/ai') {
       const overview = page.locator('[data-ai-workspace] > :first-child')
       await expect(overview).toBeHidden()

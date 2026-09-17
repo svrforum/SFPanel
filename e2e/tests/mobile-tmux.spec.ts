@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
 
 test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
 
@@ -39,7 +40,8 @@ for (const android of [false, true]) {
       await page.goto('/ai')
       const terminal = page.locator('[data-terminal-session="active"]')
       await expect(terminal).toBeVisible()
-      if (android) await page.addScriptTag({ path: resolve(__dirname, '../../android/app/src/main/assets/panel.js') })
+      // Match native evaluateJavascript while leaving the server CSP intact.
+      if (android) await page.evaluate(readFileSync(resolve(__dirname, '../../android/app/src/main/assets/panel.js'), 'utf8'))
       const firstLine = () => terminal.evaluate(el => {
         const t = (el as any).__termRef.current
         return Number.parseInt(t.buffer.active.getLine(0)?.translateToString(true) || '', 10)
