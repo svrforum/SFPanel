@@ -110,9 +110,10 @@ func decodeLaunch(s string) (LaunchOptions, error) {
 // dropping them would start a session that is not the one that was asked for.
 //
 // A var rather than a fixed expression so a test can add a tool this file's
-// two switches do not know and prove what they do with one — see
-// TestLaunch_AToolWithoutItsOwnRulesIsRefusedNotAccepted. Adding a third tool
-// here is therefore only half the change; both switches need an arm too.
+// two switches do not know and prove what they do with one — through
+// withLaunchTool, which is the only thing that may write it and puts it back.
+// Adding a third tool here is therefore only half the change; both switches
+// need an arm too.
 var launchTools = []string{ToolClaude, ToolCodex}
 
 func toolSupportsLaunch(tool string) bool {

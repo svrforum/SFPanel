@@ -127,6 +127,23 @@ func TestValidateLaunch(t *testing.T) {
 	}
 }
 
+// withLaunchTool lends the production launchTools catalogue an extra tool for
+// the length of one test and puts the previous slice back afterwards, so the
+// only write to a value production code reads is this one and it is visible
+// at the test that needs it. Cloned rather than appended in place: append may
+// reuse the backing array, and restoring a literal instead of the previous
+// value would quietly duplicate the catalogue in a test file.
+//
+// The package must stay serial for this: there is no t.Parallel anywhere in
+// it today, and one added later would race this write against the goroutines
+// sessions_test.go drives through spawn → toolArgv → toolSupportsLaunch.
+func withLaunchTool(t *testing.T, tool string) {
+	t.Helper()
+	prev := launchTools
+	launchTools = append(slices.Clone(prev), tool)
+	t.Cleanup(func() { launchTools = prev })
+}
+
 // Adding a tool to launchTools is only half of adding a tool: validateLaunch
 // has to have a list of permission values for it and toolArgv has to have the
 // flags. Without the default arms in both switches, a tool added to the list
@@ -137,8 +154,7 @@ func TestValidateLaunch(t *testing.T) {
 // `tool` is either in launchTools and handled, or refused before the switch.
 func TestLaunch_AToolWithoutItsOwnRulesIsRefusedNotAccepted(t *testing.T) {
 	const future = "future-cli"
-	launchTools = append(launchTools, future)
-	t.Cleanup(func() { launchTools = []string{ToolClaude, ToolCodex} })
+	withLaunchTool(t, future)
 
 	err := validateLaunch(future, LaunchOptions{Permission: "whatever"})
 	if err == nil {
