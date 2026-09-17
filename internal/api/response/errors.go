@@ -111,6 +111,7 @@ const (
 	ErrAISessionState    = "AI_SESSION_STATE"     // rerun/restart in the wrong state (409)
 	ErrAIProfileExists   = "AI_PROFILE_EXISTS"    // a directory of that name is already there (409)
 	ErrAIProfileInUse    = "AI_PROFILE_IN_USE"    // a live session is using it (409)
+	ErrLaunchRootDanger  = "LAUNCH_ROOT_DANGER"   // the tool refuses its bypass flag as root (400)
 )
 
 // Package (APT) error codes

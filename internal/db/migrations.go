@@ -216,6 +216,12 @@ var migrations = []migration{
 		ended_at         DATETIME
 	)`},
 	{ID: 37, Up: `ALTER TABLE ai_sessions ADD COLUMN profile TEXT NOT NULL DEFAULT ''`},
+	// The launch options the session was created with, as the JSON of
+	// ai.LaunchOptions. '' is "the tool starts bare", which every earlier row
+	// already means. The choices are stored, never a built argv, so a later
+	// change to a flag's spelling cannot turn an old row into an unrunnable
+	// command.
+	{ID: 38, Up: `ALTER TABLE ai_sessions ADD COLUMN launch TEXT NOT NULL DEFAULT ''`},
 }
 
 // RunMigrations applies every registered migration that hasn't already been

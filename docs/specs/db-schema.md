@@ -2,7 +2,7 @@
 
 > 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/db-inventory.md`
 >
-> **이 문서의 테이블별 컬럼 정의는 v0.9.0 시점**입니다. v0.10.0 이후 추가/변경된 항목은 `internal/db/migrations.go`(현재 ID 8–37)와 본 문서 하단 § 마이그레이션 이력의 "v4 이후" 단락을 참조하세요. 권한 있는 출처는 코드입니다.
+> **이 문서의 테이블별 컬럼 정의는 v0.9.0 시점**입니다. v0.10.0 이후 추가/변경된 항목은 `internal/db/migrations.go`(현재 ID 8–38)와 본 문서 하단 § 마이그레이션 이력의 "v4 이후" 단락을 참조하세요. 권한 있는 출처는 코드입니다.
 
 ## 개요
 
@@ -308,7 +308,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - `alert_history` 테이블 생성 (알림 발송 이력)
 - `idx_alert_history_created_at` 인덱스 생성
 
-### v4 이후 (migrations.go ID 8 – 37, v0.11.x – v0.73.x)
+### v4 이후 (migrations.go ID 8 – 38, v0.11.x – v0.74.x)
 
 권한 있는 출처는 `internal/db/migrations.go`. 본 단락은 변경 이력 요약입니다.
 
@@ -328,6 +328,7 @@ SQLite의 AUTOINCREMENT 시퀀스를 추적하는 내부 시스템 테이블. `A
 - **ID 35** — `admin.recovery_codes TEXT`. 2FA 복구 코드(단일 사용, 해시 저장)를 admin 행에 보관.
 - **ID 36** — `ai_sessions` (v0.73.0 AI 워크스페이스). 패널이 관리하는 tmux 세션의 식별자·도구·제목·실행 계정·작업 디렉터리. 생존 여부는 tmux가 진실이고 이 표는 신원과 이력만 보관 — `ended_at`이 채워진 행은 "다시 시작" 후보로 남는다. 노드 로컬(FSM 복제 없음).
 - **ID 37** — `ai_sessions.profile TEXT NOT NULL DEFAULT ''`. 세션이 사용할 도구 설정 디렉터리(프로파일) 이름. 빈 문자열은 도구의 기본 디렉터리(`~/.codex`, `~/.claude`)를 뜻하며, 마이그레이션 이전의 모든 행이 이미 그 의미다. 실제 디렉터리는 `<계정 홈>/.sfpanel-ai/<도구>/<이름>`.
+- **ID 38** — `ai_sessions.launch TEXT NOT NULL DEFAULT ''`. 세션을 시작할 때 고른 실행 옵션의 JSON(`ai.LaunchOptions` — 이어서 하기·승인 모드·샌드박스·위험 플래그·모델·추가 인자). 빈 문자열은 "도구를 옵션 없이 그대로 시작"이라는 뜻이고, 마이그레이션 이전의 모든 행이 이미 그 의미다. argv 문자열이 아니라 **고른 값**을 저장한다 — 나중에 CLI 플래그 이름이 바뀌어도 과거 행이 실행 불가능한 명령으로 굳지 않게 하려는 것이고, argv는 spawn 시점에 도구별 순수 함수(`toolArgv`)가 만든다.
 
 ---
 

@@ -168,3 +168,24 @@ func TestStore_ProfileRoundTrip(t *testing.T) {
 		t.Errorf("default profile = %q, want empty", plain.Profile)
 	}
 }
+
+func TestStore_LaunchRoundTrip(t *testing.T) {
+	db := openTestDB(t)
+	stored := `{"continue":"last","permission":"acceptEdits"}`
+	if err := insertSession(db, sessionRow{ID: "cccccccccccc", Tool: ToolClaude, Title: "t", RunAs: "root", CWD: "/", Launch: stored}); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertSession(db, sessionRow{ID: "dddddddddddd", Tool: ToolClaude, Title: "t", RunAs: "root", CWD: "/"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := getSessionRow(db, "cccccccccccc")
+	if err != nil || got.Launch != stored {
+		t.Errorf("launch = %q, err = %v, want %q", got.Launch, err, stored)
+	}
+	// The empty string is a tool started bare, which is what every row
+	// written before migration 38 already means.
+	plain, _, _ := getSessionRow(db, "dddddddddddd")
+	if plain.Launch != "" {
+		t.Errorf("bare launch = %q, want empty", plain.Launch)
+	}
+}
