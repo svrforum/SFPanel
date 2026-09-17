@@ -72,23 +72,23 @@ describe('NODE_MENU_ITEMS', () => {
 })
 
 describe('isTerminalRoute', () => {
-  // Both pages host the same xterm and the same MobileTerminalBar; the shell
-  // has to drop its padding and hide the bottom nav on each, or the bar and
-  // the nav stack on mobile.
-  it('covers the terminal and the AI workspace', () => {
+  // The one console page hosts the xterm and the MobileTerminalBar; the shell
+  // has to drop its padding and hide the bottom nav there.
+  it('covers the terminal page, and the retired AI route is no longer one', () => {
     expect(isTerminalRoute('/terminal')).toBe(true)
-    expect(isTerminalRoute('/ai')).toBe(true)
-    expect(TERMINAL_ROUTES).toEqual(['/terminal', '/ai'])
+    expect(isTerminalRoute('/ai')).toBe(false)
+    expect(TERMINAL_ROUTES).toEqual(['/terminal'])
   })
 
   it('matches exactly, so a child route is an ordinary page', () => {
-    expect(isTerminalRoute('/ai/x')).toBe(false)
+    expect(isTerminalRoute('/terminal/x')).toBe(false)
     expect(isTerminalRoute('/docker')).toBe(false)
     expect(isTerminalRoute('')).toBe(false)
   })
 
-  it('names routes that exist in the registry', () => {
+  it('names routes that exist in the registry, and the registry has no AI entry', () => {
     const routes = new Set(NAV_ITEMS.map((i) => i.to))
     for (const r of TERMINAL_ROUTES) expect(routes.has(r)).toBe(true)
+    expect(routes.has('/ai')).toBe(false)
   })
 })

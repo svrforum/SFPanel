@@ -76,7 +76,6 @@ export default function MobileTerminalBar({ onSendKey }: { onSendKey: (data: str
         <button className={keyClass} onPointerDown={e => e.preventDefault()} onClick={() => scroll('down')}>{t('terminal.mobile.scrollDown')}</button>
         <button className={keyClass} onPointerDown={e => e.preventDefault()} onClick={() => scroll('bottom')}>{t('terminal.mobile.latest')}</button>
         <button className={cn(keyClass, 'text-destructive')} onPointerDown={e => e.preventDefault()} onClick={() => { onSendKey('\x03'); change(NO_MODIFIERS) }}>Ctrl+C</button>
-        <button className={keyClass} onClick={() => navigate('/ai')}>{t('ai.title')}</button>
         <button className={keyClass} onClick={() => navigate('/dashboard')}>{t('layout.mobileNav.dashboard')}</button>
       </div>
     </div>

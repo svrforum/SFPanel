@@ -56,7 +56,6 @@
       "firewall": "방화벽",
       "sites": "사이트",
       "terminal": "터미널",
-      "ai": "AI 코딩",
       "appstore": "앱스토어",
       "cluster": "클러스터",
       "settings": "설정"
@@ -1382,8 +1381,6 @@
     }
   },
   "ai": {
-    "title": "AI 코딩",
-    "subtitle": "Claude Code · Codex · Gemini CLI를 끊기지 않는 세션으로 실행합니다",
     "account": "실행 계정",
     "accountHint": "세션과 도구 상태는 이 계정 기준입니다. 비루트 계정이면 그 계정의 로그인·설정을 그대로 씁니다.",
     "tools": {

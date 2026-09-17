@@ -1,293 +1,236 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Terminal as TerminalIcon, Plus, X, Minus, Search, Eraser, History, ShieldAlert, User as UserIcon } from 'lucide-react'
-import { api } from '@/lib/api'
-import type { TerminalSession as TerminalSessionInfo, TerminalInfo } from '@/types/api'
-import { cn } from '@/lib/utils'
-import { TerminalSession, type TerminalSessionElement } from '@/pages/terminal/components/TerminalSession'
-import MobileTerminalBar from '@/components/MobileTerminalBar'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
-
-interface Tab {
-  id: string
-  title: string
-}
-
-// Tabs map 1:1 to server PTY sessions and each node keeps its own session map,
-// so persist tabs PER NODE. A single global key reused the same tab id as the
-// session_id on every node, spawning a duplicate PTY per tab on each node
-// switch (orphaned until the 5-min idle reaper). Font size is a global pref.
-const STORAGE_KEY_BASE = 'sfpanel_terminal_tabs'
-const ACTIVE_TAB_KEY_BASE = 'sfpanel_terminal_active'
-const FONT_SIZE_KEY = 'sfpanel_terminal_fontsize'
+import { api } from '@/lib/api'
+import type { AISession, AITools, TerminalInfo, TerminalSession as TerminalSessionInfo } from '@/types/api'
+import { aiErrorMessage, sessionInfoLine, titlePrefix, waitingCount } from '@/lib/aiSessions'
+import { buildRail, findItem, parseActiveKey, pickActive, type RailItem } from '@/lib/sessionRail'
+import { cn } from '@/lib/utils'
+import { OutputDialog, useSSEOutput } from '@/components/OutputDialog'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { useIsMobile } from '@/hooks/useIsMobile'
+import MobileTerminalBar from '@/components/MobileTerminalBar'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import type { TerminalSessionElement } from '@/pages/terminal/components/TerminalSession'
+import { SessionRail, type RailAction } from '@/pages/terminal/components/SessionRail'
+import { SessionHeader } from '@/pages/terminal/components/SessionHeader'
+import { SessionPane } from '@/pages/terminal/components/SessionPane'
+import { PtyPane } from '@/pages/terminal/components/PtyPane'
+import { ToolsSheet } from '@/pages/terminal/components/ToolsSheet'
+import { TmuxBanner } from '@/pages/terminal/components/TmuxBanner'
+import { NewSessionDialog } from '@/pages/terminal/components/NewSessionDialog'
+import { useAISessions } from '@/pages/terminal/hooks/useAISessions'
+import { usePtyTabs } from '@/pages/terminal/hooks/usePtyTabs'
 
 const nodeSuffix = () => api.currentNode || 'local'
-const tabsKey = () => `${STORAGE_KEY_BASE}:${nodeSuffix()}`
-const activeTabKey = () => `${ACTIVE_TAB_KEY_BASE}:${nodeSuffix()}`
-
+const accountKey = () => `sfpanel_ai_account:${nodeSuffix()}`
+// The key the PTY-only page used for its active tab; the value is now
+// namespaced (see parseActiveKey), and a bare value from before is a PTY tab.
+const activeStorageKey = () => `sfpanel_terminal_active:${nodeSuffix()}`
+const RAIL_KEY = 'sfpanel_terminal_rail'
+const FONT_SIZE_KEY = 'sfpanel_terminal_fontsize'
 const MIN_FONT_SIZE = 10
 const MAX_FONT_SIZE = 24
 const DEFAULT_FONT_SIZE = 14
 
-let tabCounter = 0
-
-function generateTabId() {
-  tabCounter++
-  return `term-${tabCounter}`
+function readLS(key: string): string {
+  try { return localStorage.getItem(key) || '' } catch { return '' }
 }
-
-function loadTabs(): Tab[] {
-  try {
-    const raw = localStorage.getItem(tabsKey())
-    if (raw) {
-      const tabs = JSON.parse(raw) as Tab[]
-      if (Array.isArray(tabs) && tabs.length > 0) {
-        for (const t of tabs) {
-          const match = t.id.match(/^term-(\d+)$/)
-          if (match) {
-            tabCounter = Math.max(tabCounter, parseInt(match[1], 10))
-          }
-        }
-        return tabs
-      }
-    }
-  } catch { /* ignore */ }
-  return []
+function writeLS(key: string, value: string) {
+  try { localStorage.setItem(key, value) } catch { /* private mode */ }
 }
-
-function saveTabs(tabs: Tab[]) {
-  localStorage.setItem(tabsKey(), JSON.stringify(tabs))
-}
-
-function loadActiveTab(): string {
-  return localStorage.getItem(activeTabKey()) || ''
-}
-
-function saveActiveTab(id: string) {
-  localStorage.setItem(activeTabKey(), id)
-}
-
 function loadFontSize(): number {
-  const stored = localStorage.getItem(FONT_SIZE_KEY)
-  if (stored) {
-    const n = parseInt(stored, 10)
-    if (n >= MIN_FONT_SIZE && n <= MAX_FONT_SIZE) return n
-  }
-  return DEFAULT_FONT_SIZE
+  const n = parseInt(readLS(FONT_SIZE_KEY), 10)
+  return Number.isFinite(n) && n >= MIN_FONT_SIZE && n <= MAX_FONT_SIZE ? n : DEFAULT_FONT_SIZE
 }
 
-function saveFontSize(size: number) {
-  localStorage.setItem(FONT_SIZE_KEY, String(size))
-}
-
-// Single lookup path for the active tab's session element — search / clear /
-// key forwarding all reach into the DOM contract TerminalSession exposes
-// (data-terminal-session + __refs). Five callbacks used to repeat this
-// querySelectorAll + cast loop.
+// The active pane's session element — search / clear / key forwarding reach
+// into the DOM contract TerminalSession exposes (data-terminal-session + __refs).
 function forEachActiveSession(fn: (el: TerminalSessionElement) => void) {
-  document.querySelectorAll('[data-terminal-session="active"]').forEach(el => {
-    fn(el as TerminalSessionElement)
-  })
+  document.querySelectorAll('[data-terminal-session="active"]').forEach((el) => fn(el as TerminalSessionElement))
 }
 
+/**
+ * The one terminal page. Sessions are tmux sessions (shell or an AI tool)
+ * listed in a rail grouped by directory; the PTY engine is the fallback when
+ * tmux is missing or too old, and the temporary-shell door in the tools
+ * panel. The rail <aside> is always the first child of [data-ai-workspace]
+ * and is empty on a phone, where the rail lives in a drawer — see the spec's
+ * §2 and §10 for what the Android app and the e2e fixtures select on.
+ */
 export default function TerminalPage() {
   const { t } = useTranslation()
-  // Make sure there's always at least one tab on first render — guarantees
-  // the rest of the page can safely assume tabs[0] exists, and removes the
-  // setState-in-effect pattern that used to call addTab() during mount.
-  const [tabs, setTabs] = useState<Tab[]>(() => {
-    const persisted = loadTabs()
-    if (persisted.length > 0) return persisted
-    return [{ id: generateTabId(), title: t('terminal.tabTitle', { n: tabCounter, defaultValue: 'Terminal {{n}}' }) }]
-  })
-  const [activeTab, setActiveTab] = useState<string>(() => {
-    const persisted = loadActiveTab()
-    if (persisted) return persisted
-    // Use the same id we just minted above so first-render is consistent.
-    return ''
-  })
-  const [fontSize, setFontSize] = useState(() => loadFontSize())
-  const [editingTabId, setEditingTabId] = useState<string | null>(null)
-  const [editingTabName, setEditingTabName] = useState('')
+  const isMobile = useIsMobile()
+  const output = useSSEOutput()
+  const confirm = useConfirm()
+  const [account, setAccount] = useState<string>(() => readLS(accountKey()))
+  const [tools, setTools] = useState<AITools | null>(null)
+  const [toolsError, setToolsError] = useState(false)
+  const [active, setActive] = useState<string | null>(() => parseActiveKey(readLS(activeStorageKey()) || null))
+  const [collapsed, setCollapsed] = useState(() => readLS(RAIL_KEY) === 'collapsed')
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(() => document.documentElement.hasAttribute('data-ai-tools-open'))
+  const [launcherOpen, setLauncherOpen] = useState(false)
+  const [fontSize, setFontSize] = useState(loadFontSize)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [reattachOpen, setReattachOpen] = useState(false)
-  const [reattachSessions, setReattachSessions] = useState<TerminalSessionInfo[]>([])
-  const [shellInfo, setShellInfo] = useState<TerminalInfo | null>(null)
-  const editInputRef = useRef<HTMLInputElement>(null)
+  const [hostInfo, setHostInfo] = useState<TerminalInfo | null>(null)
+  const [reattachable, setReattachable] = useState<TerminalSessionInfo[]>([])
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const reattachRef = useRef<HTMLDivElement>(null)
+  const { sessions, loaded, refresh } = useAISessions()
+  const pty = usePtyTabs()
 
-  // Persist tabs to localStorage
-  useEffect(() => {
-    saveTabs(tabs)
-  }, [tabs])
+  // Promise callbacks rather than await: the effect kicks this off on mount
+  // and an async body would trip react-hooks/set-state-in-effect. First load
+  // asks with an empty user, which the server answers for its own account.
+  const loadTools = useCallback(() => {
+    api.getAITools(account).then((data) => {
+      setTools(data)
+      setToolsError(false)
+      if (!account && data.account !== data.panel_account) setAccount(data.panel_account)
+    }).catch(() => {
+      setToolsError(true)
+    })
+  }, [account])
+  useEffect(() => { loadTools() }, [loadTools])
+  useEffect(() => { if (account) writeLS(accountKey(), account) }, [account])
+  useEffect(() => { writeLS(FONT_SIZE_KEY, String(fontSize)) }, [fontSize])
+  useEffect(() => { writeLS(RAIL_KEY, collapsed ? 'collapsed' : 'open') }, [collapsed])
+  useEffect(() => { if (active) writeLS(activeStorageKey(), active) }, [active])
 
-  useEffect(() => {
-    saveActiveTab(activeTab)
-  }, [activeTab])
-
-  useEffect(() => {
-    saveFontSize(fontSize)
-  }, [fontSize])
-
-  // Which account on which host the PTY will run as. Fetched once per mount:
-  // the page is already scoped to a single node (see nodeSuffix above) and
-  // switching nodes remounts it, so there is nothing to re-poll. A failure
-  // leaves the badge hidden rather than blocking the terminal.
+  // Who the PTY engine runs as, for the badge. One fetch per mount: the page
+  // is scoped to a node and remounts on a node switch.
   useEffect(() => {
     let cancelled = false
-    api
-      .getTerminalInfo()
-      .then((info) => {
-        if (!cancelled) setShellInfo(info)
-      })
-      .catch(() => {
-        if (!cancelled) setShellInfo(null)
-      })
-    return () => {
-      cancelled = true
-    }
+    api.getTerminalInfo().then((info) => { if (!cancelled) setHostInfo(info) }).catch(() => { if (!cancelled) setHostInfo(null) })
+    return () => { cancelled = true }
   }, [])
 
-  const addTab = useCallback(() => {
-    const id = generateTabId()
-    const num = tabCounter
-    setTabs(prev => [...prev, { id, title: t('terminal.tabTitle', { n: num, defaultValue: 'Terminal {{n}}' }) }])
-    setActiveTab(id)
-  }, [t])
+  const fallback = tools !== null && !tools.tmux.supported
+  const groups = useMemo(
+    () => buildRail(sessions, pty.tabs, { fallback, temporaryLabel: t('terminal.rail.temporary') }),
+    [sessions, pty.tabs, fallback, t],
+  )
+  const activeItem = findItem(groups, active)
 
-  const openReattach = useCallback(() => {
-    setReattachOpen(prev => {
-      const next = !prev
-      if (next) {
-        api.getTerminalSessions()
-          .then((res) => {
-            const openIds = new Set(tabs.map(tb => tb.id))
-            setReattachSessions((res.sessions || []).filter(s => !openIds.has(s.session_id)))
-          })
-          .catch((err) => toast.error(String(err)))
-      }
-      return next
-    })
-  }, [tabs])
-
-  // Close the reattach popover on outside click (same mousedown pattern as
-  // the MoreMenu node picker); Escape is handled in the global keydown handler below.
+  // Keep the active item valid once the server's list has landed. The
+  // realignment fires only when the stored key and the rail disagree, so the
+  // cascading-render risk the rule guards is bounded (same shape as before).
   useEffect(() => {
-    if (!reattachOpen) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (reattachRef.current && !reattachRef.current.contains(e.target as HTMLElement)) {
-        setReattachOpen(false)
-      }
+    if (!loaded) return
+    const next = pickActive(groups, active)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (next !== active) setActive(next)
+  }, [groups, active, loaded])
+
+  // "(n) SFPanel" while something waits in a session that is not on screen.
+  const activeSessionId = activeItem?.kind === 'tmux' ? activeItem.id : null
+  const waiting = waitingCount(sessions, activeSessionId)
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\) /, '')
+    document.title = titlePrefix(waiting) + base
+    return () => { document.title = base }
+  }, [waiting])
+
+  // The Android app opens the tools panel by toggling <html data-ai-tools-open>;
+  // the attribute and the sheet's state follow each other both ways.
+  useEffect(() => {
+    const root = document.documentElement
+    const observer = new MutationObserver(() => setToolsOpen(root.hasAttribute('data-ai-tools-open')))
+    observer.observe(root, { attributes: true, attributeFilter: ['data-ai-tools-open'] })
+    return () => observer.disconnect()
+  }, [])
+  const setToolsOpenBoth = useCallback((open: boolean) => {
+    setToolsOpen(open)
+    document.documentElement.toggleAttribute('data-ai-tools-open', open)
+  }, [])
+
+  // Server-side PTY sessions this browser could reattach — listed inside the
+  // temporary group, so only fetched while that group is shown.
+  const showPty = fallback || pty.tabs.length > 0
+  const loadReattachable = useCallback(() => {
+    api.getTerminalSessions()
+      .then((r) => setReattachable((r.sessions || []).filter((s) => !pty.tabs.some((tb) => tb.id === s.session_id))))
+      .catch(() => setReattachable([]))
+  }, [pty.tabs])
+  useEffect(() => { if (showPty) loadReattachable() }, [showPty, loadReattachable])
+
+  const act = useCallback(async (fn: () => Promise<unknown>) => {
+    try { await fn() } catch (err: unknown) { toast.error(aiErrorMessage(err, t)) }
+    await refresh()
+  }, [refresh, t])
+
+  const openTemporaryShell = useCallback(() => {
+    const id = pty.add()
+    setActive(`pty:${id}`)
+    setDrawerOpen(false)
+  }, [pty])
+  const onNew = useCallback(() => {
+    if (fallback) openTemporaryShell()
+    else { setLauncherOpen(true); setDrawerOpen(false) }
+  }, [fallback, openTemporaryShell])
+  const onReattach = useCallback((sessionId: string) => {
+    setActive(`pty:${pty.reattach(sessionId)}`)
+    setDrawerOpen(false)
+  }, [pty])
+  const onSelect = useCallback((key: string) => { setActive(key); setDrawerOpen(false) }, [])
+
+  const onRename = useCallback((item: RailItem, title: string) => {
+    if (item.kind === 'pty') pty.rename(item.id, title)
+    else void act(() => api.renameAISession(item.id, title))
+  }, [act, pty])
+
+  const onAction = useCallback(async (action: RailAction, item: RailItem) => {
+    if (item.kind === 'pty') {
+      if (action === 'closeTab') pty.close(item.id)
+      return
     }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [reattachOpen])
-
-  const reattachSession = useCallback((sessionId: string) => {
-    setTabs(prev => {
-      if (prev.find(tb => tb.id === sessionId)) return prev
-      return [...prev, { id: sessionId, title: t('terminal.reattachedTab', { id: sessionId.slice(0, 8), defaultValue: 'Reattached {{id}}' }) }]
-    })
-    setActiveTab(sessionId)
-    setReattachOpen(false)
-  }, [t])
-
-  const closeTab = useCallback((id: string) => {
-    setTabs(prev => {
-      const next = prev.filter(t => t.id !== id)
-      setActiveTab(current => {
-        if (current === id && next.length > 0) {
-          const idx = prev.findIndex(t => t.id === id)
-          const newIdx = Math.min(idx, next.length - 1)
-          return next[newIdx].id
+    const s: AISession = item.session
+    switch (action) {
+      case 'info': toast.info(sessionInfoLine(s, t)); break
+      case 'rerun': await act(() => api.rerunAISession(s.id)); break
+      case 'restart': await act(() => api.restartAISession(s.id)); break
+      case 'removeEnded': await act(() => api.deleteAISession(s.id)); break
+      case 'kill':
+        if (await confirm({ title: t('ai.tabs.closeConfirmTitle'), description: t('ai.tabs.closeConfirmDesc', { title: s.title }), danger: true, confirmLabel: t('ai.tabs.close') })) {
+          await act(() => api.deleteAISession(s.id))
         }
-        if (next.length === 0) return ''
-        return current
-      })
-      return next
-    })
-  }, [])
+        break
+      default: break
+    }
+  }, [act, confirm, pty, t])
 
-  const renameTab = useCallback((id: string, newName: string) => {
-    const trimmed = newName.trim()
-    if (!trimmed) return
-    setTabs(prev => prev.map(t => t.id === id ? { ...t, title: trimmed } : t))
-    setEditingTabId(null)
-  }, [])
-
-  const handleDoubleClickTab = useCallback((tab: Tab) => {
-    setEditingTabId(tab.id)
-    setEditingTabName(tab.title)
-    setTimeout(() => editInputRef.current?.select(), 0)
-  }, [])
-
+  // Toolbar: font size applies to every mounted session; search and clear
+  // reach the active one.
   const adjustFontSize = useCallback((delta: number) => {
-    setFontSize(prev => Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, prev + delta)))
+    setFontSize((prev) => Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, prev + delta)))
   }, [])
-
-  // Terminal search
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query)
-    forEachActiveSession(el => {
-      if (el.__searchAddon && query) {
-        el.__searchAddon.findNext(query)
-      }
-    })
+    forEachActiveSession((el) => { if (el.__searchAddon && query) el.__searchAddon.findNext(query) })
   }, [])
-
   const handleSearchNext = useCallback(() => {
-    forEachActiveSession(el => {
-      if (el.__searchAddon && searchQuery) el.__searchAddon.findNext(searchQuery)
-    })
+    forEachActiveSession((el) => { if (el.__searchAddon && searchQuery) el.__searchAddon.findNext(searchQuery) })
   }, [searchQuery])
-
   const handleSearchPrev = useCallback(() => {
-    forEachActiveSession(el => {
-      if (el.__searchAddon && searchQuery) el.__searchAddon.findPrevious(searchQuery)
-    })
+    forEachActiveSession((el) => { if (el.__searchAddon && searchQuery) el.__searchAddon.findPrevious(searchQuery) })
   }, [searchQuery])
-
+  const closeSearch = useCallback(() => { setSearchOpen(false); setSearchQuery('') }, [])
+  const toggleSearch = useCallback(() => {
+    if (searchOpen) closeSearch()
+    else { setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 0) }
+  }, [searchOpen, closeSearch])
   const clearTerminal = useCallback(() => {
-    forEachActiveSession(el => {
+    forEachActiveSession((el) => {
       if (el.__termRef?.current) el.__termRef.current.clear()
       if (el.__wsRef?.current && el.__wsRef.current.readyState === WebSocket.OPEN) {
-        // Send Ctrl-L (0x0c) — the universal "clear screen" terminal
-        // signal that any TUI (vim/less/mysql) intercepts correctly.
-        // The previous literal 'clear\r' executed as a shell command
-        // only when the cursor was at a $ prompt and was meaningless
-        // (or actively harmful, e.g. typing 'clear' inside an editor)
-        // anywhere else.
+        // Ctrl-L: the one "clear screen" every TUI interprets correctly.
         el.__wsRef.current.send(new TextEncoder().encode('\x0c'))
       }
     })
   }, [])
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault()
-        setSearchOpen(true)
-        setTimeout(() => searchInputRef.current?.focus(), 0)
-      }
-      if (e.key === 'Escape') {
-        if (searchOpen) {
-          setSearchOpen(false)
-          setSearchQuery('')
-        }
-        if (reattachOpen) setReattachOpen(false)
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [searchOpen, reattachOpen])
-
-  const sendKeyToActiveTerminal = useCallback((data: string) => {
-    forEachActiveSession(el => {
+  const sendKey = useCallback((data: string) => {
+    forEachActiveSession((el) => {
       if (el.__wsRef?.current && el.__wsRef.current.readyState === WebSocket.OPEN) {
         el.__wsRef.current.send(new TextEncoder().encode(data))
       }
@@ -295,306 +238,73 @@ export default function TerminalPage() {
     })
   }, [])
 
-  // Set the active tab to the first tab when activeTab is empty or stale.
-  // The initial tab is seeded by useState so we never need to call addTab()
-  // from inside an effect, but a one-time activeTab realignment is still
-  // needed (persistedActive may not match a seeded tab after a localStorage
-  // reset). The setState here only fires when tabs/activeTab actually
-  // disagree, so cascading-render risk is bounded.
   useEffect(() => {
-    if (tabs.length > 0 && (!activeTab || !tabs.find(t => t.id === activeTab))) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setActiveTab(tabs[0].id)
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault()
+        setSearchOpen(true)
+        setTimeout(() => searchInputRef.current?.focus(), 0)
+      }
+      if (e.key === 'Escape' && searchOpen) closeSearch()
     }
-  }, [tabs, activeTab])
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [searchOpen, closeSearch])
+
+  const railProps = {
+    groups, active, fallback, reattachable,
+    onSelect, onNew, onReattach, onRename, onAction,
+    onOpenTools: () => { setDrawerOpen(false); setToolsOpenBoth(true) },
+  }
+  const search = { open: searchOpen, query: searchQuery, inputRef: searchInputRef, onToggle: toggleSearch, onQuery: handleSearch, onNext: handleSearchNext, onPrev: handleSearchPrev, onClose: closeSearch }
+  const shownAccount = account || tools?.panel_account || ''
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Tab Bar */}
-      <div className="flex items-center bg-card border-b border-border px-2 shrink-0">
-        <div className="flex items-center gap-0.5 overflow-x-auto py-1 flex-1">
-          {tabs.map((tab) => (
-            <div
-              key={tab.id}
-              role="button"
-              tabIndex={0}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs cursor-pointer select-none group transition-colors shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
-                activeTab === tab.id
-                  ? 'bg-secondary text-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-              )}
-              onClick={() => setActiveTab(tab.id)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTab(tab.id) } }}
-              onDoubleClick={() => handleDoubleClickTab(tab)}
-            >
-              <TerminalIcon className="h-3 w-3" />
-              {editingTabId === tab.id ? (
-                <input
-                  ref={editInputRef}
-                  value={editingTabName}
-                  onChange={(e) => setEditingTabName(e.target.value)}
-                  onBlur={() => renameTab(tab.id, editingTabName)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') renameTab(tab.id, editingTabName)
-                    if (e.key === 'Escape') setEditingTabId(null)
-                    e.stopPropagation()
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="bg-transparent border-b border-primary outline-none text-foreground w-20 text-xs"
-                  autoFocus
-                />
-              ) : (
-                <span>{tab.title}</span>
-              )}
-              <button
-                aria-label={t('common.close')}
-                className={cn(
-                  'ml-1 rounded p-0.5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
-                  'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
-                  activeTab === tab.id && 'opacity-60',
-                  'hover:bg-accent hover:text-destructive'
-                )}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  closeTab(tab.id)
-                }}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-        {/* Who / where. In a cluster the same page targets a different machine
-            depending on the node picker, and a root prompt looks identical on
-            every one of them — so name the target rather than leave it implied. */}
-        {shellInfo && (
-          <div
-            className={cn(
-              'hidden sm:flex items-center gap-1.5 shrink-0 ml-2 px-2 py-1 rounded-md border text-[11px] font-mono',
-              shellInfo.is_root
-                ? 'bg-warning/10 border-warning/30 text-warning'
-                : 'bg-muted/50 border-transparent text-muted-foreground'
-            )}
-            title={
-              shellInfo.is_root
-                ? t('terminal.shellBadgeRootHint', {
-                    host: shellInfo.hostname,
-                    defaultValue: 'Running as root on {{host}} — commands here are unrestricted',
-                  })
-                : t('terminal.shellBadgeHint', {
-                    user: shellInfo.shell_user,
-                    host: shellInfo.hostname,
-                    defaultValue: 'Connected as {{user}} on {{host}}',
-                  })
-            }
-          >
-            {shellInfo.is_root
-              ? <ShieldAlert className="h-3 w-3 shrink-0" aria-hidden="true" />
-              : <UserIcon className="h-3 w-3 shrink-0" aria-hidden="true" />}
-            <span className="truncate max-w-[22ch]">
-              {shellInfo.shell_user}@{shellInfo.hostname}
-            </span>
+    <div data-ai-workspace className="flex h-full overflow-hidden md:p-4">
+      {/* Always the first child, empty on a phone: see the component comment. */}
+      <aside className={cn('hidden md:flex flex-col shrink-0 bg-console border border-r-0 border-console-border rounded-l-2xl overflow-hidden', collapsed ? 'w-14' : 'w-[272px]')}>
+        {!isMobile && <SessionRail {...railProps} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)} />}
+      </aside>
+
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-clip bg-console md:rounded-r-2xl md:border md:border-console-border">
+        <SessionHeader item={activeItem} hostInfo={hostInfo} fontSize={fontSize} onFontSize={adjustFontSize} search={search}
+          onClear={clearTerminal} onRename={onRename} onAction={onAction}
+          drawer={isMobile ? { onOpen: () => setDrawerOpen(true), waiting } : undefined} />
+        {fallback && tools && (
+          <div className="shrink-0 px-3 pt-3 space-y-2">
+            <p className="text-[12px] text-console-muted">{t('terminal.fallback.banner')}</p>
+            <TmuxBanner tools={tools} onChanged={loadTools} />
           </div>
         )}
-
-        <div className="flex items-center gap-1 ml-2 shrink-0">
-          {/* Font size controls */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
-            onClick={() => adjustFontSize(-1)}
-            title={t('terminal.fontSmaller')}
-            aria-label={t('terminal.fontSmaller')}
-          >
-            <Minus className="h-3 w-3" />
-          </Button>
-          <span className="text-[10px] text-muted-foreground min-w-[20px] text-center">{fontSize}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
-            onClick={() => adjustFontSize(1)}
-            title={t('terminal.fontLarger')}
-            aria-label={t('terminal.fontLarger')}
-          >
-            <Plus className="h-3 w-3" />
-          </Button>
-          <div className="w-px h-4 bg-border mx-1" />
-          {/* Search */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "h-6 w-6 p-0 hover:bg-accent",
-              searchOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
-            )}
-            onClick={() => {
-              setSearchOpen(!searchOpen)
-              if (!searchOpen) setTimeout(() => searchInputRef.current?.focus(), 0)
-              else setSearchQuery('')
-            }}
-            title={t('terminal.search')}
-            aria-label={t('terminal.search')}
-          >
-            <Search className="h-3.5 w-3.5" />
-          </Button>
-          {/* Clear */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
-            onClick={clearTerminal}
-            title={t('terminal.clear')}
-            aria-label={t('terminal.clear')}
-          >
-            <Eraser className="h-3.5 w-3.5" />
-          </Button>
-          <div className="w-px h-4 bg-border mx-1" />
-          {/* Reattach session picker */}
-          <div ref={reattachRef} className="relative">
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
-                "h-6 w-6 p-0 hover:bg-accent",
-                reattachOpen ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
-              )}
-              onClick={openReattach}
-              title={t('terminal.reattach.button')}
-              aria-label={t('terminal.reattach.button')}
-              aria-haspopup="true"
-              aria-expanded={reattachOpen}
-            >
-              <History className="h-3.5 w-3.5" />
-            </Button>
-            {reattachOpen && (
-              <div className="absolute right-0 top-8 z-20 w-72 max-h-80 overflow-y-auto rounded-xl bg-secondary border border-border shadow-lg py-1">
-                <div className="px-3 py-2 text-[11px] font-semibold text-foreground border-b border-border">
-                  {t('terminal.reattach.title')}
-                </div>
-                {reattachSessions.length === 0 ? (
-                  <div className="px-3 py-3 text-[12px] text-muted-foreground">
-                    {t('terminal.reattach.empty')}
-                  </div>
-                ) : (
-                  reattachSessions.map((s) => (
-                    <button
-                      key={s.session_id}
-                      onClick={() => reattachSession(s.session_id)}
-                      className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
-                    >
-                      <div className="min-w-0">
-                        <div className="font-mono text-[12px] text-foreground truncate">{s.session_id.slice(0, 12)}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {new Date(s.last_use).toLocaleString()}
-                          {s.attached ? ` · ${t('terminal.reattach.attached')}` : ''}
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-[10px] text-primary">{t('terminal.reattach.open')}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-          {/* New tab */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
-            onClick={addTab}
-            title={t('terminal.newTab')}
-            aria-label={t('terminal.newTab')}
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </Button>
+        <div className="flex-1 min-h-0 relative">
+          {activeItem?.kind !== 'pty' && (
+            <SessionPane session={activeItem?.kind === 'tmux' ? activeItem.session : null} fontSize={fontSize} onNew={onNew}
+              onRestart={(s) => { void onAction('restart', { kind: 'tmux', id: s.id, session: s }) }}
+              onRemoveEnded={(s) => { void onAction('removeEnded', { kind: 'tmux', id: s.id, session: s }) }} />
+          )}
+          <PtyPane tabs={pty.tabs} activeId={activeItem?.kind === 'pty' ? activeItem.id : null} fontSize={fontSize} />
         </div>
+        <MobileTerminalBar onSendKey={sendKey} />
       </div>
 
-      {/* Search bar */}
-      {searchOpen && (
-        <div className="flex items-center gap-1.5 bg-muted border-b border-border px-2 md:px-3 py-1.5">
-          <Search className="h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            ref={searchInputRef}
-            value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                if (e.shiftKey) handleSearchPrev()
-                else handleSearchNext()
-              }
-              if (e.key === 'Escape') {
-                setSearchOpen(false)
-                setSearchQuery('')
-              }
-            }}
-            placeholder={t('terminal.searchPlaceholder')}
-            className="h-6 text-xs bg-card border-border text-foreground flex-1 max-w-[10rem] md:max-w-xs"
-            autoFocus
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-1.5 md:px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-card"
-            onClick={handleSearchPrev}
-          >
-            <span className="hidden md:inline">{t('terminal.prev')}</span>
-            <span className="md:hidden">↑</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-1.5 md:px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-card"
-            onClick={handleSearchNext}
-          >
-            <span className="hidden md:inline">{t('terminal.next')}</span>
-            <span className="md:hidden">↓</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground hover:bg-card"
-            onClick={() => { setSearchOpen(false); setSearchQuery('') }}
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+      {isMobile && (
+        <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
+          <SheetContent side="left" className="w-[85vw] max-w-sm p-0 gap-0 bg-console text-console-foreground border-console-border" showCloseButton={false}>
+            <SheetTitle className="sr-only">{t('terminal.rail.sessions')}</SheetTitle>
+            <SessionRail {...railProps} collapsed={false} />
+          </SheetContent>
+        </Sheet>
       )}
 
-      {/* Terminal Area */}
-      <div className="flex-1 bg-card relative min-h-0">
-        {tabs.map((tab) => (
-          <TerminalSession
-            key={tab.id}
-            sessionId={tab.id}
-            active={activeTab === tab.id}
-            fontSize={fontSize}
-          />
-        ))}
-        {tabs.length === 0 && (
-          <div className="flex items-center justify-center h-full text-muted-foreground">
-            <div className="text-center">
-              <TerminalIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p>{t('terminal.noTabs')}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-3 border-border text-foreground hover:bg-accent"
-                onClick={addTab}
-              >
-                <Plus className="h-4 w-4 mr-1" />
-                {t('terminal.newTab')}
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <MobileTerminalBar onSendKey={sendKeyToActiveTerminal} />
+      {/* Focus the new session only once the list containing it has landed;
+          setting the key first would be undone by the realignment above. */}
+      <NewSessionDialog open={launcherOpen} onOpenChange={setLauncherOpen} account={shownAccount} tools={tools}
+        onCreated={(s) => { void refresh().then(() => setActive(`tmux:${s.id}`)) }}
+        onOpenTools={() => setToolsOpenBoth(true)} />
+      <ToolsSheet open={toolsOpen} onOpenChange={setToolsOpenBoth} tools={tools} toolsError={toolsError} account={shownAccount}
+        onAccountChange={(a) => { setTools(null); setAccount(a) }} onChanged={loadTools} onSessionsChanged={() => { void refresh() }}
+        output={output} onOpenTemporaryShell={openTemporaryShell} />
+      <OutputDialog state={output.state} onClose={output.closeOutput} />
     </div>
   )
 }

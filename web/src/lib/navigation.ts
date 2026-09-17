@@ -12,7 +12,6 @@ import {
   Server,
   Settings,
   Shield,
-  Sparkles,
   Store,
   Terminal,
   type LucideIcon,
@@ -48,18 +47,16 @@ export const NAV_ITEMS: NavEntry[] = [
   { to: '/firewall', labelKey: 'layout.nav.firewall', icon: Shield },
   { to: '/packages', labelKey: 'layout.nav.packages', icon: Package },
   { to: '/terminal', labelKey: 'layout.nav.terminal', icon: Terminal, bottomNav: true, mobileLabelKey: 'layout.mobileNav.terminal' },
-  { to: '/ai', labelKey: 'layout.nav.ai', icon: Sparkles },
   { to: '/cluster', labelKey: 'layout.nav.cluster', icon: Server },
   { to: '/settings', labelKey: 'layout.nav.settings', icon: Settings },
 ]
 
 /**
- * Pages whose body is a full-bleed xterm with its own mobile key bar. The app
- * shell drops its padding and hides the bottom nav on these: /ai hosts the
- * same TerminalSession and the same MobileTerminalBar as /terminal, and the
- * bottom bar sat on top of that key bar. Exact match — /ai/anything is not one.
+ * Pages whose body is a full-bleed console with its own mobile key bar. The
+ * app shell drops its padding and hides the bottom nav there, or the bottom
+ * bar would sit on top of the key bar. Exact match — /terminal/x is not one.
  */
-export const TERMINAL_ROUTES = ['/terminal', '/ai']
+export const TERMINAL_ROUTES = ['/terminal']
 
 export function isTerminalRoute(pathname: string): boolean {
   return TERMINAL_ROUTES.includes(pathname)
