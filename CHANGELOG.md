@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.74.1] – 2026-09-17
+
+### Security
+
+- **gRPC updated to 1.83.2.** Three advisories with upstream fixes were open against the version the panel shipped (1.82.1), including a bypass of the xDS RBAC HTTP filter's header matching. The cluster's node-to-node transport is gRPC, so this is a dependency rebuild rather than a change: no line of the panel's own code differs from 0.74.0. `x/net` moves to 0.58.0 with it. The vulnerability gate that caught this had been red since before the previous release; the advisories that remain are the six with no upstream fix, acknowledged as before.
+
+### Fixed
+
+- **A test that failed one run in three.** The mobile-scroll regression test drove a real tmux and waited for a client to appear before sending a wheel event — but a wheel needs the pane's *scrollback*, and `new-session` returns before the pane has any. tmux fixes copy mode's scrollable range at the history size present when the mode opens, so a mode opened on an empty pane stays pinned at the top however many events arrive afterwards, and the test's retry loop was re-sending the wheel into an already-wedged copy mode. It now waits for the history it depends on: 32 consecutive passes where the old order failed six times out of six with the race forced. The behaviour under test is unchanged, and the assertion still goes red when the attach-time mouse option is removed.
+- The mouse option that new sessions are created with had no test of its own — the scroll test sets the option itself, so the value in the code could be flipped back with the whole suite staying green. It is pinned now.
+
+---
+
 ## [0.74.0] – 2026-09-17
 
 ### Added
