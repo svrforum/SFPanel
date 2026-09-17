@@ -9,7 +9,6 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { DropdownMenuLabel } from '@/components/ui/dropdown-menu'
 
 export interface ProfilePanelProps {
   /**
@@ -114,7 +113,7 @@ export function ProfilePanel({ tool, account, onSessionsChanged }: ProfilePanelP
 
   return (
     <div className="space-y-1.5">
-      <DropdownMenuLabel className="p-0 text-[12px] text-muted-foreground">{t('ai.profiles.manage')}</DropdownMenuLabel>
+      <p className="text-[12px] text-muted-foreground">{t('ai.profiles.manage')}</p>
       {profiles === null ? (
         error === null && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-label={t('ai.tools.checking')} />
       ) : (

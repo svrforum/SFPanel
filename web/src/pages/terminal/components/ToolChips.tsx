@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { streamErrorMessage, type SSEOutput } from '@/components/OutputDialog'
-import { ProfilePanel } from '@/pages/ai/components/ProfilePanel'
+import { ProfilePanel } from '@/pages/terminal/components/ProfilePanel'
 
 type CliTool = 'claude' | 'codex' | 'gemini'
 const CLI_TOOLS: CliTool[] = ['claude', 'codex', 'gemini']

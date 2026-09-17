@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
-const TOOLS: AITool[] = ['claude', 'codex', 'gemini', 'shell']
+const TOOLS: AITool[] = ['shell', 'claude', 'codex', 'gemini']
 const lastKey = (node: string) => `sfpanel_ai_last:${node}`
 
 /**
@@ -61,16 +61,18 @@ export function NewSessionDialog({
   account,
   tools,
   onCreated,
+  onOpenTools,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   account: string
   tools: AITools | null
   onCreated: (s: AISession) => void
+  onOpenTools?: () => void
 }) {
   const { t, i18n } = useTranslation()
   const node = api.currentNode || 'local'
-  const [tool, setTool] = useState<AITool>('claude')
+  const [tool, setTool] = useState<AITool>('shell')
   const [cwd, setCwd] = useState('')
   const [runAs, setRunAs] = useState(account)
   const [title, setTitle] = useState('')
@@ -303,14 +305,20 @@ export function NewSessionDialog({
     }
   }
 
+  const submitDisabled = busy || !cwd.trim() || (withLaunch && extraError !== null) || modelError
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t('ai.dialog.title')}</DialogTitle>
-          <DialogDescription>{t('ai.subtitle')}</DialogDescription>
+          <DialogDescription>{t('terminal.launcher.subtitle')}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        {/* A form, so Enter from any field starts the session — the operator
+            types a directory and presses Enter rather than reaching for the
+            button. Every button inside it therefore carries an explicit
+            type: a bare <button> in a form submits. */}
+        <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (!submitDisabled) void submit() }}>
           {/* Account first: it decides which tools are installed and which
               directories are suggested, so everything below reacts to it. */}
           <div className="space-y-1.5">
@@ -337,11 +345,17 @@ export function NewSessionDialog({
                       tool === tl ? 'border-primary bg-primary/5' : 'hover:bg-accent', !ok && 'opacity-40 cursor-not-allowed')}>
                     <span className="h-7 w-7 rounded-lg flex items-center justify-center text-[13px] font-bold"
                       style={{ backgroundColor: `${meta.color}1a`, color: meta.color }}>{meta.initial}</span>
-                    {meta.label}
+                    {tl === 'shell' ? t('terminal.launcher.shell') : meta.label}
                   </button>
                 )
               })}
             </div>
+            {onOpenTools && TOOLS.some((tl) => tl !== 'shell' && !installedFor(tl)) && (
+              <button type="button" className="text-[11px] text-primary hover:underline text-left"
+                onClick={() => { onOpenChange(false); onOpenTools() }}>
+                {t('terminal.launcher.installTools')}
+              </button>
+            )}
           </div>
           {/* Profile: which of the tool's logins the session runs under. The
               account decides which profiles exist, so the field sits between
@@ -391,10 +405,10 @@ export function NewSessionDialog({
                     // that had already succeeded.
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (!creating) void createProfile() } }}
                     placeholder={t('ai.profiles.namePlaceholder')} className="font-mono text-[12px]" maxLength={32} spellCheck={false} />
-                  <Button variant="outline" className="rounded-xl" onClick={createProfile} disabled={creating || !newName.trim()}>
+                  <Button type="button" variant="outline" className="rounded-xl" onClick={createProfile} disabled={creating || !newName.trim()}>
                     {creating ? <><Loader2 className="animate-spin" aria-hidden="true" />{t('ai.profiles.creating')}</> : t('common.create')}
                   </Button>
-                  <Button variant="ghost" className="rounded-xl" onClick={() => setNewName(null)} disabled={creating}>{t('common.cancel')}</Button>
+                  <Button type="button" variant="ghost" className="rounded-xl" onClick={() => setNewName(null)} disabled={creating}>{t('common.cancel')}</Button>
                 </div>
               )}
               {chosen && chosen.path !== '' && !chosen.logged_in && (
@@ -434,13 +448,13 @@ export function NewSessionDialog({
             <Input id="ai-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={defaultTitle(tool, cwd || '/')} maxLength={64} />
           </div>
           {error && <p role="alert" className="text-[12px] text-destructive">{error}</p>}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)} disabled={busy}>{t('common.cancel')}</Button>
-          <Button className="rounded-xl" onClick={submit} disabled={busy || !cwd.trim() || (withLaunch && extraError !== null) || modelError}>
-            {busy ? <><Loader2 className="animate-spin" aria-hidden="true" />{t('ai.dialog.creating')}</> : t('ai.dialog.create')}
-          </Button>
-        </DialogFooter>
+          <DialogFooter>
+            <Button type="button" variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)} disabled={busy}>{t('common.cancel')}</Button>
+            <Button type="submit" className="rounded-xl" disabled={submitDisabled}>
+              {busy ? <><Loader2 className="animate-spin" aria-hidden="true" />{t('ai.dialog.creating')}</> : t('ai.dialog.create')}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )
