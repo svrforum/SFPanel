@@ -64,6 +64,18 @@ func TestTmuxWheelScrollsExistingSessionHistory(t *testing.T) {
 		t.Fatal(message)
 	}
 	wait(func() bool { return run("list-clients", "-t", id, "-F", "#{client_tty}") != "" }, "client did not attach")
+	// The scrollback has to exist before the first wheel event, and a client
+	// attaches within ~30 ms whether or not tmux has read the pane's 300 lines
+	// yet. tmux fixes copy mode's scrollable range at the history size it finds
+	// when the mode opens: opened on a pane tmux has not filled, the viewport
+	// sits at 0 however many wheel events follow, because only leaving and
+	// re-entering the mode picks up the lines that arrived since. Waiting for
+	// the client alone lost that race about one run in ten, and the loop below
+	// cannot retry its way out of it.
+	wait(func() bool {
+		size, _ := strconv.Atoi(run("display-message", "-p", "-t", id, "#{history_size}"))
+		return size >= 100 // 300 lines less a 24-row screen; far past one wheel step
+	}, "pane never filled its scrollback")
 	// A drag emits several wheel events. The first enters copy mode; subsequent
 	// events move its viewport. Keep them separate, as real touch moves are.
 	wait(func() bool {
