@@ -574,3 +574,24 @@ func TestSpawnArgv_ProfileRidesOnNewSessionE(t *testing.T) {
 		}
 	}
 }
+
+// The option a NEW session gets was unpinned: the scroll regression test sets
+// `mouse off` itself and then exercises attachArgv, so flipping tmuxOptions
+// back to `off` left the whole suite green. tmux keeps its own history in the
+// alternate screen, so with the option off a wheel reaches the CLI instead of
+// the scrollback and a mobile client has no way to look back — which is the
+// behaviour 1053def added. Pin the option, not the comment.
+func TestTmuxOptions_MouseIsOnForNewSessions(t *testing.T) {
+	var mouse []string
+	for _, opt := range tmuxOptions("tmux-256color") {
+		if len(opt) == 4 && opt[2] == "mouse" {
+			mouse = opt
+		}
+	}
+	if mouse == nil {
+		t.Fatalf("tmuxOptions names no mouse option at all: %q", tmuxOptions("tmux-256color"))
+	}
+	if mouse[3] != "on" {
+		t.Errorf("new sessions get `mouse %s`; with it off a wheel goes to the CLI and tmux's scrollback is unreachable", mouse[3])
+	}
+}
