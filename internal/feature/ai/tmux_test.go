@@ -36,7 +36,7 @@ func TestSpawnArgv_ServerFormIsATransientService(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
 	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
 
-	name, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, "", alice, spawnService)
+	name, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, "", alice, spawnService, nil)
 	if name != "systemd-run" {
 		t.Fatalf("name = %q, want systemd-run", name)
 	}
@@ -72,7 +72,7 @@ func TestSpawnArgv_ClientFormTalksToTheRunningServer(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
 	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
 
-	name, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, "", alice, spawnClient)
+	name, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, "", alice, spawnClient, nil)
 	if name != "env" {
 		t.Fatalf("name = %q, want env", name)
 	}
@@ -95,7 +95,7 @@ func TestSpawnArgv_NoPerSessionEnvironmentPairs(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
 	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
 	for _, form := range []spawnForm{spawnService, spawnClient, spawnSetsid} {
-		_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, "", alice, form)
+		_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolClaude, "", alice, form, nil)
 		ns := indexOf(argv, "new-session")
 		if ns < 0 {
 			t.Fatalf("form %d: no new-session in %q", form, argv)
@@ -108,7 +108,7 @@ func TestSpawnArgv_NoPerSessionEnvironmentPairs(t *testing.T) {
 
 func TestSpawnArgv_PanelAccountHasNoRunuser(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
-	name, argv := h.spawnArgv("0123456789ab", "/root", ToolCodex, "", h.panel, spawnClient)
+	name, argv := h.spawnArgv("0123456789ab", "/root", ToolCodex, "", h.panel, spawnClient, nil)
 	if slices.Contains(argv, "runuser") {
 		t.Errorf("the panel's own account must not go through runuser: %q", argv)
 	}
@@ -195,7 +195,7 @@ func TestSocketPath_IsAnAbsoluteRunPathPerAccount(t *testing.T) {
 		t.Errorf("the panel's socket = %q, want /run/sfpanel/ai/0/sfpanel", got)
 	}
 	for _, acct := range []Account{alice, h.panel} {
-		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolShell, "", acct, spawnClient)
+		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolShell, "", acct, spawnClient, nil)
 		if slices.Contains(argv, "-L") {
 			t.Errorf("%s: -L derives the socket from /tmp: %q", acct.Name, argv)
 		}
@@ -293,7 +293,7 @@ func TestSocketRoot_NonRootPanelUsesTheStateDirectory(t *testing.T) {
 
 func TestSpawnArgv_ShellToolIsAPlainLoginShell(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
-	_, argv := h.spawnArgv("0123456789ab", "/root", ToolShell, "", h.panel, spawnClient)
+	_, argv := h.spawnArgv("0123456789ab", "/root", ToolShell, "", h.panel, spawnClient, nil)
 	if cmd := command(argv); !slices.Equal(cmd, []string{"/bin/bash", "-l"}) {
 		t.Errorf("shell session must run `/bin/bash -l` and carry no -c wrapper: %q", cmd)
 	}
@@ -313,13 +313,13 @@ func TestSessionCommands_ToolWrapperIsAnInteractiveLoginShell(t *testing.T) {
 
 	for _, form := range []spawnForm{spawnService, spawnClient, spawnSetsid} {
 		for _, tool := range []string{ToolClaude, ToolCodex, ToolGemini} {
-			_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", tool, "", alice, form)
+			_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", tool, "", alice, form, nil)
 			want := []string{"/bin/bash", "-lic", `command "$0" "$@"; exec /bin/bash -l`, tool}
 			if cmd := command(argv); !slices.Equal(cmd, want) {
 				t.Errorf("form %d, %s: wrapper = %q\nwant %q\n(only an interactive login shell reads .bashrc, where ~/.local/bin joins PATH)", form, tool, cmd, want)
 			}
 		}
-		_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolShell, "", alice, form)
+		_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolShell, "", alice, form, nil)
 		cmd := command(argv)
 		if !slices.Equal(cmd, []string{"/bin/bash", "-l"}) {
 			t.Errorf("form %d, shell: = %q, want [/bin/bash -l] — tmux gives the pane a tty, so it is interactive without a flag", form, cmd)
@@ -334,7 +334,7 @@ func TestSessionCommands_ToolWrapperIsAnInteractiveLoginShell(t *testing.T) {
 
 func TestSpawnArgv_FallsBackToSetsidWithoutSystemdRun(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
-	name, argv := h.spawnArgv("0123456789ab", "/root", ToolClaude, "", h.panel, spawnSetsid)
+	name, argv := h.spawnArgv("0123456789ab", "/root", ToolClaude, "", h.panel, spawnSetsid, nil)
 	if name != "setsid" || argv[0] != "env" || !slices.Contains(argv, "HOME=/root") {
 		t.Errorf("got %s %q, want setsid env HOME=/root … — the fallback needs the environment too", name, argv[:3])
 	}
@@ -539,7 +539,7 @@ func TestSpawnArgv_ProfileRidesOnNewSessionE(t *testing.T) {
 	want := "CODEX_HOME=/home/alice/.sfpanel-ai/codex/work"
 
 	for _, form := range []spawnForm{spawnService, spawnClient, spawnSetsid} {
-		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolCodex, "work", alice, form)
+		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolCodex, "work", alice, form, nil)
 		i := slices.Index(argv, "-e")
 		if i < 0 || i+1 >= len(argv) || argv[i+1] != want {
 			t.Errorf("form %v: want `-e %s` on new-session, got %q", form, want, argv)
@@ -566,7 +566,7 @@ func TestSpawnArgv_ProfileRidesOnNewSessionE(t *testing.T) {
 
 	// A default-profile session sets nothing, so it inherits nothing.
 	for _, form := range []spawnForm{spawnService, spawnClient, spawnSetsid} {
-		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolCodex, "", alice, form)
+		_, argv := h.spawnArgv("0123456789ab", "/tmp", ToolCodex, "", alice, form, nil)
 		for _, a := range argv {
 			if strings.Contains(a, "CODEX_HOME") {
 				t.Errorf("form %v: the default profile must name no config home: %q", form, argv)
@@ -593,5 +593,23 @@ func TestTmuxOptions_MouseIsOnForNewSessions(t *testing.T) {
 	}
 	if mouse[3] != "on" {
 		t.Errorf("new sessions get `mouse %s`; with it off a wheel goes to the CLI and tmux's scrollback is unreachable", mouse[3])
+	}
+}
+
+// The options must reach the tool as separate words after its name, through
+// the wrapper's "$@" — never concatenated into the -c script, which would put
+// them at the mercy of a shell.
+func TestSessionCommands_OptionsAreSeparateWordsAfterTheTool(t *testing.T) {
+	h := newTestHandler(t, tmuxMock(""))
+	argv := sessionCommands("tmux-256color", "0123456789ab", "/tmp", ToolClaude, "", h.panel,
+		[]string{"--continue", "--permission-mode", "acceptEdits"})
+	i := slices.Index(argv, ToolClaude)
+	if i < 0 || !slices.Equal(argv[i+1:], []string{"--continue", "--permission-mode", "acceptEdits"}) {
+		t.Fatalf("argv after the tool = %q, want the three option words", argv[i+1:])
+	}
+	for _, a := range argv {
+		if strings.Contains(a, "--continue") && strings.Contains(a, "command \"$0\"") {
+			t.Errorf("the options were folded into the -c script: %q", a)
+		}
 	}
 }

@@ -318,7 +318,17 @@ func (h *Handler) serverRunning(acct Account) bool {
 // screen to say so. `-e` is per session and arrived in tmux 3.1a, below the
 // 3.2 floor tmuxMinVersion enforces. The default profile adds no pair at all
 // (profileVar), so it inherits a server environment that names no profile.
-func sessionCommands(term, id, cwd, tool, profile string, acct Account) []string {
+//
+// launchArgv is the session's launch options, already built by toolArgv (spec
+// §2). It goes on as separate argv elements after the tool's name, where the
+// wrapper's `"$@"` expands each as its own word — so no token is ever
+// re-parsed by a shell. It must never be joined into the -c script string
+// instead: that would hand operator text to a shell to parse.
+// TestSessionCommands_OptionsAreSeparateWordsAfterTheTool asserts the
+// separation. The `shell` tool ignores it — validateLaunch has already refused
+// a non-empty set for a tool that takes no options, so there is nothing to
+// append.
+func sessionCommands(term, id, cwd, tool, profile string, acct Account, launchArgv []string) []string {
 	var argv []string
 	for _, opt := range tmuxOptions(term) {
 		argv = append(argv, opt...)
@@ -333,7 +343,8 @@ func sessionCommands(term, id, cwd, tool, profile string, acct Account) []string
 	if tool == ToolShell {
 		return append(argv, shell, "-l")
 	}
-	return append(argv, shell, "-lic", fmt.Sprintf(`command "$0" "$@"; exec %s -l`, shell), tool)
+	argv = append(argv, shell, "-lic", fmt.Sprintf(`command "$0" "$@"; exec %s -l`, shell), tool)
+	return append(argv, launchArgv...)
 }
 
 // spawnArgv builds the one command that creates a session (spec §1):
@@ -361,9 +372,10 @@ func sessionCommands(term, id, cwd, tool, profile string, acct Account) []string
 // environment, which outlives the session and is inherited by every later one.
 // --setenv keeps LANG and COLORTERM because those are identical for every
 // session of the account. The profile is per session, so it rides on
-// new-session -e inside cmds — see sessionCommands.
-func (h *Handler) spawnArgv(id, cwd, tool, profile string, acct Account, form spawnForm) (string, []string) {
-	cmds := sessionCommands(h.defaultTerminal(), id, cwd, tool, profile, acct)
+// new-session -e inside cmds — see sessionCommands, which is also where the
+// session's launch options (launchArgv) go.
+func (h *Handler) spawnArgv(id, cwd, tool, profile string, acct Account, form spawnForm, launchArgv []string) (string, []string) {
+	cmds := sessionCommands(h.defaultTerminal(), id, cwd, tool, profile, acct, launchArgv)
 	if form == spawnService {
 		argv := []string{
 			"--unit=" + unitName(acct), "--collect",

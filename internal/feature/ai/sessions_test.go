@@ -625,11 +625,11 @@ func TestSpawn_LocksPerAccountNotProcessWide(t *testing.T) {
 	h.Cmd = g
 
 	first := make(chan error, 1)
-	go func() { first <- h.spawn("0123456789ab", "/", ToolShell, "", alice) }()
+	go func() { first <- h.spawn("0123456789ab", "/", ToolShell, "", alice, LaunchOptions{}) }()
 	<-g.entered // alice's new-session is inside the Commander; her lock is held
 
 	other := make(chan error, 1)
-	go func() { other <- h.spawn("0123456789ac", "/", ToolShell, "", dave) }()
+	go func() { other <- h.spawn("0123456789ac", "/", ToolShell, "", dave, LaunchOptions{}) }()
 	select {
 	case err := <-other:
 		if err != nil {
@@ -643,7 +643,7 @@ func TestSpawn_LocksPerAccountNotProcessWide(t *testing.T) {
 	// that got past her lock would sail straight through the Commander — that
 	// is what makes this fail when the per-account lock is taken out.
 	second := make(chan error, 1)
-	go func() { second <- h.spawn("0123456789ad", "/", ToolShell, "", alice) }()
+	go func() { second <- h.spawn("0123456789ad", "/", ToolShell, "", alice, LaunchOptions{}) }()
 	select {
 	case <-g.arrived:
 		t.Fatal("a second spawn for alice reached tmux while the first still held her lock")
@@ -831,5 +831,200 @@ func TestRestart_ReusesTheRowsProfile(t *testing.T) {
 	}
 	if !spawned {
 		t.Errorf("the restart spawn dropped the row's profile: %+v", m.Calls)
+	}
+}
+
+// assertSpawnCarries finds the spawn among a mock's calls and asserts the
+// words that follow the tool's name. The elements, not a joined string: the
+// wrapper hands them to the tool through `"$@"`, so a change that folded them
+// into the -c script — handing operator text to a shell to parse — has to be
+// visible here.
+func assertSpawnCarries(t *testing.T, m *exec.MockCommander, tool string, want []string) {
+	t.Helper()
+	for _, c := range m.Calls {
+		if !slices.Contains(c.Args, "new-session") {
+			continue
+		}
+		i := slices.Index(c.Args, tool)
+		if i < 0 {
+			t.Errorf("no %s in the spawn argv: %q", tool, c.Args)
+			return
+		}
+		if got := c.Args[i+1:]; !slices.Equal(got, want) {
+			t.Errorf("spawn argv after %s = %q, want %q", tool, got, want)
+		}
+		for _, a := range c.Args {
+			if len(want) > 0 && strings.Contains(a, `command "$0"`) && strings.Contains(a, want[0]) {
+				t.Errorf("the options were folded into the -c script: %q", a)
+			}
+		}
+		return
+	}
+	t.Errorf("no spawn in %+v", m.Calls)
+}
+
+// Claude refuses --dangerously-skip-permissions when it runs as root, so the
+// panel says so while the operator is still looking at the account selector
+// rather than letting the pane die with the CLI's own error. Codex's bypass
+// flag has no such rule of its own, and the asymmetry is deliberate: the
+// panel does not invent a refusal the tool does not have.
+func TestCreateSession_LaunchRootDanger(t *testing.T) {
+	m := tmuxMock("")
+	h := newTestHandler(t, m) // panel account is root in this fixture
+	h.DB = openTestDB(t)
+	dir := t.TempDir()
+	body := `{"tool":"claude","cwd":"` + dir + `","launch":{"dangerous":true}}`
+	rec := call(t, h.CreateSession, http.MethodPost, body, "", "")
+	code, msg := failCode(t, rec)
+	if code != response.ErrLaunchRootDanger || !strings.Contains(msg, "root") {
+		t.Errorf("claude+dangerous+root: got %s %q, want LAUNCH_ROOT_DANGER naming root", code, msg)
+	}
+	if len(m.Calls) != 0 {
+		t.Errorf("a refused launch must never reach tmux: %+v", m.Calls)
+	}
+	// The rule is about the account, not about the flag: the same options for
+	// a non-root account are accepted. Without this case a guard that refused
+	// every dangerous claude session would pass the one above.
+	rec = call(t, h.CreateSession, http.MethodPost, `{"tool":"claude","cwd":"`+dir+`","run_as":"alice","launch":{"dangerous":true}}`, "", "")
+	if rec.Code != http.StatusOK {
+		t.Errorf("claude+dangerous+alice: %s", rec.Body.String())
+	}
+	// Codex has no such rule of its own, so the panel does not invent one.
+	rec = call(t, h.CreateSession, http.MethodPost, `{"tool":"codex","cwd":"`+dir+`","launch":{"dangerous":true}}`, "", "")
+	if rec.Code != http.StatusOK {
+		t.Errorf("codex+dangerous+root: %s", rec.Body.String())
+	}
+}
+
+// The options have to survive the whole round trip — the create response, the
+// row, the list, and the spawn's argv. A create that stored them but spawned
+// bare (or the reverse) would give the operator a session whose tab says one
+// thing and whose pane does another, and 다시 시작 would not reproduce it.
+func TestCreateSession_LaunchIsStoredAndSpawned(t *testing.T) {
+	m := noServerMock()
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	dir := t.TempDir()
+	body := `{"tool":"claude","cwd":"` + dir + `","run_as":"alice","launch":{"continue":"last","permission":"acceptEdits","model":"opus-5"}}`
+	rec := call(t, h.CreateSession, http.MethodPost, body, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Data Session `json:"data"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &env)
+	if l := env.Data.Launch; l == nil || l.Continue != "last" || l.Permission != "acceptEdits" || l.Model != "opus-5" {
+		t.Errorf("created session launch = %+v, want the three choices back", env.Data.Launch)
+	}
+	row, found, err := getSessionRow(h.DB, env.Data.ID)
+	if err != nil || !found {
+		t.Fatalf("row: found=%v err=%v", found, err)
+	}
+	stored, err := decodeLaunch(row.Launch)
+	if err != nil || stored.Continue != "last" || stored.Permission != "acceptEdits" || stored.Model != "opus-5" {
+		t.Errorf("row launch %q decoded to %+v (%v), want the three choices", row.Launch, stored, err)
+	}
+	// The list is where the tab reads them back (spec §4), and it decodes the
+	// column rather than reusing the create's in-memory copy — so the create
+	// response above would pass on its own even if the snapshot dropped them.
+	rec = call(t, h.ListSessions, http.MethodGet, "", "", "")
+	var listEnv struct {
+		Data []Session `json:"data"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &listEnv)
+	if len(listEnv.Data) != 1 || listEnv.Data[0].Launch == nil || listEnv.Data[0].Launch.Permission != "acceptEdits" {
+		t.Errorf("list = %+v, want the session's launch options on it", listEnv.Data)
+	}
+	assertSpawnCarries(t, m, ToolClaude, []string{"--continue", "--permission-mode", "acceptEdits", "--model", "opus-5"})
+}
+
+// A restart re-spawns from the row, so it has to carry the row's launch: a
+// Codex session created with `resume --last` that came back bare would be a
+// different conversation in the same tab, with nothing on screen to say so.
+func TestRestart_ReusesTheRowsLaunch(t *testing.T) {
+	m := noServerMock()
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	dir := t.TempDir()
+	launch, err := LaunchOptions{Continue: continueLast, Sandbox: "read-only"}.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolCodex, Title: "Codex · x", RunAs: "root", CWD: dir, Launch: launch})
+	_ = setSessionEnded(h.DB, "aaaaaaaaaaaa", true)
+
+	rec := call(t, h.RestartSession, http.MethodPost, "", "aaaaaaaaaaaa", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("restart: %s", rec.Body.String())
+	}
+	// `resume --last` first, as the subcommand it is, then the sandbox.
+	assertSpawnCarries(t, m, ToolCodex, []string{"resume", "--last", "--sandbox", "read-only"})
+}
+
+// 다시 실행 types the tool into a pane that has dropped back to its shell, so
+// it must type the options too: a rerun that sent a bare `claude` would
+// silently drop the session's continue and permission choices.
+//
+// tmux puts nothing between adjacent send-keys arguments — `send-keys claude
+// --continue` types "claude--continue" (verified on tmux 3.6) — so the command
+// line is ONE argument. Assert that element rather than a join of the whole
+// argv, or a regression to one argument per word would still look right here.
+func TestRerun_SendsTheToolWithItsOptions(t *testing.T) {
+	m := tmuxMock("aaaaaaaaaaaa\t1\tbash\t0\t1789348400\t0")
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	launch, err := LaunchOptions{Continue: continueLast, Permission: "acceptEdits"}.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolClaude, Title: "a", RunAs: "root", CWD: "/", Launch: launch})
+
+	rec := call(t, h.RerunSession, http.MethodPost, "", "aaaaaaaaaaaa", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rerun: %d %s", rec.Code, rec.Body.String())
+	}
+	last := m.Calls[len(m.Calls)-1]
+	i := slices.Index(last.Args, "send-keys")
+	if i < 0 || len(last.Args) != i+5 {
+		t.Fatalf("send-keys call = %s %q, want `send-keys -t <id> <line> Enter`", last.Name, last.Args)
+	}
+	if got, want := last.Args[i+3], `claude --continue --permission-mode acceptEdits`; got != want {
+		t.Errorf("typed %q, want %q as one argument", got, want)
+	}
+	if last.Args[i+4] != "Enter" {
+		t.Errorf("the line must end with the Enter key: %q", last.Args)
+	}
+}
+
+// Options for a tool that takes none are refused rather than dropped: a shell
+// session that quietly ignored 이어서 하기 is not the session that was asked
+// for. The message names the field and the tool, because the dialog shows it
+// beside the control that produced it.
+func TestCreateSession_LaunchOnShellIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	for _, tool := range []string{ToolShell, ToolGemini} {
+		m := tmuxMock("")
+		h := newTestHandler(t, m)
+		h.DB = openTestDB(t)
+		body := `{"tool":"` + tool + `","cwd":"` + dir + `","launch":{"continue":"last"}}`
+		rec := call(t, h.CreateSession, http.MethodPost, body, "", "")
+		code, msg := failCode(t, rec)
+		if code != response.ErrInvalidBody || !strings.Contains(msg, "launch") || !strings.Contains(msg, tool) {
+			t.Errorf("%s + options: got %s %q, want INVALID_BODY naming launch and the tool", tool, code, msg)
+		}
+		if len(m.Calls) != 0 {
+			t.Errorf("%s: a refused launch must never reach tmux: %+v", tool, m.Calls)
+		}
+	}
+	// An absent object and an empty one are the same thing and neither is an
+	// error: the dialog sends {} when the section is opened and nothing in it
+	// is chosen, and every client that predates the feature sends nothing.
+	for _, body := range []string{`{"tool":"shell","cwd":"` + dir + `"}`, `{"tool":"shell","cwd":"` + dir + `","launch":{}}`} {
+		h := newTestHandler(t, tmuxMock(""))
+		h.DB = openTestDB(t)
+		if rec := call(t, h.CreateSession, http.MethodPost, body, "", ""); rec.Code != http.StatusOK {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body.String())
+		}
 	}
 }

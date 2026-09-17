@@ -30,14 +30,29 @@ type Session struct {
 	// Profile is the row's configuration directory; "" is the tool's own
 	// (see profiles.go). Carried on the session because a delete has to see
 	// which profiles are in use, and the tab bar shows a non-default one.
-	Profile        string `json:"profile,omitempty"`
-	State          string `json:"state"`
-	Persistence    string `json:"persistence"` // "service" | "process"
-	Attached       bool   `json:"attached"`
-	Unknown        bool   `json:"unknown,omitempty"` // live on the socket, no row
-	CreatedAt      string `json:"created_at"`
-	LastAttachedAt string `json:"last_attached_at,omitempty"`
-	EndedAt        string `json:"ended_at,omitempty"`
+	Profile string `json:"profile,omitempty"`
+	// Launch is what the session was started with (launch.go). nil is a tool
+	// started bare, which is every session created before this feature: a
+	// session with no options carries nothing new in the JSON, so the tab has
+	// nothing to mark and the info action nothing to list (spec §6).
+	Launch         *LaunchOptions `json:"launch,omitempty"`
+	State          string         `json:"state"`
+	Persistence    string         `json:"persistence"` // "service" | "process"
+	Attached       bool           `json:"attached"`
+	Unknown        bool           `json:"unknown,omitempty"` // live on the socket, no row
+	CreatedAt      string         `json:"created_at"`
+	LastAttachedAt string         `json:"last_attached_at,omitempty"`
+	EndedAt        string         `json:"ended_at,omitempty"`
+}
+
+// launchPtr is Session.Launch: nil for the zero value, so "no options" is one
+// thing in the JSON as well as in the column (LaunchOptions.Encode writes the
+// empty string for it).
+func launchPtr(o LaunchOptions) *LaunchOptions {
+	if o.IsZero() {
+		return nil
+	}
+	return &o
 }
 
 var sessionIDRe = regexp.MustCompile(`^[0-9a-f]{12}$`)
@@ -134,6 +149,14 @@ func (h *Handler) sessionsSnapshot() ([]Session, error) {
 	for _, r := range rows {
 		s := Session{ID: r.ID, Tool: r.Tool, Title: r.Title, RunAs: r.RunAs, CWD: r.CWD, Profile: r.Profile, Persistence: persistence,
 			CreatedAt: r.CreatedAt, LastAttachedAt: r.LastAttachedAt.String, EndedAt: r.EndedAt.String}
+		// A column this poll cannot read is not a reason to fail the poll:
+		// the tab would vanish for a session that is running perfectly well.
+		// It is logged and the session lists without its options.
+		if o, err := decodeLaunch(r.Launch); err != nil {
+			slog.Debug("ai stored launch options unreadable", "component", "ai", "id", r.ID, "err", err)
+		} else {
+			s.Launch = launchPtr(o)
+		}
 		if w, alive := lookup(r.RunAs)[r.ID]; alive {
 			s.State = deriveState(w, now)
 			s.Attached = w.Attached
@@ -219,7 +242,15 @@ func (h *Handler) spawnLock(acct Account) *sync.Mutex {
 // has none. The lock is what makes "has none" safe to act on: the server form
 // claims the fixed unit name sfpanel-ai-<uid>, so two concurrent creates for
 // one account must not both decide there is no server and both ask for it.
-func (h *Handler) spawn(id, cwd, tool, profile string, acct Account) error {
+//
+// The launch options are turned into an argv here rather than handed in ready
+// made: toolArgv validates before it builds, so there is no way to reach a
+// spawn with an argv nothing checked.
+func (h *Handler) spawn(id, cwd, tool, profile string, acct Account, launch LaunchOptions) error {
+	launchArgv, err := toolArgv(tool, launch)
+	if err != nil {
+		return err
+	}
 	if err := h.ensureSocketDir(acct); err != nil {
 		return fmt.Errorf("could not prepare the session socket directory: %w", err)
 	}
@@ -227,7 +258,7 @@ func (h *Handler) spawn(id, cwd, tool, profile string, acct Account) error {
 	mu.Lock()
 	defer mu.Unlock()
 	form := h.spawnFormFor(acct)
-	name, argv := h.spawnArgv(id, cwd, tool, profile, acct, form)
+	name, argv := h.spawnArgv(id, cwd, tool, profile, acct, form, launchArgv)
 	out, err := h.Cmd.RunWithTimeout(tmuxTimeout, name, argv...)
 	if err != nil && form == spawnService && h.serverRunning(acct) {
 		// The session may already be there: systemd-run can exit non-zero
@@ -245,7 +276,7 @@ func (h *Handler) spawn(id, cwd, tool, profile string, acct Account) error {
 		// yet. There is a server now, so talk to it; that is not a failure
 		// the operator should be shown.
 		slog.Debug("ai spawn retrying on the running server", "component", "ai", "id", id, "account", acct.Name, "err", err)
-		name, argv = h.spawnArgv(id, cwd, tool, profile, acct, spawnClient)
+		name, argv = h.spawnArgv(id, cwd, tool, profile, acct, spawnClient, launchArgv)
 		out, err = h.Cmd.RunWithTimeout(tmuxTimeout, name, argv...)
 	}
 	if err != nil {
@@ -269,6 +300,32 @@ type createSessionReq struct {
 	RunAs   string `json:"run_as"`
 	Title   string `json:"title"`
 	Profile string `json:"profile"`
+	// Launch is a pointer so that an absent object and an empty one are the
+	// same thing and neither is an error: every client that predates the
+	// feature sends nothing, and the dialog sends {} when the section is
+	// opened and nothing in it is chosen.
+	Launch *LaunchOptions `json:"launch"`
+}
+
+// launchRefusal is POST /ai/sessions' check on the launch options: the
+// per-tool validation of launch.go plus the one rule of spec §3 that needs
+// the resolved account. A non-empty code is the refusal to write; the message
+// is shown beside the control that produced it, so it names the field and the
+// rule rather than saying "invalid".
+func launchRefusal(tool string, o LaunchOptions, acct Account) (string, string) {
+	if err := validateLaunch(tool, o); err != nil {
+		// validateLaunch's text is both a Go error and what the dialog shows.
+		// The "ai: " prefix is the package convention for the first and noise
+		// in front of an operator, so the field name replaces it here.
+		return response.ErrInvalidBody, "launch: " + strings.TrimPrefix(err.Error(), "ai: ")
+	}
+	// UID, not the name: an account named something else with uid 0 is root
+	// as far as the CLI's own check is concerned.
+	if tool == ToolClaude && o.Dangerous && acct.UID == 0 {
+		return response.ErrLaunchRootDanger, fmt.Sprintf(
+			"launch: claude refuses --dangerously-skip-permissions when it runs as root, and %s is root; pick a non-root account", acct.Name)
+	}
+	return "", ""
 }
 
 // profileRefusal is the membership check POST /ai/sessions makes on a
@@ -321,6 +378,16 @@ func (h *Handler) CreateSession(c echo.Context) error {
 	if refusal != "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, refusal)
 	}
+	// After the account because the root rule needs the resolved one, and
+	// still before the cwd: no command has run yet, so a refused option set
+	// has spawned nothing (spec §3).
+	launch := LaunchOptions{}
+	if req.Launch != nil {
+		launch = *req.Launch
+	}
+	if code, msg := launchRefusal(req.Tool, launch, acct); code != "" {
+		return response.Fail(c, http.StatusBadRequest, code, msg)
+	}
 	cwd, reason := validateCWD(req.CWD)
 	if reason != "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath, "cwd: "+reason)
@@ -346,16 +413,24 @@ func (h *Handler) CreateSession(c echo.Context) error {
 	if title == "" {
 		title = defaultTitle(req.Tool, cwd)
 	}
-	if err := h.spawn(id, cwd, req.Tool, req.Profile, acct); err != nil {
+	// Encoded before the spawn: a set of options that cannot be stored is a
+	// session 다시 시작 could not reproduce, and finding that out after the
+	// tool is running would mean killing it again.
+	launchJSON, err := launch.Encode()
+	if err != nil {
+		slog.Error("ai could not encode the launch options", "component", "ai", "tool", req.Tool, "err", err)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not store the launch options")
+	}
+	if err := h.spawn(id, cwd, req.Tool, req.Profile, acct, launch); err != nil {
 		slog.Error("ai session spawn failed", "component", "ai", "id", id, "account", acct.Name, "err", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCommandFailed, response.SanitizeOutput(err.Error()))
 	}
-	if err := insertSession(h.DB, sessionRow{ID: id, Tool: req.Tool, Title: title, RunAs: acct.Name, CWD: cwd, Profile: req.Profile}); err != nil {
+	if err := insertSession(h.DB, sessionRow{ID: id, Tool: req.Tool, Title: title, RunAs: acct.Name, CWD: cwd, Profile: req.Profile, Launch: launchJSON}); err != nil {
 		_, _ = h.tmux(acct, "kill-session", "-t", id)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not store the session")
 	}
-	slog.Info("ai session created", "component", "ai", "id", id, "tool", req.Tool, "account", acct.Name, "cwd", cwd, "profile", req.Profile)
-	return response.OK(c, Session{ID: id, Tool: req.Tool, Title: title, RunAs: acct.Name, CWD: cwd, Profile: req.Profile,
+	slog.Info("ai session created", "component", "ai", "id", id, "tool", req.Tool, "account", acct.Name, "cwd", cwd, "profile", req.Profile, "launch", launchJSON)
+	return response.OK(c, Session{ID: id, Tool: req.Tool, Title: title, RunAs: acct.Name, CWD: cwd, Profile: req.Profile, Launch: launchPtr(launch),
 		State: StateWorking, Persistence: h.persistence(), CreatedAt: h.now().UTC().Format(time.RFC3339)})
 }
 
@@ -431,7 +506,9 @@ func (h *Handler) RenameSession(c echo.Context) error {
 }
 
 // RerunSession — POST /ai/sessions/:id/rerun: type the tool again into a
-// pane that has dropped back to its shell.
+// pane that has dropped back to its shell — with the options the session was
+// created with, because a rerun that started the tool bare would silently
+// change what the session is.
 func (h *Handler) RerunSession(c echo.Context) error {
 	row, acct, ok := h.lookupRow(c)
 	if !ok {
@@ -443,7 +520,30 @@ func (h *Handler) RerunSession(c echo.Context) error {
 	if st := h.rowState(row, acct); st != StateShell {
 		return response.Fail(c, http.StatusConflict, response.ErrAISessionState, "session is "+st+"; rerun needs the shell state")
 	}
-	if out, err := h.tmux(acct, "send-keys", "-t", row.ID, row.Tool, "Enter"); err != nil {
+	launch, err := decodeLaunch(row.Launch)
+	if err != nil {
+		slog.Error("ai stored launch options unreadable", "component", "ai", "id", row.ID, "err", err)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not read the session's launch options")
+	}
+	// Not ErrInvalidBody: there is no body on a rerun to blame. A stored set
+	// this panel cannot build is a row from a newer one (or an edited
+	// database), so it answers like the decode failure above and names the
+	// rule it could not satisfy.
+	launchArgv, err := toolArgv(row.Tool, launch)
+	if err != nil {
+		slog.Error("ai stored launch options no longer valid", "component", "ai", "id", row.ID, "tool", row.Tool, "err", err)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "launch: "+strings.TrimPrefix(err.Error(), "ai: "))
+	}
+	// ONE argument, not one per word: tmux puts nothing between adjacent
+	// send-keys arguments, so `send-keys claude --continue` types
+	// "claude--continue" (verified on tmux 3.6).
+	//
+	// This is the one path where the options do reach a shell — the pane's own,
+	// which re-reads the line it is typed — and that is what validateLaunch's
+	// no-whitespace, no-metacharacter token rule is for. The spawn path never
+	// does (sessionCommands passes the words through the wrapper's "$@").
+	line := strings.Join(append([]string{row.Tool}, launchArgv...), " ")
+	if out, err := h.tmux(acct, "send-keys", "-t", row.ID, line, "Enter"); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCommandFailed, response.SanitizeOutput(out))
 	}
 	return response.OK(c, map[string]string{"id": row.ID, "state": StateWorking})
@@ -478,13 +578,19 @@ func (h *Handler) RestartSession(c echo.Context) error {
 	if liveCount >= maxSessions {
 		return response.Fail(c, http.StatusConflict, response.ErrAISessionLimit, fmt.Sprintf("maximum of %d live sessions reached", maxSessions))
 	}
-	// row.Profile, not the default: the session comes back on the login it
-	// was created with.
-	if err := h.spawn(row.ID, cwd, row.Tool, row.Profile, acct); err != nil {
+	// The row's profile and the row's launch options, not the defaults: the
+	// session comes back on the login it was created with and started the way
+	// it was started (spec §4).
+	launch, err := decodeLaunch(row.Launch)
+	if err != nil {
+		slog.Error("ai stored launch options unreadable", "component", "ai", "id", row.ID, "err", err)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not read the session's launch options")
+	}
+	if err := h.spawn(row.ID, cwd, row.Tool, row.Profile, acct, launch); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCommandFailed, response.SanitizeOutput(err.Error()))
 	}
 	_ = setSessionEnded(h.DB, row.ID, false)
-	slog.Info("ai session restarted", "component", "ai", "id", row.ID, "tool", row.Tool, "account", acct.Name, "profile", row.Profile)
+	slog.Info("ai session restarted", "component", "ai", "id", row.ID, "tool", row.Tool, "account", acct.Name, "profile", row.Profile, "launch", row.Launch)
 	return response.OK(c, map[string]string{"id": row.ID, "state": StateWorking})
 }
 
