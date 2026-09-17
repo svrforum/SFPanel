@@ -194,11 +194,13 @@ export function SessionHeader({ item, hostInfo, fontSize, onFontSize, search, on
               if (e.key === 'Escape') onSearchClose()
             }}
             placeholder={t('terminal.searchPlaceholder')} className="h-7 text-xs bg-card border-border text-foreground flex-1 max-w-[10rem] md:max-w-xs" autoFocus />
-          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-console-muted hover:text-console-foreground hover:bg-console-foreground/10" onClick={onSearchPrev}>
-            <span className="hidden md:inline">{t('terminal.prev')}</span><span className="md:hidden">↑</span>
+          {/* The visible label is an arrow on a phone, so the name has to be
+              on the button rather than in its text. */}
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-console-muted hover:text-console-foreground hover:bg-console-foreground/10" onClick={onSearchPrev} aria-label={t('terminal.prev')}>
+            <span className="hidden md:inline" aria-hidden="true">{t('terminal.prev')}</span><span className="md:hidden" aria-hidden="true">↑</span>
           </Button>
-          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-console-muted hover:text-console-foreground hover:bg-console-foreground/10" onClick={onSearchNext}>
-            <span className="hidden md:inline">{t('terminal.next')}</span><span className="md:hidden">↓</span>
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-console-muted hover:text-console-foreground hover:bg-console-foreground/10" onClick={onSearchNext} aria-label={t('terminal.next')}>
+            <span className="hidden md:inline" aria-hidden="true">{t('terminal.next')}</span><span className="md:hidden" aria-hidden="true">↓</span>
           </Button>
           <Button variant="ghost" size="sm" className={ICON} onClick={onSearchClose} aria-label={t('common.close')}><X className="h-3.5 w-3.5" /></Button>
         </div>

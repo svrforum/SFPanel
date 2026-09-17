@@ -91,11 +91,13 @@ for (const path of ['/terminal']) {
     // Match WebView.evaluateJavascript; a DOM script tag is blocked by the
     // production CSP and does not model how the Android asset is installed.
     await page.evaluate(readFileSync(resolve(__dirname, '../../android/app/src/main/assets/panel.js'), 'utf8'))
-    // Compact mode (the Android page script) hides the first child of the
-    // workspace — the rail aside, already hidden on a phone — and the key bar;
-    // the pane must grow. Opening the tools panel through the html attribute
-    // must still reach the account control.
-    const aside = page.locator('[data-ai-workspace] > :first-child')
+    // Compact mode (the Android page script) hides the key bar and the pane
+    // must grow into the freed height. The rail is the workspace's first
+    // child and stays hidden on a phone — panel.js hides whatever that first
+    // child is, so a first child that is not the rail would hide the pane
+    // instead. Assert the identity, not just "something is hidden".
+    const aside = page.locator('[data-ai-workspace] > aside:first-child')
+    await expect(aside).toHaveCount(1)
     await expect(aside).toBeHidden()
     await expect(bar).toBeHidden()
     await expect.poll(async () => (await terminal.boundingBox())?.height ?? 0).toBeGreaterThan(450)
@@ -174,6 +176,9 @@ test('without tmux the page falls back to a temporary PTY shell and says so', as
   await page.routeWebSocket(/\/ws\//, socket => { sockets.push(socket.url()) })
   await page.goto('/terminal')
   await expect(page.getByText(/Without tmux, sessions live in this browser only/)).toBeVisible()
+  // The empty pane must promise what this mode can keep: a temporary shell,
+  // not the tmux "survives the browser and a panel restart" sentence.
+  await expect(page.getByText(/Start a temporary shell/)).toBeVisible()
   await page.getByRole('button', { name: 'Sessions' }).tap()
   await expect(page.getByRole('tab')).toHaveCount(0)
   await page.getByRole('button', { name: 'New temporary session' }).tap()

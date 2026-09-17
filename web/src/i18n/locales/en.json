@@ -1315,8 +1315,6 @@
     "connectingShell": "Connecting to container shell...",
     "wsError": "WebSocket error occurred.",
     "notAuthenticated": "Error: Not authenticated",
-    "newTab": "New Terminal",
-    "noTabs": "No terminal tabs open",
     "fontSmaller": "Decrease font size",
     "fontLarger": "Increase font size",
     "search": "Search",
@@ -1328,13 +1326,6 @@
     "connected": "Connected",
     "reconnecting": "Reconnecting…",
     "disconnected": "Disconnected",
-    "reattach": {
-      "button": "Reattach session",
-      "title": "Reattachable sessions",
-      "empty": "No reattachable sessions",
-      "attached": "attached",
-      "open": "Open"
-    },
     "tabTitle": "Terminal {{n}}",
     "reattachedTab": "Reattached {{id}}",
     "shellBadgeHint": "Connected as {{user}} on {{host}}",
@@ -1346,6 +1337,7 @@
       "newSession": "New session",
       "newTemporary": "New temporary session",
       "temporary": "Temporary sessions",
+      "temporarySession": "Temporary session",
       "temporaryHint": "This browser only · 5 minutes after a reload",
       "reattach": "Reattach",
       "tools": "Tools & accounts",
@@ -1377,7 +1369,8 @@
       "retry": "Retry"
     },
     "fallback": {
-      "banner": "Without tmux, sessions live in this browser only. You can reattach within 5 minutes of a reload; after that they are gone."
+      "banner": "Without tmux, sessions live in this browser only. You can reattach within 5 minutes of a reload; after that they are gone.",
+      "noSessionsHint": "Start a temporary shell. It lives in this browser only and is gone 5 minutes after a reload."
     }
   },
   "ai": {

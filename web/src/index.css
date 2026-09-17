@@ -67,10 +67,16 @@
     --card-foreground: #191f28;
     /* The terminal's own surface (Tokyo Night Day / Night). TerminalSession.tsx
        hardcodes the same background and foreground in its xterm theme; the
-       rail and header share the surface so the console reads as one object. */
+       rail and header share the surface so the console reads as one object.
+       --console-muted is not Tokyo Night's comment stop (#848cb5 / #565f89):
+       it carries the rail's note line (입력 대기 / 도구 종료됨), the group
+       path and the header meta, and the editor stop reads 2.5:1 there. These
+       two are that stop darkened / lightened until they clear WCAG AA 4.5:1
+       on the console surface and on an active row's 10% overlay (4.61:1 and
+       4.76:1 at the worst of the three backgrounds). */
     --console: #e1e2e7;
     --console-foreground: #3760bf;
-    --console-muted: #848cb5;
+    --console-muted: #4f5986;
     --console-border: #c4c8da;
     --popover: #ffffff;
     --popover-foreground: #191f28;
@@ -116,7 +122,7 @@
     --card-foreground: #e6edf3;
     --console: #1a1b26;
     --console-foreground: #c0caf5;
-    --console-muted: #565f89;
+    --console-muted: #8b96c4;
     --console-border: #292e42;
     --popover: #161b22;
     --popover-foreground: #e6edf3;

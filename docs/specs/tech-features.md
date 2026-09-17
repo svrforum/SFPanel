@@ -120,9 +120,9 @@
 - **설명**: 브라우저에서 서버 셸에 직접 접속하는 완전한 터미널 에뮬레이터
 - **주요 기능**:
   - PTY (pseudo-terminal) 기반 실제 셸 세션 (/bin/bash 또는 /bin/sh)
-  - 다중 탭 지원 (생성/닫기/이름 변경, localStorage 지속)
+  - 다중 탭 지원 (생성/닫기/이름 변경, localStorage 지속) — **(v0.76.0)** 터미널 페이지의 기본 세션은 tmux(§24)이고, 이 PTY 탭은 tmux가 없을 때의 **폴백**이자 '임시 셸' 경로다. 탭바는 없어지고 레일의 임시 세션 그룹에 나열된다
   - 세션 지속성 — 탭 전환/재연결 시 스크롤백 버퍼 재생 (서버 측 256KB 링 버퍼; 클라이언트 xterm 스크롤백 10,000줄과는 별개)
-  - **보존 세션 재연결(reattach)**: 서버는 연결 끊김 후에도 PTY 세션과 스크롤백을 유지하므로, `GET /terminal/sessions`로 살아 있는 세션 목록을 조회해 피커에서 기존 세션 id에 다시 붙을 수 있음 (이전에는 프론트엔드가 항상 새 세션 id를 생성해 기존 세션에 도달 불가). **(v0.53.0)** reattach 시점의 liveness 판정 레이스 폐쇄
+  - **보존 세션 재연결(reattach)**: 서버는 연결 끊김 후에도 PTY 세션과 스크롤백을 유지하므로, `GET /terminal/sessions`로 살아 있는 세션 목록을 조회해 피커에서 기존 세션 id에 다시 붙을 수 있음 (이전에는 프론트엔드가 항상 새 세션 id를 생성해 기존 세션에 도달 불가). **(v0.53.0)** reattach 시점의 liveness 판정 레이스 폐쇄. **(v0.76.0)** 피커는 레일의 임시 세션 그룹 안 '다시 연결' 목록으로 이동 (PTY 폴백 경로)
   - **(v0.53.0) 자동 재연결**: 끊긴 WS가 동일 PTY 세션에 bounded exponential backoff로 재접속, 서버 스크롤백 재생으로 세션 지속 (accept 후 즉시 드롭 시 tight-loop 방지 가드)
   - **(v0.53.0) 탭 per-node 네임스페이스**: 클러스터 노드 전환 시 다른 노드의 탭 상태를 재사용해 중복 PTY가 생기지 않도록 localStorage 키를 노드별로 분리
   - **(v0.53.0) 터미널/exec 세션 오픈 감사 기록**: `/ws/terminal`·컨테이너 exec 오픈이 `audit_logs`에 남음 (기존 `/ws/*` 감사 우회 폐쇄)
@@ -131,7 +131,7 @@
   - 폰트 크기 조절 (10~24px)
   - 터미널 내 텍스트 검색 (SearchAddon)
   - 웹 링크 자동 감지 및 클릭 (WebLinksAddon), Unicode11 폭 처리 (CJK)
-  - xterm 내부 팔레트는 Tokyo Night 고정 — **(v0.53.0)** 페이지 chrome(탭바/툴바/검색바/모바일 바)만 라이트/다크 테마 추종. 클리어 버튼 (Ctrl-L 전송)
+  - xterm 내부 팔레트는 Tokyo Night 고정 — **(v0.53.0)** 페이지 chrome(탭바/툴바/검색바/모바일 바)만 라이트/다크 테마 추종. **(v0.76.0)** 탭바 자리는 세션 레일·헤더가 대신하고, 레일·헤더·패널 프레임은 xterm 팔레트와 같은 값의 `--console*` 토큰으로 칠한다. 클리어 버튼 (Ctrl-L 전송)
   - 모바일 특수키 바 (Esc/Tab/Ctrl/Alt 토글, 방향키, Ctrl+C/D/Z — v0.53.0에 `MobileTerminalBar` 컴포넌트로 추출)
   - 유휴 세션 자동 정리 (설정 가능한 타임아웃, 기본 30분, 0=무제한) + **빈-리더 세션 5분 강제 회수** (탭 종료 후 PTY 누수 방지)
   - 최대 20 동시 세션, WS keepalive (30초 ping / 70초 read deadline), 사용자별 세션 키 바인딩, HOME 동적 해석(비-root 유닛 지원)
@@ -440,9 +440,9 @@
 - **(v0.53.0) 다크모드 + 시맨틱 토큰 스윕**: `.dark` 팔레트 활성화(light/dark/system, OS 추종 + pre-paint 인라인 스크립트), 하드코딩 hex를 시맨틱 토큰으로 정리
 - **(v0.53.0) 키보드 접근성 스윕**: 전 인터랙티브 표면 focus-visible 링, 아이콘 전용 컨트롤 aria-label(기존 i18n 키 재사용), 클릭 전용 행/셀 keyboard-operable(role/tabIndex/Enter·Space), hover-전용 행 액션 포커스 시 표시
 
-### 24. AI 코딩 워크스페이스
+### 24. 터미널 tmux 세션 엔진 (셸 · Claude · Codex · Gemini)
 
-- **설명**: (v0.73.0) Claude Code · Codex · Gemini CLI와 로그인 셸을 패널이 관리하는 tmux 세션으로 띄우고 브라우저를 그 세션에 붙인다. 브라우저를 닫아도 세션은 계속 돌아간다
+- **설명**: (v0.73.0) Claude Code · Codex · Gemini CLI와 로그인 셸을 패널이 관리하는 tmux 세션으로 띄우고 브라우저를 그 세션에 붙인다. 브라우저를 닫아도 세션은 계속 돌아간다. **(v0.76.0)** UI는 터미널 페이지(§3, `/terminal`) 하나로 합쳐졌고 옛 AI 코딩 페이지(`/ai`)는 리다이렉트다 — 이 절은 그 엔진(API `/api/v1/ai/*`, `/ws/ai/attach`, 이름 그대로)을 설명한다
 - **주요 기능**:
   - **영속 세션**: 계정별 tmux 서버(`-S /run/sfpanel/ai/<uid>/sfpanel`)를 `systemd-run --unit=sfpanel-ai-<uid> --collect --uid=<계정> --gid=<gid> -p Type=forking`으로 PID 1이 띄우는 transient **서비스**로 만들어 패널 재시작에도 생존(`persistence: service`). scope가 아니라 service인 이유: scope는 호출자를 fork하므로 패널의 `PrivateTmp` 마운트 네임스페이스와 환경변수를 물려받고, 패널이 재시작하면 살아남은 세션의 `/tmp`가 사라진다. 같은 이유로 소켓도 `/tmp`가 아닌 `/run` 아래에 둔다(패널이 root가 아니면 상태 디렉터리 아래). 두 번째 세션부터는 같은 소켓에 `new-session`만 보낸다. systemd-run이 없거나 패널이 root가 아니면 `setsid`만 적용되어 패널 재시작 시 종료(`process`). 살아있는 세션 최대 20개
   - **tmux 3.2 이상 필요**: 패널이 인라인으로 주는 옵션 집합(`window-size latest` 등)의 하한 = Ubuntu 22.04 / Debian 12. 그보다 낮으면 생성·재시작을 `TMUX_MISSING`(503)으로 거절하고 요구 버전과 발견 버전을 함께 알린다. 버전을 파싱하지 못하면 막지 않는다

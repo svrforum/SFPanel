@@ -116,8 +116,11 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(key) } }}
                       onDoubleClick={() => { if (!s?.unknown) startRename(item) }}>
                       {isActive && <span aria-hidden="true" className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full" style={{ backgroundColor: meta.color }} />}
+                      {/* The dot is a picture of the state, not a live region:
+                          role="status" makes every screen reader announce the
+                          whole rail again whenever any row's state changes. */}
                       <span className={cn('h-1.5 w-1.5 rounded-full shrink-0 motion-reduce:animate-none', s ? stateDotClass(s.state, isActive) : 'bg-console-muted')}
-                        role="status" aria-label={s ? t('ai.state.' + s.state) : t('terminal.rail.temporary')} />
+                        role="img" aria-label={s ? t('ai.state.' + s.state) : t('terminal.rail.temporarySession')} />
                       <span className="h-[18px] w-[18px] rounded-md flex items-center justify-center text-[10px] font-bold shrink-0"
                         style={{ backgroundColor: `${meta.color}1a`, color: meta.color }} aria-hidden="true">{meta.initial}</span>
                       {!collapsed && (
@@ -127,6 +130,9 @@ export function SessionRail({ groups, active, collapsed, fallback, reattachable,
                               onBlur={() => commitRename(item)}
                               onKeyDown={(e) => { if (e.key === 'Enter') commitRename(item); if (e.key === 'Escape') setEditing(null); e.stopPropagation() }}
                               onClick={(e) => e.stopPropagation()}
+                              /* double-click selects a word in the field; the row would
+                                 read it as "rename" and restart the edit, losing the text */
+                              onDoubleClick={(e) => e.stopPropagation()}
                               className="w-full bg-transparent border-b border-primary outline-none text-[13px] text-console-foreground" maxLength={64} autoFocus />
                           ) : (
                             <div className="flex items-center gap-1.5 min-w-0">

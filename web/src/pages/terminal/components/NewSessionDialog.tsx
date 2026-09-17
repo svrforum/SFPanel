@@ -306,6 +306,11 @@ export function NewSessionDialog({
   }
 
   const submitDisabled = busy || !cwd.trim() || (withLaunch && extraError !== null) || modelError
+  // Before GET /ai/tools answers, the account may be '' — Radix throws on an
+  // empty SelectItem value, so an empty account is never an item and the
+  // trigger is disabled rather than opening an empty list (same rule as
+  // ToolsSheet).
+  const accounts = tools?.accounts ?? (runAs ? [runAs] : [])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -322,11 +327,13 @@ export function NewSessionDialog({
           {/* Account first: it decides which tools are installed and which
               directories are suggested, so everything below reacts to it. */}
           <div className="space-y-1.5">
-            <Label>{t('ai.dialog.account')}</Label>
+            <Label htmlFor="launcher-account">{t('ai.dialog.account')}</Label>
             <Select value={runAs} onValueChange={(a) => { setRunAs(a); setCwd('') }}>
-              <SelectTrigger className="font-mono text-[12px]"><SelectValue /></SelectTrigger>
+              <SelectTrigger id="launcher-account" className="font-mono text-[12px]" aria-label={t('ai.dialog.account')} disabled={accounts.length === 0}>
+                <SelectValue placeholder={t('ai.dialog.account')} />
+              </SelectTrigger>
               <SelectContent>
-                {(tools?.accounts ?? [runAs]).map((a) => <SelectItem key={a} value={a} className="font-mono text-[12px]">{a}</SelectItem>)}
+                {accounts.map((a) => <SelectItem key={a} value={a} className="font-mono text-[12px]">{a}</SelectItem>)}
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-foreground">{t('ai.accountHint')}</p>

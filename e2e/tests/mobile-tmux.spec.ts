@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 test.use({ viewport: { width: 412, height: 860 }, hasTouch: true })
 
 for (const android of [false, true]) {
-  test(`AI history visibly scrolls through real tmux (${android ? 'Android' : 'web'})`, async ({ page }) => {
+  test(`terminal history visibly scrolls through real tmux (${android ? 'Android' : 'web'})`, async ({ page }) => {
     test.skip(spawnSync('tmux', ['-V']).status !== 0 || spawnSync('python3', ['--version']).status !== 0,
       'Requires tmux and Python 3 for the isolated PTY fixture')
     const peers: ChildProcess[] = []
