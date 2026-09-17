@@ -3627,7 +3627,7 @@ data: [DONE]
 
 ## AI 워크스페이스 API (`/api/v1/ai`)
 
-Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 실행하고, 계정별 설치 상태를 조회한다. 모든 라우트는 노드 로컬이며 `?node=`로 다른 노드를 지정한다. v0.73.0에서 `/packages/{claude,codex,gemini}-status`·`/packages/install-{claude,codex,gemini}`를 대체했다. 세션은 **프로파일**(도구가 설정과 자격증명을 두는 디렉터리) 하나를 골라 실행한다 — `/ai/profiles` 세 라우트가 그 목록·생성·삭제를 담당한다.
+Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 실행하고, 계정별 설치 상태를 조회한다. 모든 라우트는 노드 로컬이며 `?node=`로 다른 노드를 지정한다. v0.73.0에서 `/packages/{claude,codex,gemini}-status`·`/packages/install-{claude,codex,gemini}`를 대체했다. 세션은 **프로파일**(도구가 설정과 자격증명을 두는 디렉터리) 하나를 골라 실행한다 — `/ai/profiles` 세 라우트가 그 목록·생성·삭제를 담당한다. 세션마다 **실행 옵션**(이어서 하기·승인 방식·샌드박스·위험 플래그·모델·추가 인자)도 고를 수 있다 — 새 라우트는 없고 `POST /ai/sessions`의 `launch` 객체 하나로 받으며, 고른 값이 행에 남아 `rerun`·`restart`가 그대로 재현한다.
 
 ### GET /api/v1/ai/tools
 선택한 계정의 로그인 셸 기준 CLI 상태. `?user=` 생략 시 패널 계정.
@@ -3795,6 +3795,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
   "success": true,
   "data": [
     { "id": "3f9a1c2b7d4e", "tool": "claude", "title": "Claude · app", "run_as": "root", "cwd": "/opt/stacks/app", "profile": "work",
+      "launch": { "continue": "last", "permission": "acceptEdits" },
       "state": "waiting", "persistence": "service", "attached": false, "created_at": "2026-09-14T01:02:03Z" }
   ]
 }
@@ -3803,6 +3804,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 | 필드 | 설명 |
 |------|------|
 | `profile` | 그 세션이 쓰는 도구 설정 디렉터리(프로파일) 이름. 기본 프로파일이면 **필드 없음** — 탭 막대가 기본이 아닌 프로파일만 칩으로 보이고, 프로파일 삭제가 어떤 프로파일이 쓰이고 있는지 알기 위해 세션에 실려 있다 |
+| `launch` | 그 세션을 시작할 때 고른 실행 옵션 (필드 구성은 아래 POST 참고). 아무것도 고르지 않았으면 **필드 없음** — 기능 이전에 만든 모든 행이 이미 그것이고, 저장 컬럼도 빈 문자열이다. argv 문자열이 아니라 고른 값이므로 UI가 그대로 말로 풀어 보여준다 |
 | `state` | `working`(도구 실행 중, 5초 내 출력) · `waiting`(도구가 5초 이상 조용하거나 벨) · `shell`(도구 종료, 셸 프롬프트) · `ended`(tmux 세션 없음) |
 | `persistence` | `service`(계정의 tmux 서버가 `systemd-run`이 만든 transient 서비스 = PID 1 소유, 패널 재시작 생존) · `process`(setsid만, 패널 재시작 시 종료) |
 | `unknown` | tmux 소켓에는 있으나 표에 없는 세션 (DB 유실) |
@@ -3813,7 +3815,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 ### POST /api/v1/ai/sessions
 세션 생성. 계정에 tmux 서버가 없으면 `systemd-run --unit=sfpanel-ai-<uid> --collect --uid=<계정> --gid=<gid> -p Type=forking -- tmux -f /dev/null -S /run/sfpanel/ai/<uid>/sfpanel …`(PID 1이 띄우는 transient 서비스), 이미 있으면 같은 소켓에 `new-session`만 보낸다. scope가 아니라 service인 이유: scope는 호출자(패널)를 fork하므로 `PrivateTmp` 마운트 네임스페이스와 패널 환경변수를 그대로 물려받고, 패널을 재시작하면 살아남은 세션의 `/tmp`가 사라진다.
 
-**Request:** `{ "tool": "claude", "cwd": "/opt/stacks/app", "run_as": "root", "title": "선택", "profile": "선택" }`
+**Request:** `{ "tool": "claude", "cwd": "/opt/stacks/app", "run_as": "root", "title": "선택", "profile": "선택", "launch": { "continue": "last", "permission": "acceptEdits", "sandbox": "선택", "dangerous": false, "model": "선택", "extra": ["--flag"] } }`
 
 **Response (200):** 생성된 세션 객체 (`state: "working"`).
 
@@ -3821,11 +3823,27 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 
 프로세스 환경(`env -i …` 접두, `systemd-run --setenv=`)이 아니라 `-e`인 이유: tmux는 클라이언트의 환경을 세션에 복사하지 않고 `update-environment`가 지정한 것만 가져오며, 나머지는 tmux **서버**의 환경에서 온다. 접두에 실으면 그 계정의 *첫* 세션에만 닿고, 그 값이 서버의 전역 환경이 되어 이후 '기본'으로 만든 세션까지 조용히 같은 프로파일로 돌아간다 — 화면에 아무 표시도 없이 다른 계정에 타이핑하게 된다. `new-session -e`는 tmux 3.1a부터 있어 이 기능이 이미 요구하는 3.2 하한 아래다. 제목을 비우면 기본 제목은 도구와 디렉터리만 담는다: `Codex · myapp`. 프로파일은 탭의 칩이 보여준다 — 제목에 한 번 더 넣으면 18자쯤에서 잘리는 탭 폭을 깎고, 이름을 바꾸는 순간 그 사본만 낡는다(칩은 그대로 남는다).
 
+`launch`는 **선택**이며, 생략하거나 빈 객체를 주면 도구를 옵션 없이 그대로 시작한다 — 저장 컬럼도 빈 문자열이라 기능 이전에 만든 행과 구분되지 않는다. 각 필드의 허용값은 **고른 도구가 자기 `--help`에 적어둔 것**이며(Claude Code 2.1.271 · Codex 0.154.0 기준), 다른 도구의 값은 번역하지 않고 거절한다 — Claude의 `acceptEdits`와 Codex의 `on-request`는 같은 개념의 두 표기가 아니다.
+
+| `launch` 필드 | 타입 | `claude` | `codex` |
+|------|------|------|------|
+| `continue` | string | `last` → `--continue`(그 디렉터리의 마지막 대화) · `pick` → `--resume`(도구가 목록을 띄움) | `last` → `resume --last` · `pick` → `resume` — **플래그가 아니라 서브커맨드**라 argv 맨 앞에 온다 |
+| `permission` | string | `--permission-mode`: `auto` · `manual` · `plan` · `acceptEdits` · `dontAsk` · `bypassPermissions` | `-a/--ask-for-approval`: `on-request` · `never` |
+| `sandbox` | string | 없음 (주면 거절) | `-s/--sandbox`: `read-only` · `workspace-write` · `danger-full-access` |
+| `dangerous` | bool | `--dangerously-skip-permissions` | `--dangerously-bypass-approvals-and-sandbox` |
+| `model` | string | `--model <값>` | `-m <값>` |
+| `extra` | string[] | 검증한 뒤 그대로 맨 뒤에 붙는다 | 같음 |
+
+`model`은 `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`, `extra`는 최대 8개·각 64자·`^-{0,2}[A-Za-z0-9][A-Za-z0-9=._,:/@-]*$`이다. 문자 집합에 공백이 없으므로 따옴표가 필요한 값은 애초에 표현할 수 없고, 거절 메시지가 그 사실을 그대로 말한다. 옵션은 `bash -lic 'command "$0" "$@"; exec bash -l' <도구> <인자…>`의 `"$@"`로 **한 원소당 한 단어씩** 전달되어 셸이 다시 파싱하지 않는다 — 이것이 `extra`를 받을 수 있는 근거이므로, 래퍼를 하나의 문자열로 "단순화"하면 안 된다. 행에는 argv가 아니라 **고른 값**이 JSON으로 남는다(마이그레이션 38).
+
+검증은 도구 → 계정 → 프로파일 → **실행 옵션** → `cwd` 순서다: 거절된 옵션 집합이 이미 세션을 띄운 뒤여서는 안 된다.
+
 | 코드 | HTTP | 조건 |
 |------|------|------|
 | `INVALID_TOOL` | 400 | `claude`·`codex`·`gemini`·`shell` 외 |
 | `INVALID_ACCOUNT` | 400 | `run_as`가 허용 목록에 없음 |
-| `INVALID_BODY` | 400 | `profile`이 그 계정·도구의 목록에 없음, 또는 프로파일이 없는 도구(`gemini`·`shell`)에 이름을 줌 (메시지가 `profile:`로 시작) |
+| `INVALID_BODY` | 400 | `profile`이 그 계정·도구의 목록에 없음, 또는 프로파일이 없는 도구(`gemini`·`shell`)에 이름을 줌 (메시지가 `profile:`로 시작); `launch`의 어느 값이든 위 허용값·형식을 벗어남, 또는 실행 옵션이 없는 도구(`gemini`·`shell`)에 옵션을 줌 (메시지가 `launch:`로 시작하고 어긋난 규칙을 지목한다) |
+| `LAUNCH_ROOT_DANGER` | 400 | `launch.dangerous`이고 도구가 `claude`이며 실행 계정이 uid 0 — CLI 자신이 `--dangerously-skip-permissions cannot be used with root/sudo privileges`로 거부하는 조합이라 spawn 전에 거절한다 (메시지가 그 계정 이름을 든다). Codex의 우회 플래그에는 그런 규칙이 없어 root로도 허용한다 — 이 비대칭은 두 CLI의 것이다 |
 | `INVALID_PATH` | 400 | `cwd`가 상대경로 / 없음 / 디렉터리 아님 (메시지에 사유) |
 | `TMUX_MISSING` | 503 | tmux 미설치, 또는 3.2 미만 (메시지에 요구 버전과 발견 버전) |
 | `AI_SESSION_LIMIT` | 409 | 살아있는 세션 20개 |
@@ -3837,10 +3855,10 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 `{ "title": "새 이름" }` — 표에만 반영(최대 64자). `INVALID_BODY`(400, 빈 제목) · `AI_SESSION_NOT_FOUND`(404).
 
 ### POST /api/v1/ai/sessions/:id/rerun
-`shell` 상태의 창에 도구 이름을 다시 입력한다. `AI_SESSION_STATE`(409, shell 상태가 아니거나 셸 세션).
+`shell` 상태의 창에 도구 이름 + 그 행의 실행 옵션 argv를 다시 입력한다(`send-keys` 한 인자 — tmux는 인접 인자 사이에 아무것도 넣지 않으므로 나누면 `claude--continue`가 타이핑된다). 여기서는 옵션이 그 pane의 셸을 한 번 거치는데, 이것이 `extra` 토큰에서 공백과 셸 메타문자를 금지하는 이유다. `AI_SESSION_STATE`(409, shell 상태가 아니거나 셸 세션) · `INTERNAL_ERROR`(500, 저장된 실행 옵션을 읽을 수 없거나 이 패널이 만들 수 없는 값 — 더 새로운 패널이 쓴 행).
 
 ### POST /api/v1/ai/sessions/:id/restart
-`ended` 세션을 같은 도구·디렉터리·계정·프로파일로 다시 만든다 — 만들 때의 로그인으로 돌아온다. `AI_SESSION_STATE`(409, 아직 살아있음) · `INVALID_PATH`(400, 디렉터리가 사라짐) · `TMUX_MISSING`(503, 미설치 또는 3.2 미만).
+`ended` 세션을 같은 도구·디렉터리·계정·프로파일·실행 옵션으로 다시 만든다 — 만들 때의 로그인으로, 만들 때 고른 방식으로 돌아온다. `AI_SESSION_STATE`(409, 아직 살아있음) · `INVALID_PATH`(400, 디렉터리가 사라짐) · `TMUX_MISSING`(503, 미설치 또는 3.2 미만).
 
 ### DELETE /api/v1/ai/sessions/:id
 살아있으면 `kill-session`, 행 삭제. `AI_SESSION_NOT_FOUND`(404). **Response:** `{ "deleted": "<id>" }`
