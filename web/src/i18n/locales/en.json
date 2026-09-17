@@ -1393,11 +1393,13 @@
       "endedHint": "The host rebooted, the shell exited, or it was killed elsewhere. You can restart it with the same settings.",
       "processMode": "This session will not survive a panel restart (the panel could not hand its tmux server to systemd)",
       "unknown": "Session not in the panel's records",
+      "dangerousLaunch": "Running without asking — the CLI edits files and runs commands without a single prompt ({{flag}})",
       "noSessions": "No sessions yet",
       "noSessionsHint": "Create a Claude, Codex, Gemini or shell session — it keeps running when you close the browser or restart the panel.",
       "infoAccount": "Account",
       "infoDir": "Directory",
       "infoProfile": "Profile",
+      "infoLaunch": "Launch options",
       "infoCreated": "Created"
     },
     "dialog": {

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, HelpCircle, Plus } from 'lucide-react'
+import { AlertTriangle, HelpCircle, Plus, ShieldAlert } from 'lucide-react'
 import type { AISession } from '@/types/api'
-import { TOOL_META, stateDotClass } from '@/lib/aiSessions'
+import { TOOL_META, dangerousFlagFor, stateDotClass } from '@/lib/aiSessions'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -53,6 +53,10 @@ export function SessionTabs({
         {sessions.map((s) => {
           const meta = TOOL_META[s.tool] ?? TOOL_META.shell
           const active = s.id === activeId
+          // The bypass marker's one label, on the tooltip and on the
+          // accessible name both. It names the flag as the CLI spells it,
+          // because that is the word an operator can look up.
+          const dangerLabel = t('ai.tabs.dangerousLaunch', { flag: dangerousFlagFor(s.tool) })
           return (
             <ContextMenu key={s.id}>
               <ContextMenuTrigger asChild>
@@ -103,6 +107,21 @@ export function SessionTabs({
                     role="status" aria-label={t('ai.state.' + s.state)} />
                   {s.persistence === 'process' && s.state !== 'ended' && (
                     <AlertTriangle className="h-3 w-3 text-warning shrink-0" aria-label={t('ai.tabs.processMode')} />
+                  )}
+                  {/* Started with the CLI's own bypass flag: this session
+                      edits files and runs commands without asking once, and
+                      the dialog that chose that is long gone. Same marker
+                      vocabulary as the process-mode warning above — one icon
+                      carrying the sentence — and gone once the session has
+                      ended, because nothing is running under it any more.
+                      The tooltip sits on the wrapping span, the way the
+                      Terminal page's root badge does it: a `title` attribute
+                      on an <svg> is not the tooltip mechanism, and the tab's
+                      own title would otherwise be all hover says. */}
+                  {s.launch?.dangerous && s.state !== 'ended' && (
+                    <span className="shrink-0 flex items-center" title={dangerLabel}>
+                      <ShieldAlert className="h-3 w-3 text-destructive" aria-label={dangerLabel} />
+                    </span>
                   )}
                   {s.unknown && <HelpCircle className="h-3 w-3 shrink-0" aria-label={t('ai.tabs.unknown')} />}
                 </div>

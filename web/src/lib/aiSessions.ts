@@ -123,6 +123,20 @@ export function dangerousBlocked(tool: AITool, runAs: string): boolean {
   return tool === 'claude' && runAs === 'root'
 }
 
+/**
+ * The bypass flag as the chosen CLI spells it. Two places put it in front of
+ * the operator — the tab marker's tooltip and the launchSummary line that has
+ * no translator — and both want the CLI's own word, because that is what an
+ * operator checking what a tab is doing will find in `claude --help`.
+ *
+ * '' for the two tools that have no such flag. The marker never renders for
+ * them (the server refuses every option for gemini and shell), but the lookup
+ * stays total over AITool rather than asserting a narrower one.
+ */
+export function dangerousFlagFor(tool: AITool): string {
+  return supportsLaunch(tool) ? LAUNCH_CATALOGUE[tool].dangerousFlag : ''
+}
+
 /** Between the summary's segments — the separator the session info line uses. */
 const LAUNCH_SEP = ' · '
 
@@ -154,8 +168,7 @@ export function launchSummary(tool: AITool, o?: AILaunchOptions, t?: Translate):
   if (o.permission) parts.push(o.permission)
   if (o.sandbox) parts.push(o.sandbox)
   if (o.dangerous) {
-    const flag = supportsLaunch(tool) ? LAUNCH_CATALOGUE[tool].dangerousFlag : 'dangerous'
-    parts.push(t ? t(`ai.launch.dangerous.${tool}`) : flag)
+    parts.push(t ? t(`ai.launch.dangerous.${tool}`) : dangerousFlagFor(tool) || 'dangerous')
   }
   if (o.model) parts.push(o.model)
   if (o.extra?.length) parts.push(o.extra.join(' '))
@@ -369,6 +382,12 @@ type Translate = (key: string, opts?: Record<string, unknown>) => string
  * own configuration directory — and a label with nothing after it reads as a
  * value the panel failed to load. It sits next to the directory because the
  * two together are what distinguishes otherwise identical tabs.
+ *
+ * The launch options follow it, in the same words the dialog's collapsed
+ * summary used — this is the only place they can be read back, since the tab
+ * marks the bypass flag and nothing else. An option set that is absent or
+ * empty adds no segment at all, so a session started bare (which is every row
+ * written before the feature) reads exactly as it did.
  */
 export function sessionInfoLine(s: AISession, t: Translate): string {
   const parts = [
@@ -376,6 +395,8 @@ export function sessionInfoLine(s: AISession, t: Translate): string {
     `${t('ai.tabs.infoDir')}: ${s.cwd}`,
   ]
   if (s.profile) parts.push(`${t('ai.tabs.infoProfile')}: ${s.profile}`)
+  const launch = launchSummary(s.tool, s.launch, t)
+  if (launch) parts.push(`${t('ai.tabs.infoLaunch')}: ${launch}`)
   parts.push(`${t('ai.tabs.infoCreated')}: ${formatTimestamp(s.created_at)}`)
   return parts.join(' · ')
 }

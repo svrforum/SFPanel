@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AISession, AITools } from '@/types/api'
-import { LAUNCH_CATALOGUE, PROFILE_TOOLS, aiErrorMessage, aiPrefill, dangerousBlocked, defaultTitle, formatTimestamp, launchKey, launchSummary, loginCommandFor, profileErrorMessage, relativeSince, sessionInfoLine, stateDotClass, supportsLaunch, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra, waitingCount } from './aiSessions'
+import { LAUNCH_CATALOGUE, PROFILE_TOOLS, aiErrorMessage, aiPrefill, dangerousBlocked, dangerousFlagFor, defaultTitle, formatTimestamp, launchKey, launchSummary, loginCommandFor, profileErrorMessage, relativeSince, sessionInfoLine, stateDotClass, supportsLaunch, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra, waitingCount } from './aiSessions'
 
 const bundle = (account: string, installed: Partial<Record<'claude' | 'codex' | 'gemini', boolean>>): AITools => ({
   tmux: { installed: true, version: '3.6', supported: true, min_version: '3.2' },
@@ -295,6 +295,34 @@ describe('sessionInfoLine', () => {
     expect(sessionInfoLine(sess(undefined), tr)).toBe(expected)
     expect(sessionInfoLine(sess(''), tr)).toBe(expected)
   })
+
+  // The 정보 action is the only place the options a session was started with
+  // are spelled out: the tab carries a marker for the bypass flag and for
+  // nothing else, and the dialog that chose them is long gone. It shows them
+  // in the same words the collapsed section showed, which is why it goes
+  // through launchSummary rather than spelling the values out a second time.
+  it('lists the launch options between the profile and the creation time', () => {
+    const started: AISession = {
+      ...sess('work'),
+      launch: { continue: 'last', permission: 'acceptEdits', dangerous: true },
+    }
+    expect(sessionInfoLine(started, tr)).toBe(
+      `ai.tabs.infoAccount: alice · ai.tabs.infoDir: /opt/stacks/myapp · ai.tabs.infoProfile: work`
+      + ` · ai.tabs.infoLaunch: ai.launch.summaryLast · acceptEdits · ai.launch.dangerous.claude`
+      + ` · ai.tabs.infoCreated: ${formatTimestamp(created)}`
+    )
+  })
+
+  // A session started bare shows nothing new — every row written before the
+  // feature is one of those, and a '실행 옵션:' label with nothing after it
+  // reads as a value the panel failed to load. The empty object is the same
+  // case: the server sends no `launch` for it, but a stored `{}` must not
+  // grow a label either.
+  it('says nothing about the launch when the tool was started bare', () => {
+    const expected = `ai.tabs.infoAccount: alice · ai.tabs.infoDir: /opt/stacks/myapp · ai.tabs.infoCreated: ${formatTimestamp(created)}`
+    expect(sessionInfoLine(sess(undefined), tr)).toBe(expected)
+    expect(sessionInfoLine({ ...sess(undefined), launch: {} }, tr)).toBe(expected)
+  })
 })
 
 describe('launch catalogue', () => {
@@ -333,6 +361,18 @@ describe('launch catalogue', () => {
     expect(dangerousBlocked('claude', 'root')).toBe(true)
     expect(dangerousBlocked('claude', 'alice')).toBe(false)
     expect(dangerousBlocked('codex', 'root')).toBe(false)
+  })
+
+  // The tab marker's tooltip names the flag the session is running under, and
+  // it has to be the CLI's own spelling: an operator who wants to know what
+  // that tab is doing looks the word up in `claude --help`. '' for the two
+  // tools that have no such flag — the server refuses the option for them, so
+  // the marker never renders there, but the table stays total over AITool.
+  it('names the bypass flag the chosen CLI documents', () => {
+    expect(dangerousFlagFor('claude')).toBe('--dangerously-skip-permissions')
+    expect(dangerousFlagFor('codex')).toBe('--dangerously-bypass-approvals-and-sandbox')
+    expect(dangerousFlagFor('gemini')).toBe('')
+    expect(dangerousFlagFor('shell')).toBe('')
   })
 })
 
