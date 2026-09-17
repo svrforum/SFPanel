@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
-import type { AIDirs, AIProfile, AISession, AITool, AITools } from '@/types/api'
-import type { AILastSession, AITouched } from '@/lib/aiSessions'
-import { TOOL_META, aiErrorMessage, aiPrefill, defaultTitle, loginCommandFor, profileErrorMessage, relativeSince, supportsProfiles, toolInstalledFor, toolsFor, untouchedPrefill } from '@/lib/aiSessions'
+import type { AIDirs, AILaunchOptions, AIProfile, AISession, AITool, AITools } from '@/types/api'
+import type { AILastSession, AITouched, LaunchExtraError } from '@/lib/aiSessions'
+import { TOOL_META, aiErrorMessage, aiPrefill, dangerousBlocked, defaultTitle, launchKey, launchSummary, loginCommandFor, profileErrorMessage, relativeSince, supportsLaunch, supportsProfiles, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra } from '@/lib/aiSessions'
 import { cn } from '@/lib/utils'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { LaunchOptions } from './LaunchOptions'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -14,6 +16,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 const TOOLS: AITool[] = ['claude', 'codex', 'gemini', 'shell']
 const lastKey = (node: string) => `sfpanel_ai_last:${node}`
+
+/**
+ * The options a folder was last started with, or none. A value someone else
+ * wrote — or a private-mode read that throws — is "none": a launch section
+ * cannot be allowed to stop the dialog from opening, and every field is
+ * re-validated by the server anyway.
+ */
+function readLaunch(key: string): AILaunchOptions {
+  try {
+    return JSON.parse(localStorage.getItem(key) || '{}') as AILaunchOptions
+  } catch {
+    return {}
+  }
+}
 
 // The two rows of the profile Select that are not a profile: the default
 // profile, whose name is the empty string the picker cannot use (Radix reads
@@ -63,7 +79,18 @@ export function NewSessionDialog({
   const [runAsTools, setRunAsTools] = useState<AITools | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // How the tool starts. `launch` is what gets posted and remembered;
+  // `extraRaw` is the line being typed into 추가 인자, which is only a token
+  // list once it validates.
+  const [launch, setLaunch] = useState<AILaunchOptions>({})
+  const [extraRaw, setExtraRaw] = useState('')
+  const confirm = useConfirm()
   const prefilled = useRef(false)
+  // The launch section, unlike the prefillable fields, is also reset by a
+  // change of tool or account, so it gets its own flag rather than a field
+  // in AITouched.
+  const launchTouched = useRef(false)
+  const launchScope = useRef('')
   // What the operator has set by hand since the dialog opened. The prefill is
   // deferred while the account is unresolved and therefore runs again once it
   // arrives; these are the fields it must not take back.
@@ -73,7 +100,7 @@ export function NewSessionDialog({
   // are cleared on the closed -> open transition and nowhere else. In
   // particular not in the prefill below, which may have to run again.
   useEffect(() => {
-    if (!open) { prefilled.current = false; return }
+    if (!open) { prefilled.current = false; launchScope.current = ''; return }
     setError(null)
     setTitle('')
     touched.current = { tool: false, cwd: false }
@@ -140,6 +167,49 @@ export function NewSessionDialog({
     return () => { cancelled = true }
   }, [open, runAs, tool, withProfiles, t])
 
+  // The options remembered for this (node, tool, directory), so reopening a
+  // folder with the same tool starts it the way it was last started.
+  //
+  // A change of tool or account reloads unconditionally and drops what was
+  // chosen: Claude's acceptEdits is not one of Codex's approval policies, and
+  // the bypass is refused for a root Claude, so carrying either across would
+  // post a body the server refuses. A change of *directory* reloads only
+  // while the section is untouched — every keystroke in the directory field
+  // is a new key, and wiping a chosen option mid-typing is the same mistake
+  // untouchedPrefill exists to prevent.
+  const launchScopeId = `${tool}:${runAs}`
+  useEffect(() => {
+    if (!open) return
+    const fresh = launchScope.current !== launchScopeId
+    launchScope.current = launchScopeId
+    if (fresh) launchTouched.current = false
+    else if (launchTouched.current) return
+    const stored = supportsLaunch(tool) ? readLaunch(launchKey(node, tool, cwd.trim())) : {}
+    // The checkbox renders unchecked and disabled for a root Claude, so the
+    // state must say the same thing: a remembered bypass from a non-root
+    // account is dropped rather than posted invisibly.
+    const o: AILaunchOptions = { ...stored, dangerous: stored.dangerous === true && !dangerousBlocked(tool, runAs) }
+    setLaunch(o)
+    setExtraRaw((o.extra ?? []).join(' '))
+  }, [open, node, tool, runAs, cwd, launchScopeId])
+
+  const withLaunch = supportsLaunch(tool)
+  const parsedExtra = validateExtra(extraRaw)
+  const extraError: LaunchExtraError | null = 'error' in parsedExtra ? parsedExtra.error : null
+  // An empty summary is exactly an empty option set (see launchSummary), and
+  // that is what decides both whether the section opens itself and whether
+  // the body carries a `launch` at all.
+  const launchSet = withLaunch && launchSummary(tool, launch) !== ''
+
+  // The raw line is the editing buffer; the token list follows it whenever it
+  // validates, so the collapsed summary shows the arguments too.
+  const changeExtra = (raw: string) => {
+    launchTouched.current = true
+    setExtraRaw(raw)
+    const parsed = validateExtra(raw)
+    setLaunch((o) => ({ ...o, extra: 'tokens' in parsed && parsed.tokens.length > 0 ? parsed.tokens : undefined }))
+  }
+
   const createProfile = async () => {
     const name = (newName ?? '').trim()
     if (!name) return
@@ -172,11 +242,39 @@ export function NewSessionDialog({
   }, [runAs, bundle]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = async () => {
+    // Refused here, before the request: the message names the rule the line
+    // broke, and the section is already showing it beside the field.
+    if (withLaunch && extraError) {
+      setError(t(`ai.launch.extraErrors.${extraError}`))
+      return
+    }
+    const dir = cwd.trim()
+    const opts: AILaunchOptions = withLaunch
+      // The checkbox is disabled for a root Claude, so the body says the same
+      // — the server refuses it too, with the account named.
+      ? { ...launch, dangerous: (launch.dangerous === true && !dangerousBlocked(tool, runAs)) || undefined }
+      : {}
+    if (opts.dangerous && !(await confirm({
+      title: t('ai.launch.confirmTitle'),
+      description: t('ai.launch.confirmDesc', { cwd: dir }),
+      confirmLabel: t('ai.launch.confirmYes'),
+      danger: true,
+    }))) return
     setBusy(true)
     setError(null)
     try {
-      const s = await api.createAISession({ tool, cwd: cwd.trim(), run_as: runAs, title: title.trim() || undefined, profile: profile || undefined })
-      try { localStorage.setItem(lastKey(node), JSON.stringify({ tool, cwd: cwd.trim(), run_as: runAs })) } catch { /* private mode */ }
+      const s = await api.createAISession({ tool, cwd: dir, run_as: runAs, title: title.trim() || undefined, profile: profile || undefined, launch: launchSet ? opts : undefined })
+      try { localStorage.setItem(lastKey(node), JSON.stringify({ tool, cwd: dir, run_as: runAs })) } catch { /* private mode */ }
+      // Remembered per folder and tool, so the next session in this
+      // directory starts the same way — and cleared when the operator chose
+      // nothing, so "bare" is remembered too.
+      if (withLaunch) {
+        try {
+          const key = launchKey(node, tool, dir)
+          if (launchSet) localStorage.setItem(key, JSON.stringify(opts))
+          else localStorage.removeItem(key)
+        } catch { /* private mode */ }
+      }
       onCreated(s)
       onOpenChange(false)
     } catch (err: unknown) {
@@ -285,6 +383,22 @@ export function NewSessionDialog({
               )}
             </div>
           )}
+          {/* How the tool starts. It sits directly above the directory because
+              the directory is half of what the remembered options are keyed
+              on, and the collapsed summary belongs next to the fields that
+              produced it. */}
+          {withLaunch && (
+            <LaunchOptions
+              tool={tool}
+              runAs={runAs}
+              value={launch}
+              onChange={(o) => { launchTouched.current = true; setLaunch(o) }}
+              extraRaw={extraRaw}
+              onExtraRawChange={changeExtra}
+              extraError={extraError}
+              defaultOpen={launchSet}
+            />
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="ai-cwd">{t('ai.dialog.dir')}</Label>
             <Input id="ai-cwd" list="ai-dir-suggestions" value={cwd} onChange={(e) => { touched.current.cwd = true; setCwd(e.target.value) }}
@@ -303,7 +417,7 @@ export function NewSessionDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)} disabled={busy}>{t('common.cancel')}</Button>
-          <Button className="rounded-xl" onClick={submit} disabled={busy || !cwd.trim()}>
+          <Button className="rounded-xl" onClick={submit} disabled={busy || !cwd.trim() || (withLaunch && extraError !== null)}>
             {busy ? <><Loader2 className="animate-spin" aria-hidden="true" />{t('ai.dialog.creating')}</> : t('ai.dialog.create')}
           </Button>
         </DialogFooter>

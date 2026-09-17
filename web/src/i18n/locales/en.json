@@ -1435,6 +1435,47 @@
         "name": "The name must be 1-32 characters starting with a letter or digit, using only letters, digits, dot, dash and underscore"
       }
     },
+    "launch": {
+      "section": "Launch options",
+      "continue": "Continue",
+      "continueNone": "Don't",
+      "continueLast": "Most recent conversation",
+      "continuePick": "Pick one",
+      "continueHint": {
+        "claude": "Picks up the most recent conversation in this directory. 'Pick one' lets the CLI show its list and you choose.",
+        "codex": "Picks up the most recent session. 'Pick one' lets the CLI show its list and you choose."
+      },
+      "permission": "Approval",
+      "permissionHint": {
+        "claude": "How much the CLI asks before it acts. The names are claude's own.",
+        "codex": "Whether the CLI asks before it acts. The names are codex's own."
+      },
+      "sandbox": "Sandbox",
+      "sandboxHint": "How far the CLI may write. The names are codex's own.",
+      "default": "Tool default",
+      "model": "Model",
+      "modelPlaceholder": "Empty = the tool's default",
+      "dangerous": {
+        "claude": "Skip every permission prompt",
+        "codex": "Bypass approvals and the sandbox"
+      },
+      "dangerousWarning": "The CLI edits files and runs commands without asking once. Use it only in a directory you trust.",
+      "dangerousRoot": "claude refuses this option when it runs as root. Pick a non-root account.",
+      "extra": "Extra arguments",
+      "extraPlaceholder": "--flag --key=value",
+      "extraHint": "Space-separated, at most 8 tokens of 64 characters each. Quoting is not possible.",
+      "extraErrors": {
+        "space": "A value containing a space cannot be expressed: arguments are space-separated and quoting is not possible.",
+        "char": "An argument carries a character it may not. Start with a letter or digit, then letters, digits and = . _ , : / @ - , optionally prefixed with - or --.",
+        "count": "At most 8 extra arguments.",
+        "length": "Each argument is at most 64 characters."
+      },
+      "summaryLast": "Continuing",
+      "summaryPick": "Continue, picking",
+      "confirmTitle": "Start without asking?",
+      "confirmDesc": "This session edits files and runs commands without confirming. The working directory is {{cwd}}.",
+      "confirmYes": "Create it"
+    },
     "errors": {
       "invalidPath": "The working directory must be an existing absolute path ({{reason}})",
       "invalidAccount": "That account cannot log in on this node",
@@ -1442,6 +1483,7 @@
       "limit": "At most 20 live sessions. Kill one you no longer need",
       "tmuxMissing": "tmux is not installed",
       "state": "That action is not possible in the session's current state",
+      "launchRoot": "claude refuses to skip permissions when it runs as root. Pick a non-root account",
       "generic": "The request failed"
     }
   },

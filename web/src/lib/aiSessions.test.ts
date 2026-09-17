@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AISession, AITools } from '@/types/api'
-import { PROFILE_TOOLS, aiErrorMessage, aiPrefill, defaultTitle, formatTimestamp, loginCommandFor, profileErrorMessage, relativeSince, sessionInfoLine, stateDotClass, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, waitingCount } from './aiSessions'
+import { LAUNCH_CATALOGUE, PROFILE_TOOLS, aiErrorMessage, aiPrefill, dangerousBlocked, defaultTitle, formatTimestamp, launchKey, launchSummary, loginCommandFor, profileErrorMessage, relativeSince, sessionInfoLine, stateDotClass, supportsLaunch, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra, waitingCount } from './aiSessions'
 
 const bundle = (account: string, installed: Partial<Record<'claude' | 'codex' | 'gemini', boolean>>): AITools => ({
   tmux: { installed: true, version: '3.6', supported: true, min_version: '3.2' },
@@ -79,6 +79,10 @@ describe('aiErrorMessage', () => {
     expect(aiErrorMessage(err('AI_SESSION_LIMIT', 'x'), t)).toBe('ai.errors.limit')
     expect(aiErrorMessage(err('TMUX_MISSING', 'x'), t)).toBe('ai.errors.tmuxMissing')
     expect(aiErrorMessage(err('AI_SESSION_STATE', 'x'), t)).toBe('ai.errors.state')
+    // The server's own sentence for this one is English and names the flag;
+    // the key says the same thing in the operator's language, beside the
+    // account selector that fixes it.
+    expect(aiErrorMessage(err('LAUNCH_ROOT_DANGER', 'launch: claude refuses --dangerously-skip-permissions when it runs as root, and root is root; pick a non-root account'), t)).toBe('ai.errors.launchRoot')
     // The profile codes carry a server message the operator cannot act on
     // ("a profile of that name already exists"), so they get their own keys.
     expect(aiErrorMessage(err('AI_PROFILE_EXISTS', 'a profile of that name already exists'), t)).toBe('ai.profiles.errors.exists')
@@ -290,5 +294,144 @@ describe('sessionInfoLine', () => {
     const expected = `ai.tabs.infoAccount: alice · ai.tabs.infoDir: /opt/stacks/myapp · ai.tabs.infoCreated: ${formatTimestamp(created)}`
     expect(sessionInfoLine(sess(undefined), tr)).toBe(expected)
     expect(sessionInfoLine(sess(''), tr)).toBe(expected)
+  })
+})
+
+describe('launch catalogue', () => {
+  // The option values are the installed CLIs' own lists, read from their
+  // --help (Claude Code 2.1.271, Codex 0.154.0) and mirrored from the
+  // server's claudePermissionModes / codexApprovalPolicies /
+  // codexSandboxModes. A select offering a mode the CLI does not know would
+  // be refused by the server after the operator had already chosen it.
+  it('offers each tool the modes its own CLI documents', () => {
+    expect(LAUNCH_CATALOGUE.claude.permissions).toEqual(
+      ['auto', 'manual', 'plan', 'acceptEdits', 'dontAsk', 'bypassPermissions']
+    )
+    expect(LAUNCH_CATALOGUE.claude.sandboxes).toBeUndefined()
+    expect(LAUNCH_CATALOGUE.claude.dangerousFlag).toBe('--dangerously-skip-permissions')
+    expect(LAUNCH_CATALOGUE.codex.permissions).toEqual(['on-request', 'never'])
+    expect(LAUNCH_CATALOGUE.codex.sandboxes).toEqual(['read-only', 'workspace-write', 'danger-full-access'])
+    expect(LAUNCH_CATALOGUE.codex.dangerousFlag).toBe('--dangerously-bypass-approvals-and-sandbox')
+  })
+
+  // Gemini has no launch preference this project has verified and a shell
+  // session runs no tool, so the section is not rendered for them — the
+  // server refuses any option for those two rather than dropping it.
+  it('has a section for claude and codex only', () => {
+    expect(supportsLaunch('claude')).toBe(true)
+    expect(supportsLaunch('codex')).toBe(true)
+    expect(supportsLaunch('gemini')).toBe(false)
+    expect(supportsLaunch('shell')).toBe(false)
+  })
+
+  // Claude refuses --dangerously-skip-permissions as root ("cannot be used
+  // with root/sudo privileges"), so the checkbox is disabled with that
+  // reason while the account selector is still on screen. Codex's bypass has
+  // no such rule of its own and stays available — the asymmetry is the two
+  // CLIs', not the panel's.
+  it('blocks the bypass only where the CLI itself refuses it', () => {
+    expect(dangerousBlocked('claude', 'root')).toBe(true)
+    expect(dangerousBlocked('claude', 'alice')).toBe(false)
+    expect(dangerousBlocked('codex', 'root')).toBe(false)
+  })
+})
+
+describe('launchSummary', () => {
+  const tr = (key: string) => key
+
+  // The summary is what the collapsed section shows, so nothing is ever
+  // applied invisibly. It is also how the dialog knows there is nothing to
+  // send: an empty line means an empty option set, which the server stores
+  // as '' exactly like every session created before the feature.
+  it('says nothing when nothing was chosen', () => {
+    expect(launchSummary('claude', undefined, tr)).toBe('')
+    expect(launchSummary('claude', {}, tr)).toBe('')
+    expect(launchSummary('claude', { dangerous: false, extra: [] }, tr)).toBe('')
+  })
+
+  it('names the continue choice before the permission mode', () => {
+    expect(launchSummary('claude', { continue: 'last', permission: 'acceptEdits' }, tr))
+      .toBe('ai.launch.summaryLast · acceptEdits')
+    expect(launchSummary('claude', { continue: 'pick' }, tr)).toBe('ai.launch.summaryPick')
+  })
+
+  // One fixed order — continue, permission, sandbox, bypass, model, extra —
+  // so two sessions with the same options read identically.
+  it('lists every chosen option in one fixed order', () => {
+    expect(launchSummary('codex', {
+      continue: 'last', permission: 'never', sandbox: 'workspace-write',
+      dangerous: true, model: 'gpt-5', extra: ['--profile', 'work'],
+    }, tr)).toBe('ai.launch.summaryLast · never · workspace-write · ai.launch.dangerous.codex · gpt-5 · --profile work')
+  })
+
+  // The bypass is named per tool because the two CLIs bypass different
+  // things: Claude skips permission prompts, Codex drops approvals *and* the
+  // sandbox. One shared word would misdescribe one of them.
+  it('names the bypass the way the chosen tool bypasses', () => {
+    expect(launchSummary('claude', { dangerous: true }, tr)).toBe('ai.launch.dangerous.claude')
+    expect(launchSummary('codex', { dangerous: true }, tr)).toBe('ai.launch.dangerous.codex')
+  })
+
+  // Without a translator the line degrades to the CLI's own words rather
+  // than to raw i18n keys, so a caller that has no `t` at hand still shows
+  // something true.
+  it('falls back to the CLI\'s own words when there is no translator', () => {
+    expect(launchSummary('claude', { continue: 'last', permission: 'plan', dangerous: true }))
+      .toBe('last · plan · --dangerously-skip-permissions')
+  })
+})
+
+describe('validateExtra', () => {
+  // The field is one line of space-separated tokens, each of which becomes
+  // its own argv element. The limits mirror the server's (8 tokens, 64
+  // characters, the same character set), so a value the dialog accepts is
+  // never refused after the operator pressed 만들기.
+  it('accepts a blank field and up to eight tokens', () => {
+    expect(validateExtra('')).toEqual({ tokens: [] })
+    expect(validateExtra('   ')).toEqual({ tokens: [] })
+    expect(validateExtra('--verbose  --model=x')).toEqual({ tokens: ['--verbose', '--model=x'] })
+    const eight = ['a1', 'b2', 'c3', 'd4', 'e5', 'f6', 'g7', 'h8']
+    expect(validateExtra(eight.join(' '))).toEqual({ tokens: eight })
+  })
+
+  it('refuses a ninth token, naming the count rule', () => {
+    expect(validateExtra('a1 b2 c3 d4 e5 f6 g7 h8 i9')).toEqual({ error: 'count' })
+  })
+
+  // Quotes are the only way an operator can write a token containing a
+  // space, and the field cannot express one: each token is one argv element
+  // and no shell re-parses it. So the refusal says *that* rather than
+  // blaming the quote character — the quote fails the character rule too,
+  // and "an argument may not contain \" " would send the operator looking
+  // for the wrong mistake.
+  it('refuses a value that needs a space, naming the space rule and not the character one', () => {
+    expect(validateExtra('--append "hello world"')).toEqual({ error: 'space' })
+    expect(validateExtra("--append 'hello world'")).toEqual({ error: 'space' })
+  })
+
+  it('refuses a character an argument may not carry', () => {
+    expect(validateExtra('--x;y')).toEqual({ error: 'char' })
+    expect(validateExtra('--ok --and=$(id)')).toEqual({ error: 'char' })
+    expect(validateExtra('---three-dashes')).toEqual({ error: 'char' })
+    // A backtick is a shell metacharacter rather than a way of writing a
+    // space, so it is refused as a character and not as the quoting rule.
+    expect(validateExtra('--and=`id`')).toEqual({ error: 'char' })
+  })
+
+  it('refuses a token past 64 characters, naming the length rule', () => {
+    expect(validateExtra('a'.repeat(64))).toEqual({ tokens: ['a'.repeat(64)] })
+    expect(validateExtra('a'.repeat(65))).toEqual({ error: 'length' })
+  })
+})
+
+describe('launchKey', () => {
+  // Per node, tool and directory: the same folder opened with the same tool
+  // starts the way it did last time, and opening it as another tool — or the
+  // same tool on another node — does not inherit those options.
+  it('is scoped to the node, the tool and the directory', () => {
+    expect(launchKey('local', 'claude', '/opt/stacks/myapp')).toBe('sfpanel_ai_launch:local:claude:/opt/stacks/myapp')
+    expect(launchKey('node-b', 'claude', '/opt/stacks/myapp')).not.toBe(launchKey('local', 'claude', '/opt/stacks/myapp'))
+    expect(launchKey('local', 'codex', '/opt/stacks/myapp')).not.toBe(launchKey('local', 'claude', '/opt/stacks/myapp'))
+    expect(launchKey('local', 'claude', '/srv')).not.toBe(launchKey('local', 'claude', '/opt/stacks/myapp'))
   })
 })

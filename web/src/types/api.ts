@@ -1206,6 +1206,24 @@ export interface NetworkShareTools {
 export type AITool = 'claude' | 'codex' | 'gemini' | 'shell'
 export type AISessionState = 'working' | 'waiting' | 'shell' | 'ended'
 
+/**
+ * How a session was started, beyond the tool itself: what the operator chose
+ * in the dialog's 실행 옵션 section. Absent — which is what every session
+ * created before the feature reports — means the tool was started bare.
+ *
+ * The values are the CLIs' own (`permission` is Claude's --permission-mode or
+ * Codex's --ask-for-approval, `sandbox` is Codex-only), and the server keeps
+ * these *choices* rather than a built argv, so 다시 실행 reproduces the launch.
+ */
+export interface AILaunchOptions {
+  continue?: 'last' | 'pick'
+  permission?: string
+  sandbox?: string
+  dangerous?: boolean
+  model?: string
+  extra?: string[]
+}
+
 export interface AISession {
   id: string
   tool: AITool
@@ -1214,6 +1232,8 @@ export interface AISession {
   cwd: string
   /** the tool configuration directory this session runs against; absent = the tool's own */
   profile?: string
+  /** the options this session was started with; absent = the tool was started bare */
+  launch?: AILaunchOptions
   state: AISessionState
   /** service = the account's tmux server is a transient systemd unit and survives a panel restart; process = setsid only */
   persistence: 'service' | 'process'

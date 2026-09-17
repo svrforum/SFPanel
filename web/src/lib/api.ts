@@ -62,6 +62,7 @@ import type {
   NetworkShareTools,
   AITool,
   AISession,
+  AILaunchOptions,
   AITools,
   AIDirs,
   AIProfile,
@@ -1483,7 +1484,9 @@ class ApiClient {
     )
   }
 
-  createAISession(body: { tool: AITool; cwd: string; run_as: string; title?: string; profile?: string }) {
+  // `launch` is omitted for a session with no options, so the body of an
+  // untouched dialog is byte-for-byte the one every earlier panel sent.
+  createAISession(body: { tool: AITool; cwd: string; run_as: string; title?: string; profile?: string; launch?: AILaunchOptions }) {
     return this.request<AISession>('/ai/sessions', { method: 'POST', body: JSON.stringify(body) })
   }
 

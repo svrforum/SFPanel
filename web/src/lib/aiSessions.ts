@@ -1,4 +1,4 @@
-import type { AISession, AISessionState, AITool, AITools } from '@/types/api'
+import type { AILaunchOptions, AISession, AISessionState, AITool, AITools } from '@/types/api'
 
 /** Brand glyphs, the same colours the packages page used for these CLIs. */
 export const TOOL_META: Record<AITool, { label: string; initial: string; color: string }> = {
@@ -58,6 +58,158 @@ export function loginCommandFor(tool: AITool): string {
     default:
       return ''
   }
+}
+
+/**
+ * The launch options each CLI offers, per tool. These are the installed
+ * CLIs' own lists, read from their `--help` (Claude Code 2.1.271, Codex
+ * 0.154.0) and mirrored from the server's claudePermissionModes /
+ * codexApprovalPolicies / codexSandboxModes: the dialog must never offer a
+ * mode the CLI does not know, because the server refuses it *after* the
+ * operator chose it.
+ *
+ * It is a static table rather than a field of GET /ai/tools on purpose — the
+ * catalogue does not depend on the host, and a round trip in front of the
+ * dialog would be one the operator waits on.
+ *
+ * `permissions` is Claude's --permission-mode and Codex's
+ * --ask-for-approval: they are not two spellings of one idea, which is why
+ * switching the tool drops the choice instead of translating it.
+ */
+export const LAUNCH_CATALOGUE: Record<'claude' | 'codex', {
+  permissions: string[]
+  /** Codex only; Claude has no sandbox flag. */
+  sandboxes?: string[]
+  dangerousFlag: string
+}> = {
+  claude: {
+    permissions: ['auto', 'manual', 'plan', 'acceptEdits', 'dontAsk', 'bypassPermissions'],
+    dangerousFlag: '--dangerously-skip-permissions',
+  },
+  codex: {
+    permissions: ['on-request', 'never'],
+    sandboxes: ['read-only', 'workspace-write', 'danger-full-access'],
+    dangerousFlag: '--dangerously-bypass-approvals-and-sandbox',
+  },
+}
+
+/**
+ * Whether the 실행 옵션 section is rendered at all. Kept separate from
+ * supportsProfiles even though the two lists agree today: a profile needs a
+ * verified config-directory variable, a launch option needs a verified flag,
+ * and Gemini could gain one without the other. The server's
+ * toolSupportsLaunch is the same split, and it refuses any option for the
+ * other two rather than dropping it.
+ */
+export function supportsLaunch(tool: AITool): tool is 'claude' | 'codex' {
+  return tool in LAUNCH_CATALOGUE
+}
+
+/**
+ * Whether the tool's bypass flag is refused for this account. Claude's own
+ * check is the reason: `--dangerously-skip-permissions cannot be used with
+ * root/sudo privileges`. The dialog disables the checkbox and says so while
+ * the account selector is still on screen, instead of letting the CLI die
+ * with it after the session opens.
+ *
+ * Codex's bypass has no such rule of its own, so it stays available — the
+ * asymmetry belongs to the two CLIs, not to the panel.
+ *
+ * The name, not the uid: the browser has no uid. The server checks uid 0, so
+ * an account named otherwise that *is* root is refused there and
+ * LAUNCH_ROOT_DANGER carries the reason back.
+ */
+export function dangerousBlocked(tool: AITool, runAs: string): boolean {
+  return tool === 'claude' && runAs === 'root'
+}
+
+/** Between the summary's segments — the separator the session info line uses. */
+const LAUNCH_SEP = ' · '
+
+/**
+ * The one line the collapsed 실행 옵션 section shows — "이어서 · acceptEdits"
+ * — so a remembered option is never applied invisibly.
+ *
+ * Its emptiness is load-bearing in two places: the section renders no summary
+ * when nothing is chosen, and the dialog sends no `launch` at all, which is
+ * how a session created without touching the section stays byte-for-byte the
+ * one an older panel would have created.
+ *
+ * The permission, sandbox and model values are shown as the CLI spells them:
+ * an operator matching the panel against `claude --help` needs the CLI's own
+ * word, and a translated "편집 허용" would not be findable there. The two
+ * choices that are *not* CLI values — the continue choice and the bypass —
+ * are translated, and the bypass per tool, because Claude skips permission
+ * prompts while Codex drops approvals *and* the sandbox.
+ *
+ * Without `t` the line degrades to the CLI's own words rather than to raw
+ * i18n keys, so a caller with no translator at hand still shows something
+ * true.
+ */
+export function launchSummary(tool: AITool, o?: AILaunchOptions, t?: Translate): string {
+  if (!o) return ''
+  const parts: string[] = []
+  if (o.continue === 'last') parts.push(t ? t('ai.launch.summaryLast') : 'last')
+  else if (o.continue === 'pick') parts.push(t ? t('ai.launch.summaryPick') : 'pick')
+  if (o.permission) parts.push(o.permission)
+  if (o.sandbox) parts.push(o.sandbox)
+  if (o.dangerous) {
+    const flag = supportsLaunch(tool) ? LAUNCH_CATALOGUE[tool].dangerousFlag : 'dangerous'
+    parts.push(t ? t(`ai.launch.dangerous.${tool}`) : flag)
+  }
+  if (o.model) parts.push(o.model)
+  if (o.extra?.length) parts.push(o.extra.join(' '))
+  return parts.join(LAUNCH_SEP)
+}
+
+/** Why a 추가 인자 line was refused; each value is one i18n key and one rule. */
+export type LaunchExtraError = 'space' | 'char' | 'count' | 'length'
+
+/** The server's own limits on Extra, so a line the dialog accepts is accepted there too. */
+const MAX_EXTRA = 8
+const MAX_EXTRA_LEN = 64
+
+/**
+ * The advanced 추가 인자 field, split and checked before anything is posted.
+ * Mirrors the server's validateLaunch — 8 tokens, 64 characters each, the
+ * same character set — so the dialog refuses inline what the server would
+ * have refused after the operator pressed 만들기.
+ *
+ * Each token becomes one argv element in `bash -lic '… "$@"' <tool> <argv…>`
+ * and no shell re-parses it, so this pattern is belt to that brace rather
+ * than the only defence. What it buys is a *named* reason next to the field.
+ *
+ * The quote check comes first and deliberately answers 'space' rather than
+ * 'char': a single or double quote is the only way an operator can write a
+ * token containing a space, and the honest refusal is "a value with a space cannot be
+ * expressed" — not "an argument may not contain a double quote", which would
+ * send them looking for the wrong mistake. Splitting on whitespace is what
+ * makes that ordering necessary: after the split no token can hold a space,
+ * so without this check the quoted form would only ever fail as a character.
+ * A backtick is not in that class — it is a shell metacharacter, not a way
+ * to write a space — so it stays with the character rule.
+ */
+export function validateExtra(raw: string): { tokens: string[] } | { error: LaunchExtraError } {
+  const tokens = raw.trim().split(/\s+/).filter((tok) => tok !== '')
+  if (tokens.length === 0) return { tokens: [] }
+  if (/["']/.test(raw)) return { error: 'space' }
+  if (tokens.length > MAX_EXTRA) return { error: 'count' }
+  for (const tok of tokens) {
+    if (tok.length > MAX_EXTRA_LEN) return { error: 'length' }
+    if (!/^-{0,2}[A-Za-z0-9][A-Za-z0-9=._,:/@-]*$/.test(tok)) return { error: 'char' }
+  }
+  return { tokens }
+}
+
+/**
+ * Where the dialog remembers the options a folder was last run with, so
+ * reopening it with the same tool starts it the same way (spec §6). Per node
+ * as well as per tool and directory: /opt/stacks/myapp on another node is
+ * another machine's folder, and inheriting its options would start a session
+ * nobody asked for.
+ */
+export function launchKey(node: string, tool: AITool, cwd: string): string {
+  return `sfpanel_ai_launch:${node}:${tool}:${cwd}`
 }
 
 /**
@@ -245,6 +397,13 @@ export function aiErrorMessage(err: unknown, t: Translate): string {
       return t('ai.errors.tmuxMissing')
     case 'AI_SESSION_STATE':
       return t('ai.errors.state')
+    // The server's sentence is English and names the flag; the key says the
+    // same thing in the operator's language, next to the account selector
+    // that is the fix. Reachable even though the dialog disables the
+    // checkbox for root: the panel compares the account *name*, the server
+    // its uid, so an account named otherwise that is uid 0 lands here.
+    case 'LAUNCH_ROOT_DANGER':
+      return t('ai.errors.launchRoot')
     case 'AI_PROFILE_EXISTS':
       return t('ai.profiles.errors.exists')
     case 'AI_PROFILE_IN_USE':
