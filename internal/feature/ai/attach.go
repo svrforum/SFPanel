@@ -43,10 +43,13 @@ func replayHistory(out string) []byte {
 	return []byte(strings.ReplaceAll(out, "\n", "\r\n") + "\r\n")
 }
 
-// attachArgv is the client that joins a session (spec §4 step 3).
+// Enable wheel reporting on every attach, including sessions created by older
+// panels with mouse off. tmux uses the terminal's alternate buffer: its history
+// lives in tmux, not in xterm's scrollback. Mouse input reaches copy mode or the
+// active CLI according to tmux's native bindings.
 func (h *Handler) attachArgv(acct Account, id string) (string, []string) {
 	name, argv := h.tmuxBase(acct)
-	return name, append(argv, "attach-session", "-t", id)
+	return name, append(argv, "set-option", "-t", id, "mouse", "on", ";", "attach-session", "-t", id)
 }
 
 // What the attach client runs with.
@@ -136,8 +139,8 @@ func (h *Handler) AttachWS(jwtSecret string, auditWriter *sfdb.AsyncWriter, loca
 			return nil
 		}
 
-		// 2. History above the visible screen, so xterm's scrollback is full
-		// before the live screen repaints.
+		// 2. Replay history into the normal buffer before attach switches to
+		// tmux's alternate screen. Live history navigation is handled by tmux.
 		if out, err := h.tmux(acct, "capture-pane", "-p", "-e", "-J", "-t", id, "-S", "-"+strconv.Itoa(historyLines), "-E", "-1"); err == nil {
 			if b := replayHistory(out); len(b) > 0 {
 				if err := send(websocket.BinaryMessage, b); err != nil {

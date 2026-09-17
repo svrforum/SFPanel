@@ -40,6 +40,8 @@ jobs:
       # cheaper than a full `npm run build` here. Explicit package list
       # rather than ./... since web/node_modules ships a stray Go package.
       - run: mkdir -p web/dist && echo '<!doctype html><title>ci-stub</title>' > web/dist/index.html
+      - name: Install tmux for PTY scroll regression
+        run: sudo apt-get update && sudo apt-get install -y tmux
       - run: go test ./cmd/... ./internal/... -v -count=1
 
   go-lint:
@@ -171,6 +173,8 @@ jobs:
             -d '{"username":"admin","password":"TestPass123!"}' >/dev/null
       - run: cd e2e && npm ci
       - run: cd e2e && npx playwright install chromium --with-deps
+      - name: Install tmux for mobile scroll regression
+        run: sudo apt-get update && sudo apt-get install -y tmux
       - name: Run single-node specs
         env:
           PLAYWRIGHT_BASE_URL: http://localhost:3628
@@ -180,6 +184,8 @@ jobs:
             tests/sidebar-banner.spec.ts \
             tests/tuning-categories.spec.ts \
             tests/mobile-terminal.spec.ts \
+            tests/mobile-tmux.spec.ts \
+            tests/android-session.spec.ts \
             tests/cluster-lifecycle.spec.ts
       - name: Dump panel log on failure
         if: failure()

@@ -35,11 +35,11 @@ func TestAttachArgv(t *testing.T) {
 	h := newTestHandler(t, nil)
 	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
 	name, argv := h.attachArgv(alice, "aaaaaaaaaaaa")
-	if name != "runuser" || strings.Join(argv, " ") != "-u alice -- tmux -f /dev/null -S "+h.socketPath(alice)+" attach-session -t aaaaaaaaaaaa" {
+	if name != "runuser" || strings.Join(argv, " ") != "-u alice -- tmux -f /dev/null -S "+h.socketPath(alice)+" set-option -t aaaaaaaaaaaa mouse on ; attach-session -t aaaaaaaaaaaa" {
 		t.Errorf("alice: %s %q", name, argv)
 	}
 	name, argv = h.attachArgv(h.panel, "aaaaaaaaaaaa")
-	if name != "tmux" || strings.Join(argv, " ") != "-f /dev/null -S "+h.socketPath(h.panel)+" attach-session -t aaaaaaaaaaaa" {
+	if name != "tmux" || strings.Join(argv, " ") != "-f /dev/null -S "+h.socketPath(h.panel)+" set-option -t aaaaaaaaaaaa mouse on ; attach-session -t aaaaaaaaaaaa" {
 		t.Errorf("root: %s %q", name, argv)
 	}
 }

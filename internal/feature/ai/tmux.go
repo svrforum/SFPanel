@@ -131,14 +131,14 @@ func (h *Handler) tmux(acct Account, args ...string) (string, error) {
 // same invocation that creates a session, before new-session, so it governs
 // the very first window; there is no file because the state dir is 0700 and
 // a non-root account could not read one. prefix None: nothing an operator
-// types into a CLI prompt is tmux's to eat. status/mouse off: the pane fills
-// the screen, so lines scrolling off the top land in xterm's own scrollback
-// and the existing wheel/touch handlers keep working.
+// types into a CLI prompt is tmux's to eat. status off gives the pane the full
+// screen. mouse on lets wheel/touch input reach tmux history or a mouse-aware
+// CLI; the outer terminal's alternate buffer has no scrollback of its own.
 func tmuxOptions(defaultTerminal string) [][]string {
 	return [][]string{
 		{"set", "-g", "prefix", "None"},
 		{"set", "-g", "status", "off"},
-		{"set", "-g", "mouse", "off"},
+		{"set", "-g", "mouse", "on"},
 		{"set", "-g", "history-limit", "20000"},
 		{"set", "-g", "default-terminal", defaultTerminal},
 		{"set", "-g", "terminal-overrides", ",xterm-256color:Tc"},

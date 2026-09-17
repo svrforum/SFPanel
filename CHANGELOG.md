@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.73.1] – 2026-09-17
+
+### Fixed
+
+- AI terminal history could not be scrolled on mobile: tmux switches the outer terminal to an alternate buffer with no local scrollback, while the panel disabled tmux mouse input. Enable mouse input for new sessions and on every attach to existing sessions. Touch gestures now reach tmux history or the running CLI's mouse handler. Existing sessions do not need to be recreated.
+- Web touch scrolling now forwards wheel input in alternate buffers and mouse-tracking applications. Android 0.1.3 already provides this client-side behavior; AI history also requires this server fix.
+- Add real tmux PTY and mobile browser regressions that check history movement and return to live output, beyond merely asserting emitted key bytes.
+
+---
+
 ## [0.73.0] – 2026-09-14
 
 ### Added
