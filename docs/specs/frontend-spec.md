@@ -81,7 +81,8 @@
 | `/firewall/docker` | FirewallDocker | O | Firewall | Docker 방화벽 (DOCKER-USER 체인) |
 | `/firewall/logs` | FirewallLogs | O | Firewall | 방화벽 로그 뷰어 |
 | `/packages` | Packages | O | Layout | 시스템 패키지 관리 + Docker 설치 |
-| `/terminal` | Terminal | O | Layout | 웹 터미널 (멀티 탭) |
+| `/terminal` | Terminal | O | Layout | 터미널 — tmux 세션(셸·Claude·Codex·Gemini) 레일 + 큰 패널, tmux가 없으면 PTY 폴백 |
+| `/ai` | (redirect) | O | Layout | `/terminal`로 리다이렉트 (v0.76.0 이전 북마크·Android 앱용) |
 | `/settings` | Settings | O | Layout | 계정/시스템 설정 |
 | `/settings` (내장) | SettingsTuning | O | Settings 내장 | 시스템 커널 튜닝 (sysctl 최적화, 4 카테고리, 롤백) |
 | `/settings` (내장) | AlertSettings | O | Settings 내장 | 알림 채널/규칙 관리 (Discord, Telegram) |
@@ -415,44 +416,28 @@ const DockerStacks = lazy(() => import('@/pages/docker/DockerStacks'))
 - **파일**: `web/src/pages/Packages.tsx`
 - **기능**: 시스템 패키지 관리
   - Docker 상태 카드: 설치 여부, 버전, 실행 상태, Compose 가용성 표시. 미설치 시 Docker 설치 버튼 (SSE 스트리밍 출력)
-  - **개발 도구 카드**: Node.js(버전 관리 다이얼로그 — 설치/전환/삭제, LTS). Claude/Codex/Gemini는 AI 코딩 페이지로 이동(v0.73.0)
+  - **개발 도구 카드**: Node.js(버전 관리 다이얼로그 — 설치/전환/삭제, LTS). Claude/Codex/Gemini는 터미널 페이지의 도구·계정 패널에서 설치·관리(v0.73.0 AI 코딩 페이지 → v0.76.0 터미널로 통합)
   - 시스템 업데이트: 업데이트 확인, 전체/선택 업그레이드(SSE), 패키지 체크박스 선택
   - 패키지 검색/설치: 검색 결과에서 설치/제거 (설치 상태 표시)
   - 작업 출력 다이얼로그: 설치/업그레이드/제거 진행 상황 실시간 표시
 - **사용 API**: `api.getDockerStatus()`, `api.installDocker()`(SSE), `api.checkUpdates()`, `api.upgradePackages()`(SSE), `api.installPackage()`, `api.removePackage()`, `api.searchPackages()`, `getNodeStatus/getNodeVersions/switchNodeVersion/uninstallNodeVersion`, `install-node`(fetch SSE)
 - **사용 컴포넌트**: Table, Dialog, Button, Input (shadcn/ui)
 
-### Terminal
-- **파일**: `web/src/pages/Terminal.tsx`
-- **기능**: 웹 기반 서버 터미널 (멀티 탭)
-  - 탭 관리: 추가, 닫기, 이름 변경(더블클릭), 탭 전환
-  - 탭 상태 localStorage 영속화 (탭 목록, 활성 탭, 글꼴 크기)
-  - **(v0.53.0) 탭 노드 스코프**: localStorage 키가 `sfpanel_terminal_tabs:<nodeId|local>` / `sfpanel_terminal_active:<nodeId|local>`로 네임스페이스되어 클러스터 노드 전환 시 중복 PTY 생성 방지. 글꼴 크기(`sfpanel_terminal_fontsize`)만 전역
-  - **(v0.53.0) 자동 재연결**: WS 단절 시 동일 session_id로 bounded exponential backoff 재접속, 서버가 스크롤백을 재생하여 세션 지속 (accept 후 즉시 드롭되는 tight-loop 가드 포함 — 소켓이 안정된 뒤에만 backoff 리셋)
-  - 글꼴 크기 조절 (10~24px, 기본 14px)
-  - 터미널 검색 (SearchAddon, Ctrl+F)
-  - xterm 내부 팔레트는 Tokyo Night 고정, **터미널 페이지 chrome(탭바/툴바/검색바/모바일 키 바)은 시맨틱 토큰으로 라이트/다크 테마 추종** (v0.53.0)
-  - WebSocket으로 서버 셸 세션 연결 (`/ws/terminal?session_id=`)
-  - 바이너리 데이터(ArrayBuffer) 지원
-  - 윈도우 리사이즈 시 자동 피팅
-  - 리사이즈 이벤트 서버 전송 (JSON: `{type: "resize", cols, rows}`)
-  - **(v0.53.0)** 터미널/exec 세션 오픈은 서버가 `audit_logs`에 기록
-- **사용 API**: `api.buildWsUrl('/ws/terminal', {session_id})` — 단발성 ws-ticket(`POST /auth/ws-ticket`) 발급 후 URL 구성, 레거시 `?token=` fallback. 추가로 클리어(Ctrl-L), 모바일 키 바, Unicode11Addon 적용
-- **WebSocket**: 직접 관리 (`/ws/terminal?ticket={ticket}&session_id={id}`)
-- **사용 컴포넌트**: Button, Input (shadcn/ui), **MobileTerminalBar** (`components/MobileTerminalBar.tsx` — v0.53.0에 페이지에서 분리 추출된 모바일 특수키 바)
-- **내부 서브컴포넌트**: `TerminalSession` - 개별 터미널 세션 관리
-
-### AI 코딩
-- **파일**: `web/src/pages/AI.tsx`, `web/src/pages/ai/components/{ToolChips,ProfilePanel,TmuxBanner,SessionTabs,NewSessionDialog,LaunchOptions,SessionPane}.tsx`, `web/src/pages/ai/hooks/useAISessions.ts`, `web/src/lib/aiSessions.ts`
-- **기능**: Claude Code · Codex · Gemini CLI를 tmux 세션으로 실행. 상단은 실행 계정 선택 + 도구 칩(설치 버전·↑최신·설치/업데이트 SSE·로그인 힌트·프로파일 관리) + tmux 설치 배너. 아래는 세션 탭(서버 목록, 생성순, 상태 점: working/waiting/shell/ended, 기본이 아닌 프로파일은 제목 뒤 칩, 우회 플래그로 시작한 세션은 종료될 때까지 경고 아이콘 — 툴팁이 그 CLI의 플래그 이름을 그대로 든다(`--dangerously-skip-permissions`). 이름은 감싼 `<span>` 하나에만 둔다(`role="img"` + `aria-label` + `title`, 아이콘은 `aria-hidden`) — 두 요소에 나누면 스크린리더가 같은 문장을 두 번 읽는다, 우클릭·길게누르기 메뉴: 이름 변경·정보·다시 실행·다시 시작·종료. 정보는 계정·디렉터리·프로파일·실행 옵션·생성 시각을 한 줄 toast로 띄운다 — 실행 옵션을 말로 읽을 수 있는 곳은 여기뿐이고, 탭은 우회 플래그만 표시한다)과 `TerminalSession`(`wsPath="/ws/ai/attach"`). 활성 탭만 소켓을 연다. 페이지가 보일 때만 5초 폴링, 대기 세션 수를 `document.title`에 접두.
-- **새 세션 대화상자**: 실행 계정 · 도구(4개 라디오, 미설치는 비활성) · **프로파일** · **실행 옵션** · 작업 디렉터리(`datalist`: 최근·스택·홈) · 이름 — 앞 필드가 뒷 필드를 좁히는 순서다. 마지막 선택은 노드별 `localStorage`(`sfpanel_ai_last:<node>`, 도구·디렉터리·계정만 — 프로파일은 저장하지 않는다). 활성 탭·계정도 노드별 저장.
-- **프로파일 선택기**(대화상자): 프로파일 = 그 세션이 쓸 도구 설정 디렉터리이므로 같은 CLI로 계정을 여러 개 쓰는 수단이다. `supportsProfiles(tool)`(Claude·Codex)일 때만 그리고, `기본`이 첫 행, 그다음 프로파일마다 로그인 상태 점(+`sr-only` 텍스트)과 마지막 사용 시점, 끝에 `새 프로파일…` 행. 그 행을 고르면 선택기 자리가 이름 입력 + 만들기/취소로 바뀐다(Select 행 안에 버튼을 넣을 수 없어 대체하는 방식). 계정이나 도구가 바뀌면 선택을 기본으로 되돌리고 다시 조회한다 — 프로파일은 (계정, 도구)별이라 이름을 물려주면 없는 디렉터리나 남의 계정 디렉터리로 세션을 띄운다. 로그인 안 된 프로파일을 고르면 `codex login`/`/login`을 실행하라는 한 줄 안내가 붙고, 패널이 대신 하지는 않는다. 기본 제목 placeholder에는 프로파일이 들어가지 않는다(`Codex · myapp`) — 프로파일은 탭 칩이 보여주고, 제목의 사본은 탭 폭을 깎으며 이름을 바꾸면 낡는다. 조회가 실패하면 대화상자의 인라인 에러 줄에 사유가 뜨고(`aiErrorMessage`) 선택기는 `기본`만 든 채 그대로 쓸 수 있다 — 도구 자기 디렉터리라 목록이 필요 없다. 라벨은 그려진 쪽(선택기 `#ai-profile` / 만들기 입력 `#ai-profile-name`)을 `htmlFor`로 가리킨다.
-- **실행 옵션 섹션**(대화상자, `ai/components/LaunchOptions.tsx`): 도구를 어떻게 시작할지 — 이어서 하기(안 함 / 최근 대화 이어서 / 골라서) · 승인 방식 · 샌드박스(Codex만) · 모델(비우면 도구 기본값) · 우회 플래그 체크박스 · 추가 인자 한 줄. `supportsLaunch(tool)`(Claude·Codex)일 때만 그리고, 선택 항목은 `LAUNCH_CATALOGUE`에서 오며 **CLI 자신의 표기 그대로** 보여준다 — 운영자가 `claude --help`에서 같은 이름을 찾을 수 있어야 하고, 번역한 '편집 허용'은 거기 없다. 섹션은 네이티브 `<details>`(디스클로저 키보드 동작과 접근 이름을 컴포넌트 없이 얻는다)이고, 그 폴더에 기억된 옵션이 있으면 펼친 채로 열리며 접혀 있을 때는 `launchSummary`의 한 줄(`이어서 · acceptEdits`)이 `<summary>` 옆에 붙는다 — 기억된 값이 보이지 않게 적용되는 일은 없다. Select의 '도구 기본값' 행은 `(none)` 센티넬을 쓴다(Radix는 빈 값을 '선택 해제'로 읽는다). 우회 플래그는 `dangerousBlocked(tool, runAs)`(Claude + root)이면 비활성 + 사유 한 줄이고, 켠 채로 만들기를 누르면 공용 `ConfirmDialog`가 한 번 확인한다. 추가 인자는 `validateExtra`가, 모델은 `validateModel`이 필드 옆에서 어긋난 규칙을 지목해 거절하고 같은 판정이 만들기 버튼을 잠근다 — 둘 다 서버 `validateLaunch`와 같은 규칙(추가 인자 8개·각 64자·같은 문자 집합, 모델 `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`)이므로 대화상자가 받는 값은 서버도 받고, 서버의 영문 문장이 한국어 대화상자에 그대로 실리는 일이 없다. 모델 입력은 타이핑하는 대로 `trim`한다 — 필드는 CLI 토큰 하나이므로 앞뒤 공백은 이름의 일부일 수 없고, 문서에서 복사한 이름은 그것을 달고 온다. `openai/gpt-5`·`model@2025-09`처럼 trim이 구제할 수 없는 값은 `ai.launch.modelError`가 필드 옆에서 말한다.
-- **실행 옵션 기억**: (노드, 도구, 디렉터리)별 `localStorage`(`sfpanel_ai_launch:<node>:<tool>:<cwd>` — `launchKey`)라서 같은 폴더를 같은 도구로 다시 열면 지난번처럼 시작한다. 아무것도 고르지 않았으면 키를 지운다 — '옵션 없이'도 기억해야 한다. 도구나 계정이 바뀌면 무조건 다시 읽고 고른 값을 버린다(Claude의 `acceptEdits`는 Codex의 승인 정책이 아니고 root Claude의 우회는 거절되므로, 물려주면 서버가 거절할 본문이 된다). 디렉터리 변경은 섹션을 건드리지 않은 동안만 다시 읽는다 — 디렉터리 필드의 키 입력마다 키가 바뀌므로, 타이핑 중에 고른 옵션을 지우는 것은 `untouchedPrefill`이 막는 실수와 같은 실수다. 읽은 값이 깨졌거나 프라이빗 모드에서 throw하면 '없음'으로 — 실행 옵션이 대화상자를 열지 못하게 만들 수는 없고, 어차피 모든 필드는 서버가 다시 검증한다. 옵션을 하나도 고르지 않은 요청은 `launch`를 **아예 보내지 않는다**(기능 이전 패널이 만들던 본문과 같다).
-- **프로파일 관리**(도구 칩 드롭다운 안의 `ai/components/ProfilePanel.tsx`): 버전·경로 블록 아래에 프로파일 목록(로그인 점, 마지막 사용, 기본 행은 삭제 불가) + 이름 입력·만들기. 칩 드롭다운과는 별 파일이다 — `ToolChips`는 설치/업데이트 칩 줄만 맡고 이 패널을 `supportsProfiles(tool)` + 계정 확정 + **그 계정에 그 도구가 설치됨** 세 조건에서만 그려 넣는다(미설치 도구에 설치 버튼 옆 만들기 필드를 두면 쓸 수 없는 로그인 디렉터리를 만드는 셈이다). 목록은 Radix가 드롭다운을 열 때 마운트하며 조회하므로 페이지 로드 시 칩 3개가 요청 3개를 내지 않는다. 진행 중 상태는 둘로 나뉘어 있다 — `creating`은 이름 필드, `deleting`은 해당 행 하나(확인 대화상자 구간까지 포함)이며, 만들기 중이라고 삭제 버튼이 잠기지는 않는다. 삭제는 공용 `ConfirmDialog`(위험) — 확인 대화상자가 메뉴를 닫아 이 컴포넌트가 사라지므로 결과는 toast로 알리고, 세션 목록 갱신은 페이지가 맡는다(`onSessionsChanged`). `AI_PROFILE_IN_USE`도 이 toast로 보인다. 메뉴는 맨글자 입력을 typeahead로 먹으므로 입력 필드에서 키를 멈추되(`stopPropagation`) Escape는 메뉴에 남긴다.
-- **사용 API**: `api.getAITools/getAIDirs/getAISessions/createAISession/renameAISession/rerunAISession/restartAISession/deleteAISession`, `api.getAIProfiles/createAIProfile/deleteAIProfile`, `/ai/tools/:tool/{install,update}-stream`(fetch SSE), `api.installPackage('tmux')`
+### 터미널 (v0.76.0: 터미널 + AI 코딩 통합)
+- **파일**: `web/src/pages/Terminal.tsx`(페이지 셸), `web/src/pages/terminal/components/{SessionRail,SessionHeader,SessionPane,PtyPane,NewSessionDialog,LaunchOptions,ProfilePanel,TmuxBanner,ToolsSheet,TerminalSession}.tsx`, `web/src/pages/terminal/hooks/{useAISessions,usePtyTabs}.ts`, `web/src/lib/sessionRail.ts`, `web/src/lib/aiSessions.ts`
+- **엔진**: 세션은 tmux 세션이다(`/api/v1/ai/sessions`, `/ws/ai/attach`) — 셸이 기본이고 Claude Code·Codex·Gemini CLI는 새 세션 대화상자의 "시작할 것" 옵션이다. PTY 엔진(`/ws/terminal`)은 tmux가 없거나 3.2 미만일 때의 **폴백**이고, tmux가 정상일 때도 도구·계정 패널 맨 아래 "tmux 없이 임시 셸 열기"로 열 수 있다. `/ai`는 `/terminal`로 리다이렉트된다(Android 앱·북마크).
+- **레이아웃**: 왼쪽 레일(272px, 접으면 56px, `sfpanel_terminal_rail`) + 큰 패널. 레일은 `role="tablist" aria-orientation="vertical"`이고 행은 `role="tab"`(활성 행 `aria-selected=true`, 화살표·Home/End 이동). 세션은 **디렉터리(정확한 cwd)별로 묶고** 그룹은 안의 가장 오래된 세션 순(새 디렉터리는 아래에 추가), 그룹 안은 서버 순서에 종료 세션을 뒤로(`lib/sessionRail.ts` `buildRail`). 임시(PTY) 그룹은 항상 마지막이며 탭이 있거나 폴백 모드일 때만 보인다 — 헤더에 수명("이 브라우저에서만 · 새로고침 후 5분")을 적고, 다시 연결할 수 있는 서버 PTY 세션(`GET /terminal/sessions`)을 그 아래 나열한다. 행: 상태 점(`stateDotClass`, 활성 행은 펄스 없음, `motion-reduce:animate-none`) · 도구 글리프(`TOOL_META`) · 제목 · 프로파일 칩 · process 모드/우회 플래그/알 수 없음 마커 · 둘째 줄은 말할 것이 있을 때만(`railNote`: 입력 대기·도구 종료됨·종료됨 — 프롬프트에 있는 셸 세션은 정상이라 비운다). 활성 행은 도구색 2px 바. 우클릭·길게누르기 메뉴: 이름 변경·정보·다시 실행·다시 시작·목록에서 지우기·종료(PTY 행은 이름 변경·닫기).
+- **활성 항목**: `sfpanel_terminal_active:<node>`에 `tmux:<id>` / `pty:<id>`로 저장(접두사 없는 옛 값은 PTY 탭 id) → 없으면 `last_attached_at`이 최신인 살아있는 tmux 세션 → 첫 항목(`pickActive`). 서버 목록이 도착한 뒤에만 재정렬한다.
+- **헤더**(`SessionHeader`): 글리프+제목(클릭 = 인라인 이름 변경), 데스크톱 메타 줄(계정 · 디렉터리 · 프로파일 · 실행 옵션 요약 · 우회 마커), 툴바(A−/A+ 10~24 `sfpanel_terminal_fontsize`, 검색 Ctrl/Cmd+F, 지우기 Ctrl-L), `user@host` 배지(tmux 세션은 `run_as`, PTY는 `GET /terminal/info`), `[data-session-menu]` 메뉴(레일 행과 같은 액션 + 모바일에서는 검색·지우기·글꼴). 검색 스트립은 헤더 두 번째 줄.
+- **모바일**(<768px): 레일은 왼쪽 `Sheet` 드로어(헤더의 "세션" 버튼, 배지 = 입력 대기 세션 수). 레일 `<aside>`는 항상 `[data-ai-workspace]`의 첫 자식이지만 폰에서는 **비어 있다** — Android `panel.js`가 compact 모드에서 첫 자식을 숨기고, `[role=tab][aria-selected=true]`가 드로어가 닫혀 있는 동안 없어야 하기 때문. `MobileTerminalBar`는 그대로(AI 코딩 이동 버튼만 제거).
+- **새 세션 대화상자**(`NewSessionDialog`): 실행 계정 → **시작할 것**(셸 · Claude · Codex · Gemini, 셸이 첫 항목·첫 사용 기본값, 이후는 `sfpanel_ai_last:<node>` 프리필) → 프로파일(Claude·Codex) → 실행 옵션(Claude·Codex) → 작업 디렉터리 → 이름. 어느 필드에서든 Enter로 제출("세션 열기"). 미설치 도구는 비활성 + "도구·계정에서 설치" 링크.
+- **도구·계정 패널**(`ToolsSheet`, 오른쪽 Sheet): 실행 계정 선택, tmux 상태(정상/설치/너무 오래됨/systemd 없음 — `TmuxBanner`), 도구별 카드(버전·최신·설치/업데이트 SSE·로그인 상태·`ProfilePanel`), 맨 아래 임시 셸 링크. 레일 하단 버튼, 대화상자의 설치 링크, `<html data-ai-tools-open>`(Android)으로 열리며 속성과 상태는 `MutationObserver`로 양방향 동기화.
+- **폴백 모드**(`tools.tmux.supported === false`): 패널 위 배너(브라우저에만 남는다는 문장 + tmux 설치 버튼), 레일에는 임시 그룹만, "새 임시 세션"이 PTY 탭(`usePtyTabs`: `sfpanel_terminal_tabs:<node>`, `term-N`)을 연다. 설치가 끝나면 재조회로 tmux 모드로 돌아온다.
+- **디자인**: 레일·헤더·패널 프레임은 터미널 자체 팔레트 토큰(`--console*`, Tokyo Night Day/Night — `TerminalSession`의 xterm 테마와 같은 값)으로 칠해 콘솔 하나로 읽힌다. 도구색은 글리프와 활성 바에만.
+- **사용 API**: `api.getAITools/getAIDirs/getAISessions/createAISession/renameAISession/rerunAISession/restartAISession/deleteAISession`, `api.getAIProfiles/createAIProfile/deleteAIProfile`, `/ai/tools/:tool/{install,update}-stream`(fetch SSE), `api.installPackage('tmux')`, `api.getTerminalSessions/getTerminalInfo`, `api.buildWsUrl('/ws/ai/attach' | '/ws/terminal', {session_id})`
+- **`lib/sessionRail.ts`**: `buildRail`·`pickActive`·`findItem`·`railNote`·`activeKey`·`parseActiveKey`(vitest). **`lib/aiSessions.ts`**: 그대로(바로 아래 헬퍼 항목 참고).
 - **`lib/aiSessions.ts` 헬퍼**: `supportsLaunch`·`LAUNCH_CATALOGUE`(도구별 실행 옵션 카탈로그 — 서버의 `claudePermissionModes`/`codexApprovalPolicies`/`codexSandboxModes`를 그대로 거울처럼 들고 있는 정적 표다. 호스트에 따라 달라지지 않으므로 `GET /ai/tools`의 필드가 아니며, 대화상자 앞에 왕복을 하나 더 두지 않는다) · `dangerousBlocked(tool, runAs)`(Claude + root — CLI 자신이 거부한다) · `dangerousFlagFor(tool)`(그 CLI가 쓰는 우회 플래그 이름 — 탭 마커 툴팁과 번역기 없는 요약이 쓴다) · `launchSummary`(접힌 섹션과 정보 toast가 쓰는 한 줄. 빈 문자열 = 고른 것이 없음이며, 그것이 `launch`를 보낼지까지 결정한다) · `validateExtra`(추가 인자 8개·64자·문자 집합 — 결과가 아니라 어긋난 규칙 이름을 돌려준다) · `validateModel`(모델 이름 한 토큰 — 서버 `launchModelRe`의 쌍둥이) · `parseLaunch(raw)`(기억된 옵션을 읽어 들이는 곳. 객체가 아닌 것은 전부 '없음'이다 — 특히 저장된 `null`은 `JSON.parse`가 실패가 아니라 **값**으로 돌려주므로, 그대로 두면 바로 다음 줄의 필드 접근이 효과 안에서 throw해 대화상자가 빈 화면이 됐다) · `launchKey(node, tool, cwd)` · `supportsProfiles`(프로파일을 지원하는 도구) · `loginCommandFor`(Codex `codex login` / Claude `/login`) · `relativeSince`(`Intl.RelativeTimeFormat`, 값이 없으면 빈 문자열, 미래 값은 과거로 클램프 — `last_used_at`은 호스트가 쓴 행이라 브라우저 시계가 뒤처지면 `0초 후`로 보였다) · `defaultTitle(tool, cwd)` · `aiErrorMessage`(서버 에러 코드를 i18n 키로 매핑 — `INVALID_PATH`(`cwd:` 이유는 그대로 전달)·`INVALID_ACCOUNT`·`INVALID_TOOL`·`AI_SESSION_LIMIT`·`TMUX_MISSING`·`AI_SESSION_STATE`·`AI_LAUNCH_ROOT_DANGER`(서버 문장은 영문이고 플래그를 들지만, 고치는 방법은 계정 선택기라 그 언어로 다시 쓴다)·`AI_PROFILE_EXISTS`·`AI_PROFILE_IN_USE`, 그 외 코드는 서버 메시지를 그대로) · `profileErrorMessage(err, t, surface)`(프로파일 경로 전용 래퍼: `surface === 'create'`일 때만 이름 형식 거절 `INVALID_BODY`를 `ai.profiles.errors.name`으로 바꾸고 나머지는 `aiErrorMessage`에 넘긴다 — 그 거절만 서버 메시지가 영문 규칙 문장이라 한국어 운영자가 읽을 수 없고, 동시에 운영자가 고칠 수 있는 유일한 거절이다. `delete`도 기본 프로파일에 같은 코드로 답하므로 코드만으로는 구분할 수 없어 호출 지점이 표면을 넘긴다)
-- **사용 컴포넌트**: DropdownMenu, Select, ContextMenu, Dialog, Input, Label, Button, Checkbox, OutputDialog, ConfirmDialog, MobileTerminalBar
+- **사용 컴포넌트**: Sheet, ContextMenu, DropdownMenu, Select, Dialog, Input, Label, Button, Checkbox, OutputDialog, ConfirmDialog, MobileTerminalBar
 
 > **갱신 노트 (v0.41.0)**: Settings는 **탭형 셸 + 코드 분할 탭 패널**이며, v0.41.0에서 6개 탭이 **4개 탭**(account / system / alerts / audit)으로 통합되었다. `?tab=` 유효값은 `account|system|alerts|audit`. **클러스터 모드에서는 `?scope`에 따라 탭이 필터링**된다: `?scope=node`면 per-node SQLite 탭(`system`/`audit`), 그 외에는 FSM 복제/클러스터 전역 탭(`account`/`alerts`)만 노출하고 스코프 배지('이 노드'/'클러스터 전체')를 표시한다(단일 노드 배포는 4탭 전체). 탭→패널 매핑: account → `settings/Security.tsx` + `settings/General.tsx`, system → `settings/Maintenance.tsx` + `settings/Performance.tsx`, alerts → `settings/AlertSettings.tsx`, audit → `settings/Audit.tsx`. 아래 v0.9.0 기준 단일 페이지 설명은 일부 기능이 이 탭들로 분산된 것으로 읽을 것.
 >

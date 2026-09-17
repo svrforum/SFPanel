@@ -2,6 +2,8 @@
 // sessions and reports their install state per OS account. Sessions are
 // per-node processes; nothing here replicates through the cluster FSM, and
 // every handler is local-only — ?node= is the proxy middleware's job.
+// The 터미널 page (web/src/pages/Terminal.tsx) is the only consumer; shell
+// sessions go through the same routes.
 package ai
 
 import (

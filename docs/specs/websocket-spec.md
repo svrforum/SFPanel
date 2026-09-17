@@ -476,7 +476,7 @@ redis-1  | 1:M 10 Apr 2026 10:23:46.123 * Ready to accept connections\n
 | **인증** | `?ticket=` (또는 루프백 한정 `?token=`) — `/ws/terminal`과 동일한 `auth.AuthenticateWSUpgrade` |
 | **통신 방향** | 양방향 |
 | **메시지 타입** | Binary (출력·입력), Text (`{"type":"resize"}` 및 안내 문구) |
-| **사용 페이지** | `AI.tsx` (`SessionPane` → `TerminalSession wsPath="/ws/ai/attach"`) |
+| **사용 페이지** | `Terminal.tsx` (`SessionPane` → `TerminalSession wsPath="/ws/ai/attach"`) |
 | **라우트 등록** | `e.GET("/ws/ai/attach", cluster.WrapEchoWSHandler(...))` |
 
 **쿼리 파라미터:** `session_id` (필수, 12자리 hex — 표의 id).

@@ -37,7 +37,7 @@ for (const android of [false, true]) {
       socket.onClose(() => peer.kill())
     })
     try {
-      await page.goto('/ai')
+      await page.goto('/terminal')
       const terminal = page.locator('[data-terminal-session="active"]')
       await expect(terminal).toBeVisible()
       // Match native evaluateJavascript while leaving the server CSP intact.

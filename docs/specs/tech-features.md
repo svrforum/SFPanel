@@ -805,8 +805,7 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 | DockerImages | `web/src/pages/docker/DockerImages.tsx` | 이미지 관리 |
 | DockerVolumes | `web/src/pages/docker/DockerVolumes.tsx` | 볼륨 관리 |
 | DockerNetworks | `web/src/pages/docker/DockerNetworks.tsx` | 네트워크 관리 |
-| Terminal | `web/src/pages/Terminal.tsx` | 웹 터미널 (다중 탭) |
-| AI | `web/src/pages/AI.tsx` | (v0.73.0) AI 코딩 — Claude/Codex/Gemini CLI를 tmux 세션으로 실행 + 접속 |
+| Terminal | `web/src/pages/Terminal.tsx` | 터미널 — tmux 세션(셸·Claude·Codex·Gemini) 레일 + 큰 패널, tmux가 없으면 PTY 폴백 (v0.76.0에 AI 코딩 페이지 통합, `/ai`는 리다이렉트) |
 | Files | `web/src/pages/Files.tsx` | 파일 관리자 |
 | Logs | `web/src/pages/Logs.tsx` | 로그 뷰어 |
 | CronJobs | `web/src/pages/CronJobs.tsx` | Cron 작업 관리 |
