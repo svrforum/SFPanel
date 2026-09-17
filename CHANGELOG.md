@@ -6,6 +6,24 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.76.0] – 2026-09-17
+
+### Changed
+
+**One terminal, not two.** The 터미널 and AI 코딩 menus served the same activity with two different engines: one opened a shell that died with the browser tab, the other opened tmux sessions that survive a panel restart, run as a chosen account, keep tool logins per profile and remember launch options. Everything worth keeping was on the tmux side, and the operator had to know which menu had it. There is now one 터미널 page, and every session it opens on purpose is a tmux session — a shell by default, or Claude Code, Codex or Gemini CLI as what to start instead. Opening a shell in the folder you used last, as the account you used last, is 새 세션 and Enter.
+
+**A session list you can read across the room.** Sessions sit in a rail on the left, grouped by directory, beside one large pane. Each row is a state dot, the tool's glyph, the title, and a second line only when it has something to say: a session waiting for your input, a tool that has exited back to its shell, a session that ended. Directories keep their place as new ones are added, ended sessions sink to the bottom of their group, and the active row is marked in its tool's colour. On a phone the rail is a drawer, and the button that opens it counts the sessions waiting for you. The rail, the header and the pane share the terminal's own surface, so they read as one console inside the panel.
+
+**Everything the old terminal page could do is still here** — font size, search (Ctrl/Cmd+F), clear, the user@host badge — lifted into a header above the pane, alongside the session's account, directory, profile and launch options, and a menu with the same actions the rail offers. Tool installation, updates, login state and profiles moved to a 도구·계정 panel opened from the bottom of the rail; the launcher links to it when a tool is not installed for the chosen account.
+
+**The old engine stays as the emergency exit.** When tmux is missing or too old, the page says so above the pane, offers to install it, and falls back to the browser-bound sessions of before — listed under a group named 임시 세션 with their lifetime written on it, with any session the server can still reattach listed beneath. When tmux is fine, the same door is one quiet link at the bottom of the tools panel. A session that will vanish always looks different from one that will not.
+
+`/ai` redirects to `/terminal`, so bookmarks and the Android app keep working. The API, the WebSocket routes and the session data are unchanged.
+
+The Android app's ⋯ menu still treats `/terminal` as the plain terminal it used to be, so its 도구·계정 and 세션 액션 items are missing there until the app's next release; everything else in the app works through the redirect.
+
+---
+
 ## [0.75.0] – 2026-09-17
 
 ### Added
