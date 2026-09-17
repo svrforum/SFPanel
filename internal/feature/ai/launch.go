@@ -104,19 +104,30 @@ func decodeLaunch(s string) (LaunchOptions, error) {
 	return o, nil
 }
 
-// toolSupportsLaunch is which tools take launch options at all. Gemini has no
+// launchTools is which tools take launch options at all. Gemini has no
 // launch preferences this project has verified, and a shell session runs no
 // tool; for both, options are refused rather than silently dropped, because
 // dropping them would start a session that is not the one that was asked for.
+//
+// A var rather than a fixed expression so a test can add a tool this file's
+// two switches do not know and prove what they do with one — see
+// TestLaunch_AToolWithoutItsOwnRulesIsRefusedNotAccepted. Adding a third tool
+// here is therefore only half the change; both switches need an arm too.
+var launchTools = []string{ToolClaude, ToolCodex}
+
 func toolSupportsLaunch(tool string) bool {
-	return tool == ToolClaude || tool == ToolCodex
+	return slices.Contains(launchTools, tool)
 }
 
 // validateLaunch checks every value against the chosen tool before anything
 // spawns (spec §3). Each refusal names the rule it broke — continue,
-// permission, approval, sandbox, model, argument — because the dialog shows
-// the message beside the control that produced it, and "invalid" beside a
-// select box says nothing.
+// permission, approval, sandbox, model, argument — but this text is the log
+// line and a terse fallback, not the sentence the operator reads: the dialog
+// validates the same rules itself and renders an i18n key chosen from the
+// field that broke (ai.launch.modelError, ai.launch.extraErrors.*), because a
+// Go sentence in English beside a Korean control is not a message. So the
+// naming matters for the *reader of a log* and for the field the message is
+// attributed to, and the text stays short.
 //
 // A value from the other tool's list is refused, not translated: Claude's
 // acceptEdits and Codex's on-request are not two spellings of one idea, and
@@ -125,7 +136,8 @@ func toolSupportsLaunch(tool string) bool {
 //
 // One rule from §3 is not here: Claude refuses --dangerously-skip-permissions
 // when it runs as root, which depends on the resolved account rather than on
-// the options. It belongs to the handler that has one (ErrLaunchRootDanger).
+// the options. It belongs to the handler that has one (launchRefusal, which
+// answers ErrAILaunchRootDanger) and is a create-time rule only.
 func validateLaunch(tool string, o LaunchOptions) error {
 	if !toolSupportsLaunch(tool) {
 		if o.IsZero() {
@@ -150,6 +162,11 @@ func validateLaunch(tool string, o LaunchOptions) error {
 				return fmt.Errorf("ai: approval policy %q is not one of %s",
 					o.Permission, strings.Join(codexApprovalPolicies, ", "))
 			}
+		default:
+			// launchTools let a tool through that this switch has no list
+			// for. Refusing is the only safe arm: without it the value would
+			// be accepted unchecked and handed to the CLI.
+			return fmt.Errorf("ai: permission modes for %s are not known to this panel", tool)
 		}
 	}
 	if o.Sandbox != "" {
@@ -162,7 +179,7 @@ func validateLaunch(tool string, o LaunchOptions) error {
 		}
 	}
 	if o.Model != "" && !launchModelRe.MatchString(o.Model) {
-		return fmt.Errorf("ai: model %q must be 1-64 characters of letters, digits, dot, dash, underscore or colon, starting with a letter or digit", o.Model)
+		return fmt.Errorf("ai: model %q has an invalid shape", o.Model)
 	}
 	if len(o.Extra) > maxLaunchExtra {
 		return fmt.Errorf("ai: at most %d extra arguments, got %d", maxLaunchExtra, len(o.Extra))
@@ -172,7 +189,7 @@ func validateLaunch(tool string, o LaunchOptions) error {
 			return fmt.Errorf("ai: extra argument %q is longer than %d characters", tok, maxLaunchExtraLen)
 		}
 		if !launchExtraRe.MatchString(tok) {
-			return fmt.Errorf("ai: extra argument %q carries a character an argument may not; arguments are space-separated with no quoting, so a value containing a space cannot be expressed", tok)
+			return fmt.Errorf("ai: extra argument %q is not a single unquoted token", tok)
 		}
 	}
 	return nil
@@ -239,6 +256,13 @@ func toolArgv(tool string, o LaunchOptions) ([]string, error) {
 			argv = append(argv, "-m", o.Model)
 		}
 	default:
+		if toolSupportsLaunch(tool) {
+			// launchTools says this tool takes options and this switch has no
+			// arm that spells them: returning an empty argv would start it
+			// bare with everything the operator chose silently dropped, which
+			// is exactly what the refusal above spares gemini and shell.
+			return nil, fmt.Errorf("ai: launch options for %s cannot be built by this panel", tool)
+		}
 		// validateLaunch already refused a non-zero set for a tool that takes
 		// none; an empty set adds nothing, which is how a shell or gemini
 		// session keeps spawning exactly as it does today.

@@ -117,10 +117,14 @@ export function SessionTabs({
                       The tooltip sits on the wrapping span, the way the
                       Terminal page's root badge does it: a `title` attribute
                       on an <svg> is not the tooltip mechanism, and the tab's
-                      own title would otherwise be all hover says. */}
+                      own title would otherwise be all hover says. The label
+                      lives on that one span — role="img" plus aria-label, with
+                      the icon aria-hidden — because naming both the span (by
+                      its title) and the icon (by its aria-label) made a screen
+                      reader announce the same sentence twice. */}
                   {s.launch?.dangerous && s.state !== 'ended' && (
-                    <span className="shrink-0 flex items-center" title={dangerLabel}>
-                      <ShieldAlert className="h-3 w-3 text-destructive" aria-label={dangerLabel} />
+                    <span className="shrink-0 flex items-center" role="img" aria-label={dangerLabel} title={dangerLabel}>
+                      <ShieldAlert className="h-3 w-3 text-destructive" aria-hidden="true" />
                     </span>
                   )}
                   {s.unknown && <HelpCircle className="h-3 w-3 shrink-0" aria-label={t('ai.tabs.unknown')} />}

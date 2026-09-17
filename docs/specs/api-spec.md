@@ -3834,7 +3834,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 | `model` | string | `--model <값>` | `-m <값>` |
 | `extra` | string[] | 검증한 뒤 그대로 맨 뒤에 붙는다 | 같음 |
 
-`model`은 `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`, `extra`는 최대 8개·각 64자·`^-{0,2}[A-Za-z0-9][A-Za-z0-9=._,:/@-]*$`이다. 문자 집합에 공백이 없으므로 따옴표가 필요한 값은 애초에 표현할 수 없고, 거절 메시지가 그 사실을 그대로 말한다. 옵션은 `bash -lic 'command "$0" "$@"; exec bash -l' <도구> <인자…>`의 `"$@"`로 **한 원소당 한 단어씩** 전달되어 셸이 다시 파싱하지 않는다 — 이것이 `extra`를 받을 수 있는 근거이므로, 래퍼를 하나의 문자열로 "단순화"하면 안 된다. 행에는 argv가 아니라 **고른 값**이 JSON으로 남는다(마이그레이션 38).
+`model`은 `^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`, `extra`는 최대 8개·각 64자·`^-{0,2}[A-Za-z0-9][A-Za-z0-9=._,:/@-]*$`이다. 문자 집합에 공백이 없으므로 따옴표가 필요한 값은 애초에 표현할 수 없다. 거절 메시지는 어긋난 규칙(`model`·`argument` …)을 지목하되 짧다 — 대화상자가 같은 규칙을 먼저 검사해 필드 옆에 그 언어의 문장을 띄우므로, 서버 문장은 로그 줄이자 최후의 대체 텍스트다. 옵션은 `bash -lic 'command "$0" "$@"; exec bash -l' <도구> <인자…>`의 `"$@"`로 **한 원소당 한 단어씩** 전달되어 셸이 다시 파싱하지 않는다 — 이것이 `extra`를 받을 수 있는 근거이므로, 래퍼를 하나의 문자열로 "단순화"하면 안 된다. 행에는 argv가 아니라 **고른 값**이 JSON으로 남는다(마이그레이션 38).
 
 검증은 도구 → 계정 → 프로파일 → **실행 옵션** → `cwd` 순서다: 거절된 옵션 집합이 이미 세션을 띄운 뒤여서는 안 된다.
 
@@ -3843,7 +3843,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 | `INVALID_TOOL` | 400 | `claude`·`codex`·`gemini`·`shell` 외 |
 | `INVALID_ACCOUNT` | 400 | `run_as`가 허용 목록에 없음 |
 | `INVALID_BODY` | 400 | `profile`이 그 계정·도구의 목록에 없음, 또는 프로파일이 없는 도구(`gemini`·`shell`)에 이름을 줌 (메시지가 `profile:`로 시작); `launch`의 어느 값이든 위 허용값·형식을 벗어남, 또는 실행 옵션이 없는 도구(`gemini`·`shell`)에 옵션을 줌 (메시지가 `launch:`로 시작하고 어긋난 규칙을 지목한다) |
-| `LAUNCH_ROOT_DANGER` | 400 | `launch.dangerous`이고 도구가 `claude`이며 실행 계정이 uid 0 — CLI 자신이 `--dangerously-skip-permissions cannot be used with root/sudo privileges`로 거부하는 조합이라 spawn 전에 거절한다 (메시지가 그 계정 이름을 든다). Codex의 우회 플래그에는 그런 규칙이 없어 root로도 허용한다 — 이 비대칭은 두 CLI의 것이다 |
+| `AI_LAUNCH_ROOT_DANGER` | 400 | `launch.dangerous`이고 도구가 `claude`이며 실행 계정이 uid 0 — CLI 자신이 `--dangerously-skip-permissions cannot be used with root/sudo privileges`로 거부하는 조합이라 spawn 전에 거절한다 (메시지가 그 계정 이름을 든다). Codex의 우회 플래그에는 그런 규칙이 없어 root로도 허용한다 — 이 비대칭은 두 CLI의 것이다. **생성 시점에만** 검사한다: `rerun`·`restart`는 다시 검사하지 않는다(아래) |
 | `INVALID_PATH` | 400 | `cwd`가 상대경로 / 없음 / 디렉터리 아님 (메시지에 사유) |
 | `TMUX_MISSING` | 503 | tmux 미설치, 또는 3.2 미만 (메시지에 요구 버전과 발견 버전) |
 | `AI_SESSION_LIMIT` | 409 | 살아있는 세션 20개 |
@@ -3855,10 +3855,12 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 `{ "title": "새 이름" }` — 표에만 반영(최대 64자). `INVALID_BODY`(400, 빈 제목) · `AI_SESSION_NOT_FOUND`(404).
 
 ### POST /api/v1/ai/sessions/:id/rerun
-`shell` 상태의 창에 도구 이름 + 그 행의 실행 옵션 argv를 다시 입력한다(`send-keys` 한 인자 — tmux는 인접 인자 사이에 아무것도 넣지 않으므로 나누면 `claude--continue`가 타이핑된다). 여기서는 옵션이 그 pane의 셸을 한 번 거치는데, 이것이 `extra` 토큰에서 공백과 셸 메타문자를 금지하는 이유다. `AI_SESSION_STATE`(409, shell 상태가 아니거나 셸 세션) · `INTERNAL_ERROR`(500, 저장된 실행 옵션을 읽을 수 없거나 이 패널이 만들 수 없는 값 — 더 새로운 패널이 쓴 행).
+`shell` 상태의 창에 도구 이름 + 그 행의 실행 옵션 argv를 다시 입력한다(`send-keys` 한 인자 — tmux는 인접 인자 사이에 아무것도 넣지 않으므로 나누면 `claude--continue`가 타이핑된다). 여기서는 옵션이 그 pane의 셸을 한 번 거치는데, 이것이 `extra` 토큰에서 공백과 셸 메타문자를 금지하는 이유다. `AI_SESSION_STATE`(409, shell 상태가 아니거나 셸 세션) · `INTERNAL_ERROR`(500, 저장된 실행 옵션을 읽을 수 없거나 이 패널이 만들 수 없는 값 — 더 새로운 패널이 쓴 행). 생성 시점의 root 규칙(`AI_LAUNCH_ROOT_DANGER`)은 다시 적용하지 않는다 — `restart` 항목에 이유를 적었다.
 
 ### POST /api/v1/ai/sessions/:id/restart
-`ended` 세션을 같은 도구·디렉터리·계정·프로파일·실행 옵션으로 다시 만든다 — 만들 때의 로그인으로, 만들 때 고른 방식으로 돌아온다. `AI_SESSION_STATE`(409, 아직 살아있음) · `INVALID_PATH`(400, 디렉터리가 사라짐) · `TMUX_MISSING`(503, 미설치 또는 3.2 미만).
+`ended` 세션을 같은 도구·디렉터리·계정·프로파일·실행 옵션으로 다시 만든다 — 만들 때의 로그인으로, 만들 때 고른 방식으로 돌아온다. `AI_SESSION_STATE`(409, 아직 살아있음) · `INVALID_PATH`(400, 디렉터리가 사라짐) · `TMUX_MISSING`(503, 미설치 또는 3.2 미만) · `INTERNAL_ERROR`(500, 저장된 실행 옵션을 읽을 수 없거나 이 패널이 만들 수 없는 값 — `rerun`과 같은 답이다. 아무 명령도 실행되지 않았으므로 `COMMAND_FAILED`가 아니다).
+
+생성 시점의 root 규칙(`AI_LAUNCH_ROOT_DANGER`)은 **다시 적용하지 않는다**. `claude` + `dangerous` 행은 root가 아닌 계정으로 만들어졌으므로, 여기서 root라면 행 아래에서 계정이 바뀐 것이다. 다시 시작에는 계정 선택기가 없어 거절하면 삭제밖에 남지 않는 탭이 되고, 패널이 인용하려던 그 문장(Claude 자신의 거부)은 pane에 그대로 찍혀 운영자가 읽고 조치할 수 있다. `rerun`도 같은 이유로 같다.
 
 ### DELETE /api/v1/ai/sessions/:id
 살아있으면 `kill-session`, 행 삭제. `AI_SESSION_NOT_FOUND`(404). **Response:** `{ "deleted": "<id>" }`

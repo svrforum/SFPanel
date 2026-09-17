@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AISession, AITools } from '@/types/api'
-import { LAUNCH_CATALOGUE, PROFILE_TOOLS, aiErrorMessage, aiPrefill, dangerousBlocked, dangerousFlagFor, defaultTitle, formatTimestamp, launchKey, launchSummary, loginCommandFor, profileErrorMessage, relativeSince, sessionInfoLine, stateDotClass, supportsLaunch, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra, waitingCount } from './aiSessions'
+import { LAUNCH_CATALOGUE, PROFILE_TOOLS, aiErrorMessage, aiPrefill, dangerousBlocked, dangerousFlagFor, defaultTitle, formatTimestamp, launchKey, launchSummary, loginCommandFor, parseLaunch, profileErrorMessage, relativeSince, sessionInfoLine, stateDotClass, supportsLaunch, supportsProfiles, titlePrefix, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra, validateModel, waitingCount } from './aiSessions'
 
 const bundle = (account: string, installed: Partial<Record<'claude' | 'codex' | 'gemini', boolean>>): AITools => ({
   tmux: { installed: true, version: '3.6', supported: true, min_version: '3.2' },
@@ -82,7 +82,7 @@ describe('aiErrorMessage', () => {
     // The server's own sentence for this one is English and names the flag;
     // the key says the same thing in the operator's language, beside the
     // account selector that fixes it.
-    expect(aiErrorMessage(err('LAUNCH_ROOT_DANGER', 'launch: claude refuses --dangerously-skip-permissions when it runs as root, and root is root; pick a non-root account'), t)).toBe('ai.errors.launchRoot')
+    expect(aiErrorMessage(err('AI_LAUNCH_ROOT_DANGER', 'launch: claude refuses --dangerously-skip-permissions when it runs as root, and root is root; pick a non-root account'), t)).toBe('ai.errors.launchRoot')
     // The profile codes carry a server message the operator cannot act on
     // ("a profile of that name already exists"), so they get their own keys.
     expect(aiErrorMessage(err('AI_PROFILE_EXISTS', 'a profile of that name already exists'), t)).toBe('ai.profiles.errors.exists')
@@ -418,6 +418,59 @@ describe('launchSummary', () => {
   it('falls back to the CLI\'s own words when there is no translator', () => {
     expect(launchSummary('claude', { continue: 'last', permission: 'plan', dangerous: true }))
       .toBe('last · plan · --dangerously-skip-permissions')
+  })
+
+  // ai.launch.dangerous.* exists for the two tools that have a bypass flag,
+  // so a translator must not be handed `ai.launch.dangerous.shell` — the tab
+  // would show the key itself. The server refuses every option for these two
+  // tools, but a row from an edited database reaches the summary.
+  it('never renders a raw i18n key for a tool with no bypass flag', () => {
+    expect(launchSummary('shell', { dangerous: true }, tr)).toBe('dangerous')
+    expect(launchSummary('gemini', { dangerous: true }, tr)).toBe('dangerous')
+  })
+})
+
+describe('validateModel', () => {
+  // The field is one CLI token. The pattern is the server's launchModelRe, so
+  // a name the dialog accepts is never refused after 만들기 — and the ones it
+  // refuses are refused in the operator's own language beside the field.
+  it('accepts an empty field and the shapes both CLIs name their models', () => {
+    expect(validateModel('')).toBe(true)
+    expect(validateModel('opus-5')).toBe(true)
+    expect(validateModel('claude-opus-4.5')).toBe(true)
+    expect(validateModel('gpt-5.1-codex_max')).toBe(true)
+    expect(validateModel('o'.repeat(64))).toBe(true)
+  })
+
+  // The two shapes an operator actually pastes, plus the stray space the
+  // field's own trim would have removed first.
+  it('refuses a vendor prefix, a dated tag, a space and 65 characters', () => {
+    expect(validateModel('openai/gpt-5')).toBe(false)
+    expect(validateModel('model@2025-09')).toBe(false)
+    expect(validateModel('opus 5')).toBe(false)
+    expect(validateModel('-opus')).toBe(false)
+    expect(validateModel('o'.repeat(65))).toBe(false)
+  })
+})
+
+describe('parseLaunch', () => {
+  it('reads back a stored option set', () => {
+    expect(parseLaunch('{"continue":"last","permission":"plan"}')).toEqual({ continue: 'last', permission: 'plan' })
+    expect(parseLaunch(null)).toEqual({})
+    expect(parseLaunch('')).toEqual({})
+  })
+
+  // JSON.parse('null') is a *value*, not a failure, so a stored literal
+  // "null" used to come back as null — and the dialog reads `.dangerous` off
+  // this the very next line, which throws inside an effect and leaves the
+  // dialog blank. Forgetting a remembered preference is the only acceptable
+  // cost of a value someone else wrote.
+  it('answers an empty option set for anything that is not one', () => {
+    expect(parseLaunch('null')).toEqual({})
+    expect(parseLaunch('[1,2]')).toEqual({})
+    expect(parseLaunch('"last"')).toEqual({})
+    expect(parseLaunch('7')).toEqual({})
+    expect(parseLaunch('{oops')).toEqual({})
   })
 })
 

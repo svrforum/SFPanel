@@ -64,14 +64,30 @@ func TestToolArgv_RefusesToolsWithoutOptions(t *testing.T) {
 }
 
 func TestValidateLaunch(t *testing.T) {
+	// The accepted values are spelled out here as literals, not looped over
+	// the package's own slices: validateLaunch checks membership in the very
+	// list it would be looped over, so only a second copy — written from the
+	// installed CLIs' `--help` (Claude Code 2.1.271, Codex 0.154.0) — goes
+	// red when an entry in that list is misspelled.
 	ok := []struct {
 		tool string
 		o    LaunchOptions
 	}{
 		{ToolClaude, LaunchOptions{Continue: "last", Permission: "bypassPermissions"}},
 		{ToolClaude, LaunchOptions{Permission: "plan", Model: "claude-opus-5"}},
+		{ToolClaude, LaunchOptions{Permission: "auto"}},
+		{ToolClaude, LaunchOptions{Permission: "manual"}},
+		{ToolClaude, LaunchOptions{Permission: "acceptEdits"}},
+		{ToolClaude, LaunchOptions{Permission: "dontAsk"}},
 		{ToolCodex, LaunchOptions{Permission: "on-request", Sandbox: "danger-full-access"}},
+		{ToolCodex, LaunchOptions{Permission: "never", Sandbox: "read-only"}},
+		{ToolCodex, LaunchOptions{Sandbox: "workspace-write"}},
 		{ToolCodex, LaunchOptions{Extra: []string{"--search", "-c", "model=x"}}},
+		// The boundaries the two limits draw, from the accepted side: the
+		// refusals below are one character past each of these.
+		{ToolCodex, LaunchOptions{Extra: []string{"-1", "-2", "-3", "-4", "-5", "-6", "-7", "-8"}}},
+		{ToolCodex, LaunchOptions{Extra: []string{strings.Repeat("a", maxLaunchExtraLen)}}},
+		{ToolClaude, LaunchOptions{Model: strings.Repeat("m", 64)}},
 	}
 	for _, c := range ok {
 		if err := validateLaunch(c.tool, c.o); err != nil {
@@ -88,10 +104,16 @@ func TestValidateLaunch(t *testing.T) {
 		{"sandbox on claude", ToolClaude, "sandbox", LaunchOptions{Sandbox: "read-only"}},
 		{"sandbox value", ToolCodex, "sandbox", LaunchOptions{Sandbox: "wide-open"}},
 		{"model shape", ToolClaude, "model", LaunchOptions{Model: "opus 5"}},
+		// The two shapes an operator actually pastes: a vendor-prefixed name
+		// and a dated one. Neither / nor @ is in the CLI-name character set.
+		{"model with a slash", ToolClaude, "model", LaunchOptions{Model: "openai/gpt-5"}},
+		{"model with an at sign", ToolCodex, "model", LaunchOptions{Model: "model@2025-09"}},
+		{"model too long", ToolClaude, "model", LaunchOptions{Model: strings.Repeat("m", 65)}},
 		{"extra with a space", ToolCodex, "argument", LaunchOptions{Extra: []string{"--prompt hello"}}},
 		{"extra with a semicolon", ToolCodex, "argument", LaunchOptions{Extra: []string{"--x;rm"}}},
 		{"too many extras", ToolCodex, "argument", LaunchOptions{Extra: []string{"-1", "-2", "-3", "-4", "-5", "-6", "-7", "-8", "-9"}}},
 		{"extra too long", ToolCodex, "argument", LaunchOptions{Extra: []string{"--" + strings.Repeat("a", 70)}}},
+		{"extra one character past the limit", ToolCodex, "argument", LaunchOptions{Extra: []string{strings.Repeat("a", maxLaunchExtraLen+1)}}},
 	}
 	for _, c := range bad {
 		err := validateLaunch(c.tool, c.o)
@@ -102,6 +124,37 @@ func TestValidateLaunch(t *testing.T) {
 		if !strings.Contains(strings.ToLower(err.Error()), c.rule) {
 			t.Errorf("%s: message %q does not name the rule (%q)", c.name, err, c.rule)
 		}
+	}
+}
+
+// Adding a tool to launchTools is only half of adding a tool: validateLaunch
+// has to have a list of permission values for it and toolArgv has to have the
+// flags. Without the default arms in both switches, a tool added to the list
+// alone gets its permission value accepted unchecked and its whole option set
+// dropped at spawn — a session started bare while the tab says otherwise.
+//
+// The fake tool is the only way to reach those arms: every real value of
+// `tool` is either in launchTools and handled, or refused before the switch.
+func TestLaunch_AToolWithoutItsOwnRulesIsRefusedNotAccepted(t *testing.T) {
+	const future = "future-cli"
+	launchTools = append(launchTools, future)
+	t.Cleanup(func() { launchTools = []string{ToolClaude, ToolCodex} })
+
+	err := validateLaunch(future, LaunchOptions{Permission: "whatever"})
+	if err == nil {
+		t.Fatalf("a permission value for %s was accepted with no list to check it against", future)
+	}
+	if !strings.Contains(err.Error(), "permission") {
+		t.Errorf("message %q does not name the rule", err)
+	}
+	// Continue is tool-independent, so this set passes validation and only
+	// toolArgv can catch it.
+	argv, err := toolArgv(future, LaunchOptions{Continue: continueLast})
+	if err == nil {
+		t.Fatalf("%s built argv %q instead of refusing: the options would have been dropped", future, argv)
+	}
+	if !strings.Contains(err.Error(), future) {
+		t.Errorf("message %q does not name the tool", err)
 	}
 }
 

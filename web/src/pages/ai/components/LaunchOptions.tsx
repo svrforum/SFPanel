@@ -26,9 +26,11 @@ const NONE = '(none)'
  * (LAUNCH_CATALOGUE), because an operator checking the panel against
  * `claude --help` needs to find the same name there.
  *
- * `extraError` is computed by the dialog from the same validateExtra that
- * blocks 만들기, so the message beside the field and the refusal that stops
- * the request can never disagree.
+ * `extraError` and `modelError` are computed by the dialog from the same
+ * validateExtra / validateModel that block 만들기, so the message beside a
+ * field and the refusal that stops the request can never disagree. Both
+ * mirror a server rule; catching them here is what keeps the server's English
+ * sentence out of a Korean dialog.
  */
 export function LaunchOptions({
   tool,
@@ -38,6 +40,7 @@ export function LaunchOptions({
   extraRaw,
   onExtraRawChange,
   extraError,
+  modelError,
   defaultOpen,
 }: {
   tool: 'claude' | 'codex'
@@ -47,6 +50,7 @@ export function LaunchOptions({
   extraRaw: string
   onExtraRawChange: (raw: string) => void
   extraError: LaunchExtraError | null
+  modelError: boolean
   defaultOpen: boolean
 }) {
   const { t } = useTranslation()
@@ -134,15 +138,25 @@ export function LaunchOptions({
         )}
         <div className="space-y-1.5">
           <Label htmlFor="ai-launch-model">{t('ai.launch.model')}</Label>
+          {/* Trimmed as it is typed: the field is one CLI token, so
+              surrounding whitespace is never part of a model name — and a
+              name pasted out of a document arrives with it. What the trim
+              cannot rescue (a `/` or an `@`, which no model name either CLI
+              takes may carry) is named below instead of being posted for the
+              server to refuse in English. */}
           <Input
             id="ai-launch-model"
             value={value.model ?? ''}
-            onChange={(e) => set({ model: e.target.value || undefined })}
+            onChange={(e) => set({ model: e.target.value.trim() || undefined })}
             placeholder={t('ai.launch.modelPlaceholder')}
             className="font-mono text-[12px]"
             maxLength={64}
             spellCheck={false}
+            aria-invalid={modelError}
           />
+          {modelError && (
+            <p role="alert" className="text-[11px] text-destructive">{t('ai.launch.modelError')}</p>
+          )}
         </div>
         <div className="space-y-1.5">
           <label className={`flex items-center gap-2 text-[13px] ${blocked ? 'text-muted-foreground' : 'cursor-pointer'}`}>

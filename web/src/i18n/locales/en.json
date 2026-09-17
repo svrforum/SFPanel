@@ -1457,6 +1457,7 @@
       "default": "Tool default",
       "model": "Model",
       "modelPlaceholder": "Empty = the tool's default",
+      "modelError": "The model name carries a character it may not. Start with a letter or digit, then letters, digits and . _ : - , up to 64 (e.g. opus-5, gpt-5.1). / and @ cannot be used.",
       "dangerous": {
         "claude": "Skip every permission prompt",
         "codex": "Bypass approvals and the sandbox"

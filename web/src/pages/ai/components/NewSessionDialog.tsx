@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { AIDirs, AILaunchOptions, AIProfile, AISession, AITool, AITools } from '@/types/api'
 import type { AILastSession, AITouched, LaunchExtraError } from '@/lib/aiSessions'
-import { TOOL_META, aiErrorMessage, aiPrefill, dangerousBlocked, defaultTitle, launchKey, launchSummary, loginCommandFor, profileErrorMessage, relativeSince, supportsLaunch, supportsProfiles, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra } from '@/lib/aiSessions'
+import { TOOL_META, aiErrorMessage, aiPrefill, dangerousBlocked, defaultTitle, launchKey, launchSummary, loginCommandFor, parseLaunch, profileErrorMessage, relativeSince, supportsLaunch, supportsProfiles, toolInstalledFor, toolsFor, untouchedPrefill, validateExtra, validateModel } from '@/lib/aiSessions'
 import { cn } from '@/lib/utils'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { LaunchOptions } from './LaunchOptions'
@@ -22,10 +22,14 @@ const lastKey = (node: string) => `sfpanel_ai_last:${node}`
  * wrote — or a private-mode read that throws — is "none": a launch section
  * cannot be allowed to stop the dialog from opening, and every field is
  * re-validated by the server anyway.
+ *
+ * parseLaunch owns the "not an option object" half (including a stored
+ * literal "null", which JSON.parse hands back as a value rather than as a
+ * failure); the try/catch here is only for the accessor itself throwing.
  */
 function readLaunch(key: string): AILaunchOptions {
   try {
-    return JSON.parse(localStorage.getItem(key) || '{}') as AILaunchOptions
+    return parseLaunch(localStorage.getItem(key))
   } catch {
     return {}
   }
@@ -196,6 +200,10 @@ export function NewSessionDialog({
   const withLaunch = supportsLaunch(tool)
   const parsedExtra = validateExtra(extraRaw)
   const extraError: LaunchExtraError | null = 'error' in parsedExtra ? parsedExtra.error : null
+  // The model field's one rule, the server's own. Derived here rather than in
+  // the section so the message beside the field and the guard on 만들기 are
+  // the same check.
+  const modelError = withLaunch && !validateModel(launch.model ?? '')
   // An empty summary is exactly an empty option set (see launchSummary), and
   // that is what decides both whether the section opens itself and whether
   // the body carries a `launch` at all.
@@ -246,6 +254,10 @@ export function NewSessionDialog({
     // broke, and the section is already showing it beside the field.
     if (withLaunch && extraError) {
       setError(t(`ai.launch.extraErrors.${extraError}`))
+      return
+    }
+    if (modelError) {
+      setError(t('ai.launch.modelError'))
       return
     }
     const dir = cwd.trim()
@@ -396,6 +408,7 @@ export function NewSessionDialog({
               extraRaw={extraRaw}
               onExtraRawChange={changeExtra}
               extraError={extraError}
+              modelError={modelError}
               defaultOpen={launchSet}
             />
           )}
@@ -417,7 +430,7 @@ export function NewSessionDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)} disabled={busy}>{t('common.cancel')}</Button>
-          <Button className="rounded-xl" onClick={submit} disabled={busy || !cwd.trim() || (withLaunch && extraError !== null)}>
+          <Button className="rounded-xl" onClick={submit} disabled={busy || !cwd.trim() || (withLaunch && extraError !== null) || modelError}>
             {busy ? <><Loader2 className="animate-spin" aria-hidden="true" />{t('ai.dialog.creating')}</> : t('ai.dialog.create')}
           </Button>
         </DialogFooter>

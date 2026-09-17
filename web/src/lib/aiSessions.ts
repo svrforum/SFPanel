@@ -117,7 +117,7 @@ export function supportsLaunch(tool: AITool): tool is 'claude' | 'codex' {
  *
  * The name, not the uid: the browser has no uid. The server checks uid 0, so
  * an account named otherwise that *is* root is refused there and
- * LAUNCH_ROOT_DANGER carries the reason back.
+ * AI_LAUNCH_ROOT_DANGER carries the reason back.
  */
 export function dangerousBlocked(tool: AITool, runAs: string): boolean {
   return tool === 'claude' && runAs === 'root'
@@ -168,7 +168,12 @@ export function launchSummary(tool: AITool, o?: AILaunchOptions, t?: Translate):
   if (o.permission) parts.push(o.permission)
   if (o.sandbox) parts.push(o.sandbox)
   if (o.dangerous) {
-    parts.push(t ? t(`ai.launch.dangerous.${tool}`) : dangerousFlagFor(tool) || 'dangerous')
+    // supportsLaunch, not just `t`: ai.launch.dangerous.* exists for the two
+    // tools that have a bypass flag, so translating for gemini or shell would
+    // put the raw key `ai.launch.dangerous.shell` on screen. The server
+    // refuses every option for those two, but a row from an edited database
+    // reaches this line, and a raw key is the one output worse than the flag.
+    parts.push(t && supportsLaunch(tool) ? t(`ai.launch.dangerous.${tool}`) : dangerousFlagFor(tool) || 'dangerous')
   }
   if (o.model) parts.push(o.model)
   if (o.extra?.length) parts.push(o.extra.join(' '))
@@ -181,6 +186,47 @@ export type LaunchExtraError = 'space' | 'char' | 'count' | 'length'
 /** The server's own limits on Extra, so a line the dialog accepts is accepted there too. */
 const MAX_EXTRA = 8
 const MAX_EXTRA_LEN = 64
+
+/**
+ * The 모델 field, checked before anything is posted. A twin of the server's
+ * launchModelRe — letters, digits, dot, dash, underscore and colon, 1 to 64
+ * characters, starting alphanumeric — for the same reason validateExtra
+ * exists: without it the only refusal is the server's, and that one arrives
+ * in English beside a Korean field.
+ *
+ * The two shapes this actually catches are the ones an operator pastes:
+ * `openai/gpt-5` and `model@2025-09`. Neither `/` nor `@` is in the set, and
+ * neither CLI takes a model name with one.
+ *
+ * Empty is valid — it means the tool's own default, which is what the field's
+ * placeholder says.
+ */
+export function validateModel(model: string): boolean {
+  return model === '' || /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(model)
+}
+
+/**
+ * The remembered option set for one folder, from whatever the browser has
+ * stored under its key.
+ *
+ * Anything that is not a JSON object is "nothing chosen". `null` is the case
+ * that matters: `JSON.parse('null')` is a value, not a parse failure, so a
+ * stored literal "null" — an older panel, another tab, a hand-edited entry —
+ * came back as null and the caller's very next line read `.dangerous` off it,
+ * which throws inside the effect and leaves the dialog blank instead of
+ * simply forgetting a preference. An array is rejected for the same reason:
+ * spreading one produces index keys, not options.
+ */
+export function parseLaunch(raw: string | null): AILaunchOptions {
+  if (!raw) return {}
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
+    return parsed as AILaunchOptions
+  } catch {
+    return {}
+  }
+}
 
 /**
  * The advanced 추가 인자 field, split and checked before anything is posted.
@@ -423,7 +469,7 @@ export function aiErrorMessage(err: unknown, t: Translate): string {
     // that is the fix. Reachable even though the dialog disables the
     // checkbox for root: the panel compares the account *name*, the server
     // its uid, so an account named otherwise that is uid 0 lands here.
-    case 'LAUNCH_ROOT_DANGER':
+    case 'AI_LAUNCH_ROOT_DANGER':
       return t('ai.errors.launchRoot')
     case 'AI_PROFILE_EXISTS':
       return t('ai.profiles.errors.exists')

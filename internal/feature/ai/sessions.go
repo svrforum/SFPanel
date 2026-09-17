@@ -302,27 +302,34 @@ type createSessionReq struct {
 	Profile string `json:"profile"`
 	// Launch is a pointer so that an absent object and an empty one are the
 	// same thing and neither is an error: every client that predates the
-	// feature sends nothing, and the dialog sends {} when the section is
-	// opened and nothing in it is chosen.
+	// feature sends nothing, and the dialog omits the field entirely when
+	// nothing in the section is chosen.
 	Launch *LaunchOptions `json:"launch"`
 }
 
 // launchRefusal is POST /ai/sessions' check on the launch options: the
 // per-tool validation of launch.go plus the one rule of spec §3 that needs
-// the resolved account. A non-empty code is the refusal to write; the message
-// is shown beside the control that produced it, so it names the field and the
-// rule rather than saying "invalid".
+// the resolved account. A non-empty code is the refusal to write.
+//
+// The message names the field and the rule, but it is a fallback rather than
+// the sentence an operator reads: the dialog validates the same rules before
+// it posts and renders its own i18n key per field, and it turns
+// AI_LAUNCH_ROOT_DANGER into ai.errors.launchRoot. What reaches a browser
+// verbatim is a body the panel itself built wrongly — which is why the text
+// stays terse (see validateLaunch).
 func launchRefusal(tool string, o LaunchOptions, acct Account) (string, string) {
 	if err := validateLaunch(tool, o); err != nil {
-		// validateLaunch's text is both a Go error and what the dialog shows.
-		// The "ai: " prefix is the package convention for the first and noise
-		// in front of an operator, so the field name replaces it here.
+		// The "ai: " prefix is the package convention for a Go error and
+		// noise in front of an operator, so the field name replaces it here.
 		return response.ErrInvalidBody, "launch: " + strings.TrimPrefix(err.Error(), "ai: ")
 	}
 	// UID, not the name: an account named something else with uid 0 is root
 	// as far as the CLI's own check is concerned.
+	//
+	// This is a create-time rule only; 다시 시작 and 다시 실행 deliberately do
+	// not re-apply it — see RestartSession.
 	if tool == ToolClaude && o.Dangerous && acct.UID == 0 {
-		return response.ErrLaunchRootDanger, fmt.Sprintf(
+		return response.ErrAILaunchRootDanger, fmt.Sprintf(
 			"launch: claude refuses --dangerously-skip-permissions when it runs as root, and %s is root; pick a non-root account", acct.Name)
 	}
 	return "", ""
@@ -528,7 +535,10 @@ func (h *Handler) RerunSession(c echo.Context) error {
 	// Not ErrInvalidBody: there is no body on a rerun to blame. A stored set
 	// this panel cannot build is a row from a newer one (or an edited
 	// database), so it answers like the decode failure above and names the
-	// rule it could not satisfy.
+	// rule it could not satisfy. RestartSession answers the same way.
+	//
+	// The create-time root rule is not re-applied here either — see
+	// RestartSession for why the asymmetry is deliberate.
 	launchArgv, err := toolArgv(row.Tool, launch)
 	if err != nil {
 		slog.Error("ai stored launch options no longer valid", "component", "ai", "id", row.ID, "tool", row.Tool, "err", err)
@@ -586,6 +596,24 @@ func (h *Handler) RestartSession(c echo.Context) error {
 		slog.Error("ai stored launch options unreadable", "component", "ai", "id", row.ID, "err", err)
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not read the session's launch options")
 	}
+	// Built here, one line before the spawn that would build it anyway, so
+	// this failure answers the way rerun's does: a stored set this panel
+	// cannot build is a row from a newer one (or an edited database), and the
+	// reply names the rule it could not satisfy. Left inside spawn it came
+	// back as COMMAND_FAILED with the sanitized text of an error no command
+	// produced — nothing had run yet.
+	if _, err := toolArgv(row.Tool, launch); err != nil {
+		slog.Error("ai stored launch options no longer valid", "component", "ai", "id", row.ID, "tool", row.Tool, "err", err)
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "launch: "+strings.TrimPrefix(err.Error(), "ai: "))
+	}
+	// The create-time root rule (launchRefusal) is deliberately NOT re-applied
+	// here, and the asymmetry is the point: a row carrying claude + dangerous
+	// was written for a non-root account, so reaching this line as root means
+	// the account changed under the row. A restart has no account selector, so
+	// refusing would leave a tab whose only remedy is deleting it, while
+	// Claude's own refusal — the sentence the panel would be quoting — is
+	// right there in the pane, which the operator can read and act on. 다시
+	// 실행 does the same for the same reason.
 	if err := h.spawn(row.ID, cwd, row.Tool, row.Profile, acct, launch); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrCommandFailed, response.SanitizeOutput(err.Error()))
 	}

@@ -876,8 +876,8 @@ func TestCreateSession_LaunchRootDanger(t *testing.T) {
 	body := `{"tool":"claude","cwd":"` + dir + `","launch":{"dangerous":true}}`
 	rec := call(t, h.CreateSession, http.MethodPost, body, "", "")
 	code, msg := failCode(t, rec)
-	if code != response.ErrLaunchRootDanger || !strings.Contains(msg, "root") {
-		t.Errorf("claude+dangerous+root: got %s %q, want LAUNCH_ROOT_DANGER naming root", code, msg)
+	if code != response.ErrAILaunchRootDanger || !strings.Contains(msg, "root") {
+		t.Errorf("claude+dangerous+root: got %s %q, want AI_LAUNCH_ROOT_DANGER naming root", code, msg)
 	}
 	if len(m.Calls) != 0 {
 		t.Errorf("a refused launch must never reach tmux: %+v", m.Calls)
@@ -1018,13 +1018,67 @@ func TestCreateSession_LaunchOnShellIsRefused(t *testing.T) {
 		}
 	}
 	// An absent object and an empty one are the same thing and neither is an
-	// error: the dialog sends {} when the section is opened and nothing in it
-	// is chosen, and every client that predates the feature sends nothing.
+	// error: every client that predates the feature sends nothing, and a
+	// client that sends the field with nothing in it means the same.
 	for _, body := range []string{`{"tool":"shell","cwd":"` + dir + `"}`, `{"tool":"shell","cwd":"` + dir + `","launch":{}}`} {
 		h := newTestHandler(t, tmuxMock(""))
 		h.DB = openTestDB(t)
 		if rec := call(t, h.CreateSession, http.MethodPost, body, "", ""); rec.Code != http.StatusOK {
 			t.Errorf("%s: %d %s", body, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// The launch options are checked BEFORE the cwd, and the order is the
+// assertion: this body breaks both rules, so whichever block runs first is
+// the code that comes back. Swapping the two blocks in CreateSession answers
+// INVALID_PATH here and every other launch test stays green, which is why
+// this case exists.
+//
+// The order matters because the two refusals are not equally cheap to be
+// wrong about: a directory that does not exist is a typo the operator sees in
+// the field, while an option set that was quietly accepted after a cwd
+// refusal would be remembered by the dialog and posted again.
+func TestCreateSession_LaunchIsCheckedBeforeTheDirectory(t *testing.T) {
+	m := tmuxMock("")
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	// A relative path (INVALID_PATH) and a model name with a slash in it
+	// (INVALID_BODY, `launch:`), in one request.
+	body := `{"tool":"claude","cwd":"relative/dir","run_as":"alice","launch":{"model":"openai/gpt-5"}}`
+	rec := call(t, h.CreateSession, http.MethodPost, body, "", "")
+	code, msg := failCode(t, rec)
+	if code != response.ErrInvalidBody || !strings.HasPrefix(msg, "launch:") {
+		t.Errorf("got %s %q, want INVALID_BODY naming launch — the cwd must not be the refusal that wins", code, msg)
+	}
+	if len(m.Calls) != 0 {
+		t.Errorf("a refused create must never reach tmux: %+v", m.Calls)
+	}
+}
+
+// A stored option set this panel cannot build is a row from a newer panel (or
+// an edited database), and restart answers it the way rerun does: 500 naming
+// the rule it could not satisfy. Not COMMAND_FAILED — which is what came back
+// while the only toolArgv call was the one inside spawn — because no command
+// had run at that point and no tmux output existed to sanitize.
+func TestRestart_UnbuildableStoredLaunchIsNotACommandFailure(t *testing.T) {
+	m := noServerMock()
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	dir := t.TempDir()
+	// Written past Encode's validation, the way a newer panel's row or a hand
+	// edit would be.
+	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolClaude, Title: "a", RunAs: "root", CWD: dir, Launch: `{"model":"opus 5"}`})
+	_ = setSessionEnded(h.DB, "aaaaaaaaaaaa", true)
+
+	rec := call(t, h.RestartSession, http.MethodPost, "", "aaaaaaaaaaaa", "")
+	code, msg := failCode(t, rec)
+	if code != response.ErrInternalError || !strings.Contains(msg, "launch:") || !strings.Contains(msg, "model") {
+		t.Errorf("got %s %q, want INTERNAL_ERROR naming the launch rule (rerun's answer)", code, msg)
+	}
+	for _, c := range m.Calls {
+		if slices.Contains(c.Args, "new-session") {
+			t.Errorf("a set that cannot be built must not reach a spawn: %+v", c)
 		}
 	}
 }

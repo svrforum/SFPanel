@@ -111,7 +111,12 @@ const (
 	ErrAISessionState    = "AI_SESSION_STATE"     // rerun/restart in the wrong state (409)
 	ErrAIProfileExists   = "AI_PROFILE_EXISTS"    // a directory of that name is already there (409)
 	ErrAIProfileInUse    = "AI_PROFILE_IN_USE"    // a live session is using it (409)
-	ErrLaunchRootDanger  = "LAUNCH_ROOT_DANGER"   // the tool refuses its bypass flag as root (400)
+	// AI_ prefixed, like the two codes above and unlike the three
+	// generically-named ones at the top of this block: a launch option is an
+	// AI-session concept and nothing outside internal/feature/ai can emit
+	// this. The unprefixed spelling LAUNCH_ROOT_DANGER was never released, so
+	// this is the name the wire freezes on.
+	ErrAILaunchRootDanger = "AI_LAUNCH_ROOT_DANGER" // the tool refuses its bypass flag as root (400)
 )
 
 // Package (APT) error codes
