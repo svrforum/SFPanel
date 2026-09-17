@@ -1341,7 +1341,45 @@
     "shellBadgeHint": "Connected as {{user}} on {{host}}",
     "shellBadgeRootHint": "Running as root on {{host}} — commands here are unrestricted",
     "copyFailed": "Could not copy to clipboard",
-    "pasteUseCtrlV": "Use Ctrl+V to paste (Ctrl+Shift+V needs HTTPS)"
+    "pasteUseCtrlV": "Use Ctrl+V to paste (Ctrl+Shift+V needs HTTPS)",
+    "rail": {
+      "sessions": "Sessions",
+      "newSession": "New session",
+      "newTemporary": "New temporary session",
+      "temporary": "Temporary sessions",
+      "temporaryHint": "This browser only · 5 minutes after a reload",
+      "reattach": "Reattach",
+      "tools": "Tools & accounts",
+      "collapse": "Collapse list",
+      "expand": "Expand list",
+      "waiting": "Waiting for input",
+      "toolExited": "Tool exited",
+      "closeTab": "Close",
+      "waitingCount": "{{n}} session(s) waiting for input"
+    },
+    "header": {
+      "menu": "Session menu",
+      "noSession": "No open sessions",
+      "temporaryUser": "panel account",
+      "temporaryLifetime": "This browser only · 5 minutes after a reload"
+    },
+    "launcher": {
+      "subtitle": "Pick a shell or an AI tool to start. The session keeps running when you close the browser.",
+      "shell": "Shell",
+      "installTools": "Tools that are not installed can be installed under Tools & accounts"
+    },
+    "tools": {
+      "title": "Tools & accounts",
+      "description": "Install state, login and profiles of the tools that run as this account.",
+      "tmuxOk": "tmux {{version}} · OK",
+      "temporaryShell": "Open a temporary shell without tmux",
+      "temporaryShellHint": "Runs as the panel account and lives in this browser only.",
+      "loadFailed": "Could not load the tool status.",
+      "retry": "Retry"
+    },
+    "fallback": {
+      "banner": "Without tmux, sessions live in this browser only. You can reattach within 5 minutes of a reload; after that they are gone."
+    }
   },
   "ai": {
     "title": "AI Coding",
@@ -1388,14 +1426,14 @@
       "close": "Kill",
       "closeConfirmTitle": "Kill this session?",
       "closeConfirmDesc": "The running {{title}} session ends immediately and the tab disappears.",
-      "removeEnded": "Close tab",
+      "removeEnded": "Remove from list",
       "ended": "Session ended",
       "endedHint": "The host rebooted, the shell exited, or it was killed elsewhere. You can restart it with the same settings.",
       "processMode": "This session will not survive a panel restart (the panel could not hand its tmux server to systemd)",
       "unknown": "Session not in the panel's records",
       "dangerousLaunch": "Running without asking — the CLI edits files and runs commands without a single prompt ({{flag}})",
       "noSessions": "No sessions yet",
-      "noSessionsHint": "Create a Claude, Codex, Gemini or shell session — it keeps running when you close the browser or restart the panel.",
+      "noSessionsHint": "Start a new session with a shell or an AI tool. It keeps running when you close the browser or restart the panel.",
       "infoAccount": "Account",
       "infoDir": "Directory",
       "infoProfile": "Profile",
@@ -1404,7 +1442,7 @@
     },
     "dialog": {
       "title": "New session",
-      "tool": "Tool",
+      "tool": "Start with",
       "toolNotInstalled": "Not installed for {{account}}",
       "dir": "Working directory",
       "dirPlaceholder": "/opt/stacks/myapp",
@@ -1413,7 +1451,7 @@
       "dirHome": "Home",
       "account": "Run as",
       "name": "Name (optional)",
-      "create": "Create",
+      "create": "Open session",
       "creating": "Creating…"
     },
     "profiles": {
@@ -2147,7 +2185,7 @@
     "selectAll": "Select all",
     "devTools": "Dev Tools",
     "devToolsDescription": "One-click Node.js install.",
-    "devToolsAiLink": "Claude, Codex and Gemini CLI are managed on the AI Coding page →",
+    "devToolsAiLink": "Claude, Codex and Gemini CLI are installed under the terminal's Tools & accounts and opened as sessions",
     "installNode": "Install Node.js",
     "installingNode": "Installing Node.js...",
     "nodeInstallSuccess": "Node.js installed successfully!",

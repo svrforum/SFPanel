@@ -41,6 +41,10 @@
     --color-success-foreground: var(--success-foreground);
     --color-warning: var(--warning);
     --color-warning-foreground: var(--warning-foreground);
+    --color-console: var(--console);
+    --color-console-foreground: var(--console-foreground);
+    --color-console-muted: var(--console-muted);
+    --color-console-border: var(--console-border);
     --color-info: var(--info);
     --color-info-foreground: var(--info-foreground);
     --color-terminal: var(--terminal);
@@ -61,6 +65,13 @@
     --foreground: #191f28;
     --card: #ffffff;
     --card-foreground: #191f28;
+    /* The terminal's own surface (Tokyo Night Day / Night). TerminalSession.tsx
+       hardcodes the same background and foreground in its xterm theme; the
+       rail and header share the surface so the console reads as one object. */
+    --console: #e1e2e7;
+    --console-foreground: #3760bf;
+    --console-muted: #848cb5;
+    --console-border: #c4c8da;
     --popover: #ffffff;
     --popover-foreground: #191f28;
     --primary: #3182f6;
@@ -103,6 +114,10 @@
     --foreground: #e6edf3;
     --card: #161b22;
     --card-foreground: #e6edf3;
+    --console: #1a1b26;
+    --console-foreground: #c0caf5;
+    --console-muted: #565f89;
+    --console-border: #292e42;
     --popover: #161b22;
     --popover-foreground: #e6edf3;
     --primary: #4c9aff;

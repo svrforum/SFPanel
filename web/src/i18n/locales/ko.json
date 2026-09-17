@@ -1341,7 +1341,45 @@
     "shellBadgeHint": "{{host}} 에 {{user}} 계정으로 접속됨",
     "shellBadgeRootHint": "{{host}} 에 root로 접속됨 — 여기서 실행하는 명령에는 제한이 없습니다",
     "copyFailed": "클립보드에 복사하지 못했습니다",
-    "pasteUseCtrlV": "붙여넣기는 Ctrl+V를 사용하세요 (Ctrl+Shift+V는 HTTPS에서만 동작합니다)"
+    "pasteUseCtrlV": "붙여넣기는 Ctrl+V를 사용하세요 (Ctrl+Shift+V는 HTTPS에서만 동작합니다)",
+    "rail": {
+      "sessions": "세션",
+      "newSession": "새 세션",
+      "newTemporary": "새 임시 세션",
+      "temporary": "임시 세션",
+      "temporaryHint": "이 브라우저에서만 · 새로고침 후 5분",
+      "reattach": "다시 연결",
+      "tools": "도구·계정",
+      "collapse": "목록 접기",
+      "expand": "목록 펼치기",
+      "waiting": "입력 대기",
+      "toolExited": "도구 종료됨",
+      "closeTab": "닫기",
+      "waitingCount": "입력을 기다리는 세션 {{n}}개"
+    },
+    "header": {
+      "menu": "세션 메뉴",
+      "noSession": "열린 세션이 없습니다",
+      "temporaryUser": "패널 계정",
+      "temporaryLifetime": "이 브라우저에서만 · 새로고침 후 5분"
+    },
+    "launcher": {
+      "subtitle": "셸이나 AI 도구를 골라 시작합니다. 브라우저를 닫아도 세션은 이어집니다.",
+      "shell": "셸",
+      "installTools": "설치되지 않은 도구는 도구·계정에서 설치할 수 있습니다"
+    },
+    "tools": {
+      "title": "도구·계정",
+      "description": "이 계정에서 실행되는 도구의 설치 상태와 로그인, 프로파일을 관리합니다.",
+      "tmuxOk": "tmux {{version}} · 정상",
+      "temporaryShell": "tmux 없이 임시 셸 열기",
+      "temporaryShellHint": "패널 계정으로 열리며 이 브라우저에서만 유지됩니다.",
+      "loadFailed": "도구 상태를 불러오지 못했습니다.",
+      "retry": "다시 시도"
+    },
+    "fallback": {
+      "banner": "tmux가 없어 세션이 이 브라우저에만 남습니다. 새로고침 뒤 5분 안에는 다시 연결할 수 있고, 그 뒤에는 사라집니다."
+    }
   },
   "ai": {
     "title": "AI 코딩",
@@ -1388,14 +1426,14 @@
       "close": "종료",
       "closeConfirmTitle": "세션을 종료할까요?",
       "closeConfirmDesc": "실행 중인 {{title}} 세션이 즉시 종료되고 탭이 사라집니다.",
-      "removeEnded": "탭 닫기",
+      "removeEnded": "목록에서 지우기",
       "ended": "세션이 종료되었습니다",
       "endedHint": "재부팅됐거나, 셸에서 exit 했거나, 다른 곳에서 종료됐습니다. 같은 설정으로 다시 시작할 수 있습니다.",
       "processMode": "패널을 재시작하면 이 세션은 끊깁니다 (tmux 서버를 systemd에 넘기지 못했습니다)",
       "unknown": "패널 기록에 없는 세션",
       "dangerousLaunch": "확인 없이 실행 중 — 파일 수정과 명령 실행을 한 번도 묻지 않습니다 ({{flag}})",
       "noSessions": "아직 세션이 없습니다",
-      "noSessionsHint": "Claude, Codex, Gemini 또는 셸 세션을 만들면 브라우저를 닫아도, 패널을 재시작해도 이어집니다.",
+      "noSessionsHint": "셸이나 AI 도구로 새 세션을 시작하세요. 브라우저를 닫아도, 패널을 재시작해도 이어집니다.",
       "infoAccount": "계정",
       "infoDir": "디렉터리",
       "infoProfile": "프로파일",
@@ -1404,7 +1442,7 @@
     },
     "dialog": {
       "title": "새 세션",
-      "tool": "도구",
+      "tool": "시작할 것",
       "toolNotInstalled": "{{account}} 계정에 설치되지 않음",
       "dir": "작업 디렉터리",
       "dirPlaceholder": "/opt/stacks/myapp",
@@ -1413,7 +1451,7 @@
       "dirHome": "홈",
       "account": "실행 계정",
       "name": "이름 (선택)",
-      "create": "만들기",
+      "create": "세션 열기",
       "creating": "만드는 중…"
     },
     "profiles": {
@@ -2147,7 +2185,7 @@
     "selectAll": "전체 선택",
     "devTools": "개발 도구",
     "devToolsDescription": "Node.js 런타임을 원클릭으로 설치합니다.",
-    "devToolsAiLink": "Claude·Codex·Gemini CLI는 AI 코딩 페이지에서 관리합니다 →",
+    "devToolsAiLink": "Claude·Codex·Gemini CLI는 터미널의 도구·계정에서 설치하고 세션으로 엽니다",
     "installNode": "Node.js 설치",
     "installingNode": "Node.js 설치 중...",
     "nodeInstallSuccess": "Node.js가 성공적으로 설치되었습니다!",
