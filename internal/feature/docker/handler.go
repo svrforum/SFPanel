@@ -131,7 +131,7 @@ func (h *Handler) ListContainers(c echo.Context) error {
 // image if needed and optionally starting it.
 //
 // The spec's volumes go through the same two tiers as a compose stack's
-// (composex.AnalyzeBinds): this route hands them to the daemon as
+// (composex.AnalyzeCreate): this route hands them to the daemon as
 // HostConfig.Binds, so the forbidden tier has to hold here or it holds nowhere.
 func (h *Handler) CreateContainer(c echo.Context) error {
 	ctx := c.Request().Context()
@@ -184,7 +184,7 @@ func (h *Handler) CreateContainer(c echo.Context) error {
 	// /root/.ssh or /etc/sudoers.d — is refused whatever the caller says.
 	// Everything else the analyser flags is refused until the operator has seen
 	// the findings and acknowledged them.
-	risks := composex.AnalyzeBinds(spec.Name, spec.Volumes)
+	risks := composex.AnalyzeCreate(spec.Name, spec.Network, spec.Volumes)
 	if verr := risks.Error(body.AcknowledgeRisks); verr != nil {
 		code := response.ErrComposeRisky
 		if len(risks.Forbidden) > 0 {

@@ -1678,7 +1678,7 @@ data: [DONE]
 | `auto_start` | boolean | 아니오 | 생성 후 즉시 시작 여부 |
 | `acknowledge_risks` | boolean | 아니오 | 위험 계층 승인 (아래) |
 
-**볼륨 안전성 검사:** `volumes`는 그대로 Docker의 `HostConfig.Binds`가 되므로, compose 엔드포인트와 **같은 두 계층**을 통과해야 합니다 (`composex.AnalyzeBinds`). 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위이면 `COMPOSE_FORBIDDEN`으로 거부되며 `acknowledge_risks`로도 풀리지 않습니다. docker.sock·`/`·`/etc`·`/home` 등 나머지 위험 바인드는 `COMPOSE_RISKY`로 거부되고, 운영자에게 어떤 경로를 요구하는지 보여준 뒤 같은 요청에 `"acknowledge_risks": true`를 실으면 진행됩니다. 메시지는 발견된 모든 바인드를 `; `로 이어 붙인 문장입니다. 바인드가 아닌 항목(이름 있는 볼륨 등)은 검사 대상이 아닙니다.
+**볼륨 안전성 검사:** `volumes`는 그대로 Docker의 `HostConfig.Binds`가 되므로, compose 엔드포인트와 **같은 두 계층**을 통과해야 합니다 (`composex.AnalyzeCreate`). 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위이면 `COMPOSE_FORBIDDEN`으로 거부되며 `acknowledge_risks`로도 풀리지 않습니다. docker.sock·`/`·`/etc`·`/home` 등 나머지 위험 바인드는 `COMPOSE_RISKY`로 거부되고, 운영자에게 어떤 경로를 요구하는지 보여준 뒤 같은 요청에 `"acknowledge_risks": true`를 실으면 진행됩니다. 메시지는 발견된 모든 항목을 `; `로 이어 붙인 문장입니다. 바인드가 아닌 항목(이름 있는 볼륨 등)은 검사 대상이 아닙니다. `network`도 함께 봅니다 — 이 값은 그대로 `HostConfig.NetworkMode`가 되므로 `host`는 compose의 `network_mode: host`와 같은 것이고, 같은 등급(위험, 금지가 아님)으로 `COMPOSE_RISKY` 거부 후 `acknowledge_risks`로 진행합니다. 이름 있는 네트워크는 검사에 걸리지 않습니다.
 
 **Response (200):**
 ```json

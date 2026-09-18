@@ -106,7 +106,7 @@ func ValidateAdvancedCompose(content string) error {
 	return report.Error(true)
 }
 
-// AnalyzeBinds puts the bind mounts of a standalone container through the same
+// AnalyzeCreate puts a standalone container's request through the same
 // two tiers Analyze applies to a service's `volumes:` list.
 //
 // POST /docker/containers has no compose document for Analyze to read: its
@@ -116,13 +116,16 @@ func ValidateAdvancedCompose(content string) error {
 // and an open door on its sibling — and the tier exists precisely for the
 // attacker who found a bug in a handler and has no root terminal.
 //
-// Binds only. A standalone create carries no privileged flag, no host
-// namespace, no capability list and no devices for the rest of the analyser to
-// read; the panel's create API is a small explicit subset that never exposed
-// them.
+// Two knobs, because the route exposes exactly two the analyser cares about.
+// The binds are the tiered half. `network` is the other: it lands in
+// HostConfig.NetworkMode (internal/docker/client.go), so "host" here is the
+// same thing compose spells network_mode: host, and it is treated the same —
+// risky, never forbidden, refused until acknowledged. The rest of the
+// analyser's vocabulary — privileged, the other namespaces, capabilities,
+// devices — has no field on this route to arrive through.
 //
 // name is the requested container name, empty when the daemon will assign one.
-func AnalyzeBinds(name string, binds []string) Report {
+func AnalyzeCreate(name, network string, binds []string) Report {
 	subject := "the new container"
 	if trimmed := strings.TrimSpace(name); trimmed != "" {
 		subject = fmt.Sprintf("container %q", trimmed)
@@ -143,6 +146,12 @@ func AnalyzeBinds(name string, binds []string) Report {
 		case isDangerousBind(mount.Source):
 			report.risky(finding)
 		}
+	}
+	if strings.EqualFold(strings.TrimSpace(network), "host") {
+		report.risky(Finding{
+			Service: name, Rule: "namespace", Detail: "network: host",
+			Message: fmt.Sprintf("%s joins the host network", subject),
+		})
 	}
 	return report
 }

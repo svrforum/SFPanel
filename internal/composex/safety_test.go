@@ -635,10 +635,10 @@ volumes:
 }
 
 // A standalone container's binds reach the same host paths as a stack's, so
-// AnalyzeBinds has to sort them into the same two tiers. The tier is asserted
+// AnalyzeCreate has to sort them into the same two tiers. The tier is asserted
 // by name, not by "something was found": the whole point is which of the two
 // a path lands in.
-func TestAnalyzeBindsSortsAContainersMountsIntoTheSameTiers(t *testing.T) {
+func TestAnalyzeCreateSortsAContainersMountsIntoTheSameTiers(t *testing.T) {
 	tests := []struct {
 		name          string
 		bind          string
@@ -659,7 +659,7 @@ func TestAnalyzeBindsSortsAContainersMountsIntoTheSameTiers(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			report := AnalyzeBinds("thief", []string{tc.bind})
+			report := AnalyzeCreate("thief", "", []string{tc.bind})
 			if got := len(report.Forbidden) > 0; got != tc.wantForbidden {
 				t.Errorf("forbidden = %v, want %v — %+v", got, tc.wantForbidden, report)
 			}
@@ -678,8 +678,8 @@ func TestAnalyzeBindsSortsAContainersMountsIntoTheSameTiers(t *testing.T) {
 // The acknowledgement lifts the risky tier and never the forbidden one — the
 // same contract Report.Error carries for a compose document, asserted here for
 // the shape that has no document.
-func TestAnalyzeBindsAcknowledgementNeverLiftsTheForbiddenTier(t *testing.T) {
-	risky := AnalyzeBinds("dozzle", []string{"/var/run/docker.sock:/var/run/docker.sock:ro"})
+func TestAnalyzeCreateAcknowledgementNeverLiftsTheForbiddenTier(t *testing.T) {
+	risky := AnalyzeCreate("dozzle", "", []string{"/var/run/docker.sock:/var/run/docker.sock:ro"})
 	if err := risky.Error(false); err == nil {
 		t.Error("an unacknowledged docker.sock bind was accepted")
 	}
@@ -687,7 +687,7 @@ func TestAnalyzeBindsAcknowledgementNeverLiftsTheForbiddenTier(t *testing.T) {
 		t.Errorf("an acknowledged docker.sock bind was refused: %v", err)
 	}
 
-	forbidden := AnalyzeBinds("thief", []string{"/etc/sfpanel:/loot"})
+	forbidden := AnalyzeCreate("thief", "", []string{"/etc/sfpanel:/loot"})
 	err := forbidden.Error(true)
 	if err == nil {
 		t.Fatal("an acknowledged /etc/sfpanel bind was accepted")
@@ -702,12 +702,40 @@ func TestAnalyzeBindsAcknowledgementNeverLiftsTheForbiddenTier(t *testing.T) {
 
 // A container the daemon will name has no name to put in the sentence; the
 // finding still has to read as one.
-func TestAnalyzeBindsNamesAnUnnamedContainer(t *testing.T) {
-	report := AnalyzeBinds("", []string{"/etc/sfpanel:/loot"})
+func TestAnalyzeCreateNamesAnUnnamedContainer(t *testing.T) {
+	report := AnalyzeCreate("", "", []string{"/etc/sfpanel:/loot"})
 	if len(report.Forbidden) != 1 {
 		t.Fatalf("forbidden = %+v, want one finding", report.Forbidden)
 	}
 	if got := report.Forbidden[0].Message; !strings.HasPrefix(got, "the new container binds") {
 		t.Errorf("message = %q, want it to open with \"the new container binds\"", got)
+	}
+}
+
+// The create route's other knob. `network: host` is the same escape compose
+// spells `network_mode: host`, which the analyser calls risky — so a route
+// that refuses a docker.sock bind until acknowledged and waves host
+// networking through would be inconsistent about the same reach.
+func TestAnalyzeCreateTiersHostNetworking(t *testing.T) {
+	for _, network := range []string{"host", "HOST", " host "} {
+		report := AnalyzeCreate("thief", network, nil)
+		if len(report.Forbidden) != 0 {
+			t.Fatalf("%q: forbidden = %+v, want none — host networking is acknowledgeable, not a boundary", network, report.Forbidden)
+		}
+		if len(report.Risky) != 1 || report.Risky[0].Rule != "namespace" {
+			t.Fatalf("%q: risky = %+v, want one namespace finding", network, report.Risky)
+		}
+		if err := report.Error(false); err == nil {
+			t.Errorf("%q: accepted without an acknowledgement", network)
+		}
+		if err := report.Error(true); err != nil {
+			t.Errorf("%q: refused after the operator acknowledged it: %v", network, err)
+		}
+	}
+	// A named network is not a namespace escape.
+	for _, network := range []string{"", "bridge", "my-stack_default", "hostess"} {
+		if report := AnalyzeCreate("x", network, nil); len(report.Risky) != 0 {
+			t.Errorf("network %q flagged %+v", network, report.Risky)
+		}
 	}
 }

@@ -205,3 +205,67 @@ func TestCreateContainer_OrdinarySpecsAreNotRefused(t *testing.T) {
 		})
 	}
 }
+
+// The route's other knob: `network` lands in HostConfig.NetworkMode, so "host"
+// is the same reach compose spells `network_mode: host` — acknowledgeable, not
+// forbidden. It must not be waved through on a route that stops to ask about a
+// docker.sock bind. Same nil-client observation as above: reaching the daemon
+// call is the pass.
+func TestCreateContainer_HostNetworkNeedsTheAcknowledgement(t *testing.T) {
+	h := &Handler{}
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/docker/containers", strings.NewReader(`{"image":"nginx","network":"host"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	if err := h.CreateContainer(e.NewContext(req, rec)); err != nil {
+		t.Fatalf("CreateContainer err: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 — body=%s", rec.Code, rec.Body.String())
+	}
+	code, message := decodeFail(t, rec)
+	if code != response.ErrComposeRisky {
+		t.Errorf("code = %q, want %q — %s", code, response.ErrComposeRisky, rec.Body.String())
+	}
+	if !strings.Contains(message, "host network") {
+		t.Errorf("message %q does not say what was asked for", message)
+	}
+
+	acked := `{"image":"nginx","network":"host","acknowledge_risks":true}`
+	req = httptest.NewRequest(http.MethodPost, "/docker/containers", strings.NewReader(acked))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	reached := func() (reached bool) {
+		defer func() {
+			if recover() != nil {
+				reached = true
+			}
+		}()
+		_ = h.CreateContainer(e.NewContext(req, rec))
+		return false
+	}()
+	if !reached {
+		code, _ := decodeFail(t, rec)
+		t.Errorf("acknowledged host networking was still refused with %q — %s", code, rec.Body.String())
+	}
+
+	// A named network is not a namespace escape and must not stop to ask.
+	req = httptest.NewRequest(http.MethodPost, "/docker/containers", strings.NewReader(`{"image":"nginx","network":"my-stack_default"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	named := func() (reached bool) {
+		defer func() {
+			if recover() != nil {
+				reached = true
+			}
+		}()
+		_ = h.CreateContainer(e.NewContext(req, rec))
+		return false
+	}()
+	if !named {
+		code, _ := decodeFail(t, rec)
+		t.Errorf("an ordinary named network was refused with %q — %s", code, rec.Body.String())
+	}
+}
+
