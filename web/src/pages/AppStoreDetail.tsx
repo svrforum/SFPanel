@@ -261,6 +261,10 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
       // Per attempt: a retry that is rejected before its first event is a
       // pre-flight rejection too, and should restore the form like the first.
       sawEvent = false
+      // The retry re-runs the install from its first stage, so the panel
+      // starts empty too — otherwise the operator reads "Creating directory"
+      // and "docker-compose.yml written" twice for one install.
+      setProgressLogs([])
       await api.installAppStream<InstallEvent>(
         detail.app.id,
         installMode === 'advanced'
@@ -330,7 +334,20 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
           setShowInstallForm(true)
           return
         }
-        await runInstall(true)
+        const refusedAgain = await runInstall(true)
+        if (refusedAgain) {
+          // The acknowledgement did not lift it. Held back like the first
+          // refusal, it would leave the progress panel running with nothing
+          // to show and no terminal state, so show it as the failure it is.
+          setProgressLogs(prev => [...prev, {
+            stage: 'prepare',
+            message: refusedAgain,
+            success: false,
+          }])
+          setProgressDone(true)
+          setProgressSuccess(false)
+          toast.error(t('appStore.installFailed'))
+        }
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
