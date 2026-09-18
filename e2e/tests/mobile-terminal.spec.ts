@@ -224,6 +224,37 @@ test('a browser upgraded from the old terminal page lands on a live session, not
   await page.getByRole('button', { name: 'Sessions', exact: true }).tap()
   await expect(page.getByRole('tab', { name: /Mobile coding/ })).toBeVisible()
   await expect(page.getByText('Temporary sessions')).toBeHidden()
+  // The old page's tab list is deleted on load, not merely ignored: nothing
+  // reads a temporary tab back from storage any more.
+  expect(await page.evaluate(() => localStorage.getItem('sfpanel_terminal_tabs:local'))).toBeNull()
+})
+
+test("without tmux the operator's server-side shells come back as tabs on reload", async ({ page }) => {
+  // Ruling 3: in fallback mode the operator's whole workflow is PTY sessions,
+  // so what survives a reload is what the SERVER still has — never a tab read
+  // back from localStorage, which this browser does not even write.
+  await page.addInitScript(() => {
+    sessionStorage.setItem('token', 'mobile-test-token')
+    localStorage.setItem('i18nextLng', 'en')
+  })
+  await page.route('**/api/v1/**', async route => {
+    const url = new URL(route.request().url())
+    let data: unknown = {}
+    if (url.pathname.endsWith('/auth/setup-status')) data = { setup_required: false }
+    else if (url.pathname.endsWith('/auth/ws-ticket')) data = { ticket: 'mobile-test-ticket' }
+    else if (url.pathname.endsWith('/cluster/status')) data = { enabled: false }
+    else if (url.pathname.endsWith('/system/overview')) data = { version: 'test' }
+    else if (url.pathname.endsWith('/ai/sessions')) data = []
+    else if (url.pathname.endsWith('/ai/tools')) data = { tmux: { installed: false, supported: false, version: '', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {} }
+    else if (url.pathname.endsWith('/terminal/sessions')) data = { sessions: [{ session_id: 'srv-1', last_use: new Date(0).toISOString(), attached: false, reader_count: 0 }] }
+    else if (url.pathname.endsWith('/terminal/info')) data = { shell_user: 'tester', hostname: 'fixture', home: '/home/tester', shell: '/bin/bash', is_root: false }
+    await route.fulfill({ json: { success: true, data } })
+  })
+  await page.routeWebSocket(/\/ws\//, () => {})
+  await page.goto('/terminal')
+  await page.getByRole('button', { name: 'Sessions', exact: true }).tap()
+  await expect(page.getByText('Temporary sessions')).toBeVisible()
+  await expect(page.getByRole('tab', { name: /srv-1/ })).toBeVisible()
 })
 
 test('a temporary session just closed is offered under Reattach: closing a tab does not end the server PTY', async ({ page }) => {

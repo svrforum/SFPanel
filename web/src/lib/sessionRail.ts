@@ -35,52 +35,13 @@ export function activeKey(item: RailItem): string {
  * bare value is therefore not a session the operator chose — honouring it made
  * an upgraded browser open a phantom temporary shell while live tmux sessions
  * sat unselected — so it is read as "no preference" and pickActive decides.
+ * A pty: key is honoured, but only within one page life: temporary tabs are
+ * never persisted any more, so a stored one names a tab that no longer
+ * exists and pickActive drops it on its own.
  */
 export function parseActiveKey(raw: string | null): string | null {
   if (!raw) return null
   return raw.startsWith('tmux:') || raw.startsWith('pty:') ? raw : null
-}
-
-/**
- * The PTY tabs worth keeping. A tab is a pointer to a server-side PTY
- * session, and the server creates a new session for an id it does not know
- * (internal/feature/terminal/handler.go), so a tab whose session has been
- * reaped — five minutes with no reader — would silently open a fresh shell
- * instead of reporting that it is gone.
- *
- * `eligible` is the set of ids that were loaded from storage at mount. A tab
- * created during this page's life is never pruned: its socket may not have
- * registered a session by the time the list arrives.
- *
- * Returns the input array unchanged when nothing is dropped, so the caller
- * can skip a state update and the render it would cause.
- */
-export function prunePtyTabs(stored: PtyTab[], serverIds: string[], eligible: string[]): PtyTab[] {
-  const alive = new Set(serverIds)
-  const prunable = new Set(eligible)
-  const kept = stored.filter((tab) => !prunable.has(tab.id) || alive.has(tab.id))
-  return kept.length === stored.length ? stored : kept
-}
-
-/**
- * The PTY tabs the pane may mount. Connecting to a PTY id the server does not
- * know makes it CREATE that session, so mounting a tab restored from storage
- * before GET /terminal/sessions has answered manufactures exactly the shell
- * prunePtyTabs exists to avoid: the pane's sessions connect before the page's
- * own effect runs, and the prune that follows drops the tab only after its
- * shell has been spawned.
- *
- * `restored` is the ids loaded from storage at mount; `checked` says the list
- * has answered — a FAILED request counts, because an unreachable server must
- * not keep a tab that may well be alive off screen for good. A tab this page
- * created is never held back. Returns the input array unchanged when nothing
- * is held back, so the pane is handed the same identity as `tabs`.
- */
-export function mountablePtyTabs(tabs: PtyTab[], restored: string[], checked: boolean): PtyTab[] {
-  if (checked) return tabs
-  const held = new Set(restored)
-  const open = tabs.filter((tab) => !held.has(tab.id))
-  return open.length === tabs.length ? tabs : open
 }
 
 export function baseName(cwd: string): string {

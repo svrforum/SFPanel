@@ -75,13 +75,12 @@ export default function TerminalPage() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [hostInfo, setHostInfo] = useState<TerminalInfo | null>(null)
-  const [ptySessions, setPtySessions] = useState<TerminalSessionInfo[]>([])
   const searchInputRef = useRef<HTMLInputElement>(null)
   const { sessions, loaded, refresh } = useAISessions()
   const pty = usePtyTabs()
-  // `pty` is a fresh object every render, so the fetch below depends on the
-  // stable callback rather than on the hook's result.
-  const { reconcile: reconcilePty } = pty
+  // `pty` is a fresh object every render, so the memos and the fetch below
+  // depend on these two values rather than on the hook's result.
+  const { adopt: adoptPty, tabs: ptyTabs } = pty
 
   // Promise callbacks rather than await: the effect kicks this off on mount
   // and an async body would trip react-hooks/set-state-in-effect. First load
@@ -99,6 +98,16 @@ export default function TerminalPage() {
   useEffect(() => { if (account) writeLS(accountKey(), account) }, [account])
   useEffect(() => { writeLS(FONT_SIZE_KEY, String(fontSize)) }, [fontSize])
   useEffect(() => { writeLS(RAIL_KEY, collapsed ? 'collapsed' : 'open') }, [collapsed])
+  // v0.76.0 and the PTY-only page before it stored an active tab id here; a
+  // temporary tab no longer survives a page load, so the value can only name
+  // something that does not exist. Clearing it keeps the picker honest.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(activeStorageKey())
+      if (raw && !raw.startsWith('tmux:')) localStorage.removeItem(activeStorageKey())
+      localStorage.removeItem(`sfpanel_terminal_tabs:${nodeSuffix()}`)
+    } catch { /* private mode */ }
+  }, [])
   useEffect(() => { if (active) writeLS(activeStorageKey(), active) }, [active])
 
   // Who the PTY engine runs as, for the badge. One fetch per mount: the page
@@ -111,8 +120,8 @@ export default function TerminalPage() {
 
   const fallback = tools !== null && !tools.tmux.supported
   const groups = useMemo(
-    () => buildRail(sessions, pty.tabs, { fallback, temporaryLabel: t('terminal.rail.temporary') }),
-    [sessions, pty.tabs, fallback, t],
+    () => buildRail(sessions, ptyTabs, { fallback, temporaryLabel: t('terminal.rail.temporary') }),
+    [sessions, ptyTabs, fallback, t],
   )
   const activeItem = findItem(groups, active)
 
@@ -148,36 +157,43 @@ export default function TerminalPage() {
     document.documentElement.toggleAttribute('data-ai-tools-open', open)
   }, [])
 
-  // The server's PTY sessions. Fetched when the temporary group is on screen,
-  // which is also when stored tabs need reconciling: a tab restored from an
-  // earlier browser session whose PTY has been reaped must not stay in the
-  // rail, because reattaching it would open a brand-new shell.
+  // The server's PTY sessions — authoritative for both the 다시 연결 list and,
+  // in fallback mode, for which temporary tabs exist at all (see usePtyTabs:
+  // tabs are never read back from storage).
+  const [ptySessions, setPtySessions] = useState<TerminalSessionInfo[]>([])
+  const ptyFetchSeq = useRef(0)
+  // Adopting happens on the FIRST successful list only. A later list still
+  // reports the session behind a tab the operator has just closed — closing a
+  // tab does not end its PTY — so adopting again would put that tab straight
+  // back instead of offering the shell under 다시 연결.
+  const adopted = useRef(false)
+  const tabCount = ptyTabs.length
   const loadPtySessions = useCallback(() => {
+    const seq = ++ptyFetchSeq.current
     api.getTerminalSessions()
       .then((r) => {
+        if (seq !== ptyFetchSeq.current) return
         const list = r.sessions || []
         setPtySessions(list)
-        reconcilePty(list.map((s) => s.session_id))
+        if (fallback && !adopted.current) {
+          adopted.current = true
+          adoptPty(list.map((s) => s.session_id))
+        }
       })
-      // Leave the tabs alone on failure; the next open retries. The null
-      // still releases them to the pane — an unreachable list must not keep
-      // a tab that may well be alive off screen for good.
-      .catch(() => { setPtySessions([]); reconcilePty(null) })
-  }, [reconcilePty])
-  // Re-issued whenever the tab COUNT changes, not only when the group first
-  // appears: closing a tab does not end its PTY session, and a session opened
-  // after the last fetch is missing from ptySessions — so in fallback mode,
-  // where the group never goes away, the shell just closed would be listed
-  // nowhere. The count and not `pty.tabs`, so a rename fetches nothing; and a
-  // prune moves the count once, after which the refetch finds nothing to drop.
-  const tabCount = pty.tabs.length
+      .catch(() => { if (seq === ptyFetchSeq.current) setPtySessions([]) })
+  }, [fallback, adoptPty])
+  // Re-issued whenever the tab COUNT changes, not only when the temporary
+  // group first appears: closing a tab does not end its PTY session, and a
+  // session opened after the last fetch is missing from ptySessions — so the
+  // shell just closed would be listed nowhere. The count and not `ptyTabs`,
+  // so a rename fetches nothing.
   useEffect(() => { if (fallback || tabCount > 0) loadPtySessions() }, [fallback, tabCount, loadPtySessions])
   // Listed inside the temporary group: the sessions this browser has no tab
   // for. Filtered at render, so the list narrows the instant a tab opens and
   // does not wait on the refetch above.
   const reattachable = useMemo(
-    () => ptySessions.filter((s) => !pty.tabs.some((tb) => tb.id === s.session_id)),
-    [ptySessions, pty.tabs],
+    () => ptySessions.filter((s) => !ptyTabs.some((tb) => tb.id === s.session_id)),
+    [ptySessions, ptyTabs],
   )
 
   const act = useCallback(async (fn: () => Promise<unknown>) => {
@@ -307,8 +323,7 @@ export default function TerminalPage() {
               onRestart={(s) => { void onAction('restart', { kind: 'tmux', id: s.id, session: s }) }}
               onRemoveEnded={(s) => { void onAction('removeEnded', { kind: 'tmux', id: s.id, session: s }) }} />
           )}
-          {/* mountable, not tabs: a restored tab waits for the server's list. */}
-          <PtyPane tabs={pty.mountable} activeId={activeItem?.kind === 'pty' ? activeItem.id : null} fontSize={fontSize} />
+          <PtyPane tabs={ptyTabs} activeId={activeItem?.kind === 'pty' ? activeItem.id : null} fontSize={fontSize} />
         </div>
         <MobileTerminalBar onSendKey={sendKey} />
       </div>
