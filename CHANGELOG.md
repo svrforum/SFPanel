@@ -6,6 +6,30 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.77.0] – 2026-09-19
+
+### Changed
+
+**The stack editor no longer refuses what the App Store installs.** Editing a compose file that mounts the Docker socket failed with "binds sensitive host path", which made dozzle, portainer, traefik, dockge, glances, homarr and nginx-proxy-guard impossible to edit after installing them from the panel's own catalog. Counting the whole catalog, 15 apps were affected across six different rules, and moving any of them to another node failed for the same reason.
+
+The check now has two tiers. Mounting the panel's own files stays refused and no answer lifts it: `/etc/sfpanel` holds the JWT signing secret and the cluster CA key, `/var/lib/sfpanel` holds the database, and `/root/.ssh` and `/etc/sudoers.d` are next to them. Everything else it used to refuse — the Docker socket, host namespaces, capabilities, device passthrough — now opens a dialog listing exactly what the stack asks for, and saves when you say yes. The panel hands you a root terminal one tab over, so this was never a wall against an attacker; it was a wall in front of ordinary administration.
+
+The refusal is also enforced where it actually matters. A mount path can arrive through a variable that the `.env` file expands, which no check of the compose text can see, so the resolved configuration is checked once more at the moment a stack is brought up.
+
+### Fixed
+
+**The panel stopped forgetting you on every browser restart.** Logging in issues a refresh cookie good for a week, but the page never tried it: closing the browser dropped the short-lived token and the next visit went straight to the login form with that cookie unused. A page load now attempts one silent renewal before deciding you are logged out. The token still lives only in the tab, which is what keeps a stolen one from outliving it, and the cookie that renews it cannot be read by scripts at all.
+
+A request that never reaches the panel now says so, instead of showing the browser's raw "failed to fetch". If you run the panel behind a reverse proxy and see that message, the proxy is the place to look.
+
+**Two ways the panel's own secrets could have been mounted into a container are closed.** The refusal used to read the compose file as written, so a mount path supplied through a variable and expanded by the `.env` file was invisible to it. The App Store made that reachable without even editing a compose file: several catalog apps ask for a storage path, that answer is written straight into `.env`, and the install deploys without passing the check. Setting such a path to `/etc/sfpanel` would have bind-mounted the panel's signing secret and cluster CA into the app's container. The resolved configuration is now checked at every deploy, the App Store install included, and the check also covers the two other ways compose can reach a host path: a top-level secret or config pointing at a file, and a named volume bound to a device.
+
+**The process list showed a number nobody could act on.** CPU for each process was measured inside a 200-millisecond window, which turned any brief wake-up into a large percentage and put the panel itself at the top of its own list — the walk over every process is the busiest thing on the machine while it runs. CPU is now averaged over the interval between refreshes, so the column matches what `top` reports and the panel no longer outranks the work it is measuring.
+
+**Creating a container asks the same questions as a stack.** `POST /docker/containers` handed its volume list straight to the daemon, so a bind the stack editor would have refused went through unexamined on the sibling route, and `network: host` was not mentioned at all. Both now go through the same two tiers as compose, with the same dialog.
+
+---
+
 ## [0.76.1] – 2026-09-18
 
 ### Fixed
