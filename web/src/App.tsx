@@ -55,12 +55,18 @@ const Terminal = lazy(() => import('@/pages/Terminal'))
 const Connect = lazy(() => import('@/pages/Connect'))
 
 function PageLoader() {
+  const { t } = useTranslation()
   // Fills the content area and centres so a cold navigation shows a calm,
   // centered loader instead of a tiny spinner floating on an otherwise blank
   // page near the top.
+  //
+  // It is also what a cold load shows while the session is being restored, so
+  // it is announced: a screen reader on an otherwise empty page would
+  // otherwise be told nothing at all. motion-reduce keeps the spin out of the
+  // way of a reader who asked the system for less motion.
   return (
-    <div className="flex items-center justify-center min-h-[60vh] w-full">
-      <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+    <div role="status" aria-label={t('common.loading')} className="flex items-center justify-center min-h-[60vh] w-full">
+      <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin motion-reduce:animate-none" />
     </div>
   )
 }

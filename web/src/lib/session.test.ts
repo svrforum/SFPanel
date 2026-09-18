@@ -99,6 +99,52 @@ describe('bootstrapSession', () => {
     expect(calls).toHaveLength(1)
   })
 
+  it('falls through to the login form when the refresh never answers', async () => {
+    // A front end that accepts the connection and answers nothing — a wedged
+    // proxy in front of the panel. Before the deadline this hung the boot, and
+    // the route guard renders a spinner until it resolves, so the operator got
+    // no login form at all (issue #54's deployment shape).
+    vi.useFakeTimers()
+    try {
+      const session = memoryStorage()
+      vi.stubGlobal('sessionStorage', session)
+      vi.stubGlobal('localStorage', memoryStorage())
+      const calls: string[] = []
+      vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push(String(input))
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+        })
+      })
+      vi.resetModules()
+      const { api } = await import('./api')
+
+      let settled: boolean | 'pending' = 'pending'
+      const boot = api.bootstrapSession().then((ok) => (settled = ok))
+
+      await vi.advanceTimersByTimeAsync(9000)
+      expect(settled).toBe('pending')
+
+      await vi.advanceTimersByTimeAsync(2000)
+      await boot
+      expect(settled).toBe(false)
+      expect(calls).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops answering from the boot cache once the session is cleared', async () => {
+    // Logout does not reload the page, so the resolved-true promise the boot
+    // left behind would let the next client-side navigation into a protected
+    // route render it with no token.
+    const { api } = await freshApi()
+
+    await expect(api.bootstrapSession()).resolves.toBe(true)
+    api.clearToken()
+    await expect(api.bootstrapSession()).resolves.toBe(false)
+  })
+
   it('does not attempt a second time after a failed one', async () => {
     const { api, calls } = await freshApi({}, () => jsonResponse(401, { success: false }))
 

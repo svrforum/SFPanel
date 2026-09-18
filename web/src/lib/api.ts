@@ -90,6 +90,9 @@ function readCookie(name: string): string | null {
 // this module a translator (and for the tests, which import it on its own).
 const NETWORK_ERROR_FALLBACK = 'Could not reach the panel. Check the network or the reverse proxy in front of it.'
 
+// Same, for the request that reached the panel and got no answer in time.
+const TIMEOUT_ERROR_FALLBACK = 'The panel did not answer in time. Try again.'
+
 // translate is how this module reaches i18next. The client runs outside React,
 // so it has no useTranslation(); the i18n bootstrap calls setApiTranslator once
 // at startup and every message below goes through here.
@@ -154,6 +157,14 @@ const BOOT_LOCK_POLL = 50
  */
 const BOOT_LOCK_SETTLE = 50
 const BOOT_LOCK_KEY = 'sfpanel_bootstrap_lock'
+/**
+ * How long the refresh itself may take. BOOT_LOCK_WAIT bounds only the wait
+ * for another tab; this bounds the request. A front end that accepts the
+ * connection and never answers — a wedged reverse proxy — would otherwise hold
+ * the boot open forever, and the route guard renders a bare spinner until it
+ * resolves. Falling through to the login form is the honest answer there.
+ */
+const REFRESH_TIMEOUT = 10000
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -234,6 +245,11 @@ class ApiClient {
   clearToken() {
     this.token = null
     this.refreshToken = null
+    // The boot attempt's answer is cached for the page's lifetime, and a
+    // logout does not reload the page: leaving a resolved-true promise behind
+    // would let the next client-side navigation into a protected route render
+    // it with no token at all.
+    this.bootstrapPromise = Promise.resolve(false)
     sessionStorage.removeItem('token')
     sessionStorage.removeItem('refresh_token')
     // Also wipe the legacy localStorage entries in case the migration missed
@@ -452,7 +468,9 @@ class ApiClient {
       })
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        throw new Error('Request timed out', { cause: err })
+        // Translated like the network failure below: both reach the operator
+        // as a toast, and one of the pair being English was an accident.
+        throw new Error(translate('common.requestTimeout', TIMEOUT_ERROR_FALLBACK), { cause: err })
       }
       // fetch rejects only when the request never completed at all — DNS, TLS,
       // a reverse proxy that dropped it, a cross-origin redirect. The browser's
@@ -508,6 +526,8 @@ class ApiClient {
   private tryRefresh(): Promise<boolean> {
     if (this.refreshPromise) return this.refreshPromise
 
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), REFRESH_TIMEOUT)
     this.refreshPromise = (async () => {
       try {
         // No credentials option: fetch defaults to 'same-origin', which is
@@ -518,6 +538,9 @@ class ApiClient {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refresh_token: this.refreshToken }),
+          // The controller+timer pattern request() uses, for the same reason:
+          // fetch has no deadline of its own, and this one gates first paint.
+          signal: controller.signal,
         })
         if (!res.ok) return false
         const json = await res.json()
@@ -527,8 +550,11 @@ class ApiClient {
         this.setTokenPair(data.token, data.refresh_token ?? null)
         return true
       } catch {
+        // An abort lands here too, so a hang becomes the same false a
+        // rejected cookie gives: one attempt, then the login form.
         return false
       } finally {
+        clearTimeout(timer)
         this.refreshPromise = null
       }
     })()
