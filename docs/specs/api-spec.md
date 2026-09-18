@@ -2134,6 +2134,45 @@ Docker 네트워크 목록 조회.
 
 ---
 
+#### POST /api/v1/docker/compose/import
+GitHub 저장소의 compose 파일을 한 번 읽어 새 스택으로 만듭니다 (지속적인 연결 없음, v0.49.0부터 go-git 대신 GitHub Contents API 단건 fetch). 네트워크 fetch 타임아웃 30초.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "url": "https://github.com/user/repo",
+  "branch": "main",
+  "path": "docker-compose.yml",
+  "token": "<private 저장소용 PAT, 선택>",
+  "name": "my-stack",
+  "acknowledge_risks": false
+}
+```
+
+- `url`: GitHub HTTPS URL만 허용 (`https://github.com/<user>/<repo>[.git]`)
+- `branch`: 생략 시 `main`, `path`: 생략 시 `docker-compose.yml`
+- `name`: 소문자·숫자·하이픈 1~50자
+- **`acknowledge_risks`** (선택, 기본 `false`): 가져온 파일에 대해 `POST /api/v1/docker/compose`와 동일한 두 단계 검사가 돌아갑니다. `COMPOSE_RISKY`는 같은 요청에 `"acknowledge_risks": true`를 넣으면 통과하고, `COMPOSE_FORBIDDEN`(`/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 바인드)은 승인해도 거부됩니다.
+
+**Response (200):** `{ "project_name": "my-stack" }`
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | URL/이름 형식 위반, 바디 파싱 실패 |
+| `GIT_AUTH_FAILED` | 401 | private 저장소인데 PAT가 없거나 잘못됨 |
+| `GIT_REPO_NOT_FOUND` | 404 | 저장소 없음 |
+| `GIT_PATH_NOT_FOUND` | 404 | 해당 경로에 파일 없음 |
+| `COMPOSE_RISKY` | 400 | 위험 패턴 발견, `acknowledge_risks` 미설정 |
+| `COMPOSE_FORBIDDEN` | 400 | 패널 자체 경로 바인드 (승인 불가) |
+| `INVALID_YAML` | 400 | compose 문서 파싱 실패 |
+| `STACK_ALREADY_EXISTS` | 409 | 같은 이름의 스택이 이미 있음 |
+| `GIT_CLONE_FAILED` | 500 | 그 밖의 fetch 실패 |
+
+---
+
 #### GET /api/v1/docker/compose/:project
 특정 Compose 프로젝트 상세 정보 및 YAML 내용 조회.
 
@@ -4322,7 +4361,7 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 ---
 
 ### POST /api/v1/docker/compose/migrate-import
-**클러스터 내부 전용** — 소스 노드가 이관 번들(tar 스트림)을 대상 노드로 푸시하는 바이너리 릴레이 엔드포인트. 운영자가 직접 호출하는 용도가 아닙니다. `X-SFPanel-Migration-Sha256` 요청 헤더의 체크섬으로 번들을 검증한 뒤, compose 안전성 검증(원문 + .env 주입 후 resolved 재검증) → 정의 복원 → 이미지 `docker load` + 명명 볼륨/바인드 데이터 복원 → `up` → 헬스체크를 수행하며, 실패 시 부분 복원분을 정리합니다. 덮어쓰기 시 기존 정의(`.migbak`)와 기존 볼륨 데이터를 백업해 두고 실패하면 원복합니다. 동일 스택 동시 import 또는 공유 볼륨 동시 복원은 409로 거부합니다 (v0.43.0+, v0.50.0/v0.51.0).
+**클러스터 내부 전용** — 소스 노드가 이관 번들(tar 스트림)을 대상 노드로 푸시하는 바이너리 릴레이 엔드포인트. 운영자가 직접 호출하는 용도가 아닙니다. `X-SFPanel-Migration-Sha256` 요청 헤더의 체크섬으로 번들을 검증한 뒤, compose 안전성 검증(원문 + .env 주입 후 resolved 재검증 — **금지 계층만**: 스택은 소스 노드에서 이미 설치돼 돌아가고 있으므로 위험 계층 승인은 그때 끝난 질문입니다) → 정의 복원 → 이미지 `docker load` + 명명 볼륨/바인드 데이터 복원 → `up` → 헬스체크를 수행하며, 실패 시 부분 복원분을 정리합니다. 덮어쓰기 시 기존 정의(`.migbak`)와 기존 볼륨 데이터를 백업해 두고 실패하면 원복합니다. 동일 스택 동시 import 또는 공유 볼륨 동시 복원은 409로 거부합니다 (v0.43.0+, v0.50.0/v0.51.0).
 
 - **인증**: 내부 프록시 전용 (`X-SFPanel-Internal-Proxy`). 외부 호출 시 403 `PERMISSION_DENIED`.
 - **Docker 사용 가능 시에만 등록**
@@ -5328,6 +5367,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 |--------|------|------|------|
 | GET | `/api/v1/docker/compose` | O | Compose 프로젝트 목록 |
 | POST | `/api/v1/docker/compose` | O | Compose 프로젝트 생성 |
+| POST | `/api/v1/docker/compose/import` | O | GitHub 저장소에서 compose 가져와 스택 생성 |
 | GET | `/api/v1/docker/compose/:project` | O | Compose 프로젝트 상세 |
 | PUT | `/api/v1/docker/compose/:project` | O | Compose YAML 수정 |
 | DELETE | `/api/v1/docker/compose/:project` | O | Compose 프로젝트 삭제 |

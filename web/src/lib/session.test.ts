@@ -229,10 +229,12 @@ describe('two tabs booting together', () => {
     expect(taken).toEqual(['sfpanel_session_bootstrap', 'sfpanel_session_bootstrap'])
   })
 
-  it('asks anyway rather than spinning when the tab ahead never releases', async () => {
+  it('claims a lease a tab that died mid-refresh left behind', async () => {
     const { firstTab, calls } = await racingTabs(undefined)
-    // A lease from a tab that died mid-refresh: older than the wait, so it is
-    // claimable immediately instead of costing the next boot five seconds.
+    // Older than the wait, so it is claimable immediately instead of costing
+    // the next boot five seconds. The other fail-open — a live lease held past
+    // BOOT_LOCK_WAIT — is not asserted here: it would cost the suite that wait
+    // in real time, and the timers this helper's fetch stub uses are real.
     localStorage.setItem('sfpanel_bootstrap_lock', `${Date.now() - 60_000}:dead-tab`)
 
     const started = Date.now()
