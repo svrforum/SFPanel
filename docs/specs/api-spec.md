@@ -2129,7 +2129,7 @@ Docker 네트워크 목록 조회.
 
 **`acknowledge_risks`** (선택, 기본 `false`): compose 안전성 검사는 두 단계입니다.
 - `COMPOSE_RISKY` (400) — `privileged`, host 네임스페이스, `/var/run/docker.sock` 등 민감 바인드, 위험 capability, `security_opt: unconfined`, `devices`. 모든 findings가 메시지에 나열되며, 같은 요청에 `"acknowledge_risks": true`를 넣으면 통과합니다.
-- `COMPOSE_FORBIDDEN` (400) — 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위인 바인드. 패널의 JWT 서명 키·클러스터 CA 키·데이터베이스가 있는 곳이라 `acknowledge_risks`로도 풀리지 않습니다.
+- `COMPOSE_FORBIDDEN` (400) — 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위인 바인드. 패널의 JWT 서명 키·클러스터 CA 키·데이터베이스가 있는 곳이라 `acknowledge_risks`로도 풀리지 않습니다. 서비스의 `volumes`뿐 아니라 최상위 `secrets.*.file`·`configs.*.file`과 명명 볼륨의 `driver_opts.device`도 같은 계층으로 검사합니다 — 셋 다 컨테이너 안에 호스트 경로를 넣는 문서 형태이고, 뒤의 둘은 서비스 쪽에 호스트 경로가 아예 나타나지 않습니다.
 - `INVALID_YAML` (400) — compose 문서 자체를 읽을 수 없음.
 
 **Response (200):** 생성된 ComposeProject 객체
@@ -2232,7 +2232,7 @@ Compose 프로젝트 YAML 업데이트.
 
 **`acknowledge_risks`** (선택, 기본 `false`): compose 안전성 검사는 두 단계입니다.
 - `COMPOSE_RISKY` (400) — `privileged`, host 네임스페이스, `/var/run/docker.sock` 등 민감 바인드, 위험 capability, `security_opt: unconfined`, `devices`. 모든 findings가 메시지에 나열되며, 같은 요청에 `"acknowledge_risks": true`를 넣으면 통과합니다.
-- `COMPOSE_FORBIDDEN` (400) — 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위인 바인드. 패널의 JWT 서명 키·클러스터 CA 키·데이터베이스가 있는 곳이라 `acknowledge_risks`로도 풀리지 않습니다.
+- `COMPOSE_FORBIDDEN` (400) — 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위인 바인드. 패널의 JWT 서명 키·클러스터 CA 키·데이터베이스가 있는 곳이라 `acknowledge_risks`로도 풀리지 않습니다. 서비스의 `volumes`뿐 아니라 최상위 `secrets.*.file`·`configs.*.file`과 명명 볼륨의 `driver_opts.device`도 같은 계층으로 검사합니다 — 셋 다 컨테이너 안에 호스트 경로를 넣는 문서 형태이고, 뒤의 둘은 서비스 쪽에 호스트 경로가 아예 나타나지 않습니다.
 - `INVALID_YAML` (400) — compose 문서 자체를 읽을 수 없음.
 
 **Response (200):**
@@ -2990,6 +2990,8 @@ Fail2ban jail 중지 (비활성화).
 **Request Body (심플 모드):** `{ "env": { "PORT": "3001", "PASSWORD": "my-secret" } }`
 
 **Request Body (고급 모드):** `{ "advanced": true, "compose": "<yaml>", "env_raw": "<.env>", "password": "<재인증>", "acknowledge_risks": false }` — 비밀번호 bcrypt 재확인은 그대로이고, compose 안전성 검사는 두 단계입니다. `privileged`/host 네임스페이스/docker.sock 등 위험 패턴은 `"acknowledge_risks": true`로 승인하면 진행되고, 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위인 바인드는 승인해도 거부됩니다. 거부는 스트림의 `{stage:"prepare", success:false, done:true}` 이벤트로 `Refused compose file: <findings>` 형태로 전달되며, 같은 이벤트의 `code` 필드가 `COMPOSE_RISKY`(승인으로 풀림) 또는 `COMPOSE_FORBIDDEN`(풀리지 않음)을 알려줍니다 — 클라이언트는 이 값으로 승인 대화상자를 띄울지 판단합니다. 요청 바디 1MB 캡.
+
+**배포 직전 재검사 (심플·고급 공통):** compose 파일과 `.env`를 쓴 뒤 `pull` 전에 `docker compose config`로 해석한 문서를 금지 계층으로 한 번 더 검사합니다. 저장 시점 검사는 `${UPLOAD_LOCATION}` 같은 텍스트만 보고, 심플 모드는 그 값을 비밀번호 재확인 없이 운영자가 정하기 때문입니다. 해석된 문서가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d`를 바인드하면 스테이징한 디렉터리를 정리하고 `code`가 `COMPOSE_FORBIDDEN`인 거부 이벤트로 스트림을 끝냅니다. 설정을 해석할 수 없으면 검사를 건너뛰고 설치가 계속됩니다 — `up`이 같은 오류를 더 정확한 메시지로 보고합니다.
 
 **스트림 종료/에러** (스트림 시작 전 사전 검사):
 | 코드 | HTTP 상태 | 조건 |
