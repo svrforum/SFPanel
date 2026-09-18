@@ -158,6 +158,10 @@ export interface CreateContainerSpec {
   restart_policy?: string // 'no' | 'always' | 'unless-stopped' | 'on-failure'
   network?: string
   auto_start?: boolean
+  // Lifts the compose analyser's risky tier for the binds above, after the
+  // operator has been shown what the container asks for. Never lifts the
+  // forbidden tier (the panel's own secrets). See lib/composeRisk.ts.
+  acknowledge_risks?: boolean
 }
 
 export interface ComposeProject {

@@ -633,3 +633,81 @@ volumes:
 		t.Errorf("an ordinary stack was refused: %v", err)
 	}
 }
+
+// A standalone container's binds reach the same host paths as a stack's, so
+// AnalyzeBinds has to sort them into the same two tiers. The tier is asserted
+// by name, not by "something was found": the whole point is which of the two
+// a path lands in.
+func TestAnalyzeBindsSortsAContainersMountsIntoTheSameTiers(t *testing.T) {
+	tests := []struct {
+		name          string
+		bind          string
+		wantForbidden bool
+		wantRisky     bool
+	}{
+		{"panel config dir", "/etc/sfpanel:/loot", true, false},
+		{"a file under it", "/etc/sfpanel/config.yaml:/loot/config.yaml:ro", true, false},
+		{"respelled with dot-dot", "/etc/foo/../sfpanel:/loot", true, false},
+		{"panel database dir", "/var/lib/sfpanel:/loot", true, false},
+		{"host ssh keys", "/root/.ssh:/loot", true, false},
+		{"sudoers drop-in dir", "/etc/sudoers.d:/loot", true, false},
+		{"docker socket", "/var/run/docker.sock:/var/run/docker.sock", false, true},
+		{"the whole host", "/:/host", false, true},
+		{"the operator's home", "/home/someone/data:/data", false, true},
+		{"an ordinary data dir", "/srv/appdata:/data", false, false},
+		{"a named volume, not a bind", "appdata:/data", false, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			report := AnalyzeBinds("thief", []string{tc.bind})
+			if got := len(report.Forbidden) > 0; got != tc.wantForbidden {
+				t.Errorf("forbidden = %v, want %v — %+v", got, tc.wantForbidden, report)
+			}
+			if got := len(report.Risky) > 0; got != tc.wantRisky {
+				t.Errorf("risky = %v, want %v — %+v", got, tc.wantRisky, report)
+			}
+			for _, f := range append(append([]Finding{}, report.Forbidden...), report.Risky...) {
+				if f.Rule != "bind" {
+					t.Errorf("rule = %q, want \"bind\"", f.Rule)
+				}
+			}
+		})
+	}
+}
+
+// The acknowledgement lifts the risky tier and never the forbidden one — the
+// same contract Report.Error carries for a compose document, asserted here for
+// the shape that has no document.
+func TestAnalyzeBindsAcknowledgementNeverLiftsTheForbiddenTier(t *testing.T) {
+	risky := AnalyzeBinds("dozzle", []string{"/var/run/docker.sock:/var/run/docker.sock:ro"})
+	if err := risky.Error(false); err == nil {
+		t.Error("an unacknowledged docker.sock bind was accepted")
+	}
+	if err := risky.Error(true); err != nil {
+		t.Errorf("an acknowledged docker.sock bind was refused: %v", err)
+	}
+
+	forbidden := AnalyzeBinds("thief", []string{"/etc/sfpanel:/loot"})
+	err := forbidden.Error(true)
+	if err == nil {
+		t.Fatal("an acknowledged /etc/sfpanel bind was accepted")
+	}
+	if !strings.Contains(err.Error(), "/etc/sfpanel") {
+		t.Errorf("message %q does not name the path", err.Error())
+	}
+	if !strings.Contains(err.Error(), `container "thief"`) {
+		t.Errorf("message %q does not name the container", err.Error())
+	}
+}
+
+// A container the daemon will name has no name to put in the sentence; the
+// finding still has to read as one.
+func TestAnalyzeBindsNamesAnUnnamedContainer(t *testing.T) {
+	report := AnalyzeBinds("", []string{"/etc/sfpanel:/loot"})
+	if len(report.Forbidden) != 1 {
+		t.Fatalf("forbidden = %+v, want one finding", report.Forbidden)
+	}
+	if got := report.Forbidden[0].Message; !strings.HasPrefix(got, "the new container binds") {
+		t.Errorf("message = %q, want it to open with \"the new container binds\"", got)
+	}
+}

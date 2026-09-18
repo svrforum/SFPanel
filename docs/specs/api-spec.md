@@ -1660,7 +1660,8 @@ data: [DONE]
   "volumes": ["/host/path:/container/path:ro"],
   "restart_policy": "unless-stopped",
   "network": "bridge",
-  "auto_start": true
+  "auto_start": true,
+  "acknowledge_risks": false
 }
 ```
 
@@ -1675,6 +1676,9 @@ data: [DONE]
 | `restart_policy` | string | 아니오 | `no`\|`always`\|`unless-stopped`\|`on-failure` (기본 `no`) |
 | `network` | string | 아니오 | 네트워크 이름/모드 |
 | `auto_start` | boolean | 아니오 | 생성 후 즉시 시작 여부 |
+| `acknowledge_risks` | boolean | 아니오 | 위험 계층 승인 (아래) |
+
+**볼륨 안전성 검사:** `volumes`는 그대로 Docker의 `HostConfig.Binds`가 되므로, compose 엔드포인트와 **같은 두 계층**을 통과해야 합니다 (`composex.AnalyzeBinds`). 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위이면 `COMPOSE_FORBIDDEN`으로 거부되며 `acknowledge_risks`로도 풀리지 않습니다. docker.sock·`/`·`/etc`·`/home` 등 나머지 위험 바인드는 `COMPOSE_RISKY`로 거부되고, 운영자에게 어떤 경로를 요구하는지 보여준 뒤 같은 요청에 `"acknowledge_risks": true`를 실으면 진행됩니다. 메시지는 발견된 모든 바인드를 `; `로 이어 붙인 문장입니다. 바인드가 아닌 항목(이름 있는 볼륨 등)은 검사 대상이 아닙니다.
 
 **Response (200):**
 ```json
@@ -1694,6 +1698,8 @@ data: [DONE]
 | `INVALID_REQUEST` | 400 | image 누락 또는 잘못된 이미지 참조 |
 | `INVALID_NAME` | 400 | 잘못된 컨테이너 이름 |
 | `INVALID_VALUE` | 400 | 잘못된 restart policy 또는 호스트 포트 |
+| `COMPOSE_RISKY` | 400 | 위험 바인드 — `acknowledge_risks`로 승인 가능 |
+| `COMPOSE_FORBIDDEN` | 400 | 패널 자신의 비밀 경로 바인드 — 승인 불가 |
 | `DOCKER_ERROR` | 500 | 생성/풀 실패 |
 
 ---

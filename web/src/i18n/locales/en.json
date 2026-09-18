@@ -569,7 +569,12 @@
       "submit": "Create",
       "creating": "Creating...",
       "success": "Container created ({{id}})",
-      "imageRequired": "Image is required"
+      "imageRequired": "Image is required",
+      "risky": {
+        "title": "This container asks for host privileges",
+        "body": "The bind mounts below let the container control the host. Continue only if you know what this one is asking for.",
+        "confirm": "I understand, create"
+      }
     },
     "images": {
       "count_one": "{{count}} image",

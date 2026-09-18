@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { ChevronRight, Plus, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { isRiskyRefusal, riskLines } from '@/lib/composeRisk'
+import { useConfirm } from '@/components/ConfirmDialog'
 import type { CreateContainerSpec, PortBindingSpec, DockerNetwork } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,6 +40,7 @@ export function CreateContainerDialog({
   onCreated: () => void
 }) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [image, setImage] = useState('')
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
@@ -112,7 +115,34 @@ export function CreateContainerDialog({
 
     setSubmitting(true)
     try {
-      const res = await api.createContainer(spec)
+      let res
+      try {
+        res = await api.createContainer(spec)
+      } catch (err: unknown) {
+        // The server runs this spec's binds through the compose analyser's two
+        // tiers. A risky refusal is the one the operator can lift: show what
+        // the container asks for once, then create it with the acknowledgement.
+        // A forbidden one (the panel's own secrets) is not liftable and falls
+        // through to the toast below.
+        if (!isRiskyRefusal(err)) throw err
+        const ok = await confirm({
+          title: t('docker.create.risky.title'),
+          description: (
+            <span>
+              {t('docker.create.risky.body')}
+              <span className="mt-2 block space-y-1 font-mono text-[12px] text-muted-foreground">
+                {riskLines(err).map((line, index) => (
+                  <span key={`${index}-${line}`} className="block">{line}</span>
+                ))}
+              </span>
+            </span>
+          ),
+          confirmLabel: t('docker.create.risky.confirm'),
+          danger: true,
+        })
+        if (!ok) return
+        res = await api.createContainer({ ...spec, acknowledge_risks: true })
+      }
       toast.success(t('docker.create.success', { id: res.id.substring(0, 12) }))
       resetForm()
       onOpenChange(false)

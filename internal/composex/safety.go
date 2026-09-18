@@ -106,6 +106,47 @@ func ValidateAdvancedCompose(content string) error {
 	return report.Error(true)
 }
 
+// AnalyzeBinds puts the bind mounts of a standalone container through the same
+// two tiers Analyze applies to a service's `volumes:` list.
+//
+// POST /docker/containers has no compose document for Analyze to read: its
+// volumes are Docker's own "source:target[:mode]" strings and land verbatim in
+// HostConfig.Binds. The route is reached by the same session as the compose
+// editor, so without this the forbidden tier would be a boundary on one route
+// and an open door on its sibling — and the tier exists precisely for the
+// attacker who found a bug in a handler and has no root terminal.
+//
+// Binds only. A standalone create carries no privileged flag, no host
+// namespace, no capability list and no devices for the rest of the analyser to
+// read; the panel's create API is a small explicit subset that never exposed
+// them.
+//
+// name is the requested container name, empty when the daemon will assign one.
+func AnalyzeBinds(name string, binds []string) Report {
+	subject := "the new container"
+	if trimmed := strings.TrimSpace(name); trimmed != "" {
+		subject = fmt.Sprintf("container %q", trimmed)
+	}
+	entries := make([]interface{}, 0, len(binds))
+	for _, b := range binds {
+		entries = append(entries, b)
+	}
+	var report Report
+	for _, mount := range bindMounts(entries) {
+		finding := Finding{
+			Service: name, Rule: "bind", Detail: mount.Source,
+			Message: mount.message(subject),
+		}
+		switch {
+		case forbiddenBind(mount.Source):
+			report.forbidden(finding)
+		case isDangerousBind(mount.Source):
+			report.risky(finding)
+		}
+	}
+	return report
+}
+
 func (r *Report) analyzeService(svcName string, svc map[string]interface{}) {
 	if isPrivileged(svc["privileged"]) {
 		r.risky(Finding{
@@ -181,7 +222,7 @@ func (r *Report) analyzeService(svcName string, svc map[string]interface{}) {
 	for _, mount := range bindMounts(svc["volumes"]) {
 		finding := Finding{
 			Service: svcName, Rule: "bind", Detail: mount.Source,
-			Message: mount.message(svcName),
+			Message: mount.message(fmt.Sprintf("service %q", svcName)),
 		}
 		switch {
 		case forbiddenBind(mount.Source):
@@ -312,12 +353,15 @@ type bindMount struct {
 	Target string
 }
 
-// message is the sentence the operator reads for this mount.
-func (b bindMount) message(svcName string) string {
+// message is the sentence the operator reads for this mount. subject names the
+// thing that asked for it and arrives already quoted by the caller — `service
+// "web"` for a compose document, `container "web"` for the standalone create
+// route — so one wording serves both.
+func (b bindMount) message(subject string) string {
 	if b.Target == "" {
-		return fmt.Sprintf("service %q binds sensitive host path %q", svcName, b.Source)
+		return fmt.Sprintf("%s binds sensitive host path %q", subject, b.Source)
 	}
-	return fmt.Sprintf("service %q binds sensitive host path %q at %q", svcName, b.Source, b.Target)
+	return fmt.Sprintf("%s binds sensitive host path %q at %q", subject, b.Source, b.Target)
 }
 
 // bindMounts returns every bind entry in a service's volumes list. Named

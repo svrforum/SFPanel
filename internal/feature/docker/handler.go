@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/composex"
 	"github.com/svrforum/SFPanel/internal/docker"
 	"github.com/svrforum/SFPanel/internal/monitor"
 )
@@ -128,12 +129,24 @@ func (h *Handler) ListContainers(c echo.Context) error {
 
 // CreateContainer creates a standalone container from a JSON spec, pulling the
 // image if needed and optionally starting it.
+//
+// The spec's volumes go through the same two tiers as a compose stack's
+// (composex.AnalyzeBinds): this route hands them to the daemon as
+// HostConfig.Binds, so the forbidden tier has to hold here or it holds nowhere.
 func (h *Handler) CreateContainer(c echo.Context) error {
 	ctx := c.Request().Context()
-	var spec docker.CreateContainerSpec
-	if err := c.Bind(&spec); err != nil {
+	var body struct {
+		docker.CreateContainerSpec
+		// AcknowledgeRisks lifts the risky tier (docker.sock, /etc, /home, …)
+		// after the operator has been shown what the container asks for, the
+		// same flag and the same dialog the compose endpoints use. It never
+		// lifts the forbidden tier.
+		AcknowledgeRisks bool `json:"acknowledge_risks"`
+	}
+	if err := c.Bind(&body); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "Invalid request body")
 	}
+	spec := body.CreateContainerSpec
 
 	spec.Image = strings.TrimSpace(spec.Image)
 	if spec.Image == "" {
@@ -163,6 +176,21 @@ func (h *Handler) CreateContainer(c echo.Context) error {
 					fmt.Sprintf("invalid host port %q", p.HostPort))
 			}
 		}
+	}
+
+	// The same gate the compose endpoints apply to a stack's volumes, for the
+	// shape that has no compose document. Forbidden — a bind of /etc/sfpanel
+	// (JWT signing secret, cluster CA key), /var/lib/sfpanel (the database),
+	// /root/.ssh or /etc/sudoers.d — is refused whatever the caller says.
+	// Everything else the analyser flags is refused until the operator has seen
+	// the findings and acknowledged them.
+	risks := composex.AnalyzeBinds(spec.Name, spec.Volumes)
+	if verr := risks.Error(body.AcknowledgeRisks); verr != nil {
+		code := response.ErrComposeRisky
+		if len(risks.Forbidden) > 0 {
+			code = response.ErrComposeForbidden
+		}
+		return response.Fail(c, http.StatusBadRequest, code, verr.Error())
 	}
 
 	id, err := h.Docker.CreateContainer(ctx, spec)
