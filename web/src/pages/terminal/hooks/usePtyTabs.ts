@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
-import type { PtyTab } from '@/lib/sessionRail'
+import { prunePtyTabs, type PtyTab } from '@/lib/sessionRail'
 
 // Tabs map 1:1 to server PTY sessions and each node keeps its own session
 // map, so they are persisted PER NODE: one global key reused the same tab id
@@ -42,6 +42,14 @@ function loadTabs(): PtyTab[] {
 export function usePtyTabs() {
   const { t } = useTranslation()
   const [tabs, setTabs] = useState<PtyTab[]>(loadTabs)
+  // The ids that came from storage: the only tabs prunePtyTabs may drop, and
+  // the only ones held back from the pane below. State with a lazy
+  // initializer rather than a ref — this is read during render, and the
+  // initializer already captures it once, before anything can add a tab.
+  const [restored] = useState<string[]>(() => tabs.map((tb) => tb.id))
+  // Whether the server's session list has answered about those restored ids.
+  // A browser with none of them is already answered.
+  const [checked, setChecked] = useState(restored.length === 0)
 
   useEffect(() => {
     try { localStorage.setItem(tabsKey(), JSON.stringify(tabs)) } catch { /* private mode */ }
@@ -71,5 +79,26 @@ export function usePtyTabs() {
     setTabs((prev) => prev.map((tb) => (tb.id === id ? { ...tb, title: trimmed } : tb)))
   }, [])
 
-  return { tabs, add, reattach, close, rename }
+  /**
+   * Drops restored tabs the server no longer has. Called with the ids from a
+   * SUCCESSFUL GET /terminal/sessions; `null` says the request failed, which
+   * must leave the list alone rather than throw away tabs that may still be
+   * alive. Either answer ends the hold on `mountable`.
+   */
+  const reconcile = useCallback((serverIds: string[] | null) => {
+    setChecked(true)
+    if (serverIds) setTabs((prev) => prunePtyTabs(prev, serverIds, restored))
+  }, [restored])
+
+  /**
+   * The tabs the pane may mount. Connecting to a PTY id the server does not
+   * know makes it CREATE that session, so mounting a restored tab before the
+   * list has answered manufactures exactly the shell prunePtyTabs exists to
+   * avoid — and it did, in one run of the e2e regression out of three. Tabs
+   * this page created are never held back; nor is anything once checked, so
+   * the common case hands the pane the same array identity as `tabs`.
+   */
+  const mountable = checked ? tabs : tabs.filter((tb) => !restored.includes(tb.id))
+
+  return { tabs, mountable, add, reattach, close, rename, reconcile }
 }

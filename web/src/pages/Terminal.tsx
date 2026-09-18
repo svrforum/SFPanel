@@ -25,7 +25,7 @@ import { usePtyTabs } from '@/pages/terminal/hooks/usePtyTabs'
 const nodeSuffix = () => api.currentNode || 'local'
 const accountKey = () => `sfpanel_ai_account:${nodeSuffix()}`
 // The key the PTY-only page used for its active tab; the value is now
-// namespaced (see parseActiveKey), and a bare value from before is a PTY tab.
+// namespaced, and a bare value from before is ignored (see parseActiveKey).
 const activeStorageKey = () => `sfpanel_terminal_active:${nodeSuffix()}`
 const RAIL_KEY = 'sfpanel_terminal_rail'
 const FONT_SIZE_KEY = 'sfpanel_terminal_fontsize'
@@ -75,10 +75,13 @@ export default function TerminalPage() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [hostInfo, setHostInfo] = useState<TerminalInfo | null>(null)
-  const [reattachable, setReattachable] = useState<TerminalSessionInfo[]>([])
+  const [ptySessions, setPtySessions] = useState<TerminalSessionInfo[]>([])
   const searchInputRef = useRef<HTMLInputElement>(null)
   const { sessions, loaded, refresh } = useAISessions()
   const pty = usePtyTabs()
+  // `pty` is a fresh object every render, so the fetch below depends on the
+  // stable callback rather than on the hook's result.
+  const { reconcile: reconcilePty } = pty
 
   // Promise callbacks rather than await: the effect kicks this off on mount
   // and an async body would trip react-hooks/set-state-in-effect. First load
@@ -145,15 +148,30 @@ export default function TerminalPage() {
     document.documentElement.toggleAttribute('data-ai-tools-open', open)
   }, [])
 
-  // Server-side PTY sessions this browser could reattach — listed inside the
-  // temporary group, so only fetched while that group is shown.
+  // The server's PTY sessions. Fetched when the temporary group is on screen,
+  // which is also when stored tabs need reconciling: a tab restored from an
+  // earlier browser session whose PTY has been reaped must not stay in the
+  // rail, because reattaching it would open a brand-new shell.
   const showPty = fallback || pty.tabs.length > 0
-  const loadReattachable = useCallback(() => {
+  const loadPtySessions = useCallback(() => {
     api.getTerminalSessions()
-      .then((r) => setReattachable((r.sessions || []).filter((s) => !pty.tabs.some((tb) => tb.id === s.session_id))))
-      .catch(() => setReattachable([]))
-  }, [pty.tabs])
-  useEffect(() => { if (showPty) loadReattachable() }, [showPty, loadReattachable])
+      .then((r) => {
+        const list = r.sessions || []
+        setPtySessions(list)
+        reconcilePty(list.map((s) => s.session_id))
+      })
+      // Leave the tabs alone on failure; the next open retries. The null
+      // still releases them to the pane — an unreachable list must not keep
+      // a tab that may well be alive off screen for good.
+      .catch(() => { setPtySessions([]); reconcilePty(null) })
+  }, [reconcilePty])
+  useEffect(() => { if (showPty) loadPtySessions() }, [showPty, loadPtySessions])
+  // Listed inside the temporary group: the sessions this browser has no tab
+  // for. Filtered at render so opening a tab does not re-issue the request.
+  const reattachable = useMemo(
+    () => ptySessions.filter((s) => !pty.tabs.some((tb) => tb.id === s.session_id)),
+    [ptySessions, pty.tabs],
+  )
 
   const act = useCallback(async (fn: () => Promise<unknown>) => {
     try { await fn() } catch (err: unknown) { toast.error(aiErrorMessage(err, t)) }
@@ -282,7 +300,8 @@ export default function TerminalPage() {
               onRestart={(s) => { void onAction('restart', { kind: 'tmux', id: s.id, session: s }) }}
               onRemoveEnded={(s) => { void onAction('removeEnded', { kind: 'tmux', id: s.id, session: s }) }} />
           )}
-          <PtyPane tabs={pty.tabs} activeId={activeItem?.kind === 'pty' ? activeItem.id : null} fontSize={fontSize} />
+          {/* mountable, not tabs: a restored tab waits for the server's list. */}
+          <PtyPane tabs={pty.mountable} activeId={activeItem?.kind === 'pty' ? activeItem.id : null} fontSize={fontSize} />
         </div>
         <MobileTerminalBar onSendKey={sendKey} />
       </div>

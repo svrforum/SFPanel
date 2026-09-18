@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AISession } from '@/types/api'
-import { PTY_GROUP_KEY, activeKey, buildRail, findItem, parseActiveKey, pickActive, railNote } from './sessionRail'
+import { PTY_GROUP_KEY, type PtyTab, activeKey, buildRail, findItem, parseActiveKey, pickActive, prunePtyTabs, railNote } from './sessionRail'
 
 const s = (id: string, cwd: string, created: string, extra: Partial<AISession> = {}): AISession => ({
   id, tool: 'claude', title: id, run_as: 'root', cwd, state: 'working', persistence: 'service', attached: false, created_at: created, ...extra,
@@ -77,10 +77,13 @@ describe('pickActive', () => {
 })
 
 describe('keys', () => {
-  it('namespaces by engine and reads the old page\'s bare tab id as a PTY tab', () => {
+  it('namespaces by engine', () => {
     expect(activeKey({ kind: 'tmux', id: 'abc', session: s('abc', '/', '') })).toBe('tmux:abc')
-    expect(parseActiveKey('term-3')).toBe('pty:term-3')
+  })
+  it('ignores an unprefixed stored key: the old terminal page auto-created its first tab, so that id names a tab nobody asked for', () => {
+    expect(parseActiveKey('term-3')).toBeNull()
     expect(parseActiveKey('tmux:abc')).toBe('tmux:abc')
+    expect(parseActiveKey('pty:term-3')).toBe('pty:term-3')
     expect(parseActiveKey('')).toBeNull()
     expect(parseActiveKey(null)).toBeNull()
   })
@@ -103,5 +106,29 @@ describe('railNote', () => {
     expect(railNote(s('a', '/', '', { state: 'waiting' }), true)).toBeNull()
     expect(railNote(s('a', '/', '', { state: 'working' }), false)).toBeNull()
     expect(railNote(s('a', '/', '', { state: 'ended' }), true)).toBe('ended')
+  })
+})
+
+describe('prunePtyTabs', () => {
+  const t = (id: string): PtyTab => ({ id, title: id })
+
+  it('drops a stored tab the server no longer has — reattaching a dead id opens a brand-new shell instead of failing', () => {
+    const stored = [t('term-1'), t('term-2')]
+    expect(prunePtyTabs(stored, ['term-2'], ['term-1', 'term-2'])).toEqual([t('term-2')])
+  })
+
+  it('keeps a tab this page created, even before its socket has registered a session', () => {
+    const stored = [t('term-1'), t('term-9')]
+    // term-9 was created after mount, so it is not eligible for pruning.
+    expect(prunePtyTabs(stored, [], ['term-1'])).toEqual([t('term-9')])
+  })
+
+  it('returns the same array identity when nothing is dropped, so the caller can skip a state update', () => {
+    const stored = [t('term-1')]
+    expect(prunePtyTabs(stored, ['term-1'], ['term-1'])).toBe(stored)
+  })
+
+  it('drops every eligible tab when the server has none', () => {
+    expect(prunePtyTabs([t('term-1')], [], ['term-1'])).toEqual([])
   })
 })

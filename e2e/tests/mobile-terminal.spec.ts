@@ -190,3 +190,38 @@ test('without tmux the page falls back to a temporary PTY shell and says so', as
   await expect(page.getByRole('tab', { name: /Terminal 1/ })).toBeVisible()
   await expect(page.getByText('Temporary sessions')).toBeVisible()
 })
+
+test('a browser upgraded from the old terminal page lands on a live session, not a resurrected temporary shell', async ({ page }) => {
+  const sockets: string[] = []
+  await page.addInitScript(() => {
+    sessionStorage.setItem('token', 'mobile-test-token')
+    localStorage.setItem('i18nextLng', 'en')
+    // What the PTY-only page wrote: a tab it created for every visitor, and
+    // its bare id as the active tab.
+    localStorage.setItem('sfpanel_terminal_tabs:local', JSON.stringify([{ id: 'term-1', title: 'Terminal 1' }]))
+    localStorage.setItem('sfpanel_terminal_active:local', 'term-1')
+  })
+  await page.route('**/api/v1/**', async route => {
+    const url = new URL(route.request().url())
+    let data: unknown = {}
+    if (url.pathname.endsWith('/auth/setup-status')) data = { setup_required: false }
+    else if (url.pathname.endsWith('/auth/ws-ticket')) data = { ticket: 'mobile-test-ticket' }
+    else if (url.pathname.endsWith('/cluster/status')) data = { enabled: false }
+    else if (url.pathname.endsWith('/system/overview')) data = { version: 'test' }
+    else if (url.pathname.endsWith('/ai/sessions')) data = [{ id: 'abcdef123456', title: 'Mobile coding', tool: 'codex', run_as: 'tester', cwd: '/tmp', state: 'working', persistence: 'service', attached: true, created_at: '2026-09-15T00:00:00Z' }]
+    else if (url.pathname.endsWith('/ai/tools')) data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {} }
+    else if (url.pathname.endsWith('/terminal/sessions')) data = { sessions: [] }
+    else if (url.pathname.endsWith('/terminal/info')) data = { shell_user: 'tester', hostname: 'fixture', home: '/home/tester', shell: '/bin/bash', is_root: false }
+    await route.fulfill({ json: { success: true, data } })
+  })
+  await page.routeWebSocket(/\/ws\//, socket => { sockets.push(new URL(socket.url()).pathname) })
+  await page.goto('/terminal')
+  await expect(page.locator('[data-terminal-session="active"]')).toBeVisible()
+  // The live tmux session is what opens, and the dead tab is gone from the rail.
+  await expect(page.locator('header').getByRole('button', { name: 'Mobile coding' })).toBeVisible()
+  await expect.poll(() => sockets.some((p) => p === '/ws/ai/attach')).toBe(true)
+  expect(sockets).not.toContain('/ws/terminal')
+  await page.getByRole('button', { name: 'Sessions', exact: true }).tap()
+  await expect(page.getByRole('tab', { name: /Mobile coding/ })).toBeVisible()
+  await expect(page.getByText('Temporary sessions')).toBeHidden()
+})

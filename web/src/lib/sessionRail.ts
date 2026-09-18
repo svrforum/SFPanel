@@ -29,13 +29,37 @@ export function activeKey(item: RailItem): string {
 }
 
 /**
- * Reads a stored active key. The PTY-only page kept a bare tab id under the
- * same localStorage key, so a value without a prefix is one of its tabs and
- * a browser that had a tab open before the upgrade lands on it.
+ * Reads a stored active key. Only an engine-prefixed value means anything:
+ * the PTY-only page kept a bare tab id under the same localStorage name, and
+ * it auto-created that first tab for every visitor rather than on request. A
+ * bare value is therefore not a session the operator chose — honouring it made
+ * an upgraded browser open a phantom temporary shell while live tmux sessions
+ * sat unselected — so it is read as "no preference" and pickActive decides.
  */
 export function parseActiveKey(raw: string | null): string | null {
   if (!raw) return null
-  return raw.startsWith('tmux:') || raw.startsWith('pty:') ? raw : `pty:${raw}`
+  return raw.startsWith('tmux:') || raw.startsWith('pty:') ? raw : null
+}
+
+/**
+ * The PTY tabs worth keeping. A tab is a pointer to a server-side PTY
+ * session, and the server creates a new session for an id it does not know
+ * (internal/feature/terminal/handler.go), so a tab whose session has been
+ * reaped — five minutes with no reader — would silently open a fresh shell
+ * instead of reporting that it is gone.
+ *
+ * `eligible` is the set of ids that were loaded from storage at mount. A tab
+ * created during this page's life is never pruned: its socket may not have
+ * registered a session by the time the list arrives.
+ *
+ * Returns the input array unchanged when nothing is dropped, so the caller
+ * can skip a state update and the render it would cause.
+ */
+export function prunePtyTabs(stored: PtyTab[], serverIds: string[], eligible: string[]): PtyTab[] {
+  const alive = new Set(serverIds)
+  const prunable = new Set(eligible)
+  const kept = stored.filter((tab) => !prunable.has(tab.id) || alive.has(tab.id))
+  return kept.length === stored.length ? stored : kept
 }
 
 export function baseName(cwd: string): string {
