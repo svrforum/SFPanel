@@ -322,13 +322,17 @@ func (h *Handler) ReniceProcess(c echo.Context) error {
 }
 
 func init() {
-	// Every CreateTime re-reads /proc/stat for the boot time unless told to
-	// cache it, and boot time does not change while the process is running.
-	// The v0.72.0 audit turned this on because the collection called Percent
-	// once per process and each of those needs a CreateTime — thousands of
-	// reads of the same file per collection. The collection now reads Times()
-	// directly and needs no CreateTime at all, but the setting is global to
-	// gopsutil and free, so it stays for any other caller that does.
+	// Do not remove this: the collection below still depends on it. In
+	// gopsutil v4.26.6 every reader of /proc/<pid>/stat goes through
+	// fillFromStat, which asks for the boot time on every call and — with the
+	// cache off — answers by running VirtualizationWithContext and re-reading
+	// /proc/stat. Times(), Ppid(), Nice() and the CreateTime that
+	// process.Processes() takes per pid on construction are all such readers,
+	// so one collection is four boot-time lookups per process, ~2800 on a
+	// 700-process host. The v0.72.0 audit turned this on for that reason and
+	// the reason still holds; dropping the two Percent passes for one Times()
+	// took the count from five per process to four, not to zero. Boot time
+	// does not change while the process is running.
 	process.EnableBootTimeCache(true)
 }
 

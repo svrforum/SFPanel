@@ -446,7 +446,7 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 **metrics 필드:**
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| `cpu` | number | CPU 사용률 (%, 직전 수집 이후 구간 평균 — 아래 설명 참고) |
+| `cpu` | number | CPU 사용률 (%) |
 | `mem_total` | number | 전체 메모리 (bytes) |
 | `mem_used` | number | 사용 중인 메모리 (bytes) |
 | `mem_percent` | number | 메모리 사용률 (%) |
