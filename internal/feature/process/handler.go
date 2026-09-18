@@ -322,17 +322,21 @@ func (h *Handler) ReniceProcess(c echo.Context) error {
 }
 
 func init() {
-	// Do not remove this: the collection below still depends on it. In
-	// gopsutil v4.26.6 every reader of /proc/<pid>/stat goes through
-	// fillFromStat, which asks for the boot time on every call and — with the
-	// cache off — answers by running VirtualizationWithContext and re-reading
-	// /proc/stat. Times(), Ppid(), Nice() and the CreateTime that
-	// process.Processes() takes per pid on construction are all such readers,
-	// so one collection is four boot-time lookups per process, ~2800 on a
-	// 700-process host. The v0.72.0 audit turned this on for that reason and
-	// the reason still holds; dropping the two Percent passes for one Times()
-	// took the count from five per process to four, not to zero. Boot time
-	// does not change while the process is running.
+	// Do not remove this: the collection below still depends on it. The
+	// readers this collection uses — Times(), Ppid(), Nice(), and the
+	// CreateTime that process.Processes() takes per pid on construction — all
+	// route through gopsutil v4.26.6's fillFromStat, which asks for the boot
+	// time on every call and, with the cache off, answers by running
+	// VirtualizationWithContext and re-reading /proc/stat. (Checked against
+	// that version's source; other readers of /proc/<pid>/stat may or may not
+	// share the path, and a version bump can move it.) That puts the steady
+	// state at roughly four boot-time lookups per process — order 2800 on a
+	// 700-process host, arithmetic over the per-process count rather than a
+	// measurement — with the cold path's extra Times() pass adding one. The
+	// v0.72.0 audit turned this on for that reason and the reason still holds;
+	// dropping the two Percent passes for one Times() took the count from five
+	// per process to four, not to zero. Boot time does not change while the
+	// process is running.
 	process.EnableBootTimeCache(true)
 }
 
