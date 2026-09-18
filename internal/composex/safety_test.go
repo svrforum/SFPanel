@@ -539,3 +539,97 @@ func TestAnalyzeTrimsTheLongFormSource(t *testing.T) {
 		t.Error("an acknowledged request bound /etc/sfpanel through the long form")
 	}
 }
+
+// A compose document reaches a host path two ways that never appear in a
+// service's volumes list. `docker compose config` echoes both unchanged, so a
+// tier that read only services.*.volumes was blind to them at the save-time
+// check and at the deploy guard alike — the container got /etc/sfpanel while
+// the panel reported the stack as clean.
+func TestAnalyzeForbidsAPanelSecretMountedAsASecretOrConfig(t *testing.T) {
+	for _, kind := range []string{"secrets", "configs"} {
+		yaml := "services:\n  thief:\n    image: alpine\n    " + kind +
+			":\n      - panel\n" + kind + ":\n  panel:\n    file: /etc/sfpanel/config.yaml\n"
+		report, err := Analyze(yaml)
+		if err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+		if len(report.Forbidden) != 1 || report.Forbidden[0].Rule != "bind" {
+			t.Fatalf("%s: forbidden = %+v, want one bind finding", kind, report.Forbidden)
+		}
+		if !strings.Contains(report.Forbidden[0].Message, "/etc/sfpanel/config.yaml") {
+			t.Errorf("%s: message %q does not name the file", kind, report.Forbidden[0].Message)
+		}
+		if err := report.Error(true); err == nil {
+			t.Errorf("%s: an acknowledged request mounted the JWT signing secret", kind)
+		}
+		if err := ValidateAdvancedCompose(yaml); err == nil {
+			t.Errorf("%s: the forbidden-only wrapper accepted it", kind)
+		}
+	}
+}
+
+// The second shape: a named volume that is a bind. The service side says
+// `leak:/mnt` with no leading '/', so bindMounts skips it and only the
+// top-level driver_opts know which directory it is.
+func TestAnalyzeForbidsANamedVolumeBoundToThePanelsOwnDirectory(t *testing.T) {
+	yaml := `services:
+  thief:
+    image: alpine
+    volumes:
+      - leak:/mnt
+volumes:
+  leak:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /etc/sfpanel
+`
+	report, err := Analyze(yaml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Forbidden) != 1 || report.Forbidden[0].Rule != "bind" {
+		t.Fatalf("forbidden = %+v, want one bind finding", report.Forbidden)
+	}
+	if !strings.Contains(report.Forbidden[0].Message, "/etc/sfpanel") {
+		t.Errorf("message %q does not name the path", report.Forbidden[0].Message)
+	}
+	if err := report.Error(true); err == nil {
+		t.Error("an acknowledged request bound /etc/sfpanel through a named volume")
+	}
+}
+
+// The same walk must not turn ordinary stacks into refusals: a named volume
+// pointing at the operator's own data directory, and the NFS/CIFS shapes whose
+// `device` is not a path on this machine at all.
+func TestAnalyzeLeavesOrdinaryTopLevelVolumesAlone(t *testing.T) {
+	yaml := `services:
+  app:
+    image: alpine
+    volumes:
+      - data:/data
+      - share:/share
+volumes:
+  data:
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/appdata
+  share:
+    driver_opts:
+      type: nfs
+      o: "addr=nfs.example.internal,rw"
+      device: ":/export/share"
+`
+	report, err := Analyze(yaml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Forbidden) != 0 {
+		t.Errorf("forbidden = %+v, want none", report.Forbidden)
+	}
+	if err := report.Error(false); err != nil {
+		t.Errorf("an ordinary stack was refused: %v", err)
+	}
+}

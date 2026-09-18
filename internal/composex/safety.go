@@ -17,7 +17,7 @@ import (
 
 // Finding is one pattern the analyser recognised in a compose document.
 type Finding struct {
-	Service string // the compose service the pattern sits in
+	Service string // the compose service the pattern sits in, or the top-level secret/config/volume name
 	Rule    string // stable identifier: "bind", "privileged", "namespace", "capability", "group", "security-opt", "device"
 	Detail  string // the value that tripped it, e.g. "/var/run/docker.sock"
 	Message string // the sentence the operator reads
@@ -69,6 +69,7 @@ func Analyze(content string) (Report, error) {
 		}
 		report.analyzeService(svcName, svc)
 	}
+	report.analyzeTopLevel(doc)
 	return report, nil
 }
 
@@ -201,6 +202,85 @@ func (r *Report) analyzeService(svcName string, svc map[string]interface{}) {
 			Message: fmt.Sprintf("service %q declares devices: passthrough not allowed", svcName),
 		})
 	}
+}
+
+// analyzeTopLevel walks the two shapes that put a host path inside a container
+// without ever appearing in a service's `volumes:` list, so analyzeService
+// cannot see them. Both are ordinary compose and `docker compose config`
+// echoes both unchanged, which means a tier reading only services.*.volumes
+// was blind at the save-time check and at the deploy guard alike:
+//
+//   - top-level `secrets:` / `configs:` with `file: /etc/sfpanel/config.yaml` —
+//     compose bind-mounts that file into the container read-only
+//   - a top-level named volume whose `driver_opts` are `{type: none, o: bind,
+//     device: /etc/sfpanel}` — the service references it by name, so the
+//     service side carries no host path at all
+//
+// The forbidden tier only. The risky tier is a sentence the operator reads
+// about one service asking for one thing, and these entries belong to no
+// service; widening them would newly demand an acknowledgement for the
+// ordinary home-server named volume (`device: /home/<user>/data`) while the
+// boundary — the part that must not be reachable at all — is what is missing.
+func (r *Report) analyzeTopLevel(doc map[string]interface{}) {
+	for _, kind := range []string{"secrets", "configs"} {
+		entries, ok := doc[kind].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for _, name := range sortedKeys(entries) {
+			entry, ok := entries[name].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			file, _ := entry["file"].(string)
+			r.forbiddenTopLevel(kind, name, file)
+		}
+	}
+	volumes, ok := doc["volumes"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	for _, name := range sortedKeys(volumes) {
+		vol, ok := volumes[name].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		opts, ok := vol["driver_opts"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		device, _ := opts["device"].(string)
+		r.forbiddenTopLevel("volume", name, device)
+	}
+}
+
+// forbiddenTopLevel records a bind finding when a top-level entry names one of
+// the panel's own directories. A value that is not an absolute host path is
+// skipped: an NFS volume's device is ":/export" and a CIFS one is a UNC share,
+// neither of which is a path on this machine.
+func (r *Report) forbiddenTopLevel(kind, name, hostPath string) {
+	p := strings.TrimSpace(hostPath)
+	if !strings.HasPrefix(p, "/") || !forbiddenBind(p) {
+		return
+	}
+	r.forbidden(Finding{
+		Service: name,
+		Rule:    "bind",
+		Detail:  p,
+		Message: fmt.Sprintf("top-level %s %q binds sensitive host path %q", kind, name, p),
+	})
+}
+
+// sortedKeys lists a map's keys in a stable order. Map iteration is random and
+// the findings are read as a list, so two analyses of one document have to
+// produce the same one.
+func sortedKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (r *Report) risky(f Finding)     { r.Risky = append(r.Risky, f) }
