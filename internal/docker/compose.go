@@ -494,25 +494,40 @@ func (m *ComposeManager) GetResolvedConfigYAML(ctx context.Context, name string)
 	return out, nil
 }
 
+// resolveConfigTimeout bounds the pre-deploy `docker compose config`. It is a
+// read of files already on disk, so a minute is generous; the point is that a
+// wedged resolver costs the deploy a minute, not compose's five.
+const resolveConfigTimeout = 60 * time.Second
+
 // guardResolvedCompose refuses to bring a project up when its RESOLVED
 // configuration binds one of the panel's own secrets. The checks at write
 // time see `${VAR}`; only `docker compose config` knows what the .env expands
 // it to, and `up` resolves that same .env — so this is the one point where
 // the forbidden tier holds against interpolation, and it covers every path
-// that deploys (UpdateEnv writes the file with no compose check of its own).
+// that deploys through this manager (UpdateEnv writes the file with no compose
+// check of its own). The App Store runs its own `docker compose up` and
+// carries the same check itself, in appstore.guardResolvedInstall.
 // Forbidden tier only: risky content was acknowledged when it was saved.
 // Best-effort — a project whose config will not resolve fails in `up` with a
 // better message than this guard could give.
 func (m *ComposeManager) guardResolvedCompose(ctx context.Context, name string, args []string) error {
 	if len(args) == 0 || args[0] != "up" {
-		// Every other verb, `config` included: the resolver runs `config`
-		// itself, so guarding it would recurse.
+		// `up` is the only verb that deploys the resolved document; nothing
+		// else here can put a host path inside a container. `config` in
+		// particular never reaches this function at all — the resolver runs
+		// it through runComposeStdout, which is not a deploy path.
 		return nil
 	}
 	if m.resolveConfig == nil {
 		return nil
 	}
-	resolved, err := m.resolveConfig(ctx, name)
+	// The resolver gets its own, much shorter budget. runComposeStdout caps
+	// itself at the 5 minutes a deploy is allowed, which is the wrong cap for
+	// a pre-flight read: a `config` that hangs would otherwise add those five
+	// minutes to every deploy before the guard gave up and let it through.
+	resolveCtx, cancel := context.WithTimeout(ctx, resolveConfigTimeout)
+	defer cancel()
+	resolved, err := m.resolveConfig(resolveCtx, name)
 	if err != nil {
 		return nil
 	}

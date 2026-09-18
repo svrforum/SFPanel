@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestUpRefusesAResolvedForbiddenBind(t *testing.T) {
@@ -49,7 +50,8 @@ func TestGuardIgnoresEverythingButUp(t *testing.T) {
 		calls++
 		return "services:\n  a:\n    image: x\n    volumes:\n      - /etc/sfpanel:/mnt\n", nil
 	}
-	// `config` is how the resolver itself runs; guarding it would recurse.
+	// `config` is how the resolver runs — through runComposeStdout, which
+	// does not pass here — and no other verb deploys the document.
 	for _, verb := range []string{"config", "down", "ps", "logs"} {
 		if err := m.guardResolvedCompose(context.Background(), "stack", []string{verb}); err != nil {
 			t.Errorf("%s refused: %v", verb, err)
@@ -177,5 +179,29 @@ func TestGuardIsBestEffortWhenTheResolvedConfigCannotBeParsed(t *testing.T) {
 	// a refusal would block deploys for a reason that is not the tier.
 	if err := m.guardResolvedCompose(context.Background(), "stack", []string{"up", "-d"}); err != nil {
 		t.Errorf("an unparseable resolved config became a refusal: %v", err)
+	}
+}
+
+// The resolver reads files already on disk, and it runs before anything is
+// deployed. runComposeStdout's own cap is the deploy budget — five minutes —
+// so a `docker compose config` that wedges would hold the deploy for all of it
+// before this best-effort guard gave up. The guard hands the resolver its own
+// deadline instead.
+func TestGuardBoundsTheResolverWithItsOwnDeadline(t *testing.T) {
+	m := &ComposeManager{}
+	var deadline time.Time
+	var bounded bool
+	m.resolveConfig = func(ctx context.Context, _ string) (string, error) {
+		deadline, bounded = ctx.Deadline()
+		return "services:\n  a:\n    image: x\n", nil
+	}
+	if err := m.guardResolvedCompose(context.Background(), "stack", []string{"up", "-d"}); err != nil {
+		t.Fatalf("benign stack refused: %v", err)
+	}
+	if !bounded {
+		t.Fatal("the resolver ran on a context with no deadline")
+	}
+	if left := time.Until(deadline); left <= 0 || left > resolveConfigTimeout {
+		t.Errorf("resolver deadline is %s away, want (0, %s]", left, resolveConfigTimeout)
 	}
 }
