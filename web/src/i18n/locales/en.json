@@ -391,6 +391,11 @@
       "redeploy": "Redeploy",
       "saved": "Saved",
       "saveFailed": "Save failed",
+      "risky": {
+        "title": "This stack asks for host privileges",
+        "body": "The settings below let the container control the host. App Store stacks commonly need them; continue only if you know what this one is asking for.",
+        "confirm": "I understand, save"
+      },
       "envSaved": ".env file saved",
       "envSaveFailed": ".env save failed",
       "noServices": "No services running",

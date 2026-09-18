@@ -13,6 +13,7 @@ import { StackProgressDialog, useStackProgress } from '@/pages/docker/components
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { cn, nodeStatusColor } from '@/lib/utils'
+import { isRiskyRefusal, riskLines } from '@/lib/composeRisk'
 import { useConfirm } from '@/components/ConfirmDialog'
 import type { ComposeProjectWithStatus, ComposeService, StackUpdateCheck, RollbackInfo, ClusterNodeStacks } from '@/types/api'
 import { Button } from '@/components/ui/button'
@@ -461,9 +462,38 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     try {
       await api.updateComposeProject(selectedName, editYaml)
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('docker.stacks.saveFailed'))
-      setEditSaving(false)
-      return
+      // A risky refusal is the one the operator can lift: show what the stack
+      // asks for once, save again with the acknowledgement, and go on to the
+      // deploy stream exactly as a first-attempt save would have.
+      if (!isRiskyRefusal(err)) {
+        toast.error(err instanceof Error ? err.message : t('docker.stacks.saveFailed'))
+        setEditSaving(false)
+        return
+      }
+      const ok = await confirm({
+        title: t('docker.stacks.risky.title'),
+        description: (
+          <div className="space-y-2">
+            <p>{t('docker.stacks.risky.body')}</p>
+            <ul className="list-disc pl-4 text-[12px] font-mono space-y-1">
+              {riskLines(err).map((line) => <li key={line}>{line}</li>)}
+            </ul>
+          </div>
+        ),
+        confirmLabel: t('docker.stacks.risky.confirm'),
+        danger: true,
+      })
+      if (!ok) {
+        setEditSaving(false)
+        return
+      }
+      try {
+        await api.updateComposeProject(selectedName, editYaml, true)
+      } catch (retryErr: unknown) {
+        toast.error(retryErr instanceof Error ? retryErr.message : t('docker.stacks.saveFailed'))
+        setEditSaving(false)
+        return
+      }
     }
     setEditSaving(false)
 

@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { ArrowUp, CheckCircle2, Eye, FileCode, FileText, Loader2, Save, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { isRiskyRefusal, riskLines } from '@/lib/composeRisk'
 import { Button } from '@/components/ui/button'
+import { useConfirm } from '@/components/ConfirmDialog'
 import ComposeEditor from '@/components/compose/ComposeEditor'
 
 /**
@@ -42,6 +44,7 @@ export function StackEditorPanel({
   onEnvSaved: () => void
 }) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [saving, setSaving] = useState(false)
   const [envSaving, setEnvSaving] = useState(false)
   const [validating, setValidating] = useState(false)
@@ -73,7 +76,28 @@ export function StackEditorPanel({
     if (!yaml.trim()) return
     setSaving(true)
     try {
-      await api.updateComposeProject(project, yaml)
+      try {
+        await api.updateComposeProject(project, yaml)
+      } catch (err: unknown) {
+        // A risky refusal is the one the operator can lift: show what the
+        // stack asks for once, and save again with the acknowledgement.
+        if (!isRiskyRefusal(err)) throw err
+        const ok = await confirm({
+          title: t('docker.stacks.risky.title'),
+          description: (
+            <div className="space-y-2">
+              <p>{t('docker.stacks.risky.body')}</p>
+              <ul className="list-disc pl-4 text-[12px] font-mono space-y-1">
+                {riskLines(err).map((line) => <li key={line}>{line}</li>)}
+              </ul>
+            </div>
+          ),
+          confirmLabel: t('docker.stacks.risky.confirm'),
+          danger: true,
+        })
+        if (!ok) return
+        await api.updateComposeProject(project, yaml, true)
+      }
       toast.success(t('docker.stacks.saved'))
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.stacks.saveFailed'))

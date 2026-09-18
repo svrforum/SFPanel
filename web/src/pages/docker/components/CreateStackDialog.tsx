@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { isRiskyRefusal, riskLines } from '@/lib/composeRisk'
+import { useConfirm } from '@/components/ConfirmDialog'
 import {
   Dialog,
   DialogContent,
@@ -39,6 +41,7 @@ export function CreateStackDialog({
   onCreated: (projectName: string) => void | Promise<void>
 }) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [newName, setNewName] = useState('')
   const [newYaml, setNewYaml] = useState(DEFAULT_COMPOSE)
   const [creating, setCreating] = useState(false)
@@ -48,7 +51,28 @@ export function CreateStackDialog({
     setCreating(true)
     try {
       const created = newName.trim()
-      await api.createComposeProject(created, newYaml)
+      try {
+        await api.createComposeProject(created, newYaml)
+      } catch (err: unknown) {
+        // A risky refusal is the one the operator can lift: show what the
+        // stack asks for once, and create it with the acknowledgement.
+        if (!isRiskyRefusal(err)) throw err
+        const ok = await confirm({
+          title: t('docker.stacks.risky.title'),
+          description: (
+            <div className="space-y-2">
+              <p>{t('docker.stacks.risky.body')}</p>
+              <ul className="list-disc pl-4 text-[12px] font-mono space-y-1">
+                {riskLines(err).map((line) => <li key={line}>{line}</li>)}
+              </ul>
+            </div>
+          ),
+          confirmLabel: t('docker.stacks.risky.confirm'),
+          danger: true,
+        })
+        if (!ok) return
+        await api.createComposeProject(created, newYaml, true)
+      }
       toast.success(t('docker.compose.createSuccess', { name: newName }))
       onOpenChange(false)
       setNewName('')

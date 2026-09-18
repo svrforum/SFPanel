@@ -5,6 +5,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Eye, EyeOff } from 'lucide-react'
 import { api } from '@/lib/api'
+import { isRiskyRefusal, riskLines } from '@/lib/composeRisk'
+import { useConfirm } from '@/components/ConfirmDialog'
 import { toast } from 'sonner'
 
 const GITHUB_URL_RE = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(\.git)?$/
@@ -17,6 +19,7 @@ interface Props {
 
 export function GitImportForm({ onSuccess, onCancel }: Props) {
   const { t } = useTranslation()
+  const confirm = useConfirm()
   const [url, setUrl] = useState('')
   const [branch, setBranch] = useState('main')
   const [path, setPath] = useState('docker-compose.yml')
@@ -40,8 +43,31 @@ export function GitImportForm({ onSuccess, onCancel }: Props) {
     e.preventDefault()
     if (!validate()) return
     setSubmitting(true)
+    const req = { url, branch, path, token: token || undefined, name }
     try {
-      const res = await api.importFromGit({ url, branch, path, token: token || undefined, name })
+      let res: { project_name: string }
+      try {
+        res = await api.importFromGit(req)
+      } catch (err) {
+        // A risky refusal is the one the operator can lift: show what the
+        // stack asks for once, and import it with the acknowledgement.
+        if (!isRiskyRefusal(err)) throw err
+        const ok = await confirm({
+          title: t('docker.stacks.risky.title'),
+          description: (
+            <div className="space-y-2">
+              <p>{t('docker.stacks.risky.body')}</p>
+              <ul className="list-disc pl-4 text-[12px] font-mono space-y-1">
+                {riskLines(err).map((line) => <li key={line}>{line}</li>)}
+              </ul>
+            </div>
+          ),
+          confirmLabel: t('docker.stacks.risky.confirm'),
+          danger: true,
+        })
+        if (!ok) return
+        res = await api.importFromGit({ ...req, acknowledge_risks: true })
+      }
       toast.success(t('compose.gitImport.importSuccess', "Imported stack '{{name}}'", { name: res.project_name }))
       onSuccess(res.project_name)
     } catch (err) {

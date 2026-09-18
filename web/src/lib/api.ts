@@ -932,10 +932,14 @@ class ApiClient {
     return this.request<import('@/types/api').ComposeProjectWithStatus[]>('/docker/compose')
   }
 
-  createComposeProject(name: string, yaml: string) {
+  // acknowledgeRisks lifts the analyser's risky tier (docker.sock, privileged,
+  // host namespaces, …) after the operator has been shown the findings; it
+  // never lifts the forbidden tier. Sent only when true, so an ordinary save's
+  // body is unchanged.
+  createComposeProject(name: string, yaml: string, acknowledgeRisks = false) {
     return this.request('/docker/compose', {
       method: 'POST',
-      body: JSON.stringify({ name, yaml }),
+      body: JSON.stringify({ name, yaml, acknowledge_risks: acknowledgeRisks || undefined }),
     })
   }
 
@@ -943,10 +947,11 @@ class ApiClient {
     return this.request<{ project: import('@/types/api').ComposeProject; yaml: string }>(`/docker/compose/${project}`)
   }
 
-  updateComposeProject(project: string, yaml: string) {
+  // acknowledgeRisks: see createComposeProject.
+  updateComposeProject(project: string, yaml: string, acknowledgeRisks = false) {
     return this.request(`/docker/compose/${project}`, {
       method: 'PUT',
-      body: JSON.stringify({ yaml }),
+      body: JSON.stringify({ yaml, acknowledge_risks: acknowledgeRisks || undefined }),
     })
   }
 
@@ -1136,7 +1141,10 @@ class ApiClient {
     })
   }
 
-  importFromGit(req: ImportRequest) {
+  // acknowledge_risks: see createComposeProject. It rides the request body
+  // rather than ImportRequest because it is an answer to a refusal, not part
+  // of what the form collects.
+  importFromGit(req: ImportRequest & { acknowledge_risks?: boolean }) {
     return this.request<{ project_name: string }>(`/docker/compose/import`, {
       method: 'POST',
       body: JSON.stringify(req),
