@@ -2,6 +2,7 @@ package appstore
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -147,6 +148,10 @@ const (
 	appStoreBundleFile = "catalog.json"
 	cacheTTL           = 1 * time.Hour
 	httpTimeout        = 30 * time.Second
+	// composeResolveTimeout bounds the pre-deploy `docker compose config`.
+	// It is a pre-flight read, not the deploy itself: a wedged resolver must
+	// not add minutes to an install that would otherwise have started.
+	composeResolveTimeout = 60 * time.Second
 )
 
 var validAppID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,49}$`)
@@ -933,6 +938,24 @@ func (h *Handler) InstallApp(c echo.Context) error {
 	installCtx, installCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer installCancel()
 
+	// The compose text was checked before it was written — but the text says
+	// ${UPLOAD_LOCATION} and only the .env beside it knows what that expands
+	// to, and the `up` below resolves that same .env. Simple mode writes
+	// operator-supplied values into that file with no password gate, so this
+	// is where the forbidden tier holds for the App Store, exactly as
+	// guardResolvedCompose holds it for the plain compose endpoints. Forbidden
+	// tier only: the risky tier was answered above, before anything was written.
+	//
+	// On installCtx, not the request's: everything below survives a client
+	// disconnect, so a guard that died with the request would be lifted by
+	// hanging up — the resolver would fail, the check would skip as
+	// best-effort, and the `up` would deploy the bind anyway.
+	if verr := h.guardResolvedInstall(installCtx, composePath); verr != nil {
+		cleanup()
+		sendRefusal("Refused compose file: "+verr.Error(), response.ErrComposeForbidden)
+		return nil
+	}
+
 	send("pull", "Pulling images...", false, true)
 	if pullExit := h.streamCommand(installCtx, w, flusher, "pull", "docker", "compose", "-f", composePath, "pull"); pullExit != 0 {
 		// Report the pull failure directly instead of letting `up -d` fail
@@ -969,6 +992,55 @@ func (h *Handler) InstallApp(c echo.Context) error {
 	health := h.pollHealth(installCtx, composePath)
 	sendSSE(w, flusher, sseEvent{Stage: "done", Message: "App installed successfully", Done: true, Success: true, Health: health})
 	return nil
+}
+
+// guardResolvedInstall refuses an install whose RESOLVED compose binds one of
+// the panel's own secrets. The staged stack is on disk at this point, so the
+// document can be resolved exactly as `up` will resolve it, .env and all.
+//
+// Best-effort, like the compose module's deploy guard: a config that will not
+// resolve, or one that comes back unreadable, says nothing about the tier, and
+// the `pull` and `up` that follow report the real problem far better than a
+// refusal naming no path could. Refusing here on a parse hiccup would block
+// ordinary installs for a reason that is not the boundary.
+func (h *Handler) guardResolvedInstall(ctx context.Context, composePath string) error {
+	resolved, err := h.resolvedComposeYAML(ctx, composePath)
+	if err != nil {
+		slog.Warn("resolved compose unavailable; forbidden-tier check skipped",
+			"component", "appstore", "compose_path", composePath, "error", err)
+		return nil
+	}
+	report, err := composex.Analyze(resolved)
+	if err != nil {
+		slog.Warn("resolved compose could not be parsed; forbidden-tier check skipped",
+			"component", "appstore", "compose_path", composePath, "error", err)
+		return nil
+	}
+	return report.Error(true)
+}
+
+// resolvedComposeYAML returns what `docker compose config` makes of the staged
+// stack: the document with its .env interpolated, which is what `up` deploys.
+//
+// Direct os/exec rather than Commander because only stdout may be read.
+// Commander answers CombinedOutput, and compose writes its interpolation
+// warnings (`level=warning msg="The \"TZ\" variable is not set…"`) to stderr
+// while still exiting 0 — read together the two streams do not parse as YAML,
+// so every ordinary stack would skip the check instead of passing it. stderr
+// is kept for the error message only.
+func (h *Handler) resolvedComposeYAML(ctx context.Context, composePath string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, composeResolveTimeout)
+	defer cancel()
+
+	cmd := osExec.CommandContext(ctx, "docker", "compose", "-f", composePath, "config")
+	cmd.Dir = filepath.Dir(composePath) // so the stack's .env is picked up
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("compose config: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return string(out), nil
 }
 
 // composeDownArgs builds the `docker compose ... down` argument list. Volumes

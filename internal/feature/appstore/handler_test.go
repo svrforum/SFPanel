@@ -1,6 +1,7 @@
 package appstore
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -212,7 +213,14 @@ func newAdvancedHandler(t *testing.T, password string) *Handler {
 // installAdvanced runs one advanced install and returns the SSE body.
 func installAdvanced(t *testing.T, h *Handler, body string) string {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/appstore/apps/demo/install", strings.NewReader(body))
+	return installAdvancedCtx(t, h, body, context.Background())
+}
+
+// installAdvancedCtx is installAdvanced with a caller-chosen request context,
+// so a test can hang up the way a client does.
+func installAdvancedCtx(t *testing.T, h *Handler, body string, ctx context.Context) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/appstore/apps/demo/install", strings.NewReader(body)).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)
@@ -276,5 +284,144 @@ func TestInstallApp_AdvancedForbiddenEvenWhenAcknowledged(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(h.ComposePath, "demo")); !os.IsNotExist(err) {
 		t.Errorf("forbidden install left the stack directory behind: %v", err)
+	}
+}
+
+// composeConfigWarning is what `docker compose config` prints on stderr,
+// verbatim, when a compose file interpolates a variable the .env does not set.
+// It exits 0 and writes the resolved document to stdout regardless.
+const composeConfigWarning = `time="2026-09-19T01:17:17+09:00" level=warning msg="The \"TZ\" variable is not set. Defaulting to a blank string."`
+
+// fakeComposeConfig puts a `docker` on PATH that answers any invocation with
+// that warning on stderr and `resolved` on stdout — the two-stream shape the
+// pre-deploy resolver has to read correctly without a docker daemon.
+func fakeComposeConfig(t *testing.T, resolved string) {
+	t.Helper()
+	bin := t.TempDir()
+	docPath := filepath.Join(bin, "resolved.yml")
+	warnPath := filepath.Join(bin, "warning.txt")
+	if err := os.WriteFile(docPath, []byte(resolved), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(warnPath, []byte(composeConfigWarning+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stub := "#!/bin/sh\ncat " + warnPath + " >&2\ncat " + docPath + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// stagedStack writes the compose file an install has just staged and returns
+// its path. The resolver runs with that directory as its working directory —
+// that is how compose finds the stack's .env — so it has to exist.
+func stagedStack(t *testing.T, h *Handler) string {
+	t.Helper()
+	dir := filepath.Join(h.ComposePath, "demo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	composePath := filepath.Join(dir, "docker-compose.yml")
+	if err := os.WriteFile(composePath, []byte("services:\n  app:\n    image: x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return composePath
+}
+
+// The staged compose says ${UPLOAD_LOCATION}; only the .env beside it knows
+// that expands to the directory holding the JWT signing secret and the cluster
+// CA key, and `up` resolves that same .env. This also pins the stdout-only
+// read: merged with compose's stderr the document does not parse, the guard
+// would skip as best-effort, and the bind would deploy.
+func TestGuardResolvedInstall_RefusesWhatTheEnvExpandedTo(t *testing.T) {
+	h := newHandler(t)
+	composePath := stagedStack(t, h)
+	fakeComposeConfig(t, "name: demo\nservices:\n  immich:\n    image: x\n    volumes:\n      - type: bind\n        source: /etc/sfpanel\n        target: /usr/src/app/upload\n")
+
+	err := h.guardResolvedInstall(context.Background(), composePath)
+	if err == nil {
+		t.Fatal("install accepted a resolved compose binding /etc/sfpanel")
+	}
+	if !strings.Contains(err.Error(), "/etc/sfpanel") {
+		t.Errorf("refusal %q does not name the path", err)
+	}
+}
+
+// The other half: the check must not cost ordinary installs. A stack that
+// warns about an unset variable and binds its own data directory passes.
+func TestGuardResolvedInstall_AcceptsAnOrdinaryStack(t *testing.T) {
+	h := newHandler(t)
+	composePath := stagedStack(t, h)
+	fakeComposeConfig(t, "name: demo\nservices:\n  app:\n    image: x\n    volumes:\n      - type: bind\n        source: /opt/stacks/demo/data\n        target: /data\n")
+
+	if err := h.guardResolvedInstall(context.Background(), composePath); err != nil {
+		t.Errorf("an ordinary stack was refused: %v", err)
+	}
+}
+
+// Best-effort: a resolver that cannot run says nothing about the tier, and the
+// `pull` and `up` that follow report the real problem better than a refusal
+// naming no path would.
+func TestGuardResolvedInstall_IsBestEffortWhenTheConfigCannotResolve(t *testing.T) {
+	h := newHandler(t)
+	composePath := stagedStack(t, h)
+	t.Setenv("PATH", t.TempDir()) // no docker at all
+
+	if err := h.guardResolvedInstall(context.Background(), composePath); err != nil {
+		t.Errorf("a resolver failure became a refusal: %v", err)
+	}
+}
+
+// End to end through the handler: the interpolation hole the deploy guard was
+// created to close, on the App Store's own `docker compose up`. The compose
+// text passes the save-time check — `${UPLOAD_LOCATION}` is not a host path —
+// and the refusal has to come from the resolved document, reach the client as
+// the boundary tier, and leave no stack directory behind. Advanced mode is
+// what a test can drive (simple mode fetches the catalog compose over the
+// network); the guard sits after both branches, on the one path both share.
+func TestInstallApp_RefusesWhatTheResolvedConfigBinds(t *testing.T) {
+	h := newAdvancedHandler(t, "correct-horse")
+	fakeComposeConfig(t, "name: demo\nservices:\n  app:\n    image: x\n    volumes:\n      - type: bind\n        source: /etc/sfpanel\n        target: /data\n")
+
+	body := `{"advanced":true,"password":"correct-horse","compose":"services:\n  app:\n    image: x\n    volumes:\n      - ${UPLOAD_LOCATION}:/data\n","env_raw":"UPLOAD_LOCATION=/etc/sfpanel\n"}`
+	out := installAdvanced(t, h, body)
+
+	if !strings.Contains(out, "Refused compose file:") {
+		t.Fatalf("install deployed a stack whose .env pointed at /etc/sfpanel: %s", out)
+	}
+	if !strings.Contains(out, "/etc/sfpanel") {
+		t.Errorf("refusal does not name the path: %s", out)
+	}
+	// COMPOSE_FORBIDDEN, not COMPOSE_RISKY: a client that saw the liftable
+	// tier here would offer a confirm for a boundary no answer moves.
+	if !strings.Contains(out, `"code":"COMPOSE_FORBIDDEN"`) {
+		t.Errorf("refusal did not carry the forbidden code: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(h.ComposePath, "demo")); !os.IsNotExist(err) {
+		t.Errorf("refused install left the stack directory behind: %v", err)
+	}
+}
+
+// Hanging up must not lift the boundary. Everything after the guard runs on a
+// detached context so a closed browser tab does not abandon a half-installed
+// stack — which means a guard bound to the request would be lifted by the
+// cheapest possible move: POST the install, close the connection, and let the
+// resolver fail into the best-effort skip while `up` deploys the bind.
+func TestInstallApp_RefusesEvenWhenTheClientHangsUp(t *testing.T) {
+	h := newAdvancedHandler(t, "correct-horse")
+	fakeComposeConfig(t, "name: demo\nservices:\n  app:\n    image: x\n    volumes:\n      - type: bind\n        source: /etc/sfpanel\n        target: /data\n")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // the client is already gone when the handler reaches the guard
+
+	body := `{"advanced":true,"password":"correct-horse","compose":"services:\n  app:\n    image: x\n    volumes:\n      - ${UPLOAD_LOCATION}:/data\n","env_raw":"UPLOAD_LOCATION=/etc/sfpanel\n"}`
+	out := installAdvancedCtx(t, h, body, ctx)
+
+	if !strings.Contains(out, `"code":"COMPOSE_FORBIDDEN"`) {
+		t.Fatalf("a disconnected client got the install past the boundary: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(h.ComposePath, "demo")); !os.IsNotExist(err) {
+		t.Errorf("refused install left the stack directory behind: %v", err)
 	}
 }
