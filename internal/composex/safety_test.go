@@ -486,3 +486,56 @@ func TestAnalyzeReportsEveryFindingNotTheFirst(t *testing.T) {
 		t.Errorf("wrapper refused risky-but-allowed content: %v", err)
 	}
 }
+
+// Two mounts of one source at two targets are two things the stack asks for.
+// The messages are what the confirm dialog lists, so identical sentences are
+// not a cosmetic problem: the operator sees one line where the stack asked for
+// two mounts, and React keys the list by the line.
+func TestAnalyzeTellsTwoMountsOfOneSourceApart(t *testing.T) {
+	yaml := `services:
+  a:
+    image: x
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/tmp/sock
+`
+	report, err := Analyze(yaml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Risky) != 2 {
+		t.Fatalf("risky = %+v, want two bind findings", report.Risky)
+	}
+	if report.Risky[0].Message == report.Risky[1].Message {
+		t.Fatalf("both mounts produced the same sentence %q", report.Risky[0].Message)
+	}
+	for _, want := range []string{`at "/var/run/docker.sock"`, `at "/tmp/sock"`} {
+		if !strings.Contains(report.Risky[0].Message+report.Risky[1].Message, want) {
+			t.Errorf("no finding names %s: %+v", want, report.Risky)
+		}
+	}
+}
+
+// The long form is the shape `docker compose config` emits, and it is what the
+// deploy-time guard analyses. A source written with a stray space reaches the
+// same directory, so the tier has to trim it exactly as the short form does.
+func TestAnalyzeTrimsTheLongFormSource(t *testing.T) {
+	yaml := `services:
+  thief:
+    image: alpine
+    volumes:
+      - type: bind
+        source: "  /etc/sfpanel  "
+        target: /loot
+`
+	report, err := Analyze(yaml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Forbidden) != 1 || report.Forbidden[0].Rule != "bind" {
+		t.Fatalf("forbidden = %+v, want one bind finding", report.Forbidden)
+	}
+	if err := report.Error(true); err == nil {
+		t.Error("an acknowledged request bound /etc/sfpanel through the long form")
+	}
+}

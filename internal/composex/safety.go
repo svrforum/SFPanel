@@ -177,15 +177,15 @@ func (r *Report) analyzeService(svcName string, svc map[string]interface{}) {
 			}
 		}
 	}
-	for _, hostPath := range bindHostPaths(svc["volumes"]) {
+	for _, mount := range bindMounts(svc["volumes"]) {
 		finding := Finding{
-			Service: svcName, Rule: "bind", Detail: hostPath,
-			Message: fmt.Sprintf("service %q binds sensitive host path %q", svcName, hostPath),
+			Service: svcName, Rule: "bind", Detail: mount.Source,
+			Message: mount.message(svcName),
 		}
 		switch {
-		case forbiddenBind(hostPath):
+		case forbiddenBind(mount.Source):
 			r.forbidden(finding)
-		case isDangerousBind(hostPath):
+		case isDangerousBind(mount.Source):
 			r.risky(finding)
 		}
 	}
@@ -222,31 +222,60 @@ func isPrivileged(v interface{}) bool {
 	return false
 }
 
-// bindHostPaths returns the host side of every bind entry in a service's
-// volumes list. Named volumes (no leading '/') are not binds and are skipped.
-func bindHostPaths(v interface{}) []string {
+// bindMount is one bind entry: the host path the tiers match on, and the
+// container path it lands at. The target is carried because the findings are
+// read as a list — two mounts of the same source at different targets are two
+// separate things the stack asks for, and a message naming only the source
+// would print the same line twice.
+type bindMount struct {
+	Source string
+	Target string
+}
+
+// message is the sentence the operator reads for this mount.
+func (b bindMount) message(svcName string) string {
+	if b.Target == "" {
+		return fmt.Sprintf("service %q binds sensitive host path %q", svcName, b.Source)
+	}
+	return fmt.Sprintf("service %q binds sensitive host path %q at %q", svcName, b.Source, b.Target)
+}
+
+// bindMounts returns every bind entry in a service's volumes list. Named
+// volumes (no leading '/') are not binds and are skipped.
+func bindMounts(v interface{}) []bindMount {
 	list, ok := v.([]interface{})
 	if !ok {
 		return nil
 	}
-	var paths []string
+	var mounts []bindMount
 	for _, entry := range list {
-		var hostPath string
+		var mount bindMount
 		switch e := entry.(type) {
 		case string:
-			hostPath = strings.TrimSpace(strings.SplitN(e, ":", 2)[0])
+			// "source:target[:mode]" — the mode is not part of either half.
+			parts := strings.SplitN(e, ":", 3)
+			mount.Source = strings.TrimSpace(parts[0])
+			if len(parts) > 1 {
+				mount.Target = strings.TrimSpace(parts[1])
+			}
 		case map[string]interface{}:
 			if t, _ := e["type"].(string); !strings.EqualFold(t, "bind") && t != "" {
 				continue
 			}
-			hostPath, _ = e["source"].(string)
+			src, _ := e["source"].(string)
+			// TrimSpace like the short form above: " /etc/sfpanel" is the
+			// same directory, and the tiers must not miss it because the
+			// long form was written with a stray space.
+			mount.Source = strings.TrimSpace(src)
+			tgt, _ := e["target"].(string)
+			mount.Target = strings.TrimSpace(tgt)
 		}
-		if hostPath == "" || !strings.HasPrefix(hostPath, "/") {
+		if mount.Source == "" || !strings.HasPrefix(mount.Source, "/") {
 			continue
 		}
-		paths = append(paths, hostPath)
+		mounts = append(mounts, mount)
 	}
-	return paths
+	return mounts
 }
 
 // forbiddenBind reports the binds no acknowledgement lifts. Everything else
