@@ -43,9 +43,69 @@ type processCache struct {
 	sync.RWMutex
 	data      []ProcessInfo
 	updatedAt time.Time
+	// cpu is the CPU-time reading taken at the end of the last collection.
+	// It lives beside the result cache under the same lock because it has the
+	// same lifetime: one per Handler, published together with the rows it
+	// will be the baseline for.
+	cpu cpuSnapshot
 }
 
 const processCacheTTL = 3 * time.Second
+
+// cpuSnapshot is the CPU time of every process at one instant, kept between
+// collections so the rate can be measured over the interval the pages
+// actually poll at (10-15 s) rather than inside one request. Measuring inside a
+// request is what made the panel the top row of its own list: one collection
+// costs sfpanel 0.16 s of CPU, so in a 200 ms window it was the one process
+// guaranteed to be awake for all of it.
+type cpuSnapshot struct {
+	at    time.Time
+	times map[int32]float64
+}
+
+const (
+	// maxCPUWindow caps how old a baseline may be. Beyond it the average
+	// would smear a spike across minutes, so the collection samples fresh.
+	maxCPUWindow = 90 * time.Second
+	// minCPUWindow is the shortest interval that yields a rate rather than an
+	// accident, and doubles as the width of the fresh sample taken when no
+	// usable baseline exists. A baseline younger than this (a collection right
+	// after a kill invalidates the cache) is treated as unusable.
+	minCPUWindow = 1 * time.Second
+)
+
+// usable reports whether the snapshot can serve as a rate baseline at now. A
+// snapshot with no readings is not one however fresh it is — every rate would
+// come back 0 — and the zero value is covered by that same clause.
+func (s cpuSnapshot) usable(now time.Time) bool {
+	if len(s.times) == 0 {
+		return false
+	}
+	age := now.Sub(s.at)
+	return age >= minCPUWindow && age <= maxCPUWindow
+}
+
+// cpuRate is the share of one core a process used between the previous
+// snapshot and now, in percent. It returns 0 rather than a number it cannot
+// justify: a pid the baseline never saw has no window, a pid whose CPU time
+// went backwards is a reused pid, and a zero-length window is no window at
+// all. Reporting a lifetime average in those cases is what made an idle
+// process that burned an hour last night outrank one spiking now.
+func cpuRate(prev cpuSnapshot, now time.Time, pid int32, cpuSeconds float64) float64 {
+	before, ok := prev.times[pid]
+	if !ok {
+		return 0
+	}
+	window := now.Sub(prev.at).Seconds()
+	if window <= 0 {
+		return 0
+	}
+	delta := cpuSeconds - before
+	if delta <= 0 {
+		return 0
+	}
+	return delta / window * 100
+}
 
 // cachedProcesses returns the cached process list, refreshing it when stale.
 func (h *Handler) cachedProcesses() ([]ProcessInfo, error) {
@@ -56,14 +116,15 @@ func (h *Handler) cachedProcesses() ([]ProcessInfo, error) {
 		h.cache.RUnlock()
 		return result, nil
 	}
+	prev := h.cache.cpu
 	h.cache.RUnlock()
 
 	// Cache miss — collect fresh data WITHOUT holding any lock. collectProcesses
-	// enumerates /proc and sleeps ~200ms; holding the write lock across it would
-	// block every concurrent dashboard reader for that whole window. Concurrent
-	// misses may each collect (bounded and rare given the 3s TTL); we take the
-	// write lock only to publish.
-	infos, err := collectProcesses()
+	// enumerates /proc, and with no usable baseline it also sleeps a second;
+	// holding the write lock across it would block every concurrent dashboard
+	// reader for that whole window. Concurrent misses may each collect (bounded
+	// and rare given the 3s TTL); we take the write lock only to publish.
+	infos, snap, err := collectProcesses(prev)
 	if err != nil {
 		return nil, err
 	}
@@ -71,6 +132,7 @@ func (h *Handler) cachedProcesses() ([]ProcessInfo, error) {
 	h.cache.Lock()
 	h.cache.data = infos
 	h.cache.updatedAt = time.Now()
+	h.cache.cpu = snap
 	h.cache.Unlock()
 
 	result := make([]ProcessInfo, len(infos))
@@ -259,41 +321,61 @@ func (h *Handler) ReniceProcess(c echo.Context) error {
 	})
 }
 
-// collectProcesses gathers information about all running processes.
-// It calls CPUPercent() twice with a 200ms interval to get accurate CPU usage,
-// since the first call to gopsutil's CPUPercent() returns a value over the
-// process lifetime rather than the current rate.
 func init() {
-	// Every CreateTime — and Percent needs one per process — re-read
-	// /proc/stat for the boot time unless told to cache it. With ~700
-	// processes and two passes that was thousands of reads of the same file
-	// per collection, every ten seconds while the dashboard is open. Boot time
-	// does not change while the process is running.
+	// Every CreateTime re-reads /proc/stat for the boot time unless told to
+	// cache it, and boot time does not change while the process is running.
+	// The v0.72.0 audit turned this on because the collection called Percent
+	// once per process and each of those needs a CreateTime — thousands of
+	// reads of the same file per collection. The collection now reads Times()
+	// directly and needs no CreateTime at all, but the setting is global to
+	// gopsutil and free, so it stays for any other caller that does.
 	process.EnableBootTimeCache(true)
 }
 
-func collectProcesses() ([]ProcessInfo, error) {
+// readCPUTimes takes a CPU-time reading for every process in procs. A process
+// that vanishes mid-walk is simply absent from the map, which cpuRate reads as
+// "no baseline" rather than as a rate.
+func readCPUTimes(procs []*process.Process, at time.Time) cpuSnapshot {
+	times := make(map[int32]float64, len(procs))
+	for _, p := range procs {
+		if t, err := p.Times(); err == nil && t != nil {
+			times[p.Pid] = t.User + t.System
+		}
+	}
+	return cpuSnapshot{at: at, times: times}
+}
+
+// collectProcesses gathers information about all running processes, reporting
+// each one's CPU as the rate over the interval since the previous collection.
+//
+// It used to prime Percent(0) for every process, sleep 200 ms and read again.
+// The delta arithmetic was right; the window was not. A process that wakes for
+// nine milliseconds inside 200 ms reports 4.5%, and one process is guaranteed
+// to be awake for the whole window — the panel itself, walking 514 processes
+// twice. Measured on the reporting host: the panel showed sfpanel at 42% where
+// fifteen seconds of direct measurement read 0.4%, and one collection costs
+// sfpanel 0.16 s of CPU against 0.02 s over ten idle seconds. The pages poll
+// every 10-15 s and the result is cached for 3 s, so the interval between
+// collections is a window of seconds — long enough that the collection's own
+// cost is a rounding error, and comparable to what top shows. It is also one
+// /proc read per process instead of two, so the endpoint answers faster.
+func collectProcesses(prev cpuSnapshot) ([]ProcessInfo, cpuSnapshot, error) {
 	procs, err := process.Processes()
 	if err != nil {
-		return nil, err
+		return nil, cpuSnapshot{}, err
 	}
 
-	// First pass: take a CPU-time reading per process so the second pass can
-	// report the rate over the interval between them.
-	//
-	// This used to call CPUPercent() here and again below, believing the
-	// first call primed a delta. It does not: CPUPercent is the process's
-	// lifetime average — total CPU time over its age — so the first pass did
-	// nothing but cost a boot-time lookup per process, and the number shown
-	// as "current CPU" was history. A process that burned an hour of CPU last
-	// night and is idle now outranked one spiking this second. Percent(0) is
-	// the delta-since-last-call reading the comment always described.
-	for _, p := range procs {
-		_, _ = p.Percent(0)
+	now := time.Now()
+	if !prev.usable(now) {
+		// No comparable baseline: the first collection after a restart, one
+		// taken too soon after the last, or one whose baseline is old enough
+		// that the average would smear a spike across minutes. Sample a
+		// baseline here — over a full second, not the 200 ms this used to
+		// sleep, so the first screen is not the same accident.
+		prev = readCPUTimes(procs, now)
+		time.Sleep(minCPUWindow)
+		now = time.Now()
 	}
-
-	// Wait for a short interval to measure actual CPU rate
-	time.Sleep(200 * time.Millisecond)
 
 	// Total memory once, not per process. gopsutil's MemoryPercent re-reads
 	// /proc/meminfo on every call, which at 640 processes was 640 reads of the
@@ -308,11 +390,23 @@ func collectProcesses() ([]ProcessInfo, error) {
 	// across hundreds of processes.
 	usernames := map[uint32]string{}
 
-	// Second pass: collect actual data
+	// The reading that becomes the next collection's baseline, built as we go.
+	times := make(map[int32]float64, len(procs))
+
 	infos := make([]ProcessInfo, 0, len(procs))
 	for _, p := range procs {
 		name, _ := p.Name()
-		cpuPct, _ := p.Percent(0)
+
+		// Times() is one /proc/<pid>/stat read and needs no priming, unlike
+		// Percent. User + system is the CPU the process has consumed since it
+		// started; the rate is what changed since the baseline.
+		var cpuSeconds float64
+		if t, err := p.Times(); err == nil && t != nil {
+			cpuSeconds = t.User + t.System
+			times[p.Pid] = cpuSeconds
+		}
+		cpuPct := cpuRate(prev, now, p.Pid, cpuSeconds)
+
 		status, _ := p.Status()
 		cmdline, _ := p.Cmdline()
 		ppid, _ := p.Ppid()
@@ -364,5 +458,5 @@ func collectProcesses() ([]ProcessInfo, error) {
 		})
 	}
 
-	return infos, nil
+	return infos, cpuSnapshot{at: now, times: times}, nil
 }

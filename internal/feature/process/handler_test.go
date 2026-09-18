@@ -2,6 +2,7 @@ package process
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -160,5 +161,74 @@ func TestReniceProcess_Validation(t *testing.T) {
 	// Missing nice field → 400.
 	if rec := call("12345", `{}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("renice no nice: status = %d, want 400 — body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// The CPU column used to answer "who happened to run during those 200 ms":
+// collectProcesses primed Percent(0) for every process, slept 200 ms and read
+// again, so a process awake for nine of those milliseconds reported 4.5% and
+// the panel — walking 514 processes twice — was always the top row of its own
+// list (reported 42%, measured 0.4% over fifteen seconds). cpuRate measures
+// over the interval between collections instead, which is what the pages poll
+// at. These tests pin the arithmetic without needing a host.
+func TestCPURateUsesTheIntervalBetweenCollections(t *testing.T) {
+	prev := cpuSnapshot{
+		at:    time.Unix(1000, 0),
+		times: map[int32]float64{100: 10.0, 200: 5.0},
+	}
+	now := time.Unix(1015, 0) // fifteen seconds later, the poll interval
+	// 1.5 CPU-seconds in 15 s of wall clock is 10% of one core.
+	if got := cpuRate(prev, now, 100, 11.5); math.Abs(got-10) > 0.01 {
+		t.Errorf("cpuRate = %v, want 10", got)
+	}
+	// A process that did nothing reports nothing, not its lifetime average.
+	if got := cpuRate(prev, now, 200, 5.0); got != 0 {
+		t.Errorf("idle process reported %v, want 0", got)
+	}
+}
+
+func TestCPURateIsZeroWithoutAComparableBaseline(t *testing.T) {
+	prev := cpuSnapshot{at: time.Unix(1000, 0), times: map[int32]float64{100: 10.0}}
+	now := time.Unix(1015, 0)
+	// A pid the previous snapshot never saw: no window, no rate. Reporting
+	// total/age here is what made an idle process that burned an hour last
+	// night outrank one spiking now.
+	if got := cpuRate(prev, now, 999, 42.0); got != 0 {
+		t.Errorf("unseen pid reported %v, want 0", got)
+	}
+	// A pid whose CPU time went backwards is a reused pid, not a negative rate.
+	if got := cpuRate(prev, now, 100, 1.0); got != 0 {
+		t.Errorf("reused pid reported %v, want 0", got)
+	}
+	// A zero-length window cannot produce a rate.
+	if got := cpuRate(prev, time.Unix(1000, 0), 100, 11.5); got != 0 {
+		t.Errorf("zero window reported %v, want 0", got)
+	}
+}
+
+func TestSnapshotIsStaleAfterTheMaximumWindow(t *testing.T) {
+	prev := cpuSnapshot{at: time.Unix(1000, 0), times: map[int32]float64{100: 10.0}}
+	// Within the window the cached baseline is used...
+	if !prev.usable(time.Unix(1060, 0)) {
+		t.Error("a 60 s baseline should still be usable")
+	}
+	// ...beyond it the average would smear a spike across minutes, so the
+	// collection samples fresh instead.
+	if prev.usable(time.Unix(1400, 0)) {
+		t.Error("a 400 s baseline should not be used")
+	}
+	// A baseline younger than the minimum window is no window either: a
+	// collection right after a kill invalidated the result cache would
+	// otherwise measure over milliseconds — the accident this replaces.
+	if prev.usable(time.Unix(1000, 0).Add(100 * time.Millisecond)) {
+		t.Error("a 100 ms baseline should not be used")
+	}
+	// A snapshot holding no readings is not a baseline however fresh it is:
+	// every rate would come back 0 because no pid is in it.
+	if (cpuSnapshot{at: time.Unix(1000, 0)}).usable(time.Unix(1015, 0)) {
+		t.Error("a baseline with no readings should not be used")
+	}
+	if (cpuSnapshot{}).usable(time.Unix(1, 0)) {
+		t.Error("an empty baseline is never usable")
 	}
 }
