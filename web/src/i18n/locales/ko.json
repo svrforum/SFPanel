@@ -30,6 +30,7 @@
     "previous": "이전",
     "next": "다음",
     "error": "오류가 발생했습니다",
+    "networkError": "패널에 연결하지 못했습니다. 네트워크나 앞단 프록시를 확인하세요.",
     "output": {
       "operationRunning": "작업 진행 중...",
       "operationFailed": "작업 실패 — 아래 로그를 확인하세요",

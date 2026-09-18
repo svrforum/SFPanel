@@ -1,6 +1,7 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
+import { setApiTranslator } from '@/lib/api'
 import ko from './locales/ko.json'
 import en from './locales/en.json'
 
@@ -25,6 +26,11 @@ i18n
       escapeValue: false,
     },
   })
+
+// The API client can't call useTranslation() — it isn't a component — so hand
+// it the initialised instance. Without this its network-failure message stays
+// on the English fallback baked into the module.
+setApiTranslator((key, fallback) => i18n.t(key, { defaultValue: fallback }))
 
 export default i18n
 export { LANGUAGE_KEY }

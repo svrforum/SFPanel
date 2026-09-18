@@ -66,8 +66,31 @@ function PageLoader() {
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  if (!api.isAuthenticated()) {
+  // The refresh cookie is httpOnly, so whether a returning browser still has a
+  // session is a question only the server can answer. Give it the one silent
+  // attempt before deciding — redirecting first is what made a browser restart
+  // look like a logout (issue #54).
+  //
+  // ready: true = a session in hand, false = the attempt is still out (show the
+  // loader), null = it came back empty, so the operator logs in.
+  const [ready, setReady] = useState<boolean | null>(() => api.isAuthenticated())
+
+  useEffect(() => {
+    if (ready !== false) return
+    let cancelled = false
+    api.bootstrapSession().then((ok) => {
+      if (!cancelled) setReady(ok || null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [ready])
+
+  if (ready === null) {
     return <Navigate to="/login" replace />
+  }
+  if (!ready) {
+    return <PageLoader />
   }
   return <>{children}</>
 }

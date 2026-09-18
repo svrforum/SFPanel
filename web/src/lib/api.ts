@@ -86,6 +86,19 @@ function readCookie(name: string): string | null {
   return null
 }
 
+// The panel is unreachable, in English, for the moment before i18n has handed
+// this module a translator (and for the tests, which import it on its own).
+const NETWORK_ERROR_FALLBACK = 'Could not reach the panel. Check the network or the reverse proxy in front of it.'
+
+// translate is how this module reaches i18next. The client runs outside React,
+// so it has no useTranslation(); the i18n bootstrap calls setApiTranslator once
+// at startup and every message below goes through here.
+let translate: (key: string, fallback: string) => string = (_key, fallback) => fallback
+
+export function setApiTranslator(fn: (key: string, fallback: string) => string) {
+  translate = fn
+}
+
 /**
  * How long to wait for the operations the server itself bounds at five minutes.
  *
@@ -112,6 +125,10 @@ class ApiClient {
   // would each fire their own POST /auth/refresh — the first one rotates
   // and the others find the token gone.
   private refreshPromise: Promise<boolean> | null = null
+  // bootstrapPromise holds the single boot-time refresh attempt. See
+  // bootstrapSession() — it is kept even after it resolves false, so a page
+  // load asks at most once.
+  private bootstrapPromise: Promise<boolean> | null = null
 
   constructor() {
     // Tokens live in sessionStorage so a closed tab → fresh login. XSS still
@@ -201,6 +218,23 @@ class ApiClient {
 
   isAuthenticated(): boolean {
     return !!this.token
+  }
+
+  /**
+   * Restores a session at page load. The access token lives in
+   * sessionStorage — deliberately, so a closed tab drops it — while the
+   * server issues a 7-day httpOnly refresh cookie that JavaScript cannot
+   * read and an XSS cannot steal. Before this, a returning browser was sent
+   * to the login form with that cookie unused, which is what made the panel
+   * feel like it forgets you every restart (issue #54). One attempt per page
+   * load, shared by concurrent callers.
+   */
+  bootstrapSession(): Promise<boolean> {
+    if (this.token) return Promise.resolve(true)
+    if (!this.bootstrapPromise) {
+      this.bootstrapPromise = this.tryRefresh().catch(() => false)
+    }
+    return this.bootstrapPromise
   }
 
   get serverUrl(): string | null {
@@ -308,7 +342,12 @@ class ApiClient {
       if (err instanceof DOMException && err.name === 'AbortError') {
         throw new Error('Request timed out', { cause: err })
       }
-      throw err
+      // fetch rejects only when the request never completed at all — DNS, TLS,
+      // a reverse proxy that dropped it, a cross-origin redirect. The browser's
+      // own wording for that is "TypeError: Failed to fetch", which reaches the
+      // operator as a toast that names nothing to check (issue #54). Keep the
+      // original as `cause` so the console still shows it.
+      throw new Error(translate('common.networkError', NETWORK_ERROR_FALLBACK), { cause: err })
     } finally {
       clearTimeout(timer)
     }
@@ -347,12 +386,22 @@ class ApiClient {
   // refresh pair. Concurrent 401s share a single in-flight refresh via
   // refreshPromise. Returns true on success; false on any failure (caller
   // should treat as "session ended").
+  //
+  // A missing this.refreshToken is NOT a reason to skip the call: the server
+  // prefers the httpOnly sfpanel_refresh cookie over the body and that cookie
+  // is invisible here, so bailing out early is exactly what left a returning
+  // browser at the login form (issue #54). The body is the fallback for
+  // clients that hold the token but not the cookie — the desktop wrapper.
+  // Callers that only want a token-backed retry check refreshToken first.
   private tryRefresh(): Promise<boolean> {
     if (this.refreshPromise) return this.refreshPromise
-    if (!this.refreshToken) return Promise.resolve(false)
 
     this.refreshPromise = (async () => {
       try {
+        // No credentials option: fetch defaults to 'same-origin', which is
+        // what sends the refresh cookie on the panel's own origin. 'include'
+        // would also send it cross-origin, where the server sets no
+        // Access-Control-Allow-Credentials and the request would fail outright.
         const res = await fetch(`${this.apiBase}/auth/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

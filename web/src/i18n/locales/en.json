@@ -30,6 +30,7 @@
     "previous": "Previous",
     "next": "Next",
     "error": "An error occurred",
+    "networkError": "Could not reach the panel. Check the network or the reverse proxy in front of it.",
     "output": {
       "operationRunning": "Operation in progress...",
       "operationFailed": "Operation failed — check the log below",

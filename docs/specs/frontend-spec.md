@@ -91,7 +91,7 @@
 
 - **TauriGuard**: Tauri 데스크톱 환경에서만 활성화. 서버 URL이 설정되지 않은 경우 `/connect` 페이지로 리다이렉트. 웹 브라우저 환경에서는 패스스루.
 - **SetupGuard**: 모든 라우트를 감싸고, `/setup` 경로가 아닌 경우 `api.getSetupStatus()`를 호출하여 `setup_required === true`이면 `/setup`으로 리다이렉트. **모듈 레벨 `setupChecked` 변수**로 결과를 캐싱하여 한 번 체크 후에는 재호출하지 않음.
-- **ProtectedRoute**: `api.isAuthenticated()` (localStorage 토큰 존재 여부)를 체크하여, 미인증 시 `/login`으로 리다이렉트
+- **ProtectedRoute**: 토큰이 이미 있으면 그대로 통과. 없으면 `api.bootstrapSession()`으로 **페이지 로드당 한 번** 조용히 갱신을 시도하고(그동안 `PageLoader` 스피너), 성공하면 요청한 페이지를, 실패하면 `/login`을 보여준다. 액세스 토큰은 sessionStorage에 있어 탭을 닫으면 사라지지만 서버가 심은 7일짜리 httpOnly 리프레시 쿠키(`sfpanel_refresh`, 경로 `/api/v1/auth`)는 남아 있다 — 그 쿠키는 JS로 읽을 수 없으므로 세션이 살아 있는지 알 방법은 `POST /auth/refresh`를 한 번 물어보는 것뿐이다. 묻지 않고 바로 리다이렉트하던 것이 브라우저를 다시 열 때마다 로그인을 다시 하게 만든 원인이다(이슈 #54).
 
 ### 코드 분할 (Code Splitting)
 
@@ -583,15 +583,16 @@ interface UseWebSocketOptions {
 
 **파일**: `web/src/lib/api.ts`
 
-싱글턴 클래스 `ApiClient` (export: `api`). localStorage에 JWT 토큰 저장. 모든 요청에 `Authorization: Bearer <token>` 헤더 자동 포함. 응답은 `{ success, data, error }` 형식으로 래핑되며, `success === false` 시 Error throw.
+싱글턴 클래스 `ApiClient` (export: `api`). JWT 액세스 토큰은 **sessionStorage**에 저장한다(탭을 닫으면 사라지므로 XSS 노출 창이 열려 있는 탭으로 좁혀진다 — 세션을 이어주는 것은 httpOnly 리프레시 쿠키다). 모든 요청에 `Authorization: Bearer <token>` 헤더 자동 포함. 응답은 `{ success, data, error }` 형식으로 래핑되며, `success === false` 시 Error throw.
 
 ### 토큰 관리
 | 메서드 | 설명 |
 |--------|------|
-| `setToken(token: string)` | 토큰 설정 + localStorage 저장 |
-| `clearToken()` | 토큰 제거 + localStorage 삭제 |
+| `setTokenPair(token, refreshToken?)` | 액세스+리프레시 토큰 설정 + sessionStorage 저장 |
+| `clearToken()` | 토큰 제거 + sessionStorage 삭제 (구버전 localStorage 잔여분도 함께) |
 | `getToken(): string \| null` | 현재 토큰 반환 |
 | `isAuthenticated(): boolean` | 토큰 존재 여부 |
+| `bootstrapSession(): Promise<boolean>` | 페이지 로드당 한 번, 리프레시 쿠키로 세션 복구를 시도한다. 토큰이 이미 있으면 왕복 없이 `true`. 동시 호출은 한 번의 시도를 공유하고, 실패한 시도는 다시 하지 않는다 |
 
 ### 인증 (Auth)
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
@@ -609,6 +610,10 @@ interface UseWebSocketOptions {
 > **(v0.34.0)** `login()`은 4번째 인자 `recoveryCode?`를 받아 `{ username, password, totp_code, recovery_code }`를 전송한다.
 >
 > **리프레시 토큰 체인**: 로그인/셋업 응답의 액세스+리프레시 토큰 쌍을 저장하고(리프레시는 httpOnly 쿠키), 401 발생 시 내부 `tryRefresh()`가 `POST /auth/refresh`(공개 라우트, 회전식)로 **무중단 갱신** 후 원 요청을 1회 재시도한다. 동시 401은 단일 refresh 호출로 dedupe.
+>
+> 저장된 리프레시 토큰이 없어도 `tryRefresh()`는 요청을 보낸다. 서버가 본문보다 `sfpanel_refresh` 쿠키를 먼저 보고, 그 쿠키는 여기서 보이지 않기 때문이다 — 본문은 쿠키를 쓸 수 없는 클라이언트(데스크톱 래퍼)용 폴백이다. 같은 이유로 `credentials` 옵션을 두지 않는다(기본값 `same-origin`이 패널 자신의 출처에서 쿠키를 보내는 설정이다).
+>
+> **네트워크 실패**: `fetch` 자체가 거부하면(DNS·TLS·앞단 프록시가 끊음) 브라우저 문구 `Failed to fetch` 대신 번역된 `common.networkError`를 던진다. 원본은 `cause`에 남는다. i18n 부트스트랩이 `setApiTranslator()`로 번역기를 건네주며, 그전에는 영문 폴백이 쓰인다.
 >
 > **WS 티켓**: `buildWsUrl(path)`가 `POST /auth/ws-ticket`으로 60초 단발성 티켓을 로컬 노드에서 발급받아 `?ticket=`으로 URL을 구성한다(JWT가 URL에 남지 않음; 실패 시 레거시 `?token=` 폴백).
 >
