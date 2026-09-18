@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.76.1] – 2026-09-18
+
+### Fixed
+
+**터미널 opened a temporary shell instead of your sessions.** A browser that had used the panel before the pages were merged carried a leftover pointer to a temporary terminal tab, and the unified page treated it as the session you were last in. On a phone that meant entering 터미널 landed you in an empty temporary shell while your Claude and Codex sessions sat in the drawer unselected. Worse, the pointer was usually stale: a temporary session is discarded five minutes after its last viewer, and asking the server for one it no longer has makes it create a new one, so the panel was manufacturing the very shell it then showed you.
+
+Temporary tabs are no longer remembered between page loads. A temporary session now exists for one of two reasons only: the server still has it, or you just opened it. Without tmux, where temporary sessions are the whole workflow, the page asks the server which ones are alive and brings those back. The leftover pointers from older versions are cleared the first time you open the page, so this corrects itself on the next visit. Your tmux sessions are what the page opens, and the temporary shell is still one tap away under 도구·계정.
+
+---
+
 ## [0.76.0] – 2026-09-17
 
 ### Changed
