@@ -115,6 +115,48 @@ export function setApiTranslator(fn: (key: string, fallback: string) => string) 
  */
 const LONG_OP_TIMEOUT = 290_000
 
+/**
+ * Cross-tab serialisation of the boot refresh.
+ *
+ * The refresh cookie rotates on every use and the server reads a replay of an
+ * already-consumed token as theft: it deletes the whole family and answers
+ * "Session revoked" (`internal/feature/auth/refresh.go`). Two cold tabs opened
+ * together — a bookmark folder opened at once, two windows launched by the
+ * session restore of the browser itself — both start with empty sessionStorage
+ * and would both present the same cookie, so the second one would destroy the
+ * session this bootstrap exists to bring back, and log the operator out with a
+ * false theft warning in the panel log.
+ *
+ * Holding a lock across the attempt means the tab behind presents the cookie
+ * the tab ahead rotated to, and both come back with a session. It does not
+ * dedupe the two calls: sessionStorage is per-tab, so the second tab genuinely
+ * needs its own access token.
+ *
+ * Web Locks where the browser offers them — atomic, and released for us when a
+ * tab dies mid-refresh. It is a secure-context API, so a panel served over
+ * plain http (still the default) has no LockManager at all; there the lease
+ * below stands in.
+ */
+const BOOT_LOCK_NAME = 'sfpanel_session_bootstrap'
+/**
+ * How long a tab waits for the one ahead of it before asking anyway. It bounds
+ * what a wedged holder can do: a refresh that never returns must not pin every
+ * other tab on a spinner, and one risky refresh beats a page that never
+ * resolves.
+ */
+const BOOT_LOCK_WAIT = 5000
+/** Poll interval while waiting for the tab ahead to release the lease. */
+const BOOT_LOCK_POLL = 50
+/**
+ * A localStorage write is not a compare-and-swap, so a tab re-reads the key
+ * this long after writing it: two tabs that wrote in the same moment both see
+ * the later write, and only its author proceeds.
+ */
+const BOOT_LOCK_SETTLE = 50
+const BOOT_LOCK_KEY = 'sfpanel_bootstrap_lock'
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 class ApiClient {
   private token: string | null = null
   private refreshToken: string | null = null
@@ -227,14 +269,84 @@ class ApiClient {
    * read and an XSS cannot steal. Before this, a returning browser was sent
    * to the login form with that cookie unused, which is what made the panel
    * feel like it forgets you every restart (issue #54). One attempt per page
-   * load, shared by concurrent callers.
+   * load, shared by concurrent callers — and serialised against the other tabs
+   * booting alongside this one, see BOOT_LOCK_NAME.
    */
   bootstrapSession(): Promise<boolean> {
     if (this.token) return Promise.resolve(true)
     if (!this.bootstrapPromise) {
-      this.bootstrapPromise = this.tryRefresh().catch(() => false)
+      this.bootstrapPromise = this.bootRefresh().catch(() => false)
     }
     return this.bootstrapPromise
+  }
+
+  // bootRefresh runs the boot-time refresh under the cross-tab lock described
+  // at BOOT_LOCK_NAME. Only this path takes the lock: a refresh driven by a
+  // 401 belongs to a tab that is already running, and the browser sends those
+  // whenever they happen.
+  private async bootRefresh(): Promise<boolean> {
+    const locks: LockManager | undefined = globalThis.navigator?.locks
+    if (!locks) return this.leasedRefresh()
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), BOOT_LOCK_WAIT)
+    try {
+      return await locks.request(BOOT_LOCK_NAME, { signal: controller.signal }, () => this.tryRefresh())
+    } catch (err) {
+      // The signal only cancels the wait — once the lock is granted the
+      // callback's own outcome is what surfaces here — so an AbortError means
+      // the tab ahead outlasted BOOT_LOCK_WAIT and we ask on our own.
+      if ((err as { name?: string } | null)?.name !== 'AbortError') throw err
+      return this.tryRefresh()
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  // leasedRefresh is the path for browsers without Web Locks: a timestamped
+  // lease in localStorage, which every tab of one panel shares. Best-effort by
+  // construction — it fails open after BOOT_LOCK_WAIT, and a browser that
+  // refuses storage refreshes unserialised, which is what every build before
+  // this one did.
+  private async leasedRefresh(): Promise<boolean> {
+    const stamp = `${Date.now()}:${Math.random().toString(36).slice(2)}`
+    const held = await this.claimBootLease(stamp)
+    try {
+      return await this.tryRefresh()
+    } finally {
+      if (held) {
+        try {
+          if (localStorage.getItem(BOOT_LOCK_KEY) === stamp) localStorage.removeItem(BOOT_LOCK_KEY)
+        } catch {
+          // Storage went away mid-flight; the lease ages out on its own.
+        }
+      }
+    }
+  }
+
+  // claimBootLease returns once it is this tab's turn to send the refresh.
+  // true means the lease is ours to release, false means we gave up waiting
+  // (or have no storage) and the caller proceeds unserialised.
+  private async claimBootLease(stamp: string): Promise<boolean> {
+    const deadline = Date.now() + BOOT_LOCK_WAIT
+    for (;;) {
+      try {
+        const held = localStorage.getItem(BOOT_LOCK_KEY)
+        const since = held ? Number(held.split(':')[0]) : NaN
+        // Free, or a lease a tab that died mid-refresh left behind. The
+        // comparison is written to claim on NaN too, so a hand-edited value
+        // cannot wedge every tab for BOOT_LOCK_WAIT.
+        if (!(Date.now() - since < BOOT_LOCK_WAIT)) {
+          localStorage.setItem(BOOT_LOCK_KEY, stamp)
+          await sleep(BOOT_LOCK_SETTLE)
+          if (localStorage.getItem(BOOT_LOCK_KEY) === stamp) return true
+        }
+      } catch {
+        return false
+      }
+      if (Date.now() >= deadline) return false
+      await sleep(BOOT_LOCK_POLL)
+    }
   }
 
   get serverUrl(): string | null {

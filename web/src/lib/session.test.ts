@@ -107,3 +107,92 @@ describe('bootstrapSession', () => {
     expect(calls).toHaveLength(1)
   })
 })
+
+// The refresh cookie rotates on every use and the server revokes the whole
+// family when a consumed one comes back (internal/feature/auth/refresh.go), so
+// two tabs booting together must not present it at the same time. Each tab
+// still needs its own refresh — sessionStorage is per-tab — so what these cases
+// assert is that the two never overlap, not that one of them is skipped.
+//
+// Two tabs of one browser = two client instances over one localStorage. The
+// module is a singleton, so `vi.resetModules()` between imports is what makes
+// the second instance.
+
+// lockManagerStub is the slice of the Web Locks API bootRefresh uses: requests
+// for one name run one at a time, in arrival order.
+function lockManagerStub(taken: string[]): LockManager {
+  const queues = new Map<string, Promise<unknown>>()
+  return {
+    request: (name: string, _options: unknown, callback: () => Promise<unknown>) => {
+      taken.push(name)
+      const next = (queues.get(name) ?? Promise.resolve()).then(callback, callback)
+      queues.set(name, next.catch(() => undefined))
+      return next
+    },
+  } as unknown as LockManager
+}
+
+async function racingTabs(locks: LockManager | undefined) {
+  vi.stubGlobal('sessionStorage', memoryStorage())
+  vi.stubGlobal('localStorage', memoryStorage())
+  vi.stubGlobal('navigator', locks ? { locks } : {})
+
+  let inFlight = 0
+  let peak = 0
+  const calls: string[] = []
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL) => {
+    calls.push(String(input))
+    inFlight += 1
+    peak = Math.max(peak, inFlight)
+    // Long enough that an unserialised second tab would still be inside the
+    // first tab's request, which is exactly the replay the server punishes.
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    inFlight -= 1
+    return jsonResponse(200, { success: true, data: { token: 'rotated' } })
+  })
+
+  vi.resetModules()
+  const firstTab = (await import('./api')).api
+  vi.resetModules()
+  const secondTab = (await import('./api')).api
+  return { firstTab, secondTab, calls, peak: () => peak }
+}
+
+describe('two tabs booting together', () => {
+  it('never has two refreshes in flight at once (localStorage lease)', async () => {
+    const { firstTab, secondTab, calls, peak } = await racingTabs(undefined)
+
+    const results = await Promise.all([firstTab.bootstrapSession(), secondTab.bootstrapSession()])
+
+    expect(results).toEqual([true, true])
+    expect(calls).toHaveLength(2)
+    expect(peak()).toBe(1)
+  })
+
+  it('never has two refreshes in flight at once (Web Locks)', async () => {
+    const taken: string[] = []
+    const { firstTab, secondTab, calls, peak } = await racingTabs(lockManagerStub(taken))
+
+    const results = await Promise.all([firstTab.bootstrapSession(), secondTab.bootstrapSession()])
+
+    expect(results).toEqual([true, true])
+    expect(calls).toHaveLength(2)
+    expect(peak()).toBe(1)
+    // The lease would serialise these two on its own, so name the mechanism:
+    // where the browser has Web Locks, that is what holds them apart.
+    expect(taken).toEqual(['sfpanel_session_bootstrap', 'sfpanel_session_bootstrap'])
+  })
+
+  it('asks anyway rather than spinning when the tab ahead never releases', async () => {
+    const { firstTab, calls } = await racingTabs(undefined)
+    // A lease from a tab that died mid-refresh: older than the wait, so it is
+    // claimable immediately instead of costing the next boot five seconds.
+    localStorage.setItem('sfpanel_bootstrap_lock', `${Date.now() - 60_000}:dead-tab`)
+
+    const started = Date.now()
+    await expect(firstTab.bootstrapSession()).resolves.toBe(true)
+
+    expect(calls).toHaveLength(1)
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+})

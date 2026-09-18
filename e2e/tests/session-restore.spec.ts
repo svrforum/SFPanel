@@ -50,11 +50,13 @@ test.describe('Session restore', () => {
 
     await page.goto('/dashboard')
 
+    // Wait on the outcome, not on `goto`: the boot refresh is taken under a
+    // cross-tab lock, so it leaves the page a tick after load rather than
+    // during it. The restored token in sessionStorage is where it belongs —
+    // a closed tab still drops it, and only the cookie survives.
+    await expect.poll(() => page.evaluate(() => sessionStorage.getItem('token'))).toBe('restored-token')
     await expect(page).toHaveURL(/\/dashboard$/)
     expect(calls.filter((c) => c.endsWith('/auth/refresh'))).toHaveLength(1)
-    // The restored token is in sessionStorage, where it belongs — a closed tab
-    // still drops it, and only the cookie survives.
-    expect(await page.evaluate(() => sessionStorage.getItem('token'))).toBe('restored-token')
   })
 
   test('a browser with no cookie still lands on the login form after one attempt', async ({ page }) => {
@@ -72,5 +74,54 @@ test.describe('Session restore', () => {
 
     await expect(page).toHaveURL(/\/login$/)
     expect(calls.filter((c) => c.endsWith('/auth/refresh'))).toHaveLength(1)
+  })
+
+  // The refresh cookie rotates on every use and the server revokes the whole
+  // family when an already-consumed one comes back, so two tabs opened together
+  // — a bookmark folder, the browser's own session restore — must not present
+  // it at the same time. Both still refresh: sessionStorage is per-tab, so the
+  // second tab needs its own access token. What must not happen is an overlap.
+  test('two tabs booting together never hold the same refresh cookie at once', async ({ context, baseURL }) => {
+    await context.addCookies([{
+      name: 'sfpanel_refresh',
+      value: 'fixture-refresh',
+      domain: new URL(baseURL!).hostname,
+      path: '/api/v1/auth',
+      httpOnly: true,
+      secure: false,
+      sameSite: 'Strict',
+    }])
+
+    const windows: { start: number; end: number }[] = []
+    await context.route('**/api/v1/**', async (route) => {
+      if (new URL(route.request().url()).pathname.endsWith('/auth/refresh')) {
+        const start = Date.now()
+        // Held open long enough that an unserialised second tab would still be
+        // inside the first tab's rotation — which is the replay the server
+        // answers with "Session revoked".
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        await route.fulfill({ json: { success: true, data: { token: 'restored-token' } } })
+        windows.push({ start, end: Date.now() })
+        return
+      }
+      await fulfil(route, () => ({ status: 200, body: { success: true, data: {} } }))
+    })
+
+    const first = await context.newPage()
+    const second = await context.newPage()
+    for (const tab of [first, second]) {
+      await tab.addInitScript(() => localStorage.setItem('sfpanel_language', 'en'))
+    }
+
+    await Promise.all([first.goto('/dashboard'), second.goto('/dashboard')])
+
+    for (const tab of [first, second]) {
+      await expect.poll(() => tab.evaluate(() => sessionStorage.getItem('token'))).toBe('restored-token')
+      await expect(tab).toHaveURL(/\/dashboard$/)
+    }
+
+    expect(windows).toHaveLength(2)
+    windows.sort((a, b) => a.start - b.start)
+    expect(windows[1].start).toBeGreaterThanOrEqual(windows[0].end)
   })
 })

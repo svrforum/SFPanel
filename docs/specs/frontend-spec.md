@@ -592,7 +592,7 @@ interface UseWebSocketOptions {
 | `clearToken()` | 토큰 제거 + sessionStorage 삭제 (구버전 localStorage 잔여분도 함께) |
 | `getToken(): string \| null` | 현재 토큰 반환 |
 | `isAuthenticated(): boolean` | 토큰 존재 여부 |
-| `bootstrapSession(): Promise<boolean>` | 페이지 로드당 한 번, 리프레시 쿠키로 세션 복구를 시도한다. 토큰이 이미 있으면 왕복 없이 `true`. 동시 호출은 한 번의 시도를 공유하고, 실패한 시도는 다시 하지 않는다 |
+| `bootstrapSession(): Promise<boolean>` | 페이지 로드당 한 번, 리프레시 쿠키로 세션 복구를 시도한다. 토큰이 이미 있으면 왕복 없이 `true`. 동시 호출은 한 번의 시도를 공유하고, 실패한 시도는 다시 하지 않는다. 탭 사이에서도 이 시도를 직렬화한다 — 리프레시 쿠키는 쓸 때마다 회전하고 서버는 이미 쓴 토큰이 다시 오면 도난으로 보고 패밀리 전체를 폐기하므로, 함께 열린 두 탭이 같은 쿠키를 동시에 내밀면 안 된다. Web Locks가 있으면 그것을(보안 컨텍스트 전용이라 http 패널에는 없다), 없으면 localStorage 리스(`sfpanel_bootstrap_lock`)를 쓰고 5초 뒤에는 기다리지 않고 진행한다 |
 
 ### 인증 (Auth)
 | 메서드 | HTTP | 경로 | 반환 타입 | 설명 |
