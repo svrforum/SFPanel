@@ -2112,9 +2112,15 @@ Docker 네트워크 목록 조회.
 ```json
 {
   "name": "my-project",
-  "yaml": "version: '3'\nservices:\n  web:\n    image: nginx:latest\n    ports:\n      - '8080:80'"
+  "yaml": "version: '3'\nservices:\n  web:\n    image: nginx:latest\n    ports:\n      - '8080:80'",
+  "acknowledge_risks": false
 }
 ```
+
+**`acknowledge_risks`** (선택, 기본 `false`): compose 안전성 검사는 두 단계입니다.
+- `COMPOSE_RISKY` (400) — `privileged`, host 네임스페이스, `/var/run/docker.sock` 등 민감 바인드, 위험 capability, `security_opt: unconfined`, `devices`. 모든 findings가 메시지에 나열되며, 같은 요청에 `"acknowledge_risks": true`를 넣으면 통과합니다.
+- `COMPOSE_FORBIDDEN` (400) — 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위인 바인드. 패널의 JWT 서명 키·클러스터 CA 키·데이터베이스가 있는 곳이라 `acknowledge_risks`로도 풀리지 않습니다.
+- `INVALID_YAML` (400) — compose 문서 자체를 읽을 수 없음.
 
 **Response (200):** 생성된 ComposeProject 객체
 
@@ -2122,6 +2128,9 @@ Docker 네트워크 목록 조회.
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `MISSING_FIELDS` | 400 | name 또는 yaml 누락 |
+| `COMPOSE_RISKY` | 400 | 위험 패턴 발견, `acknowledge_risks` 미설정 |
+| `COMPOSE_FORBIDDEN` | 400 | 패널 자체 경로 바인드 (승인 불가) |
+| `INVALID_YAML` | 400 | compose 문서 파싱 실패 |
 
 ---
 
@@ -2167,9 +2176,15 @@ Compose 프로젝트 YAML 업데이트.
 **Request Body:**
 ```json
 {
-  "yaml": "version: '3'\nservices:\n  web:\n    image: nginx:alpine"
+  "yaml": "version: '3'\nservices:\n  web:\n    image: nginx:alpine",
+  "acknowledge_risks": false
 }
 ```
+
+**`acknowledge_risks`** (선택, 기본 `false`): compose 안전성 검사는 두 단계입니다.
+- `COMPOSE_RISKY` (400) — `privileged`, host 네임스페이스, `/var/run/docker.sock` 등 민감 바인드, 위험 capability, `security_opt: unconfined`, `devices`. 모든 findings가 메시지에 나열되며, 같은 요청에 `"acknowledge_risks": true`를 넣으면 통과합니다.
+- `COMPOSE_FORBIDDEN` (400) — 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위인 바인드. 패널의 JWT 서명 키·클러스터 CA 키·데이터베이스가 있는 곳이라 `acknowledge_risks`로도 풀리지 않습니다.
+- `INVALID_YAML` (400) — compose 문서 자체를 읽을 수 없음.
 
 **Response (200):**
 ```json
@@ -2180,6 +2195,14 @@ Compose 프로젝트 YAML 업데이트.
   }
 }
 ```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `MISSING_FIELDS` | 400 | yaml 누락 |
+| `COMPOSE_RISKY` | 400 | 위험 패턴 발견, `acknowledge_risks` 미설정 |
+| `COMPOSE_FORBIDDEN` | 400 | 패널 자체 경로 바인드 (승인 불가) |
+| `INVALID_YAML` | 400 | compose 문서 파싱 실패 |
 
 ---
 
@@ -2916,7 +2939,7 @@ Fail2ban jail 중지 (비활성화).
 
 **Request Body (심플 모드):** `{ "env": { "PORT": "3001", "PASSWORD": "my-secret" } }`
 
-**Request Body (고급 모드):** `{ "advanced": true, "compose": "<yaml>", "env_raw": "<.env>", "password": "<재인증>" }` — 비밀번호 bcrypt 재확인 + `privileged`/`pid:host`/hostfs/docker.sock 차단 검증. 요청 바디 1MB 캡.
+**Request Body (고급 모드):** `{ "advanced": true, "compose": "<yaml>", "env_raw": "<.env>", "password": "<재인증>", "acknowledge_risks": false }` — 비밀번호 bcrypt 재확인은 그대로이고, compose 안전성 검사는 두 단계입니다. `privileged`/host 네임스페이스/docker.sock 등 위험 패턴은 `"acknowledge_risks": true`로 승인하면 진행되고, 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위인 바인드는 승인해도 거부됩니다. 거부는 스트림의 `{stage:"prepare", success:false}` 이벤트로 `Refused compose file: <findings>` 형태로 전달됩니다. 요청 바디 1MB 캡.
 
 **스트림 종료/에러** (스트림 시작 전 사전 검사):
 | 코드 | HTTP 상태 | 조건 |

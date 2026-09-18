@@ -84,6 +84,9 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 	if !ok {
 		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, "bundle missing compose file")
 	}
+	// Forbidden tier only, and deliberately no acknowledgement: an import copies
+	// a stack that already exists and is already running on the source node, so
+	// the risk question was answered when it was created there.
 	if err := composex.ValidateAdvancedCompose(string(composeData)); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, response.SanitizeOutput(err.Error()))
 	}
@@ -143,10 +146,12 @@ func (h *Handler) MigrateImport(c echo.Context) error {
 
 	// Re-validate the RESOLVED compose (after .env interpolation). The raw-text
 	// ValidateAdvancedCompose above can be bypassed by a hostile/edited .env that
-	// injects privileged/host-mode/device directives via ${VAR} substitution, and
-	// the target's `up` re-resolves with that .env. Best-effort: if the config
-	// can't be resolved here, `up` would surface the same error, so fall back to
-	// the raw check rather than failing on a transient resolve error.
+	// injects a forbidden bind via ${VAR} substitution, and the target's `up`
+	// re-resolves with that .env. Best-effort: if the config can't be resolved
+	// here, `up` would surface the same error, so fall back to the raw check
+	// rather than failing on a transient resolve error. Forbidden tier only, for
+	// the same reason as the raw check above — the stack is already running on
+	// the source node.
 	if resolved, rerr := h.Compose.GetResolvedConfigYAML(opCtx, m.StackID); rerr == nil {
 		if verr := composex.ValidateAdvancedCompose(resolved); verr != nil {
 			_ = os.RemoveAll(stackDir)

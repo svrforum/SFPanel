@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	_ "modernc.org/sqlite"
 
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/common/exec"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 )
@@ -185,5 +187,84 @@ func TestWriteFileAtomic_OverwriteExisting(t *testing.T) {
 	}
 	if string(got) != "new" {
 		t.Fatalf("contents after overwrite = %q, want \"new\"", got)
+	}
+}
+
+// newAdvancedHandler returns a handler ready for an advanced install: an admin
+// row whose password the re-auth step will accept, and a pre-warmed catalog
+// cache so ensureCache never reaches the network. The app declares no ports and
+// no env, so the conflict checks before the compose gate are no-ops.
+func newAdvancedHandler(t *testing.T, password string) *Handler {
+	t.Helper()
+	h := newHandler(t)
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	if _, err := h.DB.Exec("INSERT INTO admin (username, password) VALUES (?, ?)", "admin", hash); err != nil {
+		t.Fatalf("seed admin: %v", err)
+	}
+	h.apps = []AppStoreMeta{{ID: "demo", Name: "Demo", Version: "1.0.0"}}
+	h.cachedAt = time.Now()
+	return h
+}
+
+// installAdvanced runs one advanced install and returns the SSE body.
+func installAdvanced(t *testing.T, h *Handler, body string) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/appstore/apps/demo/install", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.SetParamNames("id")
+	c.SetParamValues("demo")
+	c.Set("username", "admin")
+	if err := h.InstallApp(c); err != nil {
+		t.Fatalf("InstallApp returned err: %v", err)
+	}
+	return rec.Body.String()
+}
+
+// TestInstallApp_AdvancedRiskyWithoutAcknowledgement pins the App Store half of
+// the contract: a docker.sock bind is refused, the refusal names the finding,
+// and the half-created stack directory is cleaned up. The install never reaches
+// `docker compose pull`, which is what keeps this test off the real daemon —
+// and is why the acknowledged case is asserted in the compose package instead,
+// where the handler stops at the filesystem. Everything past this gate in the
+// App Store is a live `docker compose pull` + `up -d`.
+func TestInstallApp_AdvancedRiskyWithoutAcknowledgement(t *testing.T) {
+	h := newAdvancedHandler(t, "correct-horse")
+
+	body := `{"advanced":true,"password":"correct-horse","compose":"services:\n  dozzle:\n    image: amir20/dozzle\n    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock:ro\n"}`
+	out := installAdvanced(t, h, body)
+
+	if !strings.Contains(out, "Refused compose file:") {
+		t.Fatalf("stream did not refuse the compose file: %s", out)
+	}
+	if !strings.Contains(out, "/var/run/docker.sock") {
+		t.Errorf("refusal does not name the finding: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(h.ComposePath, "demo")); !os.IsNotExist(err) {
+		t.Errorf("refused install left the stack directory behind: %v", err)
+	}
+}
+
+// TestInstallApp_AdvancedForbiddenEvenWhenAcknowledged asserts the boundary the
+// flag must not reach: a /etc/sfpanel bind — the JWT signing secret and the
+// cluster CA key — is refused with the acknowledgement set.
+func TestInstallApp_AdvancedForbiddenEvenWhenAcknowledged(t *testing.T) {
+	h := newAdvancedHandler(t, "correct-horse")
+
+	body := `{"advanced":true,"password":"correct-horse","acknowledge_risks":true,"compose":"services:\n  thief:\n    image: alpine\n    volumes:\n      - /etc/sfpanel:/loot\n"}`
+	out := installAdvanced(t, h, body)
+
+	if !strings.Contains(out, "Refused compose file:") {
+		t.Fatalf("forbidden bind was not refused: %s", out)
+	}
+	if !strings.Contains(out, "/etc/sfpanel") {
+		t.Errorf("refusal does not name the forbidden path: %s", out)
+	}
+	if _, err := os.Stat(filepath.Join(h.ComposePath, "demo")); !os.IsNotExist(err) {
+		t.Errorf("forbidden install left the stack directory behind: %v", err)
 	}
 }

@@ -164,6 +164,10 @@ func (h *Handler) CreateProject(c echo.Context) error {
 	var req struct {
 		Name string `json:"name"`
 		YAML string `json:"yaml"`
+		// AcknowledgeRisks lifts the risky tier (docker.sock, privileged, host
+		// namespaces, …) after the operator has been shown what the stack asks
+		// for. It never lifts the forbidden tier.
+		AcknowledgeRisks bool `json:"acknowledge_risks"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -171,12 +175,21 @@ func (h *Handler) CreateProject(c echo.Context) error {
 	if req.Name == "" || req.YAML == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Name and yaml are required")
 	}
-	// Same compose-safety gate the App Store one-click installer uses —
-	// blocks privileged, host-namespace, dangerous-cap, /-bind, docker.sock,
-	// device-passthrough patterns. An operator who needs those for legit
-	// reasons can still get them via shell access.
-	if err := composex.ValidateAdvancedCompose(req.YAML); err != nil {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, err.Error())
+	// Same compose-safety gate the App Store one-click installer uses. Two
+	// tiers: the panel's own secrets are refused whatever the caller says,
+	// everything else (privileged, host namespaces, docker.sock, devices, …)
+	// is refused until the operator has seen the findings and acknowledged
+	// them — the App Store's own catalog is full of stacks that need them.
+	report, err := composex.Analyze(req.YAML)
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidYAML, err.Error())
+	}
+	if verr := report.Error(req.AcknowledgeRisks); verr != nil {
+		code := response.ErrComposeRisky
+		if len(report.Forbidden) > 0 {
+			code = response.ErrComposeForbidden
+		}
+		return response.Fail(c, http.StatusBadRequest, code, verr.Error())
 	}
 
 	ctx := c.Request().Context()
@@ -214,6 +227,8 @@ func (h *Handler) UpdateProject(c echo.Context) error {
 	name := c.Param("project")
 	var req struct {
 		YAML string `json:"yaml"`
+		// AcknowledgeRisks: see CreateProject.
+		AcknowledgeRisks bool `json:"acknowledge_risks"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -221,8 +236,16 @@ func (h *Handler) UpdateProject(c echo.Context) error {
 	if req.YAML == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "YAML content is required")
 	}
-	if err := composex.ValidateAdvancedCompose(req.YAML); err != nil {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, err.Error())
+	report, err := composex.Analyze(req.YAML)
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidYAML, err.Error())
+	}
+	if verr := report.Error(req.AcknowledgeRisks); verr != nil {
+		code := response.ErrComposeRisky
+		if len(report.Forbidden) > 0 {
+			code = response.ErrComposeForbidden
+		}
+		return response.Fail(c, http.StatusBadRequest, code, verr.Error())
 	}
 
 	ctx := c.Request().Context()
@@ -555,8 +578,16 @@ func (h *Handler) ImportFromGit(c echo.Context) error {
 		}
 	}
 
-	if err := composex.ValidateAdvancedCompose(yamlBody); err != nil {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidYAML, err.Error())
+	report, aerr := composex.Analyze(yamlBody)
+	if aerr != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidYAML, aerr.Error())
+	}
+	if verr := report.Error(req.AcknowledgeRisks); verr != nil {
+		code := response.ErrComposeRisky
+		if len(report.Forbidden) > 0 {
+			code = response.ErrComposeForbidden
+		}
+		return response.Fail(c, http.StatusBadRequest, code, verr.Error())
 	}
 
 	project, err := h.Compose.CreateProject(ctx, req.Name, yamlBody)

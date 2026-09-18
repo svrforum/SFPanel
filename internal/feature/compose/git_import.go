@@ -40,6 +40,10 @@ type ImportRequest struct {
 	Path   string `json:"path"`
 	Token  string `json:"token"`
 	Name   string `json:"name"`
+	// AcknowledgeRisks lifts the risky tier of the compose safety analyser for
+	// the fetched file, once the operator has been shown what it asks for. It
+	// never lifts the forbidden tier.
+	AcknowledgeRisks bool `json:"acknowledge_risks"`
 }
 
 var (

@@ -26,6 +26,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/composex"
 )
 
 // ---------------------------------------------------------------------------
@@ -694,12 +695,17 @@ func (h *Handler) InstallApp(c echo.Context) error {
 		Compose  string            `json:"compose"`
 		EnvRaw   string            `json:"env_raw"`
 		Advanced bool              `json:"advanced"`
+		// AcknowledgeRisks lifts the risky tier of the compose analyser
+		// (docker.sock, privileged, host namespaces, devices, …) once the
+		// operator has been shown what the stack asks for. It never lifts
+		// the forbidden tier, and it does not replace the password below.
+		AcknowledgeRisks bool `json:"acknowledge_risks"`
 		// Password is the operator's current password; required when
 		// Advanced=true because that branch lets the operator submit
-		// arbitrary compose YAML — a host-root primitive that already
-		// validateAdvancedCompose gates structurally, but step-up
-		// re-auth blocks the case where an attacker has merely stolen
-		// the JWT (XSS, cookie exfil) without the credential itself.
+		// arbitrary compose YAML — a host-root primitive that the
+		// compose analyser gates structurally, but step-up re-auth
+		// blocks the case where an attacker has merely stolen the JWT
+		// (XSS, cookie exfil) without the credential itself.
 		Password string `json:"password,omitempty"`
 	}
 	if err := c.Bind(&req); err != nil {
@@ -822,14 +828,22 @@ func (h *Handler) InstallApp(c echo.Context) error {
 			send("prepare", "docker-compose.yml content is empty", true, false)
 			return nil
 		}
-		// Advanced mode lets the user submit arbitrary compose YAML, which
-		// otherwise becomes a trivial host-root-escape primitive
-		// (privileged: true, pid: host, /:/hostfs bind, docker.sock bind).
-		// Reject the most obvious patterns before handing the file to
-		// `docker compose up -d`.
-		if err := validateAdvancedCompose(req.Compose); err != nil {
+		// Advanced mode lets the user submit arbitrary compose YAML. The
+		// panel's own secrets (/etc/sfpanel, /var/lib/sfpanel, /root/.ssh,
+		// /etc/sudoers.d) are refused whatever the caller says; the rest —
+		// privileged, host namespaces, docker.sock, devices — is refused
+		// until the operator acknowledges it, because the shipped catalog
+		// itself is full of stacks that need exactly those. The password
+		// re-prompt above is a separate gate and still applies.
+		report, aerr := composex.Analyze(req.Compose)
+		if aerr != nil {
 			cleanup()
-			send("prepare", "Refused compose file: "+err.Error(), true, false)
+			send("prepare", "Refused compose file: "+aerr.Error(), true, false)
+			return nil
+		}
+		if verr := report.Error(req.AcknowledgeRisks); verr != nil {
+			cleanup()
+			send("prepare", "Refused compose file: "+verr.Error(), true, false)
 			return nil
 		}
 		send("prepare", "Writing custom docker-compose.yml...", false, true)
