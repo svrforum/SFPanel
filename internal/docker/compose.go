@@ -2,10 +2,12 @@ package docker
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -472,7 +474,7 @@ func (m *ComposeManager) ValidateConfig(ctx context.Context, name string) (strin
 // project — the fully-resolved compose spec (env-interpolated, defaults
 // applied). Used by stack migration to enumerate ports/volumes/binds/devices.
 func (m *ComposeManager) GetResolvedConfig(ctx context.Context, name string) ([]byte, error) {
-	out, err := m.runCompose(ctx, name, "config", "--format", "json")
+	out, err := m.runComposeStdout(ctx, name, "config", "--format", "json")
 	if err != nil {
 		return nil, fmt.Errorf("compose config: %w", err)
 	}
@@ -485,7 +487,7 @@ func (m *ComposeManager) GetResolvedConfig(ctx context.Context, name string) ([]
 // privileged/host-mode/device directives past the raw-text safety check (the
 // target's `up` re-resolves with that .env).
 func (m *ComposeManager) GetResolvedConfigYAML(ctx context.Context, name string) (string, error) {
-	out, err := m.runCompose(ctx, name, "config")
+	out, err := m.runComposeStdout(ctx, name, "config")
 	if err != nil {
 		return "", fmt.Errorf("compose config: %w", err)
 	}
@@ -514,7 +516,56 @@ func (m *ComposeManager) guardResolvedCompose(ctx context.Context, name string, 
 	if err != nil {
 		return nil
 	}
-	return composex.ValidateAdvancedCompose(resolved)
+	report, err := composex.Analyze(resolved)
+	if err != nil {
+		// Unreadable is not forbidden. Analyze fails when the document could
+		// not be parsed at all, which says nothing about the tier — and `up`
+		// resolves the very same file a moment later and reports the real
+		// problem far better than this guard could. Refusing here would turn
+		// every parse hiccup into a deploy refusal that names no path.
+		slog.Warn("resolved compose could not be parsed; forbidden-tier check skipped",
+			"component", "compose", "stack", name, "error", err)
+		return nil
+	}
+	return report.Error(true)
+}
+
+// runComposeStdout executes a docker compose command and returns ONLY its
+// stdout. `docker compose config` writes its interpolation warnings to stderr
+// — `time="…" level=warning msg="The \"TZ\" variable is not set…"` — and still
+// exits 0, so reading the two streams together prepends log lines to the
+// resolved document and every parser downstream (the deploy guard, migration's
+// re-validation and its JSON enumeration) then rejects a stack that is in fact
+// fine. stderr is kept for the error message only.
+//
+// This is the resolver's runner, not a deploy path: it does not run
+// guardResolvedCompose, so never route `up` through it.
+func (m *ComposeManager) runComposeStdout(ctx context.Context, name string, args ...string) (string, error) {
+	if err := m.validateProjectName(name); err != nil {
+		return "", err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	yamlPath, dir := m.resolveComposeFilePath(ctx, name)
+	if yamlPath == "" {
+		return "", fmt.Errorf("no compose file found in %q", name)
+	}
+
+	cmdArgs := append([]string{"compose", "-f", yamlPath}, args...)
+	cmd := exec.CommandContext(ctx, "docker", cmdArgs...)
+	cmd.Dir = dir // Set working directory so .env is picked up
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return "", fmt.Errorf("%w: %s", err, msg)
+		}
+		return "", err
+	}
+	return string(out), nil
 }
 
 // runCompose executes a docker compose command for the given project.
