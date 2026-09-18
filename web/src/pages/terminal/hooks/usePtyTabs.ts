@@ -17,6 +17,8 @@ function generateTabId() {
  * after a reload and then opening a temporary shell hands out `term-1` again:
  * `add` appends unconditionally, so the operator gets two rows and two
  * sockets onto one shell instead of a new one, and closing either drops both.
+ * tmux mode never adopts, and the same id would land the operator inside a
+ * live shell instead of a new one there, so it notes the list too (`note`).
  */
 function noteTabId(id: string) {
   const m = /^term-(\d+)$/.exec(id)
@@ -76,6 +78,23 @@ export function usePtyTabs() {
     })
   }, [t])
 
+  /**
+   * Keeps the id generator past the sessions the server already has, without
+   * making tabs of them. This is the tmux-mode half of the same problem
+   * `adopt` solves in fallback mode: there the sessions become tabs, here they
+   * must not — a temporary shell is a door the operator opens on purpose — but
+   * the ids come from this same generator, so `term-1` from an earlier page
+   * load (or another device signed in as the same operator) is exactly what
+   * the next temporary shell would ask the server for, and the server hands
+   * back that live shell, scrollback and all, instead of a new one. `adopt`
+   * keeps its own noting rather than leaning on this one, so it cannot be
+   * called without it; noting an id twice costs nothing, the counter only
+   * ever moves up.
+   */
+  const note = useCallback((sessionIds: string[]) => {
+    sessionIds.forEach(noteTabId)
+  }, [])
+
   const close = useCallback((id: string) => {
     setTabs((prev) => prev.filter((tb) => tb.id !== id))
   }, [])
@@ -86,5 +105,5 @@ export function usePtyTabs() {
     setTabs((prev) => prev.map((tb) => (tb.id === id ? { ...tb, title: trimmed } : tb)))
   }, [])
 
-  return { tabs, add, adopt, reattach, close, rename }
+  return { tabs, add, adopt, note, reattach, close, rename }
 }

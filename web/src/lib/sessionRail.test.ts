@@ -88,9 +88,14 @@ describe('keys', () => {
   it('ignores an unprefixed stored key: the old terminal page auto-created its first tab, so that id names a tab nobody asked for', () => {
     expect(parseActiveKey('term-3')).toBeNull()
     expect(parseActiveKey('tmux:abc')).toBe('tmux:abc')
-    expect(parseActiveKey('pty:term-3')).toBe('pty:term-3')
     expect(parseActiveKey('')).toBeNull()
     expect(parseActiveKey(null)).toBeNull()
+  })
+  // The page deletes a non-tmux stored key on load. That deletion only sticks
+  // if the value never reaches the page's state — the effect that mirrors the
+  // active key back into storage would otherwise write it straight back.
+  it('restores no temporary tab: a stored pty key names a tab that was never persisted', () => {
+    expect(parseActiveKey('pty:term-3')).toBeNull()
   })
   it('finds an item by key', () => {
     const groups = buildRail([s('a', '/a', '')], [{ id: 'term-1', title: 'T' }], opts)

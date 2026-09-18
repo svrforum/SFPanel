@@ -25,7 +25,7 @@ import { usePtyTabs } from '@/pages/terminal/hooks/usePtyTabs'
 const nodeSuffix = () => api.currentNode || 'local'
 const accountKey = () => `sfpanel_ai_account:${nodeSuffix()}`
 // The key the PTY-only page used for its active tab; the value is now
-// namespaced, and a bare value from before is ignored (see parseActiveKey).
+// namespaced, and only a `tmux:` one is restored (see parseActiveKey).
 const activeStorageKey = () => `sfpanel_terminal_active:${nodeSuffix()}`
 const RAIL_KEY = 'sfpanel_terminal_rail'
 const FONT_SIZE_KEY = 'sfpanel_terminal_fontsize'
@@ -79,8 +79,8 @@ export default function TerminalPage() {
   const { sessions, loaded, refresh } = useAISessions()
   const pty = usePtyTabs()
   // `pty` is a fresh object every render, so the memos and the fetch below
-  // depend on these two values rather than on the hook's result.
-  const { adopt: adoptPty, tabs: ptyTabs } = pty
+  // depend on these three values rather than on the hook's result.
+  const { adopt: adoptPty, note: notePty, tabs: ptyTabs } = pty
 
   // Promise callbacks rather than await: the effect kicks this off on mount
   // and an async body would trip react-hooks/set-state-in-effect. First load
@@ -98,9 +98,12 @@ export default function TerminalPage() {
   useEffect(() => { if (account) writeLS(accountKey(), account) }, [account])
   useEffect(() => { writeLS(FONT_SIZE_KEY, String(fontSize)) }, [fontSize])
   useEffect(() => { writeLS(RAIL_KEY, collapsed ? 'collapsed' : 'open') }, [collapsed])
-  // v0.76.0 and the PTY-only page before it stored an active tab id here; a
-  // temporary tab no longer survives a page load, so the value can only name
-  // something that does not exist. Clearing it keeps the picker honest.
+  // A stored key that is not `tmux:` names a temporary tab — the bare id the
+  // PTY-only page wrote, or the `pty:` key the effect below wrote before the
+  // last reload — and no temporary tab survives a page load. `parseActiveKey`
+  // has already refused to restore it, which is what lets the removal stick:
+  // a value still held in `active` would be written straight back. The old
+  // page's tab LIST goes too; nothing reads a tab back from storage.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(activeStorageKey())
@@ -172,8 +175,12 @@ export default function TerminalPage() {
     const seq = ++ptyFetchSeq.current
     api.getTerminalSessions()
       .then((r) => {
-        if (seq !== ptyFetchSeq.current) return
         const list = r.sessions || []
+        // Before the seq guard on purpose: `note` only ever raises the id
+        // counter, so even a superseded answer is worth having, and an id the
+        // generator has not been told about is one it can hand out twice.
+        notePty(list.map((s) => s.session_id))
+        if (seq !== ptyFetchSeq.current) return
         setPtySessions(list)
         if (fallback && !adopted.current) {
           adopted.current = true
@@ -181,13 +188,19 @@ export default function TerminalPage() {
         }
       })
       .catch(() => { if (seq === ptyFetchSeq.current) setPtySessions([]) })
-  }, [fallback, adoptPty])
-  // Re-issued whenever the tab COUNT changes, not only when the temporary
-  // group first appears: closing a tab does not end its PTY session, and a
-  // session opened after the last fetch is missing from ptySessions — so the
-  // shell just closed would be listed nowhere. The count and not `ptyTabs`,
-  // so a rename fetches nothing.
-  useEffect(() => { if (fallback || tabCount > 0) loadPtySessions() }, [fallback, tabCount, loadPtySessions])
+  }, [fallback, adoptPty, notePty])
+  // Issued at mount in BOTH modes, and re-issued whenever the tab COUNT
+  // changes. At mount because the id generator restarts at zero on every page
+  // load while the server's sessions outlive it: tmux mode never adopts, so
+  // without this first answer the temporary shell the operator opens asks for
+  // `term-1` and the server hands back the one an earlier page load — or
+  // another device — left running (see usePtyTabs `note`). On a count change
+  // because closing a tab does not end its PTY session, and a session opened
+  // after the last fetch is missing from ptySessions, so the shell just closed
+  // would be listed nowhere. The count and not `ptyTabs`, so a rename fetches
+  // nothing; in fallback mode `fallback` flipping true costs one more fetch,
+  // which is the one that adopts.
+  useEffect(() => { loadPtySessions() }, [tabCount, loadPtySessions])
   // Listed inside the temporary group: the sessions this browser has no tab
   // for. Filtered at render, so the list narrows the instant a tab opens and
   // does not wait on the refetch above.

@@ -29,19 +29,25 @@ export function activeKey(item: RailItem): string {
 }
 
 /**
- * Reads a stored active key. Only an engine-prefixed value means anything:
- * the PTY-only page kept a bare tab id under the same localStorage name, and
- * it auto-created that first tab for every visitor rather than on request. A
- * bare value is therefore not a session the operator chose — honouring it made
- * an upgraded browser open a phantom temporary shell while live tmux sessions
- * sat unselected — so it is read as "no preference" and pickActive decides.
- * A pty: key is honoured, but only within one page life: temporary tabs are
- * never persisted any more, so a stored one names a tab that no longer
- * exists and pickActive drops it on its own.
+ * What a page load restores from the stored active key. Only a `tmux:` value
+ * survives a reload; everything else found there names something that cannot
+ * exist any more, and is read as "no preference" so pickActive decides:
+ *
+ * - a bare id is what the PTY-only page wrote, and that page auto-created its
+ *   first tab for every visitor rather than on request — honouring it made an
+ *   upgraded browser open a phantom temporary shell while live tmux sessions
+ *   sat unselected;
+ * - a `pty:` value names a temporary tab. Tabs are written here while the page
+ *   is open, but nothing persists them, so by the time one is read back the
+ *   tab it names is gone.
+ *
+ * Both are dropped here rather than carried into the page's state, which is
+ * what lets Terminal.tsx delete them from storage on load: a value still held
+ * in state would be written straight back.
  */
 export function parseActiveKey(raw: string | null): string | null {
   if (!raw) return null
-  return raw.startsWith('tmux:') || raw.startsWith('pty:') ? raw : null
+  return raw.startsWith('tmux:') ? raw : null
 }
 
 export function baseName(cwd: string): string {

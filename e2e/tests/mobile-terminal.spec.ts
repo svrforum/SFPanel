@@ -324,3 +324,47 @@ test('a temporary session just closed is offered under Reattach: closing a tab d
   await expect.poll(() => page.locator('[data-rail-key]').evaluateAll(els => els.map(el => el.getAttribute('data-rail-key'))))
     .toEqual(['pty:term-3', 'pty:term-4'])
 })
+
+test('with tmux a temporary shell is a NEW shell: the id generator starts past the sessions the server already has', async ({ page }) => {
+  // tmux mode never adopts the server's PTY sessions as tabs — a temporary
+  // shell is a door the operator opens on purpose — but its ids come from the
+  // same `term-N` generator, module state that restarts at zero on every page
+  // load. The server hands an id it already knows straight back as that live
+  // shell, so without the boot fetch the operator asking for a temporary shell
+  // lands inside the one an earlier page load, or another device signed in as
+  // the same operator, left running.
+  const sockets: string[] = []
+  await page.addInitScript(() => {
+    sessionStorage.setItem('token', 'mobile-test-token')
+    localStorage.setItem('i18nextLng', 'en')
+  })
+  await page.route('**/api/v1/**', async route => {
+    const url = new URL(route.request().url())
+    let data: unknown = {}
+    if (url.pathname.endsWith('/auth/setup-status')) data = { setup_required: false }
+    else if (url.pathname.endsWith('/auth/ws-ticket')) data = { ticket: 'mobile-test-ticket' }
+    else if (url.pathname.endsWith('/cluster/status')) data = { enabled: false }
+    else if (url.pathname.endsWith('/system/overview')) data = { version: 'test' }
+    else if (url.pathname.endsWith('/ai/sessions')) data = []
+    else if (url.pathname.endsWith('/ai/tools')) data = { tmux: { installed: true, supported: true, version: '3.4', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {} }
+    // The shell an earlier page load left behind: still alive, and not a tab
+    // in this browser.
+    else if (url.pathname.endsWith('/terminal/sessions')) data = { sessions: [{ session_id: 'term-1', last_use: '2026-09-18T00:00:00Z', attached: false, reader_count: 0 }] }
+    else if (url.pathname.endsWith('/terminal/info')) data = { shell_user: 'tester', hostname: 'fixture', home: '/home/tester', shell: '/bin/bash', is_root: false }
+    await route.fulfill({ json: { success: true, data } })
+  })
+  await page.routeWebSocket(/\/ws\//, socket => { sockets.push(socket.url()) })
+  await page.goto('/terminal')
+  await expect(page.getByText('No open sessions')).toBeVisible()
+  await page.getByRole('button', { name: 'Sessions', exact: true }).tap()
+  await page.getByRole('button', { name: 'Tools & accounts' }).tap()
+  await page.getByRole('button', { name: 'Open a temporary shell without tmux' }).tap()
+  await expect(page.locator('[data-terminal-session="active"]')).toBeVisible()
+  await page.getByRole('button', { name: 'Sessions', exact: true }).tap()
+  await expect.poll(() => page.locator('[data-rail-key]').evaluateAll(els => els.map(el => el.getAttribute('data-rail-key'))))
+    .toEqual(['pty:term-2'])
+  // The id on the wire is what decides whether the server creates a shell or
+  // returns one, so assert that and not only the row.
+  await expect.poll(() => sockets.map(u => new URL(u).searchParams.get('session_id')).filter(Boolean))
+    .toEqual(['term-2'])
+})
