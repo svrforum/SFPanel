@@ -244,6 +244,11 @@ func TestInstallApp_AdvancedRiskyWithoutAcknowledgement(t *testing.T) {
 	if !strings.Contains(out, "/var/run/docker.sock") {
 		t.Errorf("refusal does not name the finding: %s", out)
 	}
+	// The code is what the client acts on: without it the install dead-ends
+	// at a terminal failure event instead of asking the operator once.
+	if !strings.Contains(out, `"code":"COMPOSE_RISKY"`) {
+		t.Errorf("refusal carries no liftable-tier code: %s", out)
+	}
 	if _, err := os.Stat(filepath.Join(h.ComposePath, "demo")); !os.IsNotExist(err) {
 		t.Errorf("refused install left the stack directory behind: %v", err)
 	}
@@ -263,6 +268,11 @@ func TestInstallApp_AdvancedForbiddenEvenWhenAcknowledged(t *testing.T) {
 	}
 	if !strings.Contains(out, "/etc/sfpanel") {
 		t.Errorf("refusal does not name the forbidden path: %s", out)
+	}
+	// Tiered, not just refused: a client that saw COMPOSE_RISKY here would
+	// offer a confirm for a boundary no answer moves.
+	if !strings.Contains(out, `"code":"COMPOSE_FORBIDDEN"`) {
+		t.Errorf("forbidden refusal did not carry the forbidden code: %s", out)
 	}
 	if _, err := os.Stat(filepath.Join(h.ComposePath, "demo")); !os.IsNotExist(err) {
 		t.Errorf("forbidden install left the stack directory behind: %v", err)

@@ -108,6 +108,12 @@ type sseEvent struct {
 	Done    bool   `json:"done"`
 	Success bool   `json:"success"`
 	Health  string `json:"health,omitempty"`
+	// Code names the refusal so the client can act on it rather than only
+	// print it. Today that is the compose analyser's tier: COMPOSE_RISKY is
+	// a refusal the operator can lift by acknowledging what the stack asks
+	// for, COMPOSE_FORBIDDEN is the boundary no answer moves. Empty on every
+	// ordinary progress event.
+	Code string `json:"code,omitempty"`
 }
 
 type refreshResult struct {
@@ -799,6 +805,14 @@ func (h *Handler) InstallApp(c echo.Context) error {
 		// can't leak ANSI or secret patterns into the SSE stream.
 		sendSSE(w, flusher, sseEvent{Stage: stage, Message: response.SanitizeOutput(message), Done: done, Success: success})
 	}
+	// sendRefusal is send() plus the analyser's tier. Without a code on the
+	// wire the advanced install dead-ends: the client sees a terminal failure
+	// event and cannot tell the refusal it may ask about from the one it may
+	// not, which is the dead end issue #55 reports for catalog apps that need
+	// the docker socket.
+	sendRefusal := func(message, code string) {
+		sendSSE(w, flusher, sseEvent{Stage: "prepare", Message: response.SanitizeOutput(message), Done: true, Success: false, Code: code})
+	}
 
 	send("prepare", "Creating directory: "+stackDir, false, true)
 	// os.Mkdir + EEXIST as the atomic race-free conflict check. A second
@@ -843,7 +857,11 @@ func (h *Handler) InstallApp(c echo.Context) error {
 		}
 		if verr := report.Error(req.AcknowledgeRisks); verr != nil {
 			cleanup()
-			send("prepare", "Refused compose file: "+verr.Error(), true, false)
+			code := response.ErrComposeRisky
+			if len(report.Forbidden) > 0 {
+				code = response.ErrComposeForbidden
+			}
+			sendRefusal("Refused compose file: "+verr.Error(), code)
 			return nil
 		}
 		send("prepare", "Writing custom docker-compose.yml...", false, true)

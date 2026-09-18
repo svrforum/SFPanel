@@ -2936,11 +2936,11 @@ Fail2ban jail 중지 (비활성화).
 |------|------|
 | `id` | 앱 ID (예: `uptime-kuma`) |
 
-**응답은 JSON이 아니라 SSE(`text/event-stream`) 스트림입니다.** 각 `data:` 라인은 `{stage, message, done, success}` (stage: `prepare`/`fetch` → `pull` → `start` → `done`).
+**응답은 JSON이 아니라 SSE(`text/event-stream`) 스트림입니다.** 각 `data:` 라인은 `{stage, message, done, success}` (stage: `prepare`/`fetch` → `pull` → `start` → `done`). 거부 이벤트에는 `code`가 추가로 실립니다(아래 고급 모드).
 
 **Request Body (심플 모드):** `{ "env": { "PORT": "3001", "PASSWORD": "my-secret" } }`
 
-**Request Body (고급 모드):** `{ "advanced": true, "compose": "<yaml>", "env_raw": "<.env>", "password": "<재인증>", "acknowledge_risks": false }` — 비밀번호 bcrypt 재확인은 그대로이고, compose 안전성 검사는 두 단계입니다. `privileged`/host 네임스페이스/docker.sock 등 위험 패턴은 `"acknowledge_risks": true`로 승인하면 진행되고, 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위인 바인드는 승인해도 거부됩니다. 거부는 스트림의 `{stage:"prepare", success:false}` 이벤트로 `Refused compose file: <findings>` 형태로 전달됩니다. 요청 바디 1MB 캡.
+**Request Body (고급 모드):** `{ "advanced": true, "compose": "<yaml>", "env_raw": "<.env>", "password": "<재인증>", "acknowledge_risks": false }` — 비밀번호 bcrypt 재확인은 그대로이고, compose 안전성 검사는 두 단계입니다. `privileged`/host 네임스페이스/docker.sock 등 위험 패턴은 `"acknowledge_risks": true`로 승인하면 진행되고, 호스트 경로가 `/etc/sfpanel`, `/var/lib/sfpanel`, `/root/.ssh`, `/etc/sudoers.d` 이거나 그 하위인 바인드는 승인해도 거부됩니다. 거부는 스트림의 `{stage:"prepare", success:false, done:true}` 이벤트로 `Refused compose file: <findings>` 형태로 전달되며, 같은 이벤트의 `code` 필드가 `COMPOSE_RISKY`(승인으로 풀림) 또는 `COMPOSE_FORBIDDEN`(풀리지 않음)을 알려줍니다 — 클라이언트는 이 값으로 승인 대화상자를 띄울지 판단합니다. 요청 바디 1MB 캡.
 
 **스트림 종료/에러** (스트림 시작 전 사전 검사):
 | 코드 | HTTP 상태 | 조건 |

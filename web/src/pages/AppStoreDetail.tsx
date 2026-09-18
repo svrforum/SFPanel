@@ -21,6 +21,7 @@ import { copyText } from '@/lib/utils'
 import { usePrompt } from '@/components/PromptDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { api } from '@/lib/api'
+import { riskLines } from '@/lib/composeRisk'
 import { appStoreIconUrl } from '@/lib/appstore'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -43,6 +44,8 @@ interface InstallEvent {
   success: boolean
   done?: boolean
   health?: string
+  /** Set on a refusal: COMPOSE_RISKY (liftable) or COMPOSE_FORBIDDEN (not). */
+  code?: string
 }
 
 interface AppStoreDetailModalProps {
@@ -218,9 +221,11 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
 
     // Advanced mode requires step-up re-auth: the same JWT that loaded the
     // page is not sufficient to push arbitrary compose YAML through to
-    // docker compose up. validateAdvancedCompose blocks obvious host-escape
-    // shapes (privileged, pid: host, etc.), but a fresh password confirms
-    // it is the operator at the keyboard, not a borrowed session.
+    // docker compose up. The compose analyser splits what it finds into a
+    // tier the operator can acknowledge and one nothing lifts, but a fresh
+    // password confirms it is the operator at the keyboard, not a borrowed
+    // session. The two gates are separate: acknowledging risk never replaces
+    // this prompt.
     let advancedPassword = ''
     if (installMode === 'advanced') {
       const entered = await prompt({ title: t('appStore.advancedReAuthPrompt'), password: true })
@@ -245,14 +250,34 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
     // pre-flight rejection and should restore the install form.
     let sawEvent = false
 
-    try {
+    // runInstall streams one attempt. A COMPOSE_RISKY refusal is not a failure
+    // yet — it is the tier the operator can lift — so it is handed back rather
+    // than logged as one, and the caller asks once and retries. An object
+    // holder rather than a `let`: TypeScript narrows a closure-assigned `let`
+    // to its initial null and the check after the await goes dead.
+    const refusal = { message: '' }
+    const runInstall = async (acknowledgeRisks: boolean) => {
+      refusal.message = ''
+      // Per attempt: a retry that is rejected before its first event is a
+      // pre-flight rejection too, and should restore the form like the first.
+      sawEvent = false
       await api.installAppStream<InstallEvent>(
         detail.app.id,
         installMode === 'advanced'
-          ? { advanced: true, compose: customCompose, env_raw: customEnv, password: advancedPassword }
+          ? {
+              advanced: true,
+              compose: customCompose,
+              env_raw: customEnv,
+              password: advancedPassword,
+              acknowledge_risks: acknowledgeRisks || undefined,
+            }
           : { env: envValues },
         (event) => {
           sawEvent = true
+          if (event.done && !event.success && event.code === 'COMPOSE_RISKY') {
+            refusal.message = event.message
+            return
+          }
           setCurrentStage(event.stage)
           setProgressLogs(prev => [...prev, {
             stage: event.stage,
@@ -273,6 +298,40 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
         },
         controller.signal,
       )
+      return refusal.message
+    }
+
+    try {
+      const refused = await runInstall(false)
+      if (refused) {
+        // Same question the compose editor asks, in the one submit path that
+        // could not ask it: a catalog app edited to add the docker socket used
+        // to dead-end here with no way forward (issue #55).
+        const err = Object.assign(new Error(refused.replace(/^Refused compose file:\s*/, '')), {
+          code: 'COMPOSE_RISKY',
+        })
+        const ok = await confirm({
+          title: t('docker.stacks.risky.title'),
+          description: (
+            <span>
+              {t('docker.stacks.risky.body')}
+              <span className="mt-2 block space-y-1 font-mono text-[12px] text-muted-foreground">
+                {riskLines(err).map((line, index) => (
+                  <span key={`${index}-${line}`} className="block">{line}</span>
+                ))}
+              </span>
+            </span>
+          ),
+          confirmLabel: t('appStore.install'),
+          danger: true,
+        })
+        if (!ok) {
+          setShowProgress(false)
+          setShowInstallForm(true)
+          return
+        }
+        await runInstall(true)
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         // User closed modal during install — no toast needed
