@@ -63,6 +63,8 @@ const (
 	ErrDockerError         = "DOCKER_ERROR"
 	ErrDockerFirewallError = "DOCKER_FIREWALL_ERROR"
 	ErrComposeError        = "COMPOSE_ERROR"
+	ErrComposeRisky        = "COMPOSE_RISKY"
+	ErrComposeForbidden    = "COMPOSE_FORBIDDEN"
 	ErrInvalidYAML         = "INVALID_YAML"
 	ErrGitAuthFailed       = "GIT_AUTH_FAILED"
 	ErrGitRepoNotFound     = "GIT_REPO_NOT_FOUND"
