@@ -55,12 +55,14 @@ export function GitImportForm({ onSuccess, onCancel }: Props) {
         const ok = await confirm({
           title: t('docker.stacks.risky.title'),
           description: (
-            <div className="space-y-2">
-              <p>{t('docker.stacks.risky.body')}</p>
-              <ul className="list-disc pl-4 text-[12px] font-mono space-y-1">
-                {riskLines(err).map((line) => <li key={line}>{line}</li>)}
-              </ul>
-            </div>
+            <span>
+              {t('docker.stacks.risky.body')}
+              <span className="mt-2 block space-y-1 font-mono text-[12px] text-muted-foreground">
+                {riskLines(err).map((line, index) => (
+                  <span key={`${index}-${line}`} className="block">{line}</span>
+                ))}
+              </span>
+            </span>
           ),
           confirmLabel: t('docker.stacks.risky.confirm'),
           danger: true,
@@ -71,9 +73,9 @@ export function GitImportForm({ onSuccess, onCancel }: Props) {
       toast.success(t('compose.gitImport.importSuccess', "Imported stack '{{name}}'", { name: res.project_name }))
       onSuccess(res.project_name)
     } catch (err) {
-      // The api client throws plain Error(message); the backend's messages
-      // are already user-facing Korean (per Task 9 handler error mapping).
-      // Show all errors as a form-bottom banner.
+      // The api client throws an Error carrying the backend's `code` (which
+      // the risky branch above reads) and its message, which is already
+      // user-facing. Show what is left as a form-bottom banner.
       const msg = (err as Error).message || t('compose.gitImport.importFailed', 'Import failed')
       setErrors({ _form: msg })
     } finally {

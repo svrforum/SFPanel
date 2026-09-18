@@ -473,12 +473,14 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       const ok = await confirm({
         title: t('docker.stacks.risky.title'),
         description: (
-          <div className="space-y-2">
-            <p>{t('docker.stacks.risky.body')}</p>
-            <ul className="list-disc pl-4 text-[12px] font-mono space-y-1">
-              {riskLines(err).map((line) => <li key={line}>{line}</li>)}
-            </ul>
-          </div>
+          <span>
+            {t('docker.stacks.risky.body')}
+            <span className="mt-2 block space-y-1 font-mono text-[12px] text-muted-foreground">
+              {riskLines(err).map((line, index) => (
+                <span key={`${index}-${line}`} className="block">{line}</span>
+              ))}
+            </span>
+          </span>
         ),
         confirmLabel: t('docker.stacks.risky.confirm'),
         danger: true,
