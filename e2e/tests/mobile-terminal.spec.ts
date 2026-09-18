@@ -233,6 +233,14 @@ test("without tmux the operator's server-side shells come back as tabs on reload
   // Ruling 3: in fallback mode the operator's whole workflow is PTY sessions,
   // so what survives a reload is what the SERVER still has — never a tab read
   // back from localStorage, which this browser does not even write.
+  //
+  // The fixture id is term-1 because that is the id the server really reports:
+  // a PTY session is created by the tab that connects to it, so its id is one
+  // this page's own generator handed out. The generator is module state and
+  // restarts at zero on every load, so an adopted tab has to push it forward —
+  // otherwise the next temporary shell is handed an id that is already a tab
+  // and the operator gets a second row onto the same shell, not a new one.
+  const sockets: string[] = []
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'mobile-test-token')
     localStorage.setItem('i18nextLng', 'en')
@@ -246,15 +254,26 @@ test("without tmux the operator's server-side shells come back as tabs on reload
     else if (url.pathname.endsWith('/system/overview')) data = { version: 'test' }
     else if (url.pathname.endsWith('/ai/sessions')) data = []
     else if (url.pathname.endsWith('/ai/tools')) data = { tmux: { installed: false, supported: false, version: '', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {} }
-    else if (url.pathname.endsWith('/terminal/sessions')) data = { sessions: [{ session_id: 'srv-1', last_use: new Date(0).toISOString(), attached: false, reader_count: 0 }] }
+    else if (url.pathname.endsWith('/terminal/sessions')) data = { sessions: [{ session_id: 'term-1', last_use: new Date(0).toISOString(), attached: false, reader_count: 0 }] }
     else if (url.pathname.endsWith('/terminal/info')) data = { shell_user: 'tester', hostname: 'fixture', home: '/home/tester', shell: '/bin/bash', is_root: false }
     await route.fulfill({ json: { success: true, data } })
   })
-  await page.routeWebSocket(/\/ws\//, () => {})
+  await page.routeWebSocket(/\/ws\//, socket => { sockets.push(socket.url()) })
   await page.goto('/terminal')
   await page.getByRole('button', { name: 'Sessions', exact: true }).tap()
   await expect(page.getByText('Temporary sessions')).toBeVisible()
-  await expect(page.getByRole('tab', { name: /srv-1/ })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /term-1/ })).toBeVisible()
+  // One more temporary shell must be a new shell: its own row, its own id and
+  // its own socket. Asserting the ids and not just the row count is the point
+  // — a generator that collided would still render two rows, both pointing at
+  // term-1, both selected, and closing either would remove both.
+  await page.getByRole('button', { name: 'New temporary session' }).tap()
+  await page.getByRole('button', { name: 'Sessions', exact: true }).tap()
+  await expect.poll(() => page.locator('[data-rail-key]').evaluateAll(els => els.map(el => el.getAttribute('data-rail-key'))))
+    .toEqual(['pty:term-1', 'pty:term-2'])
+  await expect(page.locator('[role=tab][aria-selected=true]')).toHaveCount(1)
+  await expect.poll(() => sockets.map(u => new URL(u).searchParams.get('session_id')).filter(Boolean).sort())
+    .toEqual(['term-1', 'term-2'])
 })
 
 test('a temporary session just closed is offered under Reattach: closing a tab does not end the server PTY', async ({ page }) => {
@@ -276,7 +295,7 @@ test('a temporary session just closed is offered under Reattach: closing a tab d
     else if (url.pathname.endsWith('/system/overview')) data = { version: 'test' }
     else if (url.pathname.endsWith('/ai/sessions')) data = []
     else if (url.pathname.endsWith('/ai/tools')) data = { tmux: { installed: false, supported: false, version: '', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {} }
-    else if (url.pathname.endsWith('/terminal/sessions')) data = { sessions: registered ? [{ session_id: 'term-1', last_use: '2026-09-18T00:00:00Z' }] : [] }
+    else if (url.pathname.endsWith('/terminal/sessions')) data = { sessions: registered ? [{ session_id: 'term-1', last_use: '2026-09-18T00:00:00Z' }, { session_id: 'term-3', last_use: '2026-09-18T00:00:00Z' }] : [] }
     else if (url.pathname.endsWith('/terminal/info')) data = { shell_user: 'tester', hostname: 'fixture', home: '/home/tester', shell: '/bin/bash', is_root: false }
     await route.fulfill({ json: { success: true, data } })
   })
@@ -292,4 +311,16 @@ test('a temporary session just closed is offered under Reattach: closing a tab d
   // The shell is still alive on the host for five minutes, so it belongs here.
   await expect(page.getByText('Reattach', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /term-1/ })).toBeVisible()
+  // term-3 is a shell this browser never created — another device, or an
+  // earlier page life. Reattaching it has to push the id generator past 3:
+  // the counter is module state this page raised to 1 by opening term-1, so
+  // without that the next two temporary shells walk straight into term-3 and
+  // the operator gets a second row onto a shell that is already open.
+  await expect(page.getByRole('button', { name: /term-3/ })).toBeVisible()
+  await page.getByRole('button', { name: /term-3/ }).tap()
+  await page.getByRole('button', { name: 'Sessions' }).tap()
+  await page.getByRole('button', { name: 'New temporary session' }).tap()
+  await page.getByRole('button', { name: 'Sessions' }).tap()
+  await expect.poll(() => page.locator('[data-rail-key]').evaluateAll(els => els.map(el => el.getAttribute('data-rail-key'))))
+    .toEqual(['pty:term-3', 'pty:term-4'])
 })

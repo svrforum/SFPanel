@@ -10,6 +10,20 @@ function generateTabId() {
 }
 
 /**
+ * Pushes the generator past an id that arrived from the server. A PTY session
+ * is created by the tab that connects to it, so a session the server reports
+ * is named `term-N` by this very generator — and the counter is module state
+ * that restarts at zero on every page load. Without this, adopting `term-1`
+ * after a reload and then opening a temporary shell hands out `term-1` again:
+ * `add` appends unconditionally, so the operator gets two rows and two
+ * sockets onto one shell instead of a new one, and closing either drops both.
+ */
+function noteTabId(id: string) {
+  const m = /^term-(\d+)$/.exec(id)
+  if (m) tabCounter = Math.max(tabCounter, parseInt(m[1], 10))
+}
+
+/**
  * The PTY engine's tab list — one tab per server PTY session id, for this
  * page's life only. Nothing is persisted and nothing is read back from
  * storage: a tab is a pointer to a server-side session the idle reaper takes
@@ -33,6 +47,7 @@ export function usePtyTabs() {
   }, [t])
 
   const reattach = useCallback((sessionId: string) => {
+    noteTabId(sessionId)
     setTabs((prev) => prev.some((tb) => tb.id === sessionId)
       ? prev
       : [...prev, { id: sessionId, title: t('terminal.reattachedTab', { id: sessionId.slice(0, 8), defaultValue: 'Reattached {{id}}' }) }])
@@ -48,6 +63,9 @@ export function usePtyTabs() {
    * left alone so an adopt cannot duplicate or reset a tab.
    */
   const adopt = useCallback((sessionIds: string[]) => {
+    // Outside the updater: React may call an updater twice, and the counter
+    // must move by what the server said, not by how often it is applied.
+    sessionIds.forEach(noteTabId)
     setTabs((prev) => {
       const fresh = sessionIds.filter((id) => !prev.some((tb) => tb.id === id))
       if (fresh.length === 0) return prev
