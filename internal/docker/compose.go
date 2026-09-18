@@ -17,6 +17,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/docker/docker/api/types/container"
+
+	"github.com/svrforum/SFPanel/internal/composex"
 )
 
 var validProjectName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
@@ -74,6 +76,9 @@ type ComposeManager struct {
 	// it. Injected rather than imported so this package keeps no dependency
 	// on a feature module; nil falls back to os.RemoveAll.
 	trash func(string) (bool, error)
+	// resolveConfig returns the project's env-interpolated compose YAML. It is
+	// a field so guardResolvedCompose can be tested without a docker daemon.
+	resolveConfig func(ctx context.Context, name string) (string, error)
 }
 
 // SetTrash wires the deleter used when a project directory is removed.
@@ -126,7 +131,9 @@ func (m *ComposeManager) validateProjectName(name string) error {
 // NewComposeManager creates a new ComposeManager, ensuring the base directory exists.
 func NewComposeManager(baseDir string, dockerClient *Client) *ComposeManager {
 	os.MkdirAll(baseDir, 0755)
-	return &ComposeManager{baseDir: baseDir, dockerClient: dockerClient}
+	m := &ComposeManager{baseDir: baseDir, dockerClient: dockerClient}
+	m.resolveConfig = m.GetResolvedConfigYAML
+	return m
 }
 
 // DockerClient returns the underlying docker client (read-only access).
@@ -485,10 +492,41 @@ func (m *ComposeManager) GetResolvedConfigYAML(ctx context.Context, name string)
 	return out, nil
 }
 
+// guardResolvedCompose refuses to bring a project up when its RESOLVED
+// configuration binds one of the panel's own secrets. The checks at write
+// time see `${VAR}`; only `docker compose config` knows what the .env expands
+// it to, and `up` resolves that same .env — so this is the one point where
+// the forbidden tier holds against interpolation, and it covers every path
+// that deploys (UpdateEnv writes the file with no compose check of its own).
+// Forbidden tier only: risky content was acknowledged when it was saved.
+// Best-effort — a project whose config will not resolve fails in `up` with a
+// better message than this guard could give.
+func (m *ComposeManager) guardResolvedCompose(ctx context.Context, name string, args []string) error {
+	if len(args) == 0 || args[0] != "up" {
+		// Every other verb, `config` included: the resolver runs `config`
+		// itself, so guarding it would recurse.
+		return nil
+	}
+	if m.resolveConfig == nil {
+		return nil
+	}
+	resolved, err := m.resolveConfig(ctx, name)
+	if err != nil {
+		return nil
+	}
+	return composex.ValidateAdvancedCompose(resolved)
+}
+
 // runCompose executes a docker compose command for the given project.
 func (m *ComposeManager) runCompose(ctx context.Context, name string, args ...string) (string, error) {
 	if err := m.validateProjectName(name); err != nil {
 		return "", err
+	}
+	if err := m.guardResolvedCompose(ctx, name, args); err != nil {
+		// The string is what the handlers put in front of the operator —
+		// ProjectUp and UpdateStack report the output, not the error — so a
+		// refusal returning "" would reach them as a blank failure.
+		return err.Error(), err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -509,6 +547,9 @@ func (m *ComposeManager) runCompose(ctx context.Context, name string, args ...st
 // runComposeStream executes a docker compose command and streams output line by line.
 func (m *ComposeManager) runComposeStream(ctx context.Context, name string, onLine func(string), args ...string) error {
 	if err := m.validateProjectName(name); err != nil {
+		return err
+	}
+	if err := m.guardResolvedCompose(ctx, name, args); err != nil {
 		return err
 	}
 
