@@ -152,7 +152,6 @@ export default function TerminalPage() {
   // which is also when stored tabs need reconciling: a tab restored from an
   // earlier browser session whose PTY has been reaped must not stay in the
   // rail, because reattaching it would open a brand-new shell.
-  const showPty = fallback || pty.tabs.length > 0
   const loadPtySessions = useCallback(() => {
     api.getTerminalSessions()
       .then((r) => {
@@ -165,9 +164,17 @@ export default function TerminalPage() {
       // a tab that may well be alive off screen for good.
       .catch(() => { setPtySessions([]); reconcilePty(null) })
   }, [reconcilePty])
-  useEffect(() => { if (showPty) loadPtySessions() }, [showPty, loadPtySessions])
+  // Re-issued whenever the tab COUNT changes, not only when the group first
+  // appears: closing a tab does not end its PTY session, and a session opened
+  // after the last fetch is missing from ptySessions — so in fallback mode,
+  // where the group never goes away, the shell just closed would be listed
+  // nowhere. The count and not `pty.tabs`, so a rename fetches nothing; and a
+  // prune moves the count once, after which the refetch finds nothing to drop.
+  const tabCount = pty.tabs.length
+  useEffect(() => { if (fallback || tabCount > 0) loadPtySessions() }, [fallback, tabCount, loadPtySessions])
   // Listed inside the temporary group: the sessions this browser has no tab
-  // for. Filtered at render so opening a tab does not re-issue the request.
+  // for. Filtered at render, so the list narrows the instant a tab opens and
+  // does not wait on the refetch above.
   const reattachable = useMemo(
     () => ptySessions.filter((s) => !pty.tabs.some((tb) => tb.id === s.session_id)),
     [ptySessions, pty.tabs],

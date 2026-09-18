@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AISession } from '@/types/api'
-import { PTY_GROUP_KEY, type PtyTab, activeKey, buildRail, findItem, parseActiveKey, pickActive, prunePtyTabs, railNote } from './sessionRail'
+import { PTY_GROUP_KEY, type PtyTab, activeKey, buildRail, findItem, mountablePtyTabs, parseActiveKey, pickActive, prunePtyTabs, railNote } from './sessionRail'
 
 const s = (id: string, cwd: string, created: string, extra: Partial<AISession> = {}): AISession => ({
   id, tool: 'claude', title: id, run_as: 'root', cwd, state: 'working', persistence: 'service', attached: false, created_at: created, ...extra,
@@ -130,5 +130,29 @@ describe('prunePtyTabs', () => {
 
   it('drops every eligible tab when the server has none', () => {
     expect(prunePtyTabs([t('term-1')], [], ['term-1'])).toEqual([])
+  })
+})
+
+describe('mountablePtyTabs', () => {
+  const t = (id: string): PtyTab => ({ id, title: id })
+
+  it('holds a restored tab out of the pane until the session list has answered — mounting it makes the server create the very shell prunePtyTabs is there to avoid', () => {
+    const tabs = [t('term-1'), t('term-2')]
+    expect(mountablePtyTabs(tabs, ['term-1', 'term-2'], false)).toEqual([])
+  })
+
+  it('never holds back a tab this page created, even while a restored one waits', () => {
+    const tabs = [t('term-1'), t('term-9')]
+    expect(mountablePtyTabs(tabs, ['term-1'], false)).toEqual([t('term-9')])
+  })
+
+  it('releases every tab once the list has answered — a failed request answers too, so an unreachable server cannot hide a live tab for good', () => {
+    const tabs = [t('term-1')]
+    expect(mountablePtyTabs(tabs, ['term-1'], true)).toBe(tabs)
+  })
+
+  it('returns the same array identity while waiting when no tab is restored, so the pane renders nothing new', () => {
+    const tabs = [t('term-9')]
+    expect(mountablePtyTabs(tabs, ['term-1'], false)).toBe(tabs)
   })
 })

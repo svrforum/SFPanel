@@ -225,3 +225,40 @@ test('a browser upgraded from the old terminal page lands on a live session, not
   await expect(page.getByRole('tab', { name: /Mobile coding/ })).toBeVisible()
   await expect(page.getByText('Temporary sessions')).toBeHidden()
 })
+
+test('a temporary session just closed is offered under Reattach: closing a tab does not end the server PTY', async ({ page }) => {
+  // The server registers a PTY session when its socket connects, so the list
+  // only reports term-1 after the tab has been opened — which is why the page
+  // has to re-ask when the tab count changes, not only when the temporary
+  // group first appears (in fallback mode it never goes away).
+  let registered = false
+  await page.addInitScript(() => {
+    sessionStorage.setItem('token', 'mobile-test-token')
+    localStorage.setItem('i18nextLng', 'en')
+  })
+  await page.route('**/api/v1/**', async route => {
+    const url = new URL(route.request().url())
+    let data: unknown = {}
+    if (url.pathname.endsWith('/auth/setup-status')) data = { setup_required: false }
+    else if (url.pathname.endsWith('/auth/ws-ticket')) data = { ticket: 'mobile-test-ticket' }
+    else if (url.pathname.endsWith('/cluster/status')) data = { enabled: false }
+    else if (url.pathname.endsWith('/system/overview')) data = { version: 'test' }
+    else if (url.pathname.endsWith('/ai/sessions')) data = []
+    else if (url.pathname.endsWith('/ai/tools')) data = { tmux: { installed: false, supported: false, version: '', min_version: '3.2' }, systemd_run: true, accounts: ['tester'], panel_account: 'tester', account: 'tester', tools: {} }
+    else if (url.pathname.endsWith('/terminal/sessions')) data = { sessions: registered ? [{ session_id: 'term-1', last_use: '2026-09-18T00:00:00Z' }] : [] }
+    else if (url.pathname.endsWith('/terminal/info')) data = { shell_user: 'tester', hostname: 'fixture', home: '/home/tester', shell: '/bin/bash', is_root: false }
+    await route.fulfill({ json: { success: true, data } })
+  })
+  await page.routeWebSocket(/\/ws\//, socket => { if (socket.url().includes('/ws/terminal?')) registered = true })
+  await page.goto('/terminal')
+  await expect(page.getByText(/Start a temporary shell/)).toBeVisible()
+  await page.getByRole('button', { name: 'Sessions' }).tap()
+  await page.getByRole('button', { name: 'New temporary session' }).tap()
+  await expect(page.locator('[data-terminal-session="active"]')).toBeVisible()
+  await page.locator('[data-session-menu]').tap()
+  await page.getByRole('menuitem', { name: 'Close' }).click()
+  await page.getByRole('button', { name: 'Sessions' }).tap()
+  // The shell is still alive on the host for five minutes, so it belongs here.
+  await expect(page.getByText('Reattach', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /term-1/ })).toBeVisible()
+})

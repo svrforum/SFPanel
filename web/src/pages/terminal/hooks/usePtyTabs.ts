@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
-import { prunePtyTabs, type PtyTab } from '@/lib/sessionRail'
+import { mountablePtyTabs, prunePtyTabs, type PtyTab } from '@/lib/sessionRail'
 
 // Tabs map 1:1 to server PTY sessions and each node keeps its own session
 // map, so they are persisted PER NODE: one global key reused the same tab id
@@ -90,15 +90,10 @@ export function usePtyTabs() {
     if (serverIds) setTabs((prev) => prunePtyTabs(prev, serverIds, restored))
   }, [restored])
 
-  /**
-   * The tabs the pane may mount. Connecting to a PTY id the server does not
-   * know makes it CREATE that session, so mounting a restored tab before the
-   * list has answered manufactures exactly the shell prunePtyTabs exists to
-   * avoid — and it did, in one run of the e2e regression out of three. Tabs
-   * this page created are never held back; nor is anything once checked, so
-   * the common case hands the pane the same array identity as `tabs`.
-   */
-  const mountable = checked ? tabs : tabs.filter((tb) => !restored.includes(tb.id))
+  // The tabs the pane may mount: restored ones wait for the server's list,
+  // because mounting a reaped id makes the server create a shell for it. The
+  // rule and its reasoning live in mountablePtyTabs, where it is unit-tested.
+  const mountable = mountablePtyTabs(tabs, restored, checked)
 
   return { tabs, mountable, add, reattach, close, rename, reconcile }
 }

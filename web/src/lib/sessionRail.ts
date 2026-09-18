@@ -62,6 +62,27 @@ export function prunePtyTabs(stored: PtyTab[], serverIds: string[], eligible: st
   return kept.length === stored.length ? stored : kept
 }
 
+/**
+ * The PTY tabs the pane may mount. Connecting to a PTY id the server does not
+ * know makes it CREATE that session, so mounting a tab restored from storage
+ * before GET /terminal/sessions has answered manufactures exactly the shell
+ * prunePtyTabs exists to avoid: the pane's sessions connect before the page's
+ * own effect runs, and the prune that follows drops the tab only after its
+ * shell has been spawned.
+ *
+ * `restored` is the ids loaded from storage at mount; `checked` says the list
+ * has answered — a FAILED request counts, because an unreachable server must
+ * not keep a tab that may well be alive off screen for good. A tab this page
+ * created is never held back. Returns the input array unchanged when nothing
+ * is held back, so the pane is handed the same identity as `tabs`.
+ */
+export function mountablePtyTabs(tabs: PtyTab[], restored: string[], checked: boolean): PtyTab[] {
+  if (checked) return tabs
+  const held = new Set(restored)
+  const open = tabs.filter((tab) => !held.has(tab.id))
+  return open.length === tabs.length ? tabs : open
+}
+
 export function baseName(cwd: string): string {
   return cwd.replace(/\/+$/, '').split('/').pop() || '/'
 }
