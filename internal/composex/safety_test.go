@@ -414,6 +414,12 @@ func TestAnalyzeForbidsThePanelsOwnSecrets(t *testing.T) {
 	for _, path := range []string{
 		"/etc/sfpanel", "/etc/sfpanel/config.yaml", "/var/lib/sfpanel",
 		"/var/lib/sfpanel/sfpanel.db", "/root/.ssh", "/etc/sudoers.d",
+		// Respellings of the same directories. The kernel resolves all of
+		// these to the protected path and Docker cleans the mount source
+		// too, so a tier that matched the string as written would refuse
+		// /etc/sfpanel and wave /etc/./sfpanel through to the same files.
+		"/etc//sfpanel", "/etc/./sfpanel", "/etc/foo/../sfpanel",
+		"/var/lib//sfpanel", "//etc/sfpanel", "/root/.ssh/",
 	} {
 		yaml := "services:\n  a:\n    image: x\n    volumes:\n      - " + path + ":/mnt\n"
 		report, err := Analyze(yaml)

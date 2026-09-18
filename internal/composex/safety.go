@@ -8,6 +8,7 @@ package composex
 import (
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 
@@ -302,14 +303,22 @@ func isDangerousBind(p string) bool {
 	return false
 }
 
-// cleanBindPath strips the trailing slash and resolves the /var/run alias. On
-// the target platform /var/run is a symlink to /run, so /var/run/containerd
-// reaches the same runtime state as /run/containerd. Both tiers match on the
-// result, so neither needs to list the alias — and /var/run/… cannot slip past
-// the forbidden check.
+// cleanBindPath normalises a host path so the tiers match one spelling of it.
+// path.Clean collapses //, resolves . and .. and drops the trailing slash: the
+// kernel resolves /etc//sfpanel, /etc/./sfpanel and /etc/foo/../sfpanel to the
+// same directory and Docker cleans the mount source too, so a tier matching the
+// string as written would refuse /etc/sfpanel and wave its respellings through
+// to the same files.
+//
+// Then the /var/run alias: on the target platform /var/run is a symlink to
+// /run, so /var/run/containerd reaches the same runtime state as
+// /run/containerd. Both tiers match on the result, so neither needs to list the
+// alias — and /var/run/… cannot slip past the forbidden check.
 func cleanBindPath(p string) string {
-	clean := strings.TrimRight(p, "/")
-	if clean == "" {
+	clean := path.Clean(strings.TrimSpace(p))
+	// path.Clean answers "." for the empty string; a bind with no host side
+	// is not a path the tiers can reason about, so treat it as the root.
+	if clean == "" || clean == "." {
 		clean = "/"
 	}
 	if clean == "/var/run" || strings.HasPrefix(clean, "/var/run/") {
