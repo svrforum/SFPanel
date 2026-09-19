@@ -81,7 +81,7 @@ public final class MainActivity extends Activity {
     private CertificateTrust certificates;
     private AppUpdates updates;
     CertificateTrust certificateTrust() { return certificates; }
-    private LinearLayout terminalBar, keyDock, keyDockBody;
+    private LinearLayout terminalBar, keyDock, keyDockBody, panelChrome;
     // Two metric sets and the signals that pick one. tallestRoot is the
     // pre-API-30 keyboard probe's high-water mark.
     private boolean compactBar, keyboardOpen;
@@ -160,7 +160,7 @@ public final class MainActivity extends Activity {
             }
             return android.os.Build.VERSION.SDK_INT >= 30 ? WindowInsets.CONSUMED : insets.consumeSystemWindowInsets();
         });
-        terminalBar = null; keyDock = null;
+        terminalBar = null; keyDock = null; panelChrome = null;
         setContentView(root); root.requestApplyInsets();
         root.getViewTreeObserver().addOnGlobalLayoutListener(this::readWindow);
     }
@@ -174,7 +174,15 @@ public final class MainActivity extends Activity {
         boolean compact = keyboard || getResources().getConfiguration().screenHeightDp < 480;
         if (keyboard == keyboardOpen && compact == compactBar) return;
         keyboardOpen = keyboard; compactBar = compact;
-        applyBarMetrics();
+        applyBarMetrics(); applyChrome();
+    }
+    // The toolbar carries navigation and the page menu, and neither is reachable
+    // mid-typing; closing the keyboard brings them straight back. The keyboard
+    // alone decides — a short window with no keyboard still needs its navigation
+    // — and it is the wrapper that hides, so the progress bar inside keeps
+    // whatever the page load last set on it.
+    private void applyChrome() {
+        if (panelChrome != null) panelChrome.setVisibility(keyboardOpen ? View.GONE : View.VISIBLE);
     }
     // API 30 and up asks the window. Below it the window is adjustResize, so
     // the keyboard is the height missing from the tallest root this
@@ -376,13 +384,16 @@ public final class MainActivity extends Activity {
     @SuppressLint("SetJavaScriptEnabled")
     private void openPanel(ServerStore.Server server) {
         closeWeb(); current = server; setRoot();
+        // The toolbar and its progress strip travel together: one wrapper is one
+        // thing for the keyboard to push off the screen.
+        panelChrome = column(); root.addView(panelChrome);
         LinearLayout toolbar = new LinearLayout(this); toolbar.setGravity(Gravity.CENTER_VERTICAL); toolbar.setBackgroundColor(SURFACE);
         toolbar.addView(compactButton(getString(R.string.all_features), this::showNavigation), new LinearLayout.LayoutParams(-2, dp(48)));
         panelTitle = text(server.name(), 14, INK, true); panelTitle.setMaxLines(1); panelTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
         panelTitle.setPadding(dp(8), 0, dp(8), 0); toolbar.addView(panelTitle, new LinearLayout.LayoutParams(0, dp(48), 1)); panelTitle.setGravity(Gravity.CENTER_VERTICAL);
         Button tools = compactButton("⋯", this::showTools); tools.setContentDescription(getString(R.string.page_tools));
-        toolbar.addView(tools, new LinearLayout.LayoutParams(dp(48), dp(48))); root.addView(toolbar);
-        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); progress.setMax(100); root.addView(progress, new LinearLayout.LayoutParams(-1, dp(3)));
+        toolbar.addView(tools, new LinearLayout.LayoutParams(dp(48), dp(48))); panelChrome.addView(toolbar);
+        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); progress.setMax(100); panelChrome.addView(progress, new LinearLayout.LayoutParams(-1, dp(3)));
         status = text(getString(R.string.page_loading), 14, MUTED, false); status.setPadding(dp(16), dp(4), dp(16), dp(4));
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); root.addView(status);
         retryButton = button(getString(R.string.retry), true, () -> { if (web != null) web.loadUrl(server.address() + startPath); });
