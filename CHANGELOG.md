@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.77.2] – 2026-09-20
+
+### Fixed
+
+**Shift+Enter on a phone sent the message instead of breaking the line.** In the mobile key bar, holding Shift and pressing Enter produced the terminal's extended-key form of the combination. tmux, which every AI session runs inside, turns that form back into a plain carriage return before the program sees it — so the key that was supposed to add a second line submitted what was already typed. It now sends a newline, which reaches the session untouched and is what the AI command-line tools bind to inserting one. Desktop keyboards were never affected.
+
 ## [0.77.1] – 2026-09-19
 
 ### Changed
