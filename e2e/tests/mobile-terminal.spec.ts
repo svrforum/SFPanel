@@ -47,7 +47,9 @@ for (const path of ['/terminal']) {
     await expect(shift).toHaveAttribute('aria-pressed', 'false')
     await shift.tap()
     await bar.getByRole('button', { name: 'Enter', exact: true }).tap()
-    await expect.poll(() => input.at(-1)).toBe('\x1b[13;2u')
+    // A newline, not the CSI-u form of shift+enter: tmux collapses that one to
+    // a carriage return, which sends the message the key exists to break.
+    await expect.poll(() => input.at(-1)).toBe('\n')
 
     await bar.getByRole('button', { name: 'Toggle ctrl for the next key' }).tap()
     await page.keyboard.press('c')
