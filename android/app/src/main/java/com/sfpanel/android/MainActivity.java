@@ -616,7 +616,12 @@ public final class MainActivity extends Activity {
         if (dockGroup == 0) {
             addDockKeys(new String[]{"Home", "End", "PgUp", "PgDn"}, new String[]{"\u001b[H", "\u001b[F", "\u001b[5~", "\u001b[6~"});
         } else if (dockGroup == 1) {
-            addDockKeys(new String[]{"Shift+Tab", "Shift+Enter"}, new String[]{"\u001b[Z", "\u001b[13;2u"});
+            // Shift+Enter sends a newline, not the CSI-u form for it: tmux
+            // collapses \u001b[13;2u to a plain carriage return before the pane
+            // ever sees it, so the key used to submit the message it was meant
+            // to break. Codex lists ctrl-j first among its newline keys, and a
+            // newline byte reaches the pane through tmux untouched.
+            addDockKeys(new String[]{"Shift+Tab", "Shift+Enter"}, new String[]{"\u001b[Z", "\n"});
             addDockKeys(new String[]{"Ctrl+C", "Ctrl+D", "Ctrl+Z"}, new String[]{"\u0003", "\u0004", "\u001a"});
         } else {
             LinearLayout history = new LinearLayout(this); keyDockBody.addView(history);
@@ -638,7 +643,11 @@ public final class MainActivity extends Activity {
         for (int i = 0; i < labels.length; i++) {
             String label = labels[i], code = codes[i];
             barButton(row, label, 1f, () -> {
-                if (label.startsWith("Ctrl+") || label.startsWith("Shift+")) { shift = false; ctrl = false; alt = false; }
+                // A label that names its own modifier carries the whole
+                // combination already, so an armed Shift must not ride along on
+                // an Alt+ key. Any "<modifier>+<key>" label qualifies, not only
+                // the two prefixes this started with.
+                if (label.indexOf('+') > 0) { shift = false; ctrl = false; alt = false; }
                 sendKey(code);
             });
         }
