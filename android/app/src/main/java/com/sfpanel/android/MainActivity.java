@@ -12,6 +12,7 @@ import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Bundle;
@@ -49,7 +50,15 @@ import java.util.concurrent.Executors;
 /** Native connection/reading/composition UI around the server's same-origin SPA.
  * No JavascriptInterface is exposed to server content. */
 public final class MainActivity extends Activity {
-    private static final int BG = 0xfff3f6fa, INK = 0xff14263d, MUTED = 0xff526278, TEAL = 0xff087e8b;
+    // The panel's own palette (web/src/index.css): the app wraps that UI, so a
+    // selected tile here and a selected row there are the same blue.
+    private static final int BG      = 0xfff7f8fa;  // --background
+    private static final int SURFACE = 0xffffffff;  // --card
+    private static final int INK     = 0xff191f28;  // --foreground
+    private static final int MUTED   = 0xff8b95a1;  // --muted-foreground
+    private static final int ACCENT  = 0xff3182f6;  // --primary
+    private static final int LINE    = 0xffe5e8eb;  // --border
+    private static final int DANGER  = 0xffe5484d;  // --destructive
     private static final int PICK_FILES = 10;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private SharedPreferences prefs;
@@ -122,7 +131,7 @@ public final class MainActivity extends Activity {
         b.setMinHeight(dp(52)); b.setMinimumHeight(dp(52)); b.setTextColor(primary ? Color.WHITE : INK);
         b.setPadding(dp(14), dp(8), dp(14), dp(8));
         b.setBackground(new android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf(0x22087e8b), surface(primary ? TEAL : 0xffe9eff5, 14), null));
+                android.content.res.ColorStateList.valueOf((ACCENT & 0x00ffffff) | 0x22000000), surface(primary ? ACCENT : 0xffe9eff5, 14), null));
         b.setOnClickListener(v -> action.run());
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.topMargin = dp(10); b.setLayoutParams(p);
         return b;
@@ -153,7 +162,7 @@ public final class MainActivity extends Activity {
         homeHeader.addView(compactButton(getString(R.string.options), this::showOptions));
         if (store.list().isEmpty()) body.addView(text(getString(R.string.home_description), 14, MUTED, false));
 
-        LinearLayout card = column(); card.setPadding(dp(20), dp(16), dp(20), dp(22)); card.setBackground(surface(Color.WHITE, 24));
+        LinearLayout card = column(); card.setPadding(dp(20), dp(16), dp(20), dp(22)); card.setBackground(surface(SURFACE, 24));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2); cardParams.topMargin = dp(24);
         body.addView(card, cardParams); card.addView(heading(R.string.add_server, 21));
         nameInput = field(card, R.string.server_name, R.string.server_name_hint, false);
@@ -180,7 +189,7 @@ public final class MainActivity extends Activity {
         if (store.list().isEmpty()) savedSection.addView(text(getString(R.string.empty_servers), 16, MUTED, false));
         for (ServerStore.Server server : store.list()) {
             LinearLayout saved = new LinearLayout(this); saved.setGravity(Gravity.CENTER_VERTICAL);
-            saved.setPadding(dp(4), dp(4), dp(4), dp(4)); saved.setBackground(surface(Color.WHITE, 14));
+            saved.setPadding(dp(4), dp(4), dp(4), dp(4)); saved.setBackground(surface(SURFACE, 14));
             LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2); sp.topMargin = dp(10); savedSection.addView(saved, sp);
             Button open = compactButton(server.name() + "\n" + server.address(), () -> requestConnect(server));
             open.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); open.setPadding(dp(12), dp(4), dp(8), dp(4));
@@ -271,7 +280,7 @@ public final class MainActivity extends Activity {
     @SuppressLint("SetJavaScriptEnabled")
     private void openPanel(ServerStore.Server server) {
         closeWeb(); current = server; setRoot();
-        LinearLayout toolbar = new LinearLayout(this); toolbar.setGravity(Gravity.CENTER_VERTICAL); toolbar.setBackgroundColor(Color.WHITE);
+        LinearLayout toolbar = new LinearLayout(this); toolbar.setGravity(Gravity.CENTER_VERTICAL); toolbar.setBackgroundColor(SURFACE);
         toolbar.addView(compactButton(getString(R.string.all_features), this::showNavigation), new LinearLayout.LayoutParams(-2, dp(48)));
         panelTitle = text(server.name(), 14, INK, true); panelTitle.setMaxLines(1); panelTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
         panelTitle.setPadding(dp(8), 0, dp(8), 0); toolbar.addView(panelTitle, new LinearLayout.LayoutParams(0, dp(48), 1)); panelTitle.setGravity(Gravity.CENTER_VERTICAL);
@@ -361,19 +370,51 @@ public final class MainActivity extends Activity {
         b.setMinWidth(dp(48)); b.setMinimumWidth(dp(48)); b.setBackgroundColor(Color.TRANSPARENT); b.setStateListAnimator(null); b.setElevation(0);
         b.setLayoutParams(new LinearLayout.LayoutParams(-2, dp(48))); return b;
     }
+    // A key looks like a key: a rounded cap on the bar, and a pressed fill so
+    // a thumb sees the hit even when the key sends something invisible.
+    private StateListDrawable keyCap() {
+        StateListDrawable cap = new StateListDrawable();
+        GradientDrawable pressed = surface(0xffeef3fd, 10);
+        GradientDrawable rest = surface(SURFACE, 10);
+        rest.setStroke(dp(1), LINE);
+        cap.addState(new int[]{android.R.attr.state_pressed}, pressed);
+        cap.addState(new int[0], rest);
+        return cap;
+    }
+    private void addBarKey(LinearLayout row, String label, String code, int description) {
+        Button key = barButton(row, label, 1f, () -> sendKey(code));
+        if (description != 0) key.setContentDescription(getString(description));
+    }
+    private Button barButton(LinearLayout row, String label, float weight, Runnable action) {
+        Button b = compactButton(label, action);
+        b.setMinHeight(dp(44)); b.setMinimumHeight(dp(44)); b.setBackground(keyCap());
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(44), weight);
+        p.setMargins(dp(2), dp(2), dp(2), dp(2)); row.addView(b, p);
+        return b;
+    }
     private void addTerminalBar() {
-        terminalBar = column(); terminalBar.setBackgroundColor(Color.WHITE); terminalBar.setVisibility(View.GONE); root.addView(terminalBar);
-        LinearLayout row = new LinearLayout(this); terminalBar.addView(row);
-        Button write = compactButton(getString(R.string.input_short), () -> compose(""));
-        write.setContentDescription(getString(R.string.write_prompt)); row.addView(write);
-        shiftButton = compactButton("Shift", () -> { shift = !shift; updateModifiers(); }); row.addView(shiftButton);
-        ctrlButton = compactButton("Ctrl", () -> { ctrl = !ctrl; updateModifiers(); }); row.addView(ctrlButton);
-        row.addView(compactButton("Esc", () -> sendKey("\u001b")));
-        row.addView(compactButton("Tab", () -> sendKey("\t")));
-        row.addView(compactButton("Enter", () -> sendKey("\r")));
-        moreKeysButton = compactButton(getString(R.string.keys_short), this::showKeypad);
-        moreKeysButton.setContentDescription(getString(R.string.keys_more)); row.addView(moreKeysButton);
-        for (int i = 0; i < row.getChildCount(); i++) row.getChildAt(i).setLayoutParams(new LinearLayout.LayoutParams(0, dp(48), 1));
+        terminalBar = column(); terminalBar.setBackgroundColor(BG); terminalBar.setPadding(dp(6), dp(6), dp(6), dp(6));
+        terminalBar.setVisibility(View.GONE); root.addView(terminalBar);
+        // Row one is the keys a CLI hint names — the arrows above all. They
+        // used to live inside the Tools dock, so a prompt that said
+        // "shift + ←" pointed at a key that was one tap out of sight.
+        LinearLayout keys = new LinearLayout(this); terminalBar.addView(keys);
+        addBarKey(keys, "←", "\u001b[D", R.string.key_left);
+        addBarKey(keys, "↑", "\u001b[A", R.string.key_up);
+        addBarKey(keys, "↓", "\u001b[B", R.string.key_down);
+        addBarKey(keys, "→", "\u001b[C", R.string.key_right);
+        addBarKey(keys, "Esc", "\u001b", 0);
+        addBarKey(keys, "Tab", "\t", 0);
+        addBarKey(keys, "Enter", "\r", 0);
+
+        LinearLayout actions = new LinearLayout(this); terminalBar.addView(actions);
+        shiftButton = barButton(actions, "Shift", 1f, () -> { shift = !shift; updateModifiers(); });
+        ctrlButton  = barButton(actions, "Ctrl",  1f, () -> { ctrl  = !ctrl;  updateModifiers(); });
+        altButton   = barButton(actions, "Alt",   1f, () -> { alt   = !alt;   updateModifiers(); });
+        Button write = barButton(actions, getString(R.string.input_short), 1.4f, () -> compose(""));
+        write.setContentDescription(getString(R.string.write_prompt));
+        moreKeysButton = barButton(actions, getString(R.string.keys_short), 1.4f, this::showKeypad);
+        moreKeysButton.setContentDescription(getString(R.string.keys_more));
         keyDock = column(); keyDock.setBackgroundColor(BG); keyDock.setVisibility(View.GONE); terminalBar.addView(keyDock);
         LinearLayout tabs = new LinearLayout(this); keyDock.addView(tabs);
         int[] groups = {R.string.dock_move, R.string.dock_shortcuts, R.string.dock_output};
@@ -398,17 +439,16 @@ public final class MainActivity extends Activity {
         if (android.os.Build.VERSION.SDK_INT >= 30) moreKeysButton.setStateDescription(getString(open ? R.string.expanded : R.string.collapsed));
     }
     private void renderKeyDock() {
-        keyDockBody.removeAllViews(); altButton = null;
+        keyDockBody.removeAllViews();
         for (int i = 0; i < dockTabs.length; i++) {
             dockTabs[i].setSelected(i == dockGroup);
             dockTabs[i].setTextColor(i == dockGroup ? Color.WHITE : INK);
-            dockTabs[i].setBackground(surface(i == dockGroup ? TEAL : BG, 8));
+            dockTabs[i].setBackground(surface(i == dockGroup ? ACCENT : BG, 8));
         }
         if (dockGroup == 0) {
-            addDockKeys(new String[]{"←", "↑", "↓", "→"}, new String[]{"\u001b[D", "\u001b[A", "\u001b[B", "\u001b[C"});
             addDockKeys(new String[]{"Home", "End", "PgUp", "PgDn"}, new String[]{"\u001b[H", "\u001b[F", "\u001b[5~", "\u001b[6~"});
         } else if (dockGroup == 1) {
-            addDockKeys(new String[]{"Alt", "Shift+Tab", "Shift+Enter"}, new String[]{"", "\u001b[Z", "\u001b[13;2u"});
+            addDockKeys(new String[]{"Shift+Tab", "Shift+Enter"}, new String[]{"\u001b[Z", "\u001b[13;2u"});
             addDockKeys(new String[]{"Ctrl+C", "Ctrl+D", "Ctrl+Z"}, new String[]{"\u0003", "\u0004", "\u001a"});
         } else {
             LinearLayout history = new LinearLayout(this); keyDockBody.addView(history);
@@ -426,15 +466,9 @@ public final class MainActivity extends Activity {
         for (int i = 0; i < labels.length; i++) {
             String label = labels[i], code = codes[i];
             Button key = compactButton(label, () -> {
-                if (label.equals("Alt")) { alt = !alt; updateModifiers(); }
-                else {
-                    if (label.startsWith("Ctrl+") || label.startsWith("Shift+")) { shift = false; ctrl = false; alt = false; }
-                    sendKey(code);
-                }
+                if (label.startsWith("Ctrl+") || label.startsWith("Shift+")) { shift = false; ctrl = false; alt = false; }
+                sendKey(code);
             });
-            if (label.equals("Alt")) altButton = key;
-            int description = switch (label) { case "↑" -> R.string.key_up; case "↓" -> R.string.key_down; case "←" -> R.string.key_left; case "→" -> R.string.key_right; default -> 0; };
-            if (description != 0) key.setContentDescription(getString(description));
             row.addView(key, new LinearLayout.LayoutParams(0, dp(48), 1));
         }
     }
@@ -467,7 +501,7 @@ public final class MainActivity extends Activity {
                     String path = paths[i]; Button item = compactButton(names[i], () -> { dialog.dismiss(); navigate(path); });
                     item.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); item.setMaxLines(2);
                     boolean selected = path.equals(pagePath) || (pagePath != null && pagePath.startsWith(path + "/"));
-                    item.setSelected(selected); item.setBackground(surface(selected ? TEAL : BG, 10)); item.setTextColor(selected ? Color.WHITE : INK);
+                    item.setSelected(selected); item.setBackground(surface(selected ? ACCENT : BG, 10)); item.setTextColor(selected ? Color.WHITE : INK);
                     LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, dp(52), 1); cell.setMargins(dp(2), dp(2), dp(2), dp(2));
                     row.addView(item, cell); count++; matches++;
                 }
@@ -506,7 +540,7 @@ public final class MainActivity extends Activity {
         for (int i = 0; i < buttons.length; i++) {
             if (buttons[i] == null) continue;
             buttons[i].setSelected(values[i]); buttons[i].setTextColor(values[i] ? Color.WHITE : INK);
-            buttons[i].setBackground(surface(values[i] ? TEAL : Color.WHITE, 8));
+            buttons[i].setBackground(values[i] ? surface(ACCENT, 10) : keyCap());
             if (android.os.Build.VERSION.SDK_INT >= 30) buttons[i].setStateDescription(getString(values[i] ? R.string.modifier_on : R.string.modifier_off));
         }
     }
