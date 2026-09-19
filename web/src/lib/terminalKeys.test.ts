@@ -4,7 +4,11 @@ import { NO_MODIFIERS, terminalKey } from './terminalKeys'
 describe('terminal modifier encoding', () => {
   it('supports Shift+Tab and Shift+Enter for AI CLIs', () => {
     expect(terminalKey('\t', { ...NO_MODIFIERS, shift: true })).toBe('\x1b[Z')
-    expect(terminalKey('\r', { ...NO_MODIFIERS, shift: true })).toBe('\x1b[13;2u')
+    // Not the CSI-u form: tmux turns \x1b[13;2u into a carriage return, which
+    // sends the message instead of breaking the line. A newline survives, and
+    // it is what the CLIs bind to "insert newline".
+    expect(terminalKey('\r', { ...NO_MODIFIERS, shift: true })).toBe('\n')
+    expect(terminalKey('\r', { ...NO_MODIFIERS, shift: true })).not.toBe('\r')
   })
   it('combines modifiers for cursor movement', () => {
     expect(terminalKey('\x1b[D', { shift: true, ctrl: true, alt: false })).toBe('\x1b[1;6D')

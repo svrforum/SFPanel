@@ -10,7 +10,13 @@ export function terminalKey(data: string, { shift, ctrl, alt }: TerminalModifier
   if (data.startsWith('\x1b[') && /^[ABCDHF]$/.test(data.slice(2))) return `\x1b[1;${modifier}${data.at(-1)}`
   if (data.startsWith('\x1b[') && /^[356]~$/.test(data.slice(2))) return `\x1b[${data[2]};${modifier}~`
   if (data === '\t' && shift && !ctrl && !alt) return '\x1b[Z'
-  if (data === '\r' && shift) return `\x1b[13;${modifier}u`
+  // Shift+Enter is the "new line, don't send" key of an AI CLI's composer,
+  // and the CSI-u form did the opposite: tmux collapses \x1b[13;2u to a
+  // plain carriage return before the pane sees it — in every extended-keys
+  // mode, measured — so the key submitted the message it was meant to
+  // break. A newline byte reaches the pane untouched, and it is the first
+  // key Codex lists for inserting one.
+  if (data === '\r' && shift && !ctrl && !alt) return '\n'
   // A multi-character IME composition or bracketed paste must remain intact.
   if (data.length !== 1) return data
   let value = data
