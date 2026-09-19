@@ -86,6 +86,12 @@ public final class MainActivity extends Activity {
     // pre-API-30 keyboard probe's high-water mark.
     private boolean compactBar, keyboardOpen;
     private int tallestRoot;
+    // The bar's twelve keys, built once and only ever re-arranged.
+    private LinearLayout keyRow, actionRow;
+    private Button[] barKeys;
+    private float[] barWeights;
+    private int firstRowKeys;
+    private Boolean wideBar;
     private static final String CAP = "cap", DOCK = "dock";
     private final Button[] dockTabs = new Button[3];
     private int dockGroup;
@@ -160,7 +166,7 @@ public final class MainActivity extends Activity {
             }
             return android.os.Build.VERSION.SDK_INT >= 30 ? WindowInsets.CONSUMED : insets.consumeSystemWindowInsets();
         });
-        terminalBar = null; keyDock = null; panelChrome = null;
+        terminalBar = null; keyDock = null; panelChrome = null; barKeys = null; wideBar = null;
         setContentView(root); root.requestApplyInsets();
         root.getViewTreeObserver().addOnGlobalLayoutListener(this::readWindow);
     }
@@ -183,6 +189,23 @@ public final class MainActivity extends Activity {
     // whatever the page load last set on it.
     private void applyChrome() {
         if (panelChrome != null) panelChrome.setVisibility(keyboardOpen ? View.GONE : View.VISIBLE);
+    }
+    // All twelve on one line where there is width for them — the landscape
+    // phone and the tablet, which is exactly where height is scarcest. The
+    // buttons are detached and re-added, never rebuilt, so an armed modifier
+    // and the fill that shows it survive the move. The second row goes away
+    // rather than staying behind as an empty band.
+    private void placeKeys() {
+        boolean wide = getResources().getConfiguration().screenWidthDp >= 600;
+        if (barKeys == null || (wideBar != null && wideBar == wide)) return;
+        wideBar = wide;
+        keyRow.removeAllViews(); actionRow.removeAllViews();
+        for (int i = 0; i < barKeys.length; i++) {
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, barWeights[i]);
+            p.setMargins(capMargin(), capMargin(), capMargin(), capMargin());
+            (wide || i < firstRowKeys ? keyRow : actionRow).addView(barKeys[i], p);
+        }
+        actionRow.setVisibility(wide ? View.GONE : View.VISIBLE);
     }
     // API 30 and up asks the window. Below it the window is adjustResize, so
     // the keyboard is the height missing from the tallest root this
@@ -530,23 +553,33 @@ public final class MainActivity extends Activity {
         // Row one is the keys a CLI hint names — the arrows above all. They
         // used to live inside the Tools dock, so a prompt that said
         // "shift + ←" pointed at a key that was one tap out of sight.
-        LinearLayout keys = new LinearLayout(this); keys.setBaselineAligned(false); terminalBar.addView(keys);
-        addBarKey(keys, "←", "\u001b[D", R.string.key_left);
-        addBarKey(keys, "↑", "\u001b[A", R.string.key_up);
-        addBarKey(keys, "↓", "\u001b[B", R.string.key_down);
-        addBarKey(keys, "→", "\u001b[C", R.string.key_right);
-        addBarKey(keys, "Esc", "\u001b", 0);
-        addBarKey(keys, "Tab", "\t", 0);
-        addBarKey(keys, "Enter", "\r", 0);
+        keyRow = new LinearLayout(this); keyRow.setBaselineAligned(false); terminalBar.addView(keyRow);
+        addBarKey(keyRow, "←", "\u001b[D", R.string.key_left);
+        addBarKey(keyRow, "↑", "\u001b[A", R.string.key_up);
+        addBarKey(keyRow, "↓", "\u001b[B", R.string.key_down);
+        addBarKey(keyRow, "→", "\u001b[C", R.string.key_right);
+        addBarKey(keyRow, "Esc", "\u001b", 0);
+        addBarKey(keyRow, "Tab", "\t", 0);
+        addBarKey(keyRow, "Enter", "\r", 0);
 
-        LinearLayout actions = new LinearLayout(this); actions.setBaselineAligned(false); terminalBar.addView(actions);
-        shiftButton = barButton(actions, "Shift", 1f, () -> { shift = !shift; updateModifiers(); });
-        ctrlButton  = barButton(actions, "Ctrl",  1f, () -> { ctrl  = !ctrl;  updateModifiers(); });
-        altButton   = barButton(actions, "Alt",   1f, () -> { alt   = !alt;   updateModifiers(); });
-        Button write = barButton(actions, getString(R.string.input_short), 1.4f, () -> compose(""));
+        actionRow = new LinearLayout(this); actionRow.setBaselineAligned(false); terminalBar.addView(actionRow);
+        shiftButton = barButton(actionRow, "Shift", 1f, () -> { shift = !shift; updateModifiers(); });
+        ctrlButton  = barButton(actionRow, "Ctrl",  1f, () -> { ctrl  = !ctrl;  updateModifiers(); });
+        altButton   = barButton(actionRow, "Alt",   1f, () -> { alt   = !alt;   updateModifiers(); });
+        Button write = barButton(actionRow, getString(R.string.input_short), 1.4f, () -> compose(""));
         write.setContentDescription(getString(R.string.write_prompt));
-        moreKeysButton = barButton(actions, getString(R.string.keys_short), 1.4f, this::showKeypad);
+        moreKeysButton = barButton(actionRow, getString(R.string.keys_short), 1.4f, this::showKeypad);
         moreKeysButton.setContentDescription(getString(R.string.keys_more));
+        // The rows as built are the narrow shape, and the seam between them is
+        // where placeKeys cuts the line when it puts the keys back.
+        firstRowKeys = keyRow.getChildCount();
+        barKeys = new Button[firstRowKeys + actionRow.getChildCount()];
+        barWeights = new float[barKeys.length];
+        for (int i = 0; i < barKeys.length; i++) {
+            barKeys[i] = (Button) (i < firstRowKeys ? keyRow.getChildAt(i) : actionRow.getChildAt(i - firstRowKeys));
+            barWeights[i] = ((LinearLayout.LayoutParams) barKeys[i].getLayoutParams()).weight;
+        }
+        placeKeys();
         // The dock is a surface of its own: its keys carry no cap of their own,
         // so on the bar's grey they read as text floating over the bar.
         keyDock = column(); keyDock.setBackgroundColor(BG); keyDock.setVisibility(View.GONE); terminalBar.addView(keyDock);
@@ -888,7 +921,7 @@ public final class MainActivity extends Activity {
         // The pre-API-30 keyboard probe measures against the tallest root it has
         // seen; a rotation makes every earlier measurement a different window.
         tallestRoot = 0;
-        if (web != null) { web.getSettings().setTextZoom(Math.round(100 * configuration.fontScale * readingScale())); root.requestApplyInsets(); }
+        if (web != null) { web.getSettings().setTextZoom(Math.round(100 * configuration.fontScale * readingScale())); root.requestApplyInsets(); placeKeys(); }
         else { String name = nameInput.getText().toString(), address = addressInput.getText().toString(); showHome(); nameInput.setText(name); addressInput.setText(address); }
     }
     @Override protected void onSaveInstanceState(Bundle out) {
