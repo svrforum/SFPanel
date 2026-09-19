@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.77.3] – 2026-09-20
+
+### Fixed
+
+**The desktop apps are back in the release.** Windows, macOS and Linux builds were missing from 0.77.1 and 0.77.2: a dependency update moved the updater plugin's JavaScript half to 2.11 while its Rust half stayed on 2.10, and Tauri refuses to build a plugin whose two halves disagree on a minor version. The Rust side now matches. Nothing about the panel changed — if you run the desktop app, this is the build to install; if you use the browser, 0.77.2 is the same software.
+
 ## [0.77.2] – 2026-09-20
 
 ### Fixed
