@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.77.1] – 2026-09-19
+
+### Changed
+
+**The dependency backlog is cleared.** Twenty update proposals had been sitting unmerged since mid-August, all of them stuck behind a vulnerability gate that was red for an unrelated reason and has since been fixed. They are applied together here: the Go modules (protobuf, gopsutil, docker/go-connections, the OpenTelemetry exporter), the pinned GitHub Actions (setup-go, golangci-lint, goreleaser, rust-cache, and the release uploader whose older version dropped a Windows asset in 0.76.0), and the frontend and tooling packages (radix-ui, Tailwind, Vite, vitest, Playwright, and the desktop updater plugin).
+
+Nothing in the panel's own behaviour changes. The user interface is built on radix-ui, which moved several minor versions at once, so the whole test suite and the browser end-to-end checks — dialogs, sheets, tabs, the terminal page — were run against the new versions before this shipped.
+
+---
+
 ## [0.77.0] – 2026-09-19
 
 ### Changed
