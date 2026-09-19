@@ -82,6 +82,11 @@ public final class MainActivity extends Activity {
     private AppUpdates updates;
     CertificateTrust certificateTrust() { return certificates; }
     private LinearLayout terminalBar, keyDock, keyDockBody;
+    // Two metric sets and the signals that pick one. tallestRoot is the
+    // pre-API-30 keyboard probe's high-water mark.
+    private boolean compactBar, keyboardOpen;
+    private int tallestRoot;
+    private static final String CAP = "cap", DOCK = "dock";
     private final Button[] dockTabs = new Button[3];
     private int dockGroup;
     private boolean shift, ctrl, alt;
@@ -110,6 +115,13 @@ public final class MainActivity extends Activity {
 
     private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     private float readingScale() { return prefs.getInt("readingSize", 100) / 100f; }
+    // One table, two columns. compact is decided by available height, never by
+    // a preference: the state that needs the room is the state that gets it.
+    private int capHeight()  { return dp(compactBar ? 36 : 44); }
+    private int capMargin()  { return dp(compactBar ? 1 : 2); }
+    private int barPadding() { return dp(compactBar ? 3 : 6); }
+    private int dockTab()    { return dp(compactBar ? 40 : 48); }
+    private float capText()  { return (compactBar ? 12 : 13) * readingScale(); }
     private LinearLayout column() { LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.VERTICAL); return v; }
     private GradientDrawable surface(int color, int radius) {
         GradientDrawable d = new GradientDrawable(); d.setColor(color); d.setCornerRadius(dp(radius)); return d;
@@ -148,7 +160,50 @@ public final class MainActivity extends Activity {
             }
             return android.os.Build.VERSION.SDK_INT >= 30 ? WindowInsets.CONSUMED : insets.consumeSystemWindowInsets();
         });
+        terminalBar = null; keyDock = null;
         setContentView(root); root.requestApplyInsets();
+        root.getViewTreeObserver().addOnGlobalLayoutListener(this::readWindow);
+    }
+
+    // Two signals, read on every layout pass and acted on only when one moved:
+    // passes are frequent, and re-applying metrics inside each one would fight
+    // the layout it runs in.
+    private void readWindow() {
+        if (root == null) return;
+        boolean keyboard = keyboardVisible();
+        boolean compact = keyboard || getResources().getConfiguration().screenHeightDp < 480;
+        if (keyboard == keyboardOpen && compact == compactBar) return;
+        keyboardOpen = keyboard; compactBar = compact;
+        applyBarMetrics();
+    }
+    // API 30 and up asks the window. Below it the window is adjustResize, so
+    // the keyboard is the height missing from the tallest root this
+    // configuration has shown — and onConfigurationChanged drops that
+    // high-water mark, because a rotation changes what "tallest" means.
+    private boolean keyboardVisible() {
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            WindowInsets insets = root.getRootWindowInsets();
+            return insets != null && insets.isVisible(WindowInsets.Type.ime());
+        }
+        int height = root.getHeight();
+        if (height > tallestRoot) tallestRoot = height;
+        return tallestRoot - height > dp(180);
+    }
+    // Every cap that already exists follows the metrics, not just the ones
+    // built after the switch: both bar rows, the dock's tabs, and whatever
+    // renderKeyDock last put in the body.
+    private void applyBarMetrics() {
+        if (terminalBar == null) return;
+        terminalBar.setPadding(barPadding(), barPadding(), barPadding(), barPadding());
+        resize(terminalBar);
+    }
+    private void resize(ViewGroup group) {
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (CAP.equals(child.getTag())) sizeCap((Button) child);
+            else if (DOCK.equals(child.getTag())) { child.getLayoutParams().height = dockTab(); child.requestLayout(); }
+            else if (child instanceof ViewGroup) resize((ViewGroup) child);
+        }
     }
 
     private void showHome() {
@@ -427,25 +482,39 @@ public final class MainActivity extends Activity {
         if (description != 0) key.setContentDescription(getString(description));
     }
     private Button barButton(LinearLayout row, String label, float weight, Runnable action) {
-        Button b = compactButton(label, action);
-        b.setMinHeight(dp(44)); b.setMinimumHeight(dp(44)); b.setBackground(keyCap());
+        Button b = compactButton(label, action); b.setTag(CAP); b.setBackground(keyCap());
         // The label keeps its one line, the cap grows around it, and the label
         // sizes itself down to whatever the cap can hold. At the system's
         // largest font scale a fixed dp(44) box wrapped "Enter" into a second
         // line it had no room for: the cap read "Ent" and the row stepped down
         // to align baselines with its neighbours. setMaxLines, not
         // setSingleLine — single-line mode scrolls horizontally, so a label
-        // never wraps, always "fits", and the auto-sizing below never fires.
+        // never wraps, always "fits", and the auto-sizing in sizeCap never fires.
         b.setMaxLines(1); b.setEllipsize(android.text.TextUtils.TruncateAt.END);
         b.setPadding(dp(6), 0, dp(6), 0);
-        b.setAutoSizeTextTypeUniformWithConfiguration(Math.round(7 * readingScale()),
-                Math.round(13 * readingScale()), 1, android.util.TypedValue.COMPLEX_UNIT_SP);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, weight);
-        p.setMargins(dp(2), dp(2), dp(2), dp(2)); row.addView(b, p);
+        row.addView(b, new LinearLayout.LayoutParams(0, -2, weight)); sizeCap(b);
+        return b;
+    }
+    private void sizeCap(Button cap) {
+        cap.setMinHeight(capHeight()); cap.setMinimumHeight(capHeight());
+        // The floor stays where it was; only the ceiling moves with the metrics,
+        // so a large font scale shrinks the label instead of clipping it at
+        // either size of cap.
+        cap.setAutoSizeTextTypeUniformWithConfiguration(Math.round(7 * readingScale()),
+                Math.round(capText()), 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+        ViewGroup.LayoutParams p = cap.getLayoutParams();
+        if (p instanceof LinearLayout.LayoutParams) ((LinearLayout.LayoutParams) p).setMargins(capMargin(), capMargin(), capMargin(), capMargin());
+        cap.requestLayout();
+    }
+    // The dock's tabs and its output actions are not caps — they are rows of
+    // plain labels, and they follow dockTab() rather than capHeight().
+    private Button dockButton(LinearLayout row, String label, Runnable action) {
+        Button b = compactButton(label, action); b.setTag(DOCK);
+        row.addView(b, new LinearLayout.LayoutParams(0, dockTab(), 1));
         return b;
     }
     private void addTerminalBar() {
-        terminalBar = column(); terminalBar.setBackgroundColor(BG); terminalBar.setPadding(dp(6), dp(6), dp(6), dp(6));
+        terminalBar = column(); terminalBar.setBackgroundColor(BG); terminalBar.setPadding(barPadding(), barPadding(), barPadding(), barPadding());
         terminalBar.setVisibility(View.GONE); root.addView(terminalBar);
         // Row one is the keys a CLI hint names — the arrows above all. They
         // used to live inside the Tools dock, so a prompt that said
@@ -476,8 +545,7 @@ public final class MainActivity extends Activity {
         int[] groups = {R.string.dock_move, R.string.dock_shortcuts, R.string.dock_output};
         for (int i = 0; i < groups.length; i++) {
             final int group = i;
-            dockTabs[i] = compactButton(getString(groups[i]), () -> { dockGroup = group; renderKeyDock(); });
-            tabs.addView(dockTabs[i], new LinearLayout.LayoutParams(0, dp(48), 1));
+            dockTabs[i] = dockButton(tabs, getString(groups[i]), () -> { dockGroup = group; renderKeyDock(); });
         }
         keyDockBody = column(); keyDock.addView(keyDockBody);
         renderKeyDock();
@@ -508,12 +576,12 @@ public final class MainActivity extends Activity {
             addDockKeys(new String[]{"Ctrl+C", "Ctrl+D", "Ctrl+Z"}, new String[]{"\u0003", "\u0004", "\u001a"});
         } else {
             LinearLayout history = new LinearLayout(this); keyDockBody.addView(history);
-            history.addView(compactButton(getString(R.string.scroll_up), () -> scroll(-1)), new LinearLayout.LayoutParams(0, dp(48), 1));
-            history.addView(compactButton(getString(R.string.scroll_down), () -> scroll(1)), new LinearLayout.LayoutParams(0, dp(48), 1));
-            history.addView(compactButton(getString(R.string.scroll_bottom), () -> scroll(0)), new LinearLayout.LayoutParams(0, dp(48), 1));
+            dockButton(history, getString(R.string.scroll_up), () -> scroll(-1));
+            dockButton(history, getString(R.string.scroll_down), () -> scroll(1));
+            dockButton(history, getString(R.string.scroll_bottom), () -> scroll(0));
             LinearLayout actions = new LinearLayout(this); keyDockBody.addView(actions);
-            actions.addView(compactButton(getString(R.string.read_output), () -> { setKeyDockOpen(false); readOutput(); }), new LinearLayout.LayoutParams(0, dp(48), 1));
-            actions.addView(compactButton(getString(R.string.search_output), () -> { setKeyDockOpen(false); searchOutput(); }), new LinearLayout.LayoutParams(0, dp(48), 1));
+            dockButton(actions, getString(R.string.read_output), () -> { setKeyDockOpen(false); readOutput(); });
+            dockButton(actions, getString(R.string.search_output), () -> { setKeyDockOpen(false); searchOutput(); });
         }
         updateModifiers();
     }
@@ -806,6 +874,9 @@ public final class MainActivity extends Activity {
     @SuppressWarnings("deprecation") @Override public void onBackPressed() { goBack(); }
     @Override public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration);
+        // The pre-API-30 keyboard probe measures against the tallest root it has
+        // seen; a rotation makes every earlier measurement a different window.
+        tallestRoot = 0;
         if (web != null) { web.getSettings().setTextZoom(Math.round(100 * configuration.fontScale * readingScale())); root.requestApplyInsets(); }
         else { String name = nameInput.getText().toString(), address = addressInput.getText().toString(); showHome(); nameInput.setText(name); addressInput.setText(address); }
     }
