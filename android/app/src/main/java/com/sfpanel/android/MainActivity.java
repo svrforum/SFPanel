@@ -644,7 +644,27 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle(R.string.coding_tools).setItems(names, (d, which) -> {
             switch (which) {
                 case 0 -> evaluate("document.documentElement.toggleAttribute('data-ai-tools-open');window.dispatchEvent(new Event('resize'));return true;", null);
-                case 1 -> evaluate("const tab=document.querySelector('[role=tab][aria-selected=true]');if(!tab)return false;const r=tab.getBoundingClientRect();tab.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:r.x+r.width/2,clientY:r.bottom}));return true;", result -> { if (!"true".equals(result)) toast(R.string.no_session); });
+                // The header menu is the documented hook and the only one a
+                // phone has: the rail renders on wide screens only, and the
+                // phone's copy sits in a drawer that is unmounted while
+                // closed, so [role=tab] never matches on a device. The header
+                // button is a Radix trigger, which opens on pointerdown and
+                // binds no click handler at all — click() alone is a silent
+                // no-op, so it is kept only for an element that is not one
+                // (no data-state), where it would be the right gesture.
+                // Finding the button is the answer to "is there a session":
+                // the panel renders it only for an active one. Its open state
+                // lands a render later, so it is not what we report. The
+                // rail's context menu stays as the wide-screen path, and the
+                // only path on panels older than the header hook.
+                case 1 -> evaluate("const m=document.querySelector('[data-session-menu]');"
+                        + "if(m){const b=m.getBoundingClientRect();"
+                        + "m.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,composed:true,button:0,buttons:1,pointerId:1,pointerType:'touch',isPrimary:true,clientX:b.x+b.width/2,clientY:b.y+b.height/2}));"
+                        + "if(!('state' in m.dataset))m.click();"
+                        + "return true;}"
+                        + "const tab=document.querySelector('[role=tab][aria-selected=true]');if(!tab)return false;"
+                        + "const r=tab.getBoundingClientRect();tab.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:r.x+r.width/2,clientY:r.bottom}));return true;",
+                        result -> { if (!"true".equals(result)) toast(R.string.no_session); });
                 case 2 -> {
                     WebView target = web;
                     // The menu window must release focus before the WebView
