@@ -109,9 +109,21 @@
     <string name="terminal_controls">Terminal controls</string>
     <string name="ai_setup">Show/hide AI tools and account</string>
     <string-array name="feature_names"><item>Dashboard</item><item>AI coding</item><item>Terminal</item><item>Files</item><item>Docker · Compose</item><item>App store</item><item>Services</item><item>Processes</item><item>Scheduled tasks</item><item>Logs</item><item>Network · VPN</item><item>Firewall · Ports</item><item>Disks · Storage</item><item>Packages</item><item>Cluster · Nodes</item><item>Server settings</item></string-array>
-    <string name="keys_short">Keys</string>
+    <string name="keys_short">Tools</string>
     <string name="session_actions">Session actions</string>
     <string name="page_tools">Page tools</string>
     <string name="session_webview_update">Update Android System WebView to keep sign-in across connections.</string>
     <string name="session_save_failed">Could not securely save sign-in. You may need to sign in again next time.</string>
+    <string name="write_prompt">Write a multiline prompt</string>
+    <string name="dock_move">Move</string>
+    <string name="dock_shortcuts">Shortcuts</string>
+    <string name="dock_output">Output</string>
+    <string name="collapse_tools">Hide</string>
+    <string name="expanded">Expanded</string>
+    <string name="collapsed">Collapsed</string>
+    <string name="nav_work">Workspace</string>
+    <string name="nav_services">Apps and services</string>
+    <string name="nav_system">Server and system</string>
+    <string name="no_features">No matching features</string>
+    <string name="server_actions">Actions for %1$s</string>
 </resources>

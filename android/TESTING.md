@@ -61,3 +61,11 @@ Lint 경고는 동적 LAN 서버를 위한 HTTP 허용, 사용자가 설치한 C
 - 0.1.3에서 사용한 단순 WebSocket fixture가 tmux의 alternate buffer와 `mouse off` 조합을 재현하지 못했습니다. 앱만으로 AI 스크롤 문제가 해결된다는 기존 안내를 정정합니다.
 - 실제 tmux PTY를 연결한 Playwright 터치 테스트에서 서버의 기존 `mouse off` 설정은 웹·Android 자산 모두 실패했습니다. `mouse on` 적용 후 화면 첫 줄이 과거 출력으로 이동하고 반대 스와이프로 최신 출력으로 돌아오는 검사가 모두 통과했습니다. 테스트는 임시 tmux 소켓과 숫자 출력 프로그램만 사용합니다.
 - Go 통합 테스트는 기존 `mouse off` 세션에 실제 attach 명령으로 재접속한 뒤 휠 입력에 따른 tmux history position 변화와 live mode 복귀를 검증합니다. CI에서 tmux를 설치해 이 검사를 실행합니다.
+
+## 0.1.4 접이식 도구·탐색
+
+- API 35 실제 앱에서 도구 펼침 → 방향키 전송(`ESC[A`), 조합키 → Shift+Enter(`ESC[13;2u`), 뒤로 가기 → 도구 접힘을 확인했습니다. 임시 WebSocket fixture만 사용했습니다.
+- 키보드를 켜고도 터미널과 도구를 함께 조작할 수 있으며 기본 키 48dp + 펼친 도구 144dp의 높이를 확인했습니다. 3개 도구 탭에서 각 조작을 분리합니다.
+- 전체 기능의 분류, `docker` 검색 결과, 일치 항목이 없는 안내를 확인했습니다. 서버 삭제는 서버별 메뉴로 옮겼습니다.
+- `키보드 열기`가 메뉴 창의 포커스 때문에 무시되는 것을 재현했습니다. 메뉴 닫힘 후 WebView → xterm 순으로 포커스를 넘긴 뒤 IME 표시 상태를 확인했습니다.
+- Android debug/release 단위 테스트 12개, Lint, APK 빌드를 실행했습니다. 실제 휴대폰·큰 글꼴·TalkBack 검증은 별도로 필요합니다.

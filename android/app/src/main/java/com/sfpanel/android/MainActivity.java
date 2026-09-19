@@ -73,7 +73,9 @@ public final class MainActivity extends Activity {
     private CertificateTrust certificates;
     private AppUpdates updates;
     CertificateTrust certificateTrust() { return certificates; }
-    private LinearLayout terminalBar;
+    private LinearLayout terminalBar, keyDock, keyDockBody;
+    private final Button[] dockTabs = new Button[3];
+    private int dockGroup;
     private boolean shift, ctrl, alt;
     private Button shiftButton, ctrlButton, altButton, moreKeysButton;
     private TextView panelTitle;
@@ -146,8 +148,10 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true);
         LinearLayout body = column(); body.setPadding(dp(24), dp(20), dp(24), dp(32));
         scroll.addView(body); root.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
-        body.addView(text("SFPanel", 24, INK, true));
-        body.addView(text(getString(R.string.home_description), 14, MUTED, false));
+        LinearLayout homeHeader = new LinearLayout(this); homeHeader.setGravity(Gravity.CENTER_VERTICAL); body.addView(homeHeader);
+        homeHeader.addView(text("SFPanel", 24, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
+        homeHeader.addView(compactButton(getString(R.string.options), this::showOptions));
+        if (store.list().isEmpty()) body.addView(text(getString(R.string.home_description), 14, MUTED, false));
 
         LinearLayout card = column(); card.setPadding(dp(20), dp(16), dp(20), dp(22)); card.setBackground(surface(Color.WHITE, 24));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2); cardParams.topMargin = dp(24);
@@ -164,22 +168,41 @@ public final class MainActivity extends Activity {
         });
         card.addView(connectButton);
         status = text("", 15, MUTED, false); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); card.addView(status);
-        LinearLayout savedSection = column(); body.addView(savedSection, 2);
-        savedSection.addView(heading(R.string.saved_servers, 22));
-        savedSection.addView(text(getString(R.string.saved_help), 14, MUTED, false));
+        TextView homeStatus = status; homeStatus.setVisibility(View.GONE);
+        homeStatus.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            public void onTextChanged(CharSequence s, int start, int before, int count) { homeStatus.setVisibility(s.length() == 0 ? View.GONE : View.VISIBLE); }
+            public void afterTextChanged(android.text.Editable s) { }
+        });
+        LinearLayout savedSection = column(); body.addView(savedSection, body.indexOfChild(card));
+        savedSection.addView(heading(R.string.saved_servers, 18));
+
         if (store.list().isEmpty()) savedSection.addView(text(getString(R.string.empty_servers), 16, MUTED, false));
         for (ServerStore.Server server : store.list()) {
-            LinearLayout saved = column(); saved.setPadding(dp(16), dp(12), dp(16), dp(16)); saved.setBackground(surface(Color.WHITE, 18));
-            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2); sp.topMargin = dp(12); savedSection.addView(saved, sp);
-            Button open = button(server.name() + "\n" + server.address(), false, () -> requestConnect(server));
-            open.setContentDescription(getString(R.string.open_server, server.name()) + ", " + server.address()); saved.addView(open);
-            Button remove = button(getString(R.string.remove), false, () -> new AlertDialog.Builder(this)
-                    .setTitle(getString(R.string.remove_server, server.name())).setMessage(R.string.remove_message)
-                    .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { store.remove(server); sessions.remove(server.address()); certificates.remove(server.address()); showHome(); }).show());
-            if (certificates.pin(server.address()) != null) saved.addView(button(getString(R.string.forget_certificate), false, () ->
-                    new AlertDialog.Builder(this).setTitle(R.string.forget_certificate).setMessage(server.address())
-                        .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { certificates.remove(server.address()); showHome(); }).show()));
-            remove.setContentDescription(getString(R.string.remove_server, server.name())); saved.addView(remove);
+            LinearLayout saved = new LinearLayout(this); saved.setGravity(Gravity.CENTER_VERTICAL);
+            saved.setPadding(dp(4), dp(4), dp(4), dp(4)); saved.setBackground(surface(Color.WHITE, 14));
+            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2); sp.topMargin = dp(10); savedSection.addView(saved, sp);
+            Button open = compactButton(server.name() + "\n" + server.address(), () -> requestConnect(server));
+            open.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); open.setPadding(dp(12), dp(4), dp(8), dp(4));
+            open.setMaxLines(2); open.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            open.setContentDescription(getString(R.string.open_server, server.name()) + ", " + server.address());
+            saved.addView(open, new LinearLayout.LayoutParams(0, dp(72), 1));
+            Button menu = compactButton("⋯", () -> {}); menu.setContentDescription(getString(R.string.server_actions, server.name()));
+            menu.setOnClickListener(v -> {
+                android.widget.PopupMenu popup = new android.widget.PopupMenu(this, menu);
+                popup.getMenu().add(0, 1, 0, R.string.remove);
+                if (certificates.pin(server.address()) != null) popup.getMenu().add(0, 2, 1, R.string.forget_certificate);
+                popup.setOnMenuItemClickListener(item -> {
+                    if (item.getItemId() == 1) new AlertDialog.Builder(this)
+                            .setTitle(getString(R.string.remove_server, server.name())).setMessage(R.string.remove_message)
+                            .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { store.remove(server); sessions.remove(server.address()); certificates.remove(server.address()); showHome(); }).show();
+                    else new AlertDialog.Builder(this).setTitle(R.string.forget_certificate).setMessage(server.address())
+                            .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { certificates.remove(server.address()); showHome(); }).show();
+                    return true;
+                });
+                popup.show();
+            });
+            saved.addView(menu, new LinearLayout.LayoutParams(dp(48), dp(48)));
         }
         if (!store.list().isEmpty()) {
             card.setVisibility(View.GONE);
@@ -187,8 +210,7 @@ public final class MainActivity extends Activity {
             body.addView(addServer, body.indexOfChild(card));
         }
         card.removeView(status); body.addView(status, body.indexOfChild(card));
-        body.addView(button(getString(R.string.options), false, this::showOptions));
-        body.addView(text(getString(R.string.privacy_help), 14, MUTED, false));
+        body.addView(text(getString(R.string.privacy_help), 12, MUTED, false));
     }
 
     private EditText field(LinearLayout parent, int label, int hint, boolean address) {
@@ -342,7 +364,8 @@ public final class MainActivity extends Activity {
     private void addTerminalBar() {
         terminalBar = column(); terminalBar.setBackgroundColor(Color.WHITE); terminalBar.setVisibility(View.GONE); root.addView(terminalBar);
         LinearLayout row = new LinearLayout(this); terminalBar.addView(row);
-        row.addView(compactButton(getString(R.string.input_short), () -> compose("")));
+        Button write = compactButton(getString(R.string.input_short), () -> compose(""));
+        write.setContentDescription(getString(R.string.write_prompt)); row.addView(write);
         shiftButton = compactButton("Shift", () -> { shift = !shift; updateModifiers(); }); row.addView(shiftButton);
         ctrlButton = compactButton("Ctrl", () -> { ctrl = !ctrl; updateModifiers(); }); row.addView(ctrlButton);
         row.addView(compactButton("Esc", () -> sendKey("\u001b")));
@@ -351,29 +374,69 @@ public final class MainActivity extends Activity {
         moreKeysButton = compactButton(getString(R.string.keys_short), this::showKeypad);
         moreKeysButton.setContentDescription(getString(R.string.keys_more)); row.addView(moreKeysButton);
         for (int i = 0; i < row.getChildCount(); i++) row.getChildAt(i).setLayoutParams(new LinearLayout.LayoutParams(0, dp(48), 1));
+        keyDock = column(); keyDock.setBackgroundColor(BG); keyDock.setVisibility(View.GONE); terminalBar.addView(keyDock);
+        LinearLayout tabs = new LinearLayout(this); keyDock.addView(tabs);
+        int[] groups = {R.string.dock_move, R.string.dock_shortcuts, R.string.dock_output};
+        for (int i = 0; i < groups.length; i++) {
+            final int group = i;
+            dockTabs[i] = compactButton(getString(groups[i]), () -> { dockGroup = group; renderKeyDock(); });
+            tabs.addView(dockTabs[i], new LinearLayout.LayoutParams(0, dp(48), 1));
+        }
+        keyDockBody = column(); keyDock.addView(keyDockBody);
+        renderKeyDock();
     }
     private void showKeypad() {
-        LinearLayout body = column(); body.setPadding(dp(12), dp(8), dp(12), dp(8));
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(R.string.terminal_controls).setView(body).setNegativeButton(R.string.close, null).create();
-        String[][] labels = {{"Alt", "↑", "PgUp", "Home"}, {"←", "↓", "→", "End"}, {"Ctrl+C", "Ctrl+D", "Ctrl+Z", "PgDn"}};
-        String[][] codes = {{"", "\u001b[A", "\u001b[5~", "\u001b[H"}, {"\u001b[D", "\u001b[B", "\u001b[C", "\u001b[F"}, {"\u0003", "\u0004", "\u001a", "\u001b[6~"}};
-        for (int i = 0; i < labels.length; i++) {
-            LinearLayout row = new LinearLayout(this); body.addView(row);
-            for (int j = 0; j < labels[i].length; j++) {
-                String label = labels[i][j], code = codes[i][j];
-                Button key = compactButton(label, () -> { if (label.equals("Alt")) { alt = !alt; updateModifiers(); dialog.dismiss(); } else { if (label.startsWith("Ctrl+")) { shift = false; ctrl = false; alt = false; } sendKey(code); } });
-                int description = switch (label) { case "↑" -> R.string.key_up; case "↓" -> R.string.key_down; case "←" -> R.string.key_left; case "→" -> R.string.key_right; default -> 0; };
-                if (description != 0) key.setContentDescription(getString(description));
-                row.addView(key, new LinearLayout.LayoutParams(0, dp(48), 1));
-            }
+        if (keyDock == null) return;
+        setKeyDockOpen(keyDock.getVisibility() != View.VISIBLE);
+    }
+    private void setKeyDockOpen(boolean open) {
+        if (keyDock == null) return;
+        keyDock.setVisibility(open ? View.VISIBLE : View.GONE);
+        moreKeysButton.setText(getString(open ? R.string.collapse_tools : R.string.keys_short));
+        moreKeysButton.setContentDescription(getString(open ? R.string.collapse_tools : R.string.keys_more));
+        moreKeysButton.setSelected(open);
+        if (android.os.Build.VERSION.SDK_INT >= 30) moreKeysButton.setStateDescription(getString(open ? R.string.expanded : R.string.collapsed));
+    }
+    private void renderKeyDock() {
+        keyDockBody.removeAllViews(); altButton = null;
+        for (int i = 0; i < dockTabs.length; i++) {
+            dockTabs[i].setSelected(i == dockGroup);
+            dockTabs[i].setTextColor(i == dockGroup ? Color.WHITE : INK);
+            dockTabs[i].setBackground(surface(i == dockGroup ? TEAL : BG, 8));
         }
-        LinearLayout history = new LinearLayout(this); body.addView(history);
-        history.addView(compactButton(getString(R.string.scroll_up), () -> scroll(-1)), new LinearLayout.LayoutParams(0, dp(48), 1));
-        history.addView(compactButton(getString(R.string.scroll_down), () -> scroll(1)), new LinearLayout.LayoutParams(0, dp(48), 1));
-        history.addView(compactButton(getString(R.string.scroll_bottom), () -> scroll(0)), new LinearLayout.LayoutParams(0, dp(48), 1));
-        body.addView(compactButton(getString(R.string.read_output), () -> { dialog.dismiss(); readOutput(); }));
-        body.addView(compactButton(getString(R.string.search_output), () -> { dialog.dismiss(); searchOutput(); }));
-        dialog.show();
+        if (dockGroup == 0) {
+            addDockKeys(new String[]{"←", "↑", "↓", "→"}, new String[]{"\u001b[D", "\u001b[A", "\u001b[B", "\u001b[C"});
+            addDockKeys(new String[]{"Home", "End", "PgUp", "PgDn"}, new String[]{"\u001b[H", "\u001b[F", "\u001b[5~", "\u001b[6~"});
+        } else if (dockGroup == 1) {
+            addDockKeys(new String[]{"Alt", "Shift+Tab", "Shift+Enter"}, new String[]{"", "\u001b[Z", "\u001b[13;2u"});
+            addDockKeys(new String[]{"Ctrl+C", "Ctrl+D", "Ctrl+Z"}, new String[]{"\u0003", "\u0004", "\u001a"});
+        } else {
+            LinearLayout history = new LinearLayout(this); keyDockBody.addView(history);
+            history.addView(compactButton(getString(R.string.scroll_up), () -> scroll(-1)), new LinearLayout.LayoutParams(0, dp(48), 1));
+            history.addView(compactButton(getString(R.string.scroll_down), () -> scroll(1)), new LinearLayout.LayoutParams(0, dp(48), 1));
+            history.addView(compactButton(getString(R.string.scroll_bottom), () -> scroll(0)), new LinearLayout.LayoutParams(0, dp(48), 1));
+            LinearLayout actions = new LinearLayout(this); keyDockBody.addView(actions);
+            actions.addView(compactButton(getString(R.string.read_output), () -> { setKeyDockOpen(false); readOutput(); }), new LinearLayout.LayoutParams(0, dp(48), 1));
+            actions.addView(compactButton(getString(R.string.search_output), () -> { setKeyDockOpen(false); searchOutput(); }), new LinearLayout.LayoutParams(0, dp(48), 1));
+        }
+        updateModifiers();
+    }
+    private void addDockKeys(String[] labels, String[] codes) {
+        LinearLayout row = new LinearLayout(this); keyDockBody.addView(row);
+        for (int i = 0; i < labels.length; i++) {
+            String label = labels[i], code = codes[i];
+            Button key = compactButton(label, () -> {
+                if (label.equals("Alt")) { alt = !alt; updateModifiers(); }
+                else {
+                    if (label.startsWith("Ctrl+") || label.startsWith("Shift+")) { shift = false; ctrl = false; alt = false; }
+                    sendKey(code);
+                }
+            });
+            if (label.equals("Alt")) altButton = key;
+            int description = switch (label) { case "↑" -> R.string.key_up; case "↓" -> R.string.key_down; case "←" -> R.string.key_left; case "→" -> R.string.key_right; default -> 0; };
+            if (description != 0) key.setContentDescription(getString(description));
+            row.addView(key, new LinearLayout.LayoutParams(0, dp(48), 1));
+        }
     }
     private void showNavigation() {
         String[] paths = {"/dashboard", "/ai", "/terminal", "/files", "/docker", "/appstore", "/services", "/processes", "/cron", "/logs", "/network", "/firewall", "/disk", "/packages", "/cluster", "/settings"};
@@ -383,31 +446,48 @@ public final class MainActivity extends Activity {
         EditText search = new EditText(this); search.setSingleLine(true); search.setHint(R.string.find_feature); search.setContentDescription(getString(R.string.find_feature)); search.setMinHeight(dp(48)); body.addView(search);
         ScrollView scroll = new ScrollView(this); LinearLayout entries = column(); scroll.addView(entries); body.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle(R.string.all_features).setView(body).setNegativeButton(R.string.close, null).create();
-        java.util.List<Button> buttons = new java.util.ArrayList<>();
-        LinearLayout row = null;
-        for (int i = 0; i < paths.length; i++) {
-            if (i % 2 == 0) { row = new LinearLayout(this); entries.addView(row); }
-            String path = paths[i]; Button item = compactButton(names[i], () -> { dialog.dismiss(); navigate(path); });
-            item.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); item.setMaxLines(2);
+        Runnable render = () -> {
+            entries.removeAllViews();
+            String query = search.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
             String pagePath = web == null || web.getUrl() == null ? null : Uri.parse(web.getUrl()).getPath();
-            boolean selected = path.equals(pagePath) || (pagePath != null && pagePath.startsWith(path + "/"));
-            item.setBackground(surface(selected ? TEAL : BG, 10)); item.setTextColor(selected ? Color.WHITE : INK);
-            LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, dp(52), 1); cell.setMargins(dp(2), dp(2), dp(2), dp(2));
-            row.addView(item, cell); buttons.add(item);
-        }
+            int[] headings = {R.string.nav_work, R.string.nav_services, R.string.nav_system};
+            int[] starts = {0, 4, 10, paths.length};
+            int matches = 0;
+            for (int group = 0; group < headings.length; group++) {
+                LinearLayout row = null;
+                int count = 0;
+                for (int i = starts[group]; i < starts[group + 1]; i++) {
+                    if (!(names[i] + " " + paths[i]).toLowerCase(java.util.Locale.ROOT).contains(query)) continue;
+                    if (count == 0) {
+                        TextView heading = text(getString(headings[group]), 13, MUTED, true);
+                        heading.setPadding(dp(4), dp(16), dp(4), dp(6));
+                        if (android.os.Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true); entries.addView(heading);
+                    }
+                    if (count % 2 == 0) { row = new LinearLayout(this); entries.addView(row); }
+                    String path = paths[i]; Button item = compactButton(names[i], () -> { dialog.dismiss(); navigate(path); });
+                    item.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); item.setMaxLines(2);
+                    boolean selected = path.equals(pagePath) || (pagePath != null && pagePath.startsWith(path + "/"));
+                    item.setSelected(selected); item.setBackground(surface(selected ? TEAL : BG, 10)); item.setTextColor(selected ? Color.WHITE : INK);
+                    LinearLayout.LayoutParams cell = new LinearLayout.LayoutParams(0, dp(52), 1); cell.setMargins(dp(2), dp(2), dp(2), dp(2));
+                    row.addView(item, cell); count++; matches++;
+                }
+                if (count % 2 == 1) row.addView(new View(this), new LinearLayout.LayoutParams(0, dp(52), 1));
+            }
+            if (matches == 0) entries.addView(text(getString(R.string.no_features), 15, MUTED, false));
+        };
         search.addTextChangedListener(new android.text.TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-                String query = s.toString().toLowerCase(java.util.Locale.ROOT);
-                for (int i = 0; i < buttons.size(); i++) buttons.get(i).setVisibility((names[i] + " " + paths[i]).toLowerCase(java.util.Locale.ROOT).contains(query) ? View.VISIBLE : View.GONE);
-            }
+            public void onTextChanged(CharSequence s, int start, int before, int count) { render.run(); }
             public void afterTextChanged(android.text.Editable s) { }
         });
-        body.addView(compactButton(getString(R.string.servers), () -> { dialog.dismiss(); confirmHome(); }));
-        body.addView(compactButton(getString(R.string.options), () -> { dialog.dismiss(); showOptions(); }));
+        render.run();
+        LinearLayout footer = new LinearLayout(this); body.addView(footer);
+        footer.addView(compactButton(getString(R.string.servers), () -> { dialog.dismiss(); confirmHome(); }), new LinearLayout.LayoutParams(0, dp(48), 1));
+        footer.addView(compactButton(getString(R.string.options), () -> { dialog.dismiss(); showOptions(); }), new LinearLayout.LayoutParams(0, dp(48), 1));
         if (web != null) ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(web.getWindowToken(), 0);
         dialog.setOnShowListener(d -> {
-            dialog.getWindow().setLayout(-1, (int) (getResources().getDisplayMetrics().heightPixels * .9));
+            dialog.getWindow().setGravity(Gravity.BOTTOM);
+            dialog.getWindow().setLayout(-1, (int) (getResources().getDisplayMetrics().heightPixels * .85));
             dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN | android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         });
         dialog.show();
@@ -417,10 +497,11 @@ public final class MainActivity extends Activity {
         String path = Uri.parse(url).getPath();
         if (panelTitle != null && current != null) panelTitle.setText(current.name() + ("/ai".equals(path) ? " · AI" : "/terminal".equals(path) ? " · " + getString(R.string.terminal) : ""));
         terminalBar.setVisibility("/ai".equals(path) || "/terminal".equals(path) ? View.VISIBLE : View.GONE);
+        if (terminalBar.getVisibility() != View.VISIBLE) setKeyDockOpen(false);
         shift = false; ctrl = false; alt = false; updateModifiers();
     }
     private void updateModifiers() {
-        if (moreKeysButton != null) moreKeysButton.setText(alt ? "Alt" : getString(R.string.keys_short));
+        if (moreKeysButton != null && keyDock != null) moreKeysButton.setText(getString(keyDock.getVisibility() == View.VISIBLE ? R.string.collapse_tools : R.string.keys_short));
         Button[] buttons = {shiftButton, ctrlButton, altButton}; boolean[] values = {shift, ctrl, alt};
         for (int i = 0; i < buttons.length; i++) {
             if (buttons[i] == null) continue;
@@ -486,10 +567,19 @@ public final class MainActivity extends Activity {
             switch (which + (ai ? 0 : 2)) {
                 case 0 -> evaluate("document.documentElement.toggleAttribute('data-ai-tools-open');window.dispatchEvent(new Event('resize'));return true;", null);
                 case 1 -> evaluate("const tab=document.querySelector('[role=tab][aria-selected=true]');if(!tab)return false;const r=tab.getBoundingClientRect();tab.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:r.x+r.width/2,clientY:r.bottom}));return true;", result -> { if (!"true".equals(result)) toast(R.string.no_session); });
-                case 2 -> evaluate(ACTIVE + "if(!t)return false;t.focus();return true;", result -> {
-                    if (!"true".equals(result)) toast(R.string.no_session);
-                    else if (web != null) { web.requestFocus(); ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(web, InputMethodManager.SHOW_IMPLICIT); }
-                });
+                case 2 -> {
+                    WebView target = web;
+                    // The menu window must release focus before the WebView
+                    // becomes the IME target; otherwise Show keyboard is ignored.
+                    if (target != null) target.postDelayed(() -> {
+                        if (web != target) return;
+                        target.requestFocus();
+                        evaluate(ACTIVE + "if(!t)return false;t.focus();return true;", result -> {
+                            if (!"true".equals(result)) toast(R.string.no_session);
+                            else if (web == target) ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(target, InputMethodManager.SHOW_IMPLICIT);
+                        });
+                    }, 200);
+                }
                 case 3 -> {
                     ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
                     ClipData clip = clipboard.getPrimaryClip();
@@ -592,7 +682,7 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle(R.string.leave_title).setMessage(R.string.leave_message)
                 .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.continue_action, (d, w) -> showHome()).show();
     }
-    private void goBack() { if (web != null && web.canGoBack()) web.goBack(); else if (web != null) confirmHome(); else finish(); }
+    private void goBack() { if (web != null && keyDock != null && keyDock.getVisibility() == View.VISIBLE) setKeyDockOpen(false); else if (web != null && web.canGoBack()) web.goBack(); else if (web != null) confirmHome(); else finish(); }
     // API 33+ uses OnBackInvokedDispatcher registered in onCreate; this is
     // deliberately only the API 26–32 fallback and has the identical behavior.
     @SuppressLint("GestureBackNavigation")
