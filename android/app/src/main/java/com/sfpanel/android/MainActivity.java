@@ -82,10 +82,11 @@ public final class MainActivity extends Activity {
     private AppUpdates updates;
     CertificateTrust certificateTrust() { return certificates; }
     private LinearLayout terminalBar, keyDock, keyDockBody, panelChrome;
-    // Two metric sets and the signals that pick one. tallestRoot is the
-    // pre-API-30 keyboard probe's high-water mark.
+    // Two metric sets and the signals that pick one. windowFrame is scratch for
+    // the pre-API-30 keyboard probe, which runs on every layout pass.
     private boolean compactBar, keyboardOpen;
-    private int tallestRoot;
+    private final android.graphics.Rect windowFrame = new android.graphics.Rect();
+    private android.view.ViewTreeObserver.OnGlobalLayoutListener layoutListener;
     // The bar's twelve keys, built once and only ever re-arranged.
     private LinearLayout keyRow, actionRow;
     private Button[] barKeys;
@@ -154,6 +155,14 @@ public final class MainActivity extends Activity {
         return b;
     }
     private void setRoot() {
+        // A ViewTreeObserver belongs to the window, not to the view it is asked
+        // for: a listener registered here is merged into the window's observer
+        // and is not dropped when this root is replaced. Unregister on the root
+        // that is still attached, before it stops being the one that is.
+        if (root != null && layoutListener != null) {
+            android.view.ViewTreeObserver observer = root.getViewTreeObserver();
+            if (observer.isAlive()) observer.removeOnGlobalLayoutListener(layoutListener);
+        }
         root = column(); root.setBackgroundColor(BG); root.setFitsSystemWindows(false);
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             if (android.os.Build.VERSION.SDK_INT >= 30) {
@@ -168,7 +177,8 @@ public final class MainActivity extends Activity {
         });
         terminalBar = null; keyDock = null; panelChrome = null; barKeys = null; wideBar = null;
         setContentView(root); root.requestApplyInsets();
-        root.getViewTreeObserver().addOnGlobalLayoutListener(this::readWindow);
+        layoutListener = this::readWindow;
+        root.getViewTreeObserver().addOnGlobalLayoutListener(layoutListener);
     }
 
     // Two signals, read on every layout pass and acted on only when one moved:
@@ -208,17 +218,19 @@ public final class MainActivity extends Activity {
         actionRow.setVisibility(wide ? View.GONE : View.VISIBLE);
     }
     // API 30 and up asks the window. Below it the window is adjustResize, so
-    // the keyboard is the height missing from the tallest root this
-    // configuration has shown — and onConfigurationChanged drops that
-    // high-water mark, because a rotation changes what "tallest" means.
+    // the keyboard is measured as the part of the display the window no longer
+    // reaches: the visible display frame against the display's own height, both
+    // read fresh. The status bar is inside that difference too, which is why the
+    // threshold is a keyboard's worth of pixels and not any shortfall at all.
+    // Nothing is remembered between calls, so a rotation — or a font-scale or
+    // uiMode change — with the keyboard still up cannot seed a wrong answer.
     private boolean keyboardVisible() {
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             WindowInsets insets = root.getRootWindowInsets();
             return insets != null && insets.isVisible(WindowInsets.Type.ime());
         }
-        int height = root.getHeight();
-        if (height > tallestRoot) tallestRoot = height;
-        return tallestRoot - height > dp(180);
+        root.getWindowVisibleDisplayFrame(windowFrame);
+        return getResources().getDisplayMetrics().heightPixels - windowFrame.height() > dp(180);
     }
     // Every cap that already exists follows the metrics, not just the ones
     // built after the switch: both bar rows, the dock's tabs, and whatever
@@ -409,7 +421,7 @@ public final class MainActivity extends Activity {
         closeWeb(); current = server; setRoot();
         // The toolbar and its progress strip travel together: one wrapper is one
         // thing for the keyboard to push off the screen.
-        panelChrome = column(); root.addView(panelChrome);
+        panelChrome = column(); root.addView(panelChrome); applyChrome();
         LinearLayout toolbar = new LinearLayout(this); toolbar.setGravity(Gravity.CENTER_VERTICAL); toolbar.setBackgroundColor(SURFACE);
         toolbar.addView(compactButton(getString(R.string.all_features), this::showNavigation), new LinearLayout.LayoutParams(-2, dp(48)));
         panelTitle = text(server.name(), 14, INK, true); panelTitle.setMaxLines(1); panelTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -627,7 +639,9 @@ public final class MainActivity extends Activity {
             // Shift+Tab above: the label clears the armed modifiers before
             // sendKey, so TerminalKeys passes the sequence through as written.
             addDockKeys(new String[]{"Shift+←", "Shift+→", "Alt+↑", "Alt+↓"},
-                    new String[]{"\u001b[1;2D", "\u001b[1;2C", "\u001b[1;3A", "\u001b[1;3B"});
+                    new String[]{"\u001b[1;2D", "\u001b[1;2C", "\u001b[1;3A", "\u001b[1;3B"},
+                    new String[]{"Shift + " + getString(R.string.key_left), "Shift + " + getString(R.string.key_right),
+                            "Alt + " + getString(R.string.key_up), "Alt + " + getString(R.string.key_down)});
             addDockKeys(new String[]{"Ctrl+C", "Ctrl+D", "Ctrl+Z"}, new String[]{"\u0003", "\u0004", "\u001a"});
         } else {
             LinearLayout history = new LinearLayout(this); keyDockBody.addView(history);
@@ -644,18 +658,23 @@ public final class MainActivity extends Activity {
     // the same cap. Before this they were bare labels a few pixels under a row
     // of capped ones — the same action in two visual languages, which read as
     // unfinished next to the bar it hangs from.
-    private void addDockKeys(String[] labels, String[] codes) {
+    private void addDockKeys(String[] labels, String[] codes) { addDockKeys(labels, codes, null); }
+    private void addDockKeys(String[] labels, String[] codes, String[] descriptions) {
         LinearLayout row = new LinearLayout(this); row.setBaselineAligned(false); keyDockBody.addView(row);
         for (int i = 0; i < labels.length; i++) {
             String label = labels[i], code = codes[i];
-            barButton(row, label, 1f, () -> {
-                // A label that names its own modifier carries the whole
-                // combination already, so an armed Shift must not ride along on
-                // an Alt+ key. Any "<modifier>+<key>" label qualifies, not only
-                // the two prefixes this started with.
+            Button key = barButton(row, label, 1f, () -> {
+                // A plus anywhere but the front means the label spells out the
+                // modifiers it wants, and those are the only ones that may reach
+                // the pane: an armed Shift must not ride along on Alt+↑. Every
+                // combination in this dock is written "<modifier>+<key>", and its
+                // plain keys — Home, End, PgUp, PgDn — carry no plus at all.
                 if (label.indexOf('+') > 0) { shift = false; ctrl = false; alt = false; }
                 sendKey(code);
             });
+            // A glyph is not a label a screen reader can read out: the arrows in
+            // the dock borrow the descriptions the bar's own arrows carry.
+            if (descriptions != null) key.setContentDescription(descriptions[i]);
         }
     }
     private void showNavigation() {
@@ -933,9 +952,6 @@ public final class MainActivity extends Activity {
     @SuppressWarnings("deprecation") @Override public void onBackPressed() { goBack(); }
     @Override public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration);
-        // The pre-API-30 keyboard probe measures against the tallest root it has
-        // seen; a rotation makes every earlier measurement a different window.
-        tallestRoot = 0;
         if (web != null) { web.getSettings().setTextZoom(Math.round(100 * configuration.fontScale * readingScale())); root.requestApplyInsets(); placeKeys(); }
         else { String name = nameInput.getText().toString(), address = addressInput.getText().toString(); showHome(); nameInput.setText(name); addressInput.setText(address); }
     }
