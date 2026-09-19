@@ -622,6 +622,12 @@ public final class MainActivity extends Activity {
             // to break. Codex lists ctrl-j first among its newline keys, and a
             // newline byte reaches the pane through tmux untouched.
             addDockKeys(new String[]{"Shift+Tab", "Shift+Enter"}, new String[]{"\u001b[Z", "\n"});
+            // The four keys Codex binds to its queued-message actions, which a
+            // prompt names out loud ("shift + ← to answer"). Pre-composed, like
+            // Shift+Tab above: the label clears the armed modifiers before
+            // sendKey, so TerminalKeys passes the sequence through as written.
+            addDockKeys(new String[]{"Shift+←", "Shift+→", "Alt+↑", "Alt+↓"},
+                    new String[]{"\u001b[1;2D", "\u001b[1;2C", "\u001b[1;3A", "\u001b[1;3B"});
             addDockKeys(new String[]{"Ctrl+C", "Ctrl+D", "Ctrl+Z"}, new String[]{"\u0003", "\u0004", "\u001a"});
         } else {
             LinearLayout history = new LinearLayout(this); keyDockBody.addView(history);
