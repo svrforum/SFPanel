@@ -58,7 +58,6 @@ public final class MainActivity extends Activity {
     private static final int MUTED   = 0xff8b95a1;  // --muted-foreground
     private static final int ACCENT  = 0xff3182f6;  // --primary
     private static final int LINE    = 0xffe5e8eb;  // --border
-    private static final int DANGER  = 0xffe5484d;  // --destructive
     private static final int PICK_FILES = 10;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private SharedPreferences prefs;
@@ -163,7 +162,7 @@ public final class MainActivity extends Activity {
         // its own label as the description a screen reader announces.
         Button options = compactButton("⚙", this::showOptions);
         options.setTextSize(20 * readingScale()); options.setContentDescription(getString(R.string.options));
-        homeHeader.addView(options, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        homeHeader.addView(options, new LinearLayout.LayoutParams(-2, -2));
         body.addView(heading(R.string.saved_servers, 18));
 
         // The servers lead: one card, a row each, hairlines between them.
@@ -200,7 +199,7 @@ public final class MainActivity extends Activity {
         addServer.setMinHeight(dp(48)); addServer.setMinimumHeight(dp(48));
         addServer.setBackground(new android.graphics.drawable.RippleDrawable(
                 android.content.res.ColorStateList.valueOf((ACCENT & 0x00ffffff) | 0x22000000), surface(ACCENT, 12), null));
-        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(-1, dp(48)); addParams.topMargin = dp(16);
+        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(-1, -2); addParams.topMargin = dp(16);
         body.addView(addServer, addParams);
         // One primary on the screen at a time: the form is what the button opens.
         card.setVisibility(View.GONE);
@@ -227,8 +226,10 @@ public final class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(16), dp(8), dp(16), dp(8)); row.setMinimumHeight(dp(64));
         row.setLayoutParams(new LinearLayout.LayoutParams(-1, -2));
+        // The mask bounds the ripple: without one it spreads past the row and
+        // over the card's rounded corners.
         row.setBackground(new android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf((ACCENT & 0x00ffffff) | 0x22000000), null, null));
+                android.content.res.ColorStateList.valueOf((ACCENT & 0x00ffffff) | 0x22000000), null, surface(Color.WHITE, 16)));
         row.setContentDescription(getString(R.string.open_server, server.name()) + ", " + server.address());
         row.setOnClickListener(v -> requestConnect(server));
         View dot = new View(this); dot.setBackground(surface(MUTED, 4));
@@ -428,7 +429,18 @@ public final class MainActivity extends Activity {
     private Button barButton(LinearLayout row, String label, float weight, Runnable action) {
         Button b = compactButton(label, action);
         b.setMinHeight(dp(44)); b.setMinimumHeight(dp(44)); b.setBackground(keyCap());
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(44), weight);
+        // The label keeps its one line, the cap grows around it, and the label
+        // sizes itself down to whatever the cap can hold. At the system's
+        // largest font scale a fixed dp(44) box wrapped "Enter" into a second
+        // line it had no room for: the cap read "Ent" and the row stepped down
+        // to align baselines with its neighbours. setMaxLines, not
+        // setSingleLine — single-line mode scrolls horizontally, so a label
+        // never wraps, always "fits", and the auto-sizing below never fires.
+        b.setMaxLines(1); b.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        b.setPadding(dp(6), 0, dp(6), 0);
+        b.setAutoSizeTextTypeUniformWithConfiguration(Math.round(7 * readingScale()),
+                Math.round(13 * readingScale()), 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, weight);
         p.setMargins(dp(2), dp(2), dp(2), dp(2)); row.addView(b, p);
         return b;
     }
@@ -438,7 +450,7 @@ public final class MainActivity extends Activity {
         // Row one is the keys a CLI hint names — the arrows above all. They
         // used to live inside the Tools dock, so a prompt that said
         // "shift + ←" pointed at a key that was one tap out of sight.
-        LinearLayout keys = new LinearLayout(this); terminalBar.addView(keys);
+        LinearLayout keys = new LinearLayout(this); keys.setBaselineAligned(false); terminalBar.addView(keys);
         addBarKey(keys, "←", "\u001b[D", R.string.key_left);
         addBarKey(keys, "↑", "\u001b[A", R.string.key_up);
         addBarKey(keys, "↓", "\u001b[B", R.string.key_down);
@@ -447,7 +459,7 @@ public final class MainActivity extends Activity {
         addBarKey(keys, "Tab", "\t", 0);
         addBarKey(keys, "Enter", "\r", 0);
 
-        LinearLayout actions = new LinearLayout(this); terminalBar.addView(actions);
+        LinearLayout actions = new LinearLayout(this); actions.setBaselineAligned(false); terminalBar.addView(actions);
         shiftButton = barButton(actions, "Shift", 1f, () -> { shift = !shift; updateModifiers(); });
         ctrlButton  = barButton(actions, "Ctrl",  1f, () -> { ctrl  = !ctrl;  updateModifiers(); });
         altButton   = barButton(actions, "Alt",   1f, () -> { alt   = !alt;   updateModifiers(); });
@@ -455,7 +467,11 @@ public final class MainActivity extends Activity {
         write.setContentDescription(getString(R.string.write_prompt));
         moreKeysButton = barButton(actions, getString(R.string.keys_short), 1.4f, this::showKeypad);
         moreKeysButton.setContentDescription(getString(R.string.keys_more));
-        keyDock = column(); keyDock.setBackgroundColor(BG); keyDock.setVisibility(View.GONE); terminalBar.addView(keyDock);
+        // The dock is a surface of its own: its keys carry no cap of their own,
+        // so on the bar's grey they read as text floating over the bar.
+        keyDock = column(); keyDock.setBackgroundColor(SURFACE); keyDock.setVisibility(View.GONE); terminalBar.addView(keyDock);
+        View dockEdge = new View(this); dockEdge.setBackgroundColor(LINE);
+        keyDock.addView(dockEdge, new LinearLayout.LayoutParams(-1, dp(1)));
         LinearLayout tabs = new LinearLayout(this); keyDock.addView(tabs);
         int[] groups = {R.string.dock_move, R.string.dock_shortcuts, R.string.dock_output};
         for (int i = 0; i < groups.length; i++) {

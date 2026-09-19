@@ -11,7 +11,6 @@
     <string name="connect">Check and connect</string>
     <string name="connecting">Checking your server…</string>
     <string name="saved_servers">Your servers</string>
-    <string name="saved_help">Tap a server to check its connection and open the panel.</string>
     <string name="no_servers">No servers saved yet.</string>
     <string name="open_server">Connect to %1$s</string>
     <string name="remove_server">Remove %1$s</string>
