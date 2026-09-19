@@ -469,7 +469,7 @@ public final class MainActivity extends Activity {
         moreKeysButton.setContentDescription(getString(R.string.keys_more));
         // The dock is a surface of its own: its keys carry no cap of their own,
         // so on the bar's grey they read as text floating over the bar.
-        keyDock = column(); keyDock.setBackgroundColor(SURFACE); keyDock.setVisibility(View.GONE); terminalBar.addView(keyDock);
+        keyDock = column(); keyDock.setBackgroundColor(BG); keyDock.setVisibility(View.GONE); terminalBar.addView(keyDock);
         View dockEdge = new View(this); dockEdge.setBackgroundColor(LINE);
         keyDock.addView(dockEdge, new LinearLayout.LayoutParams(-1, dp(1)));
         LinearLayout tabs = new LinearLayout(this); keyDock.addView(tabs);
@@ -517,15 +517,18 @@ public final class MainActivity extends Activity {
         }
         updateModifiers();
     }
+    // The dock's keys are the bar's keys that did not fit on it, so they wear
+    // the same cap. Before this they were bare labels a few pixels under a row
+    // of capped ones — the same action in two visual languages, which read as
+    // unfinished next to the bar it hangs from.
     private void addDockKeys(String[] labels, String[] codes) {
-        LinearLayout row = new LinearLayout(this); keyDockBody.addView(row);
+        LinearLayout row = new LinearLayout(this); row.setBaselineAligned(false); keyDockBody.addView(row);
         for (int i = 0; i < labels.length; i++) {
             String label = labels[i], code = codes[i];
-            Button key = compactButton(label, () -> {
+            barButton(row, label, 1f, () -> {
                 if (label.startsWith("Ctrl+") || label.startsWith("Shift+")) { shift = false; ctrl = false; alt = false; }
                 sendKey(code);
             });
-            row.addView(key, new LinearLayout.LayoutParams(0, dp(48), 1));
         }
     }
     private void showNavigation() {
