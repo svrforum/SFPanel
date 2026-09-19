@@ -54,7 +54,6 @@
     <string name="close">Close</string>
     <string name="offline_help">Reconnect to your network and try again. Your saved server addresses are still available.</string>
     <string name="coding_tools">Coding tools</string>
-    <string name="ai_sessions">AI sessions</string>
     <string name="terminal">Terminal</string>
     <string name="dashboard">Dashboard</string>
     <string name="compose_prompt">Compose a prompt</string>
@@ -107,7 +106,7 @@
     <string name="keys_more">Keys / scroll</string>
     <string name="terminal_controls">Terminal controls</string>
     <string name="ai_setup">Show/hide AI tools and account</string>
-    <string-array name="feature_names"><item>Dashboard</item><item>AI coding</item><item>Terminal</item><item>Files</item><item>Docker · Compose</item><item>App store</item><item>Services</item><item>Processes</item><item>Scheduled tasks</item><item>Logs</item><item>Network · VPN</item><item>Firewall · Ports</item><item>Disks · Storage</item><item>Packages</item><item>Cluster · Nodes</item><item>Server settings</item></string-array>
+    <string-array name="feature_names"><item>Dashboard</item><item>Terminal</item><item>Files</item><item>Docker · Compose</item><item>App store</item><item>Services</item><item>Processes</item><item>Scheduled tasks</item><item>Logs</item><item>Network · VPN</item><item>Firewall · Ports</item><item>Disks · Storage</item><item>Packages</item><item>Cluster · Nodes</item><item>Server settings</item></string-array>
     <string name="keys_short">Tools</string>
     <string name="session_actions">Session actions</string>
     <string name="page_tools">Page tools</string>

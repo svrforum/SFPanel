@@ -513,7 +513,10 @@ public final class MainActivity extends Activity {
         }
     }
     private void showNavigation() {
-        String[] paths = {"/dashboard", "/ai", "/terminal", "/files", "/docker", "/appstore", "/services", "/processes", "/cron", "/logs", "/network", "/firewall", "/disk", "/packages", "/cluster", "/settings"};
+        // Positional with R.array.feature_names in both locales, and with the
+        // group boundaries below. Server v0.76.0 merged /ai into /terminal, so
+        // the sheet lists the page once.
+        String[] paths = {"/dashboard", "/terminal", "/files", "/docker", "/appstore", "/services", "/processes", "/cron", "/logs", "/network", "/firewall", "/disk", "/packages", "/cluster", "/settings"};
         String[] names = getResources().getStringArray(R.array.feature_names);
         LinearLayout body = column(); body.setPadding(dp(16), dp(8), dp(16), dp(16));
         TextView server = text(current.name() + " · " + current.address(), 13, MUTED, false); body.addView(server);
@@ -525,7 +528,7 @@ public final class MainActivity extends Activity {
             String query = search.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
             String pagePath = web == null || web.getUrl() == null ? null : Uri.parse(web.getUrl()).getPath();
             int[] headings = {R.string.nav_work, R.string.nav_services, R.string.nav_system};
-            int[] starts = {0, 4, 10, paths.length};
+            int[] starts = {0, 3, 9, paths.length};
             int matches = 0;
             for (int group = 0; group < headings.length; group++) {
                 LinearLayout row = null;
@@ -569,8 +572,8 @@ public final class MainActivity extends Activity {
     private void updateTerminalBar(String url) {
         if (terminalBar == null) return;
         String path = Uri.parse(url).getPath();
-        if (panelTitle != null && current != null) panelTitle.setText(current.name() + ("/ai".equals(path) ? " · AI" : "/terminal".equals(path) ? " · " + getString(R.string.terminal) : ""));
-        terminalBar.setVisibility("/ai".equals(path) || "/terminal".equals(path) ? View.VISIBLE : View.GONE);
+        if (panelTitle != null && current != null) panelTitle.setText(current.name() + ("/terminal".equals(path) ? " · " + getString(R.string.terminal) : ""));
+        terminalBar.setVisibility("/terminal".equals(path) ? View.VISIBLE : View.GONE);
         if (terminalBar.getVisibility() != View.VISIBLE) setKeyDockOpen(false);
         shift = false; ctrl = false; alt = false; updateModifiers();
     }
@@ -628,17 +631,18 @@ public final class MainActivity extends Activity {
 
     private void showTools() {
         String path = web == null || web.getUrl() == null ? "" : Uri.parse(web.getUrl()).getPath();
-        if (!"/ai".equals(path) && !"/terminal".equals(path)) {
+        if (!"/terminal".equals(path)) {
             new AlertDialog.Builder(this).setTitle(R.string.page_tools)
                     .setItems(new String[]{getString(R.string.options), getString(R.string.reload)}, (d, which) -> { if (which == 0) showOptions(); else if (web != null) web.reload(); }).show();
             return;
         }
-        boolean ai = "/ai".equals(path);
+        // One page, one menu: /terminal is the AI workspace since v0.76.0, so
+        // the tools panel and the session actions belong to it.
         int[] labels = {R.string.ai_setup, R.string.session_actions, R.string.show_keyboard, R.string.paste_prompt,
                 R.string.read_output, R.string.search_output, R.string.terminal_controls, R.string.options, R.string.reload};
-        String[] names = java.util.Arrays.stream(labels).skip(ai ? 0 : 2).mapToObj(this::getString).toArray(String[]::new);
+        String[] names = java.util.Arrays.stream(labels).mapToObj(this::getString).toArray(String[]::new);
         new AlertDialog.Builder(this).setTitle(R.string.coding_tools).setItems(names, (d, which) -> {
-            switch (which + (ai ? 0 : 2)) {
+            switch (which) {
                 case 0 -> evaluate("document.documentElement.toggleAttribute('data-ai-tools-open');window.dispatchEvent(new Event('resize'));return true;", null);
                 case 1 -> evaluate("const tab=document.querySelector('[role=tab][aria-selected=true]');if(!tab)return false;const r=tab.getBoundingClientRect();tab.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:r.x+r.width/2,clientY:r.bottom}));return true;", result -> { if (!"true".equals(result)) toast(R.string.no_session); });
                 case 2 -> {
@@ -729,8 +733,8 @@ public final class MainActivity extends Activity {
                                 }).setNegativeButton(R.string.close, null).show();
             } else if (which == 1) {
                 new AlertDialog.Builder(this).setTitle(R.string.start_page)
-                        .setItems(new String[]{getString(R.string.ai_sessions), getString(R.string.terminal), getString(R.string.dashboard)}, (dialog, index) -> {
-                            startPath = new String[]{"/ai", "/terminal", "/dashboard"}[index]; prefs.edit().putString("startPath", startPath).apply();
+                        .setItems(new String[]{getString(R.string.terminal), getString(R.string.dashboard)}, (dialog, index) -> {
+                            startPath = new String[]{"/terminal", "/dashboard"}[index]; prefs.edit().putString("startPath", startPath).apply();
                         }).show();
             } else if (which == 2) new AlertDialog.Builder(this).setTitle(R.string.privacy).setMessage(R.string.privacy_help).setPositiveButton(R.string.close, null).show();
             else if (which == 4) updates.check(true);
@@ -773,6 +777,8 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume(); if (updates != null) updates.resumeInstall(); startPath = prefs.getString("startPath", "/dashboard");
+        // A start page saved before v0.76.0 can still be /ai; open the terminal without the redirect hop.
+        if ("/ai".equals(startPath)) startPath = "/terminal";
         if (web != null) { web.onResume(); evaluate("window.dispatchEvent(new Event('online'));return true;", null); }
     }
     @Override protected void onPause() { if (web != null) web.onPause(); CookieManager.getInstance().flush(); super.onPause(); }
