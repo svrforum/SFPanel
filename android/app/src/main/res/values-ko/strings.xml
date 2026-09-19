@@ -2,7 +2,6 @@
     <string name="app_name">SFPanel</string>
     <string name="home_eyebrow">내 서버를 더 가까이</string>
     <string name="home_title">서버 관리,\n한눈에 편안하게.</string>
-    <string name="home_description">SFPanel 서버를 연결하고 컨테이너, 파일, 터미널을 한곳에서 관리하세요.</string>
     <string name="add_server">서버 연결하기</string>
     <string name="server_name">서버 이름 (선택)</string>
     <string name="server_name_hint">우리집 서버</string>
@@ -13,7 +12,7 @@
     <string name="connecting">서버 연결을 확인하고 있어요…</string>
     <string name="saved_servers">내 서버</string>
     <string name="saved_help">서버를 누르면 연결 상태를 확인하고 관리 화면을 엽니다.</string>
-    <string name="empty_servers">첫 서버를 연결해 보세요. 이름과 주소만 이 기기에 저장합니다.</string>
+    <string name="no_servers">저장된 서버가 없습니다</string>
     <string name="open_server">%1$s 서버 연결</string>
     <string name="remove_server">%1$s 서버 목록에서 삭제</string>
     <string name="remove">삭제</string>

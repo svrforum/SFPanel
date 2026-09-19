@@ -2,7 +2,6 @@
     <string name="app_name">SFPanel</string>
     <string name="home_eyebrow">YOUR SERVERS, WITHIN REACH</string>
     <string name="home_title">A clear view of\nyour servers.</string>
-    <string name="home_description">Connect your SFPanel server to manage containers, files and terminals in one place.</string>
     <string name="add_server">Connect a server</string>
     <string name="server_name">Server name (optional)</string>
     <string name="server_name_hint">Home server</string>
@@ -13,7 +12,7 @@
     <string name="connecting">Checking your server…</string>
     <string name="saved_servers">Your servers</string>
     <string name="saved_help">Tap a server to check its connection and open the panel.</string>
-    <string name="empty_servers">Your first server starts here. Only its name and address are saved on this device.</string>
+    <string name="no_servers">No servers saved yet.</string>
     <string name="open_server">Connect to %1$s</string>
     <string name="remove_server">Remove %1$s</string>
     <string name="remove">Remove</string>

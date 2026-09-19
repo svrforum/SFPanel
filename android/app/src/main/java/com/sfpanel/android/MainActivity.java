@@ -159,12 +159,30 @@ public final class MainActivity extends Activity {
         scroll.addView(body); root.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
         LinearLayout homeHeader = new LinearLayout(this); homeHeader.setGravity(Gravity.CENTER_VERTICAL); body.addView(homeHeader);
         homeHeader.addView(text("SFPanel", 24, INK, true), new LinearLayout.LayoutParams(0, -2, 1));
-        homeHeader.addView(compactButton(getString(R.string.options), this::showOptions));
-        if (store.list().isEmpty()) body.addView(text(getString(R.string.home_description), 14, MUTED, false));
+        // A title and one control, not two labels competing: the gear carries
+        // its own label as the description a screen reader announces.
+        Button options = compactButton("⚙", this::showOptions);
+        options.setTextSize(20 * readingScale()); options.setContentDescription(getString(R.string.options));
+        homeHeader.addView(options, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        body.addView(heading(R.string.saved_servers, 18));
 
-        LinearLayout card = column(); card.setPadding(dp(20), dp(16), dp(20), dp(22)); card.setBackground(surface(SURFACE, 24));
-        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2); cardParams.topMargin = dp(24);
-        body.addView(card, cardParams); card.addView(heading(R.string.add_server, 21));
+        // The servers lead: one card, a row each, hairlines between them.
+        java.util.List<ServerStore.Server> servers = store.list();
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(-1, -2); listParams.topMargin = dp(8);
+        if (servers.isEmpty()) {
+            body.addView(text(getString(R.string.no_servers), 14, MUTED, false), listParams);
+        } else {
+            LinearLayout list = column(); list.setBackground(surface(SURFACE, 16)); body.addView(list, listParams);
+            for (ServerStore.Server server : servers) {
+                if (list.getChildCount() > 0) {
+                    View line = new View(this); line.setBackgroundColor(LINE);
+                    list.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
+                }
+                list.addView(serverRow(server));
+            }
+        }
+
+        LinearLayout card = column(); card.setPadding(dp(20), dp(16), dp(20), dp(20)); card.setBackground(surface(SURFACE, 16));
         nameInput = field(card, R.string.server_name, R.string.server_name_hint, false);
         addressInput = field(card, R.string.server_address, R.string.server_address_hint, true);
         card.addView(text(getString(R.string.address_help), 14, MUTED, false));
@@ -176,50 +194,72 @@ public final class MainActivity extends Activity {
             } catch (IllegalArgumentException e) { addressInput.setError(getString(R.string.invalid_address)); addressInput.requestFocus(); }
         });
         card.addView(connectButton);
-        status = text("", 15, MUTED, false); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); card.addView(status);
+        // The one thing to do on this screen, shaped like it.
+        Button addServer = button(getString(R.string.add_server), true,
+                () -> card.setVisibility(card.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
+        addServer.setMinHeight(dp(48)); addServer.setMinimumHeight(dp(48));
+        addServer.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf((ACCENT & 0x00ffffff) | 0x22000000), surface(ACCENT, 12), null));
+        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(-1, dp(48)); addParams.topMargin = dp(16);
+        body.addView(addServer, addParams);
+        // One primary on the screen at a time: the form is what the button opens.
+        card.setVisibility(View.GONE);
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2); cardParams.topMargin = dp(12);
+        body.addView(card, cardParams);
+
+        status = text("", 15, MUTED, false); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); body.addView(status);
         TextView homeStatus = status; homeStatus.setVisibility(View.GONE);
         homeStatus.addTextChangedListener(new android.text.TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             public void onTextChanged(CharSequence s, int start, int before, int count) { homeStatus.setVisibility(s.length() == 0 ? View.GONE : View.VISIBLE); }
             public void afterTextChanged(android.text.Editable s) { }
         });
-        LinearLayout savedSection = column(); body.addView(savedSection, body.indexOfChild(card));
-        savedSection.addView(heading(R.string.saved_servers, 18));
-
-        if (store.list().isEmpty()) savedSection.addView(text(getString(R.string.empty_servers), 16, MUTED, false));
-        for (ServerStore.Server server : store.list()) {
-            LinearLayout saved = new LinearLayout(this); saved.setGravity(Gravity.CENTER_VERTICAL);
-            saved.setPadding(dp(4), dp(4), dp(4), dp(4)); saved.setBackground(surface(SURFACE, 14));
-            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2); sp.topMargin = dp(10); savedSection.addView(saved, sp);
-            Button open = compactButton(server.name() + "\n" + server.address(), () -> requestConnect(server));
-            open.setGravity(Gravity.START | Gravity.CENTER_VERTICAL); open.setPadding(dp(12), dp(4), dp(8), dp(4));
-            open.setMaxLines(2); open.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            open.setContentDescription(getString(R.string.open_server, server.name()) + ", " + server.address());
-            saved.addView(open, new LinearLayout.LayoutParams(0, dp(72), 1));
-            Button menu = compactButton("⋯", () -> {}); menu.setContentDescription(getString(R.string.server_actions, server.name()));
-            menu.setOnClickListener(v -> {
-                android.widget.PopupMenu popup = new android.widget.PopupMenu(this, menu);
-                popup.getMenu().add(0, 1, 0, R.string.remove);
-                if (certificates.pin(server.address()) != null) popup.getMenu().add(0, 2, 1, R.string.forget_certificate);
-                popup.setOnMenuItemClickListener(item -> {
-                    if (item.getItemId() == 1) new AlertDialog.Builder(this)
-                            .setTitle(getString(R.string.remove_server, server.name())).setMessage(R.string.remove_message)
-                            .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { store.remove(server); sessions.remove(server.address()); certificates.remove(server.address()); showHome(); }).show();
-                    else new AlertDialog.Builder(this).setTitle(R.string.forget_certificate).setMessage(server.address())
-                            .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { certificates.remove(server.address()); showHome(); }).show();
-                    return true;
-                });
-                popup.show();
-            });
-            saved.addView(menu, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        }
-        if (!store.list().isEmpty()) {
-            card.setVisibility(View.GONE);
-            Button addServer = compactButton(getString(R.string.add_server), () -> card.setVisibility(card.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE));
-            body.addView(addServer, body.indexOfChild(card));
-        }
-        card.removeView(status); body.addView(status, body.indexOfChild(card));
+        // The privacy note is a footnote, not the loudest copy on the screen.
         body.addView(text(getString(R.string.privacy_help), 12, MUTED, false));
+    }
+
+    /** One saved server: a status dot, the name over the address, and a menu of
+     * its own. The row opens the server; only the ⋯ opens the menu.
+     * The dot stays MUTED because nothing keeps the health check's answer —
+     * HealthCheck.check runs once per connect and its result is read and
+     * dropped, so a green dot here would be a guess, not a status. */
+    private LinearLayout serverRow(ServerStore.Server server) {
+        LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(16), dp(8), dp(16), dp(8)); row.setMinimumHeight(dp(64));
+        row.setLayoutParams(new LinearLayout.LayoutParams(-1, -2));
+        row.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf((ACCENT & 0x00ffffff) | 0x22000000), null, null));
+        row.setContentDescription(getString(R.string.open_server, server.name()) + ", " + server.address());
+        row.setOnClickListener(v -> requestConnect(server));
+        View dot = new View(this); dot.setBackground(surface(MUTED, 4));
+        LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(dp(8), dp(8)); dotParams.rightMargin = dp(12);
+        row.addView(dot, dotParams);
+        LinearLayout labels = column(); row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView name = text(server.name(), 16, INK, false); name.setPadding(0, 0, 0, 0);
+        name.setSingleLine(true); name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        TextView address = text(server.address(), 13, MUTED, false); address.setPadding(0, 0, 0, 0);
+        address.setSingleLine(true); address.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        labels.addView(name); labels.addView(address);
+        Button menu = compactButton("⋯", () -> { });
+        menu.setContentDescription(getString(R.string.server_actions, server.name()));
+        menu.setOnClickListener(v -> showServerMenu(menu, server));
+        row.addView(menu, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        return row;
+    }
+
+    private void showServerMenu(View anchor, ServerStore.Server server) {
+        android.widget.PopupMenu popup = new android.widget.PopupMenu(this, anchor);
+        popup.getMenu().add(0, 1, 0, R.string.remove);
+        if (certificates.pin(server.address()) != null) popup.getMenu().add(0, 2, 1, R.string.forget_certificate);
+        popup.setOnMenuItemClickListener(item -> {
+            if (item.getItemId() == 1) new AlertDialog.Builder(this)
+                    .setTitle(getString(R.string.remove_server, server.name())).setMessage(R.string.remove_message)
+                    .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { store.remove(server); sessions.remove(server.address()); certificates.remove(server.address()); showHome(); }).show();
+            else new AlertDialog.Builder(this).setTitle(R.string.forget_certificate).setMessage(server.address())
+                    .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.remove, (d, w) -> { certificates.remove(server.address()); showHome(); }).show();
+            return true;
+        });
+        popup.show();
     }
 
     private EditText field(LinearLayout parent, int label, int hint, boolean address) {
