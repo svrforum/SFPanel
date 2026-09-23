@@ -6,6 +6,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.77.6] – 2026-09-23
+
+### Fixed
+
+**In a two-node cluster, a cluster update left the old leader outside the cluster.** The leader updates itself last, after leaving the cluster, and it asks its own update endpoint to do it. That endpoint refuses an update when taking the node down would leave too few voters — a safeguard against updating nodes one by one by hand — and in a two-node cluster one node down is always too few. So the update was refused, and the old leader stayed running on the old version with no way back into the cluster until someone restarted it. Found while verifying 0.77.4 on a live two-node cluster. The cluster update now bypasses that safeguard, since it has already made the same decision itself, and a leader that has left the cluster and was not restarted by its update now exits so the service manager brings it back.
+
+A node that is already on the latest release is also reported as such during a cluster update, instead of "restarting" and a minute of waiting for a restart that never happens.
+
 ## [0.77.5] – 2026-09-23
 
 ### Fixed
