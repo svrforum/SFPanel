@@ -6,6 +6,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.77.4] – 2026-09-23
+
+### Changed
+
+**A cluster update can be started from any node.** The rolling and simultaneous update buttons used to appear only on the leader, and leadership moves on its own — every cluster update ends by handing it to a follower so the old leader can update itself, and restarting the leader for any reason does the same. So the node you set up as "the main one" would, after the first update, no longer show the buttons at all. They now appear on every node, and the request goes to whichever node is currently leading.
+
+That needed one change underneath. Started from a follower, the update's progress travels back through that follower, and the follower is one of the nodes being restarted. The update used to read the dropped connection as "the operator closed the tab" and stop — after the follower, before the leader. It now runs to the end regardless of whether anyone is still watching; the page says so when its progress view is cut off. Closing the tab no longer cancels an update in progress, and a second update started while one is running is refused.
+
 ## [0.77.3] – 2026-09-20
 
 ### Fixed
