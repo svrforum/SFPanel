@@ -854,6 +854,8 @@
       "rollingUpdate": "Rolling Update",
       "simultaneousUpdate": "Simultaneous Update",
       "confirmUpdate": "Start cluster-wide update?",
+      "updateContinuesOnLeader": "This node restarted as part of the update, so the progress view was cut off. The update carries on at the leader.",
+      "updateAlreadyRunning": "A cluster update is already running.",
       "updating": "Updating...",
       "updateProgress": "Update Progress",
       "staleData": "Showing last-known cluster data — leader unreachable or partition in progress. Numbers may be out of date.",

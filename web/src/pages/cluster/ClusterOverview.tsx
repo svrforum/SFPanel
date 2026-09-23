@@ -123,15 +123,29 @@ export default function ClusterOverview() {
   }
 
   const handleClusterUpdate = async (mode: 'rolling' | 'simultaneous') => {
+    if (!status) return
     if (!(await confirm({ title: t('cluster.overview.confirmUpdate') }))) return
     setUpdating(true)
     setUpdateLog([])
+    // From a follower the stream is relayed through this node, and this node
+    // is one of the ones the update restarts: the view is cut off part way.
+    // The update itself carries on at the leader, so that is not a failure.
+    const viaFollower = !status.is_leader
+    let received = 0
+    let concluded = false
     try {
       await api.clusterUpdateStream(mode, (data) => {
+        received++
+        if (data.overall === 'complete' || data.overall === 'error') concluded = true
         setUpdateLog(prev => [...prev, data as UpdateEvent])
-      })
+      }, viaFollower ? status.leader_id : undefined)
+      // A relay that closes cleanly mid-update ends the same way as one that
+      // breaks: no verdict arrived, and the leader is still working.
+      if (viaFollower && received > 0 && !concluded) toast.info(t('cluster.overview.updateContinuesOnLeader'))
     } catch (err) {
-      toast.error(String(err))
+      if ((err as { status?: number }).status === 409) toast.error(t('cluster.overview.updateAlreadyRunning'))
+      else if (viaFollower && received > 0) toast.info(t('cluster.overview.updateContinuesOnLeader'))
+      else toast.error(String(err))
     } finally {
       setUpdating(false)
       loadData()
@@ -209,7 +223,7 @@ export default function ClusterOverview() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {status.is_leader && (
+            {(status.is_leader || !!status.leader_id) && (
               <div className="flex flex-wrap gap-1">
                 <Button
                   variant="outline"

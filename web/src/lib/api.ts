@@ -2438,15 +2438,18 @@ class ApiClient {
     })
   }
 
-  clusterUpdateStream(mode: 'rolling' | 'simultaneous', onEvent: (data: Record<string, unknown>) => void): Promise<void> {
+  // leaderId targets the leader explicitly — the orchestration only runs
+  // there — so the button works from any node, whichever node is selected.
+  clusterUpdateStream(mode: 'rolling' | 'simultaneous', onEvent: (data: Record<string, unknown>) => void, leaderId?: string): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.token) return reject(new Error('No token'))
-      fetch(`${this.apiBase}/cluster/update`, {
+      const target = leaderId ? `?node=${encodeURIComponent(leaderId)}` : ''
+      fetch(`${this.apiBase}/cluster/update${target}`, {
         method: 'POST',
         headers: this.streamHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ mode }),
       }).then(resp => {
-        if (!resp.ok || !resp.body) return reject(new Error(`HTTP ${resp.status}`))
+        if (!resp.ok || !resp.body) return reject(Object.assign(new Error(`HTTP ${resp.status}`), { status: resp.status }))
         const reader = resp.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
