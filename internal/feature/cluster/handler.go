@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -81,6 +82,9 @@ type Handler struct {
 	leaderReadMu   sync.Mutex
 	leaderReadAddr string
 	leaderReadFail time.Time
+
+	// updateRunning admits one cluster update at a time. See ClusterUpdate.
+	updateRunning atomic.Bool
 }
 
 func (h *Handler) getManager() *cluster.Manager {
@@ -1253,21 +1257,37 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		req.Mode = "rolling"
 	}
 
+	// One at a time. The orchestration outlives the request that started it,
+	// so closing the tab no longer ends it — and a second click would
+	// otherwise start a second one alongside.
+	if !h.updateRunning.CompareAndSwap(false, true) {
+		return response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress, "A cluster update is already running")
+	}
+
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
 	c.Response().WriteHeader(http.StatusOK)
 	flusher := c.Response()
 
-	var sseMu sync.Mutex
-	sendSSE := func(data map[string]interface{}) {
-		sseMu.Lock()
-		defer sseMu.Unlock()
-		jsonData, _ := json.Marshal(data)
+	feed := newUpdateFeed()
+	go func() {
+		defer h.updateRunning.Store(false)
+		defer feed.finish()
+		h.runClusterUpdate(mgr, req.Mode, feed.emit)
+	}()
+	feed.forward(c.Request().Context().Done(), func(ev map[string]interface{}) {
+		jsonData, _ := json.Marshal(ev)
 		fmt.Fprintf(flusher, "data: %s\n\n", jsonData)
 		flusher.Flush()
-	}
+	})
+	return nil
+}
 
+// runClusterUpdate is the orchestration behind ClusterUpdate. It runs on its
+// own goroutine and reports through emit, which never blocks it: whether
+// anyone is still watching has no bearing on whether the update finishes.
+func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(map[string]interface{})) {
 	state := mgr.GetRaft().GetFSM().GetState()
 	health := mgr.GetHeartbeat().CheckHealth()
 	metricsSlice := mgr.GetHeartbeat().GetAllMetrics()
@@ -1288,7 +1308,7 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	var leader nodeInfo
 	for id, node := range state.Nodes {
 		if s, ok := health[id]; !ok || s != cluster.StatusOnline {
-			sendSSE(map[string]interface{}{"node_id": id, "node_name": node.Name, "step": "skipped", "message": "Node is offline"})
+			emit(map[string]interface{}{"node_id": id, "node_name": node.Name, "step": "skipped", "message": "Node is offline"})
 			continue
 		}
 		ver := ""
@@ -1309,27 +1329,27 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	// up front when the cluster doesn't have enough headroom: a 3-voter cluster
 	// can't safely take all 3 down at once, and a 5-voter cluster can lose at
 	// most 2. Single-node clusters are always fine — there's nothing to lose.
-	if req.Mode == "simultaneous" && len(followers) > 0 {
+	if mode == "simultaneous" && len(followers) > 0 {
 		voters := 1 + len(followers) // 1 leader + N online followers as voters
 		quorum := voters/2 + 1
 		// We're about to take voters-many nodes down. Surviving is voters - voters = 0,
 		// which is < quorum unless voters == 1.
 		if voters >= 2 {
-			sendSSE(map[string]interface{}{
+			emit(map[string]interface{}{
 				"overall": "error",
 				"message": fmt.Sprintf("Refusing simultaneous update: would take all %d voters offline at once (quorum=%d). Use rolling mode.", voters, quorum),
 			})
-			return nil
+			return
 		}
 	}
 
-	sendSSE(map[string]interface{}{"overall": "started", "mode": req.Mode, "total_nodes": len(followers) + 1})
+	emit(map[string]interface{}{"overall": "started", "mode": mode, "total_nodes": len(followers) + 1})
 
 	updateNode := func(ni nodeInfo) bool {
-		sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "updating", "message": "Starting update..."})
+		emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "updating", "message": "Starting update..."})
 
 		if ni.IsLocal {
-			sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "updating", "message": "Triggering local update..."})
+			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "updating", "message": "Triggering local update..."})
 			return true
 		}
 
@@ -1339,14 +1359,14 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		// would target the wrong address or miss the removal.
 		node, ok := mgr.GetRaft().GetFSM().GetState().Nodes[ni.ID]
 		if !ok {
-			sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Node not found"})
+			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Node not found"})
 			return false
 		}
 
 		pool := mgr.GetConnPool()
 		client, err := pool.Get(node.GRPCAddress)
 		if err != nil {
-			sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Connection failed: " + err.Error()})
+			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Connection failed: " + err.Error()})
 			return false
 		}
 
@@ -1364,7 +1384,7 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 			Headers: proxyHeaders,
 		})
 		if err != nil {
-			sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Proxy failed: " + err.Error()})
+			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Proxy failed: " + err.Error()})
 			return false
 		}
 
@@ -1388,42 +1408,37 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 				detail += " — the target node is likely too old to authenticate the update relay; update it locally (SSH + install.sh) for large version jumps, then it can re-join cluster updates"
 			}
-			sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Update failed: " + detail})
+			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Update failed: " + detail})
 			return false
 		}
 
-		sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "complete", "message": "Update triggered, node restarting..."})
+		emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "complete", "message": "Update triggered, node restarting..."})
 
-		sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "waiting", "message": "Waiting for node to restart..."})
+		emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "waiting", "message": "Waiting for node to restart..."})
 		for attempt := 0; attempt < 12; attempt++ {
-			// Honour client disconnect: if the SSE consumer has gone away,
-			// bail out instead of sitting in a 60s sleep loop that keeps the
-			// handler goroutine alive.
-			select {
-			case <-c.Request().Context().Done():
-				return false
-			case <-time.After(5 * time.Second):
-			}
+			// No bail-out on the watcher leaving: the node being waited for
+			// may be the one relaying the watcher's stream (see updateFeed).
+			time.Sleep(5 * time.Second)
 			h2 := mgr.GetHeartbeat().CheckHealth()
 			if s, ok := h2[ni.ID]; ok && s == cluster.StatusOnline {
-				sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "online", "message": "Node back online"})
+				emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "online", "message": "Node back online"})
 				return true
 			}
 		}
-		sendSSE(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "warning", "message": "Node did not come back within 60s"})
+		emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "warning", "message": "Node did not come back within 60s"})
 		return true
 	}
 
 	updated := 0
 	failed := 0
 
-	if req.Mode == "rolling" {
+	if mode == "rolling" {
 		for _, f := range followers {
 			if updateNode(f) {
 				updated++
 			} else {
-				sendSSE(map[string]interface{}{"overall": "error", "message": fmt.Sprintf("Rolling update stopped: %s failed", f.Name)})
-				return nil
+				emit(map[string]interface{}{"overall": "error", "message": fmt.Sprintf("Rolling update stopped: %s failed", f.Name)})
+				return
 			}
 		}
 	} else {
@@ -1448,11 +1463,11 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	}
 
 	if leader.ID != "" {
-		sendSSE(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "updating", "message": "Updating leader (this node)..."})
+		emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "updating", "message": "Updating leader (this node)..."})
 		for _, f := range followers {
 			h2 := mgr.GetHeartbeat().CheckHealth()
 			if s, ok := h2[f.ID]; ok && s == cluster.StatusOnline {
-				sendSSE(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "transfer", "message": "Transferring leadership to " + f.Name})
+				emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "transfer", "message": "Transferring leadership to " + f.Name})
 				_ = mgr.GetRaft().TransferLeadership(f.ID)
 				time.Sleep(2 * time.Second)
 				break
@@ -1461,7 +1476,7 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		updated++
 	}
 
-	sendSSE(map[string]interface{}{"overall": "complete", "updated": updated, "failed": failed})
+	emit(map[string]interface{}{"overall": "complete", "updated": updated, "failed": failed})
 
 	if leader.ID != "" {
 		// Sign the v2 header NOW, before Shutdown — we can't rely on the
@@ -1485,7 +1500,8 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 		selfClient, selfClientErr := self.HTTPClient(0)
 		if selfClientErr != nil {
 			slog.Error("leader self-update: build client", "component", "cluster", "error", selfClientErr)
-			return response.OK(c, map[string]interface{}{"status": "cluster update dispatched, leader self-update unavailable"})
+			emit(map[string]interface{}{"overall": "error", "message": "Followers updated, but the leader could not start its own update"})
+			return
 		}
 		go func() {
 			time.Sleep(1 * time.Second)
@@ -1514,8 +1530,6 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 			}
 		}()
 	}
-
-	return nil
 }
 
 // PublishPanelCA records a node's panel certificate authority in replicated

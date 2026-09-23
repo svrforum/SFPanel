@@ -82,6 +82,13 @@ implicitly requires a restart — there is no hot-reload path for the CA.
 `/api/v1/system/update` to every healthy follower in `rolling` (default) or
 `simultaneous` mode.
 
+- It can be started from any node: the UI sends it to the leader with
+  `?node=<leader_id>`, relayed through the node the browser is on. That node
+  is usually one the update restarts, so the progress stream is cut off part
+  way; the orchestration runs on its own goroutine and finishes regardless of
+  whether anyone is still watching. Closing the tab does not cancel it.
+- One cluster update at a time: a second request while one is running gets
+  `409 UPDATE_IN_PROGRESS`.
 - The simultaneous mode quorum guard refuses to take all voters offline at
   once.
 - `/api/v1/system/update` itself is serialised by an in-process mutex; a
