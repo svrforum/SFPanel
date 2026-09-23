@@ -1374,13 +1374,13 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 		defer cancel()
 
 		proxyHeaders := make(map[string]string)
-		if v2 := auth.SignProxyRequestV2("POST", "/api/v1/system/update"); v2 != "" {
+		if v2 := auth.SignProxyRequestV2("POST", orchestratedUpdatePath); v2 != "" {
 			proxyHeaders[auth.InternalProxyHeaderV2] = v2
 		}
 
 		resp, err := client.ProxyRequest(ctx, &pb.APIRequest{
 			Method:  "POST",
-			Path:    "/api/v1/system/update",
+			Path:    orchestratedUpdatePath,
 			Headers: proxyHeaders,
 		})
 		if err != nil {
@@ -1410,6 +1410,14 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 			}
 			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Update failed: " + detail})
 			return false
+		}
+
+		// A node already on the latest release answers with a plain JSON
+		// "up_to_date" instead of a restart; waiting a minute for it to come
+		// back from a restart that never happens would only mislead.
+		if strings.Contains(string(resp.Body), `"up_to_date"`) {
+			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "online", "message": "Already up to date"})
+			return true
 		}
 
 		emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "complete", "message": "Update triggered, node restarting..."})
@@ -1510,7 +1518,7 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 		// ever takes longer than the ±30s proxy clock-skew window, this
 		// self-update call will 401 (true before the v1 drop too — a present
 		// v2 header always short-circuits v1).
-		v2Sig := auth.SignProxyRequestV2("POST", "/api/v1/system/update")
+		v2Sig := auth.SignProxyRequestV2("POST", orchestratedUpdatePath)
 		// Resolve the loopback endpoint and its client BEFORE the goroutine:
 		// it runs after mgr.Shutdown(), so anything it needs must be captured
 		// first — the same reason the v2 MAC above is pre-signed.
@@ -1521,7 +1529,7 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 			CAFile:     h.Config.Server.TLS.CAFile,
 			Port:       h.Config.Server.Port,
 		}
-		selfURL := self.URL("/api/v1/system/update")
+		selfURL := self.URL(orchestratedUpdatePath)
 		selfClient, selfClientErr := self.HTTPClient(0)
 		if selfClientErr != nil {
 			slog.Error("leader self-update: build client", "component", "cluster", "error", selfClientErr)
@@ -1531,30 +1539,61 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 		go func() {
 			time.Sleep(1 * time.Second)
 			mgr.Shutdown()
-			// Bind the in-flight self-update HTTP call to an explicit
-			// 5-min context so it can't pin indefinitely on a hung
-			// loopback connection mid-shutdown.
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			defer cancel()
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, selfURL, nil)
-			if err != nil {
-				slog.Error("leader self-update: build request", "component", "cluster", "error", err)
+			// From here this node's cluster manager is gone. A successful
+			// self-update restarts the process within seconds; if this
+			// goroutine is still here afterwards, the node is alive but
+			// outside the cluster and nothing will bring it back. Exiting
+			// hands it to systemd (Restart=always), which starts it again and
+			// it rejoins. The one exception is a 409: another update already
+			// owns the restart, and exiting would cut it off mid-download.
+			status := selfUpdate(selfClient, selfURL, v2Sig)
+			if status == http.StatusConflict {
 				return
 			}
-			if v2Sig != "" {
-				req.Header.Set(auth.InternalProxyHeaderV2, v2Sig)
-			}
-			resp, err := selfClient.Do(req)
-			if err != nil {
-				slog.Error("leader self-update: request failed", "component", "cluster", "error", err)
-				return
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode >= 400 {
-				slog.Error("leader self-update: non-2xx response", "component", "cluster", "status", resp.StatusCode)
-			}
+			time.Sleep(30 * time.Second)
+			slog.Error("leader self-update did not restart this node; exiting so the supervisor brings it back into the cluster", "component", "cluster", "status", status)
+			os.Exit(1)
 		}()
 	}
+}
+
+// orchestratedUpdatePath is how the cluster update asks a node — a follower,
+// or the leader itself — to update. force=true skips system/update's quorum
+// guard, which exists to stop an operator updating nodes one by one outside
+// the orchestrator. The orchestrator has already decided the order and the
+// quorum question; letting the guard veto it stranded the old leader of every
+// two-node cluster, where one node down is always "below quorum". The query is
+// part of the signed request URI, so it must be signed as written here.
+const orchestratedUpdatePath = "/api/v1/system/update?force=true"
+
+// selfUpdate asks this node's own panel to update and returns the HTTP status,
+// or 0 when the request could not be made at all.
+func selfUpdate(client *http.Client, url, sig string) int {
+	// Bound the call explicitly so it can't pin indefinitely on a hung
+	// loopback connection mid-shutdown.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		slog.Error("leader self-update: build request", "component", "cluster", "error", err)
+		return 0
+	}
+	if sig != "" {
+		req.Header.Set(auth.InternalProxyHeaderV2, sig)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		slog.Error("leader self-update: request failed", "component", "cluster", "error", err)
+		return 0
+	}
+	defer resp.Body.Close()
+	// Drain: a successful update streams its progress, and the restart that
+	// follows is what ends it.
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode >= 400 {
+		slog.Error("leader self-update: non-2xx response", "component", "cluster", "status", resp.StatusCode)
+	}
+	return resp.StatusCode
 }
 
 // PublishPanelCA records a node's panel certificate authority in replicated

@@ -89,6 +89,15 @@ implicitly requires a restart — there is no hot-reload path for the CA.
   whether anyone is still watching. Closing the tab does not cancel it.
 - One cluster update at a time: a second request while one is running gets
   `409 UPDATE_IN_PROGRESS`.
+- The orchestrator calls each node's `/api/v1/system/update?force=true`. The
+  quorum guard on that route is for operators updating nodes by hand; the
+  orchestrator has already made the quorum decision, and letting the guard
+  veto it refused the old leader of every two-node cluster.
+- The leader updates itself last, after checking a newer release exists. If
+  its self-update does not restart it within 30 seconds of the request
+  returning, it exits and systemd (`Restart=always`) brings it back — by then
+  its cluster manager is already shut down, and staying up would leave it
+  outside the cluster. A `409` (another update running) is the exception.
 - The simultaneous mode quorum guard refuses to take all voters offline at
   once.
 - `/api/v1/system/update` itself is serialised by an in-process mutex; a
