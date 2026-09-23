@@ -174,10 +174,19 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           mkdir -p sigs
-          gh release download "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern "*.sig" \
-            --dir sigs
+          # By release id, not by tag. The by-tag lookup and the release list
+          # can serve a cached copy that predates the uploads by half an hour
+          # or more — v0.77.5 and v0.77.6 both came back with no assets while
+          # the release itself had all of them — and `gh release download`
+          # goes through that lookup. The id is fixed from the moment the
+          # release exists, and /releases/{id}/assets answers from the source.
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" -q .id)
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$id/assets" \
+            -q '.[] | select(.name | endswith(".sig")) | "\(.id) \(.name)"' |
+          while read -r aid name; do
+            gh api -H "Accept: application/octet-stream" \
+              "repos/$GITHUB_REPOSITORY/releases/assets/$aid" > "sigs/$name"
+          done
           ls -la sigs/
 
       - name: Compose latest.json
