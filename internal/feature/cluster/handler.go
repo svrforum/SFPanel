@@ -1438,6 +1438,7 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 				updated++
 			} else {
 				emit(map[string]interface{}{"overall": "error", "message": fmt.Sprintf("Rolling update stopped: %s failed", f.Name)})
+				slog.Warn("cluster update stopped", "component", "cluster", "failed_node", f.Name, "updated", updated)
 				return
 			}
 		}
@@ -1462,7 +1463,28 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 		}
 	}
 
+	// The leader's own step ends in mgr.Shutdown() and a self-update. When
+	// there is nothing newer to install, that self-update answers
+	// "up_to_date" and the process carries on with its cluster manager
+	// already shut down — alive, but out of the cluster until someone
+	// restarts it by hand. A leader updated on its own before this run is
+	// exactly that case, so ask first. An unanswerable check counts as "no":
+	// shutting down on a guess is the one outcome that needs a console to undo.
+	updateLeader := false
 	if leader.ID != "" {
+		need, err := h.leaderNeedsUpdate()
+		switch {
+		case err != nil:
+			slog.Warn("cluster update: leader left as is, update check failed", "component", "cluster", "error", err)
+			emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "warning", "message": "Leader left as is: could not check for an update"})
+		case !need:
+			emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "complete", "message": "Leader is already up to date"})
+		default:
+			updateLeader = true
+		}
+	}
+
+	if updateLeader {
 		emit(map[string]interface{}{"node_id": leader.ID, "node_name": leader.Name, "step": "updating", "message": "Updating leader (this node)..."})
 		for _, f := range followers {
 			h2 := mgr.GetHeartbeat().CheckHealth()
@@ -1477,8 +1499,11 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 	}
 
 	emit(map[string]interface{}{"overall": "complete", "updated": updated, "failed": failed})
+	// Nobody may be watching (see updateFeed); this line is then the only
+	// record of how the run ended.
+	slog.Info("cluster update finished", "component", "cluster", "mode", mode, "updated", updated, "failed", failed, "leader_self_update", updateLeader)
 
-	if leader.ID != "" {
+	if updateLeader {
 		// Sign the v2 header NOW, before Shutdown — we can't rely on the
 		// signing path (TLSManager-derived secret) remaining alive past
 		// Shutdown. Note the pre-signed MAC carries a timestamp: if Shutdown
