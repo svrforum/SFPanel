@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.77.5] – 2026-09-23
+
+### Fixed
+
+**A cluster update no longer strands a leader that was already current.** The leader's last step is to leave the cluster and update itself. When there was nothing newer to install, it left the cluster anyway, found the update already applied, and stayed running outside the cluster until someone restarted it by hand. That happens whenever the leader has been updated on its own first — an ordinary sequence now that an update can be started from any node. The leader now checks for a newer release before stepping down, and stays put when there is none. How each run ended is also written to the log, since with the tab closed nobody may be watching it.
+
 ## [0.77.4] – 2026-09-23
 
 ### Changed
