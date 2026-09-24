@@ -470,6 +470,28 @@ func (m *ComposeManager) ValidateConfig(ctx context.Context, name string) (strin
 	return m.runCompose(ctx, name, "config", "--quiet")
 }
 
+// ValidateDraft checks the editor buffer without changing the project's files.
+// stdin keeps includes and relative paths rooted in the original project directory.
+func (m *ComposeManager) ValidateDraft(ctx context.Context, name, yaml string) (string, error) {
+	if err := m.validateProjectName(name); err != nil {
+		return err.Error(), err
+	}
+	ctx, cancel := context.WithTimeout(ctx, resolveConfigTimeout)
+	defer cancel()
+	path, dir := m.resolveComposeFilePath(ctx, name)
+	if path == "" {
+		return "Compose file not found", fmt.Errorf("compose file not found")
+	}
+	cmd := exec.CommandContext(ctx, "docker", "compose", "--project-directory", dir, "-p", name, "-f", "-", "config", "--quiet")
+	cmd.Dir = dir
+	cmd.Stdin = strings.NewReader(yaml)
+	out, err := cmd.CombinedOutput()
+	if err != nil && len(out) == 0 {
+		return err.Error(), err
+	}
+	return string(out), err
+}
+
 // GetResolvedConfig returns `docker compose config --format json` for the
 // project — the fully-resolved compose spec (env-interpolated, defaults
 // applied). Used by stack migration to enumerate ports/volumes/binds/devices.

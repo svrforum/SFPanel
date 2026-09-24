@@ -11,6 +11,10 @@ import { HealthcheckComposerDialog } from '@/components/compose/HealthcheckCompo
 import { MigrateStackDialog } from '@/pages/docker/components/MigrateStackDialog'
 import { StackProgressDialog, useStackProgress } from '@/pages/docker/components/StackProgressDialog'
 import { toast } from 'sonner'
+import ResourceStatus from '@/components/ResourceStatus'
+import { Input } from '@/components/ui/input'
+import { useVisibleInterval } from '@/hooks/useVisibleInterval'
+import { ContainerStateBadge } from '@/components/docker/ContainerStateBadge'
 import { api } from '@/lib/api'
 import { cn, nodeStatusColor } from '@/lib/utils'
 import { isRiskyRefusal, riskLines } from '@/lib/composeRisk'
@@ -47,20 +51,6 @@ function statusIcon(status: string) {
       return <span className="inline-block w-2 h-2 rounded-full bg-warning" />
     default:
       return <span className="inline-block w-2 h-2 rounded-full bg-muted-foreground/40" />
-  }
-}
-
-function serviceBadge(state: string) {
-  const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-  switch (state?.toLowerCase()) {
-    case 'running':
-      return <span className={`${base} bg-success/10 text-success`}>running</span>
-    case 'exited':
-      return <span className={`${base} bg-destructive/10 text-destructive`}>exited</span>
-    case 'paused':
-      return <span className={`${base} bg-warning/10 text-warning`}>paused</span>
-    default:
-      return <span className={`${base} bg-secondary text-muted-foreground`}>{state || 'unknown'}</span>
   }
 }
 
@@ -116,40 +106,40 @@ function ServiceActions({
   const { t } = useTranslation()
   const busy = actionLoading === svc.name
   return (
-    <div className={cn('flex items-center gap-1', className)}>
+    <div className={cn('flex flex-wrap items-center gap-1', className)}>
       {svc.state === 'running' ? (
-        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.stopService')} aria-label={t('docker.stacks.stopService')}
+        <Button variant="ghost" size="icon" title={t('docker.stacks.stopService')} aria-label={t('docker.stacks.stopService')}
           disabled={busy}
           onClick={() => onAction('stop', svc.name)}>
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
         </Button>
       ) : (
-        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.startService')} aria-label={t('docker.stacks.startService')}
+        <Button variant="ghost" size="icon" title={t('docker.stacks.startService')} aria-label={t('docker.stacks.startService')}
           disabled={busy}
           onClick={() => onAction('start', svc.name)}>
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
         </Button>
       )}
-      <Button variant="ghost" size="icon-xs" title={t('docker.stacks.restartService')} aria-label={t('docker.stacks.restartService')}
+      <Button variant="ghost" size="icon" title={t('docker.stacks.restartService')} aria-label={t('docker.stacks.restartService')}
         disabled={busy}
         onClick={() => onAction('restart', svc.name)}>
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
       </Button>
-      <Button variant="ghost" size="icon-xs" title={t('compose.healthcheck.title', 'Healthcheck')} aria-label={t('compose.healthcheck.title', 'Healthcheck')}
+      <Button variant="ghost" size="icon" title={t('compose.healthcheck.title', 'Healthcheck')} aria-label={t('compose.healthcheck.title', 'Healthcheck')}
         onClick={() => onHealthcheck(svc)}>
         <HeartPulse className={`h-3.5 w-3.5 ${svc.has_healthcheck ? 'text-success' : ''}`} />
       </Button>
-      <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')}
+      <Button variant="ghost" size="icon" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')}
         disabled={!svc.container_id}
         onClick={() => onInspect(svc)}>
         <Info className="h-3.5 w-3.5" />
       </Button>
-      <Button variant="ghost" size="icon-xs" title={t('docker.stacks.viewLogs')} aria-label={t('docker.stacks.viewLogs')}
+      <Button variant="ghost" size="icon" title={t('docker.stacks.viewLogs')} aria-label={t('docker.stacks.viewLogs')}
         onClick={() => onLogs(svc)}>
         <ScrollText className="h-3.5 w-3.5" />
       </Button>
       {svc.container_id && svc.state === 'running' && (
-        <Button variant="ghost" size="icon-xs" title={t('docker.stacks.openShell')} aria-label={t('docker.stacks.openShell')}
+        <Button variant="ghost" size="icon" title={t('docker.stacks.openShell')} aria-label={t('docker.stacks.openShell')}
           onClick={() => onShell(svc)}>
           <Terminal className="h-3.5 w-3.5" />
         </Button>
@@ -181,6 +171,13 @@ const DiffSheet = lazy(() =>
   import('@/components/compose/DiffSheet').then((m) => ({ default: m.DiffSheet })),
 )
 
+type StackDraft = { yaml: string; env: string; diskYaml: string; diskEnv: string }
+const stackDrafts = new Map<string, StackDraft>()
+let draftSession: string | null = null
+function warnUnsavedDrafts(event: BeforeUnloadEvent) {
+  if (stackDrafts.size > 0 && draftSession === api.getToken()) { event.preventDefault(); event.returnValue = '' }
+}
+
 export default function DockerStacks({ clusterMode = false }: { clusterMode?: boolean }) {
   const { t } = useTranslation()
   const confirm = useConfirm()
@@ -192,6 +189,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   const [searchParams, setSearchParams] = useSearchParams()
   const basePath = clusterMode ? '/cluster/stacks' : '/docker/stacks'
 
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const [projects, setProjects] = useState<ComposeProjectWithStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
@@ -230,6 +228,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     try {
       setClusterError(null)
       setClusterStacks(await api.getClusterStacks())
+      setUpdatedAt(Date.now())
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('docker.compose.fetchFailed')
       setClusterError(msg)
@@ -276,6 +275,31 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   // has unsaved edits in the editor.
   const [diskYaml, setDiskYaml] = useState('')
   const [editEnv, setEditEnv] = useState('')
+  const [diskEnv, setDiskEnv] = useState('')
+  const [editorLoading, setEditorLoading] = useState(true)
+  const [editorError, setEditorError] = useState<string | null>(null)
+  const [editorAttempt, setEditorAttempt] = useState(0)
+  const [servicesError, setServicesError] = useState<string | null>(null)
+  const [stackSearch, setStackSearch] = useState('')
+  const [stackFilter, setStackFilter] = useState('all')
+  const [drafts] = useState(() => {
+    if (draftSession !== api.getToken()) { stackDrafts.clear(); draftSession = api.getToken() }
+    return { current: stackDrafts }
+  })
+  const [loadedDraftKey, setLoadedDraftKey] = useState('')
+  const draftKey = `${routeNode ?? api.currentNode ?? 'local'}:${selectedName ?? ''}`
+  const editorDirty = editYaml !== diskYaml || editEnv !== diskEnv
+  useEffect(() => {
+    if (!selectedName || loadedDraftKey !== draftKey || editorLoading || editorError) return
+    if (editorDirty) drafts.current.set(draftKey, { yaml: editYaml, env: editEnv, diskYaml, diskEnv })
+    else drafts.current.delete(draftKey)
+  }, [drafts, loadedDraftKey, draftKey, selectedName, editorLoading, editorError, editorDirty, editYaml, editEnv, diskYaml, diskEnv])
+  useEffect(() => {
+    // The listener remains while navigating to other menus: drafts live in memory
+    // until saved/discarded, and a reload from any menu would lose them.
+    if (drafts.current.size > 0) window.addEventListener('beforeunload', warnUnsavedDrafts)
+    else window.removeEventListener('beforeunload', warnUnsavedDrafts)
+  }, [editorDirty, drafts, loadedDraftKey])
   const [editorTab, setEditorTab] = useState<'compose' | 'env'>('compose')
   const [mainTab, setMainTab] = useState<'services' | 'editor' | 'logs'>('services')
   // Deploy flow (save + up-stream) — the panel's own Save has separate state.
@@ -314,6 +338,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       setListError(null)
       const data = await api.getComposeProjects()
       setProjects(data || [])
+      setUpdatedAt(Date.now())
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('docker.compose.fetchFailed')
       setListError(msg)
@@ -334,25 +359,25 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   // a previously-selected stack don't overwrite the services list when they resolve
   // late (rapid stack switching produced a visible mix of two stacks' services).
   const latestSelectedRef = useRef<string>('')
+  const serviceRequest = useRef(0)
 
   const fetchServices = useCallback(async (name: string) => {
+    const identity = latestSelectedRef.current
+    if (!identity.endsWith(`:${name}`)) return
+    const request = ++serviceRequest.current
     try {
       setServicesLoading(true)
       const data = await api.getComposeServices(name)
-      if (latestSelectedRef.current !== name) return
+      if (latestSelectedRef.current !== identity || serviceRequest.current !== request) return
       setServices(data || [])
-    } catch {
-      if (latestSelectedRef.current !== name) return
-      setServices([])
+      setServicesError(null)
+    } catch (err) {
+      if (latestSelectedRef.current !== identity || serviceRequest.current !== request) return
+      setServicesError(err instanceof Error ? err.message : String(err))
     } finally {
-      if (latestSelectedRef.current === name) setServicesLoading(false)
+      if (latestSelectedRef.current === identity && serviceRequest.current === request) setServicesLoading(false)
     }
   }, [])
-
-  useEffect(() => {
-    if (clusterMode) fetchClusterStacks()
-    else fetchProjects()
-  }, [clusterMode, fetchClusterStacks, fetchProjects])
 
   useEffect(() => {
     // Create flow is single-node only (the cluster master-detail has no '+');
@@ -375,25 +400,43 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       api.setCurrentNode(routeNode)
       lastClusterNode.current = routeNode
     }
+    let cancelled = false
+    latestSelectedRef.current = draftKey
+    setServices([])
+    setServicesError(null)
+    setEditYaml('')
+    setEditEnv('')
+    setDiskYaml('')
+    setDiskEnv('')
+    setEditorError(null)
+    setEditorLoading(true)
+    setLoadedDraftKey('')
     if (selectedName) {
-      latestSelectedRef.current = selectedName
-      // Clear stale services from a previously-selected stack so the row doesn't
-      // briefly show another stack's services during the new fetch.
-      setServices([])
-      fetchServices(selectedName)
-      // Load YAML
-      api.getComposeProject(selectedName).then(data => {
-        setEditYaml(data.yaml)
-        setDiskYaml(data.yaml)
-      }).catch(() => {})
-      // Load .env
-      api.getComposeEnv(selectedName).then(data => {
-        setEditEnv(data.content)
-      }).catch(() => {})
-    } else {
-      latestSelectedRef.current = ''
+      void fetchServices(selectedName)
+      const draft = drafts.current.get(draftKey)
+      if (draft) {
+        setLoadedDraftKey(draftKey)
+        setEditYaml(draft.yaml); setEditEnv(draft.env)
+        setDiskYaml(draft.diskYaml); setDiskEnv(draft.diskEnv)
+        setEditorLoading(false)
+      } else {
+        Promise.all([api.getComposeProject(selectedName), api.getComposeEnv(selectedName)]).then(([data, env]) => {
+          if (cancelled) return
+          setLoadedDraftKey(draftKey)
+          setEditYaml(data.yaml); setDiskYaml(data.yaml)
+          setEditEnv(env.content); setDiskEnv(env.content)
+        }).catch(err => {
+          if (!cancelled) setEditorError(err instanceof Error ? err.message : String(err))
+        }).finally(() => { if (!cancelled) setEditorLoading(false) })
+      }
     }
-  }, [selectedName, routeNode, clusterMode, fetchServices])
+    return () => { cancelled = true; latestSelectedRef.current = '' }
+  }, [selectedName, routeNode, clusterMode, fetchServices, draftKey, editorAttempt, drafts])
+
+  useVisibleInterval(() => {
+    void refreshList()
+    if (selectedName) void fetchServices(selectedName)
+  }, 15000)
 
   // Don't leak the in-page node selection to the rest of the app on leave —
   // unless the sidebar tree re-pointed currentNode while navigating away.
@@ -422,7 +465,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
   const handleDown = async (name: string) => {
     setActionLoading(name)
     try {
-      await api.composeDown(name)
+      await api.composeStop(name)
       toast.success(t('docker.compose.downSuccess', { name }))
       await Promise.all([
         refreshList(),
@@ -433,6 +476,16 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
     } finally {
       setActionLoading(null)
     }
+  }
+
+  const handleTeardown = async () => {
+    if (!selectedName || !await confirm({ title: t('docker.improvements.teardown'), description: t('docker.improvements.teardownConfirm'), danger: true })) return
+    setActionLoading(selectedName)
+    try {
+      await api.composeDown(selectedName)
+      await Promise.all([refreshList(), fetchServices(selectedName)])
+    } catch (err) { toast.error(err instanceof Error ? err.message : String(err)) }
+    finally { setActionLoading(null) }
   }
 
   const handleDelete = async () => {
@@ -458,8 +511,13 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
 
   const handleDeploy = async () => {
     if (!selectedName || !editYaml.trim()) return
+    if (editEnv !== diskEnv) { toast.error(t('docker.improvements.saveEnvFirst')); setEditorTab('env'); return }
+    const identity = latestSelectedRef.current
     setEditSaving(true)
     try {
+      const validation = await api.validateCompose(selectedName, editYaml)
+      if (latestSelectedRef.current !== identity) { setEditSaving(false); return }
+      if (!validation.valid) { toast.error(validation.message); setEditSaving(false); return }
       await api.updateComposeProject(selectedName, editYaml)
     } catch (err: unknown) {
       // A risky refusal is the one the operator can lift: show what the stack
@@ -485,7 +543,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
         confirmLabel: t('docker.stacks.risky.confirm'),
         danger: true,
       })
-      if (!ok) {
+      if (!ok || latestSelectedRef.current !== identity) {
         setEditSaving(false)
         return
       }
@@ -497,6 +555,8 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
         return
       }
     }
+    if (latestSelectedRef.current !== identity) { setEditSaving(false); return }
+    setDiskYaml(editYaml)
     setEditSaving(false)
 
     // Open progress modal and stream
@@ -511,20 +571,25 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
 
   // Reset update check and rollback when the stack OR its node changes
   useEffect(() => {
+    let cancelled = false
     setUpdateCheck(null)
+    setRollbackInfo(null)
     if (selectedName) {
-      api.hasRollback(selectedName).then(r => setRollbackInfo(r)).catch(() => setRollbackInfo(null))
+      api.hasRollback(selectedName).then(r => { if (!cancelled) setRollbackInfo(r) }).catch(() => {})
     } else {
       setRollbackInfo(null)
     }
+    return () => { cancelled = true }
   }, [selectedName, routeNode])
 
   const handleCheckUpdates = async () => {
     if (!selectedName) return
+    const identity = latestSelectedRef.current
     setCheckingUpdates(true)
     setUpdateCheck(null)
     try {
       const result = await api.checkStackUpdates(selectedName)
+      if (latestSelectedRef.current !== identity) return
       setUpdateCheck(result)
       if (result.has_updates) {
         toast.info(t('docker.stacks.updateAvailable'))
@@ -597,17 +662,22 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
         <div className="flex items-center justify-between">
           <span className="text-[15px] font-semibold">{t('docker.stacks.title')}</span>
           <div className="flex gap-1">
-            <Button variant="ghost" size="icon-xs" aria-label={t('common.refresh')} onClick={() => (clusterMode ? fetchClusterStacks() : fetchProjects())} disabled={clusterMode ? clusterLoading : loading}>
+            <Button variant="ghost" size="icon" aria-label={t('common.refresh')} onClick={() => (clusterMode ? fetchClusterStacks() : fetchProjects())} disabled={clusterMode ? clusterLoading : loading}>
               <RefreshCw className={`h-3.5 w-3.5 ${(clusterMode ? clusterLoading : loading) ? 'animate-spin' : ''}`} />
             </Button>
             {!clusterMode && (
-              <Button variant="ghost" size="icon-xs" aria-label={t('docker.compose.createTitle')} onClick={() => setCreateOpen(true)}>
+              <Button variant="ghost" size="icon" aria-label={t('docker.compose.createTitle')} onClick={() => setCreateOpen(true)}>
                 <Plus className="h-3.5 w-3.5" />
               </Button>
             )}
           </div>
         </div>
 
+        <ResourceStatus resource={{ loading: clusterMode ? clusterLoading : loading, error: !!(clusterMode ? clusterError : listError), updatedAt, retry: () => { void refreshList() } }} />
+        <Input aria-label={t('docker.improvements.search')} placeholder={t('docker.improvements.search')} value={stackSearch} onChange={e => setStackSearch(e.target.value)} />
+        <select className="min-h-11 w-full rounded-xl bg-secondary px-3 text-sm" aria-label={t('common.status')} value={stackFilter} onChange={e => setStackFilter(e.target.value)}>
+          <option value="all">{t('docker.improvements.all')}</option><option value="running">{t('docker.improvements.running')}</option><option value="attention">{t('docker.improvements.attention')}</option>
+        </select>
         {clusterMode ? (
           /* Cluster-wide list: every node's stacks grouped by node (responsive) */
           <div className="space-y-1">
@@ -633,7 +703,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                     </span>
                   )}
                 </div>
-                {node.stacks.map(p => {
+                {node.stacks.filter(p => p.name.toLowerCase().includes(stackSearch.toLowerCase()) && (stackFilter === 'all' || (stackFilter === 'running' ? p.real_status === 'running' : p.real_status !== 'running'))).map(p => {
                   const isSel = selectedName === p.name && routeNode === node.node_id
                   return (
                     <div key={node.node_id + '/' + p.name} className={`group flex items-center gap-2 px-3 py-2 rounded-xl ${isSel ? 'bg-primary/10 ring-1 ring-primary/20' : 'hover:bg-secondary/50'}`}>
@@ -665,7 +735,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
         ) : (
         <>
         {/* Load failure */}
-        {listError && projects.length === 0 && !loading && (
+        {listError && !loading && (
           <ListErrorBanner message={listError} onRetry={() => fetchProjects()} />
         )}
         {/* Desktop stack list */}
@@ -673,7 +743,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
           {projects.length === 0 && !loading && !listError && (
             <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
           )}
-          {projects.map(p => (
+          {projects.filter(p => p.name.toLowerCase().includes(stackSearch.toLowerCase()) && (stackFilter === 'all' || (stackFilter === 'running' ? p.real_status === 'running' : p.real_status !== 'running'))).map(p => (
             <div
               key={p.name}
               role="button"
@@ -700,7 +770,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
           {projects.length === 0 && !loading && !listError && (
             <p className="text-[13px] text-muted-foreground py-4 text-center">{t('docker.stacks.noStacks')}</p>
           )}
-          {projects.map(p => (
+          {projects.filter(p => p.name.toLowerCase().includes(stackSearch.toLowerCase()) && (stackFilter === 'all' || (stackFilter === 'running' ? p.real_status === 'running' : p.real_status !== 'running'))).map(p => (
             <div
               key={p.name}
               className={`bg-card rounded-2xl p-4 card-shadow ${
@@ -745,7 +815,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                       onClick={() => handleDown(p.name)}
                     >
                       {actionLoading === p.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
-                      {t('docker.compose.down')}
+                      {t('docker.improvements.stop')}
                     </Button>
                     <Button
                       size="sm" variant="ghost"
@@ -768,7 +838,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                   {t('docker.stacks.editor')}
                 </Button>
                 <Button
-                  variant="ghost" size="icon-xs"
+                  variant="ghost" size="icon"
                   aria-label={t('common.delete')}
                   onClick={() => setDeleteTarget(p)}
                 >
@@ -785,16 +855,19 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       {/* Stack detail (right panel) */}
       <div className="flex-1 min-w-0">
         {!selectedName ? (
-          <div className="hidden md:flex items-center justify-center h-64 text-muted-foreground text-[13px]">
-            {t('docker.stacks.selectStack')}
-          </div>
+          <section className="hidden md:block space-y-4 rounded-2xl bg-card p-5 card-shadow">
+            <h2 className="text-lg font-semibold">{t('docker.improvements.overview')}</h2>
+            <p className="text-sm text-muted-foreground">{t('docker.improvements.stackFlow')}</p>
+            <div className="grid grid-cols-3 gap-3">{[['all', projects.length], ['running', projects.filter(p => p.real_status === 'running').length], ['attention', projects.filter(p => p.real_status !== 'running').length]].map(([key, count]) => <button key={key} className="rounded-xl bg-secondary/50 p-4 text-left" onClick={() => setStackFilter(String(key))}><span className="block text-2xl font-semibold">{count}</span><span className="text-sm">{t(`docker.improvements.${key}`)}</span></button>)}</div>
+            {projects.filter(p => p.real_status !== 'running').slice(0, 5).map(p => <Button key={p.name} variant="outline" onClick={() => navigate(`${basePath}/${encodeURIComponent(p.name)}`)}>{p.name} · {p.running_count}/{p.service_count}</Button>)}
+          </section>
         ) : (
           <div className="space-y-4">
             {/* Stack header */}
             <div className="space-y-2">
               <div className="flex items-center gap-3 flex-wrap">
                 <Button
-                  variant="ghost" size="icon-xs"
+                  variant="ghost" size="icon"
                   className="md:hidden"
                   onClick={() => navigate(basePath)}
                 >
@@ -826,6 +899,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+                <Button variant="outline" size="sm" disabled={!!actionLoading} onClick={handleTeardown}>{t('docker.improvements.teardown')}</Button>
                 {selectedProject?.real_status !== 'running' && (
                   <Button
                     size="sm"
@@ -853,7 +927,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                     ) : (
                       <Square className="h-3.5 w-3.5" />
                     )}
-                    {t('docker.compose.down')}
+                    {t('docker.improvements.stop')}
                   </Button>
                 ) : null}
                 {selectedProject?.real_status === 'running' && (
@@ -923,7 +997,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                   </div>
                 )}
                 <Button
-                  variant="ghost" size="icon-xs"
+                  variant="ghost" size="icon"
                   aria-label={t('common.delete')}
                   onClick={() => setDeleteTarget(selectedProject || null)}
                 >
@@ -1013,6 +1087,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
               </TabsList>
 
               <TabsContent value="services">
+                {servicesError && <ListErrorBanner message={servicesError} onRetry={() => selectedName && void fetchServices(selectedName)} />}
                 {/* Desktop table */}
                 <div className="hidden md:block bg-card rounded-2xl card-shadow overflow-hidden border-t-2 border-t-success">
                   <Table>
@@ -1031,7 +1106,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                           <TableCell colSpan={5} className="text-center text-muted-foreground py-8">{t('common.loading')}</TableCell>
                         </TableRow>
                       )}
-                      {!servicesLoading && services.length === 0 && (
+                      {!servicesLoading && !servicesError && services.length === 0 && (
                         <TableRow>
                           <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
                             {t('docker.stacks.noServices')}
@@ -1047,7 +1122,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                             ) : svc.name}
                           </TableCell>
                           <TableCell className="text-muted-foreground text-xs font-mono">{svc.image}</TableCell>
-                          <TableCell>{serviceBadge(svc.state)}</TableCell>
+                          <TableCell>{<ContainerStateBadge state={svc.state} status={svc.status} />}</TableCell>
                           <TableCell className="text-muted-foreground text-xs font-mono">{svc.ports || '-'}</TableCell>
                           <TableCell className="text-right">
                             <ServiceActions
@@ -1072,7 +1147,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                   {servicesLoading && (
                     <p className="text-center text-muted-foreground py-8 text-[13px]">{t('common.loading')}</p>
                   )}
-                  {!servicesLoading && services.length === 0 && (
+                  {!servicesLoading && !servicesError && services.length === 0 && (
                     <p className="text-center text-muted-foreground py-8 text-[13px]">
                       {t('docker.stacks.noServices')}
                     </p>
@@ -1086,7 +1161,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                         ) : (
                           <span className="text-[13px] font-medium truncate min-w-0 flex-1">{svc.name}</span>
                         )}
-                        {serviceBadge(svc.state)}
+                        {<ContainerStateBadge state={svc.state} status={svc.status} />}
                       </div>
                       <div className="text-[11px] text-muted-foreground font-mono truncate mb-1" title={svc.image}>{svc.image}</div>
                       {svc.ports && (
@@ -1108,11 +1183,16 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
               </TabsContent>
 
               <TabsContent value="editor">
+                <p className="mb-3 text-sm text-muted-foreground" role="status">{t(editorDirty ? 'docker.improvements.unsaved' : 'docker.improvements.savedHint')}</p>
+                {editorDirty && <Button variant="outline" className="mb-3" onClick={async () => { if (await confirm({ title: t('docker.improvements.discard'), description: t('docker.improvements.discardConfirm'), danger: true })) { drafts.current.delete(draftKey); setEditYaml(diskYaml); setEditEnv(diskEnv); setEditorAttempt(n => n + 1) } }}>{t('docker.improvements.discard')}</Button>}
+                {editorLoading ? <p>{t('common.loading')}</p> : editorError ? <ListErrorBanner message={editorError} onRetry={() => setEditorAttempt(n => n + 1)} /> : <>
                 {/* Only once the editor tab is the active one — a TabsContent
                     that is not selected still mounts its children. */}
                 <Suspense fallback={<div className="py-16 text-center text-[13px] text-muted-foreground">{t('common.loading')}</div>}>
                 <StackEditorPanel
+                  key={draftKey}
                   project={selectedName}
+                  onYamlSaved={yaml => { if (latestSelectedRef.current === draftKey) setDiskYaml(yaml) }}
                   composeFileName={selectedProject?.compose_file || 'docker-compose.yml'}
                   yaml={editYaml}
                   onYamlChange={setEditYaml}
@@ -1121,11 +1201,12 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                   tab={editorTab}
                   onTabChange={setEditorTab}
                   deploying={editSaving}
-                  onDeploy={handleDeploy}
+                  onDeploy={() => setDiffOpen(true)}
                   onOpenDiff={() => setDiffOpen(true)}
-                  onEnvSaved={() => { void refreshList() }}
+                  onEnvSaved={() => { if (latestSelectedRef.current === draftKey) setDiskEnv(editEnv); void refreshList() }}
                 />
                 </Suspense>
+                </>}
               </TabsContent>
 
               <TabsContent value="logs">
@@ -1250,6 +1331,8 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
       {selectedName && diffOpen && (
         <Suspense fallback={null}>
         <DiffSheet
+          key={draftKey}
+          allowUnchanged
           open={diffOpen}
           onOpenChange={setDiffOpen}
           projectName={selectedName}

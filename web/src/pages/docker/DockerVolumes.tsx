@@ -1,7 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
+import { useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { Trash2, RefreshCw, Plus, Sparkles, Check, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
+import { ResourceFilters } from '@/pages/docker/components/ResourceFilters'
+import { useDockerResource } from '@/hooks/useDockerResource'
+import ResourceStatus from '@/components/ResourceStatus'
 import { api } from '@/lib/api'
 import { formatDate, formatBytes } from '@/lib/utils'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -28,37 +32,21 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
+const loadVolumes = () => api.getVolumes()
+
 export default function DockerVolumes() {
   const { t } = useTranslation()
   const confirm = useConfirm()
-  const [volumes, setVolumes] = useState<DockerVolume[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { data: volumes, loading, error, refresh: fetchVolumes, updatedAt } = useDockerResource(loadVolumes, 15000)
+  const [query, setQuery] = useState('')
+  const [usage, setUsage] = useState('all')
+  const [sort, setSort] = useState('name')
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DockerVolume | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [pruning, setPruning] = useState(false)
-
-  const fetchVolumes = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await api.getVolumes()
-      setVolumes(data || [])
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err))
-      const message = err instanceof Error ? err.message : t('docker.volumes.fetchFailed')
-      toast.error(message)
-    } finally {
-      setLoading(false)
-    }
-  }, [t])
-
-  useEffect(() => {
-    fetchVolumes()
-  }, [fetchVolumes])
 
   const handleCreate = async () => {
     if (!newName.trim()) return
@@ -114,7 +102,7 @@ export default function DockerVolumes() {
   }
 
   // In-use volumes first; single sorted list keeps mobile and desktop in sync.
-  const sortedVolumes = [...volumes].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1))
+  const sortedVolumes = volumes.filter(item => [item.Name, item.Driver, ...(item.used_by || [])].join(' ').toLowerCase().includes(query.toLowerCase()) && (usage === 'all' || (usage === 'used' ? item.in_use : !item.in_use))).sort((a, b) => sort === 'size' ? (b.size_bytes ?? 0) - (a.size_bytes ?? 0) : a.Name.localeCompare(b.Name))
 
   return (
     <div className="space-y-4">
@@ -138,8 +126,11 @@ export default function DockerVolumes() {
         </div>
       </div>
 
+      <ResourceFilters query={query} onQuery={setQuery} usage={usage} onUsage={setUsage} sort={sort} onSort={setSort} count={sortedVolumes.length} />
+      {sortedVolumes.length === 0 && volumes.length > 0 && <p className="py-8 text-center text-muted-foreground">{t('docker.improvements.noResults')}</p>}
+      <ResourceStatus resource={{ loading, error: !!error, updatedAt, retry: fetchVolumes }} />
       {/* Load error / loading skeleton (first load only) */}
-      {error && volumes.length === 0 ? (
+      {error ? (
         <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
@@ -179,12 +170,13 @@ export default function DockerVolumes() {
                   <span className="text-[11px] text-muted-foreground">{formatDate(v.CreatedAt)}</span>
                 </div>
                 <div className="mt-1.5">
-                  <UsagePill inUse={v.in_use} />
+                  <UsagePill inUse={v.in_use} usedBy={v.used_by} />
+                  <div className="flex flex-wrap gap-3 text-xs text-primary">{v.Mountpoint && <Link className="inline-flex min-h-11 items-center underline" to={`/files?path=${encodeURIComponent(v.Mountpoint)}`}>{t('docker.improvements.browse')}</Link>}<Link className="inline-flex min-h-11 items-center underline" to={`/files?path=${encodeURIComponent(v.Mountpoint.substring(0, v.Mountpoint.lastIndexOf('/')) || '/')}`}>{t('docker.improvements.backup')}</Link></div>
                 </div>
               </div>
               <Button
                 variant="ghost"
-                size="icon-xs"
+                size="icon"
                 title={t('common.delete')}
                 aria-label={t('common.delete')}
                 onClick={() => setDeleteTarget(v)}
@@ -228,6 +220,7 @@ export default function DockerVolumes() {
               </TableCell>
               <TableCell>
                 <UsagePill inUse={v.in_use} usedBy={v.used_by} />
+                  <div className="flex flex-wrap gap-3 text-xs text-primary">{v.Mountpoint && <Link className="inline-flex min-h-11 items-center underline" to={`/files?path=${encodeURIComponent(v.Mountpoint)}`}>{t('docker.improvements.browse')}</Link>}<Link className="inline-flex min-h-11 items-center underline" to={`/files?path=${encodeURIComponent(v.Mountpoint.substring(0, v.Mountpoint.lastIndexOf('/')) || '/')}`}>{t('docker.improvements.backup')}</Link></div>
               </TableCell>
               <TableCell className="text-muted-foreground">{v.Driver}</TableCell>
               <TableCell className="text-muted-foreground text-xs font-mono max-w-[300px] truncate">
@@ -244,7 +237,7 @@ export default function DockerVolumes() {
               <TableCell className="text-right">
                 <Button
                   variant="ghost"
-                  size="icon-xs"
+                  size="icon"
                   title={t('common.delete')}
                   aria-label={t('common.delete')}
                   onClick={() => setDeleteTarget(v)}

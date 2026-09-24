@@ -6,6 +6,30 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.0] – 2026-09-24
+
+### Changed
+
+- Reorganized the dashboard around resource health, actionable alerts, configurable shortcuts, and links to the affected containers and management pages. Mobile sections can collapse; failed refreshes retain the last successful data and expose retry controls.
+- Rebuilt resource charts with readable time and percentage axes, data gaps, keyboard and touch selection, series controls, and an accessible data table. Docker CPU charts preserve values above 100%, where 100% represents one CPU core.
+- Improved Docker navigation and mobile controls across stacks, containers, images, volumes, and networks. Added resource search, usage filters, sorting, visible container relationships, mobile batch selection, and direct volume file/archive navigation.
+- Added container network connection and disconnection controls, plus explicit reconnection, an expanded view, and control keys in the container terminal.
+- Stack deployment now previews changes and validates the editor buffer before saving and starting services. Unsaved YAML and environment drafts are retained per stack in memory, with discard and reload protection.
+
+### Fixed
+
+- Late responses from another stack or node no longer replace the active stack editor or service list. Compose validation checks the current YAML without overwriting the saved file.
+- Stack Stop preserves containers and networks. Removing containers with Compose Down is a separate, confirmed operation.
+- Running but unhealthy containers are marked as needing attention; successful exits are not treated as failures. Docker lists refresh automatically and retain data when a refresh fails.
+- Global Docker cleanup reports each resource type's result and refreshes the active list, including after partial failures.
+- Container charts retire stale range requests and preserve CPU usage above one core. Touch chart selection keeps vertical page scrolling available.
+
+### Validation
+
+- Frontend production build and 310 unit tests passed.
+- 25 browser checks passed, covering Docker workflows, dashboard charts, mobile layouts, and session restoration.
+- Backend tests include unsaved Compose validation without file changes and network connections without forced disconnection.
+
 ## [0.77.6] – 2026-09-23
 
 ### Fixed

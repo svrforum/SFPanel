@@ -89,6 +89,8 @@ export interface Container {
   Ports: ContainerPort[]
   Created: number
   Labels: Record<string, string>
+  /** Average CPU usage from the container history; null before the first sample. */
+  cpu_avg_1h?: number | null
 }
 
 export interface ContainerPort {

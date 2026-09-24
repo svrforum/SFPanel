@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Circle, Eraser, Unplug } from 'lucide-react'
+import { Circle, Eraser, Unplug, Maximize2, Minimize2 } from 'lucide-react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -18,6 +18,15 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
   const terminalRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const [expanded, setExpanded] = useState(false)
+  const [ctrl, setCtrl] = useState(false)
+  const ctrlRef = useRef(false)
+  useEffect(() => { ctrlRef.current = ctrl }, [ctrl])
+  const sendKey = (data: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(data)
+    termRef.current?.focus()
+  }
   const [connected, setConnected] = useState(false)
 
   const handleClear = () => {
@@ -85,6 +94,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
       }
 
       ws.onmessage = (event) => {
+        if (disposed) return
         term.write(event.data)
       }
 
@@ -93,13 +103,17 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
       }
 
       ws.onclose = () => {
+        if (disposed) return
         setConnected(false)
         term.writeln(`\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`)
       }
 
       const onDataDisposable = term.onData((data) => {
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(data)
+          if (ctrlRef.current && data.length === 1 && /[a-z@[\]\\^_?]/i.test(data)) {
+            ws.send(data === '?' ? '\x7f' : String.fromCharCode(data.toUpperCase().charCodeAt(0) & 31))
+            ctrlRef.current = false; setCtrl(false)
+          } else ws.send(data)
         }
       })
 
@@ -114,24 +128,32 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
         onResizeDisposable.dispose()
         ws.close()
       }
-    })()
+    })().catch(() => {
+      if (!disposed) { setConnected(false); term.writeln(`\r\n${t('terminal.wsError')}`) }
+    })
 
     const handleResize = () => {
       fitAddon.fit()
     }
+    const observer = new ResizeObserver(handleResize)
+    observer.observe(terminalRef.current)
+    window.visualViewport?.addEventListener('resize', handleResize)
     window.addEventListener('resize', handleResize)
 
     return () => {
       disposed = true
+      observer.disconnect()
+      window.visualViewport?.removeEventListener('resize', handleResize)
       window.removeEventListener('resize', handleResize)
       detachTouch()
       wsCleanup?.()
+      termRef.current = null
       term.dispose()
     }
-  }, [containerId, t])
+  }, [containerId, t, attempt])
 
   return (
-    <div className="bg-[#0a0a0a] rounded-2xl overflow-hidden card-shadow">
+    <div data-shell-expanded={expanded} className={`bg-[#0a0a0a] rounded-2xl overflow-hidden card-shadow flex flex-col ${expanded ? 'fixed inset-2 z-[80]' : ''}`} style={expanded ? { height: 'calc(100dvh - 1rem)' } : undefined}>
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
@@ -143,9 +165,11 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
           </div>
         </div>
         <div className="flex items-center gap-0.5">
+          {!connected && <Button variant="ghost" className="text-white" onClick={() => setAttempt(n => n + 1)}>{t('docker.improvements.reconnect')}</Button>}
+          <Button variant="ghost" size="icon" className="text-white" aria-label={t(expanded ? 'docker.improvements.exitFullscreen' : 'docker.improvements.fullscreen')} onClick={() => setExpanded(value => !value)}>{expanded ? <Minimize2 /> : <Maximize2 />}</Button>
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon"
             className="text-white/40 hover:text-white hover:bg-white/10"
             title={t('terminal.clear')}
             aria-label={t('terminal.clear')}
@@ -156,7 +180,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
           {connected && (
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon"
               className="text-white/40 hover:text-destructive hover:bg-white/10"
               title={t('terminal.disconnect')}
               aria-label={t('terminal.disconnect')}
@@ -171,9 +195,13 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
       {/* Terminal */}
       <div
         ref={terminalRef}
-        className="h-[420px] w-full px-1 pt-1 touch-none"
+        className={`${expanded ? 'flex-1 min-h-0' : 'h-[min(55dvh,420px)]'} w-full px-1 pt-1 touch-none`}
         onClick={() => termRef.current?.focus()}
       />
+      <div className="flex flex-wrap gap-1 border-t border-white/10 p-1 text-white" aria-label={t('terminal.title')}>
+        <Button variant="ghost" aria-pressed={ctrl} disabled={!connected} onClick={() => { setCtrl(value => !value); termRef.current?.focus() }}>Ctrl</Button>
+        {[['Esc', '\x1b'], ['Tab', '\t'], ['↑', '\x1b[A'], ['↓', '\x1b[B'], ['←', '\x1b[D'], ['→', '\x1b[C'], ['Ctrl+C', '\x03']].map(([label, data]) => <Button key={label} variant="ghost" disabled={!connected} onPointerDown={e => e.preventDefault()} onClick={() => sendKey(data)}>{label}</Button>)}
+      </div>
     </div>
   )
 }

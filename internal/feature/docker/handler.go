@@ -636,6 +636,35 @@ func (h *Handler) RemoveNetwork(c echo.Context) error {
 	return response.OK(c, map[string]string{"message": "network removed"})
 }
 
+// ChangeNetworkConnection connects or disconnects an existing container.
+func (h *Handler) ChangeNetworkConnection(c echo.Context) error {
+	var body struct {
+		Container string `json:"container"`
+	}
+	if err := c.Bind(&body); err != nil || strings.TrimSpace(body.Container) == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrDockerError, "Container is required")
+	}
+	ctx := c.Request().Context()
+	info, err := h.Docker.InspectNetwork(ctx, c.Param("id"))
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrDockerError, response.SanitizeOutput(err.Error()))
+	}
+	if info.Name == "host" || info.Name == "none" || info.Name == "bridge" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrDockerError, "Select a user-defined network")
+	}
+	if c.Param("operation") == "connect" {
+		err = h.Docker.ConnectNetwork(ctx, info.ID, body.Container)
+	} else if c.Param("operation") == "disconnect" {
+		err = h.Docker.DisconnectNetwork(ctx, info.ID, body.Container)
+	} else {
+		return response.Fail(c, http.StatusBadRequest, response.ErrDockerError, "Unknown network operation")
+	}
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerError, response.SanitizeOutput(err.Error()))
+	}
+	return response.OK(c, map[string]string{"message": "Network connection updated"})
+}
+
 // InspectNetwork returns detailed information about a network.
 func (h *Handler) InspectNetwork(c echo.Context) error {
 	ctx := c.Request().Context()
@@ -648,12 +677,8 @@ func (h *Handler) InspectNetwork(c echo.Context) error {
 	// Build clean response
 	containers := []map[string]string{}
 	for cid, endpoint := range netInfo.Containers {
-		shortID := cid
-		if len(cid) > 12 {
-			shortID = cid[:12]
-		}
 		containers = append(containers, map[string]string{
-			"id":           shortID,
+			"id":           cid,
 			"name":         endpoint.Name,
 			"ipv4_address": endpoint.IPv4Address,
 			"ipv6_address": endpoint.IPv6Address,

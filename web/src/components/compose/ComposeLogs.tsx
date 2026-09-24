@@ -32,6 +32,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
   const logLinesRef = useRef<string[]>([])
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [attempt, setAttempt] = useState(0)
   const [connected, setConnected] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const [selectedService, setSelectedService] = useState('')
@@ -117,12 +118,14 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
       }
 
       ws.onmessage = (event) => {
+        if (disposed) return
         // A frame carries one or more newline-terminated lines: the server
         // coalesces a burst into frames of up to 16 KB instead of sending
         // one per line, so split here rather than treat a frame as a line.
         const lines = (event.data as string).split('\n')
         if (lines[lines.length - 1] === '') lines.pop()
         for (const line of lines) logLinesRef.current.push(line)
+        if (logLinesRef.current.length > 10000) logLinesRef.current.splice(0, logLinesRef.current.length - 10000)
         term.write(lines.join('\n') + '\n')
       }
 
@@ -131,10 +134,11 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
       }
 
       ws.onclose = () => {
+        if (disposed) return
         setConnected(false)
         term.writeln(`\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`)
       }
-    })()
+    })().catch(() => { if (!disposed) { setConnected(false); term.writeln(t('terminal.wsError')) } })
 
     const handleResize = () => {
       fitAddon.fit()
@@ -148,7 +152,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
       wsRefLocal?.close()
       term.dispose()
     }
-  }, [project, selectedService, tail, t])
+  }, [project, selectedService, tail, t, attempt])
 
   useEffect(() => {
     if (searchAddonRef.current && searchQuery) {
@@ -167,6 +171,7 @@ export default function ComposeLogs({ project, serviceNames }: ComposeLogsProps)
 
   return (
     <div className="bg-[#0a0a0a] rounded-2xl overflow-hidden card-shadow">
+      {!connected && <Button variant="outline" className="m-2" onClick={() => setAttempt(n => n + 1)}>{t('docker.improvements.reconnect')}</Button>}
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
         <div className="flex items-center gap-3">

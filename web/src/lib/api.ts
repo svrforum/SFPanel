@@ -1082,6 +1082,10 @@ class ApiClient {
     return this.request(`/docker/networks/${id}`, { method: 'DELETE' })
   }
 
+  changeNetworkConnection(id: string, container: string, operation: 'connect' | 'disconnect') {
+    return this.request(`/docker/networks/${encodeURIComponent(id)}/${operation}`, { method: 'POST', body: JSON.stringify({ container }) })
+  }
+
   inspectNetwork(id: string) {
     return this.request<import('@/types/api').NetworkInspectDetail>(`/docker/networks/${encodeURIComponent(id)}/inspect`)
   }
@@ -1305,8 +1309,12 @@ class ApiClient {
     })
   }
 
-  validateCompose(project: string) {
-    return this.request<import('@/types/api').ComposeValidationResult>(`/docker/compose/${encodeURIComponent(project)}/validate`, { method: 'POST' })
+  composeStop(project: string) {
+    return this.request(`/docker/compose/${encodeURIComponent(project)}/stop`, { method: 'POST' })
+  }
+
+  validateCompose(project: string, yaml?: string) {
+    return this.request<import('@/types/api').ComposeValidationResult>(`/docker/compose/${encodeURIComponent(project)}/validate`, { method: 'POST', body: yaml === undefined ? undefined : JSON.stringify({ yaml }) })
   }
 
   checkStackUpdates(project: string) {

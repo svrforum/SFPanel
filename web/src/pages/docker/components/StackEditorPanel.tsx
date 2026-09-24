@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowUp, CheckCircle2, Eye, FileCode, FileText, Loader2, Save, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -27,6 +27,7 @@ export function StackEditorPanel({
   onDeploy,
   onOpenDiff,
   onEnvSaved,
+  onYamlSaved,
 }: {
   project: string
   composeFileName: string
@@ -42,6 +43,7 @@ export function StackEditorPanel({
   onOpenDiff: () => void
   /** Fired after a successful .env save so the caller can refresh has_env. */
   onEnvSaved: () => void
+  onYamlSaved: (yaml: string) => void
 }) {
   const { t } = useTranslation()
   const confirm = useConfirm()
@@ -50,15 +52,19 @@ export function StackEditorPanel({
   const [validating, setValidating] = useState(false)
   const [validationResult, setValidationResult] = useState<{ valid: boolean; message: string } | null>(null)
 
+  const validationVersion = useRef(0)
   useEffect(() => {
+    validationVersion.current++
     setValidationResult(null)
   }, [yaml])
 
   const handleValidate = async () => {
+    const version = ++validationVersion.current
     setValidating(true)
     setValidationResult(null)
     try {
-      const result = await api.validateCompose(project)
+      const result = await api.validateCompose(project, yaml)
+      if (version !== validationVersion.current) return
       setValidationResult(result)
       if (result.valid) {
         toast.success(t('docker.stacks.validateSuccess'))
@@ -100,6 +106,7 @@ export function StackEditorPanel({
         if (!ok) return
         await api.updateComposeProject(project, yaml, true)
       }
+      onYamlSaved(yaml)
       toast.success(t('docker.stacks.saved'))
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.stacks.saveFailed'))

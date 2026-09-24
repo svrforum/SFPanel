@@ -24,6 +24,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
   const logLinesRef = useRef<string[]>([])
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [attempt, setAttempt] = useState(0)
   const [connected, setConnected] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
   const [tail, setTail] = useState('100')
@@ -161,28 +162,31 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
 
       ws.onopen = () => setConnected(true)
       ws.onmessage = (event) => {
+        if (disposed) return
         // A frame carries one or more newline-terminated lines: the server
         // coalesces a burst into frames of up to 16 KB instead of sending
         // one per line, so split here rather than treat a frame as a line.
         const lines = (event.data as string).split('\n')
         if (lines[lines.length - 1] === '') lines.pop()
         for (const line of lines) logLinesRef.current.push(line)
+        if (logLinesRef.current.length > 10000) logLinesRef.current.splice(0, logLinesRef.current.length - 10000)
         term.write(lines.map(highlightLogLevel).join('\n') + '\n')
       }
       ws.onerror = () => {
         term.writeln(`\r\n\x1b[31m${t('terminal.wsError')}\x1b[0m`)
       }
       ws.onclose = () => {
+        if (disposed) return
         setConnected(false)
         term.writeln(`\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`)
       }
-    })()
+    })().catch(() => { if (!disposed) { setConnected(false); term.writeln(t('terminal.wsError')) } })
 
     return () => {
       disposed = true
       wsRefLocal?.close()
     }
-  }, [containerId, t, tail, stream, timestamps, since])
+  }, [containerId, t, tail, stream, timestamps, since, attempt])
 
   useEffect(() => {
     if (searchAddonRef.current && searchQuery) {
@@ -201,6 +205,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
 
   return (
     <div className="bg-[#0a0a0a] rounded-2xl overflow-hidden card-shadow">
+      {!connected && <Button variant="outline" className="m-2" onClick={() => setAttempt(n => n + 1)}>{t('docker.improvements.reconnect')}</Button>}
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-2 bg-[#111111] border-b border-white/[0.06]">
         <div className="flex items-center gap-2">
@@ -243,7 +248,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
             </select>
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon"
               className={`text-white/40 hover:text-white hover:bg-white/10 ${timestamps ? 'text-primary' : ''}`}
               title={t('logs.timestamps', 'Timestamps')}
               aria-label={t('logs.timestamps', 'Timestamps')}
@@ -256,7 +261,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
         <div className="flex items-center gap-0.5">
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon"
             className={`text-white/40 hover:text-white hover:bg-white/10 ${autoScroll ? 'text-primary' : ''}`}
             title={t('logs.autoScroll')}
             aria-label={t('logs.autoScroll')}
@@ -269,7 +274,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
           </Button>
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon"
             className={`text-white/40 hover:text-white hover:bg-white/10 ${searchOpen ? 'text-primary' : ''}`}
             title={t('terminal.search')}
             aria-label={t('terminal.search')}
@@ -285,7 +290,7 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
           </Button>
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon"
             className="text-white/40 hover:text-white hover:bg-white/10"
             title={t('logs.download')}
             aria-label={t('logs.download')}
@@ -319,17 +324,17 @@ export default function ContainerLogs({ containerId }: ContainerLogsProps) {
               autoFocus
             />
           </div>
-          <Button variant="ghost" size="icon-xs" onClick={handleSearchPrev}
+          <Button variant="ghost" size="icon" onClick={handleSearchPrev}
             className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.prev')} aria-label={t('terminal.prev')}>
             <ChevronUp className="h-3.5 w-3.5" />
           </Button>
-          <Button variant="ghost" size="icon-xs" onClick={handleSearchNext}
+          <Button variant="ghost" size="icon" onClick={handleSearchNext}
             className="text-white/40 hover:text-white hover:bg-white/10" title={t('terminal.next')} aria-label={t('terminal.next')}>
             <ChevronDown className="h-3.5 w-3.5" />
           </Button>
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon"
             className="text-white/40 hover:text-white hover:bg-white/10"
             aria-label={t('common.close')}
             onClick={() => {

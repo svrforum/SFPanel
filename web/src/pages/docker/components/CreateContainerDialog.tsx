@@ -216,7 +216,7 @@ export function CreateContainerDialog({
                   </Select>
                   <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon"
                     className="shrink-0"
                     title={t('common.delete')}
                     aria-label={t('common.delete')}
@@ -259,7 +259,7 @@ export function CreateContainerDialog({
                   />
                   <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon"
                     className="shrink-0"
                     title={t('common.delete')}
                     aria-label={t('common.delete')}
@@ -309,7 +309,7 @@ export function CreateContainerDialog({
                   </label>
                   <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon"
                     className="shrink-0"
                     title={t('common.delete')}
                     aria-label={t('common.delete')}

@@ -23,6 +23,7 @@ export default function DockerPrune({ open, onOpenChange }: DockerPruneProps) {
   const { t } = useTranslation()
   const [selected, setSelected] = useState({ containers: true, images: true, volumes: false, networks: true })
   const [pruning, setPruning] = useState(false)
+  const [report, setReport] = useState<string[]>([])
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   const toggleAll = (checked: boolean) => {
@@ -35,43 +36,25 @@ export default function DockerPrune({ open, onOpenChange }: DockerPruneProps) {
   const handlePrune = async () => {
     setConfirmOpen(false)
     setPruning(true)
+    const results: string[] = []
+    let failed = false
+    const actions = { containers: () => api.pruneContainers(), images: () => api.pruneImages(), volumes: () => api.pruneVolumes(), networks: () => api.pruneNetworks() }
     try {
-      if (allSelected) {
-        const report = await api.pruneAll()
-        const parts: string[] = []
-        if (report.containers.deleted > 0) parts.push(`${report.containers.deleted} containers`)
-        if (report.images.deleted > 0) parts.push(`${report.images.deleted} images`)
-        if (report.volumes.deleted > 0) parts.push(`${report.volumes.deleted} volumes`)
-        if (report.networks.deleted > 0) parts.push(`${report.networks.deleted} networks`)
-        const totalSpace = (report.containers.space_reclaimed || 0) + (report.images.space_reclaimed || 0) + (report.volumes.space_reclaimed || 0)
-        const msg = parts.length > 0
-          ? `${t('docker.prune.success')}: ${parts.join(', ')}${totalSpace > 0 ? ` (${formatBytes(totalSpace)})` : ''}`
-          : t('docker.prune.success')
-        toast.success(msg)
-      } else {
-        const results: string[] = []
-        if (selected.containers) {
-          const r = await api.pruneContainers()
-          if (r.deleted > 0) results.push(`${r.deleted} containers`)
+      for (const key of Object.keys(actions) as (keyof typeof actions)[]) {
+        if (!selected[key]) continue
+        try {
+          const result = await actions[key]()
+          results.push(`${t(`docker.sidebar.${key}`)}: ${result.deleted} · ${formatBytes(result.space_reclaimed || 0)}`)
+        } catch (err) {
+          failed = true
+          results.push(`${t(`docker.sidebar.${key}`)}: ${err instanceof Error ? err.message : String(err)}`)
         }
-        if (selected.images) {
-          const r = await api.pruneImages()
-          if (r.deleted > 0) results.push(`${r.deleted} images`)
-        }
-        if (selected.volumes) {
-          const r = await api.pruneVolumes()
-          if (r.deleted > 0) results.push(`${r.deleted} volumes`)
-        }
-        if (selected.networks) {
-          const r = await api.pruneNetworks()
-          if (r.deleted > 0) results.push(`${r.deleted} networks`)
-        }
-        toast.success(results.length > 0 ? `${t('docker.prune.success')}: ${results.join(', ')}` : t('docker.prune.success'))
       }
-      onOpenChange(false)
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Prune failed')
+      setReport(results)
+      if (failed) toast.error(t('docker.improvements.partialPrune'))
+      else toast.success(t('docker.prune.success'))
     } finally {
+      window.dispatchEvent(new Event('docker-resources-changed'))
       setPruning(false)
     }
   }
@@ -85,7 +68,7 @@ export default function DockerPrune({ open, onOpenChange }: DockerPruneProps) {
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={value => { if (!pruning) { setReport([]); onOpenChange(value) } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -96,15 +79,16 @@ export default function DockerPrune({ open, onOpenChange }: DockerPruneProps) {
           </DialogHeader>
 
           <div className="space-y-3">
+            {report.length > 0 && <ul role="status" className="space-y-1 break-words text-sm">{report.map((line, index) => <li key={index}>{line}</li>)}</ul>}
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={allSelected} onChange={(e) => toggleAll(e.target.checked)}
+              <input type="checkbox" disabled={pruning} checked={allSelected} onChange={(e) => toggleAll(e.target.checked)}
                 className="rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" />
               <span className="text-[13px] font-medium">{t('docker.prune.selectAll')}</span>
             </label>
             <div className="space-y-2 pl-1">
               {items.map(item => (
                 <label key={item.key} className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={selected[item.key]}
+                  <input type="checkbox" disabled={pruning} checked={selected[item.key]}
                     onChange={(e) => setSelected({ ...selected, [item.key]: e.target.checked })}
                     className="rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" />
                   <span className="text-[13px]">{item.label}</span>
@@ -114,7 +98,7 @@ export default function DockerPrune({ open, onOpenChange }: DockerPruneProps) {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button>
+            <Button variant="outline" disabled={pruning} onClick={() => { setReport([]); onOpenChange(false) }}>{t('common.cancel')}</Button>
             <Button variant="destructive" disabled={noneSelected || pruning}
               onClick={() => setConfirmOpen(true)}>
               {pruning ? t('docker.prune.pruning') : t('docker.prune.pruneSelected')}
@@ -127,7 +111,7 @@ export default function DockerPrune({ open, onOpenChange }: DockerPruneProps) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('docker.prune.confirmTitle')}</DialogTitle>
-            <DialogDescription>{t('docker.prune.confirmDescription')}</DialogDescription>
+            <DialogDescription>{t('docker.prune.confirmDescription')}<span className="mt-2 block">{items.filter(item => selected[item.key]).map(item => item.label).join(' · ')}</span></DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>{t('common.cancel')}</Button>

@@ -1,776 +1,281 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { useNavigate, useOutletContext } from 'react-router-dom'
+import { useState, useCallback, useMemo, useRef } from 'react'
+import { Link, useOutletContext } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import {
-  Cpu,
-  MemoryStick,
-  HardDrive,
-  Network,
-  Server,
-  Container,
-  FolderOpen,
-  Package,
-  Clock,
-  FileText,
-  Activity,
-  ArrowUpRight,
-  ArrowDownLeft,
-  Shield,
-} from 'lucide-react'
+import { Cpu, MemoryStick, HardDrive, Network, Server, AlertTriangle, ArrowUpRight, ChevronDown } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import MetricsCard from '@/components/MetricsCard'
 import MetricsChart from '@/components/MetricsChart'
 import FirewallLogMiniTable from '@/components/FirewallLogMiniTable'
 import type { LayoutOutletContext } from '@/components/Layout'
 import { cn, formatBytes, formatDate, formatUptime } from '@/lib/utils'
-import { parseFirewallLine } from '@/lib/logParsers'
-import type { FirewallLogEntry } from '@/lib/logParsers'
-import type { BackupScheduleConfig, DashboardOverview, Filesystem, HostInfo, Metrics } from '@/types/api'
-import type { ChartPoint } from './dashboard/chartSeries'
+import { parseFirewallLine, type FirewallLogEntry } from '@/lib/logParsers'
+import type { Metrics } from '@/types/api'
 import { worstFilesystem, rootFilesystem } from '@/lib/filesystems'
 import { containerHealth, compareForSummary, needsAttention, type ContainerHealth } from '@/lib/containerState'
+import { usePolledResource } from '@/hooks/usePolledResource'
+import ResourceStatus from '@/components/ResourceStatus'
+import DashboardSection from './dashboard/DashboardSection'
+import QuickActions from './dashboard/QuickActions'
 
-// How old Layout's shared overview payload may be before we refetch instead of
-// reusing it. Covers the mount-together race on first entry (delta well under
-// a second) while a later navigation back to the dashboard still gets fresh
-// data.
 const OVERVIEW_REUSE_MS = 10_000
-
-// How often the chart series is refetched. The server collects a point a
-// minute, so anything faster asks for data that does not exist yet.
-const CHART_REFRESH_MS = 30_000
-
-// A stopped container is not a problem; a crashed one is. The palette is the
-// whole point of separating them.
 const CONTAINER_PILL: Record<ContainerHealth, string> = {
-  running: 'bg-success/10 text-success',
-  unhealthy: 'bg-warning/15 text-warning',
-  restarting: 'bg-warning/15 text-warning',
-  crashed: 'bg-destructive/10 text-destructive',
+  running: 'bg-success/10 text-success', unhealthy: 'bg-warning/15 text-warning',
+  restarting: 'bg-warning/15 text-warning', crashed: 'bg-destructive/10 text-destructive',
   stopped: 'bg-secondary text-muted-foreground',
 }
-
 type ChartRange = '1h' | '4h' | '12h' | '24h'
 const CHART_RANGE_MS: Record<ChartRange, number> = {
-  '1h': 60 * 60 * 1000,
-  '4h': 4 * 60 * 60 * 1000,
-  '12h': 12 * 60 * 60 * 1000,
-  '24h': 24 * 60 * 60 * 1000,
+  '1h': 3600000, '4h': 14400000, '12h': 43200000, '24h': 86400000,
 }
+const loadContainers = async () => (await api.getContainers()) ?? []
+const loadFilesystems = async () => (await api.getFilesystems()) ?? []
+const loadBackup = async () => (await api.getBackupSchedule())?.schedule ?? null
+const loadProcesses = async () => (await api.getTopProcesses()) ?? []
+const loadInterfaces = async () => (await api.getNetworkInterfaces()) ?? []
+const loadSystemLogs = async () => (await api.readLog('syslog', 8)).lines ?? []
+const linkClass = 'inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-xs font-medium text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring'
 
-interface ProcessInfo {
-  pid: number
-  name: string
-  cpu: number
-  memory: number
-  status: string
-}
-
-interface ContainerSummary {
-  Id: string
-  Names: string[]
-  Image: string
-  State: string
-  // Declared before and never read. It carries "(unhealthy)" and the exit
-  // code, which is the whole difference between a crash and a clean stop.
-  Status: string
-  // Computed by the handler with a GROUP BY over container_metrics_history on
-  // every call the dashboard already makes, then parsed and discarded here.
-  cpu_avg_1h?: number | null
-}
-
-const quickActions = [
-  { to: '/files', labelKey: 'dashboard.actionFiles', icon: FolderOpen, color: 'bg-primary/8 text-primary' },
-  { to: '/docker', labelKey: 'dashboard.actionDocker', icon: Container, color: 'bg-success/8 text-success' },
-  { to: '/packages', labelKey: 'dashboard.actionPackages', icon: Package, color: 'bg-warning/8 text-warning' },
-  { to: '/cron', labelKey: 'dashboard.actionCron', icon: Clock, color: 'bg-chart-4/8 text-chart-4' },
-  { to: '/logs', labelKey: 'dashboard.actionLogs', icon: FileText, color: 'bg-success/8 text-success' },
-]
-
-// Shared pill-tab control for the chart-range picker and the log-tab switcher,
-// which used to copy-paste the same wrapper + button class strings.
-function SegmentedControl<T extends string>({
-  options,
-  value,
-  onChange,
-  className,
-  buttonClassName,
-}: {
-  options: Array<{ value: T; label: string }>
-  value: T
-  onChange: (value: T) => void
-  className?: string
-  buttonClassName?: string
+function SegmentedControl<T extends string>({ options, value, onChange, label }: {
+  options: Array<{ value: T; label: string }>; value: T; onChange: (value: T) => void; label: string
 }) {
-  return (
-    <div className={cn('flex items-center gap-1 bg-secondary/60 rounded-lg p-0.5', className)}>
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          className={cn(
-            'py-1 rounded-md text-[11px] font-medium transition-all outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
-            buttonClassName ?? 'px-2.5',
-            value === opt.value
-              ? 'bg-card text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  )
+  return <div role="group" aria-label={label} className="flex flex-wrap gap-1 rounded-lg bg-secondary/60 p-1">
+    {options.map((opt) => <button key={opt.value} type="button" aria-pressed={value === opt.value} onClick={() => onChange(opt.value)}
+      className={cn('min-h-11 min-w-11 rounded-md px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-ring', value === opt.value ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+      {opt.label}
+    </button>)}
+  </div>
 }
 
 export default function Dashboard() {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
+  const { t, i18n } = useTranslation()
   const outletCtx = useOutletContext<LayoutOutletContext | undefined>()
-  const [hostInfo, setHostInfo] = useState<HostInfo | null>(null)
-  const [primaryIP, setPrimaryIP] = useState<string>('')
-  const [metrics, setMetrics] = useState<Metrics | null>(null)
-  const [netRate, setNetRate] = useState<{ sent: number; recv: number }>({ sent: 0, recv: 0 })
-  const prevNetRef = useRef<{ sent: number; recv: number; ts: number } | null>(null)
-  const [chartData, setChartData] = useState<ChartPoint[]>([])
-  const [chartRange, setChartRange] = useState<ChartRange>('1h')
-  const [processes, setProcesses] = useState<ProcessInfo[]>([])
-  const [containers, setContainers] = useState<ContainerSummary[]>([])
-  const [filesystems, setFilesystems] = useState<Filesystem[]>([])
-  const [backup, setBackup] = useState<BackupScheduleConfig | null>(null)
-  const [recentLogs, setRecentLogs] = useState<string[]>([])
-  const [logTab, setLogTab] = useState<'firewall' | 'syslog'>('firewall')
-  // Latched by the first firewall fetch, or by the operator picking a tab —
-  // whichever happens first. After that the tab is theirs.
-  const logTabDecided = useRef(false)
-  const [firewallLogs, setFirewallLogs] = useState<FirewallLogEntry[]>([])
-  const [updateAvailable, setUpdateAvailable] = useState<string | null>(null)
-  // Where the uptime reading came from, so it can be carried forward.
-  // `at` is the server's own clock — the timestamp on the metrics sample that
-  // arrived with it — so the elapsed time below never mixes two clocks.
-  const [uptimeAnchor, setUptimeAnchor] = useState<{ uptime: number; at: number } | null>(null)
-
-  // Fetch primary IP address
-  useEffect(() => {
-    api.getNetworkInterfaces().then((interfaces) => {
-      const defaultIf = interfaces.find((i) => i.is_default && i.state === 'up')
-      if (defaultIf && defaultIf.addresses.length > 0) {
-        const ipv4 = defaultIf.addresses.find((a) => a.family === 'ipv4')
-        if (ipv4) setPrimaryIP(ipv4.address)
-      }
-    }).catch(() => {})
-  }, [])
-
-  const applyOverview = useCallback((data: DashboardOverview) => {
-    setHostInfo(data.host)
-    if (data.metrics) {
-      setMetrics(data.metrics)
-    }
-    if (data.host && data.metrics) {
-      setUptimeAnchor({ uptime: data.host.uptime, at: data.metrics.timestamp })
-    }
-    if (data.update_info?.update_available) {
-      setUpdateAvailable(data.update_info.latest_version || null)
-    }
-  }, [])
-
-  // Host info, metrics, history and update info come from a single aggregate
-  // call. Layout fetches the same endpoint for its sidebar version display and
-  // shares the payload via Outlet context — reuse it when it matches this node
-  // scope and is fresh, so first entry costs one /system/overview round-trip
-  // instead of two.
   const sharedOverview = outletCtx?.overview
-  useEffect(() => {
-    // Under Layout with its fetch still in flight — its arrival re-runs this
-    // effect (the context value is the effect's dependency).
-    if (outletCtx && !sharedOverview) return
-    const reusable =
-      sharedOverview?.data &&
-      sharedOverview.node === api.currentNode &&
-      Date.now() - sharedOverview.at < OVERVIEW_REUSE_MS
-        ? sharedOverview.data
-        : null
-    // Fetch our own when there's no usable shared payload (rendered outside
-    // Layout, node mismatch after a node switch, stale, or Layout's fetch
-    // failed). Resolving the reused payload through a promise keeps the state
-    // updates async in both branches (react-hooks/set-state-in-effect).
-    const source = reusable ? Promise.resolve(reusable) : api.getDashboardOverview()
-    source.then(applyOverview).catch(() => {})
-  }, [outletCtx, sharedOverview, applyOverview])
-
-  // Containers and both log panes used to be fetched once on mount and never
-  // again, while the header advertised the page as live. A container stopped
-  // from another tab left this summary claiming it was running until the
-  // operator navigated away and back. Measured against the running panel:
-  // /system/processes fired five times in forty seconds, /docker/containers
-  // exactly once. Thirty seconds is slow enough to be cheap and fast enough
-  // that the count is never meaningfully wrong.
-  const fetchContainers = useCallback(() => {
-    api.getContainers().then((data) => setContainers(data || [])).catch(() => setContainers([]))
+  const loadOverview = useCallback(() => {
+    const shared = sharedOverview?.data && sharedOverview.node === api.currentNode && Date.now() - sharedOverview.at < OVERVIEW_REUSE_MS
+      ? sharedOverview.data : null
+    return shared ? Promise.resolve(shared) : api.getDashboardOverview()
+  }, [sharedOverview])
+  const overview = usePolledResource(loadOverview, 60000, !outletCtx || !!sharedOverview)
+  const containers = usePolledResource(loadContainers, 30000)
+  const filesystems = usePolledResource(loadFilesystems, 30000)
+  const backup = usePolledResource(loadBackup, 60000)
+  const processes = usePolledResource(loadProcesses, 10000)
+  const interfaces = usePolledResource(loadInterfaces, 60000)
+  const systemLogs = usePolledResource(loadSystemLogs, 30000)
+  const [logTab, setLogTab] = useState<'firewall' | 'syslog'>('firewall')
+  const logTabDecided = useRef(false)
+  const loadFirewallLogs = useCallback(async () => {
+    const data = await api.readLog('firewall', 50)
+    const parsed = (data.lines ?? []).map(parseFirewallLine).filter((e): e is FirewallLogEntry => e.parsed).slice(-15)
+    if (!logTabDecided.current) {
+      logTabDecided.current = true
+      if (parsed.length === 0) setLogTab('syslog')
+    }
+    return parsed
   }, [])
-  useVisibleInterval(fetchContainers, 30000)
+  const firewallLogs = usePolledResource(loadFirewallLogs, 30000)
+  const activeLogs = logTab === 'firewall' ? firewallLogs : systemLogs
+  const [chartRange, setChartRange] = useState<ChartRange>('1h')
+  const loadHistory = useCallback(async () => (await api.getMetricsHistory(chartRange)) ?? [], [chartRange])
+  const history = usePolledResource(loadHistory, 30000)
 
-  // The disk card read disk.Usage("/") and nothing else, so a media array on
-  // /mnt or a share this panel mounted itself could sit at 99% behind a calm
-  // 34%. df already lists them all.
-  const fetchFilesystems = useCallback(() => {
-    api.getFilesystems().then((data) => setFilesystems(data || [])).catch(() => setFilesystems([]))
-  }, [])
-  useVisibleInterval(fetchFilesystems, 30000)
-
-  // Backup state, read once — it changes on a schedule measured in hours.
-  // The cost of not knowing this is discovered during a restore.
-  useEffect(() => {
-    api.getBackupSchedule().then((d) => setBackup(d?.schedule ?? null)).catch(() => {})
-  }, [])
-
-
-  const fetchLogs = useCallback(() => {
-    // Go's JSON serializer turns an empty []string into null; defaulting to
-    // [] before slicing prevents a TypeError that .catch(() => {}) can't see
-    // because it's thrown inside the .then.
-    api.readLog('syslog', 8).then((data) => setRecentLogs((data.lines ?? []).slice(-8))).catch(() => {})
-    api.readLog('firewall', 50).then((data) => {
-      const parsed = (data.lines ?? []).slice(-50)
-        .map(parseFirewallLine)
-        .filter((e): e is FirewallLogEntry => e.parsed)
-        .slice(-15)
-      setFirewallLogs(parsed)
-      // Firewall is the better default when there is anything in it, but ufw
-      // logging is off on most hosts, and on those this card opened as an
-      // empty box while the system tab beside it had content. Decided once,
-      // on the first answer: switching tabs under someone reading them is
-      // worse than the empty box was.
-      if (!logTabDecided.current) {
-        logTabDecided.current = true
-        if (parsed.length === 0) setLogTab('syslog')
-      }
-    }).catch(() => {})
-  }, [])
-  useVisibleInterval(fetchLogs, 30000)
-
-  // Refresh processes every 10 seconds (fires immediately on mount, pauses
-  // while the tab is hidden)
-  const fetchProcesses = useCallback(() => {
-    api.getTopProcesses().then(setProcesses).catch(() => {})
-  }, [])
-  useVisibleInterval(fetchProcesses, 10000)
-
-  // WebSocket handler
+  const [live, setLive] = useState<{ data: Metrics; at: number } | null>(null)
+  const [clock, setClock] = useState(() => Date.now())
+  const tick = useCallback(() => setClock(Date.now()), [])
+  useVisibleInterval(tick, 5000)
+  const [netRate, setNetRate] = useState<{ sent: number; recv: number } | null>(null)
+  const prevNet = useRef<Metrics | null>(null)
   const onMessage = useCallback((data: Metrics) => {
-    setMetrics(data)
-    // Calculate network rate (bytes/sec) from cumulative deltas
-    const prev = prevNetRef.current
-    if (prev) {
-      const dtSec = (data.timestamp - prev.ts) / 1000
-      if (dtSec > 0) {
-        const sentRate = Math.max(0, (data.net_bytes_sent - prev.sent) / dtSec)
-        const recvRate = Math.max(0, (data.net_bytes_recv - prev.recv) / dtSec)
-        setNetRate({ sent: sentRate, recv: recvRate })
-      }
-    }
-    prevNetRef.current = { sent: data.net_bytes_sent, recv: data.net_bytes_recv, ts: data.timestamp }
+    setLive({ data, at: Date.now() })
+    const prev = prevNet.current
+    const seconds = prev ? (data.timestamp - prev.timestamp) / 1000 : 0
+    // Reconnection gaps and counter resets are not measurements of the current speed.
+    if (prev && seconds > 0 && seconds <= 15 && data.net_bytes_sent >= prev.net_bytes_sent && data.net_bytes_recv >= prev.net_bytes_recv) {
+      setNetRate({ sent: (data.net_bytes_sent - prev.net_bytes_sent) / seconds, recv: (data.net_bytes_recv - prev.net_bytes_recv) / seconds })
+    } else setNetRate(null)
+    prevNet.current = data
   }, [])
+  const { connected } = useWebSocket({ url: '/ws/metrics', onMessage })
+  const hostInfo = overview.data?.host
+  const metrics = live && (!overview.data?.metrics || live.data.timestamp >= overview.data.metrics.timestamp) ? live.data : overview.data?.metrics
+  const metricsAt = metrics === live?.data ? live?.at : overview.updatedAt
+  const liveFresh = connected && live != null && clock - live.at < 15000
+  const metricsStatus = liveFresh ? 'dashboard.metricsLive' : connected ? 'dashboard.metricsWaiting' : 'dashboard.metricsDisconnected'
+  const defaultIf = interfaces.data?.find((item) => item.is_default && item.state === 'up')
+  const primaryIP = defaultIf?.addresses.find((item) => item.family === 'ipv4')?.address
+  const liveUptime = hostInfo ? hostInfo.uptime + Math.max(0, Math.floor(((metrics?.timestamp ?? 0) - (overview.data?.metrics?.timestamp ?? 0)) / 1000)) : 0
+  const updateAvailable = overview.data?.update_info?.update_available ? overview.data.update_info.latest_version : null
 
-  const { connected } = useWebSocket({
-    url: '/ws/metrics',
-    onMessage,
-  })
-
-  // The chart is the server's series for the range on screen, refetched, and
-  // nothing else.
-  //
-  // It used to be one fixed payload filtered on the client. The server always
-  // accepted ?range= and the client never sent it, so every request returned
-  // the 24h series reduced to ~120 points — one every twelve minutes — and the
-  // "1h" tab drew the five that fell inside the hour. Asking for the range
-  // being displayed returns sixty one-minute points instead.
-  //
-  // Live socket samples are no longer appended. The server collects once a
-  // minute, so a two-second sample added nothing the series did not already
-  // have; what it did add was a second source of truth that accumulated past
-  // its own cap, evicted the history behind it, and stamped its points with
-  // the browser's clock while the server's rows carried the host's. The metric
-  // cards remain live at two seconds — the chart is history, and history has
-  // one owner.
-  useEffect(() => {
-    let cancelled = false
-    const load = () => {
-      if (document.hidden) return
-      api
-        .getMetricsHistory(chartRange)
-        .then((points) => {
-          if (cancelled) return
-          setChartData(
-            (points ?? []).map((pt) => ({
-              ts: pt.time,
-              cpu: pt.cpu,
-              memory: pt.mem_percent,
-              disk: pt.disk_percent ?? 0,
-            })),
-          )
-        })
-        .catch(() => {})
-    }
-    load()
-    const timer = window.setInterval(load, CHART_REFRESH_MS)
-    document.addEventListener('visibilitychange', load)
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', load)
-    }
-  }, [chartRange])
-
-  // Derive 'now' from the latest data point's timestamp — the metrics WS
-  // sends a fresh sample every ~2s, so anchoring the rolling window to
-  // the newest point is visually identical to Date.now(). Avoids the
-  // react-hooks/purity violation of calling Date.now() inside useMemo.
-  // Empty chart fallback uses 0; the chart is empty before the first sample
-  // anyway, so the X domain doesn't matter visually.
-  const now = chartData.length > 0 ? chartData[chartData.length - 1].ts : 0
-
-  const filteredChartData = useMemo(() => {
-    const cutoff = now - CHART_RANGE_MS[chartRange]
-    return chartData.filter((pt) => pt.ts >= cutoff)
-  }, [chartData, chartRange, now])
-
-  const chartXDomain = useMemo<[number, number]>(() => {
-    return [now - CHART_RANGE_MS[chartRange], now]
-  }, [chartRange, now])
-
-  // Uptime was read once at mount and then sat there: a dashboard left open on
-  // a second monitor kept reporting the uptime the host had when the page
-  // loaded. The metrics socket already carries the server's clock every two
-  // seconds, so carrying the reading forward needs no timer and no second
-  // request — and staying inside the server's clock means a browser whose time
-  // is off does not make the number wrong.
-  const liveUptime =
-    uptimeAnchor && metrics
-      ? uptimeAnchor.uptime + Math.max(0, Math.floor((metrics.timestamp - uptimeAnchor.at) / 1000))
-      : hostInfo?.uptime ?? 0
-
-  // Three states, not two. `stopped = total - running` put a container in a
-  // crash loop in the same grey box as one deliberately stopped weeks ago.
-  const containerRows = useMemo(
-    () =>
-      containers
-        .map((c) => ({
-          id: c.Id,
-          name: c.Names?.[0]?.replace(/^\//, '') || c.Id.slice(0, 12),
-          health: containerHealth(c.State, c.Status),
-          cpu: c.cpu_avg_1h ?? null,
-        }))
-        .sort(compareForSummary),
-    [containers],
-  )
-  const runningContainers = containerRows.filter((c) => c.health === 'running').length
-  const attentionContainers = containerRows.filter((c) => needsAttention(c.health)).length
-  const stoppedContainers = containerRows.filter((c) => c.health === 'stopped').length
-
-  // The fullest filesystem an operator can actually fill, and / beneath it.
-  const worstFs = useMemo(() => worstFilesystem(filesystems), [filesystems])
-  const rootFs = useMemo(() => rootFilesystem(filesystems), [filesystems])
-
-  // Backup, said plainly. A failed last run is the one worth a colour; a
-  // schedule that is simply off is a choice, not an alarm.
-  const backupLabel = !backup
-    ? '—'
-    : !backup.enabled
-      ? t('dashboard.backupDisabled')
-      : backup.last_status === 'error'
-        ? t('dashboard.backupFailed')
-        : backup.last_run
-          ? formatDate(backup.last_run)
-          : t('dashboard.backupNever')
-  const backupTone = backup?.enabled && backup.last_status === 'error' ? 'text-destructive' : ''
+  const chartData = useMemo(() => (history.data ?? []).map((point) => ({ ts: point.time, cpu: point.cpu, memory: point.mem_percent, disk: point.disk_percent ?? null })), [history.data])
+  // Use server time plus elapsed local time: stale history must leave a visible gap at the right.
+  const chartEnd = Math.max(chartData.at(-1)?.ts ?? 0, metrics ? metrics.timestamp + Math.max(0, clock - (metricsAt ?? clock)) : clock)
+  const chartXDomain = useMemo<[number, number]>(() => [chartEnd - CHART_RANGE_MS[chartRange], chartEnd], [chartEnd, chartRange])
+  const filteredChartData = useMemo(() => chartData.filter((point) => point.ts >= chartXDomain[0]), [chartData, chartXDomain])
+  const containerRows = useMemo(() => (containers.data ?? []).map((c) => ({
+    id: c.Id, name: c.Names?.[0]?.replace(/^\//, '') || c.Id.slice(0, 12),
+    health: containerHealth(c.State, c.Status), cpu: c.cpu_avg_1h ?? null,
+  })).sort(compareForSummary), [containers.data])
+  const runningCount = containerRows.filter((c) => c.health === 'running').length
+  const attentionCount = containerRows.filter((c) => needsAttention(c.health)).length
+  const stoppedCount = containerRows.filter((c) => c.health === 'stopped').length
+  const worstFs = useMemo(() => worstFilesystem(filesystems.data ?? []), [filesystems.data])
+  const rootFs = useMemo(() => rootFilesystem(filesystems.data ?? []), [filesystems.data])
+  const backupConfig = backup.data
+  const backupLabel = !backupConfig ? '—' : !backupConfig.enabled ? t('dashboard.backupDisabled') : backupConfig.last_status === 'error' ? t('dashboard.backupFailed') : backupConfig.last_run ? formatDate(backupConfig.last_run) : t('dashboard.backupNever')
+  const backupFailed = backupConfig?.enabled && backupConfig.last_status === 'error'
+  const diskPercent = worstFs?.use_percent ?? metrics?.disk_percent
+  const issues = [
+    ...(attentionCount ? [{ key: 'containers', to: '/docker/containers', text: t('dashboard.attentionContainers', { count: attentionCount }), stale: containers.error }] : []),
+    ...(diskPercent != null && diskPercent >= 80 ? [{ key: 'disk', to: '/disk/filesystems', text: t('dashboard.attentionDisk', { mount: worstFs?.mount_point ?? '/', percent: diskPercent.toFixed(0) }), stale: worstFs ? filesystems.error : !liveFresh }] : []),
+    ...(backupFailed ? [{ key: 'backup', to: '/settings?scope=node&tab=system', text: t('dashboard.attentionBackup'), stale: backup.error }] : []),
+  ]
+  const failedSources = [overview, containers, filesystems, backup, processes, interfaces, history, systemLogs, firewallLogs].filter((resource) => resource.error).length
+  const diskDescription = worstFs ? `${worstFs.mount_point} · ${formatBytes(worstFs.used)} / ${formatBytes(worstFs.size)}` : metrics ? `/ · ${formatBytes(metrics.disk_used)} / ${formatBytes(metrics.disk_total)}` : undefined
 
   return (
-    <div className="space-y-4 md:space-y-6 max-w-[1400px]">
-      {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">{t('dashboard.title')}</h1>
-          <p className="text-muted-foreground text-[13px] mt-0.5">{t('dashboard.subtitle')}</p>
-        </div>
-        <div className="flex items-center gap-2 bg-card rounded-full px-3 py-1.5 card-shadow">
-          <div className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-success' : 'bg-destructive'}`} />
-          <span className="text-xs font-medium text-muted-foreground">
-            {connected ? t('dashboard.live') : t('dashboard.disconnected')}
+    <div className="mx-auto max-w-[1400px] space-y-4 md:space-y-5">
+      <header>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">{t('dashboard.title')}</p>
+            <h1 className="mt-1 break-all text-xl font-bold tracking-tight">{hostInfo?.hostname || t('dashboard.serverOverview')}</h1>
+          </div>
+          <span className="inline-flex max-w-[50%] shrink-0 items-center gap-2 rounded-full bg-card px-3 py-2 text-xs text-muted-foreground">
+            <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', liveFresh ? 'bg-success' : 'bg-warning')} />{t(metricsStatus)}
           </span>
         </div>
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span>{t('dashboard.ipAddress')} · {primaryIP || '—'}</span>
+          <span>{t('dashboard.uptime')} · {hostInfo ? formatUptime(liveUptime) : '—'}</span>
+          {metricsAt != null && <span>{t('dashboard.updatedAt', { time: new Date(metricsAt).toLocaleTimeString(i18n.language) })}</span>}
+        </div>
+        {(overview.error || !overview.updatedAt) && <ResourceStatus resource={overview} label={t('dashboard.hostInfo')} />}
+      </header>
+
+      {(issues.length > 0 || failedSources > 0) && <section aria-label={t('dashboard.attentionTitle')} className="rounded-2xl border border-warning/30 bg-warning/5 p-3 md:p-4">
+        <h2 className="flex items-center gap-2 text-sm font-semibold"><AlertTriangle className="size-4 text-warning" aria-hidden="true" />{t('dashboard.attentionTitle')}</h2>
+        {issues.length > 0 && <ul className="mt-1 flex flex-wrap gap-x-4">
+          {issues.map((issue) => <li key={issue.key} className="min-w-0"><Link to={issue.to} className="flex min-h-11 items-center gap-2 rounded-md py-2 text-sm font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+            <span className="break-all">{issue.text}{issue.stale && <span className="ml-1 text-xs text-muted-foreground">({t('dashboard.lastKnown')})</span>}</span><ArrowUpRight aria-hidden="true" className="size-4 shrink-0" />
+          </Link></li>)}
+        </ul>}
+        {failedSources > 0 && <p className="mt-1 text-xs text-muted-foreground">{t('dashboard.incompleteData', { count: failedSources })}</p>}
+      </section>}
+
+      <QuickActions />
+
+      <section id="resources" aria-label={t('dashboard.resources')}>
+        <h2 className="sr-only">{t('dashboard.resources')}</h2>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <MetricsCard title={t('dashboard.cpuUsage')} value={metrics ? `${metrics.cpu.toFixed(1)}%` : '—'} percent={metrics?.cpu} to="/processes" icon={<Cpu className="size-4" />} description={t('dashboard.openProcesses')} />
+          <MetricsCard title={t('dashboard.memory')} value={metrics ? `${metrics.mem_percent.toFixed(1)}%` : '—'} percent={metrics?.mem_percent} to="/processes" icon={<MemoryStick className="size-4" />}
+            description={metrics ? `${formatBytes(metrics.mem_used)} / ${formatBytes(metrics.mem_total)}` : undefined}
+            subLabel={t('dashboard.swap')} subValue={metrics ? metrics.swap_total > 0 ? `${formatBytes(metrics.swap_used)} / ${formatBytes(metrics.swap_total)}` : t('dashboard.swapDisabled') : undefined} />
+          <MetricsCard title={t('dashboard.disk')} value={diskPercent != null ? `${diskPercent.toFixed(1)}%` : '—'} percent={diskPercent} to="/disk/filesystems" icon={<HardDrive className="size-4" />} description={diskDescription}
+            subLabel={worstFs?.mount_point !== '/' && rootFs ? '/' : undefined} subValue={rootFs ? `${rootFs.use_percent.toFixed(1)}%` : undefined} />
+          <MetricsCard title={t('dashboard.network')} value={netRate && liveFresh ? `↑ ${formatBytes(netRate.sent)}/s\n↓ ${formatBytes(netRate.recv)}/s` : '—'} to="/network/interfaces" icon={<Network className="size-4" />} description={t(netRate && liveFresh ? 'dashboard.networkRate' : 'dashboard.waitingRate')} />
+        </div>
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+          <ResourceStatus resource={filesystems} label={t('dashboard.disk')} />
+          <details className="group text-xs text-muted-foreground">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1 rounded-md focus-visible:outline-2 focus-visible:outline-ring">{t('dashboard.networkTotals')}<ChevronDown className="size-3 group-open:rotate-180" aria-hidden="true" /></summary>
+            <p className="pb-2">{t('dashboard.totalSent')} {metrics ? formatBytes(metrics.net_bytes_sent) : '—'} · {t('dashboard.totalReceived')} {metrics ? formatBytes(metrics.net_bytes_recv) : '—'}</p>
+          </details>
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+        <DashboardSection id="resource-history" title={t('dashboard.chartTitle')} className="lg:col-span-2"
+          summary={<>
+            <ResourceStatus resource={history} />
+            {filteredChartData.length > 0 && <p className="mt-1 md:hidden">{t('dashboard.historyPeak', {
+              cpu: Math.max(...filteredChartData.map((point) => point.cpu)).toFixed(1),
+              memory: Math.max(...filteredChartData.map((point) => point.memory)).toFixed(1),
+            })}</p>}
+          </>}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">{t('dashboard.historyHint')}</p>
+            <SegmentedControl label={t('dashboard.chartRange')} options={(['1h', '4h', '12h', '24h'] as ChartRange[]).map((range) => ({ value: range, label: t(`dashboard.chartRange${range.toUpperCase()}`) }))} value={chartRange} onChange={setChartRange} />
+          </div>
+          {history.updatedAt != null && (filteredChartData.length > 0 ? <MetricsChart data={filteredChartData} title={t('dashboard.chartTitle')} xDomain={chartXDomain} /> : <p className="py-4 text-sm text-muted-foreground">{t('dashboard.noHistory')}</p>)}
+        </DashboardSection>
+
+        <section id="containers" aria-label={t('dashboard.dockerSummary')} className="min-w-0 rounded-2xl bg-card p-4 card-shadow md:p-5">
+          <div className="flex items-center justify-between gap-2"><h2 className="text-sm font-semibold">{t('dashboard.dockerSummary')}</h2><Link to="/docker/containers" className={linkClass}>{t('dashboard.viewAll')}</Link></div>
+          <ResourceStatus resource={containers} />
+          {containers.updatedAt != null && (containerRows.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">{t('dashboard.noContainers')}</p> : <>
+            <div className="my-3 grid grid-cols-3 gap-2 text-center">
+              {[
+                { count: runningCount, label: 'containersRunning', color: 'text-success' },
+                { count: attentionCount, label: 'containersAttention', color: attentionCount ? 'text-warning' : 'text-muted-foreground' },
+                { count: stoppedCount, label: 'containersStopped', color: 'text-muted-foreground' },
+              ].map((item) => <div key={item.label} className="rounded-xl bg-secondary/50 py-2"><p className={cn('text-xl font-bold', item.color)}>{item.count}</p><p className="text-xs text-muted-foreground">{t(`dashboard.${item.label}`)}</p></div>)}
+            </div>
+            <ul className="divide-y divide-border">
+              {containerRows.slice(0, 5).map((c) => <li key={c.id}><Link to={`/docker/containers?container=${encodeURIComponent(c.id)}`} className="flex min-h-11 items-center justify-between gap-2 rounded-md py-2 hover:bg-secondary/50 focus-visible:outline-2 focus-visible:outline-ring">
+                <span className="min-w-0 truncate text-sm font-medium">{c.name}</span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {c.cpu != null && <span title={t('dashboard.containerCpuAverage')} className="font-mono text-xs text-muted-foreground">{c.cpu.toFixed(1)}%</span>}
+                  <span className={cn('rounded-full px-2 py-1 text-xs font-medium', CONTAINER_PILL[c.health])}>{t(`dashboard.containerState.${c.health}`)}</span><ArrowUpRight className="size-3 text-muted-foreground" aria-hidden="true" />
+                </span>
+              </Link></li>)}
+            </ul>
+          </>)}
+        </section>
       </div>
 
-      {/* Update banner */}
-      {updateAvailable && (
-        <div className="bg-primary/10 border border-primary/20 rounded-2xl px-5 py-3 flex items-center justify-between">
-          <span className="text-[13px] font-medium text-primary">
-            {t('dashboard.updateBanner', { version: updateAvailable })}
-          </span>
-          <button
-            onClick={() => navigate('/settings?scope=node&tab=system')}
-            className="text-[13px] font-medium text-primary hover:underline flex items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-          >
-            {t('dashboard.updateBannerAction')}
-            <ArrowUpRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        <section id="processes" aria-label={t('dashboard.topProcesses')} className="min-w-0 rounded-2xl bg-card p-4 card-shadow md:p-5">
+          <div className="flex items-center justify-between gap-2"><h2 className="text-sm font-semibold">{t('dashboard.topProcesses')}</h2><Link to="/processes" className={linkClass}>{t('dashboard.viewAll')}</Link></div>
+          <ResourceStatus resource={processes} />
+          <p className="my-2 text-xs text-muted-foreground">{t('dashboard.topProcessesDesc')}</p>
+          {processes.updatedAt != null && ((processes.data ?? []).length === 0 ? <p className="text-sm text-muted-foreground">{t('dashboard.noProcesses')}</p> : <Table>
+            <TableHeader><TableRow><TableHead className="hidden sm:table-cell">{t('dashboard.pid')}</TableHead><TableHead>{t('dashboard.processName')}</TableHead><TableHead className="text-right">{t('dashboard.processCpu')}</TableHead><TableHead className="text-right">{t('dashboard.processMemory')}</TableHead></TableRow></TableHeader>
+            <TableBody>{processes.data?.slice(0, 5).map((p) => <TableRow key={p.pid}>
+              <TableCell className="hidden font-mono text-xs sm:table-cell">{p.pid}</TableCell><TableCell className="max-w-[120px] truncate text-sm" title={p.name}>{p.name}</TableCell>
+              <TableCell className={cn("text-right font-mono text-xs", p.cpu > 50 ? "text-destructive" : p.cpu > 20 ? "text-warning" : "")}>{p.cpu.toFixed(1)}%</TableCell><TableCell className="text-right font-mono text-xs">{p.memory.toFixed(1)}%</TableCell>
+            </TableRow>)}</TableBody>
+          </Table>)}
+        </section>
 
-      {/* Host info section */}
-      {hostInfo && (
-        <div className="bg-card rounded-2xl p-4 md:p-6 card-shadow">
-          <div className="flex items-center gap-2 mb-4">
-            <Server className="h-4 w-4 text-muted-foreground" />
-            <span className="text-[13px] font-semibold text-foreground">{t('dashboard.hostInfo')}</span>
+        <DashboardSection id="recent-logs" title={t('dashboard.recentLogs')}
+          action={<Link to={logTab === 'firewall' ? '/firewall/logs' : '/logs'} className={linkClass}>{t('dashboard.viewAll')}</Link>}
+          summary={<>
+            <ResourceStatus resource={activeLogs} label={t(logTab === 'firewall' ? 'dashboard.logTabFirewall' : 'dashboard.logTabSystem')} />
+            {(logTab === 'firewall' ? systemLogs.error : firewallLogs.error) && <ResourceStatus resource={logTab === 'firewall' ? systemLogs : firewallLogs} label={t(logTab === 'firewall' ? 'dashboard.logTabSystem' : 'dashboard.logTabFirewall')} />}
+            {activeLogs.updatedAt != null && <p className="mt-1">{t('dashboard.logCount', { count: activeLogs.data?.length ?? 0 })}</p>}
+          </>}>
+          <SegmentedControl label={t('dashboard.recentLogsDesc')} options={[{ value: 'firewall' as const, label: t('dashboard.logTabFirewall') }, { value: 'syslog' as const, label: t('dashboard.logTabSystem') }]} value={logTab} onChange={(tab) => { logTabDecided.current = true; setLogTab(tab) }} />
+          <div className="mt-3">
+            {activeLogs.updatedAt != null && (logTab === 'firewall' ? (firewallLogs.data?.length ? <FirewallLogMiniTable entries={firewallLogs.data} /> : <p className="text-sm text-muted-foreground">{t('dashboard.noFirewallLogs')}</p>) : (systemLogs.data?.length ? <div className="max-h-64 overflow-auto rounded-xl bg-terminal p-3 font-mono text-xs text-terminal-foreground">
+              {systemLogs.data.map((line, index) => <div key={`${index}-${line.slice(0, 40)}`} className="whitespace-pre leading-6">{line}</div>)}
+            </div> : <p className="text-sm text-muted-foreground">{t('dashboard.noLogs')}</p>))}
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 md:gap-4">
+        </DashboardSection>
+      </div>
+
+      <details id="server-details" className="group rounded-2xl bg-card p-4 card-shadow md:p-5">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-md text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring"><Server className="size-4" aria-hidden="true" />{t('dashboard.hostInfo')}<ChevronDown className="ml-auto size-4 group-open:rotate-180" aria-hidden="true" /></summary>
+        <div className="mt-3 space-y-4">
+          <ResourceStatus resource={overview} />
+          {hostInfo && <dl className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {[
-              { label: t('dashboard.hostname'), value: hostInfo.hostname },
-              { label: t('dashboard.os'), value: hostInfo.os },
-              { label: t('dashboard.platform'), value: hostInfo.platform_version ? `${hostInfo.platform} ${hostInfo.platform_version}` : hostInfo.platform },
-              { label: t('dashboard.kernel'), value: hostInfo.kernel },
-              { label: t('dashboard.uptime'), value: formatUptime(liveUptime) },
-              { label: t('dashboard.cpuCores'), value: hostInfo.num_cpu },
-              { label: t('dashboard.ipAddress'), value: primaryIP || '-', mono: true },
-              // Read only from Settings → Maintenance before this. The cost of
-              // not knowing a backup is off, or last failed, is paid during a
-              // restore — which is the worst moment to discover it.
-              { label: t('dashboard.backupLabel'), value: backupLabel, tone: backupTone },
-            ].map((item) => (
-              <div key={item.label}>
-                <p className="text-[11px] text-muted-foreground mb-0.5">{item.label}</p>
-                <p
-                  className={cn(
-                    'text-[13px] font-semibold',
-                    'mono' in item && item.mono ? 'font-mono' : '',
-                    'tone' in item ? item.tone : '',
-                  )}
-                >
-                  {item.value}
-                </p>
-              </div>
-            ))}
-          </div>
+              [t('dashboard.hostname'), hostInfo.hostname], [t('dashboard.os'), hostInfo.os],
+              [t('dashboard.platform'), `${hostInfo.platform} ${hostInfo.platform_version || ''}`], [t('dashboard.kernel'), hostInfo.kernel],
+              [t('dashboard.uptime'), formatUptime(liveUptime)], [t('dashboard.cpuCores'), hostInfo.num_cpu],
+            ].map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 break-all text-sm font-medium">{value}</dd></div>)}
+          </dl>}
+          <div><p className="text-sm">{t('dashboard.ipAddress')} · {primaryIP || '—'}</p><ResourceStatus resource={interfaces} /></div>
         </div>
-      )}
+      </details>
 
-      {/* Metrics cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <MetricsCard
-          title={t('dashboard.cpuUsage')}
-          value={metrics ? `${metrics.cpu.toFixed(1)}%` : '--'}
-          percent={metrics?.cpu ?? 0}
-          icon={<Cpu className="h-5 w-5" />}
-        />
-        <MetricsCard
-          title={t('dashboard.memory')}
-          value={
-            metrics
-              ? `${formatBytes(metrics.mem_used)} / ${formatBytes(metrics.mem_total)}`
-              : '--'
-          }
-          percent={metrics?.mem_percent ?? 0}
-          icon={<MemoryStick className="h-5 w-5" />}
-          subLabel={t('dashboard.swap')}
-          subValue={
-            metrics
-              ? metrics.swap_total > 0
-                ? `${formatBytes(metrics.swap_used)} / ${formatBytes(metrics.swap_total)}`
-                : t('dashboard.swapDisabled')
-              : '--'
-          }
-          subPercent={metrics?.swap_percent}
-        />
-        <MetricsCard
-          title={
-            worstFs && worstFs.mount_point !== '/'
-              ? `${t('dashboard.disk')} · ${worstFs.mount_point}`
-              : t('dashboard.disk')
-          }
-          value={
-            worstFs
-              ? `${formatBytes(worstFs.used)} / ${formatBytes(worstFs.size)}`
-              : metrics
-                ? `${formatBytes(metrics.disk_used)} / ${formatBytes(metrics.disk_total)}`
-                : '--'
-          }
-          percent={worstFs ? worstFs.use_percent : (metrics?.disk_percent ?? 0)}
-          icon={<HardDrive className="h-5 w-5" />}
-          // Root keeps a line of its own whenever it is not the headline, so
-          // promoting a fuller mount never costs the operator the number they
-          // came for.
-          subLabel={worstFs && worstFs.mount_point !== '/' && rootFs ? '/' : undefined}
-          subValue={
-            worstFs && worstFs.mount_point !== '/' && rootFs
-              ? `${formatBytes(rootFs.used)} / ${formatBytes(rootFs.size)}`
-              : undefined
-          }
-          subPercent={worstFs && worstFs.mount_point !== '/' && rootFs ? rootFs.use_percent : undefined}
-        />
-        <MetricsCard
-          title={t('dashboard.network')}
-          value={
-            metrics
-              ? `↑ ${formatBytes(netRate.sent)}/s  ↓ ${formatBytes(netRate.recv)}/s`
-              : '--'
-          }
-          percent={0}
-          icon={<Network className="h-5 w-5" />}
-        />
-      </div>
-
-      {/* Charts + Docker summary row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-        {/* CPU & Memory Chart — spans 2 columns */}
-        <div className="lg:col-span-2">
-          <MetricsChart
-            data={filteredChartData}
-            title={t('dashboard.chartTitle')}
-            xDomain={chartXDomain}
-            headerAction={
-              <SegmentedControl
-                className="shrink-0"
-                buttonClassName="px-2 md:px-2.5"
-                options={(['1h', '4h', '12h', '24h'] as ChartRange[]).map((range) => ({
-                  value: range,
-                  label: t(`dashboard.chartRange${range.toUpperCase() as '1H' | '4H' | '12H' | '24H'}`),
-                }))}
-                value={chartRange}
-                onChange={setChartRange}
-              />
-            }
-          />
-        </div>
-
-        {/* Docker Summary + Network */}
-        <div className="space-y-4 md:space-y-6">
-          {/* Docker summary */}
-          <div className="bg-card rounded-2xl p-4 md:p-5 card-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Container className="h-4 w-4 text-muted-foreground" />
-                <span className="text-[13px] font-semibold">{t('dashboard.dockerSummary')}</span>
-              </div>
-              <button onClick={() => navigate('/docker')} className="text-xs text-primary font-medium hover:underline rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0">
-                {t('dashboard.viewAll')}
-              </button>
-            </div>
-            {containers.length === 0 ? (
-              <p className="text-[13px] text-muted-foreground">{t('dashboard.noContainers')}</p>
-            ) : (
-              <>
-                <div className="grid grid-cols-3 gap-2 mb-4">
-                  <div className="text-center py-2.5 rounded-xl bg-success/8">
-                    <p className="text-xl font-bold text-success">{runningContainers}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">{t('dashboard.containersRunning')}</p>
-                  </div>
-                  {/* The third tile was "total", which is the one number you
-                      can work out from the other two. It reports trouble
-                      instead — and stays grey at zero rather than shouting. */}
-                  <div className={cn('text-center py-2.5 rounded-xl', attentionContainers > 0 ? 'bg-warning/10' : 'bg-secondary')}>
-                    <p className={cn('text-xl font-bold', attentionContainers > 0 ? 'text-warning' : 'text-muted-foreground')}>
-                      {attentionContainers}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">{t('dashboard.containersAttention')}</p>
-                  </div>
-                  <div className="text-center py-2.5 rounded-xl bg-secondary">
-                    <p className="text-xl font-bold text-muted-foreground">{stoppedContainers}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">{t('dashboard.containersStopped')}</p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  {/* Ordered trouble-first, then by the hourly CPU average the
-                      handler already computes and this page used to discard —
-                      so the five rows explain the chart above them instead of
-                      being whichever five the daemon listed first. */}
-                  {containerRows.slice(0, 5).map((c) => (
-                    <div key={c.id} className="flex items-center justify-between gap-2 py-1">
-                      <span className="truncate text-[13px] font-medium">{c.name}</span>
-                      <span className="flex shrink-0 items-center gap-1.5">
-                        {c.cpu != null && (
-                          <span className="font-mono text-[11px] text-muted-foreground">{c.cpu.toFixed(1)}%</span>
-                        )}
-                        <span className={cn('text-[11px] font-medium px-2 py-0.5 rounded-full', CONTAINER_PILL[c.health])}>
-                          {t(`dashboard.containerState.${c.health}`)}
-                        </span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Network I/O */}
-          {metrics && (
-            <div className="bg-card rounded-2xl p-4 md:p-5 card-shadow">
-              <div className="flex items-center gap-2 mb-4">
-                <Network className="h-4 w-4 text-muted-foreground" />
-                <span className="text-[13px] font-semibold">{t('dashboard.network')}</span>
-              </div>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-                    <ArrowUpRight className="h-3.5 w-3.5 text-primary" />
-                    {t('dashboard.sent')}
-                  </div>
-                  <span className="text-[13px] font-semibold">{formatBytes(netRate.sent)}/s</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-                    <ArrowDownLeft className="h-3.5 w-3.5 text-success" />
-                    {t('dashboard.received')}
-                  </div>
-                  <span className="text-[13px] font-semibold">{formatBytes(netRate.recv)}/s</span>
-                </div>
-                <div className="border-t border-border pt-3">
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span>{t('dashboard.totalSent')}</span>
-                    <span className="font-medium">{formatBytes(metrics.net_bytes_sent)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1.5">
-                    <span>{t('dashboard.totalReceived')}</span>
-                    <span className="font-medium">{formatBytes(metrics.net_bytes_recv)}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Processes + Recent Logs row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-        {/* Top Processes */}
-        <div className="bg-card rounded-2xl p-4 md:p-5 card-shadow">
-          <div className="flex items-center gap-2 mb-1">
-            <Activity className="h-4 w-4 text-muted-foreground" />
-            <span className="text-[13px] font-semibold">{t('dashboard.topProcesses')}</span>
-          </div>
-          <p className="text-[11px] text-muted-foreground mb-4">{t('dashboard.topProcessesDesc')}</p>
-          {processes.length === 0 ? (
-            <p className="text-[13px] text-muted-foreground">{t('dashboard.noProcesses')}</p>
-          ) : (
-            <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {/* PID is the first thing to go on a phone: four columns
-                      overflowed the card by 115px on a 375px screen, which
-                      hid the memory column behind a horizontal scroll nobody
-                      knows is there. Nothing on this page acts on a PID —
-                      that is the processes page — so it is the column whose
-                      absence costs least. */}
-                  <TableHead className="hidden w-16 sm:table-cell">{t('dashboard.pid')}</TableHead>
-                  <TableHead>{t('dashboard.processName')}</TableHead>
-                  <TableHead className="w-16 text-right sm:w-20">{t('dashboard.processCpu')}</TableHead>
-                  <TableHead className="w-16 text-right sm:w-20">{t('dashboard.processMemory')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {processes.map((p) => (
-                  <TableRow key={p.pid}>
-                    <TableCell className="hidden font-mono text-[11px] sm:table-cell">{p.pid}</TableCell>
-                    <TableCell className="truncate max-w-[120px] text-[13px] sm:max-w-[200px]">{p.name}</TableCell>
-                    <TableCell className="text-right font-mono text-[11px]">
-                      <span className={p.cpu > 50 ? 'text-destructive' : p.cpu > 20 ? 'text-warning' : ''}>
-                        {p.cpu.toFixed(1)}%
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-[11px]">{p.memory.toFixed(1)}%</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            </div>
-          )}
-        </div>
-
-        {/* Recent Logs (Firewall / System tabs) */}
-        <div className="bg-card rounded-2xl p-4 md:p-5 card-shadow">
-          <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <Shield className="h-4 w-4 text-muted-foreground" />
-                <span className="text-[13px] font-semibold">{t('dashboard.recentLogs')}</span>
-              </div>
-              <SegmentedControl
-                options={[
-                  { value: 'firewall' as const, label: t('dashboard.logTabFirewall') },
-                  { value: 'syslog' as const, label: t('dashboard.logTabSystem') },
-                ]}
-                value={logTab}
-                onChange={(tab) => {
-                  logTabDecided.current = true
-                  setLogTab(tab)
-                }}
-              />
-            </div>
-            <button
-              onClick={() => navigate(logTab === 'firewall' ? '/firewall/logs' : '/logs')}
-              className="text-xs text-primary font-medium hover:underline rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-            >
-              {t('dashboard.viewAll')}
-            </button>
-          </div>
-          <p className="text-[11px] text-muted-foreground mb-4">{t('dashboard.recentLogsDesc')}</p>
-
-          {logTab === 'firewall' ? (
-            firewallLogs.length === 0 ? (
-              <p className="text-[13px] text-muted-foreground">{t('dashboard.noFirewallLogs')}</p>
-            ) : (
-              <FirewallLogMiniTable entries={firewallLogs} />
-            )
-          ) : (
-            recentLogs.length === 0 ? (
-              <p className="text-[13px] text-muted-foreground">{t('dashboard.noLogs')}</p>
-            ) : (
-              <div className="bg-terminal rounded-xl p-3 font-mono text-[11px] text-terminal-foreground space-y-0.5 overflow-x-auto max-h-[320px]">
-                {recentLogs.map((line, i) => (
-                  // Composite key — line content + position survives the
-                  // sliding-window update that re-keys index-only.
-                  <div key={`${i}-${line.slice(0, 40)}`} className="whitespace-pre leading-5 hover:bg-white/5 px-1.5 rounded-lg">
-                    {line}
-                  </div>
-                ))}
-              </div>
-            )
-          )}
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="bg-card rounded-2xl p-4 md:p-5 card-shadow">
-        <div className="mb-1">
-          <span className="text-[13px] font-semibold">{t('dashboard.quickActions')}</span>
-        </div>
-        <p className="text-[11px] text-muted-foreground mb-4">{t('dashboard.quickActionsDesc')}</p>
-        <div className="flex gap-2 overflow-x-auto md:grid md:grid-cols-5 md:gap-3 pb-1 md:pb-0 -mx-1 px-1 md:mx-0 md:px-0">
-          {quickActions.map((action) => (
-            <button
-              key={action.to}
-              onClick={() => navigate(action.to)}
-              className="shrink-0 w-[120px] md:w-auto flex flex-col items-center gap-2.5 p-4 rounded-2xl bg-secondary/50 hover:bg-secondary transition-all duration-200 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-            >
-              <div className={`p-2.5 rounded-xl ${action.color}`}>
-                <action.icon className="h-5 w-5" />
-              </div>
-              <span className="text-[13px] font-medium">{t(action.labelKey)}</span>
-            </button>
-          ))}
-        </div>
-      </div>
+      <section aria-label={t('dashboard.backupLabel')} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border pt-3">
+        <div><Link to="/settings?scope=node&tab=system" className={linkClass}>{t('dashboard.backupLabel')} · <span className={backupFailed ? 'text-destructive' : ''}>{backupLabel}</span><ArrowUpRight className="size-3" aria-hidden="true" /></Link><ResourceStatus resource={backup} /></div>
+        {updateAvailable && <Link to="/settings?scope=node&tab=system" className={linkClass}>{t('dashboard.updateBanner', { version: updateAvailable })}<ArrowUpRight className="size-3 shrink-0" aria-hidden="true" /></Link>}
+      </section>
     </div>
   )
 }

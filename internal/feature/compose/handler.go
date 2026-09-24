@@ -299,6 +299,15 @@ func (h *Handler) ProjectDown(c echo.Context) error {
 	return response.OK(c, map[string]string{"output": output})
 }
 
+// ProjectStop preserves containers and networks while stopping their processes.
+func (h *Handler) ProjectStop(c echo.Context) error {
+	output, err := h.Compose.Stop(c.Request().Context(), c.Param("project"))
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrComposeError, response.SanitizeOutput(output))
+	}
+	return response.OK(c, map[string]string{"output": output})
+}
+
 // GetProjectServices returns the runtime state of each service in a compose project.
 func (h *Handler) GetProjectServices(c echo.Context) error {
 	name := c.Param("project")
@@ -388,7 +397,21 @@ func (h *Handler) ValidateProject(c echo.Context) error {
 	name := c.Param("project")
 	ctx := c.Request().Context()
 
-	output, err := h.Compose.ValidateConfig(ctx, name)
+	var body struct {
+		YAML *string `json:"yaml"`
+	}
+	var output string
+	var err error
+	if c.Request().ContentLength != 0 {
+		if err := c.Bind(&body); err != nil {
+			return response.Fail(c, http.StatusBadRequest, response.ErrComposeError, "Invalid validation request")
+		}
+	}
+	if body.YAML != nil {
+		output, err = h.Compose.ValidateDraft(ctx, name, *body.YAML)
+	} else {
+		output, err = h.Compose.ValidateConfig(ctx, name)
+	}
 	if err != nil {
 		return response.OK(c, map[string]interface{}{
 			"valid":   false,

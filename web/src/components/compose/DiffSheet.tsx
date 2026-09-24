@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DiffEditor } from '@monaco-editor/react'
 import '@/lib/monaco' // configures the bundled (non-CDN) Monaco; lazy so it stays out of the entry bundle
@@ -24,16 +24,20 @@ interface Props {
   projectName: string
   proposedYaml: string
   onApply: () => void
+  allowUnchanged?: boolean
 }
 
-export function DiffSheet({ open, onOpenChange, projectName, proposedYaml, onApply }: Props) {
+export function DiffSheet({ open, onOpenChange, projectName, proposedYaml, onApply, allowUnchanged = false }: Props) {
   const { t } = useTranslation()
   const [data, setData] = useState<DiffResult | null>(null)
   const [deployedYaml, setDeployedYaml] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
+  const versionRef = useRef(0)
+  const retireRequests = useCallback(() => { versionRef.current++ }, [])
   const loadDiff = useCallback(async () => {
+    const version = ++versionRef.current
     setLoading(true)
     setError(null)
     setData(null)
@@ -43,19 +47,22 @@ export function DiffSheet({ open, onOpenChange, projectName, proposedYaml, onApp
         api.diffStack(projectName, proposedYaml),
         api.getComposeProject(projectName).then(d => d.yaml),
       ])
+      if (version !== versionRef.current) return
       setData(diff)
       setDeployedYaml(deployed)
     } catch (e) {
+      if (version !== versionRef.current) return
       const msg = e instanceof Error ? e.message : t('compose.diff.loadFailed', 'Failed to load the preview')
       setError(msg)
     } finally {
-      setLoading(false)
+      if (version === versionRef.current) setLoading(false)
     }
   }, [projectName, proposedYaml, t])
 
   useEffect(() => {
     if (open) loadDiff()
-  }, [open, loadDiff])
+    return retireRequests
+  }, [open, loadDiff, retireRequests])
 
   const isEmpty = !!data
     && data.summary.added === 0
@@ -136,7 +143,7 @@ export function DiffSheet({ open, onOpenChange, projectName, proposedYaml, onApp
           </Button>
           <Button
             onClick={onApply}
-            disabled={!data || isEmpty || !!error || loading}
+            disabled={!data || (isEmpty && !allowUnchanged) || !!error || loading}
           >
             {t('compose.diff.apply', 'Apply as-is')}
           </Button>

@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Plus, Layers, Pause, CheckSquare, Loader2, Activity, Box, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
+import { containerNeedsAttention } from '@/lib/containerState'
+import { ContainerStateBadge } from '@/components/docker/ContainerStateBadge'
+import { useDockerResource } from '@/hooks/useDockerResource'
+import ResourceStatus from '@/components/ResourceStatus'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { useVisibleInterval } from '@/hooks/useVisibleInterval'
@@ -60,22 +64,6 @@ function timeAgo(timestamp: number): string {
 }
 
 
-function statusBadge(state: string) {
-  const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
-  switch (state.toLowerCase()) {
-    case 'running':
-      return <span className={`${base} bg-success/10 text-success`}>running</span>
-    case 'exited':
-      return <span className={`${base} bg-destructive/10 text-destructive`}>exited</span>
-    case 'created':
-      return <span className={`${base} bg-secondary text-muted-foreground`}>created</span>
-    case 'paused':
-      return <span className={`${base} bg-warning/10 text-warning`}>paused</span>
-    default:
-      return <span className={`${base} bg-secondary text-muted-foreground`}>{state}</span>
-  }
-}
-
 // Container stats display in table rows — receives stats from batch polling
 function ContainerStatsCell({ containerId, stats, state }: { containerId: string; stats?: ContainerStatsResult; state: string }) {
   if (state !== 'running' || !stats) {
@@ -103,6 +91,7 @@ interface ContainerItemProps {
   actionLoading: string | null
   onDetail: (c: Container) => void
   onTerminal: (c: Container) => void
+  onLogs: (c: Container) => void
   onStart: (id: string) => void
   onStop: (c: Container) => void
   onPause: (id: string) => void
@@ -151,6 +140,9 @@ function ContainerRow({
       <TableCell
         className="font-medium cursor-pointer hover:underline"
         onClick={() => onDetail(c)}
+        tabIndex={0}
+        role="button"
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDetail(c) } }}
       >
         <div>
           {formatContainerName(c.Names)}
@@ -162,7 +154,7 @@ function ContainerRow({
       <TableCell className="text-muted-foreground text-xs font-mono max-w-[150px] truncate" title={c.Image}>
         {c.Image}
       </TableCell>
-      <TableCell>{statusBadge(c.State)}</TableCell>
+      <TableCell>{<ContainerStateBadge state={c.State} status={c.Status} />}</TableCell>
       <TableCell>
         <ContainerStatsCell containerId={c.Id} stats={statsMap[c.Id]} state={c.State} />
       </TableCell>
@@ -174,16 +166,19 @@ function ContainerRow({
         <div className="flex items-center justify-end gap-1">
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon"
             title={t('docker.containers.inspect')}
             aria-label={t('docker.containers.inspect')}
             onClick={() => onDetail(c)}
+        tabIndex={0}
+        role="button"
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDetail(c) } }}
           >
             <Info />
           </Button>
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon"
             title={t('docker.containers.terminal')}
             aria-label={t('docker.containers.terminal')}
             onClick={() => onTerminal(c)}
@@ -194,7 +189,7 @@ function ContainerRow({
             <>
               <Button
                 variant="ghost"
-                size="icon-xs"
+                size="icon"
                 title={t('docker.containers.pause')}
                 aria-label={t('docker.containers.pause')}
                 disabled={actionLoading === c.Id}
@@ -204,7 +199,7 @@ function ContainerRow({
               </Button>
               <Button
                 variant="ghost"
-                size="icon-xs"
+                size="icon"
                 title={t('docker.containers.stop')}
                 aria-label={t('docker.containers.stop')}
                 disabled={actionLoading === c.Id}
@@ -216,7 +211,7 @@ function ContainerRow({
           ) : c.State === 'paused' ? (
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon"
               title={t('docker.containers.unpause')}
               aria-label={t('docker.containers.unpause')}
               disabled={actionLoading === c.Id}
@@ -227,7 +222,7 @@ function ContainerRow({
           ) : (
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon"
               title={t('docker.containers.start')}
               aria-label={t('docker.containers.start')}
               disabled={actionLoading === c.Id}
@@ -238,7 +233,7 @@ function ContainerRow({
           )}
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon"
             title={t('docker.containers.restart')}
             aria-label={t('docker.containers.restart')}
             disabled={actionLoading === c.Id}
@@ -248,7 +243,7 @@ function ContainerRow({
           </Button>
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon"
             title={t('common.delete')}
             aria-label={t('common.delete')}
             disabled={actionLoading === c.Id}
@@ -270,6 +265,7 @@ function MobileContainerCard({
   actionLoading,
   onDetail,
   onTerminal,
+  onLogs,
   onStart,
   onStop,
   onPause,
@@ -277,21 +273,26 @@ function MobileContainerCard({
   onRestart,
   onDelete,
   grouped,
+  batchMode, selected, onToggleSelect,
   t,
 }: ContainerItemProps & {
   stats?: ContainerStatsResult
   grouped?: boolean
+  batchMode?: boolean
+  selected?: boolean
+  onToggleSelect?: (id: string) => void
 }) {
   return (
     <div className={`bg-card rounded-2xl p-4 card-shadow ${grouped ? 'ml-4' : ''}`}>
       <div className="flex items-start justify-between gap-2">
+        {batchMode && <label className="flex min-h-11 min-w-11 items-center justify-center"><Checkbox aria-label={formatContainerName(c.Names)} checked={selected} onCheckedChange={() => onToggleSelect?.(c.Id)} /></label>}
         <div role="button" tabIndex={0} className="min-w-0 flex-1 cursor-pointer rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0" onClick={() => onDetail(c)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDetail(c) } }}>
           <p className="text-[13px] font-semibold truncate">
             {formatContainerName(c.Names)}
           </p>
           <p className="text-[11px] text-muted-foreground truncate mt-0.5">{c.Image}</p>
         </div>
-        {statusBadge(c.State)}
+        {<ContainerStateBadge state={c.State} status={c.Status} />}
       </div>
       {c.State === 'running' && stats && (
         <div className="flex items-center gap-3 text-xs mt-2">
@@ -310,37 +311,39 @@ function MobileContainerCard({
           {formatPorts(c.Ports)}
         </p>
       )}
-      <div className="flex items-center gap-1 mt-3 justify-end">
-        <Button variant="ghost" size="icon-xs" title={t('docker.containers.inspect')} aria-label={t('docker.containers.inspect')} onClick={() => onDetail(c)}>
-          <Info />
-        </Button>
-        <Button variant="ghost" size="icon-xs" title={t('docker.containers.terminal')} aria-label={t('docker.containers.terminal')} onClick={() => onTerminal(c)}>
-          <Terminal />
-        </Button>
+      <div className="flex flex-wrap items-center gap-1 mt-3">
+        <Button variant="outline" onClick={() => onLogs(c)}>{t('docker.containers.logs')}</Button>
+        <Button variant="outline" disabled={c.State !== 'running'} onClick={() => onTerminal(c)}><Terminal />{t('docker.containers.terminal')}</Button>
+        <details className="w-full">
+          <summary className="flex min-h-11 cursor-pointer items-center text-sm text-muted-foreground">{t('common.actions')}</summary>
+          <div className="flex flex-wrap gap-1">
+        <Button variant="ghost" size="icon" aria-label={t('docker.containers.inspect')} onClick={() => onDetail(c)}><Info /></Button>
         {c.State === 'running' ? (
           <>
-            <Button variant="ghost" size="icon-xs" title={t('docker.containers.pause')} aria-label={t('docker.containers.pause')} disabled={actionLoading === c.Id} onClick={() => onPause(c.Id)}>
+            <Button variant="ghost" size="icon" title={t('docker.containers.pause')} aria-label={t('docker.containers.pause')} disabled={actionLoading === c.Id} onClick={() => onPause(c.Id)}>
               <Pause />
             </Button>
-            <Button variant="ghost" size="icon-xs" title={t('docker.containers.stop')} aria-label={t('docker.containers.stop')} disabled={actionLoading === c.Id} onClick={() => onStop(c)}>
+            <Button variant="ghost" size="icon" title={t('docker.containers.stop')} aria-label={t('docker.containers.stop')} disabled={actionLoading === c.Id} onClick={() => onStop(c)}>
               <Square />
             </Button>
           </>
         ) : c.State === 'paused' ? (
-          <Button variant="ghost" size="icon-xs" title={t('docker.containers.unpause')} aria-label={t('docker.containers.unpause')} disabled={actionLoading === c.Id} onClick={() => onUnpause(c.Id)}>
+          <Button variant="ghost" size="icon" title={t('docker.containers.unpause')} aria-label={t('docker.containers.unpause')} disabled={actionLoading === c.Id} onClick={() => onUnpause(c.Id)}>
             <Play />
           </Button>
         ) : (
-          <Button variant="ghost" size="icon-xs" title={t('docker.containers.start')} aria-label={t('docker.containers.start')} disabled={actionLoading === c.Id} onClick={() => onStart(c.Id)}>
+          <Button variant="ghost" size="icon" title={t('docker.containers.start')} aria-label={t('docker.containers.start')} disabled={actionLoading === c.Id} onClick={() => onStart(c.Id)}>
             <Play />
           </Button>
         )}
-        <Button variant="ghost" size="icon-xs" title={t('docker.containers.restart')} aria-label={t('docker.containers.restart')} disabled={actionLoading === c.Id} onClick={() => onRestart(c)}>
+        <Button variant="ghost" size="icon" title={t('docker.containers.restart')} aria-label={t('docker.containers.restart')} disabled={actionLoading === c.Id} onClick={() => onRestart(c)}>
           <RotateCw />
         </Button>
-        <Button variant="ghost" size="icon-xs" title={t('common.delete')} aria-label={t('common.delete')} disabled={actionLoading === c.Id} onClick={() => onDelete(c)}>
+        <Button variant="ghost" size="icon" title={t('common.delete')} aria-label={t('common.delete')} disabled={actionLoading === c.Id} onClick={() => onDelete(c)}>
           <Trash2 />
         </Button>
+          </div>
+        </details>
       </div>
     </div>
   )
@@ -388,7 +391,7 @@ function StackGroupHeader({
         {running === 0 ? (
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon"
             title={t('docker.compose.up')}
             aria-label={t('docker.compose.up')}
             disabled={loading}
@@ -399,9 +402,9 @@ function StackGroupHeader({
         ) : (
           <Button
             variant="ghost"
-            size="icon-xs"
-            title={t('docker.compose.down')}
-            aria-label={t('docker.compose.down')}
+            size="icon"
+            title={t('docker.improvements.stop')}
+            aria-label={t('docker.improvements.stop')}
             disabled={loading}
             onClick={onDown}
           >
@@ -410,7 +413,7 @@ function StackGroupHeader({
         )}
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon"
           title={t('docker.containers.restart')}
           aria-label={t('docker.containers.restart')}
           disabled={loading}
@@ -420,7 +423,7 @@ function StackGroupHeader({
         </Button>
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon"
           title={t('common.delete')}
           aria-label={t('common.delete')}
           disabled={loading}
@@ -433,19 +436,20 @@ function StackGroupHeader({
   )
 }
 
+const loadContainers = () => api.getContainers()
+
 export default function DockerContainers() {
   const { t } = useTranslation()
   const confirm = useConfirm()
   const navigate = useNavigate()
-  const [containers, setContainers] = useState<Container[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { data: containers, loading, error, refresh: fetchContainers, updatedAt } = useDockerResource(loadContainers, 15000)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [selectedContainer, setSelectedContainer] = useState<Container | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailTab, setDetailTab] = useState<string>('inspect')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [filterState, setFilterState] = useState<'all' | 'running' | 'stopped'>('all')
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') ?? '')
+  const [filterState, setFilterState] = useState<'all' | 'running' | 'stopped' | 'attention'>('all')
   const [collapsedStacks, setCollapsedStacks] = useState<Set<string>>(new Set())
   const [statsMap, setStatsMap] = useState<Record<string, ContainerStatsResult>>({})
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -453,29 +457,23 @@ export default function DockerContainers() {
   const [stackActionLoading, setStackActionLoading] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
 
+  // Dashboard links resolve after the list loads, without opening an unrelated container.
+  const linkedId = searchParams.get('container')
+  const linkedContainer = linkedId ? containers.find((container) => container.Id.startsWith(linkedId)) : undefined
+  const detailContainer = linkedContainer ?? containers.find(c => c.Id === selectedContainer?.Id) ?? selectedContainer
+  const closeDetail = (open: boolean) => {
+    setDetailOpen(open)
+    if (!open && linkedId) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('container')
+      setSearchParams(next, { replace: true })
+    }
+  }
+
   // The locale confirm strings carry <strong> markup (from the old Trans-based
   // dialogs); useConfirm renders a plain string, so strip the tags.
   const confirmText = (key: string, values: Record<string, unknown>) =>
     t(key, values).replace(/<\/?strong>/g, '')
-
-  const fetchContainers = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await api.getContainers()
-      setContainers(data || [])
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err))
-      const message = err instanceof Error ? err.message : t('docker.containers.fetchFailed')
-      toast.error(message)
-    } finally {
-      setLoading(false)
-    }
-  }, [t])
-
-  useEffect(() => {
-    fetchContainers()
-  }, [fetchContainers])
 
   // Batch poll stats for all running containers every 10 seconds; pauses while
   // the tab is hidden (useVisibleInterval handles visibilitychange).
@@ -591,9 +589,9 @@ export default function DockerContainers() {
     setStackActionLoading(stackName)
     try {
       if (action === 'up') await api.composeUp(stackName)
-      else if (action === 'down') await api.composeDown(stackName)
+      else if (action === 'down') await api.composeStop(stackName)
       else if (action === 'restart') {
-        await api.composeDown(stackName)
+        await api.composeStop(stackName)
         await api.composeUp(stackName)
       } else if (action === 'delete') {
         await api.deleteComposeProject(stackName, { removeVolumes: false })
@@ -608,7 +606,7 @@ export default function DockerContainers() {
   }
 
   const confirmStackAction = async (action: 'down' | 'restart' | 'delete', stackName: string) => {
-    const label = action === 'delete' ? t('common.delete') : action === 'down' ? t('docker.compose.down') : t('docker.containers.restart')
+    const label = action === 'delete' ? t('common.delete') : action === 'down' ? t('docker.improvements.stop') : t('docker.containers.restart')
     const key = action === 'delete' ? 'docker.containers.stackDeleteConfirm'
       : action === 'down' ? 'docker.containers.stackDownConfirm'
       : 'docker.containers.stackRestartConfirm'
@@ -681,9 +679,10 @@ export default function DockerContainers() {
       c.Image.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesState = filterState === 'all' ||
       (filterState === 'running' && c.State === 'running') ||
-      (filterState === 'stopped' && c.State !== 'running')
+      (filterState === 'stopped' && ['exited', 'created'].includes(c.State)) ||
+      (filterState === 'attention' && containerNeedsAttention(c.State, c.Status))
     return matchesSearch && matchesState
-  })
+  }).sort((a, b) => Number(containerNeedsAttention(b.State, b.Status)) - Number(containerNeedsAttention(a.State, a.Status)))
 
   // Group filtered containers by compose project
   const groupedContainers = (() => {
@@ -717,6 +716,7 @@ export default function DockerContainers() {
     actionLoading,
     onDetail: openDetail,
     onTerminal: openTerminal,
+    onLogs: (c: Container) => { setSelectedContainer(c); setDetailTab('logs'); setDetailOpen(true) },
     onStart: (id: string) => { void handleAction('start', id) },
     onStop: (c: Container) => { void confirmContainerAction('stop', c) },
     onPause: (id: string) => { void handlePause(id) },
@@ -727,7 +727,7 @@ export default function DockerContainers() {
   }
 
   const runningCount = containers.filter(c => c.State === 'running').length
-  const stoppedCount = containers.length - runningCount
+  const stoppedCount = containers.filter(c => ['exited', 'created'].includes(c.State)).length
 
   return (
     <div className="space-y-4">
@@ -756,11 +756,11 @@ export default function DockerContainers() {
         <div
           role="button"
           tabIndex={0}
-          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${filterState === 'stopped' ? 'bg-destructive/10 ring-1 ring-destructive/30' : 'bg-card card-shadow hover:card-shadow-hover'}`}
+          className={`cursor-pointer rounded-2xl p-4 transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0 ${filterState === 'stopped' ? 'bg-secondary ring-1 ring-border' : 'bg-card card-shadow hover:card-shadow-hover'}`}
           onClick={() => setFilterState('stopped')}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFilterState('stopped') } }}
         >
-          <span className="text-[13px] text-destructive">{t('docker.containers.stopped')}</span>
+          <span className="text-[13px] text-muted-foreground">{t('docker.containers.stopped')}</span>
           <div className="text-2xl font-bold text-destructive mt-1">{stoppedCount}</div>
         </div>
       </div>
@@ -776,7 +776,9 @@ export default function DockerContainers() {
             className="pl-9 h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
           />
         </div>
+        <Button variant={filterState === 'attention' ? 'default' : 'outline'} onClick={() => setFilterState(filterState === 'attention' ? 'all' : 'attention')}>{t('docker.improvements.attention')} ({containers.filter(c => containerNeedsAttention(c.State, c.Status)).length})</Button>
         <div className="hidden sm:block flex-1" />
+        {batchMode && <Button variant="outline" className="md:hidden" onClick={toggleSelectAll}>{t('docker.improvements.selectVisible')}</Button>}
         {batchMode && selectedIds.size > 0 && (
           <div className="flex items-center gap-1 flex-wrap">
             <span className="text-[13px] text-muted-foreground mr-1">
@@ -800,7 +802,7 @@ export default function DockerContainers() {
             </Button>
           </div>
         )}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <p className="text-[13px] text-muted-foreground mr-2 hidden sm:block">
             {t('docker.containers.count', { count: filteredContainers.length })}
           </p>
@@ -808,28 +810,29 @@ export default function DockerContainers() {
             variant={batchMode ? 'default' : 'outline'}
             size="sm"
             onClick={() => { setBatchMode(!batchMode); setSelectedIds(new Set()) }}
-            className="rounded-xl hidden sm:inline-flex"
+            className="rounded-xl"
           >
             <CheckSquare />
             {t('docker.containers.batchMode')}
           </Button>
           <Button variant="outline" size="sm" onClick={fetchContainers} disabled={loading} className="rounded-xl">
             <RefreshCw className={loading ? 'animate-spin' : ''} />
-            <span className="hidden sm:inline">{t('common.refresh')}</span>
+            <span>{t('common.refresh')}</span>
           </Button>
           <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)} className="rounded-xl">
             <Box />
-            <span className="hidden sm:inline">{t('docker.create.button')}</span>
+            <span>{t('docker.create.button')}</span>
           </Button>
           <Button size="sm" onClick={() => navigate('/docker/stacks?new=1')} className="rounded-xl">
             <Plus />
-            <span className="hidden sm:inline">{t('docker.stacks.newStack')}</span>
+            <span>{t('docker.stacks.newStack')}</span>
           </Button>
         </div>
       </div>
 
+      <ResourceStatus resource={{ loading, error: !!error, updatedAt, retry: fetchContainers }} />
       {/* Load error / loading skeleton (first load only) */}
-      {error && containers.length === 0 ? (
+      {error ? (
         <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
@@ -888,6 +891,7 @@ export default function DockerContainers() {
                   key={c.Id}
                   container={c}
                   stats={statsMap[c.Id]}
+                  batchMode={batchMode} selected={selectedIds.has(c.Id)} onToggleSelect={toggleSelect}
                   grouped
                   {...containerItemProps}
                 />
@@ -907,6 +911,7 @@ export default function DockerContainers() {
             key={c.Id}
             container={c}
             stats={statsMap[c.Id]}
+                  batchMode={batchMode} selected={selectedIds.has(c.Id)} onToggleSelect={toggleSelect}
             {...containerItemProps}
           />
         ))}
@@ -1016,24 +1021,31 @@ export default function DockerContainers() {
         onCreated={fetchContainers}
       />
 
+      {linkedId && !loading && !error && !linkedContainer && (
+        <p role="status" className="rounded-lg border border-warning/30 p-3 text-sm text-muted-foreground">
+          {t('dashboard.containerUnavailable')}
+          <button type="button" onClick={() => closeDetail(false)} className="ml-2 min-h-11 rounded-md px-2 text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring">{t('dashboard.dismiss')}</button>
+        </p>
+      )}
+
       {/* Container detail dialog */}
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+      <Dialog open={detailOpen || !!linkedContainer} onOpenChange={closeDetail}>
         <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden">
           <DialogHeader className="min-w-0">
             <DialogTitle className="flex items-center gap-2 min-w-0">
-              {selectedContainer && statusBadge(selectedContainer.State)}
+              {detailContainer && <ContainerStateBadge state={detailContainer.State} status={detailContainer.Status} />}
               <span className="truncate min-w-0">
-                {selectedContainer
-                  ? formatContainerName(selectedContainer.Names)
+                {detailContainer
+                  ? formatContainerName(detailContainer.Names)
                   : 'Container'}
               </span>
             </DialogTitle>
             <DialogDescription className="font-mono text-xs truncate">
-              {selectedContainer?.Image} &middot; {selectedContainer?.Id.substring(0, 12)}
+              {detailContainer?.Image} &middot; {detailContainer?.Id.substring(0, 12)}
             </DialogDescription>
           </DialogHeader>
-          {selectedContainer && (
-            <Tabs defaultValue={detailTab} key={detailTab}>
+          {detailContainer && (
+            <Tabs defaultValue={linkedContainer ? 'inspect' : detailTab} key={linkedContainer?.Id ?? detailTab}>
               <TabsList>
                 <TabsTrigger value="inspect">
                   <Info className="h-3.5 w-3.5 mr-1" />
@@ -1053,16 +1065,16 @@ export default function DockerContainers() {
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="inspect">
-                <ContainerInspect containerId={selectedContainer.Id} />
+                <ContainerInspect containerId={detailContainer.Id} />
               </TabsContent>
               <TabsContent value="history">
-                <ContainerHistoryTab containerId={selectedContainer.Id} />
+                <ContainerHistoryTab containerId={detailContainer.Id} />
               </TabsContent>
               <TabsContent value="logs">
-                <ContainerLogs containerId={selectedContainer.Id} />
+                <ContainerLogs containerId={detailContainer.Id} />
               </TabsContent>
               <TabsContent value="shell">
-                <ContainerShell containerId={selectedContainer.Id} />
+                <ContainerShell containerId={detailContainer.Id} />
               </TabsContent>
             </Tabs>
           )}

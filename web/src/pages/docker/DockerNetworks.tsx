@@ -1,11 +1,15 @@
-import { useState, useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
+import { useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { Trash2, RefreshCw, Plus, Sparkles, Check, Info, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
+import { ResourceFilters } from '@/pages/docker/components/ResourceFilters'
+import { useDockerResource } from '@/hooks/useDockerResource'
+import ResourceStatus from '@/components/ResourceStatus'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { UsagePill } from '@/pages/docker/components/UsagePill'
-import type { DockerNetwork, NetworkInspectDetail } from '@/types/api'
+import type { DockerNetwork, NetworkInspectDetail, Container } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,12 +38,15 @@ function shortId(id: string): string {
   return id.substring(0, 12)
 }
 
+const loadNetworks = () => api.getNetworks()
+
 export default function DockerNetworks() {
   const { t } = useTranslation()
   const confirm = useConfirm()
-  const [networks, setNetworks] = useState<DockerNetwork[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { data: networks, loading, error, refresh: fetchNetworks, updatedAt } = useDockerResource(loadNetworks, 15000)
+  const [query, setQuery] = useState('')
+  const [usage, setUsage] = useState('all')
+  const [sort, setSort] = useState('name')
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDriver, setNewDriver] = useState('bridge')
@@ -48,26 +55,10 @@ export default function DockerNetworks() {
   const [actionLoading, setActionLoading] = useState(false)
   const [pruning, setPruning] = useState(false)
   const [inspectTarget, setInspectTarget] = useState<NetworkInspectDetail | null>(null)
+  const [availableContainers, setAvailableContainers] = useState<Container[]>([])
+  const [connectContainer, setConnectContainer] = useState('')
+  const [connecting, setConnecting] = useState(false)
   const [inspecting, setInspecting] = useState(false)
-
-  const fetchNetworks = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await api.getNetworks()
-      setNetworks(data || [])
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err))
-      const message = err instanceof Error ? err.message : t('docker.networks.fetchFailed')
-      toast.error(message)
-    } finally {
-      setLoading(false)
-    }
-  }, [t])
-
-  useEffect(() => {
-    fetchNetworks()
-  }, [fetchNetworks])
 
   const handleCreate = async () => {
     if (!newName.trim()) return
@@ -108,11 +99,26 @@ export default function DockerNetworks() {
     try {
       const detail = await api.inspectNetwork(id)
       setInspectTarget(detail)
+      setConnectContainer('')
+      const containers = await api.getContainers()
+      setAvailableContainers(containers || [])
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('docker.networks.inspectFailed'))
     } finally {
       setInspecting(false)
     }
+  }
+
+  const changeConnection = async (container: string, operation: 'connect' | 'disconnect') => {
+    if (!inspectTarget || !container) return
+    if (operation === 'disconnect' && !await confirm({ title: t('docker.improvements.disconnect'), description: t('docker.improvements.disconnectConfirm'), danger: true })) return
+    setConnecting(true)
+    try {
+      await api.changeNetworkConnection(inspectTarget.id, container, operation)
+      await handleInspect(inspectTarget.id)
+      await fetchNetworks()
+    } catch (err) { toast.error(err instanceof Error ? err.message : String(err)) }
+    finally { setConnecting(false) }
   }
 
   const isPredefined = (name: string): boolean => {
@@ -140,7 +146,7 @@ export default function DockerNetworks() {
   }
 
   // In-use networks first; single sorted list keeps mobile and desktop in sync.
-  const sortedNetworks = [...networks].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1))
+  const sortedNetworks = networks.filter(item => [item.Name, item.Driver, ...(item.used_by || [])].join(' ').toLowerCase().includes(query.toLowerCase()) && (usage === 'all' || (usage === 'used' ? item.in_use : !item.in_use))).sort((a, b) => a.Name.localeCompare(b.Name))
 
   return (
     <div className="space-y-4">
@@ -164,8 +170,11 @@ export default function DockerNetworks() {
         </div>
       </div>
 
+      <ResourceFilters sizeSort={false} query={query} onQuery={setQuery} usage={usage} onUsage={setUsage} sort={sort} onSort={setSort} count={sortedNetworks.length} />
+      {sortedNetworks.length === 0 && networks.length > 0 && <p className="py-8 text-center text-muted-foreground">{t('docker.improvements.noResults')}</p>}
+      <ResourceStatus resource={{ loading, error: !!error, updatedAt, retry: fetchNetworks }} />
       {/* Load error / loading skeleton (first load only) */}
-      {error && networks.length === 0 ? (
+      {error ? (
         <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
@@ -203,13 +212,13 @@ export default function DockerNetworks() {
                   <span className="text-[11px] text-muted-foreground">{n.Scope}</span>
                 </div>
                 <div className="mt-1.5">
-                  <UsagePill inUse={n.in_use} />
+                  <UsagePill inUse={n.in_use} usedBy={n.used_by} />
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <Button
                   variant="ghost"
-                  size="icon-xs"
+                  size="icon"
                   title={t('docker.containers.inspect')}
                   aria-label={t('docker.containers.inspect')}
                   disabled={inspecting}
@@ -219,7 +228,7 @@ export default function DockerNetworks() {
                 </Button>
                 <Button
                   variant="ghost"
-                  size="icon-xs"
+                  size="icon"
                   title={isPredefined(n.Name) ? t('docker.networks.cannotDeletePredefined') : t('common.delete')}
                   aria-label={isPredefined(n.Name) ? t('docker.networks.cannotDeletePredefined') : t('common.delete')}
                   disabled={isPredefined(n.Name)}
@@ -274,7 +283,7 @@ export default function DockerNetworks() {
                 <div className="flex items-center justify-end gap-1">
                   <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon"
                     title={t('docker.containers.inspect')}
                     aria-label={t('docker.containers.inspect')}
                     disabled={inspecting}
@@ -284,7 +293,7 @@ export default function DockerNetworks() {
                   </Button>
                   <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon"
                     title={isPredefined(n.Name) ? t('docker.networks.cannotDeletePredefined') : t('common.delete')}
                     aria-label={isPredefined(n.Name) ? t('docker.networks.cannotDeletePredefined') : t('common.delete')}
                     disabled={isPredefined(n.Name)}
@@ -357,14 +366,21 @@ export default function DockerNetworks() {
           <div className="space-y-4 min-w-0">
             <div className="grid grid-cols-2 gap-3">
               <div className="min-w-0">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Subnet</p>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('docker.improvements.subnet')}</p>
                 <p className="text-[13px] font-mono break-all">{inspectTarget?.subnet || '-'}</p>
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Gateway</p>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('docker.improvements.gateway')}</p>
                 <p className="text-[13px] font-mono break-all">{inspectTarget?.gateway || '-'}</p>
               </div>
             </div>
+            {inspectTarget && !isPredefined(inspectTarget.name) && <div className="flex flex-wrap gap-2">
+              <select className="min-h-11 min-w-0 flex-1 rounded-xl bg-secondary px-2" aria-label={t('docker.improvements.connect')} value={connectContainer} onChange={e => setConnectContainer(e.target.value)} disabled={connecting}>
+                <option value="">{t('docker.improvements.connect')}</option>
+                {availableContainers.filter(c => !inspectTarget.containers?.some(endpoint => c.Id.startsWith(endpoint.id))).map(c => <option key={c.Id} value={c.Id}>{c.Names?.[0]?.replace(/^\//, '') || c.Id.slice(0, 12)}</option>)}
+              </select>
+              <Button disabled={!connectContainer || connecting} onClick={() => changeConnection(connectContainer, 'connect')}>{t('docker.improvements.connect')}</Button>
+            </div>}
             {inspectTarget?.containers && inspectTarget.containers.length > 0 && (
               <div>
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-2">{t('docker.networks.connectedContainers')}</p>
@@ -374,15 +390,16 @@ export default function DockerNetworks() {
                       <TableRow className="border-border/50">
                         <TableHead className="text-[11px]">{t('common.name')}</TableHead>
                         <TableHead className="text-[11px]">IPv4</TableHead>
-                        <TableHead className="text-[11px]">MAC</TableHead>
+                        <TableHead className="text-[11px]">MAC</TableHead><TableHead>{t('common.actions')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {inspectTarget.containers.map(c => (
                         <TableRow key={c.id}>
-                          <TableCell className="text-[13px] font-medium">{c.name}</TableCell>
+                          <TableCell className="text-[13px] font-medium"><Link className="text-primary underline" to={`/docker/containers?container=${encodeURIComponent(c.id)}`}>{c.name}</Link></TableCell>
                           <TableCell className="text-[13px] font-mono text-muted-foreground">{c.ipv4_address || '-'}</TableCell>
                           <TableCell className="text-[13px] font-mono text-muted-foreground">{c.mac_address || '-'}</TableCell>
+                          <TableCell>{!isPredefined(inspectTarget.name) && <Button variant="outline" disabled={connecting} onClick={() => changeConnection(c.id, 'disconnect')}>{t('docker.improvements.disconnect')}</Button>}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

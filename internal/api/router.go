@@ -639,6 +639,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		dk.POST("/networks", dockerHandler.CreateNetwork)
 		dk.DELETE("/networks/:id", dockerHandler.RemoveNetwork)
 		dk.GET("/networks/:id/inspect", dockerHandler.InspectNetwork)
+		dk.POST("/networks/:id/:operation", dockerHandler.ChangeNetworkConnection)
 
 		// Prune
 		dk.POST("/prune/containers", dockerHandler.PruneContainers)
@@ -670,6 +671,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		compose.POST("/:project/up", composeHandler.ProjectUp)
 		compose.POST("/:project/up-stream", composeHandler.ProjectUpStream)
 		compose.POST("/:project/down", composeHandler.ProjectDown)
+		compose.POST("/:project/stop", composeHandler.ProjectStop)
 		compose.GET("/:project/env", composeHandler.GetEnv)
 		compose.PUT("/:project/env", composeHandler.UpdateEnv)
 		compose.GET("/:project/services", composeHandler.GetProjectServices)

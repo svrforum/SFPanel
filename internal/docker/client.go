@@ -703,6 +703,15 @@ func (c *Client) InspectNetwork(ctx context.Context, id string) (network.Inspect
 	return c.cli.NetworkInspect(ctx, id, network.InspectOptions{})
 }
 
+// ConnectNetwork attaches an existing container to a user-defined network.
+func (c *Client) ConnectNetwork(ctx context.Context, id, containerID string) error {
+	return c.cli.NetworkConnect(ctx, id, containerID, nil)
+}
+
+func (c *Client) DisconnectNetwork(ctx context.Context, id, containerID string) error {
+	return c.cli.NetworkDisconnect(ctx, id, containerID, false)
+}
+
 // ---------- Prune ----------
 
 // PruneContainers removes all stopped containers.

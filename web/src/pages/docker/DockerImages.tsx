@@ -1,7 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { Trash2, RefreshCw, Download, Sparkles, Check, Loader2, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
+import { ResourceFilters } from '@/pages/docker/components/ResourceFilters'
+import { useDockerResource } from '@/hooks/useDockerResource'
+import ResourceStatus from '@/components/ResourceStatus'
 import { api } from '@/lib/api'
 import { formatBytes, formatDate } from '@/lib/utils'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -32,12 +35,15 @@ function shortId(id: string): string {
   return id.replace('sha256:', '').substring(0, 12)
 }
 
+const loadImages = () => api.getImages()
+
 export default function DockerImages() {
   const { t } = useTranslation()
   const confirm = useConfirm()
-  const [images, setImages] = useState<DockerImage[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { data: images, loading, error, refresh: fetchImages, updatedAt } = useDockerResource(loadImages, 15000)
+  const [query, setQuery] = useState('')
+  const [usage, setUsage] = useState('all')
+  const [sort, setSort] = useState('name')
   const [pullDialogOpen, setPullDialogOpen] = useState(false)
   const [pullImage, setPullImage] = useState('nginx:latest')
   const [pulling, setPulling] = useState(false)
@@ -48,25 +54,6 @@ export default function DockerImages() {
   const [updateResults, setUpdateResults] = useState<ImageUpdateStatus[]>([])
   const [checkingUpdates, setCheckingUpdates] = useState(false)
 
-  const fetchImages = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await api.getImages()
-      setImages(data || [])
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err))
-      const message = err instanceof Error ? err.message : t('docker.images.fetchFailed')
-      toast.error(message)
-    } finally {
-      setLoading(false)
-    }
-  }, [t])
-
-  useEffect(() => {
-    fetchImages()
-  }, [fetchImages])
-
   const handlePull = async () => {
     if (!pullImage.trim()) return
     setPulling(true)
@@ -76,7 +63,7 @@ export default function DockerImages() {
         const progress = event.id
           ? `[${event.id}] ${event.status}${event.progress ? ' ' + event.progress : ''}`
           : event.status + (event.progress ? ' ' + event.progress : '')
-        setPullProgress(progress)
+        setPullProgress(previous => (previous + '\n' + progress).split('\n').slice(-100).join('\n'))
       })
       toast.success(t('docker.images.pullSuccess', { name: pullImage }))
       setPullDialogOpen(false)
@@ -109,7 +96,7 @@ export default function DockerImages() {
 
   const getRepoTag = (image: DockerImage): string => {
     if (image.RepoTags && image.RepoTags.length > 0) {
-      return image.RepoTags[0]
+      return image.RepoTags.join(' · ')
     }
     return '<none>:<none>'
   }
@@ -157,7 +144,7 @@ export default function DockerImages() {
   }
 
   // In-use images first; single sorted list keeps mobile and desktop in sync.
-  const sortedImages = [...images].sort((a, b) => (a.in_use === b.in_use ? 0 : a.in_use ? -1 : 1))
+  const sortedImages = images.filter(item => [...(item.RepoTags || []), item.Id, ...(item.used_by || [])].join(' ').toLowerCase().includes(query.toLowerCase()) && (usage === 'all' || (usage === 'used' ? item.in_use : !item.in_use))).sort((a, b) => sort === 'size' ? (b.Size ?? 0) - (a.Size ?? 0) : (a.RepoTags || []).join(' ').localeCompare((b.RepoTags || []).join(' ')))
 
   return (
     <div className="space-y-4">
@@ -165,7 +152,11 @@ export default function DockerImages() {
         <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary shrink-0">
           {t('docker.images.count', { count: images.length })}
         </span>
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" className="shrink-0" onClick={() => setPullDialogOpen(true)}>
+            <Download />
+            {t('docker.images.pullImage')}
+          </Button>
           <Button variant="outline" size="sm" className="shrink-0" onClick={handlePrune} disabled={pruning}>
             <Sparkles className={pruning ? 'animate-spin' : ''} />
             {t('docker.sidebar.prune')}
@@ -179,15 +170,15 @@ export default function DockerImages() {
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             {t('common.refresh')}
           </Button>
-          <Button size="sm" className="shrink-0" onClick={() => setPullDialogOpen(true)}>
-            <Download />
-            {t('docker.images.pullImage')}
-          </Button>
+
         </div>
       </div>
 
+      <ResourceFilters query={query} onQuery={setQuery} usage={usage} onUsage={setUsage} sort={sort} onSort={setSort} count={sortedImages.length} />
+      {sortedImages.length === 0 && images.length > 0 && <p className="py-8 text-center text-muted-foreground">{t('docker.improvements.noResults')}</p>}
+      <ResourceStatus resource={{ loading, error: !!error, updatedAt, retry: fetchImages }} />
       {/* Load error / loading skeleton (first load only) */}
-      {error && images.length === 0 ? (
+      {error ? (
         <div className="bg-destructive/10 text-destructive rounded-xl p-3 flex items-start gap-2">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
@@ -218,23 +209,23 @@ export default function DockerImages() {
           <div key={img.Id} className="bg-card rounded-2xl p-4 card-shadow">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium font-mono truncate">{getRepoTag(img)}</p>
+                <p className="text-[13px] font-medium font-mono break-all">{getRepoTag(img)}</p>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[11px] text-muted-foreground font-mono">{shortId(img.Id)}</span>
                   <span className="text-[11px] text-muted-foreground">{formatBytes(img.Size)}</span>
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                  <UsagePill inUse={img.in_use} />
+                  <UsagePill inUse={img.in_use} usedBy={img.used_by} />
                   {getUpdateStatus(img.RepoTags?.[0] || '')?.has_update && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary">
-                      {t('docker.images.updateAvailable')}
+                      <button className="min-h-11 underline" onClick={() => { setPullImage(img.RepoTags?.[0] || ''); setPullDialogOpen(true) }}>{t('docker.images.updateAvailable')} · {t('docker.images.pull')}</button>
                     </span>
                   )}
                 </div>
               </div>
               <Button
                 variant="ghost"
-                size="icon-xs"
+                size="icon"
                 title={t('common.delete')}
                 aria-label={t('common.delete')}
                 onClick={() => setDeleteTarget(img)}
@@ -283,7 +274,7 @@ export default function DockerImages() {
                   <UsagePill inUse={img.in_use} usedBy={img.used_by} />
                   {getUpdateStatus(img.RepoTags?.[0] || '')?.has_update && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-primary/10 text-primary">
-                      {t('docker.images.updateAvailable')}
+                      <button className="min-h-11 underline" onClick={() => { setPullImage(img.RepoTags?.[0] || ''); setPullDialogOpen(true) }}>{t('docker.images.updateAvailable')} · {t('docker.images.pull')}</button>
                     </span>
                   )}
                 </div>
@@ -293,7 +284,7 @@ export default function DockerImages() {
               <TableCell className="text-right">
                 <Button
                     variant="ghost"
-                    size="icon-xs"
+                    size="icon"
                     title={t('common.delete')}
                     aria-label={t('common.delete')}
                     onClick={() => setDeleteTarget(img)}
@@ -308,7 +299,7 @@ export default function DockerImages() {
       </div>
 
       {/* Pull image dialog */}
-      <Dialog open={pullDialogOpen} onOpenChange={setPullDialogOpen}>
+      <Dialog open={pullDialogOpen} onOpenChange={open => { if (!pulling) setPullDialogOpen(open) }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('docker.images.pullImage')}</DialogTitle>
@@ -318,19 +309,20 @@ export default function DockerImages() {
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="pull-image">{t('docker.images.imageReference')}</Label>
+            <p className="text-sm text-muted-foreground">{t('docker.improvements.pullHint')}</p>
             <DockerHubSearch
               value={pullImage}
               onChange={setPullImage}
               placeholder="e.g., nginx:latest"
             />
             {pulling && pullProgress && (
-              <div className="mt-2 px-3 py-2 rounded-xl bg-secondary/50 text-[12px] font-mono text-muted-foreground truncate">
+              <div className="mt-2 px-3 py-2 rounded-xl bg-secondary/50 text-[12px] font-mono text-muted-foreground whitespace-pre-wrap break-all max-h-48 overflow-auto">
                 {pullProgress}
               </div>
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPullDialogOpen(false)}>
+            <Button variant="outline" disabled={pulling} onClick={() => setPullDialogOpen(false)}>
               {t('common.cancel')}
             </Button>
             <Button onClick={handlePull} disabled={pulling || !pullImage.trim()}>

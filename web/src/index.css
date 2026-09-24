@@ -216,3 +216,24 @@
         display: none;
     }
 }
+
+/* Docker controls remain easy to hit on touch screens, including portaled dialogs. */
+@media (pointer: coarse), (max-width: 767px) {
+  .docker-workspace [data-slot="button"],
+  body:has(.docker-workspace) [data-slot="dialog-content"] [data-slot="button"] {
+    min-height: 44px;
+  }
+  .docker-workspace [data-size^="icon"],
+  body:has(.docker-workspace) [data-slot="dialog-content"] [data-size^="icon"] {
+    min-width: 44px;
+  }
+}
+[data-slot="dialog-content"]:has([data-shell-expanded="true"]) {
+  inset: 0;
+  transform: none;
+  translate: none;
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: 100dvh;
+}

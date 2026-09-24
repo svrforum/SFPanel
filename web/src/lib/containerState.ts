@@ -62,3 +62,7 @@ export function compareForSummary(
   const bc = b.cpu ?? -1
   return bc - ac
 }
+
+export function containerNeedsAttention(state: string, status = '') {
+  return state.toLowerCase() === 'dead' || needsAttention(containerHealth(state, status))
+}
