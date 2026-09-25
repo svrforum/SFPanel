@@ -19,38 +19,39 @@
 
 - 🪶 **Single binary** — Go backend + embedded React SPA. SQLite built in (CGO-free), zero external dependencies. One `curl | sudo bash` and you're done.
 - 🐳 **Docker optional** — if the socket is reachable it manages containers and Compose stacks; if not, only those menus disappear and everything else keeps working.
-- 🔒 **Security built in** — JWT + TOTP 2FA + one-time recovery codes, login rate-limiting, type-to-confirm on destructive actions.
-- 📱 **Desktop to mobile** — Korean/English, responsive web + PWA, plus native Windows/macOS/Linux apps (Tauri).
+- 🤖 **AI coding sessions in the browser** — run Claude Code, Codex and Gemini CLI on the server; sessions survive a closed tab, so you can pick up where you left off on your phone.
+- 🔒 **Security built in** — HTTPS by default on fresh installs (own CA), JWT + TOTP 2FA + one-time recovery codes, login rate-limiting, type-to-confirm on destructive actions.
+- 📱 **Desktop to mobile** — Korean/English, responsive web + PWA, native Windows/macOS/Linux apps (Tauri), and an Android app.
 - 🧩 **Cluster optional** — single-node by default. Scale out to a Raft multi-node setup (live overview + transparent `?node=` proxy) when you need it.
 
 ## Features
 
 | Area | What it does |
 |------|------|
-| **Dashboard** | Real-time CPU/memory/disk/network monitoring (WebSocket), 24-hour history charts, Docker summary, quick-action shortcuts |
-| **Docker** | Containers, images, volumes, networks; Compose stacks (per-service detail, current→target digest updates, rollback); Hub search; resource pruning; node-to-node cold stack migration (compose + .env + volume/bind-mount data + images, retain/delete/clone disposition, optional transfer rate limit) |
+| **Dashboard** | Organised around resource health and actionable alerts; real-time CPU/memory/disk/network monitoring (WebSocket), 24-hour history charts (range selection, data table), Docker summary, configurable shortcuts |
+| **Docker** | Containers, images, volumes, networks (search, filters, sorting, network connect/disconnect); Compose stacks (change preview before deploy, per-service detail, current→target digest updates, rollback); risky-setting confirmation (docker.sock, host namespaces and the like are allowed after confirmation; mounting the panel's own secrets is refused); Hub search; resource pruning; node-to-node cold stack migration (compose + .env + volume/bind-mount data + images, retain/delete/clone disposition, optional transfer rate limit) |
 | **App Store** | One-click install of **90+** curated self-hosted apps (\*arr, Nextcloud, Vaultwarden, Immich, AdGuard, Authentik, Forgejo and more). Recommended badges, sorting & search, "update available" badge, keep-data uninstall, post-install health check |
 | **File manager** | In-browser file explorer + Monaco editor, recursive search, copy/multi-select delete, upload/download |
-| **Terminal** | xterm.js multi-tab web terminal (PTY), session persistence & reconnect, 10,000-line scrollback, mobile touch scrolling |
+| **Terminal · AI coding** | Shells and AI CLIs (Claude Code, Codex, Gemini) run as tmux sessions that survive a closed browser or a panel restart; sessions listed by directory, launch options and account profiles, mobile key bar. Falls back to a PTY terminal without tmux |
 | **Process · Service · Cron** | Process tree, renice, signals (TERM/KILL/STOP/CONT, …); systemd service control + unit view; crontab GUI + run-now with output capture + **system cron run logs** |
 | **Logs** | Real-time streaming of system/custom logs (SSE), structured parsing (auth, UFW, Fail2ban, sfpanel), search, level coloring, download |
 | **Network / VPN** | Interfaces (DHCP/Static), DNS, routing, bonding; **WireGuard** (peer management, key generation, client QR, boot autostart); **Tailscale** |
-| **Disk** | Partitions, filesystems, LVM, RAID, swap; usage explorer; **S.M.A.R.T.** self-test runner + logs |
+| **Disk** | Partitions, filesystems, LVM, RAID, swap; usage explorer; network drive (NFS/SMB) mounts; **S.M.A.R.T.** self-test runner + logs |
 | **Firewall** | UFW rules (lockout guard), Fail2ban jails, Docker firewall (DOCKER-USER chain), unified port map (firewall × container × process) |
 | **Packages** | APT search/install/upgrade + one-click install of Docker, Node.js, Claude, Codex, Gemini (live SSE streaming) |
-| **Security · Audit** | JWT + TOTP 2FA + one-time recovery codes, bcrypt, login rate-limiting (5 tries → 5 min), audit log (user, IP, path, status, node) |
+| **Security · Audit** | Panel HTTPS (own CA, default on fresh installs), JWT + TOTP 2FA + one-time recovery codes, session restore after a browser restart, bcrypt, login rate-limiting (5 tries → 5 min), audit log (user, IP, path, status, node) |
 | **Backup · Update** | Config backup/restore, scheduled backups (retention count), web self-update (SSE + cosign/SHA-256 verification, automatic .bak snapshot, watchdog rollback) |
 | **Alerts** | Condition-based rules + channels (Discord, Telegram, Webhook = Slack/Mattermost compatible) + alert history |
-| **Cluster** (optional) | Raft multi-node (automatic leader election, mTLS, join tokens), live overview WS, transparent `?node=` proxy, rolling updates |
+| **Cluster** (optional) | Raft multi-node (automatic leader election, mTLS, join tokens), live overview WS, transparent `?node=` proxy, rolling updates startable from any node |
 | **More** | Korean/English (auto-detect) · responsive + PWA · system tuning profiles · desktop app (Tauri, Win/macOS/Linux) |
 
 ## Architecture
 
 ```
 Go Binary (Echo v4)
-├── REST API (270+ endpoints) + WebSocket (7) + SSE (15+ streaming)
+├── REST API (310+ endpoints) + WebSocket (8) + SSE (15+ streaming)
 ├── Embedded React SPA (go:embed)
-├── SQLite (16+ tables — auth, settings, audit log, metrics history, alerts, container events, volume usage, scheduled backups, …)
+├── SQLite (19 tables — auth, settings, audit log, metrics history, alerts, container events, volume usage, scheduled backups, …)
 ├── Docker Go SDK (direct socket; only the Docker routes disable when unavailable)
 ├── Compose Manager (filesystem-based, docker compose CLI)
 ├── System Metrics (gopsutil, 60s interval, 24-hour history)
@@ -67,8 +68,9 @@ internal/
 ├── api/
 │   ├── router.go           # Route registration
 │   ├── middleware/          # JWT, audit log, cluster proxy, request logging
-│   └── response/            # Standard responses, error codes (150+), output sanitizing
-├── feature/                 # 22 independent feature modules
+│   └── response/            # Standard responses, error codes (190+), output sanitizing
+├── feature/                 # 23 independent feature modules
+│   ├── ai/                  # AI coding and shell sessions (tmux, launch options, account profiles)
 │   ├── auth/                # JWT, TOTP 2FA + recovery codes, password
 │   ├── docker/              # Containers, images, volumes, networks
 │   ├── compose/             # Docker Compose stacks (healthcheck composer, backup retention)
@@ -92,6 +94,8 @@ internal/
 │   ├── audit/               # Audit log (50k rolling)
 │   └── settings/            # Panel settings
 ├── cluster/                 # Raft, gRPC, TLS, consensus engine
+├── composex/                # Compose safety checks (refused / confirm tiers)
+├── paneltls/                # Panel HTTPS (own CA + automatic certificate renewal)
 ├── db/                      # SQLite migrations, schema
 ├── config/                  # YAML config loading
 ├── docker/                  # Docker SDK client
@@ -105,12 +109,12 @@ internal/
 
 | Area | Technology |
 |------|------|
-| Backend | Go 1.25, Echo v4, SQLite (modernc.org/sqlite, CGO-free) |
+| Backend | Go 1.26, Echo v4, SQLite (modernc.org/sqlite, CGO-free) |
 | Frontend | React 19, TypeScript 6, Vite 8 (rolldown), Tailwind CSS v4, shadcn/ui |
 | UI | uplot (charts), xterm.js v6 (terminal), Monaco Editor (code editor) |
 | Auth | JWT (golang-jwt/jwt/v5) + TOTP (pquerna/otp) + bcrypt + refresh token rotation |
 | Docker | Docker Go SDK v28 |
-| Cluster | HashiCorp Raft v1.7, gRPC v1.79, mTLS (auto-issued CA), peers.json quorum-loss recovery |
+| Cluster | HashiCorp Raft v1.7, gRPC v1.83, mTLS (auto-issued CA), peers.json quorum-loss recovery |
 | Monitoring | gopsutil v4, gorilla/websocket |
 | Desktop | Tauri 2 (Rust, Windows/Linux/macOS) |
 | i18n | Korean / English (i18next) |
@@ -189,7 +193,9 @@ sudo /usr/local/bin/sfpanel /etc/sfpanel/config.yaml
 ```yaml
 server:
   host: "0.0.0.0"
-  port: 3628                     # default: 3628 HTTP, 3629 cluster gRPC, 3630 Raft
+  port: 3628                     # default: 3628 panel, 3629 cluster gRPC, 3630 Raft
+  tls:
+    enabled: true                # default on fresh installs — own CA issues and renews the certificate (/etc/sfpanel/tls)
 
 database:
   path: "/var/lib/sfpanel/sfpanel.db"
@@ -314,7 +320,7 @@ What the backup includes:
 
 The Android 8.0+ client combines native server connections and coding tools with the server's full web interface. It provides Shift/Ctrl/Alt keys, scrollback controls, multiline prompt composition, and output reading/search, with large touch targets, system font scaling, TalkBack labels, and Korean/English localization.
 
-See the [Android guide](android/README.md) for build instructions and validation scope. Download the signed APK from [GitHub Releases](https://github.com/svrforum/SFPanel/releases/tag/android-v0.1.2). Pushing an `android-v*` tag automatically tests, signs, verifies, and publishes the Android release.
+See the [Android guide](android/README.md) for build instructions and validation scope. Download the signed APK from [GitHub Releases](https://github.com/svrforum/SFPanel/releases/tag/android-v0.1.5). Pushing an `android-v*` tag automatically tests, signs, verifies, and publishes the Android release.
 
 ## Desktop app (Tauri)
 
@@ -348,7 +354,7 @@ SFPanel supports a multi-node cluster built on the HashiCorp Raft consensus algo
 - **API proxy** — API requests on non-leader nodes are relayed to the leader automatically
 - **WebSocket relay** — connect to remote-node terminals and logs over a relay
 - **Metric sharing** — each node's CPU, memory, disk and container metrics aggregate into the cluster overview
-- **Cluster update** — update SFPanel across the whole cluster in rolling/simultaneous mode (SSE progress streaming)
+- **Cluster update** — update SFPanel across the whole cluster in rolling/simultaneous mode (SSE progress streaming). Startable from any node; the leader finishes the run even if the node you are connected to restarts
 
 ### Setting up a cluster
 
@@ -451,7 +457,7 @@ All REST responses use a uniform JSON shape:
 ```
 
 - Auth: `Authorization: Bearer <JWT>` header
-- WebSocket auth: query parameter `?token=<JWT>`
+- WebSocket auth: a single-use ticket from `POST /api/v1/auth/ws-ticket` (`?ticket=`, 60 s). `?token=<JWT>` is accepted from loopback only
 - Cluster remote-node calls: adding `?node=<nodeID>` to any protected route makes `ClusterProxyMiddleware` transparently forward to the target node (gRPC 30s; SSE/WS relay directly over HTTP/WS)
 - 15+ SSE streaming endpoints (system update, Docker image pull, Compose up/update, stack migration, package/VPN install, appstore install, cluster update)
 
@@ -461,8 +467,8 @@ All REST responses use a uniform JSON shape:
 |------|------|
 | [docs/specs/tech-features.md](docs/specs/tech-features.md) | Full feature detail + tech stack |
 | [docs/specs/api-spec.md](docs/specs/api-spec.md) | Complete REST/SSE endpoints + request/response schemas |
-| [docs/specs/websocket-spec.md](docs/specs/websocket-spec.md) | 7 WebSocket + 15+ SSE message schemas + cluster relay |
-| [docs/specs/db-schema.md](docs/specs/db-schema.md) | SQLite 16+ tables + retention policy + migrations |
+| [docs/specs/websocket-spec.md](docs/specs/websocket-spec.md) | 8 WebSocket + 15+ SSE message schemas + cluster relay |
+| [docs/specs/db-schema.md](docs/specs/db-schema.md) | SQLite 19 tables + retention policy + migrations |
 | [docs/specs/frontend-spec.md](docs/specs/frontend-spec.md) | Pages/components/routing/state/build |
 | [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md) | Cluster operator runbook: partition detection/recovery, forced disband, port migration procedure |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
@@ -476,7 +482,7 @@ SFPanel **runs as root** and is a powerful tool that can manage the entire serve
 
 - **2FA strongly recommended** — enable it with a TOTP app (Google Authenticator, etc.) under Settings → Two-Factor Authentication. If the panel is compromised, the whole server is at risk.
 - **Strong password** — at least 12 characters during initial setup
-- **Reverse proxy + TLS** — in production, terminate HTTPS with Nginx/Caddy/Cloudflare Tunnel etc. The bundled port 3628 is plain HTTP.
+- **Check HTTPS** — fresh installs serve the panel over HTTPS from its own CA (`server.tls.enabled`). On older installs, turn it on or terminate HTTPS with a reverse proxy (Nginx/Caddy/Cloudflare Tunnel etc.). Install the panel's CA certificate on your devices to avoid browser warnings.
 - **Restrict access** — allow 3628/3629/3630 only to trusted IPs/CIDRs via a firewall (UFW)
 - **JWT secret on manual install** — set a unique value with `openssl rand -hex 32` (the install script generates it automatically)
 

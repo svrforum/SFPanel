@@ -1,8 +1,8 @@
 # SFPanel 프론트엔드 스펙
 
-> 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/frontend-inventory.md`
+> 라우트 표 확인: 2026-09-25 · 기준 버전: v0.78.0 (SPA 경로 45개 전부 수록)
 >
-> v0.10.0 이후 추가된 페이지/컴포넌트는 본 문서에 미반영입니다. 권한 있는 출처는 `web/src/`이며, 변경 요약은 `CHANGELOG.md`를 참조하세요. 본 문서가 코드와 어긋날 경우 코드를 우선시합니다.
+> 페이지·컴포넌트·API 클라이언트 설명은 기능이 추가된 시점에 작성되어, 이후 하위 디렉토리로 분할된 구조나 최근 메서드가 빠져 있을 수 있습니다. 권한 있는 출처는 `web/src/`이며, 변경 요약은 `CHANGELOG.md`를 참조하세요. 본 문서가 코드와 어긋날 경우 코드를 우선시합니다.
 >
 > **부분 갱신: 2026-06-03 · v0.40.0** — v0.19.0~v0.40.0 개선 캠페인에서 추가/변경된 프론트엔드 표면(신규 공용 컴포넌트, 횡단 UI 패턴, 신규 페이지/플로우, API 클라이언트 메서드)을 반영했습니다. 변경 항목에는 `(v0.NN.0)` 표기를 달았습니다. 캠페인 이전 본문은 v0.9.0 기준이며, 일부 페이지(특히 Settings)는 그동안 구조가 바뀌어 해당 섹션에 갱신 노트를 덧붙였습니다.
 >
@@ -73,6 +73,7 @@
 | `/disk/lvm` | DiskLVM | O | Disk | LVM PV/VG/LV 관리 |
 | `/disk/raid` | DiskRAID | O | Disk | RAID 배열 관리 |
 | `/disk/swap` | DiskSwap | O | Disk | 스왑 관리 |
+| `/disk/network-shares` | DiskNetworkShares | O | Disk | 네트워크 드라이브(SMB/CIFS·NFS) 등록·마운트 (v0.63.0+) |
 | `/firewall` | Firewall | O | Layout | 방화벽 관리 (사이드 탭 + Outlet 구조) |
 | `/firewall/rules` | FirewallRules | O | Firewall | UFW 규칙 관리 (기본 서브라우트) |
 | `/firewall/ports` | FirewallPorts | O | Firewall | 리스닝 포트 조회 |

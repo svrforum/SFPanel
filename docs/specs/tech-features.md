@@ -1,11 +1,11 @@
 # SFPanel 기술 스택 & 기능 스펙
 
-> 마지막 전체 동기화: 2026-04-19 · 기능 워크스루 보강: 2026-06-03 (v0.19.0–v0.40.0) · 2026-08-11 (v0.41.0–v0.55.0) · 기준 버전: v0.55.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/features-inventory.md`, `CHANGELOG.md`
+> 기능 목록 동기화: 2026-09-25 · 기준 버전: v0.78.0 · 변경 요약은 `CHANGELOG.md`
 >
 > 경량 서버 관리 웹 패널. 개인 서버 관리자 및 DevOps 팀을 위한 Docker 중심 관리 도구.
 > 올인원 Go 바이너리 아키텍처 — React SPA를 `go:embed`로 포함하여 단일 실행 파일로 배포.
 >
-> 아래 **기능 목록**(§1–§23)은 v0.55.0까지의 변경을 반영합니다. 단, 본 문서 하단의 표 섹션(API/WS/SSE 엔드포인트 목록, 프론트엔드 페이지 등)은 v0.9.0 스냅샷에 고가시 누락분만 덧댄 상태로, 이후 추가된 라우트/페이지를 일부 누락합니다. REST/SSE 라우트의 권위 문서는 `docs/specs/api-spec.md`, WS/SSE 스트리밍은 `docs/specs/websocket-spec.md`입니다. 변경 요약은 `CHANGELOG.md`를, 설계 의도는 `docs/superpowers/specs/`의 테마별 디자인 문서를 참조하세요.
+> 아래 **기능 목록**(§1–§28)은 v0.78.0까지의 기능을 다룹니다. 하단의 표 섹션(API/WS/SSE 엔드포인트, 프론트엔드 페이지)은 요약이며, 라우트 전수 목록은 `docs/specs/api-spec.md`, WS/SSE 스트리밍은 `docs/specs/websocket-spec.md`가 권위 문서입니다.
 
 ---
 
@@ -88,6 +88,7 @@
 
 - **설명**: 노드 단위 서버 상태를 한눈에 파악하는 실시간 모니터링 대시보드. 클러스터 모드에서는 좌측 트리에서 선택한 노드 범위로 렌더되고, `?node=` 프록시를 통해 원격 노드 메트릭도 동일 UI로 표시된다.
 - **데이터 로딩**: 초기 진입 시 단일 통합 엔드포인트 `GET /api/v1/system/overview`로 호스트 정보 + 현재 메트릭 + 히스토리 + 버전 + 업데이트 정보를 한 번에 수신(`DashboardOverview`). 서버는 host/metrics와 history를 goroutine 2개로 병렬 수집하고, 한 소스가 실패해도 500 대신 부분 데이터 + null 필드로 응답한다(대시보드가 장애의 첫 단서이므로 빈 화면보다 부분 표시 우선; UI가 null을 가드).
+- **구성 (v0.78.0)**: 리소스 상태와 조치가 필요한 알림을 앞에 두고, 영향받는 컨테이너·관리 페이지로 바로 연결한다. 모바일에서는 섹션을 접을 수 있고, 갱신이 실패하면 마지막 성공 데이터를 유지한 채 다시 시도 버튼을 보인다. 차트는 시간·백분율 축, 데이터 공백 표시, 키보드·터치 구간 선택, 계열 토글, 접근성 데이터 표를 갖췄다.
 - **주요 기능**:
   - 실시간 CPU/메모리/디스크/네트워크 메트릭 카드 (`/ws/metrics` WebSocket, 2초 간격; 우상단 연결 상태 Live/Disconnected 배지)
   - CPU/메모리 사용률 시계열 차트 (**1/4/12/24시간** 범위 토글 — `range` 쿼리로 서버에서 윈도우 조회)
@@ -98,7 +99,7 @@
   - Top 프로세스 (CPU 사용률 기준, 10초 간격 자동 갱신)
   - 최근 시스템 로그 — **syslog / 방화벽 로그 탭 토글** (각 8 / 50줄; 클릭 시 해당 로그 페이지로 이동)
   - **업데이트 배너**: `update_info.latest_version`가 현재 버전보다 높으면 상단 배너 표시 → `/settings?scope=node&tab=system`로 이동
-  - 빠른 액션 바로가기 (파일, Docker, 패키지, Cron, 로그)
+  - 사용자 지정 바로가기 (v0.78.0+)
 - **관련 엔드포인트**: `GET /system/overview`(통합), `GET /system/info`·`GET /system/metrics-history`(개별, 하위호환 유지), top 프로세스/컨테이너/로그 조회, `/ws/metrics`(클러스터 래핑 WS)
 - **관련 기술**: gopsutil v4, gorilla/websocket, uPlot, Echo WebSocket, Raft 클러스터 프록시(`?node=`)
 
@@ -336,7 +337,6 @@
   - 비클러스터 → 클러스터 마이그레이션 경로 없음 (Init/Join 신규만 지원)
   - TLS: CA 10년 / 노드 인증서 5년 TTL, 만료 자동 감시는 없음. 노드 인증서는 `sfpanel cluster reissue-cert`로 무중단 재발급 가능, CA 회전은 전 노드 동시 재시작 필요
   - 네트워크 분할 시 Raft 안전성만 보장 (분할 뇌 자체는 막지 않음)
-- **설계 문서**: `docs/superpowers/specs/2026-04-13-cluster-join-redesign.md` (조인 재설계), `docs/superpowers/research/2026-04-19-docs-overhaul/cluster-inventory.md` (인벤토리)
 - **관련 기술**: hashicorp/raft, raft-boltdb, gRPC, protobuf, crypto/x509
 
 ### 16. 시스템 튜닝
@@ -409,7 +409,6 @@
   - **평가 주기**: `manager.go`가 60초 ticker로 `WHERE enabled=1` 규칙 평가 + 컨테이너 이벤트(`internal/monitor/docker_events.go`) 구독. 발송은 **bounded 비동기 워커 큐**로 분리 — 느린 webhook이 평가 ticker나 docker 이벤트 리스너를 막지 않음
   - **채널 테스트**: 채널 생성/편집 후 테스트 알림 발송 엔드포인트 제공
 - **관련 기술**: net/http (Discord/Telegram/Webhook 전송), database/sql, 고루틴 (백그라운드 평가)
-- **설계 문서**: `docs/superpowers/specs/2026-04-07-alert-system-design.md`
 
 ### 22. 설정
 
@@ -454,6 +453,38 @@
   - 노드 로컬 기능 — 세션 표(`ai_sessions`, 마이그레이션 36)는 FSM 복제 없이 노드별로 보관하고, 다른 노드는 `?node=`로 조회
 - **관련 기술**: tmux, systemd-run, runuser, creack/pty, SSE 스트리밍, SQLite
 - **관련 문서**: `docs/specs/api-spec.md` § AI 워크스페이스 API, `docs/specs/websocket-spec.md` § 7 `/ws/ai/attach`
+
+---
+
+### 25. 패널 HTTPS (`server.tls`, v0.64.0+)
+
+- **설명**: 패널이 스스로 HTTPS를 제공한다. `install.sh`가 **신규 설치에서만** 켜며, 기존 `config.yaml`은 건드리지 않는다(기존 설치는 운영자가 켤 때까지 HTTP 유지, 역방향 프록시 구성은 그대로).
+- **관리 모드(기본)**: `internal/paneltls`가 로컬 CA를 만들고 패널 인증서를 발급한다(`server.tls.dir`, 기본 `/etc/sfpanel/tls`). **CA 10년, 인증서 1년** — 기기에 설치하는 것은 CA이므로 CA가 오래 가고, 인증서는 플랫폼의 398일 상한 아래로 유지한다. 인증서는 부팅 시 만료 90일 전부터 갱신되고, 호스트 주소가 바뀌면 재발급된다(CA는 그대로라 기기에는 한 번만 설치). CA는 설정 → 시스템에서 내려받는다.
+- **운영자 지정 모드**: `cert_file` + `key_file`(+ 루프백 검증용 `ca_file`)을 지정하면 패널은 아무것도 만들지 않고, 파일을 읽지 못하면 **시작하지 않는다**(엉뚱한 자체 인증서로 대신 서비스하지 않음).
+- **SAN**: localhost, 호스트명, 루프백 주소, 안정적인 인터페이스의 모든 주소. Docker가 프로젝트마다 만드는 `br-*`·`veth*`는 제외한다.
+- **HSTS 없음**: CA를 아직 설치하지 않은 기기의 "그래도 계속" 경로를 막지 않기 위해 의도적으로 보내지 않는다.
+- **주의**: 켜면 origin이 바뀌므로(`http://` ↔ `https://`) 세션과 origin별 `localStorage`가 초기화된다. 평문으로의 리다이렉트는 없다.
+- **클러스터**: 노드마다 자체 CA를 운영하고, 피어는 FSM을 통해 서로의 CA를 신뢰한다.
+
+### 26. Compose 안전 검사 2단계 (v0.77.0+)
+
+- **설명**: 스택 편집기가 패널 자체 앱스토어 앱(docker.sock을 쓰는 dozzle·portainer·traefik 등)까지 거부하던 문제를 두 단계로 나눠 해결했다.
+- **차단(해제 불가)**: 패널 자신의 비밀이 있는 경로 — `/etc/sfpanel`(JWT 서명 비밀·클러스터 CA 키), `/var/lib/sfpanel`(DB), `/root/.ssh`, `/etc/sudoers.d` — 의 마운트. 어떤 확인으로도 풀리지 않는다.
+- **확인 후 허용**: docker.sock, 호스트 네임스페이스(`network_mode: host`·`pid: host`), capabilities, 장치 전달, seccomp 해제 등. 저장 시 목록을 보여주고 `acknowledge_risks`로 확인하면 진행한다.
+- **검사 지점**: 편집기 저장(본문), 배포 직전(`docker compose config`로 **해석된** 설정 — `.env` 변수로 들어오는 경로까지), 앱스토어 설치(`.env`에 들어가는 저장 경로 포함), 컨테이너 직접 생성(`volumes`·`network`).
+- **범위**: 서비스 볼륨뿐 아니라 최상위 `secrets:`/`configs:`의 `file:`, 이름 있는 볼륨의 `driver_opts.device`까지 본다. 경로는 정규화(`path.Clean`, `/var/run`→`/run`) 후 비교한다.
+
+### 27. 네트워크 드라이브 (v0.63.0+)
+
+- **설명**: SMB/CIFS·NFS 공유를 fstab에 등록해 마운트한다. 진실의 원천은 `/etc/fstab` 하나이며, 패널이 만든 항목은 `# sfpanel-netshare` 마커로 구분하고 손으로 쓴 항목은 읽기만 한다.
+- **주요 기능**: 등록·마운트·언마운트·제거, 등록 전 접속 테스트, 호스트가 내보내는 공유 검색, `cifs-utils`/`nfs-common` 설치 확인·설치. SMB 비밀번호는 fstab이 아니라 0600 자격증명 파일에 둔다. 부팅을 막지 않도록 `nofail`로 등록한다.
+- **관련 엔드포인트**: `/api/v1/disks/network-shares/*` (api-spec.md § 네트워크 공유 API)
+
+### 28. Android 앱 (android-v0.1.x)
+
+- **설명**: 패널 웹 UI를 감싸는 Android 앱(Android 8.0 이상). 패널 릴리스와 별도로 `android-v*` 태그로 배포되며, 서명된 APK와 체크섬이 GitHub 릴리스에 올라간다.
+- **주요 기능**: 여러 서버 저장, 서버별 인증서 지문 확인 후 신뢰 저장(사설 CA), 로그인 상태를 서버별로 암호화 보관, 앱 내 업데이트 확인.
+- **터미널 키 바**: 방향키·Esc·Tab·Enter와 Shift/Ctrl/Alt 조합키를 항상 표시하고, 조작 패널에 이동·조합키·출력 도구를 둔다. 키보드가 열리면 상단 바를 접고 키 높이를 줄이며, 가로 화면에서는 한 줄로 배치한다(0.1.5).
 
 ---
 

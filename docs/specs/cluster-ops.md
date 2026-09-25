@@ -158,5 +158,4 @@ If you want a clean wipe after disband, manually delete `{Cluster.DataDir}`,
 
 - `docs/specs/api-spec.md` — `/cluster/*` REST routes
 - `docs/specs/websocket-spec.md` — WS relay through cluster proxy
-- `docs/superpowers/specs/2026-04-13-cluster-join-redesign.md` — design intent
-  for the current join flow
+- `docs/specs/cluster-partition-runbook.md` — partition detection and recovery

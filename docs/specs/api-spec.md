@@ -1,7 +1,7 @@
 # SFPanel API 스펙
 
-> 마지막 전체 동기화: 2026-04-19 · 기준 버전: v0.9.0 · 근거: `docs/superpowers/research/2026-04-19-docs-overhaul/api-inventory.md`
-> v0.19.0–v0.40.0 캠페인 라우트 반영: 2026-06-03 (`internal/api/router.go` 기준 등록 라우트 279개)
+> 라우트 목록 동기화: 2026-09-25 · 기준 버전: v0.78.0 (`internal/api/router.go` 기준 등록 라우트 320개 — REST/SSE 312 + WebSocket 8, SPA catch-all 제외)
+> 아래 요약표는 등록된 라우트를 모두 싣습니다. 개별 엔드포인트의 요청·응답 상세는 기능이 추가된 시점에 작성되어, 최근 버전의 세부 필드가 빠져 있을 수 있습니다.
 >
 > 권한 있는 출처는 `internal/api/router.go`이며, 변경 요약은 `CHANGELOG.md`를 참조하세요. 본 문서가 코드와 어긋날 경우 코드를 우선시합니다.
 
@@ -4922,7 +4922,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 ## 알림 — Webhook 채널 (v0.25.0+)
 
-`POST/PUT /api/v1/alerts/channels`의 `type`에 기존 `discord`/`telegram`에 더해 **`webhook`**(Slack/Mattermost 호환)이 추가되었습니다. `config`는 `{"webhook_url":"https://…"}` 형식이며, 임의의 http(s) 대상이 허용됩니다(홈랩 수신기 대응). webhook 채널은 JSON 본문에 Slack 호환 `text` 필드 + 구조화 필드(`title`, `message`, `severity`, `source:"SFPanel"`, `timestamp`)를 POST합니다. 채널 라우트 자체는 기존과 동일(아래 요약 표 참조)하며 `type` 검증과 페이로드만 확장되었습니다.
+`POST /api/v1/alerts/channels`·`PUT /api/v1/alerts/channels/:id`의 `type`에 기존 `discord`/`telegram`에 더해 **`webhook`**(Slack/Mattermost 호환)이 추가되었습니다. `config`는 `{"webhook_url":"https://…"}` 형식이며, 임의의 http(s) 대상이 허용됩니다(홈랩 수신기 대응). webhook 채널은 JSON 본문에 Slack 호환 `text` 필드 + 구조화 필드(`title`, `message`, `severity`, `source:"SFPanel"`, `timestamp`)를 POST합니다. 채널 라우트 자체는 기존과 동일(아래 요약 표 참조)하며 `type` 검증과 페이로드만 확장되었습니다.
 
 ---
 
@@ -5026,7 +5026,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 ## 전체 엔드포인트 요약
 
-`internal/api/router.go` 기준 등록 라우트 총 279개 (REST/SSE + WebSocket 8개). 이 외에 SSE 스트리밍 엔드포인트는 REST 숫자에 포함됩니다. Docker 소켓 미사용 시 `/api/v1/docker/*` 라우트는 미등록. 실제 등록 라우트는 서버 시작 로그 또는 `internal/api/router.go`에서 확인.
+`internal/api/router.go` 기준 등록 라우트 총 320개 (REST/SSE 312 + WebSocket 8, v0.78.0). 이 외에 SSE 스트리밍 엔드포인트는 REST 숫자에 포함됩니다. Docker 소켓 미사용 시 `/api/v1/docker/*` 라우트는 미등록. 실제 등록 라우트는 서버 시작 로그 또는 `internal/api/router.go`에서 확인.
 
 ### 인증/설정 (15개)
 
@@ -5369,6 +5369,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/docker/networks` | O | 네트워크 목록 |
 | POST | `/api/v1/docker/networks` | O | 네트워크 생성 |
 | DELETE | `/api/v1/docker/networks/:id` | O | 네트워크 삭제 |
+| POST | `/api/v1/docker/networks/:id/:operation` | O | 기존 컨테이너를 네트워크에 연결(`connect`)·해제(`disconnect`) (v0.78.0+) |
 | GET | `/api/v1/docker/networks/:id/inspect` | O | 네트워크 상세 조회 |
 
 ### Docker - Prune (5개)
@@ -5386,6 +5387,8 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/docker/compose` | O | Compose 프로젝트 목록 |
+| GET | `/api/v1/docker/compose/cluster-stacks` | O | 클러스터 전체 노드의 스택 집계 (오프라인 노드는 오류 표시와 빈 목록) |
+| POST | `/api/v1/docker/compose/:project/diff` | O | 배포된 YAML과 편집 중인 YAML의 변경 요약 (배포 전 미리보기, v0.78.0+) |
 | POST | `/api/v1/docker/compose` | O | Compose 프로젝트 생성 |
 | POST | `/api/v1/docker/compose/import` | O | GitHub 저장소에서 compose 가져와 스택 생성 |
 | GET | `/api/v1/docker/compose/:project` | O | Compose 프로젝트 상세 |
@@ -5393,7 +5396,8 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | DELETE | `/api/v1/docker/compose/:project` | O | Compose 프로젝트 삭제 |
 | POST | `/api/v1/docker/compose/:project/up` | O | Compose 시작 |
 | POST | `/api/v1/docker/compose/:project/up-stream` | O | Compose 시작 (SSE 스트리밍) |
-| POST | `/api/v1/docker/compose/:project/down` | O | Compose 중지 |
+| POST | `/api/v1/docker/compose/:project/stop` | O | 컨테이너·네트워크를 남긴 채 프로세스만 중지 (v0.78.0+) |
+| POST | `/api/v1/docker/compose/:project/down` | O | Compose 내리기 (컨테이너·네트워크 제거) |
 | GET | `/api/v1/docker/compose/:project/env` | O | 환경변수 파일 조회 |
 | PUT | `/api/v1/docker/compose/:project/env` | O | 환경변수 파일 수정 |
 | GET | `/api/v1/docker/compose/:project/services` | O | 서비스 목록 |
@@ -5419,6 +5423,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/appstore/apps` | O | 앱 목록 (카테고리 필터) |
 | GET | `/api/v1/appstore/apps/:id` | O | 앱 상세 정보 + Compose YAML |
 | POST | `/api/v1/appstore/apps/:id/install` | O | 앱 설치 |
+| DELETE | `/api/v1/appstore/apps/:id` | O | 앱 제거 (노드별, `?keep_data=true`면 데이터 보존) |
 | GET | `/api/v1/appstore/installed` | O | 설치된 앱 목록 |
 | POST | `/api/v1/appstore/refresh` | O | 앱스토어 캐시 갱신 |
 
@@ -5490,6 +5495,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | WS | `/ws/metrics` | O (query) | 실시간 메트릭 (단일 sampler 공유, v0.24.0+) |
 | WS | `/ws/cluster/overview` | O (query) | 클러스터 status+overview+이벤트 스냅샷 푸시 (v0.31.0+) |
 | WS | `/ws/logs` | O (query) | 실시간 로그 스트리밍 |
+| WS | `/ws/ai/attach` | O (ticket) | tmux 세션 연결 (`?session_id=`, 셸·AI CLI 세션, v0.73.0+) |
 | WS | `/ws/terminal` | O (query) | 호스트 PTY 터미널 (영속, 256KB 스크롤백, 최대 20 세션; `?session_id=`로 재접속) |
 | WS | `/ws/docker/containers/:id/logs` | O (query) | 컨테이너 로그 |
 | WS | `/ws/docker/containers/:id/exec` | O (query) | 컨테이너 셸 exec |

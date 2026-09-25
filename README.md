@@ -19,38 +19,39 @@
 
 - 🪶 **단일 바이너리** — Go 백엔드 + 임베디드 React SPA. SQLite 내장(CGO-free), 외부 의존성 0. `curl | sudo bash` 한 줄이면 끝.
 - 🐳 **Docker는 선택** — 소켓이 있으면 컨테이너·Compose 스택까지 관리하고, 없으면 해당 메뉴만 빠지고 나머지는 그대로 동작.
-- 🔒 **보안 기본 탑재** — JWT + TOTP 2FA + 일회용 복구 코드, 로그인 rate-limit, 파괴적 작업 type-to-confirm.
-- 📱 **데스크탑부터 모바일까지** — 한국어/English, 반응형 웹 + PWA, 그리고 Windows/macOS/Linux 네이티브 앱(Tauri).
+- 🤖 **브라우저 안의 AI 코딩 세션** — Claude Code·Codex·Gemini CLI를 서버에서 띄우고, 탭을 닫아도 세션이 살아 있어 휴대폰에서 이어서 작업.
+- 🔒 **보안 기본 탑재** — 신규 설치는 HTTPS(자체 CA) 기본, JWT + TOTP 2FA + 일회용 복구 코드, 로그인 rate-limit, 파괴적 작업 type-to-confirm.
+- 📱 **데스크탑부터 모바일까지** — 한국어/English, 반응형 웹 + PWA, Windows/macOS/Linux 네이티브 앱(Tauri), Android 앱.
 - 🧩 **클러스터는 선택** — 기본은 단일 노드. 필요하면 Raft 멀티노드(실시간 오버뷰 + `?node=` 투명 프록시)로 확장.
 
 ## 주요 기능
 
 | 영역 | 내용 |
 |------|------|
-| **대시보드** | CPU·메모리·디스크·네트워크 실시간 모니터링(WebSocket), 24시간 히스토리 차트, Docker 요약, 빠른 작업 바로가기 |
-| **Docker** | 컨테이너·이미지·볼륨·네트워크, Compose 스택(서비스별 상세·업데이트 현재→대상 digest·롤백), Hub 검색, 리소스 정리, 노드 간 스택 콜드 마이그레이션(정의·.env·볼륨/바인드 데이터·이미지 이전, retain/delete/clone, 전송 속도 제한) |
+| **대시보드** | 리소스 상태·조치가 필요한 알림 중심 구성, CPU·메모리·디스크·네트워크 실시간 모니터링(WebSocket), 24시간 히스토리 차트(구간 선택·데이터 표), Docker 요약, 사용자 지정 바로가기 |
+| **Docker** | 컨테이너·이미지·볼륨·네트워크(검색·필터·정렬, 네트워크 연결/해제), Compose 스택(배포 전 변경 미리보기·서비스별 상세·업데이트 현재→대상 digest·롤백), 위험 설정 확인 절차(docker.sock·호스트 네임스페이스 등은 확인 후 허용, 패널 비밀 경로 마운트는 차단), Hub 검색, 리소스 정리, 노드 간 스택 콜드 마이그레이션(정의·.env·볼륨/바인드 데이터·이미지 이전, retain/delete/clone, 전송 속도 제한) |
 | **앱스토어** | 큐레이션된 **90+** 셀프호스팅 앱 원클릭 설치(\*arr·Nextcloud·Vaultwarden·Immich·AdGuard·Authentik·Forgejo 등). 추천 배지·정렬·검색, "업데이트 있음" 배지, 데이터 보존 삭제, 설치 후 헬스 체크 |
 | **파일 관리** | 브라우저 파일 탐색기 + Monaco 에디터, 재귀 검색, 복사·다중선택 삭제, 업로드/다운로드 |
-| **터미널** | xterm.js 멀티탭 웹 터미널(PTY), 세션 유지·재연결, 10,000줄 스크롤백, 모바일 터치 스크롤 |
+| **터미널 · AI 코딩** | 셸과 AI CLI(Claude Code·Codex·Gemini)를 tmux 세션으로 실행 — 브라우저를 닫거나 패널을 재시작해도 유지, 디렉토리별 세션 목록, 실행 옵션·계정 프로파일, 모바일 키 바. tmux가 없으면 PTY 터미널로 대체 |
 | **프로세스·서비스·크론** | 프로세스 트리·renice·시그널(TERM/KILL/STOP/CONT 등); systemd 서비스 제어·유닛 보기; crontab GUI + 즉시 실행·출력 캡처 + **시스템 크론 실행 로그** |
 | **로그** | 시스템/커스텀 로그 실시간 스트리밍(SSE), 구조화 파싱(auth·UFW·Fail2ban·sfpanel), 검색·레벨 색상·다운로드 |
 | **네트워크 / VPN** | 인터페이스(DHCP/Static)·DNS·라우팅·본딩, **WireGuard**(피어 관리·키 생성·클라이언트 QR·부팅 자동시작), **Tailscale** |
-| **디스크** | 파티션·파일시스템·LVM·RAID·스왑, 사용량 탐색기, **S.M.A.R.T.** 자체 검사 실행 + 로그 |
+| **디스크** | 파티션·파일시스템·LVM·RAID·스왑, 사용량 탐색기, 네트워크 드라이브(NFS/SMB) 마운트, **S.M.A.R.T.** 자체 검사 실행 + 로그 |
 | **방화벽** | UFW 규칙(잠금 방지 가드)·Fail2ban Jail·Docker 방화벽(DOCKER-USER 체인)·통합 포트맵(방화벽×컨테이너×프로세스) |
 | **패키지** | APT 검색/설치/업그레이드 + Docker·Node.js·Claude·Codex·Gemini 원클릭 설치(실시간 SSE 스트리밍) |
-| **보안·감사** | JWT + TOTP 2FA + 일회용 복구 코드, bcrypt, 로그인 rate-limit(5회→5분), 감사 로그(사용자·IP·경로·상태·노드) |
+| **보안·감사** | 패널 HTTPS(자체 CA, 신규 설치 기본), JWT + TOTP 2FA + 일회용 복구 코드, 브라우저 재시작 후 세션 복구, bcrypt, 로그인 rate-limit(5회→5분), 감사 로그(사용자·IP·경로·상태·노드) |
 | **백업·업데이트** | 설정 백업/복원, 예약 백업(보존 개수), 웹 셀프 업데이트(SSE + cosign/SHA-256 검증·자동 .bak 스냅샷·워치독 롤백) |
 | **알림** | 조건 기반 규칙 + 채널(Discord·Telegram·Webhook=Slack/Mattermost 호환) + 알림 이력 |
-| **클러스터** (선택) | Raft 멀티노드(자동 리더 선출·mTLS·조인 토큰), 실시간 오버뷰 WS, `?node=` 투명 프록시, 롤링 업데이트 |
-| **그 외** | 한국어/English(자동 감지) · 반응형 + PWA · 시스템 튜닝 프로파일 · 데스크탑 앱(Tauri, Win/macOS/Linux) |
+| **클러스터** (선택) | Raft 멀티노드(자동 리더 선출·mTLS·조인 토큰), 실시간 오버뷰 WS, `?node=` 투명 프록시, 어느 노드에서나 시작하는 롤링 업데이트 |
+| **그 외** | 한국어/English(자동 감지) · 반응형 + PWA · 시스템 튜닝 프로파일 · 데스크탑 앱(Tauri, Win/macOS/Linux) · Android 앱 |
 
 ## 아키텍처
 
 ```
 Go Binary (Echo v4)
-├── REST API (270+ endpoints) + WebSocket (7) + SSE (15+ streaming)
+├── REST API (310+ endpoints) + WebSocket (8) + SSE (15+ streaming)
 ├── Embedded React SPA (go:embed)
-├── SQLite (16+ tables — 인증, 설정, 감사 로그, 메트릭 히스토리, 알림, 컨테이너 이벤트, 볼륨 사용량, 예약 백업 외)
+├── SQLite (19 tables — 인증, 설정, 감사 로그, 메트릭 히스토리, 알림, 컨테이너 이벤트, 볼륨 사용량, 예약 백업 외)
 ├── Docker Go SDK (소켓 직접 통신, 미가용 시 Docker 라우트만 비활성)
 ├── Compose Manager (filesystem 기반, docker compose CLI)
 ├── System Metrics (gopsutil, 60초 주기 24시간 히스토리)
@@ -67,8 +68,9 @@ internal/
 ├── api/
 │   ├── router.go           # 라우트 등록
 │   ├── middleware/          # JWT, 감사 로그, 클러스터 프록시, 요청 로깅
-│   └── response/            # 표준 응답, 에러 코드 (150+), 출력 새니타이징
-├── feature/                 # 22개 독립 기능 모듈
+│   └── response/            # 표준 응답, 에러 코드 (190+), 출력 새니타이징
+├── feature/                 # 23개 독립 기능 모듈
+│   ├── ai/                  # AI 코딩·셸 세션 (tmux, 실행 옵션, 계정 프로파일)
 │   ├── auth/                # JWT, TOTP 2FA + 복구 코드, 비밀번호
 │   ├── docker/              # 컨테이너, 이미지, 볼륨, 네트워크
 │   ├── compose/             # Docker Compose 스택 (헬스체크 컴포저, 백업 retention)
@@ -92,6 +94,8 @@ internal/
 │   ├── audit/               # 감사 로그 (50k 롤링)
 │   └── settings/            # 패널 설정
 ├── cluster/                 # Raft, gRPC, TLS, 합의 엔진
+├── composex/                # Compose 안전 검사 (차단/확인 2단계)
+├── paneltls/                # 패널 HTTPS (자체 CA + 인증서 자동 갱신)
 ├── db/                      # SQLite 마이그레이션, 스키마
 ├── config/                  # YAML 설정 로딩
 ├── docker/                  # Docker SDK 클라이언트
@@ -105,12 +109,12 @@ internal/
 
 | 영역 | 기술 |
 |------|------|
-| Backend | Go 1.25, Echo v4, SQLite (modernc.org/sqlite, CGO-free) |
+| Backend | Go 1.26, Echo v4, SQLite (modernc.org/sqlite, CGO-free) |
 | Frontend | React 19, TypeScript 6, Vite 8 (rolldown), Tailwind CSS v4, shadcn/ui |
 | UI | uplot (차트), xterm.js v6 (터미널), Monaco Editor (코드 에디터) |
 | Auth | JWT (golang-jwt/jwt/v5) + TOTP (pquerna/otp) + bcrypt + refresh token rotation |
 | Docker | Docker Go SDK v28 |
-| Cluster | HashiCorp Raft v1.7, gRPC v1.79, mTLS (CA 자동 발급), peers.json 쿼럼 손실 복구 |
+| Cluster | HashiCorp Raft v1.7, gRPC v1.83, mTLS (CA 자동 발급), peers.json 쿼럼 손실 복구 |
 | Monitoring | gopsutil v4, gorilla/websocket |
 | Desktop | Tauri 2 (Rust, Windows/Linux/macOS) |
 | i18n | 한국어 / English (i18next) |
@@ -189,7 +193,9 @@ sudo /usr/local/bin/sfpanel /etc/sfpanel/config.yaml
 ```yaml
 server:
   host: "0.0.0.0"
-  port: 3628                     # 기본: 3628 HTTP, 3629 클러스터 gRPC, 3630 Raft
+  port: 3628                     # 기본: 3628 패널, 3629 클러스터 gRPC, 3630 Raft
+  tls:
+    enabled: true                # 신규 설치 기본값 — 자체 CA로 인증서 발급·갱신 (/etc/sfpanel/tls)
 
 database:
   path: "/var/lib/sfpanel/sfpanel.db"
@@ -314,7 +320,7 @@ sudo systemctl start sfpanel
 
 Android 8.0 이상에서 서버 연결과 전체 웹 관리 화면을 사용할 수 있습니다. 터미널·AI 코딩을 위한 Shift/Ctrl/Alt 키, 출력 기록 이동, 여러 줄 프롬프트 편집, 출력 읽기·검색을 제공합니다. 큰 터치 영역, 시스템 글자 크기, TalkBack 레이블과 한국어/영어를 지원합니다.
 
-빌드·설치 방법과 검증 범위는 [Android 앱 안내](android/README.md)를 참고하세요. [GitHub 릴리즈](https://github.com/svrforum/SFPanel/releases/tag/android-v0.1.4)에서 서명된 APK를 받을 수 있습니다. `android-v*` 태그를 push하면 테스트와 서명 검증 후 자동 배포됩니다.
+빌드·설치 방법과 검증 범위는 [Android 앱 안내](android/README.md)를 참고하세요. [GitHub 릴리즈](https://github.com/svrforum/SFPanel/releases/tag/android-v0.1.5)에서 서명된 APK를 받을 수 있습니다. `android-v*` 태그를 push하면 테스트와 서명 검증 후 자동 배포됩니다.
 
 ## 데스크탑 앱 (Tauri)
 
@@ -348,7 +354,7 @@ SFPanel은 HashiCorp Raft 합의 알고리즘 기반 멀티노드 클러스터�
 - **API 프록시** — 비-리더 노드의 API 요청을 리더에게 자동 릴레이
 - **WebSocket 릴레이** — 원격 노드의 터미널, 로그를 릴레이로 접속
 - **메트릭 공유** — 각 노드의 CPU, 메모리, 디스크, 컨테이너 메트릭을 클러스터 오버뷰에서 집계
-- **클러스터 업데이트** — 롤링/동시 모드로 전체 클러스터 SFPanel 업데이트 (SSE 진행률 스트리밍)
+- **클러스터 업데이트** — 롤링/동시 모드로 전체 클러스터 SFPanel 업데이트 (SSE 진행률 스트리밍). 어느 노드에서나 시작할 수 있고, 접속한 노드가 재시작돼도 리더가 끝까지 진행
 
 ### 클러스터 구성
 
@@ -451,7 +457,7 @@ cd e2e && npm run test:headed   # 브라우저 UI
 ```
 
 - 인증: `Authorization: Bearer <JWT>` 헤더
-- WebSocket 인증: 쿼리 파라미터 `?token=<JWT>`
+- WebSocket 인증: `POST /api/v1/auth/ws-ticket`으로 받은 일회용 티켓(`?ticket=`, 60초). `?token=<JWT>`는 로컬 루프백에서만 허용
 - 클러스터 원격 노드 호출: 모든 보호 라우트에 `?node=<nodeID>` 추가 시 `ClusterProxyMiddleware`가 대상 노드로 투명 포워딩 (gRPC 30s, SSE/WS는 HTTP/WS 직접 릴레이)
 - SSE 스트리밍 엔드포인트 15+개 (시스템 업데이트, Docker 이미지 풀, Compose up/update, Compose 스택 마이그레이션, 패키지·VPN 설치, appstore 설치, 클러스터 업데이트)
 
@@ -461,8 +467,8 @@ cd e2e && npm run test:headed   # 브라우저 UI
 |------|------|
 | [docs/specs/tech-features.md](docs/specs/tech-features.md) | 전체 기능 상세 + 기술 스택 |
 | [docs/specs/api-spec.md](docs/specs/api-spec.md) | REST/SSE 엔드포인트 전수 + 요청·응답 스키마 |
-| [docs/specs/websocket-spec.md](docs/specs/websocket-spec.md) | WebSocket 7개 + SSE 15+개 메시지 스키마 + 클러스터 릴레이 |
-| [docs/specs/db-schema.md](docs/specs/db-schema.md) | SQLite 16+개 테이블 + 보존 정책 + 마이그레이션 |
+| [docs/specs/websocket-spec.md](docs/specs/websocket-spec.md) | WebSocket 8개 + SSE 15+개 메시지 스키마 + 클러스터 릴레이 |
+| [docs/specs/db-schema.md](docs/specs/db-schema.md) | SQLite 19개 테이블 + 보존 정책 + 마이그레이션 |
 | [docs/specs/frontend-spec.md](docs/specs/frontend-spec.md) | 페이지/컴포넌트/라우팅/상태/빌드 |
 | [docs/specs/cluster-partition-runbook.md](docs/specs/cluster-partition-runbook.md) | 클러스터 운영자 런북: 파티션 감지·복구, 강제 disband, 포트 마이그레이션 절차 |
 | [CHANGELOG.md](CHANGELOG.md) | 릴리스 노트 |
@@ -476,7 +482,7 @@ SFPanel은 **root 권한으로 실행**되며, 서버 전체를 관리할 수 �
 
 - **2FA 필수 권장** — 설정 → 2단계 인증에서 TOTP 앱(Google Authenticator 등)으로 활성화. 패널이 탈취되면 서버 전체가 위험합니다.
 - **강력한 비밀번호** — 초기 설정 시 최소 12자 이상
-- **역방향 프록시 + TLS** — 프로덕션은 Nginx/Caddy/Cloudflare Tunnel 등으로 HTTPS를 적용. 번들된 3628 포트는 plain HTTP입니다.
+- **HTTPS 확인** — 신규 설치는 패널 자체 CA로 HTTPS가 켜집니다(`server.tls.enabled`). 기존 설치는 직접 켜거나 Nginx/Caddy/Cloudflare Tunnel 등 역방향 프록시로 HTTPS를 적용하세요. 브라우저 경고 없이 쓰려면 패널의 CA 인증서를 기기에 설치합니다.
 - **접근 제한** — 방화벽(UFW)으로 3628/3629/3630을 신뢰 IP/CIDR에만 허용
 - **수동 설치 시 JWT 시크릿** — 반드시 `openssl rand -hex 32`로 고유한 값 설정 (설치 스크립트는 자동 생성)
 
