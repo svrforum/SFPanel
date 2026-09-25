@@ -24,6 +24,16 @@
 - 📱 **데스크탑부터 모바일까지** — 한국어/English, 반응형 웹 + PWA, Windows/macOS/Linux 네이티브 앱(Tauri), Android 앱.
 - 🧩 **클러스터는 선택** — 기본은 단일 노드. 필요하면 Raft 멀티노드(실시간 오버뷰 + `?node=` 투명 프록시)로 확장.
 
+## 스크린샷
+
+| 대시보드 | 터미널 · AI 코딩 세션 |
+|:---:|:---:|
+| <img src="docs/images/dashboard.png" alt="대시보드" width="480" /> | <img src="docs/images/terminal.png" alt="터미널과 AI 코딩 세션" width="480" /> |
+| **Docker** | **앱스토어** |
+| <img src="docs/images/docker.png" alt="Docker 컨테이너" width="480" /> | <img src="docs/images/appstore.png" alt="앱스토어" width="480" /> |
+| **클러스터** | **모바일** |
+| <img src="docs/images/cluster.png" alt="클러스터 개요" width="480" /> | <img src="docs/images/mobile.png" alt="모바일 대시보드" width="200" /> |
+
 ## 주요 기능
 
 | 영역 | 내용 |

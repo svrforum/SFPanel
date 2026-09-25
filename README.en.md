@@ -24,6 +24,18 @@
 - 📱 **Desktop to mobile** — Korean/English, responsive web + PWA, native Windows/macOS/Linux apps (Tauri), and an Android app.
 - 🧩 **Cluster optional** — single-node by default. Scale out to a Raft multi-node setup (live overview + transparent `?node=` proxy) when you need it.
 
+## Screenshots
+
+| Dashboard | Terminal · AI coding sessions |
+|:---:|:---:|
+| <img src="docs/images/dashboard.png" alt="Dashboard" width="480" /> | <img src="docs/images/terminal.png" alt="Terminal and AI coding sessions" width="480" /> |
+| **Docker** | **App Store** |
+| <img src="docs/images/docker.png" alt="Docker containers" width="480" /> | <img src="docs/images/appstore.png" alt="App Store" width="480" /> |
+| **Cluster** | **Mobile** |
+| <img src="docs/images/cluster.png" alt="Cluster overview" width="480" /> | <img src="docs/images/mobile.png" alt="Mobile dashboard" width="200" /> |
+
+<sub>Shown with the Korean UI; English is built in and follows the browser language.</sub>
+
 ## Features
 
 | Area | What it does |
