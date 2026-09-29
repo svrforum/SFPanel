@@ -66,11 +66,21 @@ export async function copyText(text: string): Promise<boolean> {
     ta.style.position = 'fixed'
     ta.style.top = '-9999px'
     ta.style.left = '-9999px'
-    document.body.appendChild(ta)
+    // Inside a modal the textarea has to live in the dialog. A modal traps
+    // focus and pulls it back from anything outside, so a textarea in <body>
+    // ended up unfocused with nothing selected — and execCommand('copy') still
+    // returned true, so the button said "copied" over the old clipboard.
+    const previous = document.activeElement as HTMLElement | null
+    const host = previous?.closest('[role="dialog"]') ?? document.body
+    host.appendChild(ta)
+    ta.focus({ preventScroll: true })
     ta.select()
     ta.setSelectionRange(0, text.length)
-    const ok = document.execCommand('copy')
-    document.body.removeChild(ta)
+    // Only a textarea that kept focus has anything selected to copy.
+    const ok = document.activeElement === ta && document.execCommand('copy')
+    ta.remove()
+    // Give focus back — to the terminal, after its Ctrl+Shift+C.
+    previous?.focus?.({ preventScroll: true })
     return ok
   } catch {
     return false
