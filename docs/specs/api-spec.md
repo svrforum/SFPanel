@@ -3946,6 +3946,9 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 ### DELETE /api/v1/ai/sessions/:id
 살아있으면 `kill-session`, 행 삭제. `AI_SESSION_NOT_FOUND`(404). **Response:** `{ "deleted": "<id>" }`
 
+### GET /api/v1/ai/sessions/:id/text
+세션의 기록과 현재 화면을 평문으로 돌려준다 — 터미널 페이지의 "텍스트 선택" 창이 쓴다. tmux는 브라우저 터미널의 대체 화면에 그리므로 브라우저에는 한 화면만 있고 나머지 기록은 tmux에 있다. `capture-pane -p -J -S -2000`: `-J`가 pane 폭에서 줄바꿈된 줄을 이어 붙여 복사한 명령·경로가 끊기지 않는다. 줄 끝 공백과 마지막 출력 아래 빈 줄은 뺀다. `AI_SESSION_NOT_FOUND`(404, 잘못된 id이거나 끝난 세션) · `INVALID_ACCOUNT`(400, 세션 계정이 사라짐). **Response:** `{ "text": "..." }`
+
 ---
 
 ## Docker 이미지 — 업데이트 확인 API
@@ -5327,6 +5330,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/ai/sessions/:id/rerun` | O | 도구 다시 실행 |
 | POST | `/api/v1/ai/sessions/:id/restart` | O | 종료된 세션 다시 시작 |
 | DELETE | `/api/v1/ai/sessions/:id` | O | 세션 종료 |
+| GET | `/api/v1/ai/sessions/:id/text` | O | 세션 기록을 평문으로 |
 
 ### Docker - 컨테이너 (11개)
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1080,5 +1081,52 @@ func TestRestart_UnbuildableStoredLaunchIsNotACommandFailure(t *testing.T) {
 		if slices.Contains(c.Args, "new-session") {
 			t.Errorf("a set that cannot be built must not reach a spawn: %+v", c)
 		}
+	}
+}
+
+// A tmux session draws into the terminal's alternate buffer, so the browser
+// holds one screen of it; the text view asks tmux for the history. -J joins
+// the lines tmux wrapped, and the blanks and empty rows tmux keeps are trimmed.
+func TestSessionText_CapturesTheHistoryJoined(t *testing.T) {
+	m := tmuxMock("line one   \n$ cat /opt/stacks/app/docker-compose.yml\ngzip: stdin: not in gzip format\n\n\n")
+	h := newTestHandler(t, m)
+	h.DB = openTestDB(t)
+	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolShell, Title: "a", RunAs: "root", CWD: "/"})
+
+	rec := call(t, h.SessionText, http.MethodGet, "", "aaaaaaaaaaaa", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("text: %d %s", rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Data struct {
+			Text string `json:"text"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	want := "line one\n$ cat /opt/stacks/app/docker-compose.yml\ngzip: stdin: not in gzip format"
+	if env.Data.Text != want {
+		t.Errorf("text = %q, want %q", env.Data.Text, want)
+	}
+	var captured bool
+	for _, c := range m.Calls {
+		if strings.HasSuffix(strings.Join(c.Args, " "), "capture-pane -p -J -t aaaaaaaaaaaa -S -"+strconv.Itoa(historyLines)) {
+			captured = true
+		}
+	}
+	if !captured {
+		t.Errorf("want a joined capture of the history; calls %+v", m.Calls)
+	}
+}
+
+func TestSessionText_RefusesABadIDAndAnEndedSession(t *testing.T) {
+	h := newTestHandler(t, noServerMock())
+	h.DB = openTestDB(t)
+	if code, _ := failCode(t, call(t, h.SessionText, http.MethodGet, "", "../etc", "")); code != response.ErrAISessionNotFound {
+		t.Errorf("bad id: got %s, want AI_SESSION_NOT_FOUND", code)
+	}
+	if code, _ := failCode(t, call(t, h.SessionText, http.MethodGet, "", "bbbbbbbbbbbb", "")); code != response.ErrAISessionNotFound {
+		t.Errorf("ended session: got %s, want AI_SESSION_NOT_FOUND", code)
 	}
 }

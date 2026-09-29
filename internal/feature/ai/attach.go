@@ -43,6 +43,59 @@ func replayHistory(out string) []byte {
 	return []byte(strings.ReplaceAll(out, "\n", "\r\n") + "\r\n")
 }
 
+// sessionAccount is the account a session runs as. A live session without a
+// row is the panel account's — but only when the table really has no row for
+// it. A read error is not a not-found: silently switching the account would
+// reach the wrong session. When failed is true, err is the response to return.
+func (h *Handler) sessionAccount(c echo.Context, id string) (acct Account, failed bool, err error) {
+	row, found, rerr := getSessionRow(h.DB, id)
+	if rerr != nil {
+		return h.panel, true, response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not read the session")
+	}
+	if !found {
+		return h.panel, false, nil
+	}
+	a, ok := h.resolveAccount(row.RunAs)
+	if !ok {
+		return h.panel, true, response.Fail(c, http.StatusBadRequest, response.ErrInvalidAccount, "the session's account no longer exists")
+	}
+	return a, false, nil
+}
+
+// SessionText — GET /ai/sessions/:id/text: the session's history and screen as
+// plain text, for the terminal page's text view. tmux draws into the
+// terminal's alternate buffer, so the browser only ever holds one screen of a
+// session; the rest lives here. -J joins the lines tmux wrapped at the pane's
+// width, so a copied command or path comes out whole.
+func (h *Handler) SessionText(c echo.Context) error {
+	id := c.Param("id")
+	if !validSessionID(id) {
+		return response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
+	}
+	acct, failed, err := h.sessionAccount(c, id)
+	if failed {
+		return err
+	}
+	out, err := h.tmux(acct, "capture-pane", "-p", "-J", "-t", id, "-S", "-"+strconv.Itoa(historyLines))
+	if err != nil {
+		return response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
+	}
+	return response.OK(c, map[string]string{"text": paneText(out)})
+}
+
+// paneText drops what capture-pane -J keeps but a copy does not want: the
+// blanks at the end of every line and the empty rows below the last output.
+func paneText(out string) string {
+	lines := strings.Split(out, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " ")
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.Join(lines, "\n")
+}
+
 // Enable wheel reporting on every attach, including sessions created by older
 // panels with mouse off. tmux uses the terminal's alternate buffer: its history
 // lives in tmux, not in xterm's scrollback. Mouse input reaches copy mode or the
@@ -101,20 +154,9 @@ func (h *Handler) AttachWS(jwtSecret func() string, auditWriter *sfdb.AsyncWrite
 		if !validSessionID(id) {
 			return response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
 		}
-		// A live session without a row is attached as the panel account — but
-		// only when the table really has no row for it. A read error is not a
-		// not-found: silently switching the account would attach the wrong one.
-		acct := h.panel
-		row, found, err := getSessionRow(h.DB, id)
-		if err != nil {
-			return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not read the session")
-		}
-		if found {
-			a, ok := h.resolveAccount(row.RunAs)
-			if !ok {
-				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidAccount, "the session's account no longer exists")
-			}
-			acct = a
+		acct, failed, err := h.sessionAccount(c, id)
+		if failed {
+			return err
 		}
 
 		ws, err := attachUpgrader.Upgrade(c.Response(), c.Request(), nil)

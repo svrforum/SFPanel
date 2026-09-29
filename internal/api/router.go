@@ -595,6 +595,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	ai.POST("/sessions/:id/rerun", aiHandler.RerunSession)
 	ai.POST("/sessions/:id/restart", aiHandler.RestartSession)
 	ai.DELETE("/sessions/:id", aiHandler.DeleteSession)
+	ai.GET("/sessions/:id/text", aiHandler.SessionText)
 	ai.GET("/profiles", aiHandler.Profiles)
 	ai.POST("/profiles", aiHandler.CreateProfile)
 	ai.DELETE("/profiles/:tool/:name", aiHandler.DeleteProfile)
