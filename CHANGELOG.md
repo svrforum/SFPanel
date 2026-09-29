@@ -6,6 +6,30 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.2] – 2026-09-29
+
+### Fixed
+
+**A server joined to a running cluster rejected its own users until it restarted.** Joining without a restart replaces the node's signing key, and login signed with the new key while every request was still checked against the old one. The new node answered 401 to its web sessions and to every `sfpanel cluster` command until `systemctl restart sfpanel`.
+
+**A cluster could lose its password change and its 2FA.** A node that won an election within 30 seconds of booting pushed the admin account it had at join time back into the cluster. The password reverted, 2FA was switched off on every node, and a local admin under another name became a second cluster account. The boot sync now only fills in what the cluster lacks.
+
+**Creating a cluster invalidated the admin's 2FA recovery codes.** They were not carried into the cluster, so every saved code stopped working. They are now.
+
+**A joining server's own admin account kept working after the join.** It could sign in outside the cluster's password and 2FA, and every node accepted its tokens. The new node now takes over the cluster's admin account.
+
+**A node whose cluster failed to start could have its cluster data deleted.** Its Cluster page offered Init and Join. A failed Init deleted the node's Raft data and certificates, and a second click founded a new cluster over the old one. Both now refuse, and the page says to restart the panel.
+
+**On new HTTPS installs, terminals, logs and streams on another node failed until both nodes restarted.** A cluster created or joined without a restart never published the nodes' certificates, so peers reached them over plain HTTP.
+
+**`sfpanel cluster token` run on a follower printed a join command that fails.** It showed the follower's address; it now prints the leader's. The web join form also sent the server's first network interface as its address; it now lets the server pick the one that reaches the leader.
+
+**On a phone, Settings in cluster mode had no password or 2FA section.** The phone menu opens the node's settings, and the page had no way across. A switch at the top now moves between the cluster-wide settings (account, password, 2FA) and this node's.
+
+### Docs
+
+The README now has a guide for adding a server to a cluster: matching versions, the ports to open between nodes, joining without the setup wizard, the web UI path, what joining does to accounts, why two nodes cannot survive a failure, and what the common errors mean. The steps after install use HTTPS, which fresh installs serve.
+
 ## [0.78.1] – 2026-09-29
 
 ### Fixed
