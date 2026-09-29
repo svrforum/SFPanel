@@ -148,6 +148,13 @@ func main() {
 	}()
 	slog.Info("database ready", "path", cfg.Database.Path)
 
+	// Context for long-lived background goroutines. Cancelled on SIGTERM
+	// below so they stop cleanly before the DB closes. Declared before the
+	// activation callback so the goroutines it starts — the bootstrap sync and
+	// the panel-CA publisher — can bind to it.
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	defer bgCancel()
+
 	// Define LiveActivate callback for dynamic cluster activation
 	liveActivate := cluster.LiveActivateFunc(func(activeCfg *config.Config, activeCfgPath string, existingMgr *cluster.Manager) (*cluster.Manager, error) {
 		var mgr *cluster.Manager
@@ -212,14 +219,24 @@ func main() {
 			grpcServer.Stop()
 		}()
 
+		// Keep this node's panel CA in replicated state so peers know to reach
+		// it over HTTPS and which authority to trust. Started here rather than
+		// on the boot path alone: init and join activate a running panel
+		// without a restart, and a node that never published was relayed to
+		// over ws:// and http:// — which an HTTPS-only listener refuses, so
+		// its terminal, logs and streams failed from every peer. The
+		// certificate is read fresh on each tick, so a re-issue (address
+		// change, renewal) propagates without a restart.
+		if activeCfg.Server.TLS.Enabled && activeCfg.Server.TLS.Managed() {
+			tlsDir := activeCfg.Server.TLS.Dir
+			mgr.StartPanelCAPublisher(bgCtx, func() (string, error) {
+				pem, err := paneltls.New(tlsDir).CACertPEM()
+				return string(pem), err
+			})
+		}
+
 		return mgr, nil
 	})
-
-	// Context for long-lived background goroutines. Cancelled on SIGTERM
-	// below so they stop cleanly before the DB closes. Declared before the
-	// cluster block so the bootstrap-sync goroutine can bind to it.
-	bgCtx, bgCancel := context.WithCancel(context.Background())
-	defer bgCancel()
 
 	// Start cluster manager if enabled
 	var clusterMgr *cluster.Manager
@@ -249,17 +266,6 @@ func main() {
 			})
 		}
 
-		// Keep this node's panel CA in replicated state so peers know to reach
-		// it over HTTPS and which authority to trust. The certificate is read
-		// fresh on each tick rather than captured here, so a re-issue (address
-		// change, renewal) propagates without a restart.
-		if cfg.Server.TLS.Enabled && cfg.Server.TLS.Managed() {
-			tlsDir := cfg.Server.TLS.Dir
-			clusterMgr.StartPanelCAPublisher(bgCtx, func() (string, error) {
-				pem, err := paneltls.New(tlsDir).CACertPEM()
-				return string(pem), err
-			})
-		}
 	}
 
 	// Start background metrics history collector (60s interval, 24h rolling window)
