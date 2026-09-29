@@ -679,11 +679,17 @@ func clusterToken(args []string) {
 		grpcPort = cfg.Cluster.GRPCPort
 	}
 
+	joinCmd := fmt.Sprintf("sudo sfpanel cluster join %s:%d %s", addr, grpcPort, envelope.Data.Token)
 	fmt.Printf("Join token (expires: %s):\n\n", envelope.Data.ExpiresAt.Format(time.RFC3339))
 	fmt.Printf("  %s\n\n", envelope.Data.Token)
-	fmt.Println("Join command:")
-	fmt.Printf("  sfpanel cluster join %s:%d %s\n", addr, grpcPort, envelope.Data.Token)
+	fmt.Println("On a server that already runs SFPanel:")
+	fmt.Printf("  %s\n\n", joinCmd)
+	fmt.Println("On a new server — install and join in one step:")
+	fmt.Printf("  curl -fsSL %s | sudo bash && %s\n", installScriptURL, joinCmd)
 }
+
+// installScriptURL is the installer the README's one-liner fetches.
+const installScriptURL = "https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh"
 
 func clusterRemove(args []string) {
 	cfgPath, rest := parseCfgFlag(args)

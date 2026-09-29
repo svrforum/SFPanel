@@ -992,6 +992,7 @@
       "generatedToken": "생성된 토큰",
       "expiresAt": "만료",
       "joinCommand": "참가 명령어",
+      "installAndJoin": "새 서버: 설치부터 가입까지 한 번에",
       "copied": "클립보드에 복사됨",
       "activeTitle": "활성 토큰",
       "activeDescription": "아직 만료되거나 폐기되지 않은 참가 토큰",

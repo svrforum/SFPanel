@@ -994,6 +994,7 @@
       "generatedToken": "Generated Token",
       "expiresAt": "Expires",
       "joinCommand": "Join Command",
+      "installAndJoin": "New server: install and join in one step",
       "copied": "Copied to clipboard",
       "activeTitle": "Active Tokens",
       "activeDescription": "Join tokens that have not yet expired or been revoked",

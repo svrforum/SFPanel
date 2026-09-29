@@ -9,6 +9,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 
+// The installer the README's one-liner fetches; the token page prints the same line.
+const INSTALL_SCRIPT_URL = 'https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh'
+
 // Monospace box with a top-right copy button. Each instance tracks its own
 // copied state, so the check feedback shows on the button that was clicked
 // (the old inline pair shared one flag and only the first button ever ticked).
@@ -146,6 +149,14 @@ export default function ClusterTokens() {
               {t('cluster.tokens.joinCommand')}
             </label>
             <CopyBlock text={`sudo sfpanel cluster join ${advertise}:${grpcPort} ${token}`} />
+          </div>
+
+          {/* A server without SFPanel yet: the installer, then the same join */}
+          <div>
+            <label className="text-[11px] text-muted-foreground uppercase tracking-wider block mb-2">
+              {t('cluster.tokens.installAndJoin')}
+            </label>
+            <CopyBlock text={`curl -fsSL ${INSTALL_SCRIPT_URL} | sudo bash && sudo sfpanel cluster join ${advertise}:${grpcPort} ${token}`} />
           </div>
         </div>
       )}

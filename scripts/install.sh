@@ -513,6 +513,7 @@ verify_service_started() {
   local attempt
   for attempt in 1 2 3 4 5 6 7 8 9 10; do
     if systemctl is-active --quiet "$SERVICE_NAME"; then
+      wait_for_panel_port
       return 0
     fi
     sleep 1
@@ -543,6 +544,25 @@ verify_service_started() {
     log_warn "  systemctl start ${SERVICE_NAME}"
   fi
   exit 1
+}
+
+# wait_for_panel_port waits up to 30s for the panel to accept connections.
+# is-active turns true the moment the process starts, before it has opened the
+# database or its listener. Waiting here keeps the "Access" URL printed next
+# honest, and lets a command chained after the installer — the one-step
+# `install.sh | sudo bash && sudo sfpanel cluster join …` — reach the running
+# panel instead of finding the port closed and joining offline.
+wait_for_panel_port() {
+  local port attempt
+  port=$(read_config_port)
+  port=${port:-3628}
+  for attempt in $(seq 1 30); do
+    if (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  log_warn "The service is running but port ${port} is not answering yet — see: journalctl -u ${SERVICE_NAME}"
 }
 
 print_success() {

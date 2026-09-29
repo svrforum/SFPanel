@@ -386,17 +386,16 @@ SFPanel supports a multi-node cluster built on the HashiCorp Raft consensus algo
 ```bash
 # Existing node — create the cluster first if there is none yet
 sudo sfpanel cluster init --name my-cluster --advertise <existing-node-ip>
-sudo sfpanel cluster token      # prints the exact join command for the new server
+sudo sfpanel cluster token      # prints the line to paste on the new server, leader address and token filled in
 
-# New server — install, then paste the command printed above (no setup wizard needed)
-curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash
-sudo sfpanel cluster join <leader-ip>:3629 <token>
+# New server — install and join in one line (no setup wizard needed)
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash && sudo sfpanel cluster join <leader-ip>:3629 <token>
 
 # Check — done when the new node shows follower / online within a minute
 sudo sfpanel cluster list
 ```
 
-**From the web UI:** on an existing node, open **Cluster**, press **Initialize Cluster** if there is none yet, and generate a token on the **Tokens** tab. On the new server, create a temporary admin in the setup wizard, open **Cluster**, and enter the leader address (`<leader-ip>:3629`) and the token under **Join Existing Cluster**. Unless you pick an address yourself, the one that reaches the leader is used.
+**From the web UI:** on an existing node, open **Cluster**, press **Initialize Cluster** if there is none yet, and generate a token on the **Tokens** tab (it shows the one-line install-and-join command for a new server too). On the new server, create a temporary admin in the setup wizard, open **Cluster**, and enter the leader address (`<leader-ip>:3629`) and the token under **Join Existing Cluster**. Unless you pick an address yourself, the one that reaches the leader is used.
 
 **What joining changes:**
 

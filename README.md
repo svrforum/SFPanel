@@ -384,17 +384,16 @@ SFPanel은 HashiCorp Raft 합의 알고리즘 기반 멀티노드 클러스터�
 ```bash
 # 기존 노드 — 클러스터가 아직 없다면 먼저 만듭니다
 sudo sfpanel cluster init --name my-cluster --advertise <기존-노드-IP>
-sudo sfpanel cluster token      # 새 서버에서 실행할 join 명령을 그대로 출력합니다
+sudo sfpanel cluster token      # 새 서버에 붙여 넣을 한 줄을 리더 주소·토큰까지 채워 출력합니다
 
-# 새 서버 — 설치한 뒤 위에서 출력된 명령을 붙여 넣습니다(셋업 위저드는 필요 없음)
-curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash
-sudo sfpanel cluster join <리더-IP>:3629 <token>
+# 새 서버 — 설치부터 가입까지 한 줄로(셋업 위저드는 필요 없음)
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash && sudo sfpanel cluster join <리더-IP>:3629 <token>
 
 # 확인 — 새 노드가 1분 안에 follower / online으로 보이면 끝
 sudo sfpanel cluster list
 ```
 
-**웹 UI로:** 기존 노드의 **클러스터** 메뉴에서 (처음이면) **클러스터 초기화**를 하고 **토큰** 탭에서 토큰을 만듭니다. 새 서버는 셋업 위저드로 임시 관리자를 만든 뒤 **클러스터** 메뉴의 **기존 클러스터에 가입**에 리더 주소(`<리더-IP>:3629`)와 토큰을 넣습니다. 주소를 따로 고르지 않으면 리더에 닿는 주소를 자동으로 씁니다.
+**웹 UI로:** 기존 노드의 **클러스터** 메뉴에서 (처음이면) **클러스터 초기화**를 하고 **토큰** 탭에서 토큰을 만듭니다(새 서버용 원스텝 한 줄도 함께 나옵니다). 새 서버는 셋업 위저드로 임시 관리자를 만든 뒤 **클러스터** 메뉴의 **기존 클러스터에 가입**에 리더 주소(`<리더-IP>:3629`)와 토큰을 넣습니다. 주소를 따로 고르지 않으면 리더에 닿는 주소를 자동으로 씁니다.
 
 **가입하면 달라지는 것:**
 
