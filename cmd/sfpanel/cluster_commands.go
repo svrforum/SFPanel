@@ -353,6 +353,16 @@ func clusterJoin(args []string) {
 		ConfigPath: cfgPath,
 		Config:     cfg,
 	}
+	// With the database the join makes the cluster admin this node's local
+	// account, as a join through the running server does. Without it, an
+	// offline join — a host with no systemd, or a stopped service — left a
+	// differently named local admin working beside the cluster's.
+	if database, dbErr := db.Open(cfg.Database.Path); dbErr != nil {
+		log.Printf("Warning: failed to open database; the local admin account is left as is: %v", dbErr)
+	} else {
+		defer database.Close()
+		engine.DB = database
+	}
 
 	fmt.Printf("Pre-flight check against %s...\n", leaderAddr)
 	pf, err := engine.PreFlight(leaderAddr, token)
