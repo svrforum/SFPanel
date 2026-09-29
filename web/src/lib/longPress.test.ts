@@ -16,6 +16,7 @@ describe('attachLongPress', () => {
   let el: HTMLElement
   let root: EventTarget
   let fired: number
+  let at: [number, number] | null
   let detach: () => void
   // Where the finger goes: touchstart lands on the element, the rest of the
   // gesture is heard on the root (the window), as in a browser.
@@ -28,19 +29,21 @@ describe('attachLongPress', () => {
     el = new EventTarget() as unknown as HTMLElement
     root = new EventTarget()
     fired = 0
-    detach = attachLongPress(el, () => { fired++ }, { root })
+    at = null
+    detach = attachLongPress(el, (x, y) => { fired++; at = [x, y] }, { root })
   })
   afterEach(() => {
     detach()
     vi.useRealTimers()
   })
 
-  it('fires once a resting finger has held for the delay', () => {
-    down()
+  it('fires once a resting finger has held for the delay, where it went down', () => {
+    down(30, 40)
     vi.advanceTimersByTime(499)
     expect(fired).toBe(0)
     vi.advanceTimersByTime(1)
     expect(fired).toBe(1)
+    expect(at).toEqual([30, 40])
   })
 
   it('tolerates a finger that drifts within the slop', () => {

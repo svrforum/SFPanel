@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -10,6 +10,8 @@ import { api } from '@/lib/api'
 import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import { attachLongPress } from '@/lib/longPress'
 import { SELECT_TEXT_EVENT } from '@/lib/terminalText'
+import { lineAt, wordAt, type TextSpan } from '@/lib/terminalWord'
+import { TerminalCopyBar, type CopyBarAnchor } from './TerminalCopyBar'
 import { cn, copyText } from '@/lib/utils'
 import { toast } from 'sonner'
 import { MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, NO_MODIFIERS, terminalKey, type TerminalModifiers } from '@/lib/terminalKeys'
@@ -88,6 +90,33 @@ export interface TerminalSessionElement extends HTMLElement {
   __wsRef?: RefObject<WebSocket | null>
 }
 
+// What a long press at (x, y) lands on: the word under the finger and its
+// line, with where they sit on screen for the copy bar. Null off the text grid
+// or on an empty row.
+interface CopyTarget { word: TextSpan | null; line: TextSpan | null; anchor: CopyBarAnchor }
+function copyTargetAt(term: XTerm, container: HTMLElement, x: number, y: number): CopyTarget | null {
+  const screen = container.querySelector('.xterm-screen')
+  if (!screen || !term.cols || !term.rows) return null
+  const rect = screen.getBoundingClientRect()
+  const cellW = rect.width / term.cols
+  const cellH = rect.height / term.rows
+  const col = Math.floor((x - rect.left) / cellW)
+  const viewRow = Math.floor((y - rect.top) / cellH)
+  if (col < 0 || col >= term.cols || viewRow < 0 || viewRow >= term.rows) return null
+  const buffer = term.buffer.active
+  const row = buffer.viewportY + viewRow
+  const word = wordAt(buffer, term.cols, row, col)
+  const line = lineAt(buffer, term.cols, row)
+  const span = word ?? line
+  if (!span) return null
+  const lastRow = span.row + Math.floor((span.col + span.length - 1) / term.cols)
+  return {
+    word,
+    line,
+    anchor: { x, top: rect.top + (span.row - buffer.viewportY) * cellH, bottom: rect.top + (lastRow - buffer.viewportY + 1) * cellH },
+  }
+}
+
 export function TerminalSession({
   sessionId,
   active,
@@ -107,6 +136,30 @@ export function TerminalSession({
   const wsRef = useRef<WebSocket | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
+  // The long-press selection and its copy bar (null: none).
+  const [copyTarget, setCopyTarget] = useState<CopyTarget | null>(null)
+  const dismissCopy = useCallback(() => {
+    termRef.current?.clearSelection()
+    setCopyTarget(null)
+  }, [])
+  // Scrolling moves the text out from under the bar, and typing means the
+  // operator has moved on.
+  useEffect(() => {
+    const term = termRef.current
+    if (!copyTarget || !term) return
+    const subs = [term.onScroll(dismissCopy), term.onData(dismissCopy)]
+    return () => subs.forEach((s) => s.dispose())
+  }, [copyTarget, dismissCopy])
+  // A session that goes to the background takes its bar with it — the bar is
+  // rendered into <body> and would stay over the next session. The state
+  // follows the prop during render; the highlight is xterm's, cleared in an
+  // effect.
+  const [wasActive, setWasActive] = useState(active)
+  if (wasActive !== active) {
+    setWasActive(active)
+    if (!active) setCopyTarget(null)
+  }
+  useEffect(() => { if (!active) termRef.current?.clearSelection() }, [active])
   const { t } = useTranslation()
 
   useEffect(() => {
@@ -318,9 +371,21 @@ export function TerminalSession({
     // reach the scrollback (see lib/xtermTouchScroll).
     const detachTouch = container ? attachXtermTouchScroll(container, term) : () => {}
     // A long press is how a phone selects text, and xterm draws into a canvas
-    // with nothing to select, so it opens the page's text view instead.
+    // with nothing to select. So a long press selects the word under the
+    // finger in place, with xterm's own highlight, and raises a bar to copy it
+    // or its line, or to open the whole output as text; pressed on an empty
+    // row it opens that text view straight away.
     const detachLongPress = container
-      ? attachLongPress(container, () => window.dispatchEvent(new Event(SELECT_TEXT_EVENT)))
+      ? attachLongPress(container, (x, y) => {
+          const target = copyTargetAt(term, container, x, y)
+          if (!target) {
+            window.dispatchEvent(new Event(SELECT_TEXT_EVENT))
+            return
+          }
+          const span = target.word ?? target.line
+          if (span) term.select(span.col, span.row, span.length)
+          setCopyTarget(target)
+        })
       : () => {}
 
     // Re-fit when the terminal gains focus (user tapped to type). This
@@ -396,17 +461,37 @@ export function TerminalSession({
   // lookup (search/clear/key forwarding). Querying by Tailwind class substrings
   // broke silently when a className was reordered during the UI-polish churn;
   // this attribute is decoupled from styling.
+  const copyAndDismiss = async (text: string) => {
+    const ok = await copyText(text)
+    dismissCopy()
+    if (ok) toast.success(t('terminal.copyBar.copied', { text: text.length > 40 ? `${text.slice(0, 39)}…` : text }))
+    else toast.error(t('terminal.copyFailed', { defaultValue: 'Could not copy to clipboard' }))
+  }
+
   return (
-    <div
-      ref={containerRef}
-      data-terminal-session={active ? 'active' : 'inactive'}
-      className={cn(
-        // touch-none: xterm v6's viewport isn't natively touch-scrollable, so we
-        // drive scrollback from a touch-drag handler (see the effect above) —
-        // disable the browser's own touch gestures here so they can't preempt it.
-        'w-full h-full touch-none',
-        active ? 'block' : 'hidden'
+    <>
+      <div
+        ref={containerRef}
+        data-terminal-session={active ? 'active' : 'inactive'}
+        className={cn(
+          // touch-none: xterm v6's viewport isn't natively touch-scrollable, so we
+          // drive scrollback from a touch-drag handler (see the effect above) —
+          // disable the browser's own touch gestures here so they can't preempt it.
+          'w-full h-full touch-none',
+          active ? 'block' : 'hidden'
+        )}
+      />
+      {copyTarget && (
+        <TerminalCopyBar
+          anchor={copyTarget.anchor}
+          canCopyWord={copyTarget.word !== null}
+          canCopyLine={copyTarget.line !== null}
+          onCopyWord={() => { if (copyTarget.word) void copyAndDismiss(copyTarget.word.text) }}
+          onCopyLine={() => { if (copyTarget.line) void copyAndDismiss(copyTarget.line.text) }}
+          onViewAll={() => { dismissCopy(); window.dispatchEvent(new Event(SELECT_TEXT_EVENT)) }}
+          onDismiss={dismissCopy}
+        />
       )}
-    />
+    </>
   )
 }

@@ -1419,6 +1419,13 @@
     "prev": "이전",
     "next": "다음",
     "clear": "지우기",
+    "copyBar": {
+      "label": "터미널 텍스트 복사",
+      "copy": "복사",
+      "copyLine": "줄 복사",
+      "viewAll": "전체 보기",
+      "copied": "복사했습니다: {{text}}"
+    },
     "selectText": {
       "menu": "텍스트 선택",
       "title": "텍스트 선택",

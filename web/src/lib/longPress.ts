@@ -1,6 +1,7 @@
-// attachLongPress calls onLongPress when one finger rests on el for `delay` ms
-// without moving more than `slop` px. A moving finger (a scroll), a second
-// finger, or lifting early cancels it. Returns a cleanup.
+// attachLongPress calls onLongPress, with the point the finger went down at,
+// when one finger rests on el for `delay` ms without moving more than `slop`
+// px. A moving finger (a scroll), a second finger, or lifting early cancels
+// it. Returns a cleanup.
 //
 // Only the touchstart is heard on el. The rest of the gesture is heard on
 // `root` (the window) in the capture phase, ahead of every other listener: the
@@ -17,7 +18,7 @@
 // desktop right click) is left alone.
 export function attachLongPress(
   el: HTMLElement,
-  onLongPress: () => void,
+  onLongPress: (x: number, y: number) => void,
   { delay = 500, slop = 10, root = window as EventTarget }: { delay?: number; slop?: number; root?: EventTarget } = {},
 ): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -33,7 +34,7 @@ export function attachLongPress(
   const fire = () => {
     cancel()
     fired = true
-    onLongPress()
+    onLongPress(startX, startY)
   }
   const onTouchStart = (e: TouchEvent) => {
     cancel()

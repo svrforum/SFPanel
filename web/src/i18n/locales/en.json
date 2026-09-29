@@ -1421,6 +1421,13 @@
     "prev": "Prev",
     "next": "Next",
     "clear": "Clear",
+    "copyBar": {
+      "label": "Copy terminal text",
+      "copy": "Copy",
+      "copyLine": "Copy line",
+      "viewAll": "View all",
+      "copied": "Copied: {{text}}"
+    },
     "selectText": {
       "menu": "Select text",
       "title": "Select text",
