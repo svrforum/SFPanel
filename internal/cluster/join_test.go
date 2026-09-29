@@ -1,12 +1,14 @@
 package cluster
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/config"
+	"github.com/svrforum/SFPanel/internal/db"
 )
 
 func TestJoinEngine_Rollback_ConfigSaveFailure(t *testing.T) {
@@ -66,5 +68,67 @@ func TestJoinEngine_Rollback_ConfigSaveFailure(t *testing.T) {
 	restored, _ := os.ReadFile(configPath)
 	if string(restored) != string(originalConfig) {
 		t.Error("rollback should have restored original config")
+	}
+}
+
+func adminRows(t *testing.T, database *sql.DB) []map[string]string {
+	t.Helper()
+	rows, err := database.Query(`SELECT username, password, COALESCE(totp_secret, '<null>'), COALESCE(recovery_codes, '<null>') FROM admin ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []map[string]string
+	for rows.Next() {
+		var u, p, totp, codes string
+		if err := rows.Scan(&u, &p, &totp, &codes); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, map[string]string{"username": u, "password": p, "totp": totp, "codes": codes})
+	}
+	return out
+}
+
+// A joining node's own admin under another name used to survive the join: a
+// working login here whose tokens, signed with the cluster key, every node
+// accepted, outside the cluster's password and 2FA. The join must replace it
+// with the cluster admin, username included, and drop its recovery codes.
+func TestAdoptClusterAdmin_ReplacesADifferentlyNamedLocalAdmin(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "sfpanel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`INSERT INTO admin (username, password, totp_secret, recovery_codes) VALUES ('ops', 'local-hash', NULL, '["local-code"]')`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := adoptClusterAdmin(database, "admin", "cluster-hash", "TOTPSECRET"); err != nil {
+		t.Fatalf("adoptClusterAdmin: %v", err)
+	}
+
+	got := adminRows(t, database)
+	if len(got) != 1 || got[0]["username"] != "admin" || got[0]["password"] != "cluster-hash" ||
+		got[0]["totp"] != "TOTPSECRET" || got[0]["codes"] != "<null>" {
+		t.Fatalf("admin rows after join = %v, want only the cluster admin with no local recovery codes", got)
+	}
+}
+
+// A node with no local admin (set up only through the CLI) gets one, and a
+// cluster without 2FA stays without it: NULL, not an empty secret.
+func TestAdoptClusterAdmin_InsertsWhenThereIsNoLocalAdmin(t *testing.T) {
+	database, err := db.Open(filepath.Join(t.TempDir(), "sfpanel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	if err := adoptClusterAdmin(database, "admin", "cluster-hash", ""); err != nil {
+		t.Fatalf("adoptClusterAdmin: %v", err)
+	}
+
+	got := adminRows(t, database)
+	if len(got) != 1 || got[0]["username"] != "admin" || got[0]["totp"] != "<null>" {
+		t.Fatalf("admin rows after join = %v, want one cluster admin with 2FA off", got)
 	}
 }

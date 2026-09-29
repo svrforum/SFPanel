@@ -29,6 +29,35 @@ type JoinEngine struct {
 	OnActivate LiveActivateFunc // nil = config-only mode (CLI without running server)
 }
 
+// adoptClusterAdmin makes the cluster admin this node's local admin account.
+// It overwrites the single admin row by id, username included — the way the
+// feature handler's syncClusterAdminToLocalDB does on leave and disband — and
+// inserts one when the node has none.
+//
+// Matching by username, as this used to, left a local admin under any other
+// name in place: a working login on this node whose tokens, now signed with
+// the cluster key, were accepted on every node, outside the cluster's password
+// and 2FA. Its recovery codes are cleared for the same reason; the cluster's
+// codes live in the FSM.
+func adoptClusterAdmin(db *sql.DB, username, passwordHash, totpSecret string) error {
+	var totp interface{}
+	if totpSecret != "" {
+		totp = totpSecret // NULL keeps "2FA disabled" explicit
+	}
+	res, err := db.Exec(
+		`UPDATE admin SET username = ?, password = ?, totp_secret = ?, recovery_codes = NULL WHERE id = (SELECT id FROM admin ORDER BY id LIMIT 1)`,
+		username, passwordHash, totp,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return nil
+	}
+	_, err = db.Exec(`INSERT INTO admin (username, password, totp_secret) VALUES (?, ?, ?)`, username, passwordHash, totp)
+	return err
+}
+
 // PreFlightResult contains the result of a pre-flight check.
 type PreFlightResult struct {
 	ClusterName   string
@@ -220,17 +249,7 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr string) (*JoinResu
 	// Also sync the TOTP secret so the follower's local-DB login fallback
 	// can enforce 2FA before Raft replication lands the admin account.
 	if e.DB != nil && resp.AdminUsername != "" && resp.AdminPasswordHash != "" {
-		var totpValue interface{}
-		if resp.AdminTotpSecret == "" {
-			totpValue = nil // preserve "2FA disabled" state explicitly
-		} else {
-			totpValue = resp.AdminTotpSecret
-		}
-		_, err := e.DB.Exec(
-			"UPDATE admin SET password = ?, totp_secret = ? WHERE username = ?",
-			resp.AdminPasswordHash, totpValue, resp.AdminUsername,
-		)
-		if err != nil {
+		if err := adoptClusterAdmin(e.DB, resp.AdminUsername, resp.AdminPasswordHash, resp.AdminTotpSecret); err != nil {
 			slog.Warn("failed to sync admin credentials from leader", "error", err)
 		}
 	}

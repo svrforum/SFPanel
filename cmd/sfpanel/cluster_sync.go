@@ -14,10 +14,17 @@ import (
 const leaderPollInterval = 200 * time.Millisecond
 
 // syncBootstrapState polls until this node is leader (up to leaderWait), then
-// pushes the local admin account and JWT secret into the Raft FSM. Leadership
-// is required because both are Raft Applies. Best-effort: it logs and skips on
-// any sub-failure (the post-restart boot sync remains a backstop) and returns
-// without error in the normal "synced" or "nothing to sync" cases.
+// seeds the Raft FSM with the local admin account and JWT secret — but only
+// the ones the FSM does not hold yet. Leadership is required because both are
+// Raft Applies. Best-effort: it logs and skips on any sub-failure (the
+// post-restart boot sync remains a backstop) and returns without error in the
+// normal "synced" or "nothing to sync" cases.
+//
+// Seed, never overwrite: once clustered, password and 2FA changes go to the
+// FSM alone, so this node's local admin row is whatever it was at join time.
+// Pushing it unconditionally let any node that won an election inside the
+// boot window revert the cluster password, switch 2FA off on every node, or
+// add its own local admin as a second cluster account.
 //
 // Shared by two callers: the boot-time goroutine in main.go (run async so boot
 // doesn't block) and the CLI `cluster init` direct-mode path in
@@ -46,18 +53,13 @@ func syncBootstrapState(ctx context.Context, mgr *cluster.Manager, database *sql
 			return
 		}
 	}
-	var username, passwordHash string
-	var totpSecret sql.NullString
-	if err := database.QueryRow("SELECT username, password, totp_secret FROM admin LIMIT 1").Scan(&username, &passwordHash, &totpSecret); err == nil {
-		totp := ""
-		if totpSecret.Valid {
-			totp = totpSecret.String
-		}
-		if syncErr := mgr.SyncAccountFromDB(username, passwordHash, totp); syncErr != nil {
-			slog.Debug("account cluster sync skipped", "error", syncErr)
-		}
+	clusterSecret, clusterAdmin, _, _ := mgr.GetJWTAndAdminFull()
+	if clusterAdmin != "" {
+		slog.Debug("account cluster sync skipped: cluster already holds an account")
+	} else if _, err := mgr.SeedAdminFromDB(database); err != nil {
+		slog.Debug("account cluster sync skipped", "error", err)
 	}
-	if jwtSecret != "" {
+	if jwtSecret != "" && clusterSecret == "" {
 		if cErr := mgr.SetConfig("jwt_secret", jwtSecret); cErr != nil {
 			slog.Debug("jwt_secret cluster sync skipped", "error", cErr)
 		}

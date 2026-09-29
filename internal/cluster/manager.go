@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1173,6 +1174,40 @@ func (m *Manager) GetAccounts() map[string]*AdminAccount {
 		return nil
 	}
 	return m.raft.GetFSM().GetState().Accounts
+}
+
+// SeedAdminFromDB copies the local admin row — account and 2FA recovery codes —
+// into the FSM. It is for the one moment the local row is authoritative: a
+// cluster being created from this node. Recovery codes used to be left behind,
+// and once the account lived in the FSM, login read the FSM's empty list, so
+// every code the operator had saved stopped working. Returns false with a nil
+// error when there is no local admin to copy.
+func (m *Manager) SeedAdminFromDB(db *sql.DB) (bool, error) {
+	var username, passwordHash string
+	var totpSecret, recoveryCodes sql.NullString
+	err := db.QueryRow("SELECT username, password, totp_secret, recovery_codes FROM admin ORDER BY id LIMIT 1").
+		Scan(&username, &passwordHash, &totpSecret, &recoveryCodes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read local admin: %w", err)
+	}
+	if err := m.SyncAccountFromDB(username, passwordHash, totpSecret.String); err != nil {
+		return false, err
+	}
+	var hashes []string
+	if recoveryCodes.Valid && recoveryCodes.String != "" {
+		if err := json.Unmarshal([]byte(recoveryCodes.String), &hashes); err != nil {
+			return true, fmt.Errorf("read local recovery codes: %w", err)
+		}
+	}
+	if len(hashes) > 0 {
+		if err := m.SetRecoveryCodes(username, hashes); err != nil {
+			return true, fmt.Errorf("seed recovery codes: %w", err)
+		}
+	}
+	return true, nil
 }
 
 // SyncAccountFromDB imports a local DB account into Raft (used on init/join).

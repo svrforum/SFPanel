@@ -236,7 +236,8 @@ func main() {
 			defer clusterMgr.Shutdown()
 			slog.Info("cluster mode active", "component", "cluster", "name", cfg.Cluster.Name, "node_id", cfg.Cluster.NodeID)
 
-			// Leader-only: sync JWT secret and admin account to FSM. The previous
+			// Leader-only: seed the FSM with the JWT secret and admin account
+			// when it does not hold them yet (see syncBootstrapState). The previous
 			// implementation slept 5s blindly, which is both too long on a fresh
 			// single-node cluster (leader is elected in <1s) and too short on a
 			// loaded host. Poll IsLeader() instead and bail after 30s — followers

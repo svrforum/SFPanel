@@ -371,20 +371,13 @@ func (h *Handler) InitCluster(c echo.Context) error {
 		return h.rollbackInit(c, mgr, fmt.Errorf("persist raft_tls flag: %w", err))
 	}
 	if h.DB != nil {
-		var username, passwordHash string
-		var totpSecret sql.NullString
-		if err := h.DB.QueryRow("SELECT username, password, totp_secret FROM admin LIMIT 1").Scan(&username, &passwordHash, &totpSecret); err == nil {
-			totp := ""
-			if totpSecret.Valid {
-				totp = totpSecret.String
-			}
-			// Replicate the admin to the FSM. A failure here leaves the cluster
-			// with a jwt_secret but no admin account — every node would trust
-			// the JWT secret with nothing to authenticate against — so roll
-			// back rather than persist a half-initialized cluster.
-			if err := mgr.SyncAccountFromDB(username, passwordHash, totp); err != nil {
-				return h.rollbackInit(c, mgr, fmt.Errorf("sync admin account to FSM: %w", err))
-			}
+		// Replicate the admin, with its 2FA recovery codes, to the FSM. A
+		// failure here leaves the cluster with a jwt_secret but no admin
+		// account — every node would trust the JWT secret with nothing to
+		// authenticate against — so roll back rather than persist a
+		// half-initialized cluster.
+		if _, err := mgr.SeedAdminFromDB(h.DB); err != nil {
+			return h.rollbackInit(c, mgr, fmt.Errorf("sync admin account to FSM: %w", err))
 		}
 	}
 
