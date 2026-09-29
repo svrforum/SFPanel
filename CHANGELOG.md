@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.1] – 2026-09-29
+
+### Fixed
+
+- The working-directory suggestions in the new-session dialog no longer take over the screen on Android. They were a browser-native list, which Android draws as an unstyled sheet over the dialog, the terminal key bar and the keyboard, and which showed a directory twice when it was both recent and a stack. The suggestions are now a list inside the dialog: each directory once with its tags, filtered as you type, scrolling within a fixed height, and usable with the arrow keys, Enter and Escape.
+
 ## [0.78.0] – 2026-09-24
 
 ### Changed
