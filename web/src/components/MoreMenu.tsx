@@ -24,8 +24,10 @@ const menuItems = MORE_MENU_ITEMS.map((i) => ({
  * The same list, with settings pointing at the current node's own scope.
  *
  * In cluster mode Settings splits in two: the plain page carries the
- * cluster-wide account and alert settings, and ?scope=node carries this node's
- * panel update, backup schedule, restore, TLS, tuning and audit log. The only
+ * cluster-wide account settings (password, 2FA), and ?scope=node carries this
+ * node's panel update, backup schedule, restore, TLS, tuning, alerts and audit
+ * log. This menu opens the node half; the page's own scope switch reaches the
+ * account half. The only
  * routes to that second half were the desktop sidebar, which is hidden below
  * the md breakpoint, and the cluster tree's right-click menu, which a phone
  * has no way to open — so on a phone in cluster mode none of it was reachable

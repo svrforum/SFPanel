@@ -1,7 +1,8 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 // Tab panels are code-split: each tab pulls in its own state + handlers
@@ -85,15 +86,37 @@ export default function Settings() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <h1 className="text-[22px] font-bold tracking-tight">{t('settings.title')}</h1>
-          {clusterEnabled && (
-            <span className="inline-flex items-center rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-              {isNodeScope ? t('settings.scopeNode') : t('settings.scopeCluster')}
-            </span>
-          )}
-        </div>
+        <h1 className="text-[22px] font-bold tracking-tight">{t('settings.title')}</h1>
         <p className="text-[13px] text-muted-foreground mt-1">{t('settings.subtitle')}</p>
+        {/* In cluster mode the page has two halves and each entry point opens
+            one of them: the desktop sidebar has a link to each, but a phone's
+            More menu and the Android app reach only one, so the account half —
+            password and 2FA — was unreachable from a phone. The page itself
+            now offers both, whichever door it was opened by. */}
+        {clusterEnabled && (
+          <nav aria-label={t('settings.scopeLabel')} className="mt-4 grid grid-cols-2 gap-1 rounded-xl bg-secondary/50 p-1 sm:inline-grid sm:min-w-[28rem]">
+            {[
+              { node: false, to: '/settings', label: t('settings.scopeCluster'), hint: t('settings.scopeClusterHint') },
+              { node: true, to: '/settings?scope=node', label: t('settings.scopeNode'), hint: t('settings.scopeNodeHint') },
+            ].map((s) => {
+              const current = s.node === isNodeScope
+              return (
+                <Link
+                  key={s.to}
+                  to={s.to}
+                  aria-current={current ? 'page' : undefined}
+                  className={cn(
+                    'rounded-lg px-3 py-2 text-left transition-colors',
+                    current ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <span className="block text-[13px] font-medium">{s.label}</span>
+                  <span className="block text-[11px] text-muted-foreground">{s.hint}</span>
+                </Link>
+              )
+            })}
+          </nav>
+        )}
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
