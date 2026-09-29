@@ -179,7 +179,8 @@ test('a handle narrows a prompt to its path, and Copy takes what is selected', a
   await touchPress(page, at.x, at.y)
   // The prompt's $ is not part of the path.
   expect(await selection(page)).toBe('user@host:/opt/stacks/SFPanel')
-  await dragTo(page, await handleCentre(page, 'start'), await belowCell(page, 0, 11))
+  // 'user@host:' is ten cells: the path starts at column 10.
+  await dragTo(page, await handleCentre(page, 'start'), await belowCell(page, 0, 10))
   expect(await selection(page)).toBe('/opt/stacks/SFPanel')
 
   await page.getByRole('toolbar', { name: 'Copy terminal text' }).getByRole('button', { name: 'Copy', exact: true }).click()
