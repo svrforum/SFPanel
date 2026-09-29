@@ -1530,6 +1530,7 @@
       "dirRecent": "Recent",
       "dirStacks": "Stacks",
       "dirHome": "Home",
+      "dirSuggestions": "Suggested directories",
       "account": "Run as",
       "name": "Name (optional)",
       "create": "Open session",

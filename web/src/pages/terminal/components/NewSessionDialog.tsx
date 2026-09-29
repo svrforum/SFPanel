@@ -10,6 +10,7 @@ import { useConfirm } from '@/components/ConfirmDialog'
 import { LaunchOptions } from './LaunchOptions'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DirectoryField } from '@/pages/terminal/components/DirectoryField'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -52,8 +53,8 @@ const DEFAULT_ROW: AIProfile = { name: '', default: true, path: '', logged_in: f
 
 // Account, then tool, profile, directory, name — the account comes first because it
 // decides which tools are installed and which directories are suggested.
-// The directory field is a free-text input with the server's suggestions as
-// a datalist: recent directories, the compose stacks, the account's home.
+// The directory field is free text with the server's suggestions drawn in the
+// dialog (DirectoryField): recent directories, the compose stacks, the home.
 // The server validates on submit and its code becomes the inline message.
 export function NewSessionDialog({
   open,
@@ -314,7 +315,12 @@ export function NewSessionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      {/* Escape closes an open suggestion list, not the dialog. Radix listens
+          on the document in the capture phase, before the field sees the key,
+          so the dialog has to be the one to stand down. */}
+      <DialogContent className="sm:max-w-md" onEscapeKeyDown={(e) => {
+        if ((e.target as Element | null)?.closest?.('[role="combobox"][aria-expanded="true"]')) e.preventDefault()
+      }}>
         <DialogHeader>
           <DialogTitle>{t('ai.dialog.title')}</DialogTitle>
           <DialogDescription>{t('terminal.launcher.subtitle')}</DialogDescription>
@@ -442,13 +448,8 @@ export function NewSessionDialog({
           )}
           <div className="space-y-1.5">
             <Label htmlFor="ai-cwd">{t('ai.dialog.dir')}</Label>
-            <Input id="ai-cwd" list="ai-dir-suggestions" value={cwd} onChange={(e) => { touched.current.cwd = true; setCwd(e.target.value) }}
-              placeholder={t('ai.dialog.dirPlaceholder')} className="font-mono text-[12px]" spellCheck={false} />
-            <datalist id="ai-dir-suggestions">
-              {dirs?.recent.map((d) => <option key={'r' + d} value={d}>{t('ai.dialog.dirRecent')}</option>)}
-              {dirs?.stacks.map((d) => <option key={'s' + d} value={d}>{t('ai.dialog.dirStacks')}</option>)}
-              {dirs?.home && <option value={dirs.home}>{t('ai.dialog.dirHome')}</option>}
-            </datalist>
+            <DirectoryField id="ai-cwd" value={cwd} dirs={dirs} placeholder={t('ai.dialog.dirPlaceholder')}
+              onChange={(v) => { touched.current.cwd = true; setCwd(v) }} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="ai-title">{t('ai.dialog.name')}</Label>
