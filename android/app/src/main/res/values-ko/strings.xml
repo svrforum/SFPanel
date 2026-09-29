@@ -57,7 +57,7 @@
     <string name="dashboard">대시보드</string>
     <string name="compose_prompt">프롬프트 작성</string>
     <string name="paste_prompt">붙여넣고 편집</string>
-    <string name="read_output">최근 출력 읽기</string>
+    <string name="read_output">텍스트 선택·복사</string>
     <string name="search_output">출력 검색</string>
     <string name="show_keyboard">키보드 열기</string>
     <string name="prompt_hint">한글로 편하게 작성하세요. 여러 줄을 입력할 수 있어요.</string>

@@ -57,7 +57,7 @@
     <string name="dashboard">Dashboard</string>
     <string name="compose_prompt">Compose a prompt</string>
     <string name="paste_prompt">Paste and edit</string>
-    <string name="read_output">Read recent output</string>
+    <string name="read_output">Select and copy text</string>
     <string name="search_output">Search output</string>
     <string name="show_keyboard">Show keyboard</string>
     <string name="prompt_hint">Write in your own language. Multiple lines are welcome.</string>

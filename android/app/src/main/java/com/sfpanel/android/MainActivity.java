@@ -877,8 +877,28 @@ public final class MainActivity extends Activity {
         dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE | android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
     }
 
+    // Panels since v0.78.3 open the output as selectable text themselves — from a
+    // long press on the terminal or this menu — the same view a phone's browser
+    // gets, so the app hands the request over. Older panels get the reader below.
     private void readOutput() {
-        evaluate(ACTIVE + "if(!t)return null;const b=t.buffer.active;let s=[];for(let i=Math.max(0,b.length-500);i<b.length;i++)s.push(b.getLine(i)?.translateToString(true)||'');return s.join('\\n');", result -> {
+        evaluate("if(!document.querySelector('[data-select-text]'))return false;"
+                + "window.dispatchEvent(new Event('sfpanel:select-text'));return true;",
+                result -> { if (!"true".equals(result)) readOutputNative(); });
+    }
+
+    // A line the terminal wrapped at its width is joined back to the row before
+    // it, as the panel's view does, so a copied command or path has no break in
+    // the middle; the empty rows below the last output are dropped. Every row is
+    // read with trimRight, which drops only cells nothing was written to: a
+    // double-width character that did not fit leaves one, and keeping it put a
+    // space into the middle of a Korean path.
+    private static final String OUTPUT_TEXT = "if(!t)return null;const b=t.buffer.active;const s=[];"
+            + "for(let i=Math.max(0,b.length-500);i<b.length;i++){const l=b.getLine(i);if(!l)continue;"
+            + "const x=l.translateToString(true);if(l.isWrapped&&s.length)s[s.length-1]+=x;else s.push(x);}"
+            + "while(s.length&&!s[s.length-1].trim())s.pop();return s.join('\\n');";
+
+    private void readOutputNative() {
+        evaluate(ACTIVE + OUTPUT_TEXT, result -> {
             String output = decode(result); if (output == null) { toast(R.string.no_session); return; }
             ScrollView scroll = new ScrollView(this); TextView content = text(output, 16, INK, false);
             content.setPadding(dp(20), dp(12), dp(20), dp(12)); content.setTextIsSelectable(true); scroll.addView(content);
@@ -886,6 +906,8 @@ public final class MainActivity extends Activity {
                     .setPositiveButton(R.string.copy_output, (d, w) -> {
                         ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("SFPanel", output)); toast(R.string.output_copied);
                     }).show();
+            // Open on the latest output, where the thing worth copying usually is.
+            scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
         });
     }
 
@@ -945,7 +967,18 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle(R.string.leave_title).setMessage(R.string.leave_message)
                 .setNegativeButton(R.string.cancel, null).setPositiveButton(R.string.continue_action, (d, w) -> showHome()).show();
     }
-    private void goBack() { if (web != null && keyDock != null && keyDock.getVisibility() == View.VISIBLE) setKeyDockOpen(false); else if (web != null && web.canGoBack()) web.goBack(); else if (web != null) confirmHome(); else finish(); }
+    private void goBack() {
+        if (web != null && keyDock != null && keyDock.getVisibility() == View.VISIBLE) { setKeyDockOpen(false); return; }
+        if (web == null) { finish(); return; }
+        // A dialog open in the page closes first, as back closes one anywhere
+        // else on Android. It used to navigate the page away underneath it —
+        // from the terminal's text view straight off the terminal.
+        WebView target = web;
+        evaluate(CLOSE_DIALOG, result -> { if (!"true".equals(result) && web == target) pageBack(); });
+    }
+    private static final String CLOSE_DIALOG = "const d=document.querySelector('[role=dialog][data-state=open],[role=alertdialog][data-state=open]');"
+            + "if(!d)return false;d.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));return true;";
+    private void pageBack() { if (web.canGoBack()) web.goBack(); else confirmHome(); }
     // API 33+ uses OnBackInvokedDispatcher registered in onCreate; this is
     // deliberately only the API 26–32 fallback and has the identical behavior.
     @SuppressLint("GestureBackNavigation")
