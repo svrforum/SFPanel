@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.5] – 2026-09-29
+
+### Changed
+
+**A long-press selection on the terminal can be adjusted.** 0.78.4 selected a run of text with no spaces in it and offered no way to change that, so a shell prompt such as `user@host:/opt/stacks/app$` — one run — could only be copied whole. The selection now has two handles that drag either end across characters and rows, and holding on after the press and dragging extends it straight away, as a phone's own text selection does. Copy takes exactly what is selected, and the `$` or `#` a prompt ends in is no longer part of the first selection.
+
 ## [0.78.4] – 2026-09-29
 
 ### Changed
