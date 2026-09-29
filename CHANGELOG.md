@@ -6,6 +6,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.3] – 2026-09-29
+
+### Added
+
+**Terminal output can be selected and copied on a phone.** The terminal draws into a canvas, so a long press on it selected nothing and a drag scrolled. A long press on the terminal, or Select text in the session menu, now opens the output as text you can select, with a Copy all button. For a tmux session it is the session's whole history, fetched from tmux (`GET /ai/sessions/:id/text`), not just the screen the browser holds. It opens at the latest output, and every line is whole even where the screen wrapped it, Korean included. It works the same in a phone's browser and in the Android app, whose Tools menu opens it too from Android 0.1.6.
+
+### Fixed
+
+- Copy buttons inside a dialog reported "copied" on a panel served over plain HTTP while the clipboard kept its old contents: the dialog's focus trap took focus from the helper the copy relies on there. The copy now happens inside the dialog, and a copy that did not happen is reported as a failure.
+
 ## [0.78.2] – 2026-09-29
 
 ### Added
