@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.4] – 2026-09-29
+
+### Changed
+
+**A long press on the terminal selects the word under the finger and offers to copy it.** Copying a path, a URL or an ID on a phone took opening the text view, finding the text again and dragging selection handles over small type. Now the word is selected in place, with the terminal's own highlight, and a bar offers Copy, Copy line and View all. A word or a line the screen wrapped comes whole, Korean included, and the quotes, brackets and trailing punctuation around a path or URL are left off (`open /opt/a.yml:` copies `/opt/a.yml`). Pressed on an empty row, the long press opens the text view as before. It works the same in the Android app, with no app update.
+
 ## [0.78.3] – 2026-09-29
 
 ### Added
