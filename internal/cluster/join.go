@@ -292,7 +292,9 @@ func (e *JoinEngine) rollbackJoin(certDir string, originalConfig []byte, priorSe
 func preFlightErrorMessage(errStr string) string {
 	switch errStr {
 	case ErrTokenNotFound.Error():
-		return "token does not exist — check for typos"
+		// Tokens are kept by the node that created them, not replicated, so
+		// after a leader change a correctly pasted token is also "not found".
+		return "token does not exist on this leader — check for typos, or create a new one if the leader has changed"
 	case ErrTokenExpired.Error():
 		return "token has expired — create a new one on the leader"
 	case ErrTokenUsed.Error():

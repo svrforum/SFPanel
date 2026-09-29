@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Server, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -10,13 +10,23 @@ import { toast } from 'sonner'
 
 // Onboarding screen shown while cluster mode is disabled: initialize a new
 // cluster or join an existing one with a leader-issued token. Both paths
-// trigger a panel self-restart, so on success we wait for the server to come
-// back and reload.
+// activate the cluster inside the running panel; on success we still wait for
+// the server to answer before reloading, so the page comes back in cluster
+// mode either way.
 export function ClusterInitForm() {
   const { t } = useTranslation()
   const [clusterName, setClusterName] = useState('sfpanel')
   const [interfaces, setInterfaces] = useState<{ name: string; address: string }[]>([])
   const [selectedAddr, setSelectedAddr] = useState('')
+  // Whether the operator picked the address themselves. The first interface is
+  // preselected for Init, but a join sends an address only when one was
+  // picked: otherwise the server chooses the one that reaches the leader
+  // (same subnet, Tailscale), which the first interface often is not.
+  const addrPicked = useRef(false)
+  const pickAddr = (addr: string) => {
+    addrPicked.current = true
+    setSelectedAddr(addr)
+  }
   const [initializing, setInitializing] = useState(false)
   const [restarting, setRestarting] = useState(false)
 
@@ -56,7 +66,7 @@ export function ClusterInitForm() {
     if (!leaderAddress.trim() || !joinToken.trim()) return
     setJoining(true)
     try {
-      await api.joinCluster(leaderAddress.trim(), joinToken.trim(), selectedAddr || undefined)
+      await api.joinCluster(leaderAddress.trim(), joinToken.trim(), (addrPicked.current && selectedAddr) || undefined)
       toast.success(t('cluster.join.success'))
       setRestarting(true)
       waitForServerBack({ onTimeout: () => window.location.reload() })
@@ -110,7 +120,7 @@ export function ClusterInitForm() {
               {interfaces.map((iface) => (
                 <button
                   key={`${iface.name}-${iface.address}`}
-                  onClick={() => setSelectedAddr(iface.address)}
+                  onClick={() => pickAddr(iface.address)}
                   className={cn(
                     'w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0',
                     selectedAddr === iface.address
@@ -126,7 +136,7 @@ export function ClusterInitForm() {
           ) : (
             <Input
               value={selectedAddr}
-              onChange={(e) => setSelectedAddr(e.target.value)}
+              onChange={(e) => pickAddr(e.target.value)}
               placeholder="192.168.1.100"
               className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px]"
             />

@@ -653,19 +653,31 @@ func clusterToken(args []string) {
 	var envelope struct {
 		Success bool `json:"success"`
 		Data    struct {
-			Token     string    `json:"token"`
-			ExpiresAt time.Time `json:"expires_at"`
+			Token            string    `json:"token"`
+			ExpiresAt        time.Time `json:"expires_at"`
+			AdvertiseAddress string    `json:"advertise_address"`
+			GRPCPort         int       `json:"grpc_port"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		log.Fatalf("Parse token response: %v\nbody: %s", err, string(raw))
 	}
 
-	addr := cfg.Cluster.AdvertiseAddress
+	// A follower forwards the request to the leader, and a join has to be
+	// aimed at the leader, so print the address the response carries — the
+	// leader's. This node's own address was printed before, which on a
+	// follower produced a command that failed with "not the cluster leader".
+	addr := envelope.Data.AdvertiseAddress
+	grpcPort := envelope.Data.GRPCPort
+	if addr == "" {
+		addr = cfg.Cluster.AdvertiseAddress
+	}
 	if addr == "" {
 		addr = "YOUR_IP"
 	}
-	grpcPort := cfg.Cluster.GRPCPort
+	if grpcPort == 0 {
+		grpcPort = cfg.Cluster.GRPCPort
+	}
 
 	fmt.Printf("Join token (expires: %s):\n\n", envelope.Data.ExpiresAt.Format(time.RFC3339))
 	fmt.Printf("  %s\n\n", envelope.Data.Token)
