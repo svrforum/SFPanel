@@ -1712,6 +1712,12 @@ class ApiClient {
     return this.request<{ deleted: string }>(`/ai/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
+  // The session's history and screen as plain text (tmux keeps the history;
+  // the browser holds only the screen).
+  getAISessionText(id: string) {
+    return this.request<{ text: string }>(`/ai/sessions/${encodeURIComponent(id)}/text`)
+  }
+
   // Disk Management - Tool Status
   checkSmartmontools() {
     return this.request<{ installed: boolean }>('/disks/smartmontools-status')

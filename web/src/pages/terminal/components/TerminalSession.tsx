@@ -8,6 +8,8 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
 import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
+import { attachLongPress } from '@/lib/longPress'
+import { SELECT_TEXT_EVENT } from '@/lib/terminalText'
 import { cn, copyText } from '@/lib/utils'
 import { toast } from 'sonner'
 import { MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, NO_MODIFIERS, terminalKey, type TerminalModifiers } from '@/lib/terminalKeys'
@@ -315,6 +317,11 @@ export function TerminalSession({
     // translates a vertical touch-drag into term.scrollLines so mobile can
     // reach the scrollback (see lib/xtermTouchScroll).
     const detachTouch = container ? attachXtermTouchScroll(container, term) : () => {}
+    // A long press is how a phone selects text, and xterm draws into a canvas
+    // with nothing to select, so it opens the page's text view instead.
+    const detachLongPress = container
+      ? attachLongPress(container, () => window.dispatchEvent(new Event(SELECT_TEXT_EVENT)))
+      : () => {}
 
     // Re-fit when the terminal gains focus (user tapped to type). This
     // self-corrects the size when the page loaded with the keyboard already up
@@ -330,6 +337,7 @@ export function TerminalSession({
       window.removeEventListener('resize', handleResize)
       window.visualViewport?.removeEventListener('resize', handleResize)
       detachTouch()
+      detachLongPress()
       container?.removeEventListener('focusin', onFocusIn)
       wsCleanup?.()
       term.dispose()

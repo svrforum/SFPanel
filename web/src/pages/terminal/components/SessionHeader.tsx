@@ -28,6 +28,7 @@ export interface SessionHeaderProps {
   onFontSize: (delta: number) => void
   search: SessionSearch
   onClear: () => void
+  onSelectText: () => void
   onRename: (item: RailItem, title: string) => void
   onAction: (action: RailAction, item: RailItem) => void
   /** present on a phone: the drawer trigger with the waiting count */
@@ -43,7 +44,7 @@ const ICON = 'h-7 w-7 p-0 text-console-muted hover:text-console-foreground hover
  * so every action exists somewhere visible, and on a phone (where the rail
  * is in a drawer) the Android app can open them through [data-session-menu].
  */
-export function SessionHeader({ item, hostInfo, fontSize, onFontSize, search, onClear, onRename, onAction, drawer }: SessionHeaderProps) {
+export function SessionHeader({ item, hostInfo, fontSize, onFontSize, search, onClear, onSelectText, onRename, onAction, drawer }: SessionHeaderProps) {
   const { t } = useTranslation()
   // Destructured once, not read as `search.…` through the JSX: the search
   // object carries the input's ref, and react-hooks/refs treats every
@@ -155,11 +156,12 @@ export function SessionHeader({ item, hostInfo, fontSize, onFontSize, search, on
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem onSelect={onSelectText}>{t('terminal.selectText.menu')}</DropdownMenuItem>
               <DropdownMenuItem className="md:hidden" onSelect={onSearchToggle}>{t('terminal.search')}</DropdownMenuItem>
               <DropdownMenuItem className="md:hidden" onSelect={onClear}>{t('terminal.clear')}</DropdownMenuItem>
               <DropdownMenuItem className="md:hidden" onSelect={() => onFontSize(1)}>{t('terminal.fontLarger')}</DropdownMenuItem>
               <DropdownMenuItem className="md:hidden" onSelect={() => onFontSize(-1)}>{t('terminal.fontSmaller')}</DropdownMenuItem>
-              <DropdownMenuSeparator className="md:hidden" />
+              <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={startEditing} disabled={s?.unknown}>{t('ai.tabs.rename')}</DropdownMenuItem>
               {s ? (
                 <>

@@ -19,6 +19,8 @@ import { PtyPane } from '@/pages/terminal/components/PtyPane'
 import { ToolsSheet } from '@/pages/terminal/components/ToolsSheet'
 import { TmuxBanner } from '@/pages/terminal/components/TmuxBanner'
 import { NewSessionDialog } from '@/pages/terminal/components/NewSessionDialog'
+import { SelectTextDialog } from '@/pages/terminal/components/SelectTextDialog'
+import { bufferText, SELECT_TEXT_EVENT } from '@/lib/terminalText'
 import { useAISessions } from '@/pages/terminal/hooks/useAISessions'
 import { usePtyTabs } from '@/pages/terminal/hooks/usePtyTabs'
 
@@ -283,6 +285,35 @@ export default function TerminalPage() {
       }
     })
   }, [])
+  // The active session's output as selectable text, opened from the header
+  // menu, a long press on the terminal, or the Android app. A tmux session's
+  // history lives in tmux — the browser holds only its screen — so it is asked
+  // for; the screen stands in if that fails. null while it loads.
+  const [selectOpen, setSelectOpen] = useState(false)
+  const [selectText, setSelectText] = useState<string | null>(null)
+  const selectRequest = useRef(0)
+  const activeTmuxId = activeItem?.kind === 'tmux' ? activeItem.id : null
+  const openSelectText = useCallback(() => {
+    let screen = ''
+    forEachActiveSession((el) => {
+      const term = el.__termRef?.current
+      if (term && !screen) screen = bufferText(term.buffer.active)
+    })
+    const request = ++selectRequest.current
+    setSelectOpen(true)
+    if (!activeTmuxId) {
+      setSelectText(screen)
+      return
+    }
+    setSelectText(null)
+    api.getAISessionText(activeTmuxId)
+      .then((r) => { if (selectRequest.current === request) setSelectText(r.text) })
+      .catch(() => { if (selectRequest.current === request) setSelectText(screen) })
+  }, [activeTmuxId])
+  useEffect(() => {
+    window.addEventListener(SELECT_TEXT_EVENT, openSelectText)
+    return () => window.removeEventListener(SELECT_TEXT_EVENT, openSelectText)
+  }, [openSelectText])
   const sendKey = useCallback((data: string) => {
     forEachActiveSession((el) => {
       if (el.__wsRef?.current && el.__wsRef.current.readyState === WebSocket.OPEN) {
@@ -314,7 +345,7 @@ export default function TerminalPage() {
   const shownAccount = account || tools?.panel_account || ''
 
   return (
-    <div data-ai-workspace className="flex h-full overflow-hidden md:p-4">
+    <div data-ai-workspace data-select-text className="flex h-full overflow-hidden md:p-4">
       {/* Always the first child, empty on a phone: see the component comment. */}
       <aside className={cn('hidden md:flex flex-col shrink-0 bg-console border border-r-0 border-console-border rounded-l-2xl overflow-hidden', collapsed ? 'w-14' : 'w-[272px]')}>
         {!isMobile && <SessionRail {...railProps} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)} />}
@@ -322,7 +353,7 @@ export default function TerminalPage() {
 
       <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-clip bg-console md:rounded-r-2xl md:border md:border-console-border">
         <SessionHeader item={activeItem} hostInfo={hostInfo} fontSize={fontSize} onFontSize={adjustFontSize} search={search}
-          onClear={clearTerminal} onRename={onRename} onAction={onAction}
+          onClear={clearTerminal} onSelectText={openSelectText} onRename={onRename} onAction={onAction}
           drawer={isMobile ? { onOpen: () => setDrawerOpen(true), waiting } : undefined} />
         {fallback && tools && (
           <div className="shrink-0 px-3 pt-3 space-y-2">
@@ -350,6 +381,8 @@ export default function TerminalPage() {
         </Sheet>
       )}
 
+      <SelectTextDialog open={selectOpen} text={selectText} onClose={() => setSelectOpen(false)}
+        returnFocus={() => forEachActiveSession((el) => el.__termRef?.current?.focus())} />
       {/* Focus the new session only once the list containing it has landed;
           setting the key first would be undone by the realignment above. */}
       <NewSessionDialog open={launcherOpen} onOpenChange={setLauncherOpen} account={shownAccount} tools={tools}

@@ -1421,6 +1421,14 @@
     "prev": "Prev",
     "next": "Next",
     "clear": "Clear",
+    "selectText": {
+      "menu": "Select text",
+      "title": "Select text",
+      "hint": "Press and hold to select, or copy everything.",
+      "copyAll": "Copy all",
+      "copied": "Copied the terminal output",
+      "empty": "There is no output to copy yet."
+    },
     "disconnect": "Disconnect",
     "connected": "Connected",
     "reconnecting": "Reconnecting…",

@@ -187,6 +187,7 @@ jobs:
             tests/mobile-tmux.spec.ts \
             tests/new-session-dirs.spec.ts \
             tests/settings-scope.spec.ts \
+            tests/terminal-select-text.spec.ts \
             tests/android-session.spec.ts \
             tests/cluster-lifecycle.spec.ts
       - name: Dump panel log on failure
