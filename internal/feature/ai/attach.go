@@ -91,9 +91,9 @@ type resizeMsg struct {
 
 // AttachWS — GET /ws/ai/attach?session_id=. One tmux client per socket; the
 // client dies with the socket and the session does not notice.
-func (h *Handler) AttachWS(jwtSecret string, auditWriter *sfdb.AsyncWriter, localNodeIDFn func() string) echo.HandlerFunc {
+func (h *Handler) AttachWS(jwtSecret func() string, auditWriter *sfdb.AsyncWriter, localNodeIDFn func() string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		username, err := auth.AuthenticateWSUpgrade(c.Response(), c.Request(), jwtSecret)
+		username, err := auth.AuthenticateWSUpgrade(c.Response(), c.Request(), jwtSecret())
 		if err != nil {
 			return err
 		}

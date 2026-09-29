@@ -112,9 +112,9 @@ func AuthenticateWS(c echo.Context, jwtSecret string) (string, error) {
 }
 
 // MetricsWS handles WebSocket connections for real-time metrics streaming.
-func MetricsWS(jwtSecret string) echo.HandlerFunc {
+func MetricsWS(jwtSecret func() string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if _, err := AuthenticateWS(c, jwtSecret); err != nil {
+		if _, err := AuthenticateWS(c, jwtSecret()); err != nil {
 			return err
 		}
 
@@ -235,9 +235,9 @@ func batchFrames(ctx context.Context, lines <-chan []byte, write func([]byte) bo
 }
 
 // ContainerLogsWS streams container logs over a WebSocket connection.
-func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.HandlerFunc {
+func ContainerLogsWS(dockerClient *docker.Client, jwtSecret func() string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if _, err := AuthenticateWS(c, jwtSecret); err != nil {
+		if _, err := AuthenticateWS(c, jwtSecret()); err != nil {
 			return err
 		}
 
@@ -332,9 +332,9 @@ func ContainerLogsWS(dockerClient *docker.Client, jwtSecret string) echo.Handler
 }
 
 // ComposeLogsWS streams compose project logs over a WebSocket connection.
-func ComposeLogsWS(composeManager *docker.ComposeManager, jwtSecret string) echo.HandlerFunc {
+func ComposeLogsWS(composeManager *docker.ComposeManager, jwtSecret func() string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if _, err := AuthenticateWS(c, jwtSecret); err != nil {
+		if _, err := AuthenticateWS(c, jwtSecret()); err != nil {
 			return err
 		}
 
@@ -426,9 +426,9 @@ func parseInt(s string) (int, error) {
 
 // ContainerExecWS creates an exec session in a container and bridges
 // it over a WebSocket for interactive terminal access.
-func ContainerExecWS(dockerClient *docker.Client, jwtSecret string, auditWriter *sfdb.AsyncWriter, localNodeIDFn func() string) echo.HandlerFunc {
+func ContainerExecWS(dockerClient *docker.Client, jwtSecret func() string, auditWriter *sfdb.AsyncWriter, localNodeIDFn func() string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		username, err := AuthenticateWS(c, jwtSecret)
+		username, err := AuthenticateWS(c, jwtSecret())
 		if err != nil {
 			return err
 		}

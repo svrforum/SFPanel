@@ -476,9 +476,9 @@ func GetInfo(c echo.Context) error {
 // and bridges it over a WebSocket. Authentication via query param token.
 // Query param session_id identifies the session; on reconnect the scrollback
 // buffer is replayed so the user sees previous output.
-func TerminalWS(jwtSecret string, auditWriter *sfdb.AsyncWriter, localNodeIDFn func() string) echo.HandlerFunc {
+func TerminalWS(jwtSecret func() string, auditWriter *sfdb.AsyncWriter, localNodeIDFn func() string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		username, err := authenticateWS(c, jwtSecret)
+		username, err := authenticateWS(c, jwtSecret())
 		if err != nil {
 			return err
 		}

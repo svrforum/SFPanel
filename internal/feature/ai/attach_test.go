@@ -57,7 +57,7 @@ func TestAttachWS_GoneSessionSendsOneFrameAndCloses(t *testing.T) {
 	_ = insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolClaude, Title: "a", RunAs: "root", CWD: "/"})
 
 	e := echo.New()
-	e.GET("/ws/ai/attach", h.AttachWS("test-secret", nil, nil))
+	e.GET("/ws/ai/attach", h.AttachWS(func() string { return "test-secret" }, nil, nil))
 	srv := httptest.NewServer(e)
 	defer srv.Close()
 
@@ -91,7 +91,7 @@ func TestAttachWS_RefusesBadIDBeforeUpgrade(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{})
 	h.DB = openTestDB(t)
 	e := echo.New()
-	e.GET("/ws/ai/attach", h.AttachWS("test-secret", nil, nil))
+	e.GET("/ws/ai/attach", h.AttachWS(func() string { return "test-secret" }, nil, nil))
 	srv := httptest.NewServer(e)
 	defer srv.Close()
 	tok, _ := auth.GenerateToken("admin", "test-secret", time.Minute)
@@ -117,7 +117,7 @@ func TestAttachWS_RefusesAGoneAccountBeforeUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := echo.New()
-	e.GET("/ws/ai/attach", h.AttachWS("test-secret", nil, nil))
+	e.GET("/ws/ai/attach", h.AttachWS(func() string { return "test-secret" }, nil, nil))
 	srv := httptest.NewServer(e)
 	defer srv.Close()
 	tok, _ := auth.GenerateToken("admin", "test-secret", time.Minute)
@@ -139,7 +139,7 @@ func TestAttachWS_ADatabaseErrorIsNotAMissingRow(t *testing.T) {
 	h.DB = openTestDB(t)
 	h.DB.Close() // every query now errors
 	e := echo.New()
-	e.GET("/ws/ai/attach", h.AttachWS("test-secret", nil, nil))
+	e.GET("/ws/ai/attach", h.AttachWS(func() string { return "test-secret" }, nil, nil))
 	srv := httptest.NewServer(e)
 	defer srv.Close()
 	tok, _ := auth.GenerateToken("admin", "test-secret", time.Minute)

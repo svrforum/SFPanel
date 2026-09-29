@@ -41,7 +41,9 @@ func allowsQueryToken(path string) bool {
 		path == "/api/v1/system/backup"
 }
 
-func JWTMiddleware(secret string) echo.MiddlewareFunc {
+// JWTMiddleware checks the bearer token against secret(), read per request: the
+// key can change under a running panel (see auth.SetJWTSecret).
+func JWTMiddleware(secret func() string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			// Trust cluster-internal proxy requests (authenticated via mTLS).
@@ -77,7 +79,7 @@ func JWTMiddleware(secret string) echo.MiddlewareFunc {
 				return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidToken, "Invalid authorization header format")
 			}
 
-			claims, err := auth.ParseToken(parts[1], secret)
+			claims, err := auth.ParseToken(parts[1], secret())
 			if err != nil {
 				return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidToken, "Invalid or expired token")
 			}

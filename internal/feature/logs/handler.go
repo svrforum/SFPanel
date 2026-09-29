@@ -416,10 +416,10 @@ func (h *Handler) ReadLog(c echo.Context) error {
 // Query parameters:
 //   - source (required): one of the keys in logSources or a custom source
 //   - token  (required): valid JWT
-func LogStreamWS(jwtSecret string, database *sql.DB) echo.HandlerFunc {
+func LogStreamWS(jwtSecret func() string, database *sql.DB) echo.HandlerFunc {
 	helper := &Handler{DB: database}
 	return func(c echo.Context) error {
-		if err := authenticateWS(c, jwtSecret); err != nil {
+		if err := authenticateWS(c, jwtSecret()); err != nil {
 			return err
 		}
 

@@ -14,6 +14,7 @@ import (
 	echoMw "github.com/labstack/echo/v4/middleware"
 	mw "github.com/svrforum/SFPanel/internal/api/middleware"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/config"
@@ -70,6 +71,11 @@ func healthHandler(db *sql.DB, version string) echo.HandlerFunc {
 // auditWriter is the shared *db.AsyncWriter used by the audit middleware and
 // auth security-events to serialise INSERTs onto one background drain.
 func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *featureAlert.Manager, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc) (*echo.Echo, func()) {
+	// Every signer and verifier reads the token key from auth.JWTSecret at the
+	// moment of use, so a cluster join can swap it without a restart. Seed it
+	// here, where all of them are wired.
+	auth.SetJWTSecret(cfg.Auth.JWTSecret)
+
 	e := echo.New()
 	e.HideBanner = true
 
@@ -229,7 +235,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 
 	// Protected routes
 	authorized := v1.Group("")
-	authorized.Use(mw.JWTMiddleware(cfg.Auth.JWTSecret))
+	authorized.Use(mw.JWTMiddleware(auth.JWTSecret))
 	authorized.Use(mw.CSRFProtect())
 	// Resolve the cluster manager dynamically so init-at-runtime becomes
 	// effective without a service restart. The clusterHandler keeps the
@@ -689,20 +695,20 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		// Docker WebSocket routes (auth via query param token, cluster relay support).
 		// Use a dynamic getter so runtime cluster init takes effect without a
 		// process restart — see the same pattern on ClusterProxyMiddleware above.
-		e.GET("/ws/docker/containers/:id/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ContainerLogsWS(dockerClient, cfg.Auth.JWTSecret)))
-		e.GET("/ws/docker/containers/:id/exec", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ContainerExecWS(dockerClient, cfg.Auth.JWTSecret, auditWriter, localNodeIDFn)))
-		e.GET("/ws/docker/compose/:project/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ComposeLogsWS(composeManager, cfg.Auth.JWTSecret)))
+		e.GET("/ws/docker/containers/:id/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ContainerLogsWS(dockerClient, auth.JWTSecret)))
+		e.GET("/ws/docker/containers/:id/exec", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ContainerExecWS(dockerClient, auth.JWTSecret, auditWriter, localNodeIDFn)))
+		e.GET("/ws/docker/compose/:project/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ComposeLogsWS(composeManager, auth.JWTSecret)))
 	}
 
 	// WebSocket routes (auth via query param token, cluster relay support)
-	e.GET("/ws/metrics", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.MetricsWS(cfg.Auth.JWTSecret)))
+	e.GET("/ws/metrics", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.MetricsWS(auth.JWTSecret)))
 	// Cluster overview push: one shared sampler per node fans the combined
 	// status+overview+events snapshot out to all dashboards, replacing the
 	// per-tab 15s HTTP triple-poll. Served from the local FSM (no leader RPC).
-	e.GET("/ws/cluster/overview", featureWS.ClusterOverviewWS(clusterHandler.GetManager, cfg.Auth.JWTSecret))
-	e.GET("/ws/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureLogs.LogStreamWS(cfg.Auth.JWTSecret, database)))
-	e.GET("/ws/terminal", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureTerminal.TerminalWS(cfg.Auth.JWTSecret, auditWriter, localNodeIDFn)))
-	e.GET("/ws/ai/attach", cluster.WrapEchoWSHandler(clusterHandler.GetManager, aiHandler.AttachWS(cfg.Auth.JWTSecret, auditWriter, localNodeIDFn)))
+	e.GET("/ws/cluster/overview", featureWS.ClusterOverviewWS(clusterHandler.GetManager, auth.JWTSecret))
+	e.GET("/ws/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureLogs.LogStreamWS(auth.JWTSecret, database)))
+	e.GET("/ws/terminal", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureTerminal.TerminalWS(auth.JWTSecret, auditWriter, localNodeIDFn)))
+	e.GET("/ws/ai/attach", cluster.WrapEchoWSHandler(clusterHandler.GetManager, aiHandler.AttachWS(auth.JWTSecret, auditWriter, localNodeIDFn)))
 
 	// SPA static file serving — catch-all AFTER all API and WS routes
 	e.GET("/*", spaHandler(webFS))

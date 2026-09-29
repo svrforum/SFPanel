@@ -133,9 +133,9 @@ func (b *overviewBroadcasterT) run() {
 // ClusterOverviewWS streams the combined cluster snapshot (status + overview +
 // recent events) to the dashboard over a WebSocket, replacing the old 15s
 // HTTP triple-poll. All connections on a node share one sampler.
-func ClusterOverviewWS(getManager func() *cluster.Manager, jwtSecret string) echo.HandlerFunc {
+func ClusterOverviewWS(getManager func() *cluster.Manager, jwtSecret func() string) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if _, err := AuthenticateWS(c, jwtSecret); err != nil {
+		if _, err := AuthenticateWS(c, jwtSecret()); err != nil {
 			return err
 		}
 		ws, err := Upgrader.Upgrade(c.Response(), c.Request(), nil)

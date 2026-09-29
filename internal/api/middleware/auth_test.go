@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +19,7 @@ func TestJWTMiddleware_AcceptsV2ProxyHeader(t *testing.T) {
 	auth.SetClusterProxySecret("test-secret-32-bytes-long-enough!!")
 	defer auth.SetClusterProxySecret("")
 
-	mw := JWTMiddleware("jwt-secret")
+	mw := JWTMiddleware(func() string { return "jwt-secret" })
 	called := false
 	handler := mw(func(c echo.Context) error {
 		called = true
@@ -56,7 +57,7 @@ func TestJWTMiddleware_RejectsReplayedV2(t *testing.T) {
 	auth.SetClusterProxySecret("test-secret-32-bytes-long-enough!!")
 	defer auth.SetClusterProxySecret("")
 
-	mw := JWTMiddleware("jwt-secret")
+	mw := JWTMiddleware(func() string { return "jwt-secret" })
 	handler := mw(func(c echo.Context) error { return c.String(200, "ok") })
 
 	v2 := auth.SignProxyRequestV2("GET", "/api/v1/test")
@@ -94,7 +95,7 @@ func TestJWTMiddleware_V1NoLongerAccepted(t *testing.T) {
 	auth.SetClusterProxySecret("test-secret-32-bytes-long-enough!!")
 	defer auth.SetClusterProxySecret("")
 
-	mw := JWTMiddleware("jwt-secret")
+	mw := JWTMiddleware(func() string { return "jwt-secret" })
 	called := false
 	handler := mw(func(c echo.Context) error {
 		called = true
@@ -108,5 +109,38 @@ func TestJWTMiddleware_V1NoLongerAccepted(t *testing.T) {
 	_ = handler(c)
 	if called {
 		t.Fatal("v1 static-secret header must no longer bypass JWT auth (removed v0.57.0)")
+	}
+}
+
+// The key tokens are checked with is read per request, not captured when the
+// middleware is built. A node joining a cluster swaps it for the cluster's key
+// without a restart; a captured copy then refused every token the node issued
+// after the join, so login worked and every request after it got 401.
+func TestJWTMiddleware_FollowsTheKeyAfterItChanges(t *testing.T) {
+	auth.SetJWTSecret("node-key")
+	defer auth.SetJWTSecret("")
+	mw := JWTMiddleware(auth.JWTSecret)
+	ok := mw(func(c echo.Context) error { return c.NoContent(http.StatusNoContent) })
+
+	call := func(secret string) *httptest.ResponseRecorder {
+		tok, err := auth.GenerateToken("admin", secret, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/system/info", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		rec := httptest.NewRecorder()
+		if err := ok(echo.New().NewContext(req, rec)); err != nil {
+			t.Fatal(err)
+		}
+		return rec
+	}
+
+	auth.SetJWTSecret("cluster-key") // what a committed join does
+	if rec := call("cluster-key"); rec.Code != http.StatusNoContent {
+		t.Fatalf("token signed with the new key: status %d body %s, want it accepted", rec.Code, rec.Body)
+	}
+	if rec := call("node-key"); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "INVALID_TOKEN") {
+		t.Fatalf("token signed with the replaced key: status %d body %s, want 401 INVALID_TOKEN", rec.Code, rec.Body)
 	}
 }

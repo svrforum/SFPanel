@@ -201,7 +201,7 @@ func (h *Handler) Refresh(c echo.Context) error {
 	// stays valid for a client retry instead of being consumed and tripping
 	// the family-revoke path above on the next request.
 	accessExpiry := h.tokenExpiry()
-	accessTok, err := generateAccessToken(username, h.Config.Auth.JWTSecret, accessExpiry)
+	accessTok, err := generateAccessToken(username, auth.JWTSecret(), accessExpiry)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Failed to issue access token")
 	}

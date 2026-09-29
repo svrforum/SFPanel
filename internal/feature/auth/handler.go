@@ -228,7 +228,7 @@ func (h *Handler) Login(c echo.Context) error {
 		expiry = 24 * time.Hour
 	}
 
-	token, err := auth.GenerateToken(req.Username, h.Config.Auth.JWTSecret, expiry)
+	token, err := auth.GenerateToken(req.Username, auth.JWTSecret(), expiry)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTokenError, "Failed to generate token")
 	}
@@ -835,7 +835,7 @@ func (h *Handler) SetupAdmin(c echo.Context) error {
 		expiry = 24 * time.Hour
 	}
 
-	token, err := auth.GenerateToken(req.Username, h.Config.Auth.JWTSecret, expiry)
+	token, err := auth.GenerateToken(req.Username, auth.JWTSecret(), expiry)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrTokenError, "Admin created but failed to generate token")
 	}
