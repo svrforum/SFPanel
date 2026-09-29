@@ -8,6 +8,16 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ## [0.78.2] – 2026-09-29
 
+### Added
+
+**A new server installs and joins a cluster in one line.** `sfpanel cluster token` and the Tokens page print it with the leader's address and the token filled in:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash && sudo sfpanel cluster join <leader-ip>:3629 <token>
+```
+
+The installer now waits for the panel to listen before it finishes, so the join that follows reaches it instead of falling back to its offline mode.
+
 ### Fixed
 
 **A server joined to a running cluster rejected its own users until it restarted.** Joining without a restart replaces the node's signing key, and login signed with the new key while every request was still checked against the old one. The new node answered 401 to its web sessions and to every `sfpanel cluster` command until `systemctl restart sfpanel`.
