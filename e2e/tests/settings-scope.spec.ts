@@ -35,7 +35,11 @@ async function mock(page: Page, cluster: boolean) {
 
 test('a phone in cluster mode reaches the password form from the More menu', async ({ page }) => {
   await mock(page, true)
-  await page.goto('/terminal')
+  // Any page with the phone's bottom bar will do, but not /terminal: it hides
+  // the bar to give the terminal the screen. Under the dev server this passed
+  // from /terminal only because StrictMode's doubled effect bounced the page
+  // to the cluster overview first; a production build stays put.
+  await page.goto('/cluster/overview')
   await page.getByRole('button', { name: 'More' }).tap()
   await page.getByRole('button', { name: 'Settings' }).or(page.getByRole('link', { name: 'Settings' })).first().tap()
   await expect(page).toHaveURL(/\/settings\?scope=node/)
