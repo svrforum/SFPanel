@@ -46,7 +46,9 @@ function logicalCells(buffer: CellBuffer, cols: number, row: number): Cell[] {
 
 const isBlank = (ch: string) => ch === '' || /^\s$/.test(ch)
 const OPENERS = '"\'`([{<'
-const CLOSERS = '"\'`)]}>,;:.!?'
+// A shell prompt ends in $ or # (user@host:/path$), which is not part of the
+// path it follows.
+const CLOSERS = '"\'`)]}>,;:.!?$#'
 
 function span(cells: Cell[], from: number, to: number, cols: number): TextSpan {
   const a = cells[from]
@@ -93,4 +95,30 @@ export function lineAt(buffer: CellBuffer, cols: number, row: number): TextSpan 
   while (to >= from && isBlank(cells[to].ch)) to--
   if (to < from) return null
   return span(cells, from, to, cols)
+}
+
+// A cell in the buffer: an absolute row (scrollback included) and a column.
+export interface CellPos {
+  row: number
+  col: number
+}
+
+// cellBefore: a comes before b, or is b.
+export const cellBefore = (a: CellPos, b: CellPos) => a.row < b.row || (a.row === b.row && a.col <= b.col)
+
+// spanEnd is the last cell a span covers.
+export function spanEnd(span: TextSpan, cols: number): CellPos {
+  const last = span.col + span.length - 1
+  return { row: span.row + Math.floor(last / cols), col: last % cols }
+}
+
+// rangeBetween is the selection from cell a to cell b, in either order, both
+// ends inclusive, in the form term.select() takes. Neither end splits a
+// double-width character: an end on its second half takes the whole of it.
+export function rangeBetween(buffer: CellBuffer, cols: number, a: CellPos, b: CellPos): { row: number; col: number; length: number } {
+  const [first, last] = cellBefore(a, b) ? [a, b] : [b, a]
+  const widthAt = (p: CellPos) => buffer.getLine(p.row)?.getCell(p.col)?.getWidth() ?? 1
+  const startCol = first.col > 0 && widthAt(first) === 0 ? first.col - 1 : first.col
+  const endCol = last.col + (widthAt(last) === 2 ? 2 : 1)
+  return { row: first.row, col: startCol, length: last.row * cols + endCol - (first.row * cols + startCol) }
 }

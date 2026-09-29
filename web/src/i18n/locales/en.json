@@ -1426,7 +1426,9 @@
       "copy": "Copy",
       "copyLine": "Copy line",
       "viewAll": "View all",
-      "copied": "Copied: {{text}}"
+      "copied": "Copied: {{text}}",
+      "startHandle": "Move the start of the selection",
+      "endHandle": "Move the end of the selection"
     },
     "selectText": {
       "menu": "Select text",

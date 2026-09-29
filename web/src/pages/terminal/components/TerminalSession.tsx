@@ -10,8 +10,8 @@ import { api } from '@/lib/api'
 import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import { attachLongPress } from '@/lib/longPress'
 import { SELECT_TEXT_EVENT } from '@/lib/terminalText'
-import { lineAt, wordAt, type TextSpan } from '@/lib/terminalWord'
-import { TerminalCopyBar, type CopyBarAnchor } from './TerminalCopyBar'
+import { cellBefore, lineAt, rangeBetween, spanEnd, wordAt, type CellPos, type TextSpan } from '@/lib/terminalWord'
+import { TerminalSelection, type HandleEnd, type Point } from './TerminalSelection'
 import { cn, copyText } from '@/lib/utils'
 import { toast } from 'sonner'
 import { MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, NO_MODIFIERS, terminalKey, type TerminalModifiers } from '@/lib/terminalKeys'
@@ -90,32 +90,33 @@ export interface TerminalSessionElement extends HTMLElement {
   __wsRef?: RefObject<WebSocket | null>
 }
 
-// What a long press at (x, y) lands on: the word under the finger and its
-// line, with where they sit on screen for the copy bar. Null off the text grid
-// or on an empty row.
-interface CopyTarget { word: TextSpan | null; line: TextSpan | null; anchor: CopyBarAnchor }
-function copyTargetAt(term: XTerm, container: HTMLElement, x: number, y: number): CopyTarget | null {
+// The terminal's text grid on screen: where it starts and one cell's size.
+interface Grid { left: number; top: number; cellW: number; cellH: number }
+function gridOf(term: XTerm, container: HTMLElement): Grid | null {
   const screen = container.querySelector('.xterm-screen')
   if (!screen || !term.cols || !term.rows) return null
-  const rect = screen.getBoundingClientRect()
-  const cellW = rect.width / term.cols
-  const cellH = rect.height / term.rows
-  const col = Math.floor((x - rect.left) / cellW)
-  const viewRow = Math.floor((y - rect.top) / cellH)
-  if (col < 0 || col >= term.cols || viewRow < 0 || viewRow >= term.rows) return null
-  const buffer = term.buffer.active
-  const row = buffer.viewportY + viewRow
-  const word = wordAt(buffer, term.cols, row, col)
-  const line = lineAt(buffer, term.cols, row)
-  const span = word ?? line
-  if (!span) return null
-  const lastRow = span.row + Math.floor((span.col + span.length - 1) / term.cols)
-  return {
-    word,
-    line,
-    anchor: { x, top: rect.top + (span.row - buffer.viewportY) * cellH, bottom: rect.top + (lastRow - buffer.viewportY + 1) * cellH },
-  }
+  const r = screen.getBoundingClientRect()
+  return { left: r.left, top: r.top, cellW: r.width / term.cols, cellH: r.height / term.rows }
 }
+
+// The buffer cell under a point on screen. With clamp, a point past the edge
+// takes the nearest visible cell, so a handle dragged off the grid stays on it.
+function cellAt(term: XTerm, grid: Grid, x: number, y: number, clamp = false): CellPos | null {
+  let col = Math.floor((x - grid.left) / grid.cellW)
+  let viewRow = Math.floor((y - grid.top) / grid.cellH)
+  if (clamp) {
+    col = Math.max(0, Math.min(term.cols - 1, col))
+    viewRow = Math.max(0, Math.min(term.rows - 1, viewRow))
+  } else if (col < 0 || col >= term.cols || viewRow < 0 || viewRow >= term.rows) {
+    return null
+  }
+  return { row: term.buffer.active.viewportY + viewRow, col }
+}
+
+// A long-press selection: its two ends in either order (a handle dragged past
+// the other simply swaps sides), the word the press chose — holding on and
+// dragging extends from it — and the line it is on.
+interface Selection { a: CellPos; b: CellPos; word: { start: CellPos; end: CellPos }; line: TextSpan | null }
 
 export function TerminalSession({
   sessionId,
@@ -136,30 +137,69 @@ export function TerminalSession({
   const wsRef = useRef<WebSocket | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
-  // The long-press selection and its copy bar (null: none).
-  const [copyTarget, setCopyTarget] = useState<CopyTarget | null>(null)
-  const dismissCopy = useCallback(() => {
+  // The long-press selection (null: none), shown with xterm's own highlight.
+  const [sel, setSel] = useState<Selection | null>(null)
+  const dismissSelection = useCallback(() => {
     termRef.current?.clearSelection()
-    setCopyTarget(null)
+    setSel(null)
   }, [])
-  // Scrolling moves the text out from under the bar, and typing means the
+  useEffect(() => {
+    const term = termRef.current
+    if (!sel || !term) return
+    const r = rangeBetween(term.buffer.active, term.cols, sel.a, sel.b)
+    term.select(r.col, r.row, r.length)
+  }, [sel])
+  // Scrolling moves the text out from under the handles, and typing means the
   // operator has moved on.
   useEffect(() => {
     const term = termRef.current
-    if (!copyTarget || !term) return
-    const subs = [term.onScroll(dismissCopy), term.onData(dismissCopy)]
+    if (!sel || !term) return
+    const subs = [term.onScroll(dismissSelection), term.onData(dismissSelection)]
     return () => subs.forEach((s) => s.dispose())
-  }, [copyTarget, dismissCopy])
-  // A session that goes to the background takes its bar with it — the bar is
-  // rendered into <body> and would stay over the next session. The state
-  // follows the prop during render; the highlight is xterm's, cleared in an
-  // effect.
+  }, [sel, dismissSelection])
+  // A session that goes to the background takes its selection with it — the
+  // handles are rendered into <body> and would stay over the next session. The
+  // state follows the prop during render; the highlight is xterm's, cleared in
+  // an effect.
   const [wasActive, setWasActive] = useState(active)
   if (wasActive !== active) {
     setWasActive(active)
-    if (!active) setCopyTarget(null)
+    if (!active) setSel(null)
   }
   useEffect(() => { if (!active) termRef.current?.clearSelection() }, [active])
+  // A handle's knob hangs below the text, so it aims at the row above the finger.
+  const dragHandle = useCallback((end: HandleEnd, point: Point) => {
+    const term = termRef.current
+    const grid = term && containerRef.current && gridOf(term, containerRef.current)
+    if (!term || !grid) return
+    const p = cellAt(term, grid, point.x, point.y - grid.cellH, true)
+    if (p) setSel((prev) => prev && (end === 'start' ? { ...prev, a: p } : { ...prev, b: p }))
+  }, [])
+  // Where the handles and the bar go, read from the terminal's layout.
+  const measureSelection = useCallback(() => {
+    const term = termRef.current
+    const grid = term && containerRef.current && gridOf(term, containerRef.current)
+    if (!sel || !term || !grid) return null
+    const buffer = term.buffer.active
+    const r = rangeBetween(buffer, term.cols, sel.a, sel.b)
+    const lastCell = r.col + r.length - 1
+    const last = { row: r.row + Math.floor(lastCell / term.cols), col: lastCell % term.cols }
+    const onScreen = (row: number) => row >= buffer.viewportY && row < buffer.viewportY + term.rows
+    const below = (row: number) => grid.top + (row - buffer.viewportY + 1) * grid.cellH
+    const left = onScreen(r.row) ? { x: grid.left + r.col * grid.cellW, y: below(r.row) } : null
+    const right = onScreen(last.row) ? { x: grid.left + (last.col + 1) * grid.cellW, y: below(last.row) } : null
+    // Each handle keeps the end it holds: dragged past the other, it takes
+    // that side rather than jumping away from the finger.
+    const aFirst = cellBefore(sel.a, sel.b)
+    return {
+      handles: { start: aFirst ? left : right, end: aFirst ? right : left },
+      bar: {
+        x: left && right && r.row === last.row ? (left.x + right.x) / 2 : grid.left + (term.cols * grid.cellW) / 2,
+        top: grid.top + (r.row - buffer.viewportY) * grid.cellH,
+        bottom: below(last.row),
+      },
+    }
+  }, [sel])
   const { t } = useTranslation()
 
   useEffect(() => {
@@ -377,14 +417,33 @@ export function TerminalSession({
     // row it opens that text view straight away.
     const detachLongPress = container
       ? attachLongPress(container, (x, y) => {
-          const target = copyTargetAt(term, container, x, y)
-          if (!target) {
+          const grid = gridOf(term, container)
+          const at = grid && cellAt(term, grid, x, y)
+          const buffer = term.buffer.active
+          const word = at ? wordAt(buffer, term.cols, at.row, at.col) : null
+          const line = at ? lineAt(buffer, term.cols, at.row) : null
+          const span = word ?? line
+          if (!span) {
             window.dispatchEvent(new Event(SELECT_TEXT_EVENT))
             return
           }
-          const span = target.word ?? target.line
-          if (span) term.select(span.col, span.row, span.length)
-          setCopyTarget(target)
+          const start = { row: span.row, col: span.col }
+          const end = spanEnd(span, term.cols)
+          setSel({ a: start, b: end, word: { start, end }, line })
+        }, {
+          // Holding on and dragging extends the selection from the word the
+          // press chose, as a phone's own text selection does.
+          onDrag: (x, y) => {
+            const grid = gridOf(term, container)
+            const p = grid && cellAt(term, grid, x, y, true)
+            if (!p) return
+            setSel((prev) => {
+              if (!prev) return prev
+              const { start, end } = prev.word
+              if (!cellBefore(start, p)) return { ...prev, a: p, b: end }
+              return { ...prev, a: start, b: cellBefore(p, end) ? end : p }
+            })
+          },
         })
       : () => {}
 
@@ -462,8 +521,8 @@ export function TerminalSession({
   // broke silently when a className was reordered during the UI-polish churn;
   // this attribute is decoupled from styling.
   const copyAndDismiss = async (text: string) => {
-    const ok = await copyText(text)
-    dismissCopy()
+    const ok = text !== '' && await copyText(text)
+    dismissSelection()
     if (ok) toast.success(t('terminal.copyBar.copied', { text: text.length > 40 ? `${text.slice(0, 39)}…` : text }))
     else toast.error(t('terminal.copyFailed', { defaultValue: 'Could not copy to clipboard' }))
   }
@@ -481,15 +540,15 @@ export function TerminalSession({
           active ? 'block' : 'hidden'
         )}
       />
-      {copyTarget && (
-        <TerminalCopyBar
-          anchor={copyTarget.anchor}
-          canCopyWord={copyTarget.word !== null}
-          canCopyLine={copyTarget.line !== null}
-          onCopyWord={() => { if (copyTarget.word) void copyAndDismiss(copyTarget.word.text) }}
-          onCopyLine={() => { if (copyTarget.line) void copyAndDismiss(copyTarget.line.text) }}
-          onViewAll={() => { dismissCopy(); window.dispatchEvent(new Event(SELECT_TEXT_EVENT)) }}
-          onDismiss={dismissCopy}
+      {sel && (
+        <TerminalSelection
+          measure={measureSelection}
+          canCopyLine={sel.line !== null}
+          onHandleDrag={dragHandle}
+          onCopy={() => { void copyAndDismiss(termRef.current?.getSelection() ?? '') }}
+          onCopyLine={() => { if (sel.line) void copyAndDismiss(sel.line.text) }}
+          onViewAll={() => { dismissSelection(); window.dispatchEvent(new Event(SELECT_TEXT_EVENT)) }}
+          onDismiss={dismissSelection}
         />
       )}
     </>

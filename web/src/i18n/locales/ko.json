@@ -1424,7 +1424,9 @@
       "copy": "복사",
       "copyLine": "줄 복사",
       "viewAll": "전체 보기",
-      "copied": "복사했습니다: {{text}}"
+      "copied": "복사했습니다: {{text}}",
+      "startHandle": "선택 시작 옮기기",
+      "endHandle": "선택 끝 옮기기"
     },
     "selectText": {
       "menu": "텍스트 선택",

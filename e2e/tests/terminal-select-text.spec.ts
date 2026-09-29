@@ -146,6 +146,73 @@ test('a long press selects the word under the finger, and Copy takes just that w
   expect(await selection(page)).toBe('')
 })
 
+// Drag an element (a selection handle) with a finger to a point on screen.
+async function dragTo(page: Page, from: { x: number; y: number }, to: { x: number; y: number }) {
+  const client = await page.context().newCDPSession(page)
+  await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] })
+  for (let i = 1; i <= 8; i++) {
+    await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from.x + ((to.x - from.x) * i) / 8, y: from.y + ((to.y - from.y) * i) / 8 }] })
+  }
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+}
+
+async function handleCentre(page: Page, end: 'start' | 'end') {
+  const box = (await page.locator(`[data-selection-handle="${end}"]`).boundingBox())!
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+}
+
+// A handle's knob hangs below the text, so the finger holding it sits a row
+// below the cell it aims at.
+async function belowCell(page: Page, row: number, col: number) {
+  const p = await cellPoint(page, row, col)
+  const q = await cellPoint(page, row + 1, col)
+  return { x: p.x, y: q.y }
+}
+
+test('a handle narrows a prompt to its path, and Copy takes what is selected', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await mock(page)
+  await openTerminal(page)
+  await screen(page, 'user@host:/opt/stacks/SFPanel$ ls\r\n')
+
+  const at = await cellPoint(page, 0, 20)
+  await touchPress(page, at.x, at.y)
+  // The prompt's $ is not part of the path.
+  expect(await selection(page)).toBe('user@host:/opt/stacks/SFPanel')
+  await dragTo(page, await handleCentre(page, 'start'), await belowCell(page, 0, 11))
+  expect(await selection(page)).toBe('/opt/stacks/SFPanel')
+
+  await page.getByRole('toolbar', { name: 'Copy terminal text' }).getByRole('button', { name: 'Copy', exact: true }).click()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('/opt/stacks/SFPanel')
+})
+
+test('the end handle widens the selection across words', async ({ page }) => {
+  await mock(page)
+  await openTerminal(page)
+  await screen(page, 'hello brave new world\r\n')
+  const at = await cellPoint(page, 0, 1)
+  await touchPress(page, at.x, at.y)
+  expect(await selection(page)).toBe('hello')
+  await dragTo(page, await handleCentre(page, 'end'), await belowCell(page, 0, 14))
+  expect(await selection(page)).toBe('hello brave new')
+})
+
+test('holding on after the press and dragging extends the selection', async ({ page }) => {
+  await mock(page)
+  await openTerminal(page)
+  await screen(page, 'alpha beta gamma delta\r\n')
+  const start = await cellPoint(page, 0, 7)
+  const end = await cellPoint(page, 0, 15)
+  const client = await page.context().newCDPSession(page)
+  await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [start] })
+  await page.waitForTimeout(700)
+  for (let i = 1; i <= 6; i++) {
+    await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: start.x + ((end.x - start.x) * i) / 6, y: start.y }] })
+  }
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  expect(await selection(page)).toBe('beta gamma')
+})
+
 test('a wrapped path comes whole, Copy line takes the line, View all opens the text view', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await mock(page)
@@ -227,4 +294,17 @@ test('a temporary shell (no tmux) gives its own buffer, wrapped lines whole', as
   const text = page.getByRole('dialog', { name: 'Select text' }).locator('pre')
   await expect(text).toContainText('last')
   expect((await text.textContent())?.split('\n')).toContain('$ ' + LONG)
+  await page.getByRole('button', { name: 'Close' }).first().click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  // With scrollback above the screen, a long press still lands on the word
+  // under the finger.
+  await terminal.evaluate(el => new Promise<void>(done => {
+    const term = (el as HTMLElement & { __termRef: { current: { write: (s: string, cb: () => void) => void; rows: number } } }).__termRef.current
+    term.write(Array.from({ length: 120 }, (_, i) => `scroll ${i}`).join('\r\n') + '\r\nneedle here\r\n', done)
+  }))
+  const rows = await terminal.evaluate(el => (el as HTMLElement & { __termRef: { current: { rows: number } } }).__termRef.current.rows)
+  const at = await cellPoint(page, rows - 2, 2)
+  await touchPress(page, at.x, at.y)
+  expect(await selection(page)).toBe('needle')
 })

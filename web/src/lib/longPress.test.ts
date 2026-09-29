@@ -17,6 +17,7 @@ describe('attachLongPress', () => {
   let root: EventTarget
   let fired: number
   let at: [number, number] | null
+  let drags: [number, number][]
   let detach: () => void
   // Where the finger goes: touchstart lands on the element, the rest of the
   // gesture is heard on the root (the window), as in a browser.
@@ -30,7 +31,8 @@ describe('attachLongPress', () => {
     root = new EventTarget()
     fired = 0
     at = null
-    detach = attachLongPress(el, (x, y) => { fired++; at = [x, y] }, { root })
+    drags = []
+    detach = attachLongPress(el, (x, y) => { fired++; at = [x, y] }, { root, onDrag: (x, y) => { drags.push([x, y]) } })
   })
   afterEach(() => {
     detach()
@@ -89,6 +91,19 @@ describe('attachLongPress', () => {
     expect(later).not.toHaveBeenCalled()
     expect(up().defaultPrevented).toBe(true)
     expect(fired).toBe(1)
+  })
+
+  it('hands the drag that follows a fired press to onDrag, and only that drag', () => {
+    down()
+    move(12, 12)
+    expect(drags).toEqual([])
+    vi.advanceTimersByTime(500)
+    move(40, 12)
+    move(80, 30)
+    expect(drags).toEqual([[40, 12], [80, 30]])
+    up()
+    move(90, 90)
+    expect(drags).toHaveLength(2)
   })
 
   it('lets everything go once that gesture is over', () => {

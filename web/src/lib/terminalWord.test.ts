@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lineAt, wordAt, type CellBuffer } from './terminalWord'
+import { lineAt, rangeBetween, spanEnd, wordAt, type CellBuffer } from './terminalWord'
 
 // Rows of cells as xterm keeps them. A Hangul syllable takes two cells, the
 // second of width 0; cells past the text are unwritten (chars '').
@@ -33,6 +33,11 @@ describe('wordAt', () => {
 
   it('leaves off the punctuation that follows a word in prose', () => {
     expect(wordAt(b, 40, 0, 2)?.text).toBe('error')
+  })
+
+  it('leaves off the $ or # a shell prompt ends in', () => {
+    const p = buffer(60, [{ text: 'user@host:/opt/stacks/SFPanel$ ls' }])
+    expect(wordAt(p, 60, 0, 20)?.text).toBe('user@host:/opt/stacks/SFPanel')
   })
 
   it('returns nothing on a blank cell or past the end of the text', () => {
@@ -78,5 +83,29 @@ describe('lineAt', () => {
 
   it('returns nothing for an empty line', () => {
     expect(lineAt(buffer(10, [{ text: '   ' }]), 10, 0)).toBeNull()
+  })
+})
+
+describe('rangeBetween', () => {
+  it('spans two cells in either order, both inclusive', () => {
+    const b = buffer(10, [{ text: 'hello world' }])
+    expect(rangeBetween(b, 10, { row: 0, col: 6 }, { row: 0, col: 2 })).toEqual({ row: 0, col: 2, length: 5 })
+  })
+
+  it('crosses rows', () => {
+    const b = buffer(10, [{ text: 'abcdefghij' }, { text: 'klm', wrapped: true }])
+    expect(rangeBetween(b, 10, { row: 0, col: 8 }, { row: 1, col: 1 })).toEqual({ row: 0, col: 8, length: 4 })
+  })
+
+  it('never splits a double-width character at either end', () => {
+    const k = buffer(20, [{ text: 'ab가나다' }])
+    // End on '나' (cells 4-5), start on the second half of '가' (cell 3).
+    expect(rangeBetween(k, 20, { row: 0, col: 3 }, { row: 0, col: 4 })).toEqual({ row: 0, col: 2, length: 4 })
+  })
+})
+
+describe('spanEnd', () => {
+  it('is the last cell of a span, on the row it wrapped to', () => {
+    expect(spanEnd({ text: '', row: 0, col: 4, length: 17 }, 10)).toEqual({ row: 2, col: 0 })
   })
 })

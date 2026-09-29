@@ -10,7 +10,9 @@
 // finger move and a scroll longer than the delay fired the long press.
 //
 // The gesture that fired is consumed. The rest of its drag is stopped, so the
-// terminal behind the dialog does not scroll; its touchend is prevented, so the
+// terminal does not scroll under the selection, and handed to onDrag instead —
+// holding on and dragging extends what the press selected; its touchend is
+// prevented, so the
 // browser sends no click and the terminal does not take focus and raise the
 // keyboard. The contextmenu the platform raises for the same long press is
 // swallowed too, and fires the long press early if it comes first — Android
@@ -19,7 +21,12 @@
 export function attachLongPress(
   el: HTMLElement,
   onLongPress: (x: number, y: number) => void,
-  { delay = 500, slop = 10, root = window as EventTarget }: { delay?: number; slop?: number; root?: EventTarget } = {},
+  { delay = 500, slop = 10, root = window as EventTarget, onDrag }: {
+    delay?: number
+    slop?: number
+    root?: EventTarget
+    onDrag?: (x: number, y: number) => void
+  } = {},
 ): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined
   let tracking = false // a one-finger gesture that began on el is in progress
@@ -51,6 +58,8 @@ export function attachLongPress(
     if (fired) {
       e.stopImmediatePropagation()
       if (e.cancelable) e.preventDefault()
+      const t = e.touches[0]
+      if (t && onDrag) onDrag(t.clientX, t.clientY)
       return
     }
     const t = e.touches[0]
