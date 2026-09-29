@@ -177,6 +177,19 @@ export default function ClusterOverview() {
     }
   }
 
+  if (status?.configured) {
+    // A member whose cluster did not start: offering Init or Join here would
+    // replace the membership it still has, so say what happened instead.
+    return (
+      <div role="alert" className="bg-card rounded-2xl p-8 card-shadow max-w-lg mx-auto text-center space-y-3">
+        <Server className="h-12 w-12 text-muted-foreground mx-auto" />
+        <h2 className="text-[15px] font-semibold">{t('cluster.notRunning.title')}</h2>
+        <p className="text-[13px] text-muted-foreground">{t('cluster.notRunning.description')}</p>
+        <code className="inline-block rounded-lg bg-secondary/60 px-3 py-1.5 text-[12px]">sudo systemctl restart sfpanel</code>
+      </div>
+    )
+  }
+
   if (!status?.enabled) {
     return <ClusterInitForm />
   }

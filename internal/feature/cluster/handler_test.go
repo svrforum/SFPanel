@@ -7,10 +7,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/cluster"
 	"github.com/svrforum/SFPanel/internal/config"
 	"gopkg.in/yaml.v3"
@@ -204,5 +206,78 @@ func TestLeaderReadBreaker(t *testing.T) {
 	h.recordLeaderRead(addr, nil, base)
 	if h.leaderReadBlocked(addr, base) {
 		t.Fatal("a success must clear a previously-opened breaker")
+	}
+}
+
+// A member whose cluster did not start at boot has no manager but still says
+// Enabled in its config, and the UI used to offer it Init and Join. Init
+// failed there with "already initialized" and its cleanup then deleted the
+// node's Raft and certificate folders. Both must refuse, say why, and leave
+// the folders alone; the status must report the node as a stopped member.
+func TestInitAndJoinRefuseAMemberWhoseClusterDidNotStart(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Cluster.Enabled = true
+	cfg.Cluster.NodeID = "existing-node"
+	cfg.Cluster.DataDir = filepath.Join(dir, "data")
+	cfg.Cluster.CertDir = filepath.Join(dir, "certs")
+	for _, d := range []string{cfg.Cluster.DataDir, cfg.Cluster.CertDir} {
+		if err := os.MkdirAll(d, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "keep"), []byte("x"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := &Handler{Config: cfg, ConfigPath: filepath.Join(dir, "config.yaml")}
+	e := echo.New()
+
+	for _, tc := range []struct {
+		path string
+		body string
+		call func(echo.Context) error
+	}{
+		{"/cluster/init", `{"name":"fresh","advertise_address":"127.0.0.1"}`, h.InitCluster},
+		{"/cluster/join", `{"leader_address":"127.0.0.1:3629","token":"t"}`, h.JoinCluster},
+	} {
+		req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		if err := tc.call(e.NewContext(req, rec)); err != nil {
+			t.Fatalf("%s returned error: %v", tc.path, err)
+		}
+		var body struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &body)
+		if rec.Code != http.StatusConflict || body.Error.Code != response.ErrClusterNotRunning {
+			t.Fatalf("%s: status %d code %q, want 409 %s (body %s)", tc.path, rec.Code, body.Error.Code, response.ErrClusterNotRunning, rec.Body.String())
+		}
+	}
+	for _, d := range []string{cfg.Cluster.DataDir, cfg.Cluster.CertDir} {
+		if _, err := os.Stat(filepath.Join(d, "keep")); err != nil {
+			t.Fatalf("%s was cleaned up: %v", d, err)
+		}
+	}
+	if !cfg.Cluster.Enabled || cfg.Cluster.NodeID != "existing-node" {
+		t.Fatalf("in-memory membership was reset: %+v", cfg.Cluster)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/cluster/status", nil)
+	rec := httptest.NewRecorder()
+	if err := h.GetStatus(e.NewContext(req, rec)); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Data struct {
+			Enabled    bool `json:"enabled"`
+			Configured bool `json:"configured"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &status)
+	if status.Data.Enabled || !status.Data.Configured {
+		t.Fatalf("status = %s, want enabled:false configured:true", rec.Body.String())
 	}
 }

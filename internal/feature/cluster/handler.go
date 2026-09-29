@@ -289,6 +289,9 @@ func (h *Handler) InitCluster(c echo.Context) error {
 	if h.getManager() != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Already part of a cluster")
 	}
+	if h.memberNotRunning() {
+		return response.Fail(c, http.StatusConflict, response.ErrClusterNotRunning, memberNotRunningMsg)
+	}
 	if h.ConfigPath == "" {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "Config path not available")
 	}
@@ -429,6 +432,9 @@ func (h *Handler) JoinCluster(c echo.Context) error {
 
 	if h.getManager() != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Already part of a cluster")
+	}
+	if h.memberNotRunning() {
+		return response.Fail(c, http.StatusConflict, response.ErrClusterNotRunning, memberNotRunningMsg)
 	}
 
 	var body struct {
@@ -612,11 +618,31 @@ func (h *Handler) GetNodes(c echo.Context) error {
 	})
 }
 
+// memberNotRunningMsg is the fallback text for ErrClusterNotRunning.
+const memberNotRunningMsg = "This node is a cluster member but its cluster service did not start. Restart the panel and check its log."
+
+// memberNotRunning reports a node whose config says it belongs to a cluster
+// while no manager is running: the cluster start failed at boot and the panel
+// came up standalone. Init and join must refuse there — Init's failure path
+// deleted the Raft and certificate folders the node still depends on, and a
+// second click then founded a new cluster over the old membership.
+func (h *Handler) memberNotRunning() bool {
+	if h.getManager() != nil {
+		return false
+	}
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
+	return h.Config.Cluster.Enabled
+}
+
 func (h *Handler) GetStatus(c echo.Context) error {
 	mgr := h.getManager()
 	if mgr == nil {
+		// configured: a member whose cluster did not start, which the UI
+		// must not present as "clustering is not enabled" with Init/Join.
 		return response.OK(c, map[string]interface{}{
-			"enabled": false,
+			"enabled":    false,
+			"configured": h.memberNotRunning(),
 		})
 	}
 

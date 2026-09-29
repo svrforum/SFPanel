@@ -932,6 +932,9 @@ export interface ClusterOverview {
 
 export interface ClusterStatus {
   enabled: boolean
+  // Only with enabled=false: this node's config says it is a member, but its
+  // cluster service did not start at boot. Init and join refuse here.
+  configured?: boolean
   name?: string
   node_count?: number
   leader_id?: string

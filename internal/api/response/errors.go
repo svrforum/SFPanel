@@ -297,6 +297,11 @@ const (
 	// surviving voters below Raft quorum — e.g. leaving a cluster whose only
 	// other voter is unreachable. Callers pass http.StatusConflict explicitly.
 	ErrClusterQuorum = "CLUSTER_QUORUM"
+	// ErrClusterNotRunning is returned (HTTP 409) by init and join on a node
+	// whose config says it belongs to a cluster while its cluster service is
+	// not running — the start failed at boot. Either operation would replace
+	// or delete the membership still on disk.
+	ErrClusterNotRunning = "CLUSTER_NOT_RUNNING"
 )
 
 // TLS error codes

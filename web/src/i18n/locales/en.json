@@ -882,6 +882,10 @@
       "title": "Cluster not enabled",
       "description": "Enable cluster mode to manage 2-32 nodes as a unified cluster."
     },
+    "notRunning": {
+      "title": "This node's cluster service did not start",
+      "description": "This server is still a member of its cluster, but the cluster service failed when the panel started, so it is running on its own for now. Restart the panel to rejoin; the panel log says what went wrong."
+    },
     "stacks": {
       "nodeUnreachable": "unreachable",
       "nodeListFailed": "failed to list stacks"
