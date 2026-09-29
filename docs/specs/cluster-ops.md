@@ -32,11 +32,14 @@ refuses 2+-voter clusters with a clear SSE error.
 
 ## Join token persistence
 
-Tokens are persisted to `{Cluster.DataDir}/tokens.json` (mode 0600). A leader
-restart no longer invalidates pending invites. The file holds the HMAC secret
-plus the token map; protect it like any other cluster credential. If the file
-is corrupted or deleted, all pending invites become invalid — issue new
-tokens with `sfpanel cluster token`.
+Tokens are persisted to `{Cluster.DataDir}/tokens.json` (mode 0600), so a
+leader restart does not invalidate pending invites — as long as the same node
+is leader again. Tokens are not replicated: they live only on the node that
+created them, and after leadership moves to another node the new leader
+answers "token does not exist" for them. Issue new tokens on the current
+leader with `sfpanel cluster token`. The file holds the HMAC secret plus the
+token map; protect it like any other cluster credential. If the file is
+corrupted or deleted, all pending invites become invalid.
 
 ---
 

@@ -585,12 +585,16 @@ print_success() {
   fi
   echo -e "  Config:    ${CONFIG_DIR}/config.yaml"
   echo -e "  Data:      ${DATA_DIR}/"
-  echo -e "  Logs:      journalctl -u ${SERVICE_NAME} -f"
-  echo ""
-  echo -e "  Commands:"
-  echo -e "    systemctl status ${SERVICE_NAME}"
-  echo -e "    systemctl restart ${SERVICE_NAME}"
-  echo -e "    systemctl stop ${SERVICE_NAME}"
+  if check_systemd; then
+    echo -e "  Logs:      journalctl -u ${SERVICE_NAME} -f"
+    echo ""
+    echo -e "  Commands:"
+    echo -e "    systemctl status ${SERVICE_NAME}"
+    echo -e "    systemctl restart ${SERVICE_NAME}"
+    echo -e "    systemctl stop ${SERVICE_NAME}"
+  else
+    echo -e "  Logs:      ${LOG_DIR}/sfpanel.log"
+  fi
   echo ""
   if [ "$mode" = "install" ]; then
     echo -e "  ${YELLOW}First visit: Set up the admin account in the browser.${NC}"
@@ -604,16 +608,23 @@ print_success() {
       echo ""
     fi
     echo -e "  ${CYAN}Recommended next steps (do these before exposing the panel):${NC}"
-    echo -e "    1. Enable 2FA in Settings → Security after first login."
-    echo -e "    2. Front the panel with TLS (Caddy / nginx / Cloudflare Tunnel)."
-    echo -e "       The bundled HTTP listener is plain — never expose ${port} to the public Internet."
+    echo -e "    1. Enable 2FA in Settings → Account after first login."
+    if [ "$scheme" = "https" ]; then
+      echo -e "    2. The panel serves HTTPS with its own local CA. Download the CA from"
+      echo -e "       Settings → System and install it on your devices once to clear the browser warning."
+    else
+      echo -e "    2. Front the panel with TLS (Caddy / nginx / Cloudflare Tunnel)."
+      echo -e "       This panel serves plain HTTP — never expose ${port} to the public Internet."
+    fi
     echo -e "    3. Restrict ${port} to LAN/VPN only (ufw default deny + allow from trusted CIDR)."
     echo ""
     echo -e "  ${CYAN}Tips:${NC}"
-    echo -e "    Change port:  Edit ${CONFIG_DIR}/config.yaml → server.port"
-    echo -e "                  Then: systemctl restart ${SERVICE_NAME}"
+    echo -e "    Change port:  Edit ${CONFIG_DIR}/config.yaml → server.port, then restart the panel."
     echo ""
-    echo -e "    Join cluster: sfpanel cluster join <token>"
+    echo -e "    Join a cluster: on an existing node run  sudo sfpanel cluster token"
+    echo -e "                    and paste the command it prints here, e.g."
+    echo -e "                    sudo sfpanel cluster join <leader-ip>:3629 <token>"
+    echo -e "                    Nodes talk on TCP 3628-3630; allow them between nodes in ufw."
     echo ""
   fi
 }

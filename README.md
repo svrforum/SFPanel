@@ -155,11 +155,12 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 - 업그레이드 시 자동 DB 스냅샷 (`sfpanel.db.bak-<ts>`, 최근 3개 보관)
 
 설치 후:
-1. 서비스가 떴는지 확인: `curl http://localhost:3628/api/v1/health` → `{"success":true,"data":{"status":"ok"}}`
-2. **노출 결정부터.** 패널은 root 권한이므로, 공개 VPS라면 **먼저** 방화벽으로 3628을 LAN/VPN으로만 제한하고 reverse proxy + TLS(Caddy/nginx/Cloudflare Tunnel)로 앞단을 감싸세요. 평문 HTTP 리스너를 공개 인터넷에 직접 노출하지 마세요.
-3. 셋업 위저드로 관리자 계정 생성 — **최초 설정은 LAN/loopback에서만 가능**합니다. LAN이면 `http://<서버IP>:3628`, 공개 호스트면 SSH 터널로: `ssh -L 3628:127.0.0.1:3628 <서버>` 후 `http://127.0.0.1:3628` 접속.
-4. **설정 → 2단계 인증 → 2FA 활성화** (강력 권장)
-6. 설정 파일 수정이 필요하면: `/etc/sfpanel/config.yaml` (변경 후 `systemctl restart sfpanel`)
+1. 서비스가 떴는지 확인: `curl --cacert /etc/sfpanel/tls/ca.crt https://localhost:3628/api/v1/health` → `{"success":true,"data":{"status":"ok"}}`
+   새로 설치한 패널은 자체 로컬 CA로 **HTTPS만** 제공합니다. 예전에 설치해 업그레이드한 패널은 설정을 건드리지 않으므로 계속 `http://`입니다.
+2. **노출 결정부터.** 패널은 root 권한이므로, 공개 VPS라면 **먼저** 방화벽으로 3628을 LAN/VPN으로만 제한하세요. reverse proxy(Caddy/nginx/Cloudflare Tunnel)에서 TLS를 처리하려면 `server.tls.enabled: false`로 끄고 앞단을 감싸면 됩니다.
+3. 셋업 위저드로 관리자 계정 생성 — **최초 설정은 LAN/loopback에서만 가능**합니다. LAN이면 `https://<서버IP>:3628`, 공개 호스트면 SSH 터널로: `ssh -L 3628:127.0.0.1:3628 <서버>` 후 `https://127.0.0.1:3628` 접속. 처음에는 브라우저 경고가 뜹니다. **설정 → 시스템**에서 CA(`sfpanel-ca.crt`)를 받아 기기에 한 번 설치하면 사라집니다. 클러스터에 붙일 서버라면 이 단계를 건너뛰어도 됩니다([아래](#새-서버를-클러스터에-추가하기) 참고).
+4. **설정 → 계정 → 2단계 인증** 활성화 (강력 권장)
+5. 설정 파일 수정이 필요하면: `/etc/sfpanel/config.yaml` (변경 후 `systemctl restart sfpanel`)
 
 ### 수동 설치
 
@@ -261,11 +262,14 @@ sfpanel help                      # 도움말
 
 ```bash
 sfpanel cluster init [--name NAME] [--advertise IP]   # 클러스터 초기화
-sfpanel cluster token [--ttl DURATION]                 # 조인 토큰 생성
-sfpanel cluster join ADDR:PORT TOKEN [--advertise IP]  # 클러스터 참여
+sfpanel cluster token [--ttl DURATION]                 # 조인 토큰 생성 (실행할 join 명령을 그대로 출력)
+sfpanel cluster join ADDR:PORT TOKEN [--advertise IP]  # 클러스터 참여 (ADDR = 리더, PORT = 3629)
 sfpanel cluster status                                 # 클러스터 상태 확인
+sfpanel cluster list                                   # 노드 목록
 sfpanel cluster remove NODE_ID                         # 노드 제거
 sfpanel cluster leave                                  # 클러스터 탈퇴
+sfpanel cluster leader-transfer NODE_ID                # 리더 넘기기
+sfpanel cluster reissue-cert                           # 이 노드의 인증서 재발급
 ```
 
 모든 클러스터 명령은 `--config PATH` 옵션을 지원합니다 (기본값: `/etc/sfpanel/config.yaml`).
@@ -366,18 +370,48 @@ SFPanel은 HashiCorp Raft 합의 알고리즘 기반 멀티노드 클러스터�
 - **메트릭 공유** — 각 노드의 CPU, 메모리, 디스크, 컨테이너 메트릭을 클러스터 오버뷰에서 집계
 - **클러스터 업데이트** — 롤링/동시 모드로 전체 클러스터 SFPanel 업데이트 (SSE 진행률 스트리밍). 어느 노드에서나 시작할 수 있고, 접속한 노드가 재시작돼도 리더가 끝까지 진행
 
-### 클러스터 구성
+### 새 서버를 클러스터에 추가하기
+
+**준비** — 모든 노드에서:
+
+- **같은 버전.** 새 서버에는 최신 버전이 설치됩니다. 기존 노드가 뒤처져 있으면 먼저 올리세요(설정 → 시스템 → 패널 업데이트, 또는 `sudo sfpanel update`). 가입 시 버전은 검사하지 않습니다.
+- **포트.** 노드끼리 TCP **3628**(패널), **3629**(gRPC), **3630**(Raft)을 **양방향**으로 열어 두세요. ufw를 쓴다면 각 노드에서 상대 노드마다: `sudo ufw allow from <상대-노드-IP> to any port 3628:3630 proto tcp`
+- **서로 닿는 주소.** 같은 LAN이나 Tailscale 같은 VPN으로 묶으세요. 가입할 때 클러스터의 JWT 시크릿과 관리자 계정이 새 서버로 전달되므로 공개 인터넷을 거치지 않게 합니다.
+- **시간 동기화.** NTP(`systemd-timesyncd`)를 켜 두세요. 토큰 만료와 인증서 검증이 시계에 의존합니다.
+
+**CLI로:**
 
 ```bash
-# 1. 첫 번째 노드에서 클러스터 초기화
-sudo sfpanel cluster init --name my-cluster
+# 기존 노드 — 클러스터가 아직 없다면 먼저 만듭니다
+sudo sfpanel cluster init --name my-cluster --advertise <기존-노드-IP>
+sudo sfpanel cluster token      # 새 서버에서 실행할 join 명령을 그대로 출력합니다
 
-# 2. 조인 토큰 생성
-sudo sfpanel cluster token
+# 새 서버 — 설치한 뒤 위에서 출력된 명령을 붙여 넣습니다(셋업 위저드는 필요 없음)
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash
+sudo sfpanel cluster join <리더-IP>:3629 <token>
 
-# 3. 다른 노드에서 클러스터 참여
-sudo sfpanel cluster join 10.0.0.1:3629 <token>
+# 확인 — 새 노드가 1분 안에 follower / online으로 보이면 끝
+sudo sfpanel cluster list
 ```
+
+**웹 UI로:** 기존 노드의 **클러스터** 메뉴에서 (처음이면) **클러스터 초기화**를 하고 **토큰** 탭에서 토큰을 만듭니다. 새 서버는 셋업 위저드로 임시 관리자를 만든 뒤 **클러스터** 메뉴의 **기존 클러스터에 가입**에 리더 주소(`<리더-IP>:3629`)와 토큰을 넣습니다. 주소를 따로 고르지 않으면 리더에 닿는 주소를 자동으로 씁니다.
+
+**가입하면 달라지는 것:**
+
+- 새 서버의 로컬 관리자 계정은 **클러스터 관리자 계정으로 바뀝니다**(이름·비밀번호·2FA). 이후 모든 노드에서 같은 계정으로 로그인합니다.
+- 새 노드는 투표권 없는 멤버로 들어왔다가 리더와의 통신이 확인되면(보통 1분 이내) voter로 승격됩니다.
+- **노드 수:** Raft는 과반수가 살아 있어야 리더를 뽑습니다. **2대 클러스터는 한 대만 꺼져도 리더가 없어** 토큰 발급·노드 제거·계정 변경·클러스터 업데이트가 멈춥니다(각 노드의 로컬 관리는 계속 됩니다). 장애를 견디려면 **3대 이상**을 권장합니다.
+
+**문제 해결:**
+
+| 증상 | 조치 |
+|------|------|
+| `cannot reach leader …:3629` | 새 서버에서 리더의 3629로 나가는 길(방화벽·주소)을 확인 |
+| `not the cluster leader` | 리더 주소로 다시 실행 — `sfpanel cluster token`이 출력한 주소가 리더입니다 |
+| `token has already been used` / `expired` / `does not exist` | 리더에서 새 토큰을 만드세요. 토큰은 만든 노드에만 있어서 리더가 바뀌면 이전 토큰은 쓸 수 없습니다 |
+| 가입은 성공했는데 새 노드가 계속 offline | 리더에서 새 서버의 3629/3630으로 들어가는 길이 막혀 있습니다. 열면 승격됩니다 |
+| `found duplicate address in configuration` | 이전 시도가 남긴 노드가 리더에 있습니다. `sudo sfpanel cluster list`로 찾아 `sudo sfpanel cluster remove <node-id>` 후 새 토큰으로 다시 시도 |
+| 재부팅 후 클러스터 화면에 "클러스터 서비스가 시작되지 않았습니다" | 클러스터 기동이 실패해 단독으로 떠 있는 상태입니다. `sudo systemctl restart sfpanel` 후 `journalctl -u sfpanel`에서 원인을 확인 |
 
 클러스터 생성/참여는 웹 UI 및 CLI 모두에서 **서비스 재시작 없이** 즉시 활성화됩니다 (zero-restart, `JoinEngine` PreFlight → Execute 파이프라인). 탈퇴/해산은 서비스 재시작이 필요하며, `scripts/install.sh`가 설치하는 `Restart=always` systemd 유닛(탈퇴/해산 핸들러는 의도적으로 `os.Exit`하여 supervisor 재기동을 유도) 하에서 안전하게 동작합니다.
 

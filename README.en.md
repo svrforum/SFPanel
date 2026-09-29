@@ -157,11 +157,12 @@ The install script handles the following automatically:
 - Auto-snapshots the DB on upgrade (`sfpanel.db.bak-<ts>`, last 3 kept)
 
 After installing:
-1. Confirm the service is up: `curl http://localhost:3628/api/v1/health` → `{"success":true,"data":{"status":"ok"}}`
-2. **Decide on exposure first.** The panel runs as root — on a public VPS, restrict port 3628 to LAN/VPN with a firewall and put a reverse proxy + TLS (Caddy / nginx / Cloudflare Tunnel) in front **before** anything else. Never expose the plain-HTTP listener directly to the Internet.
-3. Create the admin account in the setup wizard — **first-run setup is restricted to the LAN / loopback**. On a LAN, open `http://<server-IP>:3628`; on a public host, tunnel it: `ssh -L 3628:127.0.0.1:3628 <server>` then open `http://127.0.0.1:3628`.
-4. **Settings → Two-Factor Authentication → enable 2FA** (strongly recommended)
-6. To edit the config file: `/etc/sfpanel/config.yaml` (run `systemctl restart sfpanel` after changes)
+1. Confirm the service is up: `curl --cacert /etc/sfpanel/tls/ca.crt https://localhost:3628/api/v1/health` → `{"success":true,"data":{"status":"ok"}}`
+   A fresh install serves **HTTPS only**, from its own local CA. Panels installed earlier and upgraded keep their config, and with it `http://`.
+2. **Decide on exposure first.** The panel runs as root — on a public VPS, restrict port 3628 to LAN/VPN with a firewall **before** anything else. To terminate TLS at a reverse proxy (Caddy / nginx / Cloudflare Tunnel) instead, set `server.tls.enabled: false` and put the proxy in front.
+3. Create the admin account in the setup wizard — **first-run setup is restricted to the LAN / loopback**. On a LAN, open `https://<server-IP>:3628`; on a public host, tunnel it: `ssh -L 3628:127.0.0.1:3628 <server>` then open `https://127.0.0.1:3628`. The browser warns at first; download the CA (`sfpanel-ca.crt`) from **Settings → System** and install it on your devices once. A server that is about to join a cluster can skip this step ([see below](#adding-a-new-server-to-a-cluster)).
+4. **Settings → Account → Two-Factor Authentication** — enable it (strongly recommended)
+5. To edit the config file: `/etc/sfpanel/config.yaml` (run `systemctl restart sfpanel` after changes)
 
 ### Manual installation
 
@@ -263,11 +264,14 @@ sfpanel help                      # help
 
 ```bash
 sfpanel cluster init [--name NAME] [--advertise IP]   # initialize a cluster
-sfpanel cluster token [--ttl DURATION]                 # generate a join token
-sfpanel cluster join ADDR:PORT TOKEN [--advertise IP]  # join a cluster
+sfpanel cluster token [--ttl DURATION]                 # generate a join token (prints the join command to run)
+sfpanel cluster join ADDR:PORT TOKEN [--advertise IP]  # join a cluster (ADDR = the leader, PORT = 3629)
 sfpanel cluster status                                 # check cluster status
+sfpanel cluster list                                   # list nodes
 sfpanel cluster remove NODE_ID                         # remove a node
 sfpanel cluster leave                                  # leave the cluster
+sfpanel cluster leader-transfer NODE_ID                # hand leadership to another node
+sfpanel cluster reissue-cert                           # reissue this node's certificate
 ```
 
 All cluster commands support the `--config PATH` option (default: `/etc/sfpanel/config.yaml`).
@@ -368,18 +372,48 @@ SFPanel supports a multi-node cluster built on the HashiCorp Raft consensus algo
 - **Metric sharing** — each node's CPU, memory, disk and container metrics aggregate into the cluster overview
 - **Cluster update** — update SFPanel across the whole cluster in rolling/simultaneous mode (SSE progress streaming). Startable from any node; the leader finishes the run even if the node you are connected to restarts
 
-### Setting up a cluster
+### Adding a new server to a cluster
+
+**Before you start** — on every node:
+
+- **Same version.** A new server installs the latest release. If the existing nodes are behind, update them first (Settings → System → Panel Update, or `sudo sfpanel update`). The join does not check versions.
+- **Ports.** Nodes talk to each other on TCP **3628** (panel), **3629** (gRPC) and **3630** (Raft), in **both directions**. With ufw, on each node, for each other node: `sudo ufw allow from <other-node-ip> to any port 3628:3630 proto tcp`
+- **Addresses that reach each other.** Put the nodes on one LAN or a VPN such as Tailscale. Joining hands the cluster's JWT secret and admin account to the new server, so keep it off the public Internet.
+- **Clock sync.** Keep NTP (`systemd-timesyncd`) on; token expiry and certificate checks depend on it.
+
+**From the CLI:**
 
 ```bash
-# 1. Initialize the cluster on the first node
-sudo sfpanel cluster init --name my-cluster
+# Existing node — create the cluster first if there is none yet
+sudo sfpanel cluster init --name my-cluster --advertise <existing-node-ip>
+sudo sfpanel cluster token      # prints the exact join command for the new server
 
-# 2. Generate a join token
-sudo sfpanel cluster token
+# New server — install, then paste the command printed above (no setup wizard needed)
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash
+sudo sfpanel cluster join <leader-ip>:3629 <token>
 
-# 3. Join the cluster from another node
-sudo sfpanel cluster join 10.0.0.1:3629 <token>
+# Check — done when the new node shows follower / online within a minute
+sudo sfpanel cluster list
 ```
+
+**From the web UI:** on an existing node, open **Cluster**, press **Initialize Cluster** if there is none yet, and generate a token on the **Tokens** tab. On the new server, create a temporary admin in the setup wizard, open **Cluster**, and enter the leader address (`<leader-ip>:3629`) and the token under **Join Existing Cluster**. Unless you pick an address yourself, the one that reaches the leader is used.
+
+**What joining changes:**
+
+- The new server's local admin account **becomes the cluster admin account** (name, password, 2FA). From then on you sign in with the same account on every node.
+- The new node joins without a vote and is promoted to voter once the leader hears from it, usually within a minute.
+- **Node count:** Raft needs a majority alive to elect a leader. **A two-node cluster has no leader while either node is down**, so token creation, node removal, account changes and cluster updates stop (each node's local management keeps working). For fault tolerance, run **three or more**.
+
+**Troubleshooting:**
+
+| Symptom | What to do |
+|---------|------------|
+| `cannot reach leader …:3629` | Check the path from the new server to the leader's 3629 (firewall, address) |
+| `not the cluster leader` | Run it against the leader — the address `sfpanel cluster token` printed is the leader's |
+| `token has already been used` / `expired` / `does not exist` | Create a new token on the leader. Tokens live only on the node that made them, so a leader change invalidates old ones |
+| The join succeeded but the new node stays offline | The leader cannot reach the new server's 3629/3630. Open them and it gets promoted |
+| `found duplicate address in configuration` | An earlier attempt left a node behind on the leader. Find it with `sudo sfpanel cluster list`, `sudo sfpanel cluster remove <node-id>`, then retry with a new token |
+| After a reboot the Cluster page says "This node's cluster service did not start" | The cluster failed to start and the node is running on its own. `sudo systemctl restart sfpanel`, and read `journalctl -u sfpanel` for the cause |
 
 Creating/joining a cluster activates immediately **without a service restart**, from both the web UI and the CLI (zero-restart, `JoinEngine` PreFlight → Execute pipeline). Leaving/disbanding does require a service restart and works safely under the `Restart=always` systemd unit installed by `scripts/install.sh` (the leave/disband handlers deliberately `os.Exit` to trigger a supervisor restart).
 
