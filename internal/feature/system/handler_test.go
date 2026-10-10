@@ -1406,6 +1406,11 @@ func TestRunUpdate_AbortsWhenWatchdogDies(t *testing.T) {
 		t.Fatalf("staging config: %v", err)
 	}
 
+	// Earlier tests (every RestoreBackup that succeeds) leave restart
+	// goroutines behind that call exitProcess after restartFlushDelay. On a
+	// loaded machine those landed inside this test's window and failed it.
+	// Drain them, so only this test can move the counter.
+	restartWG.Wait()
 	before := exitCount.Load()
 
 	e := echo.New()
@@ -1433,10 +1438,11 @@ func TestRunUpdate_AbortsWhenWatchdogDies(t *testing.T) {
 		t.Errorf("update completed despite dead watchdog — restarted into an unprotected binary: %q", body)
 	}
 
-	// The self-exit / restart must NOT have been scheduled. The exit goroutine
-	// sleeps 2s before calling exitProcess; give it a margin and assert the
-	// counter never moved.
-	time.Sleep(300 * time.Millisecond)
+	// The self-exit / restart must NOT have been scheduled. A restart
+	// goroutine sleeps restartFlushDelay before calling exitProcess, longer
+	// than the fixed 300ms this used to wait, so a wrongly scheduled restart
+	// went unseen. Join it instead: if one was started, the counter moves.
+	restartWG.Wait()
 	if got := exitCount.Load(); got != before {
 		t.Errorf("exitProcess was scheduled despite dead watchdog (before=%d, now=%d) — restart fired", before, got)
 	}
