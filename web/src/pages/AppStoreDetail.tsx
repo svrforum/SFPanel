@@ -397,7 +397,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
             <p className="text-[13px]">{t('appStore.noApps')}</p>
           </div>
         ) : (
-          <div className="p-6 space-y-6">
+          <div className="p-6 space-y-6 min-w-0">
             {/* Hero */}
             <div className="flex flex-col sm:flex-row gap-5">
               <div className="shrink-0">
