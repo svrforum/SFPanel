@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.9] – 2026-10-11
+
+### Fixed
+
+- **Docker installed after the panel started is picked up without a restart.** The Docker client was made once at boot, so on a host that had no Docker then, the Docker and stack pages kept answering "Docker is not available" after Packages installed it, until the panel was restarted — and the Services page offers no restart for the panel itself. The panel now connects as soon as the Docker socket appears: on the next Docker request, or within 30 seconds on its own, and the container history, events and volume collectors start then too. (#98)
+- **App store "Open app" uses the app's own scheme.** It reused the panel's, so on an HTTPS panel Uptime Kuma (plain HTTP) opened at `https://` and failed. Apps are opened over http unless the catalog marks them as serving TLS themselves, as Nginx Proxy Guard's admin UI does. (#99)
+- **Uptime Kuma installs 2.x.** The catalog pinned `:1`, which now opens with a full-screen "outdated" warning. Existing installs keep 1.x; moving one is an edit of its stack image, and 2.0 migrates the database on first start, so back the volume up first. (#100)
+- **App READMEs on the detail page.** Images and links in a README's raw HTML resolved against the panel and 404ed; they resolve against the repository now, and links to a repository file open its GitHub page. A badge inside a link printed its markdown. While an install streamed its log the README rebuilt its images on every line, requesting a missing one hundreds of times. A long code line pushed the dialog past its right edge at 1440×900. (#101)
+- **Install logs no longer hide the word after "valkey".** The redaction treated any word ending in "key" as a secret name, so `Container npg-valkey Started` printed as `npg-valkey=***`. Values are hidden after `=` or `:` of a secret-named setting (`DB_PASSWORD=`, `SECRET_KEY=`, `x-api-key:`) or after a secret-named flag (`--password`), and words that merely end in "key" are left alone. (#102)
+- The stack delete dialog showed the translation key `docker.compose.deleteDataNote`, and a node without Docker said so in English in a Korean panel. A test now checks every literal translation key against both languages. (#103)
+- **A SMART self-test the drive is still running is reported as such.** Starting one while another ran showed smartctl's raw "can't start self-test without aborting current test" output as a green "started" notice. The panel now says a test is already running, shows its progress in the SMART dialog with the start buttons disabled, and words a started test as "about N minutes". (Reported on the forum.)
+- The README's post-install health check needed `sudo`: `/etc/sfpanel` is readable by root only, so `curl --cacert` failed as a regular user. (#104)
+
 ## [0.78.8] – 2026-10-11
 
 ### Changed
