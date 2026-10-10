@@ -6,6 +6,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.6] – 2026-10-10
+
+### Added
+
+**The terminal has its own right-click menu.** A right click in a terminal session raised the browser's menu, and in a tmux session tmux's own pane menu under it — Kill and Respawn one stray click away. It now opens a menu with Copy, Paste and Select text, and the right button no longer reaches tmux. Shift+right-click still opens the browser's menu, which is how a panel served over plain HTTP pastes from a menu: Paste in the new menu reads the clipboard, which browsers allow only over HTTPS. (#69)
+
+**The cluster can be renamed.** The name given at `cluster init` could not be changed. The pencil next to it on the cluster overview renames it from any node (`PUT /cluster/name`); every node shows the new name at once, and `sfpanel cluster status` prints it. (#67)
+
+### Changed
+
+**Every node offers the leader's operations.** Editing a node's labels, handing the leadership to another node and removing a node were offered on the leader's screen only, though the server has always passed a follower's request on to the leader. Every node offers them now, and a follower can take the leadership itself with Transfer leadership on its own row. The leader is never offered for removal; hand its role away first. (#66)
+
+### Fixed
+
+- Dragging over text in a tmux session copied nothing, and the highlight vanished on release. A drag there is tmux's — its mouse mode is what lets the wheel scroll its history — and tmux copies with OSC 52, which the page ignored. The page now takes a tmux session's copies into the clipboard and says so; when the browser refuses a copy it was not asked for by a click, the notice carries a Copy button. A temporary shell, with no tmux in front of it, still ignores OSC 52 so that program output cannot set the clipboard, and tmux's `set-clipboard` is pinned to `external` for the same reason. Shift+drag, or Option+drag on a Mac, selects in the browser instead. (#69)
+- Ctrl+Shift+V pasted twice in Chrome and Edge on Windows and Linux: once through the browser's own paste as plain text, and again raw, so a multi-line paste ran its lines in the shell one by one. It now pastes once, the way Ctrl+V does.
+
 ## [0.78.5] – 2026-09-29
 
 ### Changed
