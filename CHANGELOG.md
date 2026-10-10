@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.8] – 2026-10-11
+
+### Changed
+
+- **Dependencies, the cluster's consensus library among them.** raft-boltdb 2.4 takes hashicorp/raft from 1.7.3 to 1.8.0 and its log store, bbolt, from 1.3.5 to 1.4.1. Before it shipped this ran on a three-node cluster: started on 0.78.7, upgraded one node at a time with writes from each upgraded node replicating to the older ones, restarted all at once, and rolled one node back to 0.78.7 over logs the new store had written. Every write replicated and no node logged a Raft or store error, so the usual rolling cluster update applies. Also SQLite (modernc 1.59), gRPC 1.84, vitest 5, marked 18.1, and the Tauri 2.12 pair for the desktop app — its npm packages and Rust crates moved together, since the npm side alone fails the desktop build.
+- The README explains how to open the macOS app the first time, when macOS calls the un-notarized app damaged. (#68)
+
 ## [0.78.7] – 2026-10-10
 
 ### Security
