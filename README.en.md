@@ -354,6 +354,12 @@ Assets on the [Releases page](https://github.com/svrforum/SFPanel/releases/lates
 | Linux | `SFPanel-<ver>-1.x86_64.rpm` | RHEL/Fedora |
 | Linux | `SFPanel_<ver>_amd64.AppImage` | Distro-agnostic (chmod +x then run) |
 
+**Opening it on macOS for the first time:** the app is not notarized by Apple, so the first launch of an app installed from the downloaded dmg says it "is damaged and can't be opened". The file is not damaged. Move the app to Applications, run this once in Terminal and open it again. A fresh install from a new dmg may need it again.
+
+```bash
+xattr -cr /Applications/SFPanel.app
+```
+
 The desktop app is released on the **same version line as the server** (v0.13.5+; earlier desktop builds were a separate `0.6.x` line). When a new version lands on the release page, the app detects it automatically and shows an update dialog (ed25519 signature verification, `tauri-plugin-updater`). Update in place — no manual reinstall.
 
 ## Cluster
