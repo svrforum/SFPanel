@@ -157,7 +157,7 @@ The install script handles the following automatically:
 - Auto-snapshots the DB on upgrade (`sfpanel.db.bak-<ts>`, last 3 kept)
 
 After installing:
-1. Confirm the service is up: `curl --cacert /etc/sfpanel/tls/ca.crt https://localhost:3628/api/v1/health` → `{"success":true,"data":{"status":"ok"}}`
+1. Confirm the service is up: `sudo curl --cacert /etc/sfpanel/tls/ca.crt https://localhost:3628/api/v1/health` → `{"success":true,"data":{"status":"ok","version":"…"}}` (`/etc/sfpanel` is readable by root only, hence `sudo`)
    A fresh install serves **HTTPS only**, from its own local CA. Panels installed earlier and upgraded keep their config, and with it `http://`.
 2. **Decide on exposure first.** The panel runs as root — on a public VPS, restrict port 3628 to LAN/VPN with a firewall **before** anything else. To terminate TLS at a reverse proxy (Caddy / nginx / Cloudflare Tunnel) instead, set `server.tls.enabled: false` and put the proxy in front.
 3. Create the admin account in the setup wizard — **first-run setup is restricted to the LAN / loopback**. On a LAN, open `https://<server-IP>:3628`; on a public host, tunnel it: `ssh -L 3628:127.0.0.1:3628 <server>` then open `https://127.0.0.1:3628`. The browser warns at first; download the CA (`sfpanel-ca.crt`) from **Settings → System** and install it on your devices once. A server that is about to join a cluster can skip this step ([see below](#adding-a-new-server-to-a-cluster)).

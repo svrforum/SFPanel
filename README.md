@@ -155,7 +155,7 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 - 업그레이드 시 자동 DB 스냅샷 (`sfpanel.db.bak-<ts>`, 최근 3개 보관)
 
 설치 후:
-1. 서비스가 떴는지 확인: `curl --cacert /etc/sfpanel/tls/ca.crt https://localhost:3628/api/v1/health` → `{"success":true,"data":{"status":"ok"}}`
+1. 서비스가 떴는지 확인: `sudo curl --cacert /etc/sfpanel/tls/ca.crt https://localhost:3628/api/v1/health` → `{"success":true,"data":{"status":"ok","version":"…"}}` (`/etc/sfpanel`은 root만 읽을 수 있어 `sudo`가 필요합니다)
    새로 설치한 패널은 자체 로컬 CA로 **HTTPS만** 제공합니다. 예전에 설치해 업그레이드한 패널은 설정을 건드리지 않으므로 계속 `http://`입니다.
 2. **노출 결정부터.** 패널은 root 권한이므로, 공개 VPS라면 **먼저** 방화벽으로 3628을 LAN/VPN으로만 제한하세요. reverse proxy(Caddy/nginx/Cloudflare Tunnel)에서 TLS를 처리하려면 `server.tls.enabled: false`로 끄고 앞단을 감싸면 됩니다.
 3. 셋업 위저드로 관리자 계정 생성 — **최초 설정은 LAN/loopback에서만 가능**합니다. LAN이면 `https://<서버IP>:3628`, 공개 호스트면 SSH 터널로: `ssh -L 3628:127.0.0.1:3628 <서버>` 후 `https://127.0.0.1:3628` 접속. 처음에는 브라우저 경고가 뜹니다. **설정 → 시스템**에서 CA(`sfpanel-ca.crt`)를 받아 기기에 한 번 설치하면 사라집니다. 클러스터에 붙일 서버라면 이 단계를 건너뛰어도 됩니다([아래](#새-서버를-클러스터에-추가하기) 참고).
