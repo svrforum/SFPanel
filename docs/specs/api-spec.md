@@ -5248,8 +5248,8 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/disks/usage` | O | 디스크 사용량 |
 | GET | `/api/v1/disks/smartmontools-status` | O | smartmontools 설치 상태 |
 | POST | `/api/v1/disks/install-smartmontools` | O | smartmontools 설치 |
-| GET | `/api/v1/disks/:device/smart` | O | SMART 정보 (self-test 로그 포함, v0.27.0+) |
-| POST | `/api/v1/disks/:device/smart/test` | O | SMART self-test 트리거 (`{type:short\|long}`, v0.27.0+) |
+| GET | `/api/v1/disks/:device/smart` | O | SMART 정보 (self-test 로그 포함, v0.27.0+; 진행 중인 self-test `self_test_running`/`self_test_remaining`, v0.78.9+) |
+| POST | `/api/v1/disks/:device/smart/test` | O | SMART self-test 트리거 (`{type:short\|long}`, v0.27.0+). 응답 `minutes` = 예상 소요 분(v0.78.9+); 이미 진행 중이면 409 `SMART_TEST_IN_PROGRESS` |
 | GET | `/api/v1/disks/:device/partitions` | O | 파티션 목록 |
 | POST | `/api/v1/disks/:device/partitions` | O | 파티션 생성 |
 | DELETE | `/api/v1/disks/:device/partitions/:number` | O | 파티션 삭제 |

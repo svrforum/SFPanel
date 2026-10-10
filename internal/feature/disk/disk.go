@@ -48,6 +48,11 @@ type SmartInfo struct {
 	PowerOnHours   int             `json:"power_on_hours"`
 	Attributes     []SmartAttr     `json:"attributes"`
 	SelfTests      []SmartSelfTest `json:"self_tests"`
+	// SelfTestRunning is a self-test in progress on the device; no other can
+	// start until it ends. SelfTestRemaining is its remaining percent where
+	// the device reports one (ATA and NVMe do; SCSI only says it runs).
+	SelfTestRunning   bool `json:"self_test_running"`
+	SelfTestRemaining int  `json:"self_test_remaining,omitempty"`
 }
 
 // SmartSelfTest is one entry from the device's self-test log, so the UI can

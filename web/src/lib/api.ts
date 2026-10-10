@@ -1748,7 +1748,7 @@ class ApiClient {
   }
 
   runSmartTest(device: string, type: 'short' | 'long') {
-    return this.request<{ message: string; type: string; output: string }>(
+    return this.request<{ message: string; type: string; minutes?: number; output: string }>(
       `/disks/${encodeURIComponent(device)}/smart/test`,
       { method: 'POST', body: JSON.stringify({ type }) }
     )

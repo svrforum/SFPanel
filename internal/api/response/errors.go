@@ -198,6 +198,10 @@ const (
 	ErrInvalidVG         = "INVALID_VG"
 	ErrInvalidLevel      = "INVALID_LEVEL"
 
+	// ErrSMARTTestInProgress is returned (HTTP 409) by a self-test request while
+	// the device is still running one; it cannot start until that one ends.
+	ErrSMARTTestInProgress = "SMART_TEST_IN_PROGRESS"
+
 	// Network shares (SMB/NFS).
 	ErrShareToolMissing = "SHARE_TOOL_MISSING"
 	ErrShareUnreachable = "SHARE_UNREACHABLE"

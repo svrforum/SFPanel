@@ -281,6 +281,10 @@ export interface SmartInfo {
   power_on_hours: number
   attributes: SmartAttr[]
   self_tests: SmartSelfTest[]
+  /** A self-test is running on the drive; another cannot start until it ends. */
+  self_test_running?: boolean
+  /** Its remaining percent, where the drive reports one (not SCSI). */
+  self_test_remaining?: number
 }
 
 export interface SmartSelfTest {

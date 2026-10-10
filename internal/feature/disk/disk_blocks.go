@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -300,19 +301,38 @@ func (h *Handler) RunSmartTest(c echo.Context) error {
 	devPath := "/dev/" + device
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 	defer cancel()
-	// `smartctl -t` schedules the test on the device and returns immediately
-	// (with a human-readable ETA in stdout). A non-zero exit with no output is
-	// a real failure; otherwise pass the ETA text back to the operator.
+	// `smartctl -t` schedules the test on the device and returns at once. Its
+	// exit code does not say whether the test started: bits 3-7 report the
+	// disk's health and logs, so a drive with old errors in its log exits
+	// non-zero after starting the test fine. What smartctl printed decides.
+	// This used to call any run that printed something a success, so "can't
+	// start self-test without aborting current test" reached the operator as
+	// a green "started" notice holding smartctl's banner.
 	outStr, err := h.Cmd.RunCtx(ctx, "smartctl", "-t", req.Type, devPath)
-	if err != nil && outStr == "" {
+	msg := smartctlMessage(outStr)
+	switch {
+	case selfTestBusyRe.MatchString(outStr):
+		return response.Fail(c, http.StatusConflict, response.ErrSMARTTestInProgress,
+			"A self-test is already running on this device: "+response.SanitizeOutput(msg))
+	case selfTestBegunRe.MatchString(outStr), err == nil:
+		minutes := 0
+		if m := selfTestWaitRe.FindStringSubmatch(outStr); m != nil {
+			minutes, _ = strconv.Atoi(m[1])
+		}
+		return response.OK(c, map[string]interface{}{
+			"message": "self-test started",
+			"type":    req.Type,
+			"minutes": minutes,
+			"output":  response.SanitizeOutput(msg),
+		})
+	default:
+		detail := msg
+		if detail == "" {
+			detail = err.Error()
+		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrSMARTError,
-			"smartctl -t failed: "+response.SanitizeOutput(err.Error()))
+			"smartctl -t failed: "+response.SanitizeOutput(detail))
 	}
-	return response.OK(c, map[string]string{
-		"message": "self-test started",
-		"type":    req.Type,
-		"output":  response.SanitizeOutput(outStr),
-	})
 }
 
 // computeSmartStatus determines the status of a SMART attribute.
@@ -490,5 +510,73 @@ func parseSmartctlJSON(devPath string, data []byte) (*SmartInfo, error) {
 		}
 	}
 
+	info.SelfTestRunning, info.SelfTestRemaining = selfTestProgress(raw)
 	return info, nil
+}
+
+// selfTestProgress reads a self-test in progress from smartctl's JSON, which
+// says it differently per transport:
+//   - ATA: ata_smart_data.self_test.status carries remaining_percent while
+//     one runs;
+//   - NVMe: nvme_self_test_log.current_self_test_operation.value is non-zero,
+//     with the completed (not remaining) percent beside it;
+//   - SCSI: a self-test log entry is marked self_test_in_progress, without a
+//     percent.
+func selfTestProgress(raw map[string]interface{}) (running bool, remaining int) {
+	if ata, ok := raw["ata_smart_data"].(map[string]interface{}); ok {
+		if st, ok := ata["self_test"].(map[string]interface{}); ok {
+			if status, ok := st["status"].(map[string]interface{}); ok {
+				if pct, ok := status["remaining_percent"].(float64); ok {
+					return true, int(pct)
+				}
+			}
+		}
+	}
+	if nvme, ok := raw["nvme_self_test_log"].(map[string]interface{}); ok {
+		if op, ok := nvme["current_self_test_operation"].(map[string]interface{}); ok {
+			if v, ok := op["value"].(float64); ok && v != 0 {
+				if done, ok := nvme["current_self_test_completion_percent"].(float64); ok {
+					return true, 100 - int(done)
+				}
+				return true, 0
+			}
+		}
+	}
+	for key, v := range raw {
+		if !strings.HasPrefix(key, "scsi_self_test_") {
+			continue
+		}
+		if entry, ok := v.(map[string]interface{}); ok {
+			if busy, _ := entry["self_test_in_progress"].(bool); busy {
+				return true, 0
+			}
+		}
+	}
+	return false, 0
+}
+
+var (
+	// smartctl's answer to `-t` while a test runs, on every transport: ATA and
+	// SCSI add "(N% remaining)", NVMe "(N% completed)".
+	selfTestBusyRe = regexp.MustCompile(`Can't start self-test without aborting current test`)
+	// ATA "Testing has begun.", SCSI "Short Background Self Test has begun",
+	// NVMe "Self-test has begun (NSID 0x1)".
+	selfTestBegunRe = regexp.MustCompile(`(?i)\bhas begun\b`)
+	selfTestWaitRe  = regexp.MustCompile(`Please wait (\d+) minutes for test to complete`)
+	// The banner smartctl opens every run with, and its section headings.
+	smartctlBannerRe = regexp.MustCompile(`^(smartctl \d+\.\d+|Copyright \(C\)|=== .* ===$)`)
+)
+
+// smartctlMessage is smartctl's output without its banner and headings: what
+// is left is what this run had to say.
+func smartctlMessage(out string) string {
+	var lines []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || smartctlBannerRe.MatchString(line) {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }

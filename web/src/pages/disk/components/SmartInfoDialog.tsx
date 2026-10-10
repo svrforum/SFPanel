@@ -92,15 +92,27 @@ export function SmartInfoDialog({ diskName, onOpenChange }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diskName])
 
+  // The drive is running a self-test (it reported one); none can start now.
+  const driveBusy = !!smartData?.self_test_running
+
   const handleRunSmartTest = async (type: 'short' | 'long') => {
     if (!diskName) return
     setRunningTest(true)
     try {
       const result = await api.runSmartTest(diskName, type)
-      toast.success(result.output?.trim() || t('disk.smart.selfTest.started'))
+      toast.success(result.minutes
+        ? t('disk.smart.selfTest.startedMinutes', { minutes: result.minutes })
+        : t('disk.smart.selfTest.started'))
       await fetchSmart(diskName)
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : String(err))
+      // A test the drive is still running refuses a new one; say so, and show
+      // how far along it is.
+      if ((err as { code?: string }).code === 'SMART_TEST_IN_PROGRESS') {
+        toast.info(t('disk.smart.selfTest.alreadyRunning'))
+        await fetchSmart(diskName)
+      } else {
+        toast.error(err instanceof Error ? err.message : String(err))
+      }
     } finally {
       setRunningTest(false)
     }
@@ -172,7 +184,7 @@ export function SmartInfoDialog({ diskName, onOpenChange }: {
                     variant="outline"
                     size="sm"
                     onClick={() => handleRunSmartTest('short')}
-                    disabled={runningTest}
+                    disabled={runningTest || driveBusy}
                     className="rounded-xl"
                   >
                     {runningTest && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
@@ -182,7 +194,7 @@ export function SmartInfoDialog({ diskName, onOpenChange }: {
                     variant="outline"
                     size="sm"
                     onClick={() => handleRunSmartTest('long')}
-                    disabled={runningTest}
+                    disabled={runningTest || driveBusy}
                     className="rounded-xl"
                   >
                     {runningTest && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
@@ -191,7 +203,9 @@ export function SmartInfoDialog({ diskName, onOpenChange }: {
                 </div>
               </div>
               <p className="text-[12px] text-muted-foreground">
-                {runningTest ? t('disk.smart.selfTest.running') : t('disk.smart.selfTest.hint')}
+                {smartData.self_test_remaining
+                  ? t('disk.smart.selfTest.inProgress', { remaining: smartData.self_test_remaining })
+                  : runningTest || driveBusy ? t('disk.smart.selfTest.running') : t('disk.smart.selfTest.hint')}
               </p>
             </div>
 
