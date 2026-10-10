@@ -234,11 +234,22 @@ func batchFrames(ctx context.Context, lines <-chan []byte, write func([]byte) bo
 	}
 }
 
+// dockerUnavailable answers a Docker stream on a node where Docker cannot be
+// reached (yet), before the upgrade, with the code the REST routes use.
+func dockerUnavailable(c echo.Context) error {
+	return response.Fail(c, http.StatusServiceUnavailable, response.ErrDockerUnavailable,
+		"Docker is not available on this node. Install it from Packages, or check that the daemon is running.")
+}
+
 // ContainerLogsWS streams container logs over a WebSocket connection.
-func ContainerLogsWS(dockerClient *docker.Client, jwtSecret func() string) echo.HandlerFunc {
+func ContainerLogsWS(dockerFn func() *docker.Client, jwtSecret func() string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		if _, err := AuthenticateWS(c, jwtSecret()); err != nil {
 			return err
+		}
+		dockerClient := dockerFn()
+		if dockerClient == nil {
+			return dockerUnavailable(c)
 		}
 
 		containerID := c.Param("id")
@@ -337,6 +348,9 @@ func ComposeLogsWS(composeManager *docker.ComposeManager, jwtSecret func() strin
 		if _, err := AuthenticateWS(c, jwtSecret()); err != nil {
 			return err
 		}
+		if composeManager.DockerClient() == nil {
+			return dockerUnavailable(c)
+		}
 
 		project := c.Param("project")
 		tail := 100
@@ -426,11 +440,15 @@ func parseInt(s string) (int, error) {
 
 // ContainerExecWS creates an exec session in a container and bridges
 // it over a WebSocket for interactive terminal access.
-func ContainerExecWS(dockerClient *docker.Client, jwtSecret func() string, auditWriter *sfdb.AsyncWriter, localNodeIDFn func() string) echo.HandlerFunc {
+func ContainerExecWS(dockerFn func() *docker.Client, jwtSecret func() string, auditWriter *sfdb.AsyncWriter, localNodeIDFn func() string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		username, err := AuthenticateWS(c, jwtSecret())
 		if err != nil {
 			return err
+		}
+		dockerClient := dockerFn()
+		if dockerClient == nil {
+			return dockerUnavailable(c)
 		}
 
 		containerID := c.Param("id")

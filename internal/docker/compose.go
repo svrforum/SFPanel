@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -72,8 +73,11 @@ type ComposeProjectWithStatus struct {
 // ComposeManager manages Docker Compose projects by scanning a base directory
 // and executing docker compose commands via os/exec.
 type ComposeManager struct {
-	baseDir      string // e.g., /opt/stacks
-	dockerClient *Client
+	baseDir string // e.g., /opt/stacks
+	// dockerClient is set when Docker is reached, which can be after boot
+	// (Lazy, SetDockerClient). It only ever goes from nil to a client, so a
+	// read that found it set never finds it nil again.
+	dockerClient atomic.Pointer[Client]
 	// trash moves a path into the file manager's trash instead of deleting
 	// it. Injected rather than imported so this package keeps no dependency
 	// on a feature module; nil falls back to os.RemoveAll.
@@ -133,7 +137,8 @@ func (m *ComposeManager) validateProjectName(name string) error {
 // NewComposeManager creates a new ComposeManager, ensuring the base directory exists.
 func NewComposeManager(baseDir string, dockerClient *Client) *ComposeManager {
 	os.MkdirAll(baseDir, 0755)
-	m := &ComposeManager{baseDir: baseDir, dockerClient: dockerClient}
+	m := &ComposeManager{baseDir: baseDir}
+	m.dockerClient.Store(dockerClient)
 	m.resolveConfig = m.GetResolvedConfigYAML
 	return m
 }
@@ -142,7 +147,12 @@ func NewComposeManager(baseDir string, dockerClient *Client) *ComposeManager {
 // Used by feature handlers that need to invoke docker SDK helpers
 // directly (e.g. healthcheck Test now → RunOneShotExec).
 func (m *ComposeManager) DockerClient() *Client {
-	return m.dockerClient
+	return m.dockerClient.Load()
+}
+
+// SetDockerClient hands the manager the client once Docker is reached.
+func (m *ComposeManager) SetDockerClient(c *Client) {
+	m.dockerClient.Store(c)
 }
 
 // writeFileAtomic writes data via a temp file in the same directory plus
@@ -199,9 +209,9 @@ func (m *ComposeManager) resolveComposeFilePath(ctx context.Context, name string
 	projectDir := filepath.Join(m.baseDir, name)
 
 	// Try to find the actual config file from running containers
-	if m.dockerClient != nil {
+	if m.DockerClient() != nil {
 		dirPrefix := projectDir + string(filepath.Separator)
-		allContainers, err := m.dockerClient.ListContainersCached(ctx)
+		allContainers, err := m.DockerClient().ListContainersCached(ctx)
 		if err == nil {
 			for _, c := range allContainers {
 				workingDir := c.Labels["com.docker.compose.project.working_dir"]
@@ -694,7 +704,7 @@ func (m *ComposeManager) UpStream(ctx context.Context, name string, onLine func(
 
 // UpdateStackStream pulls latest images and recreates containers with streaming output.
 func (m *ComposeManager) UpdateStackStream(ctx context.Context, name string, onLine func(string)) error {
-	if m.dockerClient == nil {
+	if m.DockerClient() == nil {
 		return fmt.Errorf("docker client not available")
 	}
 
@@ -709,7 +719,7 @@ func (m *ComposeManager) UpdateStackStream(ctx context.Context, name string, onL
 		if svc.Image == "" {
 			continue
 		}
-		inspect, inspErr := m.dockerClient.InspectImage(ctx, svc.Image)
+		inspect, inspErr := m.DockerClient().InspectImage(ctx, svc.Image)
 		if inspErr == nil {
 			rollback = append(rollback, rollbackEntry{
 				Service: svc.Name,
@@ -751,7 +761,7 @@ func (m *ComposeManager) GetProjectServices(ctx context.Context, name string) ([
 	if err := m.validateProjectName(name); err != nil {
 		return nil, err
 	}
-	if m.dockerClient == nil {
+	if m.DockerClient() == nil {
 		return nil, fmt.Errorf("docker client not available")
 	}
 
@@ -761,7 +771,7 @@ func (m *ComposeManager) GetProjectServices(ctx context.Context, name string) ([
 
 	// Get all compose containers and filter by working_dir prefix
 	// (working_dir may point to a subdirectory, e.g. /opt/stacks/scraper/app)
-	allContainers, err := m.dockerClient.ListContainersCached(ctx)
+	allContainers, err := m.DockerClient().ListContainersCached(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list containers: %w", err)
 	}
@@ -776,7 +786,7 @@ func (m *ComposeManager) GetProjectServices(ctx context.Context, name string) ([
 
 	// Fallback: match by project name (for containers without working_dir label)
 	if len(containers) == 0 {
-		containers, err = m.dockerClient.ListContainersByComposeProject(ctx, strings.ToLower(name))
+		containers, err = m.DockerClient().ListContainersByComposeProject(ctx, strings.ToLower(name))
 		if err != nil {
 			return nil, fmt.Errorf("list containers for project %q: %w", name, err)
 		}
@@ -870,8 +880,8 @@ func (m *ComposeManager) ListProjectsWithStatus(ctx context.Context) ([]ComposeP
 	// Fallback: key by project name (lowercase)
 	byName := make(map[string]*projectStats)
 
-	if m.dockerClient != nil {
-		containers, cErr := m.dockerClient.ListContainersCached(ctx)
+	if m.DockerClient() != nil {
+		containers, cErr := m.DockerClient().ListContainersCached(ctx)
 		if cErr == nil {
 			for _, c := range containers {
 				proj := c.Labels["com.docker.compose.project"]
@@ -1026,7 +1036,7 @@ type rollbackEntry struct {
 
 // CheckStackUpdates checks each unique image in a compose project for available updates.
 func (m *ComposeManager) CheckStackUpdates(ctx context.Context, name string) (*StackUpdateCheck, error) {
-	if m.dockerClient == nil {
+	if m.DockerClient() == nil {
 		return nil, fmt.Errorf("docker client not available")
 	}
 
@@ -1045,7 +1055,7 @@ func (m *ComposeManager) CheckStackUpdates(ctx context.Context, name string) (*S
 		}
 		checked[img] = true
 
-		status, err := m.dockerClient.CheckImageUpdate(ctx, img)
+		status, err := m.DockerClient().CheckImageUpdate(ctx, img)
 		if err != nil {
 			result.Images = append(result.Images, ImageUpdateStatus{
 				Image: img,
@@ -1065,7 +1075,7 @@ func (m *ComposeManager) CheckStackUpdates(ctx context.Context, name string) (*S
 // UpdateStack pulls latest images and recreates containers.
 // Saves current image IDs for rollback before pulling.
 func (m *ComposeManager) UpdateStack(ctx context.Context, name string) (string, error) {
-	if m.dockerClient == nil {
+	if m.DockerClient() == nil {
 		return "", fmt.Errorf("docker client not available")
 	}
 
@@ -1080,7 +1090,7 @@ func (m *ComposeManager) UpdateStack(ctx context.Context, name string) (string, 
 		if svc.Image == "" {
 			continue
 		}
-		inspect, inspErr := m.dockerClient.InspectImage(ctx, svc.Image)
+		inspect, inspErr := m.DockerClient().InspectImage(ctx, svc.Image)
 		if inspErr == nil {
 			rollback = append(rollback, rollbackEntry{
 				Service: svc.Name,
@@ -1194,12 +1204,12 @@ func (m *ComposeManager) GetRollbackInfo(ctx context.Context, name string) Rollb
 
 	// Build current image ID map from running containers
 	currImageMap := make(map[string]string) // image name → current image ID
-	if m.dockerClient != nil {
+	if m.DockerClient() != nil {
 		services, sErr := m.GetProjectServices(ctx, name)
 		if sErr == nil {
 			for _, svc := range services {
 				if svc.Image != "" {
-					inspect, iErr := m.dockerClient.InspectImage(ctx, svc.Image)
+					inspect, iErr := m.DockerClient().InspectImage(ctx, svc.Image)
 					if iErr == nil {
 						currImageMap[svc.Image] = inspect.ID
 					}

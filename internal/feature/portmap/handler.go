@@ -17,8 +17,11 @@ import (
 
 // Handler exposes the unified port map endpoint.
 type Handler struct {
-	Cmd    exec.Commander
-	Docker *docker.Client // nil-safe; nil means Docker source returns empty
+	Cmd exec.Commander
+	// Docker returns the node's client, nil while Docker cannot be reached
+	// (docker.Lazy.Client); a nil func or a nil client leave the Docker
+	// source empty.
+	Docker func() *docker.Client
 }
 
 const portmapCmdTimeout = 5 * time.Second
@@ -81,7 +84,11 @@ func (h *Handler) GetPortMap(c echo.Context) error {
 		if h.Docker == nil {
 			return
 		}
-		bindings, err := collectDockerBindings(ctx, h.Docker)
+		dc := h.Docker()
+		if dc == nil {
+			return
+		}
+		bindings, err := collectDockerBindings(ctx, dc)
 		if err != nil {
 			slog.Warn("portmap: docker bindings failed", "error", err)
 			return

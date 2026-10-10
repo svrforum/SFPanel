@@ -70,7 +70,7 @@ func healthHandler(db *sql.DB, version string) echo.HandlerFunc {
 //
 // auditWriter is the shared *db.AsyncWriter used by the audit middleware and
 // auth security-events to serialise INSERTs onto one background drain.
-func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *featureAlert.Manager, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc) (*echo.Echo, func()) {
+func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *featureAlert.Manager, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc, dockerConn *docker.Lazy) (*echo.Echo, func()) {
 	// Every signer and verifier reads the token key from auth.JWTSecret at the
 	// moment of use, so a cluster join can swap it without a restart. Seed it
 	// here, where all of them are wired.
@@ -86,10 +86,6 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	// Docker reported "Unknown error" instead of saying Docker is missing.
 	// Unmatched API paths get the standard envelope, and the docker prefix
 	// gets a reason.
-	// Set below, once the docker client has been probed. The closure captures
-	// the variable, not its value, and only runs per-request — long after.
-	var dockerAvailable bool
-
 	defaultErrorHandler := e.HTTPErrorHandler
 	e.HTTPErrorHandler = func(err error, c echo.Context) {
 		he, ok := err.(*echo.HTTPError)
@@ -102,7 +98,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		// Only when Docker really is missing. On a host that has it, an
 		// unmatched /docker path is an ordinary typo and saying "Docker is
 		// not available" would send the operator to fix the wrong thing.
-		if !dockerAvailable && (strings.Contains(path, "/docker/") || strings.Contains(path, "/compose/")) {
+		if dockerConn.Client() == nil && (strings.Contains(path, "/docker/") || strings.Contains(path, "/compose/")) {
 			_ = response.Fail(c, http.StatusServiceUnavailable, response.ErrDockerUnavailable,
 				"Docker is not available on this node. Install it from Packages, or check that the daemon is running.")
 			return
@@ -177,23 +173,24 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		ClusterMgr: clusterMgr,
 	}
 
-	// Initialize Docker client
-	dockerClient, err := docker.NewClient(cfg.Docker.Socket)
-	if err != nil {
-		slog.Warn("Docker not available", "error", err)
-	}
-
-	var dockerHandler *featureDocker.Handler
-	if dockerClient != nil {
-		dockerHandler = &featureDocker.Handler{Docker: dockerClient, DB: database}
-	}
-	dockerAvailable = dockerHandler != nil
-
-	// Unified port map handler — Cmd for ufw/ss, Docker (nil-safe) for DNAT.
-	portmapHandler := &portmap.Handler{Cmd: cmd, Docker: dockerClient}
+	// Docker is connected whenever it is there: at boot if it already is, and
+	// on the first request after Packages installs it, without a restart
+	// (docker.Lazy). Until then the Docker routes answer DOCKER_UNAVAILABLE
+	// (requireDocker below); the handlers get the client when it connects.
+	dockerHandler := &featureDocker.Handler{DB: database}
 
 	// Initialize Compose manager — scans cfg.Server.StacksPath for compose projects
-	composeManager := docker.NewComposeManager(cfg.Server.StacksPath, dockerClient)
+	composeManager := docker.NewComposeManager(cfg.Server.StacksPath, nil)
+	dockerConn.OnConnect(func(c *docker.Client) {
+		dockerHandler.Docker = c
+		composeManager.SetDockerClient(c)
+	})
+	if dockerConn.Client() == nil {
+		slog.Warn("Docker not available", "error", dockerConn.Err())
+	}
+
+	// Unified port map handler — Cmd for ufw/ss, Docker (nil-safe) for DNAT.
+	portmapHandler := &portmap.Handler{Cmd: cmd, Docker: dockerConn.Client}
 	// Stack directories hold relative bind-mount data, so their removal goes
 	// through the same trash the file manager uses rather than an
 	// unrecoverable RemoveAll.
@@ -605,102 +602,111 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	ai.POST("/tools/:tool/install-stream", aiHandler.InstallStream)
 	ai.POST("/tools/:tool/update-stream", aiHandler.UpdateStream)
 
-	// Docker routes (only registered when Docker is available)
-	if dockerHandler != nil {
-		dk := authorized.Group("/docker")
-
-		// Containers (static routes before :id to avoid shadowing)
-		dk.GET("/containers", dockerHandler.ListContainers)
-		dk.POST("/containers", dockerHandler.CreateContainer)
-		dk.GET("/containers/stats/batch", dockerHandler.ContainerStatsBatch)
-		dk.GET("/containers/:id/inspect", dockerHandler.InspectContainer)
-		dk.GET("/containers/:id/stats", dockerHandler.ContainerStats)
-		dk.POST("/containers/:id/start", dockerHandler.StartContainer)
-		dk.POST("/containers/:id/stop", dockerHandler.StopContainer)
-		dk.POST("/containers/:id/restart", dockerHandler.RestartContainer)
-		dk.POST("/containers/:id/pause", dockerHandler.PauseContainer)
-		dk.POST("/containers/:id/unpause", dockerHandler.UnpauseContainer)
-		dk.DELETE("/containers/:id", dockerHandler.RemoveContainer)
-
-		// Observability (theme F — metrics history + events timeline)
-		obs := &featureDocker.ObservabilityHandler{
-			DB:                   database,
-			ObservabilityEnabled: cfg.Docker.Observability.IsEnabled(),
+	// Docker routes
+	// Registered on every node: until Docker answers they say why, and a
+	// Docker installed later serves them without a restart.
+	requireDocker := func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if dockerConn.Client() == nil {
+				return response.Fail(c, http.StatusServiceUnavailable, response.ErrDockerUnavailable,
+					"Docker is not available on this node. Install it from Packages, or check that the daemon is running.")
+			}
+			return next(c)
 		}
-		dk.GET("/containers/:id/metrics", obs.GetMetrics)
-		dk.GET("/containers/:id/events", obs.GetEvents)
-		dk.GET("/events/recent", obs.GetRecentEvents)
-
-		// Images
-		dk.GET("/images", dockerHandler.ListImages)
-		dk.POST("/images/pull", dockerHandler.PullImage)
-		dk.GET("/images/updates", dockerHandler.CheckImageUpdates)
-		dk.DELETE("/images/:id", dockerHandler.RemoveImage)
-
-		// Volumes
-		dk.GET("/volumes", dockerHandler.ListVolumes)
-		dk.POST("/volumes", dockerHandler.CreateVolume)
-		dk.DELETE("/volumes/:name", dockerHandler.RemoveVolume)
-
-		// Networks
-		dk.GET("/networks", dockerHandler.ListNetworks)
-		dk.POST("/networks", dockerHandler.CreateNetwork)
-		dk.DELETE("/networks/:id", dockerHandler.RemoveNetwork)
-		dk.GET("/networks/:id/inspect", dockerHandler.InspectNetwork)
-		dk.POST("/networks/:id/:operation", dockerHandler.ChangeNetworkConnection)
-
-		// Prune
-		dk.POST("/prune/containers", dockerHandler.PruneContainers)
-		dk.POST("/prune/images", dockerHandler.PruneImages)
-		dk.POST("/prune/volumes", dockerHandler.PruneVolumes)
-		dk.POST("/prune/networks", dockerHandler.PruneNetworks)
-		dk.POST("/prune/all", dockerHandler.PruneAll)
-
-		// Docker Hub search
-		dk.GET("/images/search", dockerHandler.SearchImages)
-
-		// Docker Compose
-		compose := dk.Group("/compose")
-		compose.GET("", composeHandler.ListProjectsWithStatus)
-		compose.GET("/cluster-stacks", composeHandler.ClusterStacks) // cluster-wide aggregation (static before :project)
-		compose.POST("", composeHandler.CreateProject)
-		compose.GET("/:project", composeHandler.GetProject)
-		compose.PUT("/:project", composeHandler.UpdateProject)
-		compose.POST("/:project/diff", composeHandler.DiffStack)
-		compose.PUT("/:project/healthcheck/:service", composeHandler.ApplyHealthcheck)
-		compose.DELETE("/:project/healthcheck/:service", composeHandler.RemoveHealthcheck)
-		compose.POST("/:project/healthcheck/:service/test", composeHandler.TestHealthcheck)
-		compose.POST("/import", composeHandler.ImportFromGit)
-		compose.POST("/migrate-import", composeHandler.MigrateImport)
-		compose.POST("/:project/migrate/preflight", composeHandler.MigratePreflight)
-		compose.POST("/:project/migrate", composeHandler.Migrate)
-		compose.GET("/migrate/target-info", composeHandler.MigrateTargetInfo)
-		compose.DELETE("/:project", composeHandler.DeleteProject)
-		compose.POST("/:project/up", composeHandler.ProjectUp)
-		compose.POST("/:project/up-stream", composeHandler.ProjectUpStream)
-		compose.POST("/:project/down", composeHandler.ProjectDown)
-		compose.POST("/:project/stop", composeHandler.ProjectStop)
-		compose.GET("/:project/env", composeHandler.GetEnv)
-		compose.PUT("/:project/env", composeHandler.UpdateEnv)
-		compose.GET("/:project/services", composeHandler.GetProjectServices)
-		compose.POST("/:project/services/:service/restart", composeHandler.RestartService)
-		compose.POST("/:project/services/:service/stop", composeHandler.StopService)
-		compose.POST("/:project/services/:service/start", composeHandler.StartService)
-		compose.GET("/:project/services/:service/logs", composeHandler.ServiceLogs)
-		compose.POST("/:project/validate", composeHandler.ValidateProject)
-		compose.POST("/:project/check-updates", composeHandler.CheckStackUpdates)
-		compose.POST("/:project/update", composeHandler.UpdateStack)
-		compose.POST("/:project/update-stream", composeHandler.UpdateStackStream)
-		compose.POST("/:project/rollback", composeHandler.RollbackStack)
-		compose.GET("/:project/has-rollback", composeHandler.HasRollback)
-
-		// Docker WebSocket routes (auth via query param token, cluster relay support).
-		// Use a dynamic getter so runtime cluster init takes effect without a
-		// process restart — see the same pattern on ClusterProxyMiddleware above.
-		e.GET("/ws/docker/containers/:id/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ContainerLogsWS(dockerClient, auth.JWTSecret)))
-		e.GET("/ws/docker/containers/:id/exec", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ContainerExecWS(dockerClient, auth.JWTSecret, auditWriter, localNodeIDFn)))
-		e.GET("/ws/docker/compose/:project/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ComposeLogsWS(composeManager, auth.JWTSecret)))
 	}
+	dk := authorized.Group("/docker", requireDocker)
+
+	// Containers (static routes before :id to avoid shadowing)
+	dk.GET("/containers", dockerHandler.ListContainers)
+	dk.POST("/containers", dockerHandler.CreateContainer)
+	dk.GET("/containers/stats/batch", dockerHandler.ContainerStatsBatch)
+	dk.GET("/containers/:id/inspect", dockerHandler.InspectContainer)
+	dk.GET("/containers/:id/stats", dockerHandler.ContainerStats)
+	dk.POST("/containers/:id/start", dockerHandler.StartContainer)
+	dk.POST("/containers/:id/stop", dockerHandler.StopContainer)
+	dk.POST("/containers/:id/restart", dockerHandler.RestartContainer)
+	dk.POST("/containers/:id/pause", dockerHandler.PauseContainer)
+	dk.POST("/containers/:id/unpause", dockerHandler.UnpauseContainer)
+	dk.DELETE("/containers/:id", dockerHandler.RemoveContainer)
+
+	// Observability (theme F — metrics history + events timeline)
+	obs := &featureDocker.ObservabilityHandler{
+		DB:                   database,
+		ObservabilityEnabled: cfg.Docker.Observability.IsEnabled(),
+	}
+	dk.GET("/containers/:id/metrics", obs.GetMetrics)
+	dk.GET("/containers/:id/events", obs.GetEvents)
+	dk.GET("/events/recent", obs.GetRecentEvents)
+
+	// Images
+	dk.GET("/images", dockerHandler.ListImages)
+	dk.POST("/images/pull", dockerHandler.PullImage)
+	dk.GET("/images/updates", dockerHandler.CheckImageUpdates)
+	dk.DELETE("/images/:id", dockerHandler.RemoveImage)
+
+	// Volumes
+	dk.GET("/volumes", dockerHandler.ListVolumes)
+	dk.POST("/volumes", dockerHandler.CreateVolume)
+	dk.DELETE("/volumes/:name", dockerHandler.RemoveVolume)
+
+	// Networks
+	dk.GET("/networks", dockerHandler.ListNetworks)
+	dk.POST("/networks", dockerHandler.CreateNetwork)
+	dk.DELETE("/networks/:id", dockerHandler.RemoveNetwork)
+	dk.GET("/networks/:id/inspect", dockerHandler.InspectNetwork)
+	dk.POST("/networks/:id/:operation", dockerHandler.ChangeNetworkConnection)
+
+	// Prune
+	dk.POST("/prune/containers", dockerHandler.PruneContainers)
+	dk.POST("/prune/images", dockerHandler.PruneImages)
+	dk.POST("/prune/volumes", dockerHandler.PruneVolumes)
+	dk.POST("/prune/networks", dockerHandler.PruneNetworks)
+	dk.POST("/prune/all", dockerHandler.PruneAll)
+
+	// Docker Hub search
+	dk.GET("/images/search", dockerHandler.SearchImages)
+
+	// Docker Compose
+	compose := dk.Group("/compose")
+	compose.GET("", composeHandler.ListProjectsWithStatus)
+	compose.GET("/cluster-stacks", composeHandler.ClusterStacks) // cluster-wide aggregation (static before :project)
+	compose.POST("", composeHandler.CreateProject)
+	compose.GET("/:project", composeHandler.GetProject)
+	compose.PUT("/:project", composeHandler.UpdateProject)
+	compose.POST("/:project/diff", composeHandler.DiffStack)
+	compose.PUT("/:project/healthcheck/:service", composeHandler.ApplyHealthcheck)
+	compose.DELETE("/:project/healthcheck/:service", composeHandler.RemoveHealthcheck)
+	compose.POST("/:project/healthcheck/:service/test", composeHandler.TestHealthcheck)
+	compose.POST("/import", composeHandler.ImportFromGit)
+	compose.POST("/migrate-import", composeHandler.MigrateImport)
+	compose.POST("/:project/migrate/preflight", composeHandler.MigratePreflight)
+	compose.POST("/:project/migrate", composeHandler.Migrate)
+	compose.GET("/migrate/target-info", composeHandler.MigrateTargetInfo)
+	compose.DELETE("/:project", composeHandler.DeleteProject)
+	compose.POST("/:project/up", composeHandler.ProjectUp)
+	compose.POST("/:project/up-stream", composeHandler.ProjectUpStream)
+	compose.POST("/:project/down", composeHandler.ProjectDown)
+	compose.POST("/:project/stop", composeHandler.ProjectStop)
+	compose.GET("/:project/env", composeHandler.GetEnv)
+	compose.PUT("/:project/env", composeHandler.UpdateEnv)
+	compose.GET("/:project/services", composeHandler.GetProjectServices)
+	compose.POST("/:project/services/:service/restart", composeHandler.RestartService)
+	compose.POST("/:project/services/:service/stop", composeHandler.StopService)
+	compose.POST("/:project/services/:service/start", composeHandler.StartService)
+	compose.GET("/:project/services/:service/logs", composeHandler.ServiceLogs)
+	compose.POST("/:project/validate", composeHandler.ValidateProject)
+	compose.POST("/:project/check-updates", composeHandler.CheckStackUpdates)
+	compose.POST("/:project/update", composeHandler.UpdateStack)
+	compose.POST("/:project/update-stream", composeHandler.UpdateStackStream)
+	compose.POST("/:project/rollback", composeHandler.RollbackStack)
+	compose.GET("/:project/has-rollback", composeHandler.HasRollback)
+
+	// Docker WebSocket routes (auth via query param token, cluster relay support).
+	// Use a dynamic getter so runtime cluster init takes effect without a
+	// process restart — see the same pattern on ClusterProxyMiddleware above.
+	e.GET("/ws/docker/containers/:id/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ContainerLogsWS(dockerConn.Client, auth.JWTSecret)))
+	e.GET("/ws/docker/containers/:id/exec", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ContainerExecWS(dockerConn.Client, auth.JWTSecret, auditWriter, localNodeIDFn)))
+	e.GET("/ws/docker/compose/:project/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ComposeLogsWS(composeManager, auth.JWTSecret)))
 
 	// WebSocket routes (auth via query param token, cluster relay support)
 	e.GET("/ws/metrics", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.MetricsWS(auth.JWTSecret)))

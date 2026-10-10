@@ -155,6 +155,11 @@ func main() {
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
 
+	// The node's Docker client, connected whenever Docker is there: at boot,
+	// or as soon as Packages installs it, without a restart. The router, the
+	// cluster metrics and the Docker collectors below all go through it.
+	dockerConn := docker.NewLazy(cfg.Docker.Socket)
+
 	// Define LiveActivate callback for dynamic cluster activation
 	liveActivate := cluster.LiveActivateFunc(func(activeCfg *config.Config, activeCfgPath string, existingMgr *cluster.Manager) (*cluster.Manager, error) {
 		var mgr *cluster.Manager
@@ -171,7 +176,6 @@ func main() {
 		}
 
 		// Start metrics collection
-		metricsDocker, _ := docker.NewClient(activeCfg.Docker.Socket)
 		mgr.StartLocalMetrics(func() (float64, float64, float64, int) {
 			m, mErr := monitor.GetCoreMetrics()
 			if mErr != nil {
@@ -182,7 +186,7 @@ func main() {
 				diskPercent = d
 			}
 			containers := 0
-			if metricsDocker != nil {
+			if metricsDocker := dockerConn.Client(); metricsDocker != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				if list, lErr := metricsDocker.ListContainers(ctx); lErr == nil {
 					for _, c := range list {
@@ -314,27 +318,28 @@ func main() {
 
 	// Docker observability: per-container metrics history, daemon events
 	// listener, and retention pruners. Default-on; opt-out via config.
+	// They start when Docker is reached, which may be long after boot.
 	if cfg.Docker.Observability.IsEnabled() {
-		dockerCli, dockerErr := docker.NewClient(cfg.Docker.Socket)
-		if dockerErr != nil {
-			slog.Warn("docker observability: client init failed; feature disabled", "error", dockerErr)
-		} else {
-			containerDisp := featureAlert.NewContainerDispatcherWithIdentity(database, alertManager, alertIdentity)
+		containerDisp := featureAlert.NewContainerDispatcherWithIdentity(database, alertManager, alertIdentity)
+		metricsRet, _ := parseObservabilityRetention(cfg.Docker.Observability.MetricsRetention)
+		eventsRet, _ := parseObservabilityRetention(cfg.Docker.Observability.EventsRetention)
+		dockerConn.OnConnect(func(dockerCli *docker.Client) {
 			monitor.StartDockerHistoryCollector(bgCtx, database, dockerCli)
 			monitor.StartDockerEventsListener(bgCtx, database, dockerCli, &dispShim{c: containerDisp})
-			metricsRet, _ := parseObservabilityRetention(cfg.Docker.Observability.MetricsRetention)
-			eventsRet, _ := parseObservabilityRetention(cfg.Docker.Observability.EventsRetention)
 			monitor.StartDockerMetricsRetention(bgCtx, database, metricsRet)
 			monitor.StartDockerEventsRetention(bgCtx, database, eventsRet)
-		}
+		})
 	}
 
 	// Docker volume usage cache (Theme B Phase 1) — independent of the
 	// observability flag. Measured on demand from the Volumes page, at most
 	// once per five minutes; nothing runs while nobody is looking.
-	if dockerCli, dockerErr := docker.NewClient(cfg.Docker.Socket); dockerErr == nil {
+	dockerConn.OnConnect(func(dockerCli *docker.Client) {
 		monitor.StartVolumeUsageCollector(bgCtx, database, dockerCli)
-	}
+	})
+	// Without a request asking for Docker, this is what connects it, and so
+	// starts the collectors above, once Docker is installed.
+	safe.Go("docker-connect", func() { dockerConn.Watch(bgCtx, 30*time.Second) })
 
 	// Start terminal session cleanup (timeout from settings, 0 = never)
 	featureTerminal.CleanupTerminalSessions(bgCtx, database)
@@ -353,7 +358,7 @@ func main() {
 	}
 	monitor.StartUpdateChecker(version, isLeaderFn)
 
-	e, routerCleanup := api.NewRouter(database, auditWriter, alertManager, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate)
+	e, routerCleanup := api.NewRouter(database, auditWriter, alertManager, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate, dockerConn)
 	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
