@@ -4607,7 +4607,7 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 ---
 
 ### POST /api/v1/cluster/leader-transfer
-Raft 리더십을 지정한 노드로 이전. 리더 노드에서만 실행 가능.
+Raft 리더십을 지정한 노드로 이전. 실행은 리더가 하며, 팔로워에서 요청하면 리더로 전달된다. 팔로워가 자기 ID를 대상으로 주면 그 노드가 리더를 가져온다.
 
 - **인증 필요**: 예
 
@@ -4642,7 +4642,7 @@ Raft 리더십을 지정한 노드로 이전. 리더 노드에서만 실행 가�
 ---
 
 ### PATCH /api/v1/cluster/nodes/:id/labels
-노드 라벨 업데이트. 리더 노드에서만 실행 가능.
+노드 라벨 업데이트. 실행은 리더가 하며, 팔로워에서 요청하면 리더로 전달된다.
 
 - **인증 필요**: 예
 
@@ -4679,6 +4679,42 @@ Raft 리더십을 지정한 노드로 이전. 리더 노드에서만 실행 가�
 }
 ```
 
+
+---
+
+### PUT /api/v1/cluster/name
+클러스터 이름 변경 (v0.78.6+). 이름은 Raft 공유 설정(`cluster_name`)에 저장되어 모든 노드의 상태·사이드바와 `sfpanel cluster status`에 반영된다. 각 노드 `config.yaml`의 `cluster.name`은 가입 당시 이름으로 남는다. 팔로워에서 요청하면 리더로 전달된다.
+
+- **인증 필요**: 예
+
+**Request Body:**
+```json
+{
+  "name": "homelab"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `name` | string | 예 | 새 이름. 앞뒤 공백은 제거되며 1~64자, 제어 문자(줄바꿈·ESC 등) 불가 |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "name": "homelab"
+  }
+}
+```
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `INVALID_REQUEST` | 400 | 클러스터 미구성 또는 잘못된 본문 |
+| `INVALID_NAME` | 400 | 이름이 비었거나 64자 초과, 또는 제어 문자 포함 |
+| `INTERNAL_ERROR` | 503 | 리더 없음 (선출 중) |
+| `INTERNAL_ERROR` | 500 | 저장 실패 |
 ---
 
 ### PATCH /api/v1/cluster/nodes/:id/address
@@ -5441,8 +5477,9 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/cluster/token` | O | 참가 토큰 생성 (TTL 지정 가능) |
 | GET | `/api/v1/cluster/tokens` | O | 대기 중 참가 토큰 목록 (마스킹, v0.19.0+) |
 | DELETE | `/api/v1/cluster/tokens/:id` | O | 참가 토큰 폐기 (v0.19.0+) |
-| DELETE | `/api/v1/cluster/nodes/:id` | O | 노드 제거 (리더만 가능, `?force=`) |
+| DELETE | `/api/v1/cluster/nodes/:id` | O | 노드 제거 (팔로워 요청은 리더로 전달, 리더 자신은 불가, `?force=`) |
 | PATCH | `/api/v1/cluster/nodes/:id/labels` | O | 노드 라벨 수정 |
+| PUT | `/api/v1/cluster/name` | O | 클러스터 이름 변경 (v0.78.6+) |
 | PATCH | `/api/v1/cluster/nodes/:id/address` | O | 노드 주소 수정 |
 | POST | `/api/v1/cluster/panel-ca` | O | 노드의 패널 CA를 복제 상태에 등록 (리더 전용, 팔로워가 대신 요청) |
 | GET | `/api/v1/cluster/events` | O | 클러스터 이벤트 로그 |

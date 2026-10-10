@@ -323,6 +323,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	clusterGroup.DELETE("/tokens/:id", clusterHandler.RevokeToken)
 	clusterGroup.DELETE("/nodes/:id", clusterHandler.RemoveNode)
 	clusterGroup.PATCH("/nodes/:id/labels", clusterHandler.UpdateNodeLabels)
+	clusterGroup.PUT("/name", clusterHandler.RenameCluster)
 	clusterGroup.PATCH("/nodes/:id/address", clusterHandler.UpdateNodeAddress)
 	clusterGroup.POST("/panel-ca", clusterHandler.PublishPanelCA)
 	clusterGroup.GET("/events", clusterHandler.GetEvents)

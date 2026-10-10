@@ -1306,6 +1306,28 @@ func (m *Manager) TransferLeadership(targetNodeID string) error {
 	return nil
 }
 
+// RenameCluster sets the cluster's display name. The name is FSM config
+// ("cluster_name"): status, the join response and the CLI all read it from
+// there, while config.yaml keeps the name a node joined with. CmdSetConfig is
+// a command every version applies, so a cluster mid rolling update takes it.
+func (m *Manager) RenameCluster(name string) error {
+	if m.raft == nil || !m.raft.IsLeader() {
+		return ErrNotLeader
+	}
+	nameJSON, err := json.Marshal(name)
+	if err != nil {
+		return err
+	}
+	if err := m.raft.Apply(Command{
+		Type:  CmdSetConfig,
+		Key:   "cluster_name",
+		Value: nameJSON,
+	}, 5*time.Second); err != nil {
+		return fmt.Errorf("set cluster name: %w", err)
+	}
+	return nil
+}
+
 // MetricsCollector is a function that collects local system metrics.
 type MetricsCollector func() (cpuPercent, memPercent, diskPercent float64, containerCount int)
 

@@ -484,30 +484,43 @@ func clusterStatus(args []string) {
 		return
 	}
 
-	fmt.Printf("Cluster: %s\n", cfg.Cluster.Name)
+	// If the server is running, query live raft role + leader + peer count
+	// from /cluster/overview. The CLI cannot open Raft itself without
+	// conflicting on the port, so a server outage just degrades to the
+	// config-only output below with a one-line note. The name comes from the
+	// same answer when there is one: a rename goes through Raft, and
+	// config.yaml keeps the name this node joined with.
+	running := isServerRunning(cfg.Server.Port)
+	var env clusterOverviewEnvelope
+	var fetchErr, parseErr error
+	if running {
+		var raw []byte
+		if raw, fetchErr = callLocalAPI(cfg, http.MethodGet, "/api/v1/cluster/overview", nil); fetchErr == nil {
+			parseErr = json.Unmarshal(raw, &env)
+		}
+	}
+	name := cfg.Cluster.Name
+	if running && fetchErr == nil && parseErr == nil && env.Data.Name != "" {
+		name = env.Data.Name
+	}
+
+	fmt.Printf("Cluster: %s\n", name)
 	fmt.Printf("Node ID: %s\n", cfg.Cluster.NodeID)
 	fmt.Printf("Node Name: %s\n", cfg.Cluster.NodeName)
 	fmt.Printf("gRPC Port: %d\n", cfg.Cluster.GRPCPort)
 	fmt.Printf("Data Dir: %s\n", cfg.Cluster.DataDir)
 	fmt.Printf("Advertise: %s\n", cfg.Cluster.AdvertiseAddress)
 
-	// If the server is running, query live raft role + leader + peer count
-	// from /cluster/status. The CLI cannot open Raft itself without
-	// conflicting on the port, so a server outage just degrades to the
-	// config-only output above with a one-line note.
-	if !isServerRunning(cfg.Server.Port) {
+	if !running {
 		fmt.Println("\n(Server not running — live role/leader/peer info unavailable.)")
 		return
 	}
-
-	raw, err := callLocalAPI(cfg, http.MethodGet, "/api/v1/cluster/overview", nil)
-	if err != nil {
-		fmt.Printf("\n(Could not fetch live status: %v)\n", err)
+	if fetchErr != nil {
+		fmt.Printf("\n(Could not fetch live status: %v)\n", fetchErr)
 		return
 	}
-	var env clusterOverviewEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
-		fmt.Printf("\n(Could not parse live status: %v)\n", err)
+	if parseErr != nil {
+		fmt.Printf("\n(Could not parse live status: %v)\n", parseErr)
 		return
 	}
 

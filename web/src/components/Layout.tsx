@@ -92,6 +92,11 @@ export default function Layout() {
   // (Layout's, then the sidebar's) before anything could render. Polling (vs
   // the previous one-shot) keeps leader/stale changes visible in the tree.
   useVisibleInterval(loadClusterStatus, 15000)
+  // A change the page made itself (a rename) shows now, not at the next poll.
+  useEffect(() => {
+    window.addEventListener('sfpanel:cluster-changed', loadClusterStatus)
+    return () => window.removeEventListener('sfpanel:cluster-changed', loadClusterStatus)
+  }, [loadClusterStatus])
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, String(collapsed))

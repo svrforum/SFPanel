@@ -951,7 +951,12 @@
         "error": "Failed",
         "warning": "Slow restart",
         "skipped": "Skipped (offline)"
-      }
+      },
+      "rename": "Rename",
+      "renameTitle": "Rename cluster",
+      "renameHint": "Every node shows the new name right away. 1–64 characters.",
+      "renamed": "Cluster renamed to {{name}}",
+      "renameInvalid": "A name is 1–64 characters, without control characters such as line breaks."
     },
     "events": {
       "node_joined": "joined the cluster",

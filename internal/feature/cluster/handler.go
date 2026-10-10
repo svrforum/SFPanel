@@ -918,6 +918,34 @@ func (h *Handler) GetEvents(c echo.Context) error {
 	})
 }
 
+// RenameCluster changes the name every node shows. The name is FSM config,
+// so a follower's request is forwarded to the leader, which owns the write.
+func (h *Handler) RenameCluster(c echo.Context) error {
+	mgr := h.getManager()
+	if mgr == nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Cluster not configured")
+	}
+	if handled, err := middleware.ProxyToLeader(c, mgr); handled {
+		return err
+	}
+
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := c.Bind(&body); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	name, err := validateClusterName(body.Name)
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Cluster name must be 1-64 characters with no control characters")
+	}
+	if err := mgr.RenameCluster(name); err != nil {
+		return clusterErrResponse(c, err)
+	}
+	slog.Info("cluster renamed", "component", "cluster", "name", name)
+	return response.OK(c, map[string]string{"name": name})
+}
+
 func (h *Handler) UpdateNodeLabels(c echo.Context) error {
 	mgr := h.getManager()
 	if mgr == nil {

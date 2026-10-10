@@ -7,6 +7,7 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import { Button } from '@/components/ui/button'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
+import { usePrompt } from '@/components/PromptDialog'
 import { cn, nodeStatusColor } from '@/lib/utils'
 import { waitForServerBack } from '@/lib/restart'
 import { toast } from 'sonner'
@@ -33,6 +34,7 @@ interface ClusterSnapshot {
 export default function ClusterOverview() {
   const { t } = useTranslation()
   const confirm = useConfirm()
+  const prompt = usePrompt()
   const [status, setStatus] = useState<ClusterStatus | null>(null)
   const [overview, setOverview] = useState<ClusterOverviewType | null>(null)
   const [events, setEvents] = useState<ClusterEvent[]>([])
@@ -105,6 +107,28 @@ export default function ClusterOverview() {
         <div className="h-5 w-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     )
+  }
+
+  // The name is cluster-wide: any node can rename it (the server hands the
+  // write to the leader), and the shell's sidebar is told to re-read it.
+  const handleRename = async () => {
+    const current = overview?.name || status?.name || ''
+    const entered = await prompt({
+      title: t('cluster.overview.renameTitle'),
+      description: t('cluster.overview.renameHint'),
+      defaultValue: current,
+      confirmLabel: t('cluster.overview.rename'),
+    })
+    const name = entered?.trim()
+    if (!name || name === current) return
+    try {
+      await api.renameCluster(name)
+      toast.success(t('cluster.overview.renamed', { name }))
+      loadData()
+      window.dispatchEvent(new Event('sfpanel:cluster-changed'))
+    } catch (err) {
+      toast.error((err as { code?: string }).code === 'INVALID_NAME' ? t('cluster.overview.renameInvalid') : String(err))
+    }
   }
 
   const handleDisband = async () => {
@@ -229,7 +253,21 @@ export default function ClusterOverview() {
               <Server className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <h2 className="text-[15px] font-semibold">{overview?.name || status.name}</h2>
+              <div className="flex items-center gap-1">
+                <h2 className="text-[15px] font-semibold">{overview?.name || status.name}</h2>
+                {(status.is_leader || !!status.leader_id) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-accent"
+                    onClick={handleRename}
+                    title={t('cluster.overview.rename')}
+                    aria-label={t('cluster.overview.rename')}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
               <p className="text-[11px] text-muted-foreground">
                 {t('cluster.overview.nodeCount', { count: nodes.length })}
               </p>

@@ -84,6 +84,12 @@ export default function ClusterNodes() {
     )
   }
 
+  // Labels, leader transfer and removal are leader operations, and every node
+  // can ask for them: the server forwards a follower's request to the leader.
+  // A follower can also hand the leadership to itself. Never offered: removing
+  // this node (that is leaving) or the leader (transfer it away first).
+  const hasLeader = status.is_leader || !!status.leader_id
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -140,7 +146,7 @@ export default function ClusterNodes() {
                         {k}={v}
                       </span>
                     ))}
-                    {status.is_leader && (
+                    {hasLeader && (
                       <button
                         onClick={() => openLabelDialog(node)}
                         className="p-0.5 rounded hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
@@ -158,7 +164,7 @@ export default function ClusterNodes() {
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-1">
-                    {node.id !== localId && status.is_leader && node.status === 'online' && node.id !== status.leader_id && (
+                    {hasLeader && node.status === 'online' && node.id !== status.leader_id && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -170,7 +176,7 @@ export default function ClusterNodes() {
                         <ArrowRightLeft className="h-3.5 w-3.5" />
                       </Button>
                     )}
-                    {node.id !== localId && status.is_leader && (
+                    {hasLeader && node.id !== localId && node.id !== status.leader_id && (
                       <Button
                         variant="ghost"
                         size="sm"

@@ -949,7 +949,12 @@
         "error": "실패",
         "warning": "재시작 지연",
         "skipped": "건너뜀 (오프라인)"
-      }
+      },
+      "rename": "이름 변경",
+      "renameTitle": "클러스터 이름 변경",
+      "renameHint": "모든 노드에 바로 반영됩니다. 1~64자.",
+      "renamed": "클러스터 이름을 {{name}}(으)로 바꿨습니다",
+      "renameInvalid": "이름은 1~64자이고 줄바꿈 같은 제어 문자를 쓸 수 없습니다."
     },
     "events": {
       "node_joined": "클러스터에 참가",

@@ -2439,6 +2439,13 @@ class ApiClient {
     })
   }
 
+  renameCluster(name: string) {
+    return this.request<{ name: string }>('/cluster/name', {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    })
+  }
+
   transferClusterLeadership(targetNodeId: string) {
     return this.request<{ message: string; target_node_id: string }>('/cluster/leader-transfer', {
       method: 'POST',
