@@ -198,7 +198,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
         className={`${expanded ? 'flex-1 min-h-0' : 'h-[min(55dvh,420px)]'} w-full px-1 pt-1 touch-none`}
         onClick={() => termRef.current?.focus()}
       />
-      <div className="flex flex-wrap gap-1 border-t border-white/10 p-1 text-white" aria-label={t('terminal.title')}>
+      <div role="group" className="flex flex-wrap gap-1 border-t border-white/10 p-1 text-white" aria-label={t('docker.containers.shellKeys')}>
         <Button variant="ghost" aria-pressed={ctrl} disabled={!connected} onClick={() => { setCtrl(value => !value); termRef.current?.focus() }}>Ctrl</Button>
         {[['Esc', '\x1b'], ['Tab', '\t'], ['↑', '\x1b[A'], ['↓', '\x1b[B'], ['←', '\x1b[D'], ['→', '\x1b[C'], ['Ctrl+C', '\x03']].map(([label, data]) => <Button key={label} variant="ghost" disabled={!connected} onPointerDown={e => e.preventDefault()} onClick={() => sendKey(data)}>{label}</Button>)}
       </div>

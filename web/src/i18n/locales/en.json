@@ -570,7 +570,8 @@
       "events": "Events",
       "noEvents": "No events",
       "loadMore": "Load more",
-      "count": "{{count}} containers"
+      "count": "{{count}} containers",
+      "shellKeys": "Terminal keys"
     },
     "create": {
       "button": "Create",
@@ -765,7 +766,8 @@
       "saveEnvFirst": "Save .env changes first. Validation and deployment use saved environment variables.",
       "discard": "Discard draft",
       "discardConfirm": "Discard unsaved changes and reload the files from the server."
-    }
+    },
+    "unavailable": "Docker is not available on this node. Install it from Packages, or check that the daemon is running."
   },
   "compose": {
     "healthcheck": {

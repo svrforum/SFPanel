@@ -1283,7 +1283,7 @@ export default function DockerStacks({ clusterMode = false }: { clusterMode?: bo
                 "keep my data" while the stack folder, bind mounts and all,
                 went regardless. Say what actually happens. */}
             <p className="rounded-xl bg-secondary/60 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-              {t('docker.compose.deleteDataNote', { path: deleteTarget?.path ?? deleteTarget?.name ?? '' })}
+              {t('docker.stacks.deleteDataNote', { path: deleteTarget?.path ?? deleteTarget?.name ?? '' })}
             </p>
           </div>
           <DialogFooter>

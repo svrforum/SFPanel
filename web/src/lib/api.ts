@@ -102,6 +102,12 @@ export function setApiTranslator(fn: (key: string, fallback: string) => string) 
   translate = fn
 }
 
+// Error codes the panel words itself, in the operator's language. The server's
+// message is English and stays the fallback; a code missing here shows as sent.
+const CODE_MESSAGES: Record<string, string> = {
+  DOCKER_UNAVAILABLE: 'docker.unavailable',
+}
+
 /**
  * How long to wait for the operations the server itself bounds at five minutes.
  *
@@ -503,9 +509,12 @@ class ApiClient {
       // Attach HTTP status + error code so callers can react to specific
       // conditions (e.g. a 409 firewall-lockout guard) without parsing the
       // message. Reading `.message` still works as before.
-      const err = new Error(json.error?.message || 'Unknown error') as Error & { status?: number; code?: string }
+      const code: string | undefined = json.error?.code
+      const sent = json.error?.message || 'Unknown error'
+      const message = code && CODE_MESSAGES[code] ? translate(CODE_MESSAGES[code], sent) : sent
+      const err = new Error(message) as Error & { status?: number; code?: string }
       err.status = res.status
-      err.code = json.error?.code
+      err.code = code
       throw err
     }
 
