@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.7] – 2026-10-10
+
+### Security
+
+- **Rebuilt with Go 1.26.9 and x/net 0.60.** Thirteen advisories were published against the standard library of Go 1.26.8, which every release since 0.72.1 was built with. Among them are an HTTP/2 server crash (an HPACK encoder race), memory exhaustion through HTTP/2 trailers and CPU exhaustion through repeated window updates — in the `net/http` server the panel serves HTTPS from. The fixes landed in 1.26.9, and x/net 0.60 carries the HTTP/2 one as well. No line of the panel's own code differs from 0.78.6. The CI vulnerability job had been failing on these since they appeared; the Go advisories that remain are the ones with no upstream fix, as before.
+- Web dependencies move to their patched releases — DOMPurify 3.4.16, brace-expansion, source-map-js and fast-uri — which clears the `npm audit` gate. One moderate advisory remains, in the `postcss-selector-parser` that `@tailwindcss/typography` pins: it runs only while the stylesheet is built, and no release of the plugin takes the fix yet.
+
 ## [0.78.6] – 2026-10-10
 
 ### Added
