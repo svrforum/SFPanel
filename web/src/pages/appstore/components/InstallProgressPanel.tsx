@@ -22,7 +22,7 @@ export function InstallProgressPanel({
   success,
   health,
   currentStage,
-  installPort,
+  accessUrl,
   onManage,
   onClose,
 }: {
@@ -31,7 +31,8 @@ export function InstallProgressPanel({
   success: boolean
   health: string
   currentStage: string
-  installPort: string
+  /** Where the installed app answers (appAccessUrl), '' when it has no web port. */
+  accessUrl: string
   onManage: () => void
   onClose: () => void
 }) {
@@ -130,16 +131,12 @@ export function InstallProgressPanel({
 
       {done && (
         <div className="flex flex-wrap gap-3 mt-4">
-          {success && installPort && (
+          {success && accessUrl && (
             <Button
               size="sm"
               className="rounded-xl"
               onClick={() =>
-                window.open(
-                  `${window.location.protocol}//${window.location.hostname}:${installPort}`,
-                  '_blank',
-                  'noopener'
-                )
+                window.open(accessUrl, '_blank', 'noopener')
               }
             >
               <ExternalLink className="h-4 w-4 mr-1.5" />

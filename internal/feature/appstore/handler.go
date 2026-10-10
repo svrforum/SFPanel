@@ -66,8 +66,13 @@ type AppStoreMeta struct {
 	Source      string            `json:"source"`
 	Icon        string            `json:"icon,omitempty"`
 	Ports       []int             `json:"ports"`
-	Env         []AppStoreEnvDef  `json:"env"`
-	Features    []AppStoreFeature `json:"features,omitempty"`
+	// Scheme is how the app's own web UI answers on its port: "https" when the
+	// app serves TLS itself (Nginx Proxy Guard's admin UI), else http. It is
+	// not the panel's: a panel on HTTPS opened every plain-HTTP app at
+	// https:// and failed the handshake.
+	Scheme   string            `json:"scheme,omitempty"`
+	Env      []AppStoreEnvDef  `json:"env"`
+	Features []AppStoreFeature `json:"features,omitempty"`
 	// Featured renders the app first and shows a "Featured" badge on cards.
 	Featured bool `json:"featured,omitempty"`
 	// Screenshots is an optional gallery of image URLs shown on the detail page.

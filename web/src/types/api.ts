@@ -856,6 +856,8 @@ export interface AppStoreMeta {
   website: string
   source: string
   ports: number[]
+  /** How the app's own web UI answers: https only when it serves TLS itself. */
+  scheme?: 'http' | 'https'
   env: AppStoreEnvDef[]
   features?: AppStoreFeature[]
   icon?: string

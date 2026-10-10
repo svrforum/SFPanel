@@ -21,6 +21,7 @@ import { copyText } from '@/lib/utils'
 import { usePrompt } from '@/components/PromptDialog'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { api } from '@/lib/api'
+import { appAccessUrl } from '@/lib/appAccess'
 import { riskLines } from '@/lib/composeRisk'
 import { appStoreIconUrl } from '@/lib/appstore'
 import { Input } from '@/components/ui/input'
@@ -113,8 +114,8 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
     return ''
   }, [detail, envValues])
 
-  const accessUrl = installPort
-    ? `${window.location.protocol}//${window.location.hostname}:${installPort}`
+  const accessUrl = detail && installPort
+    ? appAccessUrl(detail.app, window.location.hostname, installPort)
     : ''
 
   const handleUninstall = async () => {
@@ -792,7 +793,7 @@ export default function AppStoreDetailModal({ appId, open, onClose, onInstalled 
                 success={progressSuccess}
                 health={installHealth}
                 currentStage={currentStage}
-                installPort={installPort}
+                accessUrl={accessUrl}
                 onManage={() => {
                   onClose()
                   navigate(`/docker/stacks/${detail.app.id}`)

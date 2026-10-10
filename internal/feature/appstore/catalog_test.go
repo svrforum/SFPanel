@@ -91,6 +91,9 @@ func TestCatalogValid(t *testing.T) {
 		if meta.ID != id {
 			t.Errorf("app %q: metadata id %q does not match folder name", id, meta.ID)
 		}
+		if meta.Scheme != "" && meta.Scheme != "http" && meta.Scheme != "https" {
+			t.Errorf("app %q: scheme %q is neither http nor https", id, meta.Scheme)
+		}
 		if meta.Name == "" {
 			t.Errorf("app %q: name is empty", id)
 		}
