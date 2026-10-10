@@ -67,6 +67,7 @@ export function SessionPane({
       fontSize={fontSize}
       wsPath="/ws/ai/attach"
       wsParams={{ session_id: session.id }}
+      tmux
     />
   )
 }

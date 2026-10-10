@@ -1447,7 +1447,7 @@
     "shellBadgeHint": "Connected as {{user}} on {{host}}",
     "shellBadgeRootHint": "Running as root on {{host}} — commands here are unrestricted",
     "copyFailed": "Could not copy to clipboard",
-    "pasteUseCtrlV": "Use Ctrl+V to paste (Ctrl+Shift+V needs HTTPS)",
+    "copyBlocked": "The browser blocked the copy. Press Copy to copy it.",
     "rail": {
       "sessions": "Sessions",
       "newSession": "New session",
@@ -1474,6 +1474,13 @@
       "subtitle": "Pick a shell or an AI tool to start. The session keeps running when you close the browser.",
       "shell": "Shell",
       "installTools": "Tools that are not installed can be installed under Tools & accounts"
+    },
+    "menu": {
+      "label": "Terminal menu",
+      "copy": "Copy",
+      "paste": "Paste",
+      "selectText": "Select text",
+      "pasteBlocked": "The browser blocked pasting from the menu. Press {{key}}, or Shift+right-click for the browser's menu."
     },
     "tools": {
       "title": "Tools & accounts",

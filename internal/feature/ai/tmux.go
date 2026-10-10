@@ -139,11 +139,16 @@ func (h *Handler) tmux(acct Account, args ...string) (string, error) {
 // types into a CLI prompt is tmux's to eat. status off gives the pane the full
 // screen. mouse on lets wheel/touch input reach tmux history or a mouse-aware
 // CLI; the outer terminal's alternate buffer has no scrollback of its own.
+// set-clipboard external is tmux's default, pinned because the browser now
+// trusts it: a mouse copy reaches the page as OSC 52 and lands in the
+// operator's clipboard, and external is what keeps a program in the pane from
+// sending one of its own — with `on`, any output could set the clipboard.
 func tmuxOptions(defaultTerminal string) [][]string {
 	return [][]string{
 		{"set", "-g", "prefix", "None"},
 		{"set", "-g", "status", "off"},
 		{"set", "-g", "mouse", "on"},
+		{"set", "-s", "set-clipboard", "external"},
 		{"set", "-g", "history-limit", "20000"},
 		{"set", "-g", "default-terminal", defaultTerminal},
 		{"set", "-g", "terminal-overrides", ",xterm-256color:Tc"},

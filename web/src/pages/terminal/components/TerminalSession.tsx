@@ -10,11 +10,13 @@ import { api } from '@/lib/api'
 import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import { attachLongPress } from '@/lib/longPress'
 import { SELECT_TEXT_EVENT } from '@/lib/terminalText'
+import { decodeOsc52 } from '@/lib/osc52'
 import { cellBefore, lineAt, rangeBetween, spanEnd, wordAt, type CellPos, type TextSpan } from '@/lib/terminalWord'
 import { TerminalSelection, type HandleEnd, type Point } from './TerminalSelection'
+import { TerminalContextMenu, type TerminalMenuAt } from './TerminalContextMenu'
 import { cn, copyText } from '@/lib/utils'
 import { toast } from 'sonner'
-import { MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, NO_MODIFIERS, terminalKey, type TerminalModifiers } from '@/lib/terminalKeys'
+import { IS_MAC, MODIFIERS_CONSUMED_EVENT, MODIFIERS_EVENT, NO_MODIFIERS, terminalKey, type TerminalModifiers } from '@/lib/terminalKeys'
 
 // xterm paints into its own canvas, so it cannot inherit the app's CSS tokens
 // the way the rest of the UI does — the palette has to be handed over as an
@@ -113,6 +115,9 @@ function cellAt(term: XTerm, grid: Grid, x: number, y: number, clamp = false): C
   return { row: term.buffer.active.viewportY + viewRow, col }
 }
 
+// A copied text as a toast names it.
+const clip = (text: string) => (text.length > 40 ? `${text.slice(0, 39)}…` : text)
+
 // A long-press selection: its two ends in either order (a handle dragged past
 // the other simply swaps sides), the word the press chose — holding on and
 // dragging extends from it — and the line it is on.
@@ -124,6 +129,7 @@ export function TerminalSession({
   fontSize,
   wsPath = '/ws/terminal',
   wsParams,
+  tmux = false,
 }: {
   sessionId: string
   active: boolean
@@ -131,6 +137,8 @@ export function TerminalSession({
   /** The AI page attaches through /ws/ai/attach; the terminal keeps its default. */
   wsPath?: string
   wsParams?: Record<string, string>
+  /** A tmux session: its copies arrive as OSC 52 (see the handler below). */
+  tmux?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
@@ -139,6 +147,8 @@ export function TerminalSession({
   const searchAddonRef = useRef<SearchAddon | null>(null)
   // The long-press selection (null: none), shown with xterm's own highlight.
   const [sel, setSel] = useState<Selection | null>(null)
+  // The right-click menu, kept mounted once opened so it closes as a menu does.
+  const [menu, setMenu] = useState<TerminalMenuAt | null>(null)
   const dismissSelection = useCallback(() => {
     termRef.current?.clearSelection()
     setSel(null)
@@ -164,7 +174,10 @@ export function TerminalSession({
   const [wasActive, setWasActive] = useState(active)
   if (wasActive !== active) {
     setWasActive(active)
-    if (!active) setSel(null)
+    if (!active) {
+      setSel(null)
+      setMenu(null)
+    }
   }
   useEffect(() => { if (!active) termRef.current?.clearSelection() }, [active])
   // A handle's knob hangs below the text, so it aims at the row above the finger.
@@ -215,6 +228,10 @@ export function TerminalSession({
       theme: currentTermTheme(),
       scrollback: 10000,
       allowProposedApi: true,
+      // With tmux's mouse on, a drag is tmux's, and its copy arrives as OSC 52.
+      // Shift+drag (xterm's default elsewhere) and Option+drag on a Mac select
+      // in the browser instead, to copy with Ctrl+Shift+C / ⌘C or the menu.
+      macOptionClickForcesSelection: true,
     })
 
     const fitAddon = new FitAddon()
@@ -281,8 +298,10 @@ export function TerminalSession({
     // its textarea and its element, so the browser's own Ctrl+V already
     // delivers the clipboard through a ClipboardEvent — which, unlike
     // navigator.clipboard, works on the plain-HTTP origins this panel is
-    // usually served from. Ctrl+Shift+V is bound only as the muscle-memory
-    // alias, and it DOES need the async API, so it degrades to a hint.
+    // usually served from. Ctrl+Shift+V is the same: the browser pastes on it
+    // (paste as plain text) and xterm takes that paste like any other. It is
+    // bound only so xterm does not also send the key as ^V; reading the
+    // clipboard here as well sent the text a second time, raw.
     //
     // Copy does need a binding: xterm draws its selection into a canvas, so no
     // DOM selection exists for the browser to copy. Plain Ctrl+C must stay
@@ -299,23 +318,42 @@ export function TerminalSession({
         })
         return false
       }
-      if (key === 'v') {
-        if (!window.isSecureContext || !navigator.clipboard?.readText) {
-          toast.info(t('terminal.pasteUseCtrlV', { defaultValue: 'Use Ctrl+V to paste (Ctrl+Shift+V needs HTTPS)' }))
-          return false
-        }
-        void navigator.clipboard.readText().then((text) => {
-          const sock = wsRef.current
-          if (text && sock && sock.readyState === WebSocket.OPEN) {
-            sock.send(new TextEncoder().encode(text))
-          }
-        }).catch(() => {
-          toast.info(t('terminal.pasteUseCtrlV', { defaultValue: 'Use Ctrl+V to paste (Ctrl+Shift+V needs HTTPS)' }))
-        })
-        return false
-      }
+      if (key === 'v') return false
       return true
     })
+
+    // tmux's own copy — a mouse drag, a double or triple click — reaches the
+    // browser as OSC 52, and tmux drops its highlight on release, so this is
+    // the only place the text can land. Only a tmux session listens: there
+    // set-clipboard is external (tmuxOptions), so no program in the pane can
+    // send one. A temporary shell has nothing in front of it, and any output —
+    // a `cat` of a hostile file — could set the operator's clipboard. Without
+    // a click to stand on the browser may refuse the copy (Safari, or a
+    // plain-HTTP panel past the click's grace); the toast then carries one.
+    if (tmux) {
+      term.parser.registerOscHandler(52, (data) => {
+        const text = decodeOsc52(data)
+        if (!text) return true
+        void copyText(text).then((ok) => {
+          if (ok) {
+            toast.success(t('terminal.copyBar.copied', { text: clip(text) }))
+            return
+          }
+          toast.error(t('terminal.copyBlocked'), {
+            action: {
+              label: t('terminal.menu.copy'),
+              onClick: () => {
+                void copyText(text).then((again) => {
+                  if (again) toast.success(t('terminal.copyBar.copied', { text: clip(text) }))
+                  else toast.error(t('terminal.copyFailed', { defaultValue: 'Could not copy to clipboard' }))
+                })
+              },
+            },
+          })
+        })
+        return true
+      })
+    }
 
     let mobileModifiers: TerminalModifiers = NO_MODIFIERS
     const onModifiers = (event: Event) => {
@@ -447,6 +485,25 @@ export function TerminalSession({
         })
       : () => {}
 
+    // A right click opens the terminal's own menu. The button itself is kept
+    // from xterm: with tmux's mouse on it would be reported, and tmux answers a
+    // right click with its pane menu — Kill and Respawn one stray click away —
+    // under the browser's. Shift+right click keeps the browser's menu, the way
+    // to paste from a menu on a plain-HTTP panel. A touch's contextmenu is the
+    // long press's (lib/longPress).
+    const keepRightButton = (e: MouseEvent) => {
+      if (e.button === 2 || e.buttons === 2) e.stopPropagation()
+    }
+    const onContextMenu = (e: MouseEvent) => {
+      const pointer = (e as PointerEvent).pointerType
+      if ((pointer && pointer !== 'mouse') || e.shiftKey) return
+      e.preventDefault()
+      setMenu({ x: e.clientX, y: e.clientY, canCopy: term.hasSelection(), open: true })
+    }
+    const rightButtonEvents = ['mousedown', 'mouseup', 'mousemove'] as const
+    rightButtonEvents.forEach((type) => container?.addEventListener(type, keepRightButton, true))
+    container?.addEventListener('contextmenu', onContextMenu)
+
     // Re-fit when the terminal gains focus (user tapped to type). This
     // self-corrects the size when the page loaded with the keyboard already up
     // and the viewport-change events that normally drive the fit never fired —
@@ -462,6 +519,8 @@ export function TerminalSession({
       window.visualViewport?.removeEventListener('resize', handleResize)
       detachTouch()
       detachLongPress()
+      rightButtonEvents.forEach((type) => container?.removeEventListener(type, keepRightButton, true))
+      container?.removeEventListener('contextmenu', onContextMenu)
       container?.removeEventListener('focusin', onFocusIn)
       wsCleanup?.()
       term.dispose()
@@ -523,8 +582,34 @@ export function TerminalSession({
   const copyAndDismiss = async (text: string) => {
     const ok = text !== '' && await copyText(text)
     dismissSelection()
-    if (ok) toast.success(t('terminal.copyBar.copied', { text: text.length > 40 ? `${text.slice(0, 39)}…` : text }))
+    if (ok) toast.success(t('terminal.copyBar.copied', { text: clip(text) }))
     else toast.error(t('terminal.copyFailed', { defaultValue: 'Could not copy to clipboard' }))
+  }
+  const copyFromMenu = () => {
+    const term = termRef.current
+    const text = term?.getSelection() ?? ''
+    if (!term || !text) return
+    void copyText(text).then((ok) => {
+      if (!ok) {
+        toast.error(t('terminal.copyFailed', { defaultValue: 'Could not copy to clipboard' }))
+        return
+      }
+      term.clearSelection()
+      toast.success(t('terminal.copyBar.copied', { text: clip(text) }))
+    })
+  }
+  // A menu click is not a paste, so the menu reads the clipboard itself: that
+  // takes HTTPS and the browser's leave. term.paste is what Ctrl+V goes
+  // through — bracketed when the program asked, line breaks as Enter.
+  const pasteFromMenu = () => {
+    const term = termRef.current
+    if (!term) return
+    const blocked = () => toast.info(t('terminal.menu.pasteBlocked', { key: IS_MAC ? '⌘V' : 'Ctrl+V' }))
+    if (!window.isSecureContext || !navigator.clipboard?.readText) {
+      blocked()
+      return
+    }
+    navigator.clipboard.readText().then((text) => { if (text) term.paste(text) }).catch(blocked)
   }
 
   return (
@@ -549,6 +634,16 @@ export function TerminalSession({
           onCopyLine={() => { if (sel.line) void copyAndDismiss(sel.line.text) }}
           onViewAll={() => { dismissSelection(); window.dispatchEvent(new Event(SELECT_TEXT_EVENT)) }}
           onDismiss={dismissSelection}
+        />
+      )}
+      {menu && (
+        <TerminalContextMenu
+          at={menu}
+          onOpenChange={(open) => setMenu((m) => m && { ...m, open })}
+          onCopy={copyFromMenu}
+          onPaste={pasteFromMenu}
+          onSelectText={() => window.dispatchEvent(new Event(SELECT_TEXT_EVENT))}
+          onClosed={() => termRef.current?.focus()}
         />
       )}
     </>

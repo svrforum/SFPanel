@@ -3,6 +3,9 @@ export const NO_MODIFIERS: TerminalModifiers = { shift: false, ctrl: false, alt:
 export const MODIFIERS_EVENT = 'sfpanel:terminal-modifiers'
 export const MODIFIERS_CONSUMED_EVENT = 'sfpanel:terminal-modifiers-consumed'
 
+/** Whether to name the copy and paste keys ⌘C/⌘V or Ctrl+Shift+C/Ctrl+V. */
+export const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform)
+
 /** xterm modifier parameters: Shift=1, Alt=2, Ctrl=4, plus the base value 1. */
 export function terminalKey(data: string, { shift, ctrl, alt }: TerminalModifiers): string {
   const modifier = 1 + Number(shift) + 2 * Number(alt) + 4 * Number(ctrl)

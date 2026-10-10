@@ -596,6 +596,26 @@ func TestTmuxOptions_MouseIsOnForNewSessions(t *testing.T) {
 	}
 }
 
+// The browser copies whatever OSC 52 a tmux session sends (TerminalSession),
+// and the only thing standing between that and any program's output is tmux
+// passing on its OWN copies alone. Checked against tmux 3.6: with
+// `external` a `printf '\e]52;c;…'` in the pane never reaches the client,
+// with `on` it does.
+func TestTmuxOptions_ClipboardIsTmuxsOwn(t *testing.T) {
+	var clip []string
+	for _, opt := range tmuxOptions("tmux-256color") {
+		if len(opt) == 4 && opt[2] == "set-clipboard" {
+			clip = opt
+		}
+	}
+	if clip == nil {
+		t.Fatalf("tmuxOptions does not pin set-clipboard: %q", tmuxOptions("tmux-256color"))
+	}
+	if clip[3] != "external" {
+		t.Errorf("set-clipboard %s: a program in the pane could write the operator's clipboard through the browser", clip[3])
+	}
+}
+
 // The options must reach the tool as separate words after its name, through
 // the wrapper's "$@" — never concatenated into the -c script, which would put
 // them at the mercy of a shell.
