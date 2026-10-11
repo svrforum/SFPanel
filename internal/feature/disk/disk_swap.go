@@ -3,10 +3,12 @@ package disk
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	osexec "os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -120,30 +122,7 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 	}
 
 	if req.Device != "" {
-		// Partition-based swap
-		if err := validateDeviceName(req.Device); err != nil {
-			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
-		}
-
-		devPath := "/dev/" + req.Device
-
-		// Create swap signature
-		mkswapOut, err := h.Cmd.RunCtx(c.Request().Context(), "mkswap", devPath)
-		if err != nil {
-			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-				fmt.Sprintf("mkswap failed: %s", response.SanitizeOutput(strings.TrimSpace(mkswapOut))))
-		}
-
-		// Enable the swap
-		swaponOut, err := h.Cmd.RunCtx(c.Request().Context(), "swapon", devPath)
-		if err != nil {
-			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
-				fmt.Sprintf("swapon failed: %s", response.SanitizeOutput(strings.TrimSpace(swaponOut))))
-		}
-
-		return response.OK(c, map[string]string{
-			"message": fmt.Sprintf("swap enabled on %s", req.Device),
-		})
+		return h.createDeviceSwap(c, req)
 	}
 
 	if req.Path != "" {
@@ -166,17 +145,27 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 		// Check available disk space on the target filesystem.
 		targetDir := filepath.Dir(req.Path)
 		var stat syscall.Statfs_t
-		if err := syscall.Statfs(targetDir, &stat); err != nil {
+		var fsMagic int64
+		if err := statfs(targetDir, &stat); err != nil {
 			slog.Warn("failed to check disk space for swap creation", "path", targetDir, "error", err)
 		} else {
+			fsMagic = int64(stat.Type)
 			// Reject tmpfs / ramfs targets. `mkswap` on an in-memory
 			// filesystem "works" but backs the swap with RAM, which
 			// defeats the point and vanishes on reboot.
 			const tmpfsMagic = 0x01021994
 			const ramfsMagic = 0x858458f6
-			if int64(stat.Type) == tmpfsMagic || int64(stat.Type) == ramfsMagic {
+			if fsMagic == tmpfsMagic || fsMagic == ramfsMagic {
 				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPath,
 					fmt.Sprintf("Refusing to create swap on an in-memory filesystem (%s)", targetDir))
+			}
+			// OpenZFS has no swap file support: dd and mkswap succeed,
+			// swapon fails with "Invalid argument". A Proxmox VE install on
+			// ZFS has no swap at all, so this is the first thing tried there.
+			if fsMagic == zfsMagic {
+				return response.FailWith(c, http.StatusBadRequest, response.ErrSwapUnsupportedFS,
+					fmt.Sprintf("A swap file cannot live on ZFS (%s)", targetDir),
+					map[string]string{"fs": "ZFS"})
 			}
 			availableBytes := int64(stat.Bavail) * int64(stat.Bsize)
 			requiredBytes := req.SizeMB * 1024 * 1024
@@ -204,6 +193,33 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 				fmt.Sprintf("Path %s exists and is not a regular file", req.Path))
 		}
 
+		// From here the file is this request's own, and any failure removes
+		// it, for the reason the dd case below gives. Only dd's did: a swapon
+		// that failed left up to 64 GB of zeros behind the same refusal.
+		removePartial := func() {
+			if rmErr := os.Remove(req.Path); rmErr != nil && !os.IsNotExist(rmErr) {
+				slog.Warn("could not remove partial swap file",
+					"component", "disk", "path", req.Path, "error", rmErr)
+			}
+		}
+
+		// btrfs: a swap file must not be copy-on-write, and the attribute
+		// only takes on an empty file. dd's file was CoW, and swapon refused
+		// it with "Invalid argument".
+		if fsMagic == btrfsMagic {
+			f, err := os.OpenFile(req.Path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+			if err != nil {
+				return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
+					fmt.Sprintf("cannot create %s: %v", req.Path, err))
+			}
+			_ = f.Close()
+			if out, err := h.Cmd.RunCtx(c.Request().Context(), "chattr", "+C", req.Path); err != nil {
+				removePartial()
+				return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
+					fmt.Sprintf("chattr +C failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
+			}
+		}
+
 		// Create the swap file with dd. Bound to a 5-minute deadline so
 		// pathologically slow disks still complete, but the subprocess
 		// dies if the client disconnects.
@@ -217,16 +233,14 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 			// deadline — left a partial file that the guard above then
 			// refused to overwrite, so the operator could neither create the
 			// swap nor get past the refusal from inside the panel.
-			if rmErr := os.Remove(req.Path); rmErr != nil && !os.IsNotExist(rmErr) {
-				slog.Warn("could not remove partial swap file",
-					"component", "disk", "path", req.Path, "error", rmErr)
-			}
+			removePartial()
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 				fmt.Sprintf("dd failed: %s", response.SanitizeOutput(strings.TrimSpace(ddOut))))
 		}
 
 		// Set permissions
 		if err := os.Chmod(req.Path, 0600); err != nil {
+			removePartial()
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 				fmt.Sprintf("chmod failed: %v", err))
 		}
@@ -234,6 +248,7 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 		// Create swap signature
 		mkswapOut, err := h.Cmd.RunCtx(c.Request().Context(), "mkswap", req.Path)
 		if err != nil {
+			removePartial()
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 				fmt.Sprintf("mkswap failed: %s", response.SanitizeOutput(strings.TrimSpace(mkswapOut))))
 		}
@@ -241,6 +256,7 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 		// Enable the swap
 		swaponOut, err := h.Cmd.RunCtx(c.Request().Context(), "swapon", req.Path)
 		if err != nil {
+			removePartial()
 			return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
 				fmt.Sprintf("swapon failed: %s", response.SanitizeOutput(strings.TrimSpace(swaponOut))))
 		}
@@ -252,6 +268,119 @@ func (h *Handler) CreateSwap(c echo.Context) error {
 
 	return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields,
 		"Either device or path must be specified")
+}
+
+// File system magic numbers (statfs f_type) the swap file path treats apart.
+const (
+	zfsMagic   = 0x2fc12fc1
+	btrfsMagic = 0x9123683e
+)
+
+// statfs is syscall.Statfs; a variable so tests can stand in a file system.
+var statfs = syscall.Statfs
+
+// createDeviceSwap writes swap onto a whole device and switches it on.
+//
+// It used to run mkswap and swapon on whatever name it was given, with none
+// of the checks format has: an unmounted data partition, a guest's zvol or a
+// disk passed through to a VM was rewritten as swap and the host started
+// paging over it, and on a disk with a partition table mkswap only warned
+// before writing over the partition entries. It also refused /dev/sdb2, the
+// form its own dialog suggested.
+func (h *Handler) createDeviceSwap(c echo.Context, req CreateSwapRequest) error {
+	ctx := c.Request().Context()
+	devPath, err := normalizeDevicePath(req.Device)
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
+	}
+	if err := verifyBlockDevice(devPath); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
+	}
+	name := strings.TrimPrefix(devPath, "/dev/")
+	if mp, err := findDeviceMountpoint(devPath); err == nil && mp != "" && isProtectedMountpoint(mp) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
+			"device is mounted at a protected system path")
+	}
+	busy, err := deviceInUse(devPath)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
+			fmt.Sprintf("cannot tell whether %s is in use: %v", devPath, err))
+	}
+	if busy {
+		return response.Fail(c, http.StatusConflict, response.ErrDeviceInUse,
+			fmt.Sprintf("%s is in use (mounted, LVM, RAID, ZFS or swap) — release it first", devPath))
+	}
+	if r := checkGuestVolume(name, true); r != nil {
+		return r.send(c)
+	}
+	if r := h.checkBootPartition(ctx, devPath); r != nil {
+		return r.send(c)
+	}
+	for _, tool := range []string{"blkid", "mkswap", "swapon"} {
+		if !h.Cmd.Exists(tool) {
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
+				fmt.Sprintf("%s is not installed", tool))
+		}
+	}
+
+	// What is already on the device is lost to the swap signature. Only an
+	// empty device goes ahead unless the operator said to overwrite it.
+	if !req.Force {
+		found, err := h.deviceSignature(ctx, devPath)
+		if err != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
+				fmt.Sprintf("cannot read %s: %v", devPath, err))
+		}
+		if found != "" {
+			return response.FailWith(c, http.StatusConflict, response.ErrDiskNotEmpty,
+				fmt.Sprintf("%s already holds %s; creating swap there loses it", devPath, found),
+				map[string]string{"device": name, "signature": found})
+		}
+	}
+
+	mkswapOut, err := h.Cmd.RunCtx(ctx, "mkswap", devPath)
+	h.diskChanged(ctx)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
+			fmt.Sprintf("mkswap failed: %s", response.SanitizeOutput(strings.TrimSpace(mkswapOut))))
+	}
+	swaponOut, err := h.Cmd.RunCtx(ctx, "swapon", devPath)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrSwapError,
+			fmt.Sprintf("swapon failed: %s", response.SanitizeOutput(strings.TrimSpace(swaponOut))))
+	}
+
+	return response.OK(c, map[string]string{
+		"message": fmt.Sprintf("swap enabled on %s", name),
+	})
+}
+
+// deviceSignature names what blkid finds written on devPath — a file system,
+// a partition table, an LVM or RAID member — or "" for nothing. blkid -p
+// reads the device itself, not its cache. On a partition it also reports the
+// partition's own table entry (PART_ENTRY_*), which is not content.
+func (h *Handler) deviceSignature(ctx context.Context, devPath string) (string, error) {
+	out, err := h.Cmd.RunCtx(ctx, "blkid", "-p", "-o", "export", devPath)
+	var exitErr *osexec.ExitError
+	switch {
+	case err == nil:
+	case errors.As(err, &exitErr) && exitErr.ExitCode() == 2:
+		return "", nil // nothing found
+	case errors.As(err, &exitErr) && exitErr.ExitCode() == 8:
+		return "more than one signature", nil // blkid: ambivalent result
+	default:
+		return "", fmt.Errorf("%s", response.SanitizeOutput(strings.TrimSpace(out)))
+	}
+	for _, line := range strings.Split(out, "\n") {
+		key, value, _ := strings.Cut(strings.TrimSpace(line), "=")
+		switch key {
+		case "TYPE":
+			return value, nil
+		case "PTTYPE":
+			return value + " partition table", nil
+		}
+	}
+	return "", nil
 }
 
 // RemoveSwap disables a swap area.

@@ -278,6 +278,12 @@ func (h *Handler) CreateRAID(c echo.Context) error {
 		if err := verifyBlockDevice(devPath); err != nil {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
 		}
+		if r := checkGuestVolume(strings.TrimPrefix(devPath, "/dev/"), true); r != nil {
+			return r.send(c)
+		}
+		if r := h.checkBootPartition(c.Request().Context(), devPath); r != nil {
+			return r.send(c)
+		}
 		devPaths = append(devPaths, devPath)
 	}
 
@@ -363,6 +369,12 @@ func (h *Handler) AddRAIDDisk(c echo.Context) error {
 	}
 	if err := verifyBlockDevice(diskDev); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
+	}
+	if r := checkGuestVolume(req.Device, true); r != nil {
+		return r.send(c)
+	}
+	if r := h.checkBootPartition(c.Request().Context(), diskDev); r != nil {
+		return r.send(c)
 	}
 
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "mdadm", "--add", raidDev, diskDev)

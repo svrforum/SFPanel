@@ -35,6 +35,19 @@ type BlockDevice struct {
 	State      string        `json:"state"`
 	Vendor     string        `json:"vendor"`
 	Children   []BlockDevice `json:"children,omitempty"`
+	// PartType is the partition's type: a GPT type GUID, or 0x83-style for
+	// an MBR table. PartTypeName is lsblk's name for it ("EFI System").
+	PartType     string `json:"parttype,omitempty"`
+	PartTypeName string `json:"parttypename,omitempty"`
+	UUID         string `json:"uuid,omitempty"`
+	// Boot marks a partition that holds a boot loader (EFI System, BIOS
+	// boot, or on Proxmox VE an ESP proxmox-boot-tool keeps in sync); the
+	// handlers refuse to delete or format one.
+	Boot bool `json:"boot,omitempty"`
+	// Owner is set on Proxmox VE for a guest's volume among the disks — a
+	// zvol, RBD image or NBD export — and names its guest ("VMID 100") or
+	// what it is ("zvol rpool/swap").
+	Owner string `json:"owner,omitempty"`
 }
 
 // SmartInfo holds S.M.A.R.T. data for a disk device.
@@ -140,6 +153,12 @@ type LogicalVolume struct {
 	Path        string `json:"path"`
 	PoolLV      string `json:"pool_lv"`
 	DataPercent string `json:"data_percent"`
+	// MetadataPercent is how full a thin pool's metadata is: a pool stops
+	// when either runs out.
+	MetadataPercent string `json:"metadata_percent"`
+	// Owner is set on Proxmox VE for a guest's volume ("VMID 100") and for a
+	// volume or thin pool a storage keeps ("storage local-lvm").
+	Owner string `json:"owner,omitempty"`
 }
 
 // RAIDArray represents an mdadm RAID array.
@@ -269,7 +288,12 @@ type CreateLVRequest struct {
 type ResizeLVRequest struct {
 	VG   string `json:"vg"`
 	Name string `json:"name"`
+	// Size is the new size (20G, 100%FREE) or, with a leading +, how much to
+	// add (+5G, +100%FREE).
 	Size string `json:"size"`
+	// Shrink confirms a size smaller than the volume's: what lies past the
+	// new end is lost. Without it such a resize is refused.
+	Shrink bool `json:"shrink"`
 }
 
 // CreateRAIDRequest is the payload for POST /raid.
@@ -289,6 +313,9 @@ type CreateSwapRequest struct {
 	Path   string `json:"path"`    // for file-based swap
 	SizeMB int64  `json:"size_mb"` // size in MB for file-based swap
 	Device string `json:"device"`  // for partition-based swap
+	// Force writes swap over a device that already holds a file system,
+	// partition table or other signature. Without it that is refused.
+	Force bool `json:"force"`
 }
 
 // RemoveSwapRequest is the payload for DELETE /swap.
@@ -368,13 +395,17 @@ func validateDeviceName(name string) error {
 	return nil
 }
 
+// statDev stats a device node. A variable so tests, which have no block
+// devices, can stand one in.
+var statDev = os.Stat
+
 // verifyBlockDevice confirms that the given /dev/<name> path resolves to a
 // real block device on this host. Use this in destructive-action handlers
 // (CreateRAID, CreatePV, RemovePV, AddRAIDDisk, FormatPartition, …) so a
 // regex-valid but non-existent or wrong-type name can't be passed to
 // mdadm / pvcreate / mkfs by accident.
 func verifyBlockDevice(devPath string) error {
-	info, err := os.Stat(devPath)
+	info, err := statDev(devPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("device not found: %s", devPath)

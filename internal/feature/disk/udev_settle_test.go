@@ -67,7 +67,7 @@ func TestDiskChangesWaitForUdevBeforeAnswering(t *testing.T) {
 	} {
 		cmd := &exec.MockCommander{Outputs: map[string]exec.MockResult{
 			"exists:parted": {}, "exists:blkid": {}, "exists:mkfs.ext4": {}, "exists:udevadm": {},
-			"blkid": {Err: exitStatus(t, 2)},
+			"blkid": {Err: exitStatus(t, 2)}, "lsblk": {Output: lsblkDataPartition},
 		}}
 		req := httptest.NewRequest(tc.method, tc.target, strings.NewReader(tc.body))
 		req.Header.Set("Content-Type", "application/json")

@@ -80,6 +80,13 @@ func (h *Handler) CreatePartition(c echo.Context) error {
 		}
 	}
 
+	// A partition written into a guest's disk lands in the guest's own
+	// partition table. What uses the disk's existing partitions does not
+	// matter here: adding one leaves them as they are.
+	if r := checkGuestVolume(device, false); r != nil {
+		return r.send(c)
+	}
+
 	// fs_type alone is the type parted records for the partition, which
 	// leaves it empty; format puts that filesystem on it. The tool is checked
 	// before the disk is touched, so a missing mkfs.xfs is not found out with
@@ -192,6 +199,20 @@ func (h *Handler) DeletePartition(c echo.Context) error {
 		return response.Fail(c, http.StatusConflict, response.ErrDeviceInUse,
 			fmt.Sprintf("%s is in use (LVM, RAID, ZFS or swap) — release it first", partPath))
 	}
+	if r := checkGuestVolume(strings.TrimPrefix(partPath, "/dev/"), true); r != nil {
+		return r.send(c)
+	}
+	facts, err := h.blockFacts(c.Request().Context(), partPath)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
+			fmt.Sprintf("cannot tell what %s is: %v", partPath, err))
+	}
+	if r := bootRefusal(facts); r != nil {
+		return r.send(c)
+	}
+	if r := extendedRefusal(device, facts); r != nil {
+		return r.send(c)
+	}
 
 	devPath := "/dev/" + device
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "parted", "-s", devPath, "rm", number)
@@ -263,6 +284,10 @@ func (h *Handler) CreatePartitionTable(c echo.Context) error {
 	if busy {
 		return response.Fail(c, http.StatusConflict, response.ErrDeviceInUse,
 			fmt.Sprintf("%s is in use — release it first", devPath))
+	}
+	// A new, still empty VM disk has no signature for blkid to find.
+	if r := checkGuestVolume(device, true); r != nil {
+		return r.send(c)
 	}
 
 	// blkid -p reads the disk itself, not its cache, and exits 2 when it finds

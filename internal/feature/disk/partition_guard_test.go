@@ -87,7 +87,9 @@ func TestDeletePartitionProceedsWhenUnmounted(t *testing.T) {
 	stubDeviceInUse(t, func(string) (bool, error) { return false, nil })
 
 	rec, c := deleteReq(t, "sdb", "2")
-	h := &Handler{Cmd: partedAvailable()}
+	cmd := partedAvailable()
+	cmd.Outputs["lsblk"] = exec.MockResult{Output: lsblkDataPartition}
+	h := &Handler{Cmd: cmd}
 	if err := h.DeletePartition(c); err != nil {
 		t.Fatalf("DeletePartition: %v", err)
 	}

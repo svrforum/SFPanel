@@ -3,6 +3,7 @@ package disk
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -233,8 +234,10 @@ func sortFilesystems(fs []Filesystem) {
 // It detects the full VM expansion chain: disk free space -> growpart -> pvresize -> lvextend -> resize_fs.
 func (h *Handler) CheckExpandable(c echo.Context) error {
 	ctx := c.Request().Context()
-	// Get current filesystems
-	out, err := h.Cmd.RunCtx(ctx, "df", "-B1", "--output=source,fstype,size,used,avail,pcent,target")
+	// Local file systems only: statfs on a hard network mount whose server is
+	// gone never returns (Proxmox mounts its NFS and CIFS storages under
+	// /mnt/pve), and nothing on another machine can be grown from here.
+	out, err := h.Cmd.RunCtx(ctx, "df", "-B1", "-l", "--output=source,fstype,size,used,avail,pcent,target")
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFSError,
 			fmt.Sprintf("df failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
@@ -287,15 +290,13 @@ func (h *Handler) CheckExpandable(c echo.Context) error {
 				parentDisk, partNum := getParentDisk(pvDevice)
 				if parentDisk != "" && partNum != "" {
 					diskFree := h.getDiskFreeBytes(ctx, parentDisk)
-					if diskFree > 0 {
+					if diskFree > 0 && h.growable(ctx, parentDisk, partNum) {
 						totalFree += diskFree
-						if h.Cmd.Exists("growpart") {
-							steps = append(steps, ExpandStep{
-								Command:     "growpart",
-								Description: fmt.Sprintf("Grow partition %s on %s (+%s)", partNum, parentDisk, formatBytesGo(diskFree)),
-								Device:      parentDisk + " " + partNum,
-							})
-						}
+						steps = append(steps, ExpandStep{
+							Command:     "growpart",
+							Description: fmt.Sprintf("Grow partition %s on %s (+%s)", partNum, parentDisk, formatBytesGo(diskFree)),
+							Device:      parentDisk + " " + partNum,
+						})
 						steps = append(steps, ExpandStep{
 							Command:     "pvresize",
 							Description: fmt.Sprintf("Resize PV %s", pvDevice),
@@ -335,15 +336,13 @@ func (h *Handler) CheckExpandable(c echo.Context) error {
 			parentDisk, partNum := getParentDisk(fs.Source)
 			if parentDisk != "" && partNum != "" {
 				diskFree := h.getDiskFreeBytes(ctx, parentDisk)
-				if diskFree > 0 {
+				if diskFree > 0 && h.growable(ctx, parentDisk, partNum) {
 					totalFree = diskFree
-					if h.Cmd.Exists("growpart") {
-						steps = append(steps, ExpandStep{
-							Command:     "growpart",
-							Description: fmt.Sprintf("Grow partition %s on %s (+%s)", partNum, parentDisk, formatBytesGo(diskFree)),
-							Device:      parentDisk + " " + partNum,
-						})
-					}
+					steps = append(steps, ExpandStep{
+						Command:     "growpart",
+						Description: fmt.Sprintf("Grow partition %s on %s (+%s)", partNum, parentDisk, formatBytesGo(diskFree)),
+						Device:      parentDisk + " " + partNum,
+					})
 					resizeCmd := getResizeCommand(fs.FsType)
 					if resizeCmd != "" && h.Cmd.Exists(resizeCmd) {
 						target := fs.Source
@@ -531,20 +530,53 @@ func (h *Handler) ExpandFilesystem(c echo.Context) error {
 	})
 }
 
+// growable reports whether growpart would grow partition partNum of disk:
+// its dry run says CHANGE. Free space after a partition is the file system's
+// only once the partition grows into it. growpart comes from
+// cloud-guest-utils, which a default Debian or Proxmox VE install lacks, and
+// without it the expand ran resize2fs alone — which found nothing to do — and
+// reported the file system expanded.
+func (h *Handler) growable(ctx context.Context, disk, partNum string) bool {
+	if !h.Cmd.Exists("growpart") {
+		return false
+	}
+	out, _ := h.Cmd.RunCtx(ctx, "growpart", "--dry-run", disk, partNum)
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "CHANGE:") {
+			return true
+		}
+	}
+	return false
+}
+
 // getVGInfoForLV returns the VG name and free space (bytes) for an LV device path.
 // ctx is propagated to the lvs subprocess so caller cancellation kills the work.
+// The report is JSON so an LVM warning beside it cannot pass for a field: read
+// field by field, "WARNING:" came back as the volume group's name.
 func (h *Handler) getVGInfoForLV(ctx context.Context, lvDevice string) (vgName string, vgFree int64) {
-	out, err := h.Cmd.RunCtx(ctx, "lvs", "--noheadings", "--nosuffix", "--units", "b",
+	out, err := h.Cmd.RunCtx(ctx, "lvs", "--reportformat", "json", "--nosuffix", "--units", "b",
 		"-o", "vg_name,vg_free", lvDevice)
 	if err != nil {
 		return "", 0
 	}
-	fields := strings.Fields(strings.TrimSpace(out))
-	if len(fields) < 2 {
+	report, _, err := lvmReport(out)
+	if err != nil {
 		return "", 0
 	}
-	vgName = fields[0]
-	if f, err := strconv.ParseFloat(fields[1], 64); err == nil {
+	var raw struct {
+		Report []struct {
+			LV []struct {
+				VGName string `json:"vg_name"`
+				VGFree string `json:"vg_free"`
+			} `json:"lv"`
+		} `json:"report"`
+	}
+	if json.Unmarshal(report, &raw) != nil || len(raw.Report) == 0 || len(raw.Report[0].LV) == 0 {
+		return "", 0
+	}
+	lv := raw.Report[0].LV[0]
+	vgName = strings.TrimSpace(lv.VGName)
+	if f, err := strconv.ParseFloat(strings.TrimSpace(lv.VGFree), 64); err == nil {
 		vgFree = int64(f)
 	}
 	return
@@ -559,17 +591,20 @@ func (h *Handler) getPVDeviceForVG(ctx context.Context, vgName string) string {
 	if err := validateLVMName(vgName); err != nil {
 		return ""
 	}
-	out, err := h.Cmd.RunCtx(ctx, "pvs", "--noheadings", "-o", "pv_name",
+	out, err := h.Cmd.RunCtx(ctx, "pvs", "--reportformat", "json", "-o", "pv_name",
 		"-S", fmt.Sprintf("vg_name=%s", vgName))
 	if err != nil {
 		return ""
 	}
-	pv := strings.TrimSpace(out)
-	lines := strings.Split(pv, "\n")
-	if len(lines) > 0 {
-		return strings.TrimSpace(lines[0])
+	report, _, err := lvmReport(out)
+	if err != nil {
+		return ""
 	}
-	return ""
+	pvs, err := parsePVsJSON(report)
+	if err != nil || len(pvs) == 0 {
+		return ""
+	}
+	return pvs[0].Name
 }
 
 // getParentDisk extracts the parent disk device and partition number from a partition path.
@@ -744,7 +779,7 @@ func (h *Handler) FormatPartition(c echo.Context) error {
 	devPath := "/dev/" + req.Device
 
 	// Verify the device exists and is a block/character device, not a regular file or directory.
-	devInfo, err := os.Stat(devPath)
+	devInfo, err := statDev(devPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
@@ -768,6 +803,12 @@ func (h *Handler) FormatPartition(c echo.Context) error {
 	if busy {
 		return response.Fail(c, http.StatusConflict, response.ErrDeviceInUse,
 			fmt.Sprintf("%s is in use (mounted, LVM, RAID, ZFS or swap) — release it first", devPath))
+	}
+	if r := checkGuestVolume(req.Device, true); r != nil {
+		return r.send(c)
+	}
+	if r := h.checkBootPartition(c.Request().Context(), devPath); r != nil {
+		return r.send(c)
 	}
 
 	mkfsName, mkfsArgs, missing, ok := mkfsCommand(req.FsType, req.Label, devPath)
@@ -855,6 +896,12 @@ func (h *Handler) MountFilesystem(c echo.Context) error {
 		args = append(args, "-o", req.Options)
 	}
 	args = append(args, devPath, req.MountPoint)
+
+	// Mounting a guest's disk on the host while the guest writes to it
+	// corrupts the file system under both.
+	if r := checkGuestVolume(req.Device, true); r != nil {
+		return r.send(c)
+	}
 
 	// Ensure mount point directory exists. Done after every validation so
 	// a request rejected on FsType/Options doesn't leave an empty dir behind.

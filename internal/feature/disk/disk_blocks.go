@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 )
 
 // ---------- Disk cache ----------
@@ -75,7 +76,7 @@ func (h *Handler) getCachedDiskData(ctx context.Context) ([]BlockDevice, []IOSta
 	// holding the write lock across them would block concurrent readers. Take
 	// the write lock only to publish.
 	outStr, err := h.Cmd.RunCtx(ctx, "lsblk", "-J", "-b", "-o",
-		"NAME,SIZE,TYPE,FSTYPE,PTTYPE,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR")
+		"NAME,SIZE,TYPE,FSTYPE,PTTYPE,PARTTYPE,PARTTYPENAME,UUID,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR")
 	if err != nil {
 		return nil, nil, fmt.Errorf("lsblk failed: %s", response.SanitizeOutput(strings.TrimSpace(outStr)))
 	}
@@ -83,6 +84,7 @@ func (h *Handler) getCachedDiskData(ctx context.Context) ([]BlockDevice, []IOSta
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse lsblk: %w", err)
 	}
+	markDevices(devices)
 
 	// Fetch iostat
 	iostats, err := readIOStats()
@@ -196,6 +198,10 @@ type lsblkDevice struct {
 	State      *string       `json:"state"`
 	Vendor     *string       `json:"vendor"`
 	Children   []lsblkDevice `json:"children,omitempty"`
+	// The partition's type and the file system's UUID tell a boot partition.
+	PartType     *string `json:"parttype"`
+	PartTypeName *string `json:"parttypename"`
+	UUID         *string `json:"uuid"`
 }
 
 // convertLsblkDevice converts a raw lsblk device to our BlockDevice type.
@@ -219,6 +225,15 @@ func convertLsblkDevice(d lsblkDevice) BlockDevice {
 	}
 	if d.PtType != nil {
 		bd.PtType = *d.PtType
+	}
+	if d.PartType != nil {
+		bd.PartType = *d.PartType
+	}
+	if d.PartTypeName != nil {
+		bd.PartTypeName = *d.PartTypeName
+	}
+	if d.UUID != nil {
+		bd.UUID = *d.UUID
 	}
 	if d.MountPoint != nil {
 		bd.MountPoint = *d.MountPoint
@@ -262,6 +277,29 @@ func convertLsblkDevice(d lsblkDevice) BlockDevice {
 	}
 
 	return bd
+}
+
+// markDevices labels what the page has to treat differently: boot
+// partitions, whose Delete it disables, and on Proxmox VE the guests' zvols,
+// RBD images and NBD exports, which lsblk lists among the host's disks — one
+// card per VM disk, each with the guest's own partitions and a SMART button
+// with nothing behind it.
+func markDevices(devs []BlockDevice) {
+	esps := proxmoxBootESPs()
+	pve := platform.Get().PVE
+	var mark func(d *BlockDevice, top bool)
+	mark = func(d *BlockDevice, top bool) {
+		d.Boot = bootKind(d.Type, d.PartType, d.FsType, d.UUID, esps) != ""
+		if pve && top && (zvolNameRe.MatchString(d.Name) || rbdNameRe.MatchString(d.Name) || nbdNameRe.MatchString(d.Name)) {
+			d.Owner = pveDeviceOwner(d.Name, pveStorage{})
+		}
+		for i := range d.Children {
+			mark(&d.Children[i], false)
+		}
+	}
+	for i := range devs {
+		mark(&devs[i], true)
+	}
 }
 
 // ---------- 2. S.M.A.R.T. ----------
