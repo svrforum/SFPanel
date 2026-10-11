@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 	"github.com/svrforum/SFPanel/internal/release"
 )
 
@@ -43,6 +44,11 @@ type Handler struct {
 	// can change under the panel at any moment.
 	statusMu sync.Mutex
 	status   map[string]statusEntry
+
+	// tx is the package transaction running, or the last one this process
+	// ran (transaction.go).
+	txMu sync.Mutex
+	tx   *aptTx
 }
 
 type statusEntry struct {
@@ -136,16 +142,37 @@ func validateSearchQuery(q string) bool {
 
 // CheckUpdates runs `apt list --upgradable` and returns a structured list of
 // packages that have updates available.
+//
+// A repository apt-get update could not fetch does not stop the check: the
+// other repositories were refreshed, and it comes back as a warning naming
+// the repository. On a Proxmox VE host without a subscription the enterprise
+// repository answers 401 to every update, and the check used to fail there
+// every time with "exit status 100".
 // GET /packages/updates
 func (h *Handler) CheckUpdates(c echo.Context) error {
+	if tx := h.runningTx(); tx != nil {
+		return txRunningFail(c, tx.view())
+	}
+
 	// Refresh package lists first so results are up-to-date
-	env := exec.AptEnv()
-	if _, err := exec.AptUpdate(c.Request().Context(), h.Cmd); err != nil {
+	var warnings []response.Warning
+	_, err := exec.AptUpdate(c.Request().Context(), h.Cmd)
+	var ue *exec.AptUpdateError
+	switch {
+	case err == nil:
+	case errors.Is(err, exec.ErrDpkgLocked):
+		return response.Fail(c, http.StatusConflict, response.ErrAPTUpdateError,
+			"Another package manager operation is in progress; try again shortly")
+	case errors.As(err, &ue) && ue.Partial:
+		warnings = response.RepoWarnings(ue.Unauthorized, ue.Failed)
+	default:
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
 			"Failed to update package lists: "+response.SanitizeOutput(err.Error()))
 	}
 
-	output, err := h.Cmd.RunWithEnv(env, "apt", "list", "--upgradable")
+	// Parsed below, so in C: "upgradable from:" is translated on a host
+	// whose language is not English, and the current version came back empty.
+	output, err := h.Cmd.RunWithEnv(exec.AptParseEnv(), "apt", "list", "--upgradable")
 	if err != nil {
 		// apt list --upgradable may return exit code 0 even with warnings;
 		// only fail if output is completely empty.
@@ -156,11 +183,15 @@ func (h *Handler) CheckUpdates(c echo.Context) error {
 
 	packages := parseUpgradablePackages(output)
 
-	return response.OK(c, map[string]interface{}{
+	data := map[string]interface{}{
 		"updates":      packages,
 		"total":        len(packages),
 		"last_checked": time.Now().UTC().Format(time.RFC3339),
-	})
+	}
+	if len(warnings) > 0 {
+		data["warnings"] = warnings
+	}
+	return response.OK(c, data)
 }
 
 // parseUpgradablePackages parses the output of `apt list --upgradable`.
@@ -237,12 +268,11 @@ func parseUpgradableLine(line string) *PackageInfo {
 
 // ---------- UpgradePackages ----------
 
-// UpgradePackages runs apt-get update followed by apt-get upgrade for all or
-// specific packages. The previous synchronous version used Commander.RunWithEnv
-// which caps subprocesses at 5 minutes — a real-world distro upgrade exceeds
-// that routinely, returning 500 mid-run with the dpkg lock still held. SSE
-// streams output as it arrives and binds to the request context so client
-// disconnect kills the apt subprocess and releases the lock.
+// UpgradePackages refreshes the package lists and upgrades all packages, or
+// the ones named, as a package transaction (transaction.go): apt runs in a
+// transient unit of its own and this request streams its log. A client that
+// goes away stops the streaming and not apt, and GET /packages/transaction/stream
+// picks the stream up again.
 // POST /packages/upgrade
 // JSON body: { "packages": ["pkg1", "pkg2"] } (optional; empty upgrades all)
 func (h *Handler) UpgradePackages(c echo.Context) error {
@@ -261,84 +291,64 @@ func (h *Handler) UpgradePackages(c echo.Context) error {
 				fmt.Sprintf("Invalid package name: %s", pkg))
 		}
 	}
-
-	// Refuse early if another package-manager run holds the dpkg front-end
-	// lock — otherwise apt-get would block on it for the full streaming
-	// timeout (30 min) before either acquiring or failing with a noisy
-	// stderr message. See exec.DpkgLockHeld for the race-vs-friendliness
-	// tradeoff.
-	if exec.DpkgLockHeld() {
-		return response.Fail(c, http.StatusConflict, response.ErrAPTUpgradeError,
-			"Another package manager operation is in progress; try again shortly")
+	if err := sseReady(c); err != nil {
+		return err
 	}
 
-	// Phase 2: stream output via SSE.
-	c.Response().Header().Set("Content-Type", "text/event-stream")
-	c.Response().Header().Set("Cache-Control", "no-cache")
-	c.Response().Header().Set("Connection", "keep-alive")
-	c.Response().WriteHeader(http.StatusOK)
-	flusher, ok := c.Response().Writer.(http.Flusher)
-	if !ok {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrSSEError, "Streaming not supported")
-	}
-	sendLine := func(line string) {
-		// Sanitize centrally so every SSE line — status, error, and streamed
-		// command output — is stripped of ANSI and secret patterns uniformly.
-		fmt.Fprintf(c.Response(), "data: %s\n\n", response.SanitizeOutput(line))
-		flusher.Flush()
+	// Refused while another transaction runs, or while something outside
+	// the panel holds the dpkg lock — apt-get would otherwise fail on it at
+	// once, after the lists were refreshed for nothing.
+	tx, err := h.beginTx(txUpgrade, req.Packages, upgradeArgv(req.Packages))
+	if err != nil {
+		return failTx(c, err, response.ErrAPTUpgradeError)
 	}
 
-	runStreaming := func(label string, args ...string) error {
-		sendLine(">>> " + label)
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Minute)
-		defer cancel()
-		cmd := osExec.CommandContext(ctx, "apt-get", args...)
-		cmd.Env = append(cmd.Environ(), exec.AptEnv()...)
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			return err
-		}
-		cmd.Stderr = cmd.Stdout
-		if err := cmd.Start(); err != nil {
-			return err
-		}
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			sendLine(scanner.Text())
-		}
-		return cmd.Wait()
-	}
+	// Phase 2: stream the transaction's log via SSE.
+	go h.runTx(tx, true)
+	return h.followTx(c, tx, 0)
+}
 
-	if err := runStreaming("apt-get update", "update"); err != nil {
-		sendLine("ERROR: apt-get update failed: " + err.Error())
-		sendLine("[DONE]")
-		return nil
-	}
-
-	var upgradeArgs []string
-	if len(req.Packages) > 0 {
+// upgradeArgv is the apt-get command line of an upgrade. With packages named,
+// only those are upgraded. Without, everything is, and the verb depends on
+// the system:
+//
+//   - Proxmox VE: dist-upgrade, which Proxmox requires. Every kernel update
+//     is a new package and its releases add and replace packages; "upgrade"
+//     holds exactly those back while it upgrades the rest of the stack, the
+//     partial state Proxmox warns about.
+//   - elsewhere: upgrade --with-new-pkgs, which also installs the new packages
+//     an update needs (a kernel with a new ABI on Debian and Ubuntu) and never
+//     removes one. Plain "upgrade" kept those back and reported success.
+//
+// AptDpkgOptions answer dpkg's question about a configuration file the
+// operator edited, which DEBIAN_FRONTEND does not reach.
+func upgradeArgv(packages []string) []string {
+	argv := append([]string{"apt-get"}, exec.AptDpkgOptions...)
+	if len(packages) > 0 {
 		// `--` separates apt-get's own flags from the positional package list,
 		// so a name that somehow slipped past validatePackageName still cannot
 		// be reinterpreted as a flag.
-		upgradeArgs = append([]string{"install", "--only-upgrade", "-y", "--"}, req.Packages...)
-	} else {
-		upgradeArgs = []string{"upgrade", "-y"}
+		argv = append(argv, "install", "--only-upgrade", "-y", "--")
+		return append(argv, packages...)
 	}
-	if err := runStreaming("apt-get "+strings.Join(upgradeArgs, " "), upgradeArgs...); err != nil {
-		sendLine("ERROR: apt-get upgrade failed: " + err.Error())
-		sendLine("[DONE]")
-		return nil
+	if platform.Get().PVE {
+		return append(argv, "-y", "dist-upgrade")
 	}
+	return append(argv, "-y", "--with-new-pkgs", "upgrade")
+}
 
-	sendLine(">>> Packages upgraded successfully")
-	sendLine("[DONE]")
-	return nil
+// installArgv is the apt-get command line of an install, the one
+// exec.AptInstall runs.
+func installArgv(name string) []string {
+	argv := append([]string{"apt-get"}, exec.AptDpkgOptions...)
+	return append(argv, "install", "-y", "--", name)
 }
 
 // ---------- InstallPackage ----------
 
-// InstallPackage installs a single package via apt-get install.
+// InstallPackage installs a single package via apt-get install, in the
+// request: the terminal's tmux prompt uses it for one small package. The
+// Packages page installs through InstallPackageStream instead.
 // POST /packages/install
 // JSON body: { "name": "nginx" }
 func (h *Handler) InstallPackage(c echo.Context) error {
@@ -355,6 +365,15 @@ func (h *Handler) InstallPackage(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPackageName,
 			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
+	if engine := h.dockerEngineOnPVE(req.Name); engine != "" {
+		return failDockerOnPVE(c, engine)
+	}
+	if tx := h.runningTx(); tx != nil {
+		return txRunningFail(c, tx.view())
+	}
+
+	// What is installed is what the Docker and Node.js cards report.
+	defer h.invalidateStatus()
 
 	// The lock pre-check, the non-interactive environment, the request
 	// context and the "--" all live in exec.AptInstall now — they used to be
@@ -373,6 +392,82 @@ func (h *Handler) InstallPackage(c echo.Context) error {
 		"message": fmt.Sprintf("Package %s installed successfully", req.Name),
 		"output":  response.SanitizeOutput(output),
 	})
+}
+
+// InstallPackageStream installs a package from the Packages page as a
+// package transaction (transaction.go), streaming apt's output as it goes.
+// The unary InstallPackage ran apt as the request's child: a closed tab or a
+// proxy timeout killed it while dpkg was unpacking.
+// POST /packages/install-stream
+// JSON body: { "name": "nginx" }
+func (h *Handler) InstallPackageStream(c echo.Context) error {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
+	}
+	if req.Name == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "Package name is required")
+	}
+	if !validatePackageName(req.Name) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPackageName,
+			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
+	}
+	if engine := h.dockerEngineOnPVE(req.Name); engine != "" {
+		return failDockerOnPVE(c, engine)
+	}
+	if err := sseReady(c); err != nil {
+		return err
+	}
+
+	tx, err := h.beginTx(txInstall, []string{req.Name}, installArgv(req.Name))
+	if err != nil {
+		return failTx(c, err, response.ErrAPTInstallError)
+	}
+	go h.runTx(tx, false)
+	return h.followTx(c, tx, 0)
+}
+
+// dockerEngines are the packages that put a Docker daemon on the host.
+var dockerEngines = map[string]bool{"docker.io": true, "docker-ce": true, "moby-engine": true}
+
+// aptSimInstall matches a package apt's simulation would install new; an
+// upgrade of one already there names its old version in brackets first.
+var aptSimInstall = regexp.MustCompile(`(?m)^Inst (\S+) \(`)
+
+// dockerEngineOnPVE names the Docker engine that installing name would put on
+// a Proxmox VE host, or is "". dockerd turns forwarding on and sets the
+// FORWARD policy to DROP, which the guests' routed traffic passes through, and
+// their bridged traffic too wherever bridge filtering is on. An engine already
+// installed is managed as usual.
+//
+// Asked of apt itself, in a simulation that changes nothing: another package
+// can bring the engine as a dependency or a recommendation (on Ubuntu,
+// docker-buildx depends on docker.io and docker-compose-v2 recommends it),
+// which a list of names would let through. A simulation that fails (no such
+// package) leaves the name itself to go by.
+func (h *Handler) dockerEngineOnPVE(name string) string {
+	if !platform.Get().PVE {
+		return ""
+	}
+	out, err := h.Cmd.RunWithEnv(exec.AptParseEnv(), "apt-get", "-s", "install", "--", name)
+	if err != nil && dockerEngines[name] {
+		return name
+	}
+	for _, m := range aptSimInstall.FindAllStringSubmatch(out, -1) {
+		if dockerEngines[m[1]] {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+// failDockerOnPVE refuses to put a Docker engine on a Proxmox VE host.
+func failDockerOnPVE(c echo.Context, engine string) error {
+	return response.FailWith(c, http.StatusConflict, response.ErrDockerOnPVE,
+		"Docker is not installed on a Proxmox VE host ("+engine+"): its FORWARD DROP policy can cut the guests off the network. Install it in a VM or LXC container.",
+		map[string]string{"package": engine})
 }
 
 // ---------- RemovePackage ----------
@@ -394,6 +489,11 @@ func (h *Handler) RemovePackage(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPackageName,
 			"Package name contains invalid characters (allowed: a-zA-Z0-9._+-)")
 	}
+	if tx := h.runningTx(); tx != nil {
+		return txRunningFail(c, tx.view())
+	}
+
+	defer h.invalidateStatus()
 
 	output, err := exec.AptRemove(c.Request().Context(), h.Cmd, req.Name)
 	if errors.Is(err, exec.ErrDpkgLocked) {
@@ -425,9 +525,9 @@ func (h *Handler) SearchPackages(c echo.Context) error {
 			"Search query contains invalid characters (allowed: a-zA-Z0-9._+- and spaces)")
 	}
 
-	env := append(exec.AptEnv(), "LANG=C")
-
-	output, err := h.Cmd.RunWithEnv(env, "apt-cache", "search", query)
+	// In C, like every apt call whose output is parsed: this used LANG=C,
+	// which an LC_ALL or LC_MESSAGES in the environment outranks.
+	output, err := h.Cmd.RunWithEnv(exec.AptParseEnv(), "apt-cache", "search", query)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTSearchError,
 			"Failed to search packages: "+response.SanitizeOutput(err.Error()))
@@ -511,13 +611,28 @@ func parseSearchResults(output string, limit int) []PackageInfo {
 // ---------- GetDockerStatus ----------
 
 // GetDockerStatus checks whether Docker and Docker Compose are installed and running.
+//
+// proxmox_host tells the page to explain why it offers no install there.
+// Where Docker is installed, forward_policy and bridge_nf_call_iptables say
+// what it did to the host's forwarding: dockerd sets the FORWARD policy to
+// DROP when it has to turn forwarding on itself, and with bridge filtering on
+// that policy reaches every frame crossing a Linux bridge — on a Proxmox VE
+// host, the guests' traffic. bridge_nf_call_iptables is null while
+// br_netfilter is not loaded, which means off.
+//
+// compose_available means `docker compose`, the v2 plugin the panel's stacks
+// run on; a host with only the old docker-compose binary was reported as
+// having Compose and then failed every stack. compose_v1_only says so instead.
 // GET /packages/docker-status
 func (h *Handler) GetDockerStatus(c echo.Context) error {
+	pve := platform.Get().PVE
 	status := map[string]interface{}{
 		"installed":         false,
 		"version":           "",
 		"running":           false,
 		"compose_available": false,
+		"compose_v1_only":   false,
+		"proxmox_host":      pve,
 	}
 
 	if !h.Cmd.Exists("docker") {
@@ -527,6 +642,7 @@ func (h *Handler) GetDockerStatus(c echo.Context) error {
 
 	if cached, ok := h.cachedStatus("docker"); ok {
 		status = cached
+		status["proxmox_host"] = pve
 	} else {
 		versionOutput, err := h.Cmd.Run("docker", "--version")
 		if err == nil {
@@ -535,7 +651,7 @@ func (h *Handler) GetDockerStatus(c echo.Context) error {
 		if _, err := h.Cmd.Run("docker", "compose", "version"); err == nil {
 			status["compose_available"] = true
 		} else if h.Cmd.Exists("docker-compose") {
-			status["compose_available"] = true
+			status["compose_v1_only"] = true
 		}
 		h.storeStatus("docker", status)
 	}
@@ -546,16 +662,65 @@ func (h *Handler) GetDockerStatus(c echo.Context) error {
 	if err == nil && strings.TrimSpace(activeOutput) == "active" {
 		status["running"] = true
 	}
+	status["forward_policy"] = ""
+	if out, err := h.Cmd.Run("iptables", "-S", "FORWARD"); err == nil {
+		status["forward_policy"] = forwardPolicy(out)
+	}
+	status["bridge_nf_call_iptables"] = bridgeNFCallIptables()
 
 	return response.OK(c, status)
 }
 
+// forwardPolicy is the filter table's FORWARD policy in `iptables -S
+// FORWARD` ("-P FORWARD DROP"), or "".
+func forwardPolicy(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if f := strings.Fields(line); len(f) == 3 && f[0] == "-P" && f[1] == "FORWARD" {
+			return f[2]
+		}
+	}
+	return ""
+}
+
+// bridgeNFPath says whether frames crossing a Linux bridge pass through
+// iptables. It exists only while br_netfilter is loaded. A var for tests.
+var bridgeNFPath = "/proc/sys/net/bridge/bridge-nf-call-iptables"
+
+// bridgeNFCallIptables is bridgeNFPath's value, or nil without br_netfilter.
+func bridgeNFCallIptables() *bool {
+	data, err := os.ReadFile(bridgeNFPath)
+	if err != nil {
+		return nil
+	}
+	on := strings.TrimSpace(string(data)) == "1"
+	return &on
+}
+
 // ---------- InstallDocker ----------
+
+// downloadInstaller is release.DownloadInstaller; tests replace it so that
+// nothing is fetched.
+var downloadInstaller = release.DownloadInstaller
 
 // InstallDocker installs Docker Engine using the official get.docker.com script.
 // Uses Server-Sent Events (SSE) to stream installation output in real-time.
+//
+// Not on a Proxmox VE host: get.docker.com takes it for the Debian it is
+// built on, and the daemon it installs turns forwarding on and sets the
+// FORWARD policy to DROP, under the guests' routed traffic and, wherever
+// bridge filtering is on, their bridged traffic. Proxmox recommends Docker in
+// a VM or an LXC container, and the page says so instead of offering this.
 // POST /packages/install-docker
 func (h *Handler) InstallDocker(c echo.Context) error {
+	if platform.Get().PVE {
+		return response.Fail(c, http.StatusConflict, response.ErrDockerOnPVE,
+			"Docker is not installed on a Proxmox VE host: its FORWARD DROP policy can cut the guests off the network. Install it in a VM or LXC container.")
+	}
+	// The script runs apt, which would meet the transaction's lock.
+	if tx := h.runningTx(); tx != nil {
+		return txRunningFail(c, tx.view())
+	}
+
 	defer h.invalidateStatus()
 	// Set SSE headers for streaming
 	c.Response().Header().Set("Content-Type", "text/event-stream")
@@ -580,7 +745,7 @@ func (h *Handler) InstallDocker(c echo.Context) error {
 	// Step 1: Download get-docker.sh (30s timeout) into a private temp file
 	dlCtx, dlCancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 	defer dlCancel()
-	scriptPath, dlOut, err := release.DownloadInstaller(dlCtx, "https://get.docker.com")
+	scriptPath, dlOut, err := downloadInstaller(dlCtx, "https://get.docker.com")
 	for _, line := range strings.Split(dlOut, "\n") {
 		if line != "" {
 			sendLine(line)

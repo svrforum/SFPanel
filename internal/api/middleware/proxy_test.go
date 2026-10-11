@@ -61,6 +61,11 @@ func TestIsStreamingEndpoint(t *testing.T) {
 		{"/api/v1/packages/install-node", true},
 		{"/api/v1/packages/node-install-version", true},
 		{"/api/v1/packages/upgrade", true},
+		// Package transactions: started from the Packages page, or followed
+		// again after the page or the relay let go of the stream.
+		{"/api/v1/packages/install-stream", true},
+		{"/api/v1/packages/transaction/stream", true},
+		{"/api/v1/packages/transaction", false},
 		// Long-running docker image pull (SSE).
 		{"/api/v1/docker/images/pull", true},
 		// Long-running Tailscale install (SSE).
@@ -113,6 +118,8 @@ func TestStreamingAllowlist_KnownSSEHandlers(t *testing.T) {
 		"/api/v1/packages/install-docker",
 		"/api/v1/packages/install-node",
 		"/api/v1/packages/node-install-version",
+		"/api/v1/packages/install-stream",
+		"/api/v1/packages/transaction/stream",
 		// compose (project-templated)
 		"/api/v1/docker/compose/myproj/up-stream",
 		"/api/v1/docker/compose/myproj/update-stream",

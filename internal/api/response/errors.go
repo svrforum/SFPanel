@@ -167,6 +167,12 @@ const (
 	// on a Proxmox VE host. Docker changes the host's forwarding and bridge
 	// filtering under every guest; Proxmox recommends it in a VM or container.
 	ErrDockerOnPVE = "DOCKER_ON_PVE"
+
+	// ErrAPTTransactionRunning is returned (HTTP 409) for an apt operation
+	// while a package transaction (an upgrade, or an install from the
+	// Packages page) runs in its unit. Details: id, kind — the page offers to
+	// follow it.
+	ErrAPTTransactionRunning = "APT_TRANSACTION_RUNNING"
 )
 
 // Firewall error codes

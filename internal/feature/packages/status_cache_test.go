@@ -69,3 +69,28 @@ func TestDockerRunningStateIsAlwaysLive(t *testing.T) {
 		t.Errorf("systemctl is-active ran %d times, want 2 (never memoised)", got)
 	}
 }
+
+// Installing or removing a package from the list is a mutation like any
+// other: the memo said "no Node.js" for ten minutes after nodejs was
+// installed from the package list, against what the memo's own comment says.
+func TestAPackageInstallDropsTheMemo(t *testing.T) {
+	_, f, _ := txSetup(t, false)
+	h := &Handler{Cmd: f}
+	f.set("apt-get", "Setting up nodejs (20.19.2) ...", nil)
+
+	get(t, h.GetNodeStatus) // not installed, memoised
+	f.set("exists:node", "", nil)
+	f.set("node", "v20.19.2", nil)
+
+	for name, mutate := range map[string]func(){
+		"install": func() { call(t, h.InstallPackage, http.MethodPost, "/", `{"name":"nodejs"}`) },
+		"remove":  func() { call(t, h.RemovePackage, http.MethodPost, "/", `{"name":"nodejs"}`) },
+	} {
+		before := len(f.calls("node"))
+		mutate()
+		get(t, h.GetNodeStatus)
+		if len(f.calls("node")) == before {
+			t.Errorf("after %s the node status still came from the memo", name)
+		}
+	}
+}

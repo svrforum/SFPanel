@@ -33,11 +33,16 @@ func isStreamingEndpoint(path string) bool {
 		return true
 	case strings.Contains(path, "/appstore/apps/") && strings.HasSuffix(path, "/install"):
 		return true
-	// Long-running package installs (SSE, may take minutes).
+	// Long-running package installs (SSE, may take minutes). A package
+	// transaction's stream (/packages/upgrade, /packages/install-stream, and
+	// /packages/transaction/stream, which follows one already running) is
+	// cut by the relay's window like any other, and the page follows it
+	// again: apt runs in a unit of its own and does not notice.
 	case strings.HasSuffix(path, "/packages/upgrade"),
 		strings.HasSuffix(path, "/packages/install-docker"),
 		strings.HasSuffix(path, "/packages/install-node"),
-		strings.HasSuffix(path, "/packages/node-install-version"):
+		strings.HasSuffix(path, "/packages/node-install-version"),
+		strings.HasSuffix(path, "/packages/transaction/stream"):
 		return true
 	// Docker image pull (SSE progress events from the daemon).
 	case strings.HasSuffix(path, "/docker/images/pull"):
