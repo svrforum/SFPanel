@@ -6,6 +6,21 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.12] – 2026-10-11
+
+### Fixed
+
+- **Disks and network shares the panel mounts reach the host.** Since v0.13 `install.sh` has written `PrivateTmp=true` into the service unit, which gives the panel a mount namespace of its own: a mount made there was invisible to the host, its shells and Docker until the next boot, and a container bound to the mountpoint wrote into the root disk. The unit no longer sets it, the panel drops it from an existing unit when it starts (effective at the next restart), and until then it mounts in the host's namespace. (#106)
+- **A firewall rule with a source address opens its destination port.** A rule allowing a subnet to reach port 3628 was saved as the subnet's *source* port 3628, so enabling UFW cut the panel off. Rules added that way before keep the source port and have to be added again. (#105)
+- **WireGuard:** an interface brought up before its first peer no longer turns the page into an error, and a new peer's config routes the VPN subnet instead of sending all traffic through a server that does not forward it. (#108)
+- **Network:** the interface dialog opens in the mode the config saved, switching to Static fills in only IPv4 addresses rather than pinning SLAAC and link-local IPv6 ones, and gateways are saved as default routes instead of the deprecated `gateway4`/`gateway6`. (#109)
+- **Disks:** a new disk without a partition table can be given a GPT table from the Partitions tab, a mount kept across reboots is written to fstab by UUID, the format dialog no longer shows `{{device}}` in its title (nor the cluster disband dialog `{{name}}`), and Docker overlay mounts are hidden from the filesystem list until asked for. (#107)
+- **Firewall page:** the port field takes the "80, 443" list its example shows, with TCP or UDP as ufw requires, and the lockout guards read such lists; IPv6 rules are marked; the lockout warning is worded in the panel's language. (#110)
+
+### Changed
+
+- modernc.org/sqlite 1.60.1 and actions/upload-artifact 7.0.2. (#80, #78)
+
 ## [0.78.11] – 2026-10-11
 
 ### Fixed
