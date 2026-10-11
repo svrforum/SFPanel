@@ -108,6 +108,18 @@ jobs:
             --title "SFPanel Android ${ANDROID_VERSION_NAME}" \
             --notes-file "$RUNNER_TEMP/android-release-notes.md" release-assets/*
           gh release edit "$RELEASE_TAG" --draft=false --latest=false
+      - name: Attach the APK to the latest server release
+        # This release stays off Latest, so the server release that holds the
+        # mark gets the new APK too and drops the one it had.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          latest="$(gh release view --json tagName --jq .tagName)"
+          if [[ "$latest" != v* ]]; then
+            echo "Latest release is ${latest}, not a server release; nothing to attach to."
+            exit 0
+          fi
+          scripts/attach-android-apk.sh "$latest"
       - name: Remove signing material
         if: always()
         run: rm -f "$RUNNER_TEMP/sfpanel-release.p12"

@@ -336,7 +336,7 @@ What the backup includes:
 
 The Android 8.0+ client combines native server connections and coding tools with the server's full web interface. It provides Shift/Ctrl/Alt keys, scrollback controls, multiline prompt composition, and output reading/search, with large touch targets, system font scaling, TalkBack labels, and Korean/English localization.
 
-See the [Android guide](android/README.md) for build instructions and validation scope. Download the signed APK from [GitHub Releases](https://github.com/svrforum/SFPanel/releases/tag/android-v0.1.5). Pushing an `android-v*` tag automatically tests, signs, verifies, and publishes the Android release.
+See the [Android guide](android/README.md) for build instructions and validation scope. Download the signed APK (`SFPanel-Android-*.apk`) from the [latest release](https://github.com/svrforum/SFPanel/releases/latest). Pushing an `android-v*` tag automatically tests, signs, verifies, and publishes the Android release, and attaches the same APK to the latest server release.
 
 ## Desktop app (Tauri)
 

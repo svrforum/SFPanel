@@ -59,7 +59,7 @@ PLAYWRIGHT_BASE_URL=http://127.0.0.1:5179 npx playwright test tests/mobile-termi
 
 ## GitHub 릴리즈 자동화
 
-`android-vMAJOR.MINOR.PATCH` 태그를 push하면 `Release Android`가 JVM 테스트·Lint·release 빌드·서명 검증 후 APK와 SHA-256 체크섬을 공개합니다. Android 릴리즈는 서버용 Latest 표시를 변경하지 않습니다. 수동 재실행도 해당 태그를 선택해야 합니다.
+`android-vMAJOR.MINOR.PATCH` 태그를 push하면 `Release Android`가 JVM 테스트·Lint·release 빌드·서명 검증 후 APK와 SHA-256 체크섬을 공개합니다. Android 릴리즈는 서버용 Latest 표시를 변경하지 않습니다. 대신 같은 APK와 체크섬을 Latest 서버 릴리즈에 첨부해 이전 APK를 바꾸고, 이후 서버 릴리즈(`v*`)에도 가장 최신 APK가 함께 올라갑니다(`scripts/attach-android-apk.sh`). 수동 재실행도 해당 태그를 선택해야 합니다.
 
 ```bash
 git tag android-v0.1.3
