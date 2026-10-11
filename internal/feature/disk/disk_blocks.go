@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -37,6 +38,21 @@ func (h *Handler) invalidateDiskCache() {
 	h.cache.Lock()
 	h.cache.updatedAt = time.Time{}
 	h.cache.Unlock()
+}
+
+// diskChanged is called by a handler that changed a disk, before it answers.
+// Dropping the cache is not enough: lsblk reads PTTYPE and FSTYPE from udev's
+// database, which catches up with the disk a moment after parted or mkfs
+// returns, and the page reloads the list at once. It showed a new partition
+// table as missing and a fresh filesystem as the old one (#113).
+func (h *Handler) diskChanged(ctx context.Context) {
+	if h.Cmd.Exists("udevadm") {
+		if out, err := h.Cmd.RunCtx(ctx, "udevadm", "settle", "--timeout=10"); err != nil {
+			slog.Warn("udevadm settle failed, the disk list may lag behind the disk",
+				"component", "disk", "error", err, "output", strings.TrimSpace(out))
+		}
+	}
+	h.invalidateDiskCache()
 }
 
 // getCachedDiskData returns cached lsblk + iostat data, refreshing on miss.

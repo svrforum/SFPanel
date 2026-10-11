@@ -204,6 +204,9 @@ type CreatePartitionRequest struct {
 	Start  string `json:"start"`
 	End    string `json:"end"`
 	FsType string `json:"fs_type"`
+	// Format puts FsType on the new partition. Without it FsType is only the
+	// partition type parted records, and the partition is left empty.
+	Format bool `json:"format"`
 }
 
 // FormatPartitionRequest is the payload for POST /filesystems/format.

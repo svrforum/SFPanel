@@ -221,6 +221,11 @@ const (
 	// signature written across the whole disk.
 	ErrDiskNotEmpty = "DISK_NOT_EMPTY"
 
+	// ErrPartitionNotFormatted is returned (HTTP 500) when a partition asked
+	// for with format was created but could not be formatted: the partition
+	// is there, empty, and the page should list it.
+	ErrPartitionNotFormatted = "PARTITION_NOT_FORMATTED"
+
 	// Network shares (SMB/NFS).
 	ErrShareToolMissing = "SHARE_TOOL_MISSING"
 	ErrShareUnreachable = "SHARE_UNREACHABLE"

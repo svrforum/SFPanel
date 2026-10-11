@@ -5251,7 +5251,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/disks/:device/smart` | O | SMART 정보 (self-test 로그 포함, v0.27.0+; 진행 중인 self-test `self_test_running`/`self_test_remaining`, v0.78.9+) |
 | POST | `/api/v1/disks/:device/smart/test` | O | SMART self-test 트리거 (`{type:short\|long}`, v0.27.0+). 응답 `minutes` = 예상 소요 분(v0.78.9+); 이미 진행 중이면 409 `SMART_TEST_IN_PROGRESS` |
 | GET | `/api/v1/disks/:device/partitions` | O | 파티션 목록 |
-| POST | `/api/v1/disks/:device/partitions` | O | 파티션 생성. 파티션 테이블이 없는 디스크면 409 `DISK_NO_PARTITION_TABLE` (v0.78.12+) |
+| POST | `/api/v1/disks/:device/partitions` | O | 파티션 생성. 본문 `{start, end, fs_type, format}`. `fs_type`만으로는 parted가 기록하는 파티션 유형일 뿐이고 파티션은 비어 있다. `format: true`면 새 파티션을 그 파일시스템으로 포맷한다(`swap`은 `mkswap`, v0.78.14+). 포맷 도구가 없으면 디스크를 건드리기 전에 503 `TOOL_NOT_INSTALLED`, 파티션은 만들었지만 포맷하지 못하면 500 `PARTITION_NOT_FORMATTED`. 파티션 테이블이 없는 디스크면 409 `DISK_NO_PARTITION_TABLE` (v0.78.12+) |
 | POST | `/api/v1/disks/:device/partition-table` | O | 빈 디스크에 GPT 파티션 테이블 생성 (v0.78.12+). 이미 파티션 테이블이나 디스크 전체 파일시스템·LVM·RAID·ZFS 서명이 있으면 409 `DISK_NOT_EMPTY`, 사용 중이면 409 `DEVICE_IN_USE`, 디스크가 아니라 파티션이면 400 |
 | DELETE | `/api/v1/disks/:device/partitions/:number` | O | 파티션 삭제. `:number`는 파티션 번호(`nvme0n1p3`이면 `3`). LVM·RAID·ZFS·스왑이 쓰고 있으면 409 `DEVICE_IN_USE` (v0.78.10+) |
 

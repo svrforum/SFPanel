@@ -92,3 +92,69 @@ test('an empty disk offers a GPT partition table', async ({ page }) => {
   await dialog.getByRole('button', { name: 'Create GPT partition table' }).click()
   await expect.poll(() => posts).toEqual(['/disks/vdb/partition-table'])
 })
+
+// #113. The dialog's file system choice was only the type parted records, so
+// the new partition came out empty. It now formats unless told not to, and a
+// partition that was made but not formatted is reported and listed.
+async function createPartition(page: Page, answer: { status: number; json: unknown }) {
+  const bodies: Record<string, unknown>[] = []
+  let overviews = 0
+  await page.addInitScript(() => {
+    sessionStorage.setItem('token', 'fixture-token')
+    localStorage.setItem('i18nextLng', 'en')
+    localStorage.setItem('sfpanel_language', 'en')
+  })
+  await page.route('**/api/v1/**', async route => {
+    const req = route.request()
+    const path = new URL(req.url()).pathname.replace('/api/v1', '')
+    if (req.method() === 'POST' && path === '/disks/vdb/partitions') {
+      bodies.push(req.postDataJSON())
+      await route.fulfill({ status: answer.status, json: answer.json })
+      return
+    }
+    let data: unknown = {}
+    if (path === '/auth/setup-status') data = { setup_required: false }
+    else if (path === '/cluster/status') data = { enabled: false }
+    else if (path === '/disks/overview') { overviews++; data = [{ ...disk, name: 'vdb', pttype: 'gpt', children: [] }] }
+    else if (path === '/disks/iostat') data = []
+    else if (path === '/docker/volumes') data = []
+    await route.fulfill({ json: { success: true, data } })
+  })
+  await page.routeWebSocket(/\/ws\//, () => {})
+  await page.goto('/disk/partitions')
+  await page.getByRole('button', { name: 'Create Partition' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Start').fill('0%')
+  await dialog.getByLabel('End').fill('100%')
+  return { dialog, bodies, overviews: () => overviews }
+}
+
+test('a new partition is formatted unless the box is cleared', async ({ page }) => {
+  const { dialog, bodies } = await createPartition(page, {
+    status: 200, json: { success: true, data: { message: '/dev/vdb1 created and formatted as ext4', partition: 'vdb1' } },
+  })
+  await expect(dialog.getByRole('checkbox', { name: 'Format with this file system after creating' })).toBeChecked()
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+  await expect(page.getByText('Partition created and formatted as ext4')).toBeVisible()
+  expect(bodies).toEqual([{ start: '0%', end: '100%', fs_type: 'ext4', format: true }])
+
+  await page.getByRole('button', { name: 'Create Partition' }).click()
+  await dialog.getByLabel('Start').fill('0%')
+  await dialog.getByLabel('End').fill('100%')
+  await dialog.getByRole('checkbox', { name: 'Format with this file system after creating' }).click()
+  await expect(dialog.getByText(/only sets the partition type/)).toBeVisible()
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+  await expect.poll(() => bodies.length).toBe(2)
+  expect(bodies[1]).toEqual({ start: '0%', end: '100%', fs_type: 'ext4', format: false })
+})
+
+test('a partition made but not formatted is reported and listed', async ({ page }) => {
+  const { dialog, overviews } = await createPartition(page, {
+    status: 500,
+    json: { success: false, error: { code: 'PARTITION_NOT_FORMATTED', message: 'created /dev/vdb1 but could not format it' } },
+  })
+  const before = overviews()
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+  await expect(page.getByText('The partition was created but could not be formatted. Format it from the File Systems tab.')).toBeVisible()
+  await expect.poll(overviews).toBeGreaterThan(before)
+})

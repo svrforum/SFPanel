@@ -80,8 +80,30 @@ func (h *Handler) CreatePartition(c echo.Context) error {
 		}
 	}
 
+	// fs_type alone is the type parted records for the partition, which
+	// leaves it empty; format puts that filesystem on it. The tool is checked
+	// before the disk is touched, so a missing mkfs.xfs is not found out with
+	// a partition already made.
+	var before map[int]bool
+	if req.Format {
+		tool, _, missing, ok := mkfsCommand(fsType, "", "")
+		if !ok {
+			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFSType,
+				fmt.Sprintf("cannot format a partition as %s", fsType))
+		}
+		if !h.Cmd.Exists(tool) {
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled, missing)
+		}
+		var err error
+		if before, err = partitionNumbers(device); err != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
+				fmt.Sprintf("cannot list the partitions of %s: %v", device, err))
+		}
+	}
+
+	ctx := c.Request().Context()
 	devPath := "/dev/" + device
-	out, err := h.Cmd.RunCtx(c.Request().Context(), "parted", "-s", devPath,
+	out, err := h.Cmd.RunCtx(ctx, "parted", "-s", devPath,
 		"mkpart", "primary", fsType, req.Start, req.End)
 	if err != nil {
 		if strings.Contains(out, "unrecognised disk label") {
@@ -91,7 +113,33 @@ func (h *Handler) CreatePartition(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionError,
 			fmt.Sprintf("parted mkpart failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
-	h.invalidateDiskCache()
+	h.diskChanged(ctx)
+
+	if req.Format {
+		after, err := partitionNumbers(device)
+		var added []int
+		for n := range after {
+			if !before[n] {
+				added = append(added, n)
+			}
+		}
+		if err != nil || len(added) != 1 {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionNotFormatted,
+				fmt.Sprintf("created a partition on %s but could not tell which one to format", device))
+		}
+		partPath := partitionDevice(device, added[0])
+		tool, args, _, _ := mkfsCommand(fsType, "", partPath)
+		out, err := h.Cmd.RunCtx(ctx, tool, args...)
+		h.diskChanged(ctx)
+		if err != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionNotFormatted,
+				fmt.Sprintf("created %s but could not format it: %s", partPath, response.SanitizeOutput(strings.TrimSpace(out))))
+		}
+		return response.OK(c, map[string]string{
+			"message":   fmt.Sprintf("%s created and formatted as %s", partPath, strings.TrimPrefix(fsType, "linux-")),
+			"partition": strings.TrimPrefix(partPath, "/dev/"),
+		})
+	}
 
 	return response.OK(c, map[string]string{
 		"message": fmt.Sprintf("partition created on %s (%s - %s)", device, req.Start, req.End),
@@ -151,11 +199,32 @@ func (h *Handler) DeletePartition(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionError,
 			fmt.Sprintf("parted rm failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
-	h.invalidateDiskCache()
+	h.diskChanged(c.Request().Context())
 
 	return response.OK(c, map[string]string{
 		"message": fmt.Sprintf("partition %d deleted from %s", partNum, device),
 	})
+}
+
+// partitionNumbers is the set of partitions the kernel knows on disk: each
+// /sys/block/<disk>/<partition> holds its number in a file called partition.
+// A var so tests can stand in for the kernel.
+var partitionNumbers = func(disk string) (map[int]bool, error) {
+	entries, err := os.ReadDir(filepath.Join(sysBlockDir, disk))
+	if err != nil {
+		return nil, err
+	}
+	numbers := map[int]bool{}
+	for _, e := range entries {
+		data, err := os.ReadFile(filepath.Join(sysBlockDir, disk, e.Name(), "partition"))
+		if err != nil {
+			continue
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+			numbers[n] = true
+		}
+	}
+	return numbers, nil
 }
 
 // sysBlockDir lists whole disks, never partitions. A var so tests can point it
@@ -216,6 +285,6 @@ func (h *Handler) CreatePartitionTable(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionError,
 			fmt.Sprintf("parted mklabel failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
-	h.invalidateDiskCache()
+	h.diskChanged(ctx)
 	return response.OK(c, map[string]string{"message": "GPT partition table created on " + device})
 }

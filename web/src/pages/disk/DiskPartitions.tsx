@@ -9,6 +9,7 @@ import { partitionNumber } from './partitionNumber'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Table,
   TableBody,
@@ -49,6 +50,7 @@ export default function DiskPartitions() {
   const [newStart, setNewStart] = useState('')
   const [newEnd, setNewEnd] = useState('')
   const [newFsType, setNewFsType] = useState('ext4')
+  const [newFormat, setNewFormat] = useState(true)
 
   const fetchDisks = useCallback(async () => {
     try {
@@ -80,12 +82,15 @@ export default function DiskPartitions() {
     setNewStart('')
     setNewEnd('')
     setNewFsType('ext4')
+    setNewFormat(true)
   }
 
   const { run: runCreate, loading: creating } = useApiAction(
     api.createPartition.bind(api),
     {
-      successMsg: t('disk.partitions.createSuccess'),
+      successMsg: newFormat
+        ? t('disk.partitions.createdAndFormatted', { fs: newFsType })
+        : t('disk.partitions.createSuccess'),
       errorMsg: t('disk.partitions.createFailed'),
       onSuccess: () => {
         setCreateOpen(false)
@@ -95,13 +100,16 @@ export default function DiskPartitions() {
     },
   )
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!selectedDisk || !newStart.trim() || !newEnd.trim()) return
-    void runCreate(selectedDisk, {
+    const result = await runCreate(selectedDisk, {
       start: newStart.trim(),
       end: newEnd.trim(),
       fs_type: newFsType,
+      format: newFormat,
     })
+    // A partition that was made but could not be formatted is still there.
+    if (result === undefined) void fetchDisks()
   }
 
   const { run: runDelete, loading: deleting } = useApiAction(
@@ -283,13 +291,22 @@ export default function DiskPartitions() {
                   <option key={fs} value={fs}>{fs}</option>
                 ))}
               </NativeSelect>
+              {/* Without it the choice is only the partition type parted
+                  records, and the new partition is left empty. */}
+              <label className="flex items-center gap-2 text-[13px]">
+                <Checkbox checked={newFormat} onCheckedChange={(v) => setNewFormat(v === true)} />
+                {t('disk.partitions.formatAfterCreate')}
+              </label>
+              {!newFormat && (
+                <p className="text-[11px] text-muted-foreground">{t('disk.partitions.typeOnlyHint')}</p>
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setCreateOpen(false); resetCreateForm() }}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreate} disabled={creating || !newStart.trim() || !newEnd.trim()}>
+            <Button onClick={() => void handleCreate()} disabled={creating || !newStart.trim() || !newEnd.trim()}>
               {creating ? t('common.creating') : t('common.create')}
             </Button>
           </DialogFooter>

@@ -770,72 +770,13 @@ func (h *Handler) FormatPartition(c echo.Context) error {
 			fmt.Sprintf("%s is in use (mounted, LVM, RAID, ZFS or swap) — release it first", devPath))
 	}
 
-	// Build the mkfs command based on filesystem type
-	var mkfsName string
-	var mkfsArgs []string
-	switch req.FsType {
-	case "ext2", "ext3", "ext4":
-		mkfsName = "mkfs." + req.FsType
-		if !h.Cmd.Exists(mkfsName) {
-			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
-				fmt.Sprintf("%s is not installed", mkfsName))
-		}
-		mkfsArgs = []string{"-F"}
-		if req.Label != "" {
-			mkfsArgs = append(mkfsArgs, "-L", req.Label)
-		}
-		mkfsArgs = append(mkfsArgs, devPath)
-
-	case "xfs":
-		mkfsName = "mkfs.xfs"
-		if !h.Cmd.Exists(mkfsName) {
-			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
-				"mkfs.xfs is not installed. Install xfsprogs: apt install xfsprogs")
-		}
-		mkfsArgs = []string{"-f"}
-		if req.Label != "" {
-			mkfsArgs = append(mkfsArgs, "-L", req.Label)
-		}
-		mkfsArgs = append(mkfsArgs, devPath)
-
-	case "btrfs":
-		mkfsName = "mkfs.btrfs"
-		if !h.Cmd.Exists(mkfsName) {
-			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
-				"mkfs.btrfs is not installed. Install btrfs-progs: apt install btrfs-progs")
-		}
-		mkfsArgs = []string{"-f"}
-		if req.Label != "" {
-			mkfsArgs = append(mkfsArgs, "-L", req.Label)
-		}
-		mkfsArgs = append(mkfsArgs, devPath)
-
-	case "vfat", "fat32":
-		mkfsName = "mkfs.vfat"
-		if !h.Cmd.Exists(mkfsName) {
-			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
-				"mkfs.vfat is not installed. Install dosfstools: apt install dosfstools")
-		}
-		if req.Label != "" {
-			mkfsArgs = append(mkfsArgs, "-n", req.Label)
-		}
-		mkfsArgs = append(mkfsArgs, devPath)
-
-	case "ntfs":
-		mkfsName = "mkfs.ntfs"
-		if !h.Cmd.Exists(mkfsName) {
-			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
-				"mkfs.ntfs is not installed. Install ntfs-3g: apt install ntfs-3g")
-		}
-		mkfsArgs = []string{"-F"}
-		if req.Label != "" {
-			mkfsArgs = append(mkfsArgs, "-L", req.Label)
-		}
-		mkfsArgs = append(mkfsArgs, devPath)
-
-	default:
+	mkfsName, mkfsArgs, missing, ok := mkfsCommand(req.FsType, req.Label, devPath)
+	if !ok {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidFSType,
 			fmt.Sprintf("unsupported filesystem type: %s", req.FsType))
+	}
+	if !h.Cmd.Exists(mkfsName) {
+		return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled, missing)
 	}
 
 	out, err := h.Cmd.RunCtx(c.Request().Context(), mkfsName, mkfsArgs...)
@@ -843,11 +784,39 @@ func (h *Handler) FormatPartition(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFormatError,
 			fmt.Sprintf("format failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
-	h.invalidateDiskCache()
+	h.diskChanged(c.Request().Context())
 
 	return response.OK(c, map[string]string{
 		"message": fmt.Sprintf("%s formatted as %s", req.Device, req.FsType),
 	})
+}
+
+// mkfsCommand is the command that puts fsType on devPath, with missing the
+// message for when its tool is not installed. ok is false for a type there is
+// no command for.
+func mkfsCommand(fsType, label, devPath string) (tool string, args []string, missing string, ok bool) {
+	withLabel := func(flag string, args ...string) []string {
+		if label != "" {
+			args = append(args, flag, label)
+		}
+		return append(args, devPath)
+	}
+	switch fsType {
+	case "ext2", "ext3", "ext4":
+		tool = "mkfs." + fsType
+		return tool, withLabel("-L", "-F"), tool + " is not installed", true
+	case "xfs":
+		return "mkfs.xfs", withLabel("-L", "-f"), "mkfs.xfs is not installed. Install xfsprogs: apt install xfsprogs", true
+	case "btrfs":
+		return "mkfs.btrfs", withLabel("-L", "-f"), "mkfs.btrfs is not installed. Install btrfs-progs: apt install btrfs-progs", true
+	case "vfat", "fat32":
+		return "mkfs.vfat", withLabel("-n"), "mkfs.vfat is not installed. Install dosfstools: apt install dosfstools", true
+	case "ntfs":
+		return "mkfs.ntfs", withLabel("-L", "-F"), "mkfs.ntfs is not installed. Install ntfs-3g: apt install ntfs-3g", true
+	case "swap", "linux-swap":
+		return "mkswap", withLabel("-L"), "mkswap is not installed. Install util-linux: apt install util-linux", true
+	}
+	return "", nil, "", false
 }
 
 // MountFilesystem mounts a device to a mount point.

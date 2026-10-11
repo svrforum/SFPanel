@@ -109,6 +109,7 @@ const CODE_MESSAGES: Record<string, string> = {
   DEVICE_IN_USE: 'disk.deviceInUse',
   DISK_NO_PARTITION_TABLE: 'disk.partitions.noTableError',
   DISK_NOT_EMPTY: 'disk.partitions.notEmpty',
+  PARTITION_NOT_FORMATTED: 'disk.partitions.notFormatted',
   UFW_LOCKOUT: 'firewall.rules.lockoutBody',
 }
 
@@ -1770,7 +1771,7 @@ class ApiClient {
   }
 
   // Disk Management - Partitions
-  createPartition(device: string, data: { start: string; end: string; fs_type: string }) {
+  createPartition(device: string, data: { start: string; end: string; fs_type: string; format?: boolean }) {
     return this.request(`/disks/${encodeURIComponent(device)}/partitions`, {
       method: 'POST',
       body: JSON.stringify(data),
