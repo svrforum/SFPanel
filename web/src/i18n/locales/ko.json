@@ -2246,7 +2246,7 @@
     "installDocker": "Docker 설치",
     "installingDocker": "Docker 설치 중...",
     "dockerInstallStarted": "Docker 설치를 시작합니다...",
-    "dockerInstallSuccess": "Docker가 성공적으로 설치되었습니다! SFPanel을 재시작하면 Docker 관리 기능이 활성화됩니다.",
+    "dockerInstallSuccess": "Docker가 설치되었습니다! 재시작 없이 바로 Docker 메뉴를 사용할 수 있습니다.",
     "dockerInstallFailed": "Docker 설치 실패",
     "dockerInstalled": "설치 여부",
     "dockerVersion": "버전",

@@ -2248,7 +2248,7 @@
     "installDocker": "Install Docker",
     "installingDocker": "Installing Docker...",
     "dockerInstallStarted": "Starting Docker installation...",
-    "dockerInstallSuccess": "Docker installed successfully! Restart SFPanel to enable Docker management.",
+    "dockerInstallSuccess": "Docker installed successfully! The Docker pages work right away, without a restart.",
     "dockerInstallFailed": "Failed to install Docker",
     "dockerInstalled": "Installed",
     "dockerVersion": "Version",
