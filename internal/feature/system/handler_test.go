@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -1982,5 +1983,137 @@ func TestRunUpdate_SystemdRestartSuccessNoSelfExit(t *testing.T) {
 	restartWG.Wait()
 	if got := exitCount.Load(); got != before {
 		t.Errorf("exitProcess fired on a successful restart (before=%d, now=%d) — should only self-exit on failure", before, got)
+	}
+}
+
+// sigtermExitError returns what os/exec reports for a child killed by SIGTERM:
+// what systemctl gets when the restart it asked for stops the unit it runs in.
+func sigtermExitError(t *testing.T) error {
+	t.Helper()
+	err := exec.Command("sh", "-c", "kill -TERM $$").Run()
+	if err == nil {
+		t.Fatal("sh survived its own SIGTERM")
+	}
+	return err
+}
+
+func TestRestartUnderWay(t *testing.T) {
+	if !restartUnderWay(sigtermExitError(t)) {
+		t.Error("systemctl killed by SIGTERM must read as the restart under way")
+	}
+	if restartUnderWay(exec.Command("sh", "-c", "exit 1").Run()) {
+		t.Error("a non-zero exit is a failed restart, not one under way")
+	}
+	if restartUnderWay(errors.New("command timed out after 5m0s")) {
+		t.Error("an error that is not an exit status is a failed restart")
+	}
+}
+
+// A restart that worked kills systemctl with the SIGTERM that stops the unit,
+// and that was read as a failure: every self-update logged "systemctl restart
+// failed" and self-exited in the middle of the shutdown the restart had begun.
+func TestRunUpdate_RestartUnderWayDoesNotSelfExit(t *testing.T) {
+	withSystemdActive(t, true)
+	withRestartFlushDelay(t, 5*time.Millisecond)
+
+	cmd := &restartFailCommander{MockCommander: commonExec.NewMockCommander(), restartErr: sigtermExitError(t)}
+	h := buildRunUpdateToRestartHarness(t, cmd)
+	restartWG.Wait()
+	before := exitCount.Load()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil)
+	if err := h.RunUpdate(echo.New().NewContext(req, httptest.NewRecorder())); err != nil {
+		t.Fatalf("RunUpdate returned error: %v", err)
+	}
+	restartWG.Wait()
+
+	if !cmd.restartRan() {
+		t.Fatal("systemctl restart was not reached")
+	}
+	if got := exitCount.Load(); got != before {
+		t.Errorf("self-exited although systemctl was killed by the stop of its own restart (before=%d, now=%d)", before, got)
+	}
+}
+
+// lateWriteRecorder counts writes and flushes made after the handler returned.
+// net/http releases a response's writer when its handler returns, so on a real
+// server a late write and flush dereference nil and panic. ResponseRecorder
+// accepts them silently, which is how the restart goroutine's restart_failed
+// event got past the tests while it panicked on most live self-updates.
+type lateWriteRecorder struct {
+	*httptest.ResponseRecorder
+	returned atomic.Bool
+	late     atomic.Int32
+}
+
+func (r *lateWriteRecorder) Write(b []byte) (int, error) {
+	if r.returned.Load() {
+		r.late.Add(1)
+	}
+	return r.ResponseRecorder.Write(b)
+}
+
+func (r *lateWriteRecorder) Flush() {
+	if r.returned.Load() {
+		r.late.Add(1)
+	}
+	r.ResponseRecorder.Flush()
+}
+
+func TestRunUpdate_RestartFailureDoesNotWriteToFinishedResponse(t *testing.T) {
+	withSystemdActive(t, true)
+	// Long enough that RunUpdate has returned, and the recorder knows it,
+	// before the restart goroutine runs.
+	withRestartFlushDelay(t, 50*time.Millisecond)
+
+	cmd := &restartFailCommander{
+		MockCommander: commonExec.NewMockCommander(),
+		restartErr:    errors.New("Failed to restart sfpanel.service: Unit sfpanel.service is masked."),
+	}
+	h := buildRunUpdateToRestartHarness(t, cmd)
+	restartWG.Wait()
+	before := exitCount.Load()
+
+	rec := &lateWriteRecorder{ResponseRecorder: httptest.NewRecorder()}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil)
+	if err := h.RunUpdate(echo.New().NewContext(req, rec)); err != nil {
+		t.Fatalf("RunUpdate returned error: %v", err)
+	}
+	rec.returned.Store(true)
+	restartWG.Wait()
+
+	if got := exitCount.Load(); got <= before {
+		t.Fatalf("a restart that failed must still self-exit (before=%d, now=%d)", before, got)
+	}
+	if n := rec.late.Load(); n != 0 {
+		t.Errorf("the restart goroutine wrote to the response %d times after RunUpdate returned", n)
+	}
+}
+
+// RestoreBackup restarts the same way and read the same SIGTERM as a failure.
+func TestRestoreBackup_RestartUnderWayDoesNotSelfExit(t *testing.T) {
+	withSystemdActive(t, true)
+	withRestartFlushDelay(t, 5*time.Millisecond)
+
+	h, _ := restoreHandler(t)
+	cmd := &restartFailCommander{MockCommander: commonExec.NewMockCommander(), restartErr: sigtermExitError(t)}
+	h.Cmd = cmd
+	archive := buildTarGz(t, []tarEntry{
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: validSQLiteDBBytes(t)},
+		{name: "config.yaml", typeflag: tar.TypeReg, body: []byte("server:\n  port: 3628\n")},
+	})
+	restartWG.Wait()
+	before := exitCount.Load()
+
+	if rec := runRestore(t, h, archive); rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	restartWG.Wait()
+
+	if !cmd.restartRan() {
+		t.Fatal("systemctl restart was not reached")
+	}
+	if got := exitCount.Load(); got != before {
+		t.Errorf("self-exited although systemctl was killed by the stop of its own restart (before=%d, now=%d)", before, got)
 	}
 }

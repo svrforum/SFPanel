@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
 	"github.com/svrforum/SFPanel/internal/common/lifecycle"
@@ -88,6 +90,21 @@ func spawnRestartGoroutine(fn func()) {
 		time.Sleep(restartFlushDelay)
 		fn()
 	}()
+}
+
+// restartUnderWay reports whether err is systemctl killed by the SIGTERM that
+// stops this unit. `systemctl restart sfpanel` runs inside the unit it
+// restarts, so the stop half of the job signals it along with the rest of the
+// unit before it can return (--no-block loses the same race), and a restart
+// that worked comes back as "signal: terminated". The panel then shuts down
+// on that same signal, and the restart job starts it again.
+func restartUnderWay(err error) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return false
+	}
+	ws, ok := exitErr.Sys().(syscall.WaitStatus)
+	return ok && ws.Signaled() && ws.Signal() == syscall.SIGTERM
 }
 
 // osExecutable resolves the running binary's path during the update swap.
@@ -674,18 +691,22 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 		if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
 			sendEvent("complete", fmt.Sprintf("Updated to v%s. Restarting...", latest))
 			// Run (not Start) so a failed restart surfaces instead of being silently
-			// swallowed. On success systemd SIGTERMs us mid-Run and this never returns;
-			// on failure we self-exit so Restart=always reloads the freshly-staged binary.
+			// swallowed. A restart that worked kills systemctl on its way through
+			// this unit (restartUnderWay); any other failure self-exits so
+			// Restart=always reloads the freshly-staged binary.
+			//
+			// This runs after RunUpdate has returned, so the response is finished
+			// and must not be written: net/http has released its writer, and a
+			// late write and flush dereference nil. Writing a restart_failed event
+			// here panicked on most self-updates.
 			spawnRestartGoroutine(func() {
-				if _, rErr := h.Cmd.Run("systemctl", "restart", "sfpanel"); rErr != nil {
-					slog.Error("systemctl restart failed after update; self-exiting for supervisor restart",
-						"component", "system", "error", rErr)
-					// Best-effort: the SSE stream is likely already closing, but
-					// emit a distinct event so a still-connected client learns the
-					// restart itself failed rather than only seeing "Restarting...".
-					sendEvent("restart_failed", fmt.Sprintf("systemctl restart failed: %v. The watchdog will roll back if the new binary doesn't come up; otherwise restart manually.", rErr))
-					exitProcess()
+				_, rErr := h.Cmd.Run("systemctl", "restart", "sfpanel")
+				if rErr == nil || restartUnderWay(rErr) {
+					return
 				}
+				slog.Error("systemctl restart failed after update; self-exiting for supervisor restart",
+					"component", "system", "error", rErr)
+				exitProcess()
 			})
 			return nil
 		}
@@ -1214,16 +1235,19 @@ func (h *Handler) restoreFrom(c echo.Context, src io.Reader) error {
 	if isSystemdActive() {
 		if _, err := h.Cmd.Run("systemctl", "is-active", "--quiet", "sfpanel"); err == nil {
 			// Restart after the response flushes, mirroring RunUpdate. Run (not
-			// Start) through the Commander so a failed restart surfaces: on
-			// success systemd SIGTERMs us mid-Run; on failure self-exit so
-			// Restart=always cycles us rather than continuing to serve on the
-			// stale *sql.DB pointed at the freshly-overwritten file.
+			// Start) through the Commander so a failed restart surfaces: a restart
+			// that worked kills systemctl on its way through this unit
+			// (restartUnderWay); any other failure self-exits so Restart=always
+			// cycles us rather than continuing to serve on the stale *sql.DB
+			// pointed at the freshly-overwritten file.
 			spawnRestartGoroutine(func() {
-				if _, rErr := h.Cmd.Run("systemctl", "restart", "sfpanel"); rErr != nil {
-					slog.Error("systemctl restart failed after restore; self-exiting for supervisor restart",
-						"component", "system", "error", rErr)
-					exitProcess()
+				_, rErr := h.Cmd.Run("systemctl", "restart", "sfpanel")
+				if rErr == nil || restartUnderWay(rErr) {
+					return
 				}
+				slog.Error("systemctl restart failed after restore; self-exiting for supervisor restart",
+					"component", "system", "error", rErr)
+				exitProcess()
 			})
 			return response.OK(c, map[string]string{"message": "Backup restored. Service restarting..."})
 		}
