@@ -228,9 +228,12 @@
     min-width: 44px;
   }
 }
+/* The dialog centres itself with `translate`, which this has to undo. No
+   `transform: none` beside it: the build's minifier folds the pair into
+   `transform: translate(0,0)` and drops `translate`, and the full-screen shell
+   then sat half off the top-left of a phone screen. */
 [data-slot="dialog-content"]:has([data-shell-expanded="true"]) {
   inset: 0;
-  transform: none;
   translate: none;
   width: 100%;
   max-width: none;
