@@ -302,3 +302,28 @@ func TestEnableUFW_RefusesWhenInactiveAndNoStagedSSH(t *testing.T) {
 		}
 	}
 }
+
+// ufw binds "port" to the address clause before it. A rule with only a source
+// was built as "from X proto tcp port N", which ufw stores as X's source port
+// N, so a rule meant to let a subnet reach the panel let none of it in, and
+// enabling UFW then cut the panel off. ufw --dry-run turns the expected forms
+// below into --dport rules.
+func TestBuildUFWAddArgs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		req  AddRuleRequest
+		want string
+	}{
+		{"port only", AddRuleRequest{Action: "allow", Port: "3628", Protocol: "any"}, "allow 3628"},
+		{"port and protocol", AddRuleRequest{Action: "allow", Port: "3628", Protocol: "tcp"}, "allow proto tcp to any port 3628"},
+		{"source only", AddRuleRequest{Action: "allow", Port: "3628", Protocol: "tcp", From: "198.51.100.0/24"}, "allow from 198.51.100.0/24 to any proto tcp port 3628"},
+		{"source only, any protocol", AddRuleRequest{Action: "allow", Port: "3628", Protocol: "any", From: "198.51.100.0/24"}, "allow from 198.51.100.0/24 to any port 3628"},
+		{"destination only", AddRuleRequest{Action: "allow", Port: "3628", Protocol: "tcp", To: "192.0.2.10"}, "allow to 192.0.2.10 proto tcp port 3628"},
+		{"source and destination", AddRuleRequest{Action: "allow", Port: "3628", Protocol: "tcp", From: "198.51.100.0/24", To: "192.0.2.10"}, "allow from 198.51.100.0/24 to 192.0.2.10 proto tcp port 3628"},
+		{"any source is no source", AddRuleRequest{Action: "deny", Port: "23", Protocol: "tcp", From: "any"}, "deny proto tcp to any port 23"},
+	} {
+		if got := strings.Join(buildUFWAddArgs(tc.req), " "); got != tc.want {
+			t.Errorf("%s: ufw %s, want ufw %s", tc.name, got, tc.want)
+		}
+	}
+}

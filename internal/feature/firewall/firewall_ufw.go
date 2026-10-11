@@ -325,14 +325,22 @@ func buildUFWAddArgs(req AddRuleRequest) []string {
 	// ufw [action] [from <addr>] [to <addr>] [port <port>[/<proto>]] [comment <comment>]
 	args = append(args, req.Action)
 
+	from := req.From != "" && req.From != "any"
+	to := req.To != "" && req.To != "any"
+
 	// Add from clause
-	if req.From != "" && req.From != "any" {
+	if from {
 		args = append(args, "from", req.From)
 	}
 
-	// Add to clause
-	if req.To != "" && req.To != "any" {
+	// Add to clause. ufw binds "port" to the address clause before it, so a
+	// rule with only a source needs "to any": "from X port N" is X's *source*
+	// port N, and a rule meant to let a subnet reach the panel let none of it
+	// in.
+	if to {
 		args = append(args, "to", req.To)
+	} else if from {
+		args = append(args, "to", "any")
 	}
 
 	// Add port with optional protocol
@@ -341,7 +349,7 @@ func buildUFWAddArgs(req AddRuleRequest) []string {
 	}
 
 	// Determine if we need 'to any port' or just the port
-	if (req.From != "" && req.From != "any") || (req.To != "" && req.To != "any") {
+	if from || to {
 		args = append(args, "port", req.Port)
 	} else if req.Protocol != "any" {
 		args = append(args, "to", "any", "port", req.Port)
