@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.10] – 2026-10-11
+
+### Fixed
+
+- **A partition in use is no longer deleted or formatted.** A partition that is an LVM physical volume, a RAID member or a ZFS vdev is never mounted itself, so the check that refused mounted partitions let it through. Deleting one removed it from the partition table on disk and then reported an error, so it was gone at the next boot — on an Ubuntu Server LVM install, the volume group holding the root filesystem. Formatting one as NTFS overwrote it on the spot. Both now refuse a device the kernel holds and say so in the panel's language. On NVMe and MMC disks the mounted-partition check looked up the wrong device and never matched.
+- **Deleting a partition from the Partitions tab works.** The page sent the partition's name where the server takes its number, so every delete was refused as an invalid partition number.
+
+### Changed
+
+- **Releases carry the Android app.** Each server release gets the signed APK and its checksum from the newest Android release, so the latest release has the app; publishing a new Android release replaces the APK there.
+
 ## [0.78.9] – 2026-10-11
 
 ### Fixed
