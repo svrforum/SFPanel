@@ -137,6 +137,17 @@ func main() {
 		slog.Info("dropped PrivateTmp from the systemd unit; it takes effect at the next restart")
 	}
 
+	// install.sh wrote RestrictSUIDSGID=true from v0.13.1, and every apt run
+	// the panel starts inherits it: dpkg could not unpack a setuid file, so
+	// upgrades carrying passwd, sudo or openssh failed. Dropping it takes
+	// effect at the next restart; the Packages page's upgrade and install run
+	// apt in a transient unit until then.
+	if migrated, err := lifecycle.MigrateRestrictSUIDSGID(); err != nil {
+		slog.Warn("could not drop RestrictSUIDSGID from the systemd unit", "error", err)
+	} else if migrated {
+		slog.Info("dropped RestrictSUIDSGID from the systemd unit; it takes effect at the next restart")
+	}
+
 	// Sweep migration scratch (.mig-pkg-*/.migrate-stage-*) and recover a prior
 	// stack from a leftover overwrite backup (.migbak) if a crashed import left
 	// no live copy — so a mid-migration crash doesn't strand staging dirs under

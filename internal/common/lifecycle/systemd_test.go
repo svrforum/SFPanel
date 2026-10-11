@@ -233,3 +233,113 @@ func TestMigratePrivateTmp_MissingUnitIsNoop(t *testing.T) {
 		t.Fatalf("MigratePrivateTmp() = %v, %v; want false, nil", migrated, err)
 	}
 }
+
+// The unit install.sh writes from v0.78.12, after PrivateTmp left it.
+const restrictSUIDSGIDUnit = `[Service]
+ExecStart=/usr/local/bin/sfpanel /etc/sfpanel/config.yaml
+Restart=always
+# breaking features. The one that *is* safe:
+# - RestrictSUIDSGID: panel never creates suid/sgid files
+# Notably NOT enabled:
+# - PrivateTmp: gives the service a mount namespace of its own, so the
+#   disks and network shares it mounts never reach the host or Docker
+NoNewPrivileges=false
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
+`
+
+// Both shapes install.sh ever wrote lose the directive and its comment line,
+// and nothing else: the PrivateTmp lines of the older unit are the other
+// migration's to drop.
+func TestMigrateRestrictSUIDSGID_DropsWhatInstallShWrote(t *testing.T) {
+	for name, unit := range map[string]string{
+		"v0.13.1 to v0.78.11": privateTmpUnit,
+		"v0.78.12 on":         restrictSUIDSGIDUnit,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "sfpanel.service")
+			if err := os.WriteFile(path, []byte(unit), 0644); err != nil {
+				t.Fatal(err)
+			}
+			withUnitPath(t, path)
+			reloaded := stubDaemonReload(t)
+
+			migrated, err := MigrateRestrictSUIDSGID()
+			if err != nil || !migrated {
+				t.Fatalf("MigrateRestrictSUIDSGID() = %v, %v; want true, nil", migrated, err)
+			}
+			if !*reloaded {
+				t.Error("expected daemon-reload after the unit changed")
+			}
+			got, _ := os.ReadFile(path)
+			want := strings.Replace(strings.Replace(unit,
+				"# - RestrictSUIDSGID: panel never creates suid/sgid files\n", "", 1),
+				"RestrictSUIDSGID=true\n", "", 1)
+			if string(got) != want {
+				t.Errorf("unit after migration:\n%s\nwant:\n%s", got, want)
+			}
+			if strings.Contains(string(got), "RestrictSUIDSGID") {
+				t.Errorf("RestrictSUIDSGID is still in the unit:\n%s", got)
+			}
+
+			if migrated, err := MigrateRestrictSUIDSGID(); err != nil || migrated {
+				t.Errorf("second MigrateRestrictSUIDSGID() = %v, %v; want false, nil", migrated, err)
+			}
+		})
+	}
+}
+
+// At boot both migrations run, one after the other, on the oldest unit.
+func TestMigrateRestrictSUIDSGID_AndPrivateTmpTogether(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sfpanel.service")
+	if err := os.WriteFile(path, []byte(privateTmpUnit), 0644); err != nil {
+		t.Fatal(err)
+	}
+	withUnitPath(t, path)
+	stubDaemonReload(t)
+
+	if _, err := MigratePrivateTmp(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MigrateRestrictSUIDSGID(); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	for _, gone := range []string{"PrivateTmp", "RestrictSUIDSGID"} {
+		if strings.Contains(string(got), gone) {
+			t.Errorf("%s is still in the unit:\n%s", gone, got)
+		}
+	}
+	for _, kept := range []string{"ExecStart=/usr/local/bin/sfpanel /etc/sfpanel/config.yaml", "Restart=always", "NoNewPrivileges=false"} {
+		if !strings.Contains(string(got), kept) {
+			t.Errorf("%q was lost:\n%s", kept, got)
+		}
+	}
+}
+
+func TestMigrateRestrictSUIDSGID_LeavesAnOperatorsSettingAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sfpanel.service")
+	unit := "[Service]\nExecStart=/usr/local/bin/sfpanel\nRestrictSUIDSGID=yes\n"
+	if err := os.WriteFile(path, []byte(unit), 0644); err != nil {
+		t.Fatal(err)
+	}
+	withUnitPath(t, path)
+	reloaded := stubDaemonReload(t)
+
+	if migrated, err := MigrateRestrictSUIDSGID(); err != nil || migrated {
+		t.Fatalf("MigrateRestrictSUIDSGID() = %v, %v; want false, nil", migrated, err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != unit || *reloaded {
+		t.Errorf("an operator's RestrictSUIDSGID=yes was touched:\n%s", got)
+	}
+}
+
+func TestMigrateRestrictSUIDSGID_MissingUnitIsNoop(t *testing.T) {
+	withUnitPath(t, filepath.Join(t.TempDir(), "absent.service"))
+	stubDaemonReload(t)
+	if migrated, err := MigrateRestrictSUIDSGID(); err != nil || migrated {
+		t.Fatalf("MigrateRestrictSUIDSGID() = %v, %v; want false, nil", migrated, err)
+	}
+}

@@ -113,6 +113,38 @@ var privateTmpLines = map[string]bool{
 // way is theirs. Returns true if the unit file was modified (and
 // daemon-reload issued); a missing unit is not an error.
 func MigratePrivateTmp() (bool, error) {
+	return dropUnitLines(privateTmpLines)
+}
+
+// restrictSUIDSGIDLines are the two lines install.sh wrote from v0.13.1 on:
+// the directive and its entry in the unit's hardening comment. Every version
+// wrote them exactly so.
+var restrictSUIDSGIDLines = map[string]bool{
+	"RestrictSUIDSGID=true": true,
+	"# - RestrictSUIDSGID: panel never creates suid/sgid files": true,
+}
+
+// MigrateRestrictSUIDSGID drops the RestrictSUIDSGID=true that install.sh
+// used to write. The comment beside it was true of the panel's own code and
+// not of what the panel runs: the setting is a seccomp filter every child
+// inherits, and dpkg sets the mode of each file it unpacks, so every package
+// carrying a setuid or setgid file (passwd, sudo, openssh-client, mount,
+// util-linux) failed to install or upgrade from the panel with "error setting
+// permissions … Operation not permitted", and apt left it half-installed.
+// A filter cannot be lifted from a running process, so this takes effect at
+// the next restart; the Packages page's upgrade and install already run apt
+// outside the panel, in a transient unit, and do not wait for it.
+//
+// Only those exact lines are removed: a RestrictSUIDSGID an operator set some
+// other way is theirs. Returns true if the unit file was modified (and
+// daemon-reload issued); a missing unit is not an error.
+func MigrateRestrictSUIDSGID() (bool, error) {
+	return dropUnitLines(restrictSUIDSGIDLines)
+}
+
+// dropUnitLines removes the unit's lines that, trimmed, are exactly one of
+// lines, and reloads systemd if any were.
+func dropUnitLines(lines map[string]bool) (bool, error) {
 	data, err := os.ReadFile(unitPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -123,7 +155,7 @@ func MigratePrivateTmp() (bool, error) {
 
 	var kept []byte
 	for _, line := range bytes.SplitAfter(data, []byte("\n")) {
-		if privateTmpLines[string(bytes.TrimSpace(line))] {
+		if lines[string(bytes.TrimSpace(line))] {
 			continue
 		}
 		kept = append(kept, line...)
