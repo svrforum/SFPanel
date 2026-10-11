@@ -1,10 +1,14 @@
 package network
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/labstack/echo/v4"
 
 	"github.com/svrforum/SFPanel/internal/common/exec"
 )
@@ -136,5 +140,139 @@ func TestPendingReportsADeadlineInTheFuture(t *testing.T) {
 	}
 	if remaining := time.Until(deadline); remaining <= 0 || remaining > netplanRollbackTimeout {
 		t.Errorf("deadline is %v away, want between 0 and %v", remaining, netplanRollbackTimeout)
+	}
+}
+
+func doApplyNetplan(t *testing.T, cmd exec.Commander) *httptest.ResponseRecorder {
+	t.Helper()
+	h := &Handler{Cmd: cmd}
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(httptest.NewRequest(http.MethodPost, "/network/apply", nil), rec)
+	if err := h.ApplyNetplan(c); err != nil {
+		t.Fatalf("ApplyNetplan: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ApplyNetplan: %d %s", rec.Code, rec.Body)
+	}
+	return rec
+}
+
+func saveInterface(t *testing.T, iface, body string) {
+	t.Helper()
+	if rec := doConfigureInterface(t, iface, body); rec.Code != http.StatusOK {
+		t.Fatalf("save %s: %d %s", body, rec.Code, rec.Body)
+	}
+}
+
+func readString(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+const dhcpConfig = "network:\n  version: 2\n  ethernets:\n    eth0:\n      dhcp4: true\n"
+
+// The page saves first and applies second, and Save is what rewrites the
+// file. Apply used to snapshot the files as they stood when it ran — the ones
+// Save had just written — so an unconfirmed change "rolled back" to itself,
+// and an address that cut the operator off stayed in place. (#114)
+func TestRollbackAfterSaveThenApplyRestoresTheConfigFromBeforeTheSave(t *testing.T) {
+	dir := withNetplanDir(t)
+	resetRollback(t)
+	path := writeFile(t, dir, "50-cloud-init.yaml", dhcpConfig)
+
+	saveInterface(t, "eth0", `{"dhcp4":false,"addresses":["192.0.2.10/24"]}`)
+	if readString(t, path) == dhcpConfig {
+		t.Fatal("the save did not change the file, so this test would prove nothing")
+	}
+	doApplyNetplan(t, exec.NewMockCommander())
+	performNetplanRollback()
+
+	if got := readString(t, path); got != dhcpConfig {
+		t.Errorf("rollback left\n%s\nwant the config from before the save\n%s", got, dhcpConfig)
+	}
+	if _, recorded, _ := loadNetplanBaseline(); recorded {
+		t.Error("the baseline outlived the rollback")
+	}
+}
+
+// Once a change is confirmed it is the configuration to go back to, not the
+// one before it.
+func TestRollbackGoesBackToTheLastConfirmedConfig(t *testing.T) {
+	dir := withNetplanDir(t)
+	resetRollback(t)
+	path := writeFile(t, dir, "50-cloud-init.yaml", dhcpConfig)
+
+	saveInterface(t, "eth0", `{"dhcp4":false,"addresses":["192.0.2.10/24"]}`)
+	doApplyNetplan(t, exec.NewMockCommander())
+	if !confirmNetplan() {
+		t.Fatal("the apply left nothing to confirm")
+	}
+	confirmed := readString(t, path)
+
+	saveInterface(t, "eth0", `{"addresses":["192.0.2.20/24"]}`)
+	doApplyNetplan(t, exec.NewMockCommander())
+	performNetplanRollback()
+
+	if got := readString(t, path); got != confirmed {
+		t.Errorf("rollback left\n%s\nwant the confirmed config\n%s", got, confirmed)
+	}
+}
+
+// Two saves and then one apply: the way back is from before the first.
+func TestRollbackAfterTwoSavesGoesBackToBeforeTheFirst(t *testing.T) {
+	dir := withNetplanDir(t)
+	resetRollback(t)
+	path := writeFile(t, dir, "50-cloud-init.yaml", dhcpConfig)
+
+	saveInterface(t, "eth0", `{"dhcp4":false,"addresses":["192.0.2.10/24"]}`)
+	saveInterface(t, "eth0", `{"mtu":1400}`)
+	doApplyNetplan(t, exec.NewMockCommander())
+	performNetplanRollback()
+
+	if got := readString(t, path); got != dhcpConfig {
+		t.Errorf("rollback left\n%s\nwant the config from before the first save\n%s", got, dhcpConfig)
+	}
+}
+
+// netplan applies /etc/netplan at boot, so a saved change the host rebooted
+// onto is the configuration it runs. A baseline from before that boot must
+// not take it back.
+func TestABaselineFromBeforeARebootIsNotTheWayBack(t *testing.T) {
+	dir := withNetplanDir(t)
+	resetRollback(t)
+	path := writeFile(t, dir, "50-cloud-init.yaml", dhcpConfig)
+
+	saveInterface(t, "eth0", `{"dhcp4":false,"addresses":["192.0.2.10/24"]}`)
+	booted := readString(t, path)
+	if err := os.WriteFile(bootIDPath, []byte("boot-2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	saveInterface(t, "eth0", `{"addresses":["192.0.2.20/24"]}`)
+	doApplyNetplan(t, exec.NewMockCommander())
+	performNetplanRollback()
+
+	if got := readString(t, path); got != booted {
+		t.Errorf("rollback left\n%s\nwant the config the host booted with\n%s", got, booted)
+	}
+}
+
+// The baseline is a copy of netplan files, which can hold Wi-Fi keys.
+func TestTheBaselineIsReadableByItsOwnerOnly(t *testing.T) {
+	dir := withNetplanDir(t)
+	writeFile(t, dir, "50-cloud-init.yaml", dhcpConfig)
+
+	saveInterface(t, "eth0", `{"mtu":1400}`)
+
+	info, err := os.Stat(netplanBaselinePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("baseline mode %o, want 600", perm)
 	}
 }

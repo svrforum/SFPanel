@@ -376,13 +376,23 @@ func (h *Handler) ApplyNetplan(c echo.Context) error {
 			"netplan config invalid: "+response.SanitizeOutput(strings.TrimSpace(out)))
 	}
 
-	// Snapshot before applying. `generate` above rejects a malformed file;
-	// nothing rejects a valid one that moves the host off the address the
-	// operator is reaching it on, and that is the way this goes wrong.
-	snapshot, snapErr := snapshotNetplan()
+	// Keep the way back. `generate` above rejects a malformed file; nothing
+	// rejects a valid one that moves the host off the address the operator is
+	// reaching it on, and that is the way this goes wrong. Save has already
+	// rewritten the files by now, so the way back is the baseline the first
+	// save recorded; with no save since the last confirmed apply, the files on
+	// disk are the ones in effect.
+	snapshot, recorded, snapErr := loadNetplanBaseline()
 	if snapErr != nil {
-		slog.Warn("netplan apply: could not snapshot the current config, applying without a rollback",
+		slog.Warn("netplan apply: could not read the rollback baseline, using the files on disk",
 			"component", "network", "error", snapErr)
+	}
+	if !recorded {
+		snapshot, snapErr = snapshotNetplan()
+		if snapErr != nil {
+			slog.Warn("netplan apply: could not snapshot the current config, applying without a rollback",
+				"component", "network", "error", snapErr)
+		}
 	}
 
 	out, err := h.Cmd.Run("netplan", "apply")
@@ -1155,6 +1165,11 @@ func saveNetplanFile(path string, np *netplanData) error {
 	data, err := yaml.Marshal(np)
 	if err != nil {
 		return fmt.Errorf("marshal netplan: %w", err)
+	}
+	// Before the first change since the last confirmed apply, keep the files
+	// as they are: an apply that is never confirmed goes back to them.
+	if err := recordNetplanBaseline(); err != nil {
+		return fmt.Errorf("record the current config for rollback: %w", err)
 	}
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".netplan-")

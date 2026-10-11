@@ -353,6 +353,10 @@ func TestConfigureInterface_Validation(t *testing.T) {
 // "generate succeeds, apply fails" scenario cannot be simulated. Only the
 // all-success and generate-failure paths are covered.
 func TestApplyNetplan(t *testing.T) {
+	// The apply snapshots the netplan directory and arms a rollback timer;
+	// neither may be the host's.
+	withNetplanDir(t)
+	resetRollback(t)
 	newCtx := func() (echo.Context, *httptest.ResponseRecorder) {
 		e := echo.New()
 		req := httptest.NewRequest(http.MethodPost, "/network/apply", nil)

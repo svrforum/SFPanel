@@ -14,10 +14,16 @@ import (
 // the override is a package-level var and would race across goroutines.
 func withNetplanDir(t *testing.T) string {
 	t.Helper()
-	prev := netplanDir
+	prev, prevBaseline, prevBootID := netplanDir, netplanBaselinePath, bootIDPath
 	dir := t.TempDir()
 	netplanDir = dir
-	t.Cleanup(func() { netplanDir = prev })
+	state := t.TempDir()
+	netplanBaselinePath = filepath.Join(state, "netplan-baseline.json")
+	bootIDPath = filepath.Join(state, "boot_id")
+	if err := os.WriteFile(bootIDPath, []byte("boot-1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { netplanDir, netplanBaselinePath, bootIDPath = prev, prevBaseline, prevBootID })
 	return dir
 }
 
@@ -222,6 +228,9 @@ func TestConfigureInterface_HappyPath(t *testing.T) {
 }
 
 func TestSaveNetplanFile(t *testing.T) {
+	// A save records a rollback baseline of the netplan directory first, so
+	// it must not be the host's.
+	withNetplanDir(t)
 	t.Run("round-trip with atomic-write contract", func(t *testing.T) {
 		dir := t.TempDir()
 		path := writeNetplan(t, dir, "01-netcfg.yaml", fixtureStaticWithRoutes)
@@ -331,6 +340,7 @@ func TestLoadNetplanFile(t *testing.T) {
 }
 
 func TestNetplanRoundTrip_PreservesUnknownKeys(t *testing.T) {
+	withNetplanDir(t)
 	dir := t.TempDir()
 	path := writeNetplan(t, dir, "01-full.yaml", fixtureFull)
 

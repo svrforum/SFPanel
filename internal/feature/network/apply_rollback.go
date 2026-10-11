@@ -1,9 +1,11 @@
 package network
 
 import (
+	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +42,108 @@ var netplanRollback = struct {
 	cmd      exec.Commander
 	deadline time.Time
 }{}
+
+// netplanBaselinePath keeps the netplan files as they stood before the panel
+// first rewrote them after the last confirmed apply: the configuration the
+// host last ran on. A var so tests can move it.
+//
+// Save writes /etc/netplan and Apply only puts it into effect, so by the time
+// Apply runs the files are already the new ones. A snapshot taken there
+// "restored" the change it was meant to undo (#114). The baseline is on disk
+// so that a panel restart between Save and Apply, an update for one, does
+// not lose the way back, and 0600 because netplan files can hold Wi-Fi keys.
+var netplanBaselinePath = "/var/lib/sfpanel/netplan-baseline.json"
+
+// bootIDPath tells one boot from the next. A var so tests can move it.
+var bootIDPath = "/proc/sys/kernel/random/boot_id"
+
+type netplanBaseline struct {
+	BootID string            `json:"boot_id"`
+	Files  map[string][]byte `json:"files"`
+}
+
+func currentBootID() string {
+	data, err := os.ReadFile(bootIDPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// recordNetplanBaseline keeps the files as they are now, before a save
+// changes them, unless an earlier save since the last confirmed apply
+// already did: two saves and then an apply go back to before the first.
+func recordNetplanBaseline() error {
+	if _, recorded, err := loadNetplanBaseline(); err == nil && recorded {
+		return nil
+	}
+	files, err := snapshotNetplan()
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(netplanBaseline{BootID: currentBootID(), Files: files})
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(netplanBaselinePath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".netplan-baseline-")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Rename(tmpPath, netplanBaselinePath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
+}
+
+// loadNetplanBaseline returns the files recorded by the first save since the
+// last confirmed apply. recorded is false when there is none, or when it was
+// recorded before the last boot: netplan applies /etc/netplan at boot, so
+// after a reboot the files on disk are the ones the host is running.
+func loadNetplanBaseline() (files map[string][]byte, recorded bool, err error) {
+	data, err := os.ReadFile(netplanBaselinePath)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var b netplanBaseline
+	if err := json.Unmarshal(data, &b); err != nil {
+		return nil, false, err
+	}
+	if b.BootID != currentBootID() {
+		clearNetplanBaseline()
+		return nil, false, nil
+	}
+	if b.Files == nil {
+		b.Files = map[string][]byte{}
+	}
+	return b.Files, true, nil
+}
+
+// clearNetplanBaseline drops the baseline once the configuration it guarded
+// has been confirmed or rolled back.
+func clearNetplanBaseline() {
+	if err := os.Remove(netplanBaselinePath); err != nil && !os.IsNotExist(err) {
+		slog.Warn("netplan: could not remove the rollback baseline",
+			"component", "network", "path", netplanBaselinePath, "error", err)
+	}
+}
 
 // snapshotNetplan reads every netplan file so they can be restored verbatim.
 func snapshotNetplan() (map[string][]byte, error) {
@@ -84,6 +188,7 @@ func confirmNetplan() bool {
 	}
 	netplanRollback.timer.Stop()
 	clearNetplanRollbackLocked()
+	clearNetplanBaseline()
 	return true
 }
 
@@ -140,6 +245,7 @@ func performNetplanRollback() {
 	}
 	invalidateNetworkCache()
 	clearNetplanRollbackLocked()
+	clearNetplanBaseline()
 	slog.Info("netplan auto-rollback completed", "component", "network")
 }
 
