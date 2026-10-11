@@ -260,7 +260,7 @@
   - **리스닝 포트**: `ss` 명령어로 TCP/UDP 리스닝 포트 조회 (프로토콜/주소/포트/PID/프로세스), 포트에서 직접 UFW 규칙 추가 지원
   - **포트 맵**: 호스트 포트별로 UFW 규칙 + Docker DNAT 컨테이너 + 호스트 프로세스를 단일 표로 통합 조회 (`GET /system/portmap`), 상태(listening/bound) 및 외부 노출 위험 하이라이트
   - **Fail2ban**: 설치 상태 확인 및 원클릭 설치, **jail 템플릿** (SSH 등 사전 정의), jail 생성/삭제(설정은 원자적 temp+rename 기록)/목록·상태/활성화·비활성화/설정 변경 (maxretry/bantime/findtime)/차단 IP 해제 (unban)
-  - **Docker 방화벽**: DOCKER-USER 체인 규칙 관리 (iptables; 동시 편집 직렬화), Docker 발행 포트 표 + DNAT 매핑
+  - **Docker 방화벽**: DOCKER-USER 체인 규칙 관리 (iptables; 동시 편집 직렬화, 호스트 포트를 conntrack으로 맞춰 컨테이너 주소가 바뀌어도 유지), Docker 발행 포트 표 + DNAT 매핑
   - **방화벽 로그**: UFW + Docker-USER, Fail2ban 로그 뷰어 (공유 로그 소스)
   - **잠금 방지 가드**: UFW 활성화/규칙 추가/규칙 삭제 시 SSH(22) 또는 패널 포트 접근이 차단되는 변경을 사전 감지하여 HTTP 409로 거부 (`?force=true`로 우회; 비활성 상태에선 `ufw show added`로 스테이징 규칙까지 검사)
   - 입력값 검증: 포트 번호/범위, IP/CIDR 주소, 프로토콜, action, jail 이름 등 서버 측 정규식 검증

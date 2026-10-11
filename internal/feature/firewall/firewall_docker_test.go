@@ -105,8 +105,10 @@ func TestGetDockerUserRules(t *testing.T) {
 		t.Fatalf("expected 2 rules (RETURN skipped), got %d (%+v)", len(rules), rules)
 	}
 
+	// Rule 1 is pinned to 172.18.0.5:3306 and the NAT chain here has no
+	// published port leading there, so it matches nothing: stale.
 	want := []DockerUserRule{
-		{Number: 1, Port: 3306, Protocol: "tcp", Source: "192.168.1.0/24", Action: "drop"},
+		{Number: 1, Port: 3306, Protocol: "tcp", Source: "192.168.1.0/24", Action: "drop", Stale: true},
 		{Number: 2, Port: 80, Protocol: "tcp", Source: "10.0.0.0/8", Action: "accept"},
 	}
 	if !reflect.DeepEqual(rules, want) {

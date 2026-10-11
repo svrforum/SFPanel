@@ -2580,7 +2580,8 @@ Docker가 발행한 포트(NAT `DOCKER` 체인)와 사용자가 추가한 `DOCKE
       { "container_name": "web", "container_ip": "172.17.0.2", "host_port": 8080, "container_port": 80, "protocol": "tcp", "host_ip": "0.0.0.0" }
     ],
     "rules": [
-      { "number": 1, "port": 8080, "protocol": "tcp", "source": "192.168.1.0/24", "action": "drop" }
+      { "number": 1, "port": 8080, "protocol": "tcp", "source": "192.168.1.0/24", "action": "drop" },
+      { "number": 3, "port": 443, "protocol": "tcp", "source": "", "action": "drop", "stale": true }
     ]
   }
 }
@@ -2589,12 +2590,12 @@ Docker가 발행한 포트(NAT `DOCKER` 체인)와 사용자가 추가한 `DOCKE
 | 필드 | 설명 |
 |------|------|
 | `ports` | Docker가 발행한 published 포트 (`DockerPublishedPort`) |
-| `rules` | `DOCKER-USER` 체인의 사용자 규칙 (`DockerUserRule`) |
+| `rules` | `DOCKER-USER` 체인의 사용자 규칙 (`DockerUserRule`). `port`는 호스트 포트. `stale: true`는 v0.78.14 이전 방식으로 컨테이너 주소에 묶였는데 지금 그 주소로 가는 발행 포트가 없어 아무것도 막지 않는 규칙(이때 `port`는 컨테이너 포트) |
 
 ---
 
 ### POST /api/v1/firewall/docker/rules
-`DOCKER-USER` 체인에 규칙 추가 (컨테이너 published 포트에 대한 소스 기반 허용/차단).
+`DOCKER-USER` 체인에 규칙 추가 (컨테이너 published 포트에 대한 소스 기반 허용/차단). v0.78.14부터 규칙은 컨테이너 주소가 아니라 **호스트 포트**로 맞춘다: `-m conntrack --ctstate DNAT --ctorigdstport <port> --ctdir ORIGINAL`. 컨테이너가 재시작으로 다른 주소를 받아도 규칙이 그대로 듣는다. 예전 방식으로 저장된 규칙은 패널이 시작할 때 차단 규칙 옆 LOG 규칙의 `HPORT=`로 호스트 포트를 읽어 바꾼다.
 
 - **인증 필요**: 예
 

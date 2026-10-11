@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Loader2, ShieldBan, ShieldCheck, AlertCircle, RefreshCw } from 'lucide-react'
+import { Plus, Trash2, Loader2, ShieldBan, ShieldCheck, AlertCircle, AlertTriangle, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -45,6 +45,9 @@ interface DockerUserRule {
   protocol: string
   source: string
   action: string
+  // Tied to a container address that no published port leads to any more
+  // (#112): it blocks nothing, and port is the container's, not the host's.
+  stale?: boolean
 }
 
 interface AddRuleForm {
@@ -96,7 +99,7 @@ export default function FirewallDocker() {
 
   const isPortBlocked = (port: number, protocol: string) => {
     return rules.some(
-      (r) => r.port === port && r.protocol === protocol && r.action === 'drop'
+      (r) => !r.stale && r.port === port && r.protocol === protocol && r.action === 'drop'
     )
   }
 
@@ -285,52 +288,69 @@ export default function FirewallDocker() {
           {t('firewall.docker.noRules')}
         </div>
       ) : (
-        <div className="bg-card rounded-2xl card-shadow overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-16 text-[11px]">#</TableHead>
-                <TableHead className="text-[11px]">{t('firewall.docker.port')}</TableHead>
-                <TableHead className="text-[11px]">{t('firewall.docker.protocol')}</TableHead>
-                <TableHead className="text-[11px]">{t('firewall.docker.source')}</TableHead>
-                <TableHead className="text-[11px]">{t('firewall.docker.action')}</TableHead>
-                <TableHead className="text-right w-16 text-[11px]">{t('common.actions')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rules.map((rule) => (
-                <TableRow key={rule.number} className="group">
-                  <TableCell className="font-mono text-xs">{rule.number}</TableCell>
-                  <TableCell className="font-mono text-[13px] font-medium">{rule.port}</TableCell>
-                  <TableCell className="text-[13px] uppercase">{rule.protocol}</TableCell>
-                  <TableCell className="text-[13px] font-mono">
-                    {rule.source || <span className="text-muted-foreground">*</span>}
-                  </TableCell>
-                  <TableCell>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                      rule.action === 'drop'
-                        ? 'bg-destructive/10 text-destructive'
-                        : 'bg-success/10 text-success'
-                    }`}>
-                      {rule.action === 'drop' ? t('firewall.docker.drop') : t('firewall.docker.accept')}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity text-red-500 hover:text-red-600"
-                      title={t('firewall.docker.deleteRule')}
-                      aria-label={t('firewall.docker.deleteRule')}
-                      onClick={() => handleDeleteRule(rule)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
+        <div className="space-y-3">
+          {rules.some((r) => r.stale) && (
+            <div role="alert" className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-[13px] text-warning">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{t('firewall.docker.staleBanner', { count: rules.filter((r) => r.stale).length })}</span>
+            </div>
+          )}
+          <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-16 text-[11px]">#</TableHead>
+                  <TableHead className="text-[11px]">{t('firewall.docker.port')}</TableHead>
+                  <TableHead className="text-[11px]">{t('firewall.docker.protocol')}</TableHead>
+                  <TableHead className="text-[11px]">{t('firewall.docker.source')}</TableHead>
+                  <TableHead className="text-[11px]">{t('firewall.docker.action')}</TableHead>
+                  <TableHead className="text-right w-16 text-[11px]">{t('common.actions')}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {rules.map((rule) => (
+                  <TableRow key={rule.number} className="group">
+                    <TableCell className="font-mono text-xs">{rule.number}</TableCell>
+                    <TableCell className="font-mono text-[13px] font-medium">{rule.port}</TableCell>
+                    <TableCell className="text-[13px] uppercase">{rule.protocol}</TableCell>
+                    <TableCell className="text-[13px] font-mono">
+                      {rule.source || <span className="text-muted-foreground">*</span>}
+                    </TableCell>
+                    <TableCell>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                        rule.action === 'drop'
+                          ? 'bg-destructive/10 text-destructive'
+                          : 'bg-success/10 text-success'
+                      }`}>
+                        {rule.action === 'drop' ? t('firewall.docker.drop') : t('firewall.docker.accept')}
+                      </span>
+                      {rule.stale && (
+                        <span
+                          className="ml-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-warning/10 text-warning"
+                          title={t('firewall.docker.staleHint')}
+                        >
+                          <AlertTriangle className="h-3 w-3" />
+                          {t('firewall.docker.stale')}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity text-red-500 hover:text-red-600"
+                        title={t('firewall.docker.deleteRule')}
+                        aria-label={t('firewall.docker.deleteRule')}
+                        onClick={() => handleDeleteRule(rule)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </div>
       )}
 
