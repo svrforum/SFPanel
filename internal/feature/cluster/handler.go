@@ -1331,6 +1331,28 @@ func (h *Handler) ClusterUpdate(c echo.Context) error {
 	return nil
 }
 
+// backOnNewVersion reports whether a node sent an update is online again on a
+// version other than the one it ran before. Online alone is not enough: the
+// node's heartbeat stays fresh for a few seconds after the update is
+// triggered, while the old process shuts down, and the orchestrator took that
+// for the node being back — then went on to the next node, or handed
+// leadership to one about to restart. A node whose version was not known
+// before falls back to online.
+func backOnNewVersion(health map[string]cluster.NodeStatus, metrics []*cluster.NodeMetrics, id, before string) bool {
+	if health[id] != cluster.StatusOnline {
+		return false
+	}
+	if before == "" {
+		return true
+	}
+	for _, m := range metrics {
+		if m.NodeID == id {
+			return m.Version != "" && m.Version != before
+		}
+	}
+	return false
+}
+
 // runClusterUpdate is the orchestration behind ClusterUpdate. It runs on its
 // own goroutine and reports through emit, which never blocks it: whether
 // anyone is still watching has no bearing on whether the update finishes.
@@ -1474,13 +1496,13 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 			// No bail-out on the watcher leaving: the node being waited for
 			// may be the one relaying the watcher's stream (see updateFeed).
 			time.Sleep(5 * time.Second)
-			h2 := mgr.GetHeartbeat().CheckHealth()
-			if s, ok := h2[ni.ID]; ok && s == cluster.StatusOnline {
+			hb := mgr.GetHeartbeat()
+			if backOnNewVersion(hb.CheckHealth(), hb.GetAllMetrics(), ni.ID, ni.Version) {
 				emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "online", "message": "Node back online"})
 				return true
 			}
 		}
-		emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "warning", "message": "Node did not come back within 60s"})
+		emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "warning", "message": "Node did not come back on a new version within 60s"})
 		return true
 	}
 
