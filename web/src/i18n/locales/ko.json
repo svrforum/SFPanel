@@ -2053,6 +2053,8 @@
         "clientAddressHint": "터널 내부에서 클라이언트에 할당할 IP/CIDR (예: 10.0.0.2/32).",
         "serverEndpoint": "서버 엔드포인트",
         "serverEndpointHint": "클라이언트가 이 서버에 접속할 host:port.",
+        "clientRoutes": "VPN으로 보낼 대역 (AllowedIPs)",
+        "clientRoutesHint": "기본은 VPN 대역만이라 클라이언트의 인터넷 접속은 그대로입니다. 모든 트래픽을 보내려면 0.0.0.0/0, ::/0을 넣되, 서버에서 포워딩과 NAT를 켜야 인터넷이 됩니다. 패널은 이 설정을 하지 않습니다.",
         "dns": "DNS",
         "dnsHint": "선택 사항. 연결 중 클라이언트가 사용할 DNS 서버.",
         "keepalive": "Persistent keepalive (초)",

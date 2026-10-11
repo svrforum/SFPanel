@@ -2055,6 +2055,8 @@
         "clientAddressHint": "IP/CIDR assigned to the client inside the tunnel (e.g. 10.0.0.2/32).",
         "serverEndpoint": "Server endpoint",
         "serverEndpointHint": "host:port the client dials to reach this server.",
+        "clientRoutes": "Routed through the VPN (AllowedIPs)",
+        "clientRoutesHint": "Only the VPN subnet by default, so the client keeps its own internet access. To send everything, use 0.0.0.0/0, ::/0 — then the server must forward and NAT that traffic for the internet to work, which the panel does not set up.",
         "dns": "DNS",
         "dnsHint": "Optional. DNS server the client uses while connected.",
         "keepalive": "Persistent keepalive (s)",

@@ -271,17 +271,22 @@ func (h *WireGuardHandler) populateWGInterface(iface *WireGuardInterface, confDa
 		if dump, err := h.Cmd.Run("wg", "show", iface.Name, "dump"); err == nil {
 			iface.PublicKey, iface.ListenPort, iface.Peers = parseWGDump(dump)
 		}
-		return
-	}
-	if priv := parseWGConfField(confData, "PrivateKey"); priv != "" {
-		if pub, perr := h.Cmd.RunWithInput(priv, "wg", "pubkey"); perr == nil {
-			iface.PublicKey = strings.TrimSpace(pub)
+	} else {
+		if priv := parseWGConfField(confData, "PrivateKey"); priv != "" {
+			if pub, perr := h.Cmd.RunWithInput(priv, "wg", "pubkey"); perr == nil {
+				iface.PublicKey = strings.TrimSpace(pub)
+			}
 		}
+		if lp := parseWGConfField(confData, "ListenPort"); lp != "" {
+			iface.ListenPort, _ = strconv.Atoi(lp)
+		}
+		iface.Peers = parseWGConfPeers(confData)
 	}
-	if lp := parseWGConfField(confData, "ListenPort"); lp != "" {
-		iface.ListenPort, _ = strconv.Atoi(lp)
+	// No peers is an empty list, not null: the page reads its length, and an
+	// interface brought up before its first peer took the whole page down.
+	if iface.Peers == nil {
+		iface.Peers = []WireGuardPeer{}
 	}
-	iface.Peers = parseWGConfPeers(confData)
 }
 
 // GetInterface returns detailed info for a single WireGuard interface.

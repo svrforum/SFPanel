@@ -80,7 +80,8 @@ export default function NetworkWireGuard() {
 
       if (statusData.installed) {
         const ifaceData = await api.getWireGuardInterfaces()
-        setInterfaces(ifaceData || [])
+        // An older node answers "peers": null for an interface without peers.
+        setInterfaces((ifaceData || []).map((i) => ({ ...i, peers: i.peers ?? [] })))
       }
     } catch {
       toast.error(t('network.wireguard.fetchFailed'))

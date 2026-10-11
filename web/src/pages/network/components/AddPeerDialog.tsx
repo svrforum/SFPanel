@@ -17,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { vpnSubnets } from '../wgSubnets'
 
 /**
  * Add-peer flow for a WireGuard interface: keypair generation → peer
@@ -41,6 +42,7 @@ export function AddPeerDialog({
   const [peerEndpoint, setPeerEndpoint] = useState('')
   const [peerDns, setPeerDns] = useState('')
   const [peerKeepalive, setPeerKeepalive] = useState('25')
+  const [peerRoutes, setPeerRoutes] = useState('')
   const [peerCreating, setPeerCreating] = useState(false)
   const [clientConfig, setClientConfig] = useState<string | null>(null)
 
@@ -65,6 +67,7 @@ export function AddPeerDialog({
     setPeerEndpoint(`${window.location.hostname}:${iface.listen_port || ''}`)
     setPeerDns(iface.dns || '')
     setPeerKeepalive('25')
+    setPeerRoutes(vpnSubnets(iface.address || ''))
     generateKeypair()
   }, [iface, generateKeypair])
 
@@ -80,7 +83,7 @@ export function AddPeerDialog({
     lines.push('[Peer]')
     lines.push(`PublicKey = ${target.public_key}`)
     lines.push(`Endpoint = ${peerEndpoint.trim()}`)
-    lines.push('AllowedIPs = 0.0.0.0/0, ::/0')
+    lines.push(`AllowedIPs = ${peerRoutes.trim()}`)
     if (keepalive > 0) lines.push(`PersistentKeepalive = ${keepalive}`)
     return lines.join('\n')
   }
@@ -176,6 +179,17 @@ export function AddPeerDialog({
                 <p className="text-[11px] text-muted-foreground">{t('network.wireguard.peers.serverEndpointHint')}</p>
               </div>
 
+              <div className="space-y-2">
+                <Label className="text-[13px]">{t('network.wireguard.peers.clientRoutes')}</Label>
+                <Input
+                  value={peerRoutes}
+                  onChange={(e) => setPeerRoutes(e.target.value)}
+                  placeholder="10.8.0.0/24"
+                  className="font-mono text-[13px]"
+                />
+                <p className="text-[11px] text-muted-foreground">{t('network.wireguard.peers.clientRoutesHint')}</p>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label className="text-[13px]">{t('network.wireguard.peers.dns')}</Label>
@@ -204,7 +218,7 @@ export function AddPeerDialog({
               </Button>
               <Button
                 onClick={handleCreatePeer}
-                disabled={peerCreating || genLoading || !keypair || !peerAddress.trim() || !peerEndpoint.trim()}
+                disabled={peerCreating || genLoading || !keypair || !peerAddress.trim() || !peerEndpoint.trim() || !peerRoutes.trim()}
               >
                 {peerCreating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {peerCreating ? t('network.wireguard.peers.creating') : t('network.wireguard.peers.create')}

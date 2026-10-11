@@ -1,8 +1,13 @@
 package network
 
 import (
+	"encoding/json"
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // `wg show <iface> dump` real-shape output. Tab-separated.
@@ -78,6 +83,32 @@ AllowedIPs = 10.0.0.2/32
 		got := parseWGConfField(conf, c.field)
 		if got != c.want {
 			t.Errorf("parseWGConfField(%q) = %q; want %q", c.field, got, c.want)
+		}
+	}
+}
+
+// An interface that is up with no peer yet came back as "peers": null, and the
+// page, reading its length, showed nothing but an error until a peer existed.
+// The same happens when wg show fails.
+func TestPopulateWGInterfacePeersNeverNull(t *testing.T) {
+	const ifaceOnly = "cHJpdmF0ZQ==\tcHVibGlj\t51820\toff\n"
+	for _, tc := range []struct {
+		name string
+		dump exec.MockResult
+	}{
+		{"up, no peers", exec.MockResult{Output: ifaceOnly}},
+		{"wg show failed", exec.MockResult{Err: errors.New("Unable to access interface: No such device")}},
+	} {
+		cmd := exec.NewMockCommander()
+		cmd.Outputs["wg"] = tc.dump
+		iface := WireGuardInterface{Name: "wg0", Active: true}
+		(&WireGuardHandler{Cmd: cmd}).populateWGInterface(&iface, "[Interface]\nAddress = 10.8.0.1/24\n")
+		out, err := json.Marshal(iface)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(out), `"peers":[]`) {
+			t.Errorf("%s: %s, want \"peers\":[]", tc.name, out)
 		}
 	}
 }
