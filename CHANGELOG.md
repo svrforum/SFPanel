@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.13] – 2026-10-11
+
+### Fixed
+
+- **Long names on the Docker pages stay in their columns.** A long container name ran over the image and status beside it and the row buttons over the date, and one long image name pushed the size, date and delete button off the images card. Each cell now cuts its text short and shows all of it on hover, and the row buttons have a column of their own, wider on a touch screen.
+- **A rolling cluster update waits for each node to restart.** It moved on as soon as a node's heartbeat said online, which it still did for a few seconds while the old process shut down, so on a two-node cluster the leader handed over to a node about to restart and both went down together. It now waits until the node reports a new version. The update is run by the version already installed, so this applies from the update after this one.
+- **The full-screen container shell stays on a phone screen.** Since v0.78.0 the expanded shell sat half off the top-left of the screen, with Reconnect out of reach: the build's CSS minifier dropped the rule that undoes the dialog's centring.
+- **The notice after installing Docker no longer asks for a restart**, which has not been needed since v0.78.9. (#111)
+
+### Changed
+
+- **Stacks on the Containers page start collapsed.** The ones you open are remembered in the browser, a stack with a container that needs attention starts open, a search or filter opens what it found, and the toolbar has Expand all / Collapse all.
+
 ## [0.78.12] – 2026-10-11
 
 ### Fixed
