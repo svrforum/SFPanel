@@ -85,9 +85,12 @@ var (
 // a test that checks the WaitGroup can never miss it.
 func spawnRestartGoroutine(fn func()) {
 	restartGoroutineStarted()
+	// Read the delay here, not in the goroutine: a test sets it for itself
+	// while the goroutine an earlier test spawned may not have started yet.
+	delay := restartFlushDelay
 	go func() {
 		defer restartGoroutineFinished()
-		time.Sleep(restartFlushDelay)
+		time.Sleep(delay)
 		fn()
 	}()
 }
