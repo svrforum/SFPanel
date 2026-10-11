@@ -238,16 +238,18 @@ export default function DockerImages() {
       </div>
 
       {/* Desktop table */}
-      <div className={`bg-card rounded-2xl card-shadow overflow-hidden ${(error || loading) && images.length === 0 ? 'hidden' : 'hidden md:block'}`}>
-      <Table>
+      {/* Fixed columns: one long repository name used to widen its column until
+          the size, date and delete button were cut off past the card's edge. */}
+      <div className={`bg-card rounded-2xl card-shadow overflow-hidden overflow-x-auto ${(error || loading) && images.length === 0 ? 'hidden' : 'hidden md:block'}`}>
+      <Table className="table-fixed w-full min-w-[700px]">
         <TableHeader>
           <TableRow>
-            <TableHead>{t('docker.images.repoTag')}</TableHead>
-            <TableHead>{t('docker.images.imageId')}</TableHead>
-            <TableHead>{t('common.status')}</TableHead>
-            <TableHead>{t('docker.images.size')}</TableHead>
-            <TableHead>{t('common.created')}</TableHead>
-            <TableHead className="text-right">{t('common.actions')}</TableHead>
+            <TableHead className="w-[36%]">{t('docker.images.repoTag')}</TableHead>
+            <TableHead className="w-[12%]">{t('docker.images.imageId')}</TableHead>
+            <TableHead className="w-[20%]">{t('common.status')}</TableHead>
+            <TableHead className="w-[11%]">{t('docker.images.size')}</TableHead>
+            <TableHead className="w-[13%]">{t('common.created')}</TableHead>
+            <TableHead className="text-right w-[56px]">{t('common.actions')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -260,16 +262,16 @@ export default function DockerImages() {
           )}
           {sortedImages.map((img) => (
             <TableRow key={img.Id}>
-              <TableCell className="font-medium font-mono text-sm">
-                <div className="flex items-center gap-1.5">
+              <TableCell className="font-medium font-mono text-sm overflow-hidden">
+                <div className="flex items-center gap-1.5 min-w-0">
                   {img.in_use && <Check className="h-3.5 w-3.5 text-success shrink-0" />}
-                  {getRepoTag(img)}
+                  <span className="truncate" title={getRepoTag(img)}>{getRepoTag(img)}</span>
                 </div>
               </TableCell>
-              <TableCell className="text-muted-foreground font-mono text-xs">
+              <TableCell className="text-muted-foreground font-mono text-xs truncate">
                 {shortId(img.Id)}
               </TableCell>
-              <TableCell>
+              <TableCell className="overflow-hidden">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <UsagePill inUse={img.in_use} usedBy={img.used_by} />
                   {getUpdateStatus(img.RepoTags?.[0] || '')?.has_update && (
@@ -279,8 +281,10 @@ export default function DockerImages() {
                   )}
                 </div>
               </TableCell>
-              <TableCell className="text-muted-foreground">{formatBytes(img.Size)}</TableCell>
-              <TableCell className="text-muted-foreground">{formatDate(img.Created)}</TableCell>
+              <TableCell className="text-muted-foreground truncate">{formatBytes(img.Size)}</TableCell>
+              <TableCell className="text-muted-foreground truncate" title={formatDate(img.Created)}>
+                {new Date(img.Created * 1000).toLocaleDateString()}
+              </TableCell>
               <TableCell className="text-right">
                 <Button
                     variant="ghost"

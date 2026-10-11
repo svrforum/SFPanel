@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Plus, Layers, Pause, CheckSquare, Loader2, Activity, Box, AlertCircle } from 'lucide-react'
+import { Play, Square, RotateCw, Trash2, RefreshCw, Terminal, Info, Cpu, MemoryStick, Search, ChevronRight, ChevronDown, Plus, Layers, Pause, CheckSquare, Loader2, Activity, Box, AlertCircle, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { containerNeedsAttention } from '@/lib/containerState'
 import { ContainerStateBadge } from '@/components/docker/ContainerStateBadge'
@@ -138,35 +138,35 @@ function ContainerRow({
         </TableCell>
       )}
       <TableCell
-        className="font-medium cursor-pointer hover:underline"
+        className="font-medium cursor-pointer hover:underline overflow-hidden"
         onClick={() => onDetail(c)}
         tabIndex={0}
         role="button"
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onDetail(c) } }}
       >
-        <div>
-          {formatContainerName(c.Names)}
-          {showService && serviceName && (
-            <div className="text-[11px] text-muted-foreground font-normal">{serviceName}</div>
-          )}
-        </div>
+        {/* Every cell clips to its column: a long name used to run on over
+            the image and status beside it. The full text is in the title. */}
+        <div className="truncate" title={formatContainerName(c.Names)}>{formatContainerName(c.Names)}</div>
+        {showService && serviceName && (
+          <div className="truncate text-[11px] text-muted-foreground font-normal" title={serviceName}>{serviceName}</div>
+        )}
       </TableCell>
-      <TableCell className="text-muted-foreground text-xs font-mono max-w-[150px] truncate" title={c.Image}>
+      <TableCell className="text-muted-foreground text-xs font-mono truncate" title={c.Image}>
         {c.Image}
       </TableCell>
-      <TableCell>{<ContainerStateBadge state={c.State} status={c.Status} />}</TableCell>
-      <TableCell>
+      <TableCell className="overflow-hidden">{<ContainerStateBadge state={c.State} status={c.Status} />}</TableCell>
+      <TableCell className="overflow-hidden">
         <ContainerStatsCell containerId={c.Id} stats={statsMap[c.Id]} state={c.State} />
       </TableCell>
-      <TableCell className="text-muted-foreground text-xs font-mono max-w-[160px] truncate" title={formatPorts(c.Ports)}>
+      <TableCell className="text-muted-foreground text-xs font-mono truncate" title={formatPorts(c.Ports)}>
         {formatPorts(c.Ports)}
       </TableCell>
-      <TableCell className="text-muted-foreground text-xs whitespace-nowrap">{timeAgo(c.Created)}</TableCell>
+      <TableCell className="text-muted-foreground text-xs truncate" title={new Date(c.Created * 1000).toLocaleString()}>{timeAgo(c.Created)}</TableCell>
       <TableCell className="text-right whitespace-nowrap">
         <div className="flex items-center justify-end gap-1">
           <Button
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             title={t('docker.containers.inspect')}
             aria-label={t('docker.containers.inspect')}
             onClick={() => onDetail(c)}
@@ -178,7 +178,7 @@ function ContainerRow({
           </Button>
           <Button
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             title={t('docker.containers.terminal')}
             aria-label={t('docker.containers.terminal')}
             onClick={() => onTerminal(c)}
@@ -189,7 +189,7 @@ function ContainerRow({
             <>
               <Button
                 variant="ghost"
-                size="icon"
+                size="icon-sm"
                 title={t('docker.containers.pause')}
                 aria-label={t('docker.containers.pause')}
                 disabled={actionLoading === c.Id}
@@ -199,7 +199,7 @@ function ContainerRow({
               </Button>
               <Button
                 variant="ghost"
-                size="icon"
+                size="icon-sm"
                 title={t('docker.containers.stop')}
                 aria-label={t('docker.containers.stop')}
                 disabled={actionLoading === c.Id}
@@ -211,7 +211,7 @@ function ContainerRow({
           ) : c.State === 'paused' ? (
             <Button
               variant="ghost"
-              size="icon"
+              size="icon-sm"
               title={t('docker.containers.unpause')}
               aria-label={t('docker.containers.unpause')}
               disabled={actionLoading === c.Id}
@@ -222,7 +222,7 @@ function ContainerRow({
           ) : (
             <Button
               variant="ghost"
-              size="icon"
+              size="icon-sm"
               title={t('docker.containers.start')}
               aria-label={t('docker.containers.start')}
               disabled={actionLoading === c.Id}
@@ -233,7 +233,7 @@ function ContainerRow({
           )}
           <Button
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             title={t('docker.containers.restart')}
             aria-label={t('docker.containers.restart')}
             disabled={actionLoading === c.Id}
@@ -243,7 +243,7 @@ function ContainerRow({
           </Button>
           <Button
             variant="ghost"
-            size="icon"
+            size="icon-sm"
             title={t('common.delete')}
             aria-label={t('common.delete')}
             disabled={actionLoading === c.Id}
@@ -438,6 +438,29 @@ function StackGroupHeader({
 
 const loadContainers = () => api.getContainers()
 
+// Stacks start collapsed: a busy host lists dozens of containers, and opening
+// every stack at once made the page hard to read. The ones a viewer opens
+// are remembered in this browser only; storage that is missing or blocked
+// just means they start collapsed again.
+const EXPANDED_STACKS_KEY = 'sfpanel_docker_expanded_stacks'
+
+function readExpandedStacks(): string[] {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(EXPANDED_STACKS_KEY) ?? '[]')
+    return Array.isArray(saved) ? saved.filter((name): name is string => typeof name === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function writeExpandedStacks(names: Set<string>) {
+  try {
+    localStorage.setItem(EXPANDED_STACKS_KEY, JSON.stringify([...names]))
+  } catch {
+    // Blocked storage: stacks still open and close, they are just not remembered.
+  }
+}
+
 export default function DockerContainers() {
   const { t } = useTranslation()
   const confirm = useConfirm()
@@ -450,7 +473,7 @@ export default function DockerContainers() {
   const [detailTab, setDetailTab] = useState<string>('inspect')
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') ?? '')
   const [filterState, setFilterState] = useState<'all' | 'running' | 'stopped' | 'attention'>('all')
-  const [collapsedStacks, setCollapsedStacks] = useState<Set<string>>(new Set())
+  const [expandedStacks, setExpandedStacks] = useState<Set<string>>(() => new Set(readExpandedStacks()))
   const [statsMap, setStatsMap] = useState<Record<string, ContainerStatsResult>>({})
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [batchMode, setBatchMode] = useState(false)
@@ -702,13 +725,53 @@ export default function DockerContainers() {
     return { stacks: sortedStacks, standalone }
   })()
 
+  useEffect(() => { writeExpandedStacks(expandedStacks) }, [expandedStacks])
+
+  // A stack holding a container that needs attention starts open, so a
+  // collapsed list never hides an unhealthy container. Decided once, on the
+  // first load, and not remembered: closing it again sticks.
+  const [attentionStacks, setAttentionStacks] = useState<Set<string> | null>(null)
+  useEffect(() => {
+    if (attentionStacks !== null || containers.length === 0) return
+    setAttentionStacks(new Set(containers
+      .filter((c) => containerNeedsAttention(c.State, c.Status))
+      .map((c) => c.Labels?.['com.docker.compose.project'])
+      .filter((name): name is string => !!name)))
+  }, [containers, attentionStacks])
+
+  // A search or a filter shows what it found rather than leave it inside a
+  // closed stack. A stack closed during one stays closed until it changes.
+  const showAllStacks = searchQuery !== '' || filterState !== 'all'
+  const searchKey = `${filterState}\n${searchQuery}`
+  const [closedInSearch, setClosedInSearch] = useState<{ key: string; names: Set<string> }>({ key: '', names: new Set() })
+  const searchClosed = closedInSearch.key === searchKey ? closedInSearch.names : new Set<string>()
+  const isStackOpen = (name: string) => showAllStacks
+    ? !searchClosed.has(name)
+    : expandedStacks.has(name) || !!attentionStacks?.has(name)
+
   const toggleStack = (name: string) => {
-    setCollapsedStacks(prev => {
-      const next = new Set(prev)
+    if (showAllStacks) {
+      const next = new Set(searchClosed)
       if (next.has(name)) next.delete(name)
       else next.add(name)
-      return next
-    })
+      setClosedInSearch({ key: searchKey, names: next })
+    } else if (isStackOpen(name)) {
+      setExpandedStacks(prev => { const next = new Set(prev); next.delete(name); return next })
+      setAttentionStacks(prev => { if (!prev?.has(name)) return prev; const next = new Set(prev); next.delete(name); return next })
+    } else {
+      setExpandedStacks(prev => new Set(prev).add(name))
+    }
+  }
+
+  const stackNames = groupedContainers.stacks.map(([name]) => name)
+  const allStacksExpanded = stackNames.length > 0 && stackNames.every(isStackOpen)
+  const toggleAllStacks = () => {
+    if (allStacksExpanded) {
+      setExpandedStacks(new Set())
+      setAttentionStacks(new Set())
+    } else {
+      setExpandedStacks(new Set(stackNames))
+    }
   }
 
   // Shared action props for ContainerRow / MobileContainerCard
@@ -765,9 +828,9 @@ export default function DockerContainers() {
         </div>
       </div>
 
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-        <div className="relative flex-1 sm:max-w-xs">
+      {/* Toolbar: wraps rather than squeezing the search box to a few letters. */}
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
+        <div className="relative flex-1 sm:min-w-[200px] sm:max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder={t('docker.containers.searchPlaceholder')}
@@ -815,6 +878,18 @@ export default function DockerContainers() {
             <CheckSquare />
             {t('docker.containers.batchMode')}
           </Button>
+          {stackNames.length > 0 && !showAllStacks && (
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={toggleAllStacks}
+              className="rounded-xl"
+              title={allStacksExpanded ? t('docker.containers.collapseAll') : t('docker.containers.expandAll')}
+              aria-label={allStacksExpanded ? t('docker.containers.collapseAll') : t('docker.containers.expandAll')}
+            >
+              {allStacksExpanded ? <ChevronsDownUp /> : <ChevronsUpDown />}
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={fetchContainers} disabled={loading} className="rounded-xl">
             <RefreshCw className={loading ? 'animate-spin' : ''} />
             <span>{t('common.refresh')}</span>
@@ -861,7 +936,7 @@ export default function DockerContainers() {
         )}
         {/* Stack groups */}
         {groupedContainers.stacks.map(([stackName, stackContainers]) => {
-          const isCollapsed = collapsedStacks.has(stackName)
+          const isCollapsed = !isStackOpen(stackName)
           const stackRunning = stackContainers.filter(c => c.State === 'running').length
           const isStackLoading = stackActionLoading === stackName
           return (
@@ -919,7 +994,7 @@ export default function DockerContainers() {
 
       {/* Desktop table view */}
       <div className={`bg-card rounded-2xl card-shadow overflow-hidden overflow-x-auto ${(error || loading) && containers.length === 0 ? 'hidden' : 'hidden md:block'}`}>
-      <Table className="table-fixed w-full min-w-[800px]">
+      <Table className="table-fixed w-full min-w-[760px]">
         <TableHeader>
           <TableRow className="border-border/50">
             {batchMode && (
@@ -930,13 +1005,16 @@ export default function DockerContainers() {
                 />
               </TableHead>
             )}
-            <TableHead className="text-[11px] w-[17%]">{t('docker.containers.name')}</TableHead>
+            <TableHead className="text-[11px] w-[18%]">{t('docker.containers.name')}</TableHead>
             <TableHead className="text-[11px] w-[14%]">{t('docker.containers.image')}</TableHead>
-            <TableHead className="text-[11px] w-[7%]">{t('docker.containers.status')}</TableHead>
-            <TableHead className="text-[11px] w-[11%]">{t('docker.containers.resources')}</TableHead>
-            <TableHead className="text-[11px] w-[16%]">{t('docker.containers.ports')}</TableHead>
-            <TableHead className="text-[11px] w-[8%]">{t('common.created')}</TableHead>
-            <TableHead className="text-right text-[11px] w-[27%]">{t('common.actions')}</TableHead>
+            <TableHead className="text-[11px] w-[9%]">{t('docker.containers.status')}</TableHead>
+            <TableHead className="text-[11px] w-[9%]">{t('docker.containers.resources')}</TableHead>
+            <TableHead className="text-[11px] w-[10%]">{t('docker.containers.ports')}</TableHead>
+            <TableHead className="text-[11px] w-[9%]">{t('common.created')}</TableHead>
+            {/* The six row buttons at 32px, or 44px on a touch screen
+                (index.css); a share of the width left them too narrow a
+                column, and they ran over the date beside it. */}
+            <TableHead className="text-right text-[11px] w-[232px] pointer-coarse:w-[300px]">{t('common.actions')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -949,7 +1027,7 @@ export default function DockerContainers() {
           )}
           {/* Stack groups */}
           {groupedContainers.stacks.map(([stackName, stackContainers]) => {
-            const isCollapsed = collapsedStacks.has(stackName)
+            const isCollapsed = !isStackOpen(stackName)
             const stackRunning = stackContainers.filter(c => c.State === 'running').length
             const isStackLoading = stackActionLoading === stackName
             return (

@@ -551,6 +551,8 @@
       "unpaused": "Container resumed",
       "pauseFailed": "Failed to pause container",
       "unpauseFailed": "Failed to resume container",
+      "expandAll": "Expand all",
+      "collapseAll": "Collapse all",
       "batchMode": "Batch",
       "batchStart": "Start All",
       "batchStop": "Stop All",

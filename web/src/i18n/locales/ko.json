@@ -549,6 +549,8 @@
       "unpaused": "컨테이너가 재개되었습니다",
       "pauseFailed": "컨테이너 일시정지 실패",
       "unpauseFailed": "컨테이너 재개 실패",
+      "expandAll": "모두 펼치기",
+      "collapseAll": "모두 접기",
       "batchMode": "일괄 작업",
       "batchStart": "일괄 시작",
       "batchStop": "일괄 중지",
