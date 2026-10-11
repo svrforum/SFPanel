@@ -3,10 +3,13 @@ package disk
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
@@ -34,6 +37,8 @@ func TestDeletePartitionRefusesProtectedMount(t *testing.T) {
 		return "/boot", nil
 	}
 
+	stubDeviceInUse(t, func(string) (bool, error) { return false, nil })
+
 	rec, c := deleteReq(t, "sda", "1")
 	h := &Handler{Cmd: partedAvailable()}
 	if err := h.DeletePartition(c); err != nil {
@@ -55,6 +60,7 @@ func TestDeletePartitionRefusesAnyMountedPartition(t *testing.T) {
 	orig := findDeviceMountpoint
 	t.Cleanup(func() { findDeviceMountpoint = orig })
 	findDeviceMountpoint = func(string) (string, error) { return "/mnt/data", nil }
+	stubDeviceInUse(t, func(string) (bool, error) { return false, nil })
 
 	rec, c := deleteReq(t, "sdb", "2")
 	h := &Handler{Cmd: partedAvailable()}
@@ -74,6 +80,7 @@ func TestDeletePartitionProceedsWhenUnmounted(t *testing.T) {
 	orig := findDeviceMountpoint
 	t.Cleanup(func() { findDeviceMountpoint = orig })
 	findDeviceMountpoint = func(string) (string, error) { return "", nil }
+	stubDeviceInUse(t, func(string) (bool, error) { return false, nil })
 
 	rec, c := deleteReq(t, "sdb", "2")
 	h := &Handler{Cmd: partedAvailable()}
@@ -82,6 +89,158 @@ func TestDeletePartitionProceedsWhenUnmounted(t *testing.T) {
 	}
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The kernel names partition 3 of an NVMe disk nvme0n1p3, not nvme0n13. The
+// guards looked the latter up, found nothing mounted there, and passed every
+// NVMe partition through.
+func TestPartitionDevice(t *testing.T) {
+	for _, tc := range []struct {
+		disk string
+		n    int
+		want string
+	}{
+		{"sda", 3, "/dev/sda3"},
+		{"vdb", 1, "/dev/vdb1"},
+		{"nvme0n1", 3, "/dev/nvme0n1p3"},
+		{"mmcblk0", 1, "/dev/mmcblk0p1"},
+		{"loop0", 2, "/dev/loop0p2"},
+		{"md127", 1, "/dev/md127p1"},
+	} {
+		if got := partitionDevice(tc.disk, tc.n); got != tc.want {
+			t.Errorf("partitionDevice(%q, %d) = %q, want %q", tc.disk, tc.n, got, tc.want)
+		}
+	}
+}
+
+// An LVM physical volume, a RAID member or a ZFS vdev is in use without being
+// mounted. parted removed such a partition from the table on disk and then
+// failed to tell the kernel, so the request answered with an error while the
+// partition was already gone for the next boot. The refusal has to come
+// before parted runs.
+func TestDeletePartitionRefusesPartitionInUse(t *testing.T) {
+	orig := findDeviceMountpoint
+	t.Cleanup(func() { findDeviceMountpoint = orig })
+	findDeviceMountpoint = func(string) (string, error) { return "", nil }
+	stubDeviceInUse(t, func(dev string) (bool, error) {
+		if dev != "/dev/nvme0n1p3" {
+			t.Errorf("checked %q, want /dev/nvme0n1p3", dev)
+		}
+		return true, nil
+	})
+
+	rec, c := deleteReq(t, "nvme0n1", "3")
+	cmd := partedAvailable()
+	h := &Handler{Cmd: cmd}
+	if err := h.DeletePartition(c); err != nil {
+		t.Fatalf("DeletePartition: %v", err)
+	}
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, response.ErrDeviceInUse) {
+		t.Errorf("body = %s, want %s", body, response.ErrDeviceInUse)
+	}
+	assertNotRun(t, cmd, "parted")
+}
+
+// When the check itself fails, the partition is not known to be free.
+func TestDeletePartitionFailsClosedWhenUseUnknown(t *testing.T) {
+	orig := findDeviceMountpoint
+	t.Cleanup(func() { findDeviceMountpoint = orig })
+	findDeviceMountpoint = func(string) (string, error) { return "", nil }
+	stubDeviceInUse(t, func(string) (bool, error) { return false, os.ErrPermission })
+
+	rec, c := deleteReq(t, "sdb", "2")
+	cmd := partedAvailable()
+	h := &Handler{Cmd: cmd}
+	if err := h.DeletePartition(c); err != nil {
+		t.Fatalf("DeletePartition: %v", err)
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500: %s", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "cannot tell whether /dev/sdb2 is in use") {
+		t.Errorf("body = %s, want the in-use check failure", body)
+	}
+	assertNotRun(t, cmd, "parted")
+}
+
+// mkfs.ntfs -F formatted a partition an LVM-style holder had open; the
+// mkfs.ext4 and mkfs.vfat refusals are their own, not the handler's.
+func TestFormatPartitionRefusesDeviceInUse(t *testing.T) {
+	orig := findDeviceMountpoint
+	t.Cleanup(func() { findDeviceMountpoint = orig })
+	findDeviceMountpoint = func(string) (string, error) { return "", nil }
+	// /dev/null passes the handler's block-or-character-device stat on any
+	// host, so the request reaches the in-use check.
+	stubDeviceInUse(t, func(dev string) (bool, error) {
+		if dev != "/dev/null" {
+			t.Errorf("checked %q, want /dev/null", dev)
+		}
+		return true, nil
+	})
+
+	cmd := &exec.MockCommander{Outputs: map[string]exec.MockResult{"exists:mkfs.ntfs": {}}}
+	h := &Handler{Cmd: cmd}
+	req := httptest.NewRequest(http.MethodPost, "/filesystems/format",
+		strings.NewReader(`{"device":"null","fs_type":"ntfs"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	if err := h.FormatPartition(echo.New().NewContext(req, rec)); err != nil {
+		t.Fatalf("FormatPartition: %v", err)
+	}
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, response.ErrDeviceInUse) {
+		t.Errorf("body = %s, want %s", body, response.ErrDeviceInUse)
+	}
+	assertNotRun(t, cmd, "mkfs.ntfs")
+}
+
+// The exclusive-open check against real devices. A test cannot hold a device
+// itself, so it runs only when given one held (a partition under an active
+// device-mapper target or LVM volume, or mounted) and one free, as root:
+//
+//	SFPANEL_TEST_HELD_DEV=/dev/loop0p2 SFPANEL_TEST_FREE_DEV=/dev/loop0p1
+func TestDeviceInUseOnRealDevices(t *testing.T) {
+	held, free := os.Getenv("SFPANEL_TEST_HELD_DEV"), os.Getenv("SFPANEL_TEST_FREE_DEV")
+	if held == "" || free == "" {
+		t.Skip("set SFPANEL_TEST_HELD_DEV and SFPANEL_TEST_FREE_DEV to run against real devices")
+	}
+	for _, tc := range []struct {
+		dev  string
+		want bool
+	}{
+		{held, true},
+		{free, false},
+		{"/dev/sfpanel-no-such-device", false},
+	} {
+		got, err := deviceInUse(tc.dev)
+		if err != nil {
+			t.Fatalf("deviceInUse(%s): %v", tc.dev, err)
+		}
+		if got != tc.want {
+			t.Errorf("deviceInUse(%s) = %v, want %v", tc.dev, got, tc.want)
+		}
+	}
+}
+
+func stubDeviceInUse(t *testing.T, fn func(string) (bool, error)) {
+	t.Helper()
+	orig := deviceInUse
+	t.Cleanup(func() { deviceInUse = orig })
+	deviceInUse = fn
+}
+
+func assertNotRun(t *testing.T, cmd *exec.MockCommander, name string) {
+	t.Helper()
+	for _, call := range cmd.Calls {
+		if call.Name == name {
+			t.Errorf("%s ran (%v) although the device was in use", name, call.Args)
+		}
 	}
 }
 

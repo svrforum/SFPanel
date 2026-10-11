@@ -106,6 +106,7 @@ export function setApiTranslator(fn: (key: string, fallback: string) => string) 
 // message is English and stays the fallback; a code missing here shows as sent.
 const CODE_MESSAGES: Record<string, string> = {
   DOCKER_UNAVAILABLE: 'docker.unavailable',
+  DEVICE_IN_USE: 'disk.deviceInUse',
 }
 
 /**

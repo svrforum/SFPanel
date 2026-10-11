@@ -2330,6 +2330,7 @@
   },
   "disk": {
     "title": "디스크 관리",
+    "deviceInUse": "이 장치는 사용 중입니다(마운트, LVM, RAID, ZFS 또는 스왑). 먼저 사용을 해제하세요.",
     "tabs": {
       "overview": "개요",
       "usage": "사용량",

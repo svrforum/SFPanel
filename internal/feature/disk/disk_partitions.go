@@ -114,7 +114,7 @@ func (h *Handler) DeletePartition(c echo.Context) error {
 	//
 	// The check is on the partition, not the disk: /dev/sda3 is what parted is
 	// told to remove, and /dev/sda itself is not what gets mounted.
-	partPath := fmt.Sprintf("/dev/%s%d", device, partNum)
+	partPath := partitionDevice(device, partNum)
 	if mp, err := findDeviceMountpoint(partPath); err == nil && mp != "" {
 		if isProtectedMountpoint(mp) {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
@@ -122,6 +122,18 @@ func (h *Handler) DeletePartition(c echo.Context) error {
 		}
 		return response.Fail(c, http.StatusConflict, response.ErrInvalidDevice,
 			fmt.Sprintf("partition is mounted at %s — unmount it first", mp))
+	}
+	// Not mounted is not unused: an LVM physical volume, a RAID member or a
+	// ZFS vdev never is, and parted removes one from the table on disk before
+	// failing to tell the kernel — refused on screen, gone at the next boot.
+	busy, err := deviceInUse(partPath)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
+			fmt.Sprintf("cannot tell whether %s is in use: %v", partPath, err))
+	}
+	if busy {
+		return response.Fail(c, http.StatusConflict, response.ErrDeviceInUse,
+			fmt.Sprintf("%s is in use (LVM, RAID, ZFS or swap) — release it first", partPath))
 	}
 
 	devPath := "/dev/" + device

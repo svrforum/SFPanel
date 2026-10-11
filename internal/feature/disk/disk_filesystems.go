@@ -758,6 +758,18 @@ func (h *Handler) FormatPartition(c echo.Context) error {
 			fmt.Sprintf("%s is not a block device", devPath))
 	}
 
+	// mkfs.ext4 and mkfs.vfat refuse a device the kernel holds, but mkfs.ntfs
+	// -F below formats one anyway, so the check cannot be left to each tool.
+	busy, err := deviceInUse(devPath)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
+			fmt.Sprintf("cannot tell whether %s is in use: %v", devPath, err))
+	}
+	if busy {
+		return response.Fail(c, http.StatusConflict, response.ErrDeviceInUse,
+			fmt.Sprintf("%s is in use (mounted, LVM, RAID, ZFS or swap) — release it first", devPath))
+	}
+
 	// Build the mkfs command based on filesystem type
 	var mkfsName string
 	var mkfsArgs []string

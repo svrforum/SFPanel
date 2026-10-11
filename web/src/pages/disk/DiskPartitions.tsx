@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
 import { useApiAction } from '@/hooks/useApiAction'
+import { partitionNumber } from './partitionNumber'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -115,7 +116,13 @@ export default function DiskPartitions() {
   )
 
   const handleDelete = () => {
-    if (deleteTarget) void runDelete(selectedDisk, deleteTarget.name)
+    if (!deleteTarget) return
+    const number = partitionNumber(selectedDisk, deleteTarget.name)
+    if (!number) {
+      toast.error(t('disk.partitions.deleteFailed'))
+      return
+    }
+    void runDelete(selectedDisk, number)
   }
 
   if (loading) {

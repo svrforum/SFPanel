@@ -202,6 +202,11 @@ const (
 	// the device is still running one; it cannot start until that one ends.
 	ErrSMARTTestInProgress = "SMART_TEST_IN_PROGRESS"
 
+	// ErrDeviceInUse is returned (HTTP 409) when the kernel holds a partition
+	// or disk — mounted, active swap, an LVM physical volume, a RAID member or
+	// a ZFS vdev — so it cannot be formatted or deleted until released.
+	ErrDeviceInUse = "DEVICE_IN_USE"
+
 	// Network shares (SMB/NFS).
 	ErrShareToolMissing = "SHARE_TOOL_MISSING"
 	ErrShareUnreachable = "SHARE_UNREACHABLE"

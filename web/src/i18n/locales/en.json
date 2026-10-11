@@ -2332,6 +2332,7 @@
   },
   "disk": {
     "title": "Disk Management",
+    "deviceInUse": "This device is in use (mounted, LVM, RAID, ZFS or swap). Release it first.",
     "tabs": {
       "overview": "Overview",
       "usage": "Usage",

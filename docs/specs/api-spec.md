@@ -5252,14 +5252,14 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/disks/:device/smart/test` | O | SMART self-test 트리거 (`{type:short\|long}`, v0.27.0+). 응답 `minutes` = 예상 소요 분(v0.78.9+); 이미 진행 중이면 409 `SMART_TEST_IN_PROGRESS` |
 | GET | `/api/v1/disks/:device/partitions` | O | 파티션 목록 |
 | POST | `/api/v1/disks/:device/partitions` | O | 파티션 생성 |
-| DELETE | `/api/v1/disks/:device/partitions/:number` | O | 파티션 삭제 |
+| DELETE | `/api/v1/disks/:device/partitions/:number` | O | 파티션 삭제. `:number`는 파티션 번호(`nvme0n1p3`이면 `3`). LVM·RAID·ZFS·스왑이 쓰고 있으면 409 `DEVICE_IN_USE` (v0.78.10+) |
 
 ### 파일시스템 (7개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/filesystems` | O | 파일시스템 목록 |
-| POST | `/api/v1/filesystems/format` | O | 파티션 포맷 |
+| POST | `/api/v1/filesystems/format` | O | 파티션 포맷. 마운트·LVM·RAID·ZFS·스왑으로 사용 중이면 409 `DEVICE_IN_USE` (v0.78.10+) |
 | POST | `/api/v1/filesystems/mount` | O | 마운트 |
 | POST | `/api/v1/filesystems/unmount` | O | 언마운트 |
 | POST | `/api/v1/filesystems/resize` | O | 파일시스템 리사이즈 |
