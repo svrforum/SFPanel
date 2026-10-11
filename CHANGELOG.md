@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.11] – 2026-10-11
+
+### Fixed
+
+- **A self-update that restarted the panel is no longer logged as a failed restart, and the outgoing process no longer panics.** The update and the backup restore restart the panel with `systemctl restart`, run from inside the service it restarts, so stopping the service ended systemctl too, and a restart that worked was read as one that failed: every self-update logged "systemctl restart failed" and exited in the middle of its own shutdown. On that path the update also wrote to its finished response, which panicked on most self-updates; systemd recorded a failed exit, though the new version still started. The outgoing process is the old version, so the change shows from the update after this one.
+
 ## [0.78.10] – 2026-10-11
 
 ### Fixed
