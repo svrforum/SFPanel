@@ -289,8 +289,10 @@ func TestEnableUFW_RefusesWhenInactiveAndNoStagedSSH(t *testing.T) {
 	if resp.Success {
 		t.Errorf("expected success=false, got %+v", resp)
 	}
-	if resp.Error.Code != "UFW_ENABLE_ERROR" {
-		t.Errorf("expected code UFW_ENABLE_ERROR, got %q", resp.Error.Code)
+	// Its own code, so the page can say it in the panel's language rather
+	// than show this English message (#110).
+	if resp.Error.Code != "UFW_LOCKOUT" {
+		t.Errorf("expected code UFW_LOCKOUT, got %q", resp.Error.Code)
 	}
 	if !strings.Contains(resp.Error.Message, "lock you out") {
 		t.Errorf("expected lockout message, got %q", resp.Error.Message)
@@ -324,6 +326,61 @@ func TestBuildUFWAddArgs(t *testing.T) {
 	} {
 		if got := strings.Join(buildUFWAddArgs(tc.req), " "); got != tc.want {
 			t.Errorf("%s: ufw %s, want ufw %s", tc.name, got, tc.want)
+		}
+	}
+}
+
+// The form showed "80, 443, 8000:8080" as its example and refused a list.
+// ufw takes a list of numbers and ranges, but only with tcp or udp.
+func TestValidPort(t *testing.T) {
+	for port, want := range map[string]bool{
+		"22": true, "8000:8080": true, "ssh": true,
+		"80,443": true, "80,443,8000:8080": true,
+		"ssh,http": false, "80,,443": false, "80,": false, "80, 443": false,
+		"22;id": false, "$(id)": false,
+	} {
+		if got := validPort.MatchString(port); got != want {
+			t.Errorf("validPort(%q) = %v, want %v", port, got, want)
+		}
+	}
+}
+
+func TestAddRuleRangeOrListNeedsAProtocol(t *testing.T) {
+	for _, port := range []string{"80,443", "8000:8080"} {
+		m := newUFWArgsCommander()
+		m.setExists("ufw", true)
+		h := &Handler{Cmd: m, PanelPort: 9443}
+		body := `{"action":"allow","port":"` + port + `","protocol":"any"}`
+		req := httptest.NewRequest(http.MethodPost, "/firewall/rules", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		if err := h.AddRule(echo.New().NewContext(req, rec)); err != nil {
+			t.Fatal(err)
+		}
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "needs tcp or udp") {
+			t.Errorf("%s with any protocol: %d %s", port, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// A deny list with 22 in it is refused like a deny on 22, with the lockout
+// code the page translates.
+func TestAddRuleRefusesADenyListWithSSH(t *testing.T) {
+	m := newUFWArgsCommander()
+	m.setExists("ufw", true)
+	h := &Handler{Cmd: m, PanelPort: 9443}
+	req := httptest.NewRequest(http.MethodPost, "/firewall/rules", strings.NewReader(`{"action":"deny","port":"80,22","protocol":"tcp"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	if err := h.AddRule(echo.New().NewContext(req, rec)); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"UFW_LOCKOUT"`) {
+		t.Errorf("got %d %s, want 409 UFW_LOCKOUT", rec.Code, rec.Body.String())
+	}
+	for _, c := range m.calls {
+		if strings.HasPrefix(c, "ufw deny") {
+			t.Errorf("ran %q", c)
 		}
 	}
 }

@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { validatePort, validateFrom } from './ruleValidation'
+import { normalizePort, portNeedsProtocol, validatePort, validateFrom } from './ruleValidation'
 
 interface FirewallStatus {
   active: boolean
@@ -73,6 +73,7 @@ function RuleFormFields({
 }) {
   const { t } = useTranslation()
   const portError = form.port.trim() && !validatePort(form.port)
+  const protocolError = !portError && form.port.trim() && form.protocol === 'any' && portNeedsProtocol(form.port)
   const fromError = form.from.trim() && !validateFrom(form.from)
 
   return (
@@ -121,6 +122,9 @@ function RuleFormFields({
             <SelectItem value="any">{t('firewall.rules.both')}</SelectItem>
           </SelectContent>
         </Select>
+        {protocolError && (
+          <p className="text-[11px] text-destructive">{t('firewall.rules.portNeedsProtocol')}</p>
+        )}
       </div>
 
       {/* Source IP */}
@@ -266,6 +270,7 @@ export default function FirewallRules() {
 
   const isFormValid = (form: RuleForm): boolean => {
     if (!form.port.trim() || !validatePort(form.port)) return false
+    if (form.protocol === 'any' && portNeedsProtocol(form.port)) return false
     if (form.from.trim() && !validateFrom(form.from)) return false
     return true
   }
@@ -276,7 +281,7 @@ export default function FirewallRules() {
     try {
       await api.addFirewallRule({
         action: addForm.action,
-        port: addForm.port.trim(),
+        port: normalizePort(addForm.port),
         protocol: addForm.protocol,
         from: addForm.from.trim() || 'any',
         to: '',
@@ -357,7 +362,7 @@ export default function FirewallRules() {
       // a real protection gap.) UFW appends, so the old rule's number is unchanged.
       await api.addFirewallRule({
         action: editForm.action,
-        port: editForm.port.trim(),
+        port: normalizePort(editForm.port),
         protocol: editForm.protocol,
         from: editForm.from.trim() || 'any',
         to: '',
@@ -511,7 +516,14 @@ export default function FirewallRules() {
               {rules.map((rule) => (
                 <TableRow key={`${rule.number}-${rule.to}-${rule.action}-${rule.from}`} className="group">
                   <TableCell className="font-mono text-xs">{rule.number}</TableCell>
-                  <TableCell className="text-[13px] font-mono">{rule.to}</TableCell>
+                  <TableCell className="text-[13px] font-mono">
+                    {rule.to}
+                    {rule.v6 && (
+                      <span className="ml-1.5 rounded-md bg-secondary px-1.5 py-0.5 font-sans text-[10px] text-muted-foreground">
+                        {t('firewall.rules.ipv6')}
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <span className={getActionStyle(rule.action)}>
                       {getActionLabel(rule.action)}

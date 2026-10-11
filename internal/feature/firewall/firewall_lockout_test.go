@@ -21,6 +21,10 @@ func TestRuleAllowsPort(t *testing.T) {
 		{"empty to", UFWRule{Action: "ALLOW", To: ""}, 22, false},
 		{"port range covers", UFWRule{Action: "ALLOW", To: "20:25/tcp"}, 22, true},
 		{"port range outside", UFWRule{Action: "ALLOW", To: "100:200/tcp"}, 22, false},
+		// ufw lists a multiport rule as "22,80/tcp".
+		{"port list with 22", UFWRule{Action: "ALLOW", To: "22,80/tcp"}, 22, true},
+		{"port list with a range covering 22", UFWRule{Action: "ALLOW", To: "80,20:25/tcp"}, 22, true},
+		{"port list without 22", UFWRule{Action: "ALLOW", To: "80,443/tcp"}, 22, false},
 	}
 	for _, c := range cases {
 		got := ruleAllowsPort(c.rule, c.port)
@@ -65,6 +69,10 @@ func TestWouldLockOutOnAdd(t *testing.T) {
 		{"deny panel port", AddRuleRequest{Action: "deny", Port: "9443"}, true},
 		{"deny other port", AddRuleRequest{Action: "deny", Port: "8080"}, false},
 		{"deny range covering 22", AddRuleRequest{Action: "deny", Port: "20:30"}, true},
+		// The form takes lists now; one with 22 in it read as no port at all.
+		{"deny list with 22", AddRuleRequest{Action: "deny", Port: "80,22,443"}, true},
+		{"deny list with the panel port in a range", AddRuleRequest{Action: "deny", Port: "80,9000:9500"}, true},
+		{"deny list of other ports", AddRuleRequest{Action: "deny", Port: "80,443"}, false},
 		{"deny range covering panel", AddRuleRequest{Action: "deny", Port: "9000:9500"}, true},
 		{"deny range missing both", AddRuleRequest{Action: "deny", Port: "8000:8080"}, false},
 		{"deny OpenSSH app profile", AddRuleRequest{Action: "deny", Port: "OpenSSH"}, true},

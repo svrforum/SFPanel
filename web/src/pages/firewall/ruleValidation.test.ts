@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateFrom, validatePort } from './ruleValidation'
+import { normalizePort, portNeedsProtocol, validateFrom, validatePort } from './ruleValidation'
 
 // These two functions gate what reaches the UFW rule builder, so the cases
 // below lean on rejecting shell metacharacters and accepting the address
@@ -15,7 +15,10 @@ describe('validatePort', () => {
     ['surrounding whitespace is trimmed away', '  22  ', true],
     ['empty string', '', false],
     ['protocol suffix', '80/tcp', false],
-    ['comma-separated list', '22,80', false],
+    ['comma-separated list', '22,80', true],
+    ['list as the example writes it', '80, 443, 8000:8080', true],
+    ['list of service names', 'ssh,http', false],
+    ['empty list item', '80,,443', false],
     ['shell metacharacters', '22; rm -rf /', false],
     ['command substitution', '$(id)', false],
     ['space-separated pair', '22 80', false],
@@ -62,5 +65,21 @@ describe('validateFrom', () => {
 
   it.each(cases)('%s', (_name, input, want) => {
     expect(validateFrom(input)).toBe(want)
+  })
+})
+
+describe('normalizePort', () => {
+  it('drops the spaces around commas, and only those', () => {
+    expect(normalizePort(' 80, 443 ,8000:8080 ')).toBe('80,443,8000:8080')
+    expect(normalizePort('22 80')).toBe('22 80')
+  })
+})
+
+describe('portNeedsProtocol', () => {
+  it('asks for tcp or udp for a range or a list, as ufw does', () => {
+    expect(portNeedsProtocol('8000:8080')).toBe(true)
+    expect(portNeedsProtocol('80, 443')).toBe(true)
+    expect(portNeedsProtocol('22')).toBe(false)
+    expect(portNeedsProtocol('ssh')).toBe(false)
   })
 })

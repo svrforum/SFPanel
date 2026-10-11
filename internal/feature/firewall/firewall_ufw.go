@@ -87,7 +87,7 @@ func (h *Handler) EnableUFW(c echo.Context) error {
 		// guard instead of triggering a false-positive 409.
 		if rules, err := h.loadUFWRulesForLockoutCheck(); err == nil {
 			if !hasAccessRule(rules, h.PanelPort) {
-				return response.Fail(c, http.StatusConflict, response.ErrUFWEnableError,
+				return response.Fail(c, http.StatusConflict, response.ErrUFWLockout,
 					"Enabling UFW with no ALLOW rule for SSH (port 22) or the panel port would lock you out. "+
 						"Add an allow rule first, or pass ?force=true to confirm.")
 			}
@@ -254,7 +254,7 @@ func (h *Handler) AddRule(c echo.Context) error {
 	}
 	if !validPort.MatchString(req.Port) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidPort,
-			"Port must be a number, range (e.g., 8000:8080), or service name")
+			"Port must be a number, range (e.g., 8000:8080), list (e.g., 80,443), or service name")
 	}
 
 	// Validate protocol
@@ -265,6 +265,12 @@ func (h *Handler) AddRule(c echo.Context) error {
 	if !validProtocol.MatchString(req.Protocol) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidProtocol,
 			"Protocol must be one of: tcp, udp, any")
+	}
+	// ufw refuses a range or a list without one ("Must specify 'tcp' or 'udp'
+	// with multiple ports").
+	if strings.ContainsAny(req.Port, ",:") && req.Protocol == "any" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidProtocol,
+			"A port range or list needs tcp or udp")
 	}
 
 	// Validate from address if provided
@@ -299,7 +305,7 @@ func (h *Handler) AddRule(c echo.Context) error {
 	// chain). EnableUFW and DeleteRule already enforce the inverse —
 	// keep AddRule consistent.
 	if c.QueryParam("force") != "true" && wouldLockOutOnAdd(req, h.PanelPort) {
-		return response.Fail(c, http.StatusConflict, response.ErrUFWAddRuleError,
+		return response.Fail(c, http.StatusConflict, response.ErrUFWLockout,
 			fmt.Sprintf("Refusing to %s port %s — this would block remote admin access (SSH 22 or panel %d). Pass ?force=true to confirm.", req.Action, req.Port, h.PanelPort))
 	}
 
@@ -400,7 +406,7 @@ func (h *Handler) DeleteRule(c echo.Context) error {
 			if target != nil &&
 				(ruleAllowsPort(*target, SSHPort) || ruleAllowsPort(*target, h.PanelPort)) &&
 				!hasAccessRule(remaining, h.PanelPort) {
-				return response.Fail(c, http.StatusConflict, response.ErrUFWDeleteError,
+				return response.Fail(c, http.StatusConflict, response.ErrUFWLockout,
 					"Deleting this rule would leave no ALLOW for SSH or the panel port — you'd be locked out. "+
 						"Pass ?force=true to confirm.")
 			}

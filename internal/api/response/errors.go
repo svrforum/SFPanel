@@ -135,12 +135,17 @@ const (
 
 // Firewall error codes
 const (
-	ErrFirewallError      = "FIREWALL_ERROR"
-	ErrUFWError           = "UFW_ERROR"
-	ErrUFWEnableError     = "UFW_ENABLE_ERROR"
-	ErrUFWDisableError    = "UFW_DISABLE_ERROR"
-	ErrUFWAddRuleError    = "UFW_ADD_RULE_ERROR"
-	ErrUFWDeleteError     = "UFW_DELETE_ERROR"
+	ErrFirewallError   = "FIREWALL_ERROR"
+	ErrUFWError        = "UFW_ERROR"
+	ErrUFWEnableError  = "UFW_ENABLE_ERROR"
+	ErrUFWDisableError = "UFW_DISABLE_ERROR"
+	ErrUFWAddRuleError = "UFW_ADD_RULE_ERROR"
+	ErrUFWDeleteError  = "UFW_DELETE_ERROR"
+
+	// ErrUFWLockout is returned (HTTP 409) when enabling UFW, adding a rule or
+	// deleting one would cut off SSH (22) and the panel port; ?force=true
+	// proceeds anyway. Its own code so the page can say so in its language.
+	ErrUFWLockout         = "UFW_LOCKOUT"
 	ErrIPTablesError      = "IPTABLES_ERROR"
 	ErrFail2banError      = "FAIL2BAN_ERROR"
 	ErrFail2banInstall    = "FAIL2BAN_INSTALL_ERROR"

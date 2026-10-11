@@ -38,21 +38,31 @@ func ruleAllowsPort(rule UFWRule, port int) bool {
 	case "OpenSSH", "SSH":
 		return port == SSHPort
 	}
-	// Port range like "20:25".
-	if i := strings.Index(to, ":"); i >= 0 {
-		lo, errLo := strconv.Atoi(to[:i])
-		hi, errHi := strconv.Atoi(to[i+1:])
-		if errLo != nil || errHi != nil {
-			return false
+	return portSpecCovers(to, port)
+}
+
+// portSpecCovers reports whether a ufw port spec — a number, a range
+// ("20:25") or a list of those ("22,80,8000:8080") — includes port. Lists
+// read as no port at all before the form accepted them, so a deny list with
+// 22 in it passed the lockout guard.
+func portSpecCovers(spec string, port int) bool {
+	for _, part := range strings.Split(spec, ",") {
+		first, last, isRange := strings.Cut(part, ":")
+		lo, err := strconv.Atoi(first)
+		if err != nil {
+			continue
 		}
-		return port >= lo && port <= hi
+		hi := lo
+		if isRange {
+			if hi, err = strconv.Atoi(last); err != nil {
+				continue
+			}
+		}
+		if port >= lo && port <= hi {
+			return true
+		}
 	}
-	// Bare port number.
-	n, err := strconv.Atoi(to)
-	if err != nil {
-		return false
-	}
-	return n == port
+	return false
 }
 
 // hasAccessRule returns true when the rule set contains an ALLOW for SSH
@@ -95,21 +105,7 @@ func wouldLockOutOnAdd(req AddRuleRequest, panelPort int) bool {
 	case "OpenSSH", "SSH":
 		return true
 	}
-	// Port range like "20:25".
-	if i := strings.Index(port, ":"); i >= 0 {
-		lo, errLo := strconv.Atoi(port[:i])
-		hi, errHi := strconv.Atoi(port[i+1:])
-		if errLo != nil || errHi != nil {
-			return false
-		}
-		return (SSHPort >= lo && SSHPort <= hi) || (panelPort >= lo && panelPort <= hi)
-	}
-	// Bare port number.
-	n, err := strconv.Atoi(port)
-	if err != nil {
-		return false
-	}
-	return n == SSHPort || n == panelPort
+	return portSpecCovers(port, SSHPort) || portSpecCovers(port, panelPort)
 }
 
 // loadUFWRulesForLockoutCheck returns the rule set that would apply if UFW

@@ -105,7 +105,7 @@ type Fail2banJail struct {
 // ---------- Validation ----------
 
 // validPort matches port numbers, ranges (e.g., "8000:8080"), and service names.
-var validPort = regexp.MustCompile(`^[a-zA-Z0-9_\-]+(:[a-zA-Z0-9_\-]+)?$`)
+var validPort = regexp.MustCompile(`^(?:[a-zA-Z0-9_\-]+(?::[a-zA-Z0-9_\-]+)?|\d+(?::\d+)?(?:,\d+(?::\d+)?)+)$`)
 
 // isValidIPOrCIDR validates an IP address or CIDR notation using net.ParseIP and net.ParseCIDR.
 func isValidIPOrCIDR(s string) bool {

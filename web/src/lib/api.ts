@@ -109,6 +109,7 @@ const CODE_MESSAGES: Record<string, string> = {
   DEVICE_IN_USE: 'disk.deviceInUse',
   DISK_NO_PARTITION_TABLE: 'disk.partitions.noTableError',
   DISK_NOT_EMPTY: 'disk.partitions.notEmpty',
+  UFW_LOCKOUT: 'firewall.rules.lockoutBody',
 }
 
 /**
