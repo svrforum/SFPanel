@@ -1423,9 +1423,11 @@ cron 작업 삭제 (crontab에서 해당 줄 제거).
 ## 패키지 관리 API (`/api/v1/packages`)
 
 ### GET /api/v1/packages/updates
-업데이트 가능한 패키지 목록 조회 (`apt list --upgradable`).
+`apt-get update` 후 업데이트 가능한 패키지 목록 조회 (`apt list --upgradable`, `LC_ALL=C`로 실행해 호스트 언어와 무관하게 `current_version`을 읽음).
 
 - **인증 필요**: 예
+
+일부 저장소만 받지 못한 `apt-get update`(예: 구독 없는 Proxmox VE의 enterprise 저장소 401)는 실패가 아닙니다. 나머지 저장소로 목록을 만들고, 받지 못한 저장소를 `warnings`로 알립니다 (`APT_REPO_UNAUTHORIZED` / `APT_REPO_FAILED`, `details.uri`).
 
 **Response (200):**
 ```json
@@ -1441,15 +1443,30 @@ cron 작업 삭제 (crontab에서 해당 줄 제거).
       }
     ],
     "total": 1,
-    "last_checked": "2026-02-26T10:00:00Z"
+    "last_checked": "2026-02-26T10:00:00Z",
+    "warnings": [
+      {
+        "code": "APT_REPO_UNAUTHORIZED",
+        "message": "repository https://enterprise.proxmox.com/debian/pve refused access (401)",
+        "details": { "uri": "https://enterprise.proxmox.com/debian/pve" }
+      }
+    ]
   }
 }
 ```
+`warnings`는 받지 못한 저장소가 있을 때만 있습니다.
+
+**에러 응답:**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `APT_TRANSACTION_RUNNING` | 409 | 패키지 트랜잭션이 실행 중 (`details.id`, `details.kind`) |
+| `APT_UPDATE_ERROR` | 409 | 패널 밖의 프로세스가 dpkg 잠금을 쥐고 있음 |
+| `APT_UPDATE_ERROR` | 500 | 어떤 목록도 갱신하지 못한 `apt-get update` 실패 (apt의 `E:` 줄 포함) |
 
 ---
 
 ### POST /api/v1/packages/upgrade
-패키지 업그레이드 실행. 특정 패키지 지정 가능.
+패키지 업그레이드를 **패키지 트랜잭션**으로 실행 (아래 "패키지 트랜잭션" 참조). 특정 패키지 지정 가능.
 
 - **인증 필요**: 예
 
@@ -1464,18 +1481,27 @@ cron 작업 삭제 (crontab에서 해당 줄 제거).
 |------|------|------|------|
 | `packages` | string[] | 아니오 | 업그레이드할 패키지 목록. 비어있으면 전체 업그레이드 |
 
-**응답은 SSE(`text/event-stream`)** 스트림입니다 — `apt-get` 출력이 `data:` 라인으로 실시간 전달되고 완료 시 `[DONE]`. (이전 버전의 unary JSON 응답에서 변경됨.)
+먼저 `apt-get update`를 실행하고(일부 저장소만 실패하면 경고를 남기고 계속, 그 밖의 실패면 아무것도 바꾸지 않고 종료), 이어서 다음 명령을 트랜잭션 유닛에서 실행합니다. 모두 `-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold`를 붙여, 운영자가 고친 설정 파일은 그대로 두고 새 버전은 `.dpkg-dist`로 남깁니다.
+
+| 경우 | 명령 |
+|------|------|
+| `packages` 지정 | `apt-get install --only-upgrade -y -- <packages>` |
+| 전체, Proxmox VE 호스트 | `apt-get -y dist-upgrade` (Proxmox가 요구하는 방식) |
+| 전체, 그 밖의 호스트 | `apt-get -y --with-new-pkgs upgrade` (새 커널 등 업데이트에 필요한 새 패키지는 설치하고, 제거는 하지 않음) |
+
+**응답은 SSE(`text/event-stream`)** 스트림입니다 — 형식은 아래 "패키지 트랜잭션"의 스트림과 같습니다.
 
 **사전 실패 (스트림 시작 전):**
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `INVALID_PACKAGE_NAME` | 400 | 패키지 이름에 허용되지 않는 문자 포함 |
-| `CONFLICT` | 409 | dpkg 프런트엔드 락 점유 중 |
+| `APT_TRANSACTION_RUNNING` | 409 | 다른 패키지 트랜잭션이 실행 중 (`details.id`, `details.kind`) |
+| `APT_UPGRADE_ERROR` | 409 | 패널 밖의 프로세스(unattended-upgrades, 셸의 apt 등)가 dpkg 잠금을 쥐고 있음 |
 
 ---
 
 ### POST /api/v1/packages/install
-단일 패키지 설치.
+단일 패키지 설치. 요청 안에서 `apt-get install`을 실행하는 단발 호출로, 터미널의 tmux 설치 안내가 씁니다. 패키지 화면의 설치는 `POST /api/v1/packages/install-stream`을 씁니다.
 
 - **인증 필요**: 예
 
@@ -1502,12 +1528,108 @@ cron 작업 삭제 (crontab에서 해당 줄 제거).
 |------|-----------|------|
 | `MISSING_FIELDS` | 400 | 패키지 이름 누락 |
 | `INVALID_PACKAGE_NAME` | 400 | 허용 문자: `a-zA-Z0-9._+-` |
+| `DOCKER_ON_PVE` | 409 | Proxmox VE 호스트에 Docker 엔진을 설치하게 되는 경우 (`details.package`: apt 시뮬레이션이 고른 `docker.io`/`docker-ce`/`moby-engine`). 이미 설치된 엔진의 업그레이드는 해당 없음 |
+| `APT_TRANSACTION_RUNNING` | 409 | 패키지 트랜잭션이 실행 중 |
+| `APT_INSTALL_ERROR` | 409 | 패널 밖의 프로세스가 dpkg 잠금을 쥐고 있음 |
 | `APT_INSTALL_ERROR` | 500 | 설치 실패 |
 
 ---
 
+### POST /api/v1/packages/install-stream
+패키지 화면의 단일 패키지 설치를 **패키지 트랜잭션**으로 실행 (`apt-get -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold install -y -- <name>`). 요청 본문과 사전 검사는 `POST /api/v1/packages/install`과 같고(`DOCKER_ON_PVE` 포함), 응답은 트랜잭션 스트림(SSE)입니다. `apt-get update`는 실행하지 않습니다.
+
+- **인증 필요**: 예
+
+**Request Body:** `{ "name": "nginx" }`
+
+**사전 실패 (스트림 시작 전):** `MISSING_FIELDS` 400, `INVALID_PACKAGE_NAME` 400, `DOCKER_ON_PVE` 409, `APT_TRANSACTION_RUNNING` 409, `APT_INSTALL_ERROR` 409(외부 dpkg 잠금).
+
+---
+
+### 패키지 트랜잭션
+
+업그레이드(`POST /packages/upgrade`)와 패키지 화면의 설치(`POST /packages/install-stream`)는 apt를 HTTP 요청의 자식이 아니라 노드의 **transient systemd 유닛**으로 실행합니다:
+
+```
+systemd-run --unit=sfpanel-apt-<id>.service --collect --quiet --description="SFPanel package <kind>" \
+  -p StandardOutput=append:/var/log/sfpanel/apt/<id>.log -p StandardError=inherit \
+  --setenv=DEBIAN_FRONTEND=noninteractive -- /bin/sh -c '"$@"; rc=$?; echo "[sfpanel-apt] exit=$rc"; exit $rc' sh apt-get …
+```
+
+- 탭을 닫거나, 리버스 프록시·클러스터 릴레이(5분)가 연결을 끊거나, 패널이 재시작해도 **스트리밍만 끊기고 apt는 계속 실행**됩니다. 유닛은 패널의 샌드박스 밖이라 setuid 파일을 푸는 dpkg도 막히지 않습니다.
+- 노드당 하나만 실행됩니다. 실행 중에는 업그레이드·설치·제거·업데이트 확인·Docker 설치가 `409 APT_TRANSACTION_RUNNING`(`details.id`, `details.kind`)으로 거절됩니다. 재시작한 패널은 실행 중인 `sfpanel-apt-*` 유닛으로 트랜잭션을 다시 찾습니다.
+- 로그는 `/var/log/sfpanel/apt/<id>.log`(설명은 `<id>.json`)에 남고 최근 20개만 보관합니다. `<id>`는 `YYYYMMDD-HHMMSS-xxxx`(UTC).
+- systemd가 없는 호스트(컨테이너 등)에서는 같은 명령을 패널의 자식 프로세스로 실행합니다(이 경우 패널 재시작은 apt도 끝냅니다).
+
+**스트림 형식** (`text/event-stream`): 맨 앞에 트랜잭션 id를 SSE 이벤트 id로 보내고, 이어서 로그의 각 줄을 `data:`로 보냅니다(ANSI·비밀 패턴 제거, dpkg 진행률의 CR은 마지막 상태만). 15초 동안 보낼 것이 없으면 `: keepalive` 주석을 보냅니다. 트랜잭션이 끝나면 결과 한 줄과 `[DONE]`으로 끝납니다.
+```
+id: 20261012-101500-a1b2
+
+data: >>> apt-get update
+
+data: Hit:1 http://deb.debian.org/debian trixie InRelease
+
+data: >>> apt-get -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -y dist-upgrade
+
+data: Setting up pve-manager (9.2.4) ...
+
+data: >>> Packages upgraded successfully
+
+data: [DONE]
+```
+결과 줄은 성공 시 `>>> …`, 실패 시 `ERROR: apt-get failed with exit status N`, 유닛이 결과를 남기지 못하고 사라진 경우 `ERROR: apt stopped without saying how it ended …`입니다. 성공·실패의 판단은 결과 줄의 문구가 아니라 `GET /packages/transaction`의 `result`로 하세요 — 구독 없는 Proxmox의 정상 업그레이드 로그에도 enterprise 저장소에 대한 `E:` 줄이 있습니다.
+
+### GET /api/v1/packages/transaction
+노드의 패키지 트랜잭션: 실행 중인 것, 없으면 이 프로세스가 마지막으로 실행한 것, 그것도 없으면 `null`.
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "transaction": {
+      "id": "20261012-101500-a1b2",
+      "kind": "upgrade",
+      "packages": [],
+      "command": "apt-get -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -y dist-upgrade",
+      "started_at": "2026-10-12T10:15:00Z",
+      "running": false,
+      "result": "success",
+      "exit_code": 0,
+      "warnings": [
+        { "code": "APT_REPO_UNAUTHORIZED", "message": "repository https://enterprise.proxmox.com/debian/pve refused access (401)", "details": { "uri": "https://enterprise.proxmox.com/debian/pve" } }
+      ]
+    }
+  }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `kind` | `upgrade` / `install` (재시작한 패널이 설명 파일 없이 찾은 경우 `""`) |
+| `running` | 유닛이 아직 실행 중 |
+| `result` | 끝난 뒤: `success` / `failed` / `interrupted`(유닛이 중지·강제 종료되어 apt의 결과가 없음) |
+| `exit_code` | apt-get의 종료 코드 (`interrupted`나 시작 전 실패에는 없음) |
+| `warnings` | 업그레이드 전 `apt-get update`가 받지 못한 저장소 |
+
+### GET /api/v1/packages/transaction/stream
+실행 중인(또는 지난) 트랜잭션의 스트림을 다시 받습니다 — 시작한 요청과 같은 형식. 닫았던 화면, 새로고침, 프록시나 클러스터 릴레이가 끊은 스트림을 이어 볼 때 씁니다.
+
+- **인증 필요**: 예
+
+| 파라미터 | 설명 |
+|----------|------|
+| `id` | 트랜잭션 id (생략하면 현재 트랜잭션). 현재가 아닌 id는 남아 있는 로그로 재생 |
+| `skip` | 앞에서 건너뛸 로그 줄 수 — 페이지가 이미 받은 만큼 |
+
+**에러 응답:** `INVALID_ID` 400 (id 형식 오류), `NOT_FOUND` 404 (트랜잭션 또는 로그 없음).
+
+---
+
 ### POST /api/v1/packages/remove
-단일 패키지 제거.
+단일 패키지 제거. 패키지 트랜잭션이 실행 중이면 `409 APT_TRANSACTION_RUNNING`.
 
 - **인증 필요**: 예
 
@@ -1573,10 +1695,22 @@ Docker 및 Docker Compose 설치/실행 상태 확인.
     "installed": true,
     "version": "Docker version 27.5.1, build abcdef",
     "running": true,
-    "compose_available": true
+    "compose_available": true,
+    "compose_v1_only": false,
+    "proxmox_host": false,
+    "forward_policy": "DROP",
+    "bridge_nf_call_iptables": null
   }
 }
 ```
+
+| 필드 | 설명 |
+|------|------|
+| `compose_available` | `docker compose`(v2 플러그인, 스택이 쓰는 것)가 있음. 예전 `docker-compose` 바이너리만으로는 `false` |
+| `compose_v1_only` | `docker-compose` v1 바이너리만 있음 |
+| `proxmox_host` | Proxmox VE 호스트 — 화면은 Docker 설치 대신 VM/LXC 안내를 보여줌 |
+| `forward_policy` | (Docker 설치 시) filter 테이블 FORWARD 정책 (`iptables -S FORWARD`). dockerd가 포워딩을 직접 켤 때 `DROP`으로 바꿈 |
+| `bridge_nf_call_iptables` | (Docker 설치 시) 브리지를 지나는 프레임이 iptables를 거치는지. `null`은 br_netfilter 미로드(거치지 않음) |
 
 ---
 
@@ -1585,6 +1719,12 @@ Docker Engine 설치 (get.docker.com 스크립트 사용). SSE(Server-Sent Event
 
 - **인증 필요**: 예
 - **응답 형식**: `text/event-stream` (표준 JSON 응답이 아님)
+
+**사전 실패 (스트림 시작 전):**
+| 코드 | HTTP 상태 | 조건 |
+|------|-----------|------|
+| `DOCKER_ON_PVE` | 409 | Proxmox VE 호스트 — Docker의 FORWARD DROP 정책이 게스트 네트워크를 끊을 수 있어 설치하지 않음. VM이나 LXC 컨테이너 안에 설치 |
+| `APT_TRANSACTION_RUNNING` | 409 | 패키지 트랜잭션이 실행 중 (스크립트가 apt를 실행하므로) |
 
 **Response:** SSE 스트림
 ```
@@ -5336,13 +5476,16 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | PUT | `/api/v1/fail2ban/jails/:name/config` | O | Jail 설정 변경 |
 | POST | `/api/v1/fail2ban/jails/:name/unban` | O | IP 차단 해제 |
 
-### 패키지 관리 (13개)
+### 패키지 관리 (16개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/packages/updates` | O | 업데이트 확인 |
-| POST | `/api/v1/packages/upgrade` | O | 패키지 업그레이드 |
+| POST | `/api/v1/packages/upgrade` | O | 패키지 업그레이드 (트랜잭션, SSE) |
 | POST | `/api/v1/packages/install` | O | 패키지 설치 |
+| POST | `/api/v1/packages/install-stream` | O | 패키지 설치 (트랜잭션, SSE) |
+| GET | `/api/v1/packages/transaction` | O | 실행 중이거나 마지막 패키지 트랜잭션 |
+| GET | `/api/v1/packages/transaction/stream` | O | 패키지 트랜잭션 스트림 다시 받기 (SSE) |
 | POST | `/api/v1/packages/remove` | O | 패키지 제거 |
 | GET | `/api/v1/packages/search` | O | 패키지 검색 |
 | GET | `/api/v1/packages/docker-status` | O | Docker 상태 확인 |
@@ -5514,7 +5657,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 - **규칙** (`alert_rules`): `{ id, name, type, condition(JSON), channel_ids(JSON 배열), severity:"info"|"warning"|"critical", cooldown(초), node_scope:"all"|"specific", node_ids(JSON), enabled }`. `type`은 호스트형(`cpu`/`memory`/`disk`)이면 `condition={"operator":">","threshold":90}`, 컨테이너형(`container_down`/`container_oom`/`container_restart_loop`/`container_unhealthy`)이면 `condition={"container_pattern":"*","threshold_count":N,"window_seconds":N}`.
 - **이력** (`alert_history`): `GET`은 `?page=&limit=` 페이지네이션 → `{items[], total, page, limit}`. 각 항목 `{ rule_id, rule_name, type, severity, message, sent_channels(JSON), created_at }`. `DELETE`는 전체 삭제.
 
-### SSE 스트리밍 (8개)
+### SSE 스트리밍 (11개)
 
 위 표들의 라우트 중 `Content-Type: text/event-stream`으로 응답하는 엔드포인트 목록. 자세한 이벤트 스키마는 `docs/specs/websocket-spec.md` 참조.
 
@@ -5524,6 +5667,9 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/docker/images/pull` | Docker 이미지 풀 |
 | POST | `/api/v1/docker/compose/:project/up-stream` | Compose 시작 스트리밍 |
 | POST | `/api/v1/docker/compose/:project/update-stream` | Compose 업데이트 스트리밍 |
+| POST | `/api/v1/packages/upgrade` | 패키지 업그레이드 (트랜잭션) |
+| POST | `/api/v1/packages/install-stream` | 패키지 설치 (트랜잭션) |
+| GET | `/api/v1/packages/transaction/stream` | 패키지 트랜잭션 스트림 다시 받기 |
 | POST | `/api/v1/packages/install-docker` | Docker 엔진 설치 |
 | POST | `/api/v1/packages/install-node` | Node.js/NVM 설치 |
 | POST | `/api/v1/network/tailscale/install` | Tailscale 설치 |

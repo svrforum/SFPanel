@@ -700,7 +700,7 @@ go func() {
 
 ## Server-Sent Events (SSE) 스트리밍
 
-WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 9개가 존재한다. REST API와 달리 `Content-Type: text/event-stream`을 반환하고, 장시간 실행되는 명령(설치, 업데이트, 이미지 풀 등)의 출력을 라인 단위로 스트리밍한다.
+WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 12개가 존재한다. REST API와 달리 `Content-Type: text/event-stream`을 반환하고, 장시간 실행되는 명령(설치, 업데이트, 이미지 풀 등)의 출력을 라인 단위로 스트리밍한다.
 
 ### 인증
 
@@ -710,6 +710,7 @@ WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 9�
 
 - 서버가 각 이벤트 후 `flusher.Flush()`를 명시적으로 호출하여 즉각 전송
 - 클라이언트 연결 종료는 `ctx.Request().Context().Done()`으로 감지, 서브 프로세스에 SIGTERM 전파
+- 예외: **패키지 트랜잭션**(`/packages/upgrade`, `/packages/install-stream`)의 apt는 요청의 자식이 아니라 transient 유닛(`sfpanel-apt-<id>`)에서 실행되므로, 연결 종료는 스트리밍만 끝낸다. `/packages/transaction/stream`으로 이어 받는다 (REST 스펙의 "패키지 트랜잭션" 참조)
 - 종료 마커: 평문 스트림은 `data: [DONE]\n\n`, JSON 스트림은 `{"step":"complete"}` 또는 `{"phase":"complete"}`
 
 ### 엔드포인트 표
@@ -720,6 +721,9 @@ WebSocket 외에 **단방향 진행률 푸시** 용도로 SSE 엔드포인트 9�
 | `/api/v1/docker/images/pull` | POST | Docker 이미지 풀 | JSON (Docker Engine API 이벤트 그대로 포워딩) |
 | `/api/v1/docker/compose/:project/up-stream` | POST | Compose 프로젝트 시작 | JSON `{phase, line}` — phase: `deploy` / `complete` |
 | `/api/v1/docker/compose/:project/update-stream` | POST | Compose 이미지 풀 + 서비스 재생성 | JSON `{phase, line}` — phase: `pull` / `update` / `complete` |
+| `/api/v1/packages/upgrade` | POST | 패키지 업그레이드 (패키지 트랜잭션) | 처음에 `id: <트랜잭션 id>`, 이후 평문 라인, 결과 한 줄 뒤 `[DONE]`. 15초 무출력 시 `: keepalive` |
+| `/api/v1/packages/install-stream` | POST | 패키지 화면의 패키지 설치 (패키지 트랜잭션) | `/packages/upgrade`와 같음 |
+| `/api/v1/packages/transaction/stream` | GET | 실행 중이거나 지난 패키지 트랜잭션 다시 받기 (`?id=`, `?skip=<받은 줄 수>`) | `/packages/upgrade`와 같음 |
 | `/api/v1/packages/install-docker` | POST | Docker 엔진 설치 (get.docker.com 스크립트) | 평문 라인, 종료 시 `[DONE]` |
 | `/api/v1/packages/install-node` | POST | Node.js/NVM 설치 | 평문 라인, 종료 시 `[DONE]` |
 | `/api/v1/network/tailscale/install` | POST | Tailscale 설치 (공식 install.sh) | 평문 라인, 종료 시 `[DONE]` |
