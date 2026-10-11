@@ -24,4 +24,5 @@ export const CODE_MESSAGES: Record<string, string> = {
   TAILSCALE_ROUTE_OVERLAP: 'network.tailscale.routeOverlap',
   APT_REPO_UNAUTHORIZED: 'packages.repoUnauthorized',
   APT_REPO_FAILED: 'packages.repoFailed',
+  APT_TRANSACTION_RUNNING: 'packages.transactionRunning',
 }

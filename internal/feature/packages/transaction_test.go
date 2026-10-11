@@ -104,6 +104,9 @@ func TestUpgradeRunsInATransientUnitWithThePlatformsVerb(t *testing.T) {
 			if strings.Contains(rec.Body.String(), txExitMarker) {
 				t.Errorf("the exit marker reached the page:\n%s", rec.Body.String())
 			}
+			if !strings.HasPrefix(rec.Body.String(), "id: "+tx.ID+"\n\n") {
+				t.Errorf("the stream does not name its transaction first:\n%s", rec.Body.String())
+			}
 			if tx.Running || tx.Result != txSuccess || tx.ExitCode == nil || *tx.ExitCode != 0 {
 				t.Errorf("transaction %+v, want a success with exit code 0", tx)
 			}

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { StatusPill } from '@/components/StatusPill'
 import type { SSEOutput } from '@/components/OutputDialog'
+import type { AptTransactions } from '@/pages/packages/useAptTransaction'
 import {
   Table,
   TableBody,
@@ -17,10 +18,11 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
-// apt search + install/remove. These are unary API calls (not SSE); their
-// captured output is still shown in the shared output dialog for parity with
-// the streaming operations.
-export function PackageSearchCard({ output }: { output: SSEOutput }) {
+// apt search, install and remove. An install is a package transaction
+// (useAptTransaction): apt runs in a unit of its own on the node and its
+// dialog streams it. A remove is a unary call whose captured output goes into
+// the shared output dialog.
+export function PackageSearchCard({ output, tx }: { output: SSEOutput; tx: AptTransactions }) {
   const { t } = useTranslation()
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<PackageSearchResult[]>([])
@@ -49,30 +51,19 @@ export function PackageSearchCard({ output }: { output: SSEOutput }) {
   const handleInstallPackage = useCallback(
     async (name: string) => {
       setInstallName(name)
-      output.openOutput(t('packages.installingPackage', { name }))
       try {
-        output.appendOutput(t('packages.installStarted', { name }) + '\n')
-        const result = (await api.installPackage(name)) as { output?: string }
-        if (result?.output) {
-          output.appendOutput(result.output)
+        const done = await tx.install(name)
+        if (done?.result === 'success') {
+          // Update search results to reflect installed status
+          setSearchResults((prev) =>
+            prev.map((pkg) => (pkg.name === name ? { ...pkg, installed: true } : pkg)),
+          )
         }
-        output.appendOutput('\n' + t('packages.installSuccess', { name }) + '\n')
-        output.finishOutput()
-        toast.success(t('packages.installSuccess', { name }))
-        // Update search results to reflect installed status
-        setSearchResults((prev) =>
-          prev.map((pkg) => (pkg.name === name ? { ...pkg, installed: true } : pkg)),
-        )
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : t('packages.installFailed', { name })
-        output.appendOutput('\n' + t('packages.error') + ': ' + message + '\n')
-        output.finishOutput()
-        toast.error(message)
       } finally {
         setInstallName(null)
       }
     },
-    [output, t],
+    [tx],
   )
 
   const handleRemovePackage = useCallback(
@@ -170,7 +161,7 @@ export function PackageSearchCard({ output }: { output: SSEOutput }) {
                           size="sm"
                           className="rounded-xl"
                           onClick={() => handleInstallPackage(pkg.name)}
-                          disabled={installName === pkg.name}
+                          disabled={installName === pkg.name || tx.busy}
                           aria-label={t('packages.install')}
                         >
                           {installName === pkg.name ? (
@@ -185,7 +176,7 @@ export function PackageSearchCard({ output }: { output: SSEOutput }) {
                           variant="destructive"
                           className="rounded-xl"
                           onClick={() => handleRemovePackage(pkg.name)}
-                          disabled={removeName === pkg.name}
+                          disabled={removeName === pkg.name || tx.busy}
                           aria-label={t('packages.remove')}
                         >
                           {removeName === pkg.name ? (
@@ -232,7 +223,7 @@ export function PackageSearchCard({ output }: { output: SSEOutput }) {
                               size="sm"
                               className="rounded-xl"
                               onClick={() => handleInstallPackage(pkg.name)}
-                              disabled={installName === pkg.name}
+                              disabled={installName === pkg.name || tx.busy}
                             >
                               {installName === pkg.name ? (
                                 <>
@@ -252,7 +243,7 @@ export function PackageSearchCard({ output }: { output: SSEOutput }) {
                               variant="destructive"
                               className="rounded-xl"
                               onClick={() => handleRemovePackage(pkg.name)}
-                              disabled={removeName === pkg.name}
+                              disabled={removeName === pkg.name || tx.busy}
                             >
                               {removeName === pkg.name ? (
                                 <>

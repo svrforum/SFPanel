@@ -11,6 +11,8 @@ import type {
   InterfaceConfig,
   PackageUpdate,
   PackageSearchResult,
+  DockerStatus,
+  AptTransaction,
   BlockDevice,
   SmartInfo,
   IOStat,
@@ -69,6 +71,7 @@ import type {
   AIProfiles,
 } from '@/types/api'
 import { CODE_MESSAGES } from './codeMessages'
+import type { ApiWarning } from './warnings'
 
 const API_PATH = '/api/v1'
 
@@ -1614,7 +1617,62 @@ class ApiClient {
 
   // Packages
   checkUpdates() {
-    return this.request<{ updates: PackageUpdate[]; total: number; last_checked: string }>('/packages/updates')
+    return this.request<{ updates: PackageUpdate[]; total: number; last_checked: string; warnings?: ApiWarning[] }>(
+      '/packages/updates',
+    )
+  }
+
+  // The package transaction running on the node, or else the last one it ran.
+  getAptTransaction() {
+    return this.request<{ transaction: AptTransaction | null }>('/packages/transaction')
+  }
+
+  /**
+   * Streams a package transaction's log: POST /packages/upgrade or
+   * /packages/install-stream start one, GET /packages/transaction/stream
+   * follows one again. Unlike postTextStream, a refusal before the stream
+   * starts comes back worded by its code — "a transaction is already
+   * running", "Docker is not installed on a Proxmox host" — and carries the
+   * code and details, as request()'s errors do.
+   */
+  async aptTransactionStream(
+    path: string,
+    onChunk: (text: string) => void,
+    opts: { method?: 'GET' | 'POST'; body?: unknown; signal?: AbortSignal } = {},
+  ): Promise<void> {
+    const res = await fetch(this.withNode(path), {
+      method: opts.method ?? 'POST',
+      headers: this.streamHeaders(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      signal: opts.signal,
+    })
+    if (!res.ok) {
+      let code: string | undefined
+      let details: Record<string, string> | undefined
+      let message = `Stream failed (${res.status})`
+      try {
+        const json = await res.json()
+        code = json.error?.code
+        details = json.error?.details
+        const sent = json.error?.message || message
+        message = code && CODE_MESSAGES[code] ? translate(CODE_MESSAGES[code], sent, details) : sent
+      } catch {
+        // not JSON: keep the status
+      }
+      const err = new Error(message) as Error & { status?: number; code?: string; details?: Record<string, string> }
+      err.status = res.status
+      err.code = code
+      err.details = details
+      throw err
+    }
+    const reader = res.body?.getReader()
+    if (!reader) throw new Error('No stream')
+    const decoder = new TextDecoder()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      onChunk(decoder.decode(value, { stream: true }))
+    }
   }
 
   installPackage(name: string) {
@@ -1639,9 +1697,7 @@ class ApiClient {
   }
 
   getDockerStatus() {
-    return this.request<{ installed: boolean; version: string; running: boolean; compose_available: boolean }>(
-      '/packages/docker-status',
-    )
+    return this.request<DockerStatus>('/packages/docker-status')
   }
 
   getNodeStatus() {

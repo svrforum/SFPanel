@@ -783,7 +783,33 @@ export interface DockerStatus {
   installed: boolean
   version: string
   running: boolean
+  // `docker compose`, the plugin the panel's stacks run on.
   compose_available: boolean
+  // Only the old docker-compose binary is there; absent from older nodes.
+  compose_v1_only?: boolean
+  // A Proxmox VE host, where the page offers no Docker install.
+  proxmox_host?: boolean
+  // Where Docker is installed: the FORWARD policy ("DROP" once dockerd has
+  // turned forwarding on itself) and whether bridged frames pass through
+  // iptables (null: br_netfilter is not loaded, so they do not).
+  forward_policy?: string
+  bridge_nf_call_iptables?: boolean | null
+}
+
+// Package transaction (packages page): an upgrade, or an install from the
+// page, which apt runs in a transient unit of its own.
+export interface AptTransaction {
+  id: string
+  // '' for one a restarted panel found running without its description.
+  kind: 'upgrade' | 'install' | ''
+  packages: string[]
+  command: string
+  started_at: string
+  running: boolean
+  result?: 'success' | 'failed' | 'interrupted'
+  exit_code?: number
+  // Worded by code like an error (lib/warnings).
+  warnings?: { code: string; message: string; details?: Record<string, string> }[]
 }
 
 // Process

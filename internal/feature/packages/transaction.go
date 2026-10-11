@@ -620,6 +620,10 @@ func (h *Handler) followTx(c echo.Context, tx *aptTx, skip int) error {
 		}
 		last = time.Now()
 	}
+	// The stream names its transaction first, as the SSE event id: a page
+	// that follows it again after the stream was cut asks for this one,
+	// not for whatever runs by then.
+	write("id: " + tx.id + "\n\n")
 	send := func(line string) {
 		// dpkg redraws its progress with carriage returns; keep what the
 		// terminal would have shown last. A CR also ends an SSE line.

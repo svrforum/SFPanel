@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { Download, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { CODE_MESSAGES } from '@/lib/codeMessages'
+import { toastWarnings } from '@/lib/warnings'
 import type { PackageUpdate as PackageInfo } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/StatusPill'
-import { streamErrorMessage, type SSEOutput } from '@/components/OutputDialog'
+import type { AptTransactions } from '@/pages/packages/useAptTransaction'
 import {
   Table,
   TableBody,
@@ -16,15 +18,19 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
-// apt update check + full/selective upgrade (SSE streamed into the shared
-// output dialog; postTextStream keeps the cluster ?node= scope).
-export function SystemUpdatesCard({ output }: { output: SSEOutput }) {
+// apt update check + full/selective upgrade. An upgrade is a package
+// transaction (useAptTransaction): apt runs in a unit of its own on the node
+// and the dialog streams it, keeping the cluster ?node= scope.
+export function SystemUpdatesCard({ tx }: { tx: AptTransactions }) {
   const { t } = useTranslation()
   const [updates, setUpdates] = useState<PackageInfo[]>([])
   const [lastChecked, setLastChecked] = useState<string | null>(null)
   const [selectedPackages, setSelectedPackages] = useState<Set<string>>(new Set())
   const [checking, setChecking] = useState(false)
-  const [upgrading, setUpgrading] = useState(false)
+  const [upgradingHere, setUpgradingHere] = useState(false)
+  // Any transaction holds the buttons; the label is an upgrade's own.
+  const busy = tx.busy
+  const upgrading = upgradingHere || tx.running?.kind === 'upgrade'
 
   const handleCheckUpdates = useCallback(async () => {
     setChecking(true)
@@ -38,45 +44,37 @@ export function SystemUpdatesCard({ output }: { output: SSEOutput }) {
       } else {
         toast.info(t('packages.updatesFound', { count: data.updates.length }))
       }
-    } catch {
-      toast.error(t('packages.checkUpdatesFailed'))
+      // A repository that could not be refreshed, while the others were:
+      // Proxmox's enterprise repository without a subscription.
+      toastWarnings(data.warnings, t)
+    } catch (err: unknown) {
+      const code = err instanceof Error ? (err as Error & { code?: string }).code : undefined
+      if (code && CODE_MESSAGES[code]) {
+        toast.error((err as Error).message)
+        if (code === 'APT_TRANSACTION_RUNNING') tx.refresh()
+      } else {
+        const message = err instanceof Error ? err.message : ''
+        toast.error(message ? t('packages.checkUpdatesFailed') + ': ' + message : t('packages.checkUpdatesFailed'))
+      }
     } finally {
       setChecking(false)
     }
-  }, [t])
+  }, [t, tx])
 
   const handleUpgradePackages = useCallback(
     async (packages?: string[]) => {
-      const label = packages
-        ? t('packages.upgradingSelected', { count: packages.length })
-        : t('packages.upgradingAll')
-      setUpgrading(true)
-      output.openOutput(label)
+      setUpgradingHere(true)
       try {
-        output.appendOutput(label + '...\n')
-        // /packages/upgrade streams via SSE — a full distro upgrade routinely
-        // runs longer than the legacy 5 min unary cap. The server's [DONE]
-        // marker is ignored (finishOnDone: false); the stream ends naturally
-        // on EOF and we append our own closing line.
-        await output.runStream('/packages/upgrade', {
-          body: { packages: packages ?? [] },
-          finishOnDone: false,
-        })
-        output.appendOutput('\n' + t('packages.upgradeComplete') + '\n')
-        output.finishOutput()
-        toast.success(t('packages.upgradeComplete'))
-        setSelectedPackages(new Set())
-        await handleCheckUpdates()
-      } catch (err: unknown) {
-        const message = streamErrorMessage(err, t('packages.streamStartFailed'))
-        output.appendOutput('\n' + t('packages.error') + ': ' + message + '\n')
-        output.finishOutput()
-        toast.error(message)
+        const done = await tx.upgrade(packages ?? [])
+        if (done?.result === 'success') {
+          setSelectedPackages(new Set())
+          await handleCheckUpdates()
+        }
       } finally {
-        setUpgrading(false)
+        setUpgradingHere(false)
       }
     },
-    [output, handleCheckUpdates, t],
+    [tx, handleCheckUpdates],
   )
 
   const togglePackageSelection = useCallback((name: string) => {
@@ -122,7 +120,7 @@ export function SystemUpdatesCard({ output }: { output: SSEOutput }) {
             variant="outline"
             className="rounded-xl"
             onClick={handleCheckUpdates}
-            disabled={checking || upgrading}
+            disabled={checking || busy}
           >
             {checking ? (
               <>
@@ -139,7 +137,7 @@ export function SystemUpdatesCard({ output }: { output: SSEOutput }) {
           <Button
             className="rounded-xl"
             onClick={() => handleUpgradePackages()}
-            disabled={updates.length === 0 || upgrading || checking}
+            disabled={updates.length === 0 || busy || checking}
           >
             {upgrading ? (
               <>
@@ -158,7 +156,7 @@ export function SystemUpdatesCard({ output }: { output: SSEOutput }) {
               variant="secondary"
               className="rounded-xl"
               onClick={() => handleUpgradePackages(Array.from(selectedPackages))}
-              disabled={upgrading || checking}
+              disabled={busy || checking}
             >
               <Download aria-hidden="true" />
               {t('packages.upgradeSelected', { count: selectedPackages.size })}
