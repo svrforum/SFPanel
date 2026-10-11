@@ -20,6 +20,7 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { ApplyConfirmBar } from './ApplyConfirmBar'
  import { gatewayField } from './gatewayField'
+import { initialConfig } from './staticConfig'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -150,14 +151,9 @@ export default function NetworkInterfaces() {
   // Open config dialog for an interface
   const openConfigDialog = (iface: NetworkInterfaceInfo) => {
     setConfigTarget(iface)
-    const hasStaticAddr = iface.addresses.length > 0 && iface.type !== 'loopback'
-    setConfigMode(hasStaticAddr ? 'static' : 'dhcp')
-    setConfigAddresses(
-      iface.addresses
-        .filter((a) => a.family === 'ipv4' || a.family === 'ipv6' || a.family === 'inet' || a.family === 'inet6')
-        .map((a) => `${a.address}/${a.prefix}`)
-        .join('\n')
-    )
+    const provisional = initialConfig(iface)
+    setConfigMode(provisional.mode)
+    setConfigAddresses(provisional.addresses.join('\n'))
     setConfigGateway4('')
     setConfigGateway6('')
     setConfigDns(dnsConfig.servers.join(', '))
@@ -173,6 +169,9 @@ export default function NetworkInterfaces() {
       .getInterfaceDetail(iface.name)
       .then((detail) => {
         if (!detail?.config) return
+        const saved = initialConfig(iface, detail.config)
+        setConfigMode(saved.mode)
+        setConfigAddresses(saved.addresses.join('\n'))
         setConfigGateway4(detail.config.gateway4 ?? '')
         setConfigGateway6(detail.config.gateway6 ?? '')
         setGatewayKnown(true)

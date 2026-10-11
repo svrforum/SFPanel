@@ -1086,6 +1086,7 @@ type netplanBond struct {
 	Gateway6    string                 `yaml:"gateway6,omitempty"`
 	Nameservers *netplanNameservers    `yaml:"nameservers,omitempty"`
 	MTU         *int                   `yaml:"mtu,omitempty"`
+	Routes      []map[string]string    `yaml:"routes,omitempty"`
 	Interfaces  []string               `yaml:"interfaces,omitempty"`
 	Parameters  *netplanBondParameters `yaml:"parameters,omitempty"`
 	Extra       map[string]interface{} `yaml:",inline"`
@@ -1224,8 +1225,8 @@ func readNetplanConfigForInterface(name string) *InterfaceConfig {
 func ethernetToConfig(eth *netplanEthernet) *InterfaceConfig {
 	cfg := &InterfaceConfig{
 		Addresses: eth.Addresses,
-		Gateway4:  eth.Gateway4,
-		Gateway6:  eth.Gateway6,
+		Gateway4:  savedGateway(eth.Gateway4, eth.Routes, false),
+		Gateway6:  savedGateway(eth.Gateway6, eth.Routes, true),
 		DNS:       []string{},
 	}
 	if cfg.Addresses == nil {
@@ -1250,8 +1251,8 @@ func ethernetToConfig(eth *netplanEthernet) *InterfaceConfig {
 func bondToConfig(bond *netplanBond) *InterfaceConfig {
 	cfg := &InterfaceConfig{
 		Addresses: bond.Addresses,
-		Gateway4:  bond.Gateway4,
-		Gateway6:  bond.Gateway6,
+		Gateway4:  savedGateway(bond.Gateway4, bond.Routes, false),
+		Gateway6:  savedGateway(bond.Gateway6, bond.Routes, true),
 		DNS:       []string{},
 	}
 	if cfg.Addresses == nil {
@@ -1342,6 +1343,75 @@ func updateNetplanInterface(name string, req *ConfigureInterfaceRequest) error {
 	return fmt.Errorf("interface %s not found in netplan config after load", name)
 }
 
+// netplan deprecated gateway4 and gateway6 for a default route under routes,
+// and netplan generate warns about every file that still has them. Gateways
+// are saved as that route; reading takes either form. The route is written
+// as 0.0.0.0/0 or ::/0 rather than "default", which netplan only reads
+// from 0.103 on.
+
+// isDefaultRoute reports whether r is the default route of one family.
+func isDefaultRoute(r map[string]string, v6 bool) bool {
+	switch r["to"] {
+	case "0.0.0.0/0":
+		return !v6
+	case "::/0":
+		return v6
+	case "default":
+		return strings.Contains(r["via"], ":") == v6
+	}
+	return false
+}
+
+// savedGateway is the gateway a netplan block holds for one family: the
+// deprecated key if it is still there, else the first default route's via.
+func savedGateway(legacy string, routes []map[string]string, v6 bool) string {
+	if legacy != "" {
+		return legacy
+	}
+	for _, r := range routes {
+		if isDefaultRoute(r, v6) {
+			return r["via"]
+		}
+	}
+	return ""
+}
+
+// setDefaultRoute points the family's default route at gw, or removes it when
+// gw is empty. An existing default route keeps its other keys (metric,
+// on-link); every other route is left as it was.
+func setDefaultRoute(routes []map[string]string, v6 bool, gw string) []map[string]string {
+	for i, r := range routes {
+		if !isDefaultRoute(r, v6) {
+			continue
+		}
+		if gw == "" {
+			return append(routes[:i:i], routes[i+1:]...)
+		}
+		r["via"] = gw
+		return routes
+	}
+	if gw == "" {
+		return routes
+	}
+	to := "0.0.0.0/0"
+	if v6 {
+		to = "::/0"
+	}
+	return append(routes, map[string]string{"to": to, "via": gw})
+}
+
+// withoutDefaultRoutes drops the default routes of both families, which DHCP
+// supplies instead.
+func withoutDefaultRoutes(routes []map[string]string) []map[string]string {
+	var kept []map[string]string
+	for _, r := range routes {
+		if !isDefaultRoute(r, false) && !isDefaultRoute(r, true) {
+			kept = append(kept, r)
+		}
+	}
+	return kept
+}
+
 // applyConfigToEthernet applies the request fields to a netplan ethernet block.
 // When DHCP is enabled, static fields (addresses, gateways, DNS) are cleared.
 func applyConfigToEthernet(eth *netplanEthernet, req *ConfigureInterfaceRequest) {
@@ -1357,16 +1427,19 @@ func applyConfigToEthernet(eth *netplanEthernet, req *ConfigureInterfaceRequest)
 		eth.Addresses = nil
 		eth.Gateway4 = ""
 		eth.Gateway6 = ""
+		eth.Routes = withoutDefaultRoutes(eth.Routes)
 		eth.Nameservers = nil
 	} else {
 		if req.Addresses != nil {
 			eth.Addresses = req.Addresses
 		}
 		if req.Gateway4 != nil {
-			eth.Gateway4 = *req.Gateway4
+			eth.Gateway4 = ""
+			eth.Routes = setDefaultRoute(eth.Routes, false, *req.Gateway4)
 		}
 		if req.Gateway6 != nil {
-			eth.Gateway6 = *req.Gateway6
+			eth.Gateway6 = ""
+			eth.Routes = setDefaultRoute(eth.Routes, true, *req.Gateway6)
 		}
 		if req.DNS != nil {
 			if eth.Nameservers == nil {
@@ -1395,16 +1468,19 @@ func applyConfigToBond(bond *netplanBond, req *ConfigureInterfaceRequest) {
 		bond.Addresses = nil
 		bond.Gateway4 = ""
 		bond.Gateway6 = ""
+		bond.Routes = withoutDefaultRoutes(bond.Routes)
 		bond.Nameservers = nil
 	} else {
 		if req.Addresses != nil {
 			bond.Addresses = req.Addresses
 		}
 		if req.Gateway4 != nil {
-			bond.Gateway4 = *req.Gateway4
+			bond.Gateway4 = ""
+			bond.Routes = setDefaultRoute(bond.Routes, false, *req.Gateway4)
 		}
 		if req.Gateway6 != nil {
-			bond.Gateway6 = *req.Gateway6
+			bond.Gateway6 = ""
+			bond.Routes = setDefaultRoute(bond.Routes, true, *req.Gateway6)
 		}
 		if req.DNS != nil {
 			if bond.Nameservers == nil {

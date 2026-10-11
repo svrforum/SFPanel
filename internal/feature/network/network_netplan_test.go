@@ -153,8 +153,8 @@ func TestConfigureInterface_HappyPath(t *testing.T) {
 		if !reflect.DeepEqual(eth.Addresses, []string{"192.168.1.20/24"}) {
 			t.Errorf("addresses = %v, want [192.168.1.20/24]", eth.Addresses)
 		}
-		if eth.Gateway4 != "192.168.1.1" {
-			t.Errorf("gateway4 = %q, want 192.168.1.1", eth.Gateway4)
+		if eth.Gateway4 != "" || savedGateway(eth.Gateway4, eth.Routes, false) != "192.168.1.1" {
+			t.Errorf("gateway4 = %q, routes = %v; want a default route via 192.168.1.1", eth.Gateway4, eth.Routes)
 		}
 		if eth.Nameservers == nil || !reflect.DeepEqual(eth.Nameservers.Addresses, []string{"1.1.1.1"}) {
 			t.Errorf("nameservers = %+v, want addresses [1.1.1.1]", eth.Nameservers)
@@ -214,7 +214,8 @@ func TestConfigureInterface_HappyPath(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reload: %v", err)
 		}
-		if gw6 := np.Network.Ethernets["eth0"].Gateway6; gw6 != "::ffff:1.2.3.4" {
+		eth := np.Network.Ethernets["eth0"]
+		if gw6 := savedGateway(eth.Gateway6, eth.Routes, true); gw6 != "::ffff:1.2.3.4" {
 			t.Errorf("gateway6 = %q, want ::ffff:1.2.3.4", gw6)
 		}
 	})
@@ -640,7 +641,7 @@ func TestApplyConfigToEthernet(t *testing.T) {
 			},
 			req: ConfigureInterfaceRequest{Gateway4: strPtr("192.168.1.1")},
 			want: &netplanEthernet{
-				Gateway4:    "192.168.1.1",
+				Routes:      []map[string]string{{"to": "0.0.0.0/0", "via": "192.168.1.1"}},
 				Nameservers: &netplanNameservers{Addresses: []string{"8.8.8.8"}, Search: []string{"lan"}},
 			},
 		},
@@ -650,7 +651,7 @@ func TestApplyConfigToEthernet(t *testing.T) {
 			req:  ConfigureInterfaceRequest{Gateway4: strPtr("192.168.1.1")},
 			want: &netplanEthernet{
 				Addresses: []string{"192.168.1.10/24"},
-				Gateway4:  "192.168.1.1",
+				Routes:    []map[string]string{{"to": "0.0.0.0/0", "via": "192.168.1.1"}},
 			},
 		},
 		{
@@ -918,4 +919,68 @@ func TestNetplanRoundTripKeepsUnmodelledSections(t *testing.T) {
 	if !strings.Contains(got, "mtu: 1400") {
 		t.Errorf("the change that prompted the write is missing:\n%s", got)
 	}
+}
+
+// netplan deprecated gateway4/gateway6, and netplan generate warned about
+// every file the panel saved. A gateway is now the family's default route.
+func TestDefaultRoutes(t *testing.T) {
+	route := func(kv ...string) map[string]string {
+		m := map[string]string{}
+		for i := 0; i < len(kv); i += 2 {
+			m[kv[i]] = kv[i+1]
+		}
+		return m
+	}
+	lan := route("to", "198.51.100.0/24", "via", "192.0.2.254")
+
+	t.Run("a new gateway becomes the default route, next to the others", func(t *testing.T) {
+		got := setDefaultRoute([]map[string]string{lan}, false, "192.0.2.1")
+		want := []map[string]string{lan, route("to", "0.0.0.0/0", "via", "192.0.2.1")}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+	t.Run("a changed gateway keeps the route's metric and on-link", func(t *testing.T) {
+		got := setDefaultRoute([]map[string]string{route("to", "default", "via", "192.0.2.1", "metric", "100", "on-link", "true")}, false, "192.0.2.9")
+		want := []map[string]string{route("to", "default", "via", "192.0.2.9", "metric", "100", "on-link", "true")}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+	t.Run("the families are separate", func(t *testing.T) {
+		routes := []map[string]string{route("to", "::/0", "via", "2001:db8::1"), route("to", "default", "via", "192.0.2.1")}
+		if got := savedGateway("", routes, false); got != "192.0.2.1" {
+			t.Errorf("IPv4 gateway %q", got)
+		}
+		if got := savedGateway("", routes, true); got != "2001:db8::1" {
+			t.Errorf("IPv6 gateway %q", got)
+		}
+		got := setDefaultRoute(routes, true, "")
+		if want := []map[string]string{route("to", "default", "via", "192.0.2.1")}; !reflect.DeepEqual(got, want) {
+			t.Errorf("clearing IPv6 left %v, want %v", got, want)
+		}
+	})
+	t.Run("an old gateway4 still reads, and goes when the gateway is saved", func(t *testing.T) {
+		if got := savedGateway("192.0.2.1", nil, false); got != "192.0.2.1" {
+			t.Errorf("gateway4 read as %q", got)
+		}
+		eth := &netplanEthernet{Gateway4: "192.0.2.1", Routes: []map[string]string{lan}}
+		applyConfigToEthernet(eth, &ConfigureInterfaceRequest{DHCP4: boolPtr(false), Gateway4: strPtr("192.0.2.1")})
+		want := &netplanEthernet{DHCP4: boolPtr(false), Routes: []map[string]string{lan, route("to", "0.0.0.0/0", "via", "192.0.2.1")}}
+		if !reflect.DeepEqual(eth, want) {
+			t.Errorf("got %+v, want %+v", eth, want)
+		}
+	})
+	t.Run("DHCP drops the default routes and keeps the rest", func(t *testing.T) {
+		eth := &netplanEthernet{Routes: []map[string]string{route("to", "::/0", "via", "2001:db8::1"), lan}}
+		applyConfigToEthernet(eth, &ConfigureInterfaceRequest{DHCP4: boolPtr(true)})
+		if !reflect.DeepEqual(eth.Routes, []map[string]string{lan}) {
+			t.Errorf("ethernet routes %v, want [%v]", eth.Routes, lan)
+		}
+		bond := &netplanBond{Routes: []map[string]string{lan, route("to", "0.0.0.0/0", "via", "192.0.2.1")}, Gateway6: "2001:db8::1"}
+		applyConfigToBond(bond, &ConfigureInterfaceRequest{DHCP4: boolPtr(true)})
+		if bond.Gateway6 != "" || !reflect.DeepEqual(bond.Routes, []map[string]string{lan}) {
+			t.Errorf("bond gateway6 %q, routes %v; want none and [%v]", bond.Gateway6, bond.Routes, lan)
+		}
+	})
 }
