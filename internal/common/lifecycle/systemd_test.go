@@ -167,3 +167,69 @@ func TestMigrateRestartPolicy_UnknownRestartValueLeftAlone(t *testing.T) {
 		t.Errorf("unit file with unknown Restart= was rewritten — we should not overrule the operator:\n%s", got)
 	}
 }
+
+// The unit install.sh wrote up to v0.78.11, hardening block included.
+const privateTmpUnit = `[Service]
+ExecStart=/usr/local/bin/sfpanel /etc/sfpanel/config.yaml
+Restart=always
+# breaking features. The few that *are* safe:
+# - PrivateTmp: panel doesn't share /tmp with other services
+# - RestrictSUIDSGID: panel never creates suid/sgid files
+NoNewPrivileges=false
+PrivateTmp=true
+RestrictSUIDSGID=true
+`
+
+func TestMigratePrivateTmp_DropsWhatInstallShWrote(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sfpanel.service")
+	if err := os.WriteFile(path, []byte(privateTmpUnit), 0644); err != nil {
+		t.Fatal(err)
+	}
+	withUnitPath(t, path)
+	reloaded := stubDaemonReload(t)
+
+	migrated, err := MigratePrivateTmp()
+	if err != nil || !migrated {
+		t.Fatalf("MigratePrivateTmp() = %v, %v; want true, nil", migrated, err)
+	}
+	if !*reloaded {
+		t.Error("expected daemon-reload after the unit changed")
+	}
+	got, _ := os.ReadFile(path)
+	want := strings.Replace(strings.Replace(privateTmpUnit,
+		"# - PrivateTmp: panel doesn't share /tmp with other services\n", "", 1),
+		"PrivateTmp=true\n", "", 1)
+	if string(got) != want {
+		t.Errorf("unit after migration:\n%s\nwant:\n%s", got, want)
+	}
+
+	// A second run finds nothing to do.
+	if migrated, err := MigratePrivateTmp(); err != nil || migrated {
+		t.Errorf("second MigratePrivateTmp() = %v, %v; want false, nil", migrated, err)
+	}
+}
+
+func TestMigratePrivateTmp_LeavesAnOperatorsSettingAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sfpanel.service")
+	unit := "[Service]\nExecStart=/usr/local/bin/sfpanel\nPrivateTmp=yes\n"
+	if err := os.WriteFile(path, []byte(unit), 0644); err != nil {
+		t.Fatal(err)
+	}
+	withUnitPath(t, path)
+	reloaded := stubDaemonReload(t)
+
+	if migrated, err := MigratePrivateTmp(); err != nil || migrated {
+		t.Fatalf("MigratePrivateTmp() = %v, %v; want false, nil", migrated, err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != unit || *reloaded {
+		t.Errorf("an operator's PrivateTmp=yes was touched:\n%s", got)
+	}
+}
+
+func TestMigratePrivateTmp_MissingUnitIsNoop(t *testing.T) {
+	withUnitPath(t, filepath.Join(t.TempDir(), "absent.service"))
+	stubDaemonReload(t)
+	if migrated, err := MigratePrivateTmp(); err != nil || migrated {
+		t.Fatalf("MigratePrivateTmp() = %v, %v; want false, nil", migrated, err)
+	}
+}

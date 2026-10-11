@@ -128,6 +128,15 @@ func main() {
 	// kept — it's a valid rollback copy.
 	cleanupUpdateTempFiles()
 
+	// install.sh wrote PrivateTmp=true up to v0.78.11, which kept the panel's
+	// disk and share mounts from the host. Dropping it takes effect at the
+	// next restart; the disk handlers mount in PID 1's namespace until then.
+	if migrated, err := lifecycle.MigratePrivateTmp(); err != nil {
+		slog.Warn("could not drop PrivateTmp from the systemd unit", "error", err)
+	} else if migrated {
+		slog.Info("dropped PrivateTmp from the systemd unit; it takes effect at the next restart")
+	}
+
 	// Sweep migration scratch (.mig-pkg-*/.migrate-stage-*) and recover a prior
 	// stack from a leftover overwrite backup (.migbak) if a crashed import left
 	// no live copy — so a mid-migration crash doesn't strand staging dirs under

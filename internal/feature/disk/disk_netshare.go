@@ -387,6 +387,8 @@ func (h *Handler) TestNetShare(c echo.Context) error {
 	if !strings.Contains(opts, "ro") {
 		opts = "ro," + opts
 	}
+	// The probe stays in the panel's mount namespace: tmp is from os.MkdirTemp,
+	// and under PrivateTmp the host's /tmp has no such directory.
 	out, mountErr := h.runBounded(c, "mount", "-t", string(r.typ), "-o", opts, r.source, tmp)
 	if mountErr != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrShareUnreachable,
@@ -479,7 +481,8 @@ func (h *Handler) AddNetShare(c echo.Context) error {
 			fmt.Sprintf("failed to create mount point: %v", err))
 	}
 
-	out, mountErr := h.runBounded(c, "mount", "-t", string(r.typ), "-o", r.runtimeOpts, r.source, r.mountPoint)
+	name, args := inHostMountNS("mount", "-t", string(r.typ), "-o", r.runtimeOpts, r.source, r.mountPoint)
+	out, mountErr := h.runBounded(c, name, args...)
 	if mountErr != nil {
 		h.cleanupCredentials(r.credPath)
 		return response.Fail(c, http.StatusBadRequest, response.ErrShareUnreachable,
@@ -529,7 +532,8 @@ func (h *Handler) RemoveNetShare(c echo.Context) error {
 	// Unmount first. A lazy unmount is deliberately not used: if something is
 	// still using the share the operator should know, not get a mount that
 	// disappears from under a running process.
-	if out, uErr := h.runBounded(c, "umount", mp); uErr != nil {
+	name, args := inHostMountNS("umount", mp)
+	if out, uErr := h.runBounded(c, name, args...); uErr != nil {
 		msg := response.SanitizeOutput(strings.TrimSpace(out))
 		if !strings.Contains(msg, "not mounted") && !strings.Contains(msg, "no mount point") {
 			return response.Fail(c, http.StatusConflict, response.ErrUnmountError,
@@ -561,7 +565,8 @@ func (h *Handler) MountNetShare(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrMountError,
 			fmt.Sprintf("failed to create mount point: %v", err))
 	}
-	out, err := h.runBounded(c, "mount", mp)
+	name, args := inHostMountNS("mount", mp)
+	out, err := h.runBounded(c, name, args...)
 	if err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrShareUnreachable,
 			fmt.Sprintf("mount failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
@@ -575,7 +580,8 @@ func (h *Handler) UnmountNetShare(c echo.Context) error {
 	if errResp != nil {
 		return errResp
 	}
-	out, err := h.runBounded(c, "umount", mp)
+	name, args := inHostMountNS("umount", mp)
+	out, err := h.runBounded(c, name, args...)
 	if err != nil {
 		return response.Fail(c, http.StatusConflict, response.ErrUnmountError,
 			fmt.Sprintf("umount failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))

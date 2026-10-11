@@ -150,7 +150,7 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 
 - SHA-256 체크섬 검증 후 바이너리를 `/usr/local/bin/sfpanel`에 설치
 - `/etc/sfpanel/config.yaml` 생성 (32바이트 랜덤 JWT 시크릿, 모드 0600)
-- systemd 유닛 등록 (`Restart=always`, `MemoryHigh=1G`, `TasksMax=4096`, `PrivateTmp=true`)
+- systemd 유닛 등록 (`Restart=always`, `MemoryHigh=1G`, `TasksMax=4096`)
 - logrotate 설정 (`/etc/logrotate.d/sfpanel`, 일별 7개 보관)
 - 업그레이드 시 자동 DB 스냅샷 (`sfpanel.db.bak-<ts>`, 최근 3개 보관)
 
@@ -541,7 +541,7 @@ SFPanel은 **root 권한으로 실행**되며, 서버 전체를 관리할 수 �
 - **JWT 시크릿** — 32바이트 랜덤 자동 생성 + config.yaml 0600 권한
 - **클러스터 mTLS** — 노드 간 gRPC/Raft 통신 자동 암호화 (CA 자동 발급)
 - **조인 토큰** — 시간 제한 HMAC 서명, 일회성
-- **systemd 하드닝** — `MemoryHigh=1G`, `TasksMax=4096`, `PrivateTmp=true`, `RestrictSUIDSGID=true` (`scripts/install.sh`로 설치된 유닛 기준)
+- **systemd 하드닝** — `MemoryHigh=1G`, `TasksMax=4096`, `RestrictSUIDSGID=true` (`scripts/install.sh`로 설치된 유닛 기준). `PrivateTmp`는 쓰지 않습니다. 패널이 마운트한 디스크와 네트워크 드라이브가 호스트와 Docker에 보이지 않게 되기 때문입니다.
 - **민감 디렉토리 권한** — `/etc/sfpanel/` 0700, `config.yaml` 0600, `/etc/sfpanel/cluster/*.key` 0600, `/var/lib/sfpanel/` 0700
 
 ## 후원 / 링크

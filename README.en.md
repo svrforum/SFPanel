@@ -152,7 +152,7 @@ The install script handles the following automatically:
 
 - Installs the binary to `/usr/local/bin/sfpanel` after SHA-256 checksum verification
 - Creates `/etc/sfpanel/config.yaml` (32-byte random JWT secret, mode 0600)
-- Registers a systemd unit (`Restart=always`, `MemoryHigh=1G`, `TasksMax=4096`, `PrivateTmp=true`)
+- Registers a systemd unit (`Restart=always`, `MemoryHigh=1G`, `TasksMax=4096`)
 - Configures logrotate (`/etc/logrotate.d/sfpanel`, 7 daily files)
 - Auto-snapshots the DB on upgrade (`sfpanel.db.bak-<ts>`, last 3 kept)
 
@@ -543,7 +543,7 @@ SFPanel **runs as root** and is a powerful tool that can manage the entire serve
 - **JWT secret** — 32-byte random, auto-generated + config.yaml 0600 permissions
 - **Cluster mTLS** — node-to-node gRPC/Raft traffic auto-encrypted (CA auto-issued)
 - **Join token** — time-limited HMAC-signed, single use
-- **systemd hardening** — `MemoryHigh=1G`, `TasksMax=4096`, `PrivateTmp=true`, `RestrictSUIDSGID=true` (for the unit installed by `scripts/install.sh`)
+- **systemd hardening** — `MemoryHigh=1G`, `TasksMax=4096`, `RestrictSUIDSGID=true` (for the unit installed by `scripts/install.sh`). Not `PrivateTmp`: it would keep the disks and network shares the panel mounts from the host and Docker.
 - **Sensitive directory permissions** — `/etc/sfpanel/` 0700, `config.yaml` 0600, `/etc/sfpanel/cluster/*.key` 0600, `/var/lib/sfpanel/` 0700
 
 ## Sponsor / links

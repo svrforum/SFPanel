@@ -93,3 +93,50 @@ func MigrateRestartPolicy() (bool, error) {
 	}
 	return true, nil
 }
+
+// privateTmpLines are the two lines install.sh wrote from v0.13 to v0.78.11:
+// the directive and its entry in the unit's hardening comment.
+var privateTmpLines = map[string]bool{
+	"PrivateTmp=true": true,
+	"# - PrivateTmp: panel doesn't share /tmp with other services": true,
+}
+
+// MigratePrivateTmp drops the PrivateTmp=true that install.sh used to write.
+// It gives the service a mount namespace of its own, and systemd does not
+// propagate mounts from there to the host (systemd.exec(5) rules it out for
+// services that mount for the host), so disks and network shares the panel
+// mounted stayed invisible to the host, its shells and Docker until the next
+// boot. The running process keeps its namespace until it restarts; the disk
+// handlers mount in PID 1's namespace meanwhile.
+//
+// Only those exact lines are removed: a PrivateTmp an operator set some other
+// way is theirs. Returns true if the unit file was modified (and
+// daemon-reload issued); a missing unit is not an error.
+func MigratePrivateTmp() (bool, error) {
+	data, err := os.ReadFile(unitPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	var kept []byte
+	for _, line := range bytes.SplitAfter(data, []byte("\n")) {
+		if privateTmpLines[string(bytes.TrimSpace(line))] {
+			continue
+		}
+		kept = append(kept, line...)
+	}
+	if bytes.Equal(kept, data) {
+		return false, nil
+	}
+
+	if err := os.WriteFile(unitPath, kept, 0644); err != nil {
+		return false, err
+	}
+	if err := daemonReload(); err != nil {
+		slog.Warn("systemd daemon-reload after unit migration failed", "error", err)
+	}
+	return true, nil
+}

@@ -483,15 +483,15 @@ TasksMax=4096
 # Hardening: SFPanel needs full system access for firewall (ufw),
 # packages (apt), disk management, terminal, sysctl tuning, and other
 # admin tasks — so most sandboxing flags can't be enabled without
-# breaking features. The few that *are* safe:
-# - PrivateTmp: panel doesn't share /tmp with other services
+# breaking features. The one that *is* safe:
 # - RestrictSUIDSGID: panel never creates suid/sgid files
 # Notably NOT enabled:
+# - PrivateTmp: gives the service a mount namespace of its own, so the
+#   disks and network shares it mounts never reach the host or Docker
 # - ProtectKernelTunables: would break the system tuning feature
 #   (sysctl -p)
 # - ProtectHome: would break the files browser for $HOME of other users
 NoNewPrivileges=false
-PrivateTmp=true
 RestrictSUIDSGID=true
 
 [Install]

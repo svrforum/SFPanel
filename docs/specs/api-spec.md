@@ -3894,7 +3894,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 ---
 
 ### POST /api/v1/ai/sessions
-세션 생성. 계정에 tmux 서버가 없으면 `systemd-run --unit=sfpanel-ai-<uid> --collect --uid=<계정> --gid=<gid> -p Type=forking -- tmux -f /dev/null -S /run/sfpanel/ai/<uid>/sfpanel …`(PID 1이 띄우는 transient 서비스), 이미 있으면 같은 소켓에 `new-session`만 보낸다. scope가 아니라 service인 이유: scope는 호출자(패널)를 fork하므로 `PrivateTmp` 마운트 네임스페이스와 패널 환경변수를 그대로 물려받고, 패널을 재시작하면 살아남은 세션의 `/tmp`가 사라진다.
+세션 생성. 계정에 tmux 서버가 없으면 `systemd-run --unit=sfpanel-ai-<uid> --collect --uid=<계정> --gid=<gid> -p Type=forking -- tmux -f /dev/null -S /run/sfpanel/ai/<uid>/sfpanel …`(PID 1이 띄우는 transient 서비스), 이미 있으면 같은 소켓에 `new-session`만 보낸다. scope가 아니라 service인 이유: scope는 호출자(패널)를 fork하므로 패널의 마운트 네임스페이스(v0.78.11까지 설치된 유닛의 `PrivateTmp`)와 패널 환경변수를 그대로 물려받고, 패널을 재시작하면 살아남은 세션의 `/tmp`가 사라진다.
 
 **Request:** `{ "tool": "claude", "cwd": "/opt/stacks/app", "run_as": "root", "title": "선택", "profile": "선택", "launch": { "continue": "last", "permission": "acceptEdits", "sandbox": "선택", "dangerous": false, "model": "선택", "extra": ["--flag"] } }`
 

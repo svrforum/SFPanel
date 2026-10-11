@@ -893,7 +893,8 @@ func (h *Handler) MountFilesystem(c echo.Context) error {
 			fmt.Sprintf("failed to create mount point directory: %v", err))
 	}
 
-	out, err := h.Cmd.RunCtx(c.Request().Context(), "mount", args...)
+	name, cmdArgs := inHostMountNS("mount", args...)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), name, cmdArgs...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrMountError,
 			fmt.Sprintf("mount failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
@@ -979,7 +980,8 @@ func (h *Handler) UnmountFilesystem(c echo.Context) error {
 			"refusing to unmount system mountpoint")
 	}
 
-	out, err := h.Cmd.RunCtx(c.Request().Context(), "umount", req.MountPoint)
+	name, cmdArgs := inHostMountNS("umount", req.MountPoint)
+	out, err := h.Cmd.RunCtx(c.Request().Context(), name, cmdArgs...)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrUnmountError,
 			fmt.Sprintf("umount failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
