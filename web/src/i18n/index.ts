@@ -30,7 +30,7 @@ i18n
 // The API client can't call useTranslation() — it isn't a component — so hand
 // it the initialised instance. Without this its network-failure message stays
 // on the English fallback baked into the module.
-setApiTranslator((key, fallback) => i18n.t(key, { defaultValue: fallback }))
+setApiTranslator((key, fallback, params) => i18n.t(key, { ...params, defaultValue: fallback }))
 
 export default i18n
 export { LANGUAGE_KEY }

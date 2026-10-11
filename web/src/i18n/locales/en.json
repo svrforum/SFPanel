@@ -308,7 +308,9 @@
     "signalDestructive": "Terminate",
     "signalJobControl": "Job Control",
     "viewList": "List",
-    "viewTree": "Tree"
+    "viewTree": "Tree",
+    "protected": "The {{name}} process can't be killed: the Proxmox node could reset or drop out of its cluster.",
+    "isGuest": "This process is VM {{vmid}}: killing it is pulling its power. Shut it down from Proxmox with 'qm shutdown {{vmid}}'."
   },
   "services": {
     "title": "Services",
@@ -347,7 +349,9 @@
     "dependents": "Services depending on this",
     "requires": "Required services",
     "wantedBy": "Wanted by",
-    "logsLoadFailed": "Failed to load logs"
+    "logsLoadFailed": "Failed to load logs",
+    "protected": "{{unit}} can't be stopped or disabled here: it can take the host off the network or reset it. {{hint}}",
+    "confirmRequired": "Stopping {{unit}} cuts off this host's management. Type the service name to confirm."
   },
   "docker": {
     "migrate": {
@@ -2081,7 +2085,8 @@
         "autostartEnabled": "Enabled autostart on boot",
         "autostartDisabled": "Disabled autostart on boot",
         "autostartFailed": "Failed to change autostart"
-      }
+      },
+      "resolvconfMissing": "{{iface}} sets DNS, but this host has no resolvconf for wg-quick to hand it to, so bringing it up would fail. Remove the DNS line."
     },
     "tailscale": {
       "notInstalled": "Tailscale is not installed",
@@ -2148,13 +2153,15 @@
       "checkingUpdate": "Checking...",
       "updateAvailable": "Update available: {{version}}",
       "upToDate": "Up to date",
-      "updateCheckFailed": "Update check failed"
+      "updateCheckFailed": "Update check failed",
+      "routeOverlap": "{{peer}} advertises {{prefix}}, which overlaps a network this host is directly on. Accepting it would send replies to that network into the tunnel and can cut access."
     },
     "confirmTitle": "Confirm the network change",
     "confirmDesc": "The previous configuration comes back in {{count}}s unless you confirm. Seeing this means the connection survived.",
     "confirmAction": "Keep it",
     "applyConfirmed": "Network configuration confirmed",
-    "applyRolledBack": "No confirmation — the previous network configuration was restored"
+    "applyRolledBack": "No confirmation — the previous network configuration was restored",
+    "readOnly": "This host's network is managed by Proxmox. Change it in the Proxmox web UI (:8006) under Node → System → Network."
   },
   "logs": {
     "title": "Log Viewer",
@@ -2332,7 +2339,10 @@
     "nodeNvmNotInstalled": "NVM is not installed. Install NVM to manage multiple Node.js versions.",
     "nodeInstallNvm": "Install NVM",
     "nodeNoOtherVersions": "To install additional versions, select from the available LTS versions below.",
-    "streamStartFailed": "Failed to start the streaming operation"
+    "streamStartFailed": "Failed to start the streaming operation",
+    "dockerOnPve": "Docker is not installed on a Proxmox host: it changes the host's forwarding and bridge filtering and can cut virtual machines off the network. Install it inside a VM or LXC container.",
+    "repoUnauthorized": "The repository {{uri}} refused access (401). Without a Proxmox subscription, turn off the enterprise repository and turn on no-subscription in the Proxmox web UI under Node → Updates → Repositories.",
+    "repoFailed": "The repository {{uri}} could not be refreshed; the other repositories were used."
   },
   "disk": {
     "title": "Disk Management",
@@ -2422,7 +2432,7 @@
       }
     },
     "partitions": {
-            "noTable": "This disk has no partition table. Create one before adding partitions.",
+      "noTable": "This disk has no partition table. Create one before adding partitions.",
       "createTable": "Create GPT partition table",
       "createTableTitle": "Create a partition table on {{name}}",
       "createTableDesc": "Writes an empty GPT partition table to {{name}}. Only an empty disk is accepted; a disk that holds data is refused.",
@@ -2457,7 +2467,7 @@
       "createDescription": "Create a new partition on {{disk}}."
     },
     "filesystems": {
-            "showOverlay_one": "Show {{count}} Docker overlay",
+      "showOverlay_one": "Show {{count}} Docker overlay",
       "showOverlay_other": "Show {{count}} Docker overlays",
       "hideOverlay": "Hide Docker overlays",
       "title": "Filesystems",
@@ -2580,7 +2590,9 @@
         "newSize": "New Size",
         "deleteConfirmDesc": "Removing logical volume {{name}} from {{vg}} permanently destroys its data. This cannot be undone.",
         "resizeDescription": "Resize logical volume {{name}}."
-      }
+      },
+      "hasDependents": "The thin pool {{lv}} still holds logical volumes and can't be removed.",
+      "shrinkConfirmRequired": "{{lv}} would get smaller. Confirm the shrink explicitly."
     },
     "raid": {
       "title": "RAID Management",
@@ -2670,7 +2682,8 @@
       "exceedsDisk": "The selected size exceeds available disk space.",
       "removeConfirm": "Are you sure you want to remove swap <strong>{{name}}</strong>?",
       "empty": "No swap configured",
-      "fetchFailed": "Failed to load swap info"
+      "fetchFailed": "Failed to load swap info",
+      "unsupportedFs": "A swap file can't be made on a {{fs}} file system."
     },
     "volumeCard": {
       "title": "Docker Volume Usage",
@@ -2727,7 +2740,9 @@
       "discoverFailed": "Could not list shares on this server",
       "noSharesFound": "No shares found on this server",
       "installFailed": "Install failed"
-    }
+    },
+    "guestVolume": "{{device}} is a virtual machine's or container's disk ({{owner}}) and can't be changed here.",
+    "bootPartition": "{{device}} is a boot partition (EFI or BIOS boot) and can't be changed."
   },
   "firewall": {
     "title": "Firewall",
@@ -2769,7 +2784,7 @@
       "editDescription": "Edit rule #{{number}}. The existing rule will be deleted and a new rule will be added.",
       "editDeleteFailed": "New rule was added but failed to delete the old rule. Please delete it manually.",
       "editAddFailed": "Failed to add the new rule; the original rule is unchanged",
-            "portNeedsProtocol": "A port range or list needs TCP or UDP.",
+      "portNeedsProtocol": "A port range or list needs TCP or UDP.",
       "ipv6": "IPv6",
       "lockoutBody": "This change would block incoming SSH (22) or panel access and could lock you out of the server. Add a rule allowing that port first.",
       "invalidPort": "Invalid port format (e.g., 80, 8000:8080)",
@@ -2943,7 +2958,8 @@
       "container": "Container",
       "process": "Process",
       "noData": "No data"
-    }
+    },
+    "managedByPve": "This host's firewall is managed by Proxmox (pve-firewall). Change it in the Proxmox web UI (:8006) under Datacenter → Firewall."
   },
   "appStore": {
     "title": "App Store",

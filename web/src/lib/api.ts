@@ -68,6 +68,7 @@ import type {
   AIProfile,
   AIProfiles,
 } from '@/types/api'
+import { CODE_MESSAGES } from './codeMessages'
 
 const API_PATH = '/api/v1'
 
@@ -96,22 +97,16 @@ const TIMEOUT_ERROR_FALLBACK = 'The panel did not answer in time. Try again.'
 // translate is how this module reaches i18next. The client runs outside React,
 // so it has no useTranslation(); the i18n bootstrap calls setApiTranslator once
 // at startup and every message below goes through here.
-let translate: (key: string, fallback: string) => string = (_key, fallback) => fallback
+type Translator = (key: string, fallback: string, params?: Record<string, string>) => string
 
-export function setApiTranslator(fn: (key: string, fallback: string) => string) {
+let translate: Translator = (_key, fallback) => fallback
+
+export function setApiTranslator(fn: Translator) {
   translate = fn
 }
 
-// Error codes the panel words itself, in the operator's language. The server's
-// message is English and stays the fallback; a code missing here shows as sent.
-const CODE_MESSAGES: Record<string, string> = {
-  DOCKER_UNAVAILABLE: 'docker.unavailable',
-  DEVICE_IN_USE: 'disk.deviceInUse',
-  DISK_NO_PARTITION_TABLE: 'disk.partitions.noTableError',
-  DISK_NOT_EMPTY: 'disk.partitions.notEmpty',
-  PARTITION_NOT_FORMATTED: 'disk.partitions.notFormatted',
-  UFW_LOCKOUT: 'firewall.rules.lockoutBody',
-}
+// Error codes the panel words itself live in ./codeMessages.
+
 
 /**
  * How long to wait for the operations the server itself bounds at five minutes.
@@ -516,10 +511,12 @@ class ApiClient {
       // message. Reading `.message` still works as before.
       const code: string | undefined = json.error?.code
       const sent = json.error?.message || 'Unknown error'
-      const message = code && CODE_MESSAGES[code] ? translate(CODE_MESSAGES[code], sent) : sent
-      const err = new Error(message) as Error & { status?: number; code?: string }
+      const details: Record<string, string> | undefined = json.error?.details
+      const message = code && CODE_MESSAGES[code] ? translate(CODE_MESSAGES[code], sent, details) : sent
+      const err = new Error(message) as Error & { status?: number; code?: string; details?: Record<string, string> }
       err.status = res.status
       err.code = code
+      err.details = details
       throw err
     }
 

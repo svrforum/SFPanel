@@ -264,7 +264,7 @@ export default function Dashboard() {
           {hostInfo && <dl className="grid grid-cols-2 gap-4 md:grid-cols-4">
             {[
               [t('dashboard.hostname'), hostInfo.hostname], [t('dashboard.os'), hostInfo.os],
-              [t('dashboard.platform'), `${hostInfo.platform} ${hostInfo.platform_version || ''}`], [t('dashboard.kernel'), hostInfo.kernel],
+              [t('dashboard.platform'), hostInfo.platform_name || `${hostInfo.platform} ${hostInfo.platform_version || ''}`], [t('dashboard.kernel'), hostInfo.kernel],
               [t('dashboard.uptime'), formatUptime(liveUptime)], [t('dashboard.cpuCores'), hostInfo.num_cpu],
             ].map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 break-all text-sm font-medium">{value}</dd></div>)}
           </dl>}

@@ -28,6 +28,9 @@ export interface HostInfo {
   kernel: string
   uptime: number
   num_cpu: number
+  // "Proxmox VE 9.2.3 (Debian 13)", "Ubuntu 24.04.3 LTS"; absent from older nodes.
+  platform_name?: string
+  pve_version?: string
 }
 
 export interface Metrics {

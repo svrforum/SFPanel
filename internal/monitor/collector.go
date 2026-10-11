@@ -9,6 +9,8 @@ import (
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/net"
+
+	"github.com/svrforum/SFPanel/internal/common/platform"
 )
 
 func init() {
@@ -40,6 +42,10 @@ type HostInfo struct {
 	Kernel          string `json:"kernel"`
 	Uptime          uint64 `json:"uptime"`
 	NumCPU          int    `json:"num_cpu"`
+	// PlatformName is what the host runs, as the panel names it: gopsutil
+	// says "debian 13.5" on a Proxmox VE host, whose os-release is Debian's.
+	PlatformName string `json:"platform_name"`
+	PVEVersion   string `json:"pve_version,omitempty"`
 }
 
 // GetMetrics collects a current snapshot of system metrics.
@@ -149,5 +155,7 @@ func GetHostInfo() (*HostInfo, error) {
 		Kernel:          info.KernelVersion,
 		Uptime:          info.Uptime,
 		NumCPU:          runtime.NumCPU(),
+		PlatformName:    platform.Get().DisplayName(),
+		PVEVersion:      platform.Get().PVEVersion,
 	}, nil
 }

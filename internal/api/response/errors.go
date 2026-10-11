@@ -101,6 +101,26 @@ const (
 	ErrMetricsError     = "METRICS_ERROR"
 	ErrUsageError       = "USAGE_ERROR"
 	ErrToolNotInstalled = "TOOL_NOT_INSTALLED"
+
+	// ErrServiceProtected is returned (HTTP 403) when stopping, restarting or
+	// disabling a unit would take the host off the network or reset it:
+	// networking on an ifupdown host, corosync or watchdog-mux on Proxmox VE.
+	// Details: unit, and hint naming the safe way when there is one.
+	ErrServiceProtected = "SERVICE_PROTECTED"
+
+	// ErrServiceConfirmRequired is returned (HTTP 409) for a unit the
+	// operator may stop, but only after typing its name (?confirm=<unit>).
+	// Details: unit.
+	ErrServiceConfirmRequired = "SERVICE_CONFIRM_REQUIRED"
+
+	// ErrProcessProtected is returned (HTTP 403) for a signal to a process
+	// whose death resets or partitions a Proxmox node (watchdog-mux,
+	// corosync, pmxcfs, pve-ha-*). Details: name.
+	ErrProcessProtected = "PROCESS_PROTECTED"
+
+	// ErrProcessIsGuest is returned (HTTP 409) for a signal to a virtual
+	// machine's process: killing it pulls the VM's power. Details: vmid.
+	ErrProcessIsGuest = "PROCESS_IS_GUEST"
 )
 
 // AI workspace error codes (internal/feature/ai)
@@ -131,6 +151,22 @@ const (
 	ErrAPTUpgradeError    = "APT_UPGRADE_ERROR"
 	ErrInstallError       = "INSTALL_ERROR"
 	ErrInvalidPackageName = "INVALID_PACKAGE_NAME"
+
+	// ErrAPTRepoUnauthorized names a repository that refused apt (401), as
+	// Proxmox's enterprise repository does without a subscription. Usually a
+	// warning beside a result: the other repositories were refreshed.
+	// Details: uri.
+	ErrAPTRepoUnauthorized = "APT_REPO_UNAUTHORIZED"
+
+	// ErrAPTRepoFailed names a repository apt could not fetch for another
+	// reason (down, unsigned). A warning, like ErrAPTRepoUnauthorized.
+	// Details: uri.
+	ErrAPTRepoFailed = "APT_REPO_FAILED"
+
+	// ErrDockerOnPVE is returned (HTTP 409) when Docker is to be installed
+	// on a Proxmox VE host. Docker changes the host's forwarding and bridge
+	// filtering under every guest; Proxmox recommends it in a VM or container.
+	ErrDockerOnPVE = "DOCKER_ON_PVE"
 )
 
 // Firewall error codes
@@ -176,6 +212,11 @@ const (
 	ErrStartFailed        = "START_FAILED"
 	ErrStopFailed         = "STOP_FAILED"
 	ErrRestartFailed      = "RESTART_FAILED"
+
+	// ErrFirewallManagedByPVE is returned (HTTP 409) for a ufw change on a
+	// Proxmox VE host, whose firewall is pve-firewall: a ufw default-deny
+	// next to it cuts the web UI on 8006, cluster traffic and guest consoles.
+	ErrFirewallManagedByPVE = "FIREWALL_MANAGED_BY_PVE"
 )
 
 // Disk error codes
@@ -221,6 +262,29 @@ const (
 	// signature written across the whole disk.
 	ErrDiskNotEmpty = "DISK_NOT_EMPTY"
 
+	// ErrDiskGuestVolume is returned (HTTP 409) for a change to a device that
+	// belongs to a virtual machine or container: a zvol, a guest LV, a disk a
+	// QEMU process has open. Details: device, owner.
+	ErrDiskGuestVolume = "DISK_GUEST_VOLUME"
+
+	// ErrDiskBootPartition is returned (HTTP 409) for a change to an EFI
+	// System or BIOS boot partition; Proxmox keeps its ESPs unmounted, so no
+	// mount check sees them. Details: device.
+	ErrDiskBootPartition = "DISK_BOOT_PARTITION"
+
+	// ErrLVHasDependents is returned (HTTP 409) for removing a thin pool that
+	// still holds thin volumes. Details: lv.
+	ErrLVHasDependents = "LV_HAS_DEPENDENTS"
+
+	// ErrLVShrinkConfirmRequired is returned (HTTP 409) for a resize that
+	// would make a logical volume smaller without the explicit shrink flag.
+	// Details: lv.
+	ErrLVShrinkConfirmRequired = "LV_SHRINK_CONFIRM_REQUIRED"
+
+	// ErrSwapUnsupportedFS is returned (HTTP 400) for a swap file on a file
+	// system that cannot hold one, such as ZFS. Details: fs.
+	ErrSwapUnsupportedFS = "SWAP_UNSUPPORTED_FS"
+
 	// ErrPartitionNotFormatted is returned (HTTP 500) when a partition asked
 	// for with format was created but could not be formatted: the partition
 	// is there, empty, and the page should list it.
@@ -239,6 +303,11 @@ const (
 	ErrNetworkError = "NETWORK_ERROR"
 	ErrNetplanError = "NETPLAN_ERROR"
 	ErrSSError      = "SS_ERROR"
+
+	// ErrNetworkReadOnly is returned (HTTP 409) for a network change on a
+	// host whose network the panel does not write: anything but netplan,
+	// and on Proxmox VE the bridges every guest hangs off. Details: stack.
+	ErrNetworkReadOnly = "NETWORK_READ_ONLY"
 )
 
 // WireGuard error codes
@@ -248,6 +317,11 @@ const (
 	ErrWGInstallError = "WG_INSTALL_ERROR"
 	ErrWGUpError      = "WG_UP_ERROR"
 	ErrWGDownError    = "WG_DOWN_ERROR"
+
+	// ErrWGResolvconfMissing is returned (HTTP 409) when a configuration sets
+	// DNS = and the host has no resolvconf provider for wg-quick to hand it
+	// to; wg-quick would fail and remove the interface. Details: iface.
+	ErrWGResolvconfMissing = "WG_RESOLVCONF_MISSING"
 )
 
 // Tailscale error codes
@@ -258,6 +332,11 @@ const (
 	ErrTSLogoutError  = "TS_LOGOUT_ERROR"
 	ErrTSPeersError   = "TS_PEERS_ERROR"
 	ErrTSSetError     = "TS_SET_ERROR"
+
+	// ErrTailscaleRouteOverlap is returned (HTTP 409) when accepting a peer's
+	// routes would send a network this host is directly on into the tunnel,
+	// cutting off its replies to that LAN. Details: prefix, peer.
+	ErrTailscaleRouteOverlap = "TAILSCALE_ROUTE_OVERLAP"
 )
 
 // Log error codes

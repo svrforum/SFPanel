@@ -493,8 +493,12 @@ export default function Maintenance({ clusterEnabled }: MaintenanceProps) {
               <div className="space-y-1">
                 <p className="text-[11px] text-muted-foreground uppercase tracking-wider">{t('settings.operatingSystem')}</p>
                 <p className="text-[13px] font-medium">
-                  {systemInfo.host.platform || systemInfo.host.os || 'N/A'}
-                  {systemInfo.host.platform_version ? ` ${systemInfo.host.platform_version}` : ''}
+                  {systemInfo.host.platform_name || (
+                    <>
+                      {systemInfo.host.platform || systemInfo.host.os || 'N/A'}
+                      {systemInfo.host.platform_version ? ` ${systemInfo.host.platform_version}` : ''}
+                    </>
+                  )}
                 </p>
               </div>
               <div className="space-y-1">
