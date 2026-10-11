@@ -58,3 +58,37 @@ test('a partition in use is refused with the reason in the panel language', asyn
   })
   await expect(page.getByText('This device is in use (mounted, LVM, RAID, ZFS or swap). Release it first.')).toBeVisible()
 })
+
+// #107. A new disk has no partition table and parted will not make a partition
+// there; the page had no way past it.
+test('an empty disk offers a GPT partition table', async ({ page }) => {
+  const posts: string[] = []
+  await page.addInitScript(() => {
+    sessionStorage.setItem('token', 'fixture-token')
+    localStorage.setItem('i18nextLng', 'en')
+    localStorage.setItem('sfpanel_language', 'en')
+  })
+  await page.route('**/api/v1/**', async route => {
+    const req = route.request()
+    const path = new URL(req.url()).pathname.replace('/api/v1', '')
+    if (req.method() === 'POST') {
+      posts.push(path)
+      await route.fulfill({ json: { success: true, data: { message: 'GPT partition table created on vdb' } } })
+      return
+    }
+    let data: unknown = {}
+    if (path === '/auth/setup-status') data = { setup_required: false }
+    else if (path === '/cluster/status') data = { enabled: false }
+    else if (path === '/disks/overview') data = [{ ...disk, name: 'vdb', pttype: '', children: [] }]
+    else if (path === '/disks/iostat') data = []
+    else if (path === '/docker/volumes') data = []
+    await route.fulfill({ json: { success: true, data } })
+  })
+  await page.routeWebSocket(/\/ws\//, () => {})
+  await page.goto('/disk/partitions')
+  await page.getByRole('button', { name: 'Create GPT partition table' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByPlaceholder('vdb').fill('vdb')
+  await dialog.getByRole('button', { name: 'Create GPT partition table' }).click()
+  await expect.poll(() => posts).toEqual(['/disks/vdb/partition-table'])
+})

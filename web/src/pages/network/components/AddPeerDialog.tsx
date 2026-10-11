@@ -180,8 +180,9 @@ export function AddPeerDialog({
               </div>
 
               <div className="space-y-2">
-                <Label className="text-[13px]">{t('network.wireguard.peers.clientRoutes')}</Label>
+                <Label htmlFor="peer-routes" className="text-[13px]">{t('network.wireguard.peers.clientRoutes')}</Label>
                 <Input
+                  id="peer-routes"
                   value={peerRoutes}
                   onChange={(e) => setPeerRoutes(e.target.value)}
                   placeholder="10.8.0.0/24"
