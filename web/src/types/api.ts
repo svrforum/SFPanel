@@ -259,6 +259,8 @@ export interface BlockDevice {
   size: number
   type: string
   fstype: string
+  // gpt, dos; '' when the disk has no partition table. Absent from older nodes.
+  pttype?: string
   mountpoint: string
   model: string
   serial: string

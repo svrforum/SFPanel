@@ -2418,7 +2418,15 @@
       }
     },
     "partitions": {
-      "title": "파티션 관리",
+            "noTable": "이 디스크에는 파티션 테이블이 없습니다. 파티션을 만들려면 먼저 파티션 테이블을 만드세요.",
+      "createTable": "GPT 파티션 테이블 만들기",
+      "createTableTitle": "{{name}}에 파티션 테이블 만들기",
+      "createTableDesc": "{{name}}에 빈 GPT 파티션 테이블을 씁니다. 아무것도 없는 디스크에만 진행되고, 데이터가 있으면 거절됩니다.",
+      "tableCreated": "파티션 테이블을 만들었습니다",
+      "tableCreateFailed": "파티션 테이블을 만들지 못했습니다",
+      "noTableError": "이 디스크에는 파티션 테이블이 없습니다. 먼저 파티션 테이블을 만드세요.",
+      "notEmpty": "이 디스크에는 이미 데이터가 있어 파티션 테이블을 만들 수 없습니다.",
+"title": "파티션 관리",
       "selectDisk": "디스크 선택",
       "createPartition": "파티션 생성",
       "size": "크기",
@@ -2441,7 +2449,9 @@
       "createDescription": "{{disk}}에 새 파티션을 생성합니다."
     },
     "filesystems": {
-      "title": "파일시스템",
+            "showOverlay": "Docker overlay {{count}}개 보기",
+      "hideOverlay": "Docker overlay 숨기기",
+"title": "파일시스템",
       "source": "소스",
       "fsType": "유형",
       "size": "전체",

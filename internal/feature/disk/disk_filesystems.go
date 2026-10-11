@@ -843,6 +843,7 @@ func (h *Handler) FormatPartition(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFormatError,
 			fmt.Sprintf("format failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
+	h.invalidateDiskCache()
 
 	return response.OK(c, map[string]string{
 		"message": fmt.Sprintf("%s formatted as %s", req.Device, req.FsType),
@@ -905,7 +906,7 @@ func (h *Handler) MountFilesystem(c echo.Context) error {
 	// promise the next boot something that has never worked.
 	persisted := false
 	if req.Persist {
-		if err := persistBlockMount(devPath, req.MountPoint, req.FsType, req.Options); err != nil {
+		if err := persistBlockMount(h.fstabSource(c.Request().Context(), devPath), req.MountPoint, req.FsType, req.Options); err != nil {
 			// The mount itself succeeded, and saying otherwise would be
 			// wrong; what failed is only its survival across a reboot.
 			return response.OK(c, map[string]any{
@@ -920,6 +921,19 @@ func (h *Handler) MountFilesystem(c echo.Context) error {
 		"message":   fmt.Sprintf("%s mounted at %s", req.Device, req.MountPoint),
 		"persisted": persisted,
 	})
+}
+
+// fstabSource names devPath the way an fstab line should: by its filesystem's
+// UUID. Device names follow probe order — add or swap a disk and sdb comes up
+// as sdc — so a line written as /dev/sdb mounts the wrong disk, or none, a
+// reboot later. A filesystem blkid finds no UUID for keeps the device path.
+func (h *Handler) fstabSource(ctx context.Context, devPath string) string {
+	out, err := h.Cmd.RunCtx(ctx, "blkid", "-p", "-s", "UUID", "-o", "value", devPath)
+	uuid := strings.TrimSpace(out)
+	if err != nil || uuid == "" || strings.ContainsAny(uuid, " \t\n") {
+		return devPath
+	}
+	return "UUID=" + uuid
 }
 
 // persistBlockMount records a block-device mount in fstab so it comes back

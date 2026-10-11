@@ -43,6 +43,7 @@ export default function DiskPartitions() {
   const [selectedDisk, setSelectedDisk] = useState<string>('')
   const [createOpen, setCreateOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DiskPartitionChild | null>(null)
+  const [tableOpen, setTableOpen] = useState(false)
 
   // Create form state
   const [newStart, setNewStart] = useState('')
@@ -115,6 +116,23 @@ export default function DiskPartitions() {
     },
   )
 
+  const { run: runCreateTable, loading: creatingTable } = useApiAction(
+    api.createPartitionTable.bind(api),
+    {
+      successMsg: t('disk.partitions.tableCreated'),
+      errorMsg: t('disk.partitions.tableCreateFailed'),
+      onSuccess: () => {
+        setTableOpen(false)
+        void fetchDisks()
+      },
+    },
+  )
+
+  // A new disk arrives without a partition table, and parted will not make a
+  // partition there. Offered only for a disk with nothing on it: a filesystem
+  // across the whole disk has no partition table either.
+  const needsTable = !!currentDisk && currentDisk.pttype === '' && !currentDisk.fstype && partitions.length === 0
+
   const handleDelete = () => {
     if (!deleteTarget) return
     const number = partitionNumber(selectedDisk, deleteTarget.name)
@@ -175,7 +193,16 @@ export default function DiskPartitions() {
             {partitions.length === 0 && (
               <TableRow>
                 <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                  {t('disk.partitions.empty')}
+                  {needsTable ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <span>{t('disk.partitions.noTable')}</span>
+                      <Button size="sm" variant="outline" onClick={() => setTableOpen(true)} className="rounded-xl">
+                        {t('disk.partitions.createTable')}
+                      </Button>
+                    </div>
+                  ) : (
+                    t('disk.partitions.empty')
+                  )}
                 </TableCell>
               </TableRow>
             )}
@@ -268,6 +295,17 @@ export default function DiskPartitions() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <TypeToConfirmDialog
+        open={tableOpen}
+        onOpenChange={setTableOpen}
+        title={t('disk.partitions.createTableTitle', { name: selectedDisk })}
+        description={t('disk.partitions.createTableDesc', { name: selectedDisk })}
+        confirmPhrase={selectedDisk}
+        confirmLabel={t('disk.partitions.createTable')}
+        loading={creatingTable}
+        onConfirm={() => void runCreateTable(selectedDisk)}
+      />
 
       {/* Delete Confirmation Dialog */}
       <TypeToConfirmDialog

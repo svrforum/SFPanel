@@ -207,6 +207,15 @@ const (
 	// a ZFS vdev — so it cannot be formatted or deleted until released.
 	ErrDeviceInUse = "DEVICE_IN_USE"
 
+	// ErrDiskNoPartitionTable is returned (HTTP 409) when a partition is asked
+	// for on a disk without a partition table, as a new disk arrives.
+	ErrDiskNoPartitionTable = "DISK_NO_PARTITION_TABLE"
+
+	// ErrDiskNotEmpty is returned (HTTP 409) when a partition table is asked
+	// for on a disk that already has one, or a filesystem, LVM, RAID or ZFS
+	// signature written across the whole disk.
+	ErrDiskNotEmpty = "DISK_NOT_EMPTY"
+
 	// Network shares (SMB/NFS).
 	ErrShareToolMissing = "SHARE_TOOL_MISSING"
 	ErrShareUnreachable = "SHARE_UNREACHABLE"

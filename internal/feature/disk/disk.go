@@ -25,6 +25,7 @@ type BlockDevice struct {
 	Size       int64         `json:"size"`
 	Type       string        `json:"type"` // disk, part, lvm, raid, loop
 	FsType     string        `json:"fstype"`
+	PtType     string        `json:"pttype"` // gpt, dos; empty when the disk has no partition table
 	MountPoint string        `json:"mountpoint"`
 	Model      string        `json:"model"`
 	Serial     string        `json:"serial"`

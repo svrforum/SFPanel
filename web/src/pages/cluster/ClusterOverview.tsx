@@ -453,7 +453,7 @@ export default function ClusterOverview() {
       <TypeToConfirmDialog
         open={disbandOpen}
         onOpenChange={setDisbandOpen}
-        title={t('cluster.overview.disbandConfirmTitle')}
+        title={t('cluster.overview.disbandConfirmTitle', { name: overview?.name || status.name || '' })}
         description={t('cluster.overview.disbandConfirmDesc', { name: overview?.name || status.name || '' })}
         confirmPhrase={overview?.name || status.name || ''}
         confirmLabel={t('cluster.overview.disband')}

@@ -17,9 +17,10 @@ import (
 // Entries this panel created carry a marker comment on the preceding line, so
 // hand-written entries stay visible but are never rewritten or deleted by the
 // API. Operators who edited fstab themselves get to keep what they wrote.
-const (
-	fstabPath = "/etc/fstab"
+// fstabPath is a var so tests can point it at a scratch file.
+var fstabPath = "/etc/fstab"
 
+const (
 	// netShareMarker precedes every entry the panel manages. Fstab has no
 	// portable mid-line comment syntax (getmntent only honours '#' in column
 	// one), so the marker gets its own line.

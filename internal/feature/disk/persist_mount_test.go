@@ -1,8 +1,18 @@
 package disk
 
 import (
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v4"
+
+	"github.com/svrforum/SFPanel/internal/common/exec"
 )
 
 // nofail is the difference between a missing disk and an unbootable server:
@@ -85,5 +95,44 @@ func TestPanelOwnEntryRoundTrips(t *testing.T) {
 	}
 	if strings.Contains(renderFstab(back), "/mnt/data") {
 		t.Errorf("entry survived removal:\n%s", renderFstab(back))
+	}
+}
+
+// fstab lines were written by device name, which follows probe order: add or
+// swap a disk and /dev/vdb is another disk, or none, at the next boot.
+func TestPersistedMountNamesTheFilesystemByUUID(t *testing.T) {
+	stubOwnMountNamespace(t, false)
+	orig := fstabPath
+	t.Cleanup(func() { fstabPath = orig })
+	for _, tc := range []struct {
+		name  string
+		blkid exec.MockResult
+		want  string
+	}{
+		{"filesystem with a UUID", exec.MockResult{Output: "3f1c9a2e-5b7d-4e8f-9a01-6c2d4e8f0a1b\n"}, "UUID=3f1c9a2e-5b7d-4e8f-9a01-6c2d4e8f0a1b"},
+		{"no UUID found", exec.MockResult{Err: errors.New("exit status 2")}, "/dev/vdb"},
+	} {
+		dir := t.TempDir()
+		fstabPath = filepath.Join(dir, "fstab")
+		mp := filepath.Join(dir, "data")
+		cmd := exec.NewMockCommander()
+		cmd.Outputs["blkid"] = tc.blkid
+		body := fmt.Sprintf(`{"device":"vdb","mount_point":%q,"fs_type":"ext4","persist":true}`, mp)
+		req := httptest.NewRequest(http.MethodPost, "/filesystems/mount", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		if err := (&Handler{Cmd: cmd}).MountFilesystem(echo.New().NewContext(req, rec)); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("%s: %v %d %s", tc.name, err, rec.Code, rec.Body.String())
+		}
+		fstab, _ := os.ReadFile(fstabPath)
+		var source string
+		for _, line := range strings.Split(string(fstab), "\n") {
+			if f := strings.Fields(line); len(f) > 1 && f[1] == mp {
+				source = f[0]
+			}
+		}
+		if source != tc.want {
+			t.Errorf("%s: fstab names the mount %q, want %q\n%s", tc.name, source, tc.want, fstab)
+		}
 	}
 }

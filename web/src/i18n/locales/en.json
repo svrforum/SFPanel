@@ -2420,7 +2420,15 @@
       }
     },
     "partitions": {
-      "title": "Partition Management",
+            "noTable": "This disk has no partition table. Create one before adding partitions.",
+      "createTable": "Create GPT partition table",
+      "createTableTitle": "Create a partition table on {{name}}",
+      "createTableDesc": "Writes an empty GPT partition table to {{name}}. Only an empty disk is accepted; a disk that holds data is refused.",
+      "tableCreated": "Partition table created",
+      "tableCreateFailed": "Failed to create the partition table",
+      "noTableError": "This disk has no partition table. Create one first.",
+      "notEmpty": "This disk already holds data, so a partition table cannot be written over it.",
+"title": "Partition Management",
       "selectDisk": "Select Disk",
       "createPartition": "Create Partition",
       "size": "Size",
@@ -2443,7 +2451,10 @@
       "createDescription": "Create a new partition on {{disk}}."
     },
     "filesystems": {
-      "title": "Filesystems",
+            "showOverlay_one": "Show {{count}} Docker overlay",
+      "showOverlay_other": "Show {{count}} Docker overlays",
+      "hideOverlay": "Hide Docker overlays",
+"title": "Filesystems",
       "source": "Source",
       "fsType": "Type",
       "size": "Total",

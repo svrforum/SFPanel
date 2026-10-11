@@ -481,6 +481,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	disks.GET("/:device/partitions", diskHandler.ListPartitions)
 	disks.POST("/:device/partitions", diskHandler.CreatePartition)
 	disks.DELETE("/:device/partitions/:number", diskHandler.DeletePartition)
+	disks.POST("/:device/partition-table", diskHandler.CreatePartitionTable)
 
 	// Filesystems
 	fsGroup := authorized.Group("/filesystems")

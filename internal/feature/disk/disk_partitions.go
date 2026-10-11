@@ -2,8 +2,12 @@ package disk
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	osexec "os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -80,9 +84,14 @@ func (h *Handler) CreatePartition(c echo.Context) error {
 	out, err := h.Cmd.RunCtx(c.Request().Context(), "parted", "-s", devPath,
 		"mkpart", "primary", fsType, req.Start, req.End)
 	if err != nil {
+		if strings.Contains(out, "unrecognised disk label") {
+			return response.Fail(c, http.StatusConflict, response.ErrDiskNoPartitionTable,
+				fmt.Sprintf("%s has no partition table; create one first", device))
+		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionError,
 			fmt.Sprintf("parted mkpart failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
+	h.invalidateDiskCache()
 
 	return response.OK(c, map[string]string{
 		"message": fmt.Sprintf("partition created on %s (%s - %s)", device, req.Start, req.End),
@@ -142,8 +151,71 @@ func (h *Handler) DeletePartition(c echo.Context) error {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionError,
 			fmt.Sprintf("parted rm failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
 	}
+	h.invalidateDiskCache()
 
 	return response.OK(c, map[string]string{
 		"message": fmt.Sprintf("partition %d deleted from %s", partNum, device),
 	})
+}
+
+// sysBlockDir lists whole disks, never partitions. A var so tests can point it
+// at a scratch directory.
+var sysBlockDir = "/sys/block"
+
+// CreatePartitionTable writes an empty GPT partition table to a disk that has
+// none. A new disk arrives without one, parted refuses mkpart there
+// ("unrecognised disk label"), and the page had no way past it. Anything
+// already on the disk refuses it — a partition table, or a filesystem, LVM,
+// RAID or ZFS signature across the whole disk — since a new label over it
+// loses it.
+// POST /disks/:device/partition-table
+func (h *Handler) CreatePartitionTable(c echo.Context) error {
+	device := c.Param("device")
+	if err := validateDeviceName(device); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice, err.Error())
+	}
+	if _, err := os.Stat(filepath.Join(sysBlockDir, device)); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidDevice,
+			fmt.Sprintf("%s is not a whole disk", device))
+	}
+	for _, tool := range []string{"parted", "blkid"} {
+		if !h.Cmd.Exists(tool) {
+			return response.Fail(c, http.StatusServiceUnavailable, response.ErrToolNotInstalled,
+				fmt.Sprintf("%s is not installed", tool))
+		}
+	}
+
+	devPath := "/dev/" + device
+	busy, err := deviceInUse(devPath)
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
+			fmt.Sprintf("cannot tell whether %s is in use: %v", devPath, err))
+	}
+	if busy {
+		return response.Fail(c, http.StatusConflict, response.ErrDeviceInUse,
+			fmt.Sprintf("%s is in use — release it first", devPath))
+	}
+
+	// blkid -p reads the disk itself, not its cache, and exits 2 when it finds
+	// nothing there.
+	ctx := c.Request().Context()
+	out, err := h.Cmd.RunCtx(ctx, "blkid", "-p", "-o", "export", devPath)
+	var exitErr *osexec.ExitError
+	switch {
+	case err == nil:
+		return response.Fail(c, http.StatusConflict, response.ErrDiskNotEmpty,
+			fmt.Sprintf("%s already holds data (%s); a partition table would lose it",
+				devPath, response.SanitizeOutput(strings.Join(strings.Fields(out), " "))))
+	case errors.As(err, &exitErr) && exitErr.ExitCode() == 2:
+	default:
+		return response.Fail(c, http.StatusInternalServerError, response.ErrDiskError,
+			fmt.Sprintf("cannot read %s: %s", devPath, response.SanitizeOutput(strings.TrimSpace(out))))
+	}
+
+	if out, err := h.Cmd.RunCtx(ctx, "parted", "-s", devPath, "mklabel", "gpt"); err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrPartitionError,
+			fmt.Sprintf("parted mklabel failed: %s", response.SanitizeOutput(strings.TrimSpace(out))))
+	}
+	h.invalidateDiskCache()
+	return response.OK(c, map[string]string{"message": "GPT partition table created on " + device})
 }

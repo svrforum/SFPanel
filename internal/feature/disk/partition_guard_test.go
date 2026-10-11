@@ -1,9 +1,13 @@
 package disk
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	osexec "os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -261,4 +265,88 @@ func contains(haystack, needle string) bool {
 		}
 		return false
 	})()
+}
+
+// A new disk has no partition table, and parted refuses mkpart there. That
+// came back as a 500 with parted's text; the page can only offer the way out
+// when it knows which failure it is.
+func TestCreatePartitionOnADiskWithoutAPartitionTable(t *testing.T) {
+	cmd := partedAvailable()
+	cmd.Outputs["parted"] = exec.MockResult{Output: "Error: /dev/vdb: unrecognised disk label\n", Err: errors.New("exit status 1")}
+	req := httptest.NewRequest(http.MethodPost, "/disks/vdb/partitions", strings.NewReader(`{"start":"1MiB","end":"100%","fs_type":"ext4"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.SetParamNames("device")
+	c.SetParamValues("vdb")
+	if err := (&Handler{Cmd: cmd}).CreatePartition(c); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), response.ErrDiskNoPartitionTable) {
+		t.Errorf("got %d %s, want 409 %s", rec.Code, rec.Body.String(), response.ErrDiskNoPartitionTable)
+	}
+}
+
+// exitStatus returns the error os/exec reports for a child that exited with
+// code n — blkid exits 2 when a disk holds nothing it recognises.
+func exitStatus(t *testing.T, n int) error {
+	t.Helper()
+	err := osexec.Command("sh", "-c", fmt.Sprintf("exit %d", n)).Run()
+	if err == nil {
+		t.Fatalf("sh exited 0, want %d", n)
+	}
+	return err
+}
+
+func TestCreatePartitionTable(t *testing.T) {
+	disks := t.TempDir()
+	if err := os.Mkdir(filepath.Join(disks, "vdb"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origDir := sysBlockDir
+	t.Cleanup(func() { sysBlockDir = origDir })
+	sysBlockDir = disks
+
+	for _, tc := range []struct {
+		name   string
+		device string
+		inUse  bool
+		blkid  exec.MockResult
+		status int
+		code   string
+		label  bool
+	}{
+		{"an empty disk gets a GPT label", "vdb", false, exec.MockResult{Err: exitStatus(t, 2)}, http.StatusOK, "", true},
+		{"a disk with a partition table", "vdb", false, exec.MockResult{Output: "DEVNAME=/dev/vdb\nPTUUID=1\nPTTYPE=dos\n"}, http.StatusConflict, response.ErrDiskNotEmpty, false},
+		{"a filesystem across the whole disk", "vdb", false, exec.MockResult{Output: "DEVNAME=/dev/vdb\nUUID=1\nTYPE=ext4\n"}, http.StatusConflict, response.ErrDiskNotEmpty, false},
+		{"a disk blkid cannot read", "vdb", false, exec.MockResult{Output: "error: /dev/vdb: Permission denied\n", Err: exitStatus(t, 4)}, http.StatusInternalServerError, response.ErrDiskError, false},
+		{"a disk in use", "vdb", true, exec.MockResult{Err: exitStatus(t, 2)}, http.StatusConflict, response.ErrDeviceInUse, false},
+		{"a partition, not a disk", "vdb1", false, exec.MockResult{Err: exitStatus(t, 2)}, http.StatusBadRequest, response.ErrInvalidDevice, false},
+	} {
+		stubDeviceInUse(t, func(string) (bool, error) { return tc.inUse, nil })
+		cmd := &exec.MockCommander{Outputs: map[string]exec.MockResult{"exists:parted": {}, "exists:blkid": {}, "blkid": tc.blkid}}
+		req := httptest.NewRequest(http.MethodPost, "/disks/"+tc.device+"/partition-table", nil)
+		rec := httptest.NewRecorder()
+		c := echo.New().NewContext(req, rec)
+		c.SetParamNames("device")
+		c.SetParamValues(tc.device)
+		if err := (&Handler{Cmd: cmd}).CreatePartitionTable(c); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if rec.Code != tc.status || (tc.code != "" && !strings.Contains(rec.Body.String(), tc.code)) {
+			t.Errorf("%s: got %d %s, want %d %s", tc.name, rec.Code, rec.Body.String(), tc.status, tc.code)
+		}
+		labeled := false
+		for _, call := range cmd.Calls {
+			if call.Name == "parted" {
+				labeled = strings.Join(call.Args, " ") == "-s /dev/vdb mklabel gpt"
+				if !labeled {
+					t.Errorf("%s: parted %v", tc.name, call.Args)
+				}
+			}
+		}
+		if labeled != tc.label {
+			t.Errorf("%s: wrote a label = %v, want %v", tc.name, labeled, tc.label)
+		}
+	}
 }

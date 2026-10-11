@@ -49,6 +49,8 @@ function usageBarColor(percent: number): string {
 export default function DiskFilesystems() {
   const { t } = useTranslation()
   const [filesystems, setFilesystems] = useState<Filesystem[]>([])
+  // Docker mounts an overlay per container; on a busy host they bury the disks.
+  const [showOverlay, setShowOverlay] = useState(false)
   const [loading, setLoading] = useState(true)
 
   // Format dialog
@@ -176,6 +178,9 @@ export default function DiskFilesystems() {
     return <TabLoading />
   }
 
+  const overlayCount = filesystems.filter((fs) => fs.fstype === 'overlay').length
+  const shownFilesystems = showOverlay ? filesystems : filesystems.filter((fs) => fs.fstype !== 'overlay')
+
   return (
     <div className="space-y-4 mt-4">
       {/* Toolbar */}
@@ -183,6 +188,11 @@ export default function DiskFilesystems() {
         <CountPill>{filesystems.length}</CountPill>
         <div className="flex flex-wrap items-center gap-2">
           <RefreshButton onClick={fetchFilesystems} loading={loading} />
+          {overlayCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => setShowOverlay((v) => !v)} className="rounded-xl">
+              {showOverlay ? t('disk.filesystems.hideOverlay') : t('disk.filesystems.showOverlay', { count: overlayCount })}
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => setMountOpen(true)} className="rounded-xl">
             <FolderUp className="h-3.5 w-3.5" />
             {t('disk.filesystems.mount')}
@@ -214,14 +224,14 @@ export default function DiskFilesystems() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filesystems.length === 0 && (
+            {shownFilesystems.length === 0 && (
               <TableRow>
                 <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                   {t('disk.filesystems.empty')}
                 </TableCell>
               </TableRow>
             )}
-            {filesystems.map((fs) => (
+            {shownFilesystems.map((fs) => (
               <TableRow key={`${fs.source}-${fs.mount_point}`}>
                 <TableCell className="font-medium font-mono text-sm max-w-[180px] truncate" title={fs.source}>
                   {fs.source}
@@ -342,7 +352,7 @@ export default function DiskFilesystems() {
       <TypeToConfirmDialog
         open={formatConfirmOpen}
         onOpenChange={setFormatConfirmOpen}
-        title={t('disk.filesystems.formatConfirmTitle')}
+        title={t('disk.filesystems.formatConfirmTitle', { device: formatDevice })}
         description={t('disk.filesystems.formatConfirmDesc', { device: formatDevice })}
         confirmPhrase={formatDevice}
         confirmLabel={t('disk.filesystems.format')}

@@ -30,6 +30,15 @@ type diskCacheData struct {
 
 const diskCacheTTL = 5 * time.Second
 
+// invalidateDiskCache drops the cached lsblk data, so the page that refreshes
+// right after a partition or filesystem change sees the change rather than
+// the disk as it was up to diskCacheTTL earlier.
+func (h *Handler) invalidateDiskCache() {
+	h.cache.Lock()
+	h.cache.updatedAt = time.Time{}
+	h.cache.Unlock()
+}
+
 // getCachedDiskData returns cached lsblk + iostat data, refreshing on miss.
 // ctx is threaded into the lsblk subprocess so a client abort during a
 // cache-miss request kills the work; cache hits short-circuit without
@@ -50,7 +59,7 @@ func (h *Handler) getCachedDiskData(ctx context.Context) ([]BlockDevice, []IOSta
 	// holding the write lock across them would block concurrent readers. Take
 	// the write lock only to publish.
 	outStr, err := h.Cmd.RunCtx(ctx, "lsblk", "-J", "-b", "-o",
-		"NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR")
+		"NAME,SIZE,TYPE,FSTYPE,PTTYPE,MOUNTPOINT,MODEL,SERIAL,ROTA,RO,TRAN,STATE,VENDOR")
 	if err != nil {
 		return nil, nil, fmt.Errorf("lsblk failed: %s", response.SanitizeOutput(strings.TrimSpace(outStr)))
 	}
@@ -161,6 +170,7 @@ type lsblkDevice struct {
 	Size       interface{}   `json:"size"`
 	Type       string        `json:"type"`
 	FsType     *string       `json:"fstype"`
+	PtType     *string       `json:"pttype"`
 	MountPoint *string       `json:"mountpoint"`
 	Model      *string       `json:"model"`
 	Serial     *string       `json:"serial"`
@@ -190,6 +200,9 @@ func convertLsblkDevice(d lsblkDevice) BlockDevice {
 
 	if d.FsType != nil {
 		bd.FsType = *d.FsType
+	}
+	if d.PtType != nil {
+		bd.PtType = *d.PtType
 	}
 	if d.MountPoint != nil {
 		bd.MountPoint = *d.MountPoint

@@ -107,6 +107,8 @@ export function setApiTranslator(fn: (key: string, fallback: string) => string) 
 const CODE_MESSAGES: Record<string, string> = {
   DOCKER_UNAVAILABLE: 'docker.unavailable',
   DEVICE_IN_USE: 'disk.deviceInUse',
+  DISK_NO_PARTITION_TABLE: 'disk.partitions.noTableError',
+  DISK_NOT_EMPTY: 'disk.partitions.notEmpty',
 }
 
 /**
@@ -1772,6 +1774,10 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify(data),
     })
+  }
+
+  createPartitionTable(device: string) {
+    return this.request(`/disks/${encodeURIComponent(device)}/partition-table`, { method: 'POST' })
   }
 
   deletePartition(device: string, partition: string) {

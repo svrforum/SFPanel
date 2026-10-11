@@ -5239,11 +5239,11 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/network/tailscale/update-check` | O | Tailscale 업데이트 확인 |
 | PUT | `/api/v1/network/tailscale/preferences` | O | Tailscale 설정 변경 |
 
-### 디스크 (10개)
+### 디스크 (11개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
-| GET | `/api/v1/disks/overview` | O | 디스크 목록 |
+| GET | `/api/v1/disks/overview` | O | 디스크 목록. 디스크마다 `pttype`(`gpt`/`dos`, 파티션 테이블이 없으면 빈 문자열, v0.78.12+) |
 | GET | `/api/v1/disks/iostat` | O | I/O 통계 |
 | POST | `/api/v1/disks/usage` | O | 디스크 사용량 |
 | GET | `/api/v1/disks/smartmontools-status` | O | smartmontools 설치 상태 |
@@ -5251,7 +5251,8 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/disks/:device/smart` | O | SMART 정보 (self-test 로그 포함, v0.27.0+; 진행 중인 self-test `self_test_running`/`self_test_remaining`, v0.78.9+) |
 | POST | `/api/v1/disks/:device/smart/test` | O | SMART self-test 트리거 (`{type:short\|long}`, v0.27.0+). 응답 `minutes` = 예상 소요 분(v0.78.9+); 이미 진행 중이면 409 `SMART_TEST_IN_PROGRESS` |
 | GET | `/api/v1/disks/:device/partitions` | O | 파티션 목록 |
-| POST | `/api/v1/disks/:device/partitions` | O | 파티션 생성 |
+| POST | `/api/v1/disks/:device/partitions` | O | 파티션 생성. 파티션 테이블이 없는 디스크면 409 `DISK_NO_PARTITION_TABLE` (v0.78.12+) |
+| POST | `/api/v1/disks/:device/partition-table` | O | 빈 디스크에 GPT 파티션 테이블 생성 (v0.78.12+). 이미 파티션 테이블이나 디스크 전체 파일시스템·LVM·RAID·ZFS 서명이 있으면 409 `DISK_NOT_EMPTY`, 사용 중이면 409 `DEVICE_IN_USE`, 디스크가 아니라 파티션이면 400 |
 | DELETE | `/api/v1/disks/:device/partitions/:number` | O | 파티션 삭제. `:number`는 파티션 번호(`nvme0n1p3`이면 `3`). LVM·RAID·ZFS·스왑이 쓰고 있으면 409 `DEVICE_IN_USE` (v0.78.10+) |
 
 ### 파일시스템 (7개)
