@@ -136,7 +136,7 @@ internal/
 - root 권한 (시스템 관리 명령 실행에 필요)
 - Docker (선택사항 — 없이도 패널 자체는 작동)
 
-> **검증 환경** — **Ubuntu 24.04 LTS / 26.04 LTS**에서 테스트했습니다. 다른 Debian/Ubuntu 계열에서도 대부분 동작하지만(systemd + apt 기반), 공식 검증은 위 두 버전 기준입니다. 그 외 배포판(RHEL/Fedora, Arch 등)은 미검증이며 패키지 관리·서비스 제어 일부 기능이 다를 수 있습니다.
+> **검증 환경** — **Ubuntu 24.04 LTS / 26.04 LTS**에서 테스트했습니다. 다른 Debian/Ubuntu 계열에서도 대부분 동작하지만(systemd + apt 기반), 공식 검증은 위 두 버전 기준입니다. **Proxmox VE 8 / 9** 호스트도 지원합니다 — [Proxmox VE](#proxmox-ve) 참고. 그 외 배포판(RHEL/Fedora, Arch 등)은 미검증이며 패키지 관리·서비스 제어 일부 기능이 다를 수 있습니다.
 
 ## 설치
 
@@ -161,6 +161,29 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 3. 셋업 위저드로 관리자 계정 생성 — **최초 설정은 LAN/loopback에서만 가능**합니다. LAN이면 `https://<서버IP>:3628`, 공개 호스트면 SSH 터널로: `ssh -L 3628:127.0.0.1:3628 <서버>` 후 `https://127.0.0.1:3628` 접속. 처음에는 브라우저 경고가 뜹니다. **설정 → 시스템**에서 CA(`sfpanel-ca.crt`)를 받아 기기에 한 번 설치하면 사라집니다. 클러스터에 붙일 서버라면 이 단계를 건너뛰어도 됩니다([아래](#새-서버를-클러스터에-추가하기) 참고).
 4. **설정 → 계정 → 2단계 인증** 활성화 (강력 권장)
 5. 설정 파일 수정이 필요하면: `/etc/sfpanel/config.yaml` (변경 후 `systemctl restart sfpanel`)
+
+### Proxmox VE
+
+SFPanel은 Proxmox VE 8·9 호스트에 직접 설치할 수 있습니다. 호스트의 운영체제 — 서비스, 프로세스, 디스크, 패키지, 로그, 파일, 터미널 — 를 관리하고 하이퍼바이저는 Proxmox에 맡깁니다. VM·컨테이너, Proxmox 스토리지, Proxmox 방화벽 규칙은 관리하지 않으며, 이들을 망가뜨릴 변경은 거부합니다.
+
+- **`sudo` 없이 root로 실행하세요.** Proxmox VE에는 sudo가 없고 root가 관리자입니다. 이 문서의 명령에서 `sudo`를 빼고 실행하세요:
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | bash
+  ```
+  클러스터 토큰 화면과 `sfpanel cluster token`도 sudo 없는 참가 명령을 함께 보여 줍니다.
+- **방화벽.** 호스트의 패킷 필터는 Proxmox 방화벽의 것이어서, 설치 스크립트도 패널도 그곳에서 ufw를 켜지 않습니다. 그 옆에서 ufw는 8006의 웹 UI, 클러스터, 게스트 콘솔을 끊습니다. 데이터센터 방화벽이 켜져 있으면 허용 규칙을 넣기 전까지 3628이 막힙니다 — **데이터센터 → 방화벽 → 추가**, 또는 `/etc/pve/firewall/cluster.fw`의 `[RULES]` 아래에:
+  ```
+  IN ACCEPT -source <신뢰-CIDR> -p tcp -dport 3628
+  IN ACCEPT -source <SFPanel-노드-IP들> -p tcp -dport 3628:3630
+  ```
+  두 번째 규칙은 SFPanel 클러스터용입니다. 설치 스크립트는 방화벽이 켜져 있으면 두 규칙을 출력합니다.
+- **읽기 전용:** **네트워크**(모든 게스트가 붙어 있는 브리지는 Proxmox UI에서 편집합니다 — `:8006` → 노드 → 시스템 → 네트워크)와 **방화벽**(ufw 컨트롤 대신 Proxmox 방화벽 상태를 보여 줍니다).
+- **거부하거나 확인을 받는 것:**
+  - **Docker** — 호스트에 설치하는 것은 거부합니다. 모든 게스트 아래의 포워딩과 브리지 필터링을 바꾸기 때문이며, Proxmox는 VM 안에서 쓰기를 권장합니다. 이미 설치된 Docker는 평소대로 관리합니다.
+  - **서비스** — 노드가 잃으면 안 되는 유닛(corosync, pve-cluster, watchdog-mux, Proxmox 방화벽, networking)은 중지·비활성화할 수 없고, 다른 Proxmox 서비스는 이름을 직접 입력해야 진행됩니다.
+  - **프로세스** — VM의 프로세스에는 시그널을 보낼 수 없습니다. VM은 `qm shutdown <vmid>`로 끄세요.
+  - **디스크** — 게스트 볼륨(zvol, 게스트 LV, VM이 열고 있는 디스크)과 부트 파티션은 거부합니다.
+- **Proxmox 방식으로:** **전체 업그레이드**는 Proxmox가 요구하는 대로 `dist-upgrade`를 실행하고, 구독 없는 엔터프라이즈 저장소는 실패가 아니라 경고로 알립니다. 시스템 튜닝은 브리지 필터링·IP 포워딩·conntrack을 Proxmox에 맡깁니다.
 
 ### 수동 설치
 
@@ -381,7 +404,7 @@ SFPanel은 HashiCorp Raft 합의 알고리즘 기반 멀티노드 클러스터�
 **준비** — 모든 노드에서:
 
 - **같은 버전.** 새 서버에는 최신 버전이 설치됩니다. 기존 노드가 뒤처져 있으면 먼저 올리세요(설정 → 시스템 → 패널 업데이트, 또는 `sudo sfpanel update`). 가입 시 버전은 검사하지 않습니다.
-- **포트.** 노드끼리 TCP **3628**(패널), **3629**(gRPC), **3630**(Raft)을 **양방향**으로 열어 두세요. ufw를 쓴다면 각 노드에서 상대 노드마다: `sudo ufw allow from <상대-노드-IP> to any port 3628:3630 proto tcp`
+- **포트.** 노드끼리 TCP **3628**(패널), **3629**(gRPC), **3630**(Raft)을 **양방향**으로 열어 두세요. ufw를 쓴다면 각 노드에서 상대 노드마다: `sudo ufw allow from <상대-노드-IP> to any port 3628:3630 proto tcp`. Proxmox VE에서는 대신 Proxmox 방화벽에서 허용하세요([위](#proxmox-ve) 참고).
 - **서로 닿는 주소.** 같은 LAN이나 Tailscale 같은 VPN으로 묶으세요. 가입할 때 클러스터의 JWT 시크릿과 관리자 계정이 새 서버로 전달되므로 공개 인터넷을 거치지 않게 합니다.
 - **시간 동기화.** NTP(`systemd-timesyncd`)를 켜 두세요. 토큰 만료와 인증서 검증이 시계에 의존합니다.
 
@@ -398,6 +421,8 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 # 확인 — 새 노드가 1분 안에 follower / online으로 보이면 끝
 sudo sfpanel cluster list
 ```
+
+sudo가 없는 서버(Proxmox VE)에서는 같은 명령을 root로, `sudo`를 빼고 실행하세요. `sfpanel cluster token`은 참가 명령을 두 가지로 모두 출력합니다.
 
 **웹 UI로:** 기존 노드의 **클러스터** 메뉴에서 (처음이면) **클러스터 초기화**를 하고 **토큰** 탭에서 토큰을 만듭니다(새 서버용 원스텝 한 줄도 함께 나옵니다). 새 서버는 셋업 위저드로 임시 관리자를 만든 뒤 **클러스터** 메뉴의 **기존 클러스터에 가입**에 리더 주소(`<리더-IP>:3629`)와 토큰을 넣습니다. 주소를 따로 고르지 않으면 리더에 닿는 주소를 자동으로 씁니다.
 
@@ -532,7 +557,7 @@ SFPanel은 **root 권한으로 실행**되며, 서버 전체를 관리할 수 �
 - **2FA 필수 권장** — 설정 → 2단계 인증에서 TOTP 앱(Google Authenticator 등)으로 활성화. 패널이 탈취되면 서버 전체가 위험합니다.
 - **강력한 비밀번호** — 초기 설정 시 최소 12자 이상
 - **HTTPS 확인** — 신규 설치는 패널 자체 CA로 HTTPS가 켜집니다(`server.tls.enabled`). 기존 설치는 직접 켜거나 Nginx/Caddy/Cloudflare Tunnel 등 역방향 프록시로 HTTPS를 적용하세요. 브라우저 경고 없이 쓰려면 패널의 CA 인증서를 기기에 설치합니다.
-- **접근 제한** — 방화벽(UFW)으로 3628/3629/3630을 신뢰 IP/CIDR에만 허용
+- **접근 제한** — 방화벽(UFW, Proxmox VE에서는 Proxmox 방화벽)으로 3628/3629/3630을 신뢰 IP/CIDR에만 허용
 - **수동 설치 시 JWT 시크릿** — 반드시 `openssl rand -hex 32`로 고유한 값 설정 (설치 스크립트는 자동 생성)
 
 ### 패널/스크립트가 자동 적용하는 항목
@@ -541,7 +566,7 @@ SFPanel은 **root 권한으로 실행**되며, 서버 전체를 관리할 수 �
 - **JWT 시크릿** — 32바이트 랜덤 자동 생성 + config.yaml 0600 권한
 - **클러스터 mTLS** — 노드 간 gRPC/Raft 통신 자동 암호화 (CA 자동 발급)
 - **조인 토큰** — 시간 제한 HMAC 서명, 일회성
-- **systemd 하드닝** — `MemoryHigh=1G`, `TasksMax=4096`, `RestrictSUIDSGID=true` (`scripts/install.sh`로 설치된 유닛 기준). `PrivateTmp`는 쓰지 않습니다. 패널이 마운트한 디스크와 네트워크 드라이브가 호스트와 Docker에 보이지 않게 되기 때문입니다.
+- **systemd 하드닝** — `MemoryHigh=1G`, `TasksMax=4096` (`scripts/install.sh`로 설치된 유닛 기준). `PrivateTmp`는 쓰지 않습니다. 패널이 마운트한 디스크와 네트워크 드라이브가 호스트와 Docker에 보이지 않게 되기 때문입니다. `RestrictSUIDSGID`도 쓰지 않습니다. 패널이 실행하는 apt와 dpkg가 설치하는 패키지의 setuid 비트를 설정하기 때문이며, 예전 유닛에서는 패널이 시작할 때 이 줄을 지웁니다.
 - **민감 디렉토리 권한** — `/etc/sfpanel/` 0700, `config.yaml` 0600, `/etc/sfpanel/cluster/*.key` 0600, `/var/lib/sfpanel/` 0700
 
 ## 후원 / 링크

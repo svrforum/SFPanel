@@ -461,7 +461,7 @@
 - **설명**: 패널이 스스로 HTTPS를 제공한다. `install.sh`가 **신규 설치에서만** 켜며, 기존 `config.yaml`은 건드리지 않는다(기존 설치는 운영자가 켤 때까지 HTTP 유지, 역방향 프록시 구성은 그대로).
 - **관리 모드(기본)**: `internal/paneltls`가 로컬 CA를 만들고 패널 인증서를 발급한다(`server.tls.dir`, 기본 `/etc/sfpanel/tls`). **CA 10년, 인증서 1년** — 기기에 설치하는 것은 CA이므로 CA가 오래 가고, 인증서는 플랫폼의 398일 상한 아래로 유지한다. 인증서는 부팅 시 만료 90일 전부터 갱신되고, 호스트 주소가 바뀌면 재발급된다(CA는 그대로라 기기에는 한 번만 설치). CA는 설정 → 시스템에서 내려받는다.
 - **운영자 지정 모드**: `cert_file` + `key_file`(+ 루프백 검증용 `ca_file`)을 지정하면 패널은 아무것도 만들지 않고, 파일을 읽지 못하면 **시작하지 않는다**(엉뚱한 자체 인증서로 대신 서비스하지 않음).
-- **SAN**: localhost, 호스트명, 루프백 주소, 안정적인 인터페이스의 모든 주소. Docker가 프로젝트마다 만드는 `br-*`·`veth*`는 제외한다.
+- **SAN**: localhost, 호스트명, 루프백 주소, 안정적인 인터페이스의 모든 주소, 그리고 `/etc/hosts`에서 호스트명을 부르는 줄의 다른 이름(FQDN 등. localhost 계열과 평범한 DNS 이름이 아닌 것은 제외 — x509가 거부하는 이름은 패널을 시작하지 못하게 한다). Proxmox VE와 debian-installer는 FQDN을 `/etc/hosts`에만 적는다. Docker가 프로젝트마다 만드는 `br-*`·`veth*`는 제외한다.
 - **HSTS 없음**: CA를 아직 설치하지 않은 기기의 "그래도 계속" 경로를 막지 않기 위해 의도적으로 보내지 않는다.
 - **주의**: 켜면 origin이 바뀌므로(`http://` ↔ `https://`) 세션과 origin별 `localStorage`가 초기화된다. 평문으로의 리다이렉트는 없다.
 - **클러스터**: 노드마다 자체 CA를 운영하고, 피어는 FSM을 통해 서로의 CA를 신뢰한다.
@@ -485,6 +485,16 @@
 - **설명**: 패널 웹 UI를 감싸는 Android 앱(Android 8.0 이상). 패널 릴리스와 별도로 `android-v*` 태그로 배포되며, 서명된 APK와 체크섬이 GitHub 릴리스에 올라간다. 같은 APK가 Latest 서버 릴리스와 이후 서버 릴리스에도 첨부된다(`scripts/attach-android-apk.sh`).
 - **주요 기능**: 여러 서버 저장, 서버별 인증서 지문 확인 후 신뢰 저장(사설 CA), 로그인 상태를 서버별로 암호화 보관, 앱 내 업데이트 확인.
 - **터미널 키 바**: 방향키·Esc·Tab·Enter와 Shift/Ctrl/Alt 조합키를 항상 표시하고, 조작 패널에 이동·조합키·출력 도구를 둔다. 키보드가 열리면 상단 바를 접고 키 높이를 줄이며, 가로 화면에서는 한 줄로 배치한다(0.1.5).
+
+### 29. Proxmox VE 호스트 (PVE 8 / 9)
+
+- **설명**: Proxmox VE 호스트에 직접 설치한 패널이 호스트 OS 기능은 그대로 쓰되, 하이퍼바이저와 게스트를 망가뜨릴 수는 없게 한다. VM·CT, PVE 스토리지, pve-firewall 규칙의 관리는 범위 밖이다.
+- **판별**: `internal/common/platform`이 프로세스당 한 번 판별해 캐시한다(`platform.Get()`). PVE의 `/etc/os-release`는 Debian의 것(`ID=debian`)이라 `pve-manager` 패키지가 설치(`ii`)돼 있는지로 판단한다(`dpkg-query -W -f='${db:Status-Abbrev} ${Version}' pve-manager`). `/etc/pve`는 pmxcfs가 돌 때만 있어 근거가 되지 않는다. 네트워크 스택(netplan / ifupdown2 / ifupdown / NetworkManager), journald 전용 여부(`/var/log/syslog` 없음), resolv.conf의 소유자도 함께 기록한다. 호스트 정보의 `platform_name`은 "Proxmox VE 9.2.3 (Debian 13)"처럼 보인다.
+- **읽기 전용**: 네트워크(ifupdown2 브리지 — `:8006` → 노드 → 시스템 → 네트워크로 안내, 쓰기는 `NETWORK_READ_ONLY`)와 방화벽(ufw 대신 pve-firewall 상태를 보여 주고, ufw 변경은 `FIREWALL_MANAGED_BY_PVE` — 호스트에서 ufw가 이미 켜져 있으면 허용).
+- **거부·확인**: 호스트에 Docker 설치(`DOCKER_ON_PVE`, 이미 있는 Docker는 그대로 관리), 노드 필수 유닛의 중지·비활성화(`SERVICE_PROTECTED`)와 그 밖의 PVE 서비스의 이름 입력 확인(`SERVICE_CONFIRM_REQUIRED`), VM 프로세스와 보호 프로세스에 대한 시그널(`PROCESS_IS_GUEST`, `PROCESS_PROTECTED`), 게스트 볼륨·부트 파티션 변경(`DISK_GUEST_VOLUME`, `DISK_BOOT_PARTITION`). 코드 전체는 api-spec.md § 호스트 보호 코드.
+- **PVE 방식**: 전체 업그레이드는 `dist-upgrade`로, 구독 없는 엔터프라이즈 저장소의 401은 실패가 아니라 경고(`APT_REPO_UNAUTHORIZED`)로, 튜닝은 bridge-nf·ip_forward·conntrack을 PVE에 맡긴다.
+- **설치·클러스터**: `install.sh`는 PVE에서 ufw를 권하지 않고, `pve-firewall status`가 `enabled`이면 `cluster.fw`에 넣을 규칙을 출력한다(설치 스크립트 절 참고). PVE에는 sudo가 없으므로(root가 관리자) 설치 스크립트와 클러스터 CLI는 sudo가 없는 호스트에서 출력하는 명령에서 sudo를 빼고, `sfpanel cluster token`과 토큰 화면은 참가 명령을 sudo 없는 형태로도 보여 준다.
+- **인증서**: PVE 설치 프로그램은 FQDN을 `/etc/hosts`에만 적으므로 패널 인증서 SAN에 그 이름을 넣는다(§25).
 
 ---
 
@@ -811,9 +821,11 @@ SQLite (WAL 모드, busy_timeout 5000ms, `SetMaxOpenConns(4)`, 추가 프래그�
 // 성공
 {"success": true, "data": {...}}
 
-// 실패
-{"success": false, "error": {"code": "ERROR_CODE", "message": "사람이 읽을 수 있는 메시지"}}
+// 실패 — details(선택)는 번역 문장이 부르는 대상(유닛·VMID·장치·저장소)
+{"success": false, "error": {"code": "ERROR_CODE", "message": "사람이 읽을 수 있는 메시지", "details": {"unit": "corosync.service"}}}
 ```
+
+작업은 했지만 함께 알릴 문제가 있으면 `data.warnings`(`[{code, message, details}]`)에 싣는다(api-spec.md § 응답 형식).
 
 ---
 
@@ -911,8 +923,10 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 3. 바이너리 다운로드 및 설치 (`/usr/local/bin/sfpanel`) — cosign 가용 시 서명 검증, `SFPANEL_REQUIRE_COSIGN=1`이면 서명 검증 실패/불가 시 설치 거부
 4. 디렉토리 생성 (`/etc/sfpanel`, `/var/lib/sfpanel`, `/var/log/sfpanel`)
 5. JWT 시크릿 자동 생성 포함 `config.yaml` 생성 (chmod 600)
-6. systemd 서비스 등록, 활성화, 시작
+6. systemd 서비스 등록, 활성화, 시작 — 유닛은 `RestrictSUIDSGID`를 쓰지 않는다. 패널이 실행하는 apt·dpkg가 setuid/setgid 비트를 설정하지 못하면(sudo, nfs-common, postfix 등) 설치·업그레이드가 실패하기 때문이다
 7. 기존 설치 감지 시 서비스 중지 후 업그레이드 — **(v0.52.0)** 업그레이드 실패 시 이전 바이너리 복원 + 재시작(롤백). 클러스터 멤버 uninstall은 cluster leave 선행
+
+**Proxmox VE 호스트**(`pve-manager` 설치로 판별): 설치 요약에서 ufw를 권하지 않는다(pve-firewall 옆의 ufw는 8006 웹 UI·클러스터·게스트 콘솔을 끊는다). `pve-firewall status`가 `Status: enabled`이면 루프백 확인은 통과해도 다른 기기는 막히므로, `/etc/pve/firewall/cluster.fw`의 `[RULES]`(또는 데이터센터 → 방화벽 → 추가)에 넣을 규칙을 출력한다: `IN ACCEPT -source <trusted-cidr> -p tcp -dport 3628`, SFPanel 노드 사이에는 `IN ACCEPT -source <sfpanel-node-ips> -p tcp -dport 3628:3630`. 출력하는 명령은 sudo가 있는 호스트에서만 `sudo`를 붙인다. 이 분기는 `cmd/sfpanel/install_script_test.go`가 PATH 스텁(가짜 `dpkg-query`·`pve-firewall`·`sudo`)으로 검증한다.
 
 ### 프로덕션 디렉토리 구조
 

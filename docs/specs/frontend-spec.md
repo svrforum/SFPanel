@@ -48,7 +48,7 @@
 | `/cluster/nodes` | ClusterNodes | O | Cluster | 노드 목록 + 제거/리더 이전/라벨 편집. **(v0.19.0)** 노드 **advertised 주소 인라인 편집**(`api.updateClusterNodeAddress`) + 로컬 노드 행에서 **클러스터 떠나기**(quorum-loss force 오버라이드, `api.leaveCluster(force?)`) |
 | `/cluster/stacks` | ClusterStacks | O | Cluster | (v0.47.0) 클러스터 전 노드 compose 스택 집계 뷰 (`api.getClusterStacks` — 노드별 그룹, 불달 노드는 에러 표시 + 빈 목록) |
 | `/cluster/stacks/:node/:name` | ClusterStacks | O | Cluster | (v0.48.0) 마스터-디테일 — 스택 선택 시 소유 노드 스코프로 단일노드 Docker 스택 상세를 재사용(`clusterMode` prop). 소유 노드가 URL에 포함되어 동명 스택 오타겟 방지 |
-| `/cluster/tokens` | ClusterTokens | O | Cluster | 참가 토큰 생성 + join 명령어 표시. **(v0.19.0)** 발급된 토큰 **목록/취소**(마스킹된 값 + 짧은 지문만 노출; `api.listClusterTokens`, `api.revokeClusterToken`) |
+| `/cluster/tokens` | ClusterTokens | O | Cluster | 참가 토큰 생성 + join 명령어 표시. **(v0.19.0)** 발급된 토큰 **목록/취소**(마스킹된 값 + 짧은 지문만 노출; `api.listClusterTokens`, `api.revokeClusterToken`). "sudo 없이 root로 실행" 체크박스가 두 명령에서 sudo를 뺀다 — Proxmox VE처럼 sudo가 없는 서버용(`pages/cluster/joinCommands.ts`) |
 | `/docker` | Docker | O | Layout | Docker 관리 (사이드 탭 + Outlet 구조) |
 | `/docker/stacks` | DockerStacks | O | Docker | Docker Compose 스택 목록 (기본 서브라우트) |
 | `/docker/stacks/:name` | DockerStacks | O | Docker | 스택 상세 (서비스 목록, YAML 편집, 로그, 셸) |

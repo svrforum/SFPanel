@@ -35,10 +35,15 @@
   "success": false,
   "error": {
     "code": "ERROR_CODE",
-    "message": "사람이 읽을 수 있는 에러 메시지"
+    "message": "사람이 읽을 수 있는 에러 메시지",
+    "details": { "unit": "corosync.service" }
   }
 }
 ```
+
+`details`(선택, 문자열 맵)는 코드의 번역 문장이 이름을 부르는 대상 — 유닛, VMID, 장치, 저장소 — 이다. 웹 클라이언트는 이를 i18next 보간 값으로 넘긴다(`translate(key, fallback, details)`). 응답을 만드는 쪽은 `response.FailWith(c, status, code, message, details)`.
+
+**경고:** 작업은 이루어졌지만 함께 알릴 문제가 있으면 성공 응답의 `data`에 `warnings` 배열(`[{ "code", "message", "details" }]`, `response.Warning`)이 실린다. 예: 구독 없는 Proxmox 엔터프라이즈 저장소가 401로 거부해도 설치는 나머지 저장소로 진행하고 `APT_REPO_UNAUTHORIZED` 경고를 남긴다. 화면은 에러와 같은 방식으로 코드에 따라 번역해 토스트로 보여 준다(`web/src/lib/warnings.ts`).
 
 ### 공통 에러 코드
 | 코드 | HTTP 상태 | 설명 |
@@ -49,6 +54,29 @@
 | `MISSING_FIELDS` | 400 | 필수 필드 누락 |
 
 (전체 150+ 에러 코드는 `internal/api/response/errors.go` 참조.)
+
+### 호스트 보호 코드 (Proxmox VE 등)
+
+호스트나 그 위의 게스트를 망가뜨릴 변경을 거부할 때 쓰는 코드다. HTTP 상태는 호출하는 쪽이 정하며, 아래는 일반적인 값이다. `details`의 키가 번역 문장에 들어간다.
+
+| 코드 | 일반적인 HTTP 상태 | details | 의미 |
+|------|-------------------|---------|------|
+| `SERVICE_PROTECTED` | 403 | `unit`, `hint` | 호스트에 필수인 유닛의 중지·재시작·비활성화 거부 (ifupdown 호스트의 networking, Proxmox VE의 corosync·pve-cluster·watchdog-mux 등) |
+| `SERVICE_CONFIRM_REQUIRED` | 409 | `unit` | 유닛 이름을 입력하는 확인(`?confirm=<unit>`)이 필요 |
+| `PROCESS_PROTECTED` | 403 | `name` | 노드를 리셋하거나 클러스터에서 떨어뜨리는 프로세스(watchdog-mux, corosync, pmxcfs, pve-ha-*)에 대한 시그널 거부 |
+| `PROCESS_IS_GUEST` | 409 | `vmid` | 그 프로세스는 VM `<vmid>`이다. `qm shutdown`/`qm stop <vmid>`을 쓴다 |
+| `DISK_GUEST_VOLUME` | 409 | `device`, `owner` | 게스트의 볼륨(zvol, 게스트 LV, QEMU가 열고 있는 장치 등)에 대한 변경 거부 |
+| `DISK_BOOT_PARTITION` | 409 | `device` | EFI 시스템 / BIOS 부트 / proxmox-boot 파티션에 대한 변경 거부 |
+| `LV_HAS_DEPENDENTS` | 409 | `lv` | 씬 볼륨이 남아 있는 씬 풀의 삭제 거부 |
+| `LV_SHRINK_CONFIRM_REQUIRED` | 409 | `lv` | 크기를 줄이는 변경은 명시적 확인이 필요 |
+| `SWAP_UNSUPPORTED_FS` | 400 | `fs` | 스왑 파일을 둘 수 없는 파일 시스템(ZFS 등) |
+| `FIREWALL_MANAGED_BY_PVE` | 409 | — | Proxmox VE 호스트에서 ufw 변경 거부 (방화벽은 pve-firewall 소관) |
+| `DOCKER_ON_PVE` | 409 | — | Proxmox VE 호스트에 Docker 설치 거부 |
+| `NETWORK_READ_ONLY` | 409 | `stack` | 패널이 쓰지 않는 네트워크 스택(netplan이 아님, Proxmox VE가 관리)에서 네트워크 변경 거부 |
+| `WG_RESOLVCONF_MISSING` | 409 | `iface` | WireGuard 설정에 `DNS =`이 있는데 resolvconf 제공자가 없음 |
+| `TAILSCALE_ROUTE_OVERLAP` | 409 | `prefix`, `peer` | 경로를 받아들이면 직접 연결된 LAN이 터널로 빨려 들어감 |
+| `APT_REPO_UNAUTHORIZED` | (경고) | `uri` | 저장소가 401로 거부 (구독 없는 Proxmox 엔터프라이즈 저장소) |
+| `APT_REPO_FAILED` | (경고) | `uri` | 그 밖의 이유로 갱신하지 못한 저장소 |
 
 ### SSE (Server-Sent Events) 스트리밍
 
@@ -442,6 +470,8 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 | `kernel` | string | 커널 버전 |
 | `uptime` | number | 가동 시간 (초) |
 | `num_cpu` | number | CPU 코어 수 |
+| `platform_name` | string | 패널이 부르는 시스템 이름 (예: "Proxmox VE 9.2.3 (Debian 13)", "Ubuntu 24.04.3 LTS"). Proxmox VE의 `/etc/os-release`는 Debian의 것이라 `platform`만으로는 구분되지 않는다. 구버전 노드에는 없다 |
+| `pve_version` | string | Proxmox VE 호스트일 때 pve-manager 버전 (예: "9.2.3"). 그 외에는 생략 |
 
 **metrics 필드:**
 | 필드 | 타입 | 설명 |

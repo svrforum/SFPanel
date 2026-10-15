@@ -138,7 +138,7 @@ internal/
 - root privileges (needed to run system management commands)
 - Docker (optional — the panel itself works without it)
 
-> **Tested on** — **Ubuntu 24.04 LTS / 26.04 LTS**. It should run on most other Debian/Ubuntu-based distros (systemd + apt), but those two are the officially verified targets. Other distributions (RHEL/Fedora, Arch, …) are unverified and some package-management / service-control features may differ.
+> **Tested on** — **Ubuntu 24.04 LTS / 26.04 LTS**. It should run on most other Debian/Ubuntu-based distros (systemd + apt), but those two are the officially verified targets. **Proxmox VE 8 / 9** hosts are supported too — see [Proxmox VE](#proxmox-ve). Other distributions (RHEL/Fedora, Arch, …) are unverified and some package-management / service-control features may differ.
 
 ## Installation
 
@@ -163,6 +163,29 @@ After installing:
 3. Create the admin account in the setup wizard — **first-run setup is restricted to the LAN / loopback**. On a LAN, open `https://<server-IP>:3628`; on a public host, tunnel it: `ssh -L 3628:127.0.0.1:3628 <server>` then open `https://127.0.0.1:3628`. The browser warns at first; download the CA (`sfpanel-ca.crt`) from **Settings → System** and install it on your devices once. A server that is about to join a cluster can skip this step ([see below](#adding-a-new-server-to-a-cluster)).
 4. **Settings → Account → Two-Factor Authentication** — enable it (strongly recommended)
 5. To edit the config file: `/etc/sfpanel/config.yaml` (run `systemctl restart sfpanel` after changes)
+
+### Proxmox VE
+
+SFPanel can run on a Proxmox VE 8 or 9 host itself. It manages the host's operating system — services, processes, disks, packages, logs, files, the terminal — and leaves the hypervisor to Proxmox: it does not manage VMs, containers, Proxmox storage or Proxmox firewall rules, and it refuses the changes that would break them.
+
+- **Run as root, without `sudo`.** Proxmox VE has no sudo; root is its administrator. Leave `sudo` out of the commands in this README:
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | bash
+  ```
+  The cluster token page and `sfpanel cluster token` give the join command without sudo as well.
+- **Firewall.** The host's packet filter belongs to the Proxmox firewall, so neither the installer nor the panel turns ufw on there: next to it, ufw cuts the web UI on 8006, the cluster and the guest consoles. While the datacenter firewall is on, the host drops 3628 until a rule allows it — **Datacenter → Firewall → Add**, or under `[RULES]` in `/etc/pve/firewall/cluster.fw`:
+  ```
+  IN ACCEPT -source <trusted-cidr> -p tcp -dport 3628
+  IN ACCEPT -source <sfpanel-node-ips> -p tcp -dport 3628:3630
+  ```
+  The second rule is for an SFPanel cluster. The installer prints both when it finds the firewall on.
+- **Read-only there:** the **network** (the bridges every guest hangs off are edited in the Proxmox UI, `:8006` → node → System → Network) and the **firewall** (the Proxmox firewall's state is shown in place of the ufw controls).
+- **Refused or guarded there:**
+  - **Docker** — installing it on the host is refused: it changes forwarding and bridge filtering under every guest, and Proxmox recommends running it in a VM. A Docker that is already installed is managed as usual.
+  - **Services** — the units the node cannot lose (corosync, pve-cluster, watchdog-mux, the Proxmox firewall, networking) cannot be stopped or disabled; the other Proxmox services ask you to type their name first.
+  - **Processes** — a VM's process cannot be signalled; shut the VM down with `qm shutdown <vmid>`.
+  - **Disks** — guest volumes (zvols, guest LVs, a disk a VM has open) and boot partitions are refused.
+- **Done the Proxmox way:** **Upgrade All** runs `dist-upgrade`, as Proxmox requires, and the enterprise repository without a subscription is a warning rather than a failure; System Tuning leaves bridge filtering, IP forwarding and conntrack to Proxmox.
 
 ### Manual installation
 
@@ -383,7 +406,7 @@ SFPanel supports a multi-node cluster built on the HashiCorp Raft consensus algo
 **Before you start** — on every node:
 
 - **Same version.** A new server installs the latest release. If the existing nodes are behind, update them first (Settings → System → Panel Update, or `sudo sfpanel update`). The join does not check versions.
-- **Ports.** Nodes talk to each other on TCP **3628** (panel), **3629** (gRPC) and **3630** (Raft), in **both directions**. With ufw, on each node, for each other node: `sudo ufw allow from <other-node-ip> to any port 3628:3630 proto tcp`
+- **Ports.** Nodes talk to each other on TCP **3628** (panel), **3629** (gRPC) and **3630** (Raft), in **both directions**. With ufw, on each node, for each other node: `sudo ufw allow from <other-node-ip> to any port 3628:3630 proto tcp`. On Proxmox VE, allow them in the Proxmox firewall instead ([see above](#proxmox-ve)).
 - **Addresses that reach each other.** Put the nodes on one LAN or a VPN such as Tailscale. Joining hands the cluster's JWT secret and admin account to the new server, so keep it off the public Internet.
 - **Clock sync.** Keep NTP (`systemd-timesyncd`) on; token expiry and certificate checks depend on it.
 
@@ -400,6 +423,8 @@ curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/insta
 # Check — done when the new node shows follower / online within a minute
 sudo sfpanel cluster list
 ```
+
+On a server without sudo (Proxmox VE), run the same commands as root and leave `sudo` out; `sfpanel cluster token` prints the join command both ways.
 
 **From the web UI:** on an existing node, open **Cluster**, press **Initialize Cluster** if there is none yet, and generate a token on the **Tokens** tab (it shows the one-line install-and-join command for a new server too). On the new server, create a temporary admin in the setup wizard, open **Cluster**, and enter the leader address (`<leader-ip>:3629`) and the token under **Join Existing Cluster**. Unless you pick an address yourself, the one that reaches the leader is used.
 
@@ -534,7 +559,7 @@ SFPanel **runs as root** and is a powerful tool that can manage the entire serve
 - **2FA strongly recommended** — enable it with a TOTP app (Google Authenticator, etc.) under Settings → Two-Factor Authentication. If the panel is compromised, the whole server is at risk.
 - **Strong password** — at least 12 characters during initial setup
 - **Check HTTPS** — fresh installs serve the panel over HTTPS from its own CA (`server.tls.enabled`). On older installs, turn it on or terminate HTTPS with a reverse proxy (Nginx/Caddy/Cloudflare Tunnel etc.). Install the panel's CA certificate on your devices to avoid browser warnings.
-- **Restrict access** — allow 3628/3629/3630 only to trusted IPs/CIDRs via a firewall (UFW)
+- **Restrict access** — allow 3628/3629/3630 only to trusted IPs/CIDRs via a firewall (UFW; on Proxmox VE, the Proxmox firewall)
 - **JWT secret on manual install** — set a unique value with `openssl rand -hex 32` (the install script generates it automatically)
 
 ### What the panel/script apply automatically
@@ -543,7 +568,7 @@ SFPanel **runs as root** and is a powerful tool that can manage the entire serve
 - **JWT secret** — 32-byte random, auto-generated + config.yaml 0600 permissions
 - **Cluster mTLS** — node-to-node gRPC/Raft traffic auto-encrypted (CA auto-issued)
 - **Join token** — time-limited HMAC-signed, single use
-- **systemd hardening** — `MemoryHigh=1G`, `TasksMax=4096`, `RestrictSUIDSGID=true` (for the unit installed by `scripts/install.sh`). Not `PrivateTmp`: it would keep the disks and network shares the panel mounts from the host and Docker.
+- **systemd hardening** — `MemoryHigh=1G`, `TasksMax=4096` (for the unit installed by `scripts/install.sh`). Not `PrivateTmp`: it would keep the disks and network shares the panel mounts from the host and Docker. Not `RestrictSUIDSGID`: apt and dpkg, run by the panel, set the setuid bits of the packages they install, and an older unit has it removed when the panel starts.
 - **Sensitive directory permissions** — `/etc/sfpanel/` 0700, `config.yaml` 0600, `/etc/sfpanel/cluster/*.key` 0600, `/var/lib/sfpanel/` 0700
 
 ## Sponsor / links
