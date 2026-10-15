@@ -39,9 +39,45 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 check_root() {
   if [ "$(id -u)" -ne 0 ]; then
-    log_error "This script must be run as root (use sudo)"
+    if [ -n "$(sudo_prefix)" ]; then
+      log_error "This script must be run as root (use sudo)"
+    else
+      log_error "This script must be run as root (this host has no sudo: log in as root)"
+    fi
     exit 1
   fi
+}
+
+# sudo_prefix goes in front of the commands this script prints: "sudo " where
+# the host has sudo, nothing where it has none. Proxmox VE ships without sudo,
+# root is its administrator, and so does Debian installed with a root
+# password; a printed "sudo …" fails there before it does anything.
+sudo_prefix() {
+  if command -v sudo >/dev/null 2>&1; then
+    echo "sudo "
+  fi
+}
+
+# is_pve reports a Proxmox VE host. /etc/os-release says Debian there; the
+# pve-manager package installed ("ii") is what makes it Proxmox, the same test
+# the panel makes (internal/common/platform).
+is_pve() {
+  local status
+  status=$(dpkg-query -W -f='${db:Status-Abbrev}' pve-manager 2>/dev/null) || return 1
+  [ "${status%% *}" = "ii" ]
+}
+
+# pve_firewall_enabled reports whether the Proxmox VE firewall filters this
+# host: `pve-firewall status` prints "Status: enabled/running" then, and
+# "Status: disabled/running" while the datacenter firewall is off (the
+# default). Captured first so pipefail cannot turn a match into a failure.
+pve_firewall_enabled() {
+  local out
+  out=$(pve-firewall status 2>/dev/null) || true
+  case "$out" in
+    *"Status: enabled"*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 check_os() {
@@ -482,17 +518,17 @@ TasksMax=4096
 
 # Hardening: SFPanel needs full system access for firewall (ufw),
 # packages (apt), disk management, terminal, sysctl tuning, and other
-# admin tasks — so most sandboxing flags can't be enabled without
-# breaking features. The one that *is* safe:
-# - RestrictSUIDSGID: panel never creates suid/sgid files
-# Notably NOT enabled:
+# admin tasks — so the sandboxing flags can't be enabled without
+# breaking features. Notably NOT enabled:
+# - RestrictSUIDSGID: apt and dpkg, run by the panel, set the setuid and
+#   setgid bits of what they install (sudo, mount.nfs, postfix's
+#   postdrop), and refusing that fails the install or the upgrade
 # - PrivateTmp: gives the service a mount namespace of its own, so the
 #   disks and network shares it mounts never reach the host or Docker
 # - ProtectKernelTunables: would break the system tuning feature
 #   (sysctl -p)
 # - ProtectHome: would break the files browser for $HOME of other users
 NoNewPrivileges=false
-RestrictSUIDSGID=true
 
 [Install]
 WantedBy=multi-user.target
@@ -617,12 +653,34 @@ print_success() {
   fi
   echo ""
   if [ "$mode" = "install" ]; then
+    local sudo pve=0
+    sudo=$(sudo_prefix)
+    if is_pve; then
+      pve=1
+    fi
     echo -e "  ${YELLOW}First visit: Set up the admin account in the browser.${NC}"
     echo -e "    ${YELLOW}Setup is restricted to the LAN / loopback. On a public host, tunnel it:${NC}"
     echo -e "    ${YELLOW}  ssh -L ${port}:127.0.0.1:${port} <this-server>  →  open ${scheme}://127.0.0.1:${port}${NC}"
     echo ""
+    # On Proxmox VE the host's packet filter is the Proxmox firewall's. ufw
+    # beside it would cut the web UI on 8006, the cluster and the guest
+    # consoles, so it is never suggested there. With the Proxmox firewall on,
+    # wait_for_panel_port's loopback check passes while every other machine
+    # is dropped, so say which rule lets the panel through.
+    if [ "$pve" -eq 1 ]; then
+      if pve_firewall_enabled; then
+        echo -e "  ${YELLOW}⚠  The Proxmox VE firewall is on: other machines reach ${port} only once a rule allows it.${NC}"
+        echo -e "  ${YELLOW}   Datacenter → Firewall → Add, or under [RULES] in /etc/pve/firewall/cluster.fw:${NC}"
+        echo -e "        IN ACCEPT -source <trusted-cidr> -p tcp -dport ${port}"
+        echo -e "  ${YELLOW}   Between SFPanel cluster nodes, also:${NC}"
+        echo -e "        IN ACCEPT -source <sfpanel-node-ips> -p tcp -dport 3628:3630"
+      else
+        echo -e "  ${YELLOW}⚠  The Proxmox VE firewall is off — ${port} may be reachable from anywhere.${NC}"
+        echo -e "  ${YELLOW}   Restrict it with the Proxmox firewall (Datacenter → Firewall), not ufw.${NC}"
+      fi
+      echo ""
     # Loud warning when no active firewall is obviously confining the port.
-    if ! { command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "Status: active"; }; then
+    elif ! { command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "Status: active"; }; then
       echo -e "  ${YELLOW}⚠  No active ufw firewall detected — ${port} may be reachable from anywhere.${NC}"
       echo -e "  ${YELLOW}   Restrict it before exposing this host (see step 3 below).${NC}"
       echo ""
@@ -636,15 +694,23 @@ print_success() {
       echo -e "    2. Front the panel with TLS (Caddy / nginx / Cloudflare Tunnel)."
       echo -e "       This panel serves plain HTTP — never expose ${port} to the public Internet."
     fi
-    echo -e "    3. Restrict ${port} to LAN/VPN only (ufw default deny + allow from trusted CIDR)."
+    if [ "$pve" -eq 1 ]; then
+      echo -e "    3. Restrict ${port} to LAN/VPN only (Proxmox firewall: Datacenter → Firewall)."
+    else
+      echo -e "    3. Restrict ${port} to LAN/VPN only (ufw default deny + allow from trusted CIDR)."
+    fi
     echo ""
     echo -e "  ${CYAN}Tips:${NC}"
     echo -e "    Change port:  Edit ${CONFIG_DIR}/config.yaml → server.port, then restart the panel."
     echo ""
-    echo -e "    Join a cluster: on an existing node run  sudo sfpanel cluster token"
+    echo -e "    Join a cluster: on an existing node run  ${sudo}sfpanel cluster token"
     echo -e "                    and paste the command it prints here, e.g."
-    echo -e "                    sudo sfpanel cluster join <leader-ip>:3629 <token>"
-    echo -e "                    Nodes talk on TCP 3628-3630; allow them between nodes in ufw."
+    echo -e "                    ${sudo}sfpanel cluster join <leader-ip>:3629 <token>"
+    if [ "$pve" -eq 1 ]; then
+      echo -e "                    Nodes talk on TCP 3628-3630; allow them between nodes in the Proxmox firewall."
+    else
+      echo -e "                    Nodes talk on TCP 3628-3630; allow them between nodes in ufw."
+    fi
     echo ""
   fi
 }
@@ -669,7 +735,7 @@ uninstall() {
     else
       log_warn "Could not leave the cluster automatically (peer unreachable / quorum lost)."
       log_warn "This node is STILL a Raft voter. From a surviving node run:"
-      log_warn "    sudo sfpanel cluster remove <node-id>"
+      log_warn "    $(sudo_prefix)sfpanel cluster remove <node-id>"
       log_warn "or follow docs/specs/cluster-partition-runbook.md (peers.json recovery)."
     fi
   fi
