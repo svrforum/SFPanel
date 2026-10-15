@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.15] – 2026-10-16
+
+### Fixed
+
+- **Alert channels can be added.** The settings page sent a channel's configuration as an object and the server took only a string, so adding a Discord, Telegram or webhook channel failed with "invalid request body" since alerts were introduced in v0.9.0. Both forms are accepted now, and the page's request shape is pinned by a test both sides share. Also: a host-metric rule shows its threshold in the list again, a channel update that leaves out `enabled` no longer re-enables a channel that was off, and a channel whose configuration cannot be read is no longer recorded as delivered. (#116)
+- **Claude installed for root is found, and its sessions start.** Root's startup files do not put `~/.local/bin` on PATH, as a normal account's do, so the tools card kept showing Claude as not installed and its sessions could not start. The panel now puts `~/.local/bin` first itself when it checks a tool and when it starts a session, without touching root's dotfiles, and the card suggests a normal account for AI tools. (#115)
+
 ## [0.78.14] – 2026-10-15
 
 ### Added
