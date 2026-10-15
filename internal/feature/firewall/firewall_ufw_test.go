@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+
+	"github.com/svrforum/SFPanel/internal/common/platform"
 )
 
 // Real captured output from `ufw status numbered` covering IPv4, IPv6, comments,
@@ -221,6 +223,7 @@ func (m *ufwArgsCommander) Exists(name string) bool {
 // `ufw status` says inactive but `ufw show added` lists `ufw allow 22/tcp`
 // — the precheck must consult the staged-rules list and let enable proceed.
 func TestEnableUFW_AllowsWhenStagedRulesCoverSSH(t *testing.T) {
+	platform.SetForTest(t, platform.Info{})
 	m := newUFWArgsCommander()
 	m.setExists("ufw", true)
 	m.set("ufw status numbered", "Status: inactive\n", nil)
@@ -258,6 +261,7 @@ func TestEnableUFW_AllowsWhenStagedRulesCoverSSH(t *testing.T) {
 // inactive AND no staged ALLOW for SSH/panel → 409 with the lockout
 // message, no enable invocation.
 func TestEnableUFW_RefusesWhenInactiveAndNoStagedSSH(t *testing.T) {
+	platform.SetForTest(t, platform.Info{})
 	m := newUFWArgsCommander()
 	m.setExists("ufw", true)
 	m.set("ufw status numbered", "Status: inactive\n", nil)
@@ -366,6 +370,7 @@ func TestAddRuleRangeOrListNeedsAProtocol(t *testing.T) {
 // A deny list with 22 in it is refused like a deny on 22, with the lockout
 // code the page translates.
 func TestAddRuleRefusesADenyListWithSSH(t *testing.T) {
+	platform.SetForTest(t, platform.Info{})
 	m := newUFWArgsCommander()
 	m.setExists("ufw", true)
 	h := &Handler{Cmd: m, PanelPort: 9443}

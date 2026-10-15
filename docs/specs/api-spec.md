@@ -2494,7 +2494,7 @@ Compose 프로젝트 중지 (`docker compose down`).
 ## 방화벽 API — UFW (`/api/v1/firewall`)
 
 ### GET /api/v1/firewall/status
-UFW 방화벽 현재 상태 조회 (활성 여부, 기본 정책).
+UFW 방화벽 현재 상태 조회 (활성 여부, 기본 정책), 이 호스트의 방화벽을 무엇으로 관리하는지, Proxmox VE 호스트면 `pve-firewall status`.
 
 - **인증 필요**: 예
 
@@ -2503,9 +2503,12 @@ UFW 방화벽 현재 상태 조회 (활성 여부, 기본 정책).
 {
   "success": true,
   "data": {
-    "active": true,
-    "default_income": "deny",
-    "default_out": "allow"
+    "active": false,
+    "default_incoming": "",
+    "default_outgoing": "",
+    "installed": false,
+    "manager": "pve-firewall",
+    "pve": { "enabled": false, "running": true, "raw": "Status: disabled/running" }
   }
 }
 ```
@@ -2513,8 +2516,13 @@ UFW 방화벽 현재 상태 조회 (활성 여부, 기본 정책).
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `active` | boolean | UFW 활성화 상태 |
-| `default_income` | string | 기본 인바운드 정책 (예: "deny") |
-| `default_out` | string | 기본 아웃바운드 정책 (예: "allow") |
+| `default_incoming` | string | 기본 인바운드 정책 (예: "deny") |
+| `default_outgoing` | string | 기본 아웃바운드 정책 (예: "allow") |
+| `installed` | boolean | ufw가 PATH에 있는지. Debian·Proxmox VE는 기본으로 설치하지 않으며, 이는 "비활성"과 다르다 |
+| `manager` | string | `ufw` \| `pve-firewall` (ufw가 이미 켜져 있지 않은 Proxmox VE 호스트 — ufw 변경은 거부된다) \| `none` (ufw 미설치) |
+| `pve` | object? | Proxmox VE 호스트에서만. `enabled`: 데이터센터 방화벽 옵션, `running`: pve-firewall 데몬, `raw`: 명령 출력(실패 시 오류) |
+
+`installed`/`manager`/`pve`가 없는 응답(이전 버전 노드)은 ufw가 설치된 것으로 읽는다.
 
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
@@ -2545,6 +2553,8 @@ UFW 방화벽 활성화 (`ufw --force enable`).
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
+| `FIREWALL_MANAGED_BY_PVE` | 409 | Proxmox VE 호스트에서 ufw가 이미 켜져 있지 않음 (`force`로도 넘을 수 없음) |
+| `UFW_LOCKOUT` | 409 | SSH/패널 포트 허용 규칙 없음. Proxmox VE 호스트에서는 8006(웹 UI) 허용 규칙이 없을 때도 — 이때 `details.port`는 `"8006"` |
 | `UFW_ENABLE_ERROR` | 500 | UFW 활성화 실패 |
 
 ---
@@ -2664,6 +2674,8 @@ UFW 방화벽 비활성화 (`ufw disable`).
 | `INVALID_FROM_ADDRESS` | 400 | 유효하지 않은 소스 IP/CIDR |
 | `INVALID_TO_ADDRESS` | 400 | 유효하지 않은 대상 IP/CIDR |
 | `INVALID_COMMENT` | 400 | 코멘트에 허용되지 않는 문자 |
+| `FIREWALL_MANAGED_BY_PVE` | 409 | Proxmox VE 호스트에서 ufw가 이미 켜져 있지 않음 |
+| `UFW_LOCKOUT` | 409 | deny/reject/limit가 SSH·패널 포트를 막음(`?force=true`로 확인). Proxmox VE 호스트에서는 8006도 — `details.port`가 `"8006"` |
 | `UFW_ADD_RULE_ERROR` | 500 | 규칙 추가 실패 |
 
 ---
@@ -2693,6 +2705,8 @@ UFW 규칙을 번호로 삭제 (`ufw --force delete <number>`).
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
 | `INVALID_RULE_NUMBER` | 400 | 유효하지 않은 규칙 번호 (양의 정수가 아님) |
+| `FIREWALL_MANAGED_BY_PVE` | 409 | Proxmox VE 호스트에서 ufw가 이미 켜져 있지 않음 |
+| `UFW_LOCKOUT` | 409 | 마지막 SSH·패널 포트 허용 규칙 삭제(`?force=true`로 확인). Proxmox VE 호스트에서는 8006의 마지막 허용 규칙도 — `details.port`가 `"8006"` |
 | `UFW_DELETE_ERROR` | 500 | 규칙 삭제 실패 |
 
 ---
@@ -2769,11 +2783,14 @@ Docker가 발행한 포트(NAT `DOCKER` 체인)와 사용자가 추가한 `DOCKE
 |------|------|
 | `ports` | Docker가 발행한 published 포트 (`DockerPublishedPort`) |
 | `rules` | `DOCKER-USER` 체인의 사용자 규칙 (`DockerUserRule`). `port`는 호스트 포트. `stale: true`는 v0.78.14 이전 방식으로 컨테이너 주소에 묶였는데 지금 그 주소로 가는 발행 포트가 없어 아무것도 막지 않는 규칙(이때 `port`는 컨테이너 포트) |
+| `docker_installed` | `false`일 때만 온다: Docker가 설치되어 있지 않고 두 체인이 모두 없음 (오류가 아님, 예: Proxmox VE 호스트) |
 
 ---
 
 ### POST /api/v1/firewall/docker/rules
 `DOCKER-USER` 체인에 규칙 추가 (컨테이너 published 포트에 대한 소스 기반 허용/차단). v0.78.14부터 규칙은 컨테이너 주소가 아니라 **호스트 포트**로 맞춘다: `-m conntrack --ctstate DNAT --ctorigdstport <port> --ctdir ORIGINAL`. 컨테이너가 재시작으로 다른 주소를 받아도 규칙이 그대로 듣는다. 예전 방식으로 저장된 규칙은 패널이 시작할 때 차단 규칙 옆 LOG 규칙의 `HPORT=`로 호스트 포트를 읽어 바꾼다.
+
+패널이 쓴 규칙에는 `-m comment --comment sfpanel` 태그가 붙는다. 추가·삭제 때마다 `/var/lib/sfpanel/docker-user.rules`에는 **패널의 규칙만**(태그가 있거나, 태그 이전의 `HPORT=` LOG·conntrack 형식) 체인 순서대로 저장된다. 패널이 시작할 때는 체인을 선언·비우지 않고, 저장된 규칙마다 `iptables -C`로 확인해 없는 것만 저장된 순서대로 끼워 넣는다 — 패널이 쓰지 않은 규칙(예: Proxmox 게스트 브리지용 `-i vmbr0 -o vmbr0 -j ACCEPT`)은 건드리지 않는다. 체인이 아직 없으면(Docker보다 먼저 시작) 빈 체인을 만든다. 이전 버전이 저장한 파일의 규칙도 같은 방식으로 한 번 복원되며, 다음 저장부터는 패널의 규칙만 남는다.
 
 - **인증 필요**: 예
 
@@ -2834,7 +2851,7 @@ Fail2ban 설치 및 실행 상태 확인.
 ---
 
 ### POST /api/v1/fail2ban/install
-Fail2ban 패키지 설치 및 서비스 시작 (`apt-get install -y fail2ban` + `systemctl enable/start`).
+Fail2ban 패키지 설치 및 서비스 시작 (`apt-get install -y fail2ban` + `systemctl enable/start`). `apt-get update`는 `exec.AptUpdateForInstall`: 일부 저장소만 받지 못했으면(구독 없는 Proxmox enterprise 저장소의 401 등) 설치를 계속하고 `warnings`로 알린다. 시작 후 잠시(3초) 뒤에도 `systemctl is-active fail2ban`이 `active`여야 성공이다.
 
 - **인증 필요**: 예
 
@@ -2847,17 +2864,22 @@ Fail2ban 패키지 설치 및 서비스 시작 (`apt-get install -y fail2ban` + 
   "data": {
     "message": "Fail2ban installed and started successfully",
     "install_output": "...",
-    "start_output": "..."
+    "start_output": "...",
+    "warnings": [
+      { "code": "APT_REPO_UNAUTHORIZED", "message": "repository https://enterprise.proxmox.com/debian/pve refused access (401)", "details": { "uri": "https://enterprise.proxmox.com/debian/pve" } }
+    ]
   }
 }
 ```
 
+`warnings`는 받지 못한 저장소가 있을 때만 온다 (`APT_REPO_UNAUTHORIZED` / `APT_REPO_FAILED`, `details.uri`).
+
 **에러 응답:**
 | 코드 | HTTP 상태 | 조건 |
 |------|-----------|------|
-| `APT_UPDATE_ERROR` | 500 | apt-get update 실패 |
+| `APT_UPDATE_ERROR` | 500 | apt-get update 실패 (일부 저장소만의 실패는 제외) |
 | `FAIL2BAN_INSTALL_ERROR` | 500 | fail2ban 설치 실패 |
-| `FAIL2BAN_START_ERROR` | 500 | 설치 성공했으나 서비스 시작 실패 |
+| `FAIL2BAN_START_ERROR` | 500 | 설치 성공했으나 서비스 시작 실패, 또는 시작 직후 멈춤 — 메시지에 journal 끝부분 |
 
 ---
 
@@ -5511,7 +5533,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/fail2ban/install` | O | Fail2ban 설치 |
 | GET | `/api/v1/fail2ban/templates` | O | Jail 템플릿 목록 |
 | GET | `/api/v1/fail2ban/jails` | O | Jail 목록 |
-| POST | `/api/v1/fail2ban/jails` | O | Jail 생성 |
+| POST | `/api/v1/fail2ban/jails` | O | Jail 생성 (journal만 있는 호스트에서는 auth.log·mail.log를 읽는 템플릿이 그 파일 대신 `backend = systemd`로 journal을 읽는다) |
 | DELETE | `/api/v1/fail2ban/jails/:name` | O | Jail 삭제 |
 | GET | `/api/v1/fail2ban/jails/:name` | O | Jail 상세 |
 | POST | `/api/v1/fail2ban/jails/:name/enable` | O | Jail 활성화 |

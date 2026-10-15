@@ -41,3 +41,12 @@ test('a rule on the host port blocks it', async ({ page }) => {
   await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(page.getByText('Not blocking')).toHaveCount(0)
 })
+
+// A host without Docker — a Proxmox host, say — has neither chain. The tab
+// showed that as an error.
+test('a host without Docker shows no error', async ({ page }) => {
+  await open(page, { ports: [], rules: [], docker_installed: false })
+  await expect(page.getByText('Docker is not installed on this host')).toBeVisible()
+  await expect(page.getByText('DOCKER-USER chain not found')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Add Rule' })).toHaveCount(0)
+})

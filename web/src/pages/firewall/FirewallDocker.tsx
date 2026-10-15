@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Loader2, ShieldBan, ShieldCheck, AlertCircle, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Plus, Trash2, Loader2, ShieldBan, ShieldCheck, AlertCircle, AlertTriangle, RefreshCw, Container } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { useConfirm } from '@/components/ConfirmDialog'
@@ -72,6 +72,8 @@ export default function FirewallDocker() {
   const [rules, setRules] = useState<DockerUserRule[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // False on a host without Docker, where neither chain exists.
+  const [dockerInstalled, setDockerInstalled] = useState(true)
 
   // Add rule dialog
   const [addOpen, setAddOpen] = useState(false)
@@ -85,6 +87,7 @@ export default function FirewallDocker() {
       const data = await api.getDockerFirewall()
       setPorts(data.ports || [])
       setRules(data.rules || [])
+      setDockerInstalled(data.docker_installed !== false)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('common.error')
       setError(message)
@@ -178,6 +181,15 @@ export default function FirewallDocker() {
           <RefreshCw className="h-3.5 w-3.5" />
           {t('common.retry')}
         </Button>
+      </div>
+    )
+  }
+
+  if (!dockerInstalled) {
+    return (
+      <div className="bg-card rounded-2xl card-shadow p-8 text-center text-muted-foreground mt-4">
+        <Container className="h-8 w-8 mx-auto mb-2 opacity-40" />
+        <p className="text-[13px]">{t('firewall.docker.notInstalled')}</p>
       </div>
     )
   }

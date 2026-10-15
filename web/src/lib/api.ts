@@ -2221,8 +2221,17 @@ class ApiClient {
   }
 
   // Firewall (UFW)
+  // installed, manager and pve are absent from nodes older than Proxmox VE
+  // support: read them as an installed ufw.
   getFirewallStatus() {
-    return this.request<{ active: boolean; default_incoming: string; default_outgoing: string }>('/firewall/status')
+    return this.request<{
+      active: boolean
+      default_incoming: string
+      default_outgoing: string
+      installed?: boolean
+      manager?: 'ufw' | 'pve-firewall' | 'none'
+      pve?: { enabled: boolean; running: boolean; raw: string }
+    }>('/firewall/status')
   }
 
   enableFirewall(force = false) {
@@ -2258,7 +2267,7 @@ class ApiClient {
   }
 
   installFail2ban() {
-    return this.request<{ message: string }>('/fail2ban/install', { method: 'POST' })
+    return this.request<{ message: string; warnings?: ApiWarning[] }>('/fail2ban/install', { method: 'POST' })
   }
 
   getFail2banTemplates() {
@@ -2324,6 +2333,8 @@ class ApiClient {
         source: string
         action: string
       }>
+      // false when Docker is not installed and neither chain exists.
+      docker_installed?: boolean
     }>('/firewall/docker')
   }
 

@@ -10,11 +10,28 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 )
+
+// fail2banSettle is how long fail2ban has to stay up after `systemctl start`
+// to count as started. A var so tests need not wait.
+var fail2banSettle = 3 * time.Second
+
+// fail2banJailDir is where the panel writes its jails. A var so tests can
+// move it.
+var fail2banJailDir = "/etc/fail2ban/jail.d"
+
+// logPathExists reports whether a jail's logpath, a glob, names a file. A var
+// so tests do not depend on the host's /var/log.
+var logPathExists = func(pattern string) bool {
+	m, err := filepath.Glob(pattern)
+	return err == nil && len(m) > 0
+}
 
 // ---------- Fail2ban Handlers ----------
 
@@ -47,8 +64,10 @@ func (h *Handler) GetFail2banStatus(c echo.Context) error {
 // InstallFail2ban installs fail2ban via apt and enables the service.
 // POST /fail2ban/install
 func (h *Handler) InstallFail2ban(c echo.Context) error {
-	// Step 1: apt-get update
-	_, err := exec.AptUpdate(c.Request().Context(), h.Cmd)
+	// Step 1: apt-get update. A repository that cannot be fetched — Proxmox's
+	// enterprise one, without a subscription — does not stop the install:
+	// fail2ban comes from Debian's. It is passed on as a warning.
+	notice, err := exec.AptUpdateForInstall(c.Request().Context(), h.Cmd)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
 			"Failed to update package lists: "+response.SanitizeOutput(err.Error()))
@@ -69,17 +88,50 @@ func (h *Handler) InstallFail2ban(c echo.Context) error {
 			"Fail2ban installed but failed to start: "+response.SanitizeOutput(err.Error()))
 	}
 
-	return response.OK(c, map[string]interface{}{
+	// systemctl start returns once the server has forked. A jail that cannot
+	// start takes it down a moment later — on Debian 12 the sshd jail does,
+	// on a host with no auth.log — and the install used to report success
+	// for a fail2ban already dead. It has to still be running after that
+	// moment; when it is not, the journal says why.
+	select {
+	case <-time.After(fail2banSettle):
+	case <-c.Request().Context().Done():
+	}
+	if state, _ := h.Cmd.Run("systemctl", "is-active", "fail2ban"); strings.TrimSpace(state) != "active" {
+		journal, _ := h.Cmd.Run("journalctl", "-u", "fail2ban", "-n", "8", "--no-pager", "-o", "cat")
+		return response.Fail(c, http.StatusInternalServerError, response.ErrFail2banStart,
+			"Fail2ban installed but stopped right after starting: "+response.SanitizeOutput(lastLines(journal, 400)))
+	}
+
+	resp := map[string]interface{}{
 		"message":        "Fail2ban installed and started successfully",
 		"install_output": strings.TrimSpace(output),
 		"start_output":   strings.TrimSpace(startOutput),
-	})
+	}
+	if notice != nil {
+		resp["warnings"] = response.RepoWarnings(notice.Unauthorized, notice.Failed)
+	}
+	return response.OK(c, resp)
+}
+
+// lastLines keeps the end of s, at most n bytes of it, from a line start
+// where it can: the end of a log is what says why.
+func lastLines(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	s = s[len(s)-n:]
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[i+1:]
+	}
+	return s
 }
 
 // ListJails returns all fail2ban jails with their status.
 // GET /fail2ban/jails
 func (h *Handler) ListJails(c echo.Context) error {
-	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+	if ok, err := requireTool(c, h.Cmd, "fail2ban-client"); !ok {
 		return err
 	}
 	output, err := h.Cmd.Run("fail2ban-client", "status")
@@ -247,7 +299,7 @@ func (h *Handler) GetJailDetail(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidJailName,
 			"Jail name contains invalid characters (allowed: a-zA-Z0-9_-)")
 	}
-	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+	if ok, err := requireTool(c, h.Cmd, "fail2ban-client"); !ok {
 		return err
 	}
 
@@ -278,7 +330,7 @@ func (h *Handler) EnableJail(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidJailName,
 			"Jail name contains invalid characters (allowed: a-zA-Z0-9_-)")
 	}
-	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+	if ok, err := requireTool(c, h.Cmd, "fail2ban-client"); !ok {
 		return err
 	}
 
@@ -297,7 +349,7 @@ func (h *Handler) EnableJail(c echo.Context) error {
 // DisableJail stops a fail2ban jail.
 // POST /fail2ban/jails/:name/disable
 func (h *Handler) DisableJail(c echo.Context) error {
-	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+	if ok, err := requireTool(c, h.Cmd, "fail2ban-client"); !ok {
 		return err
 	}
 	name := c.Param("name")
@@ -325,7 +377,7 @@ func (h *Handler) DisableJail(c echo.Context) error {
 // PUT /fail2ban/jails/:name/config
 // JSON body: { "max_retry": 5, "ban_time": "600", "find_time": "600" }
 func (h *Handler) UpdateJailConfig(c echo.Context) error {
-	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+	if ok, err := requireTool(c, h.Cmd, "fail2ban-client"); !ok {
 		return err
 	}
 	name := c.Param("name")
@@ -427,7 +479,7 @@ func (h *Handler) UpdateJailConfig(c echo.Context) error {
 // POST /fail2ban/jails/:name/unban
 // JSON body: { "ip": "192.168.1.100" }
 func (h *Handler) UnbanIP(c echo.Context) error {
-	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+	if ok, err := requireTool(c, h.Cmd, "fail2ban-client"); !ok {
 		return err
 	}
 	name := c.Param("name")
@@ -478,6 +530,14 @@ type JailTemplate struct {
 	BanTime     int    `json:"ban_time"`
 	FindTime    int    `json:"find_time"`
 	Available   bool   `json:"available"`
+	// Syslog is set for a template whose log file rsyslog writes. A host with
+	// only the journal has no such file, and a jail naming a log that is not
+	// there stops fail2ban 1.0 (Debian 12) from starting, every other jail
+	// with it; there the jail reads the journal instead.
+	Syslog bool `json:"-"`
+	// JournalMatch picks the service's messages out of the journal where the
+	// filter's own does not fit Debian, whose ssh unit is ssh.service.
+	JournalMatch string `json:"-"`
 }
 
 // jailTemplates defines the built-in jail templates.
@@ -486,6 +546,7 @@ var jailTemplates = []JailTemplate{
 		ID: "sshd", Name: "SSH (sshd)", Description: "SSH brute-force protection",
 		Filter: "sshd", LogPath: "/var/log/auth.log",
 		MaxRetry: 5, BanTime: 600, FindTime: 600,
+		Syslog: true, JournalMatch: "_SYSTEMD_UNIT=ssh.service + _COMM=sshd",
 	},
 	{
 		ID: "nginx-http-auth", Name: "Nginx HTTP Auth", Description: "Nginx basic auth failure protection",
@@ -511,11 +572,13 @@ var jailTemplates = []JailTemplate{
 		ID: "postfix", Name: "Postfix SMTP", Description: "Postfix SMTP auth failure protection",
 		Filter: "postfix", LogPath: "/var/log/mail.log",
 		MaxRetry: 5, BanTime: 600, FindTime: 600,
+		Syslog: true,
 	},
 	{
 		ID: "dovecot", Name: "Dovecot IMAP/POP3", Description: "Dovecot mail auth failure protection",
 		Filter: "dovecot", LogPath: "/var/log/mail.log",
 		MaxRetry: 5, BanTime: 600, FindTime: 600,
+		Syslog: true,
 	},
 	{
 		ID: "grafana", Name: "Grafana", Description: "Grafana login failure protection",
@@ -586,7 +649,7 @@ var validIgnoreIP = regexp.MustCompile(`^[a-fA-F0-9.:/ ]+$`)
 // CreateJail creates a new fail2ban jail from a template or custom config.
 // POST /fail2ban/jails
 func (h *Handler) CreateJail(c echo.Context) error {
-	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+	if ok, err := requireTool(c, h.Cmd, "fail2ban-client"); !ok {
 		return err
 	}
 	var req CreateJailRequest
@@ -600,6 +663,9 @@ func (h *Handler) CreateJail(c echo.Context) error {
 
 	var jailName, filterName, logPath string
 	var maxRetry, banTime, findTime int
+	// journal is set when the jail is to read the journal, not logPath.
+	var journal bool
+	var journalMatch string
 
 	if req.ID == "custom" {
 		// Custom jail creation
@@ -676,6 +742,9 @@ func (h *Handler) CreateJail(c echo.Context) error {
 			}
 			logPath = req.LogPath
 		}
+		if tmpl.Syslog && platform.Get().JournalOnly && !logPathExists(logPath) {
+			journal, journalMatch = true, tmpl.JournalMatch
+		}
 	}
 
 	// Check if jail already exists
@@ -688,14 +757,20 @@ func (h *Handler) CreateJail(c echo.Context) error {
 	}
 
 	// Write jail config file
+	source := fmt.Sprintf("logpath = %s\n", logPath)
+	if journal {
+		source = "backend = systemd\n"
+		if journalMatch != "" {
+			source += "journalmatch = " + journalMatch + "\n"
+		}
+	}
 	configContent := fmt.Sprintf(`[%s]
 enabled = true
 filter = %s
-logpath = %s
-maxretry = %d
+%smaxretry = %d
 bantime = %d
 findtime = %d
-`, jailName, filterName, logPath, maxRetry, banTime, findTime)
+`, jailName, filterName, source, maxRetry, banTime, findTime)
 
 	// Add ignoreip if provided
 	if req.IgnoreIP != "" {
@@ -706,7 +781,7 @@ findtime = %d
 		configContent += fmt.Sprintf("ignoreip = %s\n", req.IgnoreIP)
 	}
 
-	configPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.local", jailName)
+	configPath := filepath.Join(fail2banJailDir, jailName+".local")
 	if err := writeFile(configPath, configContent); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrFileWriteError,
 			"Failed to write jail config: "+response.SanitizeOutput(err.Error()))
@@ -727,7 +802,7 @@ findtime = %d
 // DeleteJail removes a fail2ban jail by deleting its config file and reloading.
 // DELETE /fail2ban/jails/:name
 func (h *Handler) DeleteJail(c echo.Context) error {
-	if err := requireTool(c, h.Cmd, "fail2ban-client"); err != nil {
+	if ok, err := requireTool(c, h.Cmd, "fail2ban-client"); !ok {
 		return err
 	}
 	name := c.Param("name")
@@ -740,7 +815,7 @@ func (h *Handler) DeleteJail(c echo.Context) error {
 	}
 
 	// Check if this jail has a .local file we can delete
-	configPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.local", name)
+	configPath := filepath.Join(fail2banJailDir, name+".local")
 	if _, err := h.Cmd.Run("test", "-f", configPath); err != nil {
 		// Also check defaults-debian.conf — cannot delete system jails directly
 		// Instead, create a .local file that disables it

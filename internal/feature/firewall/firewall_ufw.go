@@ -6,28 +6,107 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 )
 
 // ---------- UFW Handlers ----------
 
-// GetUFWStatus returns the current UFW status including active state and default policies.
+// GetUFWStatus returns the current UFW status including active state and
+// default policies, which firewall manages the host, and on a Proxmox VE host
+// pve-firewall's status.
 // GET /firewall/status
 func (h *Handler) GetUFWStatus(c echo.Context) error {
-	if !h.Cmd.Exists("ufw") {
-		return response.OK(c, UFWStatus{})
-	}
-	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "status", "verbose")
-	if err != nil {
-		return response.Fail(c, http.StatusInternalServerError, response.ErrUFWError,
-			"Failed to get UFW status: "+response.SanitizeOutput(err.Error()))
+	status := UFWStatus{}
+	if h.Cmd.Exists("ufw") {
+		output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "status", "verbose")
+		if err != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrUFWError,
+				"Failed to get UFW status: "+response.SanitizeOutput(err.Error()))
+		}
+		status = parseUFWStatus(output)
+		status.Installed = true
 	}
 
-	status := parseUFWStatus(output)
+	pve := platform.Get().PVE
+	switch {
+	case status.Active, status.Installed && !pve:
+		status.Manager = managerUFW
+	case pve:
+		status.Manager = managerPVE
+	default:
+		status.Manager = managerNone
+	}
+	if pve {
+		status.PVE = h.pveFirewallStatus()
+	}
 
 	return response.OK(c, status)
+}
+
+// pveFirewallStatus asks pve-firewall how it stands. It takes a lock and
+// reads the cluster file system, so it gets a timeout; when it fails, Raw
+// says what it said.
+func (h *Handler) pveFirewallStatus() *PVEFirewallStatus {
+	out, err := h.Cmd.RunWithTimeout(15*time.Second, "pve-firewall", "status")
+	if err != nil {
+		return &PVEFirewallStatus{Raw: response.SanitizeOutput(strings.TrimSpace(out + "\n" + err.Error()))}
+	}
+	st := parsePVEFirewallStatus(out)
+	return &st
+}
+
+// parsePVEFirewallStatus reads `pve-firewall status`, which prints
+// "Status: enabled/running": the datacenter firewall's option, then the
+// daemon's state, with " (pending changes)" after it while a change to the
+// rules waits to be applied.
+func parsePVEFirewallStatus(out string) PVEFirewallStatus {
+	st := PVEFirewallStatus{Raw: strings.TrimSpace(out)}
+	for _, line := range strings.Split(out, "\n") {
+		v, ok := strings.CutPrefix(strings.TrimSpace(line), "Status:")
+		if !ok {
+			continue
+		}
+		state, _, _ := strings.Cut(strings.TrimSpace(v), " ")
+		enabled, running, _ := strings.Cut(state, "/")
+		st.Enabled = enabled == "enabled"
+		st.Running = running == "running"
+		break
+	}
+	return st
+}
+
+// refuseOnPVE answers a ufw change on a Proxmox VE host, whose firewall is
+// pve-firewall: ufw's default deny there cuts the web UI on 8006, the
+// cluster's traffic and the guests' consoles, in the chains pve-firewall
+// writes too. A host whose operator already runs ufw keeps it, with 8006
+// guarded like SSH and the panel's port. refused is true when it answered.
+func (h *Handler) refuseOnPVE(c echo.Context) (refused bool, err error) {
+	if !platform.Get().PVE || h.ufwActive() {
+		return false, nil
+	}
+	return true, response.Fail(c, http.StatusConflict, response.ErrFirewallManagedByPVE,
+		"This host's firewall is managed by Proxmox VE (pve-firewall). Change it in the Proxmox web UI under Datacenter → Firewall.")
+}
+
+// ufwActive reports whether ufw is installed and enabled.
+func (h *Handler) ufwActive() bool {
+	if !h.Cmd.Exists("ufw") {
+		return false
+	}
+	out, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "status")
+	return err == nil && parseUFWStatus(out).Active
+}
+
+// pveUILockout is the lockout refusal for the Proxmox UI's port. Its details
+// name the port, so the page can say that this, not SSH or the panel, is what
+// the change would cut.
+func pveUILockout(c echo.Context, message string) error {
+	return response.FailWith(c, http.StatusConflict, response.ErrUFWLockout, message,
+		map[string]string{"port": strconv.Itoa(PVEUIPort)})
 }
 
 // parseUFWStatus parses the output of `ufw status verbose`.
@@ -73,9 +152,13 @@ func parseUFWStatus(output string) UFWStatus {
 // Lockout guard: refuses to enable when the current rule set has no ALLOW
 // for SSH or the panel port, because UFW's default-incoming-deny flip will
 // then immediately disconnect the operator (and the panel itself).
-// Pass ?force=true to override.
+// Pass ?force=true to override. On Proxmox VE the rules must also allow
+// the web UI's port, and the enable is refused unless ufw already runs.
 func (h *Handler) EnableUFW(c echo.Context) error {
-	if err := requireTool(c, h.Cmd, "ufw"); err != nil {
+	if refused, err := h.refuseOnPVE(c); refused {
+		return err
+	}
+	if ok, err := requireTool(c, h.Cmd, "ufw"); !ok {
 		return err
 	}
 	if c.QueryParam("force") != "true" {
@@ -90,6 +173,10 @@ func (h *Handler) EnableUFW(c echo.Context) error {
 				return response.Fail(c, http.StatusConflict, response.ErrUFWLockout,
 					"Enabling UFW with no ALLOW rule for SSH (port 22) or the panel port would lock you out. "+
 						"Add an allow rule first, or pass ?force=true to confirm.")
+			}
+			if platform.Get().PVE && !anyRuleAllowsPort(rules, PVEUIPort) {
+				return pveUILockout(c, "Enabling UFW with no ALLOW rule for the Proxmox web UI (port 8006) would cut this node's management. "+
+					"Add an allow rule first, or pass ?force=true to confirm.")
 			}
 		}
 	}
@@ -108,7 +195,7 @@ func (h *Handler) EnableUFW(c echo.Context) error {
 // DisableUFW disables the UFW firewall.
 // POST /firewall/disable
 func (h *Handler) DisableUFW(c echo.Context) error {
-	if err := requireTool(c, h.Cmd, "ufw"); err != nil {
+	if ok, err := requireTool(c, h.Cmd, "ufw"); !ok {
 		return err
 	}
 	output, err := h.Cmd.RunWithEnv([]string{"LANG=C"}, "ufw", "disable")
@@ -156,6 +243,7 @@ func (h *Handler) ListRules(c echo.Context) error {
 //	[ 1] 22/tcp                     ALLOW IN    Anywhere                   # SSH
 //	[ 2] 80/tcp                     ALLOW IN    Anywhere
 //	[ 3] 22/tcp (v6)                ALLOW IN    Anywhere (v6)              # SSH
+//
 // UFW status-output parsing patterns, compiled once at package init rather
 // than per parse call / per line. ufwRuleRe matches the bracketed rule number
 // + details; ufwActionRe/ufwSimpleActionRe split To/Action/From.
@@ -295,7 +383,10 @@ func (h *Handler) AddRule(c echo.Context) error {
 			"Comment contains invalid characters")
 	}
 
-	if err := requireTool(c, h.Cmd, "ufw"); err != nil {
+	if refused, err := h.refuseOnPVE(c); refused {
+		return err
+	}
+	if ok, err := requireTool(c, h.Cmd, "ufw"); !ok {
 		return err
 	}
 
@@ -307,6 +398,10 @@ func (h *Handler) AddRule(c echo.Context) error {
 	if c.QueryParam("force") != "true" && wouldLockOutOnAdd(req, h.PanelPort) {
 		return response.Fail(c, http.StatusConflict, response.ErrUFWLockout,
 			fmt.Sprintf("Refusing to %s port %s — this would block remote admin access (SSH 22 or panel %d). Pass ?force=true to confirm.", req.Action, req.Port, h.PanelPort))
+	}
+	// SSH was checked just above; on Proxmox VE the web UI is kept as well.
+	if c.QueryParam("force") != "true" && platform.Get().PVE && wouldLockOutOnAdd(req, PVEUIPort) {
+		return pveUILockout(c, fmt.Sprintf("Refusing to %s port %s — this would block the Proxmox web UI (8006). Pass ?force=true to confirm.", req.Action, req.Port))
 	}
 
 	// Build the UFW command
@@ -384,7 +479,10 @@ func (h *Handler) DeleteRule(c echo.Context) error {
 			"Rule number must be a positive integer")
 	}
 
-	if err := requireTool(c, h.Cmd, "ufw"); err != nil {
+	if refused, err := h.refuseOnPVE(c); refused {
+		return err
+	}
+	if ok, err := requireTool(c, h.Cmd, "ufw"); !ok {
 		return err
 	}
 
@@ -410,6 +508,11 @@ func (h *Handler) DeleteRule(c echo.Context) error {
 					"Deleting this rule would leave no ALLOW for SSH or the panel port — you'd be locked out. "+
 						"Pass ?force=true to confirm.")
 			}
+			if target != nil && platform.Get().PVE &&
+				ruleAllowsPort(*target, PVEUIPort) && !anyRuleAllowsPort(remaining, PVEUIPort) {
+				return pveUILockout(c, "Deleting this rule would leave no ALLOW for the Proxmox web UI (port 8006). "+
+					"Pass ?force=true to confirm.")
+			}
 		}
 	}
 
@@ -430,7 +533,7 @@ func (h *Handler) DeleteRule(c echo.Context) error {
 // ListPorts returns all listening TCP and UDP ports on the system.
 // GET /firewall/ports
 func (h *Handler) ListPorts(c echo.Context) error {
-	if err := requireTool(c, h.Cmd, "ss"); err != nil {
+	if ok, err := requireTool(c, h.Cmd, "ss"); !ok {
 		return err
 	}
 	// Get TCP listening ports

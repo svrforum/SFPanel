@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { ShieldAlert, Download, Power, Unlock, Loader2, RefreshCw, ChevronDown, ChevronUp, Info, Settings, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { toastWarnings } from '@/lib/warnings'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -125,8 +126,10 @@ export default function FirewallFail2ban() {
   const handleInstall = useCallback(async () => {
     try {
       setInstallLoading(true)
-      await api.installFail2ban()
+      const result = await api.installFail2ban()
       toast.success('Fail2ban installed successfully')
+      // A repository apt could not refresh, which the install went past.
+      toastWarnings(result?.warnings, t)
       await fetchStatus()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to install Fail2ban'
@@ -134,7 +137,7 @@ export default function FirewallFail2ban() {
     } finally {
       setInstallLoading(false)
     }
-  }, [fetchStatus])
+  }, [fetchStatus, t])
 
   const handleToggleJail = useCallback(async (name: string, currentlyEnabled: boolean) => {
     try {

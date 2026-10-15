@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -61,6 +63,12 @@ var dockerUserRulesFileLegacy = "/etc/sfpanel/docker-user.rules"
 // validDockerAction matches allowed DOCKER-USER rule actions.
 var validDockerAction = regexp.MustCompile(`^(drop|accept)$`)
 
+// panelRuleTag marks the DOCKER-USER rules the panel writes, so that it saves
+// and puts back its own and nothing else. It goes after the port match:
+// `iptables -L` prints a comment where it stands, and the listing is parsed
+// up to the match.
+var panelRuleTag = []string{"-m", "comment", "--comment", "sfpanel"}
+
 // GetDockerFirewall returns Docker published ports and DOCKER-USER chain rules.
 // GET /firewall/docker
 func (h *Handler) GetDockerFirewall(c echo.Context) error {
@@ -83,6 +91,15 @@ func (h *Handler) GetDockerFirewall(c echo.Context) error {
 	rules, rulesErr := h.getDockerUserRulesWith(reverseMap)
 
 	if portsErr != nil && rulesErr != nil {
+		// Neither chain exists where Docker was never installed — a Proxmox
+		// VE host, say — and that is nothing to show, not an error.
+		if !h.Cmd.Exists("docker") {
+			return response.OK(c, map[string]interface{}{
+				"ports":            []DockerPublishedPort{},
+				"rules":            []DockerUserRule{},
+				"docker_installed": false,
+			})
+		}
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDockerFirewallError,
 			"Failed to get Docker firewall info: "+portsErr.Error())
 	}
@@ -339,7 +356,7 @@ func (h *Handler) getDockerUserRulesWith(reverseMap map[string]int) ([]DockerUse
 // AddDockerUserRule adds a rule to the DOCKER-USER iptables chain.
 // POST /firewall/docker/rules
 func (h *Handler) AddDockerUserRule(c echo.Context) error {
-	if err := requireTool(c, h.Cmd, "iptables"); err != nil {
+	if ok, err := requireTool(c, h.Cmd, "iptables"); !ok {
 		return err
 	}
 	// Serialize chain mutations so line-number addressing stays stable.
@@ -391,7 +408,7 @@ func (h *Handler) AddDockerUserRule(c echo.Context) error {
 	if req.Source != "" {
 		args = append(args, "-s", req.Source)
 	}
-	match := dockerPortMatch(req.Protocol, req.Port)
+	match := append(dockerPortMatch(req.Protocol, req.Port), panelRuleTag...)
 	args = append(args, match...)
 	args = append(args, "-j", iptablesAction)
 
@@ -428,7 +445,7 @@ func (h *Handler) AddDockerUserRule(c echo.Context) error {
 // DeleteDockerUserRule removes a rule from the DOCKER-USER chain by number.
 // DELETE /firewall/docker/rules/:number
 func (h *Handler) DeleteDockerUserRule(c echo.Context) error {
-	if err := requireTool(c, h.Cmd, "iptables"); err != nil {
+	if ok, err := requireTool(c, h.Cmd, "iptables"); !ok {
 		return err
 	}
 	// Serialize chain mutations so line-number addressing stays stable.
@@ -474,36 +491,30 @@ func (h *Handler) DeleteDockerUserRule(c echo.Context) error {
 	})
 }
 
-// saveDockerUserRules extracts DOCKER-USER rules from iptables-save and persists to file.
+// saveDockerUserRules keeps the panel's own DOCKER-USER rules, in chain
+// order, for RestoreDockerUserRules to put back at the next start.
+//
+// It used to keep the whole chain, its declaration included, and the restore
+// replayed that through iptables-restore, which empties a chain it declares:
+// at every start a rule added by hand since the last save was deleted, and one
+// deleted by hand came back. On a Proxmox host running Docker, the rule lost
+// is typically the ACCEPT that lets the guests' bridge through.
 func (h *Handler) saveDockerUserRules() error {
 	output, err := h.Cmd.Run("iptables-save", "-t", "filter")
 	if err != nil {
 		return fmt.Errorf("iptables-save: %w", err)
 	}
 
-	// Extract DOCKER-USER chain rules
-	var lines []string
-	lines = append(lines, "*filter")
-
-	inDockerUser := false
+	lines := []string{"*filter"}
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
-		if line == ":DOCKER-USER - [0:0]" {
+		if isPanelDockerRule(line) {
 			lines = append(lines, line)
-			continue
-		}
-		if strings.HasPrefix(line, "-A DOCKER-USER") {
-			// Skip RETURN rules — Docker will re-add them
-			if strings.Contains(line, "-j RETURN") {
-				continue
-			}
-			lines = append(lines, line)
-			inDockerUser = true
 		}
 	}
 
-	// Only save if we found user rules
-	if !inDockerUser {
+	// Only save if the panel has rules in the chain
+	if len(lines) == 1 {
 		// Remove file if no rules exist
 		os.Remove(dockerUserRulesFile)
 		os.Remove(dockerUserRulesFileLegacy)
@@ -514,8 +525,9 @@ func (h *Handler) saveDockerUserRules() error {
 	content := strings.Join(lines, "\n") + "\n"
 
 	// Ensure directory exists
-	if err := os.MkdirAll("/var/lib/sfpanel", 0755); err != nil {
-		return fmt.Errorf("mkdir /var/lib/sfpanel: %w", err)
+	dir := filepath.Dir(dockerUserRulesFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
 	// 0600 — rule list isn't a secret per se, but it's per-node mutable
@@ -529,8 +541,13 @@ func (h *Handler) saveDockerUserRules() error {
 	return nil
 }
 
-// RestoreDockerUserRules restores DOCKER-USER rules from the persisted file.
+// RestoreDockerUserRules puts the panel's saved DOCKER-USER rules back.
 // Called at SFPanel startup. Silently skips if no file exists.
+//
+// Each saved rule is looked for with iptables -C and inserted, in the saved
+// order, only where it is missing. The chain is never declared, flushed or
+// replaced, so the rules the panel did not write stay as they are; it used to
+// replay the file through iptables-restore, which emptied the chain first.
 //
 // Tries the new /var/lib/sfpanel path first; falls back to the legacy
 // /etc/sfpanel location so installations that haven't yet hit
@@ -544,27 +561,152 @@ func RestoreDockerUserRules(cmd exec.Commander) {
 		source = dockerUserRulesFileLegacy
 	}
 
+	data, err := os.ReadFile(source)
+	if err != nil {
+		slog.Warn("failed to read the saved DOCKER-USER rules", "component", "firewall", "file", source, "error", err)
+		return
+	}
+	saved := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+
 	// Rules saved before #112 match the container's address, which may not
 	// be the container's any more. Moved to the host port first, so this
 	// restore does not put back a rule that lets the port through.
-	if data, err := os.ReadFile(source); err == nil {
-		lines, moved := migrateDockerUserRules(strings.Split(strings.TrimRight(string(data), "\n"), "\n"))
-		if moved > 0 {
-			if err := os.WriteFile(source, []byte(strings.Join(lines, "\n")+"\n"), 0600); err != nil {
-				slog.Warn("failed to save DOCKER-USER rules moved to host ports", "component", "firewall", "error", err)
-			} else {
-				slog.Info("moved DOCKER-USER rules from container addresses to host ports", "component", "firewall", "rules", moved)
-			}
+	lines, moved := migrateDockerUserRules(saved)
+	if moved > 0 {
+		if err := os.WriteFile(source, []byte(strings.Join(lines, "\n")+"\n"), 0600); err != nil {
+			slog.Warn("failed to save DOCKER-USER rules moved to host ports", "component", "firewall", "error", err)
+		} else {
+			slog.Info("moved DOCKER-USER rules from container addresses to host ports", "component", "firewall", "rules", moved)
 		}
 	}
 
-	output, err := cmd.Run("iptables-restore", "-n", "--", source)
+	// Docker makes the chain when it starts, and the panel can start first.
+	// A missing chain is made here, empty, as Docker would make it; Docker
+	// then takes it as it finds it.
+	listing, err := cmd.Run("iptables", "-S", "DOCKER-USER")
 	if err != nil {
-		slog.Warn("failed to restore DOCKER-USER rules", "component", "firewall", "error", err, "output", output)
-		return
+		if out, err := cmd.Run("iptables", "-N", "DOCKER-USER"); err != nil {
+			slog.Warn("failed to restore DOCKER-USER rules: no chain", "component", "firewall", "error", err, "output", out)
+			return
+		}
+		listing = ""
+	}
+	var live []string
+	for _, l := range strings.Split(listing, "\n") {
+		if l = strings.TrimSpace(l); strings.HasPrefix(l, "-A DOCKER-USER ") {
+			live = append(live, l)
+		}
 	}
 
-	slog.Info("restored DOCKER-USER firewall rules", "component", "firewall", "file", source)
+	// next is where a missing rule goes: after the saved rule before it,
+	// wherever that stands in the chain, so the panel's rules keep their
+	// order — the ACCEPT for one source above the DROP for everyone — with
+	// other rules above or between them.
+	next, inserted := 1, 0
+	for _, line := range lines {
+		spec, ok := dockerUserRuleSpec(line)
+		if !ok {
+			continue
+		}
+		if _, err := cmd.Run("iptables", append([]string{"-C", "DOCKER-USER"}, spec...)...); err == nil {
+			if i := slices.Index(live, line); i+2 > next {
+				next = i + 2
+			}
+			continue
+		}
+		if out, err := cmd.Run("iptables", append([]string{"-I", "DOCKER-USER", strconv.Itoa(next)}, spec...)...); err != nil {
+			slog.Warn("failed to restore a DOCKER-USER rule", "component", "firewall", "rule", line, "error", err, "output", out)
+			continue
+		}
+		live = slices.Insert(live, min(next-1, len(live)), line)
+		next++
+		inserted++
+	}
+
+	// The container-pinned rules the move replaced are still in the chain
+	// when the panel restarts without a reboot, as an update does. They are
+	// the panel's own — the LOG beside them names their host port — and with
+	// their replacements in place they go.
+	for i, line := range saved {
+		if line == lines[i] {
+			continue
+		}
+		spec, ok := dockerUserRuleSpec(line)
+		if !ok {
+			continue
+		}
+		if _, err := cmd.Run("iptables", append([]string{"-C", "DOCKER-USER"}, spec...)...); err != nil {
+			continue
+		}
+		if out, err := cmd.Run("iptables", append([]string{"-D", "DOCKER-USER"}, spec...)...); err != nil {
+			slog.Warn("failed to remove a DOCKER-USER rule moved to its host port", "component", "firewall", "rule", line, "error", err, "output", out)
+		}
+	}
+
+	slog.Info("restored DOCKER-USER firewall rules", "component", "firewall", "file", source, "inserted", inserted)
+}
+
+var (
+	// panelTagRe finds the panel's tag in an iptables-save line.
+	panelTagRe = regexp.MustCompile(`(?:^| )-m comment --comment sfpanel(?: |$)`)
+	// panelConntrackRuleRe is a rule in the form only the panel writes, as it
+	// wrote them before it tagged them: a host port matched through conntrack.
+	panelConntrackRuleRe = regexp.MustCompile(`^-A DOCKER-USER (?:-s \S+ )?-p (?:tcp|udp) -m conntrack --ctstate DNAT --ctorigdstport \d+ --ctdir ORIGINAL -j (?:ACCEPT|DROP|LOG)(?: |$)`)
+)
+
+// isPanelDockerRule reports whether an iptables-save line is a DOCKER-USER
+// rule the panel wrote: tagged; or, from before the tag, the LOG naming a host
+// port that goes in front of each DROP, or a rule in the conntrack form.
+func isPanelDockerRule(line string) bool {
+	if !strings.HasPrefix(line, "-A DOCKER-USER ") {
+		return false
+	}
+	return panelTagRe.MatchString(line) || hostPortPrefixRe.MatchString(line) || panelConntrackRuleRe.MatchString(line)
+}
+
+// dockerUserRuleSpec turns a saved "-A DOCKER-USER …" line into the rule's
+// arguments, for iptables -C, -I and -D.
+func dockerUserRuleSpec(line string) ([]string, bool) {
+	rest, ok := strings.CutPrefix(line, "-A DOCKER-USER ")
+	if !ok {
+		return nil, false
+	}
+	spec := splitSaveArgs(rest)
+	return spec, len(spec) > 0
+}
+
+// splitSaveArgs splits a rule as iptables-save prints it into arguments:
+// fields separated by spaces, where a value with other characters than
+// letters, digits, - and _ is in double quotes with \", \\ and \' escaped.
+func splitSaveArgs(s string) []string {
+	var args []string
+	var cur strings.Builder
+	quoted, escaped, have := false, false, false
+	for _, r := range s {
+		switch {
+		case escaped:
+			cur.WriteRune(r)
+			escaped = false
+		case quoted && r == '\\':
+			escaped = true
+		case r == '"':
+			quoted = !quoted
+			have = true
+		case r == ' ' && !quoted:
+			if have {
+				args = append(args, cur.String())
+				cur.Reset()
+				have = false
+			}
+		default:
+			cur.WriteRune(r)
+			have = true
+		}
+	}
+	if have {
+		args = append(args, cur.String())
+	}
+	return args
 }
 
 // legacyDockerRuleRe matches, in iptables-save form, a rule AddDockerUserRule

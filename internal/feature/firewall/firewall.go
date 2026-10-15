@@ -35,11 +35,16 @@ type Handler struct {
 // iptables) from returning a raw 500 — the proxied UI relies on
 // ErrToolNotInstalled being recognizable so it can show an actionable hint
 // instead of a stack trace.
-func requireTool(c echo.Context, cmd exec.Commander, tool string) error {
+//
+// ok is false when it has answered, and the handler returns err. It used to
+// return only response.Fail's error, which is nil once the answer is
+// written, so every handler carried on past it: with ufw missing, Enable
+// wrote the 501, ran ufw anyway and appended a second body to the response.
+func requireTool(c echo.Context, cmd exec.Commander, tool string) (ok bool, err error) {
 	if cmd.Exists(tool) {
-		return nil
+		return true, nil
 	}
-	return response.Fail(c, http.StatusNotImplemented, response.ErrToolNotInstalled,
+	return false, response.Fail(c, http.StatusNotImplemented, response.ErrToolNotInstalled,
 		fmt.Sprintf("%s is not installed on this node", tool))
 }
 
@@ -50,6 +55,30 @@ type UFWStatus struct {
 	Active          bool   `json:"active"`
 	DefaultIncoming string `json:"default_incoming"`
 	DefaultOutgoing string `json:"default_outgoing"`
+	// Installed is whether ufw is on this host at all. Debian and Proxmox VE
+	// install none, which is not the same as a firewall turned off.
+	Installed bool `json:"installed"`
+	// Manager is what the page manages this host's firewall with: "ufw";
+	// "pve-firewall" on a Proxmox VE host not already running ufw, where the
+	// ufw changes are refused; or "none" when there is no ufw to manage.
+	Manager string `json:"manager"`
+	// PVE is pve-firewall's own status, on a Proxmox VE host.
+	PVE *PVEFirewallStatus `json:"pve,omitempty"`
+}
+
+// Firewall managers, as GET /firewall/status names them.
+const (
+	managerUFW  = "ufw"
+	managerPVE  = "pve-firewall"
+	managerNone = "none"
+)
+
+// PVEFirewallStatus is `pve-firewall status`: whether the datacenter
+// firewall is enabled, and whether the pve-firewall daemon runs.
+type PVEFirewallStatus struct {
+	Enabled bool   `json:"enabled"`
+	Running bool   `json:"running"`
+	Raw     string `json:"raw"`
 }
 
 // UFWRule represents a single UFW firewall rule.

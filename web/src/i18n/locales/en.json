@@ -2821,7 +2821,9 @@
       "enable": "Enable",
       "disable": "Disable",
       "enableConfirm": "Are you sure you want to enable the firewall?",
-      "disableConfirm": "Are you sure you want to disable the firewall? Your server will be unprotected."
+      "disableConfirm": "Are you sure you want to disable the firewall? Your server will be unprotected.",
+      "notInstalled": "Not installed",
+      "notInstalledHint": "ufw is not installed on this host. Install it from Packages to manage the firewall here."
     },
     "rules": {
       "title": "Firewall Rules",
@@ -2856,7 +2858,8 @@
       "any": "Any",
       "tcp": "TCP",
       "udp": "UDP",
-      "both": "TCP/UDP"
+      "both": "TCP/UDP",
+      "lockoutBodyPve": "This change would block the Proxmox web UI (8006) and cut off this node's management. Add a rule allowing 8006 first."
     },
     "ports": {
       "title": "Open Ports",
@@ -2987,7 +2990,8 @@
       "protocol": "Protocol",
       "dockerNotRunning": "Docker is not running",
       "noDockerUserChain": "DOCKER-USER chain not found. Make sure Docker is running.",
-      "blockPort": "Block"
+      "blockPort": "Block",
+      "notInstalled": "Docker is not installed on this host, so there are no Docker ports to filter."
     },
     "logs": {
       "title": "Firewall Logs",
@@ -3012,7 +3016,17 @@
       "process": "Process",
       "noData": "No data"
     },
-    "managedByPve": "This host's firewall is managed by Proxmox (pve-firewall). Change it in the Proxmox web UI (:8006) under Datacenter → Firewall."
+    "managedByPve": "This host's firewall is managed by Proxmox (pve-firewall). Change it in the Proxmox web UI (:8006) under Datacenter → Firewall.",
+    "pve": {
+      "title": "Firewall is managed by Proxmox",
+      "datacenter": "Datacenter firewall",
+      "service": "pve-firewall service",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "running": "Running",
+      "stopped": "Stopped",
+      "openUi": "Open the Proxmox web UI"
+    }
   },
   "appStore": {
     "title": "App Store",

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Shield, Plus, Trash2, Loader2, Power, Pencil, RefreshCw, AlertCircle } from 'lucide-react'
+import { Shield, Plus, Trash2, Loader2, Power, Pencil, RefreshCw, AlertCircle, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -36,6 +36,23 @@ interface FirewallStatus {
   active: boolean
   default_incoming: string
   default_outgoing: string
+  // Absent from older nodes, which always managed ufw.
+  installed?: boolean
+  manager?: 'ufw' | 'pve-firewall' | 'none'
+  pve?: { enabled: boolean; running: boolean; raw: string }
+}
+
+// The Proxmox web UI of the host this page shows. A remote cluster node's
+// address is not known here, so it is only offered for the node the browser
+// reached.
+function proxmoxUiUrl(): string | null {
+  if (api.currentNode) return null
+  try {
+    const host = api.serverUrl ? new URL(api.serverUrl).hostname : window.location.hostname
+    return `https://${host}:8006`
+  } catch {
+    return null
+  }
 }
 
 interface FirewallRule {
@@ -226,10 +243,14 @@ export default function FirewallRules() {
 
   // handleLockoutError returns true if it consumed a 409 lockout-guard error by
   // opening the force-override prompt; callers should toast only when it's false.
+  // Only the lockout guard can be overridden: a Proxmox host's refusal is also
+  // a 409, and forcing it would get the same answer. A refusal naming 8006 is
+  // about the Proxmox web UI, not SSH or the panel.
   const handleLockoutError = (err: unknown, retry: () => Promise<void>): boolean => {
-    const e = err as Error & { status?: number }
-    if (e?.status === 409) {
-      setLockout({ message: e.message, busy: false, retry })
+    const e = err as Error & { status?: number; code?: string; details?: Record<string, string> }
+    if (e?.status === 409 && (!e.code || e.code === 'UFW_LOCKOUT')) {
+      const message = e.details?.port === '8006' ? t('firewall.rules.lockoutBodyPve') : e.message
+      setLockout({ message, busy: false, retry })
       return true
     }
     return false
@@ -410,6 +431,86 @@ export default function FirewallRules() {
     return (
       <div className="flex items-center justify-center py-12 text-muted-foreground">
         {t('common.loading')}
+      </div>
+    )
+  }
+
+  const manager = status?.manager ?? 'ufw'
+  const installed = status?.installed !== false
+
+  // On a Proxmox host the firewall is pve-firewall's, and the server refuses
+  // ufw changes: this page only says how it stands and where to change it.
+  if (status && manager === 'pve-firewall') {
+    const url = proxmoxUiUrl()
+    const badge = (on: boolean) =>
+      `inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${on ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'}`
+    return (
+      <div className="space-y-4 mt-4">
+        <div className="bg-card rounded-2xl p-5 card-shadow space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-primary/10 shrink-0">
+              <Shield className="h-5 w-5 text-primary" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-[15px] font-semibold">{t('firewall.pve.title')}</h3>
+              <p className="text-[12px] text-muted-foreground mt-0.5">{t('firewall.managedByPve')}</p>
+            </div>
+          </div>
+          {status.pve && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[12px] text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  {t('firewall.pve.datacenter')}
+                  <span className={badge(status.pve.enabled)}>
+                    {status.pve.enabled ? t('firewall.pve.enabled') : t('firewall.pve.disabled')}
+                  </span>
+                </span>
+                <span className="flex items-center gap-2">
+                  {t('firewall.pve.service')}
+                  <span className={badge(status.pve.running)}>
+                    {status.pve.running ? t('firewall.pve.running') : t('firewall.pve.stopped')}
+                  </span>
+                </span>
+              </div>
+              {status.pve.raw && (
+                <p className="font-mono text-[11px] text-muted-foreground break-words">{status.pve.raw}</p>
+              )}
+            </div>
+          )}
+          {url && (
+            <Button asChild variant="outline" size="sm" className="rounded-xl">
+              <a href={url} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-3.5 w-3.5" />
+                {t('firewall.pve.openUi')}
+              </a>
+            </Button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // No ufw on this host (Debian installs none): saying "Inactive" and offering
+  // Enable, which could only fail, read as a firewall turned off.
+  if (status && !installed) {
+    return (
+      <div className="space-y-4 mt-4">
+        <div className="bg-card rounded-2xl p-5 card-shadow">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-primary/10 shrink-0">
+              <Shield className="h-5 w-5 text-primary" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="text-[15px] font-semibold">{t('firewall.status.title')}</h3>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-secondary text-muted-foreground">
+                  {t('firewall.status.notInstalled')}
+                </span>
+              </div>
+              <p className="text-[12px] text-muted-foreground mt-1">{t('firewall.status.notInstalledHint')}</p>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }

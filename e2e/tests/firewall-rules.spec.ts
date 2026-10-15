@@ -12,7 +12,9 @@ const rules = [
 ]
 const ok = { status: 200, json: { success: true, data: {} } }
 
-async function open(page: Page, answer: (path: string) => { status: number; json: unknown } = () => ok) {
+const ufwStatus = { active: false, default_incoming: 'deny', default_outgoing: 'allow' }
+
+async function open(page: Page, answer: (path: string) => { status: number; json: unknown } = () => ok, status: unknown = ufwStatus, waitForRules = true) {
   const posts: { path: string; body: string }[] = []
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
@@ -31,13 +33,13 @@ async function open(page: Page, answer: (path: string) => { status: number; json
     let data: unknown = {}
     if (path === '/auth/setup-status') data = { setup_required: false }
     else if (path === '/cluster/status') data = { enabled: false }
-    else if (path === '/firewall/status') data = { active: false, default_incoming: 'deny', default_outgoing: 'allow' }
+    else if (path === '/firewall/status') data = status
     else if (path === '/firewall/rules') data = { rules, total: rules.length }
     await route.fulfill({ json: { success: true, data } })
   })
   await page.routeWebSocket(/\/ws\//, () => {})
   await page.goto('/firewall/rules')
-  await expect(page.getByRole('row', { name: /22\/tcp/ })).toHaveCount(2)
+  if (waitForRules) await expect(page.getByRole('row', { name: /22\/tcp/ })).toHaveCount(2)
   return posts
 }
 
@@ -64,4 +66,51 @@ test('a port list is sent the way ufw takes it', async ({ page }) => {
   await dialog.getByLabel('Port').fill('80, 443')
   await dialog.getByRole('button', { name: 'Add Rule' }).click()
   await expect.poll(() => posts.find(p => p.path === '/firewall/rules')?.body ?? '').toContain('"port":"80,443"')
+})
+
+// A Proxmox host's firewall is pve-firewall. The page said "Inactive" and
+// offered to enable ufw, whose default deny would cut the web UI on 8006.
+test('a Proxmox host shows pve-firewall and no ufw controls', async ({ page }) => {
+  await open(page, () => ok, {
+    active: false, default_incoming: '', default_outgoing: '', installed: false, manager: 'pve-firewall',
+    pve: { enabled: false, running: true, raw: 'Status: disabled/running' },
+  }, false)
+  await expect(page.getByRole('heading', { name: 'Firewall is managed by Proxmox' })).toBeVisible()
+  await expect(page.getByText('Datacenter firewall')).toBeVisible()
+  await expect(page.getByText('Disabled', { exact: true })).toBeVisible()
+  await expect(page.getByText('Running', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Open the Proxmox web UI' })).toHaveAttribute('href', /^https:\/\/[^/]+:8006$/)
+  await expect(page.getByRole('button', { name: 'Enable' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Add Rule' })).toHaveCount(0)
+  await expect(page.getByText('Inactive')).toHaveCount(0)
+})
+
+test('without ufw the page says it is not installed', async ({ page }) => {
+  await open(page, () => ok, { active: false, default_incoming: '', default_outgoing: '', installed: false, manager: 'none' }, false)
+  await expect(page.getByText('Not installed', { exact: true })).toBeVisible()
+  await expect(page.getByText(/ufw is not installed on this host/)).toBeVisible()
+  await expect(page.getByText('Inactive')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Enable' })).toHaveCount(0)
+})
+
+// Only the lockout guard can be forced. Proxmox's refusal is a 409 too, and
+// offering "Proceed anyway" for it would only get the same answer again.
+test('a Proxmox refusal is not offered as a lockout to force', async ({ page }) => {
+  await open(page, (path) => path === '/firewall/enable'
+    ? { status: 409, json: { success: false, error: { code: 'FIREWALL_MANAGED_BY_PVE', message: "This host's firewall is managed by Proxmox VE (pve-firewall)." } } }
+    : ok)
+  await page.getByRole('button', { name: 'Enable' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Enable' }).click()
+  await expect(page.getByText(/Change it in the Proxmox web UI \(:8006\) under Datacenter → Firewall/)).toBeVisible()
+  await expect(page.getByRole('dialog').filter({ hasText: 'This change may lock you out' })).toHaveCount(0)
+})
+
+test('a lockout of the Proxmox web UI says so', async ({ page }) => {
+  await open(page, (path) => path === '/firewall/enable'
+    ? { status: 409, json: { success: false, error: { code: 'UFW_LOCKOUT', message: 'Enabling UFW with no ALLOW rule for the Proxmox web UI (port 8006) would cut this node\'s management.', details: { port: '8006' } } } }
+    : ok)
+  await page.getByRole('button', { name: 'Enable' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Enable' }).click()
+  const lockout = page.getByRole('dialog').filter({ hasText: 'This change may lock you out' })
+  await expect(lockout.getByText(/would block the Proxmox web UI \(8006\)/)).toBeVisible()
 })

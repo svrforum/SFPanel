@@ -47,7 +47,9 @@ func TestADockerRuleMatchesTheHostPortNotTheContainer(t *testing.T) {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
 
-	match := []string{"-p", "tcp", "-m", "conntrack", "--ctstate", "DNAT", "--ctorigdstport", "443", "--ctdir", "ORIGINAL"}
+	// Tagged, so that only the panel's own rules are saved and put back.
+	match := []string{"-p", "tcp", "-m", "conntrack", "--ctstate", "DNAT", "--ctorigdstport", "443", "--ctdir", "ORIGINAL",
+		"-m", "comment", "--comment", "sfpanel"}
 	want := [][]string{
 		append(append([]string{"-I", "DOCKER-USER"}, match...), "-j", "DROP"),
 		append(append([]string{"-I", "DOCKER-USER"}, match...), "-j", "LOG", "--log-prefix", "[DOCKER-USER DROP] HPORT=443 ", "--log-level", "4"),
@@ -136,7 +138,7 @@ func TestRulesSavedBeforeHostPortsAreMovedToThem(t *testing.T) {
 }
 
 // The rules are put back at every start, so that is where they move: the
-// saved file is rewritten before iptables-restore reads it.
+// saved file is rewritten before the rules are read from it.
 func TestRestoreMovesSavedRulesToHostPortsFirst(t *testing.T) {
 	path := withRulesFiles(t)
 	if err := os.WriteFile(path, []byte(strings.Join(savedBeforeHostPorts, "\n")+"\n"), 0o600); err != nil {
@@ -152,7 +154,11 @@ func TestRestoreMovesSavedRulesToHostPortsFirst(t *testing.T) {
 	if strings.Contains(string(data), "-d 172.19.0.5/32") || !strings.Contains(string(data), "--ctorigdstport 81") {
 		t.Errorf("the saved rules were not moved:\n%s", data)
 	}
-	if len(cmd.Calls) != 1 || cmd.Calls[0].Name != "iptables-restore" || cmd.Calls[0].Args[len(cmd.Calls[0].Args)-1] != path {
-		t.Errorf("calls %v, want one iptables-restore of %s", cmd.Calls, path)
+	// iptables-restore empties a chain the file declares; the restore puts
+	// rules back one by one instead (TestRestoreLeavesOtherRulesAlone).
+	for _, call := range cmd.Calls {
+		if call.Name == "iptables-restore" {
+			t.Errorf("ran iptables-restore %v", call.Args)
+		}
 	}
 }

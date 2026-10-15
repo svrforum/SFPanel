@@ -79,6 +79,10 @@ export default function FirewallPorts() {
   const [ruleFrom, setRuleFrom] = useState<string>('')
   const [ruleComment, setRuleComment] = useState<string>('')
   const [adding, setAdding] = useState(false)
+  // Whether ufw is what manages this host's firewall. Not on a Proxmox host,
+  // which refuses ufw changes, nor where ufw is not installed. Older nodes do
+  // not say, and always managed ufw.
+  const [ufwManaged, setUfwManaged] = useState(true)
 
   // Search & Sort — default: no sort (API order = ss/netstat order)
   const [search, setSearch] = useState('')
@@ -101,6 +105,12 @@ export default function FirewallPorts() {
   useEffect(() => {
     fetchPorts()
   }, [fetchPorts])
+
+  useEffect(() => {
+    api.getFirewallStatus()
+      .then((s) => setUfwManaged((s.manager ?? 'ufw') === 'ufw'))
+      .catch(() => {})
+  }, [])
 
   const handleSort = (key: SortKey) => {
     if (key === 'none') return
@@ -326,15 +336,17 @@ export default function FirewallPorts() {
                   {port.pid > 0 ? port.pid : '—'}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
-                    onClick={() => handleOpenAddDialog(port)}
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-1" />
-                    {t('firewall.ports.addToUFW')}
-                  </Button>
+                  {ufwManaged && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity"
+                      onClick={() => handleOpenAddDialog(port)}
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" />
+                      {t('firewall.ports.addToUFW')}
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

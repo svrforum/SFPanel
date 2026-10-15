@@ -11,6 +11,12 @@ import (
 // admin channel; if they're running sshd elsewhere they can pass force=true.
 const SSHPort = 22
 
+// PVEUIPort is Proxmox VE's web UI and API. On a Proxmox host whose operator
+// already runs ufw, the guard keeps it reachable as it keeps SSH and the
+// panel: without it the node cannot be managed, by its operator or by the
+// rest of its cluster, and no guest console opens.
+const PVEUIPort = 8006
+
 // ruleAllowsPort reports whether the rule is an ALLOW that grants access
 // to the given numeric port. UFW's "To" field can be:
 //   - a bare port ("22")
@@ -71,6 +77,18 @@ func portSpecCovers(spec string, port int) bool {
 func hasAccessRule(rules []UFWRule, panelPort int) bool {
 	for _, r := range rules {
 		if ruleAllowsPort(r, SSHPort) || ruleAllowsPort(r, panelPort) {
+			return true
+		}
+	}
+	return false
+}
+
+// anyRuleAllowsPort reports whether some rule allows port. hasAccessRule
+// takes SSH and the panel's port as two ways in, either of which will do;
+// the Proxmox UI is a further thing to keep, not a way in instead of them.
+func anyRuleAllowsPort(rules []UFWRule, port int) bool {
+	for _, r := range rules {
+		if ruleAllowsPort(r, port) {
 			return true
 		}
 	}

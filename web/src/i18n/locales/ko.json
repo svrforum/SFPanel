@@ -2818,7 +2818,9 @@
       "enable": "활성화",
       "disable": "비활성화",
       "enableConfirm": "방화벽을 활성화하시겠습니까?",
-      "disableConfirm": "방화벽을 비활성화하시겠습니까? 서버가 보호되지 않습니다."
+      "disableConfirm": "방화벽을 비활성화하시겠습니까? 서버가 보호되지 않습니다.",
+      "notInstalled": "설치 안 됨",
+      "notInstalledHint": "이 호스트에는 ufw가 설치되어 있지 않습니다. 패키지에서 ufw를 설치하면 여기서 방화벽을 관리할 수 있습니다."
     },
     "rules": {
       "title": "방화벽 규칙",
@@ -2853,7 +2855,8 @@
       "any": "전체",
       "tcp": "TCP",
       "udp": "UDP",
-      "both": "TCP/UDP"
+      "both": "TCP/UDP",
+      "lockoutBodyPve": "이 변경을 적용하면 Proxmox 웹 화면(8006)이 막혀 이 노드를 관리할 수 없게 됩니다. 먼저 8006을 허용하는 규칙을 추가하세요."
     },
     "ports": {
       "title": "열린 포트",
@@ -2984,7 +2987,8 @@
       "protocol": "프로토콜",
       "dockerNotRunning": "Docker가 실행 중이 아닙니다",
       "noDockerUserChain": "DOCKER-USER 체인이 없습니다. Docker가 실행 중인지 확인하세요.",
-      "blockPort": "차단"
+      "blockPort": "차단",
+      "notInstalled": "이 호스트에는 Docker가 설치되어 있지 않아 걸러낼 Docker 포트가 없습니다."
     },
     "logs": {
       "title": "방화벽 로그",
@@ -3009,7 +3013,17 @@
       "process": "프로세스",
       "noData": "데이터 없음"
     },
-    "managedByPve": "이 호스트의 방화벽은 Proxmox(pve-firewall)가 관리합니다. Proxmox 웹 화면(:8006)의 데이터센터 → 방화벽에서 바꾸세요."
+    "managedByPve": "이 호스트의 방화벽은 Proxmox(pve-firewall)가 관리합니다. Proxmox 웹 화면(:8006)의 데이터센터 → 방화벽에서 바꾸세요.",
+    "pve": {
+      "title": "방화벽은 Proxmox가 관리합니다",
+      "datacenter": "데이터센터 방화벽",
+      "service": "pve-firewall 서비스",
+      "enabled": "사용",
+      "disabled": "사용 안 함",
+      "running": "실행 중",
+      "stopped": "중지됨",
+      "openUi": "Proxmox 웹 화면 열기"
+    }
   },
   "appStore": {
     "title": "앱스토어",
