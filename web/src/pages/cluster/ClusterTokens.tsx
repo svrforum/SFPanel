@@ -6,11 +6,10 @@ import { copyText } from '@/lib/utils'
 import type { ClusterTokenInfo } from '@/types/api'
 import { useConfirm } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
-
-// The installer the README's one-liner fetches; the token page prints the same line.
-const INSTALL_SCRIPT_URL = 'https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh'
+import { joinCommands } from './joinCommands'
 
 // Monospace box with a top-right copy button. Each instance tracks its own
 // copied state, so the check feedback shows on the button that was clicked
@@ -55,7 +54,9 @@ export default function ClusterTokens() {
   const [expiresAt, setExpiresAt] = useState('')
   const [grpcPort, setGrpcPort] = useState<number>(3629)
   const [advertise, setAdvertise] = useState<string>('<leader-ip>')
+  const [asRoot, setAsRoot] = useState(false)
   const [activeTokens, setActiveTokens] = useState<ClusterTokenInfo[]>([])
+  const commands = joinCommands(advertise, grpcPort, token, asRoot)
 
   const loadTokens = () => {
     api.listClusterTokens()
@@ -143,12 +144,18 @@ export default function ClusterTokens() {
           {/* Token value */}
           <CopyBlock text={token} />
 
+          {/* The server that joins may have no sudo: Proxmox VE's operator is root */}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <Checkbox checked={asRoot} onCheckedChange={(v) => setAsRoot(v === true)} />
+            <span className="text-[13px]">{t('cluster.tokens.asRoot')}</span>
+          </label>
+
           {/* Join command */}
           <div>
             <label className="text-[11px] text-muted-foreground uppercase tracking-wider block mb-2">
               {t('cluster.tokens.joinCommand')}
             </label>
-            <CopyBlock text={`sudo sfpanel cluster join ${advertise}:${grpcPort} ${token}`} />
+            <CopyBlock text={commands.join} />
           </div>
 
           {/* A server without SFPanel yet: the installer, then the same join */}
@@ -156,7 +163,7 @@ export default function ClusterTokens() {
             <label className="text-[11px] text-muted-foreground uppercase tracking-wider block mb-2">
               {t('cluster.tokens.installAndJoin')}
             </label>
-            <CopyBlock text={`curl -fsSL ${INSTALL_SCRIPT_URL} | sudo bash && sudo sfpanel cluster join ${advertise}:${grpcPort} ${token}`} />
+            <CopyBlock text={commands.installAndJoin} />
           </div>
         </div>
       )}

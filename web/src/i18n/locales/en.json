@@ -1021,6 +1021,7 @@
       "expiresAt": "Expires",
       "joinCommand": "Join Command",
       "installAndJoin": "New server: install and join in one step",
+      "asRoot": "Run as root, without sudo (Proxmox VE, or Debian installed with a root password)",
       "copied": "Copied to clipboard",
       "activeTitle": "Active Tokens",
       "activeDescription": "Join tokens that have not yet expired or been revoked",

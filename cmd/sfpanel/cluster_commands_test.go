@@ -4,7 +4,10 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,5 +182,52 @@ func TestSaveConfigWritesRestrictivePerms(t *testing.T) {
 	}
 	if got := info.Mode().Perm(); got != 0o600 {
 		t.Fatalf("config.yaml perm = %o, want 0600 (JWT secret must not be world-readable)", got)
+	}
+}
+
+// The join command is pasted on another server. Proxmox VE has no sudo, nor
+// has Debian installed with a root password, and there a command that starts
+// with sudo stops the && chain before anything is installed or joined. So
+// every command comes both ways, the root ones without sudo anywhere, and the
+// form that works on this host comes first.
+func TestJoinInstructions(t *testing.T) {
+	join := "sfpanel cluster join 192.0.2.10:3629 tok123"
+	install := "curl -fsSL " + installScriptURL + " | bash && " + join
+	sudoJoin := "sudo " + join
+	sudoInstall := "curl -fsSL " + installScriptURL + " | sudo bash && sudo " + join
+
+	for _, tc := range []struct {
+		haveSudo bool
+		first    string
+	}{{true, sudoJoin}, {false, join}} {
+		out := joinInstructions("192.0.2.10", 3629, "tok123", tc.haveSudo)
+		var commands []string
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(line, "  ") {
+				commands = append(commands, strings.TrimSpace(line))
+			}
+		}
+		for _, want := range []string{join, install, sudoJoin, sudoInstall} {
+			if !slices.Contains(commands, want) {
+				t.Errorf("haveSudo=%v: no command line %q in:\n%s", tc.haveSudo, want, out)
+			}
+		}
+		if len(commands) != 4 || commands[0] != tc.first {
+			t.Errorf("haveSudo=%v: commands = %q, want 4 starting with %q", tc.haveSudo, commands, tc.first)
+		}
+	}
+}
+
+func TestSudoPrefix(t *testing.T) {
+	orig := lookPath
+	t.Cleanup(func() { lookPath = orig })
+
+	lookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+	if got := sudoPrefix(); got != "" {
+		t.Errorf("without sudo: prefix = %q, want none", got)
+	}
+	lookPath = func(string) (string, error) { return "/usr/bin/sudo", nil }
+	if got := sudoPrefix(); got != "sudo " {
+		t.Errorf("with sudo: prefix = %q, want %q", got, "sudo ")
 	}
 }

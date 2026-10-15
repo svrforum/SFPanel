@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -300,8 +301,8 @@ func clusterInit(args []string) {
 	fmt.Printf("Cluster '%s' initialized successfully.\n", clusterName)
 	fmt.Printf("Node ID: %s\n", cfg.Cluster.NodeID)
 	fmt.Println("\nNext steps:")
-	fmt.Println("  1. Restart sfpanel: sudo systemctl restart sfpanel")
-	fmt.Println("  2. Create a join token: sfpanel cluster token")
+	fmt.Printf("  1. Restart sfpanel: %ssystemctl restart sfpanel\n", sudoPrefix())
+	fmt.Printf("  2. Create a join token: %ssfpanel cluster token\n", sudoPrefix())
 	fmt.Printf("  3. On other nodes: sfpanel cluster join <this-ip>:%d <token>\n", cfg.Cluster.GRPCPort)
 }
 
@@ -387,7 +388,7 @@ func clusterJoin(args []string) {
 
 	fmt.Printf("\nSuccessfully joined cluster '%s'.\n", result.ClusterName)
 	fmt.Printf("Node ID: %s\n", result.NodeID)
-	fmt.Println("\nRestart sfpanel to activate: sudo systemctl restart sfpanel")
+	fmt.Printf("\nRestart sfpanel to activate: %ssystemctl restart sfpanel\n", sudoPrefix())
 }
 
 // isServerRunning checks if the local sfpanel server is listening.
@@ -453,7 +454,7 @@ func clusterLeave(args []string) {
 		}
 	}
 
-	fmt.Println("Cluster left. Restart sfpanel to run in standalone mode: sudo systemctl restart sfpanel")
+	fmt.Printf("Cluster left. Restart sfpanel to run in standalone mode: %ssystemctl restart sfpanel\n", sudoPrefix())
 }
 
 // clusterOverviewEnvelope mirrors the /cluster/overview response. /cluster/status
@@ -702,17 +703,51 @@ func clusterToken(args []string) {
 		grpcPort = cfg.Cluster.GRPCPort
 	}
 
-	joinCmd := fmt.Sprintf("sudo sfpanel cluster join %s:%d %s", addr, grpcPort, envelope.Data.Token)
 	fmt.Printf("Join token (expires: %s):\n\n", envelope.Data.ExpiresAt.Format(time.RFC3339))
 	fmt.Printf("  %s\n\n", envelope.Data.Token)
-	fmt.Println("On a server that already runs SFPanel:")
-	fmt.Printf("  %s\n\n", joinCmd)
-	fmt.Println("On a new server — install and join in one step:")
-	fmt.Printf("  curl -fsSL %s | sudo bash && %s\n", installScriptURL, joinCmd)
+	fmt.Print(joinInstructions(addr, grpcPort, envelope.Data.Token, sudoPrefix() != ""))
 }
 
 // installScriptURL is the installer the README's one-liner fetches.
 const installScriptURL = "https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh"
+
+// joinInstructions is what `cluster token` prints for the server that is to
+// join: the join command, and the installer chained to it for a server
+// without SFPanel, each with sudo and as root. Proxmox VE has no sudo, root
+// is its administrator, and neither has Debian installed with a root
+// password: there "sudo" stops the && chain before anything is installed.
+// The other server is likely the same kind as this one, so the form that
+// works here comes first.
+func joinInstructions(addr string, grpcPort int, token string, haveSudo bool) string {
+	forms := func(sudo string) (join, install string) {
+		join = fmt.Sprintf("%ssfpanel cluster join %s:%d %s", sudo, addr, grpcPort, token)
+		return join, fmt.Sprintf("curl -fsSL %s | %sbash && %s", installScriptURL, sudo, join)
+	}
+	first, other := "sudo ", ""
+	otherLabel := "As root on a server without sudo (Proxmox VE, Debian installed with a root password), leave sudo out:"
+	if !haveSudo {
+		first, other = "", "sudo "
+		otherLabel = "On a server where you log in as a user with sudo:"
+	}
+	join, install := forms(first)
+	otherJoin, otherInstall := forms(other)
+	return fmt.Sprintf("On a server that already runs SFPanel:\n  %s\n\n"+
+		"On a new server — install and join in one step:\n  %s\n\n"+
+		"%s\n  %s\n  %s\n", join, install, otherLabel, otherJoin, otherInstall)
+}
+
+// lookPath is exec.LookPath, replaced in tests.
+var lookPath = exec.LookPath
+
+// sudoPrefix is what goes in front of a command printed for this host: "sudo "
+// where there is sudo, nothing where there is none, as on Proxmox VE, whose
+// operator is root already.
+func sudoPrefix() string {
+	if _, err := lookPath("sudo"); err != nil {
+		return ""
+	}
+	return "sudo "
+}
 
 func clusterRemove(args []string) {
 	cfgPath, rest := parseCfgFlag(args)
