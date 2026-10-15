@@ -135,7 +135,7 @@ func TestRestoreLeavesOtherRulesAlone(t *testing.T) {
 					t.Errorf("ran iptables %q", c)
 				}
 			}
-			for _, c := range chain.MockCommander.Calls {
+			for _, c := range chain.Calls {
 				if c.Name == "iptables-restore" {
 					t.Errorf("ran iptables-restore %q", c.Args)
 				}
