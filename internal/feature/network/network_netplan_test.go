@@ -7,7 +7,13 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/svrforum/SFPanel/internal/common/platform"
 )
+
+// netplanHost is a host whose network netplan writes, the only kind the panel
+// changes (networkCapabilities).
+var netplanHost = platform.Info{OSID: "ubuntu", OSVersionID: "24.04", NetworkStack: platform.StackNetplan, Resolver: platform.ResolverResolved}
 
 // withNetplanDir points netplan discovery at a temp dir for one test
 // (cleaned up via t.Cleanup). Tests using this must not call t.Parallel —
@@ -24,6 +30,7 @@ func withNetplanDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { netplanDir, netplanBaselinePath, bootIDPath = prev, prevBaseline, prevBootID })
+	platform.SetForTest(t, netplanHost)
 	return dir
 }
 

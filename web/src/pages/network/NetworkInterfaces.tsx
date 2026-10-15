@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Network as NetworkIcon,
@@ -15,6 +15,11 @@ import {
   Trash2,
   AlertTriangle,
   Container,
+  Waypoints,
+  Layers,
+  Monitor,
+  Info,
+  ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -43,6 +48,7 @@ import {
 } from '@/components/ui/dialog'
 import { InterfaceCard, getStateStyle } from './components/InterfaceCard'
 import { BondCreateDialog } from './components/BondCreateDialog'
+import { classifyInterfaces } from './classifyInterfaces'
 
 import type { NetworkInterfaceInfo, InterfaceConfig, NetworkRoute } from '@/types/api'
 
@@ -50,38 +56,24 @@ interface DNSConfig {
   servers: string[]
 }
 
-// Classify interfaces into categories
-function classifyInterfaces(interfaces: NetworkInterfaceInfo[]) {
-  const physical: NetworkInterfaceInfo[] = []
-  const docker: NetworkInterfaceInfo[] = []
-  const virtual: NetworkInterfaceInfo[] = []
-  const loopback: NetworkInterfaceInfo[] = []
+interface Capabilities {
+  stack: string
+  platform: string
+  writable: boolean
+  reason?: string
+}
 
-  for (const iface of interfaces) {
-    if (iface.type === 'loopback' || iface.name === 'lo') {
-      loopback.push(iface)
-    } else if (
-      iface.name.startsWith('docker') ||
-      iface.name.startsWith('br-') ||
-      iface.name.startsWith('veth')
-    ) {
-      docker.push(iface)
-    } else if (
-      iface.name.startsWith('eth') ||
-      iface.name.startsWith('en') ||
-      iface.name.startsWith('wl') ||
-      iface.name.startsWith('ww') ||
-      iface.bond_info ||
-      iface.type === 'bond' ||
-      iface.speed > 0
-    ) {
-      physical.push(iface)
-    } else {
-      virtual.push(iface)
-    }
+// The Proxmox web UI of the host this page shows. A remote cluster node's
+// address is not known here, so it is only offered for the node the browser
+// reached.
+function proxmoxUiUrl(): string | null {
+  if (api.currentNode) return null
+  try {
+    const host = api.serverUrl ? new URL(api.serverUrl).hostname : window.location.hostname
+    return `https://${host}:8006`
+  } catch {
+    return null
   }
-
-  return { physical, docker, virtual, loopback }
 }
 
 export default function NetworkInterfaces() {
@@ -128,12 +120,23 @@ export default function NetworkInterfaces() {
 
   // Docker section collapsed
   const [dockerCollapsed, setDockerCollapsed] = useState(true)
+  // VM & CT section collapsed: a Proxmox node has three or four links per guest NIC.
+  const [guestsCollapsed, setGuestsCollapsed] = useState(true)
+
+  // Whether the panel may change this host's network. Null until known, and
+  // from an older node that does not say — which could.
+  const [caps, setCaps] = useState<Capabilities | null>(null)
+  const writable = caps?.writable !== false
 
   // Fetch all data
   const fetchData = useCallback(async () => {
     try {
       setLoading(true)
-      const status = await api.getNetworkStatus()
+      const [status, capabilities] = await Promise.all([
+        api.getNetworkStatus(),
+        api.getNetworkCapabilities().catch(() => null),
+      ])
+      setCaps(capabilities)
       setInterfaces(status.interfaces || [])
       setRoutes(status.routes || [])
       setDnsConfig(status.dns || { servers: [] })
@@ -316,10 +319,62 @@ export default function NetworkInterfaces() {
     }
   }
 
+  // A port is configured through its bridge or bond, never by itself.
   const renderCards = (list: NetworkInterfaceInfo[]) =>
     list.map((iface) => (
-      <InterfaceCard key={iface.name} iface={iface} onConfigure={openConfigDialog} />
+      <InterfaceCard key={iface.name} iface={iface} onConfigure={writable && !iface.master ? openConfigDialog : undefined} />
     ))
+
+  const renderGroup = (title: string, icon: ReactNode, list: NetworkInterfaceInfo[]) =>
+    list.length > 0 && (
+      <div>
+        <h2 className="text-[15px] font-semibold mb-3 flex items-center gap-2">
+          {icon}
+          {title}
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
+            {list.length}
+          </span>
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {renderCards(list)}
+        </div>
+      </div>
+    )
+
+  const renderCollapsible = (
+    id: string,
+    title: string,
+    icon: ReactNode,
+    list: NetworkInterfaceInfo[],
+    collapsed: boolean,
+    toggle: () => void,
+  ) =>
+    list.length > 0 && (
+      <div>
+        <button
+          className="flex items-center gap-2 mb-3 group outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
+          onClick={toggle}
+          aria-expanded={!collapsed}
+          aria-controls={id}
+        >
+          {icon}
+          <h2 className="text-[15px] font-semibold">{title}</h2>
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
+            {list.length}
+          </span>
+          <span className="text-[11px] text-muted-foreground ml-1">
+            {collapsed ? '▸' : '▾'}
+          </span>
+        </button>
+        {!collapsed && (
+          <div id={id} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {renderCards(list)}
+          </div>
+        )}
+      </div>
+    )
+
+  const pveUrl = caps?.platform === 'pve' ? proxmoxUiUrl() : null
 
   return (
     <div className="space-y-6">
@@ -330,6 +385,29 @@ export default function NetworkInterfaces() {
         onConfirm={handleConfirmApply}
         onExpired={handleApplyExpired}
       />
+
+      {/* The network is someone else's to change here: Proxmox's, or a
+          manager the panel does not write. */}
+      {!writable && caps && (
+        <div role="note" className="flex items-start gap-2 rounded-xl border border-border bg-secondary/50 p-3 text-[13px]">
+          <Info className="h-4 w-4 mt-0.5 shrink-0 text-primary" />
+          <div className="min-w-0 space-y-2">
+            <p>
+              {caps.platform === 'pve'
+                ? t('network.readOnly')
+                : caps.stack === 'unknown'
+                  ? t('network.readOnlyUnknown')
+                  : t('network.readOnlyStack', { stack: caps.stack })}
+            </p>
+            {pveUrl && (
+              <a href={pveUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                <ExternalLink className="h-3.5 w-3.5" />
+                {t('network.openProxmoxUi')}
+              </a>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Top actions */}
       <div className="flex items-center justify-end">
@@ -358,20 +436,10 @@ export default function NetworkInterfaces() {
       {interfaces.length > 0 && (
         <>
           {/* Physical / Main Interfaces */}
-          {classified.physical.length > 0 && (
-            <div>
-              <h2 className="text-[15px] font-semibold mb-3 flex items-center gap-2">
-                <Cable className="h-4 w-4" />
-                {t('network.interfaces')}
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
-                  {classified.physical.length}
-                </span>
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {renderCards(classified.physical)}
-              </div>
-            </div>
-          )}
+          {renderGroup(t('network.interfaces'), <Cable className="h-4 w-4" />, classified.physical)}
+          {renderGroup(t('network.groups.bridges'), <Waypoints className="h-4 w-4" />, classified.bridges)}
+          {renderGroup(t('network.groups.bonds'), <Link2 className="h-4 w-4" />, classified.bonds)}
+          {renderGroup(t('network.groups.vlans'), <Layers className="h-4 w-4" />, classified.vlans)}
 
           {/* Loopback */}
           {classified.loopback.length > 0 && (
@@ -387,46 +455,15 @@ export default function NetworkInterfaces() {
           )}
 
           {/* Virtual (non-Docker) */}
-          {classified.virtual.length > 0 && (
-            <div>
-              <h2 className="text-[15px] font-semibold mb-3 flex items-center gap-2">
-                <NetworkIcon className="h-4 w-4" />
-                {t('network.virtual')}
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
-                  {classified.virtual.length}
-                </span>
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {renderCards(classified.virtual)}
-              </div>
-            </div>
-          )}
+          {renderGroup(t('network.virtual'), <NetworkIcon className="h-4 w-4" />, classified.virtual)}
+
+          {/* Proxmox guests' taps, firewall bridges and veths — collapsible */}
+          {renderCollapsible('guest-interfaces', t('network.groups.guests'), <Monitor className="h-4 w-4 text-primary" />,
+            classified.guests, guestsCollapsed, () => setGuestsCollapsed(!guestsCollapsed))}
 
           {/* Docker Interfaces — collapsible */}
-          {classified.docker.length > 0 && (
-            <div>
-              <button
-                className="flex items-center gap-2 mb-3 group outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0"
-                onClick={() => setDockerCollapsed(!dockerCollapsed)}
-                aria-expanded={!dockerCollapsed}
-                aria-controls="docker-interfaces"
-              >
-                <Container className="h-4 w-4 text-primary" />
-                <h2 className="text-[15px] font-semibold">Docker</h2>
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-[13px] font-semibold bg-primary/10 text-primary">
-                  {classified.docker.length}
-                </span>
-                <span className="text-[11px] text-muted-foreground ml-1">
-                  {dockerCollapsed ? '▸' : '▾'}
-                </span>
-              </button>
-              {!dockerCollapsed && (
-                <div id="docker-interfaces" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {renderCards(classified.docker)}
-                </div>
-              )}
-            </div>
-          )}
+          {renderCollapsible('docker-interfaces', 'Docker', <Container className="h-4 w-4 text-primary" />,
+            classified.docker, dockerCollapsed, () => setDockerCollapsed(!dockerCollapsed))}
         </>
       )}
 
@@ -455,18 +492,20 @@ export default function NetworkInterfaces() {
                   <p className="text-[13px] text-muted-foreground">{t('network.noDns')}</p>
                 )}
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl"
-                onClick={() => {
-                  setDnsInput(dnsConfig.servers.join(', '))
-                  setDnsEditing(true)
-                }}
-              >
-                <Settings2 className="h-3.5 w-3.5" />
-                {t('common.edit')}
-              </Button>
+              {writable && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl"
+                  onClick={() => {
+                    setDnsInput(dnsConfig.servers.join(', '))
+                    setDnsEditing(true)
+                  }}
+                >
+                  <Settings2 className="h-3.5 w-3.5" />
+                  {t('common.edit')}
+                </Button>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -565,10 +604,12 @@ export default function NetworkInterfaces() {
               </span>
             )}
           </h2>
-          <Button size="sm" className="rounded-xl" onClick={() => setBondCreateOpen(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            {t('network.createBond')}
-          </Button>
+          {writable && (
+            <Button size="sm" className="rounded-xl" onClick={() => setBondCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              {t('network.createBond')}
+            </Button>
+          )}
         </div>
 
         {bondInterfaces.length === 0 ? (
@@ -606,15 +647,17 @@ export default function NetworkInterfaces() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => handleDeleteBond(bond)}
-                        aria-label={t('common.delete')}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {writable && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteBond(bond)}
+                          aria-label={t('common.delete')}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

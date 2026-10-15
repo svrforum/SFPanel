@@ -196,6 +196,10 @@ export interface NetworkInterfaceInfo {
   tx_errors: number
   rx_errors: number
   bond_info?: BondInfo
+  // The kernel's link kind (bridge, bond, vlan, veth, tun…; '' for a NIC)
+  // and the bridge or bond it is a port of. Absent from older nodes.
+  kind?: string
+  master?: string
 }
 
 export interface NetworkAddress {

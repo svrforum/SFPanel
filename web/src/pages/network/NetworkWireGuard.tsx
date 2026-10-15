@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
+import { toastWarnings } from '@/lib/warnings'
 import { formatBytes } from '@/lib/utils'
 import { useCopyFeedback } from '@/hooks/useCopyFeedback'
 import type { WireGuardStatus, WireGuardInterface } from '@/types/api'
@@ -97,8 +98,10 @@ export default function NetworkWireGuard() {
   const handleInstall = async () => {
     setInstalling(true)
     try {
-      await api.installWireGuard()
+      const result = await api.installWireGuard()
       toast.success(t('network.wireguard.installSuccess'))
+      // A repository apt could not refresh, which the install went past.
+      toastWarnings(result?.warnings, t)
       await fetchData()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('network.wireguard.installFailed')

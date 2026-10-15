@@ -341,7 +341,22 @@ export default function NetworkTailscale() {
   const handleToggleAcceptRoutes = async (enabled: boolean) => {
     setTogglingAcceptRoutes(true)
     try {
-      await api.setTailscalePreferences({ accept_routes: enabled })
+      try {
+        await api.setTailscalePreferences({ accept_routes: enabled })
+      } catch (err: unknown) {
+        // A peer routes a network this host is on: accepting it sends this
+        // host's replies there into the tunnel. The server's message, worded
+        // here with the peer and the prefix, is the question.
+        const e = err as Error & { code?: string }
+        if (e?.code !== 'TAILSCALE_ROUTE_OVERLAP') throw err
+        if (!(await confirm({
+          title: t('network.tailscale.routeOverlapTitle'),
+          description: e.message,
+          confirmLabel: t('network.tailscale.acceptAnyway'),
+          danger: true,
+        }))) return
+        await api.setTailscalePreferences({ accept_routes: enabled }, true)
+      }
       toast.success(enabled
         ? t('network.tailscale.acceptRoutesEnabled')
         : t('network.tailscale.acceptRoutesDisabled'))

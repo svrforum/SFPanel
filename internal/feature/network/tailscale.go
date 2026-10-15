@@ -7,15 +7,18 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	osExec "os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 	"github.com/svrforum/SFPanel/internal/release"
 )
 
@@ -87,6 +90,8 @@ type tsNodeJSON struct {
 	ExitNodeOption bool     `json:"ExitNodeOption"`
 	RxBytes        uint64   `json:"RxBytes"`
 	TxBytes        uint64   `json:"TxBytes"`
+	// PrimaryRoutes are the subnets the node routes for the tailnet.
+	PrimaryRoutes []string `json:"PrimaryRoutes"`
 }
 
 type tsCurrentTailnetJSON struct {
@@ -163,6 +168,91 @@ func (h *TailscaleHandler) getTailscalePrefs() (acceptRoutes bool, advertiseExit
 		}
 	}
 	return
+}
+
+// dnsArgs keeps tailscaled out of /etc/resolv.conf on a host where nothing
+// else manages the file — Proxmox VE, a plain Debian. There tailscaled takes
+// the file over and points the host at 100.100.100.100, under the DNS that
+// Proxmox's own settings write. A bare `tailscale up` keeps the settings it
+// finds, so the setting is made beforehand with `tailscale set`; an `up` with
+// flags must name every setting that is not the default, so there — and where
+// `set` fails — it goes on `up` itself.
+func (h *TailscaleHandler) dnsArgs(withFlags bool) []string {
+	if platform.Get().Resolver != platform.ResolverFile {
+		return nil
+	}
+	if !withFlags {
+		if _, err := h.Cmd.Run("tailscale", "set", "--accept-dns=false"); err == nil {
+			return nil
+		}
+	}
+	return []string{"--accept-dns=false"}
+}
+
+// exitNodeArgs uses an exit node without losing the LAN. Without
+// --exit-node-allow-lan-access the exit node's default route captures this
+// host's replies to its own LAN too — the operator's browser and SSH, the
+// cluster, the storage — which Tailscale's default suits a laptop on an
+// untrusted network, not a server.
+func exitNodeArgs(node string) []string {
+	return []string{"--exit-node=" + node, "--exit-node-allow-lan-access=true"}
+}
+
+// routeOverlap finds a subnet a peer routes that overlaps a network this host
+// is directly on. Tailscale puts accepted routes in table 52, which Linux
+// consults before main, so accepting one sends this host's replies to that
+// network into the tunnel.
+func (h *TailscaleHandler) routeOverlap() (prefix, peer string, found bool) {
+	status, err := h.getTailscaleStatusJSON()
+	if err != nil {
+		return "", "", false
+	}
+	connected := h.connectedPrefixes()
+	keys := make([]string, 0, len(status.Peer))
+	for k := range status.Peer {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		node := status.Peer[k]
+		for _, r := range node.PrimaryRoutes {
+			p, err := netip.ParsePrefix(r)
+			// An exit node's /0 is not a subnet route: accept-routes leaves it.
+			if err != nil || p.Bits() == 0 {
+				continue
+			}
+			for _, c := range connected {
+				if p.Overlaps(c) {
+					return r, node.HostName, true
+				}
+			}
+		}
+	}
+	return "", "", false
+}
+
+// connectedPrefixes are the networks this host is directly on: the kernel's
+// own routes in the main table, IPv4 and IPv6, without link-local.
+func (h *TailscaleHandler) connectedPrefixes() []netip.Prefix {
+	var prefixes []netip.Prefix
+	for _, family := range []string{"-4", "-6"} {
+		out, err := h.Cmd.Run("ip", family, "-j", "route", "show", "table", "main", "proto", "kernel")
+		if err != nil {
+			continue
+		}
+		var routes []struct {
+			Dst string `json:"dst"`
+		}
+		if json.Unmarshal([]byte(out), &routes) != nil {
+			continue
+		}
+		for _, r := range routes {
+			if p, err := netip.ParsePrefix(r.Dst); err == nil && !p.Addr().IsLinkLocalUnicast() {
+				prefixes = append(prefixes, p)
+			}
+		}
+	}
+	return prefixes
 }
 
 // ---------- Handlers ----------
@@ -393,14 +483,16 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 			"Invalid exit node: must be a valid IP address or hostname")
 	}
 
+	args := []string{"up"}
+	if req.ExitNode != "" {
+		args = append(args, exitNodeArgs(req.ExitNode)...)
+	}
+	args = append(args, h.dnsArgs(len(args) > 1)...)
+
 	// If auth key is provided, pass it via TS_AUTHKEY environment variable so
 	// the 30-day credential doesn't land in `ps aux` or /proc/<pid>/cmdline,
 	// where other local users could read it.
 	if req.AuthKey != "" {
-		args := []string{"up"}
-		if req.ExitNode != "" {
-			args = append(args, "--exit-node="+req.ExitNode)
-		}
 		env := append(os.Environ(), "TS_AUTHKEY="+req.AuthKey)
 		output, err := h.Cmd.RunWithEnv(env, "tailscale", args...)
 		if err != nil {
@@ -415,11 +507,6 @@ func (h *TailscaleHandler) Up(c echo.Context) error {
 	// Parented on request context so a client disconnect cancels the subprocess.
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 8*time.Second)
 	defer cancel()
-
-	args := []string{"up"}
-	if req.ExitNode != "" {
-		args = append(args, "--exit-node="+req.ExitNode)
-	}
 
 	// Streaming command — cannot use Commander (needs custom context timeout + auth URL extraction)
 	cmd := osExec.CommandContext(ctx, "tailscale", args...)
@@ -539,7 +626,7 @@ func (h *TailscaleHandler) ListPeers(c echo.Context) error {
 // PUT /network/tailscale/preferences
 func (h *TailscaleHandler) SetPreferences(c echo.Context) error {
 	var req struct {
-		ExitNode          *string `json:"exit_node"`           // nil=don't change, ""=clear, "ip"=set
+		ExitNode          *string `json:"exit_node"` // nil=don't change, ""=clear, "ip"=set
 		AcceptRoutes      *bool   `json:"accept_routes"`
 		AdvertiseExitNode *bool   `json:"advertise_exit_node"`
 	}
@@ -554,11 +641,23 @@ func (h *TailscaleHandler) SetPreferences(c echo.Context) error {
 			return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
 				"Invalid exit node: must be a valid IP address or hostname")
 		}
-		args = append(args, "--exit-node="+*req.ExitNode)
+		if *req.ExitNode != "" {
+			args = append(args, exitNodeArgs(*req.ExitNode)...)
+		} else {
+			args = append(args, "--exit-node=")
+		}
 	}
 
 	if req.AcceptRoutes != nil {
 		if *req.AcceptRoutes {
+			// Pass ?force=true to accept them all the same.
+			if c.QueryParam("force") != "true" {
+				if prefix, peer, found := h.routeOverlap(); found {
+					return response.FailWith(c, http.StatusConflict, response.ErrTailscaleRouteOverlap,
+						fmt.Sprintf("%s routes %s, which overlaps a network this host is directly on; accepting it would send this host's replies there into the tunnel. Pass ?force=true to accept anyway.", peer, prefix),
+						map[string]string{"prefix": prefix, "peer": peer})
+				}
+			}
 			args = append(args, "--accept-routes")
 		} else {
 			args = append(args, "--accept-routes=false")

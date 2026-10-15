@@ -5133,6 +5133,44 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 **Response (200):** `{ "message": "autostart updated", "enabled": true }`
 
+**에러 응답:** `WG_RESOLVCONF_MISSING`(409, `details.iface`) — 켜려는 설정에 `DNS =`가 있는데 호스트에 `resolvconf`가 없음(Debian·Proxmox VE 기본). wg-quick이 부팅 때 실패하므로 거부한다. `POST /network/wireguard/interfaces/:name/up`도 같은 조건으로 거부한다.
+
+---
+
+## 호스트 네트워크 — 쓰기 가능 여부와 링크 종류
+
+### GET /api/v1/network/capabilities
+패널이 이 호스트의 네트워크를 바꿀 수 있는지. 패널은 netplan으로만 쓰며, Proxmox VE에서는 netplan 파일이 있어도 쓰지 않는다(모든 게스트가 걸린 브리지를 Proxmox가 관리).
+
+- **인증 필요**: 예
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": { "stack": "ifupdown2", "platform": "pve", "writable": false, "reason": "Proxmox VE manages this host's network; change it in the Proxmox web UI (:8006) under Node → System → Network" }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `stack` | 네트워크 설정을 쓰는 것: `netplan` \| `ifupdown2` \| `ifupdown` \| `networkmanager` \| `unknown` |
+| `platform` | Proxmox VE면 `pve`, 아니면 os-release ID |
+| `writable` | `stack`이 `netplan`이고 Proxmox VE가 아닐 때만 `true` |
+| `reason` | 쓸 수 없는 이유(영어, API용). 화면은 `platform`·`stack`으로 직접 문구를 만든다 |
+
+`writable`이 `false`이면 `PUT /network/interfaces/:name`, `POST /network/apply`, `PUT /network/dns`, `POST /network/bonds`, `DELETE /network/bonds/:name`은 아무것도 건드리기 전에(롤백 기준점 기록 포함) `NETWORK_READ_ONLY`(409, `details.stack`)로 거부한다. 이 엔드포인트가 없는(이전 버전) 노드는 쓸 수 있는 것으로 본다.
+
+### 인터페이스의 `kind`·`master`
+`GET /network/status`·`/network/interfaces`의 각 인터페이스는 `ip -d -j link show`에서 읽은 두 필드를 더 싣는다.
+
+| 필드 | 설명 |
+|------|------|
+| `kind` | 커널의 링크 종류 `linkinfo.info_kind`: `bridge`, `bond`, `vlan`, `veth`, `tun`, `wireguard`… 물리 NIC과 루프백은 `""` |
+| `master` | 이 인터페이스가 포트로 속한 브리지·본드 이름 (없으면 생략). 포트는 master를 통해 설정하므로 화면은 Configure를 내놓지 않는다 |
+
+화면은 이 둘로 물리 / 브리지 / 본드 / VLAN / 가상 / "VM·CT"(tap*, fwbr*, fwpr*, fwln*, vmbr*·fwbr*에 붙은 veth — 접힘) / Docker(docker0·br-*와 거기 붙은 veth)로 묶는다.
+
 ---
 
 ## 터미널 — 세션 목록 API
@@ -5395,11 +5433,12 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | POST | `/api/v1/logs/custom-sources` | O | 커스텀 로그 소스 추가 |
 | DELETE | `/api/v1/logs/custom-sources/:id` | O | 커스텀 로그 소스 삭제 |
 
-### 네트워크 (11개)
+### 네트워크 (12개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/network/status` | O | 네트워크 통합 상태 |
+| GET | `/api/v1/network/capabilities` | O | 네트워크를 바꿀 수 있는지 (netplan만, Proxmox VE 제외) |
 | GET | `/api/v1/network/interfaces` | O | 네트워크 인터페이스 목록 |
 | GET | `/api/v1/network/interfaces/:name` | O | 인터페이스 상세 |
 | PUT | `/api/v1/network/interfaces/:name` | O | 인터페이스 설정 변경 |
@@ -5416,7 +5455,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/network/wireguard/status` | O | WireGuard 설치 상태 확인 |
-| POST | `/api/v1/network/wireguard/install` | O | WireGuard 설치 |
+| POST | `/api/v1/network/wireguard/install` | O | WireGuard 설치 (일부 저장소만 받지 못하면 계속하고 `warnings`로 알림) |
 | GET | `/api/v1/network/wireguard/interfaces` | O | WireGuard 인터페이스 목록 |
 | GET | `/api/v1/network/wireguard/interfaces/:name` | O | WireGuard 인터페이스 상세 |
 | POST | `/api/v1/network/wireguard/interfaces/:name/up` | O | WireGuard 인터페이스 활성화 |
@@ -5436,12 +5475,12 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 |--------|------|------|------|
 | GET | `/api/v1/network/tailscale/status` | O | Tailscale 상태 확인 |
 | POST | `/api/v1/network/tailscale/install` | O | Tailscale 설치 |
-| POST | `/api/v1/network/tailscale/up` | O | Tailscale 연결 |
+| POST | `/api/v1/network/tailscale/up` | O | Tailscale 연결. `/etc/resolv.conf`를 아무것도 관리하지 않는 호스트(Proxmox VE 등)에서는 `--accept-dns=false`, 출구 노드는 항상 `--exit-node-allow-lan-access=true` |
 | POST | `/api/v1/network/tailscale/down` | O | Tailscale 연결 해제 |
 | POST | `/api/v1/network/tailscale/logout` | O | Tailscale 로그아웃 |
 | GET | `/api/v1/network/tailscale/peers` | O | Tailscale 피어 목록 |
 | GET | `/api/v1/network/tailscale/update-check` | O | Tailscale 업데이트 확인 |
-| PUT | `/api/v1/network/tailscale/preferences` | O | Tailscale 설정 변경 |
+| PUT | `/api/v1/network/tailscale/preferences` | O | Tailscale 설정 변경. 출구 노드는 `--exit-node-allow-lan-access=true`와 함께. `accept_routes: true`는 피어의 경로가 이 호스트가 직접 붙은 네트워크와 겹치면 `TAILSCALE_ROUTE_OVERLAP`(409, `details.prefix`·`details.peer`) — `?force=true`로 확인 |
 
 ### 디스크 (11개)
 

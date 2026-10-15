@@ -29,13 +29,15 @@ function getInterfaceIcon(iface: NetworkInterfaceInfo) {
   return <Cable className="h-4 w-4 text-primary" />
 }
 
-/** Display-only card for a single network interface. */
+/** Display-only card for a single network interface. Without onConfigure it
+ * offers no Configure: a port of a bridge or bond, or a host whose network the
+ * panel does not write. */
 export function InterfaceCard({
   iface,
   onConfigure,
 }: {
   iface: NetworkInterfaceInfo
-  onConfigure: (iface: NetworkInterfaceInfo) => void
+  onConfigure?: (iface: NetworkInterfaceInfo) => void
 }) {
   const { t } = useTranslation()
   const isLoopback = iface.type === 'loopback'
@@ -101,6 +103,9 @@ export function InterfaceCard({
         {iface.bond_info && (
           <p>{t('network.bondMode')}: {iface.bond_info.mode}</p>
         )}
+        {iface.master && (
+          <p>{t('network.portOf', { master: iface.master })}</p>
+        )}
       </div>
 
       {/* Traffic */}
@@ -123,7 +128,7 @@ export function InterfaceCard({
       )}
 
       {/* Config button */}
-      {!isLoopback && (
+      {!isLoopback && onConfigure && (
         <div className="mt-3">
           <Button
             variant="outline"

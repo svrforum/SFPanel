@@ -280,6 +280,10 @@ func (h *WireGuardHandler) SetAutostart(c echo.Context) error {
 	verb := "disable"
 	if req.Enabled {
 		verb = "enable"
+		// At boot the unit would fail the way Up does.
+		if refused, err := h.refuseDNSWithoutResolvconf(c, name); refused {
+			return err
+		}
 	}
 	unit := "wg-quick@" + name
 	if out, err := h.Cmd.Run("systemctl", verb, unit); err != nil {

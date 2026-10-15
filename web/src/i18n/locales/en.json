@@ -2169,14 +2169,26 @@
       "updateAvailable": "Update available: {{version}}",
       "upToDate": "Up to date",
       "updateCheckFailed": "Update check failed",
-      "routeOverlap": "{{peer}} advertises {{prefix}}, which overlaps a network this host is directly on. Accepting it would send replies to that network into the tunnel and can cut access."
+      "routeOverlap": "{{peer}} advertises {{prefix}}, which overlaps a network this host is directly on. Accepting it would send replies to that network into the tunnel and can cut access.",
+      "routeOverlapTitle": "Accept a route over a network this host is on?",
+      "acceptAnyway": "Accept anyway"
     },
     "confirmTitle": "Confirm the network change",
     "confirmDesc": "The previous configuration comes back in {{count}}s unless you confirm. Seeing this means the connection survived.",
     "confirmAction": "Keep it",
     "applyConfirmed": "Network configuration confirmed",
     "applyRolledBack": "No confirmation — the previous network configuration was restored",
-    "readOnly": "This host's network is managed by Proxmox. Change it in the Proxmox web UI (:8006) under Node → System → Network."
+    "readOnly": "This host's network is managed by Proxmox. Change it in the Proxmox web UI (:8006) under Node → System → Network.",
+    "readOnlyStack": "This host's network is managed by {{stack}}. The panel changes the network only through netplan, so it is shown read-only here.",
+    "readOnlyUnknown": "The panel changes the network only through netplan, which this host does not use, so it is shown read-only here.",
+    "openProxmoxUi": "Open the Proxmox web UI",
+    "portOf": "Port of {{master}}",
+    "groups": {
+      "bridges": "Bridges",
+      "bonds": "Bonds",
+      "vlans": "VLANs",
+      "guests": "VM & CT"
+    }
   },
   "logs": {
     "title": "Log Viewer",

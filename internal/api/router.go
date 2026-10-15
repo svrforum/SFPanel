@@ -423,6 +423,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	networkHandler := &featureNetwork.Handler{Cmd: cmd}
 	net := authorized.Group("/network")
 	net.GET("/status", networkHandler.GetNetworkStatus)
+	net.GET("/capabilities", networkHandler.GetCapabilities)
 	net.GET("/interfaces", networkHandler.ListInterfaces)
 	net.GET("/interfaces/:name", networkHandler.GetInterface)
 	net.PUT("/interfaces/:name", networkHandler.ConfigureInterface)

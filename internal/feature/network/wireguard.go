@@ -79,8 +79,9 @@ func containsDangerousWGDirective(content string) bool {
 
 // ---------- Helpers ----------
 
-// wgConfigDir is the directory where WireGuard config files are stored.
-const wgConfigDir = "/etc/wireguard"
+// wgConfigDir is the directory where WireGuard config files are stored. A var
+// so tests can move it.
+var wgConfigDir = "/etc/wireguard"
 
 // parseWGDump parses the output of `wg show <name> dump` (machine-readable, tab-separated).
 // First line: interface (private_key, public_key, listen_port, fwmark)
@@ -213,7 +214,10 @@ func (h *WireGuardHandler) GetStatus(c echo.Context) error {
 // Install installs wireguard-tools via apt.
 // POST /network/wireguard/install
 func (h *WireGuardHandler) Install(c echo.Context) error {
-	_, err := exec.AptUpdate(c.Request().Context(), h.Cmd)
+	// A repository that cannot be fetched — Proxmox's enterprise one, without
+	// a subscription — does not stop the install: wireguard-tools comes from
+	// Debian's. It is passed on as a warning.
+	notice, err := exec.AptUpdateForInstall(c.Request().Context(), h.Cmd)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrAPTUpdateError,
 			"Failed to update package lists: "+response.SanitizeOutput(err.Error()))
@@ -225,10 +229,30 @@ func (h *WireGuardHandler) Install(c echo.Context) error {
 			"Failed to install wireguard-tools: "+response.SanitizeOutput(err.Error()))
 	}
 
-	return response.OK(c, map[string]interface{}{
+	resp := map[string]interface{}{
 		"message":        "WireGuard tools installed successfully",
 		"install_output": strings.TrimSpace(output),
-	})
+	}
+	if notice != nil {
+		resp["warnings"] = response.RepoWarnings(notice.Unauthorized, notice.Failed)
+	}
+	return response.OK(c, resp)
+}
+
+// refuseDNSWithoutResolvconf answers bringing up, now or at boot, a
+// configuration that sets DNS = on a host with no resolvconf. wg-quick hands
+// the servers to resolvconf, and where there is none — Debian and Proxmox VE
+// install none — it fails and removes the interface again. A server seldom
+// wants the tunnel's DNS anyway, so the answer is to drop the line. refused is
+// true when it answered.
+func (h *WireGuardHandler) refuseDNSWithoutResolvconf(c echo.Context, name string) (refused bool, err error) {
+	data, err := os.ReadFile(filepath.Join(wgConfigDir, name+".conf"))
+	if err != nil || parseWGConfField(string(data), "DNS") == "" || h.Cmd.Exists("resolvconf") {
+		return false, nil
+	}
+	return true, response.FailWith(c, http.StatusConflict, response.ErrWGResolvconfMissing,
+		fmt.Sprintf("%s sets DNS, and this host has no resolvconf for wg-quick to hand it to; remove the DNS line", name),
+		map[string]string{"iface": name})
 }
 
 // ListInterfaces returns all WireGuard interfaces with their status.
@@ -374,6 +398,9 @@ func (h *WireGuardHandler) InterfaceUp(c echo.Context) error {
 	confPath := filepath.Join(wgConfigDir, name+".conf")
 	if _, err := os.Stat(confPath); os.IsNotExist(err) {
 		return response.Fail(c, http.StatusNotFound, response.ErrNotFound, "Interface config not found")
+	}
+	if refused, err := h.refuseDNSWithoutResolvconf(c, name); refused {
+		return err
 	}
 
 	output, err := h.Cmd.Run("wg-quick", "up", name)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 )
 
 // ---------- resolvectl fixtures ----------
@@ -262,6 +263,7 @@ func TestParseRoutes(t *testing.T) {
 // and returns the recorder (echo context pattern per firewall_docker_test.go).
 func doConfigureInterface(t *testing.T, iface, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	platform.SetForTest(t, netplanHost)
 	h := &Handler{Cmd: exec.NewMockCommander()}
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPut, "/network/interfaces/x", strings.NewReader(body))

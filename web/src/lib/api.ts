@@ -1570,6 +1570,12 @@ class ApiClient {
     return this.request<NetworkStatus>('/network/status')
   }
 
+  // Whether the panel may change this host's network: only where netplan
+  // writes it, and never on Proxmox VE. Older nodes answer 404 and could.
+  getNetworkCapabilities() {
+    return this.request<{ stack: string; platform: string; writable: boolean; reason?: string }>('/network/capabilities')
+  }
+
   getNetworkInterfaces() {
     return this.request<NetworkInterfaceInfo[]>('/network/interfaces')
   }
@@ -2115,7 +2121,7 @@ class ApiClient {
   }
 
   installWireGuard() {
-    return this.request<{ message: string }>('/network/wireguard/install', { method: 'POST' })
+    return this.request<{ message: string; warnings?: ApiWarning[] }>('/network/wireguard/install', { method: 'POST' })
   }
 
   getWireGuardInterfaces() {
@@ -2213,8 +2219,9 @@ class ApiClient {
     return this.request<import('@/types/api').TailscalePeer[]>('/network/tailscale/peers')
   }
 
-  setTailscalePreferences(options: { exit_node?: string; accept_routes?: boolean; advertise_exit_node?: boolean }) {
-    return this.request<{ message: string }>('/network/tailscale/preferences', {
+  // force accepts routes that overlap a network this host is on.
+  setTailscalePreferences(options: { exit_node?: string; accept_routes?: boolean; advertise_exit_node?: boolean }, force = false) {
+    return this.request<{ message: string }>(`/network/tailscale/preferences${force ? '?force=true' : ''}`, {
       method: 'PUT',
       body: JSON.stringify(options),
     })

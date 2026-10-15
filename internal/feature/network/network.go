@@ -2,6 +2,7 @@ package network
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -18,6 +19,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 	"gopkg.in/yaml.v3"
 )
 
@@ -50,6 +52,24 @@ type NetworkInterface struct {
 	TxErrors   uint64    `json:"tx_errors"`
 	RxErrors   uint64    `json:"rx_errors"`
 	BondInfo   *BondInfo `json:"bond_info,omitempty"`
+	// Kind is the link's kind as the kernel names it — bridge, bond, vlan,
+	// veth, tun, wireguard… — and empty for a physical NIC or loopback.
+	Kind string `json:"kind"`
+	// Master is the bridge or bond this interface is a port of. A port is
+	// configured through its master, never by itself.
+	Master string `json:"master,omitempty"`
+}
+
+// Capabilities says whether the panel may change this host's network.
+type Capabilities struct {
+	// Stack is what writes the host's network configuration (platform.Stack*).
+	Stack string `json:"stack"`
+	// Platform is "pve" on a Proxmox VE host, else the os-release ID.
+	Platform string `json:"platform"`
+	Writable bool   `json:"writable"`
+	// Reason says why not, in English for the API; the page words it itself
+	// from Platform and Stack.
+	Reason string `json:"reason,omitempty"`
 }
 
 // IPAddr represents a single IP address assigned to an interface.
@@ -240,7 +260,46 @@ func invalidateNetworkCache() {
 	networkStatusCache.Unlock()
 }
 
+// networkCapabilities works out whether the panel writes this host's network.
+// It writes netplan and nothing else; and on Proxmox VE not even that, as the
+// host's bridges are what every guest hangs off, and Proxmox writes them.
+func networkCapabilities() Capabilities {
+	info := platform.Get()
+	caps := Capabilities{Stack: info.NetworkStack, Platform: info.OSID}
+	switch {
+	case info.PVE:
+		caps.Platform = "pve"
+		caps.Reason = "Proxmox VE manages this host's network; change it in the Proxmox web UI (:8006) under Node → System → Network"
+	case info.NetworkStack == platform.StackUnknown:
+		caps.Reason = "the panel changes the network only through netplan, which this host does not use"
+	case info.NetworkStack != platform.StackNetplan:
+		caps.Reason = "the panel changes the network only through netplan; this host's is managed by " + info.NetworkStack
+	default:
+		caps.Writable = true
+	}
+	return caps
+}
+
+// refuseReadOnly answers a network change on a host whose network the panel
+// does not write. Every write handler calls it first, before it touches
+// anything — the rollback baseline a save records included. refused is true
+// when it answered.
+func refuseReadOnly(c echo.Context) (refused bool, err error) {
+	caps := networkCapabilities()
+	if caps.Writable {
+		return false, nil
+	}
+	return true, response.FailWith(c, http.StatusConflict, response.ErrNetworkReadOnly, caps.Reason,
+		map[string]string{"stack": caps.Stack})
+}
+
 // ---------- Handlers ----------
+
+// GetCapabilities says whether this host's network can be changed here.
+// GET /network/capabilities
+func (h *Handler) GetCapabilities(c echo.Context) error {
+	return response.OK(c, networkCapabilities())
+}
 
 // ListInterfaces returns all host network interfaces with statistics.
 func (h *Handler) ListInterfaces(c echo.Context) error {
@@ -301,6 +360,9 @@ func (h *Handler) GetInterface(c echo.Context) error {
 
 // ConfigureInterface modifies the netplan configuration for a given interface.
 func (h *Handler) ConfigureInterface(c echo.Context) error {
+	if refused, err := refuseReadOnly(c); refused {
+		return err
+	}
 	name := c.Param("name")
 	if !validInterfaceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid interface name")
@@ -371,6 +433,9 @@ func (h *Handler) ConfigureInterface(c echo.Context) error {
 // doesn't have. The `generate` + `apply` split at least rejects syntactic
 // disasters before they take the network down.
 func (h *Handler) ApplyNetplan(c echo.Context) error {
+	if refused, err := refuseReadOnly(c); refused {
+		return err
+	}
 	if out, err := h.Cmd.Run("netplan", "generate"); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrNetplanError,
 			"netplan config invalid: "+response.SanitizeOutput(strings.TrimSpace(out)))
@@ -462,6 +527,9 @@ func (h *Handler) GetDNS(c echo.Context) error {
 // ConfigureDNS updates DNS servers via netplan configuration.
 // PUT /network/dns  body: { servers: ["8.8.8.8", "1.1.1.1"] }
 func (h *Handler) ConfigureDNS(c echo.Context) error {
+	if refused, err := refuseReadOnly(c); refused {
+		return err
+	}
 	var req struct {
 		Servers []string `json:"servers"`
 	}
@@ -504,6 +572,9 @@ func (h *Handler) ListBonds(c echo.Context) error {
 
 // CreateBond adds a bond configuration to netplan.
 func (h *Handler) CreateBond(c echo.Context) error {
+	if refused, err := refuseReadOnly(c); refused {
+		return err
+	}
 	var req CreateBondRequest
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
@@ -557,6 +628,9 @@ func (h *Handler) CreateBond(c echo.Context) error {
 
 // DeleteBond removes a bond from the netplan configuration.
 func (h *Handler) DeleteBond(c echo.Context) error {
+	if refused, err := refuseReadOnly(c); refused {
+		return err
+	}
 	name := c.Param("name")
 	if !validInterfaceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid bond name")
@@ -579,9 +653,12 @@ func (h *Handler) gatherInterfaces() ([]NetworkInterface, error) {
 	}
 
 	defaultIface := h.detectDefaultInterface()
+	links := h.readLinkKinds()
 
 	result := make([]NetworkInterface, 0, len(goIfaces))
+	present := make(map[string]bool, len(goIfaces))
 	for _, iface := range goIfaces {
+		present[iface.Name] = true
 		ni := NetworkInterface{
 			Name:       iface.Name,
 			MacAddress: iface.HardwareAddr.String(),
@@ -602,6 +679,9 @@ func (h *Handler) gatherInterfaces() ([]NetworkInterface, error) {
 
 		// Type detection
 		ni.Type = detectInterfaceType(iface.Name)
+		if l, ok := links[iface.Name]; ok {
+			ni.Kind, ni.Master = l.kind, l.master
+		}
 
 		// IP addresses
 		addrs, err := iface.Addrs()
@@ -661,8 +741,48 @@ func (h *Handler) gatherInterfaces() ([]NetworkInterface, error) {
 
 		result = append(result, ni)
 	}
+	pruneDriverMemo(present)
 
 	return result, nil
+}
+
+// linkKind is a link's kind and master, from `ip -d -j link show`.
+type linkKind struct{ kind, master string }
+
+// readLinkKinds asks the kernel every link's kind and master in one call. A
+// host without iproute2's JSON output gets none, and the page falls back on
+// names and types.
+func (h *Handler) readLinkKinds() map[string]linkKind {
+	out, err := h.Cmd.Run("ip", "-d", "-j", "link", "show")
+	if err != nil {
+		return nil
+	}
+	return parseLinkKinds(out)
+}
+
+// parseLinkKinds reads `ip -d -j link show`: linkinfo.info_kind is bridge,
+// bond, vlan, veth, tun… and absent for a physical NIC; master is the bridge
+// or bond the link is a port of.
+func parseLinkKinds(out string) map[string]linkKind {
+	var links []struct {
+		IfName   string `json:"ifname"`
+		Master   string `json:"master"`
+		LinkInfo *struct {
+			InfoKind string `json:"info_kind"`
+		} `json:"linkinfo"`
+	}
+	if err := json.Unmarshal([]byte(out), &links); err != nil {
+		return nil
+	}
+	kinds := make(map[string]linkKind, len(links))
+	for _, l := range links {
+		k := linkKind{master: l.Master}
+		if l.LinkInfo != nil {
+			k.kind = l.LinkInfo.InfoKind
+		}
+		kinds[l.IfName] = k
+	}
+	return kinds
 }
 
 // detectInterfaceType determines the type of a network interface by inspecting sysfs.
@@ -740,7 +860,7 @@ func readInterfaceSpeed(name string) int {
 // forty forks every time the network status is refreshed, to learn forty
 // times that a veth's driver is "veth". A driver does not change while the
 // interface exists, so the answer is kept for the interface's lifetime; a
-// name that disappears and comes back is re-asked.
+// name that disappears and comes back is re-asked (pruneDriverMemo).
 var driverMemo = struct {
 	sync.Mutex
 	byName map[string]string
@@ -777,6 +897,19 @@ func (h *Handler) readInterfaceDriver(name string) string {
 	driverMemo.byName[name] = driver
 	driverMemo.Unlock()
 	return driver
+}
+
+// pruneDriverMemo forgets the interfaces that are gone. Nothing used to:
+// Proxmox VE makes and removes tap, veth and firewall-bridge names with every
+// guest start, stop and migration, and the memo kept every one it ever saw.
+func pruneDriverMemo(present map[string]bool) {
+	driverMemo.Lock()
+	defer driverMemo.Unlock()
+	for name := range driverMemo.byName {
+		if !present[name] {
+			delete(driverMemo.byName, name)
+		}
+	}
 }
 
 // readSysStat reads a numeric statistic from /sys/class/net/{name}/statistics/{stat}.
