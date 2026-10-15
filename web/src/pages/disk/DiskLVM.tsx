@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { HardDrive, Layers, Box } from 'lucide-react'
+import { HardDrive, Layers, Box, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -16,6 +16,9 @@ export default function DiskLVM() {
   const [pvs, setPvs] = useState<PhysicalVolume[]>([])
   const [vgs, setVgs] = useState<VolumeGroup[]>([])
   const [lvs, setLvs] = useState<LogicalVolume[]>([])
+  // What LVM printed beside its reports — an old PV header, a missing PV.
+  // It emptied the whole tab when the server could not parse past it.
+  const [warnings, setWarnings] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
 
   const fetchLVM = useCallback(async () => {
@@ -26,9 +29,10 @@ export default function DiskLVM() {
         api.getLVMVGs(),
         api.getLVMLVs(),
       ])
-      setPvs(pvData || [])
-      setVgs(vgData || [])
-      setLvs(lvData || [])
+      setPvs(pvData.items)
+      setVgs(vgData.items)
+      setLvs(lvData.items)
+      setWarnings([...new Set([...pvData.warnings, ...vgData.warnings, ...lvData.warnings])])
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : t('disk.lvm.fetchFailed')
       toast.error(message)
@@ -51,6 +55,20 @@ export default function DiskLVM() {
       <div className="flex items-center justify-end">
         <RefreshButton onClick={fetchLVM} loading={loading} />
       </div>
+
+      {warnings.length > 0 && (
+        <div className="flex gap-3 bg-warning/10 border border-warning/30 rounded-2xl px-5 py-3.5" role="alert">
+          <AlertTriangle className="h-5 w-5 text-warning shrink-0" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="text-[13px] font-medium">{t('disk.lvm.warningsTitle')}</p>
+            <ul className="mt-1 space-y-0.5">
+              {warnings.map((w) => (
+                <li key={w} className="text-[12px] font-mono text-muted-foreground break-all">{w}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {/* LVM Sub-tabs */}
       <Tabs defaultValue="pv">

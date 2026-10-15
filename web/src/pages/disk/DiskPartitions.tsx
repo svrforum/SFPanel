@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
 import { useApiAction } from '@/hooks/useApiAction'
 import { partitionNumber } from './partitionNumber'
+import { deleteBlocked, logicalPartitions } from './partitionRules'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -56,7 +57,9 @@ export default function DiskPartitions() {
     try {
       setLoading(true)
       const data = await api.getDiskOverview()
-      const diskDevices = (data || []).filter((d: PhysicalDisk) => d.type === 'disk' || !d.type)
+      // A guest's volume on Proxmox VE (owner set) is not the host's to
+      // partition, and the server refuses it.
+      const diskDevices = (data || []).filter((d: PhysicalDisk) => (d.type === 'disk' || !d.type) && !d.owner)
       setDisks(diskDevices)
       if (diskDevices.length > 0) {
         // Functional update keeps selectedDisk out of the deps, so changing the
@@ -214,37 +217,54 @@ export default function DiskPartitions() {
                 </TableCell>
               </TableRow>
             )}
-            {partitions.map((p) => (
-              <TableRow key={p.name}>
-                <TableCell className="font-medium font-mono text-sm">{p.name}</TableCell>
-                <TableCell className="text-muted-foreground">{formatBytes(p.size)}</TableCell>
-                <TableCell className="text-muted-foreground">{p.type || '-'}</TableCell>
-                <TableCell>
-                  {p.fstype ? (
-                    <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border">
-                      {p.fstype}
+            {partitions.map((p) => {
+              const logical = currentDisk ? logicalPartitions(currentDisk, p) : null
+              const blocked = currentDisk ? deleteBlocked(currentDisk, p) : null
+              return (
+                <TableRow key={p.name}>
+                  <TableCell className="font-medium font-mono text-sm">
+                    <span className="inline-flex items-center gap-1.5">
+                      {p.name}
+                      {p.boot && (
+                        <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium font-sans bg-warning/10 text-warning" title={t('disk.partitions.bootHint')}>
+                          {t('disk.bootBadge')}
+                        </span>
+                      )}
                     </span>
-                  ) : (
-                    <span className="text-muted-foreground">-</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-muted-foreground font-mono text-xs">
-                  {p.mountpoint || '-'}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    title={t('common.delete')}
-                    aria-label={t('common.delete')}
-                    onClick={() => setDeleteTarget(p)}
-                    disabled={!!p.mountpoint}
-                  >
-                    <Trash2 />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{formatBytes(p.size)}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {logical && logical.length > 0
+                      ? t('disk.partitions.extendedHolding', { names: logical.join(', ') })
+                      : p.parttypename || p.type || '-'}
+                  </TableCell>
+                  <TableCell>
+                    {p.fstype ? (
+                      <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border">
+                        {p.fstype}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground font-mono text-xs">
+                    {p.mountpoint || '-'}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      title={blocked === 'boot' ? t('disk.partitions.bootHint') : blocked === 'extended' ? t('disk.partitions.extendedNoDelete') : t('common.delete')}
+                      aria-label={t('common.delete')}
+                      onClick={() => setDeleteTarget(p)}
+                      disabled={blocked !== null}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </div>

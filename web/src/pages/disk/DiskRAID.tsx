@@ -113,13 +113,18 @@ export default function DiskRAID() {
         if (cancelled) return
         const unused: typeof data = []
         for (const d of data || []) {
+          // A guest's volume on Proxmox VE (owner set), and the guest's own
+          // partitions inside it, are not the host's to put in an array.
+          if (d.owner) continue
           if ((d.type === 'disk' || !d.type) && !(d.children && d.children.length > 0) && !d.mountpoint) {
             unused.push(d)
           }
           // Unmounted partitions stay selectable too — partition RAID members
           // (e.g. sdb1) are a legitimate layout the old free-text input allowed.
+          // A boot partition is never mounted on Proxmox VE and is still not
+          // free.
           for (const c of d.children ?? []) {
-            if (c.type === 'part' && !c.mountpoint && !(c.children && c.children.length > 0)) {
+            if (c.type === 'part' && !c.mountpoint && !c.boot && !(c.children && c.children.length > 0)) {
               unused.push(c)
             }
           }

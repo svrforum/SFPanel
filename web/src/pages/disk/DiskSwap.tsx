@@ -24,6 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { SwapResizeDialog } from './components/SwapResizeDialog'
 import { TabLoading, RefreshButton } from './components/TabToolbar'
 
@@ -44,6 +45,12 @@ export default function DiskSwap() {
   const [createPath, setCreatePath] = useState('')
   const [createSizeMB, setCreateSizeMB] = useState('')
   const [createDevice, setCreateDevice] = useState('')
+
+  // Swap on a device writes over whatever is on it: typed confirmation first,
+  // and the server refuses a device that holds data until told to overwrite.
+  const [deviceConfirmOpen, setDeviceConfirmOpen] = useState(false)
+  const [overwrite, setOverwrite] = useState<{ device: string; signature: string } | null>(null)
+  const [creatingDevice, setCreatingDevice] = useState(false)
 
   // Remove
   const [removeTarget, setRemoveTarget] = useState<SwapEntry | null>(null)
@@ -116,10 +123,31 @@ export default function DiskSwap() {
       })
     } else {
       if (!createDevice.trim()) return
-      void runCreate({
-        type: 'partition',
-        device: createDevice.trim(),
-      })
+      setDeviceConfirmOpen(true)
+    }
+  }
+
+  const createDeviceSwap = async (force: boolean) => {
+    const device = createDevice.trim()
+    setCreatingDevice(true)
+    try {
+      await api.createSwap({ type: 'partition', device, force })
+      toast.success(t('disk.swap.createSuccess'))
+      setDeviceConfirmOpen(false)
+      setOverwrite(null)
+      setCreateOpen(false)
+      resetCreateForm()
+      void fetchSwap()
+    } catch (err: unknown) {
+      const e = err as { code?: string; details?: Record<string, string> }
+      if (!force && e.code === 'DISK_NOT_EMPTY') {
+        setDeviceConfirmOpen(false)
+        setOverwrite({ device, signature: e.details?.signature ?? '' })
+        return
+      }
+      toast.error(err instanceof Error ? err.message : t('disk.swap.createFailed'))
+    } finally {
+      setCreatingDevice(false)
     }
   }
 
@@ -375,11 +403,43 @@ export default function DiskSwap() {
               onClick={handleCreate}
               disabled={
                 creating ||
+                creatingDevice ||
                 (createMode === 'file' && (!createPath.trim() || !createSizeMB.trim())) ||
                 (createMode === 'partition' && !createDevice.trim())
               }
             >
               {creating ? t('common.creating') : t('common.create')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <TypeToConfirmDialog
+        open={deviceConfirmOpen}
+        onOpenChange={setDeviceConfirmOpen}
+        title={t('disk.swap.deviceConfirmTitle', { device: createDevice.trim() })}
+        description={t('disk.swap.deviceConfirmDesc', { device: createDevice.trim() })}
+        confirmPhrase={createDevice.trim()}
+        confirmLabel={t('common.create')}
+        loading={creatingDevice}
+        onConfirm={() => void createDeviceSwap(false)}
+      />
+
+      {/* The device holds a file system or a partition table. */}
+      <Dialog open={!!overwrite} onOpenChange={(open) => !open && setOverwrite(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('disk.swap.overwriteTitle', { device: overwrite?.device ?? '' })}</DialogTitle>
+            <DialogDescription>
+              {t('disk.swap.overwriteDesc', { device: overwrite?.device ?? '', signature: overwrite?.signature ?? '' })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOverwrite(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="destructive" onClick={() => void createDeviceSwap(true)} disabled={creatingDevice}>
+              {t('disk.swap.overwrite')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Maximize2 } from 'lucide-react'
+import { Plus, Trash2, Maximize2, CornerDownRight } from 'lucide-react'
+import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { useApiAction } from '@/hooks/useApiAction'
 import { Button } from '@/components/ui/button'
@@ -25,8 +26,16 @@ import {
 import { TabsContent } from '@/components/ui/tabs'
 import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { NativeSelect } from '../NativeSelect'
+import { fillPercent, isThinPool, lvRows } from './lvRows'
 
 import type { VolumeGroup, LogicalVolume } from '@/types/api'
+
+// A pool that runs out of data or metadata space stops every volume in it.
+function fillClass(pct: number): string {
+  if (pct >= 90) return 'text-destructive'
+  if (pct >= 80) return 'text-warning'
+  return 'text-muted-foreground'
+}
 
 /** Logical Volumes tab: LV table + create/delete/resize dialogs. */
 export function LVSection({ lvs, vgs, onChanged }: {
@@ -50,6 +59,10 @@ export function LVSection({ lvs, vgs, onChanged }: {
   const [resizeOpen, setResizeOpen] = useState(false)
   const [resizeTarget, setResizeTarget] = useState<LogicalVolume | null>(null)
   const [resizeNewSize, setResizeNewSize] = useState('')
+  const [resizing, setResizing] = useState(false)
+  // The server answers a size smaller than the volume's with
+  // LV_SHRINK_CONFIRM_REQUIRED; the shrink goes ahead only once confirmed.
+  const [shrinkConfirm, setShrinkConfirm] = useState(false)
 
   // Single close-and-reset paths, used by onOpenChange and the cancel buttons.
   const closeCreate = () => {
@@ -63,6 +76,7 @@ export function LVSection({ lvs, vgs, onChanged }: {
     setResizeOpen(false)
     setResizeTarget(null)
     setResizeNewSize('')
+    setShrinkConfirm(false)
   }
 
   const { run: runCreate, loading: creating } = useApiAction(
@@ -98,21 +112,23 @@ export function LVSection({ lvs, vgs, onChanged }: {
     if (deleteTarget) void runDelete(deleteTarget.vg_name, deleteTarget.name)
   }
 
-  const { run: runResize, loading: resizing } = useApiAction(
-    api.resizeLV.bind(api),
-    {
-      successMsg: t('disk.lvm.lv.resizeSuccess'),
-      errorMsg: t('disk.lvm.lv.resizeFailed'),
-      onSuccess: () => {
-        closeResize()
-        onChanged()
-      },
-    },
-  )
-
-  const handleResize = () => {
+  const handleResize = async (shrink = false) => {
     if (!resizeTarget || !resizeNewSize.trim()) return
-    void runResize({ vg: resizeTarget.vg_name, name: resizeTarget.name, size: resizeNewSize.trim() })
+    setResizing(true)
+    try {
+      await api.resizeLV({ vg: resizeTarget.vg_name, name: resizeTarget.name, size: resizeNewSize.trim(), shrink })
+      toast.success(t('disk.lvm.lv.resizeSuccess'))
+      closeResize()
+      onChanged()
+    } catch (err: unknown) {
+      if (!shrink && (err as { code?: string }).code === 'LV_SHRINK_CONFIRM_REQUIRED') {
+        setShrinkConfirm(true)
+        return
+      }
+      toast.error(err instanceof Error ? err.message : t('disk.lvm.lv.resizeFailed'))
+    } finally {
+      setResizing(false)
+    }
   }
 
   const openResize = (lv: LogicalVolume) => {
@@ -150,39 +166,76 @@ export function LVSection({ lvs, vgs, onChanged }: {
                   </TableCell>
                 </TableRow>
               )}
-              {lvs.map((lv) => (
-                <TableRow key={lv.path}>
-                  <TableCell className="font-medium">{lv.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{lv.vg_name}</TableCell>
-                  <TableCell className="text-muted-foreground">{lv.size}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{lv.attr}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground max-w-[200px] truncate" title={lv.path}>
-                    {lv.path}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        title={t('disk.lvm.lv.resize')}
-                        aria-label={t('disk.lvm.lv.resize')}
-                        onClick={() => openResize(lv)}
-                      >
-                        <Maximize2 />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        title={t('common.delete')}
-                        aria-label={t('common.delete')}
-                        onClick={() => setDeleteTarget(lv)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {lvRows(lvs).map(({ lv, nested }) => {
+                const pool = isThinPool(lv)
+                const data = pool ? fillPercent(lv.data_percent) : null
+                const meta = pool ? fillPercent(lv.metadata_percent) : null
+                // Proxmox owns a guest's volume and a storage's pool: the
+                // server refuses to remove either, and to resize a guest's.
+                const canResize = !lv.owner || pool
+                const canDelete = !lv.owner
+                return (
+                  <TableRow key={`${lv.vg_name}/${lv.name}`}>
+                    <TableCell className="font-medium">
+                      <div className={`flex items-center gap-1.5 min-w-0 ${nested ? 'pl-4' : ''}`}>
+                        {nested && <CornerDownRight className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />}
+                        <span className="truncate">{lv.name}</span>
+                        {pool && (
+                          <span className="shrink-0 inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border">
+                            {t('disk.lvm.lv.thinPool')}
+                          </span>
+                        )}
+                        {lv.owner && (
+                          <span className="shrink-0 inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium bg-primary/10 text-primary" title={t('disk.lvm.lv.managedByProxmox')}>
+                            {lv.owner}
+                          </span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{lv.vg_name}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {lv.size}
+                      {(data !== null || meta !== null) && (
+                        <div className="text-[11px] whitespace-nowrap">
+                          {data !== null && <span className={fillClass(data)}>{t('disk.lvm.lv.dataFill', { value: data.toFixed(1) })}</span>}
+                          {data !== null && meta !== null && <span className="text-muted-foreground"> · </span>}
+                          {meta !== null && <span className={fillClass(meta)}>{t('disk.lvm.lv.metadataFill', { value: meta.toFixed(1) })}</span>}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{lv.attr}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground max-w-[200px] truncate" title={lv.path}>
+                      {lv.path}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {canResize && (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            title={t('disk.lvm.lv.resize')}
+                            aria-label={t('disk.lvm.lv.resize')}
+                            onClick={() => openResize(lv)}
+                          >
+                            <Maximize2 />
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            title={t('common.delete')}
+                            aria-label={t('common.delete')}
+                            onClick={() => setDeleteTarget(lv)}
+                          >
+                            <Trash2 />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         </div>
@@ -279,7 +332,7 @@ export function LVSection({ lvs, vgs, onChanged }: {
               <Label htmlFor="lv-resize">{t('disk.lvm.lv.newSize')}</Label>
               <Input
                 id="lv-resize"
-                placeholder="e.g., 20G, +5G, 100%FREE"
+                placeholder="e.g., 20G, +5G, +100%FREE"
                 value={resizeNewSize}
                 onChange={(e) => setResizeNewSize(e.target.value)}
               />
@@ -290,12 +343,25 @@ export function LVSection({ lvs, vgs, onChanged }: {
             <Button variant="outline" onClick={closeResize}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleResize} disabled={resizing || !resizeNewSize.trim()}>
+            <Button onClick={() => void handleResize()} disabled={resizing || !resizeNewSize.trim()}>
               {resizing ? t('disk.lvm.lv.resizing') : t('disk.lvm.lv.resize')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* A smaller size cuts off the end of the volume, and whatever file
+          system is on it with it. */}
+      <TypeToConfirmDialog
+        open={shrinkConfirm}
+        onOpenChange={setShrinkConfirm}
+        title={t('disk.lvm.lv.shrinkTitle', { name: resizeTarget?.name ?? '' })}
+        description={t('disk.lvm.lv.shrinkDesc', { name: resizeTarget?.name ?? '', from: resizeTarget?.size ?? '', to: resizeNewSize.trim() })}
+        confirmPhrase={resizeTarget?.name ?? ''}
+        confirmLabel={t('disk.lvm.lv.shrink')}
+        loading={resizing}
+        onConfirm={() => void handleResize(true)}
+      />
     </TabsContent>
   )
 }

@@ -2406,7 +2406,9 @@
       "installSmartmontools": "smartmontools 설치",
       "installing": "설치 중...",
       "installSuccess": "smartmontools가 설치되었습니다",
-      "installFailed": "smartmontools 설치에 실패했습니다"
+      "installFailed": "smartmontools 설치에 실패했습니다",
+      "guestVolumes": "게스트 볼륨 ({{count}})",
+      "guestVolumesHint": "Proxmox 가상 머신과 컨테이너의 디스크입니다. Proxmox가 관리하므로 패널에서는 건드리지 않습니다."
     },
     "smart": {
       "title": "S.M.A.R.T.",
@@ -2480,7 +2482,10 @@
       "deleted": "파티션이 삭제되었습니다",
       "deleteFailed": "파티션 삭제에 실패했습니다",
       "fetchFailed": "파티션 정보를 불러올 수 없습니다",
-      "createDescription": "{{disk}}에 새 파티션을 생성합니다."
+      "createDescription": "{{disk}}에 새 파티션을 생성합니다.",
+      "bootHint": "부팅 파티션(EFI 또는 BIOS boot)입니다. 없으면 호스트가 부팅하지 못할 수 있어 여기서 지우거나 포맷할 수 없습니다.",
+      "extendedHolding": "확장 파티션 ({{names}} 포함)",
+      "extendedNoDelete": "안에 있는 논리 파티션을 먼저 지우세요."
     },
     "filesystems": {
       "showOverlay": "Docker overlay {{count}}개 보기",
@@ -2604,10 +2609,18 @@
         "currentSize": "현재 크기",
         "newSize": "새 크기",
         "deleteConfirmDesc": "{{vg}}의 논리 볼륨 {{name}}을(를) 제거하면 데이터가 영구적으로 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
-        "resizeDescription": "논리 볼륨 {{name}}의 크기를 조정합니다."
+        "resizeDescription": "논리 볼륨 {{name}}의 크기를 조정합니다.",
+        "thinPool": "thin pool",
+        "managedByProxmox": "Proxmox가 관리합니다",
+        "dataFill": "데이터 {{value}}%",
+        "metadataFill": "메타데이터 {{value}}%",
+        "shrinkTitle": "{{name}}을(를) 줄일까요?",
+        "shrinkDesc": "{{name}}이(가) {{from}}에서 {{to}}(으)로 줄어듭니다. 새 끝 뒤에 있는 데이터는 사라지고, 그 위의 파일시스템 끝부분도 함께 잘리므로 파일시스템을 먼저 줄이세요.",
+        "shrink": "줄이기"
       },
       "hasDependents": "{{lv}} thin pool에 아직 논리 볼륨이 있어 지울 수 없습니다.",
-      "shrinkConfirmRequired": "{{lv}}이(가) 작아집니다. 줄이기를 명시적으로 확인해야 합니다."
+      "shrinkConfirmRequired": "{{lv}}이(가) 작아집니다. 줄이기를 명시적으로 확인해야 합니다.",
+      "warningsTitle": "LVM 경고:"
     },
     "raid": {
       "title": "RAID 관리",
@@ -2698,7 +2711,12 @@
       "removeConfirm": "<strong>{{name}}</strong> 스왑을 제거하시겠습니까?",
       "empty": "스왑이 설정되지 않았습니다",
       "fetchFailed": "스왑 정보를 불러올 수 없습니다",
-      "unsupportedFs": "{{fs}} 파일시스템에는 스왑 파일을 만들 수 없습니다."
+      "unsupportedFs": "{{fs}} 파일시스템에는 스왑 파일을 만들 수 없습니다.",
+      "deviceConfirmTitle": "{{device}}을(를) 스왑으로 만들까요?",
+      "deviceConfirmDesc": "{{device}}에 스왑 서명을 쓰고 켭니다. 장치에 데이터가 있으면 덮어쓰기 전에 한 번 더 묻습니다.",
+      "overwriteTitle": "{{device}}에 데이터가 있습니다",
+      "overwriteDesc": "{{device}}에는 이미 {{signature}}이(가) 있습니다. 스왑으로 만들면 지워집니다.",
+      "overwrite": "덮어쓰기"
     },
     "volumeCard": {
       "title": "Docker 볼륨 사용량",
@@ -2757,7 +2775,8 @@
       "installFailed": "설치에 실패했습니다"
     },
     "guestVolume": "{{device}}은(는) 가상 머신이나 컨테이너의 디스크({{owner}})라 바꿀 수 없습니다.",
-    "bootPartition": "{{device}}은(는) 부팅 파티션(EFI 또는 BIOS boot)이라 바꿀 수 없습니다."
+    "bootPartition": "{{device}}은(는) 부팅 파티션(EFI 또는 BIOS boot)이라 바꿀 수 없습니다.",
+    "bootBadge": "부팅"
   },
   "firewall": {
     "title": "방화벽",

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { HardDrive, Activity, RefreshCw, ChevronRight, AlertTriangle, Download, Terminal, CheckCircle2, XCircle } from 'lucide-react'
+import { HardDrive, Activity, RefreshCw, ChevronRight, ChevronDown, AlertTriangle, Download, Terminal, CheckCircle2, XCircle, Boxes } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
@@ -18,6 +18,17 @@ import { TabLoading, CountPill, RefreshButton } from './components/TabToolbar'
 
 import type { BlockDevice, IOStat } from '@/types/api'
 
+// A partition that holds a boot loader; the server refuses to delete or
+// format it, and Proxmox keeps its ESPs unmounted, so no mount point says so.
+function BootBadge() {
+  const { t } = useTranslation()
+  return (
+    <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium bg-warning/10 text-warning shrink-0" title={t('disk.partitions.bootHint')}>
+      {t('disk.bootBadge')}
+    </span>
+  )
+}
+
 function diskTypeBadge(type_: string, rotational: boolean) {
   const base = 'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium'
   if (!rotational || type_ === 'ssd') {
@@ -32,6 +43,7 @@ export default function DiskOverview() {
   const [iostats, setIostats] = useState<IOStat[]>([])
   const [loading, setLoading] = useState(true)
   const [smartDisk, setSmartDisk] = useState<string | null>(null)
+  const [guestsOpen, setGuestsOpen] = useState(false)
 
   // Smartmontools status
   const [smartmontoolsInstalled, setSmartmontoolsInstalled] = useState<boolean | null>(null)
@@ -100,6 +112,12 @@ export default function DiskOverview() {
     return <TabLoading />
   }
 
+  // On Proxmox VE lsblk lists every guest's zvol beside the host's disks:
+  // one card per VM disk, each with the guest's own partitions and a SMART
+  // button with nothing behind it. The server names their owner.
+  const hostDisks = disks.filter((d) => !d.owner)
+  const guestVolumes = disks.filter((d) => d.owner)
+
   return (
     <div className="space-y-4 mt-4">
       {/* Smartmontools Install Banner */}
@@ -124,18 +142,18 @@ export default function DiskOverview() {
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <CountPill>{t('disk.overview.diskCount', { count: disks.length })}</CountPill>
+        <CountPill>{t('disk.overview.diskCount', { count: hostDisks.length })}</CountPill>
         <RefreshButton onClick={fetchData} loading={loading} />
       </div>
 
       {/* Disk Cards */}
-      {disks.length === 0 ? (
+      {hostDisks.length === 0 && guestVolumes.length === 0 ? (
         <div className="bg-card rounded-2xl card-shadow p-8 text-center text-muted-foreground">
           {t('disk.overview.noDisks')}
         </div>
       ) : (
         <div className="space-y-4">
-          {disks.map((disk) => {
+          {hostDisks.map((disk) => {
             const iostat = getIOStatForDevice(disk.name)
             return (
               <div key={disk.name} className="bg-card rounded-2xl card-shadow overflow-hidden" role="region" aria-label={`${disk.name} ${formatBytes(disk.size)}`}>
@@ -198,6 +216,7 @@ export default function DiskOverview() {
                           <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden="true" />
                           <span className="font-mono font-medium w-28 shrink-0 truncate">{child.name}</span>
                           <span className="text-muted-foreground w-20 shrink-0">{formatBytes(child.size)}</span>
+                          {child.boot && <BootBadge />}
                           {child.fstype && (
                             <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium border border-border shrink-0">
                               {child.fstype}
@@ -244,6 +263,42 @@ export default function DiskOverview() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {guestVolumes.length > 0 && (
+        <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setGuestsOpen((v) => !v)}
+            aria-expanded={guestsOpen}
+            className="w-full flex items-center gap-3 px-5 py-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            {guestsOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+            <Boxes className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
+            <div className="min-w-0">
+              <div className="text-[14px] font-semibold">{t('disk.overview.guestVolumes', { count: guestVolumes.length })}</div>
+              <div className="text-[12px] text-muted-foreground">{t('disk.overview.guestVolumesHint')}</div>
+            </div>
+          </button>
+          {guestsOpen && (
+            <div className="px-5 pb-4 space-y-1">
+              {guestVolumes.map((vol) => (
+                <div key={vol.name} className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2 text-[13px] min-w-0">
+                  <span className="font-mono font-medium w-24 shrink-0 truncate">{vol.name}</span>
+                  <span className="text-muted-foreground w-20 shrink-0">{formatBytes(vol.size)}</span>
+                  <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-medium bg-primary/10 text-primary truncate min-w-0" title={vol.owner}>
+                    {vol.owner}
+                  </span>
+                  {(vol.mountpoint || vol.fstype) && (
+                    <span className="text-muted-foreground font-mono text-xs truncate min-w-0" title={vol.mountpoint || vol.fstype}>
+                      {vol.mountpoint || vol.fstype}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

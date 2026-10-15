@@ -2408,7 +2408,9 @@
       "installSmartmontools": "Install smartmontools",
       "installing": "Installing...",
       "installSuccess": "smartmontools installed successfully",
-      "installFailed": "Failed to install smartmontools"
+      "installFailed": "Failed to install smartmontools",
+      "guestVolumes": "Guest volumes ({{count}})",
+      "guestVolumesHint": "Disks of Proxmox virtual machines and containers. Proxmox manages them; the panel leaves them alone."
     },
     "smart": {
       "title": "S.M.A.R.T.",
@@ -2482,7 +2484,10 @@
       "deleted": "Partition deleted",
       "deleteFailed": "Failed to delete partition",
       "fetchFailed": "Failed to load partitions",
-      "createDescription": "Create a new partition on {{disk}}."
+      "createDescription": "Create a new partition on {{disk}}.",
+      "bootHint": "Boot partition (EFI or BIOS boot). The host may not start without it, so it can't be deleted or formatted here.",
+      "extendedHolding": "Extended (holds {{names}})",
+      "extendedNoDelete": "Delete the logical partitions inside it first."
     },
     "filesystems": {
       "showOverlay_one": "Show {{count}} Docker overlay",
@@ -2607,10 +2612,18 @@
         "currentSize": "Current Size",
         "newSize": "New Size",
         "deleteConfirmDesc": "Removing logical volume {{name}} from {{vg}} permanently destroys its data. This cannot be undone.",
-        "resizeDescription": "Resize logical volume {{name}}."
+        "resizeDescription": "Resize logical volume {{name}}.",
+        "thinPool": "thin pool",
+        "managedByProxmox": "Managed by Proxmox",
+        "dataFill": "Data {{value}}%",
+        "metadataFill": "Metadata {{value}}%",
+        "shrinkTitle": "Shrink {{name}}?",
+        "shrinkDesc": "{{name}} goes from {{from}} to {{to}}. Whatever lies past the new end is lost, including the end of a file system on it, so shrink the file system first.",
+        "shrink": "Shrink"
       },
       "hasDependents": "The thin pool {{lv}} still holds logical volumes and can't be removed.",
-      "shrinkConfirmRequired": "{{lv}} would get smaller. Confirm the shrink explicitly."
+      "shrinkConfirmRequired": "{{lv}} would get smaller. Confirm the shrink explicitly.",
+      "warningsTitle": "LVM reported:"
     },
     "raid": {
       "title": "RAID Management",
@@ -2701,7 +2714,12 @@
       "removeConfirm": "Are you sure you want to remove swap <strong>{{name}}</strong>?",
       "empty": "No swap configured",
       "fetchFailed": "Failed to load swap info",
-      "unsupportedFs": "A swap file can't be made on a {{fs}} file system."
+      "unsupportedFs": "A swap file can't be made on a {{fs}} file system.",
+      "deviceConfirmTitle": "Make {{device}} swap?",
+      "deviceConfirmDesc": "Writes a swap signature onto {{device}} and turns it on. If the device holds data, you are asked again before it is overwritten.",
+      "overwriteTitle": "{{device}} holds data",
+      "overwriteDesc": "{{device}} already holds {{signature}}. Making it swap erases it.",
+      "overwrite": "Overwrite"
     },
     "volumeCard": {
       "title": "Docker Volume Usage",
@@ -2760,7 +2778,8 @@
       "installFailed": "Install failed"
     },
     "guestVolume": "{{device}} is a virtual machine's or container's disk ({{owner}}) and can't be changed here.",
-    "bootPartition": "{{device}} is a boot partition (EFI or BIOS boot) and can't be changed."
+    "bootPartition": "{{device}} is a boot partition (EFI or BIOS boot) and can't be changed.",
+    "bootBadge": "Boot"
   },
   "firewall": {
     "title": "Firewall",

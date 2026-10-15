@@ -22,6 +22,7 @@ import type {
   PhysicalVolume,
   VolumeGroup,
   LogicalVolume,
+  LVMReport,
   RAIDArray,
   SwapInfo,
   ServiceInfo,
@@ -74,6 +75,15 @@ import { CODE_MESSAGES } from './codeMessages'
 import type { ApiWarning } from './warnings'
 
 const API_PATH = '/api/v1'
+
+// An LVM list as a node answers it: the items with LVM's warnings, or the
+// bare list from a node older than the warnings.
+type LVMList<T> = T[] | { items?: T[] | null; warnings?: string[] | null } | null
+
+function lvmReport<T>(data: LVMList<T>): LVMReport<T> {
+  if (Array.isArray(data)) return { items: data, warnings: [] }
+  return { items: data?.items ?? [], warnings: data?.warnings ?? [] }
+}
 
 // readCookie returns the value of a non-httpOnly cookie by name. Only used
 // for sfpanel_csrf (the refresh cookie is httpOnly and never reachable from
@@ -1950,17 +1960,18 @@ class ApiClient {
     })
   }
 
-  // Disk Management - LVM
+  // Disk Management - LVM. ?warnings=1 has the server answer with what LVM
+  // printed beside its report; an older node ignores it and sends the bare list.
   getLVMPVs() {
-    return this.request<PhysicalVolume[]>('/lvm/pvs')
+    return this.request<LVMList<PhysicalVolume>>('/lvm/pvs?warnings=1').then(lvmReport)
   }
 
   getLVMVGs() {
-    return this.request<VolumeGroup[]>('/lvm/vgs')
+    return this.request<LVMList<VolumeGroup>>('/lvm/vgs?warnings=1').then(lvmReport)
   }
 
   getLVMLVs() {
-    return this.request<LogicalVolume[]>('/lvm/lvs')
+    return this.request<LVMList<LogicalVolume>>('/lvm/lvs?warnings=1').then(lvmReport)
   }
 
   createPV(device: string) {
@@ -2003,7 +2014,9 @@ class ApiClient {
     return this.request(`/lvm/lvs/${encodeURIComponent(vg)}/${encodeURIComponent(name)}`, { method: 'DELETE' })
   }
 
-  resizeLV(data: { vg: string; name: string; size: string }) {
+  // shrink confirms a size smaller than the volume's; without it the server
+  // answers LV_SHRINK_CONFIRM_REQUIRED.
+  resizeLV(data: { vg: string; name: string; size: string; shrink?: boolean }) {
     return this.request('/lvm/lvs/resize', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -2045,7 +2058,9 @@ class ApiClient {
     return this.request<SwapInfo>('/swap')
   }
 
-  createSwap(data: { type: string; path?: string; size_mb?: number; device?: string }) {
+  // force writes swap over a device that holds data; without it the server
+  // answers DISK_NOT_EMPTY naming what is there.
+  createSwap(data: { type: string; path?: string; size_mb?: number; device?: string; force?: boolean }) {
     return this.request('/swap', {
       method: 'POST',
       body: JSON.stringify(data),

@@ -273,6 +273,17 @@ export interface BlockDevice {
   state: string
   vendor: string
   children?: BlockDevice[]
+  // The partition's type: a GPT type GUID, or 0x83-style for an MBR table,
+  // and lsblk's name for it ("EFI System"). Absent from older nodes.
+  parttype?: string
+  parttypename?: string
+  uuid?: string
+  // A partition that holds a boot loader; the server refuses to delete or
+  // format it.
+  boot?: boolean
+  // Proxmox VE: a guest's volume among the disks (zvol, RBD, NBD), naming its
+  // guest ("VMID 100") or what it is ("zvol rpool/swap").
+  owner?: string
 }
 
 export interface SmartInfo {
@@ -363,6 +374,19 @@ export interface LogicalVolume {
   path: string
   pool_lv: string
   data_percent: string
+  // A thin pool's metadata fill; absent from older nodes.
+  metadata_percent?: string
+  // Proxmox VE: the guest ("VMID 100") or storage ("storage local-lvm") that
+  // owns the volume; the server refuses to remove one, or to resize one
+  // that is not a storage's thin pool.
+  owner?: string
+}
+
+// An LVM list with the warnings LVM printed beside its report (an old PV
+// header, a missing PV).
+export interface LVMReport<T> {
+  items: T[]
+  warnings: string[]
 }
 
 export interface RAIDArray {
