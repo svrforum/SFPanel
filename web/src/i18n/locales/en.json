@@ -310,7 +310,9 @@
     "viewList": "List",
     "viewTree": "Tree",
     "protected": "The {{name}} process can't be killed: the Proxmox node could reset or drop out of its cluster.",
-    "isGuest": "This process is VM {{vmid}}: killing it is pulling its power. Shut it down from Proxmox with 'qm shutdown {{vmid}}'."
+    "isGuest": "This process is VM {{vmid}}: killing it is pulling its power. Shut it down from Proxmox with 'qm shutdown {{vmid}}'.",
+    "vm": "VM {{vmid}}",
+    "protectedLabel": "Protected"
   },
   "services": {
     "title": "Services",
@@ -350,8 +352,18 @@
     "requires": "Required services",
     "wantedBy": "Wanted by",
     "logsLoadFailed": "Failed to load logs",
-    "protected": "{{unit}} can't be stopped or disabled here: it can take the host off the network or reset it. {{hint}}",
-    "confirmRequired": "Stopping {{unit}} cuts off this host's management. Type the service name to confirm."
+    "protected": "The panel won't do this to {{unit}}: the host, its cluster or its guests depend on it.",
+    "confirmRequired": "{{unit}} is needed to manage this host or run its guests. Type the service name to confirm.",
+    "protectedHint": "To apply network changes, run '{{command}}' in a terminal instead.",
+    "stopTitle": "Stop {{unit}}?",
+    "stopDesc": "{{unit}} stops now and stays stopped until it is started again.",
+    "restartTitle": "Restart {{unit}}?",
+    "restartDesc": "{{unit}} stops and starts again; what it serves is interrupted for a moment.",
+    "disableTitle": "Disable {{unit}}?",
+    "disableDesc": "{{unit}} will no longer start at boot. It keeps running until it is stopped.",
+    "criticalDesc": "{{unit}} is needed to manage this host or run its guests: this can cut off access to the host or interrupt its guests.",
+    "protectedLabel": "Protected: the panel won't do this",
+    "criticalLabel": "Needs the service name typed"
   },
   "docker": {
     "migrate": {

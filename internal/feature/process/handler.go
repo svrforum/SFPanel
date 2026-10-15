@@ -1,7 +1,9 @@
 package process
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -15,6 +17,7 @@ import (
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/process"
 	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 	"github.com/svrforum/SFPanel/internal/common/sysguard"
 )
 
@@ -29,7 +32,15 @@ type ProcessInfo struct {
 	Status  string  `json:"status"`
 	User    string  `json:"user"`
 	Command string  `json:"command"`
+	// VMID is set for a Proxmox VM's own process (its cgroup is
+	// /qemu.slice/<vmid>.scope), and Protected for a process of a unit the
+	// node cannot lose. Signals other than CONT to either are refused.
+	VMID      int  `json:"vmid,omitempty"`
+	Protected bool `json:"protected,omitempty"`
 }
+
+// processCgroup is how the guard and the list read a process's cgroup.
+var processCgroup = sysguard.ProcessCgroup
 
 // Handler holds the per-instance process cache. The cache used to be a
 // package-level var which broke parallel tests (state leaked between them)
@@ -230,6 +241,38 @@ func (h *Handler) KillProcess(c echo.Context) error {
 			fmt.Sprintf("Process %d not found", pid))
 	}
 
+	// A VM's QEMU process, or a process the Proxmox node cannot lose, gets
+	// CONT and nothing else: TERM ends a VM as surely as pulling its power,
+	// and STOP or KILL to watchdog-mux resets the node. What the process is
+	// comes from its cgroup, read now rather than from the cached list.
+	if sig != syscall.SIGCONT {
+		cg, err := processCgroup(int(pid))
+		if errors.Is(err, fs.ErrNotExist) {
+			return response.Fail(c, http.StatusNotFound, response.ErrProcessNotFound,
+				fmt.Sprintf("Process %d not found", pid))
+		}
+		if err != nil {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrProcessError,
+				fmt.Sprintf("Cannot tell what process %d is, so no signal was sent", pid))
+		}
+		guard := sysguard.ClassifyCgroup(platform.Get(), cg)
+		if guard.VMID != 0 {
+			vmid := strconv.Itoa(guard.VMID)
+			return response.FailWith(c, http.StatusConflict, response.ErrProcessIsGuest,
+				fmt.Sprintf("Process %d is VM %s; shut it down with 'qm shutdown %s'", pid, vmid, vmid),
+				map[string]string{"vmid": vmid})
+		}
+		if guard.Protected {
+			name, _ := p.Name()
+			if name == "" {
+				name = strconv.Itoa(int(pid))
+			}
+			return response.FailWith(c, http.StatusForbidden, response.ErrProcessProtected,
+				fmt.Sprintf("Refusing to signal %s: the Proxmox node could reset or drop out of its cluster", name),
+				map[string]string{"name": name})
+		}
+	}
+
 	if err := p.SendSignal(sig); err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrKillFailed,
 			fmt.Sprintf("Failed to send signal %s to process %d: %s", req.Signal, pid, err.Error()))
@@ -401,6 +444,8 @@ func collectProcesses(prev cpuSnapshot) ([]ProcessInfo, cpuSnapshot, error) {
 	// The reading that becomes the next collection's baseline, built as we go.
 	times := make(map[int32]float64, len(procs))
 
+	host := platform.Get()
+
 	infos := make([]ProcessInfo, 0, len(procs))
 	for _, p := range procs {
 		name, _ := p.Name()
@@ -452,6 +497,13 @@ func collectProcesses(prev cpuSnapshot) ([]ProcessInfo, cpuSnapshot, error) {
 			cmdline = name
 		}
 
+		// The same cgroup reading the kill guard makes, so the page can say
+		// "VM 100" before anyone reaches for TERM.
+		var guard sysguard.ProcessGuard
+		if cg, err := processCgroup(int(p.Pid)); err == nil {
+			guard = sysguard.ClassifyCgroup(host, cg)
+		}
+
 		infos = append(infos, ProcessInfo{
 			PID:     p.Pid,
 			PPID:    ppid,
@@ -463,6 +515,9 @@ func collectProcesses(prev cpuSnapshot) ([]ProcessInfo, cpuSnapshot, error) {
 			Status:  statusStr,
 			User:    username,
 			Command: cmdline,
+
+			VMID:      guard.VMID,
+			Protected: guard.Protected,
 		})
 	}
 

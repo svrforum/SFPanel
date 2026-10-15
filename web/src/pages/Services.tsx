@@ -11,13 +11,17 @@ import {
   FileText,
   Loader2,
   MoreHorizontal,
+  Lock,
+  ShieldAlert,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
-import type { ServiceInfo } from '@/types/api'
+import type { ServiceAction, ServiceInfo } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ListLoadState } from '@/components/ListLoadState'
+import { useConfirm } from '@/components/ConfirmDialog'
+import { TypeToConfirmDialog } from '@/components/TypeToConfirmDialog'
 import { StatusPill, type StatusPillTone } from '@/components/StatusPill'
 import { ServiceDetailDialog } from '@/pages/services/components/ServiceDetailDialog'
 import {
@@ -37,6 +41,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 
 type FilterType = 'all' | 'running' | 'failed' | 'inactive'
+type Action = 'start' | 'enable' | ServiceAction
+
+const isServiceAction = (a: Action): a is ServiceAction => a === 'stop' || a === 'restart' || a === 'disable'
 
 const activeStateTone = (activeState: string, subState: string): StatusPillTone => {
   if (activeState === 'active' && subState === 'running') return 'success'
@@ -67,6 +74,9 @@ export default function Services() {
   const [filter, setFilter] = useState<FilterType>('all')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [logService, setLogService] = useState<string | null>(null)
+  // A unit the host needs: the action waits for its name to be typed.
+  const [typedTarget, setTypedTarget] = useState<{ name: string; action: ServiceAction } | null>(null)
+  const confirm = useConfirm()
 
   const fetchServices = useCallback(async () => {
     try {
@@ -120,7 +130,20 @@ export default function Services() {
     )
   }, [allServices, filter, searchQuery])
 
-  const handleAction = async (name: string, action: 'start' | 'stop' | 'restart' | 'enable' | 'disable') => {
+  const actionText = (action: ServiceAction, unit: string) => {
+    switch (action) {
+      case 'stop':
+        return { title: t('services.stopTitle', { unit }), description: t('services.stopDesc', { unit }), label: t('services.stop') }
+      case 'restart':
+        return { title: t('services.restartTitle', { unit }), description: t('services.restartDesc', { unit }), label: t('services.restart') }
+      case 'disable':
+        return { title: t('services.disableTitle', { unit }), description: t('services.disableDesc', { unit }), label: t('services.disable') }
+    }
+  }
+
+  // typed is the unit's name as the operator typed it, for a unit the server
+  // holds until it is (SERVICE_CONFIRM_REQUIRED).
+  const runAction = async (name: string, action: Action, typed?: string) => {
     setActionLoading(`${name}:${action}`)
     try {
       switch (action) {
@@ -129,11 +152,11 @@ export default function Services() {
           toast.success(t('services.startSuccess'))
           break
         case 'stop':
-          await api.stopService(name)
+          await api.stopService(name, typed)
           toast.success(t('services.stopSuccess'))
           break
         case 'restart':
-          await api.restartService(name)
+          await api.restartService(name, typed)
           toast.success(t('services.restartSuccess'))
           break
         case 'enable':
@@ -141,17 +164,55 @@ export default function Services() {
           toast.success(t('services.enableSuccess'))
           break
         case 'disable':
-          await api.disableService(name)
+          await api.disableService(name, typed)
           toast.success(t('services.disableSuccess'))
           break
       }
+      setTypedTarget(null)
       await fetchServices()
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('services.actionFailed')
+      const e = err as Error & { code?: string; details?: Record<string, string> }
+      // A list from before the server knew the unit was critical: ask now.
+      if (e.code === 'SERVICE_CONFIRM_REQUIRED' && isServiceAction(action) && !typed) {
+        setTypedTarget({ name, action })
+        return
+      }
+      setTypedTarget(null)
+      let message = err instanceof Error ? err.message : t('services.actionFailed')
+      if (e.code === 'SERVICE_PROTECTED' && e.details?.hint) {
+        message += ' ' + t('services.protectedHint', { command: e.details.hint })
+      }
       toast.error(message)
     } finally {
       setActionLoading(null)
     }
+  }
+
+  // Every stop, restart and disable is confirmed; a unit the host needs asks
+  // for its name instead, and one the panel refuses goes straight to the
+  // server for the reason.
+  const handleAction = async (svc: ServiceInfo, action: Action) => {
+    if (isServiceAction(action)) {
+      const tier = svc.protection?.[action]
+      if (tier === 'confirm') {
+        setTypedTarget({ name: svc.name, action })
+        return
+      }
+      if (tier !== 'refuse') {
+        const text = actionText(action, svc.name)
+        const ok = await confirm({ title: text.title, description: text.description, confirmLabel: text.label, danger: action !== 'restart' })
+        if (!ok) return
+      }
+    }
+    await runAction(svc.name, action)
+  }
+
+  // The marker beside a guarded action in the menu.
+  const tierIcon = (svc: ServiceInfo, action: ServiceAction) => {
+    const tier = svc.protection?.[action]
+    if (tier === 'refuse') return <Lock className="h-3.5 w-3.5 ml-auto text-muted-foreground" aria-label={t('services.protectedLabel')} />
+    if (tier === 'confirm') return <ShieldAlert className="h-3.5 w-3.5 ml-auto text-warning" aria-label={t('services.criticalLabel')} />
+    return null
   }
 
   // Full action menu (start/stop/restart, boot enable/disable, logs) — shared
@@ -174,25 +235,28 @@ export default function Services() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => handleAction(svc.name, 'start')} disabled={svc.active_state === 'active'}>
+        <DropdownMenuItem onClick={() => handleAction(svc, 'start')} disabled={svc.active_state === 'active'}>
           <Play className="h-4 w-4 mr-2" />
           {t('services.start')}
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleAction(svc.name, 'stop')} disabled={svc.active_state === 'inactive'}>
+        <DropdownMenuItem onClick={() => handleAction(svc, 'stop')} disabled={svc.active_state === 'inactive'}>
           <Square className="h-4 w-4 mr-2" />
           {t('services.stop')}
+          {tierIcon(svc, 'stop')}
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleAction(svc.name, 'restart')}>
+        <DropdownMenuItem onClick={() => handleAction(svc, 'restart')}>
           <RotateCw className="h-4 w-4 mr-2" />
           {t('services.restart')}
+          {tierIcon(svc, 'restart')}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {svc.enabled === 'enabled' ? (
-          <DropdownMenuItem onClick={() => handleAction(svc.name, 'disable')}>
+          <DropdownMenuItem onClick={() => handleAction(svc, 'disable')}>
             {t('services.disable')}
+            {tierIcon(svc, 'disable')}
           </DropdownMenuItem>
         ) : svc.enabled === 'disabled' ? (
-          <DropdownMenuItem onClick={() => handleAction(svc.name, 'enable')}>
+          <DropdownMenuItem onClick={() => handleAction(svc, 'enable')}>
             {t('services.enable')}
           </DropdownMenuItem>
         ) : null}
@@ -308,7 +372,7 @@ export default function Services() {
                   title={t('services.start')}
                   aria-label={t('services.start')}
                   disabled={svc.active_state === 'active' || !!actionLoading?.startsWith(svc.name + ':')}
-                  onClick={() => handleAction(svc.name, 'start')}
+                  onClick={() => handleAction(svc, 'start')}
                 >
                   <Play className="h-4 w-4" />
                 </Button>
@@ -318,7 +382,7 @@ export default function Services() {
                   title={t('services.stop')}
                   aria-label={t('services.stop')}
                   disabled={svc.active_state === 'inactive' || !!actionLoading?.startsWith(svc.name + ':')}
-                  onClick={() => handleAction(svc.name, 'stop')}
+                  onClick={() => handleAction(svc, 'stop')}
                 >
                   <Square className="h-4 w-4" />
                 </Button>
@@ -328,7 +392,7 @@ export default function Services() {
                   title={t('services.restart')}
                   aria-label={t('services.restart')}
                   disabled={!!actionLoading?.startsWith(svc.name + ':')}
-                  onClick={() => handleAction(svc.name, 'restart')}
+                  onClick={() => handleAction(svc, 'restart')}
                 >
                   <RotateCw className="h-4 w-4" />
                 </Button>
@@ -390,6 +454,19 @@ export default function Services() {
 
       {/* Log / unit / dependency dialog */}
       <ServiceDetailDialog serviceName={logService} onClose={() => setLogService(null)} />
+
+      {typedTarget && (
+        <TypeToConfirmDialog
+          open
+          onOpenChange={(open) => { if (!open) setTypedTarget(null) }}
+          title={actionText(typedTarget.action, typedTarget.name).title}
+          description={t('services.criticalDesc', { unit: typedTarget.name })}
+          confirmPhrase={typedTarget.name}
+          confirmLabel={actionText(typedTarget.action, typedTarget.name).label}
+          loading={actionLoading === `${typedTarget.name}:${typedTarget.action}`}
+          onConfirm={() => runAction(typedTarget.name, typedTarget.action, typedTarget.name)}
+        />
+      )}
     </div>
   )
 }

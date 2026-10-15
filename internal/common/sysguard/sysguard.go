@@ -9,6 +9,9 @@
 //     exec.Commander children). Terminal PTY shells are NOT covered:
 //     creack/pty's Start forces Setsid, so each PTY session gets a new
 //     session and pgid and never matches the check.
+//   - UnitPolicy and ClassifyCgroup (hostunits.go) guard the units and
+//     processes the host itself needs — networking on an ifupdown host, the
+//     Proxmox VE cluster stack, a VM's QEMU process — per platform.
 //
 // New deny-list rules go here so every module benefits without
 // duplicating logic. See docs/superpowers/plans/2026-05-22-module-hardening-followup.md

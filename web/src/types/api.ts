@@ -719,6 +719,8 @@ export interface RollbackInfo {
 }
 
 // Systemd Services
+export type ServiceAction = 'stop' | 'restart' | 'disable'
+
 export interface ServiceInfo {
   name: string
   description: string
@@ -726,6 +728,9 @@ export interface ServiceInfo {
   active_state: string
   sub_state: string
   enabled: string
+  // How this host treats the action: 'refuse' is never done through the panel,
+  // 'confirm' needs the unit's name typed. Absent for an ordinary unit.
+  protection?: Partial<Record<ServiceAction, 'refuse' | 'confirm'>>
 }
 
 export interface ServiceDeps {
@@ -848,6 +853,10 @@ export interface ProcessInfo {
   status: string
   user: string
   command: string
+  // A Proxmox VM's own QEMU process, and a process the node cannot lose:
+  // the server sends them nothing but CONT.
+  vmid?: number
+  protected?: boolean
 }
 
 // System Tuning

@@ -187,6 +187,10 @@ const REFRESH_TIMEOUT = 10000
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+// A unit the server holds until its name is typed (SERVICE_CONFIRM_REQUIRED)
+// goes ahead when the request carries that name back as ?confirm=<unit>.
+const confirmQuery = (unit?: string) => (unit ? `?confirm=${encodeURIComponent(unit)}` : '')
+
 class ApiClient {
   private token: string | null = null
   private refreshToken: string | null = null
@@ -2343,20 +2347,20 @@ class ApiClient {
     return this.request<{ message: string }>(`/system/services/${name}/start`, { method: 'POST' })
   }
 
-  stopService(name: string) {
-    return this.request<{ message: string }>(`/system/services/${name}/stop`, { method: 'POST' })
+  stopService(name: string, confirm?: string) {
+    return this.request<{ message: string }>(`/system/services/${name}/stop${confirmQuery(confirm)}`, { method: 'POST' })
   }
 
-  restartService(name: string) {
-    return this.request<{ message: string }>(`/system/services/${name}/restart`, { method: 'POST' })
+  restartService(name: string, confirm?: string) {
+    return this.request<{ message: string }>(`/system/services/${name}/restart${confirmQuery(confirm)}`, { method: 'POST' })
   }
 
   enableService(name: string) {
     return this.request<{ message: string }>(`/system/services/${name}/enable`, { method: 'POST' })
   }
 
-  disableService(name: string) {
-    return this.request<{ message: string }>(`/system/services/${name}/disable`, { method: 'POST' })
+  disableService(name: string, confirm?: string) {
+    return this.request<{ message: string }>(`/system/services/${name}/disable${confirmQuery(confirm)}`, { method: 'POST' })
   }
 
   getServiceLogs(name: string, lines?: number) {

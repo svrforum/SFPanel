@@ -17,6 +17,7 @@ import {
   List,
   ListTree,
   CornerDownRight,
+  ShieldAlert,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -176,6 +177,8 @@ export default function Processes() {
     return proc ? { proc, depth: 0 } : undefined
   }
 
+  const killGuarded = !!(killTarget?.vmid || killTarget?.protected)
+
   const handleKill = async (signal: string) => {
     if (!killTarget) return
     setKilling(true)
@@ -249,6 +252,18 @@ export default function Processes() {
     )
   }
 
+  // A VM's QEMU process, or one the Proxmox node cannot lose: the server
+  // refuses every signal to it but Resume.
+  const guardBadge = (proc: ProcessInfo) => {
+    if (!proc.vmid && !proc.protected) return null
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-warning/10 px-1.5 py-0.5 text-[11px] font-medium text-warning">
+        <ShieldAlert className="h-3 w-3" />
+        {proc.vmid ? t('processes.vm', { vmid: proc.vmid }) : t('processes.protectedLabel')}
+      </span>
+    )
+  }
+
   const rowActions = (proc: ProcessInfo, visibility: string) => (
     <div className={`inline-flex items-center justify-end gap-0.5 ${visibility}`}>
       <Button
@@ -283,7 +298,10 @@ export default function Processes() {
             <CornerDownRight className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground/50" />
           )}
           <div className="min-w-0">
-            <span className="font-medium">{proc.name}</span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="font-medium">{proc.name}</span>
+              {guardBadge(proc)}
+            </span>
             {proc.command !== proc.name && (
               <p className="text-xs text-muted-foreground truncate max-w-[400px]" title={proc.command}>
                 {proc.command}
@@ -328,6 +346,7 @@ export default function Processes() {
         <div className="flex items-center gap-1.5">
           {depth > 0 && <CornerDownRight className="h-3 w-3 shrink-0 text-muted-foreground/50" />}
           <p className="text-[13px] font-medium truncate">{proc.name}</p>
+          {guardBadge(proc)}
         </div>
         <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground flex-wrap">
           <span className="font-mono">PID {proc.pid}</span>
@@ -578,7 +597,16 @@ export default function Processes() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-sm">
-            <p className="text-muted-foreground">{t('processes.killDescription')}</p>
+            {killGuarded ? (
+              <p className="flex items-start gap-2 rounded-xl bg-warning/10 p-3 text-warning">
+                <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0" />
+                {killTarget?.vmid
+                  ? t('processes.isGuest', { vmid: killTarget.vmid })
+                  : t('processes.protected', { name: killTarget?.name })}
+              </p>
+            ) : (
+              <p className="text-muted-foreground">{t('processes.killDescription')}</p>
+            )}
 
             {/* Job control: pause / resume (non-destructive) */}
             <div className="space-y-1.5">
@@ -590,7 +618,7 @@ export default function Processes() {
                   variant="outline"
                   className="rounded-xl flex-1"
                   onClick={() => handleKill('STOP')}
-                  disabled={killing}
+                  disabled={killing || killGuarded}
                 >
                   {killing ? <Loader2 className="animate-spin h-4 w-4" /> : <Pause className="h-4 w-4" />}
                   {t('processes.signal_stop')}
@@ -617,7 +645,7 @@ export default function Processes() {
                   variant="outline"
                   className="rounded-xl flex-1"
                   onClick={() => handleKill('TERM')}
-                  disabled={killing}
+                  disabled={killing || killGuarded}
                 >
                   {killing ? <Loader2 className="animate-spin h-4 w-4" /> : null}
                   {t('processes.signal_term')}
@@ -626,7 +654,7 @@ export default function Processes() {
                   variant="destructive"
                   className="rounded-xl flex-1"
                   onClick={() => handleKill('KILL')}
-                  disabled={killing}
+                  disabled={killing || killGuarded}
                 >
                   {killing ? <Loader2 className="animate-spin h-4 w-4" /> : null}
                   {t('processes.signal_kill')}

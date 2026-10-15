@@ -642,6 +642,8 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
 | `status` | string | 프로세스 상태 코드 (예: "S", "R", "Z") |
 | `user` | string | 소유 사용자 |
 | `command` | string | 전체 명령줄 |
+| `vmid` | number | Proxmox VM의 QEMU 프로세스일 때 그 VMID (cgroup이 `/qemu.slice/<vmid>.scope`). 아니면 생략 |
+| `protected` | boolean | Proxmox 노드가 잃으면 안 되는 유닛의 프로세스(watchdog-mux, corosync, pmxcfs, pve-ha-lrm/crm)일 때 `true`. 아니면 생략 |
 
 > `ppid`/`rss`/`nice`는 `GET /system/processes`(상위 10)와 `GET /system/processes/list` 양쪽 응답에 포함됩니다. 프론트엔드는 `ppid`로 트리 뷰(순환 가드 포함)를 구성합니다.
 
@@ -677,6 +679,8 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
 | `signal` | string | 아니오 | 시그널 이름/번호. 기본값 `"TERM"`. 허용: `TERM`/`15`, `KILL`/`9`, `HUP`/`1`, `INT`/`2`, `STOP`/`19`(일시정지), `CONT`/`18`(재개) (STOP/CONT는 v0.20.0+) |
 
 > 보호 PID(init, kthreadd, sfpanel 자신)와 패널이 스폰한 자식 프로세스(pgid 매칭)는 시그널 전송이 거부됩니다(403, `INVALID_PID`).
+>
+> `CONT` 외의 시그널은 대상의 `/proc/<pid>/cgroup`을 그 자리에서 읽어 한 번 더 거릅니다. VM의 QEMU 프로세스(`/qemu.slice/<vmid>.scope`)에 TERM을 보내면 VM 전원을 뽑는 것과 같으므로 409 `PROCESS_IS_GUEST`(`details.vmid`), Proxmox VE에서 watchdog-mux·corosync·pve-cluster(pmxcfs)·pve-ha-lrm·pve-ha-crm 유닛의 프로세스는 노드가 리셋되거나 클러스터에서 빠지므로 403 `PROCESS_PROTECTED`(`details.name`)입니다. LXC 컨테이너 안의 프로세스(`/lxc/<id>/…`)는 막지 않습니다.
 
 **Response (200):**
 ```json
@@ -696,6 +700,9 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
 | `INVALID_PID` | 400 | 유효하지 않은 PID 형식 |
 | `INVALID_SIGNAL` | 400 | 지원하지 않는 시그널 |
 | `PROCESS_NOT_FOUND` | 404 | 프로세스를 찾을 수 없음 |
+| `PROCESS_IS_GUEST` | 409 | VM의 QEMU 프로세스 (`details.vmid`) — `qm shutdown <vmid>`로 끌 것 |
+| `PROCESS_PROTECTED` | 403 | Proxmox 노드에 필수인 프로세스 (`details.name`) |
+| `PROCESS_ERROR` | 500 | cgroup을 읽지 못해 무엇인지 알 수 없음 (시그널 미전송) |
 | `KILL_FAILED` | 500 | 시그널 전송 실패 |
 
 ---
@@ -743,6 +750,34 @@ CPU 사용률 기준 상위 10개 프로세스 (대시보드용).
 | `INTERNAL_ERROR` | 500 | setpriority 실패 |
 
 > kill과 동일한 보호 가드 적용 — 보호 PID(init/kthreadd/sfpanel)와 패널이 스폰한 자식 프로세스의 renice는 거부됩니다.
+
+---
+
+## 서비스 API (`/api/v1/system/services`)
+
+### GET /api/v1/system/services
+systemd 서비스 목록. `systemctl`이 없으면 빈 목록(200)입니다. 각 서비스 객체는 `name`, `description`, `load_state`, `active_state`, `sub_state`, `enabled`와 다음 필드를 가집니다.
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `protection` | object | 이 호스트에서 `stop`/`restart`/`disable` 각각을 어떻게 다루는지: `"refuse"`(패널에서 하지 않음) 또는 `"confirm"`(유닛 이름을 입력해야 함). 평범한 유닛은 필드 자체가 없습니다 |
+
+### POST /api/v1/system/services/:name/{start,stop,restart,enable,disable}
+`stop`/`restart`/`disable`은 플랫폼별 정책(`internal/common/sysguard/hostunits.go`)을 거칩니다.
+
+| 대상 | refuse (403 `SERVICE_PROTECTED`) | confirm (409 `SERVICE_CONFIRM_REQUIRED`) |
+|------|------|------|
+| sfpanel / dbus / systemd-journald | stop, restart, disable (403 `PERMISSION_DENIED`) | — |
+| `networking.service` (ifupdown/ifupdown2 호스트) | stop, restart, disable (`details.hint` = `ifreload -a`) | — |
+| ssh / sshd (모든 호스트) | — | stop, disable |
+| Proxmox VE: pve-cluster, corosync | stop, disable | restart |
+| Proxmox VE: watchdog-mux | stop, restart, disable | — |
+| Proxmox VE: pve-firewall, proxmox-firewall | stop, disable | — |
+| Proxmox VE: pve-guests | disable | — |
+| Proxmox VE: pveproxy, pvedaemon, pvestatd, pvescheduler, pve-ha-lrm, pve-ha-crm, spiceproxy, qmeventd, lxcfs, lxc | — | stop, restart, disable |
+
+- confirm 단계는 요청에 `?confirm=<유닛 이름>`(예: `?confirm=pveproxy.service`)이 정확히 붙어 있어야 실행됩니다. 없거나 다르면 409와 `details.unit`.
+- refuse 응답의 `details`: `unit`, `hint`(안전한 대안 명령, 없으면 빈 문자열).
 
 ---
 

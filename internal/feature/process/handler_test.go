@@ -1,10 +1,12 @@
 package process
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -13,6 +15,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/svrforum/SFPanel/internal/api/response"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 )
 
 func TestKillProcess_PIDValidation(t *testing.T) {
@@ -230,5 +234,126 @@ func TestSnapshotIsStaleAfterTheMaximumWindow(t *testing.T) {
 	}
 	if (cpuSnapshot{}).usable(time.Unix(1, 0)) {
 		t.Error("an empty baseline is never usable")
+	}
+}
+
+// startOwnGroupSleep starts a sleep outside the test's process group, so the
+// panel-child guard does not catch it first and a signal would really land.
+func startOwnGroupSleep(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("sleep", "30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Skipf("could not spawn sleep: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	})
+	time.Sleep(20 * time.Millisecond)
+	return cmd.Process.Pid
+}
+
+// fakeCgroup makes the guard read path for pid, and pid only.
+func fakeCgroup(t *testing.T, pid int, path string) {
+	t.Helper()
+	prev := processCgroup
+	processCgroup = func(p int) (string, error) {
+		if p == pid {
+			return path, nil
+		}
+		return prev(p)
+	}
+	t.Cleanup(func() { processCgroup = prev })
+}
+
+type killResult struct {
+	status  int
+	code    string
+	details map[string]string
+	body    string
+}
+
+func kill(t *testing.T, pid int, signal string) killResult {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/system/processes/%d/kill", pid), strings.NewReader(`{"signal":"`+signal+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+	c.SetParamNames("pid")
+	c.SetParamValues(strconv.Itoa(pid))
+	if err := (&Handler{}).KillProcess(c); err != nil {
+		t.Fatalf("KillProcess: %v", err)
+	}
+	var got struct {
+		Error *struct {
+			Code    string            `json:"code"`
+			Details map[string]string `json:"details"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	r := killResult{status: rec.Code, body: rec.Body.String()}
+	if got.Error != nil {
+		r.code, r.details = got.Error.Code, got.Error.Details
+	}
+	return r
+}
+
+func alive(pid int) bool {
+	// A refused signal leaves the child running and not stopped.
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(string(data))
+	return len(fields) > 2 && fields[2] != "Z" && fields[2] != "T"
+}
+
+// TERM to a VM's QEMU process is a power cut for the guest; STOP freezes it.
+// Only CONT may be sent, and the refusal names the VM.
+func TestKillRefusesAVirtualMachine(t *testing.T) {
+	platform.SetForTest(t, platform.Info{PVE: true, NetworkStack: platform.StackIfupdown2})
+	pid := startOwnGroupSleep(t)
+	fakeCgroup(t, pid, "/qemu.slice/100.scope")
+
+	for _, sig := range []string{"TERM", "KILL", "STOP", "INT", "HUP"} {
+		r := kill(t, pid, sig)
+		if r.status != http.StatusConflict || r.code != response.ErrProcessIsGuest || r.details["vmid"] != "100" {
+			t.Errorf("%s to VM 100: status=%d code=%q details=%v, want 409 %s vmid=100 — body=%s", sig, r.status, r.code, r.details, response.ErrProcessIsGuest, r.body)
+		}
+		if !alive(pid) {
+			t.Fatalf("%s reached the VM's process", sig)
+		}
+	}
+	if r := kill(t, pid, "CONT"); r.status != http.StatusOK {
+		t.Errorf("CONT to VM 100: status=%d, want 200 — body=%s", r.status, r.body)
+	}
+}
+
+// watchdog-mux, corosync, pmxcfs and the HA managers: killing or stopping
+// one resets the node or takes it out of its cluster.
+func TestKillRefusesANodeCriticalProcess(t *testing.T) {
+	platform.SetForTest(t, platform.Info{PVE: true, NetworkStack: platform.StackIfupdown2})
+	pid := startOwnGroupSleep(t)
+	fakeCgroup(t, pid, "/system.slice/watchdog-mux.service")
+
+	for _, sig := range []string{"KILL", "STOP", "TERM"} {
+		r := kill(t, pid, sig)
+		if r.status != http.StatusForbidden || r.code != response.ErrProcessProtected || r.details["name"] != "sleep" {
+			t.Errorf("%s to watchdog-mux's process: status=%d code=%q details=%v, want 403 %s name=sleep — body=%s", sig, r.status, r.code, r.details, response.ErrProcessProtected, r.body)
+		}
+		if !alive(pid) {
+			t.Fatalf("%s reached the protected process", sig)
+		}
+	}
+}
+
+// The unit list is Proxmox's: off Proxmox, the same cgroup is no reason.
+func TestKillAllowsTheSameUnitOffProxmox(t *testing.T) {
+	platform.SetForTest(t, platform.Info{NetworkStack: platform.StackNetplan})
+	pid := startOwnGroupSleep(t)
+	fakeCgroup(t, pid, "/system.slice/watchdog-mux.service")
+	if r := kill(t, pid, "TERM"); r.status != http.StatusOK {
+		t.Errorf("TERM off Proxmox: status=%d, want 200 — body=%s", r.status, r.body)
 	}
 }

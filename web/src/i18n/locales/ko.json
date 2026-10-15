@@ -308,7 +308,9 @@
     "viewList": "목록",
     "viewTree": "트리",
     "protected": "{{name}} 프로세스는 종료할 수 없습니다. Proxmox 노드가 재부팅되거나 클러스터에서 빠질 수 있습니다.",
-    "isGuest": "이 프로세스는 VM {{vmid}}입니다. 종료하면 전원을 뽑는 것과 같습니다. Proxmox에서 'qm shutdown {{vmid}}'로 끄세요."
+    "isGuest": "이 프로세스는 VM {{vmid}}입니다. 종료하면 전원을 뽑는 것과 같습니다. Proxmox에서 'qm shutdown {{vmid}}'로 끄세요.",
+    "vm": "VM {{vmid}}",
+    "protectedLabel": "보호됨"
   },
   "services": {
     "title": "서비스",
@@ -348,8 +350,18 @@
     "requires": "필요한 서비스",
     "wantedBy": "이 서비스를 원하는 유닛",
     "logsLoadFailed": "로그를 불러오지 못했습니다",
-    "protected": "{{unit}}은(는) 여기서 멈추거나 끌 수 없습니다. 호스트가 네트워크에서 빠지거나 재부팅될 수 있습니다. {{hint}}",
-    "confirmRequired": "{{unit}}을(를) 멈추면 이 호스트의 관리 기능이 끊깁니다. 서비스 이름을 입력해 확인하세요."
+    "protected": "{{unit}}에는 이 작업을 할 수 없습니다. 호스트나 클러스터, 게스트가 이 서비스에 의존합니다.",
+    "confirmRequired": "{{unit}}은(는) 이 호스트를 관리하거나 게스트를 실행하는 데 필요합니다. 확인하려면 서비스 이름을 입력하세요.",
+    "protectedHint": "네트워크 변경을 적용하려면 대신 터미널에서 '{{command}}'을(를) 실행하세요.",
+    "stopTitle": "{{unit}}을(를) 중지할까요?",
+    "stopDesc": "{{unit}}이(가) 지금 멈추고, 다시 시작할 때까지 멈춘 상태로 있습니다.",
+    "restartTitle": "{{unit}}을(를) 재시작할까요?",
+    "restartDesc": "{{unit}}이(가) 멈췄다가 다시 시작됩니다. 그동안 제공하던 기능이 잠시 끊깁니다.",
+    "disableTitle": "{{unit}}을(를) 비활성화할까요?",
+    "disableDesc": "{{unit}}은(는) 이제 부팅할 때 시작되지 않습니다. 중지하기 전까지는 계속 실행됩니다.",
+    "criticalDesc": "{{unit}}은(는) 이 호스트를 관리하거나 게스트를 실행하는 데 필요합니다. 호스트에 접속할 수 없게 되거나 게스트가 중단될 수 있습니다.",
+    "protectedLabel": "보호됨: 패널에서 할 수 없는 작업",
+    "criticalLabel": "서비스 이름을 입력해야 함"
   },
   "docker": {
     "migrate": {

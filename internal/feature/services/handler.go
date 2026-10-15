@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 	"github.com/svrforum/SFPanel/internal/common/sysguard"
 )
 
@@ -26,14 +27,36 @@ func isProtectedServiceUnit(name string) bool {
 	return sysguard.IsProtectedSystemdUnit(name)
 }
 
-// refuseProtectedUnit returns a 403 response if the given unit is protected
-// from the given operation. Returns nil if the operation may proceed.
-func refuseProtectedUnit(c echo.Context, name, op string) error {
+// guardUnitAction answers the request itself, and reports true, when op on
+// the unit must not run: the panel's own units are refused outright, and the
+// host-critical ones by the platform's policy (sysguard.UnitPolicy) — either
+// refused, or held until the operator has typed the unit's name, which the
+// page sends back as ?confirm=<unit>.
+//
+// It reports refusal with a bool, not through the error: response.Fail
+// returns nil once the 403 is written, and the "if err != nil" this replaced
+// therefore never fired — the refusal went out and the unit was stopped anyway.
+func guardUnitAction(c echo.Context, name, op string) (bool, error) {
 	if isProtectedServiceUnit(name) {
-		return response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied,
+		return true, response.Fail(c, http.StatusForbidden, response.ErrPermissionDenied,
 			fmt.Sprintf("Refusing to %s protected unit %q via the panel API", op, name))
 	}
-	return nil
+	switch tier, hint := sysguard.UnitPolicy(platform.Get(), name, op); tier {
+	case sysguard.TierRefuse:
+		msg := fmt.Sprintf("Refusing to %s %s: the host, its cluster or its guests depend on it", op, name)
+		if hint != "" {
+			msg += fmt.Sprintf(". To apply network changes, run '%s' instead", hint)
+		}
+		return true, response.FailWith(c, http.StatusForbidden, response.ErrServiceProtected, msg,
+			map[string]string{"unit": name, "hint": hint})
+	case sysguard.TierConfirm:
+		if c.QueryParam("confirm") != name {
+			return true, response.FailWith(c, http.StatusConflict, response.ErrServiceConfirmRequired,
+				fmt.Sprintf("Type %s to confirm: it is needed to manage this host or run its guests", name),
+				map[string]string{"unit": name})
+		}
+	}
+	return false, nil
 }
 
 type Handler struct {
@@ -51,6 +74,10 @@ type ServiceInfo struct {
 	ActiveState string `json:"active_state"`
 	SubState    string `json:"sub_state"`
 	Enabled     string `json:"enabled"`
+	// Protection is how the panel treats stop, restart and disable of this
+	// unit on this host, so the page can ask for the typed name up front:
+	// "refuse" or "confirm" per action, absent for an ordinary unit.
+	Protection map[string]string `json:"protection,omitempty"`
 }
 
 type ServiceDeps struct {
@@ -130,7 +157,7 @@ func (h *Handler) StopService(c echo.Context) error {
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
-	if err := refuseProtectedUnit(c, name, "stop"); err != nil {
+	if refused, err := guardUnitAction(c, name, sysguard.ActionStop); refused {
 		return err
 	}
 
@@ -150,7 +177,7 @@ func (h *Handler) RestartService(c echo.Context) error {
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
-	if err := refuseProtectedUnit(c, name, "restart"); err != nil {
+	if refused, err := guardUnitAction(c, name, sysguard.ActionRestart); refused {
 		return err
 	}
 
@@ -188,7 +215,7 @@ func (h *Handler) DisableService(c echo.Context) error {
 	if !validServiceName.MatchString(name) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidName, "Invalid service name")
 	}
-	if err := refuseProtectedUnit(c, name, "disable"); err != nil {
+	if refused, err := guardUnitAction(c, name, sysguard.ActionDisable); refused {
 		return err
 	}
 
@@ -372,6 +399,7 @@ func fetchAllServices(cmd exec.Commander, enabledMap map[string]string) ([]Servi
 		return nil, err
 	}
 
+	info := platform.Get()
 	svcs := make([]ServiceInfo, 0)
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if line == "" {
@@ -404,6 +432,7 @@ func fetchAllServices(cmd exec.Commander, enabledMap map[string]string) ([]Servi
 			ActiveState: activeState,
 			SubState:    subState,
 			Enabled:     enabled,
+			Protection:  sysguard.UnitProtection(info, name),
 		})
 	}
 
