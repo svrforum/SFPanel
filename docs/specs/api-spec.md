@@ -448,16 +448,17 @@ AuditMiddleware는 **비-GET/HEAD/OPTIONS** 요청만 기록합니다. `/api/v1/
 |------|------|------|
 | `cpu` | number | CPU 사용률 (%) |
 | `mem_total` | number | 전체 메모리 (bytes) |
-| `mem_used` | number | 사용 중인 메모리 (bytes) |
-| `mem_percent` | number | 메모리 사용률 (%) |
+| `mem_used` | number | 사용 중인 메모리 (bytes). ZFS 호스트에서는 ARC 중 줄어들 수 있는 부분(`size - c_min`, `/proc/spl/kstat/zfs/arcstats`)을 뺀 값 — 대시보드·히스토리·메모리 알림 규칙·클러스터 하트비트가 모두 이 값을 씁니다 |
+| `mem_percent` | number | 메모리 사용률 (%), `mem_used` 기준 |
+| `mem_arc` | number | 사용량에서 빼고 캐시로 친 ZFS ARC (bytes). ZFS가 없으면 생략 |
 | `swap_total` | number | 전체 스왑 (bytes) |
 | `swap_used` | number | 사용 중인 스왑 (bytes) |
 | `swap_percent` | number | 스왑 사용률 (%) |
 | `disk_total` | number | 전체 디스크 (bytes, 루트 파티션) |
 | `disk_used` | number | 사용 중인 디스크 (bytes) |
 | `disk_percent` | number | 디스크 사용률 (%) |
-| `net_bytes_sent` | number | 누적 네트워크 송신 (bytes) |
-| `net_bytes_recv` | number | 누적 네트워크 수신 (bytes) |
+| `net_bytes_sent` | number | 누적 네트워크 송신 (bytes) — 장치가 있는 물리 인터페이스(`/sys/class/net/<if>/device`)만 합산. 브리지·tap·veth·본드 마스터는 빼고 본드 슬레이브는 셈. 물리 인터페이스가 없는 호스트(컨테이너)는 `lo` 외 전부 |
+| `net_bytes_recv` | number | 누적 네트워크 수신 (bytes), 위와 같은 기준 |
 | `timestamp` | number | 수집 시각 (Unix ms) |
 
 ---
@@ -1383,16 +1384,18 @@ cron 작업 삭제 (crontab에서 해당 줄 제거).
 ```
 
 **지원하는 로그 소스:**
-| ID | 이름 | 경로 |
-|----|------|------|
-| `syslog` | System Log | `/var/log/syslog` |
-| `auth` | Auth Log | `/var/log/auth.log` |
-| `kern` | Kernel Log | `/var/log/kern.log` |
-| `nginx-access` | Nginx Access | `/var/log/nginx/access.log` |
-| `nginx-error` | Nginx Error | `/var/log/nginx/error.log` |
-| `sfpanel` | SFPanel | `/var/log/sfpanel.log` |
-| `dpkg` | Package Manager | `/var/log/dpkg.log` |
-| `ufw` | Firewall (UFW) | `/var/log/ufw.log` |
+| ID | 이름 | 경로 | 파일이 없을 때 (저널) |
+|----|------|------|------|
+| `syslog` | System Log | `/var/log/syslog` | `journalctl` (전체) |
+| `auth` | Auth Log | `/var/log/auth.log` | `journalctl SYSLOG_FACILITY=4 SYSLOG_FACILITY=10` |
+| `kern` | Kernel Log | `/var/log/kern.log` | `journalctl _TRANSPORT=kernel` |
+| `firewall` | Firewall | `/var/log/kern.log` (`UFW\|DOCKER-USER` 필터) | `journalctl _TRANSPORT=kernel --grep 'UFW\|DOCKER-USER'` |
+| `sfpanel` | SFPanel | `/var/log/sfpanel/sfpanel.log` (설정의 로그 경로) | — |
+| `dpkg` | Package Manager | `/var/log/dpkg.log` | — |
+| `fail2ban` | Fail2ban | `/var/log/fail2ban.log` | — |
+| `pve-firewall` | Proxmox Firewall | `/var/log/pve-firewall.log` (Proxmox VE 호스트에만) | — |
+
+Debian 12 이후(그리고 Proxmox VE)는 rsyslog를 설치하지 않아 syslog/auth.log/kern.log가 없습니다. 이 네 소스는 파일이 없고 `journalctl`이 있으면 저널에서 읽습니다: 목록에 `exists: true`, `journal: true`, `path`는 위 저널 선택식, `size`는 0. 읽기는 `journalctl --no-pager -q -o short-iso-precise -n <lines> …`(Commander), 실시간(`/ws/logs`)은 `journalctl -f …`(요청 컨텍스트에 묶인 os/exec 스트림)입니다. 저널에서 읽을 때 `total_lines`는 돌려준 줄 수입니다.
 
 ---
 
@@ -3441,11 +3444,14 @@ data: {"step":"complete","message":"Updated to v0.5.6. Restarting..."}
 
 - **인증 필요**: 예
 
+Proxmox VE 호스트에서는 `net.ipv4.ip_forward`, `net.bridge.bridge-nf-call-*`, conntrack 카테고리를 추천하지 않고(따라서 apply로 쓰지 않고, 패널 설정 파일에 남아 있던 값도 다음 apply 때 뺍니다) `managed` 배열로 현재 값만 보여 줍니다. Proxmox는 `/usr/lib/sysctl.d/10-pve.conf`로 bridge-nf-call-*를 끄고, 필요하면 Proxmox 방화벽이 직접 켭니다. 다른 호스트에서 `managed`는 빈 배열입니다.
+
 **Response (200):**
 ```json
 {
   "success": true,
   "data": {
+    "managed": [],
     "categories": [
       {
         "name": "network",

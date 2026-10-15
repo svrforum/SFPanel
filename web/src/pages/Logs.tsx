@@ -24,6 +24,9 @@ interface LogSource {
   exists: boolean
   custom: boolean
   custom_id?: number
+  // Read from the journal: the file is absent (no rsyslog) and path is the
+  // journalctl selection.
+  journal?: boolean
 }
 
 interface LogResponse {
@@ -301,7 +304,11 @@ export default function Logs() {
                         {source.path}
                       </p>
                       <div className="flex items-center gap-2 mt-1.5">
-                        {source.exists ? (
+                        {source.journal ? (
+                          <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-secondary text-muted-foreground">
+                            {t('logs.journal')}
+                          </span>
+                        ) : source.exists ? (
                           <span className="inline-flex items-center px-1.5 py-0 rounded-full text-[10px] font-medium bg-secondary text-muted-foreground">
                             {formatBytes(source.size)}
                           </span>

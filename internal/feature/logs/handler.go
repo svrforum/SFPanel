@@ -22,6 +22,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	"github.com/svrforum/SFPanel/internal/auth"
+	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 	"github.com/svrforum/SFPanel/internal/common/wsorigin"
 )
 
@@ -30,6 +32,12 @@ type logSourceInfo struct {
 	Name   string
 	Path   string
 	Filter string // optional grep filter pattern applied when reading
+	// FromJournal marks a source the journal also holds, read from there
+	// when Path does not exist: Debian 12 and later — Proxmox VE with them —
+	// install no rsyslog, so syslog, auth.log and kern.log are never written.
+	// Journal is the journalctl match for its messages; empty is everything.
+	FromJournal bool
+	Journal     []string
 }
 
 // validateCustomSourcePath enforces the absolute-path + traversal-free +
@@ -90,13 +98,45 @@ func hasAllowedPrefix(p string, prefixes []string) bool {
 // there is no package-level mutable state for tests or parallel Handlers
 // to trip over (R0 S-03 cleanup).
 var builtinLogSources = map[string]logSourceInfo{
-	"syslog":   {Name: "System Log", Path: "/var/log/syslog"},
-	"auth":     {Name: "Auth Log", Path: "/var/log/auth.log"},
-	"kern":     {Name: "Kernel Log", Path: "/var/log/kern.log"},
+	"syslog": {Name: "System Log", Path: "/var/log/syslog", FromJournal: true},
+	// auth and authpriv, the two facilities rsyslog writes to auth.log.
+	"auth": {Name: "Auth Log", Path: "/var/log/auth.log", FromJournal: true, Journal: []string{"SYSLOG_FACILITY=4", "SYSLOG_FACILITY=10"}},
+	// _TRANSPORT=kernel rather than -k, which also means "this boot only".
+	"kern":     {Name: "Kernel Log", Path: "/var/log/kern.log", FromJournal: true, Journal: []string{"_TRANSPORT=kernel"}},
 	"sfpanel":  {Name: "SFPanel", Path: "/var/log/sfpanel/sfpanel.log"},
 	"dpkg":     {Name: "Package Manager", Path: "/var/log/dpkg.log"},
-	"firewall": {Name: "Firewall", Path: "/var/log/kern.log", Filter: "UFW|DOCKER-USER"},
+	"firewall": {Name: "Firewall", Path: "/var/log/kern.log", Filter: "UFW|DOCKER-USER", FromJournal: true, Journal: []string{"_TRANSPORT=kernel"}},
 	"fail2ban": {Name: "Fail2ban", Path: "/var/log/fail2ban.log"},
+}
+
+// pveFirewallSource is the guests' firewall log pvefw-logger writes on a
+// Proxmox VE host, a built-in source there and nowhere else.
+var pveFirewallSource = logSourceInfo{Name: "Proxmox Firewall", Path: "/var/log/pve-firewall.log"}
+
+// journalArgs is the journalctl command line for a journal-backed source:
+// its last n entries, or with follow, the stream from the last few on. The
+// output format is the one rsyslog writes on Debian, which the page parses.
+func journalArgs(info logSourceInfo, n int, follow bool) []string {
+	args := []string{"--no-pager", "-q", "-o", "short-iso-precise"}
+	if follow {
+		args = append(args, "-f")
+	} else {
+		args = append(args, "-n", strconv.Itoa(n))
+	}
+	args = append(args, info.Journal...)
+	if info.Filter != "" {
+		args = append(args, "--grep", info.Filter)
+	}
+	return args
+}
+
+// journalLabel is what the page shows where a file source shows its path.
+func journalLabel(info logSourceInfo) string {
+	label := strings.Join(append([]string{"journalctl"}, info.Journal...), " ")
+	if info.Filter != "" {
+		label += " --grep '" + info.Filter + "'"
+	}
+	return label
 }
 
 // cloneBuiltinSources returns a fresh copy of the built-in source map so
@@ -118,6 +158,9 @@ type LogSource struct {
 	Exists   bool   `json:"exists"`
 	Custom   bool   `json:"custom"`
 	CustomID int64  `json:"custom_id,omitempty"`
+	// Journal is set when the source is read from the journal because its
+	// file is absent; Path is then the journalctl selection.
+	Journal bool `json:"journal,omitempty"`
 }
 
 // LogOutput represents the response payload from ReadLog.
@@ -130,6 +173,8 @@ type LogOutput struct {
 // Handler exposes REST handlers for viewing system and application logs.
 type Handler struct {
 	DB *sql.DB
+	// Cmd reads the journal for a source whose file is absent.
+	Cmd commonExec.Commander
 	// sources is the per-Handler view of built-in log sources. The
 	// "sfpanel" entry is overridden via SetSFPanelLogPath at startup
 	// (from cfg.Log.File). Initialized lazily in builtinSources().
@@ -141,8 +186,23 @@ type Handler struct {
 func (h *Handler) builtinSources() map[string]logSourceInfo {
 	if h.sources == nil {
 		h.sources = cloneBuiltinSources()
+		if platform.Get().PVE {
+			h.sources["pve-firewall"] = pveFirewallSource
+		}
 	}
 	return h.sources
+}
+
+// useJournal reports whether info is read from the journal: its file is
+// absent and journalctl is there to read.
+func (h *Handler) useJournal(info logSourceInfo) bool {
+	if !info.FromJournal || h.Cmd == nil {
+		return false
+	}
+	if _, err := os.Stat(info.Path); !os.IsNotExist(err) {
+		return false
+	}
+	return h.Cmd.Exists("journalctl")
 }
 
 // SetSFPanelLogPath overrides the "sfpanel" built-in source's path for this
@@ -216,6 +276,10 @@ func (h *Handler) ListSources(c echo.Context) error {
 		if err == nil {
 			src.Exists = true
 			src.Size = fi.Size()
+		} else if h.useJournal(info) {
+			src.Exists = true
+			src.Journal = true
+			src.Path = journalLabel(info)
 		}
 
 		sources = append(sources, src)
@@ -350,6 +414,10 @@ func (h *Handler) ReadLog(c echo.Context) error {
 		lines = n
 	}
 
+	if h.useJournal(info) {
+		return h.readJournal(c, sourceKey, info, lines)
+	}
+
 	// If log file does not exist, return empty result instead of 404
 	if _, err := os.Stat(info.Path); os.IsNotExist(err) {
 		return response.OK(c, map[string]interface{}{
@@ -409,6 +477,31 @@ func (h *Handler) ReadLog(c echo.Context) error {
 	})
 }
 
+// readJournal answers ReadLog from the journal. There is no cheap total to
+// report — counting means reading every entry — so the total is what came
+// back.
+func (h *Handler) readJournal(c echo.Context, sourceKey string, info logSourceInfo, lines int) error {
+	out, err := h.Cmd.RunCtx(c.Request().Context(), "journalctl", journalArgs(info, lines, false)...)
+	out = strings.TrimRight(out, "\n")
+	if err != nil {
+		// --grep exits 1 when nothing matches, saying nothing.
+		if info.Filter != "" && strings.TrimSpace(out) == "" {
+			out = ""
+		} else {
+			return response.Fail(c, http.StatusInternalServerError, response.ErrReadError, "Failed to read the journal: "+response.SanitizeOutput(strings.TrimSpace(out)))
+		}
+	}
+	logLines := []string{}
+	if out != "" {
+		logLines = strings.Split(out, "\n")
+	}
+	return response.OK(c, LogOutput{
+		Source:     sourceKey,
+		Lines:      logLines,
+		TotalLines: len(logLines),
+	})
+}
+
 // LogStreamWS returns an echo.HandlerFunc that upgrades the connection to a
 // WebSocket and streams new log lines in real-time using tail -F.
 // Authentication is performed via a "token" query parameter containing a JWT.
@@ -417,7 +510,7 @@ func (h *Handler) ReadLog(c echo.Context) error {
 //   - source (required): one of the keys in logSources or a custom source
 //   - token  (required): valid JWT
 func LogStreamWS(jwtSecret func() string, database *sql.DB) echo.HandlerFunc {
-	helper := &Handler{DB: database}
+	helper := &Handler{DB: database, Cmd: commonExec.NewCommander()}
 	return func(c echo.Context) error {
 		if err := authenticateWS(c, jwtSecret()); err != nil {
 			return err
@@ -433,7 +526,8 @@ func LogStreamWS(jwtSecret func() string, database *sql.DB) echo.HandlerFunc {
 		if !ok {
 			return c.String(http.StatusBadRequest, fmt.Sprintf("unknown log source: %s", sourceKey))
 		}
-		if _, err := os.Stat(info.Path); os.IsNotExist(err) {
+		fromJournal := helper.useJournal(info)
+		if _, err := os.Stat(info.Path); os.IsNotExist(err) && !fromJournal {
 			// This is a WebSocket endpoint: a 200 here is read by the browser as
 			// a failed handshake (it expected 101) with no usable payload. Return
 			// a real error status — consistent with the 400s above — so the client
@@ -457,13 +551,23 @@ func LogStreamWS(jwtSecret func() string, database *sql.DB) echo.HandlerFunc {
 		// #nosec G204 — info.Path and info.Filter are from the hardcoded allowlist.
 		// Streaming command — cannot use Commander (needs live stdout pipe)
 		tailCmd := exec.Command("tail", "-F", info.Path)
+		filter := info.Filter
+		if fromJournal {
+			// The journal's tail -F, and for the same reason not the
+			// Commander: a stream to the client. It is tied to the request so
+			// it ends with the handler, and --grep filters inside it, so there
+			// is no grep stage.
+			// #nosec G204 — the arguments come from the built-in source table.
+			tailCmd = exec.CommandContext(c.Request().Context(), "journalctl", journalArgs(info, 0, true)...)
+			filter = ""
+		}
 
 		var cmd *exec.Cmd
 		var stdout *bufio.Reader
 
-		if info.Filter != "" {
+		if filter != "" {
 			// Pipe tail -F through grep --line-buffered for filtered streaming
-			grepCmd := exec.Command("grep", "-E", "--line-buffered", info.Filter)
+			grepCmd := exec.Command("grep", "-E", "--line-buffered", filter)
 			tailOut, err := tailCmd.StdoutPipe()
 			if err != nil {
 				ws.WriteMessage(websocket.TextMessage, []byte("error: "+err.Error()))

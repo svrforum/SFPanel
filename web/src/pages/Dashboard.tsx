@@ -172,7 +172,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <MetricsCard title={t('dashboard.cpuUsage')} value={metrics ? `${metrics.cpu.toFixed(1)}%` : '—'} percent={metrics?.cpu} to="/processes" icon={<Cpu className="size-4" />} description={t('dashboard.openProcesses')} />
           <MetricsCard title={t('dashboard.memory')} value={metrics ? `${metrics.mem_percent.toFixed(1)}%` : '—'} percent={metrics?.mem_percent} to="/processes" icon={<MemoryStick className="size-4" />}
-            description={metrics ? `${formatBytes(metrics.mem_used)} / ${formatBytes(metrics.mem_total)}` : undefined}
+            description={metrics ? `${formatBytes(metrics.mem_used)} / ${formatBytes(metrics.mem_total)}${metrics.mem_arc ? ` · ${t('dashboard.zfsCache', { size: formatBytes(metrics.mem_arc) })}` : ''}` : undefined}
             subLabel={t('dashboard.swap')} subValue={metrics ? metrics.swap_total > 0 ? `${formatBytes(metrics.swap_used)} / ${formatBytes(metrics.swap_total)}` : t('dashboard.swapDisabled') : undefined} />
           <MetricsCard title={t('dashboard.disk')} value={diskPercent != null ? `${diskPercent.toFixed(1)}%` : '—'} percent={diskPercent} to="/disk/filesystems" icon={<HardDrive className="size-4" />} description={diskDescription}
             subLabel={worstFs?.mount_point !== '/' && rootFs ? '/' : undefined} subValue={rootFs ? `${rootFs.use_percent.toFixed(1)}%` : undefined} />

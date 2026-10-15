@@ -18,6 +18,7 @@ import (
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/svrforum/SFPanel/internal/api/response"
 	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 )
 
 const (
@@ -59,6 +60,22 @@ type TuningCategory struct {
 	Params  []TuningParam `json:"params"`
 	Applied int           `json:"applied"`
 	Total   int           `json:"total"`
+}
+
+// pveManagedKeys are left to Proxmox VE on a Proxmox host: shown, never
+// recommended or written. Proxmox ships bridge-nf-call-* off
+// (/usr/lib/sysctl.d/10-pve.conf) so the guests' bridged frames bypass the
+// host's iptables, and its firewall turns them on when it needs them;
+// forwarding and conntrack are its firewall's and its SDN's. The panel
+// recommending bridge-nf-call-iptables=1 put every VM's and container's
+// frames through iptables and conntrack, beside a firewall that was off.
+var pveManagedKeys = []TuningParam{
+	{Key: "net.ipv4.ip_forward", Description: "Routing between the host's networks; Proxmox SDN and routed setups set it"},
+	{Key: "net.bridge.bridge-nf-call-iptables", Description: "Off unless the Proxmox firewall is on, which turns it on itself"},
+	{Key: "net.bridge.bridge-nf-call-ip6tables", Description: "Off unless the Proxmox firewall is on, which turns it on itself"},
+	{Key: "net.bridge.bridge-nf-call-arptables", Description: "Off unless the Proxmox firewall is on, which turns it on itself"},
+	{Key: "net.netfilter.nf_conntrack_max", Description: "Set under Node → Firewall → Options in Proxmox"},
+	{Key: "net.netfilter.nf_conntrack_tcp_timeout_established", Description: "Set under Node → Firewall → Options in Proxmox"},
 }
 
 // TuningSystemInfo contains system specs used for dynamic recommendations.
@@ -168,7 +185,21 @@ func (h *TuningHandler) GetTuningStatus(c echo.Context) error {
 	}
 	rollbackMu.Unlock()
 
+	// On Proxmox VE: what Proxmox keeps for itself, with the values it has.
+	// A key the kernel does not have (br_netfilter or nf_conntrack not
+	// loaded) is left out.
+	managed := []TuningParam{}
+	if platform.Get().PVE {
+		for _, p := range pveManagedKeys {
+			if current := readSysctl(h.Cmd, p.Key); current != "" {
+				p.Current = current
+				managed = append(managed, p)
+			}
+		}
+	}
+
 	return response.OK(c, map[string]interface{}{
+		"managed":            managed,
 		"categories":         categories,
 		"total_params":       totalParams,
 		"applied":            totalApplied,
@@ -269,6 +300,14 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 		}
 		for _, p := range cat.Params {
 			existingParams[p.Key] = p.Recommended
+		}
+	}
+	// A file written by a panel that did not know the host was Proxmox can
+	// still hold these; 99-sfpanel-tuning.conf runs after Proxmox's own
+	// 10-pve.conf at every boot, so leaving them would keep overriding it.
+	if platform.Get().PVE {
+		for _, p := range pveManagedKeys {
+			delete(existingParams, p.Key)
 		}
 	}
 
@@ -688,8 +727,6 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 				{Key: "net.ipv4.tcp_no_metrics_save", Recommended: "1", Description: "Don't cache per-destination TCP metrics (can mis-tune later connections)"},
 				{Key: "net.ipv4.ip_local_port_range", Recommended: "10240 65535", Description: "Expand ephemeral port range for outbound-heavy workloads, staying clear of registered service ports"},
 				{Key: "net.ipv4.tcp_rfc1337", Recommended: "1", Description: "Protect against TIME-WAIT assassination hazards (RFC 1337)"},
-				// --- Docker / bridge networking (required on container hosts) ---
-				{Key: "net.ipv4.ip_forward", Recommended: "1", Description: "Enable IP forwarding (required by Docker; set in sysctl so it survives reboot independently of docker.service ordering)"},
 			},
 		},
 		{
@@ -753,21 +790,28 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 		},
 	}
 
-	// br_netfilter creates these; without it they cannot be read or written and
-	// would sit permanently unapplied.
-	if bridgeNetfilterAvailable() {
-		for i := range cats {
-			if cats[i].Name != "network" {
-				continue
-			}
+	// On Proxmox VE forwarding, bridge filtering and conntrack are left to
+	// Proxmox: see pveManagedKeys.
+	pve := platform.Get().PVE
+	for i := range cats {
+		if pve || cats[i].Name != "network" {
+			continue
+		}
+		// --- Docker / bridge networking (required on container hosts) ---
+		cats[i].Params = append(cats[i].Params,
+			TuningParam{Key: "net.ipv4.ip_forward", Recommended: "1", Description: "Enable IP forwarding (required by Docker; set in sysctl so it survives reboot independently of docker.service ordering)"},
+		)
+		// br_netfilter creates these; without it they cannot be read or written and
+		// would sit permanently unapplied.
+		if bridgeNetfilterAvailable() {
 			cats[i].Params = append(cats[i].Params,
-				TuningParam{Key: "net.bridge.bridge-nf-call-iptables", Recommended: "1", Description: "Bridged traffic traverses iptables (Docker bridge networks depend on this)"},
-				TuningParam{Key: "net.bridge.bridge-nf-call-ip6tables", Recommended: "1", Description: "Bridged IPv6 traffic traverses ip6tables (same rationale as the IPv4 variant)"},
+				TuningParam{Key: "net.bridge.bridge-nf-call-iptables", Recommended: "1", Description: "Bridged IPv4 traffic goes through iptables, so firewall rules also see traffic between containers on one bridge; dockerd turns it on itself where a network needs it (icc=false, or the userland proxy off)"},
+				TuningParam{Key: "net.bridge.bridge-nf-call-ip6tables", Recommended: "1", Description: "The same for bridged IPv6 traffic and ip6tables"},
 			)
 		}
 	}
 
-	if conntrackModuleLoaded() {
+	if !pve && conntrackModuleLoaded() {
 		cats = append(cats, TuningCategory{
 			Name:    "conntrack",
 			Benefit: "benefit_conntrack",

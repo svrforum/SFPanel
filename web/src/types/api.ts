@@ -47,6 +47,8 @@ export interface Metrics {
   net_bytes_sent: number
   net_bytes_recv: number
   timestamp: number
+  // ZFS ARC counted as cache, not in mem_used; absent without ZFS.
+  mem_arc?: number
 }
 
 export interface SystemInfo {
@@ -884,6 +886,8 @@ export interface TuningSystemInfo {
 }
 
 export interface TuningStatus {
+  // On Proxmox VE: keys Proxmox keeps for itself, shown and never tuned.
+  managed?: TuningParam[]
   categories: TuningCategory[]
   total_params: number
   applied: number

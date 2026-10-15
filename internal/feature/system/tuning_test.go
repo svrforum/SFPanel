@@ -1,9 +1,16 @@
 package system
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/labstack/echo/v4"
+	commonExec "github.com/svrforum/SFPanel/internal/common/exec"
+	"github.com/svrforum/SFPanel/internal/common/platform"
 )
 
 // Distributions raise kernel defaults over time. A fixed "recommended" value
@@ -79,5 +86,74 @@ func TestEphemeralPortRangeAvoidsServicePorts(t *testing.T) {
 				t.Errorf("port range %q is inverted", p.Recommended)
 			}
 		}
+	}
+}
+
+// Proxmox VE ships bridge-nf-call-* off so the guests' bridged frames bypass
+// the host's iptables; recommending them on (and ip_forward, and conntrack
+// sizes its firewall owns) fought Proxmox for every VM's traffic. On a
+// Proxmox host those keys are never recommended, so Apply cannot write them.
+func TestProxmoxKeepsForwardingBridgeFilteringAndConntrack(t *testing.T) {
+	platform.SetForTest(t, platform.Info{PVE: true, NetworkStack: platform.StackIfupdown2})
+	for _, cat := range buildRecommendations(8, 64, 64<<30) {
+		if cat.Name == "conntrack" {
+			t.Errorf("conntrack category recommended on Proxmox: %+v", cat.Params)
+		}
+		for _, p := range cat.Params {
+			if p.Key == "net.ipv4.ip_forward" || strings.HasPrefix(p.Key, "net.bridge.") || strings.HasPrefix(p.Key, "net.netfilter.") {
+				t.Errorf("%s recommended on Proxmox", p.Key)
+			}
+		}
+	}
+
+	// Off Proxmox, forwarding stays recommended for Docker.
+	platform.SetForTest(t, platform.Info{NetworkStack: platform.StackNetplan})
+	found := false
+	for _, cat := range buildRecommendations(8, 64, 64<<30) {
+		for _, p := range cat.Params {
+			found = found || p.Key == "net.ipv4.ip_forward"
+		}
+	}
+	if !found {
+		t.Error("net.ipv4.ip_forward no longer recommended off Proxmox")
+	}
+}
+
+func TestTuningStatusShowsWhatProxmoxManages(t *testing.T) {
+	status := func() []TuningParam {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		h := &TuningHandler{Cmd: commonExec.NewMockCommander()}
+		if err := h.GetTuningStatus(echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/system/tuning", nil), rec)); err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			Data struct {
+				Managed []TuningParam `json:"managed"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got.Data.Managed
+	}
+
+	platform.SetForTest(t, platform.Info{PVE: true, NetworkStack: platform.StackIfupdown2})
+	managed := status()
+	// ip_forward exists on every kernel, so it is always listed, with the
+	// value the host has.
+	var forward *TuningParam
+	for i := range managed {
+		if managed[i].Key == "net.ipv4.ip_forward" {
+			forward = &managed[i]
+		}
+	}
+	if forward == nil || (forward.Current != "0" && forward.Current != "1") || forward.Recommended != "" {
+		t.Errorf("managed = %+v, want ip_forward with its current value and no recommendation", managed)
+	}
+
+	platform.SetForTest(t, platform.Info{NetworkStack: platform.StackNetplan})
+	if managed := status(); len(managed) != 0 {
+		t.Errorf("managed off Proxmox = %+v, want none", managed)
 	}
 }

@@ -333,3 +333,17 @@ test.describe('chart touch controls', () => {
     await expect.poll(() => page.locator('main').evaluate((element) => element.scrollTop)).toBeGreaterThan(before)
   })
 })
+
+// On a ZFS host the ARC's shrinkable part is cache, not used memory; the
+// memory card says how much of it the figure leaves out.
+test('the memory card names the ZFS cache it does not count as used', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const { sockets } = await fixture(page)
+  await page.goto('/dashboard')
+  const resources = page.getByRole('region', { name: 'Resources', exact: true })
+  await expect.poll(() => sockets.length).toBeGreaterThan(0)
+  sockets.at(-1)!.send(JSON.stringify({ ...metrics, mem_arc: 4 * 1024 ** 3 }))
+  await expect(resources.getByText('8.0 GB / 16.0 GB · ZFS cache 4.0 GB')).toBeVisible()
+  sockets.at(-1)!.send(JSON.stringify({ ...metrics, timestamp: metrics.timestamp + 2000 }))
+  await expect(resources.getByText('8.0 GB / 16.0 GB', { exact: true })).toBeVisible()
+})

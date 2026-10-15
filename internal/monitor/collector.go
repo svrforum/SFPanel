@@ -1,7 +1,11 @@
 package monitor
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -32,6 +36,9 @@ type Metrics struct {
 	NetBytesSent uint64  `json:"net_bytes_sent"`
 	NetBytesRecv uint64  `json:"net_bytes_recv"`
 	Timestamp    int64   `json:"timestamp"`
+	// MemARC is the part of the ZFS ARC counted as cache rather than used
+	// (see memoryUsed); absent on a host without ZFS.
+	MemARC uint64 `json:"mem_arc,omitempty"`
 }
 
 type HostInfo struct {
@@ -70,27 +77,26 @@ func GetMetrics() (*Metrics, error) {
 		return nil, err
 	}
 
-	netCounters, err := net.IOCounters(false)
+	netCounters, err := net.IOCounters(true)
 	if err != nil {
 		return nil, err
 	}
 
-	var bytesSent, bytesRecv uint64
-	if len(netCounters) > 0 {
-		bytesSent = netCounters[0].BytesSent
-		bytesRecv = netCounters[0].BytesRecv
-	}
+	bytesSent, bytesRecv := wireBytes(netCounters)
 
 	var cpuVal float64
 	if len(cpuPercent) > 0 {
 		cpuVal = cpuPercent[0]
 	}
 
+	memUsed, memPercent, memARC := memoryUsed(vmem)
+
 	return &Metrics{
 		CPU:          cpuVal,
 		MemTotal:     vmem.Total,
-		MemUsed:      vmem.Used,
-		MemPercent:   vmem.UsedPercent,
+		MemUsed:      memUsed,
+		MemPercent:   memPercent,
+		MemARC:       memARC,
 		SwapTotal:    swapStat.Total,
 		SwapUsed:     swapStat.Used,
 		SwapPercent:  swapStat.UsedPercent,
@@ -122,13 +128,100 @@ func GetCoreMetrics() (*Metrics, error) {
 		cpuVal = cpuPercent[0]
 	}
 
+	memUsed, memPercent, memARC := memoryUsed(vmem)
+
 	return &Metrics{
 		CPU:        cpuVal,
 		MemTotal:   vmem.Total,
-		MemUsed:    vmem.Used,
-		MemPercent: vmem.UsedPercent,
+		MemUsed:    memUsed,
+		MemPercent: memPercent,
+		MemARC:     memARC,
 		Timestamp:  time.Now().UnixMilli(),
 	}, nil
+}
+
+// Where the collector reads the ZFS ARC and the network interfaces; tests
+// point them at fixtures.
+var (
+	arcstatsPath = "/proc/spl/kstat/zfs/arcstats"
+	sysClassNet  = "/sys/class/net"
+)
+
+// memoryUsed is used memory as every reader of the metrics sees it — the
+// dashboard, the history chart, the alert rules and the cluster heartbeat
+// all take it from here — with the ZFS ARC's shrinkable part as cache.
+//
+// The ARC is not page cache: the kernel counts it as used and MemAvailable
+// leaves it out, though it hands memory back to anyone who needs it. On a
+// Proxmox VE host with a ZFS pool that showed memory 10-50% fuller than it
+// is, and a memory alert rule fired for good. Only the part above the ARC's
+// floor (c_min) shrinks, so that is what is subtracted, as htop does.
+func memoryUsed(vmem *mem.VirtualMemoryStat) (used uint64, percent float64, arc uint64) {
+	used, percent = vmem.Used, vmem.UsedPercent
+	size, cMin, ok := readARC(arcstatsPath)
+	if !ok || size <= cMin {
+		return used, percent, 0
+	}
+	arc = min(size-cMin, used)
+	used -= arc
+	if vmem.Total > 0 {
+		percent = float64(used) / float64(vmem.Total) * 100
+	}
+	return used, percent, arc
+}
+
+// readARC reads the ARC's size and c_min from arcstats ("name type data"
+// rows); ok is false without ZFS.
+func readARC(path string) (size, cMin uint64, ok bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, 0, false
+	}
+	var haveSize, haveMin bool
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Fields(line)
+		if len(f) != 3 {
+			continue
+		}
+		switch f[0] {
+		case "size":
+			size, err = strconv.ParseUint(f[2], 10, 64)
+			haveSize = err == nil
+		case "c_min":
+			cMin, err = strconv.ParseUint(f[2], 10, 64)
+			haveMin = err == nil
+		}
+	}
+	return size, cMin, haveSize && haveMin
+}
+
+// wireBytes sums the traffic of the physical interfaces. A frame a Proxmox
+// guest sends crosses its tap, the firewall bridge's veth pair, vmbr0 and
+// the NIC, a container's crosses its veth and docker0, a bonded one the bond
+// and its slave — and the all-interface sum counted it at each, several
+// times the real traffic. Only an interface backed by a device
+// (/sys/class/net/<if>/device) counts, which keeps a bond's slaves and drops
+// the bond itself. A host with none, such as a container, counts everything
+// but loopback.
+func wireBytes(counters []net.IOCountersStat) (sent, recv uint64) {
+	var physical bool
+	for _, c := range counters {
+		if _, err := os.Stat(filepath.Join(sysClassNet, c.Name, "device")); err == nil {
+			sent += c.BytesSent
+			recv += c.BytesRecv
+			physical = true
+		}
+	}
+	if physical {
+		return sent, recv
+	}
+	for _, c := range counters {
+		if c.Name != "lo" {
+			sent += c.BytesSent
+			recv += c.BytesRecv
+		}
+	}
+	return sent, recv
 }
 
 // GetDiskPercent returns only the root disk usage percentage.

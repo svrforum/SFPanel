@@ -543,6 +543,8 @@ func TerminalWS(jwtSecret func() string, auditWriter *sfdb.AsyncWriter, localNod
 				sess.writeToReader(ws, history)
 			}
 		} else {
+			// Before the lock: it runs locale -a.
+			lang := sessionLocale()
 			// Check session limit before creating a new one
 			sessionsMu.Lock()
 			if len(sessions) >= maxTerminalSessions {
@@ -571,8 +573,7 @@ func TerminalWS(jwtSecret func() string, auditWriter *sfdb.AsyncWriter, localNod
 			// would otherwise see an empty value.
 			env := append(os.Environ(),
 				"TERM=xterm-256color",
-				"LANG=ko_KR.UTF-8",
-				"LC_ALL=ko_KR.UTF-8",
+				"LANG="+lang,
 				"HOME="+home,
 				"SHELL="+shell,
 			)

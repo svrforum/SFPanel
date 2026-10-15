@@ -411,7 +411,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	cron.GET("/logs", cronHandler.GetLogs)
 
 	// Log viewer routes
-	logsHandler := &featureLogs.Handler{DB: database}
+	logsHandler := &featureLogs.Handler{DB: database, Cmd: cmd}
 	logsHandler.SetSFPanelLogPath(cfg.Log.File)
 	logs := authorized.Group("/logs")
 	logs.GET("/sources", logsHandler.ListSources)

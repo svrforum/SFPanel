@@ -1515,7 +1515,7 @@ class ApiClient {
 
   // Logs
   getLogSources() {
-    return this.request<Array<{ id: string; name: string; path: string; size: number; exists: boolean; custom: boolean; custom_id?: number }>>('/logs/sources')
+    return this.request<Array<{ id: string; name: string; path: string; size: number; exists: boolean; custom: boolean; custom_id?: number; journal?: boolean }>>('/logs/sources')
   }
 
   readLog(source: string, lines: number = 100) {

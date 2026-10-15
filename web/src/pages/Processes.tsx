@@ -409,7 +409,7 @@ export default function Processes() {
               value: `${sysMetrics.mem_percent.toFixed(1)}%`,
               percent: Math.min(100, sysMetrics.mem_percent),
               barColor: sysMetrics.mem_percent > 80 ? 'var(--destructive)' : sysMetrics.mem_percent > 50 ? 'var(--warning)' : 'var(--success)',
-              sub: `${formatBytes(sysMetrics.mem_used)} / ${formatBytes(sysMetrics.mem_total)}`,
+              sub: `${formatBytes(sysMetrics.mem_used)} / ${formatBytes(sysMetrics.mem_total)}${sysMetrics.mem_arc ? ` · ${t('dashboard.zfsCache', { size: formatBytes(sysMetrics.mem_arc) })}` : ''}`,
             },
             {
               key: 'swap',

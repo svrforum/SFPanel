@@ -259,7 +259,8 @@
     "dismiss": "Dismiss",
     "historyPeak": "Range peak · CPU {{cpu}}% / memory {{memory}}%",
     "attentionContainers_one": "{{count}} container needs attention",
-    "attentionContainers_other": "{{count}} containers need attention"
+    "attentionContainers_other": "{{count}} containers need attention",
+    "zfsCache": "ZFS cache {{size}}"
   },
   "processes": {
     "title": "Process Manager",
@@ -1264,7 +1265,7 @@
         "conntrack": "Netfilter conntrack table size + TCP state timeouts (Docker-hosted workloads)"
       },
       "benefit_network": "Benefits: BBR improves throughput 10-40%, larger TCP buffers speed up bulk transfers, Fast Open cuts connection latency, tcp_slow_start_after_idle + tcp_notsent_lowat reduce buffer bloat for long-lived WS/SSE/HTTP/2 connections. Docker bridge settings keep container networking stable across reboots.",
-      "caution_network": "Caution: BBR requires kernel 4.9+ (Ubuntu 24.04 supported). tcp_tw_reuse may rarely cause issues behind NAT. bridge-nf-call-* are harmless when bridge module is absent. Verify network services after applying.",
+      "caution_network": "Caution: BBR requires kernel 4.9+ (Ubuntu 24.04 supported). tcp_tw_reuse may rarely cause issues behind NAT. bridge-nf-call-* send every bridged frame, virtual machines' and containers' alike, through the host firewall. Verify network services after applying.",
       "benefit_memory": "Benefits: Lower swappiness reduces disk I/O, optimized dirty ratios prevent I/O bursts, lower cache pressure keeps filesystem cache hot. vm.max_map_count unblocks Elasticsearch/Mongo/Redis containers; kernel.pid_max prevents PID exhaustion on heavy container hosts.",
       "caution_memory": "Caution: Very low swappiness on low-RAM systems (< 4GB) may trigger OOM. Reset to Defaults reverts instantly.",
       "benefit_filesystem": "Benefits: Higher file-max enables massive concurrent connections, more inotify watches prevent IDE/build errors, increased AIO improves DB performance. Symlink/hardlink/FIFO/regular protections close a whole class of TOCTOU attacks in world-writable sticky dirs.",
@@ -1279,7 +1280,9 @@
       "keepChanges": "Keep Changes",
       "confirming": "Confirming...",
       "confirmSuccess": "Changes confirmed and saved permanently",
-      "confirmFailed": "Failed to confirm changes"
+      "confirmFailed": "Failed to confirm changes",
+      "managedTitle": "Managed by Proxmox",
+      "managedDesc": "Proxmox VE sets these for its guests' bridges and its firewall, so the panel leaves them alone. Change them in the Proxmox web UI under Datacenter or Node → Firewall → Options."
     },
     "tabAlerts": "Alerts",
     "alerts": {
@@ -2254,7 +2257,8 @@
     "all": "All",
     "allTime": "All time",
     "lastHours": "{{n}}h",
-    "timestamps": "Timestamps"
+    "timestamps": "Timestamps",
+    "journal": "Journal"
   },
   "packages": {
     "title": "Packages",
