@@ -5384,7 +5384,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
-| GET | `/api/v1/disks/overview` | O | 디스크 목록. 디스크마다 `pttype`(`gpt`/`dos`, 파티션 테이블이 없으면 빈 문자열, v0.78.12+) |
+| GET | `/api/v1/disks/overview` | O | 디스크 목록. 디스크마다 `pttype`(`gpt`/`dos`, 파티션 테이블이 없으면 빈 문자열, v0.78.12+). 파티션마다 `parttype`(GPT 유형 GUID, MBR이면 `0x83` 꼴)·`parttypename`·`uuid`, 부팅 파티션(EFI System·BIOS boot, PVE에서는 `/etc/kernel/proxmox-boot-uuids`의 ESP)이면 `boot: true`. PVE에서 게스트 볼륨인 디스크(zvol·RBD·NBD)는 `owner`(`"VMID 100"`, `"zvol rpool/swap"`) (v0.78.14+) |
 | GET | `/api/v1/disks/iostat` | O | I/O 통계 |
 | POST | `/api/v1/disks/usage` | O | 디스크 사용량 |
 | GET | `/api/v1/disks/smartmontools-status` | O | smartmontools 설치 상태 |
@@ -5392,36 +5392,38 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/disks/:device/smart` | O | SMART 정보 (self-test 로그 포함, v0.27.0+; 진행 중인 self-test `self_test_running`/`self_test_remaining`, v0.78.9+) |
 | POST | `/api/v1/disks/:device/smart/test` | O | SMART self-test 트리거 (`{type:short\|long}`, v0.27.0+). 응답 `minutes` = 예상 소요 분(v0.78.9+); 이미 진행 중이면 409 `SMART_TEST_IN_PROGRESS` |
 | GET | `/api/v1/disks/:device/partitions` | O | 파티션 목록 |
-| POST | `/api/v1/disks/:device/partitions` | O | 파티션 생성. 본문 `{start, end, fs_type, format}`. `fs_type`만으로는 parted가 기록하는 파티션 유형일 뿐이고 파티션은 비어 있다. `format: true`면 새 파티션을 그 파일시스템으로 포맷한다(`swap`은 `mkswap`, v0.78.14+). 포맷 도구가 없으면 디스크를 건드리기 전에 503 `TOOL_NOT_INSTALLED`, 파티션은 만들었지만 포맷하지 못하면 500 `PARTITION_NOT_FORMATTED`. 파티션 테이블이 없는 디스크면 409 `DISK_NO_PARTITION_TABLE` (v0.78.12+) |
-| POST | `/api/v1/disks/:device/partition-table` | O | 빈 디스크에 GPT 파티션 테이블 생성 (v0.78.12+). 이미 파티션 테이블이나 디스크 전체 파일시스템·LVM·RAID·ZFS 서명이 있으면 409 `DISK_NOT_EMPTY`, 사용 중이면 409 `DEVICE_IN_USE`, 디스크가 아니라 파티션이면 400 |
-| DELETE | `/api/v1/disks/:device/partitions/:number` | O | 파티션 삭제. `:number`는 파티션 번호(`nvme0n1p3`이면 `3`). LVM·RAID·ZFS·스왑이 쓰고 있으면 409 `DEVICE_IN_USE` (v0.78.10+) |
+| POST | `/api/v1/disks/:device/partitions` | O | 파티션 생성. 본문 `{start, end, fs_type, format}`. `fs_type`만으로는 parted가 기록하는 파티션 유형일 뿐이고 파티션은 비어 있다. `format: true`면 새 파티션을 그 파일시스템으로 포맷한다(`swap`은 `mkswap`, v0.78.14+). 포맷 도구가 없으면 디스크를 건드리기 전에 503 `TOOL_NOT_INSTALLED`, 파티션은 만들었지만 포맷하지 못하면 500 `PARTITION_NOT_FORMATTED`. 파티션 테이블이 없는 디스크면 409 `DISK_NO_PARTITION_TABLE` (v0.78.12+). 게스트 볼륨인 디스크면 409 `DISK_GUEST_VOLUME` (v0.78.14+) |
+| POST | `/api/v1/disks/:device/partition-table` | O | 빈 디스크에 GPT 파티션 테이블 생성 (v0.78.12+). 이미 파티션 테이블이나 디스크 전체 파일시스템·LVM·RAID·ZFS 서명이 있으면 409 `DISK_NOT_EMPTY`, 사용 중이면 409 `DEVICE_IN_USE`, 디스크가 아니라 파티션이면 400. 게스트 볼륨이면 409 `DISK_GUEST_VOLUME` (v0.78.14+) |
+| DELETE | `/api/v1/disks/:device/partitions/:number` | O | 파티션 삭제. `:number`는 파티션 번호(`nvme0n1p3`이면 `3`). LVM·RAID·ZFS·스왑이 쓰고 있으면 409 `DEVICE_IN_USE` (v0.78.10+). 부팅 파티션이면 409 `DISK_BOOT_PARTITION`, 논리 파티션을 담은 DOS 확장 파티션이면 409 `DEVICE_IN_USE`(details `device`, `logical`), 게스트 볼륨이면 409 `DISK_GUEST_VOLUME` (v0.78.14+) |
+
+게스트 볼륨 가드(v0.78.14+): 장치를 바꾸는 핸들러(포맷·마운트·장치 스왑·파티션 생성/삭제/테이블·PV 생성·RAID 생성/추가·LV 제거/리사이즈)는 먼저 확인한다. PVE에서는 이름으로 — zd\*·rbd\*·nbd\*와 그 파티션, PVE가 게스트 볼륨에 붙이는 이름(`vm-N-disk-M`, `base-N-disk-M`, `vm-N-state-*`, `vm-N-cloudinit`, `snap_*`)의 LV, `/etc/pve/storage.cfg`의 `lvm` VG나 `lvmthin` thin pool에 있는 LV. 모든 호스트에서는 `/proc/*/fd`로 — 장치·그 장치가 속한 디스크·그 위에 쌓인 장치(dm, md)를 연 프로세스가 게스트(QEMU, `/qemu.slice/<vmid>.scope`, LXC)의 것이면 `DISK_GUEST_VOLUME`, 그 밖에 쓰기로 연 프로세스가 있으면 409 `DEVICE_IN_USE`(details `device`, `holder`). `DISK_GUEST_VOLUME`의 details는 `device`, `owner`(`"VMID 100"`, `"VM 100"`, `"CT 105"`, `"storage local-lvm"`), `DISK_BOOT_PARTITION`은 `device`.
 
 ### 파일시스템 (7개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/filesystems` | O | 파일시스템 목록 |
-| POST | `/api/v1/filesystems/format` | O | 파티션 포맷. 마운트·LVM·RAID·ZFS·스왑으로 사용 중이면 409 `DEVICE_IN_USE` (v0.78.10+) |
-| POST | `/api/v1/filesystems/mount` | O | 마운트 |
+| POST | `/api/v1/filesystems/format` | O | 파티션 포맷. 마운트·LVM·RAID·ZFS·스왑으로 사용 중이면 409 `DEVICE_IN_USE` (v0.78.10+). 게스트 볼륨이면 409 `DISK_GUEST_VOLUME`, 부팅 파티션(이 든 디스크)이면 409 `DISK_BOOT_PARTITION` (v0.78.14+) |
+| POST | `/api/v1/filesystems/mount` | O | 마운트. 게스트 볼륨이면 409 `DISK_GUEST_VOLUME` (v0.78.14+) |
 | POST | `/api/v1/filesystems/unmount` | O | 언마운트 |
 | POST | `/api/v1/filesystems/resize` | O | 파일시스템 리사이즈 |
-| GET | `/api/v1/filesystems/expand-check` | O | 파일시스템 확장 가능 여부 |
+| GET | `/api/v1/filesystems/expand-check` | O | 파일시스템 확장 가능 여부. 로컬 파일시스템만 보고(`df -l`), 디스크의 여유 공간은 `growpart --dry-run`이 `CHANGE`라고 할 때만 후보가 된다 (v0.78.14+) |
 | POST | `/api/v1/filesystems/expand` | O | 파일시스템 확장 |
 
 ### LVM (10개)
 
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
-| GET | `/api/v1/lvm/pvs` | O | PV 목록 |
-| GET | `/api/v1/lvm/vgs` | O | VG 목록 |
-| GET | `/api/v1/lvm/lvs` | O | LV 목록 |
-| POST | `/api/v1/lvm/pvs` | O | PV 생성 |
+| GET | `/api/v1/lvm/pvs` | O | PV 목록. `?warnings=1`이면 `{items, warnings}`(`warnings`는 LVM이 보고서 옆에 찍은 경고 줄), 없으면 목록 그대로 (v0.78.14+) |
+| GET | `/api/v1/lvm/vgs` | O | VG 목록. `?warnings=1`은 PV 목록과 같다 (v0.78.14+) |
+| GET | `/api/v1/lvm/lvs` | O | LV 목록. `?warnings=1`은 PV 목록과 같다. LV마다 `metadata_percent`(thin pool의 메타데이터 사용률), PVE에서 게스트·스토리지가 가진 볼륨은 `owner`(`"VMID 100"`, `"storage local-lvm"`) (v0.78.14+) |
+| POST | `/api/v1/lvm/pvs` | O | PV 생성. 게스트 볼륨이면 409 `DISK_GUEST_VOLUME`, 부팅 파티션(이 든 디스크)이면 409 `DISK_BOOT_PARTITION` (v0.78.14+) |
 | POST | `/api/v1/lvm/vgs` | O | VG 생성 |
-| POST | `/api/v1/lvm/lvs` | O | LV 생성 |
+| POST | `/api/v1/lvm/lvs` | O | LV 생성. `%`가 든 크기(`100%FREE`)는 `-l`로 넘긴다 (v0.78.14+) |
 | DELETE | `/api/v1/lvm/pvs/:name` | O | PV 제거 |
 | DELETE | `/api/v1/lvm/vgs/:name` | O | VG 제거 |
-| DELETE | `/api/v1/lvm/lvs/:vg/:name` | O | LV 제거 |
-| POST | `/api/v1/lvm/lvs/resize` | O | LV 리사이즈 |
+| DELETE | `/api/v1/lvm/lvs/:vg/:name` | O | LV 제거. `-f` 없이 비활성화한 뒤 제거한다. 볼륨이 남은 thin pool이면 409 `LV_HAS_DEPENDENTS`(details `lv`), 열려 있으면 409 `DEVICE_IN_USE`, PVE에서 게스트 볼륨이나 스토리지의 VG·thin pool이면 409 `DISK_GUEST_VOLUME`, 없는 LV면 404 `NOT_FOUND` (v0.78.14+) |
+| POST | `/api/v1/lvm/lvs/resize` | O | LV 리사이즈. 본문 `{vg, name, size, shrink}`. `size`는 `20G`·`+5G`·`100%FREE`·`+100%FREE`(`%`는 `-l`). 지금보다 작아지면 `shrink: true` 없이는 409 `LV_SHRINK_CONFIRM_REQUIRED`(details `lv`), 열린 볼륨을 줄이려 하면 409 `DEVICE_IN_USE`, PVE에서 게스트 볼륨이나 스토리지가 가진 볼륨이면 409 `DISK_GUEST_VOLUME`(스토리지의 thin pool 자체는 늘릴 수 있다) (v0.78.14+) |
 
 ### RAID (6개)
 
@@ -5429,9 +5431,9 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 |--------|------|------|------|
 | GET | `/api/v1/raid` | O | RAID 어레이 목록 |
 | GET | `/api/v1/raid/:name` | O | RAID 어레이 상세 |
-| POST | `/api/v1/raid` | O | RAID 어레이 생성 |
+| POST | `/api/v1/raid` | O | RAID 어레이 생성. 멤버가 게스트 볼륨이면 409 `DISK_GUEST_VOLUME`, 부팅 파티션(이 든 디스크)이면 409 `DISK_BOOT_PARTITION` (v0.78.14+) |
 | DELETE | `/api/v1/raid/:name` | O | RAID 어레이 삭제 |
-| POST | `/api/v1/raid/:name/add` | O | RAID 디스크 추가 |
+| POST | `/api/v1/raid/:name/add` | O | RAID 디스크 추가. 생성과 같은 가드 (v0.78.14+) |
 | POST | `/api/v1/raid/:name/remove` | O | RAID 디스크 제거 |
 
 ### Swap (6개)
@@ -5439,7 +5441,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | 메서드 | 경로 | 인증 | 설명 |
 |--------|------|------|------|
 | GET | `/api/v1/swap` | O | 스왑 정보 조회 |
-| POST | `/api/v1/swap` | O | 스왑 생성 |
+| POST | `/api/v1/swap` | O | 스왑 생성. 본문 `{type, path, size_mb}`(파일) 또는 `{type, device, force}`(장치). 장치는 `sdb2`·`/dev/sdb2` 모두 받고 포맷과 같은 가드(사용 중 409 `DEVICE_IN_USE`, 게스트 볼륨 409 `DISK_GUEST_VOLUME`, 부팅 파티션 409 `DISK_BOOT_PARTITION`)를 거친다. 파일시스템·파티션 테이블 같은 서명이 있으면 `force: true` 없이는 409 `DISK_NOT_EMPTY`(details `device`, `signature`). 스왑 파일은 ZFS면 400 `SWAP_UNSUPPORTED_FS`(details `fs`), btrfs면 NOCOW(`chattr +C`)로 만들고, 만든 뒤 어느 단계에서 실패해도 파일을 지운다 (v0.78.14+) |
 | DELETE | `/api/v1/swap` | O | 스왑 제거 |
 | PUT | `/api/v1/swap/swappiness` | O | swappiness 설정 |
 | GET | `/api/v1/swap/resize-check` | O | 스왑 리사이즈 가능 여부 |
