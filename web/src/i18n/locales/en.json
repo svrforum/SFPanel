@@ -1528,6 +1528,7 @@
   "ai": {
     "account": "Run as",
     "accountHint": "Sessions and tool status are for this account. A non-root account uses its own login and settings.",
+    "rootAccountHint": "A regular account is recommended over root for AI tools: an agent running as root can change anything on this host.",
     "tools": {
       "installed": "Installed",
       "notInstalled": "Not installed",

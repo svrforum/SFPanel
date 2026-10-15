@@ -1526,6 +1526,7 @@
   "ai": {
     "account": "실행 계정",
     "accountHint": "세션과 도구 상태는 이 계정 기준입니다. 비루트 계정이면 그 계정의 로그인·설정을 그대로 씁니다.",
+    "rootAccountHint": "AI 도구는 root보다 일반 계정으로 실행하는 것을 권장합니다. root로 실행한 에이전트는 이 호스트의 무엇이든 바꿀 수 있습니다.",
     "tools": {
       "installed": "설치됨",
       "notInstalled": "미설치",

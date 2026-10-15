@@ -76,19 +76,22 @@ var loginFiles = map[string]string{
 	ToolGemini: ".gemini/oauth_creds.json",
 }
 
-// probeScript runs inside the account's login shell so PATH is theirs
-// (~/.local/bin, nvm). $0 is the tool name. Exit 3 = not installed. The
-// SFP-prefixed line survives whatever the account's profile prints.
+// probeScript runs inside the account's login shell so PATH is theirs (nvm,
+// whatever their .bashrc adds), with ~/.local/bin put first by localBinPath —
+// the same line the session wrapper runs (sessionCommands), so the card and the
+// session resolve the same binary. $0 is the tool name. Exit 3 = not
+// installed. The SFP-prefixed line survives whatever the account's profile
+// prints.
 //
 // `type -P`, not `command -v`: the shell is *interactive* (see shellAs), which
 // is the only way the account's .bashrc is read and therefore the only way
-// ~/.local/bin reaches PATH — but it also puts the account's aliases in scope,
+// what it adds reaches PATH — but it also puts the account's aliases in scope,
 // and `command -v claude` then answers `alias claude='claude --verbose'`
 // instead of a path. That string is what the tool chip shows as the tool's
 // path. `type -P` forces a PATH search and ignores aliases, functions and
 // builtins, which is what this probe means. The version is then read from the
 // resolved path, so the version reported always belongs to the path reported.
-const probeScript = `p=$(type -P "$0") || exit 3; v=$("$p" --version 2>/dev/null | head -n1); printf "SFP\t%s\t%s\n" "$p" "$v"`
+const probeScript = localBinPath + `; p=$(type -P "$0") || exit 3; v=$("$p" --version 2>/dev/null | head -n1); printf "SFP\t%s\t%s\n" "$p" "$v"`
 
 func parseProbe(out string) (string, string, bool) {
 	for _, line := range strings.Split(out, "\n") {
@@ -108,14 +111,15 @@ func parseProbe(out string) (string, string, bool) {
 // without a HOME the profile's `$HOME/.local/bin` expands to `/.local/bin` and
 // the probe reports a tool the account can actually run as "not installed".
 //
-// -lic, not -lc, for the same reason one level down: `~/.local/bin` joins PATH
-// from the account's .bashrc, and the Debian/Ubuntu skeleton opens that file
-// with `[ -z "$PS1" ] && return`, so a *non*-interactive shell returns before
-// the line that extends PATH. Root's own .bashrc is that skeleton on this
-// distribution, which is how `bash -lc 'command -v claude'` answered nothing
-// for the panel's default account while /root/.local/bin/claude ran fine.
+// -lic, not -lc, for the same reason one level down: what an account adds to
+// PATH in its .bashrc — nvm's installer appends its lines there, and so does an
+// operator extending PATH by hand — sits below the early return both
+// Debian/Ubuntu .bashrc files open with (`[ -z "$PS1" ] && return` for root,
+// `case $-` in /etc/skel), so a *non*-interactive shell returns before it.
 // Only -i makes the shell read .bashrc at all, and the session the operator
-// gets is interactive — so without it the card contradicts the session.
+// gets is interactive — so without it the card contradicts the session. What
+// no stock dotfile adds for root, ~/.local/bin itself, probeScript adds
+// (localBinPath, #115).
 //
 // There is no tty here, so bash now writes "cannot set terminal process group"
 // and "no job control in this shell" to stderr. Neither reaches stdout and

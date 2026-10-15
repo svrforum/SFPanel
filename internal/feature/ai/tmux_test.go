@@ -1,7 +1,9 @@
 package ai
 
 import (
+	"context"
 	"os"
+	osExec "os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -59,7 +61,7 @@ func TestSpawnArgv_ServerFormIsATransientService(t *testing.T) {
 		t.Errorf("options must be applied before new-session so they govern the first window: %q", argv)
 	}
 	tail := argv[ns:]
-	want := []string{"new-session", "-d", "-s", "0123456789ab", "-c", "/opt/stacks/app", "--", "/bin/bash", "-lic", `command "$0" "$@"; exec /bin/bash -l`, "claude"}
+	want := []string{"new-session", "-d", "-s", "0123456789ab", "-c", "/opt/stacks/app", "--", "/bin/bash", "-lic", localBinPath + `; command "$0" "$@"; exec /bin/bash -l`, "claude"}
 	if !slices.Equal(tail, want) {
 		t.Errorf("new-session tail = %q\nwant %q", tail, want)
 	}
@@ -299,14 +301,15 @@ func TestSpawnArgv_ShellToolIsAPlainLoginShell(t *testing.T) {
 	}
 }
 
-// The tool wrapper runs in an *interactive* login shell. `~/.local/bin` — the
-// Claude native installer's directory — joins PATH in the account's .bashrc,
-// and the Debian/Ubuntu skeleton opens that file with `[ -z "$PS1" ] && return`,
-// so a non-interactive `bash -l -c` never reads it: the wrapper exited 127 with
-// "claude: command not found" for root and dropped the pane to the fallback
-// shell. Assert the reason on both sides — the flag is on the wrapper, and the
-// `shell` tool must not gain it: that one has tmux's tty and `bash -l` is
-// already interactive, so -i would only add job-control noise.
+// The tool wrapper runs in an *interactive* login shell. What an account's
+// .bashrc adds to PATH (nvm, a line added by hand) sits below the early return
+// the Debian/Ubuntu .bashrc files open with, so a non-interactive `bash -l -c`
+// never reads it: the tool is not found, the wrapper exits 127 and drops the
+// pane to the fallback shell. ~/.local/bin, which no stock root dotfile adds,
+// the wrapper puts first itself — TestSessionCommands_WrapperFindsLocalBinOnAStockRootAccount
+// runs it for real. Assert the reason on both sides — the flag is on the
+// wrapper, and the `shell` tool must not gain it: that one has tmux's tty and
+// `bash -l` is already interactive, so -i would only add job-control noise.
 func TestSessionCommands_ToolWrapperIsAnInteractiveLoginShell(t *testing.T) {
 	h := newTestHandler(t, &exec.MockCommander{Outputs: map[string]exec.MockResult{"infocmp": {}}})
 	alice := Account{Name: "alice", UID: 1000, GID: 1000, Home: "/home/alice", Shell: "/bin/bash"}
@@ -314,9 +317,9 @@ func TestSessionCommands_ToolWrapperIsAnInteractiveLoginShell(t *testing.T) {
 	for _, form := range []spawnForm{spawnService, spawnClient, spawnSetsid} {
 		for _, tool := range []string{ToolClaude, ToolCodex, ToolGemini} {
 			_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", tool, "", alice, form, nil)
-			want := []string{"/bin/bash", "-lic", `command "$0" "$@"; exec /bin/bash -l`, tool}
+			want := []string{"/bin/bash", "-lic", localBinPath + `; command "$0" "$@"; exec /bin/bash -l`, tool}
 			if cmd := command(argv); !slices.Equal(cmd, want) {
-				t.Errorf("form %d, %s: wrapper = %q\nwant %q\n(only an interactive login shell reads .bashrc, where ~/.local/bin joins PATH)", form, tool, cmd, want)
+				t.Errorf("form %d, %s: wrapper = %q\nwant %q\n(only an interactive login shell reads the account's .bashrc, and ~/.local/bin goes first before the tool runs)", form, tool, cmd, want)
 			}
 		}
 		_, argv := h.spawnArgv("0123456789ab", "/opt/stacks/app", ToolShell, "", alice, form, nil)
@@ -329,6 +332,28 @@ func TestSessionCommands_ToolWrapperIsAnInteractiveLoginShell(t *testing.T) {
 				t.Errorf("form %d, shell: %s adds job-control noise to a shell that is already interactive: %q", form, bad, cmd)
 			}
 		}
+	}
+}
+
+// Issue #115, the session half: the probe and the wrapper have to agree, or the
+// card says installed while the pane says `command not found` and drops to the
+// fallback shell. This runs the wrapper sessionCommands builds, for real,
+// against a stock root HOME (stockRootHome). There is no tty, so once the tool
+// exits the fallback `exec bash -l` reads an empty stdin and ends.
+func TestSessionCommands_WrapperFindsLocalBinOnAStockRootAccount(t *testing.T) {
+	acct, _ := stockRootHome(t)
+	cmd := command(sessionCommands("screen-256color", "0123456789ab", acct.Home, "sfpfaketool", "", acct, nil))
+	if len(cmd) < 2 {
+		t.Fatalf("no wrapper in %q", cmd)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c := osExec.CommandContext(ctx, cmd[0], cmd[1:]...)
+	c.Env = accountEnv(acct)
+	c.Dir = acct.Home
+	out, _ := c.CombinedOutput()
+	if !strings.Contains(string(out), "9.9.9 (fake)") {
+		t.Errorf("the wrapper did not run the tool in ~/.local/bin: %q\n(root's .profile and .bashrc never put ~/.local/bin on PATH, so the wrapper has to, or a root session starts with `command not found`)", out)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	osExec "os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,11 +44,12 @@ func TestParseProbe(t *testing.T) {
 // — the old resolver picked the newest binary across every home and showed
 // a user's 2.1.265 for a root terminal that ran 2.1.92.
 //
-// And it must be an *interactive* login shell. `~/.local/bin` joins PATH in
-// the account's .bashrc, which the Debian/Ubuntu skeleton opens with
-// `[ -z "$PS1" ] && return` — root's own .bashrc is that skeleton — so a
-// non-interactive `-lc` probe returns before the line that extends PATH and
-// reports /root/.local/bin/claude as not installed while the session runs it.
+// And it must be an *interactive* login shell. What an account's .bashrc adds
+// to PATH sits below the `[ -z "$PS1" ] && return` root's .bashrc opens with
+// (and the `case $-` of /etc/skel's), so a non-interactive `-lc` probe returns
+// before it and reports a tool the session runs as not installed. ~/.local/bin
+// is not among what root's dotfiles add at all; probeScript adds it itself —
+// see TestProbeScript_FindsLocalBinOnAStockRootAccount.
 func TestToolStatus_ProbesInTheAccountsLoginShell(t *testing.T) {
 	stubLatest(t, ToolClaude, "2.1.270", http.StatusOK) // every toolStatus ends in a latest lookup; keep it local
 	m := exec.NewMockCommander()
@@ -62,7 +64,7 @@ func TestToolStatus_ProbesInTheAccountsLoginShell(t *testing.T) {
 	c := m.Calls[0]
 	want := append(h.envArgv(alice)[1:], "runuser", "-u", "alice", "--", findShell(), "-lic", probeScript, "claude")
 	if c.Name != "env" || strings.Join(c.Args, "\x00") != strings.Join(want, "\x00") {
-		t.Errorf("probe = %s %q\nwant env %q\n(-lic, not -lc: only an interactive login shell reads .bashrc, where ~/.local/bin joins PATH)", c.Name, c.Args, want)
+		t.Errorf("probe = %s %q\nwant env %q\n(-lic, not -lc: only an interactive login shell reads the account's .bashrc)", c.Name, c.Args, want)
 	}
 
 	// The panel's own account probes in a plain login shell — but not with the
@@ -75,7 +77,7 @@ func TestToolStatus_ProbesInTheAccountsLoginShell(t *testing.T) {
 	_ = h2.toolStatus(h2.panel, ToolClaude)
 	want2 := append(h2.envArgv(h2.panel)[1:], findShell(), "-lic", probeScript, "claude")
 	if m2.Calls[0].Name != "env" || strings.Join(m2.Calls[0].Args, "\x00") != strings.Join(want2, "\x00") {
-		t.Errorf("panel probe = %s %q\nwant env %q\n(-lic, not -lc: root's .bashrc is where ~/.local/bin joins PATH, and only an interactive shell reads it)", m2.Calls[0].Name, m2.Calls[0].Args, want2)
+		t.Errorf("panel probe = %s %q\nwant env %q\n(-lic, not -lc: only an interactive login shell reads root's .bashrc)", m2.Calls[0].Name, m2.Calls[0].Args, want2)
 	}
 	if lastEnv(h2.envArgv(h2.panel), "HOME") != "/root" {
 		t.Errorf("the panel probe must name its HOME: %q", h2.envArgv(h2.panel))
@@ -216,11 +218,11 @@ func TestTools_SystemdRunMeansTheServiceFormIsAvailable(t *testing.T) {
 }
 
 // The probe must answer with a path, never an alias. The shell is interactive
-// (that is what reads .bashrc, and .bashrc is where ~/.local/bin joins PATH),
-// so the account's aliases are in scope and `command -v claude` answers with
-// the alias definition — which the tool chip then shows the operator as the
-// tool's "path". This runs the real probeScript through a real bash against a
-// fixture HOME that both defines such an alias and extends PATH.
+// (that is what reads .bashrc, where an account extends PATH beyond its
+// .profile), so the account's aliases are in scope and `command -v claude`
+// answers with the alias definition — which the tool chip then shows the
+// operator as the tool's "path". This runs the real probeScript through a real
+// bash against a fixture HOME that both defines such an alias and extends PATH.
 func TestProbeScript_ResolvesAPathNotAnAlias(t *testing.T) {
 	shell := findShell()
 	if filepath.Base(shell) != "bash" {
@@ -280,5 +282,103 @@ func TestProbeScript_ResolvesAPathNotAnAlias(t *testing.T) {
 	}
 	if _, _, ok := parseProbe(out); ok {
 		t.Errorf("a missing tool must not print an SFP line: %q", out)
+	}
+}
+
+// stockRootHome is a HOME laid out the way base-files lays out /root on Debian
+// and Ubuntu, with a tool in .local/bin — where Claude's native installer puts
+// claude. Root's home is not made from /etc/skel, so its .profile only sources
+// .bashrc, and its .bashrc returns at once in a non-interactive shell and puts
+// nothing on PATH in an interactive one: neither file mentions ~/.local/bin.
+// The tool's name is one no host has, so nothing real can run in its place.
+func stockRootHome(t *testing.T) (Account, string) {
+	t.Helper()
+	shell := findShell()
+	if filepath.Base(shell) != "bash" {
+		t.Skip("bash not available; the probe's resolution semantics are bash's")
+	}
+	home := t.TempDir()
+	bin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tool := filepath.Join(bin, "sfpfaketool")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\necho '9.9.9 (fake)'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		".profile": "if [ \"$BASH\" ]; then\n  if [ -f ~/.bashrc ]; then\n    . ~/.bashrc\n  fi\nfi\n",
+		".bashrc":  "[ -z \"$PS1\" ] && return\nexport LS_OPTIONS='--color=auto'\n",
+	} {
+		if err := os.WriteFile(filepath.Join(home, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	acct := Account{Name: "root", Home: home, Shell: shell}
+
+	// The host's own startup files run too (/etc/profile, /etc/profile.d). If
+	// one of them already puts ~/.local/bin on PATH, this host cannot show the
+	// stock root environment, and a test built on it would pass for that
+	// reason alone.
+	cmd := osExec.Command(shell, "-lic", `printf 'SFPPATH\t%s\n' "$PATH"`)
+	cmd.Env = accountEnv(acct)
+	out, _ := cmd.CombinedOutput()
+	for _, line := range strings.Split(string(out), "\n") {
+		if p, ok := strings.CutPrefix(line, "SFPPATH\t"); ok && slices.Contains(filepath.SplitList(p), bin) {
+			t.Skipf("this host's startup files put ~/.local/bin on PATH themselves (%s); a stock root account cannot be reproduced here", p)
+		}
+	}
+	return acct, tool
+}
+
+// Issue #115: Claude installed for root — into /root/.local/bin, as the
+// installer reports — and the card still said "not installed", so the dialog
+// refused a Claude session for root. Only /etc/skel/.profile puts ~/.local/bin
+// on PATH, and root's dotfiles do not come from it; -lic reads them all and
+// still finds nothing. The panel puts the directory on PATH itself
+// (localBinPath) instead of editing the operator's dotfiles. This runs the real
+// probeScript in the same shell and environment shellAs builds.
+func TestProbeScript_FindsLocalBinOnAStockRootAccount(t *testing.T) {
+	acct, tool := stockRootHome(t)
+	probe := func() (string, error) {
+		cmd := osExec.Command(acct.Shell, "-lic", probeScript, "sfpfaketool")
+		cmd.Env = accountEnv(acct)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	out, err := probe()
+	p, v, ok := parseProbe(out)
+	if err != nil || !ok {
+		t.Fatalf("probe found nothing (err %v; output %q)\n(root's .profile and .bashrc never put ~/.local/bin on PATH, so the probe has to: without it the Claude the panel just installed reads as not installed)", err, out)
+	}
+	if p != tool || !strings.Contains(v, "9.9.9") {
+		t.Errorf("probe = %q %q, want %q at 9.9.9", p, v, tool)
+	}
+
+	// First, not merely present: the card has to describe the copy the panel's
+	// own installer writes and updates. An account that appends ~/.local/bin
+	// behind another copy would otherwise keep showing the other one — and an
+	// "update available" that no update clears.
+	other := filepath.Join(acct.Home, "bin")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "sfpfaketool"), []byte("#!/bin/sh\necho '1.0.0 (other)'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Join(acct.Home, ".bashrc"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("PATH=\"$HOME/bin:$PATH:$HOME/.local/bin\"\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out, err = probe()
+	if p, v, ok := parseProbe(out); err != nil || !ok || p != tool || !strings.Contains(v, "9.9.9") {
+		t.Errorf("probe = %q %q (err %v), want %q at 9.9.9 — ~/.local/bin has to come first, not just appear somewhere on PATH", p, v, err, tool)
 	}
 }

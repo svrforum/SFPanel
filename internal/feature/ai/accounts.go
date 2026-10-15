@@ -98,6 +98,25 @@ func (h *Handler) accounts() []Account {
 // shell inside the session replaces it with the account's own.
 const accountPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
+// localBinPath is the one PATH entry the panel adds itself, inside the
+// account's login shell once its startup files have run: ~/.local/bin, where
+// Claude's native installer — the one the install button runs — puts claude.
+// Only /etc/skel/.profile puts that directory on PATH, so an account made from
+// the skeleton has it and root does not: root's .profile and .bashrc come from
+// base-files, and neither mentions it. Root's Claude therefore read as "not
+// installed" right after the panel had installed it, and a root session could
+// not start it (#115). The installer says as much itself ("~/.local/bin is not
+// in your PATH"); changing root's dotfiles over that is the operator's call,
+// not the panel's.
+//
+// First, not merely present, so the copy the install button writes and updates
+// is the one the card describes and the session runs; left alone when it is
+// first already, which is what the skeleton's own line leaves behind. A line
+// in the script rather than an entry in accountPath: Debian's /etc/profile
+// resets PATH in every login shell, and the server form's environment is
+// systemd's, not ours.
+const localBinPath = `if [ -d "$HOME/.local/bin" ]; then case ":$PATH:" in ":$HOME/.local/bin:"*) ;; *) PATH="$HOME/.local/bin${PATH:+:$PATH}" ;; esac; fi`
+
 // accountEnv is the environment of everything the module runs as an account —
 // tmux servers and clients, the tool probe, an installer. It is built, never
 // inherited, for two independent reasons:

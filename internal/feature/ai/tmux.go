@@ -300,16 +300,22 @@ func (h *Handler) serverRunning(acct Account) bool {
 // sessionCommands is every tmux argument after `-f /dev/null -S <socket>`: the
 // panel's options, applied in the same invocation and before new-session so
 // they govern the very first window, then the session itself. The login shell
-// restores the account's PATH (~/.local/bin, nvm); the wrapper drops into an
-// interactive shell when the tool exits instead of closing the session.
+// restores the account's PATH (nvm, whatever its .bashrc adds) and
+// localBinPath then puts ~/.local/bin first — the line probeScript runs too,
+// so the card and the session resolve the same binary; the wrapper drops into
+// an interactive shell when the tool exits instead of closing the session.
 //
-// The wrapper is -lic, not -l -c: ~/.local/bin joins PATH from the account's
-// .bashrc, and the Debian/Ubuntu skeleton opens that file with
-// `[ -z "$PS1" ] && return`, so a *non*-interactive shell returns before the
-// line that extends PATH and never sees the tool. `bash -l -c` exited 127 with
-// "claude: command not found" for root — the panel's own default account —
-// and dropped the pane straight to the fallback shell. The `shell` tool takes
-// no flag: `bash -l` on tmux's tty is interactive already.
+// The wrapper is -lic, not -l -c: what an account's .bashrc adds to PATH sits
+// below the early return the Debian/Ubuntu .bashrc files open with, so a
+// *non*-interactive shell never sees it. -lic alone is not enough for root,
+// though: its .profile and .bashrc come from base-files, not /etc/skel, and
+// neither puts ~/.local/bin on PATH, so a stock root session exited 127 with
+// "claude: command not found" and dropped the pane straight to the fallback
+// shell (#115) — hence localBinPath. The fallback shell inherits that PATH
+// unless its /etc/profile resets it (Ubuntu's does not, Debian's does), and it
+// is the shell 다시 실행 types the tool into. The `shell` tool takes neither:
+// `bash -l` on tmux's tty is interactive already, and it is the account's own
+// shell, nothing added.
 //
 // The session's profile (spec §4) is one `-e` pair on this new-session, and
 // this is the only place it can be. A tmux session's environment is the
@@ -348,7 +354,7 @@ func sessionCommands(term, id, cwd, tool, profile string, acct Account, launchAr
 	if tool == ToolShell {
 		return append(argv, shell, "-l")
 	}
-	argv = append(argv, shell, "-lic", fmt.Sprintf(`command "$0" "$@"; exec %s -l`, shell), tool)
+	argv = append(argv, shell, "-lic", fmt.Sprintf(`%s; command "$0" "$@"; exec %s -l`, localBinPath, shell), tool)
 	return append(argv, launchArgv...)
 }
 

@@ -80,6 +80,8 @@ export function ToolsSheet({ open, onOpenChange, tools, toolsError, account, onA
               </SelectContent>
             </Select>
             <p className="text-[11px] text-muted-foreground">{t('ai.accountHint')}</p>
+            {/* By name, as dangerousBlocked decides it: the browser has no uid. */}
+            {account === 'root' && <p className="text-[11px] text-warning">{t('ai.rootAccountHint')}</p>}
           </div>
 
           {toolsError && (

@@ -203,7 +203,7 @@ func validateLaunch(tool string, o LaunchOptions) error {
 // What it returns is appended, element by element, to the wrapper the module
 // already spawns (sessionCommands):
 //
-//	bash -lic 'command "$0" "$@"; exec bash -l' <tool> <argv…>
+//	bash -lic '<localBinPath>; command "$0" "$@"; exec bash -l' <tool> <argv…>
 //
 // `"$@"` expands each element as its own word, so no token is ever re-parsed
 // by a shell. That is what makes 추가 인자 safe, and it is why nothing here
