@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -37,6 +38,10 @@ const fireQueueDepth = 256
 
 // fireWorkers is the number of goroutines draining fireQueue concurrently.
 const fireWorkers = 2
+
+// errUnusableChannelConfig is a delivery that was never attempted because the
+// channel's config could not be read for its type.
+var errUnusableChannelConfig = errors.New("channel config unusable for its type")
 
 type Manager struct {
 	db       *sql.DB
@@ -306,7 +311,11 @@ func (m *Manager) deliverToChannels(f AlertFire) []string {
 			continue
 		}
 
-		var sendErr error
+		// Not delivered until a send says so. A config the branches below
+		// cannot read, or that lacks what its type needs, used to leave this
+		// nil — nothing was sent, so nothing failed — and the channel was
+		// recorded as having received the alert.
+		sendErr := errUnusableChannelConfig
 		switch ch.Type {
 		case "discord":
 			var cfg struct {

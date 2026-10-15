@@ -52,11 +52,6 @@ type AlertHistoryEntry struct {
 	CreatedAt    string `json:"created_at"`
 }
 
-// secretConfigKeys are the JSON object keys whose values must be masked
-// before returning channel configs in list responses. The set is the
-// union of every field name the alert channels package reads as a secret
-// (Discord webhook URL, Telegram bot token / chat ID), plus generic
-// catch-alls that operators commonly use for custom integrations.
 // isValidChannelType reports whether t is a supported alert channel type.
 func isValidChannelType(t string) bool {
 	switch t {
@@ -66,6 +61,11 @@ func isValidChannelType(t string) bool {
 	return false
 }
 
+// secretConfigKeys are the JSON object keys whose values must be masked
+// before returning channel configs in list responses. The set is the
+// union of every field name the alert channels package reads as a secret
+// (Discord webhook URL, Telegram bot token / chat ID), plus generic
+// catch-alls that operators commonly use for custom integrations.
 var secretConfigKeys = map[string]struct{}{
 	"webhook_url": {},
 	"bot_token":   {},
@@ -160,12 +160,47 @@ func (h *Handler) ListChannels(c echo.Context) error {
 	return response.OK(c, list)
 }
 
+// channelConfig returns the text to store for the config field of a channel
+// create or update body.
+//
+// The page sends config as an object, {"webhook_url": "…"}, and this field
+// used to be declared as a string, so every add from the page failed to bind
+// (#116). Both forms are taken now: an object as itself, and a string — the
+// form this handler took until then — as the JSON it holds. Either way what is
+// stored is the text of a JSON object, because that is all the manager and
+// TestChannel can read a channel out of: a JSON string in the column passes
+// json.Valid and never sends.
+//
+// An absent or null field, or an empty string, comes back as "" — missing on
+// create, unchanged on update. ok is false for anything that is not an object.
+func channelConfig(raw json.RawMessage) (config string, ok bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", true
+	}
+	text := raw
+	if raw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return "", false
+		}
+		if s == "" {
+			return "", true
+		}
+		text = json.RawMessage(s)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(text, &obj); err != nil || obj == nil {
+		return "", false
+	}
+	return string(text), true
+}
+
 func (h *Handler) CreateChannel(c echo.Context) error {
 	var req struct {
-		Type    string `json:"type"`
-		Name    string `json:"name"`
-		Config  string `json:"config"`
-		Enabled *bool  `json:"enabled"`
+		Type    string          `json:"type"`
+		Name    string          `json:"name"`
+		Config  json.RawMessage `json:"config"`
+		Enabled *bool           `json:"enabled"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
@@ -176,8 +211,9 @@ func (h *Handler) CreateChannel(c echo.Context) error {
 	if req.Name == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "name is required")
 	}
-	if !json.Valid([]byte(req.Config)) {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "config must be valid JSON")
+	config, ok := channelConfig(req.Config)
+	if !ok || config == "" {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "config must be a JSON object")
 	}
 
 	enabled := 1
@@ -186,7 +222,7 @@ func (h *Handler) CreateChannel(c echo.Context) error {
 	}
 
 	result, err := h.DB.Exec("INSERT INTO alert_channels (type, name, config, enabled) VALUES (?, ?, ?, ?)",
-		req.Type, req.Name, req.Config, enabled)
+		req.Type, req.Name, config, enabled)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "failed to create channel")
 	}
@@ -201,10 +237,10 @@ func (h *Handler) UpdateChannel(c echo.Context) error {
 	}
 
 	var req struct {
-		Type    string `json:"type"`
-		Name    string `json:"name"`
-		Config  string `json:"config"`
-		Enabled *bool  `json:"enabled"`
+		Type    string          `json:"type"`
+		Name    string          `json:"name"`
+		Config  json.RawMessage `json:"config"`
+		Enabled *bool           `json:"enabled"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidBody, "invalid request body")
@@ -212,17 +248,25 @@ func (h *Handler) UpdateChannel(c echo.Context) error {
 	if req.Type != "" && !isValidChannelType(req.Type) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "type must be discord, telegram, or webhook")
 	}
-	if req.Config != "" && !json.Valid([]byte(req.Config)) {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "config must be valid JSON")
+	config, ok := channelConfig(req.Config)
+	if !ok {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "config must be a JSON object")
 	}
 
-	enabled := 1
-	if req.Enabled != nil && !*req.Enabled {
-		enabled = 0
+	// Omitted keeps the stored value, like every other field here. It used to
+	// mean 1, so a PUT that renamed a disabled channel, or rotated its
+	// webhook, switched it back on.
+	var enabled *int
+	if req.Enabled != nil {
+		v := 0
+		if *req.Enabled {
+			v = 1
+		}
+		enabled = &v
 	}
 
-	res, err := h.DB.Exec("UPDATE alert_channels SET type=COALESCE(NULLIF(?,''),type), name=COALESCE(NULLIF(?,''),name), config=COALESCE(NULLIF(?,''),config), enabled=? WHERE id=?",
-		req.Type, req.Name, req.Config, enabled, id)
+	res, err := h.DB.Exec("UPDATE alert_channels SET type=COALESCE(NULLIF(?,''),type), name=COALESCE(NULLIF(?,''),name), config=COALESCE(NULLIF(?,''),config), enabled=COALESCE(?,enabled) WHERE id=?",
+		req.Type, req.Name, config, enabled, id)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "failed to update channel")
 	}

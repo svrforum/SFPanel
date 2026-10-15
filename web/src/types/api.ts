@@ -1117,11 +1117,14 @@ export interface RecentContainerEvent extends ContainerEvent {
   container_name: string
 }
 
+// Alert rows as ListChannels / ListRules return them: the JSON-valued columns
+// arrive as JSON text, unparsed. internal/feature/alert/testdata/page_contract.json
+// pins the rule row; e2e/tests/alert-settings.spec.ts renders it.
 export interface AlertChannel {
   id: number
   name: string
   type: 'discord' | 'telegram' | 'webhook'
-  config: Record<string, string>
+  config: string // JSON object text, secrets masked — never send it back (see ChannelsSection)
   enabled: boolean
   created_at: string
 }
@@ -1130,12 +1133,12 @@ export interface AlertRule {
   id: number
   name: string
   type: string
-  threshold: number
+  condition: string // JSON text: {operator, threshold} for cpu/memory/disk, a container pattern otherwise
+  channel_ids: string // JSON number array
   severity: 'info' | 'warning' | 'critical'
   cooldown: number
-  channels: number[]
   node_scope: string
-  nodes: string[]
+  node_ids: string // JSON string array
   enabled: boolean
   created_at: string
 }

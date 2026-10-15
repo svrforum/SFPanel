@@ -22,6 +22,18 @@ const EMPTY_FORM = {
   cooldown: 300, channels: [] as number[], node_scope: 'all', nodes: [] as string[],
 }
 
+// A rule row carries its threshold inside `condition`, the JSON text it was
+// created with ({operator, threshold} for host metrics). The summary used to
+// read a `threshold` field the server never sends, and said "Threshold: %".
+function conditionThreshold(condition: string): number | undefined {
+  try {
+    const threshold = JSON.parse(condition)?.threshold
+    return typeof threshold === 'number' ? threshold : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function RulesSection({ channels }: { channels: AlertChannel[] }) {
   const { t } = useTranslation()
   const confirm = useConfirm()
@@ -337,6 +349,7 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
           {rules.map(rule => {
             const ruleTypeEntry = RULE_TYPES.find(rt => rt.value === rule.type)
             const severityEntry = SEVERITY_OPTIONS.find(s => s.value === rule.severity)
+            const threshold = CONTAINER_RULE_TYPES.has(rule.type) ? undefined : conditionThreshold(rule.condition)
             return (
             <div key={rule.id} className="flex items-center justify-between bg-secondary/30 rounded-xl px-4 py-3">
               <div className="flex items-center gap-3 flex-wrap">
@@ -348,9 +361,9 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
                   {severityEntry ? t(severityEntry.i18nKey, { defaultValue: severityEntry.fallback }) : rule.severity}
                 </span>
                 <span className="text-[11px] text-muted-foreground">
-                  {CONTAINER_RULE_TYPES.has(rule.type)
+                  {threshold === undefined
                     ? t('settings.alerts.rules.summaryCooldown', { cooldown: rule.cooldown })
-                    : t('settings.alerts.rules.summaryThresholdCooldown', { threshold: rule.threshold, cooldown: rule.cooldown })}
+                    : t('settings.alerts.rules.summaryThresholdCooldown', { threshold, cooldown: rule.cooldown })}
                 </span>
                 <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
                   rule.enabled ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'

@@ -2,6 +2,10 @@ package alert
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -58,5 +62,43 @@ func TestFire_NonBlockingAndDedupesInFlight(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // give a (wrongly) second dispatch a chance
 	if got := atomic.LoadInt32(&delivered); got != 1 {
 		t.Fatalf("expected exactly 1 in-flight dispatch, got %d", got)
+	}
+}
+
+// TestDeliverToChannels_ConfigItCannotReadIsNotDelivered: a channel whose
+// config did not parse, or lacked the field its type needs, came back as
+// delivered — nothing was sent, so there was no send error, and no error was
+// all the loop checked. History then listed the channel among those that
+// received the alert and the cooldown started, for a send that never
+// happened. The reachable channel is the control: it is looked up and sent
+// to through the same path, so the others are missing for their config alone.
+func TestDeliverToChannels_ConfigItCannotReadIsNotDelivered(t *testing.T) {
+	var posts int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&posts, 1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	db := openMigratedDB(t)
+	ids := []int64{
+		insertChannel(t, db, "reachable", "webhook", `{"webhook_url":"`+srv.URL+`"}`, 1),
+		insertChannel(t, db, "no-url", "webhook", `{}`, 1),
+		insertChannel(t, db, "not-an-object", "discord", `"{\"webhook_url\":\"https://discord.com/api/webhooks/000000/test\"}"`, 1),
+		insertChannel(t, db, "no-chat-id", "telegram", `{"bot_token":"000000:test-token"}`, 1),
+	}
+
+	m := NewManager(db)
+	sent := m.deliverToChannels(AlertFire{
+		RuleName:   "r",
+		Severity:   "warning",
+		Message:    "m",
+		ChannelIDs: fmt.Sprintf("[%d,%d,%d,%d]", ids[0], ids[1], ids[2], ids[3]),
+	})
+	if want := []string{"reachable"}; !reflect.DeepEqual(sent, want) {
+		t.Errorf("delivered to %q, want %q", sent, want)
+	}
+	if got := atomic.LoadInt32(&posts); got != 1 {
+		t.Errorf("receiver got %d posts, want 1", got)
 	}
 }

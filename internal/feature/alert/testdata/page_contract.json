@@ -1,0 +1,35 @@
+{
+  "channel_creates": [
+    {
+      "name": "test",
+      "type": "discord",
+      "config": { "webhook_url": "https://discord.com/api/webhooks/000000/test" },
+      "enabled": true
+    },
+    {
+      "name": "test-telegram",
+      "type": "telegram",
+      "config": { "bot_token": "000000:test-token", "chat_id": "-1000000000" },
+      "enabled": true
+    },
+    {
+      "name": "test-webhook",
+      "type": "webhook",
+      "config": { "webhook_url": "https://hooks.example.com/sfpanel" },
+      "enabled": true
+    }
+  ],
+  "rule_row": {
+    "id": 1,
+    "name": "cpu-high",
+    "type": "cpu",
+    "condition": "{\"operator\":\">\",\"threshold\":90}",
+    "channel_ids": "[1]",
+    "severity": "warning",
+    "cooldown": 300,
+    "node_scope": "all",
+    "node_ids": "[]",
+    "enabled": true,
+    "created_at": "2026-01-01T00:00:00Z"
+  }
+}

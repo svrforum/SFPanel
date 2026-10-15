@@ -5787,7 +5787,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | DELETE | `/api/v1/alerts/history` | O | 이력 전체 삭제 |
 
 **스키마 요약:**
-- **채널** (`alert_channels`): `{ id, type:"discord"|"telegram"|"webhook", name, config, enabled }`. `config`는 Discord `{"webhook_url":"…"}` / Telegram `{"bot_token":"…","chat_id":"…"}` / Webhook `{"webhook_url":"https://…"}`(v0.25.0+, Slack/Mattermost 호환 — `text` + 구조화 필드 POST). 목록 응답에서 `config`의 시크릿 키는 마스킹됩니다. `…/test`는 해당 채널로 테스트 알림 1건 발송.
+- **채널** (`alert_channels`): `{ id, type:"discord"|"telegram"|"webhook", name, config, enabled }`. `config`는 Discord `{"webhook_url":"…"}` / Telegram `{"bot_token":"…","chat_id":"…"}` / Webhook `{"webhook_url":"https://…"}`(v0.25.0+, Slack/Mattermost 호환 — `text` + 구조화 필드 POST). 생성·수정 본문의 `config`는 이 객체 그대로 보내며, 같은 JSON을 담은 문자열도 받습니다 — 저장은 어느 쪽이든 객체 텍스트이고, 객체가 아니면 `400 INVALID_VALUE`(#116 전에는 객체를 보내면 `400 INVALID_BODY`로 거부됐음). 수정은 부분 갱신이라 생략한 필드는 `enabled`까지 저장된 값을 유지합니다. 목록 응답의 `config`는 시크릿 키를 마스킹한 JSON 텍스트(문자열)입니다. `…/test`는 해당 채널로 테스트 알림 1건 발송.
 - **규칙** (`alert_rules`): `{ id, name, type, condition(JSON), channel_ids(JSON 배열), severity:"info"|"warning"|"critical", cooldown(초), node_scope:"all"|"specific", node_ids(JSON), enabled }`. `type`은 호스트형(`cpu`/`memory`/`disk`)이면 `condition={"operator":">","threshold":90}`, 컨테이너형(`container_down`/`container_oom`/`container_restart_loop`/`container_unhealthy`)이면 `condition={"container_pattern":"*","threshold_count":N,"window_seconds":N}`.
 - **이력** (`alert_history`): `GET`은 `?page=&limit=` 페이지네이션 → `{items[], total, page, limit}`. 각 항목 `{ rule_id, rule_name, type, severity, message, sent_channels(JSON), created_at }`. `DELETE`는 전체 삭제.
 
