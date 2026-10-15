@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -112,12 +113,101 @@ func TestDesiredSANsAlwaysCoversLoopback(t *testing.T) {
 	}
 }
 
+// The full name lives only in /etc/hosts: the Proxmox VE installer writes
+// "<address> <fqdn> <hostname>" there, debian-installer the same on 127.0.1.1,
+// and the hostname itself is the short name.
+func TestHostsAliases(t *testing.T) {
+	cases := []struct {
+		name     string
+		hostname string
+		hosts    string
+		want     []string
+	}{
+		{
+			name:     "Proxmox VE: the address line names the full and the short name",
+			hostname: "pve1",
+			hosts:    "127.0.0.1 localhost.localdomain localhost\n192.0.2.10 pve1.example.lan pve1\n\n::1     ip6-localhost ip6-loopback\nff02::1 ip6-allnodes\n",
+			want:     []string{"pve1.example.lan", "pve1"},
+		},
+		{
+			name:     "debian-installer: the full name on 127.0.1.1",
+			hostname: "pve1",
+			hosts:    "127.0.0.1\tlocalhost\n127.0.1.1\tpve1.example.lan\tpve1\n",
+			want:     []string{"pve1.example.lan", "pve1"},
+		},
+		{
+			name:     "a full hostname finds the lines naming its short form",
+			hostname: "pve1.example.lan",
+			hosts:    "192.0.2.10 pve1 pve1-mgmt\n",
+			want:     []string{"pve1", "pve1-mgmt"},
+		},
+		{
+			name:     "names match without regard to case",
+			hostname: "PVE1",
+			hosts:    "192.0.2.10 pve1.example.lan pve1\n",
+			want:     []string{"pve1.example.lan", "pve1"},
+		},
+		{
+			name:     "other hosts' lines and comments are not this host",
+			hostname: "pve1",
+			hosts:    "# 192.0.2.99 pve1.old.example.lan pve1\n192.0.2.11 pve2.example.lan pve2\n192.0.2.10 pve1.example.lan pve1 # this node\n",
+			want:     []string{"pve1.example.lan", "pve1"},
+		},
+		{
+			name:     "loopback names on the hostname's line stay out",
+			hostname: "pve1",
+			hosts:    "127.0.0.1 localhost.localdomain localhost pve1\n::1 localhost6 ip6-localhost pve1\n",
+			want:     []string{"pve1"},
+		},
+		{
+			name:     "names a certificate cannot carry stay out",
+			hostname: "pve1",
+			hosts:    "192.0.2.10 pve1 pve1.example.lan nas_backup -lead trail- a..b héllo.example.lan 198.51.100.7\n",
+			want:     []string{"pve1", "pve1.example.lan"},
+		},
+		{
+			name:     "a line without an address is not an entry",
+			hostname: "pve1",
+			hosts:    "pve1.example.lan pve1\n",
+			want:     nil,
+		},
+		{
+			name:     "no hostname, no names",
+			hostname: "",
+			hosts:    "192.0.2.10 pve1.example.lan pve1\n",
+			want:     nil,
+		},
+		{
+			name:     "a host called localhost takes nothing from the loopback line",
+			hostname: "localhost",
+			hosts:    "127.0.0.1 localhost devbox\n",
+			want:     nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := HostsAliases([]byte(tc.hosts), tc.hostname)
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("HostsAliases(%q) = %q, want %q", tc.hostname, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDesiredSANsAddsAliasesOnce(t *testing.T) {
+	got := DesiredSANs("pve1", ips("192.0.2.10"), "pve1.example.lan", "PVE1", "localhost")
+	want := []string{"localhost", "pve1", "pve1.example.lan"}
+	if strings.Join(got.DNS, ",") != strings.Join(want, ",") {
+		t.Errorf("DNS SANs = %q, want %q", got.DNS, want)
+	}
+}
+
 // Docker creates and destroys a bridge per compose project. If those addresses
 // reached the certificate, every `docker compose up` would change the SAN set
 // and re-issue the certificate — on a host with a dozen stacks, constantly.
 func TestEphemeralInterface(t *testing.T) {
 	cases := map[string]bool{
-		"br-0873e8f86664": true,  // docker compose project network
+		"br-0873e8f86664": true, // docker compose project network
 		"br-d3c9fcdc1f1e": true,
 		"veth19e8e18":     true,
 		"docker0":         false, // stable, and containers reach the host on it
@@ -513,6 +603,70 @@ func TestIssuedCertificateVerifies(t *testing.T) {
 			t.Error("a certificate from a different CA verified — peer trust would be meaningless")
 		}
 	})
+}
+
+// What the operator types on a Proxmox VE host is the name /etc/hosts gives
+// it. The certificate has to satisfy hostname verification for that name, and
+// only for this host's names: the other nodes on the next lines are not it.
+func TestIssuedCertificateCoversHostsNames(t *testing.T) {
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	m := New(t.TempDir())
+	m.now = func() time.Time { return now }
+	m.hostname = func() (string, error) { return "pve1", nil }
+	m.localIPs = func() ([]net.IP, error) { return ips("192.0.2.10"), nil }
+	m.hosts = func() ([]byte, error) {
+		// héllo.example.lan is on this host's line: x509 refuses a name
+		// outside ASCII, and the panel must start all the same.
+		return []byte("127.0.0.1 localhost.localdomain localhost\n" +
+			"192.0.2.10 pve1.example.lan pve1 héllo.example.lan\n" +
+			"192.0.2.11 pve2.example.lan pve2\n"), nil
+	}
+	res, err := m.Ensure()
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if res.LeafAction != ActionIssuedLeaf {
+		t.Fatalf("leaf action = %s, want issued", res.LeafAction)
+	}
+
+	caPEM, err := m.CACertPEM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AppendCertsFromPEM(caPEM)
+	leaf, err := parseCertFile(m.ServerCertPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	verify := func(host string) error {
+		_, err := leaf.Verify(x509.VerifyOptions{
+			Roots:       pool,
+			DNSName:     host,
+			CurrentTime: now.Add(time.Hour),
+			KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		})
+		return err
+	}
+	for _, host := range []string{"pve1.example.lan", "PVE1.Example.LAN", "pve1", "localhost", "192.0.2.10"} {
+		if err := verify(host); err != nil {
+			t.Errorf("verify against %s: %v", host, err)
+		}
+	}
+	for _, host := range []string{"pve2.example.lan", "pve2"} {
+		if err := verify(host); err == nil {
+			t.Errorf("the certificate verified for %s, which is not this host's name", host)
+		}
+	}
+
+	// The same names on the next boot: nothing to re-issue.
+	again, err := m.Ensure()
+	if err != nil {
+		t.Fatalf("second Ensure: %v", err)
+	}
+	if again.LeafAction != ActionNone {
+		t.Errorf("second run re-issued the leaf (%s) with the same /etc/hosts", again.LeafReason)
+	}
 }
 
 // Lifetimes are a deliberate, load-bearing choice: ten years belongs on the

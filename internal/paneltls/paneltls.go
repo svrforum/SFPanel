@@ -32,6 +32,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -97,6 +98,7 @@ type Manager struct {
 	now      func() time.Time
 	localIPs func() ([]net.IP, error)
 	hostname func() (string, error)
+	hosts    func() ([]byte, error) // /etc/hosts, for the host's other names
 }
 
 // New returns a Manager rooted at dir.
@@ -106,6 +108,7 @@ func New(dir string) *Manager {
 		now:      time.Now,
 		localIPs: LocalIPs,
 		hostname: os.Hostname,
+		hosts:    func() ([]byte, error) { return os.ReadFile("/etc/hosts") },
 	}
 }
 
@@ -238,10 +241,18 @@ func ipStrings(ips []net.IP) []string {
 // Loopback is always included: the cluster's gRPC handler re-issues proxied
 // requests against its own panel port over 127.0.0.1, and that hop verifies
 // the certificate like any other client.
-func DesiredSANs(hostname string, addrs []net.IP) SANs {
+//
+// aliases are the host's other names, from HostsAliases; one that differs
+// from a name already in the set only in case is the same name.
+func DesiredSANs(hostname string, addrs []net.IP, aliases ...string) SANs {
 	dns := []string{"localhost"}
 	if hostname != "" && hostname != "localhost" {
 		dns = append(dns, hostname)
+	}
+	for _, name := range aliases {
+		if !slices.ContainsFunc(dns, func(have string) bool { return strings.EqualFold(have, name) }) {
+			dns = append(dns, name)
+		}
 	}
 
 	ips := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
@@ -269,7 +280,78 @@ func (m *Manager) desiredSANs() (SANs, error) {
 	if err != nil {
 		return SANs{}, fmt.Errorf("enumerate local addresses: %w", err)
 	}
-	return DesiredSANs(host, addrs), nil
+	// Without a readable /etc/hosts the certificate just has no other names.
+	hosts, _ := m.hosts()
+	return DesiredSANs(host, addrs, HostsAliases(hosts, host)...), nil
+}
+
+// HostsAliases returns the names /etc/hosts gives this host: every name on a
+// line that also names the hostname, or its first label when the hostname is
+// a full name, except the loopback names.
+//
+// The hostname alone is usually the short name, while the name people type is
+// the full one, and that one lives only in /etc/hosts: the Proxmox VE
+// installer writes "<address> <fqdn> <hostname>" there and debian-installer
+// "127.0.1.1 <fqdn> <hostname>". Without it, https://<fqdn>:3628 fails with a
+// name mismatch even on a device that trusts the CA.
+//
+// A name that is not a plain DNS name is left out, since a certificate that
+// cannot be issued keeps the panel from starting.
+func HostsAliases(hosts []byte, hostname string) []string {
+	short, _, _ := strings.Cut(hostname, ".")
+	if short == "" || loopbackName(short) {
+		return nil
+	}
+	var out []string
+	for line := range strings.Lines(string(hosts)) {
+		line, _, _ = strings.Cut(line, "#")
+		fields := strings.Fields(line)
+		if len(fields) < 2 || net.ParseIP(fields[0]) == nil {
+			continue
+		}
+		names := fields[1:]
+		if !slices.ContainsFunc(names, func(n string) bool {
+			return strings.EqualFold(n, hostname) || strings.EqualFold(n, short)
+		}) {
+			continue
+		}
+		for _, n := range names {
+			if loopbackName(n) || !plainDNSName(n) || slices.ContainsFunc(out, func(have string) bool { return strings.EqualFold(have, n) }) {
+				continue
+			}
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// loopbackName reports the names hosts files give the loopback addresses:
+// localhost and its variants, and Debian's ip6-localhost and ip6-loopback.
+func loopbackName(name string) bool {
+	name = strings.ToLower(name)
+	return strings.HasPrefix(name, "localhost") || strings.HasPrefix(name, "ip6-")
+}
+
+// plainDNSName accepts dot-separated labels of ASCII letters, digits and
+// hyphens, none empty or starting or ending with a hyphen, and not an
+// address. x509 refuses a name outside ASCII, which would fail the issue.
+func plainDNSName(name string) bool {
+	if len(name) > 253 || net.ParseIP(name) != nil {
+		return false
+	}
+	for _, label := range strings.Split(name, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			switch {
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
+			default:
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // EphemeralInterface reports whether an interface's addresses are too
