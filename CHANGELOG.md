@@ -6,6 +6,30 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.14] – 2026-10-15
+
+### Added
+
+- **Proxmox VE hosts are supported.** Installed directly on a Proxmox VE 8 or 9 host, the panel recognises it (the dashboard reads "Proxmox VE 9.x (Debian 13)") and keeps the hypervisor and its guests out of harm's way:
+  - The network page shows the host's ifupdown2 configuration read-only, with its guests' interfaces grouped apart, and points to the Proxmox UI for changes. The firewall page shows pve-firewall's status and offers no ufw. Docker is not installed on the host; Proxmox recommends it inside a VM or container.
+  - Networking, corosync, pve-cluster, the Proxmox firewalls and watchdog-mux cannot be stopped from the Services page, and the other Proxmox services need their name typed. A virtual machine's process cannot be killed from the Processes page, which names the VM and points to `qm shutdown`; nor can watchdog-mux, corosync, pmxcfs or the HA services.
+  - The disk pages set the guests' volumes (zvols, guest LVs, disks a VM has open) and the boot partitions apart, and refuse to format, delete or reuse them.
+  - Upgrades run `dist-upgrade`, as Proxmox requires. A repository that refuses access, such as the enterprise repository without a subscription, is reported and no longer stops an install. The Logs page reads the journal where there is no syslog file and adds the Proxmox firewall log. The Tuning page leaves the bridge, forwarding and conntrack settings to Proxmox. The memory figure no longer counts the ZFS ARC as used.
+  - install.sh prints the Proxmox firewall rule instead of ufw advice, and the join commands work as root on a host without sudo.
+
+### Fixed
+
+- **An unconfirmed network change goes back to the configuration from before it was saved.** Saving rewrote the netplan files and Apply then took them as the way back, so a change nobody confirmed "rolled back" to itself. (#114)
+- **A new partition table and a fresh file system show at once,** and a new partition can be formatted as it is created. (#113)
+- **Docker port rules match the host port, not the container's address,** so a port blocked from the Docker tab stays blocked when the container gets a new address on restart. Rules saved the old way are moved when the panel starts, and a rule nothing names a host port for is shown as not blocking. (#112)
+- **Packages with setuid files install and upgrade from the panel** on installs made since v0.13.1, whose service unit forbade them; the setting is dropped at the next start.
+- **Upgrades and installs from the Packages page run in a unit of their own:** closing the page or restarting the panel no longer kills apt part-way through, and the page can follow one that is running.
+- **"Upgrade all" installs new kernels,** which `apt-get upgrade` kept back, and a configuration file the operator edited no longer stops an upgrade.
+- **The package lock check sees apt and dpkg,** which lock with fcntl while the check used flock, and names the process holding it.
+- **The Services page refused to stop the panel's own service on screen and stopped it anyway.** Every stop, restart and disable now asks first, and ssh needs its name typed.
+- **Disks:** removing a thin pool no longer removes every volume in it, shrinking a logical volume needs confirmation, swap is not written over a device that holds data, and the LVM tab survives LVM's warnings.
+- The terminal uses a locale the host has (it forced ko_KR.UTF-8), the panel certificate covers the names /etc/hosts gives the host, Docker port rules added outside the panel survive a panel restart, a Tailscale exit node keeps LAN access, and accepting Tailscale routes that cover a network the host is on is refused.
+
 ## [0.78.13] – 2026-10-11
 
 ### Fixed
