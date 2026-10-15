@@ -72,6 +72,15 @@ func TestDeviceSwapRefusesADeviceThatHoldsData(t *testing.T) {
 		t.Errorf("an empty partition: %d %s", rec.Code, rec.Body.String())
 	}
 
+	// A blkid that fails for another reason leaves the device unread, which
+	// is not empty.
+	cmd = swapMock(exec.MockResult{Output: "blkid: error: /dev/sdb2: Input/output error", Err: exitStatus(t, 4)})
+	rec := call(t, (*Handler).CreateSwap, cmd, http.MethodPost, `{"device":"sdb2"}`)
+	assertRefused(t, rec, http.StatusInternalServerError, "DISK_ERROR", nil)
+	if !strings.Contains(rec.Body.String(), "cannot read /dev/sdb2") || ran(cmd, "mkswap") {
+		t.Errorf("blkid failed: %s %v", rec.Body.String(), callNames(cmd.Calls))
+	}
+
 	// With force the operator has seen what is there; blkid is not asked.
 	cmd = swapMock(exec.MockResult{Output: "TYPE=ext4\n"})
 	if rec := call(t, (*Handler).CreateSwap, cmd, http.MethodPost, `{"device":"sdb2","force":true}`); rec.Code != http.StatusOK || !ran(cmd, "mkswap") || ran(cmd, "blkid") {
@@ -102,6 +111,15 @@ func TestDeviceSwapRefusesDevicesInUse(t *testing.T) {
 	assertRefused(t, rec, http.StatusBadRequest, "INVALID_DEVICE", nil)
 	if !strings.Contains(rec.Body.String(), "protected system path") || ran(cmd, "mkswap") {
 		t.Errorf("mounted at /boot: %s", rec.Body.String())
+	}
+
+	// A name that is no block device here goes no further.
+	findDeviceMountpoint = func(string) (string, error) { return "", nil }
+	cmd = swapMock(exec.MockResult{Err: exitStatus(t, 2)})
+	rec = call(t, (*Handler).CreateSwap, cmd, http.MethodPost, `{"device":"/dev/sdz9","force":true}`)
+	assertRefused(t, rec, http.StatusBadRequest, "INVALID_DEVICE", nil)
+	if !strings.Contains(rec.Body.String(), "device not found") || ran(cmd, "mkswap") {
+		t.Errorf("no such device: %s", rec.Body.String())
 	}
 }
 

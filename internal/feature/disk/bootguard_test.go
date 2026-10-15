@@ -109,6 +109,15 @@ func TestBootGuardFailsClosed(t *testing.T) {
 	if ran(cmd, "mkfs.ext4") {
 		t.Error("mkfs ran without knowing what the partition was")
 	}
+
+	// Nor is a partition about to be deleted.
+	cmd = guardMock()
+	cmd.Outputs["lsblk"] = exec.MockResult{Output: "lsblk: /dev/sdb2: not a block device", Err: errors.New("exit status 32")}
+	rec = call(t, (*Handler).DeletePartition, cmd, http.MethodDelete, "", "device", "sdb", "number", "2")
+	assertRefused(t, rec, http.StatusInternalServerError, "DISK_ERROR", nil)
+	if ran(cmd, "parted") {
+		t.Error("parted ran without knowing what the partition was")
+	}
 }
 
 // Debian's installer on a BIOS machine with guided LVM: sda1 /boot, sda2 an
