@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.16] – 2026-10-16
+
+### Fixed
+
+- **A link tapped in the terminal opens in the Android app.** The terminal's link handler opened an empty window and gave it the address afterwards. In the app's WebView that empty window was the page itself and used up the tap, so the app took what followed for a navigation nobody started and dropped it without a word. The terminal and the container shell now hand the address over in the same call: a browser opens a tab as before, and the app asks to open the link in the phone's browser. The app itself needs no update.
+
 ## [0.78.15] – 2026-10-16
 
 ### Fixed
