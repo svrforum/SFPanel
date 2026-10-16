@@ -6,6 +6,13 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.17] – 2026-10-17
+
+### Fixed
+
+- **A restart no longer waits out an open progress view.** Stopping the panel waited for every response in progress, and a progress stream ends only when its page is closed: a cluster update watched in the browser held each node's restart for ten seconds, and the stop then failed with exit status 1 and skipped the steps after it, writing out the audit entries still queued among them. Streams are now cut off as the shutdown begins — the page sees the connection drop, as before, rather than a stream that finished — while ordinary requests still get time to finish, and one that outlasts it no longer stops the rest of the shutdown. A progress view relayed through another node and closed early no longer logs the remote stream as broken.
+- **The update's rollback watchdog survives the restart it watches.** The self-update starts a watchdog that puts the previous binary back if the new one never comes up, then restarts the panel. Under systemd that restart stopped the watchdog along with everything else in the panel's service, so a release that failed to start stayed down. The watchdog now runs in a scope of its own, and its verdict is in the journal (`journalctl -u 'sfpanel-update-watchdog-*'`).
+
 ## [0.78.16] – 2026-10-16
 
 ### Fixed
