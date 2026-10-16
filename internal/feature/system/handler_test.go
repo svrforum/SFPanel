@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -69,6 +70,9 @@ func TestMain(m *testing.M) {
 	prevSystemd := isSystemdActive
 	isSystemdActive = func() bool { return false }
 	defer func() { isSystemdActive = prevSystemd }()
+
+	// The test host cannot create scopes: a watchdog starts as a plain child.
+	inOwnScope = func(_ string, argv []string) []string { return argv }
 
 	os.Exit(m.Run())
 }
@@ -2115,5 +2119,59 @@ func TestRestoreBackup_RestartUnderWayDoesNotSelfExit(t *testing.T) {
 	}
 	if got := exitCount.Load(); got != before {
 		t.Errorf("self-exited although systemctl was killed by the stop of its own restart (before=%d, now=%d)", before, got)
+	}
+}
+
+// realInOwnScope is the launcher RunUpdate uses outside tests; TestMain
+// swaps inOwnScope for a pass-through.
+var realInOwnScope = inOwnScope
+
+// Under systemd the update watchdog starts in a scope of its own, out of
+// sfpanel.service's control group: the restart it watches stops everything
+// in that group, and the watchdog died with the panel it was there to roll
+// back. Without systemd there is no unit to leave, and no systemd-run.
+func TestRunUpdate_WatchdogStartsInItsOwnScopeUnderSystemd(t *testing.T) {
+	for _, systemd := range []bool{true, false} {
+		t.Run(fmt.Sprintf("systemd=%v", systemd), func(t *testing.T) {
+			withSystemdActive(t, systemd)
+			withRestartFlushDelay(t, 5*time.Millisecond)
+			var scoped []string
+			prev := inOwnScope
+			inOwnScope = func(unit string, argv []string) []string {
+				scoped = append([]string{unit}, argv...)
+				return argv
+			}
+			t.Cleanup(func() { inOwnScope = prev })
+
+			cmd := &restartFailCommander{MockCommander: commonExec.NewMockCommander()}
+			h := buildRunUpdateToRestartHarness(t, cmd)
+			restartWG.Wait()
+			rec := httptest.NewRecorder()
+			c := echo.New().NewContext(httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil), rec)
+			if err := h.RunUpdate(c); err != nil {
+				t.Fatalf("RunUpdate: %v", err)
+			}
+			restartWG.Wait()
+			if !strings.Contains(rec.Body.String(), `"step":"complete"`) {
+				t.Fatalf("the update stopped short of the restart: %s", rec.Body.String())
+			}
+			if !systemd {
+				if scoped != nil {
+					t.Fatalf("without systemd the watchdog went through systemd-run: %q", scoped)
+				}
+				return
+			}
+			if len(scoped) < 3 || !strings.HasPrefix(scoped[0], "sfpanel-update-watchdog-") || scoped[2] != "watchdog-update" {
+				t.Fatalf("under systemd the watchdog started as %q, want it in a scope of its own named sfpanel-update-watchdog-*", scoped)
+			}
+		})
+	}
+}
+
+func TestInOwnScope_StartsATransientScope(t *testing.T) {
+	got := realInOwnScope("sfpanel-update-watchdog-1", []string{"/usr/local/bin/sfpanel.bak", "watchdog-update"})
+	want := []string{"systemd-run", "--scope", "--collect", "--unit=sfpanel-update-watchdog-1", "/usr/local/bin/sfpanel.bak", "watchdog-update"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("inOwnScope = %q, want %q", got, want)
 	}
 }

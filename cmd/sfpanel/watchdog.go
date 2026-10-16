@@ -30,10 +30,13 @@ import (
 //	[db_path]        — optional: live SQLite path the .bak should land at
 //
 // The watchdog runs from the BACKUP binary (the parent's caller passes
-// bak_path as argv[0]) so the systemctl restart that happens just after
-// spawning it doesn't kill the watchdog itself. After the grace period the
-// watchdog exits regardless; success or failure is logged to stderr where
-// systemd's journal will pick it up if the parent's run script captured it.
+// bak_path as argv[0]), the one known to work. Under systemd the parent
+// starts it in a scope of its own: the systemctl restart that follows stops
+// everything in sfpanel.service's control group, and a watchdog left there
+// died with the panel it was to roll back. After the grace period the
+// watchdog exits regardless. Its verdict goes to stderr, which under systemd
+// is the journal (journalctl -u 'sfpanel-update-watchdog-*'); elsewhere it
+// is discarded.
 //
 // Forward-only: pre-watchdog binaries don't know this subcommand, so updates
 // FROM such a binary still take the old "no rollback" path. Updates TO this

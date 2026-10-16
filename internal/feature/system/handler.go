@@ -64,6 +64,18 @@ var exitProcess = func() { os.Exit(0) }
 // produce different test outcomes than CI.
 var isSystemdActive = lifecycle.IsSystemdActive
 
+// inOwnScope runs argv in a transient scope unit of its own, which the update
+// watchdog needs: the restart it watches stops every process in
+// sfpanel.service's control group, and a watchdog left in that group — in a
+// session of its own or not — went down with the panel it was there to roll
+// back. systemd-run moves itself into the new scope and execs argv in place,
+// so the process started is the watchdog itself and watchdogAlive probes the
+// right PID. A var so tests, which cannot create scopes, start the watchdog
+// as a plain child.
+var inOwnScope = func(unit string, argv []string) []string {
+	return append([]string{"systemd-run", "--scope", "--collect", "--unit=" + unit}, argv...)
+}
+
 // restartFlushDelay is the pause between emitting the SSE 'complete' event and
 // triggering the restart, giving the kernel time to flush the event to the
 // client before systemd SIGTERMs us. A package var so tests can shrink it.
@@ -641,18 +653,28 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 	// currently-deployed node's .bak knows the subcommand and stays alive — the
 	// probe only fails for genuine watchdog failures, not the normal upgrade path.
 	if h.Port > 0 {
-		watchdogCmd := exec.Command(backupPath, "watchdog-update",
+		argv := []string{backupPath, "watchdog-update",
 			backupPath,
 			execPath,
 			fmt.Sprintf("%s://127.0.0.1:%d/api/v1/system/info", h.probeScheme(), h.Port),
 			"90",
-			h.DBPath+".bak",
+			h.DBPath + ".bak",
 			h.DBPath,
-		)
-		watchdogCmd.SysProcAttr = detachAttr() // platform-specific: detach so systemctl restart can't kill it
+		}
+		var watchdogLog *os.File
+		if isSystemdActive() {
+			argv = inOwnScope(fmt.Sprintf("sfpanel-update-watchdog-%d", time.Now().Unix()), argv)
+			// The panel's own stderr, a journal stream: the verdict is
+			// recorded under the scope (journalctl -u 'sfpanel-update-watchdog-*').
+			watchdogLog = os.Stderr
+		}
+		watchdogCmd := exec.Command(argv[0], argv[1:]...)
+		watchdogCmd.SysProcAttr = detachAttr() // a session of its own, apart from the panel's
 		watchdogCmd.Stdout = nil
-		watchdogCmd.Stderr = nil
 		watchdogCmd.Stdin = nil
+		if watchdogLog != nil {
+			watchdogCmd.Stderr = watchdogLog
+		}
 
 		wdErr := watchdogCmd.Start()
 		alive := wdErr == nil
