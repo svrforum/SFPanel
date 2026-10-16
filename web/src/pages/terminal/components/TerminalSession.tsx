@@ -9,6 +9,7 @@ import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
 import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
 import { attachLongPress } from '@/lib/longPress'
+import { openTerminalLink } from '@/lib/terminalLinks'
 import { SELECT_TEXT_EVENT } from '@/lib/terminalText'
 import { decodeOsc52 } from '@/lib/osc52'
 import { cellBefore, lineAt, rangeBetween, spanEnd, wordAt, type CellPos, type TextSpan } from '@/lib/terminalWord'
@@ -238,7 +239,7 @@ export function TerminalSession({
     const searchAddon = new SearchAddon()
     const unicode11Addon = new Unicode11Addon()
     term.loadAddon(fitAddon)
-    term.loadAddon(new WebLinksAddon())
+    term.loadAddon(new WebLinksAddon(openTerminalLink))
     term.loadAddon(searchAddon)
     term.loadAddon(unicode11Addon)
     term.unicode.activeVersion = '11'

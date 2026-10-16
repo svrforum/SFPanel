@@ -7,6 +7,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/lib/api'
 import { attachXtermTouchScroll } from '@/lib/xtermTouchScroll'
+import { openTerminalLink } from '@/lib/terminalLinks'
 import { Button } from '@/components/ui/button'
 
 interface ContainerShellProps {
@@ -59,7 +60,7 @@ export default function ContainerShell({ containerId }: ContainerShellProps) {
 
     const fitAddon = new FitAddon()
     term.loadAddon(fitAddon)
-    term.loadAddon(new WebLinksAddon())
+    term.loadAddon(new WebLinksAddon(openTerminalLink))
     term.open(terminalRef.current)
     fitAddon.fit()
     termRef.current = term

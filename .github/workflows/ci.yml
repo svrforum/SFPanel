@@ -189,6 +189,7 @@ jobs:
             tests/settings-scope.spec.ts \
             tests/alert-settings.spec.ts \
             tests/terminal-select-text.spec.ts \
+            tests/terminal-links.spec.ts \
             tests/android-session.spec.ts \
             tests/cluster-lifecycle.spec.ts
       - name: Dump panel log on failure
