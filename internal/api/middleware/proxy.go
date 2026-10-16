@@ -65,6 +65,46 @@ func isStreamingEndpoint(path string) bool {
 	return false
 }
 
+// relayEventStream copies a remote node's event stream to the client as it
+// arrives. The upstream request runs under the client request's context, so
+// it ends when the client leaves or the panel shuts down (Streams) as well as
+// when the remote breaks — and only the last is the remote's failure.
+func relayEventStream(c echo.Context, upstream io.Reader) {
+	w := c.Response()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	buf := make([]byte, 4096)
+	flusher, _ := w.Writer.(http.Flusher)
+	for {
+		n, readErr := upstream.Read(buf)
+		if n > 0 {
+			w.Write(buf[:n])
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		if readErr != nil {
+			if readErr != io.EOF && c.Request().Context().Err() == nil {
+				// The remote stream broke mid-flight (node crash, network
+				// reset). Headers (200) are already sent, so we can't change
+				// the status — but surface a terminal error event and log it
+				// so a half-finished install/update isn't read as success.
+				slog.Warn("SSE relay: remote stream ended abnormally",
+					"component", "cluster-proxy",
+					"path", c.Request().URL.Path, "error", readErr)
+				fmt.Fprint(w, "event: error\ndata: {\"message\":\"upstream stream interrupted\"}\n\n")
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+			return
+		}
+	}
+}
+
 // isBinaryRelayEndpoint identifies routes that ship large binary payloads
 // in either direction (request body, response body, or both). The default
 // gRPC proxy buffers the whole body into one APIResponse message and
@@ -335,40 +375,7 @@ func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) er
 	ct := resp.Header.Get("Content-Type")
 	if resp.StatusCode == http.StatusOK && strings.Contains(ct, "text/event-stream") {
 		defer resp.Body.Close()
-		// Relay SSE stream directly
-		w := c.Response()
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		w.WriteHeader(http.StatusOK)
-
-		buf := make([]byte, 4096)
-		flusher, _ := w.Writer.(http.Flusher)
-		for {
-			n, readErr := resp.Body.Read(buf)
-			if n > 0 {
-				w.Write(buf[:n])
-				if flusher != nil {
-					flusher.Flush()
-				}
-			}
-			if readErr != nil {
-				if readErr != io.EOF {
-					// The remote stream broke mid-flight (node crash, network
-					// reset). Headers (200) are already sent, so we can't change
-					// the status — but surface a terminal error event and log it
-					// so a half-finished install/update isn't read as success.
-					slog.Warn("SSE relay: remote stream ended abnormally",
-						"component", "cluster-proxy",
-						"path", c.Request().URL.Path, "error", readErr)
-					fmt.Fprint(w, "event: error\ndata: {\"message\":\"upstream stream interrupted\"}\n\n")
-					if flusher != nil {
-						flusher.Flush()
-					}
-				}
-				break
-			}
-		}
+		relayEventStream(c, resp.Body)
 		return nil
 	}
 

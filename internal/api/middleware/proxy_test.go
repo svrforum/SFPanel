@@ -2,8 +2,10 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -554,5 +557,92 @@ func TestSetAuthHeaders_NoV1Outbound(t *testing.T) {
 	}
 	if !auth.IsInternalProxyRequest(out) {
 		t.Error("receiver must accept the v2-only outbound request")
+	}
+}
+
+// signalWriter records a relayed response and says when its first bytes are
+// written.
+type signalWriter struct {
+	*httptest.ResponseRecorder
+	once  sync.Once
+	wrote chan struct{}
+}
+
+func (w *signalWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseRecorder.Write(p)
+	w.once.Do(func() { close(w.wrote) })
+	return n, err
+}
+
+// relayFrom relays an upstream event stream the way relaySSE does — the
+// upstream request under the client request's context — and returns what the
+// client received. hangUp runs once the first event is through.
+func relayFrom(t *testing.T, upstream http.HandlerFunc, hangUp func(cancel context.CancelFunc)) string {
+	t.Helper()
+	remote := httptest.NewServer(upstream)
+	defer remote.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	upReq, err := http.NewRequestWithContext(ctx, http.MethodPost, remote.URL+"/api/v1/cluster/update", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := remote.Client().Do(upReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	w := &signalWriter{ResponseRecorder: httptest.NewRecorder(), wrote: make(chan struct{})}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cluster/update", nil).WithContext(ctx)
+	c := echo.New().NewContext(req, w)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		relayEventStream(c, resp.Body)
+	}()
+	select {
+	case <-w.wrote:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the first event was never relayed")
+	}
+	hangUp(cancel)
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the relay did not end")
+	}
+	return w.Body.String()
+}
+
+func oneEvent(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, "data: {\"step\":\"started\"}\n\n")
+	w.(http.Flusher).Flush()
+}
+
+// The client leaving, or this node shutting down (Streams), ends the relay
+// here; the leader's stream was fine and the update goes on there.
+func TestRelayEventStream_EndingHereIsNotAnUpstreamFailure(t *testing.T) {
+	got := relayFrom(t, func(w http.ResponseWriter, r *http.Request) {
+		oneEvent(w)
+		<-r.Context().Done()
+	}, func(cancel context.CancelFunc) { cancel() })
+	if !strings.Contains(got, `"step":"started"`) {
+		t.Fatalf("relayed %q, want the first event", got)
+	}
+	if strings.Contains(got, "upstream stream interrupted") {
+		t.Fatalf("relayed %q: a stream ended at this end was reported as the remote breaking", got)
+	}
+}
+
+func TestRelayEventStream_UpstreamBreakIsReported(t *testing.T) {
+	got := relayFrom(t, func(w http.ResponseWriter, r *http.Request) {
+		oneEvent(w)
+		panic(http.ErrAbortHandler) // the remote node goes away mid-stream
+	}, func(context.CancelFunc) {})
+	if !strings.Contains(got, "upstream stream interrupted") {
+		t.Fatalf("relayed %q, want the error event for a remote that broke", got)
 	}
 }

@@ -25,6 +25,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/labstack/echo/v4"
+
 	sfpanel "github.com/svrforum/SFPanel"
 	"github.com/svrforum/SFPanel/internal/api"
 	"github.com/svrforum/SFPanel/internal/api/middleware"
@@ -415,12 +417,7 @@ func main() {
 	<-quit
 
 	slog.Info("shutting down server")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := e.Shutdown(ctx); err != nil {
-		slog.Error("server forced shutdown", "error", err)
-		os.Exit(1)
-	}
+	shutdownServer(e, 10*time.Second)
 	// Stop the alert manager (and any other background work registered in
 	// NewRouter) *after* the HTTP server has drained so no request can race
 	// with goroutine shutdown, but *before* the DB closes.
@@ -884,4 +881,18 @@ func parseObservabilityRetention(s string) (time.Duration, error) {
 		return 90 * 24 * time.Hour, nil
 	}
 	return 24 * time.Hour, nil
+}
+
+// shutdownServer stops e. Its Shutdown ends the event streams first (see
+// middleware.Streams), and the ordinary requests still running get grace to
+// finish before their connections are closed. It returns either way: the
+// steps after it drain the audit queue and close the database, and exiting
+// on a request that outlasted the grace lost the audit rows still queued.
+func shutdownServer(e *echo.Echo, grace time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), grace)
+	defer cancel()
+	if err := e.Shutdown(ctx); err != nil {
+		slog.Warn("requests still running after the shutdown grace period; closing their connections", "error", err)
+		_ = e.Close()
+	}
 }

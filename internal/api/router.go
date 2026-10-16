@@ -131,6 +131,11 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	e.IPExtractor = echo.ExtractIPFromXFFHeader(trustOpts...)
 
 	e.Use(echoMw.Recover())
+	// Right inside Recover, which lets the abort of a stream ended by Shutdown
+	// through to net/http.
+	streams := mw.NewStreams()
+	streams.EndOnShutdown(e.Server, e.TLSServer)
+	e.Use(streams.Middleware())
 	// The inline theme script in index.html is allowed by hash, computed from
 	// the embedded file so it can never drift out of sync with the policy.
 	e.Use(mw.SecurityHeaders(mw.InlineScriptHashes(webFS)...))
