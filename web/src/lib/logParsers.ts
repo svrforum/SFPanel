@@ -226,7 +226,9 @@ const authColumns: ColumnDef<AuthLogEntry>[] = [
 // Matches both UFW and DOCKER-USER kernel log entries
 const UFW_ACTION_RE = /\[UFW\s+(BLOCK|ALLOW|AUDIT|LIMIT)\]/
 const DOCKER_FW_ACTION_RE = /\[DOCKER-USER\s+(DROP|ACCEPT)\]/
-const DOCKER_FW_HPORT_RE = /HPORT=(\d+)/
+// The host port the LOG rule's prefix names: HP= since #117, HPORT= before —
+// which iptables cut short past three digits, so a five-digit port lost its last.
+const DOCKER_FW_HPORT_RE = /\bH(?:PORT|P)=(\d+)/
 
 export type FirewallSource = 'UFW' | 'Docker'
 export type FirewallAction = 'BLOCK' | 'ALLOW' | 'AUDIT' | 'LIMIT' | 'DROP' | 'ACCEPT'

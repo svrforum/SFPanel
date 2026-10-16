@@ -147,49 +147,47 @@ func (h *Handler) parseDockerPublishedPorts(output string) []DockerPublishedPort
 	// Build container IP → name mapping from docker ps
 	ipToName := h.buildContainerIPMap()
 
-	var ports []DockerPublishedPort
+	ports := parseDNATPorts(output)
+	for i := range ports {
+		ports[i].ContainerName = ipToName[ports[i].ContainerIP]
+		if ports[i].ContainerName == "" {
+			ports[i].ContainerName = ports[i].ContainerIP
+		}
+	}
+	return ports
+}
 
-	// Parse DNAT rules like:
-	// 1    DNAT       tcp  --  0.0.0.0/0   0.0.0.0/0   tcp dpt:80 to:172.17.0.2:80
-	// 1    DNAT       6    --  0.0.0.0/0   0.0.0.0/0   tcp dpt:80 to:172.18.0.3:80
-	dnatRe := regexp.MustCompile(`^\s*(\d+)\s+DNAT\s+(\S+)\s+--\s+\S+\s+(\S+)\s+(?:tcp|udp)\s+dpt:(\d+)\s+to:(\d+\.\d+\.\d+\.\d+):(\d+)`)
+// dnatRe matches a DNAT rule in a listing of Docker's NAT DOCKER chain:
+//
+//	1    DNAT       tcp  --  0.0.0.0/0   0.0.0.0/0   tcp dpt:80 to:172.17.0.2:80
+//	1    DNAT       6    --  0.0.0.0/0   0.0.0.0/0   tcp dpt:80 to:172.18.0.3:80
+var dnatRe = regexp.MustCompile(`^\s*(\d+)\s+DNAT\s+(\S+)\s+--\s+\S+\s+(\S+)\s+(?:tcp|udp)\s+dpt:(\d+)\s+to:(\d+\.\d+\.\d+\.\d+):(\d+)`)
 
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
+// parseDNATPorts reads the ports Docker publishes from a listing of its NAT
+// DOCKER chain, without the containers' names.
+func parseDNATPorts(output string) []DockerPublishedPort {
+	ports := []DockerPublishedPort{}
+	for _, line := range strings.Split(output, "\n") {
 		matches := dnatRe.FindStringSubmatch(line)
 		if matches == nil {
 			continue
 		}
 
 		hostPort, _ := strconv.Atoi(matches[4])
-		containerIP := matches[5]
 		containerPort, _ := strconv.Atoi(matches[6])
-		protocol := normalizeProtocol(matches[2])
 		hostIP := matches[3]
-
 		if hostIP == "0.0.0.0/0" {
 			hostIP = "0.0.0.0"
 		}
 
-		containerName := ipToName[containerIP]
-		if containerName == "" {
-			containerName = containerIP
-		}
-
 		ports = append(ports, DockerPublishedPort{
-			ContainerName: containerName,
-			ContainerIP:   containerIP,
+			ContainerIP:   matches[5],
 			HostPort:      hostPort,
 			ContainerPort: containerPort,
-			Protocol:      protocol,
+			Protocol:      normalizeProtocol(matches[2]),
 			HostIP:        hostIP,
 		})
 	}
-
-	if ports == nil {
-		ports = []DockerPublishedPort{}
-	}
-
 	return ports
 }
 
@@ -424,7 +422,7 @@ func (h *Handler) AddDockerUserRule(c echo.Context) error {
 		if req.Source != "" {
 			logArgs = append(logArgs, "-s", req.Source)
 		}
-		logPrefix := fmt.Sprintf("[DOCKER-USER DROP] HPORT=%d ", req.Port)
+		logPrefix := dockerLogPrefix(req.Port)
 		logArgs = append(logArgs, match...)
 		logArgs = append(logArgs, "-j", "LOG", "--log-prefix", logPrefix, "--log-level", "4")
 		if _, logErr := h.Cmd.Run("iptables", logArgs...); logErr != nil {
@@ -505,13 +503,11 @@ func (h *Handler) saveDockerUserRules() error {
 		return fmt.Errorf("iptables-save: %w", err)
 	}
 
-	lines := []string{"*filter"}
+	var listing []string
 	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if isPanelDockerRule(line) {
-			lines = append(lines, line)
-		}
+		listing = append(listing, strings.TrimSpace(line))
 	}
+	lines := append([]string{"*filter"}, panelDockerRules(listing)...)
 
 	// Only save if the panel has rules in the chain
 	if len(lines) == 1 {
@@ -555,46 +551,67 @@ func (h *Handler) saveDockerUserRules() error {
 func RestoreDockerUserRules(cmd exec.Commander) {
 	source := dockerUserRulesFile
 	if _, err := os.Stat(source); os.IsNotExist(err) {
-		if _, err := os.Stat(dockerUserRulesFileLegacy); os.IsNotExist(err) {
-			return
+		if _, err := os.Stat(dockerUserRulesFileLegacy); err == nil {
+			source = dockerUserRulesFileLegacy
 		}
-		source = dockerUserRulesFileLegacy
 	}
-
-	data, err := os.ReadFile(source)
-	if err != nil {
+	var saved []string
+	if data, err := os.ReadFile(source); err == nil {
+		saved = strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	} else if !os.IsNotExist(err) {
 		slog.Warn("failed to read the saved DOCKER-USER rules", "component", "firewall", "file", source, "error", err)
 		return
 	}
-	saved := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+
+	// Docker makes the chain when it starts, and the panel can start first.
+	listing, chainErr := cmd.Run("iptables", "-S", "DOCKER-USER")
+	var live []string
+	if chainErr == nil {
+		for _, l := range strings.Split(listing, "\n") {
+			if l = strings.TrimSpace(l); strings.HasPrefix(l, "-A DOCKER-USER ") {
+				live = append(live, l)
+			}
+		}
+	}
+
+	// The panel's rules from before #112 that the chain has and the file
+	// does not: releases that could not tell them for the panel's dropped them
+	// at their next save (#117), and the next reboot took them away. Back in
+	// the file, they are moved and kept like the rest.
+	adopted := 0
+	for _, line := range panelDockerRules(live) {
+		if !slices.Contains(saved, line) {
+			saved = withSavedRule(saved, line)
+			adopted++
+		}
+	}
+	if len(saved) == 0 {
+		return
+	}
 
 	// Rules saved before #112 match the container's address, which may not
 	// be the container's any more. Moved to the host port first, so this
 	// restore does not put back a rule that lets the port through.
-	lines, moved := migrateDockerUserRules(saved)
-	if moved > 0 {
-		if err := os.WriteFile(source, []byte(strings.Join(lines, "\n")+"\n"), 0600); err != nil {
+	lines, moved := migrateDockerUserRules(saved, publishedPorts(cmd))
+	if moved > 0 || adopted > 0 {
+		if err := os.MkdirAll(filepath.Dir(source), 0755); err != nil {
+			slog.Warn("failed to save DOCKER-USER rules moved to host ports", "component", "firewall", "error", err)
+		} else if err := os.WriteFile(source, []byte(strings.Join(lines, "\n")+"\n"), 0600); err != nil {
 			slog.Warn("failed to save DOCKER-USER rules moved to host ports", "component", "firewall", "error", err)
 		} else {
-			slog.Info("moved DOCKER-USER rules from container addresses to host ports", "component", "firewall", "rules", moved)
+			slog.Info("moved DOCKER-USER rules from container addresses to host ports", "component", "firewall", "rules", moved, "kept_from_chain", adopted)
 		}
 	}
+	if left := len(legacyPanelRules(lines)); left > 0 {
+		slog.Warn("DOCKER-USER rules from before host ports left pinned to a container: their host port could not be told", "component", "firewall", "rules", left)
+	}
 
-	// Docker makes the chain when it starts, and the panel can start first.
 	// A missing chain is made here, empty, as Docker would make it; Docker
 	// then takes it as it finds it.
-	listing, err := cmd.Run("iptables", "-S", "DOCKER-USER")
-	if err != nil {
+	if chainErr != nil {
 		if out, err := cmd.Run("iptables", "-N", "DOCKER-USER"); err != nil {
 			slog.Warn("failed to restore DOCKER-USER rules: no chain", "component", "firewall", "error", err, "output", out)
 			return
-		}
-		listing = ""
-	}
-	var live []string
-	for _, l := range strings.Split(listing, "\n") {
-		if l = strings.TrimSpace(l); strings.HasPrefix(l, "-A DOCKER-USER ") {
-			live = append(live, l)
 		}
 	}
 
@@ -654,9 +671,67 @@ var (
 	panelConntrackRuleRe = regexp.MustCompile(`^-A DOCKER-USER (?:-s \S+ )?-p (?:tcp|udp) -m conntrack --ctstate DNAT --ctorigdstport \d+ --ctdir ORIGINAL -j (?:ACCEPT|DROP|LOG)(?: |$)`)
 )
 
+// panelDockerRules picks the panel's own DOCKER-USER rules out of an
+// iptables-save listing, in order: those isPanelDockerRule knows by
+// themselves, and from before #112 each rule on the container port of a LOG
+// naming a host port — the DROP behind it, an ACCEPT for one source in front.
+// Those were dropped from the file when iptables had cut the LOG's prefix
+// short and nothing else in the rule said whose it was (#117).
+func panelDockerRules(listing []string) []string {
+	legacy := map[legacyTarget]bool{}
+	for _, line := range listing {
+		if m := legacyDockerRuleRe.FindStringSubmatch(line); m != nil && m[5] == "LOG" && hostPortPrefixRe.MatchString(m[6]) {
+			legacy[legacyTarget{m[2], m[3], m[4]}] = true
+		}
+	}
+	var rules []string
+	for _, line := range listing {
+		if isPanelDockerRule(line) {
+			rules = append(rules, line)
+		} else if m := legacyDockerRuleRe.FindStringSubmatch(line); m != nil && legacy[legacyTarget{m[2], m[3], m[4]}] {
+			rules = append(rules, line)
+		}
+	}
+	return rules
+}
+
+// legacyPanelRules are the panel's rules in a listing still pinned to a
+// container's address.
+func legacyPanelRules(listing []string) []string {
+	var rules []string
+	for _, line := range panelDockerRules(listing) {
+		if legacyDockerRuleRe.MatchString(line) {
+			rules = append(rules, line)
+		}
+	}
+	return rules
+}
+
+// withSavedRule adds a rule to a saved listing, before its COMMIT.
+func withSavedRule(saved []string, line string) []string {
+	if len(saved) == 0 {
+		saved = []string{"*filter", "COMMIT"}
+	}
+	if i := slices.Index(saved, "COMMIT"); i >= 0 {
+		return slices.Insert(saved, i, line)
+	}
+	return append(saved, line)
+}
+
+// publishedPorts is what Docker publishes now, from its NAT chain; nothing
+// before Docker is up.
+func publishedPorts(cmd exec.Commander) []DockerPublishedPort {
+	out, err := cmd.Run("iptables", "-t", "nat", "-L", "DOCKER", "-n", "--line-numbers")
+	if err != nil {
+		return nil
+	}
+	return parseDNATPorts(out)
+}
+
 // isPanelDockerRule reports whether an iptables-save line is a DOCKER-USER
-// rule the panel wrote: tagged; or, from before the tag, the LOG naming a host
-// port that goes in front of each DROP, or a rule in the conntrack form.
+// rule the panel wrote, by itself: tagged; or, from before the tag, the LOG
+// naming a host port that goes in front of each DROP, or a rule in the
+// conntrack form.
 func isPanelDockerRule(line string) bool {
 	if !strings.HasPrefix(line, "-A DOCKER-USER ") {
 		return false
@@ -713,27 +788,103 @@ func splitSaveArgs(s string) []string {
 // wrote before #112: pinned to a container's address and port.
 var legacyDockerRuleRe = regexp.MustCompile(`^-A DOCKER-USER (?:-s (\S+) )?(?:-d (\S+) )?-p (tcp|udp) -m (?:tcp|udp) --dport (\d+) -j (ACCEPT|DROP|LOG)(.*)$`)
 
-// hostPortPrefixRe reads the host port from the LOG rule the panel puts in
-// front of each DROP.
-var hostPortPrefixRe = regexp.MustCompile(`--log-prefix "\[DOCKER-USER DROP\] HPORT=(\d+) "`)
+// legacyTarget is what a rule from before #112 matched: the container's
+// address (none when it was not running), the protocol and the port.
+type legacyTarget struct{ dest, proto, port string }
+
+// hostPortPrefixRe reads the host port from the LOG rule the panel put in
+// front of each DROP before #112. iptables keeps 29 characters of a log
+// prefix and "[DOCKER-USER DROP] HPORT=" is 25 of them: a port of up to three
+// digits keeps the space after it, one of four loses the space, and one of
+// five loses its last digit too — 32400 was saved as HPORT=3240 (#117).
+var hostPortPrefixRe = regexp.MustCompile(`--log-prefix "\[DOCKER-USER DROP\] HPORT=(\d+)( ?)"`)
+
+// dockerLogPrefix is the prefix of the LOG rule in front of each DROP. It
+// names the host port, which the firewall log shows rather than the
+// container's, and fits in the 29 characters iptables keeps of a prefix for
+// every port, as "[DOCKER-USER DROP] HPORT=" did not.
+func dockerLogPrefix(hostPort int) string {
+	return fmt.Sprintf("[DOCKER-USER DROP] HP=%d ", hostPort)
+}
+
+// prefixHostPorts lists the host ports a LOG prefix from before #112 can
+// stand for. With the space after the port still there, nothing was cut and
+// it names one. Cut at four digits, it is that port, or a five-digit one that
+// begins with them.
+func prefixHostPorts(digits, space string) []int {
+	n, err := strconv.Atoi(digits)
+	if err != nil || n < 1 || n > 65535 {
+		return nil
+	}
+	ports := []int{n}
+	if space == "" && len(digits) == 4 {
+		for d := 0; d <= 9 && n*10+d <= 65535; d++ {
+			ports = append(ports, n*10+d)
+		}
+	}
+	return ports
+}
+
+// legacyHostPort says which host port a rule from before #112 was for, of
+// those its LOG prefix can stand for. Written without an address, the rule's
+// --dport is the host port. With one, it is the container's port, and the
+// host port is the one the prefix names — or, when iptables cut the prefix
+// short, the one of those Docker forwards to that container port now: at the
+// rule's address, which the container keeps until it restarts, or alone.
+func legacyHostPort(t legacyTarget, candidates []int, published []DockerPublishedPort) (int, bool) {
+	port, err := strconv.Atoi(t.port)
+	if err != nil || len(candidates) == 0 {
+		return 0, false
+	}
+	if t.dest == "" {
+		return port, slices.Contains(candidates, port)
+	}
+	if len(candidates) == 1 {
+		return candidates[0], true
+	}
+	ip, _, _ := strings.Cut(t.dest, "/")
+	var found []int
+	for _, p := range published {
+		if p.Protocol != t.proto || p.ContainerPort != port || !slices.Contains(candidates, p.HostPort) {
+			continue
+		}
+		if p.ContainerIP == ip {
+			return p.HostPort, true
+		}
+		if !slices.Contains(found, p.HostPort) {
+			found = append(found, p.HostPort)
+		}
+	}
+	if len(found) == 1 {
+		return found[0], true
+	}
+	return 0, false
+}
 
 // migrateDockerUserRules rewrites the panel's container-pinned rules in an
-// iptables-save listing to match the host port. The host port comes from the
-// LOG rule beside each DROP, so this works after the container's address has
+// iptables-save listing to match the host port, given what Docker publishes
+// now (nothing before it is up). The host port comes from the LOG rule beside
+// each DROP (legacyHostPort), so this works after the container's address has
 // changed, when the address in the rule no longer says which port it was.
-// An ACCEPT takes the host port of the DROP on the same container port. A
-// rule with nothing naming its host port, an operator's own among them, is
-// left as it is and shows as stale while it matches nothing.
-func migrateDockerUserRules(lines []string) ([]string, int) {
-	type target struct{ dest, proto, port string }
-	hostPorts := map[target]string{}
+// An ACCEPT takes the host port of the DROP on the same container port, and a
+// LOG whose prefix iptables cut short gets one that fits. A rule with nothing
+// naming its host port, an operator's own among them, is left as it is and
+// shows as stale while it matches nothing; so is one whose host port cannot
+// be told.
+func migrateDockerUserRules(lines []string, published []DockerPublishedPort) ([]string, int) {
+	hostPorts := map[legacyTarget]int{}
 	for _, line := range lines {
 		m := legacyDockerRuleRe.FindStringSubmatch(line)
 		if m == nil || m[5] != "LOG" {
 			continue
 		}
-		if hp := hostPortPrefixRe.FindStringSubmatch(m[6]); hp != nil {
-			hostPorts[target{m[2], m[3], m[4]}] = hp[1]
+		hp := hostPortPrefixRe.FindStringSubmatch(m[6])
+		if hp == nil {
+			continue
+		}
+		t := legacyTarget{m[2], m[3], m[4]}
+		if port, ok := legacyHostPort(t, prefixHostPorts(hp[1], hp[2]), published); ok {
+			hostPorts[t] = port
 		}
 	}
 
@@ -745,18 +896,21 @@ func migrateDockerUserRules(lines []string) ([]string, int) {
 			out = append(out, line)
 			continue
 		}
-		hostPort, ok := hostPorts[target{m[2], m[3], m[4]}]
+		port, ok := hostPorts[legacyTarget{m[2], m[3], m[4]}]
 		if !ok {
 			out = append(out, line)
 			continue
 		}
-		port, _ := strconv.Atoi(hostPort)
 		rule := []string{"-A", "DOCKER-USER"}
 		if m[1] != "" {
 			rule = append(rule, "-s", m[1])
 		}
 		rule = append(rule, dockerPortMatch(m[3], port)...)
-		out = append(out, strings.Join(append(rule, "-j", m[5]), " ")+m[6])
+		rest := m[6]
+		if hp := hostPortPrefixRe.FindStringSubmatch(rest); m[5] == "LOG" && hp != nil && hp[2] == "" {
+			rest = strings.Replace(rest, hp[0], `--log-prefix "`+dockerLogPrefix(port)+`"`, 1)
+		}
+		out = append(out, strings.Join(append(rule, "-j", m[5]), " ")+rest)
 		moved++
 	}
 	return out, moved

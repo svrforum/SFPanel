@@ -207,6 +207,24 @@ describe('firewall parser', () => {
     expect(entry.destPort).toBe('443')
   })
 
+  // As the kernel writes them: the prefix, then the fields. The prefix from
+  // before #117 lost its space past three digits, so IN= follows the port.
+  it('reads the host port from the LOG prefix the panel writes (#117)', () => {
+    const entry = parseFirewall(
+      'Feb 27 20:43:56 host kernel: [DOCKER-USER DROP] HP=32400 IN=eth0 OUT=br-1 SRC=10.0.0.5 DST=172.18.0.7 PROTO=TCP SPT=1 DPT=8080'
+    )
+    expect(entry.destPort).toBe('32400')
+    expect(entry.iface).toBe('eth0')
+  })
+
+  it('reads the host port from a prefix iptables cut short', () => {
+    const entry = parseFirewall(
+      'Feb 27 20:43:56 host kernel: [DOCKER-USER DROP] HPORT=3001IN=eth0 OUT=br-1 SRC=10.0.0.5 DST=172.18.0.2 PROTO=TCP SPT=1 DPT=80'
+    )
+    expect(entry.destPort).toBe('3001')
+    expect(entry.iface).toBe('eth0')
+  })
+
   it('falls back to DPT when the DOCKER-USER entry carries no HPORT', () => {
     const entry = parseFirewall('Feb 27 20:43:56 host kernel: [DOCKER-USER ACCEPT] IN=eth0 SRC=10.0.0.5 PROTO=tcp DPT=53')
     expect(entry.destPort).toBe('53')

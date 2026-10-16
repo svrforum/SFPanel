@@ -52,7 +52,7 @@ func TestADockerRuleMatchesTheHostPortNotTheContainer(t *testing.T) {
 		"-m", "comment", "--comment", "sfpanel"}
 	want := [][]string{
 		append(append([]string{"-I", "DOCKER-USER"}, match...), "-j", "DROP"),
-		append(append([]string{"-I", "DOCKER-USER"}, match...), "-j", "LOG", "--log-prefix", "[DOCKER-USER DROP] HPORT=443 ", "--log-level", "4"),
+		append(append([]string{"-I", "DOCKER-USER"}, match...), "-j", "LOG", "--log-prefix", "[DOCKER-USER DROP] HP=443 ", "--log-level", "4"),
 	}
 	var got [][]string
 	for _, call := range cmd.Calls {
@@ -105,8 +105,9 @@ var savedBeforeHostPorts = []string{
 	`-A DOCKER-USER -s 10.112.1.2/32 -d 172.19.0.5/32 -p tcp -m tcp --dport 443 -j ACCEPT`,
 	`-A DOCKER-USER -d 172.19.0.5/32 -p tcp -m tcp --dport 443 -j LOG --log-prefix "[DOCKER-USER DROP] HPORT=81 "`,
 	`-A DOCKER-USER -d 172.19.0.5/32 -p tcp -m tcp --dport 443 -j DROP`,
-	// Written when the container was not running, so with no address.
-	`-A DOCKER-USER -p udp -m udp --dport 5353 -j LOG --log-prefix "[DOCKER-USER DROP] HPORT=5353 "`,
+	// Written when the container was not running, so with no address. As
+	// iptables keeps it: 29 characters, which a four-digit port's space is past.
+	`-A DOCKER-USER -p udp -m udp --dport 5353 -j LOG --log-prefix "[DOCKER-USER DROP] HPORT=5353"`,
 	`-A DOCKER-USER -p udp -m udp --dport 5353 -j DROP`,
 	// Nothing names a host port for these: an ACCEPT with no DROP beside
 	// it, and an operator's own rule.
@@ -116,14 +117,14 @@ var savedBeforeHostPorts = []string{
 }
 
 func TestRulesSavedBeforeHostPortsAreMovedToThem(t *testing.T) {
-	got, moved := migrateDockerUserRules(savedBeforeHostPorts)
+	got, moved := migrateDockerUserRules(savedBeforeHostPorts, nil)
 	want := []string{
 		"*filter",
 		":DOCKER-USER - [0:0]",
 		`-A DOCKER-USER -s 10.112.1.2/32 -p tcp -m conntrack --ctstate DNAT --ctorigdstport 81 --ctdir ORIGINAL -j ACCEPT`,
 		`-A DOCKER-USER -p tcp -m conntrack --ctstate DNAT --ctorigdstport 81 --ctdir ORIGINAL -j LOG --log-prefix "[DOCKER-USER DROP] HPORT=81 "`,
 		`-A DOCKER-USER -p tcp -m conntrack --ctstate DNAT --ctorigdstport 81 --ctdir ORIGINAL -j DROP`,
-		`-A DOCKER-USER -p udp -m conntrack --ctstate DNAT --ctorigdstport 5353 --ctdir ORIGINAL -j LOG --log-prefix "[DOCKER-USER DROP] HPORT=5353 "`,
+		`-A DOCKER-USER -p udp -m conntrack --ctstate DNAT --ctorigdstport 5353 --ctdir ORIGINAL -j LOG --log-prefix "[DOCKER-USER DROP] HP=5353 "`,
 		`-A DOCKER-USER -p udp -m conntrack --ctstate DNAT --ctorigdstport 5353 --ctdir ORIGINAL -j DROP`,
 		`-A DOCKER-USER -s 10.0.0.0/8 -d 172.18.0.9/32 -p tcp -m tcp --dport 8080 -j ACCEPT`,
 		`-A DOCKER-USER -i eth1 -j DROP`,
@@ -132,7 +133,7 @@ func TestRulesSavedBeforeHostPortsAreMovedToThem(t *testing.T) {
 	if !reflect.DeepEqual(got, want) || moved != 5 {
 		t.Errorf("moved %d, got\n%s\nwant\n%s", moved, strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	if again, n := migrateDockerUserRules(got); n != 0 || !reflect.DeepEqual(again, got) {
+	if again, n := migrateDockerUserRules(got, nil); n != 0 || !reflect.DeepEqual(again, got) {
 		t.Errorf("a second pass moved %d rules", n)
 	}
 }

@@ -2818,9 +2818,9 @@ Docker가 발행한 포트(NAT `DOCKER` 체인)와 사용자가 추가한 `DOCKE
 ---
 
 ### POST /api/v1/firewall/docker/rules
-`DOCKER-USER` 체인에 규칙 추가 (컨테이너 published 포트에 대한 소스 기반 허용/차단). v0.78.14부터 규칙은 컨테이너 주소가 아니라 **호스트 포트**로 맞춘다: `-m conntrack --ctstate DNAT --ctorigdstport <port> --ctdir ORIGINAL`. 컨테이너가 재시작으로 다른 주소를 받아도 규칙이 그대로 듣는다. 예전 방식으로 저장된 규칙은 패널이 시작할 때 차단 규칙 옆 LOG 규칙의 `HPORT=`로 호스트 포트를 읽어 바꾼다.
+`DOCKER-USER` 체인에 규칙 추가 (컨테이너 published 포트에 대한 소스 기반 허용/차단). v0.78.14부터 규칙은 컨테이너 주소가 아니라 **호스트 포트**로 맞춘다: `-m conntrack --ctstate DNAT --ctorigdstport <port> --ctdir ORIGINAL`. 컨테이너가 재시작으로 다른 주소를 받아도 규칙이 그대로 듣는다. 예전 방식으로 저장된 규칙은 패널이 시작할 때 차단 규칙 옆 LOG 규칙의 `HPORT=`로 호스트 포트를 읽어 바꾼다. iptables는 LOG 접두사를 29자까지만 남기므로, 예전 접두사(`[DOCKER-USER DROP] HPORT=<port> `)는 4자리 포트면 끝 공백이, 5자리 포트면 마지막 숫자까지 잘려 있다(`32400` → `HPORT=3240`). 잘린 접두사는 그 숫자로 시작할 수 있는 포트 가운데 Docker가 지금 그 컨테이너 포트로 전달하는 포트로 정한다(규칙의 주소에 있는 컨테이너가 먼저). 정할 수 없으면 엉뚱한 포트로 옮기지 않고 그대로 두며, 그래도 저장에서는 빠지지 않는다. 저장 파일에서는 빠졌지만 체인에는 남아 있는 예전 규칙도 시작할 때 되찾아 옮기고 저장한다. 새로 쓰는 LOG 접두사는 `[DOCKER-USER DROP] HP=<port> `로, 어떤 포트든 29자 안에 든다.
 
-패널이 쓴 규칙에는 `-m comment --comment sfpanel` 태그가 붙는다. 추가·삭제 때마다 `/var/lib/sfpanel/docker-user.rules`에는 **패널의 규칙만**(태그가 있거나, 태그 이전의 `HPORT=` LOG·conntrack 형식) 체인 순서대로 저장된다. 패널이 시작할 때는 체인을 선언·비우지 않고, 저장된 규칙마다 `iptables -C`로 확인해 없는 것만 저장된 순서대로 끼워 넣는다 — 패널이 쓰지 않은 규칙(예: Proxmox 게스트 브리지용 `-i vmbr0 -o vmbr0 -j ACCEPT`)은 건드리지 않는다. 체인이 아직 없으면(Docker보다 먼저 시작) 빈 체인을 만든다. 이전 버전이 저장한 파일의 규칙도 같은 방식으로 한 번 복원되며, 다음 저장부터는 패널의 규칙만 남는다.
+패널이 쓴 규칙에는 `-m comment --comment sfpanel` 태그가 붙는다. 추가·삭제 때마다 `/var/lib/sfpanel/docker-user.rules`에는 **패널의 규칙만**(태그가 있거나, 태그 이전의 conntrack 형식, 또는 #112 이전의 `HPORT=` LOG 규칙과 그 LOG와 같은 컨테이너 포트에 걸린 DROP·ACCEPT) 체인 순서대로 저장된다. 패널이 시작할 때는 체인을 선언·비우지 않고, 저장된 규칙마다 `iptables -C`로 확인해 없는 것만 저장된 순서대로 끼워 넣는다 — 패널이 쓰지 않은 규칙(예: Proxmox 게스트 브리지용 `-i vmbr0 -o vmbr0 -j ACCEPT`)은 건드리지 않는다. 체인이 아직 없으면(Docker보다 먼저 시작) 빈 체인을 만든다. 이전 버전이 저장한 파일의 규칙도 같은 방식으로 한 번 복원되며, 다음 저장부터는 패널의 규칙만 남는다.
 
 - **인증 필요**: 예
 
