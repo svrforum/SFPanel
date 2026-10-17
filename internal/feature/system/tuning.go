@@ -22,10 +22,13 @@ import (
 )
 
 const (
-	sysctlConfPath  = "/etc/sysctl.d/99-sfpanel-tuning.conf"
 	rollbackTimeout = 60 // seconds
 	commandTimeout  = 5 * time.Minute
 )
+
+// sysctlConfPath is the panel's own sysctl file. A var so tests can point it
+// at a temporary directory.
+var sysctlConfPath = "/etc/sysctl.d/99-sfpanel-tuning.conf"
 
 // TuningHandler exposes REST handlers for system kernel parameter tuning.
 type TuningHandler struct {
@@ -68,7 +71,10 @@ type TuningCategory struct {
 // host's iptables, and its firewall turns them on when it needs them;
 // forwarding and conntrack are its firewall's and its SDN's. The panel
 // recommending bridge-nf-call-iptables=1 put every VM's and container's
-// frames through iptables and conntrack, beside a firewall that was off.
+// frames through iptables and conntrack, beside a firewall that was off. The
+// limits Proxmox and systemd raise for guests are theirs too: the panel's
+// file loads after theirs, so recommending today's value would pin it there
+// when a later release raises it.
 var pveManagedKeys = []TuningParam{
 	{Key: "net.ipv4.ip_forward", Description: "Routing between the host's networks; Proxmox SDN and routed setups set it"},
 	{Key: "net.bridge.bridge-nf-call-iptables", Description: "Off unless the Proxmox firewall is on, which turns it on itself"},
@@ -76,6 +82,43 @@ var pveManagedKeys = []TuningParam{
 	{Key: "net.bridge.bridge-nf-call-arptables", Description: "Off unless the Proxmox firewall is on, which turns it on itself"},
 	{Key: "net.netfilter.nf_conntrack_max", Description: "Set under Node → Firewall → Options in Proxmox"},
 	{Key: "net.netfilter.nf_conntrack_tcp_timeout_established", Description: "Set under Node → Firewall → Options in Proxmox"},
+	{Key: "fs.inotify.max_user_watches", Description: "Raised by Proxmox for containers (10-pve-ct-inotify-limits.conf)"},
+	{Key: "fs.inotify.max_user_instances", Description: "Raised by Proxmox for containers (10-pve-ct-inotify-limits.conf)"},
+	{Key: "fs.aio-max-nr", Description: "Raised by Proxmox for guest disk I/O (10-pve.conf)"},
+	{Key: "vm.max_map_count", Description: "Raised by Proxmox and systemd"},
+	{Key: "kernel.pid_max", Description: "Raised by systemd (50-pid-max.conf)"},
+	{Key: "fs.file-max", Description: "Raised to its maximum by systemd at boot"},
+}
+
+// pveSkippedKeys are not recommended on a Proxmox host, where they do not fit
+// a hypervisor. Reverse-path filtering must be off for an SDN with more than
+// one EVPN exit node. JIT hardening taxes the BPF that systemd and LXC run as
+// root, while unprivileged BPF is already off. ZFS keeps its own write
+// throttle and guest disks skip the host's page cache, so the dirty ratios
+// govern only backups to other storage, which is the operator's call. VFS
+// cache pressure, TCP Fast Open, unsaved TCP metrics and a wider local port
+// range do nothing for a host whose own connections are migrations, backups
+// and its web UI.
+var pveSkippedKeys = map[string]bool{
+	"net.ipv4.conf.all.rp_filter":     true,
+	"net.ipv4.conf.default.rp_filter": true,
+	"net.core.bpf_jit_harden":         true,
+	"vm.dirty_ratio":                  true,
+	"vm.dirty_background_ratio":       true,
+	"vm.vfs_cache_pressure":           true,
+	"net.ipv4.tcp_fastopen":           true,
+	"net.ipv4.tcp_no_metrics_save":    true,
+	"net.ipv4.ip_local_port_range":    true,
+}
+
+// pveManaged reports whether key is one pveManagedKeys leaves to Proxmox.
+func pveManaged(key string) bool {
+	for _, p := range pveManagedKeys {
+		if p.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 // TuningSystemInfo contains system specs used for dynamic recommendations.
@@ -136,7 +179,10 @@ func (h *TuningHandler) GetTuningStatus(c echo.Context) error {
 	}
 	totalRAMGB := float64(totalRAM) / (1024 * 1024 * 1024)
 
-	categories := buildRecommendations(cpuCores, totalRAMGB, totalRAM)
+	categories, operator := readOperatorSysctls(h.Cmd).leave(buildRecommendations(cpuCores, totalRAMGB, totalRAM))
+	for i := range operator {
+		operator[i].Current = readSysctl(h.Cmd, operator[i].Key)
+	}
 
 	configuredKeys := make(map[string]bool)
 	if data, err := os.ReadFile(sysctlConfPath); err == nil {
@@ -198,8 +244,15 @@ func (h *TuningHandler) GetTuningStatus(c echo.Context) error {
 		}
 	}
 
+	advisories := []TuningAdvisory{}
+	if platform.Get().PVE {
+		advisories = pveAdvisories()
+	}
+
 	return response.OK(c, map[string]interface{}{
 		"managed":            managed,
+		"operator":           operator,
+		"advisories":         advisories,
 		"categories":         categories,
 		"total_params":       totalParams,
 		"applied":            totalApplied,
@@ -231,7 +284,8 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 	}
 	totalRAMGB := float64(totalRAM) / (1024 * 1024 * 1024)
 
-	categories := buildRecommendations(cpuCores, totalRAMGB, totalRAM)
+	operatorSet := readOperatorSysctls(h.Cmd)
+	categories, _ := operatorSet.leave(buildRecommendations(cpuCores, totalRAMGB, totalRAM))
 	// Same no-downgrade guard the status view applies. This is the path that
 	// actually writes sysctl, so without it a host whose kernel already ships
 	// a better default would be reduced to the older recommendation.
@@ -305,9 +359,20 @@ func (h *TuningHandler) ApplyTuning(c echo.Context) error {
 	// A file written by a panel that did not know the host was Proxmox can
 	// still hold these; 99-sfpanel-tuning.conf runs after Proxmox's own
 	// 10-pve.conf at every boot, so leaving them would keep overriding it.
+	// The ones that do not fit a hypervisor go too.
 	if platform.Get().PVE {
 		for _, p := range pveManagedKeys {
 			delete(existingParams, p.Key)
+		}
+		for k := range pveSkippedKeys {
+			delete(existingParams, k)
+		}
+	}
+	// So does what an operator's own file sets, which the panel's file wrote
+	// over or lost to at boot.
+	for k := range existingParams {
+		if _, ok := operatorSet.lookup(k); ok {
+			delete(existingParams, k)
 		}
 	}
 
@@ -603,13 +668,32 @@ var atLeastKeys = map[string]bool{
 	"net.core.netdev_max_backlog":    true,
 	"net.ipv4.tcp_max_syn_backlog":   true,
 	"net.netfilter.nf_conntrack_max": true,
-	// Hardening levels: the kernel treats a higher value as stricter, and
-	// refuses to lower unprivileged_bpf_disabled once it is 2.
+	"net.core.rmem_max":              true,
+	"net.core.wmem_max":              true,
+	// Hardening levels: the kernel treats a higher value as stricter. Yama's
+	// 2 is also the stopgap for a ptrace dumpability bypass, which lowering
+	// to 1 would undo.
 	"kernel.unprivileged_bpf_disabled": true,
 	"kernel.kptr_restrict":             true,
 	"net.core.bpf_jit_harden":          true,
 	"fs.protected_fifos":               true,
 	"fs.protected_regular":             true,
+	"kernel.yama.ptrace_scope":         true,
+}
+
+// atLeastMaxKeys are min/default/max triples whose max a host already beats
+// when its own is at least as big, as the kernel's tcp_rmem max is since 6.16.
+var atLeastMaxKeys = map[string]bool{
+	"net.ipv4.tcp_rmem": true,
+	"net.ipv4.tcp_wmem": true,
+}
+
+// lockedValues are values the kernel will not change back from until a
+// reboot: unprivileged_bpf_disabled=1 ("disabled without recovery"). A host
+// there keeps it, as writing anything else fails, and that would fail the
+// whole apply.
+var lockedValues = map[string]string{
+	"kernel.unprivileged_bpf_disabled": "1",
 }
 
 // keepCurrentIfBetter drops a recommendation the host already beats.
@@ -618,6 +702,20 @@ var atLeastKeys = map[string]bool{
 // otherwise the proposal. Non-numeric or unreadable current values fall
 // through to the proposal unchanged.
 func keepCurrentIfBetter(key, current, recommended string) string {
+	if locked, ok := lockedValues[key]; ok && strings.TrimSpace(current) == locked {
+		return current
+	}
+	if atLeastMaxKeys[key] {
+		cur, rec := strings.Fields(current), strings.Fields(recommended)
+		if len(cur) == 3 && len(rec) == 3 {
+			c, err1 := strconv.ParseInt(cur[2], 10, 64)
+			r, err2 := strconv.ParseInt(rec[2], 10, 64)
+			if err1 == nil && err2 == nil && c >= r {
+				return current
+			}
+		}
+		return recommended
+	}
 	if !atLeastKeys[key] {
 		return recommended
 	}
@@ -633,22 +731,26 @@ func keepCurrentIfBetter(key, current, recommended string) string {
 }
 
 func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64) []TuningCategory {
+	// tcp_rmem's max is what the kernel gives itself since 6.16: 1/128 of
+	// memory, between 4 MiB and 32 MiB. A fixed table capped it at 16 MiB,
+	// half the receive window those kernels let a fast link grow to.
+	rmemAutoMax := min(max(totalRAMBytes/128, 4<<20), 32<<20)
 	var rmemMax, wmemMax, tcpRmem, tcpWmem string
 	switch {
 	case totalRAMGB >= 16:
 		rmemMax = "16777216"
 		wmemMax = "16777216"
-		tcpRmem = "4096 131072 16777216"
+		tcpRmem = fmt.Sprintf("4096 131072 %d", rmemAutoMax)
 		tcpWmem = "4096 65536 16777216"
 	case totalRAMGB >= 8:
 		rmemMax = "8388608"
 		wmemMax = "8388608"
-		tcpRmem = "4096 131072 8388608"
+		tcpRmem = fmt.Sprintf("4096 131072 %d", rmemAutoMax)
 		tcpWmem = "4096 65536 8388608"
 	default:
 		rmemMax = "4194304"
 		wmemMax = "4194304"
-		tcpRmem = "4096 87380 4194304"
+		tcpRmem = fmt.Sprintf("4096 87380 %d", rmemAutoMax)
 		tcpWmem = "4096 65536 4194304"
 	}
 
@@ -703,7 +805,7 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 			Caution: "caution_network",
 			Params: []TuningParam{
 				// --- congestion control + buffers ---
-				{Key: "net.core.default_qdisc", Recommended: "fq", Description: "Fair Queue scheduler (required for BBR)"},
+				{Key: "net.core.default_qdisc", Recommended: "fq", Description: "Fair Queue scheduler — paces the host's own TCP flows (BBR paces by itself since Linux 4.20)"},
 				{Key: "net.ipv4.tcp_congestion_control", Recommended: "bbr", Description: "BBR congestion control — higher throughput, lower latency"},
 				{Key: "net.core.rmem_max", Recommended: rmemMax, Description: "Maximum receive socket buffer size"},
 				{Key: "net.core.wmem_max", Recommended: wmemMax, Description: "Maximum send socket buffer size"},
@@ -774,6 +876,9 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 				{Key: "net.ipv4.conf.all.accept_redirects", Recommended: "0", Description: "Disable ICMP redirect acceptance"},
 				{Key: "net.ipv4.conf.default.accept_redirects", Recommended: "0", Description: "Disable default ICMP redirects"},
 				{Key: "net.ipv4.conf.all.send_redirects", Recommended: "0", Description: "Disable sending ICMP redirects"},
+				// The kernel sends them on an interface if all or the interface
+				// allows it, so all=0 alone left every interface sending.
+				{Key: "net.ipv4.conf.default.send_redirects", Recommended: "0", Description: "Disable sending ICMP redirects on interfaces made from now on"},
 				{Key: "net.ipv4.conf.all.accept_source_route", Recommended: "0", Description: "Disable IP source routing"},
 				{Key: "net.ipv4.conf.default.accept_source_route", Recommended: "0", Description: "Disable default source routing"},
 				{Key: "net.ipv6.conf.all.accept_redirects", Recommended: "0", Description: "Disable IPv6 ICMP redirects"},
@@ -784,7 +889,9 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 				{Key: "kernel.dmesg_restrict", Recommended: "1", Description: "Restrict dmesg to root (prevents log-based info leaks)"},
 				{Key: "kernel.yama.ptrace_scope", Recommended: "1", Description: "ptrace only allowed on descendant processes (Ubuntu default)"},
 				// --- eBPF hardening (matters once the workload uses eBPF-based tooling) ---
-				{Key: "kernel.unprivileged_bpf_disabled", Recommended: "1", Description: "Block unprivileged BPF program loads (Spectre mitigation)"},
+				// 2, not 1: the same block, and the one the rollback can undo —
+				// the kernel keeps 1 until a reboot.
+				{Key: "kernel.unprivileged_bpf_disabled", Recommended: "2", Description: "Block unprivileged BPF program loads (Spectre mitigation)"},
 				{Key: "net.core.bpf_jit_harden", Recommended: "2", Description: "Harden BPF JIT against spray-style exploits"},
 			},
 		},
@@ -808,6 +915,25 @@ func buildRecommendations(cpuCores int, totalRAMGB float64, totalRAMBytes uint64
 				TuningParam{Key: "net.bridge.bridge-nf-call-iptables", Recommended: "1", Description: "Bridged IPv4 traffic goes through iptables, so firewall rules also see traffic between containers on one bridge; dockerd turns it on itself where a network needs it (icc=false, or the userland proxy off)"},
 				TuningParam{Key: "net.bridge.bridge-nf-call-ip6tables", Recommended: "1", Description: "The same for bridged IPv6 traffic and ip6tables"},
 			)
+		}
+	}
+
+	if pve {
+		for i := range cats {
+			var kept []TuningParam
+			for _, p := range cats[i].Params {
+				if pveSkippedKeys[p.Key] || pveManaged(p.Key) {
+					continue
+				}
+				if p.Key == "kernel.kptr_restrict" {
+					// 2 hides the addresses from root as well, and with them
+					// perf and bpftrace on the hypervisor.
+					p.Recommended = "1"
+					p.Description = "Hide kernel pointers from users without CAP_SYSLOG; root keeps them for perf and bpftrace"
+				}
+				kept = append(kept, p)
+			}
+			cats[i].Params = kept
 		}
 	}
 

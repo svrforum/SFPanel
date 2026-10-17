@@ -2,8 +2,9 @@ import { test, expect, type Page } from '@playwright/test'
 
 // Debian 12+ and Proxmox VE write no /var/log/syslog, auth.log or kern.log:
 // those sources now read the journal and say so. On Proxmox the tuning page
-// shows what Proxmox keeps for itself instead of recommending it. REST is a
-// fixture.
+// shows what Proxmox keeps for itself instead of recommending it, what the
+// host's own sysctl files set, and what Proxmox's admin guide warns of. REST is
+// a fixture.
 test.use({ viewport: { width: 1280, height: 900 }, locale: 'en-US' })
 
 const sources = [
@@ -16,6 +17,8 @@ const tuning = {
     { key: 'net.ipv4.ip_forward', current: '0', recommended: '', description: 'Routing between the host’s networks', applied: false },
     { key: 'net.bridge.bridge-nf-call-iptables', current: '0', recommended: '', description: 'Off unless the Proxmox firewall is on', applied: false },
   ],
+  operator: [{ key: 'vm.swappiness', current: '10', value: '10', file: '99-swappiness.conf', description: 'Swap usage tendency' }],
+  advisories: [{ id: 'swap_on_zvol', detail: '/dev/zd0' }],
   categories: [{ name: 'memory', benefit: 'benefit_memory', caution: 'caution_memory', params: [], applied: 0, total: 0 }],
   total_params: 0, applied: 0, pending_rollback: false, rollback_remaining: 0,
   system_info: { cpu_cores: 8, total_ram: 64 * 1024 ** 3, kernel: '6.14.8-2-pve' },
@@ -58,4 +61,11 @@ test('on Proxmox the tuning page shows what Proxmox manages', async ({ page }) =
   await expect(page.getByText(/Datacenter or Node → Firewall → Options/)).toBeVisible()
   await expect(page.getByText('net.ipv4.ip_forward', { exact: true })).toBeVisible()
   await expect(page.getByText('net.bridge.bridge-nf-call-iptables', { exact: true })).toBeVisible()
+})
+
+test('on Proxmox the tuning page warns of swap on a zvol and leaves the host’s own settings alone', async ({ page }) => {
+  await open(page, '/settings?tab=system')
+  await expect(page.getByRole('alert').filter({ hasText: 'Swap is on a ZFS zvol' })).toContainText('/dev/zd0')
+  await expect(page.getByRole('heading', { name: "This server's own settings" })).toBeVisible()
+  await expect(page.getByText('10 in 99-swappiness.conf')).toBeVisible()
 })

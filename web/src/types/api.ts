@@ -889,9 +889,27 @@ export interface TuningSystemInfo {
   kernel: string
 }
 
+// A key one of the host's own sysctl files sets: shown with the file, never
+// tuned over.
+export interface TuningOperatorParam {
+  key: string
+  current: string
+  value: string
+  file: string
+  description: string
+}
+
+// On Proxmox VE, something its admin guide warns of that sysctl does not cover.
+export interface TuningAdvisory {
+  id: 'swap_on_zvol' | 'zfs_arc_unlimited'
+  detail?: string
+}
+
 export interface TuningStatus {
   // On Proxmox VE: keys Proxmox keeps for itself, shown and never tuned.
   managed?: TuningParam[]
+  operator?: TuningOperatorParam[]
+  advisories?: TuningAdvisory[]
   categories: TuningCategory[]
   total_params: number
   applied: number

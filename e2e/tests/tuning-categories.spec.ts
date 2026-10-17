@@ -26,8 +26,17 @@ test.describe('System tuning categories', () => {
     expect(names).toContain('filesystem')
     expect(names).toContain('security')
 
-    // Newly-added essentials must be reachable (by key) in their categories.
-    const network = cats.find((c) => c.name === 'network')!.params.map((p) => p.key)
+    // Newly-added essentials must be reachable by key: in their category, or,
+    // where one of the host's own sysctl files already sets the key, listed
+    // with that file — the panel leaves those alone. A CI runner's image puts
+    // vm.max_map_count and inotify limits in /etc/sysctl.conf.
+    const operator = (json.data.operator ?? []) as Array<{ key: string; file: string }>
+    for (const o of operator) expect(o.file).toBeTruthy()
+    const offered = (name: string) => [
+      ...cats.find((c) => c.name === name)!.params.map((p) => p.key),
+      ...operator.map((o) => o.key),
+    ]
+    const network = offered('network')
     expect(network).toContain('net.ipv4.ip_forward')
 
     // net.bridge.* is offered only when br_netfilter is loaded — writing those
@@ -48,15 +57,15 @@ test.describe('System tuning categories', () => {
     expect(network).toContain('net.ipv4.tcp_notsent_lowat')
     expect(network).toContain('net.ipv4.tcp_rfc1337')
 
-    const memory = cats.find((c) => c.name === 'memory')!.params.map((p) => p.key)
+    const memory = offered('memory')
     expect(memory).toContain('vm.max_map_count')
     expect(memory).toContain('kernel.pid_max')
 
-    const fs = cats.find((c) => c.name === 'filesystem')!.params.map((p) => p.key)
+    const fs = offered('filesystem')
     expect(fs).toContain('fs.protected_symlinks')
     expect(fs).toContain('fs.suid_dumpable')
 
-    const security = cats.find((c) => c.name === 'security')!.params.map((p) => p.key)
+    const security = offered('security')
     expect(security).toContain('kernel.kptr_restrict')
     expect(security).toContain('kernel.unprivileged_bpf_disabled')
     expect(security).toContain('net.core.bpf_jit_harden')
@@ -77,7 +86,7 @@ test.describe('System tuning categories', () => {
       test.info().annotations.push({ type: 'note', description: 'nf_conntrack not loaded; conntrack category intentionally absent' })
       return
     }
-    const keys = conntrack.params.map((p) => p.key)
+    const keys = [...conntrack.params.map((p) => p.key), ...((json.data.operator ?? []) as Array<{ key: string }>).map((o) => o.key)]
     expect(keys).toContain('net.netfilter.nf_conntrack_max')
     expect(keys).toContain('net.netfilter.nf_conntrack_tcp_timeout_established')
     expect(keys).toContain('net.netfilter.nf_conntrack_tcp_timeout_close_wait')

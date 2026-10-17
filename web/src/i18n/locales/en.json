@@ -1283,7 +1283,20 @@
       "confirmSuccess": "Changes confirmed and saved permanently",
       "confirmFailed": "Failed to confirm changes",
       "managedTitle": "Managed by Proxmox",
-      "managedDesc": "Proxmox VE sets these for its guests' bridges and its firewall, so the panel leaves them alone. Change them in the Proxmox web UI under Datacenter or Node → Firewall → Options."
+      "managedDesc": "Proxmox VE and systemd set these themselves, so the panel leaves them alone. Change the firewall ones (forwarding, bridge filtering, conntrack) in the Proxmox web UI under Datacenter or Node → Firewall → Options; Proxmox raises the other limits for its guests.",
+      "operatorTitle": "This server's own settings",
+      "operatorDesc": "These are set in this server's own sysctl files (/etc/sysctl.d), so the panel does not write over them. Edit that file to change them.",
+      "operatorSetIn": "{{value}} in {{file}}",
+      "advisory": {
+        "swap_on_zvol": {
+          "title": "Swap is on a ZFS zvol",
+          "body": "{{device}}. The Proxmox admin guide warns that swap on a zvol can block the server or cause a high I/O load, often when a backup to external storage starts. With enough memory, turn swap off; if you need swap, use a partition on a physical disk."
+        },
+        "zfs_arc_unlimited": {
+          "title": "ZFS ARC has no limit",
+          "body": "zfs_arc_max is 0, so since OpenZFS 2.3 the ARC may grow to the larger of five eighths of memory and all of it less 1 GiB. Set zfs_arc_max in /etc/modprobe.d/zfs.conf by the Proxmox guideline (2 GiB base plus 1 GiB per TiB of storage); with root on ZFS it takes effect after update-initramfs -u -k all and a reboot."
+        }
+      }
     },
     "tabAlerts": "Alerts",
     "alerts": {

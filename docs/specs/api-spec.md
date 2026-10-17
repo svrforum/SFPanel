@@ -3496,7 +3496,16 @@ data: {"step":"complete","message":"Updated to v0.5.6. Restarting..."}
 
 - **인증 필요**: 예
 
-Proxmox VE 호스트에서는 `net.ipv4.ip_forward`, `net.bridge.bridge-nf-call-*`, conntrack 카테고리를 추천하지 않고(따라서 apply로 쓰지 않고, 패널 설정 파일에 남아 있던 값도 다음 apply 때 뺍니다) `managed` 배열로 현재 값만 보여 줍니다. Proxmox는 `/usr/lib/sysctl.d/10-pve.conf`로 bridge-nf-call-*를 끄고, 필요하면 Proxmox 방화벽이 직접 켭니다. 다른 호스트에서 `managed`는 빈 배열입니다.
+Proxmox VE 호스트에서는 하이퍼바이저에 맞춰 추천합니다.
+- **`managed`(현재 값만 표시):** Proxmox가 정하는 `net.ipv4.ip_forward`, `net.bridge.bridge-nf-call-*`, conntrack 값과, Proxmox·systemd가 게스트에 맞춰 올려 두는 `fs.inotify.*`, `fs.aio-max-nr`, `vm.max_map_count`, `kernel.pid_max`, `fs.file-max`. Proxmox는 `/usr/lib/sysctl.d/10-pve.conf`로 bridge-nf-call-*를 끄고, 필요하면 Proxmox 방화벽이 직접 켭니다.
+- **추천하지 않는 값:** `rp_filter`(EVPN exit node가 여럿인 SDN은 꺼야 함), `bpf_jit_harden`, `vm.dirty_*`(ZFS는 자체 쓰기 한도를 쓰고 게스트 디스크는 호스트 페이지 캐시를 거치지 않음), `vm.vfs_cache_pressure`, `tcp_fastopen`, `tcp_no_metrics_save`, `ip_local_port_range`. conntrack 카테고리도 없습니다.
+- **값이 다른 것:** `kernel.kptr_restrict`는 2 대신 1(root의 perf·bpftrace 유지).
+- **패널 파일 정리:** 위 값들은 apply로 쓰지 않고, 패널 설정 파일에 남아 있던 값도 다음 apply 때 뺍니다.
+- **`advisories`(sysctl 밖 경고):** Proxmox 관리 가이드가 경고하는 두 경우를 알립니다. `swap_on_zvol`(`detail`에 장치)은 zvol 위 스왑으로, 백업 때 서버를 멈추게 할 수 있습니다. `zfs_arc_unlimited`는 `zfs_arc_max=0`으로, OpenZFS 2.3부터 ARC가 메모리 대부분까지 커집니다.
+
+다른 호스트에서 `managed`와 `advisories`는 빈 배열입니다.
+
+**운영자 파일:** 모든 호스트에서, 운영자가 직접 둔 sysctl 파일(`/etc/sysctl.d/*.conf` 중 패키지가 소유하지 않는 것과 `/etc/sysctl.conf`)이 정한 키는 추천·apply에서 빼고 `operator` 배열에 `{key, current, value, file, description}`으로 보여 줍니다. 패널 설정 파일에 같은 키가 남아 있으면 다음 apply 때 뺍니다. 패널 파일이 그 파일보다 뒤에 읽히면 운영자 값을 덮어쓰고, 앞에 읽히면 재부팅 때 운영자 값으로 돌아가기 때문입니다.
 
 **Response (200):**
 ```json
@@ -3504,6 +3513,8 @@ Proxmox VE 호스트에서는 `net.ipv4.ip_forward`, `net.bridge.bridge-nf-call-
   "success": true,
   "data": {
     "managed": [],
+    "operator": [],
+    "advisories": [],
     "categories": [
       {
         "name": "network",
@@ -3514,7 +3525,7 @@ Proxmox VE 호스트에서는 `net.ipv4.ip_forward`, `net.bridge.bridge-nf-call-
             "key": "net.core.default_qdisc",
             "current": "pfifo_fast",
             "recommended": "fq",
-            "description": "Fair Queue scheduler (required for BBR)",
+            "description": "Fair Queue scheduler — paces the host's own TCP flows (BBR paces by itself since Linux 4.20)",
             "applied": false
           }
         ],

@@ -240,6 +240,19 @@ export default function Tuning() {
         )}
       </div>
 
+      {/* What Proxmox's admin guide warns of, beyond sysctl */}
+      {status.advisories?.map(advisory => (
+        <div key={advisory.id} role="alert" className="bg-card rounded-2xl card-shadow p-5 flex items-start gap-3">
+          <div className="p-2 rounded-xl bg-secondary">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-[15px] font-semibold">{t(`settings.tuning.advisory.${advisory.id}.title`)}</h3>
+            <p className="text-[12px] text-muted-foreground mt-0.5">{t(`settings.tuning.advisory.${advisory.id}.body`, { device: advisory.detail })}</p>
+          </div>
+        </div>
+      ))}
+
       {/* Left to Proxmox VE: shown, never tuned */}
       {status.managed && status.managed.length > 0 && (
         <div className="bg-card rounded-2xl card-shadow overflow-hidden">
@@ -258,6 +271,32 @@ export default function Tuning() {
                 <div className="min-w-0 flex-1">
                   <code className="text-[12px] font-mono text-foreground/80">{param.key}</code>
                   <p className="text-[11px] text-muted-foreground mt-0.5">{param.description}</p>
+                </div>
+                <span className="text-[12px] text-muted-foreground shrink-0">{param.current || '-'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Set in the host's own sysctl files: shown with the file, never tuned over */}
+      {status.operator && status.operator.length > 0 && (
+        <div className="bg-card rounded-2xl card-shadow overflow-hidden">
+          <div className="p-5 flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-secondary">
+              <Info className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-[15px] font-semibold">{t('settings.tuning.operatorTitle')}</h3>
+              <p className="text-[12px] text-muted-foreground mt-0.5">{t('settings.tuning.operatorDesc')}</p>
+            </div>
+          </div>
+          <div className="divide-y divide-border border-t border-border">
+            {status.operator.map(param => (
+              <div key={param.key} className="px-5 py-3 flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <code className="text-[12px] font-mono text-foreground/80">{param.key}</code>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{t('settings.tuning.operatorSetIn', { file: param.file, value: param.value })}</p>
                 </div>
                 <span className="text-[12px] text-muted-foreground shrink-0">{param.current || '-'}</span>
               </div>

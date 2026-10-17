@@ -183,6 +183,7 @@ jobs:
             tests/connect-port.spec.ts \
             tests/sidebar-banner.spec.ts \
             tests/tuning-categories.spec.ts \
+            tests/journal-and-tuning.spec.ts \
             tests/mobile-terminal.spec.ts \
             tests/mobile-tmux.spec.ts \
             tests/new-session-dirs.spec.ts \
