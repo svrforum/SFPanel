@@ -6,6 +6,17 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.19] – 2026-10-17
+
+### Added
+
+- **Tuning fit for a Proxmox VE 9 host.** On Proxmox the tuning page leaves to Proxmox and systemd the guest limits they raise themselves (inotify, aio, map count, `pid_max`, `file-max`) and shows their values. It no longer recommends what does not fit a hypervisor — reverse-path filtering, which an EVPN SDN needs off; BPF JIT hardening; the dirty ratios ZFS and cache-less guest disks never go through; VFS cache pressure, TCP Fast Open, unsaved TCP metrics and a wider port range — and it keeps kernel pointers for root (`kptr_restrict` 1). It also warns of what the Proxmox admin guide warns of: swap on a ZFS zvol, and a ZFS ARC with no limit.
+- **The host's own sysctl files are left alone.** A key set in a file under `/etc/sysctl.d` that no package ships, or in `/etc/sysctl.conf`, is no longer recommended or written, and the page lists it with the file. The panel's file used to write over such a file, or lose to it at boot while showing its own value as applied.
+
+### Fixed
+
+- **Tuning recommendations.** `unprivileged_bpf_disabled` is recommended at 2 rather than 1, which the kernel keeps until a reboot, so the rollback could not undo it. TCP's receive buffer max follows the kernel's own, up to 32 MiB, instead of a 16 MiB cap below it. `send_redirects` is turned off for interfaces made later as well, since `all` alone did nothing. `ptrace_scope` is no longer lowered from 2.
+
 ## [0.78.18] – 2026-10-17
 
 ### Fixed
