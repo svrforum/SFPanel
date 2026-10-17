@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.18] – 2026-10-17
+
+### Fixed
+
+- **Docker port rules on ports past three digits are moved and kept.** iptables keeps 29 characters of a log prefix, and the one the panel wrote before v0.78.14 lost the space after a four-digit port and the last digit of a five-digit one (32400 was saved as `HPORT=3240`). Those rules stayed pinned to the container's address, and the next change to any Docker rule dropped them from the saved file, so the next reboot opened their ports. A cut prefix now stands for each port it can have been, and the panel takes the one Docker forwards to the rule's container port; a rule whose port cannot be told is left as it is rather than moved to the wrong port. Such rules are always saved, and at start the panel takes back the ones still in the chain but gone from the file. New rules get a log prefix that fits for every port, so the firewall log no longer shows a five-digit port cut short. (#117)
+
 ## [0.78.17] – 2026-10-17
 
 ### Fixed
