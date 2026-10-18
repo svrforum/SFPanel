@@ -4,11 +4,13 @@ import { resolve } from 'node:path'
 
 // Settings → Alerts against the shapes the alert handlers are tested with.
 // Both sides read internal/feature/alert/testdata/page_contract.json: the Go
-// tests post its channel bodies to CreateChannel and pin ListRules to its rule
-// row, and this spec checks the page sends the one and reads the other. The
+// tests post its channel bodies to CreateChannel, pin ListRules to its rule
+// rows and its rule types to what the server evaluates, and this spec checks
+// the page sends the one, reads the other and offers exactly those types. The
 // page sent config as an object and the handler bound a string from the first
 // release until #116, so adding a channel failed for every type while each
-// side looked right on its own. Mocked API.
+// side looked right on its own; and the rule form offered three types nothing
+// evaluated until #132. Mocked API.
 
 type ChannelBody = {
   name: string
@@ -17,10 +19,26 @@ type ChannelBody = {
   enabled: boolean
 }
 
-const contract: { channel_creates: ChannelBody[]; rule_row: { name: string; condition: string; cooldown: number } } =
+type RuleRow = {
+  id: number
+  name: string
+  type: string
+  condition: string
+  cooldown: number
+  enabled: boolean
+  evaluated: boolean
+}
+
+const contract: { channel_creates: ChannelBody[]; rule_rows: RuleRow[]; rule_types: string[] } =
   JSON.parse(readFileSync(resolve(__dirname, '../../internal/feature/alert/testdata/page_contract.json'), 'utf8'))
 
-async function mock(page: Page, posted: unknown[]) {
+// A channel for the rule form to pick: it refuses a rule without one.
+const channel = { id: 1, name: 'ops', type: 'webhook', config: '{"webhook_url":"***hook"}', enabled: true, created_at: '2026-01-01T00:00:00Z' }
+
+type Sent = { channels: unknown[]; rules: { type: string }[]; deleted: string[] }
+
+async function mock(page: Page, { channels = [] as unknown[] } = {}): Promise<Sent> {
+  const sent: Sent = { channels: [], rules: [], deleted: [] }
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
     localStorage.setItem('i18nextLng', 'en')
@@ -33,18 +51,22 @@ async function mock(page: Page, posted: unknown[]) {
     else if (path.endsWith('/cluster/status')) data = { enabled: false }
     else if (path.endsWith('/cluster/nodes')) data = { nodes: [] }
     else if (path.endsWith('/alerts/channels') && req.method() === 'POST') {
-      posted.push(req.postDataJSON())
-      data = { id: posted.length }
-    } else if (path.endsWith('/alerts/channels')) data = []
-    else if (path.endsWith('/alerts/rules')) data = [contract.rule_row]
+      sent.channels.push(req.postDataJSON())
+      data = { id: sent.channels.length }
+    } else if (path.endsWith('/alerts/channels')) data = channels
+    else if (path.endsWith('/alerts/rules') && req.method() === 'POST') {
+      sent.rules.push(req.postDataJSON())
+      data = { id: 100 + sent.rules.length }
+    } else if (path.endsWith('/alerts/rules')) data = contract.rule_rows
+    else if (/\/alerts\/rules\/\d+$/.test(path) && req.method() === 'DELETE') sent.deleted.push(path)
     else if (path.endsWith('/alerts/history')) data = { items: [], total: 0, page: 1, limit: 20 }
     await route.fulfill({ json: { success: true, data } })
   })
+  return sent
 }
 
 test('adding a channel sends each type in the shape the handler is tested with', async ({ page }) => {
-  const posted: unknown[] = []
-  await mock(page, posted)
+  const sent = await mock(page)
   await page.goto('/settings?tab=alerts')
 
   for (const body of contract.channel_creates) {
@@ -69,15 +91,70 @@ test('adding a channel sends each type in the shape the handler is tested with',
     await expect(name).toBeHidden()
   }
 
-  expect(posted).toEqual(contract.channel_creates)
+  expect(sent.channels).toEqual(contract.channel_creates)
 })
 
 test('a host-metric rule lists the threshold its condition carries', async ({ page }) => {
-  await mock(page, [])
+  await mock(page)
   await page.goto('/settings?tab=alerts')
 
-  const { name, condition, cooldown } = contract.rule_row
+  const { name, condition, cooldown } = contract.rule_rows.find(r => r.evaluated && r.type === 'cpu')!
   const { threshold } = JSON.parse(condition) as { threshold: number }
   await expect(page.getByText(name, { exact: true })).toBeVisible()
+  // Page-wide and exact: the Login row carries the same condition text, and
+  // listed the same threshold until #132.
   await expect(page.getByText(`Threshold: ${threshold}% | Cooldown: ${cooldown}s`, { exact: true })).toBeVisible()
+})
+
+test('a rule of a type nothing evaluates is listed as not alerting, and can only be deleted', async ({ page }) => {
+  const sent = await mock(page)
+  await page.goto('/settings?tab=alerts')
+
+  const live = contract.rule_rows.find(r => r.evaluated)!
+  const dead = contract.rule_rows.find(r => !r.evaluated)!
+  // Stored enabled, as the page always created rules: the list said Active.
+  expect(dead.enabled).toBe(true)
+
+  const row = page.getByRole('listitem').filter({ hasText: dead.name })
+  await expect(row.getByText('Not alerting', { exact: true })).toBeVisible()
+  await expect(row.getByText(`The panel does not evaluate ${dead.type} rules, so this one has never sent an alert and never will. Delete it.`, { exact: true })).toBeVisible()
+  await expect(row.getByText('Active', { exact: true })).toHaveCount(0)
+  await expect(row.getByText(/Threshold/)).toHaveCount(0)
+  await expect(row.getByRole('button', { name: /^(Enable|Disable)$/ })).toHaveCount(0)
+
+  // Only that row: the evaluated one is listed as it always was.
+  const other = page.getByRole('listitem').filter({ hasText: live.name })
+  await expect(other.getByText('Active', { exact: true })).toBeVisible()
+  await expect(other.getByRole('button', { name: 'Disable', exact: true })).toBeVisible()
+  await expect(other.getByText('Not alerting', { exact: true })).toHaveCount(0)
+
+  await row.getByRole('button', { name: 'Delete', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click()
+  await expect.poll(() => sent.deleted).toEqual([`/api/v1/alerts/rules/${dead.id}`])
+})
+
+test('the rule form offers the types the server evaluates, and only those', async ({ page }) => {
+  const sent = await mock(page, { channels: [channel] })
+  await page.goto('/settings?tab=alerts')
+
+  // One rule through the form for each type it offers. The Type select is the
+  // form's first combobox; nothing else on the page has one while the
+  // channel form is closed.
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+  await page.getByRole('combobox').first().click()
+  const offered = await page.getByRole('option').count()
+  await page.keyboard.press('Escape')
+  for (let i = 0; i < offered; i++) {
+    if (i > 0) await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+    const name = page.getByPlaceholder('e.g. CPU Overload Warning')
+    await name.fill(`rule ${i}`)
+    await page.getByRole('combobox').first().click()
+    await page.getByRole('option').nth(i).click()
+    await page.getByRole('checkbox', { name: channel.name }).click()
+    await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+    // The form closes once the server has accepted the rule.
+    await expect(name).toBeHidden()
+  }
+
+  expect(sent.rules.map(r => r.type).sort()).toEqual([...contract.rule_types].sort())
 })

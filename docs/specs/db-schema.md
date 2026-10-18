@@ -224,7 +224,7 @@ API 요청 감사 로그 테이블. 모든 인증된 API 요청의 메서드, �
 |------|------|----------|--------|----------|------|
 | id | INTEGER | - | 자동 | PK, AUTOINCREMENT | 규칙 고유 ID |
 | name | TEXT | O | - | - | 규칙명 |
-| type | TEXT | O | - | - | 감시 대상 (`cpu`, `memory`, `disk`) |
+| type | TEXT | O | - | - | 감시 대상 (`cpu`, `memory`, `disk`, `container_down`, `container_oom`, `container_restart_loop`, `container_unhealthy`). v0.78.19까지 저장되던 `service`/`login`/`package`는 평가되지 않음 (#132) |
 | condition | TEXT | O | - | - | 조건 (JSON, 예: `{"operator":">","threshold":90}`). 필드는 `operator`(>/</>=/<=)와 `threshold`(float, 0~100) 두 개. `manager.go:ruleCondition` 구조 |
 | channel_ids | TEXT | O | `'[]'` | - | 알림 대상 채널 ID 배열 (JSON) |
 | severity | TEXT | - | `'warning'` | - | 심각도 (`info`, `warning`, `critical`) |
@@ -235,7 +235,7 @@ API 요청 감사 로그 테이블. 모든 인증된 API 요청의 메서드, �
 | created_at | DATETIME | - | CURRENT_TIMESTAMP | - | 생성 시각 (UTC) |
 
 **사용처:**
-- `feature/alert/handler.go` — 규칙 CRUD. `condition` JSON 유효성은 `json.Valid()`로만 검증
+- `feature/alert/handler.go` — 규칙 CRUD. `type`은 평가되는 것만 받고(그 밖의 타입으로 저장된 규칙은 삭제만 됨), `condition` JSON 유효성은 `json.Valid()`로만 검증
 - `feature/alert/manager.go` — **60초 주기**로 조건 평가 (`Start()` 고루틴), 활성 규칙 조회 (`SELECT ... WHERE enabled = 1`), 임계치 초과 시 매칭 채널로 발송 및 `alert_history` 기록. `cooldown` 내 중복 발송 억제 (메모리 상태)
 
 ---

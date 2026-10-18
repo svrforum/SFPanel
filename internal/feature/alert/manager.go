@@ -129,6 +129,16 @@ type ruleCondition struct {
 	Threshold float64 `json:"threshold"` // e.g. 90.0
 }
 
+// hostMetricRules are the rule types evaluate checks, each with the reading
+// it compares to the rule's threshold. Together with containerRules this is
+// everything that is evaluated, and the handlers accept no other type
+// (ruleTypeEvaluated).
+var hostMetricRules = map[string]func(*monitor.Metrics) float64{
+	"cpu":    func(m *monitor.Metrics) float64 { return m.CPU },
+	"memory": func(m *monitor.Metrics) float64 { return m.MemPercent },
+	"disk":   func(m *monitor.Metrics) float64 { return m.DiskPercent },
+}
+
 func (m *Manager) evaluate() {
 	rows, err := m.db.Query("SELECT id, name, type, condition, channel_ids, severity, cooldown, node_scope, node_ids, enabled FROM alert_rules WHERE enabled=1")
 	if err != nil {
@@ -160,31 +170,14 @@ func (m *Manager) evaluate() {
 			continue
 		}
 
-		// Get current value based on type
-		var currentValue float64
-		var valueLabel string
-		switch r.Type {
-		case "cpu":
-			if metricsErr != nil {
-				continue
-			}
-			currentValue = metrics.CPU
-			valueLabel = fmt.Sprintf("%.1f%%", currentValue)
-		case "memory":
-			if metricsErr != nil {
-				continue
-			}
-			currentValue = metrics.MemPercent
-			valueLabel = fmt.Sprintf("%.1f%%", currentValue)
-		case "disk":
-			if metricsErr != nil {
-				continue
-			}
-			currentValue = metrics.DiskPercent
-			valueLabel = fmt.Sprintf("%.1f%%", currentValue)
-		default:
+		// Get current value based on type. Container rules fire from docker
+		// events instead (ContainerDispatcher).
+		reading, ok := hostMetricRules[r.Type]
+		if !ok || metricsErr != nil {
 			continue
 		}
+		currentValue := reading(metrics)
+		valueLabel := fmt.Sprintf("%.1f%%", currentValue)
 
 		// Evaluate condition
 		triggered := false

@@ -2,6 +2,13 @@
 // history table render the same type/severity badges.
 
 // Rule type value <-> i18n key mapping. Labels are resolved via t() at render time.
+//
+// These are the types the rule form offers: the ones the server evaluates.
+// e2e/tests/alert-settings.spec.ts holds the form to rule_types in
+// internal/feature/alert/testdata/page_contract.json, which the Go tests pin
+// to the evaluators. Service, Login and Package were offered too until #132,
+// and nothing ever evaluated them; a rule of any type not listed here shows
+// by its raw type, and the server's evaluated field says it never alerts.
 export const RULE_TYPES: { value: string; i18nKey: string }[] = [
   { value: 'cpu', i18nKey: 'settings.alerts.ruleType.cpu' },
   { value: 'memory', i18nKey: 'settings.alerts.ruleType.memory' },
@@ -10,9 +17,6 @@ export const RULE_TYPES: { value: string; i18nKey: string }[] = [
   { value: 'container_oom', i18nKey: 'settings.alerts.ruleType.containerOom' },
   { value: 'container_restart_loop', i18nKey: 'settings.alerts.ruleType.containerRestartLoop' },
   { value: 'container_unhealthy', i18nKey: 'settings.alerts.ruleType.containerUnhealthy' },
-  { value: 'service', i18nKey: 'settings.alerts.ruleType.service' },
-  { value: 'login', i18nKey: 'settings.alerts.ruleType.login' },
-  { value: 'package', i18nKey: 'settings.alerts.ruleType.package' },
 ]
 
 // Severity labels resolve via t() with the English fallback so the badge

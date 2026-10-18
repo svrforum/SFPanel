@@ -19,17 +19,43 @@
       "enabled": true
     }
   ],
-  "rule_row": {
-    "id": 1,
-    "name": "cpu-high",
-    "type": "cpu",
-    "condition": "{\"operator\":\">\",\"threshold\":90}",
-    "channel_ids": "[1]",
-    "severity": "warning",
-    "cooldown": 300,
-    "node_scope": "all",
-    "node_ids": "[]",
-    "enabled": true,
-    "created_at": "2026-01-01T00:00:00Z"
-  }
+  "rule_rows": [
+    {
+      "id": 1,
+      "name": "cpu-high",
+      "type": "cpu",
+      "condition": "{\"operator\":\">\",\"threshold\":90}",
+      "channel_ids": "[1]",
+      "severity": "warning",
+      "cooldown": 300,
+      "node_scope": "all",
+      "node_ids": "[]",
+      "enabled": true,
+      "evaluated": true,
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": 2,
+      "name": "failed-logins",
+      "type": "login",
+      "condition": "{\"operator\":\">\",\"threshold\":90}",
+      "channel_ids": "[1]",
+      "severity": "warning",
+      "cooldown": 300,
+      "node_scope": "all",
+      "node_ids": "[]",
+      "enabled": true,
+      "evaluated": false,
+      "created_at": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "rule_types": [
+    "cpu",
+    "memory",
+    "disk",
+    "container_down",
+    "container_oom",
+    "container_restart_loop",
+    "container_unhealthy"
+  ]
 }

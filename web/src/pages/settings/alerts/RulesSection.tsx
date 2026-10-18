@@ -345,13 +345,18 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
       {rules.length === 0 ? (
         <p className="text-[13px] text-muted-foreground py-4">{t('settings.alerts.rules.empty')}</p>
       ) : (
-        <div className="space-y-2">
+        <ul className="space-y-2">
           {rules.map(rule => {
             const ruleTypeEntry = RULE_TYPES.find(rt => rt.value === rule.type)
             const severityEntry = SEVERITY_OPTIONS.find(s => s.value === rule.severity)
+            // The server says when nothing evaluates a rule's type (#132): the
+            // rule never fires, whatever enabled says, and the server takes no
+            // change to it but deletion. A node older than the field sends
+            // nothing here.
+            const notEvaluated = rule.evaluated === false
             const threshold = CONTAINER_RULE_TYPES.has(rule.type) ? undefined : conditionThreshold(rule.condition)
             return (
-            <div key={rule.id} className="flex items-center justify-between bg-secondary/30 rounded-xl px-4 py-3">
+            <li key={rule.id} className="flex items-center justify-between bg-secondary/30 rounded-xl px-4 py-3">
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-[13px] font-medium">{rule.name}</span>
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-secondary text-muted-foreground">
@@ -360,26 +365,41 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
                 <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${getSeverityStyle(rule.severity)}`}>
                   {severityEntry ? t(severityEntry.i18nKey, { defaultValue: severityEntry.fallback }) : rule.severity}
                 </span>
-                <span className="text-[11px] text-muted-foreground">
-                  {threshold === undefined
-                    ? t('settings.alerts.rules.summaryCooldown', { cooldown: rule.cooldown })
-                    : t('settings.alerts.rules.summaryThresholdCooldown', { threshold, cooldown: rule.cooldown })}
-                </span>
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
-                  rule.enabled ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'
-                }`}>
-                  {rule.enabled ? t('common.active') : t('common.disabled')}
-                </span>
+                {notEvaluated ? (
+                  <>
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-warning/10 text-warning">
+                      {t('settings.alerts.rules.notEvaluatedBadge')}
+                    </span>
+                    <p className="basis-full text-[12px] text-warning">
+                      {t('settings.alerts.rules.notEvaluatedNotice', { type: rule.type })}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[11px] text-muted-foreground">
+                      {threshold === undefined
+                        ? t('settings.alerts.rules.summaryCooldown', { cooldown: rule.cooldown })
+                        : t('settings.alerts.rules.summaryThresholdCooldown', { threshold, cooldown: rule.cooldown })}
+                    </span>
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                      rule.enabled ? 'bg-success/10 text-success' : 'bg-secondary text-muted-foreground'
+                    }`}>
+                      {rule.enabled ? t('common.active') : t('common.disabled')}
+                    </span>
+                  </>
+                )}
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="rounded-xl h-7 px-2 text-[11px]"
-                  onClick={() => handleToggleRule(rule)}
-                >
-                  {rule.enabled ? t('settings.alerts.rules.actionDisable') : t('settings.alerts.rules.actionEnable')}
-                </Button>
+                {!notEvaluated && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl h-7 px-2 text-[11px]"
+                    onClick={() => handleToggleRule(rule)}
+                  >
+                    {rule.enabled ? t('settings.alerts.rules.actionDisable') : t('settings.alerts.rules.actionEnable')}
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -390,10 +410,10 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
                   <Trash2 className="h-3 w-3" />
                 </Button>
               </div>
-            </div>
+            </li>
             )
           })}
-        </div>
+        </ul>
       )}
     </div>
   )

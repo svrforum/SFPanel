@@ -1307,10 +1307,7 @@
         "containerDown": "Container Down",
         "containerOom": "Container OOM Kill",
         "containerRestartLoop": "Container Restart Loop",
-        "containerUnhealthy": "Container Healthcheck Failure",
-        "service": "Service",
-        "login": "Login",
-        "package": "Package"
+        "containerUnhealthy": "Container Healthcheck Failure"
       },
       "channels": {
         "title": "Channels",
@@ -1379,7 +1376,10 @@
         "successAdded": "Rule added",
         "successDeleted": "Rule deleted",
         "confirmDelete": "Delete this rule?",
-        "errorToggleFailed": "Failed to update rule"
+        "errorToggleFailed": "Failed to update rule",
+        "notEvaluatedBadge": "Not alerting",
+        "notEvaluatedNotice": "The panel does not evaluate {{type}} rules, so this one has never sent an alert and never will. Delete it.",
+        "typeNotEvaluated": "The panel does not evaluate {{type}} rules, so such a rule would never send an alert."
       },
       "history": {
         "title": "Alert History",

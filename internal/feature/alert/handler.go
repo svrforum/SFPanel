@@ -3,6 +3,7 @@ package alert
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -37,7 +38,11 @@ type AlertRule struct {
 	NodeScope  string `json:"node_scope"`
 	NodeIDs    string `json:"node_ids"`
 	Enabled    bool   `json:"enabled"`
-	CreatedAt  string `json:"created_at"`
+	// Evaluated is whether anything evaluates rules of this type. A rule of a
+	// type nothing does, stored before #132, never fires whatever Enabled
+	// says, and the page lists it as not alerting.
+	Evaluated bool   `json:"evaluated"`
+	CreatedAt string `json:"created_at"`
 }
 
 type AlertHistoryEntry struct {
@@ -59,6 +64,26 @@ func isValidChannelType(t string) bool {
 		return true
 	}
 	return false
+}
+
+// ruleTypeEvaluated reports whether anything evaluates rules of type t: the
+// manager's periodic pass over host metrics, or the dispatcher docker events
+// reach. A rule of any other type is stored and never fires. The rule form
+// offered three — service, login and package — and these handlers took them,
+// so such a rule was saved, listed itself as Active and never sent a thing
+// (#132).
+func ruleTypeEvaluated(t string) bool {
+	if _, ok := hostMetricRules[t]; ok {
+		return true
+	}
+	_, ok := containerRules[t]
+	return ok
+}
+
+// failRuleTypeNotEvaluated refuses a rule of a type nothing evaluates.
+func failRuleTypeNotEvaluated(c echo.Context, typ, consequence string) error {
+	return response.FailWith(c, http.StatusBadRequest, response.ErrAlertRuleTypeNotEvaluated,
+		fmt.Sprintf("rule type %q is not evaluated: %s", typ, consequence), map[string]string{"type": typ})
 }
 
 // secretConfigKeys are the JSON object keys whose values must be masked
@@ -470,6 +495,7 @@ func (h *Handler) ListRules(c echo.Context) error {
 			continue
 		}
 		r.Enabled = enabled == 1
+		r.Evaluated = ruleTypeEvaluated(r.Type)
 		list = append(list, r)
 	}
 	if list == nil {
@@ -495,6 +521,9 @@ func (h *Handler) CreateRule(c echo.Context) error {
 	}
 	if req.Name == "" || req.Type == "" || req.Condition == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields, "name, type, and condition are required")
+	}
+	if !ruleTypeEvaluated(req.Type) {
+		return failRuleTypeNotEvaluated(c, req.Type, "the rule would never fire")
 	}
 	if !json.Valid([]byte(req.Condition)) {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, "condition must be valid JSON")
@@ -562,11 +591,19 @@ func (h *Handler) UpdateRule(c echo.Context) error {
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrDBError, "failed to query rule")
 	}
+	// Kept only to be deleted: switched on or edited, it would still never
+	// fire, and would look as if it did.
+	if !ruleTypeEvaluated(current.Type) {
+		return failRuleTypeNotEvaluated(c, current.Type, "the rule can only be deleted")
+	}
 
 	if req.Name != nil {
 		current.Name = *req.Name
 	}
 	if req.Type != nil {
+		if !ruleTypeEvaluated(*req.Type) {
+			return failRuleTypeNotEvaluated(c, *req.Type, "the rule would never fire")
+		}
 		current.Type = *req.Type
 	}
 	if req.Condition != nil {

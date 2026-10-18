@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,7 +25,8 @@ import (
 // bound a string — and adding a channel failed for every type until #116.
 type pageContract struct {
 	ChannelCreates []json.RawMessage `json:"channel_creates"`
-	RuleRow        map[string]any    `json:"rule_row"`
+	RuleRows       []map[string]any  `json:"rule_rows"`
+	RuleTypes      []string          `json:"rule_types"`
 }
 
 func loadPageContract(t *testing.T) pageContract {
@@ -123,16 +125,21 @@ func TestCreateChannel_AcceptsWhatThePageSends(t *testing.T) {
 	}
 }
 
-// TestListRules_RowIsWhatThePageReads pins the row ListRules returns to
-// rule_row, which the e2e spec serves to the page as its rules list. The
+// TestListRules_RowIsWhatThePageReads pins the rows ListRules returns to
+// rule_rows, which the e2e spec serves to the page as its rules list. The
 // page's row type had a threshold field this handler never returned — the row
 // carries the condition the rule was created with — so every host-metric rule
-// listed itself as "Threshold: %".
+// listed itself as "Threshold: %" (#116).
+//
+// The second row is a Login rule as the page stored one until #132: nothing
+// evaluates its type, and evaluated says so, which is how the page knows to
+// list it as not alerting.
 func TestListRules_RowIsWhatThePageReads(t *testing.T) {
 	db := openMigratedDB(t)
 	if _, err := db.Exec(`INSERT INTO alert_rules
 		(name, type, condition, channel_ids, severity, cooldown, node_scope, node_ids, enabled, created_at)
-		VALUES ('cpu-high', 'cpu', '{"operator":">","threshold":90}', '[1]', 'warning', 300, 'all', '[]', 1, '2026-01-01 00:00:00')`); err != nil {
+		VALUES ('cpu-high', 'cpu', '{"operator":">","threshold":90}', '[1]', 'warning', 300, 'all', '[]', 1, '2026-01-01 00:00:00'),
+		       ('failed-logins', 'login', '{"operator":">","threshold":90}', '[1]', 'warning', 300, 'all', '[]', 1, '2026-01-01 00:00:00')`); err != nil {
 		t.Fatal(err)
 	}
 	rec := callJSON(t, (&Handler{DB: db}).ListRules, http.MethodGet, "", 0)
@@ -142,11 +149,31 @@ func TestListRules_RowIsWhatThePageReads(t *testing.T) {
 	var env struct {
 		Data []map[string]any `json:"data"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || len(env.Data) != 1 {
-		t.Fatalf("want one rule in %s (%v)", rec.Body, err)
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("rules in %s: %v", rec.Body, err)
 	}
-	if want := loadPageContract(t).RuleRow; !reflect.DeepEqual(env.Data[0], want) {
-		got, _ := json.Marshal(env.Data[0])
-		t.Errorf("ListRules row\n got %s\nwant the rule_row in testdata/page_contract.json, and the page reads that", got)
+	if want := loadPageContract(t).RuleRows; !reflect.DeepEqual(env.Data, want) {
+		got, _ := json.Marshal(env.Data)
+		t.Errorf("ListRules rows\n got %s\nwant the rule_rows in testdata/page_contract.json, and the page reads those", got)
+	}
+}
+
+// TestPageContract_RuleTypesAreWhatIsEvaluated pins rule_types — the types the
+// e2e spec requires the rule form to offer, and no others — to the tables the
+// evaluators dispatch on. The form offered three types nothing evaluated until
+// #132, so a rule of one was saved and never fired.
+func TestPageContract_RuleTypesAreWhatIsEvaluated(t *testing.T) {
+	var evaluated []string
+	for typ := range hostMetricRules {
+		evaluated = append(evaluated, typ)
+	}
+	for typ := range containerRules {
+		evaluated = append(evaluated, typ)
+	}
+	sort.Strings(evaluated)
+	listed := append([]string(nil), loadPageContract(t).RuleTypes...)
+	sort.Strings(listed)
+	if !reflect.DeepEqual(listed, evaluated) {
+		t.Errorf("rule_types in testdata/page_contract.json is %v, and what is evaluated is %v", listed, evaluated)
 	}
 }

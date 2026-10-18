@@ -400,7 +400,7 @@
 
 - **설명**: 시스템 리소스 임계치 기반 자동 알림 발송. `internal/feature/alert/` 하위 `handler.go`(REST CRUD) + `manager.go`(백그라운드 평가) + `channels/discord.go`, `channels/telegram.go`(채널 구현).
 - **주요 기능**:
-  - **규칙 타입**: 호스트 임계치형 `cpu`/`memory`/`disk` (threshold %) + 컨테이너형 `container_down`/`container_oom`/`container_restart_loop`/`container_unhealthy` (JSON condition: 패턴·count·window 초) + 이벤트형 `service`/`login`/`package`
+  - **규칙 타입**: 호스트 임계치형 `cpu`/`memory`/`disk` (threshold %) + 컨테이너형 `container_down`/`container_oom`/`container_restart_loop`/`container_unhealthy` (JSON condition: 패턴·count·window 초). 평가되는 타입은 이 7개뿐이고(`manager.go`의 `hostMetricRules`, `container_rules.go`의 `containerRules`), 핸들러는 다른 타입을 `ALERT_RULE_TYPE_NOT_EVALUATED`로 거부한다. v0.78.19까지 화면이 내놓던 `service`/`login`/`package`는 평가기가 없어 알림을 보낸 적이 없다(#132) — 남은 규칙은 목록에 "알림 안 함"으로 나오고 삭제만 된다
   - **알림 규칙** (`alert_rules` 테이블): 호스트형 조건 JSON `{"operator":">","threshold":90}` (연산자 `>`/`>=`/`<`/`<=`), 쿨다운(기본 300초, 동일 규칙 재발송 억제 — 원자적 예약으로 동시 중복 발송 차단)
   - **알림 채널** (`alert_channels` 테이블): Discord (`{"webhook_url":"..."}`), Telegram (`{"bot_token":"...","chat_id":"..."}`), **Webhook**(`{"webhook_url":"..."}`) — Slack/Mattermost incoming webhook 호환 `text` 필드 + 구조화 알림 필드(title/message/severity/timestamp)를 JSON 본문으로 POST하므로 Slack incoming webhook이나 임의의 커스텀 수신기와 동작. 홈랩 수신기가 LAN에 있는 설계 특성상 임의의 http(s) 대상을 허용(URL 형식만 검증), 전송은 공유 10초 클라이언트로 바운드. 채널 `enabled` 플래그로 토글
   - **클러스터 지원**: `node_scope` = `all` 또는 `specific`, `node_scope=specific` 시 `node_ids` JSON 배열로 대상 노드 지정

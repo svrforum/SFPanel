@@ -387,6 +387,12 @@ const (
 	ErrAlertError   = "ALERT_ERROR"
 	ErrChannelError = "CHANNEL_ERROR"
 	ErrRuleError    = "RULE_ERROR"
+
+	// ErrAlertRuleTypeNotEvaluated is returned (HTTP 400) for an alert rule
+	// whose type nothing evaluates: creating one, changing a rule to one, or
+	// changing one that is already stored. Such a rule is saved and never
+	// fires (#132). Details: type.
+	ErrAlertRuleTypeNotEvaluated = "ALERT_RULE_TYPE_NOT_EVALUATED"
 )
 
 // System update error codes

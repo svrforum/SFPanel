@@ -108,6 +108,29 @@ type AlertContainerEvent struct {
 	ExitCode       *int
 }
 
+// containerRule is how Dispatch evaluates one container rule type.
+type containerRule struct {
+	event string // the event, as monitor/docker_events.go names it, that fires the rule
+}
+
+// containerRules are the rule types Dispatch evaluates. Together with
+// hostMetricRules this is everything that is evaluated, and the handlers
+// accept no other type (ruleTypeEvaluated).
+var containerRules = map[string]containerRule{
+	// Only `die`. Docker emits `oom` immediately followed by `die` for
+	// OOM-kills, so accepting only `die` covers both causes without
+	// producing duplicate fires.
+	"container_down": {event: "die"},
+	"container_oom":  {event: "oom"},
+	// Counted over the rule's window: see recentRestartTimes.
+	"container_restart_loop": {event: "restart"},
+	// Docker emits `health_status: unhealthy` (parsed to "unhealthy" by
+	// monitor/docker_events.go) when a container's healthcheck transitions
+	// from healthy/starting to unhealthy. Recovery emits "healthy" — that
+	// does not fire.
+	"container_unhealthy": {event: "unhealthy"},
+}
+
 // ContainerDispatcher evaluates container alert rules whenever a matching
 // container event is observed. Implements monitor.EventDispatcher via
 // the Dispatch shim wired in main.go.
@@ -130,7 +153,7 @@ func NewContainerDispatcherWithIdentity(db *sql.DB, ch ChannelDispatcher, identi
 
 // Dispatch is the entry point — translates the event to alert evaluation.
 func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEvent) {
-	rows, err := d.db.Query(`SELECT id, name, type, condition, channel_ids, severity, cooldown, node_scope, node_ids FROM alert_rules WHERE enabled=1 AND type IN ('container_down','container_oom','container_restart_loop','container_unhealthy')`)
+	rows, err := d.db.Query(`SELECT id, name, type, condition, channel_ids, severity, cooldown, node_scope, node_ids FROM alert_rules WHERE enabled=1`)
 	if err != nil {
 		slog.Warn("container alert rules query failed", "error", err)
 		return
@@ -140,6 +163,9 @@ func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEv
 		var id, cooldown int
 		var name, typ, condStr, channelIDs, sev, nodeScope, nodeIDs string
 		if err := rows.Scan(&id, &name, &typ, &condStr, &channelIDs, &sev, &cooldown, &nodeScope, &nodeIDs); err != nil {
+			continue
+		}
+		if rule, ok := containerRules[typ]; !ok || ev.Type != rule.event {
 			continue
 		}
 		if !ruleAppliesToNode(d.identity, nodeScope, nodeIDs) {
@@ -158,32 +184,11 @@ func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEv
 			continue
 		}
 		switch typ {
-		case "container_down":
-			// Only fire on `die`. Docker emits `oom` immediately followed
-			// by `die` for OOM-kills, so accepting only `die` covers both
-			// causes without producing duplicate fires.
-			if ev.Type != "die" {
-				continue
-			}
 		case "container_oom":
-			if ev.Type != "oom" {
-				continue
-			}
 			sev = "critical"
 		case "container_restart_loop":
-			if ev.Type != "restart" {
-				continue
-			}
 			times, qerr := d.recentRestartTimes(ev.ID, cond.WindowSeconds)
 			if qerr != nil || !evaluateRestartLoop(times, cond.ThresholdCount, cond.WindowSeconds) {
-				continue
-			}
-		case "container_unhealthy":
-			// Docker emits `health_status: unhealthy` (parsed to "unhealthy"
-			// by monitor/docker_events.go) when a container's healthcheck
-			// transitions from healthy/starting to unhealthy. Recovery emits
-			// "healthy" — we don't fire on that.
-			if ev.Type != "unhealthy" {
 				continue
 			}
 		}

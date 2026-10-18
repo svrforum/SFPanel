@@ -1305,10 +1305,7 @@
         "containerDown": "컨테이너 종료",
         "containerOom": "컨테이너 OOM kill",
         "containerRestartLoop": "컨테이너 재시작 루프",
-        "containerUnhealthy": "컨테이너 healthcheck 실패",
-        "service": "서비스",
-        "login": "로그인",
-        "package": "패키지"
+        "containerUnhealthy": "컨테이너 healthcheck 실패"
       },
       "channels": {
         "title": "채널 관리",
@@ -1377,7 +1374,10 @@
         "successAdded": "규칙이 추가되었습니다",
         "successDeleted": "규칙이 삭제되었습니다",
         "confirmDelete": "이 규칙을 삭제하시겠습니까?",
-        "errorToggleFailed": "규칙 변경에 실패했습니다"
+        "errorToggleFailed": "규칙 변경에 실패했습니다",
+        "notEvaluatedBadge": "알림 안 함",
+        "notEvaluatedNotice": "패널은 {{type}} 규칙을 평가하지 않습니다. 이 규칙은 알림을 보낸 적이 없고 앞으로도 보내지 않으니 삭제하세요.",
+        "typeNotEvaluated": "패널은 {{type}} 규칙을 평가하지 않습니다. 이런 규칙으로는 알림이 가지 않습니다."
       },
       "history": {
         "title": "알림 히스토리",

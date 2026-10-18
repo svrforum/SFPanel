@@ -1158,6 +1158,9 @@ export interface AlertRule {
   node_scope: string
   node_ids: string // JSON string array
   enabled: boolean
+  // false: nothing evaluates this rule's type (#132), so it never fires
+  // whatever enabled says. Absent from a node older than the field.
+  evaluated?: boolean
   created_at: string
 }
 

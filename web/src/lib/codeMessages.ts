@@ -25,4 +25,5 @@ export const CODE_MESSAGES: Record<string, string> = {
   APT_REPO_UNAUTHORIZED: 'packages.repoUnauthorized',
   APT_REPO_FAILED: 'packages.repoFailed',
   APT_TRANSACTION_RUNNING: 'packages.transactionRunning',
+  ALERT_RULE_TYPE_NOT_EVALUATED: 'settings.alerts.rules.typeNotEvaluated',
 }
