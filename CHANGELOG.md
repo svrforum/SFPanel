@@ -6,6 +6,12 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.21] – 2026-10-18
+
+### Changed
+
+- **Dependencies.** golang.org/x/crypto 0.58, with x/sys 0.49 and x/text 0.43; docker/go-connections 0.8.2; setup-node 7.1; @playwright/test 1.64.1; and for the desktop app the Tauri API 2.12.4, CLI 2.12.3 and updater plugin 2.14 — its Rust crate as well, since Tauri builds only when the two agree. (#118–#122, #125, #128)
+
 ## [0.78.20] – 2026-10-18
 
 ### Fixed
