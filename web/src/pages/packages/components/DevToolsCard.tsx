@@ -5,7 +5,7 @@ import { CheckCircle2, Package, Settings2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { streamErrorMessage, type SSEOutput } from '@/components/OutputDialog'
+import { streamErrorMessage, StreamReportedError, type SSEOutput } from '@/components/OutputDialog'
 import { DevToolCard } from '@/pages/packages/components/DevToolCard'
 import { NodeVersionDialog } from '@/pages/packages/components/NodeVersionDialog'
 
@@ -78,9 +78,12 @@ export function DevToolsCard({ output }: { output: SSEOutput }) {
       await fetchStatus(id)
     } catch (err: unknown) {
       const message = streamErrorMessage(err, t('packages.streamStartFailed'))
-      output.appendOutput('\n' + t('packages.error') + ': ' + message + '\n')
+      const reported = err instanceof StreamReportedError
+      if (!reported) output.appendOutput('\n' + t('packages.error') + ': ' + message + '\n')
       output.finishOutput()
       toast.error(message)
+      // The stream ran, and may have left part of the install behind.
+      if (reported) await fetchStatus(id)
     } finally {
       setInstalling(null)
     }

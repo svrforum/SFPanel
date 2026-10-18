@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { StatusPill } from '@/components/StatusPill'
-import { streamErrorMessage, type SSEOutput } from '@/components/OutputDialog'
+import { streamErrorMessage, StreamReportedError, type SSEOutput } from '@/components/OutputDialog'
 import {
   Dialog,
   DialogContent,
@@ -87,9 +87,15 @@ export function NodeVersionDialog({
       await onNodeChanged()
     } catch (err: unknown) {
       const message = streamErrorMessage(err, t('packages.streamStartFailed'))
-      output.appendOutput('\n' + t('packages.error') + ': ' + message + '\n')
+      const reported = err instanceof StreamReportedError
+      if (!reported) output.appendOutput('\n' + t('packages.error') + ': ' + message + '\n')
       output.finishOutput()
       toast.error(message)
+      // The stream ran, and may have left part of the install behind.
+      if (reported) {
+        await fetchNodeVersions()
+        await onNodeChanged()
+      }
     } finally {
       setInstallingVersion(null)
     }

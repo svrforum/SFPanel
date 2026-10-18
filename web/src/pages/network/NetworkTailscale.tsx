@@ -23,7 +23,7 @@ import { api } from '@/lib/api'
 import { formatBytes } from '@/lib/utils'
 import { useCopyFeedback } from '@/hooks/useCopyFeedback'
 import { useConfirm } from '@/components/ConfirmDialog'
-import { OutputDialog, streamErrorMessage, useSSEOutput } from '@/components/OutputDialog'
+import { OutputDialog, streamErrorMessage, StreamReportedError, useSSEOutput } from '@/components/OutputDialog'
 import type { TailscaleStatus, TailscalePeer } from '@/types/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -247,7 +247,7 @@ export default function NetworkTailscale() {
       // the tail of the install log.
     } catch (err: unknown) {
       const msg = streamErrorMessage(err, t('network.tailscale.installFailed'))
-      output.appendOutput('\nERROR: ' + msg)
+      if (!(err instanceof StreamReportedError)) output.appendOutput('\nERROR: ' + msg)
       output.finishOutput()
       toast.error(msg)
     } finally {

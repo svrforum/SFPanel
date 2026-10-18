@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { streamErrorMessage, type SSEOutput } from '@/components/OutputDialog'
+import { streamErrorMessage, StreamReportedError, type SSEOutput } from '@/components/OutputDialog'
 import { ProfilePanel } from '@/pages/terminal/components/ProfilePanel'
 import { TmuxBanner } from '@/pages/terminal/components/TmuxBanner'
 
@@ -53,9 +53,12 @@ export function ToolsSheet({ open, onOpenChange, tools, toolsError, account, onA
       onChanged()
     } catch (err: unknown) {
       const message = streamErrorMessage(err, t('ai.errors.generic'))
-      output.appendOutput('\n' + message + '\n')
+      const reported = err instanceof StreamReportedError
+      if (!reported) output.appendOutput('\n' + message + '\n')
       output.finishOutput()
       toast.error(message)
+      // The stream ran, and may have changed what is installed.
+      if (reported) onChanged()
     } finally {
       setBusy(null)
     }

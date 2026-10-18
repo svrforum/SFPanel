@@ -22,12 +22,24 @@ export interface SSEOutputState {
 
 const CLOSED: SSEOutputState = { open: false, title: '', output: '', done: false }
 
+// A line an installer fails with: the panel's own "ERROR: …", and what the
+// tools it runs print (apt's "E: ", git's "fatal:").
+const ERROR_MARKER = /^\s*(ERROR:|error:|E:\s|fatal:)/m
+
 // SSE installers emit "ERROR: …" lines then [DONE] even on failure, so the
 // "done" flag alone can't tell success from failure. Scan the streamed output
 // for an error marker to render the right state.
 function outputHasError(output: string): boolean {
-  return /(^|\n)\s*(ERROR:|error:|E:\s|fatal:)/m.test(output)
+  return ERROR_MARKER.test(output)
 }
+
+/**
+ * What runStream rejects with when the stream reported its own failure: the
+ * endpoint answered 200 and then wrote "ERROR: …", a line the dialog already
+ * shows, so a caller need not echo it.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export class StreamReportedError extends Error {}
 
 // api.postTextStream throws technical, untranslated errors ("Stream failed
 // (500)", "No stream"). Map those to a translated fallback; anything else
@@ -87,9 +99,15 @@ export function useSSEOutput(): SSEOutput {
   // cluster ?node= scope) and pipe its `data:` lines into the dialog. `[DONE]`
   // finishes the dialog unless finishOnDone=false — callers that append their
   // own closing lines finish explicitly.
+  //
+  // A stream that reported a failure rejects with StreamReportedError once it
+  // ends. postTextStream resolves on any 200, and every caller used to
+  // announce success over a dialog that had just turned red.
   const runStream = useCallback(
     async (path: string, opts: { body?: unknown; finishOnDone?: boolean } = {}) => {
       let buffer = ''
+      // Assigned in the chunk callback, which narrowing cannot see.
+      let failure = null as string | null
       await api.postTextStream(
         path,
         (chunk) => {
@@ -102,6 +120,7 @@ export function useSSEOutput(): SSEOutput {
             if (data === '[DONE]') {
               if (opts.finishOnDone !== false) finishOutput()
             } else {
+              if (failure === null && ERROR_MARKER.test(data)) failure = data
               appendOutput(data + '\n')
             }
           }
@@ -110,6 +129,7 @@ export function useSSEOutput(): SSEOutput {
           ? { body: JSON.stringify(opts.body), headers: { 'Content-Type': 'application/json' } }
           : {}
       )
+      if (failure !== null) throw new StreamReportedError(failure.trim().replace(/^ERROR:\s*/, ''))
     },
     [appendOutput, finishOutput]
   )
