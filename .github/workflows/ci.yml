@@ -192,6 +192,7 @@ jobs:
             tests/terminal-select-text.spec.ts \
             tests/terminal-links.spec.ts \
             tests/android-session.spec.ts \
+            tests/cron-run-now.spec.ts \
             tests/cluster-lifecycle.spec.ts
       - name: Dump panel log on failure
         if: failure()

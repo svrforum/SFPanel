@@ -415,7 +415,10 @@ export default function CronJobs() {
                       <span className="text-muted-foreground text-xs">--</span>
                     )}
                   </TableCell>
-                  <TableCell>
+                  {/* TableCell is nowrap, so break-all alone never wrapped a long
+                      command and it pushed the row's buttons out of view. Below
+                      lg the column is too narrow to wrap usefully; it scrolls. */}
+                  <TableCell className="lg:whitespace-normal">
                     {job.type === 'comment' ? (
                       <span className="text-muted-foreground text-xs italic">{job.raw}</span>
                     ) : job.type === 'env' ? (
@@ -440,6 +443,16 @@ export default function CronJobs() {
                   <TableCell className="text-right">
                     {job.type === 'job' && (
                       <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          title={t('cron.runNow')}
+                          aria-label={t('cron.runNow')}
+                          disabled={actionLoading === job.id}
+                          onClick={() => handleRunNow(job)}
+                        >
+                          <Zap className="h-4 w-4 text-amber-500" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon-xs"
