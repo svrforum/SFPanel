@@ -867,6 +867,16 @@ func (h *Handler) GetNodeStatus(c echo.Context) error {
 	return response.OK(c, status)
 }
 
+// keepLTSDefault pins a default that resolves through an lts/ alias to the
+// version it resolves to now. nvm rewrites every lts/ alias from the release
+// index each time it reads one — `nvm install` does, and listing the remote
+// versions did — so a default of lts/* turns N/A as soon as a newer LTS
+// ships, and node, npm and every tool installed with `npm install -g` drop
+// off PATH in each new shell. nvm sets that default itself on a first
+// `nvm install --lts`, and this page used to set it. Pinned, it stays what it
+// is.
+const keepLTSDefault = `case "$(cat "$NVM_DIR/alias/default" 2>/dev/null)" in lts/*) v=$(nvm version default); [ "$v" = N/A ] || nvm alias default "$v" >/dev/null;; esac`
+
 // ---------- InstallNode ----------
 
 // InstallNode installs Node.js via NVM (Node Version Manager).
@@ -961,8 +971,9 @@ func (h *Handler) InstallNode(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
 	defer cancel()
 
-	// Source nvm and install LTS in a single bash invocation
-	script := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm install --lts && nvm alias default lts/* && node --version && npm --version`, nvmDir)
+	// Source nvm and install LTS in a single bash invocation. The default is
+	// the version just installed, not lts/*: see keepLTSDefault.
+	script := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm install --lts && nvm alias default "$(nvm current)" && node --version && npm --version`, nvmDir)
 	cmd := osExec.CommandContext(ctx, "bash", "-c", script)
 	cmd.Env = append(os.Environ(), "HOME="+homeDir, "NVM_DIR="+nvmDir)
 
@@ -1082,8 +1093,11 @@ func (h *Handler) GetNodeVersions(c echo.Context) error {
 
 	result["versions"] = versions
 
-	// List available remote LTS versions (cached, quick)
-	ltsScript := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm ls-remote --lts --no-colors 2>/dev/null | grep "Latest" | tail -5`, nvmDir)
+	// List available remote LTS versions (cached, quick), against a scratch
+	// NVM_DIR: nvm writes the lts/ aliases from every index it reads, and a
+	// listing must not move what a default of lts/* resolves to
+	// (keepLTSDefault).
+	ltsScript := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && scratch=$(mktemp -d) && (NVM_DIR="$scratch" nvm ls-remote --lts --no-colors 2>/dev/null) | grep "Latest" | tail -5; rm -rf "$scratch"`, nvmDir)
 	ltsOut, err := h.Cmd.RunWithTimeout(15*time.Second, "bash", "-c", ltsScript)
 	if err == nil {
 		remoteLTS := make([]string, 0)
@@ -1187,7 +1201,7 @@ func (h *Handler) InstallNodeVersion(c echo.Context) error {
 
 	sendLine(fmt.Sprintf(">>> Installing Node.js %s ...", body.Version))
 
-	script := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && nvm install %s`, nvmDir, body.Version)
+	script := fmt.Sprintf(`export NVM_DIR="%s" && . "$NVM_DIR/nvm.sh" && { `+keepLTSDefault+`; nvm install %s; }`, nvmDir, body.Version)
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
 	defer cancel()
 
