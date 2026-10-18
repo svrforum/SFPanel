@@ -6,6 +6,14 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.22] – 2026-10-18
+
+### Fixed
+
+- **Codex and Gemini install Node.js first when the account has none.** On a host with no npm on the panel's PATH — a Proxmox VE host, or one whose Node.js is nvm's — the terminal's install button stopped at "npm is not installed. Please install Node.js first." Without a system npm it now installs as the account, on the account's own Node.js: its nvm, the npm its login shell finds, or nvm and the current LTS put in place first. Afterwards the account's login shell has to find the tool, or the install says it does not.
+- **nvm's default stays on a version that is installed.** The packages page's Node.js button set nvm's default to `lts/*`, which nvm rewrites from every release index it reads. Once a newer LTS shipped, opening the Node.js version list was enough to point the default at a version that is not installed, and node, npm and every tool installed with npm dropped off PATH. The button now pins the version it installs, the list no longer rewrites nvm's aliases, and installing another version keeps the default.
+- **A failed install is no longer announced as installed.** The install dialogs — terminal tools, Node.js, Node.js versions, Docker, Tailscale — showed a success notice over a log that had just reported the failure. They now show the failure.
+
 ## [0.78.21] – 2026-10-18
 
 ### Changed
