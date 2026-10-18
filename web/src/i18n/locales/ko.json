@@ -1353,6 +1353,8 @@
         "formThresholdLabel": "임계값 (%)",
         "formContainerPatternLabel": "컨테이너 패턴 (와일드카드)",
         "formContainerPatternPlaceholder": "* | nginx-* | exact-name",
+        "formIncludeIntentionalStopsLabel": "의도적으로 정지한 경우에도 알림",
+        "formIncludeIntentionalStopsHint": "기본으로는 docker stop·kill·restart, compose stop·down, 패널 버튼처럼 직접 요청한 정지는 알리지 않습니다. 컨테이너가 스스로 종료되거나 비정상 종료된 경우는 항상 알립니다.",
         "formRestartCountLabel": "재시작 임계 횟수",
         "formWindowLabel": "윈도우 (초)",
         "formSeverityLabel": "심각도",

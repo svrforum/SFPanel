@@ -3,19 +3,39 @@
     {
       "name": "test",
       "type": "discord",
-      "config": { "webhook_url": "https://discord.com/api/webhooks/000000/test" },
+      "config": {
+        "webhook_url": "https://discord.com/api/webhooks/000000/test"
+      },
       "enabled": true
     },
     {
       "name": "test-telegram",
       "type": "telegram",
-      "config": { "bot_token": "000000:test-token", "chat_id": "-1000000000" },
+      "config": {
+        "bot_token": "000000:test-token",
+        "chat_id": "-1000000000"
+      },
       "enabled": true
     },
     {
       "name": "test-webhook",
       "type": "webhook",
-      "config": { "webhook_url": "https://hooks.example.com/sfpanel" },
+      "config": {
+        "webhook_url": "https://hooks.example.com/sfpanel"
+      },
+      "enabled": true
+    }
+  ],
+  "rule_creates": [
+    {
+      "name": "containers-down",
+      "type": "container_down",
+      "condition": "{\"container_pattern\":\"*\",\"include_intentional_stops\":true}",
+      "channel_ids": "[1]",
+      "severity": "warning",
+      "cooldown": 300,
+      "node_scope": "all",
+      "node_ids": "[]",
       "enabled": true
     }
   ],

@@ -4,13 +4,13 @@ import { resolve } from 'node:path'
 
 // Settings → Alerts against the shapes the alert handlers are tested with.
 // Both sides read internal/feature/alert/testdata/page_contract.json: the Go
-// tests post its channel bodies to CreateChannel, pin ListRules to its rule
-// rows and its rule types to what the server evaluates, and this spec checks
-// the page sends the one, reads the other and offers exactly those types. The
-// page sent config as an object and the handler bound a string from the first
-// release until #116, so adding a channel failed for every type while each
-// side looked right on its own; and the rule form offered three types nothing
-// evaluated until #132. Mocked API.
+// tests post its channel and rule bodies to CreateChannel and CreateRule, pin
+// ListRules to its rule rows and its rule types to what the server evaluates,
+// and this spec checks the page sends the bodies, reads the rows and offers
+// exactly those types. The page sent config as an object and the handler
+// bound a string from the first release until #116, so adding a channel
+// failed for every type while each side looked right on its own; and the rule
+// form offered three types nothing evaluated until #132. Mocked API.
 
 type ChannelBody = {
   name: string
@@ -29,7 +29,7 @@ type RuleRow = {
   evaluated: boolean
 }
 
-const contract: { channel_creates: ChannelBody[]; rule_rows: RuleRow[]; rule_types: string[] } =
+const contract: { channel_creates: ChannelBody[]; rule_creates: { name: string }[]; rule_rows: RuleRow[]; rule_types: string[] } =
   JSON.parse(readFileSync(resolve(__dirname, '../../internal/feature/alert/testdata/page_contract.json'), 'utf8'))
 
 // A channel for the rule form to pick: it refuses a rule without one.
@@ -198,4 +198,27 @@ test('a rule scoped to specific nodes is not sent until a node is picked', async
   await page.getByRole('button', { name: 'node-a', exact: true }).click()
   await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
   await expect.poll(() => sent.rules.map(r => [r.node_scope, r.node_ids])).toEqual([['specific', '["node-a"]']])
+})
+
+// The down rule's "also alert on intentional stops" box is a key in the
+// condition text, which only the dispatcher reads: the Go test creates this
+// body and checks the rule it makes fires for a docker stop.
+test('a container-down rule sends the stop option in the shape the dispatcher is tested with', async ({ page }) => {
+  const sent = await mock(page, { channels: [channel] })
+  await page.goto('/settings?tab=alerts')
+
+  const [body] = contract.rule_creates
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+  const name = page.getByPlaceholder('e.g. CPU Overload Warning')
+  await name.fill(body.name)
+  // The rule form's first select is its type; the channel form is closed.
+  await page.getByRole('combobox').first().click()
+  await page.getByRole('option', { name: 'Container Down', exact: true }).click()
+  await page.getByRole('checkbox', { name: 'Also alert when a container is stopped on purpose' }).click()
+  await page.getByRole('checkbox', { name: channel.name }).click()
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+  // The form closes once the server has accepted the rule.
+  await expect(name).toBeHidden()
+
+  expect(sent.rules).toEqual(contract.rule_creates)
 })

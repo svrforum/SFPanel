@@ -50,6 +50,8 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
   const [containerPattern, setContainerPattern] = useState('*')
   const [thresholdCount, setThresholdCount] = useState(3)
   const [windowSeconds, setWindowSeconds] = useState(300)
+  // container_down only: also alert when a container was stopped on purpose.
+  const [includeIntentionalStops, setIncludeIntentionalStops] = useState(false)
   // Cluster nodes for the specific-scope multi-select (empty in single-node mode).
   const [clusterNodes, setClusterNodes] = useState<{ id: string; name: string }[]>([])
   // The node whose rules these are. Rules live in the local database of
@@ -94,6 +96,7 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
         setContainerPattern('*')
         setThresholdCount(3)
         setWindowSeconds(300)
+        setIncludeIntentionalStops(false)
         loadRules()
       },
     },
@@ -115,9 +118,16 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
 
   // Build the JSON `condition` payload the backend expects per rule type.
   // Host metric rules (cpu/memory/disk) use {operator,threshold}; container
-  // rules use a pattern + optional restart-loop window. Returns a JSON string.
+  // rules use a pattern + optional restart-loop window, and the down rule
+  // whether to alert on intentional stops too. Returns a JSON string.
   function buildConditionForSubmit(type: string): string {
-    if (type === 'container_down' || type === 'container_oom' || type === 'container_unhealthy') {
+    if (type === 'container_down') {
+      return JSON.stringify({
+        container_pattern: containerPattern || '*',
+        include_intentional_stops: includeIntentionalStops,
+      })
+    }
+    if (type === 'container_oom' || type === 'container_unhealthy') {
       return JSON.stringify({ container_pattern: containerPattern || '*' })
     }
     if (type === 'container_restart_loop') {
@@ -236,6 +246,19 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
                 placeholder={t('settings.alerts.rules.formContainerPatternPlaceholder')}
                 className="rounded-xl"
               />
+            </div>
+          )}
+          {/* Container down only: a stop someone asked for is skipped unless this is ticked */}
+          {ruleForm.type === 'container_down' && (
+            <div className="space-y-1">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox
+                  checked={includeIntentionalStops}
+                  onCheckedChange={(v) => setIncludeIntentionalStops(v === true)}
+                />
+                <span className="text-[13px]">{t('settings.alerts.rules.formIncludeIntentionalStopsLabel')}</span>
+              </label>
+              <p className="text-[11px] text-muted-foreground">{t('settings.alerts.rules.formIncludeIntentionalStopsHint')}</p>
             </div>
           )}
           {/* Restart loop only: count threshold + observation window */}

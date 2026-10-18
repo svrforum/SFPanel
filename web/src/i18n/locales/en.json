@@ -1355,6 +1355,8 @@
         "formThresholdLabel": "Threshold (%)",
         "formContainerPatternLabel": "Container Pattern (wildcard)",
         "formContainerPatternPlaceholder": "* | nginx-* | exact-name",
+        "formIncludeIntentionalStopsLabel": "Also alert when a container is stopped on purpose",
+        "formIncludeIntentionalStopsHint": "By default a stop someone asked for — docker stop, kill or restart, compose stop or down, the panel's buttons — is not alerted. A container that exits or crashes by itself always is.",
         "formRestartCountLabel": "Restart Count Threshold",
         "formWindowLabel": "Window (seconds)",
         "formSeverityLabel": "Severity",

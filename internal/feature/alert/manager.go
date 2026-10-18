@@ -43,12 +43,22 @@ const fireWorkers = 2
 // channel's config could not be read for its type.
 var errUnusableChannelConfig = errors.New("channel config unusable for its type")
 
+// fireKey is what a cooldown runs per: the rule and, for a container rule,
+// the container it fired for. Keyed on the rule alone, a "*" rule's alert for
+// one container held back every other container's for the cooldown (#135).
+// lastSent keeps one entry per container a rule has alerted on, for the life
+// of the process.
+type fireKey struct {
+	rule      int
+	container string
+}
+
 type Manager struct {
 	db       *sql.DB
 	identity NodeIdentity
 	mu       sync.RWMutex
-	lastSent map[int]time.Time // rule_id -> last successful send (cooldown)
-	inFlight map[int]bool      // rule_id -> a dispatch is queued/running
+	lastSent map[fireKey]time.Time // last successful send (cooldown)
+	inFlight map[fireKey]bool      // a dispatch is queued/running
 	cancel   context.CancelFunc
 
 	fireQueue chan AlertFire
@@ -72,8 +82,8 @@ func NewManagerWithIdentity(db *sql.DB, identity NodeIdentity) *Manager {
 	m := &Manager{
 		db:        db,
 		identity:  identity,
-		lastSent:  make(map[int]time.Time),
-		inFlight:  make(map[int]bool),
+		lastSent:  make(map[fireKey]time.Time),
+		inFlight:  make(map[fireKey]bool),
 		fireQueue: make(chan AlertFire, fireQueueDepth),
 	}
 	m.deliver = m.deliverToChannels
@@ -221,17 +231,18 @@ func (m *Manager) evaluate() {
 // single lock, so two concurrent fires for the same rule (container-event path
 // + periodic evaluate) cannot both pass the gate and double-send.
 func (m *Manager) Fire(_ context.Context, f AlertFire) {
+	key := fireKey{rule: f.RuleID, container: f.Container}
 	m.mu.Lock()
-	if lastSent, ok := m.lastSent[f.RuleID]; ok &&
+	if lastSent, ok := m.lastSent[key]; ok &&
 		time.Since(lastSent) < time.Duration(f.Cooldown)*time.Second {
 		m.mu.Unlock()
 		return
 	}
-	if m.inFlight[f.RuleID] {
-		m.mu.Unlock() // a dispatch for this rule is already queued/running
+	if m.inFlight[key] {
+		m.mu.Unlock() // a dispatch for this rule and container is already queued/running
 		return
 	}
-	m.inFlight[f.RuleID] = true
+	m.inFlight[key] = true
 	m.mu.Unlock()
 
 	select {
@@ -240,7 +251,7 @@ func (m *Manager) Fire(_ context.Context, f AlertFire) {
 		// Queue saturated: drop this fire and release the reservation so a
 		// later fire for the same rule can retry rather than being wedged.
 		m.mu.Lock()
-		delete(m.inFlight, f.RuleID)
+		delete(m.inFlight, key)
 		m.mu.Unlock()
 		logger.Warn("alert dispatch queue full, dropping fire", "rule", f.RuleName, "type", f.Type)
 	}
@@ -251,12 +262,13 @@ func (m *Manager) Fire(_ context.Context, f AlertFire) {
 func (m *Manager) runFire(f AlertFire) {
 	sentChannelNames := m.deliver(f)
 
+	key := fireKey{rule: f.RuleID, container: f.Container}
 	m.mu.Lock()
-	delete(m.inFlight, f.RuleID)
+	delete(m.inFlight, key)
 	if len(sentChannelNames) > 0 {
 		// Cooldown starts only after a successful send, so a transient
 		// all-channels-down failure is retried on the next fire.
-		m.lastSent[f.RuleID] = time.Now()
+		m.lastSent[key] = time.Now()
 	}
 	m.mu.Unlock()
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,6 +26,7 @@ import (
 // bound a string — and adding a channel failed for every type until #116.
 type pageContract struct {
 	ChannelCreates []json.RawMessage `json:"channel_creates"`
+	RuleCreates    []json.RawMessage `json:"rule_creates"`
 	RuleRows       []map[string]any  `json:"rule_rows"`
 	RuleTypes      []string          `json:"rule_types"`
 }
@@ -175,5 +177,32 @@ func TestPageContract_RuleTypesAreWhatIsEvaluated(t *testing.T) {
 	sort.Strings(listed)
 	if !reflect.DeepEqual(listed, evaluated) {
 		t.Errorf("rule_types in testdata/page_contract.json is %v, and what is evaluated is %v", listed, evaluated)
+	}
+}
+
+// TestCreateRule_StopOptionThePageSendsIsRead: a down rule's "also alert on
+// intentional stops" box travels as a key in the condition text, which
+// CreateRule stores as it comes and only the dispatcher reads, so a key the
+// two spelled differently would leave the box doing nothing with nothing
+// failing. The rule the page creates with the box ticked alerts on a docker
+// stop, which TestContainerDown_RequestedStopIsNotAnOutage shows a rule
+// without it does not.
+func TestCreateRule_StopOptionThePageSendsIsRead(t *testing.T) {
+	db := replayDB(t)
+	creates := loadPageContract(t).RuleCreates
+	if len(creates) == 0 {
+		t.Fatal("page_contract.json has no rule_creates")
+	}
+	for _, body := range creates {
+		if rec := callJSON(t, (&Handler{DB: db}).CreateRule, http.MethodPost, string(body), 0); rec.Code != http.StatusOK {
+			t.Fatalf("status %d, want 200: %s", rec.Code, rec.Body)
+		}
+	}
+	log := &fireLog{}
+	replay(t, db, NewContainerDispatcher(db, log), nil)
+
+	const want = "stop was stopped on request (exit 0)"
+	if got := log.messages(); !slices.Contains(got, want) {
+		t.Errorf("the page's rule fired for %q, want %q among them", got, want)
 	}
 }
