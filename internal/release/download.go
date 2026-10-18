@@ -7,6 +7,11 @@ import (
 	osExec "os/exec"
 )
 
+// NVMInstallerURL is nvm's installer, pinned to a release. The packages
+// page's Node.js button and the terminal's Codex and Gemini installs both run
+// it, so SFPANEL_NVM_INSTALLER_SHA256 pins the one script for both.
+const NVMInstallerURL = "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh"
+
 // DownloadInstaller fetches an installer script into a freshly created
 // private temp file (0600, random name) and returns its path plus curl's
 // combined output. A fixed name would let a local unprivileged user

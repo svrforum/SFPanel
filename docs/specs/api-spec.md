@@ -3997,9 +3997,14 @@ Claude Code · Codex · Gemini CLI를 패널이 관리하는 tmux 세션으로 �
 ### POST /api/v1/ai/tools/:tool/install-stream · /update-stream
 CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gemini는 `npm install -g <pkg>@latest`. SSE 평문 라인 + `[DONE]`.
 
+Codex/Gemini가 쓰는 npm:
+- 패널 PATH에 모든 계정이 쓰는 시스템 npm(배포판·NodeSource, `/usr` 아래)이 있으면 그것으로 시스템 전역에 설치합니다.
+- 없으면 계정 자신의 Node.js로 그 계정 권한으로 설치합니다. `~/.nvm`이 있으면 그 nvm을 쓰고, 기본값이 설치되지 않은 버전을 가리키면 LTS를 설치해 기본값을 그 버전으로 고정합니다. nvm이 없으면 로그인 셸이 찾는 npm을 쓰고, 그것도 없으면 nvm 설치 스크립트(`SFPANEL_NVM_INSTALLER_SHA256`으로 고정 가능)와 Node.js LTS를 먼저 설치합니다.
+- 설치 뒤 계정의 로그인 셸에서 도구가 보이지 않으면 `ERROR:` 줄로 실패를 알립니다.
+
 - **인증 필요**: 예
 - **Path**: `tool` ∈ `claude` · `codex` · `gemini`
-- **Query**: `user` — Claude는 이 계정으로 실행(`~/.local/bin`에 설치); npm 패키지는 시스템 전역
+- **Query**: `user` — Claude는 이 계정으로 실행(`~/.local/bin`에 설치); npm 패키지는 시스템 npm이면 시스템 전역, 아니면 이 계정의 Node.js
 - **응답 형식**: `text/event-stream`
 
 | 코드 | HTTP | 조건 |

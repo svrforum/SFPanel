@@ -900,7 +900,7 @@ func (h *Handler) InstallNode(c echo.Context) error {
 
 		dlCtx, dlCancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 		defer dlCancel()
-		scriptPath, dlOut, err := release.DownloadInstaller(dlCtx, "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh")
+		scriptPath, dlOut, err := release.DownloadInstaller(dlCtx, release.NVMInstallerURL)
 		for _, line := range strings.Split(dlOut, "\n") {
 			if line != "" {
 				sendLine(line)
