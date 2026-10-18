@@ -1358,6 +1358,7 @@
         "formRestartCountLabel": "Restart Count Threshold",
         "formWindowLabel": "Window (seconds)",
         "formSeverityLabel": "Severity",
+        "formSeverityFixedOom": "An OOM kill is always sent as Critical.",
         "formCooldownLabel": "Cooldown (seconds)",
         "formChannelsLabel": "Notification Channels",
         "formChannelsEmpty": "Add a channel first",

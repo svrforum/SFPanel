@@ -496,6 +496,7 @@ func (h *Handler) ListRules(c echo.Context) error {
 		}
 		r.Enabled = enabled == 1
 		r.Evaluated = ruleTypeEvaluated(r.Type)
+		r.Severity = ruleSeverity(r.Type, r.Severity) // rows stored before it was fixed
 		list = append(list, r)
 	}
 	if list == nil {
@@ -535,6 +536,7 @@ func (h *Handler) CreateRule(c echo.Context) error {
 	if req.Severity == "" {
 		req.Severity = "warning"
 	}
+	req.Severity = ruleSeverity(req.Type, req.Severity)
 	cooldown := 300
 	if req.Cooldown != nil {
 		cooldown = *req.Cooldown
@@ -618,6 +620,7 @@ func (h *Handler) UpdateRule(c echo.Context) error {
 	if req.Severity != nil {
 		current.Severity = *req.Severity
 	}
+	current.Severity = ruleSeverity(current.Type, current.Severity)
 	if req.Cooldown != nil {
 		current.Cooldown = *req.Cooldown
 	}

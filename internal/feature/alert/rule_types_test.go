@@ -29,14 +29,14 @@ var listenerEvents = []string{"start", "stop", "die", "oom", "kill", "restart", 
 
 // ruleCreateBody is a rule as the page posts it, with a condition that fires
 // on anything: a threshold below every reading, every container, one restart.
-func ruleCreateBody(name, typ string) string {
+func ruleCreateBody(name, typ, severity string) string {
 	condition := `{"operator":">","threshold":-1}`
 	if strings.HasPrefix(typ, "container_") {
 		condition = `{"container_pattern":"*","threshold_count":1,"window_seconds":300}`
 	}
 	body, _ := json.Marshal(map[string]any{
 		"name": name, "type": typ, "condition": condition, "channel_ids": "[1]",
-		"severity": "warning", "cooldown": 300, "node_scope": "all", "node_ids": "[]", "enabled": true,
+		"severity": severity, "cooldown": 300, "node_scope": "all", "node_ids": "[]", "enabled": true,
 	})
 	return string(body)
 }
@@ -103,7 +103,7 @@ func TestCreateRule_NoTypeIsAcceptedAndNeverFires(t *testing.T) {
 	created := map[int]string{}
 	var refused []string
 	for _, typ := range append(formRuleTypesUntil132, "made_up") {
-		rec := callJSON(t, h.CreateRule, http.MethodPost, ruleCreateBody(typ+"-rule", typ), 0)
+		rec := callJSON(t, h.CreateRule, http.MethodPost, ruleCreateBody(typ+"-rule", typ, "warning"), 0)
 		if rec.Code == http.StatusOK {
 			created[createdID(t, rec)] = typ
 			continue

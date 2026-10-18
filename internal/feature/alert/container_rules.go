@@ -111,6 +111,9 @@ type AlertContainerEvent struct {
 // containerRule is how Dispatch evaluates one container rule type.
 type containerRule struct {
 	event string // the event, as monitor/docker_events.go names it, that fires the rule
+	// severity, when set, is the severity every rule of the type fires with,
+	// whatever it was given (ruleSeverity).
+	severity string
 }
 
 // containerRules are the rule types Dispatch evaluates. Together with
@@ -121,7 +124,7 @@ var containerRules = map[string]containerRule{
 	// OOM-kills, so accepting only `die` covers both causes without
 	// producing duplicate fires.
 	"container_down": {event: "die"},
-	"container_oom":  {event: "oom"},
+	"container_oom":  {event: "oom", severity: "critical"},
 	// Counted over the rule's window: see recentRestartTimes.
 	"container_restart_loop": {event: "restart"},
 	// Docker emits `health_status: unhealthy` (parsed to "unhealthy" by
@@ -129,6 +132,17 @@ var containerRules = map[string]containerRule{
 	// from healthy/starting to unhealthy. Recovery emits "healthy" — that
 	// does not fire.
 	"container_unhealthy": {event: "unhealthy"},
+}
+
+// ruleSeverity is the severity a rule of type typ fires with: its own, unless
+// the type fixes one. It is also what such a rule is stored and listed with.
+// The form offered a severity for an OOM rule, and the rule fired critical
+// whatever was picked, while listing the severity it had been given.
+func ruleSeverity(typ, own string) string {
+	if fixed := containerRules[typ].severity; fixed != "" {
+		return fixed
+	}
+	return own
 }
 
 // ContainerDispatcher evaluates container alert rules whenever a matching
@@ -183,15 +197,13 @@ func (d *ContainerDispatcher) Dispatch(ctx context.Context, ev *AlertContainerEv
 		if !matchContainerPattern(cond.ContainerPattern, ev.Name) {
 			continue
 		}
-		switch typ {
-		case "container_oom":
-			sev = "critical"
-		case "container_restart_loop":
+		if typ == "container_restart_loop" {
 			times, qerr := d.recentRestartTimes(ev.ID, cond.WindowSeconds)
 			if qerr != nil || !evaluateRestartLoop(times, cond.ThresholdCount, cond.WindowSeconds) {
 				continue
 			}
 		}
+		sev = ruleSeverity(typ, sev)
 		if d.chDsp != nil {
 			d.chDsp.Fire(ctx, AlertFire{
 				RuleID:     id,

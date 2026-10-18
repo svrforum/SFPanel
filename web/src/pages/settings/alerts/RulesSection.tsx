@@ -17,6 +17,11 @@ import { RULE_TYPES, SEVERITY_OPTIONS, getSeverityStyle } from './shared'
 // `condition` payload instead of the simple `threshold` percentage.
 const CONTAINER_RULE_TYPES = new Set(['container_down', 'container_oom', 'container_restart_loop', 'container_unhealthy'])
 
+// Types that fire with one severity whatever they are given: an OOM kill is
+// always Critical, and the server stores and lists the rule that way
+// (ruleSeverity). The form offered a choice here that nothing read.
+const FIXED_SEVERITY = new Map<string, 'critical'>([['container_oom', 'critical']])
+
 const EMPTY_FORM = {
   name: '', type: 'cpu', threshold: 90, severity: 'warning' as 'info' | 'warning' | 'critical',
   cooldown: 300, channels: [] as number[], node_scope: 'all', nodes: [] as string[],
@@ -134,7 +139,7 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
       type: ruleForm.type,
       condition: buildConditionForSubmit(ruleForm.type),
       channel_ids: JSON.stringify(ruleForm.channels),
-      severity: ruleForm.severity,
+      severity: FIXED_SEVERITY.get(ruleForm.type) ?? ruleForm.severity,
       cooldown: ruleForm.cooldown,
       node_scope: ruleForm.node_scope,
       node_ids: JSON.stringify(ruleForm.nodes),
@@ -259,7 +264,11 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-[13px]">{t('settings.alerts.rules.formSeverityLabel')}</Label>
-              <Select value={ruleForm.severity} onValueChange={v => setRuleForm(f => ({ ...f, severity: v as 'info' | 'warning' | 'critical' }))}>
+              <Select
+                value={FIXED_SEVERITY.get(ruleForm.type) ?? ruleForm.severity}
+                disabled={FIXED_SEVERITY.has(ruleForm.type)}
+                onValueChange={v => setRuleForm(f => ({ ...f, severity: v as 'info' | 'warning' | 'critical' }))}
+              >
                 <SelectTrigger className="rounded-xl w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -269,6 +278,9 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
                   ))}
                 </SelectContent>
               </Select>
+              {FIXED_SEVERITY.has(ruleForm.type) && (
+                <p className="text-[11px] text-muted-foreground">{t('settings.alerts.rules.formSeverityFixedOom')}</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label className="text-[13px]">{t('settings.alerts.rules.formCooldownLabel')}</Label>

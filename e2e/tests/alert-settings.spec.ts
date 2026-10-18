@@ -35,7 +35,7 @@ const contract: { channel_creates: ChannelBody[]; rule_rows: RuleRow[]; rule_typ
 // A channel for the rule form to pick: it refuses a rule without one.
 const channel = { id: 1, name: 'ops', type: 'webhook', config: '{"webhook_url":"***hook"}', enabled: true, created_at: '2026-01-01T00:00:00Z' }
 
-type Sent = { channels: unknown[]; rules: { type: string }[]; deleted: string[] }
+type Sent = { channels: unknown[]; rules: { type: string; severity: string }[]; deleted: string[] }
 
 async function mock(page: Page, { channels = [] as unknown[] } = {}): Promise<Sent> {
   const sent: Sent = { channels: [], rules: [], deleted: [] }
@@ -157,4 +157,25 @@ test('the rule form offers the types the server evaluates, and only those', asyn
   }
 
   expect(sent.rules.map(r => r.type).sort()).toEqual([...contract.rule_types].sort())
+})
+
+test('an OOM rule shows the Critical it always fires with, instead of a choice', async ({ page }) => {
+  const sent = await mock(page, { channels: [channel] })
+  await page.goto('/settings?tab=alerts')
+
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+  await page.getByPlaceholder('e.g. CPU Overload Warning').fill('oom')
+  // The form's comboboxes, in order: Type, Severity, Node Scope.
+  const type = page.getByRole('combobox').nth(0)
+  const severity = page.getByRole('combobox').nth(1)
+  await expect(severity).toBeEnabled()
+  await type.click()
+  await page.getByRole('option', { name: 'Container OOM Kill', exact: true }).click()
+  await expect(severity).toBeDisabled()
+  await expect(severity).toHaveText('Critical')
+  await expect(page.getByText('An OOM kill is always sent as Critical.', { exact: true })).toBeVisible()
+  await page.getByRole('checkbox', { name: channel.name }).click()
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+
+  await expect.poll(() => sent.rules.map(r => [r.type, r.severity])).toEqual([['container_oom', 'critical']])
 })
