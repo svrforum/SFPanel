@@ -4133,7 +4133,7 @@ CLI 설치/업데이트. Claude는 공식 `install.sh`(항상 최신), Codex/Gem
 | `launch` | 그 세션을 시작할 때 고른 실행 옵션 (필드 구성은 아래 POST 참고). 아무것도 고르지 않았으면 **필드 없음** — 기능 이전에 만든 모든 행이 이미 그것이고, 저장 컬럼도 빈 문자열이다. argv 문자열이 아니라 고른 값이므로 UI가 그대로 말로 풀어 보여준다 |
 | `state` | `working`(도구 실행 중, 5초 내 출력) · `waiting`(도구가 5초 이상 조용하거나 벨) · `shell`(도구 종료, 셸 프롬프트) · `ended`(tmux 세션 없음) |
 | `persistence` | `service`(계정의 tmux 서버가 `systemd-run`이 만든 transient 서비스 = PID 1 소유, 패널 재시작 생존) · `process`(setsid만, 패널 재시작 시 종료) |
-| `unknown` | tmux 소켓에는 있으나 표에 없는 세션 (DB 유실) |
+| `unknown` | tmux 소켓에는 있으나 표에 없는 세션 (DB 유실, 그 세션보다 오래된 백업 복원). 목록은 패널 계정과 행이 가리키는 계정만이 아니라 소켓 디렉터리(`/run/sfpanel/ai/<uid>`)가 있는 허용 계정의 소켓을 모두 묻고, `run_as`는 그 세션을 찾은 소켓의 계정이다 — 접속(`/ws/ai/attach`)·텍스트·종료도 그 소켓에서 그 계정으로 한다 |
 | `created_at` · `last_attached_at` · `ended_at` | RFC 3339 UTC (`2026-09-14T01:02:03Z`). 표의 컬럼이 `DATETIME`이라 드라이버가 이 형식으로 돌려준다 — 서버가 직접 만드는 값(생성 응답의 `created_at`, 방금 종료로 표시한 `ended_at`)도 같은 형식 |
 
 ---

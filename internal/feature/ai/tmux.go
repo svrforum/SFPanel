@@ -100,6 +100,40 @@ func (h *Handler) ensureSocketDir(acct Account) error {
 	return h.chown(dir, acct.UID, acct.GID)
 }
 
+// socketAccounts is every allowlisted account with a socket directory under
+// the socket root, read back from the uid the directory is named after
+// (socketPath). It is how the list finds a session whose row is gone — a
+// backup restored over a newer database, a lost one — when no other row names
+// its account either: the socket it is on still does (#134). A directory
+// whose uid is on no allowlisted account is skipped; there is no account to
+// ask its socket as.
+func (h *Handler) socketAccounts() []Account {
+	entries, err := os.ReadDir(h.socketRoot)
+	if err != nil {
+		// Missing until the first spawn, and again after every boot: /run is
+		// a tmpfs.
+		if !os.IsNotExist(err) {
+			slog.Debug("ai could not read the socket root", "component", "ai", "path", h.socketRoot, "err", err)
+		}
+		return nil
+	}
+	accounts := h.accounts()
+	var out []Account
+	for _, e := range entries {
+		uid, err := strconv.Atoi(e.Name())
+		if err != nil || !e.IsDir() {
+			continue
+		}
+		for _, a := range accounts {
+			if a.UID == uid {
+				out = append(out, a)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // tmuxBase is how every tmux invocation starts: never the account's own
 // config (-f /dev/null — the operator's ~/.tmux.conf auto-restores sessions),
 // always the panel's own socket named absolutely (-S, see defaultSocketRoot),

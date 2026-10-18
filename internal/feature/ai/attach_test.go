@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -150,6 +151,99 @@ func TestAttachWS_ADatabaseErrorIsNotAMissingRow(t *testing.T) {
 	}
 	if code, _ := dialFailCode(t, resp); code != response.ErrInternalError {
 		t.Errorf("code = %s, want %s", code, response.ErrInternalError)
+	}
+}
+
+// #134: a live session with no row was attached as the panel account, whatever
+// socket it was on. The sockets are per uid, so a row-less session of alice's —
+// her row lost to a restored backup, which still held an older one of hers —
+// was looked for on root's socket: the attach answered [session ended] while
+// the list, which found it on alice's, kept it live, and the page reconnected
+// to it until it gave up. The attach and the text view take the account the
+// list names and reach the session through that account's socket, as it;
+// root's own row-less session still goes to root's socket, and one on no
+// socket at all still ends with the notice.
+func TestAttachWS_ARowlessSessionIsAttachedOnTheSocketItIsListedOn(t *testing.T) {
+	h := newTestHandler(t, nil)
+	h.DB = openTestDB(t)
+	alice, _ := h.resolveAccount("alice")
+	if err := insertSession(h.DB, sessionRow{ID: "aaaaaaaaaaaa", Tool: ToolShell, Title: "a", RunAs: "alice", CWD: "/home/alice"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = setSessionEnded(h.DB, "aaaaaaaaaaaa", true)
+	const aliceID, rootID = "969018a4f943", "cccccccccccc"
+	m := socketsCommander(map[string]string{
+		h.socketPath(h.panel): rootID + "\t1\tbash\t0\t1789348400\t0",
+		h.socketPath(alice):   aliceID + "\t1\tbash\t0\t1789348400\t0",
+	}, "$ ls\nnotes.txt\n")
+	h.Cmd = m
+	h.now = func() time.Time { return time.Unix(1789348400, 0) }
+
+	snap, err := h.sessionsSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]string{}
+	for _, s := range snap {
+		listed[s.ID] = s.RunAs
+	}
+	if listed[aliceID] != "alice" || listed[rootID] != "root" {
+		t.Fatalf("list = %v, want %s as alice and %s as root", listed, aliceID, rootID)
+	}
+
+	rec := call(t, h.SessionText, http.MethodGet, "", aliceID, "")
+	if rec.Code != http.StatusOK {
+		code, msg := failCode(t, rec)
+		t.Errorf("text of a session listed as alice's: got %s %q, want 200", code, msg)
+	}
+	if got := tmuxCall(h, m.Calls, "capture-pane -p -J -t "+aliceID+" -S -"+strconv.Itoa(historyLines)); got != "alice "+h.socketPath(alice) {
+		t.Errorf("the text view read %q, want alice's own socket %s", got, h.socketPath(alice))
+	}
+
+	// The attach client is started with pty.Start, not through the Commander.
+	// With nothing on PATH it cannot start — after the history replay, which
+	// only the socket that has the session can answer, and before anything at
+	// all is exec'd: no runuser, no tmux.
+	t.Setenv("PATH", t.TempDir())
+	e := echo.New()
+	e.GET("/ws/ai/attach", h.AttachWS(func() string { return "test-secret" }, nil, nil))
+	srv := httptest.NewServer(e)
+	defer srv.Close()
+	tok, err := auth.GenerateToken("admin", "test-secret", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id   string
+		acct Account
+	}{{aliceID, alice}, {rootID, h.panel}} {
+		m.Calls = nil
+		url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/ai/attach?session_id=" + tc.id + "&token=" + tok
+		ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+		mt, msg, err := ws.ReadMessage()
+		ws.Close()
+		if err != nil || mt != websocket.BinaryMessage || string(msg) != string(replayHistory("$ ls\nnotes.txt\n")) {
+			t.Errorf("%s: first frame = %d %q %v, want the replayed history", tc.id, mt, msg, err)
+		}
+		want := tc.acct.Name + " " + h.socketPath(tc.acct)
+		if got := tmuxCall(h, m.Calls, "has-session -t "+tc.id); got != want {
+			t.Errorf("%s: attach looked for it as %q, want %q", tc.id, got, want)
+		}
+	}
+
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/ai/attach?session_id=dddddddddddd&token=" + tok
+	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	_ = ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if mt, msg, err := ws.ReadMessage(); err != nil || mt != websocket.TextMessage || !strings.Contains(string(msg), "session ended") {
+		t.Errorf("a session on no socket: first frame = %d %q %v, want the [session ended] notice", mt, msg, err)
 	}
 }
 

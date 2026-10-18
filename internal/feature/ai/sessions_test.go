@@ -684,6 +684,117 @@ func (a *argvCommander) RunWithTimeout(d time.Duration, name string, args ...str
 	return out, err
 }
 
+// socketsCommander is a host with one tmux server per socket in sockets, each
+// carrying the windows its value lists (listWindowsFormat lines). Every answer
+// is per socket, the way tmux's are: list-windows lists that socket's windows,
+// and has-session, capture-pane and kill-session find a session only on the
+// socket that has it. The messages are tmux 3.6's own; a socket missing from
+// the map has no server on it. A capture returns history.
+func socketsCommander(sockets map[string]string, history string) *argvCommander {
+	return &argvCommander{MockCommander: tmuxMock(""), answer: func(name string, args []string) *exec.MockResult {
+		if name != "env" {
+			return nil
+		}
+		socket := ""
+		if i := slices.Index(args, "-S"); i >= 0 && i+1 < len(args) {
+			socket = args[i+1]
+		}
+		windows, up := sockets[socket]
+		if !up {
+			return &exec.MockResult{Output: "no server running on " + socket, Err: errTest}
+		}
+		if slices.Contains(args, "list-windows") {
+			return &exec.MockResult{Output: windows}
+		}
+		if i := slices.Index(args, "-t"); i >= 0 && i+1 < len(args) {
+			id := args[i+1]
+			if _, ok := parseListWindows(windows)[id]; !ok {
+				if slices.Contains(args, "capture-pane") {
+					return &exec.MockResult{Output: "can't find pane: " + id, Err: errTest}
+				}
+				return &exec.MockResult{Output: "can't find session: " + id, Err: errTest}
+			}
+			if slices.Contains(args, "capture-pane") {
+				return &exec.MockResult{Output: history}
+			}
+		}
+		return &exec.MockResult{}
+	}}
+}
+
+// tmuxCall names the first recorded call whose argv ends with suffix by the
+// account it ran as and the socket it named: "alice <socket>", or the panel
+// account for a call without runuser. "" when no call ends that way.
+func tmuxCall(h *Handler, calls []exec.MockCall, suffix string) string {
+	for _, c := range calls {
+		joined := strings.Join(c.Args, " ")
+		if !strings.HasSuffix(joined, suffix) {
+			continue
+		}
+		who := h.panel.Name
+		if i := slices.Index(c.Args, "runuser"); i >= 0 && i+2 < len(c.Args) {
+			who = c.Args[i+2]
+		}
+		socket := ""
+		if i := slices.Index(c.Args, "-S"); i >= 0 && i+1 < len(c.Args) {
+			socket = c.Args[i+1]
+		}
+		return who + " " + socket
+	}
+	return ""
+}
+
+// #134. A session whose row is gone — a backup restored over a newer database,
+// a lost database — was only ever looked for on the sockets of the panel
+// account and of the accounts some row named. The sockets are per uid, so a
+// row-less session of an account no row names any more was on none of them:
+// not listed, not attachable, and its 종료 answered 404. Every account with a
+// socket directory is asked, and the session is listed, and killed, as the
+// account whose socket it is on.
+func TestListSessions_FindsARowlessSessionOnASocketNoRowNames(t *testing.T) {
+	h := newTestHandler(t, nil)
+	h.DB = openTestDB(t)
+	alice, _ := h.resolveAccount("alice")
+	// The directories a spawn leaves behind, made the way a spawn makes them:
+	// alice's, and bob's from before his shell became nologin.
+	bob := Account{Name: "bob", UID: 1001, GID: 1001, Home: "/home/bob", Shell: "/usr/sbin/nologin"}
+	for _, a := range []Account{alice, bob} {
+		if err := h.ensureSocketDir(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const id = "969018a4f943"
+	m := socketsCommander(map[string]string{
+		h.socketPath(alice): id + "\t1\tbash\t0\t1789348400\t0",
+		h.socketPath(bob):   "bbbbbbbbbbbb\t1\tbash\t0\t1789348400\t0",
+	}, "")
+	h.Cmd = m
+	h.now = func() time.Time { return time.Unix(1789348400, 0) }
+
+	snap, err := h.sessionsSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap) != 1 || snap[0].ID != id || snap[0].RunAs != "alice" || !snap[0].Unknown || snap[0].State != StateShell {
+		t.Fatalf("snapshot = %+v, want only %s, unknown, listed as alice — the account whose socket it is on", snap, id)
+	}
+	// bob is off the allowlist: there is no account to ask his socket as.
+	for _, c := range m.Calls {
+		if slices.Contains(c.Args, "bob") || strings.Contains(strings.Join(c.Args, " "), h.socketPath(bob)) {
+			t.Errorf("an account off the allowlist was asked: %+v", c)
+		}
+	}
+
+	rec := call(t, h.DeleteSession, http.MethodDelete, "", id, "")
+	if rec.Code != http.StatusOK {
+		code, msg := failCode(t, rec)
+		t.Fatalf("종료 of a session listed as alice's: got %s %q, want 200", code, msg)
+	}
+	if got := tmuxCall(h, m.Calls, "kill-session -t "+id); got != "alice "+h.socketPath(alice) {
+		t.Errorf("kill-session ran as %q, want alice on her own socket %s", got, h.socketPath(alice))
+	}
+}
+
 // systemd-run can exit non-zero *after* the new-session in its argv has taken
 // hold. The retry then asked for a second session of the same name, tmux said
 // "duplicate session", and the create failed with COMMAND_FAILED — leaving a

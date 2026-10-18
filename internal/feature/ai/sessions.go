@@ -121,8 +121,9 @@ func (h *Handler) persistence() string {
 }
 
 // sessionsSnapshot joins the table with tmux (spec §1 "Liveness and state").
-// One list-windows per distinct account; the panel account is always asked
-// so sessions whose rows were lost still surface.
+// One list-windows per distinct account: the panel's, every account a row
+// names, and every account with a socket directory, so a session whose row
+// was lost still surfaces — listed as the account whose socket it is on.
 func (h *Handler) sessionsSnapshot() ([]Session, error) {
 	rows, err := listSessionRows(h.DB)
 	if err != nil {
@@ -143,6 +144,9 @@ func (h *Handler) sessionsSnapshot() ([]Session, error) {
 		return l
 	}
 	lookup(h.panel.Name)
+	for _, acct := range h.socketAccounts() {
+		lookup(acct.Name)
+	}
 
 	seen := map[string]bool{}
 	out := make([]Session, 0, len(rows))
@@ -656,31 +660,44 @@ func (h *Handler) DeleteSession(c echo.Context) error {
 	return response.OK(c, map[string]string{"deleted": row.ID})
 }
 
+// rowlessAccount is the account a live session without a row is listed as:
+// the one whose socket the list found it on. Attach, the text view and 종료
+// all take it from here, so a tab the list shows as an account's is reached
+// through that account's socket, as that account. found=false: no socket has
+// the session, or its account is no longer one to run as.
+func (h *Handler) rowlessAccount(id string) (acct Account, found bool, err error) {
+	snap, err := h.sessionsSnapshot()
+	if err != nil {
+		return Account{}, false, err
+	}
+	for _, s := range snap {
+		if s.ID != id || s.State == StateEnded {
+			continue
+		}
+		acct, found = h.resolveAccount(s.RunAs)
+		return acct, found, nil
+	}
+	return Account{}, false, nil
+}
+
 // deleteLiveRowless kills a session that is live on one of the sockets but has
 // no row. The tab bar offers 종료 for it (it is listed as unknown), so the 404
 // the row lookup would give left the operator a tab they could not close and a
 // tmux session — possibly an unattended agent — they could not reach. Only an
 // id that is neither in the table nor on any socket is a 404.
 func (h *Handler) deleteLiveRowless(c echo.Context, id string) error {
-	snap, err := h.sessionsSnapshot()
+	acct, found, err := h.rowlessAccount(id)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not list sessions")
 	}
-	for _, s := range snap {
-		if s.ID != id || s.State == StateEnded {
-			continue
-		}
-		acct, resolved := h.resolveAccount(s.RunAs)
-		if !resolved {
-			break // listed as live, but no account to run kill-session as
-		}
-		if out, err := h.tmux(acct, "kill-session", "-t", id); err != nil {
-			slog.Warn("ai kill-session", "component", "ai", "id", id, "err", err, "out", response.SanitizeOutput(out))
-		}
-		slog.Info("ai session deleted", "component", "ai", "id", id, "account", s.RunAs)
-		return response.OK(c, map[string]string{"deleted": id})
+	if !found {
+		return response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
 	}
-	return response.Fail(c, http.StatusNotFound, response.ErrAISessionNotFound, "no such session")
+	if out, err := h.tmux(acct, "kill-session", "-t", id); err != nil {
+		slog.Warn("ai kill-session", "component", "ai", "id", id, "err", err, "out", response.SanitizeOutput(out))
+	}
+	slog.Info("ai session deleted", "component", "ai", "id", id, "account", acct.Name)
+	return response.OK(c, map[string]string{"deleted": id})
 }
 
 // Dirs — GET /ai/dirs?user= feeds the working-directory picker.

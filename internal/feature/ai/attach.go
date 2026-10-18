@@ -43,17 +43,33 @@ func replayHistory(out string) []byte {
 	return []byte(strings.ReplaceAll(out, "\n", "\r\n") + "\r\n")
 }
 
-// sessionAccount is the account a session runs as. A live session without a
-// row is the panel account's — but only when the table really has no row for
-// it. A read error is not a not-found: silently switching the account would
-// reach the wrong session. When failed is true, err is the response to return.
+// sessionAccount is the account a session runs as: its row's, or, for a live
+// session without one, the account whose socket the list found it on
+// (rowlessAccount). Not simply the panel account's: the sockets are per uid,
+// and a row-less session of another account, looked for on the panel's
+// socket, answered [session ended] while the list, which had found it on its
+// own, kept it live — the page reconnected to it until it gave up (#134). A
+// session on no socket at all is left to the panel account, which is only
+// asked whether it is there: the attach answers [session ended], as it does
+// for a row whose session is gone.
+//
+// "Without a row" only when the table really has none for it. A read error is
+// not a not-found: silently switching the account would reach the wrong
+// session. When failed is true, err is the response to return.
 func (h *Handler) sessionAccount(c echo.Context, id string) (acct Account, failed bool, err error) {
 	row, found, rerr := getSessionRow(h.DB, id)
 	if rerr != nil {
 		return h.panel, true, response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not read the session")
 	}
 	if !found {
-		return h.panel, false, nil
+		a, live, lerr := h.rowlessAccount(id)
+		if lerr != nil {
+			return h.panel, true, response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "could not list sessions")
+		}
+		if !live {
+			return h.panel, false, nil
+		}
+		return a, false, nil
 	}
 	a, ok := h.resolveAccount(row.RunAs)
 	if !ok {
