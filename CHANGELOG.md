@@ -6,6 +6,19 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.78.20] – 2026-10-18
+
+### Fixed
+
+- **Alert rule types nothing evaluates are no longer offered or stored.** The rule form offered Service, Login and Package, the server saved them, and nothing ever evaluated them, so such a rule never alerted. The form now offers the types the panel evaluates — CPU, memory, disk and the four container types — and the API refuses any other (`ALERT_RULE_TYPE_NOT_EVALUATED`). A rule of such a type already stored is listed as not alerting and can only be deleted. An OOM rule is stored and listed with the critical severity it always fired with, and a rule scoped to specific nodes must name one. (#132)
+- **A container stopped on purpose no longer alerts as down.** `docker stop`, `kill`, `restart`, `rm -f`, `compose stop` and `down`, and the panel's own buttons sent a critical "container down" alert. A stop someone asked for is now told apart by the kill event Docker records before it, and the rule has an option to report those too. The cooldown runs per rule and container, so under a `*` rule one container's alert no longer holds back another's. The restart-loop rule now counts crashes: it counted Docker's restart events, which a restart policy never sends, so it caught manual restarts and never a crash loop. (#135)
+- **Cron: the desktop table runs a job now**, as the cards did, and a long command no longer pushes the row's buttons off the screen. (#133)
+- **Terminal: a session whose row is gone attaches as its own account.** After a backup restore, a non-root session left without its database row was attached as root and reconnected until it gave up. It is now attached, read and killed through the socket it lives on, and such a session of an account with no rows left is listed too. (#134)
+
+### Changed
+
+- **Dependencies.** echo 4.16.0, a security release whose changes leave untouched everything the panel uses; gopsutil 4.26.9; radix-ui 1.8.1; react-router-dom 7.18.4; globals and eslint-plugin-react-refresh; @playwright/test 1.64; the Tauri CLI and updater plugin; goreleaser-action 7.3. (#122–#131)
+
 ## [0.78.19] – 2026-10-17
 
 ### Added
