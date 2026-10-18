@@ -35,9 +35,9 @@ const contract: { channel_creates: ChannelBody[]; rule_rows: RuleRow[]; rule_typ
 // A channel for the rule form to pick: it refuses a rule without one.
 const channel = { id: 1, name: 'ops', type: 'webhook', config: '{"webhook_url":"***hook"}', enabled: true, created_at: '2026-01-01T00:00:00Z' }
 
-type Sent = { channels: unknown[]; rules: { type: string; severity: string }[]; deleted: string[] }
+type Sent = { channels: unknown[]; rules: { type: string; severity: string; node_scope: string; node_ids: string }[]; deleted: string[] }
 
-async function mock(page: Page, { channels = [] as unknown[] } = {}): Promise<Sent> {
+async function mock(page: Page, { channels = [] as unknown[], nodes = { nodes: [] } as unknown } = {}): Promise<Sent> {
   const sent: Sent = { channels: [], rules: [], deleted: [] }
   await page.addInitScript(() => {
     sessionStorage.setItem('token', 'fixture-token')
@@ -49,7 +49,7 @@ async function mock(page: Page, { channels = [] as unknown[] } = {}): Promise<Se
     let data: unknown = {}
     if (path.endsWith('/auth/setup-status')) data = { setup_required: false }
     else if (path.endsWith('/cluster/status')) data = { enabled: false }
-    else if (path.endsWith('/cluster/nodes')) data = { nodes: [] }
+    else if (path.endsWith('/cluster/nodes')) data = nodes
     else if (path.endsWith('/alerts/channels') && req.method() === 'POST') {
       sent.channels.push(req.postDataJSON())
       data = { id: sent.channels.length }
@@ -178,4 +178,24 @@ test('an OOM rule shows the Critical it always fires with, instead of a choice',
   await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
 
   await expect.poll(() => sent.rules.map(r => [r.type, r.severity])).toEqual([['container_oom', 'critical']])
+})
+
+test('a rule scoped to specific nodes is not sent until a node is picked', async ({ page }) => {
+  // A cluster node: the picker offers this node only.
+  const sent = await mock(page, { channels: [channel], nodes: { nodes: [{ id: 'node-a', name: 'node-a' }], local_id: 'node-a' } })
+  await page.goto('/settings?tab=alerts')
+
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+  await page.getByPlaceholder('e.g. CPU Overload Warning').fill('scoped')
+  await page.getByRole('checkbox', { name: channel.name }).click()
+  // The form's comboboxes, in order: Type, Severity, Node Scope.
+  await page.getByRole('combobox').nth(2).click()
+  await page.getByRole('option', { name: 'Specific Nodes', exact: true }).click()
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+  await expect(page.getByText('Select a node, or apply the rule to all nodes', { exact: true })).toBeVisible()
+  expect(sent.rules).toEqual([])
+
+  await page.getByRole('button', { name: 'node-a', exact: true }).click()
+  await page.getByRole('button', { name: 'Add Rule', exact: true }).click()
+  await expect.poll(() => sent.rules.map(r => [r.node_scope, r.node_ids])).toEqual([['specific', '["node-a"]']])
 })

@@ -134,6 +134,8 @@ export function RulesSection({ channels }: { channels: AlertChannel[] }) {
   async function handleAddRule() {
     if (!ruleForm.name.trim()) { toast.error(t('settings.alerts.rules.errorNameRequired')); return }
     if (ruleForm.channels.length === 0) { toast.error(t('settings.alerts.rules.errorChannelsRequired')); return }
+    // Scoped to no node, a rule is skipped on every node of a cluster.
+    if (ruleForm.node_scope === 'specific' && ruleForm.nodes.length === 0) { toast.error(t('settings.alerts.rules.errorNodesRequired')); return }
     await runAddRule({
       name: ruleForm.name,
       type: ruleForm.type,

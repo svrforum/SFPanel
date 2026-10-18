@@ -1370,6 +1370,7 @@
         "actionDisable": "비활성화",
         "errorNameRequired": "규칙 이름을 입력하세요",
         "errorChannelsRequired": "알림 채널을 선택하세요",
+        "errorNodesRequired": "노드를 선택하거나 전체 노드에 적용하세요",
         "errorAddFailed": "규칙 추가 실패",
         "errorDeleteFailed": "삭제 실패",
         "successAdded": "규칙이 추가되었습니다",

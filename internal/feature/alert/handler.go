@@ -80,6 +80,31 @@ func ruleTypeEvaluated(t string) bool {
 	return ok
 }
 
+// nodeScopeNamesANode reports whether a rule with this node scope applies on
+// some node. In a cluster ruleAppliesToNode skips, on every node, a rule whose
+// scope it does not know, or that is specific with a node list that will not
+// parse or names no node. The form saved one whenever Specific Nodes was
+// chosen and no node picked: the rule listed itself as Active and never fired.
+func nodeScopeNamesANode(scope, nodeIDs string) bool {
+	switch scope {
+	case "", "all":
+		return true
+	case "specific":
+		var ids []string
+		if json.Unmarshal([]byte(nodeIDs), &ids) != nil {
+			return false
+		}
+		for _, id := range ids {
+			if id != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+const nodeScopeRefusal = "node_scope must be all, or specific with node_ids naming at least one node"
+
 // failRuleTypeNotEvaluated refuses a rule of a type nothing evaluates.
 func failRuleTypeNotEvaluated(c echo.Context, typ, consequence string) error {
 	return response.FailWith(c, http.StatusBadRequest, response.ErrAlertRuleTypeNotEvaluated,
@@ -547,6 +572,9 @@ func (h *Handler) CreateRule(c echo.Context) error {
 	if req.NodeIDs == "" {
 		req.NodeIDs = "[]"
 	}
+	if !nodeScopeNamesANode(req.NodeScope, req.NodeIDs) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, nodeScopeRefusal)
+	}
 	enabled := 1
 	if req.Enabled != nil && !*req.Enabled {
 		enabled = 0
@@ -629,6 +657,11 @@ func (h *Handler) UpdateRule(c echo.Context) error {
 	}
 	if req.NodeIDs != nil {
 		current.NodeIDs = *req.NodeIDs
+	}
+	// Only when the update sets it: a rule stored with such a scope before
+	// can still be switched off or renamed.
+	if (req.NodeScope != nil || req.NodeIDs != nil) && !nodeScopeNamesANode(current.NodeScope, current.NodeIDs) {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidValue, nodeScopeRefusal)
 	}
 	enabled := currentEnabled
 	if req.Enabled != nil {

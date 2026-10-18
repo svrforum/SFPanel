@@ -1372,6 +1372,7 @@
         "actionDisable": "Disable",
         "errorNameRequired": "Rule name is required",
         "errorChannelsRequired": "Select at least one notification channel",
+        "errorNodesRequired": "Select a node, or apply the rule to all nodes",
         "errorAddFailed": "Failed to add rule",
         "errorDeleteFailed": "Delete failed",
         "successAdded": "Rule added",

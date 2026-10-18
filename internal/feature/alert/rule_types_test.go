@@ -43,9 +43,9 @@ func ruleCreateBody(name, typ, severity string) string {
 
 // fireEverything runs every rule in db past everything that can fire one: the
 // periodic host-metric pass, and each event the docker listener forwards, for
-// a container every pattern matches. It returns the ids of the rules that
-// fired.
-func fireEverything(t *testing.T, db *sql.DB) map[int]bool {
+// a container every pattern matches, on the node identity names (nil: a
+// single node). It returns the ids of the rules that fired.
+func fireEverything(t *testing.T, db *sql.DB, identity NodeIdentity) map[int]bool {
 	t.Helper()
 	if _, err := monitor.GetMetrics(); err != nil {
 		t.Fatalf("host metrics unreadable here, so no host rule can fire: %v", err)
@@ -53,9 +53,9 @@ func fireEverything(t *testing.T, db *sql.DB) map[int]bool {
 	// Dispatch reads restart times while its rule rows are still open, which
 	// takes a second connection: the panel's pool has four (internal/db).
 	db.SetMaxOpenConns(4)
-	m := NewManager(db) // not started: fires wait in its queue
+	m := NewManagerWithIdentity(db, identity) // not started: fires wait in its queue
 	m.evaluate()
-	d := NewContainerDispatcher(db, m)
+	d := NewContainerDispatcherWithIdentity(db, m, identity)
 	for _, ev := range listenerEvents {
 		// The listener stores an event before dispatching it, which is what
 		// the restart-loop count reads.
@@ -117,7 +117,7 @@ func TestCreateRule_NoTypeIsAcceptedAndNeverFires(t *testing.T) {
 		}
 	}
 
-	fired := fireEverything(t, db)
+	fired := fireEverything(t, db, nil)
 	for id, typ := range created {
 		if !fired[id] {
 			t.Errorf("%s: CreateRule stored it, and nothing that fires a rule fired it", typ)
