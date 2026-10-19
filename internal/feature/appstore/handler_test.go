@@ -233,6 +233,38 @@ func installAdvancedCtx(t *testing.T, h *Handler, body string, ctx context.Conte
 	return rec.Body.String()
 }
 
+// A failed re-auth is not a dead session, which is what a 401 says: through a
+// manager, an agent's 401 is reported as the agent refusing the manager's
+// signature, which it did not.
+func TestInstallApp_AdvancedReAuthFailureIsNotASessionFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name, code string
+		h          *Handler
+	}{
+		{"a wrong password", "INVALID_PASSWORD", newAdvancedHandler(t, "correct-horse")},
+		{"no admin row here", "INVALID_CREDENTIALS", func() *Handler {
+			h := newHandler(t)
+			h.apps = []AppStoreMeta{{ID: "demo", Name: "Demo", Version: "1.0.0"}}
+			h.cachedAt = time.Now()
+			return h
+		}()},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/appstore/apps/demo/install", strings.NewReader(`{"advanced":true,"password":"wrong","compose":"services:\n  web:\n    image: nginx\n"}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		c := echo.New().NewContext(req, rec)
+		c.SetParamNames("id")
+		c.SetParamValues("demo")
+		c.Set("username", "admin")
+		if err := tc.h.InstallApp(c); err != nil {
+			t.Fatalf("%s: InstallApp returned err: %v", tc.name, err)
+		}
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"code":"`+tc.code+`"`) {
+			t.Errorf("%s: %d %s", tc.name, rec.Code, rec.Body)
+		}
+	}
+}
+
 // TestInstallApp_AdvancedRiskyWithoutAcknowledgement pins the App Store half of
 // the contract: a docker.sock bind is refused, the refusal names the finding,
 // and the half-created stack directory is cleaned up. The install never reaches

@@ -58,6 +58,20 @@ func TestImportFromGit_RejectsBadURL(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// The git host refusing the PAT is not the operator's session failing: the
+// browser reads a 401 as a dead session and logs the operator out.
+func TestImportFromGit_RejectedTokenIsNotASessionFailure(t *testing.T) {
+	withFakeGitHub(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) })
+	body := bytes.NewBufferString(`{"url":"https://github.com/foo/bar","name":"bar","token":"bad"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/compose/import", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h := &Handler{}
+	_ = h.ImportFromGit(echo.New().NewContext(req, rec))
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), `"code":"GIT_AUTH_FAILED"`)
+}
+
 // riskyCompose binds the docker socket — the pattern that made the App Store's
 // own catalog unopenable in the editor. It is acknowledgeable, not forbidden.
 const riskyCompose = "services:\n  dozzle:\n    image: amir20/dozzle\n    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock:ro\n"

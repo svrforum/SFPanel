@@ -456,11 +456,15 @@ func sendSSE(w io.Writer, flusher http.Flusher, event sseEvent) {
 // sits behind the global IP-based login rate limiter applied at the
 // middleware layer, so unlimited password guessing against this endpoint
 // is no faster than against /auth/login.
+//
+// A failure is 403, not 401: a 401 says the session ended. A manager
+// relaying from an agent reports one as the agent refusing the manager's
+// signature, and the browser's request path logs the operator out on one.
 func (h *Handler) verifyAdvancedReAuth(c echo.Context, password string) error {
 	username, _ := c.Get("username").(string)
 	if username == "" {
 		slog.Warn("advanced install missing authenticated username", "component", "appstore")
-		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials, "Re-authentication required for advanced install")
+		return response.Fail(c, http.StatusForbidden, response.ErrInvalidCredentials, "Re-authentication required for advanced install")
 	}
 	if password == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrMissingFields,
@@ -471,13 +475,13 @@ func (h *Handler) verifyAdvancedReAuth(c echo.Context, password string) error {
 	if err != nil {
 		slog.Warn("advanced install: failed to load admin row",
 			"component", "appstore", "username", username, "error", err)
-		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidCredentials,
+		return response.Fail(c, http.StatusForbidden, response.ErrInvalidCredentials,
 			"Re-authentication required for advanced install")
 	}
 	if !auth.CheckPassword(password, hash) {
 		slog.Warn("advanced install: bad password",
 			"component", "appstore", "username", username, "remote_ip", c.RealIP())
-		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidPassword,
+		return response.Fail(c, http.StatusForbidden, response.ErrInvalidPassword,
 			"Incorrect password")
 	}
 	return nil

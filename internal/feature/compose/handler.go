@@ -587,7 +587,9 @@ func (h *Handler) ImportFromGit(c echo.Context) error {
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrAuthFailed):
-			return response.Fail(c, http.StatusUnauthorized, response.ErrGitAuthFailed,
+			// 400, not 401: the git host refused the PAT, and the browser
+			// reads a 401 as this panel's session ending.
+			return response.Fail(c, http.StatusBadRequest, response.ErrGitAuthFailed,
 				"인증 실패. PAT가 필요한 private 저장소입니다.")
 		case errors.Is(err, ErrRepoNotFound):
 			return response.Fail(c, http.StatusNotFound, response.ErrGitRepoNotFound,
