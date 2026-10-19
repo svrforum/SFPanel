@@ -152,10 +152,11 @@ const (
 	DefaultMaxAgents   = 100
 )
 
-// ManagerRef names a manager an agent works with.
+// ManagerRef names a manager an agent works with, in config.yaml and in the
+// agent's JSON state file alike.
 type ManagerRef struct {
-	ID          string `yaml:"id"`
-	GRPCAddress string `yaml:"grpc_address"`
+	ID          string `yaml:"id" json:"id"`
+	GRPCAddress string `yaml:"grpc_address" json:"grpc_address"`
 }
 
 // IsAgent reports whether this node runs as an agent.

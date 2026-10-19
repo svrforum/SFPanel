@@ -91,6 +91,9 @@ func main() {
 		case "cluster":
 			clusterCommand(os.Args[2:])
 			return
+		case "agent":
+			agentCommand(os.Args[2:])
+			return
 		case "help":
 			printHelp()
 			return
@@ -864,6 +867,10 @@ func printHelp() {
 	fmt.Println("  sfpanel update           Download and install latest version")
 	fmt.Println("  sfpanel reset            Delete database and reset to setup wizard")
 	fmt.Println("  sfpanel cluster <cmd>    Cluster management (init/join/leave/status/token/remove)")
+	fmt.Println("  sfpanel agent join ADDR:PORT TOKEN --ca FINGERPRINT")
+	fmt.Println("                           Join a cluster as an agent ('sfpanel cluster token --agent' prints the command)")
+	fmt.Println("  sfpanel agent status     Show this agent's managers, certificate and panel")
+	fmt.Println("  sfpanel agent reset      Make this agent a standalone panel again (--yes to go ahead)")
 	fmt.Println("  sfpanel help             Show this help")
 }
 

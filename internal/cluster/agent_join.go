@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"syscall"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
@@ -32,14 +33,18 @@ import (
 type AgentJoinEngine struct {
 	Config     *config.Config
 	ConfigPath string
+	// Version is this binary's, sent with the registration; the leader logs
+	// it with the new agent.
+	Version string
 
 	// hostname is what the agent is named after; nil is os.Hostname. Tests
 	// set it: their leader runs on the same host and already carries the
 	// host's name, and a cluster holds each name once.
 	hostname func() (string, error)
-	// listenOn checks this server can listen on the advertise address; nil
-	// tries it. Tests register at documentation addresses no host has.
-	listenOn func(net.IP) error
+	// listenOn checks this server can listen on the advertise address at the
+	// cluster gRPC port, as the agent's gRPC server will; nil tries it. Tests
+	// register at documentation addresses no host has.
+	listenOn func(ip net.IP, port int) error
 }
 
 // AgentJoinResult is what a join tells the operator.
@@ -85,15 +90,15 @@ func (e *AgentJoinEngine) Execute(managerAddr, token, advertise, pin string, pan
 	if err != nil {
 		return nil, err
 	}
-	advertise, err = e.advertiseAddress(advertise, managerAddr)
-	if err != nil {
-		return nil, err
-	}
-	name := e.nodeName()
 	grpcPort := e.Config.Cluster.GRPCPort
 	if grpcPort == 0 {
 		grpcPort = DefaultGRPCPort
 	}
+	advertise, err = e.advertiseAddress(advertise, managerAddr, grpcPort)
+	if err != nil {
+		return nil, err
+	}
+	name := e.nodeName()
 
 	slog.Info("registering with the cluster as an agent", "component", "agent",
 		"manager", managerAddr, "advertise", advertise, "name", name)
@@ -104,6 +109,7 @@ func (e *AgentJoinEngine) Execute(managerAddr, token, advertise, pin string, pan
 		ApiAddress:  net.JoinHostPort(advertise, strconv.Itoa(e.Config.Server.Port)),
 		GrpcAddress: net.JoinHostPort(advertise, strconv.Itoa(grpcPort)),
 		PanelCaCert: panelCA,
+		Version:     e.Version,
 	}, advertise)
 	if err != nil {
 		return nil, err
@@ -185,8 +191,9 @@ func newAgentKey() (key *ecdsa.PrivateKey, keyPEM, csrDER []byte, err error) {
 
 // advertiseAddress is the address the agent registers at. It must be an IP
 // of this server that managers can dial: the agent's certificate names it,
-// and the leader takes nothing else.
-func (e *AgentJoinEngine) advertiseAddress(given, managerAddr string) (string, error) {
+// and the leader takes nothing else. Its gRPC server will listen there at
+// grpcPort, which must be free.
+func (e *AgentJoinEngine) advertiseAddress(given, managerAddr string, grpcPort int) (string, error) {
 	addr := given
 	if addr == "" {
 		addr = e.Config.Cluster.AdvertiseAddress
@@ -209,14 +216,18 @@ func (e *AgentJoinEngine) advertiseAddress(given, managerAddr string) (string, e
 	if listenOn == nil {
 		listenOn = canListenOn
 	}
-	if err := listenOn(ip); err != nil {
+	if err := listenOn(ip, grpcPort); err != nil {
+		// The leader would record an agent whose every boot then fails.
+		if errors.Is(err, syscall.EADDRINUSE) {
+			return "", fmt.Errorf("the cluster gRPC port %d is in use on %s, where the agent's gRPC server listens; stop what holds it, or set cluster.grpc_port to a free port: %w", grpcPort, ip, err)
+		}
 		return "", fmt.Errorf("the advertise address %s is not an address of this server, and an agent listens on the address it registers at; pass --advertise with one of this server's addresses: %w", ip, err)
 	}
 	return ip.String(), nil
 }
 
-func canListenOn(ip net.IP) error {
-	ln, err := net.Listen("tcp", net.JoinHostPort(ip.String(), "0"))
+func canListenOn(ip net.IP, port int) error {
+	ln, err := net.Listen("tcp", net.JoinHostPort(ip.String(), strconv.Itoa(port)))
 	if err != nil {
 		return err
 	}

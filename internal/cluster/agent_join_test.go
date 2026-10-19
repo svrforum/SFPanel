@@ -42,7 +42,7 @@ func agentJoinTarget(t *testing.T) (*AgentJoinEngine, string) {
 		// cluster holds each name once.
 		hostname: func() (string, error) { return "agent-host", nil },
 		// The tests register at documentation addresses no host has.
-		listenOn: func(net.IP) error { return nil },
+		listenOn: func(net.IP, int) error { return nil },
 	}, path
 }
 
@@ -405,6 +405,47 @@ func TestAgentJoinRefusesAnAddressThisServerDoesNotHave(t *testing.T) {
 	assertUntouched(t, e, path, before)
 	if _, err := e.Execute(f.self, "tok", "127.0.0.1", pin, panelCAPEM(t)); err != nil {
 		t.Fatalf("an address this server holds: %v", err)
+	}
+}
+
+// The agent's gRPC server listens on the advertise address at
+// cluster.grpc_port, so a port something else holds there is refused before
+// the token travels — not found at the agent's first boot, after the leader
+// has recorded it.
+func TestAgentJoinRefusesABusyGRPCPort(t *testing.T) {
+	_, ca := setupCertDir(t)
+	f := startFakeRegistrar(t, ca, &fakeRegistrar{answer: answerAs(ca)})
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	e, path := agentJoinTarget(t)
+	e.listenOn = nil // the real check
+	e.Config.Cluster.GRPCPort = busy.Addr().(*net.TCPAddr).Port
+	before, _ := os.ReadFile(path)
+	_, err = e.Execute(f.self, "tok", "127.0.0.1", CAPin(caPublicKey(t, ca)), panelCAPEM(t))
+	if err == nil || !strings.Contains(err.Error(), "the cluster gRPC port "+strconv.Itoa(e.Config.Cluster.GRPCPort)+" is in use") {
+		t.Fatalf("got %v", err)
+	}
+	if f.registers.Load() != 0 {
+		t.Fatal("the registration was sent")
+	}
+	assertUntouched(t, e, path, before)
+}
+
+// The registration carries this binary's version, which the leader logs with
+// the new agent.
+func TestAgentJoinSendsItsVersion(t *testing.T) {
+	_, ca := setupCertDir(t)
+	f := startFakeRegistrar(t, ca, &fakeRegistrar{answer: answerAs(ca)})
+	e, _ := agentJoinTarget(t)
+	e.Version = "9.9.9"
+	if _, err := e.Execute(f.self, "tok", "192.0.2.10", CAPin(caPublicKey(t, ca)), panelCAPEM(t)); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.last.Load().Version; got != "9.9.9" {
+		t.Fatalf("registered with version %q", got)
 	}
 }
 

@@ -145,8 +145,13 @@ func clusterCommand(args []string) {
 		printClusterHelp()
 		return
 	}
+	if msg := clusterRefusal(args); msg != "" {
+		log.Fatal(msg)
+	}
 
 	switch args[0] {
+	case "help":
+		printClusterHelp()
 	case "init":
 		clusterInit(args[1:])
 	case "join":
@@ -169,6 +174,27 @@ func clusterCommand(args []string) {
 		fmt.Printf("Unknown cluster command: %s\n", args[0])
 		printClusterHelp()
 	}
+}
+
+// clusterRefusal is what `sfpanel cluster args` answers on an agent, "" where
+// it runs. Every cluster command but help works on a manager's Raft or its
+// cluster API, with a JWT an agent's panel does not take, and on an agent
+// would fail halfway or do harm: an offline leave or remove starts Raft. A
+// config that cannot be read is left to the command, which says so.
+func clusterRefusal(args []string) string {
+	if len(args) == 0 || args[0] == "help" {
+		return ""
+	}
+	cfgPath, _ := parseCfgFlag(args)
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return ""
+	}
+	var cfg config.Config
+	if yaml.Unmarshal(data, &cfg) != nil || !cfg.Cluster.IsAgent() {
+		return ""
+	}
+	return "this server is an agent; use 'sfpanel agent status' or 'sfpanel agent reset'"
 }
 
 // clusterReissueCert re-issues this node's cluster mTLS certificate using

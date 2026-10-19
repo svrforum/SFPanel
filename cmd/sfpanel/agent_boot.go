@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -56,7 +55,7 @@ func startAgent(cfg *config.Config, version string, collect func() (cpu, mem, di
 	link, err := cluster.NewAgentLink(cluster.AgentLinkConfig{
 		NodeID:    cfg.Cluster.NodeID,
 		TLS:       tlsMgr,
-		StatePath: filepath.Join(cfg.Cluster.DataDir, "agent-state.json"),
+		StatePath: agentStatePath(cfg),
 		Version:   version,
 		Interval:  30 * time.Second,
 		Collect:   collect,

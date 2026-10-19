@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -80,5 +81,17 @@ func TestClusterRoleRoundTripsAndDefaults(t *testing.T) {
 	}
 	if (ClusterConfig{}).IsAgent() || (ClusterConfig{Role: ClusterRoleManager}).IsAgent() {
 		t.Fatal("IsAgent true for a non-agent")
+	}
+}
+
+// An agent keeps its live manager list in a JSON state file; a manager is
+// named there with the keys config.yaml uses.
+func TestManagerRefJSONKeys(t *testing.T) {
+	data, err := json.Marshal(ManagerRef{ID: "m1", GRPCAddress: "192.0.2.1:3629"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"id":"m1","grpc_address":"192.0.2.1:3629"}`; string(data) != want {
+		t.Fatalf("%s, want %s", data, want)
 	}
 }
