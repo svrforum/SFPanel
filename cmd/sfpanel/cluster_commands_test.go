@@ -219,6 +219,62 @@ func TestJoinInstructions(t *testing.T) {
 	}
 }
 
+// An agent token's commands come both ways as well: `sfpanel agent join` on a
+// server that runs SFPanel, and on a new one the installer handed the same
+// arguments, which installs and joins in one step.
+func TestAgentJoinInstructions(t *testing.T) {
+	pin := "sha256:" + strings.Repeat("ab", 32)
+	args := "192.0.2.1:3629 tok --ca " + pin
+	join := "sfpanel agent join " + args
+	install := "curl -fsSL " + installScriptURL + " | bash -s -- --agent " + args
+	sudoJoin := "sudo " + join
+	sudoInstall := "curl -fsSL " + installScriptURL + " | sudo bash -s -- --agent " + args
+
+	for _, tc := range []struct {
+		haveSudo bool
+		first    string
+	}{{true, sudoJoin}, {false, join}} {
+		out := agentJoinInstructions("192.0.2.1", 3629, "tok", pin, tc.haveSudo)
+		var commands []string
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(line, "  ") {
+				commands = append(commands, strings.TrimSpace(line))
+			}
+		}
+		for _, want := range []string{join, install, sudoJoin, sudoInstall} {
+			if !slices.Contains(commands, want) {
+				t.Errorf("haveSudo=%v: no command line %q in:\n%s", tc.haveSudo, want, out)
+			}
+		}
+		if len(commands) != 4 || commands[0] != tc.first {
+			t.Errorf("haveSudo=%v: commands = %q, want 4 starting with %q", tc.haveSudo, commands, tc.first)
+		}
+	}
+}
+
+// A leader from before agents ignores the kind it is asked for and makes a
+// manager token, and says nothing about its kind. Printed for --agent, that
+// token would make the server it is pasted on a full member, holding the
+// cluster's JWT key, admin account and CA key.
+func TestMintedTokenKind(t *testing.T) {
+	if got, err := mintedTokenKind(cluster.KindAgent, "agent"); err != nil || got != cluster.KindAgent {
+		t.Fatalf("agent token for --agent: %q %v", got, err)
+	}
+	if got, err := mintedTokenKind(cluster.KindManager, "manager"); err != nil || got != cluster.KindManager {
+		t.Fatalf("manager token: %q %v", got, err)
+	}
+	// What a leader from before kinds answers when asked for what it makes.
+	if got, err := mintedTokenKind(cluster.KindManager, ""); err != nil || got != cluster.KindManager {
+		t.Fatalf("kindless answer to a manager request: %q %v", got, err)
+	}
+	if _, err := mintedTokenKind(cluster.KindAgent, ""); err == nil || !strings.Contains(err.Error(), "before agents") {
+		t.Fatalf("kindless answer to --agent: %v", err)
+	}
+	if _, err := mintedTokenKind(cluster.KindAgent, "manager"); err == nil || !strings.Contains(err.Error(), "not printed") {
+		t.Fatalf("manager token for --agent: %v", err)
+	}
+}
+
 func TestSudoPrefix(t *testing.T) {
 	orig := lookPath
 	t.Cleanup(func() { lookPath = orig })

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -656,14 +657,18 @@ func truncate(s string, n int) string {
 func clusterToken(args []string) {
 	cfgPath, rest := parseCfgFlag(args)
 	ttl := 24 * time.Hour
+	kind := cluster.KindManager
 	for i := 0; i < len(rest); i++ {
-		if rest[i] == "--ttl" && i+1 < len(rest) {
+		switch {
+		case rest[i] == "--ttl" && i+1 < len(rest):
 			d, err := time.ParseDuration(rest[i+1])
 			if err != nil {
 				log.Fatalf("Invalid TTL: %v", err)
 			}
 			ttl = d
 			i++
+		case rest[i] == "--agent":
+			kind = cluster.KindAgent
 		}
 	}
 
@@ -677,7 +682,8 @@ func clusterToken(args []string) {
 	// (a) conflict on the Raft port and (b) produce tokens the real server
 	// never sees.
 	raw, err := callLocalAPI(cfg, http.MethodPost, "/api/v1/cluster/token", map[string]string{
-		"ttl": ttl.String(),
+		"ttl":  ttl.String(),
+		"kind": string(kind),
 	})
 	if err != nil {
 		log.Fatalf("Failed to create token: %v", err)
@@ -687,6 +693,7 @@ func clusterToken(args []string) {
 		Success bool `json:"success"`
 		Data    struct {
 			Token            string    `json:"token"`
+			Kind             string    `json:"kind"`
 			ExpiresAt        time.Time `json:"expires_at"`
 			AdvertiseAddress string    `json:"advertise_address"`
 			GRPCPort         int       `json:"grpc_port"`
@@ -695,6 +702,10 @@ func clusterToken(args []string) {
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		log.Fatalf("Parse token response: %v\nbody: %s", err, string(raw))
+	}
+	minted, err := mintedTokenKind(kind, envelope.Data.Kind)
+	if err != nil {
+		log.Fatalf("Failed to create token: %v", err)
 	}
 
 	// A follower forwards the request to the leader, and a join has to be
@@ -713,9 +724,34 @@ func clusterToken(args []string) {
 		grpcPort = cfg.Cluster.GRPCPort
 	}
 
-	fmt.Printf("Join token (expires: %s):\n\n", envelope.Data.ExpiresAt.Format(time.RFC3339))
+	label, instructions := "Join token", joinInstructions
+	if minted == cluster.KindAgent {
+		label, instructions = "Agent join token", agentJoinInstructions
+	}
+	fmt.Printf("%s (expires: %s):\n\n", label, envelope.Data.ExpiresAt.Format(time.RFC3339))
 	fmt.Printf("  %s\n\n", envelope.Data.Token)
-	fmt.Print(joinInstructions(addr, grpcPort, envelope.Data.Token, envelope.Data.CAPin, sudoPrefix() != ""))
+	fmt.Print(instructions(addr, grpcPort, envelope.Data.Token, envelope.Data.CAPin, sudoPrefix() != ""))
+}
+
+// mintedTokenKind is the kind of the token the leader made, which has to be
+// the kind asked for. A leader from before agents ignores the kind it is
+// asked for and names none in its answer: it made a manager token, as it
+// always did, and a manager token makes the server that joins with it a full
+// member holding the cluster's JWT key, admin account and CA key. Printing
+// that for --agent would hand out the opposite of what was asked for.
+func mintedTokenKind(asked cluster.NodeKind, reported string) (cluster.NodeKind, error) {
+	minted := cluster.NodeKind(reported)
+	if minted == "" {
+		minted = cluster.KindManager
+	}
+	if minted == asked {
+		return minted, nil
+	}
+	if reported == "" {
+		return "", errors.New("the leader made a manager token, not an agent token: it runs a version from before agents, " +
+			"and every manager must be upgraded before an agent can join; the token was not printed and expires unused")
+	}
+	return "", fmt.Errorf("the leader made a %s token, not the %s token asked for; it was not printed and expires unused", minted, asked)
 }
 
 // installScriptURL is the installer the README's one-liner fetches.
@@ -730,10 +766,27 @@ const installScriptURL = "https://raw.githubusercontent.com/svrforum/SFPanel/mai
 // works here comes first. --ca pins the cluster CA, so the joining server
 // verifies the leader before it sends the token.
 func joinInstructions(addr string, grpcPort int, token, caPin string, haveSudo bool) string {
-	forms := func(sudo string) (join, install string) {
+	return joinForms(haveSudo, func(sudo string) (join, install string) {
 		join = fmt.Sprintf("%ssfpanel cluster join %s:%d %s --ca %s", sudo, addr, grpcPort, token, caPin)
 		return join, fmt.Sprintf("curl -fsSL %s | %sbash && %s", installScriptURL, sudo, join)
-	}
+	})
+}
+
+// agentJoinInstructions is joinInstructions for an agent token: a server that
+// runs SFPanel joins with `sfpanel agent join`, and a new one hands the same
+// arguments to the installer (install.sh --agent), which installs and joins
+// in one step.
+func agentJoinInstructions(addr string, grpcPort int, token, caPin string, haveSudo bool) string {
+	args := fmt.Sprintf("%s:%d %s --ca %s", addr, grpcPort, token, caPin)
+	return joinForms(haveSudo, func(sudo string) (join, install string) {
+		return fmt.Sprintf("%ssfpanel agent join %s", sudo, args),
+			fmt.Sprintf("curl -fsSL %s | %sbash -s -- --agent %s", installScriptURL, sudo, args)
+	})
+}
+
+// joinForms lays out the join and install commands forms makes, with sudo and
+// as root, the form that works on this host first.
+func joinForms(haveSudo bool, forms func(sudo string) (join, install string)) string {
 	first, other := "sudo ", ""
 	otherLabel := "As root on a server without sudo (Proxmox VE, Debian installed with a root password), leave sudo out:"
 	if !haveSudo {
@@ -811,7 +864,8 @@ func printClusterHelp() {
 	fmt.Println("SFPanel Cluster Commands:")
 	fmt.Println()
 	fmt.Println("  sfpanel cluster init [--name NAME]        Initialize a new cluster")
-	fmt.Println("  sfpanel cluster token [--ttl DURATION]    Create a join token")
+	fmt.Println("  sfpanel cluster token [--ttl DURATION] [--agent]")
+	fmt.Println("                                            Create a join token; --agent makes one for an agent")
 	fmt.Println("  sfpanel cluster join ADDR:PORT TOKEN --ca FINGERPRINT")
 	fmt.Println("                                            Join an existing cluster ('cluster token' prints the command)")
 	fmt.Println("  sfpanel cluster status                    Show cluster status (live role + leader if server running)")

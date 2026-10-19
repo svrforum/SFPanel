@@ -42,6 +42,10 @@ func clusterErrResponse(c echo.Context, err error) error {
 		return response.Fail(c, http.StatusConflict, response.ErrAlreadyExists, "Node already exists")
 	case errors.Is(err, cluster.ErrMaxNodesReached):
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Maximum node count reached")
+	case errors.Is(err, cluster.ErrMaxAgentsReached):
+		return response.Fail(c, http.StatusBadRequest, response.ErrClusterMaxAgents, err.Error())
+	case errors.Is(err, cluster.ErrTokenKind):
+		return response.Fail(c, http.StatusBadRequest, response.ErrClusterTokenKind, err.Error())
 	case errors.Is(err, cluster.ErrTokenNotFound), errors.Is(err, cluster.ErrTokenExpired), errors.Is(err, cluster.ErrTokenUsed):
 		return response.Fail(c, http.StatusUnauthorized, response.ErrInvalidToken, err.Error())
 	default:
@@ -708,6 +712,42 @@ func (h *Handler) returnWithLocalID(c echo.Context, resp *pb.APIResponse) error 
 	return c.Blob(int(resp.StatusCode), "application/json", patched)
 }
 
+// tokenRequest is the body of POST /cluster/token. Both fields may be left
+// out: the CLI and the token page from before agents send only ttl, and a
+// body without kind asks for a manager token, the only kind there was.
+type tokenRequest struct {
+	TTL  string `json:"ttl"`
+	Kind string `json:"kind"`
+}
+
+// parseTokenRequest reads a token request. A ttl that does not parse is the
+// default, as it always was; one that parses must be positive and at most
+// MaxTokenTTL, so a typo (8760h = 1y, 99999h = ~11y) or a careless operator
+// can't mint long-lived bearer credentials. A kind other than manager or
+// agent is refused rather than defaulted: a manager token hands the server
+// that joins with it the cluster's JWT key, admin account and CA key.
+func parseTokenRequest(body tokenRequest) (ttl time.Duration, kind cluster.NodeKind, err error) {
+	ttl = cluster.DefaultTokenTTL
+	if body.TTL != "" {
+		if d, err := time.ParseDuration(body.TTL); err == nil {
+			ttl = d
+		}
+	}
+	if ttl > cluster.MaxTokenTTL {
+		return 0, "", fmt.Errorf("ttl exceeds maximum of %s", cluster.MaxTokenTTL)
+	}
+	if ttl <= 0 {
+		return 0, "", errors.New("ttl must be positive")
+	}
+	switch cluster.NodeKind(body.Kind) {
+	case "", cluster.KindManager:
+		return ttl, cluster.KindManager, nil
+	case cluster.KindAgent:
+		return ttl, cluster.KindAgent, nil
+	}
+	return 0, "", fmt.Errorf("kind must be %q or %q", cluster.KindManager, cluster.KindAgent)
+}
+
 func (h *Handler) CreateToken(c echo.Context) error {
 	mgr := h.getManager()
 	if mgr == nil {
@@ -718,27 +758,18 @@ func (h *Handler) CreateToken(c echo.Context) error {
 		return err
 	}
 
-	ttl := cluster.DefaultTokenTTL
-
-	var body struct {
-		TTL string `json:"ttl"`
+	// A body that cannot be read is refused, not taken for the default: it
+	// may have asked for an agent token, and the default is a manager token.
+	var body tokenRequest
+	if err := c.Bind(&body); err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Invalid request body")
 	}
-	if err := c.Bind(&body); err == nil && body.TTL != "" {
-		if d, err := time.ParseDuration(body.TTL); err == nil {
-			ttl = d
-		}
-	}
-	// Clamp to MaxTokenTTL so a typo (8760h = 1y, 99999h = ~11y) or a
-	// careless operator can't mint long-lived bearer credentials.
-	if ttl > cluster.MaxTokenTTL {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
-			fmt.Sprintf("ttl exceeds maximum of %s", cluster.MaxTokenTTL))
-	}
-	if ttl <= 0 {
-		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "ttl must be positive")
+	ttl, kind, err := parseTokenRequest(body)
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, err.Error())
 	}
 
-	token, err := mgr.CreateJoinToken(ttl, cluster.KindManager)
+	token, err := mgr.CreateJoinToken(ttl, kind)
 	if err != nil {
 		return clusterErrResponse(c, err)
 	}
@@ -755,6 +786,7 @@ func (h *Handler) CreateToken(c echo.Context) error {
 	cfg := mgr.GetConfig()
 	return response.OK(c, map[string]interface{}{
 		"token":             token.Token,
+		"kind":              token.EffectiveKind(),
 		"expires_at":        token.ExpiresAt,
 		"grpc_port":         cfg.GRPCPort,
 		"advertise_address": cfg.AdvertiseAddress,

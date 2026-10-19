@@ -217,7 +217,9 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 		return nil, fmt.Errorf("join request failed: %w", err)
 	}
 	if !resp.Success {
-		return nil, fmt.Errorf("join rejected: %s", resp.Error)
+		// An agent token passes PreFlight, which cannot tell which kind of
+		// join it checks for, and is refused only here.
+		return nil, fmt.Errorf("join rejected: %s", preFlightErrorMessage(resp.Error))
 	}
 	if block, _ := pem.Decode(resp.CaCert); block == nil {
 		return nil, fmt.Errorf("join response carried no CA certificate")
@@ -337,6 +339,8 @@ func (e *JoinEngine) rollbackJoin(certDir string, originalConfig []byte, priorSe
 }
 
 // preFlightErrorMessage maps internal error strings to user-friendly messages.
+// It words the leader's refusals of a manager join — PreFlight's and Join's —
+// so ErrTokenKind here means the token is an agent's.
 func preFlightErrorMessage(errStr string) string {
 	switch errStr {
 	case ErrTokenNotFound.Error():
@@ -351,6 +355,8 @@ func preFlightErrorMessage(errStr string) string {
 		return "node is not the cluster leader"
 	case ErrMaxNodesReached.Error():
 		return "cluster has reached maximum node count"
+	case ErrTokenKind.Error():
+		return "this token is for an agent — run 'sfpanel agent join' with it, or create a manager token"
 	default:
 		return errStr
 	}

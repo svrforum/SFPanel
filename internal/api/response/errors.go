@@ -421,6 +421,14 @@ const (
 	// not running — the start failed at boot. Either operation would replace
 	// or delete the membership still on disk.
 	ErrClusterNotRunning = "CLUSTER_NOT_RUNNING"
+	// ErrClusterTokenKind is the cluster handlers' code (HTTP 400) for
+	// cluster.ErrTokenKind: a join token offered for another kind of node than
+	// the one it was minted for. The refusal leaves it usable for that kind.
+	ErrClusterTokenKind = "CLUSTER_TOKEN_KIND"
+	// ErrClusterMaxAgents is returned (HTTP 400) when an agent join token is
+	// asked for and the cluster already has cluster.max_agents agents (default
+	// 100). The manager cap keeps its generic ErrInvalidRequest.
+	ErrClusterMaxAgents = "CLUSTER_MAX_AGENTS"
 )
 
 // TLS error codes

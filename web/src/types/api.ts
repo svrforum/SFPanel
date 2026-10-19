@@ -1052,6 +1052,9 @@ export interface ClusterNodesResponse {
 
 export interface ClusterTokenResponse {
   token: string
+  // The kind of node the token admits. Absent from an older leader, which
+  // makes a manager token whatever kind it is asked for.
+  kind?: 'manager' | 'agent'
   expires_at: string
   grpc_port?: number
   advertise_address?: string
@@ -1064,6 +1067,8 @@ export interface ClusterTokenInfo {
   masked: string
   expires_at: string
   created_by: string
+  // Absent from an older leader, whose tokens are all manager tokens.
+  kind?: 'manager' | 'agent'
 }
 
 export interface TerminalSession {

@@ -2489,10 +2489,10 @@ class ApiClient {
     return this.request<ClusterNodesResponse>('/cluster/nodes', { local })
   }
 
-  createClusterToken(ttl?: string) {
+  createClusterToken(ttl?: string, kind: 'manager' | 'agent' = 'manager') {
     return this.request<ClusterTokenResponse>('/cluster/token', {
       method: 'POST',
-      body: JSON.stringify({ ttl: ttl || '' }),
+      body: JSON.stringify({ ttl: ttl || '', kind }),
     })
   }
 

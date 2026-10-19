@@ -154,6 +154,26 @@ func TestJoinRefusalLeavesTheTokenUsable(t *testing.T) {
 	}
 }
 
+// A manager join with an agent token is refused at Join — PreFlight cannot
+// tell which kind of join it checks for — and the refusal has to tell the
+// operator what to run instead; the token stays usable for that.
+func TestManagerJoinWithAnAgentTokenSaysWhatToRun(t *testing.T) {
+	mgr, addr, _, pin := realLeader(t)
+	tok, err := mgr.CreateJoinToken(time.Hour, KindAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := &JoinEngine{Config: &config.Config{}}
+	e.Config.Cluster.GRPCPort = freePortPair(t)
+	e.Config.Cluster.CertDir = filepath.Join(t.TempDir(), "certs")
+	if _, err := e.Execute(addr, tok.Token, "127.0.0.1", pin); err == nil || !strings.Contains(err.Error(), "run 'sfpanel agent join' with it") {
+		t.Fatalf("manager join with an agent token: %v", err)
+	}
+	if _, err := mgr.tokens.Peek(tok.Token); err != nil {
+		t.Fatalf("the refused join consumed the token: %v", err)
+	}
+}
+
 // A join the leader cannot sign for fails with ErrCAKeyUnavailable, which
 // tells the operator to restore ca.key and retry; the retry used to find the
 // token already used.
