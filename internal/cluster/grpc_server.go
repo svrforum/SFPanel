@@ -369,14 +369,19 @@ func (s *GRPCServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinRes
 }
 
 // PreFlight validates a join token without consuming it.
+//
+// The CA key goes back whatever the token says. A joiner asks with no token
+// first, over a connection it cannot verify yet, compares the key with its
+// pin, and sends the token only over a connection verified against that key:
+// a server in the middle that relays this answer never sees the token.
 func (s *GRPCServer) PreFlight(ctx context.Context, req *pb.PreFlightRequest) (*pb.PreFlightResponse, error) {
-	clusterName, nodeCount, maxNodes, err := s.manager.HandlePreFlight(req.Token)
-	if err != nil {
-		return &pb.PreFlightResponse{Valid: false, Error: err.Error()}, nil
-	}
 	caKey, err := s.manager.CAPublicKey()
 	if err != nil {
-		return &pb.PreFlightResponse{Valid: false, Error: "cluster CA unavailable"}, nil
+		return &pb.PreFlightResponse{Valid: false, Error: errCAUnavailable}, nil
+	}
+	clusterName, nodeCount, maxNodes, err := s.manager.HandlePreFlight(req.Token)
+	if err != nil {
+		return &pb.PreFlightResponse{Valid: false, Error: err.Error(), CaPublicKey: caKey}, nil
 	}
 	return &pb.PreFlightResponse{
 		Valid:       true,

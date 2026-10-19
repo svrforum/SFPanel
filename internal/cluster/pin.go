@@ -40,10 +40,17 @@ func NormalizeCAPin(pin string) (string, error) {
 	return "sha256:" + p, nil
 }
 
+// errCAUnavailable is PreFlight's answer from a server that cannot read its
+// own cluster CA.
+const errCAUnavailable = "cluster CA unavailable"
+
 // checkPreFlightPin keeps a PreFlight answer only if the CA key it carries is
 // the one the join command names.
 func checkPreFlightPin(resp *pb.PreFlightResponse, pin, leaderAddr string) error {
 	if len(resp.GetCaPublicKey()) == 0 {
+		if resp.GetError() == errCAUnavailable {
+			return fmt.Errorf("the server at %s cannot read its cluster CA", leaderAddr)
+		}
 		return fmt.Errorf("the leader at %s is older than this node and cannot show which cluster it is; update the cluster first", leaderAddr)
 	}
 	if CAPin(resp.GetCaPublicKey()) != pin {

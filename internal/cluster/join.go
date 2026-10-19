@@ -67,9 +67,6 @@ type PreFlightResult struct {
 	MaxNodes      int
 	RecommendedIP string
 	IPReason      string
-	// CAPublicKey is the cluster CA key the leader showed, already checked
-	// against the pin.
-	CAPublicKey []byte
 }
 
 // JoinResult contains the result of a successful join.
@@ -93,10 +90,10 @@ func (e *JoinEngine) PreFlight(leaderAddr, token, pin string) (*PreFlightResult,
 	}
 	conn.Close()
 
-	// Step 2: gRPC PreFlight RPC
-	client, err := DialNodeInsecure(leaderAddr)
+	// Step 2: gRPC PreFlight RPC, over a connection verified against the pin
+	client, err := dialPinnedLeader(leaderAddr, pin)
 	if err != nil {
-		return nil, fmt.Errorf("leader is not responding to cluster requests at %s: %w", leaderAddr, err)
+		return nil, err
 	}
 	defer client.Close()
 
@@ -106,9 +103,6 @@ func (e *JoinEngine) PreFlight(leaderAddr, token, pin string) (*PreFlightResult,
 	}
 	if !resp.Valid {
 		return nil, fmt.Errorf("%s", preFlightErrorMessage(resp.Error))
-	}
-	if err := checkPreFlightPin(resp, pin, leaderAddr); err != nil {
-		return nil, err
 	}
 
 	// Step 3: Local gRPC port check
@@ -143,8 +137,32 @@ func (e *JoinEngine) PreFlight(leaderAddr, token, pin string) (*PreFlightResult,
 		MaxNodes:      int(resp.MaxNodes),
 		RecommendedIP: recommendedIP,
 		IPReason:      ipReason,
-		CAPublicKey:   resp.CaPublicKey,
 	}, nil
+}
+
+// dialPinnedLeader connects to the leader over a connection that verifies it
+// against the pinned CA key. The key is learned first over an unverified
+// connection — there is nothing to verify with yet — and asked for with no
+// token, so the token travels only over the verified connection: a server in
+// the middle that relays the real key never sees it.
+func dialPinnedLeader(leaderAddr, pin string) (*GRPCClient, error) {
+	insecure, err := DialNodeInsecure(leaderAddr)
+	if err != nil {
+		return nil, fmt.Errorf("leader is not responding to cluster requests at %s: %w", leaderAddr, err)
+	}
+	probe, err := insecure.PreFlight(context.Background(), "")
+	insecure.Close()
+	if err != nil {
+		return nil, fmt.Errorf("pre-flight request failed: %w", err)
+	}
+	if err := checkPreFlightPin(probe, pin, leaderAddr); err != nil {
+		return nil, err
+	}
+	client, err := DialNodePinned(leaderAddr, probe.CaPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to leader: %w", err)
+	}
+	return client, nil
 }
 
 // Execute runs the full join pipeline: gRPC join -> certs -> config -> live activate.
@@ -173,29 +191,20 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 
 	slog.Info("joining cluster", "component", "cluster", "leader", leaderAddr, "advertise", advertiseAddr)
 
-	// Step 1: learn the CA key over an unverified connection — there is
-	// nothing to verify with yet — and keep it only if it is the pinned one.
-	insecure, err := DialNodeInsecure(leaderAddr)
+	// Step 1: reach the leader over a connection verified against the pin;
+	// the token goes nowhere else.
+	client, err := dialPinnedLeader(leaderAddr, pin)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to leader: %w", err)
+		return nil, err
 	}
-	pf, err := insecure.PreFlight(context.Background(), token)
-	insecure.Close()
+	defer client.Close()
+	pf, err := client.PreFlight(context.Background(), token)
 	if err != nil {
 		return nil, fmt.Errorf("pre-flight request failed: %w", err)
 	}
 	if !pf.Valid {
 		return nil, fmt.Errorf("%s", preFlightErrorMessage(pf.Error))
 	}
-	if err := checkPreFlightPin(pf, pin, leaderAddr); err != nil {
-		return nil, err
-	}
-	// Step 2: Join over a connection that verifies the leader against that key.
-	client, err := DialNodePinned(leaderAddr, pf.CaPublicKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to leader: %w", err)
-	}
-	defer client.Close()
 
 	resp, err := client.Join(context.Background(), &pb.JoinRequest{
 		Token:       token,

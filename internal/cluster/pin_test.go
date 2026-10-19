@@ -107,4 +107,11 @@ func TestCheckPreFlightPin(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "older") {
 		t.Fatalf("leader without a CA key: %v", err)
 	}
+	// The key is now asked for with no token, so the CA-unavailable answer
+	// arrives here instead of as a token error, and must not read as an
+	// older leader.
+	err = checkPreFlightPin(&pb.PreFlightResponse{Error: errCAUnavailable}, pin, "198.51.100.1:3629")
+	if err == nil || !strings.Contains(err.Error(), "cannot read its cluster CA") {
+		t.Fatalf("leader that cannot read its CA: %v", err)
+	}
 }

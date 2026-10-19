@@ -72,9 +72,10 @@ type PreFlightResponse struct {
 	ClusterName string                 `protobuf:"bytes,3,opt,name=cluster_name,json=clusterName,proto3" json:"cluster_name,omitempty"`
 	NodeCount   int32                  `protobuf:"varint,4,opt,name=node_count,json=nodeCount,proto3" json:"node_count,omitempty"`
 	MaxNodes    int32                  `protobuf:"varint,5,opt,name=max_nodes,json=maxNodes,proto3" json:"max_nodes,omitempty"`
-	// DER SubjectPublicKeyInfo of the cluster CA. The joiner compares its
-	// SHA-256 with the fingerprint in the join command, then verifies the
-	// leader's certificate against it before it sends Join.
+	// DER SubjectPublicKeyInfo of the cluster CA, sent whatever the token.
+	// The joiner asks with no token, compares its SHA-256 with the
+	// fingerprint in the join command, and sends the token only over a
+	// connection that verifies the leader's certificate against it.
 	CaPublicKey   []byte `protobuf:"bytes,6,opt,name=ca_public_key,json=caPublicKey,proto3" json:"ca_public_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

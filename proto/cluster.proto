@@ -22,9 +22,10 @@ message PreFlightResponse {
     string cluster_name = 3;
     int32  node_count = 4;
     int32  max_nodes = 5;
-    // DER SubjectPublicKeyInfo of the cluster CA. The joiner compares its
-    // SHA-256 with the fingerprint in the join command, then verifies the
-    // leader's certificate against it before it sends Join.
+    // DER SubjectPublicKeyInfo of the cluster CA, sent whatever the token.
+    // The joiner asks with no token, compares its SHA-256 with the
+    // fingerprint in the join command, and sends the token only over a
+    // connection that verifies the leader's certificate against it.
     bytes  ca_public_key = 6;
 }
 
