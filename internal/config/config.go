@@ -403,6 +403,10 @@ func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	return os.Rename(tmp, path)
 }
 
+// NewSecret returns a random secret of the kind Load generates for
+// auth.jwt_secret: 32 random bytes as 64 hex characters.
+func NewSecret() string { return generateRandomSecret() }
+
 func generateRandomSecret() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
