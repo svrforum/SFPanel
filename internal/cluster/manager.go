@@ -838,8 +838,9 @@ func (m *Manager) Leave() error {
 	return m.raft.Shutdown()
 }
 
-// pickTransferTarget returns a voter node ID other than self whose live
-// heartbeat status is Online, or "" if none is suitable for handoff.
+// pickTransferTarget returns a manager voter node ID other than self whose
+// live heartbeat status is Online, or "" if none is suitable for handoff.
+// Raft refuses a non-voter, and an agent is never a member.
 func (m *Manager) pickTransferTarget() string {
 	if m.raft == nil {
 		return ""
@@ -850,7 +851,7 @@ func (m *Manager) pickTransferTarget() string {
 		if id == m.nodeID {
 			continue
 		}
-		if node.Role != RoleVoter {
+		if node.Role != RoleVoter || !node.IsManager() {
 			continue
 		}
 		if status, ok := health[id]; !ok || status != StatusOnline {
@@ -1591,22 +1592,17 @@ func (m *Manager) Shutdown() {
 		m.heartbeat.Stop()
 	}
 
-	// If we're the leader, try to transfer leadership before shutting down
+	// If we're the leader, try to transfer leadership before shutting down.
+	// The target comes from live heartbeat health, not the FSM's stale status,
+	// and must be a manager voter: the first online node used to be taken,
+	// and a transfer to a non-voter fails with no second try.
 	if m.raft != nil && m.raft.IsLeader() {
-		state := m.raft.GetFSM().GetState()
-		// Use live heartbeat health instead of stale FSM status
-		liveHealth := m.heartbeat.CheckHealth()
-		for id, node := range state.Nodes {
-			if id != m.nodeID {
-				if status, ok := liveHealth[id]; ok && status == StatusOnline {
-					slog.Info("transferring leadership before shutdown", "component", "cluster", "target", node.Name)
-					if err := m.raft.TransferLeadership(id); err != nil {
-						slog.Error("leadership transfer failed", "component", "cluster", "error", err)
-					} else {
-						slog.Info("leadership transferred", "component", "cluster", "target", node.Name)
-					}
-					break
-				}
+		if target := m.pickTransferTarget(); target != "" {
+			slog.Info("transferring leadership before shutdown", "component", "cluster", "target", target)
+			if err := m.raft.TransferLeadership(target); err != nil {
+				slog.Error("leadership transfer failed", "component", "cluster", "error", err)
+			} else {
+				slog.Info("leadership transferred", "component", "cluster", "target", target)
 			}
 		}
 	}

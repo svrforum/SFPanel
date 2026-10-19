@@ -138,11 +138,26 @@ func TestFSM_CmdDisbandReplaySuppressed(t *testing.T) {
 	}
 }
 
-// L-05: pickTransferTarget skips self, non-voter roles, and non-Online
-// peers, returning only a suitable voter for leadership handoff.
+// L-05: the leadership handoff before a leave or shutdown goes to an online
+// manager voter other than this node: Raft refuses a non-voter, and an agent
+// is never a member, whatever role its record carries.
 func TestManager_pickTransferTarget(t *testing.T) {
-	// pickTransferTarget inspects m.raft.GetFSM() and m.heartbeat, so it
-	// requires a live Manager. Skip unless a minimal harness is wired;
-	// this test is a placeholder documenting the expected contract.
-	t.Skip("requires Raft harness — covered by integration tests")
+	fsm := NewFSM()
+	addTestNode(t, fsm, Node{ID: "self", Kind: KindManager, Role: RoleVoter})
+	addTestNode(t, fsm, Node{ID: "agent", Kind: KindAgent, Role: RoleVoter})
+	addTestNode(t, fsm, Node{ID: "joining", Kind: KindManager, Role: RoleNonVoter})
+	addTestNode(t, fsm, Node{ID: "down", Kind: KindManager, Role: RoleVoter})
+	hb := NewHeartbeatManager(time.Minute, 3*time.Minute)
+	for _, id := range []string{"self", "agent", "joining"} {
+		hb.RecordHeartbeat(&NodeMetrics{NodeID: id})
+	}
+	m := &Manager{nodeID: "self", raft: &RaftNode{fsm: fsm}, heartbeat: hb}
+	if got := m.pickTransferTarget(); got != "" {
+		t.Fatalf("picked %q with no other online manager voter", got)
+	}
+	addTestNode(t, fsm, Node{ID: "m2", Role: RoleVoter}) // from before Kind existed
+	hb.RecordHeartbeat(&NodeMetrics{NodeID: "m2"})
+	if got := m.pickTransferTarget(); got != "m2" {
+		t.Fatalf("picked %q, want m2", got)
+	}
 }
