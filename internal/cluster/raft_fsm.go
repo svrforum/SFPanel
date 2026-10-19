@@ -60,6 +60,10 @@ type FSM struct {
 	// applied. Set once at Manager wire-up; never changed at runtime.
 	onDisband func(fromNodeID string)
 
+	// onConfigChange is invoked (in a goroutine) after a config key is set or
+	// deleted, with the key, and after a snapshot is restored, with "".
+	onConfigChange func(key string)
+
 	// replayUpTo is the highest Raft log index that already existed when this
 	// process started. CmdDisband entries at or below it are being REPLAYED
 	// from the persisted log (not freshly applied), so their teardown side
@@ -87,6 +91,21 @@ func (f *FSM) SetOnDisband(cb func(fromNodeID string)) {
 	f.mu.Lock()
 	f.onDisband = cb
 	f.mu.Unlock()
+}
+
+// SetOnConfigChange registers the callback invoked when config changes.
+func (f *FSM) SetOnConfigChange(cb func(key string)) {
+	f.mu.Lock()
+	f.onConfigChange = cb
+	f.mu.Unlock()
+}
+
+// configChanged runs the config callback outside the FSM lock, which the
+// caller holds.
+func (f *FSM) configChanged(key string) {
+	if cb := f.onConfigChange; cb != nil {
+		go cb(key)
+	}
 }
 
 // SetReplayThreshold records the highest log index present at startup so that
@@ -161,10 +180,12 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 			return err
 		}
 		f.state.Config[cmd.Key] = val
+		f.configChanged(cmd.Key)
 		return nil
 
 	case CmdDeleteConfig:
 		delete(f.state.Config, cmd.Key)
+		f.configChanged(cmd.Key)
 		return nil
 
 	case CmdSetAccount:
@@ -261,6 +282,7 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 
 	f.mu.Lock()
 	f.state = state
+	f.configChanged("")
 	f.mu.Unlock()
 	return nil
 }

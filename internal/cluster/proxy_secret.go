@@ -3,12 +3,18 @@ package cluster
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
 	"github.com/svrforum/SFPanel/internal/auth"
+	"github.com/svrforum/SFPanel/internal/config"
 )
 
 // The internal proxy secret moves from sha256(ca.crt) — derivable by anyone
@@ -70,30 +76,94 @@ func shouldRotate(seededAt, now time.Time, self string, members []string, health
 	return true
 }
 
+// proxySecretFloorFile keeps the replicated secret and its rotation time as
+// this node last applied them, beside the Raft data whose lifetime it
+// shares. After a restart the FSM holds only what the last snapshot held
+// until the node learns the commit index — seconds, or the length of an
+// election — and without the floor the node would sign with, and accept,
+// the CA-derived secret again for that long.
+const proxySecretFloorFile = "proxy-secret.json"
+
+type proxySecretFloor struct {
+	Secret    string `json:"secret"`
+	RotatedAt string `json:"rotated_at,omitempty"`
+}
+
+// onConfigChange applies the proxy secrets the moment the FSM changes them,
+// rather than on the next watchLeader tick.
+func (m *Manager) onConfigChange(key string) {
+	if key == "" || key == configKeyProxySecret || key == configKeyProxyRotatedAt {
+		m.ApplyProxySecrets()
+	}
+}
+
 // ApplyProxySecrets installs this node's signing and accepted secrets from
-// the replicated state. Runs at activation and on every watchLeader tick on
-// every node; a change is logged once.
+// the replicated state. Runs at activation, when the FSM changes them, and
+// on every watchLeader tick on every node; a change is logged once.
 func (m *Manager) ApplyProxySecrets() {
 	if m.raft == nil {
 		return
 	}
+	// Held through the install, so two callers cannot leave the older
+	// values installed.
+	m.appliedSecretsMu.Lock()
+	defer m.appliedSecretsMu.Unlock()
 	fsm := m.raft.GetFSM()
 	replicated, _ := fsm.GetConfigValue(configKeyProxySecret)
 	rotatedAt, _ := fsm.GetConfigValue(configKeyProxyRotatedAt)
+	replicated, rotatedAt = m.withProxySecretFloor(replicated, rotatedAt)
 	sign, accept := proxySecretsAt(m.ProxySecret(), replicated, rotatedAt, time.Now())
-	m.appliedSecretsMu.Lock()
-	changed := sign != m.appliedSign || !slices.Equal(accept, m.appliedAccept)
-	m.appliedSign, m.appliedAccept = sign, accept
-	m.appliedSecretsMu.Unlock()
-	if !changed {
+	m.appliedReplicated = replicated
+	if sign == m.appliedSign && slices.Equal(accept, m.appliedAccept) {
 		return
 	}
+	m.appliedSign, m.appliedAccept = sign, accept
 	auth.SetProxySecrets(sign, accept)
 	signing := "ca-derived"
 	if replicated != "" && sign == replicated {
 		signing = "replicated"
 	}
 	slog.Info("internal proxy secrets applied", "component", "cluster", "signing", signing, "accepted", len(accept))
+}
+
+// withProxySecretFloor fills in from the floor file what the FSM does not
+// show yet, and records what it shows. Both values only move forward — the
+// secret is seeded once, the rotation recorded once — so the floor never
+// overrides the FSM; it stands in for entries not replayed yet. A floor that
+// cannot be read is ignored: the FSM then decides alone, as before the floor
+// existed. Caller holds appliedSecretsMu.
+func (m *Manager) withProxySecretFloor(replicated, rotatedAt string) (string, string) {
+	if m.config == nil || m.config.DataDir == "" {
+		return replicated, rotatedAt
+	}
+	path := filepath.Join(m.config.DataDir, proxySecretFloorFile)
+	if !m.floorLoaded {
+		m.floorLoaded = true
+		data, err := os.ReadFile(path)
+		if err == nil {
+			err = json.Unmarshal(data, &m.floor)
+		}
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			m.floor = proxySecretFloor{}
+			slog.Warn("ignoring the recorded internal proxy secret", "component", "cluster", "path", path, "error", err)
+		}
+	}
+	switch {
+	case replicated == "":
+		replicated, rotatedAt = m.floor.Secret, m.floor.RotatedAt
+	case replicated == m.floor.Secret && rotatedAt == "":
+		rotatedAt = m.floor.RotatedAt
+	}
+	if replicated != "" && (replicated != m.floor.Secret || rotatedAt != m.floor.RotatedAt) {
+		next := proxySecretFloor{Secret: replicated, RotatedAt: rotatedAt}
+		data, _ := json.Marshal(next)
+		if err := config.AtomicWriteFile(path, data, 0600); err != nil {
+			slog.Warn("could not record the internal proxy secret", "component", "cluster", "path", path, "error", err)
+		} else {
+			m.floor = next
+		}
+	}
+	return replicated, rotatedAt
 }
 
 // MaybeRotateProxySecret seeds the replicated secret and, once shouldRotate
@@ -119,12 +189,7 @@ func (m *Manager) MaybeRotateProxySecret() error {
 		return nil
 	}
 	now := time.Now()
-	m.appliedSecretsMu.Lock()
-	if m.proxySecretSeenAt.IsZero() {
-		m.proxySecretSeenAt = now
-	}
-	seenAt := m.proxySecretSeenAt
-	m.appliedSecretsMu.Unlock()
+	seenAt := m.replicatedSecretSeenAt(replicated, now)
 
 	state := fsm.GetState()
 	members := make([]string, 0, len(state.Nodes))
@@ -143,6 +208,28 @@ func (m *Manager) MaybeRotateProxySecret() error {
 	}
 	slog.Info("internal proxy secret rotated: every member now signs with the replicated secret", "component", "cluster")
 	return nil
+}
+
+// replicatedSecretSeenAt is when this node first saw this replicated secret.
+func (m *Manager) replicatedSecretSeenAt(replicated string, now time.Time) time.Time {
+	m.appliedSecretsMu.Lock()
+	defer m.appliedSecretsMu.Unlock()
+	if m.proxySecretSeen != replicated {
+		m.proxySecretSeen, m.proxySecretSeenAt = replicated, now
+	}
+	return m.proxySecretSeenAt
+}
+
+// heartbeatCapabilities is what this node reports on its heartbeat:
+// CapProxySecret once it accepts the replicated secret — what the leader
+// waits for before it rotates — not merely once it runs code that could.
+func (m *Manager) heartbeatCapabilities() []string {
+	m.appliedSecretsMu.Lock()
+	defer m.appliedSecretsMu.Unlock()
+	if m.appliedReplicated == "" {
+		return nil
+	}
+	return []string{CapProxySecret}
 }
 
 // ProxyRotationSettled reports whether the CA-derived secret is dead on every

@@ -64,12 +64,17 @@ type Manager struct {
 	// stops trying after that.
 	roleCertDone atomic.Bool
 
-	// Internal proxy secrets as last applied (ApplyProxySecrets), and when
-	// this node, as leader, first saw the replicated secret
+	// Internal proxy secrets as last applied (ApplyProxySecrets) — the
+	// replicated one among them, if any, and the floor file's contents — and
+	// which replicated secret this node, as leader, first saw and when
 	// (MaybeRotateProxySecret).
 	appliedSecretsMu  sync.Mutex
 	appliedSign       string
 	appliedAccept     []string
+	appliedReplicated string
+	floorLoaded       bool
+	floor             proxySecretFloor
+	proxySecretSeen   string
 	proxySecretSeenAt time.Time
 }
 
@@ -222,6 +227,7 @@ func (m *Manager) Init(clusterName string) error {
 		return fmt.Errorf("start raft: %w", err)
 	}
 	m.raft = raftNode
+	m.raft.GetFSM().SetOnConfigChange(m.onConfigChange)
 
 	// Wait for Raft leader election (up to 10 seconds)
 	for i := 0; i < 20; i++ {
@@ -310,6 +316,7 @@ func (m *Manager) Start() error {
 		return fmt.Errorf("start raft: %w", err)
 	}
 	m.raft = raftNode
+	m.raft.GetFSM().SetOnConfigChange(m.onConfigChange)
 
 	m.heartbeat.StartMonitor(m.onNodeStatusChange)
 	go m.watchLeader()
@@ -1552,7 +1559,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						DiskPercent:    disk,
 						Version:        m.version,
 						Timestamp:      metrics.Timestamp,
-						Capabilities:   []string{CapProxySecret},
+						Capabilities:   m.heartbeatCapabilities(),
 					})
 					if err != nil {
 						slog.Warn("heartbeat send failed", "component", "cluster", "error", err)
