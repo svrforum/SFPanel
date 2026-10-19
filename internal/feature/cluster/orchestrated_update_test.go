@@ -4,6 +4,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/svrforum/SFPanel/internal/auth"
 	"github.com/svrforum/SFPanel/internal/cluster"
@@ -38,6 +39,18 @@ func TestOrchestratedUpdateIsForcedAndSignedAsSent(t *testing.T) {
 	bare.Header.Set(auth.InternalProxyHeaderV2, auth.SignProxyRequestV2("POST", u.Path))
 	if auth.IsInternalProxyRequest(bare) {
 		t.Fatal("a header signed without the query was accepted; the query is no longer covered by the MAC")
+	}
+}
+
+// The orchestrator waits five minutes for each node to download, verify and
+// swap its binary, but the request reaches the node over gRPC, and the node's
+// own loopback hop decides by path how long it may run there: it gave this
+// one thirty seconds, so on a slow link the hop cancelled the download partway
+// and the rolling update stopped at that node with an HTTP 500.
+func TestOrchestratedUpdateKeepsItsFiveMinutesOnTheTarget(t *testing.T) {
+	if got := cluster.ProxyTimeoutFor(orchestratedUpdatePath); got != 5*time.Minute {
+		t.Fatalf("ProxyTimeoutFor(%q) = %v, want 5m: the target's loopback hop would cut the update off while the orchestrator still waits",
+			orchestratedUpdatePath, got)
 	}
 }
 

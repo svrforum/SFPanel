@@ -28,6 +28,10 @@ var longProxyPaths = []string{
 	"/filesystems/resize",
 	"/swap",
 	"/system/restore",
+	// runClusterUpdate sends this to each node over gRPC (a browser's ?node=
+	// update takes the HTTP relay). update-check matches too; its own 15s
+	// client bounds it.
+	"/system/update",
 	"/disks/network-shares/tools/install",
 }
 
