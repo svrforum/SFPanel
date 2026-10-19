@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +38,43 @@ func TestReportPanelCAStoresForTheCallerOnly(t *testing.T) {
 	}
 	if resp, _ := s.ReportPanelCA(ctxWithPeerCN(context.Background(), "agent-1"), &pb.ReportPanelCARequest{CaCert: []byte("not a certificate")}); resp == nil || resp.Success {
 		t.Fatal("garbage stored as a panel CA")
+	}
+}
+
+// An agent may report its panel CA whenever it likes, and every change is a
+// Raft entry on every manager: a change is taken at most once a minute per
+// node. Reporting the stored CA again is no change and always answered.
+func TestAReportedPanelCAChangesAtMostOncePerMinute(t *testing.T) {
+	mgr, _, _, _ := realLeader(t)
+	addTestNode(t, mgr.raft.GetFSM(), Node{ID: "agent-1", Kind: KindAgent, APIAddress: "192.0.2.10:3628"})
+	s := &GRPCServer{manager: mgr}
+	report := func(ca []byte) *pb.ReportPanelCAResponse {
+		t.Helper()
+		resp, err := s.ReportPanelCA(ctxWithPeerCN(context.Background(), "agent-1"), &pb.ReportPanelCARequest{CaCert: ca})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+	first, second := panelCAPEM(t), panelCAPEM(t)
+	if r := report(first); !r.Success {
+		t.Fatalf("first report: %+v", r)
+	}
+	before := mgr.raft.raft.LastIndex()
+	if r := report(second); r.Success || !strings.Contains(r.Error, "less than a minute ago") {
+		t.Fatalf("a second change at once: %+v", r)
+	}
+	if after := mgr.raft.raft.LastIndex(); after != before {
+		t.Fatalf("a refused change wrote to the Raft log: index %d → %d", before, after)
+	}
+	if r := report(first); !r.Success {
+		t.Fatalf("the stored CA reported again: %+v", r)
+	}
+	if err := mgr.SetReportedPanelCA("agent-1", string(second), time.Now().Add(2*time.Minute)); err != nil {
+		t.Fatalf("a change a minute later: %v", err)
+	}
+	if v, _ := mgr.raft.GetFSM().GetConfigValue(panelCAKey("agent-1")); v != string(second) {
+		t.Fatal("the later change was not stored")
 	}
 }
 

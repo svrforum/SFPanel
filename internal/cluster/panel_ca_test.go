@@ -8,6 +8,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 )
@@ -77,6 +78,30 @@ func TestValidatePanelCA(t *testing.T) {
 				t.Errorf("validatePanelCA rejected a valid CA: %v", err)
 			}
 		})
+	}
+}
+
+// What passes is stored verbatim and replicated to every manager, so it must
+// be certificates and nothing else: a key after the CA would be replicated
+// with it, and an agent may report anything. A bundle of CAs, as an operator's
+// ca_file may hold, is fine.
+func TestValidatePanelCARefusesAllButCertificates(t *testing.T) {
+	caPEM, otherCA := makeCert(t, "SFPanel Local CA", true), makeCert(t, "Operator Root", true)
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	keyDER, _ := x509.MarshalECPrivateKey(key)
+	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
+	for _, tc := range []struct{ name, in, want string }{
+		{"a CA and its key", caPEM + keyPEM, "EC PRIVATE KEY"},
+		{"a CA and other bytes", caPEM + strings.Repeat("A", 4096), "other than PEM"},
+		{"bytes before a CA", "preamble\n" + caPEM, "other than PEM"},
+		{"certificates past the size cap", strings.Repeat(caPEM, 200), "larger than"},
+	} {
+		if err := validatePanelCA(tc.in); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v, want an error saying %q", tc.name, err, tc.want)
+		}
+	}
+	if err := validatePanelCA(caPEM + "\n" + otherCA); err != nil {
+		t.Errorf("a bundle of two CAs: %v", err)
 	}
 }
 

@@ -58,6 +58,10 @@ type Manager struct {
 	// and the name and address checks hold only if no other registration
 	// commits between them and the write (HandleRegisterAgent).
 	registerAgentMu sync.Mutex
+	// panelCAChangedAt is when each node's reported panel CA last changed on
+	// this leader (SetReportedPanelCA).
+	panelCAReportMu  sync.Mutex
+	panelCAChangedAt map[string]time.Time
 
 	// proxySecretCache caches the sha256(CA cert) derivation. Invalidated
 	// implicitly on cert-rotate via the TLSManager's stat-based reload —

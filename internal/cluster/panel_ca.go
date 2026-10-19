@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"bytes"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -55,25 +56,80 @@ func (m *Manager) SetPanelCA(nodeID, certPEM string) error {
 	return nil
 }
 
-// validatePanelCA rejects anything that is not a CA certificate.
+// panelCAChangeInterval is how often a reported panel CA may change. An
+// agent reports its CA whenever it likes and every change is a Raft entry on
+// every manager; a real one changes when its panel's TLS is set up again.
+const panelCAChangeInterval = time.Minute
+
+// SetReportedPanelCA stores the panel CA a node reported (ReportPanelCA),
+// taking a change at most once per panelCAChangeInterval per node. Reporting
+// the CA already stored changes nothing and is always answered.
+func (m *Manager) SetReportedPanelCA(nodeID, certPEM string, now time.Time) error {
+	m.panelCAReportMu.Lock()
+	defer m.panelCAReportMu.Unlock()
+	if m.raft != nil && m.raft.GetFSM().GetState().Config[panelCAKey(nodeID)] == certPEM {
+		return nil
+	}
+	if at, ok := m.panelCAChangedAt[nodeID]; ok && now.Sub(at) < panelCAChangeInterval {
+		return ErrPanelCAChangedRecently
+	}
+	if err := m.SetPanelCA(nodeID, certPEM); err != nil {
+		return err
+	}
+	if m.panelCAChangedAt == nil {
+		m.panelCAChangedAt = map[string]time.Time{}
+	}
+	m.panelCAChangedAt[nodeID] = now
+	return nil
+}
+
+// maxPanelCABytes bounds a panel CA: a CA certificate is a kilobyte or two,
+// and an operator's bundle a few of them.
+const maxPanelCABytes = 64 << 10
+
+// validatePanelCA accepts PEM certificates and nothing else, at least one of
+// them a certificate authority — the CA behind the panel, or an operator's
+// bundle of them.
 //
 // The check matters because whatever lands here becomes a trust anchor for
-// every peer's HTTP relay. A private key arriving by mistake would be
-// replicated to every node and served through snapshots; a leaf certificate
-// would silently produce a pool that verifies nothing.
+// every peer's HTTP relay, and is stored as given: a private key arriving by
+// mistake, or anything an agent appends, would be replicated to every node
+// and served through snapshots; a leaf certificate alone would silently
+// produce a pool that verifies nothing.
 func validatePanelCA(certPEM string) error {
-	block, _ := pem.Decode([]byte(certPEM))
-	if block == nil {
-		return fmt.Errorf("panel CA is not PEM")
+	if len(certPEM) > maxPanelCABytes {
+		return fmt.Errorf("panel CA is larger than %d KiB", maxPanelCABytes>>10)
 	}
-	if block.Type != "CERTIFICATE" {
-		return fmt.Errorf("panel CA must be a CERTIFICATE, got %s", block.Type)
+	rest := []byte(certPEM)
+	sawCA := false
+	for {
+		rest = bytes.TrimSpace(rest)
+		if len(rest) == 0 {
+			break
+		}
+		// pem.Decode skips whatever precedes a block, and what is skipped
+		// would be stored too.
+		if !bytes.HasPrefix(rest, []byte("-----BEGIN ")) {
+			return fmt.Errorf("panel CA holds something other than PEM certificates")
+		}
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			return fmt.Errorf("panel CA is not PEM")
+		}
+		if block.Type != "CERTIFICATE" {
+			return fmt.Errorf("panel CA must hold certificates only, got %s", block.Type)
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return fmt.Errorf("parse panel CA: %w", err)
+		}
+		sawCA = sawCA || cert.IsCA
 	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return fmt.Errorf("parse panel CA: %w", err)
-	}
-	if !cert.IsCA {
+	if !sawCA {
+		if len(bytes.TrimSpace([]byte(certPEM))) == 0 {
+			return fmt.Errorf("panel CA is not PEM")
+		}
 		return fmt.Errorf("panel CA certificate is not a certificate authority")
 	}
 	return nil

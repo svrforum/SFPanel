@@ -207,9 +207,9 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 	}
 
 	resp, err := client.Join(context.Background(), &pb.JoinRequest{
-		Token:       token,
-		NodeId:      nodeID,
-		NodeName:    hostname,
+		Token:        token,
+		NodeId:       nodeID,
+		NodeName:     hostname,
 		ApiAddress:   apiAddr,
 		GrpcAddress:  grpcAddr,
 		Capabilities: []string{CapAgents},

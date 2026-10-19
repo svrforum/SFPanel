@@ -29,7 +29,8 @@ var (
 	// ErrManagersNotReadyForAgents is followed by the managers it waits for.
 	ErrManagersNotReadyForAgents = errors.New("agents can register once every manager is online and runs a version that supports agents")
 	ErrJoinerPredatesAgents      = errors.New("this cluster has agents, and this server's SFPanel predates them: upgrade it to the managers' version, then join again")
-	ErrAgentPanelCARequired = errors.New("the agent's panel must serve HTTPS, and the registration carried no panel CA")
-	ErrNodeIdentityTaken    = errors.New("another node already uses this name or address")
-	ErrBadCSR               = errors.New("the certificate request is not a valid ECDSA P-256 request")
+	ErrAgentPanelCARequired      = errors.New("the agent's panel must serve HTTPS, and the registration carried no panel CA")
+	ErrNodeIdentityTaken         = errors.New("another node already uses this name or address")
+	ErrBadCSR                    = errors.New("the certificate request is not a valid ECDSA P-256 request")
+	ErrPanelCAChangedRecently    = errors.New("this node's panel CA changed less than a minute ago; it is taken again after that")
 )

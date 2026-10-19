@@ -389,7 +389,7 @@ func (s *GRPCServer) ReportPanelCA(ctx context.Context, req *pb.ReportPanelCAReq
 	if !s.manager.IsLeader() {
 		return &pb.ReportPanelCAResponse{Error: ErrNotLeader.Error(), LeaderGrpcAddress: s.manager.GetRaft().LeaderGRPCAddress()}, nil
 	}
-	if err := s.manager.SetPanelCA(cn, string(req.CaCert)); err != nil {
+	if err := s.manager.SetReportedPanelCA(cn, string(req.CaCert), time.Now()); err != nil {
 		return &pb.ReportPanelCAResponse{Error: err.Error()}, nil
 	}
 	return &pb.ReportPanelCAResponse{Success: true}, nil
