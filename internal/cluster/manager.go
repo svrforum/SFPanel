@@ -633,13 +633,16 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 	return caCertPEM, certPEM, keyPEM, peerList, nil
 }
 
-// ConfirmJoin promotes a previously-added non-voter to voter. The joining
-// node calls this after it has its certs on disk, gRPC up, and Raft caught
-// up. Idempotent: calling it on a node that's already a voter is a no-op,
+// ConfirmJoin promotes a previously-added non-voter to voter. The leader
+// calls it when the joining node's first heartbeat arrives
+// (PromoteOnHeartbeatIfPending): by then the node has its certs on disk,
+// gRPC up, and Raft following. An agent is refused with ErrNotManager.
+// Idempotent: calling it on a node that's already a voter is a no-op,
 // so a network blip causing a retry doesn't break anything.
 //
-// If the FSM still shows the node, but Raft no longer does (operator yanked
-// it during the gap), Apply rolls the FSM back to keep the two views aligned.
+// If the FSM still shows the node but Raft no longer does (operator yanked
+// it during the gap), AddVoter adds it back as a new voter: nothing here
+// checks Raft's configuration first or rolls the FSM back.
 func (m *Manager) ConfirmJoin(nodeID string) error {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return ErrNotLeader
@@ -649,6 +652,10 @@ func (m *Manager) ConfirmJoin(nodeID string) error {
 	node, exists := state.Nodes[nodeID]
 	if !exists {
 		return fmt.Errorf("node %s not found in FSM", nodeID)
+	}
+	// Agents are outside Raft; as a voter, an agent is a vote that never comes.
+	if !node.IsManager() {
+		return ErrNotManager
 	}
 
 	host, grpcPortStr, _ := net.SplitHostPort(node.GRPCAddress)
@@ -687,9 +694,9 @@ func (m *Manager) ConfirmJoin(nodeID string) error {
 
 // PromoteOnHeartbeatIfPending promotes a non-voter node to voter when its
 // first heartbeat arrives. Called from the leader's heartbeat handler. No-op
-// when not leader, when the node is already a voter, or when the node isn't
-// in the FSM. Errors are logged but never bubbled — heartbeats must keep
-// flowing even if the FSM is mid-migration.
+// when not leader, when the node is already a voter or is an agent, or when
+// the node isn't in the FSM. Errors are logged but never bubbled — heartbeats
+// must keep flowing even if the FSM is mid-migration.
 //
 // Rate-limited per nodeID: at most one promotion attempt every 5 s for any
 // given node. A misbehaving (or malicious) heartbeat flood with a forged
@@ -700,7 +707,9 @@ func (m *Manager) PromoteOnHeartbeatIfPending(nodeID string) {
 	}
 	state := m.raft.GetFSM().GetState()
 	node, ok := state.Nodes[nodeID]
-	if !ok || node.Role == RoleVoter {
+	// Agents are outside Raft; an agent's heartbeat is liveness, not
+	// readiness to vote.
+	if !ok || node.Role == RoleVoter || !node.IsManager() {
 		return
 	}
 	if !m.promoteRateLimit(nodeID) {

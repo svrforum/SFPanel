@@ -15,6 +15,7 @@ var (
 	ErrMaxNodesReached    = errors.New("maximum node count reached")
 	ErrMaxAgentsReached   = errors.New("maximum agent count reached")
 	ErrSelfRemove         = errors.New("cannot remove self from cluster")
+	ErrNotManager         = errors.New("this node is an agent and never joins Raft")
 	// ErrCAKeyUnavailable is returned when a leader must sign a joining node's
 	// cert but the cluster CA private key is present neither on local disk nor
 	// in replicated FSM state. Surfaced to the joining operator via
