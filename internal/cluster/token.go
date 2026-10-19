@@ -97,7 +97,9 @@ func NewPersistedTokenManager(path string) (*TokenManager, error) {
 	return tm, nil
 }
 
-func (tm *TokenManager) Create(ttl time.Duration, createdBy string) (*JoinToken, error) {
+// Create mints a token that admits one kind of node; an empty kind is a
+// manager, as every token was before kinds existed.
+func (tm *TokenManager) Create(ttl time.Duration, createdBy string, kind NodeKind) (*JoinToken, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
@@ -110,10 +112,14 @@ func (tm *TokenManager) Create(ttl time.Duration, createdBy string) (*JoinToken,
 	mac.Write(raw)
 	token := hex.EncodeToString(raw) + "." + hex.EncodeToString(mac.Sum(nil))
 
+	if kind == "" {
+		kind = KindManager
+	}
 	jt := &JoinToken{
 		Token:     token,
 		ExpiresAt: time.Now().Add(ttl),
 		CreatedBy: createdBy,
+		Kind:      kind,
 	}
 	tm.tokens[token] = jt
 
@@ -139,6 +145,7 @@ type TokenInfo struct {
 	Masked    string    `json:"masked"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedBy string    `json:"created_by"`
+	Kind      NodeKind  `json:"kind"`
 }
 
 // tokenFingerprint is a short, stable identifier derived from a token's raw
@@ -177,6 +184,7 @@ func (tm *TokenManager) List() []TokenInfo {
 			Masked:    maskToken(t.Token),
 			ExpiresAt: t.ExpiresAt,
 			CreatedBy: t.CreatedBy,
+			Kind:      t.EffectiveKind(),
 		})
 	}
 	return out
@@ -223,67 +231,79 @@ func (tm *TokenManager) verifyHMAC(token string) bool {
 	return hmac.Equal(providedMAC, mac.Sum(nil))
 }
 
-// Peek checks token validity without consuming it.
-func (tm *TokenManager) Peek(token string) error {
+// Peek checks token validity without consuming it and returns a copy, so a
+// caller can check the token's kind before anything is spent.
+func (tm *TokenManager) Peek(token string) (*JoinToken, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
 	if !tm.verifyHMAC(token) {
-		return ErrTokenNotFound
+		return nil, ErrTokenNotFound
 	}
 	jt, ok := tm.tokens[token]
 	if !ok {
-		return ErrTokenNotFound
+		return nil, ErrTokenNotFound
 	}
 	if jt.Used {
-		return ErrTokenUsed
+		return nil, ErrTokenUsed
 	}
 	if time.Now().After(jt.ExpiresAt) {
-		return ErrTokenExpired
+		return nil, ErrTokenExpired
 	}
-	return nil
+	cp := *jt
+	return &cp, nil
 }
 
-// Validate checks the token and marks it as used.
-func (tm *TokenManager) Validate(token string) error {
+// Validate checks the token, refuses it for a node of another kind, and marks
+// it as used. It returns a copy for Restore.
+func (tm *TokenManager) Validate(token string, kind NodeKind) (*JoinToken, error) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
 	if !tm.verifyHMAC(token) {
-		return ErrTokenNotFound
+		return nil, ErrTokenNotFound
 	}
 	jt, ok := tm.tokens[token]
 	if !ok {
-		return ErrTokenNotFound
+		return nil, ErrTokenNotFound
 	}
 	if jt.Used {
-		return ErrTokenUsed
+		return nil, ErrTokenUsed
 	}
 	if time.Now().After(jt.ExpiresAt) {
 		delete(tm.tokens, token)
 		// Best-effort persist; if it fails, the token will simply be
 		// re-cleaned up on next load.
 		_ = tm.saveLocked()
-		return ErrTokenExpired
+		return nil, ErrTokenExpired
+	}
+	// Before consuming: a token offered for the wrong kind of node stays
+	// usable for the node it was minted for.
+	if jt.EffectiveKind() != kind {
+		return nil, ErrTokenKind
 	}
 
 	jt.Used = true
 	if err := tm.saveLocked(); err != nil {
 		// Revert so a restart wouldn't reanimate the token.
 		jt.Used = false
-		return fmt.Errorf("persist token consumption: %w", err)
+		return nil, fmt.Errorf("persist token consumption: %w", err)
 	}
-	return nil
+	cp := *jt
+	return &cp, nil
 }
 
-// RestoreToken marks a token as unused so it can be retried.
-func (tm *TokenManager) RestoreToken(token string) {
+// Restore puts back a token Validate consumed, unused, so a join that failed
+// after consuming it can be retried. It re-inserts the token rather than
+// clearing Used on the map entry, because cleanup may have dropped the used
+// entry: any Create or List between Validate and Restore deletes used tokens.
+func (tm *TokenManager) Restore(jt *JoinToken) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	if jt, ok := tm.tokens[token]; ok {
-		jt.Used = false
-		_ = tm.saveLocked()
-	}
+	cp := *jt
+	cp.Used = false
+	tm.tokens[cp.Token] = &cp
+	_ = tm.saveLocked()
 }
 
 func (tm *TokenManager) cleanupLocked() {

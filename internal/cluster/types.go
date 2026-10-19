@@ -69,6 +69,18 @@ type JoinToken struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	Used      bool      `json:"used"`
 	CreatedBy string    `json:"created_by"`
+	// Kind is the kind of node the token admits. It stays on the leader that
+	// minted it; the token string does not carry it.
+	Kind NodeKind `json:"kind,omitempty"`
+}
+
+// EffectiveKind is the kind a token was minted for; tokens saved before
+// kinds existed carry none and were all manager tokens.
+func (jt *JoinToken) EffectiveKind() NodeKind {
+	if jt.Kind == "" {
+		return KindManager
+	}
+	return jt.Kind
 }
 
 // NodeMetrics holds the latest metrics from a heartbeat.

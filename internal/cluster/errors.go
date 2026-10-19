@@ -11,7 +11,9 @@ var (
 	ErrTokenNotFound      = errors.New("token does not exist")
 	ErrTokenExpired       = errors.New("token has expired")
 	ErrTokenUsed          = errors.New("join token already used")
+	ErrTokenKind          = errors.New("this join token is for another kind of node")
 	ErrMaxNodesReached    = errors.New("maximum node count reached")
+	ErrMaxAgentsReached   = errors.New("maximum agent count reached")
 	ErrSelfRemove         = errors.New("cannot remove self from cluster")
 	// ErrCAKeyUnavailable is returned when a leader must sign a joining node's
 	// cert but the cluster CA private key is present neither on local disk nor

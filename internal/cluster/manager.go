@@ -448,18 +448,53 @@ func (m *Manager) verifySelfAddress() {
 	}
 }
 
-// CreateJoinToken generates a time-limited token for new nodes.
-func (m *Manager) CreateJoinToken(ttl time.Duration) (*JoinToken, error) {
+// CreateJoinToken generates a time-limited token for a new node of kind
+// (empty is a manager). Managers and agents have separate caps, each counting
+// only its own kind: managers MaxNodes, agents cluster.max_agents.
+func (m *Manager) CreateJoinToken(ttl time.Duration, kind NodeKind) (*JoinToken, error) {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return nil, ErrNotLeader
 	}
-
-	state := m.raft.GetFSM().GetState()
-	if len(state.Nodes) >= MaxNodes {
-		return nil, ErrMaxNodesReached
+	if kind == "" {
+		kind = KindManager
 	}
 
-	return m.tokens.Create(ttl, m.nodeID)
+	state := m.raft.GetFSM().GetState()
+	switch kind {
+	case KindManager:
+		if countKind(state, KindManager) >= MaxNodes {
+			return nil, ErrMaxNodesReached
+		}
+	case KindAgent:
+		if countKind(state, KindAgent) >= m.agentCap() {
+			return nil, ErrMaxAgentsReached
+		}
+	default:
+		return nil, fmt.Errorf("unknown node kind %q", kind)
+	}
+
+	return m.tokens.Create(ttl, m.nodeID, kind)
+}
+
+// countKind counts the nodes of one kind; a node recorded before kinds
+// existed is a manager.
+func countKind(state ClusterState, kind NodeKind) int {
+	managers := kind != KindAgent
+	n := 0
+	for _, node := range state.Nodes {
+		if node.IsManager() == managers {
+			n++
+		}
+	}
+	return n
+}
+
+// agentCap is how many agents the leader registers.
+func (m *Manager) agentCap() int {
+	if m.config == nil {
+		return config.DefaultMaxAgents
+	}
+	return m.config.MaxAgentsOrDefault()
 }
 
 // ListJoinTokens returns redacted info for all currently-valid join tokens.
@@ -494,12 +529,19 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		return nil, nil, nil, nil, fmt.Errorf("leader barrier failed: %w", err)
 	}
 
-	if err := m.tokens.Validate(token); err != nil {
+	// Every refusal comes before the token is spent. Consuming it first meant
+	// a join refused for a full cluster or a taken ID burned the token, and
+	// the operator had to mint a new one to retry.
+	jt, err := m.tokens.Peek(token)
+	if err != nil {
 		return nil, nil, nil, nil, err
+	}
+	if jt.EffectiveKind() != KindManager {
+		return nil, nil, nil, nil, ErrTokenKind
 	}
 
 	state := m.raft.GetFSM().GetState()
-	if len(state.Nodes) >= MaxNodes {
+	if countKind(state, KindManager) >= MaxNodes {
 		return nil, nil, nil, nil, ErrMaxNodesReached
 	}
 	if _, exists := state.Nodes[nodeID]; exists {
@@ -526,6 +568,15 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		return nil, nil, nil, nil, fmt.Errorf("load CA: %w", caErr)
 	}
 
+	// Spend the token only now, with nothing left but the commit. The CA steps
+	// above can fail for a reason the operator is told to fix and then retry
+	// (ErrCAKeyUnavailable), and doing them first costs a retry nothing: the
+	// certificate they make exists only in this response.
+	used, err := m.tokens.Validate(token, KindManager)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	newNode := Node{
 		ID:          nodeID,
 		Name:        nodeName,
@@ -545,7 +596,7 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		Type:  CmdAddNode,
 		Value: nodeJSON,
 	}, 5*time.Second); applyErr != nil {
-		m.tokens.RestoreToken(token) // allow retry
+		m.tokens.Restore(used) // allow retry
 		return nil, nil, nil, nil, fmt.Errorf("register node: %w", applyErr)
 	}
 
@@ -566,7 +617,7 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 			slog.Warn("rollback FSM remove failed (stale-leader suspect)",
 				"component", "cluster", "node_id", nodeID, "error", rmFsmErr)
 		}
-		m.tokens.RestoreToken(token)
+		m.tokens.Restore(used)
 		return nil, nil, nil, nil, fmt.Errorf("add nonvoter: %w", addErr)
 	}
 
@@ -685,18 +736,25 @@ func (m *Manager) promoteRateLimit(nodeID string) bool {
 	return true
 }
 
-// HandlePreFlight validates a token without consuming it (for pre-flight checks).
+// HandlePreFlight validates a token without consuming it (for pre-flight
+// checks). The node count and cap are those of the token's kind.
 func (m *Manager) HandlePreFlight(token string) (clusterName string, nodeCount, maxNodes int, err error) {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return "", 0, 0, ErrNotLeader
 	}
 
-	if err := m.tokens.Peek(token); err != nil {
+	jt, err := m.tokens.Peek(token)
+	if err != nil {
 		return "", 0, 0, err
 	}
 
 	state := m.raft.GetFSM().GetState()
-	return state.Config["cluster_name"], len(state.Nodes), MaxNodes, nil
+	kind := jt.EffectiveKind()
+	maxNodes = MaxNodes
+	if kind == KindAgent {
+		maxNodes = m.agentCap()
+	}
+	return state.Config["cluster_name"], countKind(state, kind), maxNodes, nil
 }
 
 // GetJWTAndAdmin returns the leader's JWT secret and primary admin account

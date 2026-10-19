@@ -128,7 +128,7 @@ func realLeader(t *testing.T) (*Manager, string, string, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(gs.Stop)
-	tok, err := mgr.CreateJoinToken(10 * time.Minute)
+	tok, err := mgr.CreateJoinToken(10*time.Minute, KindManager)
 	if err != nil {
 		t.Fatal(err)
 	}

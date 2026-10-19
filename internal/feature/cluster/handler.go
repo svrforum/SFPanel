@@ -738,7 +738,7 @@ func (h *Handler) CreateToken(c echo.Context) error {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "ttl must be positive")
 	}
 
-	token, err := mgr.CreateJoinToken(ttl)
+	token, err := mgr.CreateJoinToken(ttl, cluster.KindManager)
 	if err != nil {
 		return clusterErrResponse(c, err)
 	}
