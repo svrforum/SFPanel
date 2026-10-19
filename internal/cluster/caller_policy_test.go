@@ -35,8 +35,11 @@ func policyServer(t *testing.T) (*GRPCServer, *FSM) {
 }
 
 const (
-	methodProxy     = "/sfpanel.cluster.ClusterService/ProxyRequest"
-	methodHeartbeat = "/sfpanel.cluster.ClusterService/Heartbeat"
+	methodProxy      = "/sfpanel.cluster.ClusterService/ProxyRequest"
+	methodHeartbeat  = "/sfpanel.cluster.ClusterService/Heartbeat"
+	methodLeave      = "/sfpanel.cluster.ClusterService/Leave"
+	methodGetMetrics = "/sfpanel.cluster.ClusterService/GetMetrics"
+	methodSubscribe  = "/sfpanel.cluster.ClusterService/Subscribe"
 )
 
 func TestAuthorizeCaller(t *testing.T) {
@@ -44,20 +47,32 @@ func TestAuthorizeCaller(t *testing.T) {
 	cases := []struct {
 		name, method, cn, role string
 		want                   codes.Code
+		msg                    string // in the refusal
 	}{
-		{"manager proxies", methodProxy, "m1", CertRoleManager, codes.OK},
-		{"manager from before roles proxies", methodProxy, "m0", "", codes.OK},
-		{"agent may not proxy", methodProxy, "a1", CertRoleAgent, codes.PermissionDenied},
-		{"agent certificate under a manager's ID may not proxy", methodProxy, "m1", CertRoleAgent, codes.PermissionDenied},
-		{"a stranger is refused", methodProxy, "x9", CertRoleManager, codes.PermissionDenied},
-		{"an agent may heartbeat", methodHeartbeat, "a1", CertRoleAgent, codes.OK},
-		{"an unlisted method is refused", "/sfpanel.cluster.ClusterService/Shiny", "m1", CertRoleManager, codes.PermissionDenied},
+		{"manager proxies", methodProxy, "m1", CertRoleManager, codes.OK, ""},
+		{"manager from before roles proxies", methodProxy, "m0", "", codes.OK, ""},
+		{"agent may not proxy", methodProxy, "a1", CertRoleAgent, codes.PermissionDenied, "may not call"},
+		{"agent certificate under a manager's ID may not proxy", methodProxy, "m1", CertRoleAgent, codes.PermissionDenied, "may not call"},
+		// The FSM says a1 is an agent, whatever its certificate claims.
+		{"agent ID with a manager certificate may not proxy", methodProxy, "a1", CertRoleManager, codes.PermissionDenied, "may not call"},
+		{"agent ID with a certificate from before roles may not proxy", methodProxy, "a1", "", codes.PermissionDenied, "may not call"},
+		{"a stranger is refused", methodProxy, "x9", CertRoleManager, codes.PermissionDenied, "not a member"},
+		{"an agent may heartbeat", methodHeartbeat, "a1", CertRoleAgent, codes.OK, ""},
+		{"an agent may not read the cluster's metrics", methodGetMetrics, "a1", CertRoleAgent, codes.PermissionDenied, "may not call"},
+		{"an agent may not subscribe to cluster events", methodSubscribe, "a1", CertRoleAgent, codes.PermissionDenied, "may not call"},
+		{"an agent may not leave through Raft", methodLeave, "a1", CertRoleAgent, codes.PermissionDenied, "may not call"},
+		{"a manager reads metrics", methodGetMetrics, "m1", CertRoleManager, codes.OK, ""},
+		{"a manager leaves", methodLeave, "m0", "", codes.OK, ""},
+		{"an unlisted method is refused", "/sfpanel.cluster.ClusterService/Shiny", "m1", CertRoleManager, codes.PermissionDenied, "not open to cluster members"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := s.authorizeCaller(ctxWithPeerCert(tc.cn, tc.role), tc.method)
 			if got := status.Code(err); got != tc.want {
 				t.Fatalf("code = %v (%v), want %v", got, err, tc.want)
+			}
+			if tc.msg != "" && !strings.Contains(err.Error(), tc.msg) {
+				t.Fatalf("refused as %q, want it to say %q", err, tc.msg)
 			}
 		})
 	}
@@ -88,5 +103,29 @@ func TestLeaveRefusesAnotherNode(t *testing.T) {
 	_, err := s.Leave(ctxWithPeerCert("m1", CertRoleManager), &pb.LeaveRequest{NodeId: "m0"})
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("Leave(m0) from m1: %v, want PermissionDenied", err)
+	}
+}
+
+// Every RPC the service declares is either open before membership (PreFlight,
+// Join) or has a policy, and every policy names a real RPC: a misspelt entry
+// would leave its method refused to everyone.
+func TestMethodPolicyCoversTheService(t *testing.T) {
+	desc := pb.ClusterService_ServiceDesc
+	declared := map[string]bool{}
+	for _, m := range desc.Methods {
+		declared["/"+desc.ServiceName+"/"+m.MethodName] = true
+	}
+	for _, st := range desc.Streams {
+		declared["/"+desc.ServiceName+"/"+st.StreamName] = true
+	}
+	for name := range declared {
+		if _, ok := methodPolicy[name]; !ok && !unauthenticatedMethods[name] {
+			t.Errorf("%s has no caller policy", name)
+		}
+	}
+	for name := range methodPolicy {
+		if !declared[name] {
+			t.Errorf("methodPolicy names %s, which the service does not declare", name)
+		}
 	}
 }

@@ -182,9 +182,9 @@ const (
 // PreFlight and Join never reach it (unauthenticatedMethods).
 var methodPolicy = map[string]callerPolicy{
 	"/sfpanel.cluster.ClusterService/Heartbeat":    callerMember,
-	"/sfpanel.cluster.ClusterService/Leave":        callerMember, // for itself only: see Leave
-	"/sfpanel.cluster.ClusterService/GetMetrics":   callerMember,
-	"/sfpanel.cluster.ClusterService/Subscribe":    callerMember,
+	"/sfpanel.cluster.ClusterService/Leave":        callerManager, // for itself only: see Leave
+	"/sfpanel.cluster.ClusterService/GetMetrics":   callerManager,
+	"/sfpanel.cluster.ClusterService/Subscribe":    callerManager,
 	"/sfpanel.cluster.ClusterService/ProxyRequest": callerManager,
 }
 
