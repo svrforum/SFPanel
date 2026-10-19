@@ -10,6 +10,13 @@ service ClusterService {
     rpc ProxyRequest(APIRequest) returns (APIResponse);
     rpc GetMetrics(MetricsRequest) returns (MetricsResponse);
     rpc Subscribe(SubscribeRequest) returns (stream ClusterEvent);
+    // An agent asks the leader to register it. Unauthenticated, like Join: the
+    // agent has no certificate yet. The token, the CA pin checked by the agent
+    // and the CSR are what bind it.
+    rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse);
+    // An agent reports its panel's CA so managers can reach its panel over
+    // HTTPS. The node is the caller's certificate CN, never a request field.
+    rpc ReportPanelCA(ReportPanelCARequest) returns (ReportPanelCAResponse);
 }
 
 message PreFlightRequest {
@@ -81,6 +88,13 @@ message HeartbeatPing {
 message HeartbeatPong {
     string leader_id = 1;
     int64  timestamp = 2;
+    // Where an agent should send its heartbeats, and the managers it accepts
+    // requests from. from_leader says whether this pong came from the leader
+    // (authoritative) or from a follower whose list may lag. A manager older
+    // than these fields leaves all three empty.
+    string leader_grpc_address = 3;
+    repeated NodeInfo managers = 4;
+    bool   from_leader = 5;
 }
 
 message APIRequest {
@@ -129,4 +143,37 @@ message NodeInfo {
     string grpc_address = 4;
     string role = 5;
     string status = 6;
+    string kind = 7;           // "manager" or "agent"
+}
+
+message RegisterAgentRequest {
+    string token = 1;
+    bytes  csr = 2;            // DER PKCS#10 for an ECDSA P-256 key made on the agent
+    string node_name = 3;
+    string api_address = 4;    // advertise:panel_port
+    string grpc_address = 5;   // advertise:grpc_port
+    bytes  panel_ca_cert = 6;  // PEM: the CA of the agent panel's HTTPS certificate
+    string version = 7;
+}
+
+message RegisterAgentResponse {
+    bool   success = 1;
+    string error = 2;
+    string node_id = 3;
+    bytes  node_cert = 4;      // PEM, OU=sfpanel-agent, CN=node_id
+    bytes  ca_cert = 5;        // PEM, the cluster CA
+    string agent_key = 6;      // this agent's own internal-proxy key; nothing else
+    repeated NodeInfo managers = 7;
+    string cluster_name = 8;
+    string leader_grpc_address = 9; // set when the answering manager is not the leader
+}
+
+message ReportPanelCARequest {
+    bytes ca_cert = 1;         // PEM
+}
+
+message ReportPanelCAResponse {
+    bool   success = 1;
+    string error = 2;
+    string leader_grpc_address = 3;
 }

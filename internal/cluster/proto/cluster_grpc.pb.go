@@ -19,13 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ClusterService_PreFlight_FullMethodName    = "/sfpanel.cluster.ClusterService/PreFlight"
-	ClusterService_Join_FullMethodName         = "/sfpanel.cluster.ClusterService/Join"
-	ClusterService_Leave_FullMethodName        = "/sfpanel.cluster.ClusterService/Leave"
-	ClusterService_Heartbeat_FullMethodName    = "/sfpanel.cluster.ClusterService/Heartbeat"
-	ClusterService_ProxyRequest_FullMethodName = "/sfpanel.cluster.ClusterService/ProxyRequest"
-	ClusterService_GetMetrics_FullMethodName   = "/sfpanel.cluster.ClusterService/GetMetrics"
-	ClusterService_Subscribe_FullMethodName    = "/sfpanel.cluster.ClusterService/Subscribe"
+	ClusterService_PreFlight_FullMethodName     = "/sfpanel.cluster.ClusterService/PreFlight"
+	ClusterService_Join_FullMethodName          = "/sfpanel.cluster.ClusterService/Join"
+	ClusterService_Leave_FullMethodName         = "/sfpanel.cluster.ClusterService/Leave"
+	ClusterService_Heartbeat_FullMethodName     = "/sfpanel.cluster.ClusterService/Heartbeat"
+	ClusterService_ProxyRequest_FullMethodName  = "/sfpanel.cluster.ClusterService/ProxyRequest"
+	ClusterService_GetMetrics_FullMethodName    = "/sfpanel.cluster.ClusterService/GetMetrics"
+	ClusterService_Subscribe_FullMethodName     = "/sfpanel.cluster.ClusterService/Subscribe"
+	ClusterService_RegisterAgent_FullMethodName = "/sfpanel.cluster.ClusterService/RegisterAgent"
+	ClusterService_ReportPanelCA_FullMethodName = "/sfpanel.cluster.ClusterService/ReportPanelCA"
 )
 
 // ClusterServiceClient is the client API for ClusterService service.
@@ -39,6 +41,13 @@ type ClusterServiceClient interface {
 	ProxyRequest(ctx context.Context, in *APIRequest, opts ...grpc.CallOption) (*APIResponse, error)
 	GetMetrics(ctx context.Context, in *MetricsRequest, opts ...grpc.CallOption) (*MetricsResponse, error)
 	Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ClusterEvent], error)
+	// An agent asks the leader to register it. Unauthenticated, like Join: the
+	// agent has no certificate yet. The token, the CA pin checked by the agent
+	// and the CSR are what bind it.
+	RegisterAgent(ctx context.Context, in *RegisterAgentRequest, opts ...grpc.CallOption) (*RegisterAgentResponse, error)
+	// An agent reports its panel's CA so managers can reach its panel over
+	// HTTPS. The node is the caller's certificate CN, never a request field.
+	ReportPanelCA(ctx context.Context, in *ReportPanelCARequest, opts ...grpc.CallOption) (*ReportPanelCAResponse, error)
 }
 
 type clusterServiceClient struct {
@@ -131,6 +140,26 @@ func (c *clusterServiceClient) Subscribe(ctx context.Context, in *SubscribeReque
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ClusterService_SubscribeClient = grpc.ServerStreamingClient[ClusterEvent]
 
+func (c *clusterServiceClient) RegisterAgent(ctx context.Context, in *RegisterAgentRequest, opts ...grpc.CallOption) (*RegisterAgentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RegisterAgentResponse)
+	err := c.cc.Invoke(ctx, ClusterService_RegisterAgent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *clusterServiceClient) ReportPanelCA(ctx context.Context, in *ReportPanelCARequest, opts ...grpc.CallOption) (*ReportPanelCAResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReportPanelCAResponse)
+	err := c.cc.Invoke(ctx, ClusterService_ReportPanelCA_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClusterServiceServer is the server API for ClusterService service.
 // All implementations must embed UnimplementedClusterServiceServer
 // for forward compatibility.
@@ -142,6 +171,13 @@ type ClusterServiceServer interface {
 	ProxyRequest(context.Context, *APIRequest) (*APIResponse, error)
 	GetMetrics(context.Context, *MetricsRequest) (*MetricsResponse, error)
 	Subscribe(*SubscribeRequest, grpc.ServerStreamingServer[ClusterEvent]) error
+	// An agent asks the leader to register it. Unauthenticated, like Join: the
+	// agent has no certificate yet. The token, the CA pin checked by the agent
+	// and the CSR are what bind it.
+	RegisterAgent(context.Context, *RegisterAgentRequest) (*RegisterAgentResponse, error)
+	// An agent reports its panel's CA so managers can reach its panel over
+	// HTTPS. The node is the caller's certificate CN, never a request field.
+	ReportPanelCA(context.Context, *ReportPanelCARequest) (*ReportPanelCAResponse, error)
 	mustEmbedUnimplementedClusterServiceServer()
 }
 
@@ -172,6 +208,12 @@ func (UnimplementedClusterServiceServer) GetMetrics(context.Context, *MetricsReq
 }
 func (UnimplementedClusterServiceServer) Subscribe(*SubscribeRequest, grpc.ServerStreamingServer[ClusterEvent]) error {
 	return status.Error(codes.Unimplemented, "method Subscribe not implemented")
+}
+func (UnimplementedClusterServiceServer) RegisterAgent(context.Context, *RegisterAgentRequest) (*RegisterAgentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RegisterAgent not implemented")
+}
+func (UnimplementedClusterServiceServer) ReportPanelCA(context.Context, *ReportPanelCARequest) (*ReportPanelCAResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReportPanelCA not implemented")
 }
 func (UnimplementedClusterServiceServer) mustEmbedUnimplementedClusterServiceServer() {}
 func (UnimplementedClusterServiceServer) testEmbeddedByValue()                        {}
@@ -302,6 +344,42 @@ func _ClusterService_Subscribe_Handler(srv interface{}, stream grpc.ServerStream
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ClusterService_SubscribeServer = grpc.ServerStreamingServer[ClusterEvent]
 
+func _ClusterService_RegisterAgent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterAgentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterServiceServer).RegisterAgent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterService_RegisterAgent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterServiceServer).RegisterAgent(ctx, req.(*RegisterAgentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ClusterService_ReportPanelCA_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReportPanelCARequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterServiceServer).ReportPanelCA(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterService_ReportPanelCA_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterServiceServer).ReportPanelCA(ctx, req.(*ReportPanelCARequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClusterService_ServiceDesc is the grpc.ServiceDesc for ClusterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -328,6 +406,14 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetMetrics",
 			Handler:    _ClusterService_GetMetrics_Handler,
+		},
+		{
+			MethodName: "RegisterAgent",
+			Handler:    _ClusterService_RegisterAgent_Handler,
+		},
+		{
+			MethodName: "ReportPanelCA",
+			Handler:    _ClusterService_ReportPanelCA_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

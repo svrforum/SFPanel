@@ -571,11 +571,18 @@ func (x *HeartbeatPing) GetCapabilities() []string {
 }
 
 type HeartbeatPong struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	LeaderId      string                 `protobuf:"bytes,1,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
-	Timestamp     int64                  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	LeaderId  string                 `protobuf:"bytes,1,opt,name=leader_id,json=leaderId,proto3" json:"leader_id,omitempty"`
+	Timestamp int64                  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// Where an agent should send its heartbeats, and the managers it accepts
+	// requests from. from_leader says whether this pong came from the leader
+	// (authoritative) or from a follower whose list may lag. A manager older
+	// than these fields leaves all three empty.
+	LeaderGrpcAddress string      `protobuf:"bytes,3,opt,name=leader_grpc_address,json=leaderGrpcAddress,proto3" json:"leader_grpc_address,omitempty"`
+	Managers          []*NodeInfo `protobuf:"bytes,4,rep,name=managers,proto3" json:"managers,omitempty"`
+	FromLeader        bool        `protobuf:"varint,5,opt,name=from_leader,json=fromLeader,proto3" json:"from_leader,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *HeartbeatPong) Reset() {
@@ -620,6 +627,27 @@ func (x *HeartbeatPong) GetTimestamp() int64 {
 		return x.Timestamp
 	}
 	return 0
+}
+
+func (x *HeartbeatPong) GetLeaderGrpcAddress() string {
+	if x != nil {
+		return x.LeaderGrpcAddress
+	}
+	return ""
+}
+
+func (x *HeartbeatPong) GetManagers() []*NodeInfo {
+	if x != nil {
+		return x.Managers
+	}
+	return nil
+}
+
+func (x *HeartbeatPong) GetFromLeader() bool {
+	if x != nil {
+		return x.FromLeader
+	}
+	return false
 }
 
 type APIRequest struct {
@@ -1014,6 +1042,7 @@ type NodeInfo struct {
 	GrpcAddress   string                 `protobuf:"bytes,4,opt,name=grpc_address,json=grpcAddress,proto3" json:"grpc_address,omitempty"`
 	Role          string                 `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`
 	Status        string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	Kind          string                 `protobuf:"bytes,7,opt,name=kind,proto3" json:"kind,omitempty"` // "manager" or "agent"
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1090,6 +1119,317 @@ func (x *NodeInfo) GetStatus() string {
 	return ""
 }
 
+func (x *NodeInfo) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+type RegisterAgentRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	Csr           []byte                 `protobuf:"bytes,2,opt,name=csr,proto3" json:"csr,omitempty"` // DER PKCS#10 for an ECDSA P-256 key made on the agent
+	NodeName      string                 `protobuf:"bytes,3,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	ApiAddress    string                 `protobuf:"bytes,4,opt,name=api_address,json=apiAddress,proto3" json:"api_address,omitempty"`      // advertise:panel_port
+	GrpcAddress   string                 `protobuf:"bytes,5,opt,name=grpc_address,json=grpcAddress,proto3" json:"grpc_address,omitempty"`   // advertise:grpc_port
+	PanelCaCert   []byte                 `protobuf:"bytes,6,opt,name=panel_ca_cert,json=panelCaCert,proto3" json:"panel_ca_cert,omitempty"` // PEM: the CA of the agent panel's HTTPS certificate
+	Version       string                 `protobuf:"bytes,7,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterAgentRequest) Reset() {
+	*x = RegisterAgentRequest{}
+	mi := &file_proto_cluster_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterAgentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterAgentRequest) ProtoMessage() {}
+
+func (x *RegisterAgentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_cluster_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterAgentRequest.ProtoReflect.Descriptor instead.
+func (*RegisterAgentRequest) Descriptor() ([]byte, []int) {
+	return file_proto_cluster_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *RegisterAgentRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *RegisterAgentRequest) GetCsr() []byte {
+	if x != nil {
+		return x.Csr
+	}
+	return nil
+}
+
+func (x *RegisterAgentRequest) GetNodeName() string {
+	if x != nil {
+		return x.NodeName
+	}
+	return ""
+}
+
+func (x *RegisterAgentRequest) GetApiAddress() string {
+	if x != nil {
+		return x.ApiAddress
+	}
+	return ""
+}
+
+func (x *RegisterAgentRequest) GetGrpcAddress() string {
+	if x != nil {
+		return x.GrpcAddress
+	}
+	return ""
+}
+
+func (x *RegisterAgentRequest) GetPanelCaCert() []byte {
+	if x != nil {
+		return x.PanelCaCert
+	}
+	return nil
+}
+
+func (x *RegisterAgentRequest) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+type RegisterAgentResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Success           bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Error             string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	NodeId            string                 `protobuf:"bytes,3,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	NodeCert          []byte                 `protobuf:"bytes,4,opt,name=node_cert,json=nodeCert,proto3" json:"node_cert,omitempty"` // PEM, OU=sfpanel-agent, CN=node_id
+	CaCert            []byte                 `protobuf:"bytes,5,opt,name=ca_cert,json=caCert,proto3" json:"ca_cert,omitempty"`       // PEM, the cluster CA
+	AgentKey          string                 `protobuf:"bytes,6,opt,name=agent_key,json=agentKey,proto3" json:"agent_key,omitempty"` // this agent's own internal-proxy key; nothing else
+	Managers          []*NodeInfo            `protobuf:"bytes,7,rep,name=managers,proto3" json:"managers,omitempty"`
+	ClusterName       string                 `protobuf:"bytes,8,opt,name=cluster_name,json=clusterName,proto3" json:"cluster_name,omitempty"`
+	LeaderGrpcAddress string                 `protobuf:"bytes,9,opt,name=leader_grpc_address,json=leaderGrpcAddress,proto3" json:"leader_grpc_address,omitempty"` // set when the answering manager is not the leader
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RegisterAgentResponse) Reset() {
+	*x = RegisterAgentResponse{}
+	mi := &file_proto_cluster_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterAgentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterAgentResponse) ProtoMessage() {}
+
+func (x *RegisterAgentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_cluster_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterAgentResponse.ProtoReflect.Descriptor instead.
+func (*RegisterAgentResponse) Descriptor() ([]byte, []int) {
+	return file_proto_cluster_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *RegisterAgentResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *RegisterAgentResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *RegisterAgentResponse) GetNodeId() string {
+	if x != nil {
+		return x.NodeId
+	}
+	return ""
+}
+
+func (x *RegisterAgentResponse) GetNodeCert() []byte {
+	if x != nil {
+		return x.NodeCert
+	}
+	return nil
+}
+
+func (x *RegisterAgentResponse) GetCaCert() []byte {
+	if x != nil {
+		return x.CaCert
+	}
+	return nil
+}
+
+func (x *RegisterAgentResponse) GetAgentKey() string {
+	if x != nil {
+		return x.AgentKey
+	}
+	return ""
+}
+
+func (x *RegisterAgentResponse) GetManagers() []*NodeInfo {
+	if x != nil {
+		return x.Managers
+	}
+	return nil
+}
+
+func (x *RegisterAgentResponse) GetClusterName() string {
+	if x != nil {
+		return x.ClusterName
+	}
+	return ""
+}
+
+func (x *RegisterAgentResponse) GetLeaderGrpcAddress() string {
+	if x != nil {
+		return x.LeaderGrpcAddress
+	}
+	return ""
+}
+
+type ReportPanelCARequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CaCert        []byte                 `protobuf:"bytes,1,opt,name=ca_cert,json=caCert,proto3" json:"ca_cert,omitempty"` // PEM
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReportPanelCARequest) Reset() {
+	*x = ReportPanelCARequest{}
+	mi := &file_proto_cluster_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportPanelCARequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportPanelCARequest) ProtoMessage() {}
+
+func (x *ReportPanelCARequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_cluster_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportPanelCARequest.ProtoReflect.Descriptor instead.
+func (*ReportPanelCARequest) Descriptor() ([]byte, []int) {
+	return file_proto_cluster_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ReportPanelCARequest) GetCaCert() []byte {
+	if x != nil {
+		return x.CaCert
+	}
+	return nil
+}
+
+type ReportPanelCAResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Success           bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Error             string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	LeaderGrpcAddress string                 `protobuf:"bytes,3,opt,name=leader_grpc_address,json=leaderGrpcAddress,proto3" json:"leader_grpc_address,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ReportPanelCAResponse) Reset() {
+	*x = ReportPanelCAResponse{}
+	mi := &file_proto_cluster_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReportPanelCAResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReportPanelCAResponse) ProtoMessage() {}
+
+func (x *ReportPanelCAResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_cluster_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReportPanelCAResponse.ProtoReflect.Descriptor instead.
+func (*ReportPanelCAResponse) Descriptor() ([]byte, []int) {
+	return file_proto_cluster_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *ReportPanelCAResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *ReportPanelCAResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *ReportPanelCAResponse) GetLeaderGrpcAddress() string {
+	if x != nil {
+		return x.LeaderGrpcAddress
+	}
+	return ""
+}
+
 var File_proto_cluster_proto protoreflect.FileDescriptor
 
 const file_proto_cluster_proto_rawDesc = "" +
@@ -1142,10 +1482,14 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x12!\n" +
 	"\fdisk_percent\x18\x06 \x01(\x01R\vdiskPercent\x12\x18\n" +
 	"\aversion\x18\a \x01(\tR\aversion\x12\"\n" +
-	"\fcapabilities\x18\b \x03(\tR\fcapabilities\"J\n" +
+	"\fcapabilities\x18\b \x03(\tR\fcapabilities\"\xd2\x01\n" +
 	"\rHeartbeatPong\x12\x1b\n" +
 	"\tleader_id\x18\x01 \x01(\tR\bleaderId\x12\x1c\n" +
-	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\"\xeb\x01\n" +
+	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x12.\n" +
+	"\x13leader_grpc_address\x18\x03 \x01(\tR\x11leaderGrpcAddress\x125\n" +
+	"\bmanagers\x18\x04 \x03(\v2\x19.sfpanel.cluster.NodeInfoR\bmanagers\x12\x1f\n" +
+	"\vfrom_leader\x18\x05 \x01(\bR\n" +
+	"fromLeader\"\xeb\x01\n" +
 	"\n" +
 	"APIRequest\x12\x16\n" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x12\n" +
@@ -1184,7 +1528,7 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"event_type\x18\x01 \x01(\tR\teventType\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12\x16\n" +
 	"\x06detail\x18\x03 \x01(\tR\x06detail\x12\x1c\n" +
-	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\"\x9e\x01\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\"\xb2\x01\n" +
 	"\bNodeInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
@@ -1192,7 +1536,33 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"apiAddress\x12!\n" +
 	"\fgrpc_address\x18\x04 \x01(\tR\vgrpcAddress\x12\x12\n" +
 	"\x04role\x18\x05 \x01(\tR\x04role\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status2\xaf\x04\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x12\x12\n" +
+	"\x04kind\x18\a \x01(\tR\x04kind\"\xdd\x01\n" +
+	"\x14RegisterAgentRequest\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12\x10\n" +
+	"\x03csr\x18\x02 \x01(\fR\x03csr\x12\x1b\n" +
+	"\tnode_name\x18\x03 \x01(\tR\bnodeName\x12\x1f\n" +
+	"\vapi_address\x18\x04 \x01(\tR\n" +
+	"apiAddress\x12!\n" +
+	"\fgrpc_address\x18\x05 \x01(\tR\vgrpcAddress\x12\"\n" +
+	"\rpanel_ca_cert\x18\x06 \x01(\fR\vpanelCaCert\x12\x18\n" +
+	"\aversion\x18\a \x01(\tR\aversion\"\xbd\x02\n" +
+	"\x15RegisterAgentResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x12\x17\n" +
+	"\anode_id\x18\x03 \x01(\tR\x06nodeId\x12\x1b\n" +
+	"\tnode_cert\x18\x04 \x01(\fR\bnodeCert\x12\x17\n" +
+	"\aca_cert\x18\x05 \x01(\fR\x06caCert\x12\x1b\n" +
+	"\tagent_key\x18\x06 \x01(\tR\bagentKey\x125\n" +
+	"\bmanagers\x18\a \x03(\v2\x19.sfpanel.cluster.NodeInfoR\bmanagers\x12!\n" +
+	"\fcluster_name\x18\b \x01(\tR\vclusterName\x12.\n" +
+	"\x13leader_grpc_address\x18\t \x01(\tR\x11leaderGrpcAddress\"/\n" +
+	"\x14ReportPanelCARequest\x12\x17\n" +
+	"\aca_cert\x18\x01 \x01(\fR\x06caCert\"w\n" +
+	"\x15ReportPanelCAResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x12.\n" +
+	"\x13leader_grpc_address\x18\x03 \x01(\tR\x11leaderGrpcAddress2\xef\x05\n" +
 	"\x0eClusterService\x12R\n" +
 	"\tPreFlight\x12!.sfpanel.cluster.PreFlightRequest\x1a\".sfpanel.cluster.PreFlightResponse\x12C\n" +
 	"\x04Join\x12\x1c.sfpanel.cluster.JoinRequest\x1a\x1d.sfpanel.cluster.JoinResponse\x12F\n" +
@@ -1201,7 +1571,9 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\fProxyRequest\x12\x1b.sfpanel.cluster.APIRequest\x1a\x1c.sfpanel.cluster.APIResponse\x12O\n" +
 	"\n" +
 	"GetMetrics\x12\x1f.sfpanel.cluster.MetricsRequest\x1a .sfpanel.cluster.MetricsResponse\x12O\n" +
-	"\tSubscribe\x12!.sfpanel.cluster.SubscribeRequest\x1a\x1d.sfpanel.cluster.ClusterEvent0\x01B4Z2github.com/svrforum/SFPanel/internal/cluster/protob\x06proto3"
+	"\tSubscribe\x12!.sfpanel.cluster.SubscribeRequest\x1a\x1d.sfpanel.cluster.ClusterEvent0\x01\x12^\n" +
+	"\rRegisterAgent\x12%.sfpanel.cluster.RegisterAgentRequest\x1a&.sfpanel.cluster.RegisterAgentResponse\x12^\n" +
+	"\rReportPanelCA\x12%.sfpanel.cluster.ReportPanelCARequest\x1a&.sfpanel.cluster.ReportPanelCAResponseB4Z2github.com/svrforum/SFPanel/internal/cluster/protob\x06proto3"
 
 var (
 	file_proto_cluster_proto_rawDescOnce sync.Once
@@ -1215,49 +1587,59 @@ func file_proto_cluster_proto_rawDescGZIP() []byte {
 	return file_proto_cluster_proto_rawDescData
 }
 
-var file_proto_cluster_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_proto_cluster_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_proto_cluster_proto_goTypes = []any{
-	(*PreFlightRequest)(nil),  // 0: sfpanel.cluster.PreFlightRequest
-	(*PreFlightResponse)(nil), // 1: sfpanel.cluster.PreFlightResponse
-	(*JoinRequest)(nil),       // 2: sfpanel.cluster.JoinRequest
-	(*JoinResponse)(nil),      // 3: sfpanel.cluster.JoinResponse
-	(*LeaveRequest)(nil),      // 4: sfpanel.cluster.LeaveRequest
-	(*LeaveResponse)(nil),     // 5: sfpanel.cluster.LeaveResponse
-	(*HeartbeatPing)(nil),     // 6: sfpanel.cluster.HeartbeatPing
-	(*HeartbeatPong)(nil),     // 7: sfpanel.cluster.HeartbeatPong
-	(*APIRequest)(nil),        // 8: sfpanel.cluster.APIRequest
-	(*APIResponse)(nil),       // 9: sfpanel.cluster.APIResponse
-	(*MetricsRequest)(nil),    // 10: sfpanel.cluster.MetricsRequest
-	(*MetricsResponse)(nil),   // 11: sfpanel.cluster.MetricsResponse
-	(*SubscribeRequest)(nil),  // 12: sfpanel.cluster.SubscribeRequest
-	(*ClusterEvent)(nil),      // 13: sfpanel.cluster.ClusterEvent
-	(*NodeInfo)(nil),          // 14: sfpanel.cluster.NodeInfo
-	nil,                       // 15: sfpanel.cluster.APIRequest.HeadersEntry
-	nil,                       // 16: sfpanel.cluster.APIResponse.HeadersEntry
+	(*PreFlightRequest)(nil),      // 0: sfpanel.cluster.PreFlightRequest
+	(*PreFlightResponse)(nil),     // 1: sfpanel.cluster.PreFlightResponse
+	(*JoinRequest)(nil),           // 2: sfpanel.cluster.JoinRequest
+	(*JoinResponse)(nil),          // 3: sfpanel.cluster.JoinResponse
+	(*LeaveRequest)(nil),          // 4: sfpanel.cluster.LeaveRequest
+	(*LeaveResponse)(nil),         // 5: sfpanel.cluster.LeaveResponse
+	(*HeartbeatPing)(nil),         // 6: sfpanel.cluster.HeartbeatPing
+	(*HeartbeatPong)(nil),         // 7: sfpanel.cluster.HeartbeatPong
+	(*APIRequest)(nil),            // 8: sfpanel.cluster.APIRequest
+	(*APIResponse)(nil),           // 9: sfpanel.cluster.APIResponse
+	(*MetricsRequest)(nil),        // 10: sfpanel.cluster.MetricsRequest
+	(*MetricsResponse)(nil),       // 11: sfpanel.cluster.MetricsResponse
+	(*SubscribeRequest)(nil),      // 12: sfpanel.cluster.SubscribeRequest
+	(*ClusterEvent)(nil),          // 13: sfpanel.cluster.ClusterEvent
+	(*NodeInfo)(nil),              // 14: sfpanel.cluster.NodeInfo
+	(*RegisterAgentRequest)(nil),  // 15: sfpanel.cluster.RegisterAgentRequest
+	(*RegisterAgentResponse)(nil), // 16: sfpanel.cluster.RegisterAgentResponse
+	(*ReportPanelCARequest)(nil),  // 17: sfpanel.cluster.ReportPanelCARequest
+	(*ReportPanelCAResponse)(nil), // 18: sfpanel.cluster.ReportPanelCAResponse
+	nil,                           // 19: sfpanel.cluster.APIRequest.HeadersEntry
+	nil,                           // 20: sfpanel.cluster.APIResponse.HeadersEntry
 }
 var file_proto_cluster_proto_depIdxs = []int32{
 	14, // 0: sfpanel.cluster.JoinResponse.peers:type_name -> sfpanel.cluster.NodeInfo
-	15, // 1: sfpanel.cluster.APIRequest.headers:type_name -> sfpanel.cluster.APIRequest.HeadersEntry
-	16, // 2: sfpanel.cluster.APIResponse.headers:type_name -> sfpanel.cluster.APIResponse.HeadersEntry
-	0,  // 3: sfpanel.cluster.ClusterService.PreFlight:input_type -> sfpanel.cluster.PreFlightRequest
-	2,  // 4: sfpanel.cluster.ClusterService.Join:input_type -> sfpanel.cluster.JoinRequest
-	4,  // 5: sfpanel.cluster.ClusterService.Leave:input_type -> sfpanel.cluster.LeaveRequest
-	6,  // 6: sfpanel.cluster.ClusterService.Heartbeat:input_type -> sfpanel.cluster.HeartbeatPing
-	8,  // 7: sfpanel.cluster.ClusterService.ProxyRequest:input_type -> sfpanel.cluster.APIRequest
-	10, // 8: sfpanel.cluster.ClusterService.GetMetrics:input_type -> sfpanel.cluster.MetricsRequest
-	12, // 9: sfpanel.cluster.ClusterService.Subscribe:input_type -> sfpanel.cluster.SubscribeRequest
-	1,  // 10: sfpanel.cluster.ClusterService.PreFlight:output_type -> sfpanel.cluster.PreFlightResponse
-	3,  // 11: sfpanel.cluster.ClusterService.Join:output_type -> sfpanel.cluster.JoinResponse
-	5,  // 12: sfpanel.cluster.ClusterService.Leave:output_type -> sfpanel.cluster.LeaveResponse
-	7,  // 13: sfpanel.cluster.ClusterService.Heartbeat:output_type -> sfpanel.cluster.HeartbeatPong
-	9,  // 14: sfpanel.cluster.ClusterService.ProxyRequest:output_type -> sfpanel.cluster.APIResponse
-	11, // 15: sfpanel.cluster.ClusterService.GetMetrics:output_type -> sfpanel.cluster.MetricsResponse
-	13, // 16: sfpanel.cluster.ClusterService.Subscribe:output_type -> sfpanel.cluster.ClusterEvent
-	10, // [10:17] is the sub-list for method output_type
-	3,  // [3:10] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	14, // 1: sfpanel.cluster.HeartbeatPong.managers:type_name -> sfpanel.cluster.NodeInfo
+	19, // 2: sfpanel.cluster.APIRequest.headers:type_name -> sfpanel.cluster.APIRequest.HeadersEntry
+	20, // 3: sfpanel.cluster.APIResponse.headers:type_name -> sfpanel.cluster.APIResponse.HeadersEntry
+	14, // 4: sfpanel.cluster.RegisterAgentResponse.managers:type_name -> sfpanel.cluster.NodeInfo
+	0,  // 5: sfpanel.cluster.ClusterService.PreFlight:input_type -> sfpanel.cluster.PreFlightRequest
+	2,  // 6: sfpanel.cluster.ClusterService.Join:input_type -> sfpanel.cluster.JoinRequest
+	4,  // 7: sfpanel.cluster.ClusterService.Leave:input_type -> sfpanel.cluster.LeaveRequest
+	6,  // 8: sfpanel.cluster.ClusterService.Heartbeat:input_type -> sfpanel.cluster.HeartbeatPing
+	8,  // 9: sfpanel.cluster.ClusterService.ProxyRequest:input_type -> sfpanel.cluster.APIRequest
+	10, // 10: sfpanel.cluster.ClusterService.GetMetrics:input_type -> sfpanel.cluster.MetricsRequest
+	12, // 11: sfpanel.cluster.ClusterService.Subscribe:input_type -> sfpanel.cluster.SubscribeRequest
+	15, // 12: sfpanel.cluster.ClusterService.RegisterAgent:input_type -> sfpanel.cluster.RegisterAgentRequest
+	17, // 13: sfpanel.cluster.ClusterService.ReportPanelCA:input_type -> sfpanel.cluster.ReportPanelCARequest
+	1,  // 14: sfpanel.cluster.ClusterService.PreFlight:output_type -> sfpanel.cluster.PreFlightResponse
+	3,  // 15: sfpanel.cluster.ClusterService.Join:output_type -> sfpanel.cluster.JoinResponse
+	5,  // 16: sfpanel.cluster.ClusterService.Leave:output_type -> sfpanel.cluster.LeaveResponse
+	7,  // 17: sfpanel.cluster.ClusterService.Heartbeat:output_type -> sfpanel.cluster.HeartbeatPong
+	9,  // 18: sfpanel.cluster.ClusterService.ProxyRequest:output_type -> sfpanel.cluster.APIResponse
+	11, // 19: sfpanel.cluster.ClusterService.GetMetrics:output_type -> sfpanel.cluster.MetricsResponse
+	13, // 20: sfpanel.cluster.ClusterService.Subscribe:output_type -> sfpanel.cluster.ClusterEvent
+	16, // 21: sfpanel.cluster.ClusterService.RegisterAgent:output_type -> sfpanel.cluster.RegisterAgentResponse
+	18, // 22: sfpanel.cluster.ClusterService.ReportPanelCA:output_type -> sfpanel.cluster.ReportPanelCAResponse
+	14, // [14:23] is the sub-list for method output_type
+	5,  // [5:14] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_proto_cluster_proto_init() }
@@ -1271,7 +1653,7 @@ func file_proto_cluster_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_cluster_proto_rawDesc), len(file_proto_cluster_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

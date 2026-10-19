@@ -98,18 +98,19 @@ type LocalPanel interface {
 // call before it has a CA-issued client certificate. Everything else requires
 // a verified peer certificate.
 // unauthenticatedMethods uses the fully-qualified proto method names from
-// the generated code (`sfpanel.cluster.ClusterService/*`). Joining nodes
-// haven't received a CA-issued client cert yet, so these two RPCs are the
-// only ones permitted without a verified peer certificate.
+// the generated code (`sfpanel.cluster.ClusterService/*`). Joining nodes and
+// registering agents haven't received a CA-issued client cert yet, so these
+// RPCs are the only ones permitted without a verified peer certificate.
 var unauthenticatedMethods = map[string]bool{
-	"/sfpanel.cluster.ClusterService/PreFlight": true,
-	"/sfpanel.cluster.ClusterService/Join":      true,
+	"/sfpanel.cluster.ClusterService/PreFlight":     true,
+	"/sfpanel.cluster.ClusterService/Join":          true,
+	"/sfpanel.cluster.ClusterService/RegisterAgent": true,
 }
 
 // requireClientCertInterceptor rejects RPCs that need mTLS but came in without
 // a verified peer certificate. Combined with VerifyClientCertIfGiven on the
-// TLS handshake, this lets PreFlight/Join land without a client cert while
-// every other method is still gated on cluster CA trust.
+// TLS handshake, this lets PreFlight/Join/RegisterAgent land without a client
+// cert while every other method is still gated on cluster CA trust.
 func requireClientCertInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	if unauthenticatedMethods[info.FullMethod] {
 		return handler(ctx, req)
@@ -179,13 +180,14 @@ const (
 
 // methodPolicy is an allow-list: a method missing here is refused, so an RPC
 // added later stays closed until someone decides who may call it.
-// PreFlight and Join never reach it (unauthenticatedMethods).
+// PreFlight, Join and RegisterAgent never reach it (unauthenticatedMethods).
 var methodPolicy = map[string]callerPolicy{
-	"/sfpanel.cluster.ClusterService/Heartbeat":    callerMember,
-	"/sfpanel.cluster.ClusterService/Leave":        callerManager, // for itself only: see Leave
-	"/sfpanel.cluster.ClusterService/GetMetrics":   callerManager,
-	"/sfpanel.cluster.ClusterService/Subscribe":    callerManager,
-	"/sfpanel.cluster.ClusterService/ProxyRequest": callerManager,
+	"/sfpanel.cluster.ClusterService/Heartbeat":     callerMember,
+	"/sfpanel.cluster.ClusterService/Leave":         callerManager, // for itself only: see Leave
+	"/sfpanel.cluster.ClusterService/GetMetrics":    callerManager,
+	"/sfpanel.cluster.ClusterService/Subscribe":     callerManager,
+	"/sfpanel.cluster.ClusterService/ProxyRequest":  callerManager,
+	"/sfpanel.cluster.ClusterService/ReportPanelCA": callerMember, // for itself only: see ReportPanelCA
 }
 
 // authorizeCaller checks the verified peer certificate against methodPolicy.

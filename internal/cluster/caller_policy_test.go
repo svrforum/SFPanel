@@ -107,8 +107,8 @@ func TestLeaveRefusesAnotherNode(t *testing.T) {
 }
 
 // Every RPC the service declares is either open before membership (PreFlight,
-// Join) or has a policy, and every policy names a real RPC: a misspelt entry
-// would leave its method refused to everyone.
+// Join, RegisterAgent) or has a policy, and every policy names a real RPC: a
+// misspelt entry would leave its method refused to everyone.
 func TestMethodPolicyCoversTheService(t *testing.T) {
 	desc := pb.ClusterService_ServiceDesc
 	declared := map[string]bool{}
