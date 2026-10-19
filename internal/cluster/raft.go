@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/raft"
@@ -17,6 +18,10 @@ import (
 type RaftNode struct {
 	raft *raft.Raft
 	fsm  *FSM
+
+	// caughtUpTerm is the last term in which a barrier went through with this
+	// node as leader (caughtUpLeader); 0 until one has.
+	caughtUpTerm atomic.Uint64
 }
 
 // RaftConfig holds Raft initialization parameters.
@@ -238,6 +243,30 @@ func (rn *RaftNode) VerifyLeader(timeout time.Duration) error {
 	case <-time.After(timeout):
 		return ErrNotLeader
 	}
+}
+
+// caughtUpLeader reports whether this node leads with an FSM that holds every
+// entry committed before its term. A new leader applies those only once it
+// commits an entry of its own term (the no-op raft appends on election), so
+// after every election it leads for a moment with an FSM that lacks them —
+// after a restart, everything since the last snapshot. A barrier waits that
+// out. One per term is enough: every later entry is this leader's own, and
+// the Apply that proposes it returns only once it is applied. timeout bounds
+// only the wait to enqueue the barrier (hashicorp raft's Barrier); the wait
+// for the replay ends when it is done or leadership is lost.
+func (rn *RaftNode) caughtUpLeader(timeout time.Duration) bool {
+	if !rn.isLeader() {
+		return false
+	}
+	term := rn.raft.CurrentTerm()
+	if rn.caughtUpTerm.Load() == term {
+		return true
+	}
+	if rn.Barrier(timeout) != nil {
+		return false
+	}
+	rn.caughtUpTerm.Store(term)
+	return true
 }
 
 // AddNonvoter adds a node as a non-voting member. Used during the first phase

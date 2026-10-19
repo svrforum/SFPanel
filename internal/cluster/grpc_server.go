@@ -204,7 +204,7 @@ func (s *GRPCServer) authorizeCaller(ctx context.Context, method string) error {
 	cn := leaf.Subject.CommonName
 	node := s.manager.raft.GetFSM().GetNode(cn)
 	if node == nil {
-		return status.Errorf(codes.PermissionDenied, "%s is not a member of this cluster (a node that has just joined learns its peers within seconds)", cn)
+		return notMemberError(s.manager, cn)
 	}
 	if policy == callerManager && (!node.IsManager() || CertRole(leaf) == CertRoleAgent) {
 		return status.Errorf(codes.PermissionDenied, "%s may not call %s", cn, method)
@@ -428,6 +428,15 @@ func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 				return status.Errorf(codes.PermissionDenied,
 					"heartbeat node_id %q does not match peer certificate identity", result.ping.NodeId)
 			}
+			// Membership is checked on every ping, not only when the stream
+			// opened: otherwise a node removed while its stream is open stays
+			// recorded as alive for as long as it keeps pinging, and an agent
+			// never closes its stream on its own — it has no Raft leader
+			// change to react to. The FSM is read directly: Manager.GetNode
+			// also copies the whole state and the health table per call.
+			if s.manager.raft.GetFSM().GetNode(peerCN) == nil {
+				return notMemberError(s.manager, peerCN)
+			}
 			if !timer.Stop() {
 				select {
 				case <-timer.C:
@@ -455,8 +464,11 @@ func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 			s.manager.PromoteOnHeartbeatIfPending(result.ping.NodeId)
 
 			if err := stream.Send(&pb.HeartbeatPong{
-				LeaderId:  s.manager.GetRaft().LeaderID(),
-				Timestamp: result.ping.Timestamp,
+				LeaderId:          s.manager.GetRaft().LeaderID(),
+				Timestamp:         result.ping.Timestamp,
+				LeaderGrpcAddress: s.manager.GetRaft().LeaderGRPCAddress(),
+				Managers:          s.manager.managerInfos(),
+				FromLeader:        s.manager.IsLeader(),
 			}); err != nil {
 				return err
 			}
