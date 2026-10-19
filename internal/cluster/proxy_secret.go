@@ -40,8 +40,14 @@ const (
 	proxyRotationSettled = legacyProxyGrace + 3*time.Minute
 )
 
-// proxySecretsAt says what this node signs with and accepts.
-func proxySecretsAt(legacy, replicated, rotatedAt string, now time.Time) (sign string, accept []string) {
+// proxySecretsAt says what this node signs with and accepts. Once an agent
+// exists the derived secret is dead whatever the clocks say: the agent holds
+// ca.crt, from which it is computed, and the grace below is this node's clock
+// measured against a time the leader's clock wrote.
+func proxySecretsAt(legacy, replicated, rotatedAt string, now time.Time, hasAgents bool) (sign string, accept []string) {
+	if hasAgents && replicated != "" {
+		return replicated, []string{replicated}
+	}
 	at, err := time.Parse(time.RFC3339, rotatedAt)
 	if rotatedAt == "" || err != nil || replicated == "" {
 		accept = []string{legacy}
@@ -76,6 +82,31 @@ func shouldRotate(seededAt, now time.Time, self string, members []string, health
 	return true
 }
 
+// rotationMembers are the nodes the leader waits on before it rotates: the
+// managers. An agent is never given the managers' secret, so it never
+// reports CapProxySecret.
+func rotationMembers(state ClusterState) []string {
+	var ids []string
+	for id, n := range state.Nodes {
+		if n.IsManager() {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// hasAgentNodes reports whether any node is not a manager. A kind this build
+// does not know counts as an agent: it ends the derived secret rather than
+// keeping it.
+func hasAgentNodes(state ClusterState) bool {
+	for _, n := range state.Nodes {
+		if !n.IsManager() {
+			return true
+		}
+	}
+	return false
+}
+
 // proxySecretFloorFile keeps the replicated secret and its rotation time as
 // this node last applied them, beside the Raft data whose lifetime it
 // shares. After a restart the FSM holds only what the last snapshot held
@@ -99,7 +130,9 @@ func (m *Manager) onConfigChange(key string) {
 
 // ApplyProxySecrets installs this node's signing and accepted secrets from
 // the replicated state. Runs at activation, when the FSM changes them, and
-// on every watchLeader tick on every node; a change is logged once.
+// on every watchLeader tick on every node; a change is logged once. An
+// agent's record is not a proxy key, so an agent's arrival takes effect on
+// the next tick.
 func (m *Manager) ApplyProxySecrets() {
 	if m.raft == nil {
 		return
@@ -112,7 +145,7 @@ func (m *Manager) ApplyProxySecrets() {
 	replicated, _ := fsm.GetConfigValue(configKeyProxySecret)
 	rotatedAt, _ := fsm.GetConfigValue(configKeyProxyRotatedAt)
 	replicated, rotatedAt = m.withProxySecretFloor(replicated, rotatedAt)
-	sign, accept := proxySecretsAt(m.ProxySecret(), replicated, rotatedAt, time.Now())
+	sign, accept := proxySecretsAt(m.ProxySecret(), replicated, rotatedAt, time.Now(), hasAgentNodes(fsm.GetState()))
 	m.appliedReplicated = replicated
 	if sign == m.appliedSign && slices.Equal(accept, m.appliedAccept) {
 		return
@@ -191,11 +224,9 @@ func (m *Manager) MaybeRotateProxySecret() error {
 	now := time.Now()
 	seenAt := m.replicatedSecretSeenAt(replicated, now)
 
-	state := fsm.GetState()
-	members := make([]string, 0, len(state.Nodes))
+	members := rotationMembers(fsm.GetState())
 	caps := map[string][]string{}
-	for id := range state.Nodes {
-		members = append(members, id)
+	for _, id := range members {
 		if met := m.heartbeat.GetMetrics(id); met != nil {
 			caps[id] = met.Capabilities
 		}

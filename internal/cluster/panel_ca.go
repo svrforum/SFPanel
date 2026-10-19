@@ -107,9 +107,9 @@ func (m *Manager) NodeServesTLS(nodeID string) bool {
 
 // forgetPanelCA drops a removed node's certificate from replicated state.
 //
-// Nothing else in this codebase ever deletes a Config key — CmdDeleteConfig
-// exists but had no callers — so without this a decommissioned node's authority
-// would stay a trust anchor for the rest of the cluster forever.
+// CmdRemoveNode deletes only the node's entry, so without this a
+// decommissioned node's authority would stay a trust anchor for the rest of
+// the cluster forever.
 func (m *Manager) forgetPanelCA(nodeID string) {
 	if m.raft == nil || nodeID == "" {
 		return

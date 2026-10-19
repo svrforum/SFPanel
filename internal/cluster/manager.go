@@ -797,7 +797,8 @@ func (m *Manager) GetJWTAndAdminFull() (jwtSecret, adminUser, adminPassHash, adm
 	return jwtSecret, "", "", ""
 }
 
-// RemoveNode removes a node from the cluster (leader-only).
+// RemoveNode removes a node from the cluster (leader-only). An agent, never
+// in Raft, loses its key first and then its record.
 func (m *Manager) RemoveNode(nodeID string) error {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return ErrNotLeader
@@ -806,14 +807,22 @@ func (m *Manager) RemoveNode(nodeID string) error {
 		return ErrSelfRemove
 	}
 
-	// Read address before removal (node will be deleted from FSM by CmdRemoveNode)
-	preState := m.raft.GetFSM().GetState()
+	// Read the node before removal (it will be deleted from FSM by CmdRemoveNode)
+	node := m.raft.GetFSM().GetNode(nodeID)
 	var removedGRPCAddr string
-	if node, ok := preState.Nodes[nodeID]; ok {
+	if node != nil {
 		removedGRPCAddr = node.GRPCAddress
 	}
 
-	if err := m.raft.RemoveServer(nodeID); err != nil {
+	if node != nil && !node.IsManager() {
+		// With the key gone no manager can sign for the agent. If this fails
+		// the record stays and the removal can be retried; in the other order
+		// a failure could leave the key replicated with no record to remove
+		// it by.
+		if err := m.raft.Apply(Command{Type: CmdDeleteConfig, Key: AgentKeyConfigKey(nodeID)}, 5*time.Second); err != nil {
+			return fmt.Errorf("remove agent key: %w", err)
+		}
+	} else if err := m.raft.RemoveServer(nodeID); err != nil {
 		return fmt.Errorf("remove from raft: %w", err)
 	}
 
@@ -824,9 +833,9 @@ func (m *Manager) RemoveNode(nodeID string) error {
 		return fmt.Errorf("remove from state: %w", err)
 	}
 
-	// CmdRemoveNode only deletes the Nodes entry. Nothing else in this package
-	// ever removes a Config key, so a decommissioned node's panel CA would
-	// otherwise remain a trust anchor for the rest of the cluster indefinitely.
+	// CmdRemoveNode only deletes the Nodes entry, so a decommissioned node's
+	// panel CA would otherwise remain a trust anchor for the rest of the
+	// cluster indefinitely.
 	m.forgetPanelCA(nodeID)
 
 	// Clean up connection pool using pre-removal address

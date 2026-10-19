@@ -366,6 +366,27 @@ func (s *GRPCServer) RegisterAgent(ctx context.Context, req *pb.RegisterAgentReq
 	return &pb.RegisterAgentResponse{Success: true, NodeId: res.NodeID, NodeCert: res.NodeCert, CaCert: res.CACert, AgentKey: res.AgentKey, Managers: res.Managers, ClusterName: res.ClusterName}, nil
 }
 
+// ReportPanelCA stores the caller's panel CA so managers can reach its panel
+// over HTTPS. The node is the caller's certificate, never a request field.
+// A follower answers with the leader's address, where the caller reports
+// instead.
+func (s *GRPCServer) ReportPanelCA(ctx context.Context, req *pb.ReportPanelCARequest) (*pb.ReportPanelCAResponse, error) {
+	// The caller policy has checked membership already; checked again here
+	// because what is stored is keyed by this CN. The FSM is read directly,
+	// as in Heartbeat.
+	cn := extractPeerCN(ctx)
+	if cn == "" || s.manager.raft.GetFSM().GetNode(cn) == nil {
+		return nil, notMemberError(s.manager, cn)
+	}
+	if !s.manager.IsLeader() {
+		return &pb.ReportPanelCAResponse{Error: ErrNotLeader.Error(), LeaderGrpcAddress: s.manager.GetRaft().LeaderGRPCAddress()}, nil
+	}
+	if err := s.manager.SetPanelCA(cn, string(req.CaCert)); err != nil {
+		return &pb.ReportPanelCAResponse{Error: err.Error()}, nil
+	}
+	return &pb.ReportPanelCAResponse{Success: true}, nil
+}
+
 // PreFlight validates a join token without consuming it.
 //
 // The CA key goes back whatever the token says. A joiner asks with no token

@@ -143,6 +143,66 @@ func TestProxySecretsFollowTheFSM(t *testing.T) {
 	}
 }
 
+// A node stops accepting the derived secret once its FSM lists an agent — an
+// agent holds ca.crt, from which that secret is computed — even inside the
+// grace after the switch, which this node measures with its own clock.
+func TestAnAgentEndsTheDerivedSecret(t *testing.T) {
+	t.Cleanup(func() { auth.SetClusterProxySecret("") })
+	_, tlsMgr := setupCertDir(t)
+	m := proxyTestManager(t, tlsMgr, filepath.Join(t.TempDir(), "raft"), true)
+	legacy := m.ProxySecret()
+	if err := m.raft.Apply(Command{Type: CmdAddNode, Value: mustJSON(Node{ID: "n1", Kind: KindManager, Role: RoleVoter})}, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetConfig(configKeyProxySecret, "replicated-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetConfig(configKeyProxyRotatedAt, time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	m.ApplyProxySecrets()
+	if !auth.IsInternalProxyRequest(signedProxyRequest(t, legacy)) {
+		t.Fatal("precondition: managers only, inside the grace — the derived secret should still be accepted")
+	}
+	if err := m.raft.Apply(Command{Type: CmdAddNode, Value: mustJSON(Node{ID: "agent-1", Kind: KindAgent})}, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	m.ApplyProxySecrets()
+	if auth.IsInternalProxyRequest(signedProxyRequest(t, legacy)) {
+		t.Fatal("the derived secret is accepted with an agent in the cluster")
+	}
+	if got := auth.ClusterProxySecret(); got != "replicated-secret" {
+		t.Fatalf("signs with %q, want the replicated secret", got)
+	}
+	if !auth.IsInternalProxyRequest(signedProxyRequest(t, "replicated-secret")) {
+		t.Fatal("the replicated secret is refused")
+	}
+}
+
+// The leader switches once every other manager can; an agent, which never
+// reports CapProxySecret and has no heartbeat to the leader here, does not
+// hold the switch back.
+func TestRotationWaitsForManagersOnly(t *testing.T) {
+	t.Cleanup(func() { auth.SetClusterProxySecret("") })
+	_, tlsMgr := setupCertDir(t)
+	m := proxyTestManager(t, tlsMgr, filepath.Join(t.TempDir(), "raft"), true)
+	for _, n := range []Node{{ID: "n1", Kind: KindManager, Role: RoleVoter}, {ID: "agent-1", Kind: KindAgent}} {
+		if err := m.raft.Apply(Command{Type: CmdAddNode, Value: mustJSON(n)}, 5*time.Second); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.SetConfig(configKeyProxySecret, "replicated-secret"); err != nil {
+		t.Fatal(err)
+	}
+	m.replicatedSecretSeenAt("replicated-secret", time.Now().Add(-2*proxySecretSettle)) // seen long enough ago
+	if err := m.MaybeRotateProxySecret(); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := m.raft.GetFSM().GetConfigValue(configKeyProxyRotatedAt); v == "" {
+		t.Fatal("the rotation waited for an agent")
+	}
+}
+
 // The settle time before a rotation runs from when the leader saw the secret
 // it rotates to, not some earlier one.
 func TestReplicatedSecretSeenAtFollowsTheSecret(t *testing.T) {
