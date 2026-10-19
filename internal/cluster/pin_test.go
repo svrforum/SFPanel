@@ -1,12 +1,18 @@
 package cluster
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/pem"
+	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 )
@@ -72,6 +78,58 @@ func TestPinnedTLSConfig(t *testing.T) {
 	}
 	if err := cfg.VerifyPeerCertificate([][]byte{derOf(t, leaf2)}, nil); err == nil {
 		t.Fatal("leaf of another CA accepted")
+	}
+}
+
+// An agent's certificate is signed by the same CA, so the pin alone would let
+// an agent pass for the leader a joiner was sent to. A manager's certificate
+// from before roles carries none and still passes.
+func TestPinnedTLSRefusesAnAgentLeaf(t *testing.T) {
+	_, ca := setupCertDir(t)
+	cfg, err := pinnedTLSConfig(caSPKI(t, ca))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, _, err := ca.IssueNodeCert("some-agent", []string{"203.0.113.9"}, CertRoleAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = cfg.VerifyPeerCertificate([][]byte{derOf(t, agent)}, nil)
+	if err == nil || !strings.Contains(err.Error(), "agent") {
+		t.Fatalf("agent leaf as the leader: %v", err)
+	}
+	legacy, _ := issueLegacyCert(t, ca, "leader", "203.0.113.9", "leader")
+	if err := cfg.VerifyPeerCertificate([][]byte{derOf(t, legacy)}, nil); err != nil {
+		t.Fatalf("manager leaf from before roles refused: %v", err)
+	}
+}
+
+// A leaf the pinned CA signed but whose validity has ended is refused.
+func TestPinnedTLSRefusesAnExpiredLeaf(t *testing.T) {
+	_, ca := setupCertDir(t)
+	cfg, err := pinnedTLSConfig(caSPKI(t, ca))
+	if err != nil {
+		t.Fatal(err)
+	}
+	caCert, caKey, err := ca.loadCA()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	der, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
+		SerialNumber: big.NewInt(43),
+		Subject:      pkix.Name{CommonName: "leader", OrganizationalUnit: []string{CertRoleManager}},
+		NotBefore:    time.Now().Add(-2 * time.Hour),
+		NotAfter:     time.Now().Add(-time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}, caCert, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = cfg.VerifyPeerCertificate([][]byte{der}, nil)
+	if err == nil || !strings.Contains(err.Error(), "validity") {
+		t.Fatalf("expired leaf: %v", err)
 	}
 }
 

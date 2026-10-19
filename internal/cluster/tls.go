@@ -98,14 +98,19 @@ const (
 )
 
 // CertRole returns the role a node certificate carries, or "" for one issued
-// before roles existed (a manager's).
+// before roles existed (a manager's). A certificate that names both is held
+// to the lesser role.
 func CertRole(cert *x509.Certificate) string {
+	role := ""
 	for _, ou := range cert.Subject.OrganizationalUnit {
-		if ou == CertRoleManager || ou == CertRoleAgent {
-			return ou
+		switch ou {
+		case CertRoleAgent:
+			return CertRoleAgent
+		case CertRoleManager:
+			role = CertRoleManager
 		}
 	}
-	return ""
+	return role
 }
 
 // IssueNodeCert creates a TLS certificate signed by the cluster CA for a node

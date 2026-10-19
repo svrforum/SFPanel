@@ -61,9 +61,9 @@ func checkPreFlightPin(resp *pb.PreFlightResponse, pin, leaderAddr string) error
 
 // pinnedTLSConfig trusts exactly one key, the cluster CA's. The leader sends
 // only its leaf, so the chain is checked here: the leaf's signature against
-// that key, and its validity period. Host names are not: a node is reached
-// by whichever address the operator typed (LAN, Tailscale), and its
-// certificate names one of them.
+// that key, its validity period, and that it is not an agent's — the CA signs
+// those too. Host names are not: a node is reached by whichever address the
+// operator typed (LAN, Tailscale), and its certificate names one of them.
 func pinnedTLSConfig(spkiDER []byte) (*tls.Config, error) {
 	pub, err := x509.ParsePKIXPublicKey(spkiDER)
 	if err != nil {
@@ -99,6 +99,9 @@ func pinnedTLSConfig(spkiDER []byte) (*tls.Config, error) {
 			}
 			if now := time.Now(); now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
 				return errors.New("the leader certificate is outside its validity period")
+			}
+			if CertRole(leaf) == CertRoleAgent {
+				return errors.New("the leader certificate is an agent's, not a manager's")
 			}
 			return nil
 		},

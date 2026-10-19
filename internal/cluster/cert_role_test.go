@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"testing"
 )
@@ -60,5 +61,15 @@ func TestRaftTLSRefusesAgentCertificates(t *testing.T) {
 	// A manager certificate issued before roles existed carries no OU.
 	if err := cfg.VerifyPeerCertificate(nil, [][]*x509.Certificate{{{}}}); err != nil {
 		t.Errorf("certificate without a role refused: %v", err)
+	}
+}
+
+// A certificate that names both roles is held to the lesser one.
+func TestCertRoleWithBothRolesIsAnAgent(t *testing.T) {
+	for _, ous := range [][]string{{CertRoleManager, CertRoleAgent}, {CertRoleAgent, CertRoleManager}} {
+		cert := &x509.Certificate{Subject: pkix.Name{OrganizationalUnit: ous}}
+		if got := CertRole(cert); got != CertRoleAgent {
+			t.Errorf("CertRole(%v) = %q, want %q", ous, got, CertRoleAgent)
+		}
 	}
 }
