@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -87,8 +88,32 @@ func (t *TLSManager) InitCA(clusterName string) error {
 	return nil
 }
 
-// IssueNodeCert creates a TLS certificate signed by the cluster CA.
-func (t *TLSManager) IssueNodeCert(nodeID string, addresses []string) (certPEM, keyPEM []byte, err error) {
+// Certificate roles, carried in the node certificate's Subject
+// OrganizationalUnit. The role lets a peer refuse an agent where only a
+// manager belongs — the Raft port, the gRPC proxy — without the FSM, which an
+// agent does not have.
+const (
+	CertRoleManager = "sfpanel-manager"
+	CertRoleAgent   = "sfpanel-agent"
+)
+
+// CertRole returns the role a node certificate carries, or "" for one issued
+// before roles existed (a manager's).
+func CertRole(cert *x509.Certificate) string {
+	for _, ou := range cert.Subject.OrganizationalUnit {
+		if ou == CertRoleManager || ou == CertRoleAgent {
+			return ou
+		}
+	}
+	return ""
+}
+
+// IssueNodeCert creates a TLS certificate signed by the cluster CA for a node
+// in the given role (CertRoleManager or CertRoleAgent).
+func (t *TLSManager) IssueNodeCert(nodeID string, addresses []string, role string) (certPEM, keyPEM []byte, err error) {
+	if role != CertRoleManager && role != CertRoleAgent {
+		return nil, nil, fmt.Errorf("unknown certificate role %q", role)
+	}
 	caCert, caKey, err := t.loadCA()
 	if err != nil {
 		return nil, nil, fmt.Errorf("load CA: %w", err)
@@ -111,8 +136,9 @@ func (t *TLSManager) IssueNodeCert(nodeID string, addresses []string) (certPEM, 
 	template := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			Organization: []string{"SFPanel Cluster"},
-			CommonName:   nodeID,
+			Organization:       []string{"SFPanel Cluster"},
+			OrganizationalUnit: []string{role},
+			CommonName:         nodeID,
 		},
 		NotBefore: time.Now(),
 		NotAfter:  time.Now().Add(5 * 365 * 24 * time.Hour),
@@ -294,6 +320,19 @@ func (t *TLSManager) RaftServerTLSConfig() (*tls.Config, error) {
 		return nil, err
 	}
 	cfg.ClientAuth = tls.RequireAndVerifyClientCert
+	// Chains are verified against the cluster CA by now. An agent's
+	// certificate is signed by the same CA, and the Raft transport does not
+	// authenticate which member speaks: an agent let in here could claim
+	// leadership with a higher term.
+	cfg.VerifyPeerCertificate = func(_ [][]byte, chains [][]*x509.Certificate) error {
+		if len(chains) == 0 || len(chains[0]) == 0 {
+			return errors.New("no verified client certificate")
+		}
+		if CertRole(chains[0][0]) == CertRoleAgent {
+			return errors.New("an agent certificate may not use the Raft transport")
+		}
+		return nil
+	}
 	return cfg, nil
 }
 

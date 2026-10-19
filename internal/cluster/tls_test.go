@@ -16,7 +16,7 @@ func setupCertDir(t *testing.T) (string, *TLSManager) {
 	if err := mgr.InitCA("test-cluster"); err != nil {
 		t.Fatalf("InitCA: %v", err)
 	}
-	certPEM, keyPEM, err := mgr.IssueNodeCert("node-1", []string{"127.0.0.1"})
+	certPEM, keyPEM, err := mgr.IssueNodeCert("node-1", []string{"127.0.0.1"}, CertRoleManager)
 	if err != nil {
 		t.Fatalf("IssueNodeCert: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestTLSManager_HotReloadNodeCert(t *testing.T) {
 
 	// Issue a fresh cert (different serial) and overwrite node.{crt,key}.
 	// Bump the mtime so the debounced reload detects a change.
-	certPEM2, keyPEM2, err := mgr.IssueNodeCert("node-1", []string{"127.0.0.1"})
+	certPEM2, keyPEM2, err := mgr.IssueNodeCert("node-1", []string{"127.0.0.1"}, CertRoleManager)
 	if err != nil {
 		t.Fatalf("IssueNodeCert #2: %v", err)
 	}

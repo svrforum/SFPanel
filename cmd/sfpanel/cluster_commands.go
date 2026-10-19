@@ -203,7 +203,7 @@ func clusterReissueCert(args []string) {
 		}
 	}
 
-	certPEM, keyPEM, err := tls.IssueNodeCert(cfg.Cluster.NodeID, []string{advertise})
+	certPEM, keyPEM, err := tls.IssueNodeCert(cfg.Cluster.NodeID, []string{advertise}, cluster.CertRoleManager)
 	if err != nil {
 		log.Fatalf("issue node cert: %v", err)
 	}

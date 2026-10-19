@@ -124,7 +124,7 @@ func TestEnsureCAKey_MaterializesFromFSM(t *testing.T) {
 		t.Fatal("ensureCAKey should have materialized ca.key to disk")
 	}
 	// The materialized key must actually sign a node cert now.
-	if _, _, err := tlsMgr.IssueNodeCert("joiner", []string{"127.0.0.1"}); err != nil {
+	if _, _, err := tlsMgr.IssueNodeCert("joiner", []string{"127.0.0.1"}, CertRoleManager); err != nil {
 		t.Fatalf("IssueNodeCert after materialize: %v", err)
 	}
 }

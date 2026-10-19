@@ -183,7 +183,7 @@ func (m *Manager) Init(clusterName string) error {
 		slog.Info("auto-detected advertise address", "component", "cluster", "address", advertise)
 	}
 
-	certPEM, keyPEM, err := m.tls.IssueNodeCert(m.nodeID, []string{advertise})
+	certPEM, keyPEM, err := m.tls.IssueNodeCert(m.nodeID, []string{advertise}, CertRoleManager)
 	if err != nil {
 		return fmt.Errorf("issue node cert: %w", err)
 	}
@@ -480,7 +480,7 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 	}
 
 	host, _, _ := net.SplitHostPort(grpcAddr)
-	certPEM, keyPEM, tlsErr := m.tls.IssueNodeCert(nodeID, []string{host})
+	certPEM, keyPEM, tlsErr := m.tls.IssueNodeCert(nodeID, []string{host}, CertRoleManager)
 	if tlsErr != nil {
 		return nil, nil, nil, nil, fmt.Errorf("issue cert: %w", tlsErr)
 	}
