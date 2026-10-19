@@ -94,9 +94,33 @@
 |-----------|----------|----------|
 | 일반 REST | gRPC `ClusterService.ProxyRequest` | 30초 |
 | SSE(`-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 등) | HTTP 직접 릴레이 | 5분 |
+| 파일 전송(`/files/download`·`/files/upload`·`/system/backup`·`/system/restore`·`/docker/compose/migrate-import`) | HTTP 직접 릴레이 | 30분 |
 | WebSocket | `WrapEchoWSHandler` 양방향 프록시 | WS 생명주기 전체 |
 
-노드 간 내부 트래픽은 JWT 대신 `X-SFPanel-Internal-Proxy-V2` 헤더(타임스탬프·nonce·메서드·경로에 대한 HMAC-SHA256, nonce 재사용 거부)로 인증됩니다. 서명 비밀은 매니저들이 Raft로 복제하는 무작위 비밀이고, 모든 멤버가 그것을 받아들이게 되면 리더가 전환을 기록합니다. 그 전까지는 이전 방식인 클러스터 CA 인증서의 SHA-256으로 서명하며, 이 값은 전환 뒤 2분까지만 받습니다. 원본 사용자는 `X-SFPanel-Original-User` 헤더로 감사 로그에 전파됩니다.
+`?node=` 요청이 다른 노드로 갈 때 사용자의 자격 증명은 실리지 않습니다. `Authorization`·`Cookie`·`X-CSRF-Token` 헤더와 `?token=`·`?ticket=`(그리고 `?node=`)를 떼어 내고, 운영자는 감사 로그용 `X-SFPanel-Original-User` 헤더로만 전달됩니다. 받는 노드의 인증은 전송 방식에 따라 다릅니다.
+
+- **gRPC `ProxyRequest`**: 클러스터 mTLS로 대상의 gRPC 서버에 닿고, 대상이 자기 루프백 홉에 **자기가 받는 키로** 서명합니다(매니저는 매니저들의 비밀, 에이전트는 자기 키). 보내는 노드는 서명하지 않습니다.
+- **HTTP 직접 릴레이와 WebSocket**: 보내는 매니저가 `X-SFPanel-Internal-Proxy-V2` 헤더(타임스탬프·nonce·메서드·경로+쿼리에 대한 HMAC-SHA256, nonce 재사용 거부)를 **대상의 키로** 서명합니다 — 매니저에게는 매니저들의 비밀, 에이전트에게는 그 에이전트의 키. 매니저들의 비밀로 서명한 헤더는 에이전트에 가지 않습니다.
+
+매니저들의 비밀은 Raft로 복제하는 무작위 비밀이고, 모든 매니저가 그것을 받아들이게 되면 리더가 전환을 기록합니다. 그 전까지는 이전 방식인 클러스터 CA 인증서의 SHA-256으로 서명하며, 이 값은 전환 뒤 2분까지만 받습니다. 에이전트는 전환이 기록되고 5분이 지난 뒤에야 등록됩니다 — 에이전트도 CA 인증서를 받으므로, 그때는 이전 방식이 어디서도 통하지 않아야 합니다.
+
+#### `?node=`가 에이전트일 때
+
+에이전트(`cluster.role: agent`)는 Raft 밖의 노드입니다. 로그인·계정·클러스터 관리 라우트가 없고, 자기 매니저가 그 에이전트의 키로 서명한 요청만 받습니다 (`docs/specs/cluster-ops.md`의 "Agents").
+
+- `/api/v1/auth/*`는 `?node=`가 무엇을 가리키든 브라우저가 접속한 노드가 처리합니다 — 세션·리프레시 행·쿠키가 그 노드의 것입니다.
+- `/api/v1/cluster/*`는 대상이 에이전트이면 중계하지도, 이 매니저가 대신 실행하지도 않고 `409 CLUSTER_ROUTE_NOT_ON_AGENT`로 거부합니다. 노드 목록·상태처럼 클러스터 전체의 것은 `?node=` 없이 매니저에게 묻습니다.
+- 에이전트로 서명할 키가 복제 상태에 없거나 에이전트 패널의 CA를 모르면 중계를 보내지 않습니다. 매니저들의 비밀로 대신 서명하거나 평문 HTTP로 내려가지 않습니다.
+
+| 코드 | HTTP 상태 | 의미 |
+|------|-----------|------|
+| `CLUSTER_TOKEN_KIND` | 400 | 참가 토큰이 다른 종류의 노드용이다(에이전트 토큰으로 매니저 가입, 또는 그 반대). 거부된 토큰은 소모되지 않는다. 지금 이 코드로 답하는 라우트는 없다: 웹의 가입(`POST /cluster/join`)은 이 거부를 다른 가입 실패처럼 `INTERNAL_ERROR`와 사유 문장으로 알린다 |
+| `CLUSTER_MAX_AGENTS` | 400 | 에이전트가 이미 리더의 `cluster.max_agents`(기본 100)대라 에이전트 토큰을 만들 수 없다 |
+| `CLUSTER_ROUTE_NOT_ON_AGENT` | 409 | `?node=`가 에이전트를 가리키는 `/cluster/*` 요청 |
+| `CLUSTER_AGENT_AUTH_FAILED` | 502 | 에이전트로 서명할 키가 복제 상태에 없거나, 에이전트가 요청을 401로 거부했다. 401을 그대로 넘기면 브라우저가 이 매니저의 세션을 끝내므로 502로 바꾼다 |
+| `CLUSTER_AGENT_PANEL_INSECURE` | 502 | 에이전트 패널의 CA가 복제 상태에 없어 평문 HTTP로만 중계할 수 있다 — 보내지 않는다 |
+
+WebSocket 중계는 업그레이드 전에 같은 이유로 거부하며, 이때 응답은 `502`와 `{"error": "<이유>"}`입니다.
 
 ### 감사 로그 제외
 
@@ -4663,6 +4687,46 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 
 ---
 
+### POST /api/v1/cluster/token
+참가 토큰 생성. 리더 전용 — 팔로워는 리더로 전달합니다. 토큰은 1회용이고 만든 리더의 디스크(`tokens.json`)에만 있어, 리더가 바뀌면 새로 만들어야 합니다.
+
+- **인증 필요**: 예
+
+**Request Body** (필드 모두 생략 가능):
+```json
+{ "ttl": "24h", "kind": "agent" }
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|------|------|------|------|
+| `ttl` | string | 아니오 | Go duration. 생략하거나 해석할 수 없으면 24시간. 0 이하이거나 720시간(30일)을 넘으면 400 |
+| `kind` | string | 아니오 | 토큰이 들일 노드의 종류: `manager`(기본) 또는 `agent`. 다른 값은 400 |
+
+읽을 수 없는 본문은 기본값으로 받지 않고 `400 INVALID_REQUEST`로 거부합니다 — 에이전트 토큰을 청한 요청이 매니저 토큰(가입하는 서버에 JWT 비밀·관리자 계정·CA 키를 넘긴다)을 받아서는 안 되기 때문입니다. 매니저가 32대이면 매니저 토큰은 `400 INVALID_REQUEST`, 에이전트가 `cluster.max_agents`대이면 에이전트 토큰은 `400 CLUSTER_MAX_AGENTS`입니다.
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "token": "…",
+    "kind": "agent",
+    "expires_at": "2026-10-21T09:00:00Z",
+    "grpc_port": 3629,
+    "advertise_address": "203.0.113.10",
+    "ca_pin": "sha256:…"
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `kind` | string | 리더가 만든 토큰의 종류. 에이전트 이전 버전의 리더는 `kind`를 무시하고 매니저 토큰을 만들며 이 필드를 보내지 않습니다 — 요청한 종류와 다르면 그 토큰을 쓰지 마세요(CLI의 `cluster token --agent`는 출력하지 않고 실패합니다) |
+| `advertise_address`, `grpc_port` | string, number | 가입 명령에 넣을 리더의 주소와 클러스터 gRPC 포트 |
+| `ca_pin` | string | 클러스터 CA 공개키의 SHA-256(가입 명령의 `--ca`) |
+
+---
+
 ### GET /api/v1/cluster/tokens
 대기 중(pending)인 참가 토큰 목록 조회 (v0.19.0+). 값은 **마스킹**되어 반환되며 전체 토큰은 노출되지 않으므로 오발급된 초대를 사용 전에 무효화할 수 있습니다. 토큰은 리더 디스크에 존재하므로 팔로워에서 호출 시 리더로 프록시됩니다.
 
@@ -4674,7 +4738,7 @@ data: {"phase":"done","message":"Migration complete.","done":true}
   "success": true,
   "data": {
     "tokens": [
-      { "id": "string", "masked": "join-****…", "expires_at": "2026-06-04T00:00:00Z", "created_by": "admin" }
+      { "id": "string", "masked": "join-****…", "expires_at": "2026-06-04T00:00:00Z", "created_by": "admin", "kind": "manager" }
     ]
   }
 }
@@ -4686,6 +4750,7 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 | `masked` | string | 마스킹된 토큰 값 (전체 비노출) |
 | `expires_at` | string | 만료 시각 |
 | `created_by` | string | 발급한 사용자 |
+| `kind` | string | 토큰이 들일 노드의 종류: `manager` 또는 `agent`. 종류가 생기기 전에 만든 토큰은 `manager`. 에이전트 이전 버전의 리더는 보내지 않습니다 |
 
 ---
 
@@ -5770,9 +5835,9 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 |--------|------|------|------|
 | GET | `/api/v1/cluster/status` | O | 클러스터 상태 (활성화 여부, 노드 수, 리더) |
 | GET | `/api/v1/cluster/overview` | O | 클러스터 개요 (노드 목록 + 집계 메트릭) |
-| GET | `/api/v1/cluster/nodes` | O | 노드 목록 (상태, 역할, 라벨) |
-| POST | `/api/v1/cluster/token` | O | 참가 토큰 생성 (TTL 지정 가능). 응답: `token`, `expires_at`, `grpc_port`, `advertise_address`, `ca_pin`(가입 명령의 `--ca`) |
-| GET | `/api/v1/cluster/tokens` | O | 대기 중 참가 토큰 목록 (마스킹, v0.19.0+) |
+| GET | `/api/v1/cluster/nodes` | O | 노드 목록 (상태, 역할, 라벨, `kind`: `manager`·`agent` — 종류가 생기기 전에 기록된 노드에는 이 필드가 없고 매니저다. 에이전트는 `role`이 비어 있다) |
+| POST | `/api/v1/cluster/token` | O | 참가 토큰 생성 (TTL, `kind`: `manager`(기본)·`agent` 지정 가능). 응답: `token`, `kind`, `expires_at`, `grpc_port`, `advertise_address`, `ca_pin`(가입 명령의 `--ca`) |
+| GET | `/api/v1/cluster/tokens` | O | 대기 중 참가 토큰 목록 (마스킹, `kind`, v0.19.0+) |
 | DELETE | `/api/v1/cluster/tokens/:id` | O | 참가 토큰 폐기 (v0.19.0+) |
 | DELETE | `/api/v1/cluster/nodes/:id` | O | 노드 제거 (팔로워 요청은 리더로 전달, 리더 자신은 불가, `?force=`) |
 | PATCH | `/api/v1/cluster/nodes/:id/labels` | O | 노드 라벨 수정 |

@@ -285,7 +285,7 @@ sfpanel help                      # 도움말
 
 ```bash
 sfpanel cluster init [--name NAME] [--advertise IP]   # 클러스터 초기화
-sfpanel cluster token [--ttl DURATION]                 # 조인 토큰 생성 (실행할 join 명령을 그대로 출력)
+sfpanel cluster token [--ttl DURATION] [--agent]       # 조인 토큰 생성 (실행할 join 명령을 그대로 출력, --agent는 에이전트용)
 sfpanel cluster join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP]  # 클러스터 참여 (ADDR = 리더, PORT = 3629, FINGERPRINT = 토큰 화면의 CA 지문)
 sfpanel cluster status                                 # 클러스터 상태 확인
 sfpanel cluster list                                   # 노드 목록
@@ -296,6 +296,21 @@ sfpanel cluster reissue-cert                           # 이 노드의 인증서
 ```
 
 모든 클러스터 명령은 `--config PATH` 옵션을 지원합니다 (기본값: `/etc/sfpanel/config.yaml`).
+
+### 에이전트 CLI
+
+에이전트는 클러스터가 관리하지만 Raft에는 들지 않는 서버입니다. 투표하지 않고, 로그인·계정·웹 UI가 없으며, 매니저의 패널에서 그 노드를 골라 관리합니다. 매니저에서 `sudo sfpanel cluster token --agent`를 실행하면 아래 명령을 리더 주소·토큰·CA 지문까지 채워 출력합니다.
+
+```bash
+sfpanel agent join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP]  # 에이전트로 참여 (ADDR = 리더, PORT = 3629)
+sfpanel agent status                                   # 매니저·리더·인증서·패널 상태 확인
+sfpanel agent reset --yes                              # 단독 패널로 되돌림 (--yes 없이는 할 일만 출력)
+
+# 새 서버 — 설치와 에이전트 가입을 한 줄로
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash -s -- --agent <리더-IP>:3629 <token> --ca <CA 지문>
+```
+
+에이전트를 붙이기 전에 모든 매니저를 최신 버전으로 올리세요. 에이전트에서는 `sfpanel cluster` 명령이 거부됩니다. 포트, 제거 순서, 패널 HTTPS가 필요한 이유는 [docs/specs/cluster-ops.md](docs/specs/cluster-ops.md#agents)의 "Agents"를 보세요.
 
 ## 서비스 관리
 
@@ -393,7 +408,7 @@ SFPanel은 HashiCorp Raft 합의 알고리즘 기반 멀티노드 클러스터�
 - **mTLS 통신** — 노드 간 gRPC 통신에 자동 발급된 CA 인증서 사용
 - **토큰 기반 조인** — 시간 제한 HMAC 서명 토큰으로 노드 인증
 - **Zero-Restart 라이프사이클** — 클러스터 생성/참여 시 서비스 재시작 없이 즉시 활성화
-- **구성 동기화** — JWT 시크릿, 관리자 계정이 모든 노드에 자동 동기화
+- **구성 동기화** — JWT 시크릿, 관리자 계정이 모든 매니저 노드에 자동 동기화 (에이전트는 받지 않음)
 - **API 프록시** — 비-리더 노드의 API 요청을 리더에게 자동 릴레이
 - **WebSocket 릴레이** — 원격 노드의 터미널, 로그를 릴레이로 접속
 - **메트릭 공유** — 각 노드의 CPU, 메모리, 디스크, 컨테이너 메트릭을 클러스터 오버뷰에서 집계

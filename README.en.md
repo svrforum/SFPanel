@@ -287,7 +287,7 @@ sfpanel help                      # help
 
 ```bash
 sfpanel cluster init [--name NAME] [--advertise IP]   # initialize a cluster
-sfpanel cluster token [--ttl DURATION]                 # generate a join token (prints the join command to run)
+sfpanel cluster token [--ttl DURATION] [--agent]       # generate a join token (prints the join command to run; --agent for an agent)
 sfpanel cluster join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP]  # join a cluster (ADDR = the leader, PORT = 3629, FINGERPRINT = the CA fingerprint on the token page)
 sfpanel cluster status                                 # check cluster status
 sfpanel cluster list                                   # list nodes
@@ -298,6 +298,21 @@ sfpanel cluster reissue-cert                           # reissue this node's cer
 ```
 
 All cluster commands support the `--config PATH` option (default: `/etc/sfpanel/config.yaml`).
+
+### Agent CLI
+
+An agent is a server the cluster manages without making it a member of Raft: it does not vote, has no login, accounts or web UI, and is managed from a manager's panel by selecting the node. On a manager, `sudo sfpanel cluster token --agent` prints the commands below with the leader address, token and CA fingerprint filled in.
+
+```bash
+sfpanel agent join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP]  # join as an agent (ADDR = the leader, PORT = 3629)
+sfpanel agent status                                   # show the managers, leader, certificate and panel
+sfpanel agent reset --yes                              # make it a standalone panel again (without --yes, only lists what it would do)
+
+# New server — install and join as an agent in one line
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash -s -- --agent <leader-ip>:3629 <token> --ca <ca-fingerprint>
+```
+
+Upgrade every manager to the latest release before adding agents. On an agent, `sfpanel cluster` commands refuse to run. Ports, the removal steps and why an agent's panel serves HTTPS are in "Agents" in [docs/specs/cluster-ops.md](docs/specs/cluster-ops.md#agents).
 
 ## Service management
 
@@ -395,7 +410,7 @@ SFPanel supports a multi-node cluster built on the HashiCorp Raft consensus algo
 - **mTLS communication** — node-to-node gRPC uses auto-issued CA certificates
 - **Token-based join** — nodes authenticate with time-limited HMAC-signed tokens
 - **Zero-restart lifecycle** — creating/joining a cluster activates immediately, no service restart
-- **Config sync** — JWT secret and admin account sync automatically across all nodes
+- **Config sync** — JWT secret and admin account sync automatically across all managers (agents get neither)
 - **API proxy** — API requests on non-leader nodes are relayed to the leader automatically
 - **WebSocket relay** — connect to remote-node terminals and logs over a relay
 - **Metric sharing** — each node's CPU, memory, disk and container metrics aggregate into the cluster overview

@@ -301,11 +301,11 @@
 
 ### 15. 클러스터 관리
 
-- **설명**: Proxmox 스타일 대칭 클러스터. 2~32대 노드를 하나의 클러스터로 통합 관리
+- **설명**: Proxmox 스타일 대칭 클러스터. 2~32대 매니저 노드(와 Raft 밖의 에이전트)를 하나의 클러스터로 통합 관리
 - **주요 기능**:
   - **Raft 합의 엔진**: `hashicorp/raft` + BoltDB 스토어 (임베디드, 외부 의존 없음). FSM이 JWT 시크릿, 클러스터 이름, 노드 목록(역할/주소/상태), 어드민 계정을 복제
   - **gRPC + mTLS**: 노드 간 제어 채널 (포트 3629), TLS 1.3 상호 인증, ECDSA P-256 자체 CA, 노드 인증서 자동 발급
-  - **참가 토큰**: HMAC-SHA256 서명, 1회용, 시간제한 (기본 24시간, 메모리 저장으로 리더 재시작 시 소실). **대기 중 토큰 목록·취소**(`GET/DELETE /cluster/tokens`) — 목록은 마스킹된 값 + 짧은 핑거프린트로 리댁트(전체 토큰 미반환)하여, 잘못 발급된 초대를 사용 전에 무효화 가능
+  - **참가 토큰**: HMAC-SHA256 서명, 1회용, 시간제한 (기본 24시간). 만든 리더의 `{data_dir}/tokens.json`에 저장되어 리더 재시작은 견디지만 복제되지 않아, 리더가 바뀌면 새로 만든다. **대기 중 토큰 목록·취소**(`GET/DELETE /cluster/tokens`) — 목록은 마스킹된 값 + 짧은 핑거프린트로 리댁트(전체 토큰 미반환)하여, 잘못 발급된 초대를 사용 전에 무효화 가능
   - **하트비트 모니터링**: 2초 간격, 3단계 상태 판정 (online → suspect → offline)
   - **JoinEngine 파이프라인** (`internal/cluster/join.go`): 리더→조인노드 파이프라인을 `PreFlight` / `Execute` 두 단계로 분리
     - PreFlight: TCP 연결 → `TokenManager.Peek()`(소비 없이 검증) → 포트 확인 → IP 자동 감지 → 예상 실패 사유 사전 반환
@@ -319,10 +319,13 @@
   - **(v0.55.0) 하트비트 스트림 안정화**: 리더의 메트릭-하트비트 스트림 idle timeout을 송신 주기의 3×로 결합 — 30s 송신 = 30s idle의 경합으로 분당 EOF 재접속이 반복되던 플래핑 제거
   - **(v0.53.0) WS 릴레이 keepalive**: 릴레이의 클라이언트 레그에 30s ping + auto-pong으로 read deadline 재장전 — 조용한 원격 터미널 세션이 릴레이에서 끊기지 않음
   - **(v0.49.1–3) 프록시/릴레이 수정**: stale-heartbeat 기반 사전 거부 제거(실제 gRPC/TCP 연결 성패가 진실 소스), ws-ticket은 항상 로컬 노드에서 발급(원격 노드 발급 티켓 401 방지), 프록시 응답 이중 gzip 제거
-  - **CLI 명령어**: `sfpanel cluster init/join/leave/status/token/remove/list/leader-transfer/reissue-cert`
+  - **에이전트** (`cluster.role: agent`): Raft 밖의 관리 대상 노드 — 투표·복제 상태·클러스터 JWT 비밀·계정·로그인·SPA 없이 노드 기능 라우트만 서비스하고, 자기 매니저가 그 에이전트의 키(복제 상태 `agent_key/<id>`)로 서명한 요청만 받는다(출발지는 루프백·매니저 주소·`cluster.agent_allowed_sources`). 가입은 `RegisterAgent` RPC — 에이전트가 만든 키의 CSR을 리더가 OU `sfpanel-agent`로 서명: `sfpanel cluster token --agent` → `sfpanel agent join` 또는 `install.sh --agent`. 모든 매니저가 에이전트를 아는 버전이어야 하고, 리더는 프록시 비밀 전환 뒤 5분이 지나야, 최대 `cluster.max_agents`(기본 100)대까지 받는다
+    - 일반 요청은 gRPC `ProxyRequest`(에이전트의 gRPC 서버는 자기 매니저 목록의 매니저 인증서만 받고 자기 키로 루프백에 서명), 스트림·파일·WebSocket은 에이전트 패널 HTTPS로 직접 그 에이전트의 키로 서명해 보낸다. 키가 없거나 패널 CA를 모르면 보내지 않으며, 매니저 비밀로 서명한 헤더와 사용자 토큰·쿠키는 어떤 경로로도 에이전트에 가지 않는다
+    - 30초마다 리더에 하트비트를 보내고 응답의 리더 주소·매니저 목록을 따라간다(`{data_dir}/agent-state.json`). "제거됨"은 리더만 말하며, 그때 에이전트는 패널의 클러스터 쪽 리스너와 gRPC 서버를 닫고 루프백만 남긴다 → `sfpanel agent reset --yes`로 단독 패널. 운영 절차는 `cluster-ops.md`의 "Agents"
+  - **CLI 명령어**: `sfpanel cluster init/join/leave/status/token/remove/list/leader-transfer/reissue-cert` (`cluster token --agent`는 에이전트 토큰), 에이전트 쪽은 `sfpanel agent join/status/reset`
   - **웹 UI API**: 클러스터 초기화/참여/탈퇴/해산/업데이트 REST API (~15개 엔드포인트)
 - **패키지 레이아웃**: `internal/cluster/` — `manager.go`, `raft_fsm.go`, `grpc_server.go`, `join.go`, `detect.go`, `tls.go`, `token.go`, `ws_relay.go` 외 다수. proto는 `proto/cluster.proto`, 생성물 `proto/cluster.pb.go` / `proto/cluster_grpc.pb.go`
-- **설정 확장**: `config.yaml`에 `cluster` 섹션 (enabled, name, node_id, node_name, grpc_port, data_dir, cert_dir, advertise_address, raft_tls)
+- **설정 확장**: `config.yaml`에 `cluster` 섹션 (enabled, name, node_id, node_name, grpc_port, data_dir, cert_dir, advertise_address, raft_tls; 에이전트는 role, managers, agent_allowed_sources, 리더는 max_agents)
 - **REST 프록시 미들웨어**: `ClusterProxyMiddleware` — `?node=X` 쿼리 파라미터로 원격 노드에 요청 투명 전달. 일반 요청은 gRPC `ProxyRequest`(30초 타임아웃), 스트리밍(SSE/`-stream` 접미사 경로)은 HTTP 직접 릴레이(5분 타임아웃)
 - **WebSocket 릴레이** (`internal/cluster/ws_relay.go`): `WrapEchoWSHandler`로 터미널/로그/메트릭/Docker exec 등 모든 WS를 원격 노드로 양방향 포워딩. 메시지 타입(바이너리/텍스트) 보존, 한쪽 종료 시 전파
 - **내부 프록시 인증**: `X-SFPanel-Internal-Proxy-V2` 헤더 — 타임스탬프·nonce·메서드·경로에 대한 HMAC-SHA256 (JWT 비의존, nonce 재사용 거부). 서명 비밀은 매니저가 Raft로 복제하는 무작위 비밀(`cluster_proxy_secret`). 리더는 그것을 심고 1분이 지난 뒤, 모든 멤버가 온라인이고 그 비밀을 받아들인다고 하트비트로 알려 오면 전환 시각을 기록. 그 전까지 쓰던 이전 방식(CA 인증서 SHA-256)은 전환 뒤 2분까지만 받음. 노드는 마지막으로 적용한 비밀을 데이터 디렉터리에 남겨 재시작 직후에도 이전 방식으로 돌아가지 않음. `X-SFPanel-Original-User` 헤더로 원본 사용자 전파
@@ -333,7 +336,7 @@
 - **클러스터 업데이트 가드**: 동시 모드는 정족수를 깨는 경우(투표자 ≥2) 사전 거부, 롤링은 첫 실패 시 중단. 리더는 자기 업데이트 전에 리더십을 온라인 팔로워로 이전
 - **Graceful 누락 처리**: 원격 노드에 ufw/crontab/rsyslog 미설치 시 500 대신 빈 결과 반환
 - **알려진 제약**:
-  - 토큰은 메모리에만 저장 (리더 재시작 시 기존 토큰 소실)
+  - 토큰은 만든 리더에만 있다 (복제되지 않음 — 리더가 바뀌면 이전 토큰은 쓸 수 없음)
   - 비클러스터 → 클러스터 마이그레이션 경로 없음 (Init/Join 신규만 지원)
   - TLS: CA 10년 / 노드 인증서 5년 TTL, 만료 자동 감시는 없음. 노드 인증서는 `sfpanel cluster reissue-cert`로 무중단 재발급 가능, CA 회전은 전 노드 동시 재시작 필요
   - 네트워크 분할 시 Raft 안전성만 보장 (분할 뇌 자체는 막지 않음)

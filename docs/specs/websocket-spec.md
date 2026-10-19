@@ -655,9 +655,9 @@ go func() {
 클라이언트 ←→ 로컬 노드 (WS 업그레이드) ←→ 원격 노드 (WS 다이얼)
 ```
 
-1. 클라이언트가 `ws://host/ws/terminal?token=JWT&node=REMOTE_ID`로 연결
-2. 로컬 노드가 `node` 파라미터 감지 → 클라이언트 WS 업그레이드
-3. 로컬 노드가 원격 노드의 WS 엔드포인트에 연결 (JWT 대신 `X-SFPanel-Internal-Proxy` 헤더 사용)
+1. 클라이언트가 `ws(s)://host/ws/terminal?ticket=<ws-ticket>&node=REMOTE_ID`로 연결
+2. 로컬 노드가 `node` 파라미터 감지 → 운영자 확인(티켓은 여기서 소모, 실패하면 업그레이드 전 401) → 클라이언트 WS 업그레이드
+3. 로컬 노드가 원격 노드의 WS 엔드포인트에 연결 — `?node=`·`?ticket=`·`?token=`은 떼고, JWT 대신 내부 프록시 헤더로 인증
 4. 양방향 메시지 포워딩 (메시지 타입 보존)
 5. 어느 한쪽이 닫히면 반대쪽도 닫기
 
@@ -665,10 +665,10 @@ go func() {
 
 클러스터 노드 간 WebSocket 릴레이 시 JWT 토큰 대신 내부 프록시 인증을 사용한다:
 
-- **헤더**: `X-SFPanel-Internal-Proxy`
-- **값**: 클러스터 CA 인증서의 SHA-256 해시 (hex)
-- **검증**: `crypto/subtle.ConstantTimeCompare`로 상수 시간 비교
-- `authenticateWS()` 헬퍼가 내부 프록시 헤더를 우선 확인하고, 없으면 JWT 토큰 검증
+- **헤더**: `X-SFPanel-Internal-Proxy-V2` — 타임스탬프·nonce·`GET`·원격에 보내는 경로+쿼리에 대한 HMAC-SHA256 (nonce 재사용 거부). 운영자는 `X-SFPanel-Original-User`로 전달
+- **키**: 대상에 따라 다르다. 매니저에게는 매니저들이 Raft로 복제하는 비밀, 에이전트에게는 그 에이전트의 키(복제 상태의 `agent_key/<id>`). 매니저들의 비밀로 서명한 헤더는 에이전트에 가지 않는다
+- 원격 노드의 WS 핸들러는 내부 프록시 헤더를 먼저 확인하고(`auth.IsInternalProxyRequest`), 없으면 티켓·루프백 `?token=`을 본다(`auth.AuthenticateWSRequest`)
+- 대상이 에이전트인데 그 키가 복제 상태에 없거나 패널 CA를 모르면 업그레이드 전에 `502`와 `{"error": "<이유>"}`로 거부한다 — 평문 `ws://`나 다른 키로 내려가지 않는다
 
 ### 릴레이 대상 엔드포인트
 
@@ -687,7 +687,7 @@ go func() {
 - `node` 미지정 또는 로컬 노드 ID → 로컬 핸들러 실행
 - `node`가 원격 노드 → 릴레이 (원격 연결 시 `node` 파라미터 제거)
 - 노드를 찾을 수 없음 → HTTP 400
-- 노드가 오프라인 → HTTP 503
+- 노드가 응답하지 않음 → 하트비트 상태로 미리 거부하지 않는다. 업그레이드 뒤 원격 다이얼이 실패하면 소켓이 닫힌다
 
 ---
 
