@@ -11,13 +11,10 @@ import (
 
 // The proxy-check helpers live in internal/auth so feature modules can consult
 // them without importing api/middleware (which would be a feature → middleware
-// reverse dependency). Only the wiring entry point is still re-exported here;
-// the InternalProxyHeader constant and IsInternalProxyRequest aliases that used
-// to sit alongside it had no callers left and were removed.
-
-// SetClusterProxySecret forwards to internal/auth; kept here because main.go
-// originally wired the startup call through middleware.
-func SetClusterProxySecret(secret string) { auth.SetClusterProxySecret(secret) }
+// reverse dependency). Nothing of them is re-exported here: the wiring entry
+// point went when the cluster manager took over installing the secrets
+// (cluster.Manager.ApplyProxySecrets), and the InternalProxyHeader constant and
+// IsInternalProxyRequest aliases had no callers left before that.
 
 // allowsQueryToken returns true for the few endpoints that legitimately need
 // to pass a JWT through a URL (plain file download via <a>, backup download,

@@ -1366,15 +1366,15 @@ func backOnNewVersion(health map[string]cluster.NodeStatus, metrics []*cluster.N
 	return false
 }
 
-// runClusterUpdate is the orchestration behind ClusterUpdate. It runs on its
-// own goroutine and reports through emit, which never blocks it: whether
-// anyone is still watching has no bearing on whether the update finishes.
 // isTransferTarget reports whether a node may take leadership: an online
 // manager voter. Raft refuses a non-voter, and an agent is never a member.
 func isTransferTarget(voter, manager bool, status cluster.NodeStatus) bool {
 	return voter && manager && status == cluster.StatusOnline
 }
 
+// runClusterUpdate is the orchestration behind ClusterUpdate. It runs on its
+// own goroutine and reports through emit, which never blocks it: whether
+// anyone is still watching has no bearing on whether the update finishes.
 func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(map[string]interface{})) {
 	state := mgr.GetRaft().GetFSM().GetState()
 	health := mgr.GetHeartbeat().CheckHealth()

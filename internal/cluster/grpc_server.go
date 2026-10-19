@@ -324,11 +324,6 @@ func (s *GRPCServer) Stop() {
 	}
 }
 
-// ProxySecret returns the cluster-internal proxy authentication secret.
-func (s *GRPCServer) ProxySecret() string {
-	return s.proxySecret
-}
-
 // Join handles a node join request.
 func (s *GRPCServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinResponse, error) {
 	caCert, nodeCert, nodeKey, peers, err := s.manager.HandleJoin(
