@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,12 +24,12 @@ import (
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 )
 
-// Loopback client timeouts. The long one serves proxied requests whose local
-// work can exceed 30s (compose up/down/update/import/rollback — first image
-// pull or git clone); the fixed 30s would otherwise abort these on the loopback
-// hop even though the proxy middleware grants the gRPC call a 5-minute budget
-// for /docker/compose/ paths, silently turning a slow cross-node compose
-// operation into a 502.
+// Proxy timeouts, picked by ProxyTimeoutFor for the sending node's gRPC call
+// and this node's loopback hop alike. The long one serves the operations in
+// longProxyPaths, whose local work can exceed 30s (a first image pull, mkfs on
+// a large volume, an apt install); a loopback client fixed at 30s would abort
+// these on this hop while the sender still waited, silently turning a slow
+// cross-node operation into a 502.
 const (
 	localHTTPTimeout     = 30 * time.Second
 	localHTTPLongTimeout = 5 * time.Minute
@@ -59,10 +59,9 @@ func (s *GRPCServer) localClient(long bool) (*http.Client, error) {
 }
 
 // requiresLongLocalTimeout reports whether a proxied path may legitimately run
-// longer than the default 30s loopback timeout. Kept in sync with the 5-minute
-// branch in middleware/proxy.go's proxyToNodeGRPC.
+// longer than the default 30s loopback timeout.
 func requiresLongLocalTimeout(path string) bool {
-	return strings.Contains(path, "/docker/compose/")
+	return ProxyTimeoutFor(path) == localHTTPLongTimeout
 }
 
 // GRPCServer serves the ClusterService.
@@ -469,6 +468,14 @@ func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 	}
 }
 
+// proxyErrorBody is the JSON error the loopback hop returns. Built with
+// encoding/json: error text holds quotes (Go's URL errors quote the URL),
+// which a %s template turned into a body nothing could parse.
+func proxyErrorBody(code, message string) []byte {
+	b, _ := json.Marshal(map[string]any{"success": false, "error": map[string]string{"code": code, "message": message}})
+	return b
+}
+
 // ProxyRequest forwards an API request to this node's local HTTP handler.
 func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.APIResponse, error) {
 	// Build local HTTP request
@@ -482,7 +489,7 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 	if err != nil {
 		return &pb.APIResponse{
 			StatusCode: 500,
-			Body:       []byte(fmt.Sprintf(`{"success":false,"error":{"code":"PROXY_ERROR","message":"%s"}}`, err.Error())),
+			Body:       proxyErrorBody("PROXY_ERROR", err.Error()),
 		}, nil
 	}
 
@@ -533,14 +540,14 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 	if err != nil {
 		return &pb.APIResponse{
 			StatusCode: 500,
-			Body:       []byte(fmt.Sprintf(`{"success":false,"error":{"code":"PROXY_ERROR","message":"local client: %s"}}`, err.Error())),
+			Body:       proxyErrorBody("PROXY_ERROR", "local client: "+err.Error()),
 		}, nil
 	}
 	httpResp, err := client.Do(httpReq)
 	if err != nil {
 		return &pb.APIResponse{
 			StatusCode: 502,
-			Body:       []byte(fmt.Sprintf(`{"success":false,"error":{"code":"PROXY_ERROR","message":"%s"}}`, err.Error())),
+			Body:       proxyErrorBody("PROXY_ERROR", err.Error()),
 		}, nil
 	}
 	defer httpResp.Body.Close()
@@ -549,7 +556,7 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 	if err != nil {
 		return &pb.APIResponse{
 			StatusCode: 500,
-			Body:       []byte(`{"success":false,"error":{"code":"PROXY_ERROR","message":"failed to read response"}}`),
+			Body:       proxyErrorBody("PROXY_ERROR", "failed to read response"),
 		}, nil
 	}
 
@@ -562,7 +569,7 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 	if len(respBody) > maxUnaryProxyBodyBytes {
 		return &pb.APIResponse{
 			StatusCode: 502,
-			Body:       []byte(`{"success":false,"error":{"code":"PROXY_RESPONSE_TOO_LARGE","message":"response too large for the cross-node unary proxy; route it through the streaming relay"}}`),
+			Body:       proxyErrorBody("PROXY_RESPONSE_TOO_LARGE", "response too large for the cross-node unary proxy; route it through the streaming relay"),
 		}, nil
 	}
 
