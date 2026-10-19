@@ -22,6 +22,10 @@ message PreFlightResponse {
     string cluster_name = 3;
     int32  node_count = 4;
     int32  max_nodes = 5;
+    // DER SubjectPublicKeyInfo of the cluster CA. The joiner compares its
+    // SHA-256 with the fingerprint in the join command, then verifies the
+    // leader's certificate against it before it sends Join.
+    bytes  ca_public_key = 6;
 }
 
 message JoinRequest {
@@ -68,6 +72,9 @@ message HeartbeatPing {
     int64  timestamp = 5;
     double disk_percent = 6;
     string version = 7;
+    // What this node's code supports. The leader waits for every member to
+    // report a capability before it turns on what depends on it.
+    repeated string capabilities = 8;
 }
 
 message HeartbeatPong {

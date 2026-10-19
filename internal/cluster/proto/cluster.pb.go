@@ -66,12 +66,16 @@ func (x *PreFlightRequest) GetToken() string {
 }
 
 type PreFlightResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Valid         bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
-	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
-	ClusterName   string                 `protobuf:"bytes,3,opt,name=cluster_name,json=clusterName,proto3" json:"cluster_name,omitempty"`
-	NodeCount     int32                  `protobuf:"varint,4,opt,name=node_count,json=nodeCount,proto3" json:"node_count,omitempty"`
-	MaxNodes      int32                  `protobuf:"varint,5,opt,name=max_nodes,json=maxNodes,proto3" json:"max_nodes,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Valid       bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
+	Error       string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	ClusterName string                 `protobuf:"bytes,3,opt,name=cluster_name,json=clusterName,proto3" json:"cluster_name,omitempty"`
+	NodeCount   int32                  `protobuf:"varint,4,opt,name=node_count,json=nodeCount,proto3" json:"node_count,omitempty"`
+	MaxNodes    int32                  `protobuf:"varint,5,opt,name=max_nodes,json=maxNodes,proto3" json:"max_nodes,omitempty"`
+	// DER SubjectPublicKeyInfo of the cluster CA. The joiner compares its
+	// SHA-256 with the fingerprint in the join command, then verifies the
+	// leader's certificate against it before it sends Join.
+	CaPublicKey   []byte `protobuf:"bytes,6,opt,name=ca_public_key,json=caPublicKey,proto3" json:"ca_public_key,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -139,6 +143,13 @@ func (x *PreFlightResponse) GetMaxNodes() int32 {
 		return x.MaxNodes
 	}
 	return 0
+}
+
+func (x *PreFlightResponse) GetCaPublicKey() []byte {
+	if x != nil {
+		return x.CaPublicKey
+	}
+	return nil
 }
 
 type JoinRequest struct {
@@ -465,8 +476,11 @@ type HeartbeatPing struct {
 	Timestamp      int64                  `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	DiskPercent    float64                `protobuf:"fixed64,6,opt,name=disk_percent,json=diskPercent,proto3" json:"disk_percent,omitempty"`
 	Version        string                 `protobuf:"bytes,7,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// What this node's code supports. The leader waits for every member to
+	// report a capability before it turns on what depends on it.
+	Capabilities  []string `protobuf:"bytes,8,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *HeartbeatPing) Reset() {
@@ -546,6 +560,13 @@ func (x *HeartbeatPing) GetVersion() string {
 		return x.Version
 	}
 	return ""
+}
+
+func (x *HeartbeatPing) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
 }
 
 type HeartbeatPong struct {
@@ -1074,14 +1095,15 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\n" +
 	"\x13proto/cluster.proto\x12\x0fsfpanel.cluster\"(\n" +
 	"\x10PreFlightRequest\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"\x9e\x01\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"\xc2\x01\n" +
 	"\x11PreFlightResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12!\n" +
 	"\fcluster_name\x18\x03 \x01(\tR\vclusterName\x12\x1d\n" +
 	"\n" +
 	"node_count\x18\x04 \x01(\x05R\tnodeCount\x12\x1b\n" +
-	"\tmax_nodes\x18\x05 \x01(\x05R\bmaxNodes\"\xb8\x01\n" +
+	"\tmax_nodes\x18\x05 \x01(\x05R\bmaxNodes\x12\"\n" +
+	"\rca_public_key\x18\x06 \x01(\fR\vcaPublicKey\"\xb8\x01\n" +
 	"\vJoinRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12\x1b\n" +
@@ -1109,7 +1131,7 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\"?\n" +
 	"\rLeaveResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"\xf4\x01\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\x98\x02\n" +
 	"\rHeartbeatPing\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1f\n" +
 	"\vcpu_percent\x18\x02 \x01(\x01R\n" +
@@ -1118,7 +1140,8 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\x0fcontainer_count\x18\x04 \x01(\x05R\x0econtainerCount\x12\x1c\n" +
 	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x12!\n" +
 	"\fdisk_percent\x18\x06 \x01(\x01R\vdiskPercent\x12\x18\n" +
-	"\aversion\x18\a \x01(\tR\aversion\"J\n" +
+	"\aversion\x18\a \x01(\tR\aversion\x12\"\n" +
+	"\fcapabilities\x18\b \x03(\tR\fcapabilities\"J\n" +
 	"\rHeartbeatPong\x12\x1b\n" +
 	"\tleader_id\x18\x01 \x01(\tR\bleaderId\x12\x1c\n" +
 	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\"\xeb\x01\n" +
