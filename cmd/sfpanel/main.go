@@ -237,7 +237,9 @@ func main() {
 			}
 			return nil, fmt.Errorf("gRPC listen %s: %w", grpcAddr, startErr)
 		}
-		middleware.SetClusterProxySecret(grpcServer.ProxySecret())
+		// Installs the CA-derived secret until the replicated one takes over;
+		// watchLeader keeps it current from then on.
+		mgr.ApplyProxySecrets()
 
 		// Stop gRPC server when manager shuts down
 		go func() {

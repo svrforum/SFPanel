@@ -63,6 +63,14 @@ type Manager struct {
 	// roleCertDone is set once EnsureRoleCert has succeeded; watchLeader
 	// stops trying after that.
 	roleCertDone atomic.Bool
+
+	// Internal proxy secrets as last applied (ApplyProxySecrets), and when
+	// this node, as leader, first saw the replicated secret
+	// (MaybeRotateProxySecret).
+	appliedSecretsMu  sync.Mutex
+	appliedSign       string
+	appliedAccept     []string
+	proxySecretSeenAt time.Time
 }
 
 // SetVersion sets the panel version for heartbeat reporting.
@@ -338,6 +346,12 @@ func (m *Manager) watchLeader() {
 					slog.Warn("could not give the node certificate its role yet", "component", "cluster", "error", err)
 				} else {
 					m.roleCertDone.Store(true)
+				}
+			}
+			m.ApplyProxySecrets()
+			if isLeader {
+				if err := m.MaybeRotateProxySecret(); err != nil && !errors.Is(err, ErrNotLeader) {
+					slog.Warn("internal proxy secret rotation step failed", "component", "cluster", "error", err)
 				}
 			}
 			// Rising edge → (re)seed the CA into the replicated FSM. This is the
@@ -1538,6 +1552,7 @@ func (m *Manager) StartLocalMetrics(collector MetricsCollector) {
 						DiskPercent:    disk,
 						Version:        m.version,
 						Timestamp:      metrics.Timestamp,
+						Capabilities:   []string{CapProxySecret},
 					})
 					if err != nil {
 						slog.Warn("heartbeat send failed", "component", "cluster", "error", err)

@@ -81,6 +81,8 @@ type NodeMetrics struct {
 	UptimeSeconds  int64   `json:"uptime_seconds"`
 	Version        string  `json:"version"`
 	Timestamp      int64   `json:"timestamp"`
+	// Capabilities the node reported on its heartbeat (CapProxySecret).
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // ClusterOverview aggregates metrics from all nodes.

@@ -454,6 +454,7 @@ func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 				ContainerCount: int(result.ping.ContainerCount),
 				Version:        result.ping.Version,
 				Timestamp:      result.ping.Timestamp,
+				Capabilities:   result.ping.Capabilities,
 			})
 
 			// Two-phase join: a node added as non-voter via HandleJoin gets
