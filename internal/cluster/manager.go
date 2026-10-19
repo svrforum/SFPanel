@@ -228,6 +228,7 @@ func (m *Manager) Init(clusterName string) error {
 		APIAddress:  apiAddr,
 		GRPCAddress: grpcAddr,
 		Role:        RoleVoter,
+		Kind:        KindManager,
 		Status:      StatusOnline,
 		JoinedAt:    time.Now(),
 		LastSeen:    time.Now(),
@@ -498,6 +499,7 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		// the joining side reports it's caught up. This keeps quorum stable
 		// across a mid-join crash on, e.g., a 2 → 3 voter growth.
 		Role:     RoleNonVoter,
+		Kind:     KindManager,
 		Status:   StatusOnline,
 		JoinedAt: time.Now(),
 		LastSeen: time.Now(),

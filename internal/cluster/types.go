@@ -12,6 +12,17 @@ const (
 	RoleNonVoter NodeRole = "nonvoter"
 )
 
+// NodeKind is what a node is to the cluster: a manager runs Raft and the
+// panel, an agent runs only the node-local handlers (2026-10-19 manager/agent
+// design). Empty is a manager — every node written before agents existed was
+// one.
+type NodeKind string
+
+const (
+	KindManager NodeKind = "manager"
+	KindAgent   NodeKind = "agent"
+)
+
 // NodeStatus tracks the health state of a node.
 type NodeStatus string
 
@@ -29,11 +40,16 @@ type Node struct {
 	APIAddress  string            `json:"api_address"`
 	GRPCAddress string            `json:"grpc_address"`
 	Role        NodeRole          `json:"role"`
+	Kind        NodeKind          `json:"kind,omitempty"`
 	Status      NodeStatus        `json:"status"`
 	Labels      map[string]string `json:"labels,omitempty"`
 	JoinedAt    time.Time         `json:"joined_at"`
 	LastSeen    time.Time         `json:"last_seen"`
 }
+
+// IsManager reports whether n is a manager. A record from before Kind
+// existed carries none and is one.
+func (n *Node) IsManager() bool { return n.Kind == "" || n.Kind == KindManager }
 
 // ClusterState holds the full cluster state managed by Raft FSM.
 type ClusterState struct {

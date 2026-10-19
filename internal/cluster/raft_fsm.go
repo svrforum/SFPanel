@@ -133,6 +133,9 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 			if update.Role != "" {
 				existing.Role = update.Role
 			}
+			if update.Kind != "" {
+				existing.Kind = update.Kind
+			}
 			if update.Labels != nil {
 				existing.Labels = update.Labels
 			}
@@ -315,6 +318,16 @@ func (f *FSM) GetNode(id string) *Node {
 		return &copy
 	}
 	return nil
+}
+
+// GetConfigValue returns one replicated config value without copying the
+// state: GetState copies every node, account and config entry, and the
+// caller-policy and proxy-secret paths read one key per request.
+func (f *FSM) GetConfigValue(key string) (string, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	v, ok := f.state.Config[key]
+	return v, ok
 }
 
 // GetAccount returns a specific account, or nil.
