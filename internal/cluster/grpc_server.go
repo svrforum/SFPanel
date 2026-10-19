@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -143,20 +144,94 @@ func requireClientCertStreamInterceptor(srv any, ss grpc.ServerStream, info *grp
 	return handler(srv, ss)
 }
 
-// extractPeerCN returns the CommonName of the verified mTLS client leaf
-// certificate on a gRPC context, or "" when no verified chain is present.
-// Node certs are issued with CN == node ID (IssueNodeCert), so the CN is
-// the transport-level node identity.
-func extractPeerCN(ctx context.Context) string {
+// peerLeaf returns the verified mTLS client leaf certificate on a gRPC
+// context, or nil when no verified chain is present.
+func peerLeaf(ctx context.Context) *x509.Certificate {
 	p, ok := peer.FromContext(ctx)
 	if !ok {
-		return ""
+		return nil
 	}
 	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
 	if !ok || len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
-		return ""
+		return nil
 	}
-	return tlsInfo.State.VerifiedChains[0][0].Subject.CommonName
+	return tlsInfo.State.VerifiedChains[0][0]
+}
+
+// extractPeerCN returns the CommonName of the verified client leaf, or "".
+// Node certs are issued with CN == node ID (IssueNodeCert), so the CN is the
+// transport-level node identity.
+func extractPeerCN(ctx context.Context) string {
+	if leaf := peerLeaf(ctx); leaf != nil {
+		return leaf.Subject.CommonName
+	}
+	return ""
+}
+
+// callerPolicy says who may call a method once mTLS has verified the
+// caller's certificate.
+type callerPolicy int
+
+const (
+	callerMember  callerPolicy = iota + 1 // any node in the FSM
+	callerManager                         // a manager node in the FSM
+)
+
+// methodPolicy is an allow-list: a method missing here is refused, so an RPC
+// added later stays closed until someone decides who may call it.
+// PreFlight and Join never reach it (unauthenticatedMethods).
+var methodPolicy = map[string]callerPolicy{
+	"/sfpanel.cluster.ClusterService/Heartbeat":    callerMember,
+	"/sfpanel.cluster.ClusterService/Leave":        callerMember, // for itself only: see Leave
+	"/sfpanel.cluster.ClusterService/GetMetrics":   callerMember,
+	"/sfpanel.cluster.ClusterService/Subscribe":    callerMember,
+	"/sfpanel.cluster.ClusterService/ProxyRequest": callerManager,
+}
+
+// authorizeCaller checks the verified peer certificate against methodPolicy.
+// Before this, any certificate the cluster CA signed could call anything —
+// proxy to any node, remove any node.
+func (s *GRPCServer) authorizeCaller(ctx context.Context, method string) error {
+	policy, ok := methodPolicy[method]
+	if !ok {
+		return status.Errorf(codes.PermissionDenied, "%s is not open to cluster members", method)
+	}
+	leaf := peerLeaf(ctx)
+	if leaf == nil {
+		return status.Error(codes.Unauthenticated, "client certificate required for this method")
+	}
+	if s.manager == nil || s.manager.raft == nil {
+		return status.Error(codes.Unavailable, "cluster state not available")
+	}
+	cn := leaf.Subject.CommonName
+	node := s.manager.raft.GetFSM().GetNode(cn)
+	if node == nil {
+		return status.Errorf(codes.PermissionDenied, "%s is not a member of this cluster (a node that has just joined learns its peers within seconds)", cn)
+	}
+	if policy == callerManager && (!node.IsManager() || CertRole(leaf) == CertRoleAgent) {
+		return status.Errorf(codes.PermissionDenied, "%s may not call %s", cn, method)
+	}
+	return nil
+}
+
+func (s *GRPCServer) authorizeUnary(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	if unauthenticatedMethods[info.FullMethod] {
+		return handler(ctx, req)
+	}
+	if err := s.authorizeCaller(ctx, info.FullMethod); err != nil {
+		return nil, err
+	}
+	return handler(ctx, req)
+}
+
+func (s *GRPCServer) authorizeStream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	if unauthenticatedMethods[info.FullMethod] {
+		return handler(srv, ss)
+	}
+	if err := s.authorizeCaller(ss.Context(), info.FullMethod); err != nil {
+		return err
+	}
+	return handler(srv, ss)
 }
 
 // recvResult is the message shape pushed onto the heartbeat recv channel.
@@ -192,20 +267,6 @@ func NewGRPCServer(mgr *Manager, localPort int, local LocalPanel) (*GRPCServer, 
 	}
 
 	creds := credentials.NewTLS(tlsConfig)
-	server := grpc.NewServer(
-		grpc.Creds(creds),
-		grpc.UnaryInterceptor(requireClientCertInterceptor),
-		grpc.StreamInterceptor(requireClientCertStreamInterceptor),
-		// Accept the keepalive pings our own clients send (see the constants
-		// in types.go). gRPC's default policy — 5-minute minimum, no pings on
-		// idle connections — would answer them with GOAWAY/ENHANCE_YOUR_CALM
-		// and tear down exactly the connections keepalive is meant to keep
-		// verifiable.
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             clusterKeepaliveMinTime,
-			PermitWithoutStream: true,
-		}),
-	)
 
 	// Derive proxy secret from CA cert (shared across all cluster nodes)
 	proxySecret := ""
@@ -216,12 +277,25 @@ func NewGRPCServer(mgr *Manager, localPort int, local LocalPanel) (*GRPCServer, 
 
 	s := &GRPCServer{
 		manager:     mgr,
-		server:      server,
 		localPort:   localPort,
 		proxySecret: proxySecret,
 		local:       local,
 	}
-	pb.RegisterClusterServiceServer(server, s)
+	s.server = grpc.NewServer(
+		grpc.Creds(creds),
+		grpc.ChainUnaryInterceptor(requireClientCertInterceptor, s.authorizeUnary),
+		grpc.ChainStreamInterceptor(requireClientCertStreamInterceptor, s.authorizeStream),
+		// Accept the keepalive pings our own clients send (see the constants
+		// in types.go). gRPC's default policy — 5-minute minimum, no pings on
+		// idle connections — would answer them with GOAWAY/ENHANCE_YOUR_CALM
+		// and tear down exactly the connections keepalive is meant to keep
+		// verifiable.
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             clusterKeepaliveMinTime,
+			PermitWithoutStream: true,
+		}),
+	)
+	pb.RegisterClusterServiceServer(s.server, s)
 
 	return s, nil
 }
@@ -310,6 +384,11 @@ func (s *GRPCServer) PreFlight(ctx context.Context, req *pb.PreFlightRequest) (*
 
 // Leave handles a node leave request.
 func (s *GRPCServer) Leave(ctx context.Context, req *pb.LeaveRequest) (*pb.LeaveResponse, error) {
+	// A member may take only itself out. Removing another node is the
+	// operator's call, made through the panel API on the leader.
+	if caller := extractPeerCN(ctx); caller != req.NodeId {
+		return nil, status.Errorf(codes.PermissionDenied, "%s may not remove %s", caller, req.NodeId)
+	}
 	if err := s.manager.RemoveNode(req.NodeId); err != nil {
 		return &pb.LeaveResponse{Success: false, Error: err.Error()}, nil
 	}
