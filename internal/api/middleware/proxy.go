@@ -192,10 +192,14 @@ func newRemoteHTTPClient(timeout time.Duration, mgr *cluster.Manager, endpoint c
 	if endpoint.TLSConfig != nil {
 		tlsCfg = endpoint.TLSConfig.Clone()
 	}
+	// Each relay builds its own client and sends one request with it (two for
+	// the SSE fallback): a connection kept alive after that would sit idle
+	// with nothing to reuse it, open on both nodes until one restarts.
 	return &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
-			TLSClientConfig: tlsCfg,
+			TLSClientConfig:   tlsCfg,
+			DisableKeepAlives: true,
 		},
 	}
 }
