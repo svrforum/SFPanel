@@ -4760,6 +4760,7 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 {
   "leader_address": "192.168.1.5:3629",
   "token": "join-token-string",
+  "ca_pin": "sha256:3f1c…",
   "advertise_address": "192.168.1.10",
   "grpc_port": 3629,
   "node_name": "worker-01"
@@ -4770,6 +4771,7 @@ data: {"phase":"done","message":"Migration complete.","done":true}
 |------|------|------|------|
 | `leader_address` | string | 예 | 리더 노드의 gRPC 주소 (host:port) |
 | `token` | string | 예 | 참가 토큰 |
+| `ca_pin` | string | 예 | 클러스터 CA 공개키(SPKI)의 sha256, `sha256:<hex>`. 리더의 토큰 화면과 `sfpanel cluster token`이 주는 값으로, 가입하는 노드는 이 값으로 리더 인증서를 검증합니다 |
 | `advertise_address` | string | 아니오 | Advertise 주소. 미지정 시 리더 네트워크 기반 자동 감지 |
 | `grpc_port` | number | 아니오 | gRPC 포트 (기본값: API 포트 + 1) |
 | `node_name` | string | 아니오 | 노드 표시 이름 |
@@ -5769,7 +5771,7 @@ WireGuard 키페어 생성 (`wg genkey` + `wg pubkey`).
 | GET | `/api/v1/cluster/status` | O | 클러스터 상태 (활성화 여부, 노드 수, 리더) |
 | GET | `/api/v1/cluster/overview` | O | 클러스터 개요 (노드 목록 + 집계 메트릭) |
 | GET | `/api/v1/cluster/nodes` | O | 노드 목록 (상태, 역할, 라벨) |
-| POST | `/api/v1/cluster/token` | O | 참가 토큰 생성 (TTL 지정 가능) |
+| POST | `/api/v1/cluster/token` | O | 참가 토큰 생성 (TTL 지정 가능). 응답: `token`, `expires_at`, `grpc_port`, `advertise_address`, `ca_pin`(가입 명령의 `--ca`) |
 | GET | `/api/v1/cluster/tokens` | O | 대기 중 참가 토큰 목록 (마스킹, v0.19.0+) |
 | DELETE | `/api/v1/cluster/tokens/:id` | O | 참가 토큰 폐기 (v0.19.0+) |
 | DELETE | `/api/v1/cluster/nodes/:id` | O | 노드 제거 (팔로워 요청은 리더로 전달, 리더 자신은 불가, `?force=`) |

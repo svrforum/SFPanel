@@ -309,19 +309,26 @@ func clusterInit(args []string) {
 func clusterJoin(args []string) {
 	cfgPath, rest := parseCfgFlag(args)
 	if len(rest) < 2 {
-		fmt.Println("Usage: sfpanel cluster join <leader-address:port> <token> [--advertise IP] [--config PATH]")
+		fmt.Println("Usage: sfpanel cluster join <leader-address:port> <token> --ca <fingerprint> [--advertise IP] [--config PATH]")
 		os.Exit(1)
 	}
 
 	leaderAddr := rest[0]
 	token := rest[1]
 
-	var advertise string
+	var advertise, caPin string
 	for i := 2; i < len(rest); i++ {
-		if rest[i] == "--advertise" && i+1 < len(rest) {
+		switch {
+		case rest[i] == "--advertise" && i+1 < len(rest):
 			advertise = rest[i+1]
 			i++
+		case rest[i] == "--ca" && i+1 < len(rest):
+			caPin = rest[i+1]
+			i++
 		}
+	}
+	if caPin == "" {
+		log.Fatal("Missing --ca: copy the join command from the leader's token page, or run 'sfpanel cluster token' on the leader.")
 	}
 
 	cfg, err := config.Load(cfgPath)
@@ -339,6 +346,7 @@ func clusterJoin(args []string) {
 		body := map[string]string{
 			"leader_address":    leaderAddr,
 			"token":             token,
+			"ca_pin":            caPin,
 			"advertise_address": advertise,
 		}
 		raw, err := callLocalAPI(cfg, "POST", "/api/v1/cluster/join", body)
@@ -366,7 +374,7 @@ func clusterJoin(args []string) {
 	}
 
 	fmt.Printf("Pre-flight check against %s...\n", leaderAddr)
-	pf, err := engine.PreFlight(leaderAddr, token)
+	pf, err := engine.PreFlight(leaderAddr, token, caPin)
 	if err != nil {
 		log.Fatalf("Pre-flight failed: %v", err)
 	}
@@ -381,7 +389,7 @@ func clusterJoin(args []string) {
 	}
 	fmt.Printf("  Advertise IP: %s (%s)\n", advertise, pf.IPReason)
 
-	result, err := engine.Execute(leaderAddr, token, advertise)
+	result, err := engine.Execute(leaderAddr, token, advertise, caPin)
 	if err != nil {
 		log.Fatalf("Join failed: %v", err)
 	}
@@ -681,6 +689,7 @@ func clusterToken(args []string) {
 			ExpiresAt        time.Time `json:"expires_at"`
 			AdvertiseAddress string    `json:"advertise_address"`
 			GRPCPort         int       `json:"grpc_port"`
+			CAPin            string    `json:"ca_pin"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
@@ -705,7 +714,7 @@ func clusterToken(args []string) {
 
 	fmt.Printf("Join token (expires: %s):\n\n", envelope.Data.ExpiresAt.Format(time.RFC3339))
 	fmt.Printf("  %s\n\n", envelope.Data.Token)
-	fmt.Print(joinInstructions(addr, grpcPort, envelope.Data.Token, sudoPrefix() != ""))
+	fmt.Print(joinInstructions(addr, grpcPort, envelope.Data.Token, envelope.Data.CAPin, sudoPrefix() != ""))
 }
 
 // installScriptURL is the installer the README's one-liner fetches.
@@ -717,10 +726,11 @@ const installScriptURL = "https://raw.githubusercontent.com/svrforum/SFPanel/mai
 // is its administrator, and neither has Debian installed with a root
 // password: there "sudo" stops the && chain before anything is installed.
 // The other server is likely the same kind as this one, so the form that
-// works here comes first.
-func joinInstructions(addr string, grpcPort int, token string, haveSudo bool) string {
+// works here comes first. --ca pins the cluster CA, so the joining server
+// verifies the leader before it sends the token.
+func joinInstructions(addr string, grpcPort int, token, caPin string, haveSudo bool) string {
 	forms := func(sudo string) (join, install string) {
-		join = fmt.Sprintf("%ssfpanel cluster join %s:%d %s", sudo, addr, grpcPort, token)
+		join = fmt.Sprintf("%ssfpanel cluster join %s:%d %s --ca %s", sudo, addr, grpcPort, token, caPin)
 		return join, fmt.Sprintf("curl -fsSL %s | %sbash && %s", installScriptURL, sudo, join)
 	}
 	first, other := "sudo ", ""

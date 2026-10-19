@@ -33,6 +33,7 @@ export function ClusterInitForm() {
   // Join form state
   const [leaderAddress, setLeaderAddress] = useState('')
   const [joinToken, setJoinToken] = useState('')
+  const [caPin, setCaPin] = useState('')
   const [joining, setJoining] = useState(false)
 
   useEffect(() => {
@@ -63,10 +64,10 @@ export function ClusterInitForm() {
   }
 
   const handleJoin = async () => {
-    if (!leaderAddress.trim() || !joinToken.trim()) return
+    if (!leaderAddress.trim() || !joinToken.trim() || !caPin.trim()) return
     setJoining(true)
     try {
-      await api.joinCluster(leaderAddress.trim(), joinToken.trim(), (addrPicked.current && selectedAddr) || undefined)
+      await api.joinCluster(leaderAddress.trim(), joinToken.trim(), caPin.trim(), (addrPicked.current && selectedAddr) || undefined)
       toast.success(t('cluster.join.success'))
       setRestarting(true)
       waitForServerBack({ onTimeout: () => window.location.reload() })
@@ -201,9 +202,22 @@ export function ClusterInitForm() {
           />
         </div>
 
+        <div className="space-y-1.5">
+          <label className="text-[11px] text-muted-foreground uppercase tracking-wider">
+            {t('cluster.join.caPin')}
+          </label>
+          <Input
+            value={caPin}
+            onChange={(e) => setCaPin(e.target.value)}
+            placeholder={t('cluster.join.caPinPlaceholder')}
+            className="h-9 rounded-xl bg-secondary/50 border-0 text-[13px] font-mono"
+          />
+          <p className="text-[11px] text-muted-foreground">{t('cluster.join.caPinDesc')}</p>
+        </div>
+
         <Button
           onClick={handleJoin}
-          disabled={joining || !leaderAddress.trim() || !joinToken.trim()}
+          disabled={joining || !leaderAddress.trim() || !joinToken.trim() || !caPin.trim()}
           variant="outline"
           className="w-full rounded-xl"
         >

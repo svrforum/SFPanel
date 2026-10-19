@@ -81,6 +81,24 @@ func DialNodeInsecure(address string) (*GRPCClient, error) {
 	}, nil
 }
 
+// DialNodePinned connects to a leader whose certificate must be signed by the
+// pinned cluster CA key (pinnedTLSConfig). Used for Join once PreFlight has
+// shown the leader holds the CA the operator was told to trust.
+func DialNodePinned(address string, caPublicKey []byte) (*GRPCClient, error) {
+	tlsCfg, err := pinnedTLSConfig(caPublicKey)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := grpc.NewClient(address,
+		grpc.WithTransportCredentials(credentials.NewTLS(tlsCfg)),
+		clusterKeepaliveDialOption(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("dial %s: %w", address, err)
+	}
+	return &GRPCClient{conn: conn, client: pb.NewClusterServiceClient(conn)}, nil
+}
+
 // Join sends a join request to the leader.
 func (c *GRPCClient) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)

@@ -3,9 +3,11 @@ package cluster
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -1022,6 +1024,24 @@ func (m *Manager) SeedClusterCA() error {
 	}
 	slog.Info("seeded cluster CA into replicated state", "component", "cluster")
 	return nil
+}
+
+// CAPublicKey returns the cluster CA's public key (DER SubjectPublicKeyInfo),
+// what a joining node pins.
+func (m *Manager) CAPublicKey() ([]byte, error) {
+	caPEM, err := m.tls.LoadCACert()
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(caPEM)
+	if block == nil {
+		return nil, errors.New("cluster CA certificate is not PEM")
+	}
+	ca, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	return ca.RawSubjectPublicKeyInfo, nil
 }
 
 // EnsureRoleCert reissues this manager's node certificate with the manager

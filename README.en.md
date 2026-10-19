@@ -288,7 +288,7 @@ sfpanel help                      # help
 ```bash
 sfpanel cluster init [--name NAME] [--advertise IP]   # initialize a cluster
 sfpanel cluster token [--ttl DURATION]                 # generate a join token (prints the join command to run)
-sfpanel cluster join ADDR:PORT TOKEN [--advertise IP]  # join a cluster (ADDR = the leader, PORT = 3629)
+sfpanel cluster join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP]  # join a cluster (ADDR = the leader, PORT = 3629, FINGERPRINT = the CA fingerprint on the token page)
 sfpanel cluster status                                 # check cluster status
 sfpanel cluster list                                   # list nodes
 sfpanel cluster remove NODE_ID                         # remove a node
@@ -418,7 +418,7 @@ sudo sfpanel cluster init --name my-cluster --advertise <existing-node-ip>
 sudo sfpanel cluster token      # prints the line to paste on the new server, leader address and token filled in
 
 # New server — install and join in one line (no setup wizard needed)
-curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash && sudo sfpanel cluster join <leader-ip>:3629 <token>
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash && sudo sfpanel cluster join <leader-ip>:3629 <token> --ca <ca-fingerprint>
 
 # Check — done when the new node shows follower / online within a minute
 sudo sfpanel cluster list

@@ -191,7 +191,8 @@ func TestSaveConfigWritesRestrictivePerms(t *testing.T) {
 // every command comes both ways, the root ones without sudo anywhere, and the
 // form that works on this host comes first.
 func TestJoinInstructions(t *testing.T) {
-	join := "sfpanel cluster join 192.0.2.10:3629 tok123"
+	pin := "sha256:" + strings.Repeat("ab", 32)
+	join := "sfpanel cluster join 192.0.2.10:3629 tok123 --ca " + pin
 	install := "curl -fsSL " + installScriptURL + " | bash && " + join
 	sudoJoin := "sudo " + join
 	sudoInstall := "curl -fsSL " + installScriptURL + " | sudo bash && sudo " + join
@@ -200,7 +201,7 @@ func TestJoinInstructions(t *testing.T) {
 		haveSudo bool
 		first    string
 	}{{true, sudoJoin}, {false, join}} {
-		out := joinInstructions("192.0.2.10", 3629, "tok123", tc.haveSudo)
+		out := joinInstructions("192.0.2.10", 3629, "tok123", pin, tc.haveSudo)
 		var commands []string
 		for _, line := range strings.Split(out, "\n") {
 			if strings.HasPrefix(line, "  ") {

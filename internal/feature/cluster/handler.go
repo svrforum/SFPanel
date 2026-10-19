@@ -440,6 +440,7 @@ func (h *Handler) JoinCluster(c echo.Context) error {
 	var body struct {
 		LeaderAddress    string `json:"leader_address"`
 		Token            string `json:"token"`
+		CAPin            string `json:"ca_pin"`
 		AdvertiseAddress string `json:"advertise_address"`
 	}
 	if err := c.Bind(&body); err != nil {
@@ -447,6 +448,11 @@ func (h *Handler) JoinCluster(c echo.Context) error {
 	}
 	if body.LeaderAddress == "" || body.Token == "" {
 		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "leader_address and token are required")
+	}
+	pin, err := cluster.NormalizeCAPin(body.CAPin)
+	if err != nil {
+		return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest,
+			"ca_pin is required: copy the join command from the leader's token page ("+err.Error()+")")
 	}
 
 	engine := &cluster.JoinEngine{
@@ -457,7 +463,7 @@ func (h *Handler) JoinCluster(c echo.Context) error {
 	}
 
 	// Pre-flight check
-	pfResult, err := engine.PreFlight(body.LeaderAddress, body.Token)
+	pfResult, err := engine.PreFlight(body.LeaderAddress, body.Token, pin)
 	if err != nil {
 		return response.Fail(c, http.StatusBadGateway, response.ErrInternalError, err.Error())
 	}
@@ -468,7 +474,7 @@ func (h *Handler) JoinCluster(c echo.Context) error {
 	}
 
 	// Execute join
-	result, err := engine.Execute(body.LeaderAddress, body.Token, advertise)
+	result, err := engine.Execute(body.LeaderAddress, body.Token, advertise, pin)
 	if err != nil {
 		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, err.Error())
 	}
@@ -737,15 +743,22 @@ func (h *Handler) CreateToken(c echo.Context) error {
 		return clusterErrResponse(c, err)
 	}
 
+	caKey, err := mgr.CAPublicKey()
+	if err != nil {
+		return response.Fail(c, http.StatusInternalServerError, response.ErrInternalError, "cluster CA unavailable")
+	}
+
 	// Include the cluster's gRPC port + advertise address so the UI can
 	// render an exact-paste join command without hardcoding the legacy
-	// 9443 port that no longer matches the default install (3629).
+	// 9443 port that no longer matches the default install (3629), and the
+	// CA fingerprint the joining node verifies the leader against.
 	cfg := mgr.GetConfig()
 	return response.OK(c, map[string]interface{}{
 		"token":             token.Token,
 		"expires_at":        token.ExpiresAt,
 		"grpc_port":         cfg.GRPCPort,
 		"advertise_address": cfg.AdvertiseAddress,
+		"ca_pin":            cluster.CAPin(caKey),
 	})
 }
 

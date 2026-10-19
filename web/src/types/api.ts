@@ -1055,6 +1055,8 @@ export interface ClusterTokenResponse {
   expires_at: string
   grpc_port?: number
   advertise_address?: string
+  /** sha256 of the cluster CA public key; the join command's --ca */
+  ca_pin?: string
 }
 
 export interface ClusterTokenInfo {

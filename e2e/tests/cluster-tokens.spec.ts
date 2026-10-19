@@ -5,6 +5,7 @@ import { test, expect, type Page } from '@playwright/test'
 // the && chain before anything is installed. Mocked API.
 test.use({ viewport: { width: 1280, height: 800 }, locale: 'en-US' })
 
+const pin = 'sha256:' + 'ab'.repeat(32)
 const node = { id: 'node-a', name: 'pve1', role: 'voter', status: 'online', api_address: '192.0.2.10:3628', grpc_address: '192.0.2.10:3629', joined_at: '2026-01-01T00:00:00Z', last_seen: '2026-01-01T00:00:00Z' }
 
 async function mock(page: Page) {
@@ -21,7 +22,7 @@ async function mock(page: Page) {
     else if (path === '/cluster/overview') data = { name: 'homelab', node_count: 1, leader_id: 'node-a', nodes: [node], metrics: [] }
     else if (path === '/cluster/events') data = { events: [] }
     else if (path === '/cluster/tokens') data = { tokens: [] }
-    else if (path === '/cluster/token') data = { token: 'tok123', expires_at: '2026-01-02T00:00:00Z', advertise_address: '192.0.2.10', grpc_port: 3629 }
+    else if (path === '/cluster/token') data = { token: 'tok123', expires_at: '2026-01-02T00:00:00Z', advertise_address: '192.0.2.10', grpc_port: 3629, ca_pin: pin }
     await route.fulfill({ json: { success: true, data } })
   })
   await page.routeWebSocket(/\/ws\//, () => {})
@@ -32,7 +33,7 @@ test('the join commands leave sudo out for a server whose operator is root', asy
   await page.goto('/cluster/tokens')
   await page.getByRole('button', { name: 'Generate Token' }).click()
 
-  const join = 'sfpanel cluster join 192.0.2.10:3629 tok123'
+  const join = `sfpanel cluster join 192.0.2.10:3629 tok123 --ca ${pin}`
   const installer = 'curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh'
   await expect(page.getByText(`sudo ${join}`, { exact: true })).toBeVisible()
   await expect(page.getByText(`${installer} | sudo bash && sudo ${join}`, { exact: true })).toBeVisible()

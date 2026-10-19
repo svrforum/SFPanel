@@ -2,7 +2,9 @@ package cluster
 
 import (
 	"context"
+	"crypto/x509"
 	"database/sql"
+	"encoding/pem"
 	"fmt"
 	"github.com/svrforum/SFPanel/internal/auth"
 	"log/slog"
@@ -65,6 +67,9 @@ type PreFlightResult struct {
 	MaxNodes      int
 	RecommendedIP string
 	IPReason      string
+	// CAPublicKey is the cluster CA key the leader showed, already checked
+	// against the pin.
+	CAPublicKey []byte
 }
 
 // JoinResult contains the result of a successful join.
@@ -76,7 +81,11 @@ type JoinResult struct {
 }
 
 // PreFlight validates that a join can succeed before committing any changes.
-func (e *JoinEngine) PreFlight(leaderAddr, token string) (*PreFlightResult, error) {
+func (e *JoinEngine) PreFlight(leaderAddr, token, pin string) (*PreFlightResult, error) {
+	pin, err := NormalizeCAPin(pin)
+	if err != nil {
+		return nil, err
+	}
 	// Step 1: TCP connection test
 	conn, err := net.DialTimeout("tcp", leaderAddr, 3*time.Second)
 	if err != nil {
@@ -97,6 +106,9 @@ func (e *JoinEngine) PreFlight(leaderAddr, token string) (*PreFlightResult, erro
 	}
 	if !resp.Valid {
 		return nil, fmt.Errorf("%s", preFlightErrorMessage(resp.Error))
+	}
+	if err := checkPreFlightPin(resp, pin, leaderAddr); err != nil {
+		return nil, err
 	}
 
 	// Step 3: Local gRPC port check
@@ -131,11 +143,16 @@ func (e *JoinEngine) PreFlight(leaderAddr, token string) (*PreFlightResult, erro
 		MaxNodes:      int(resp.MaxNodes),
 		RecommendedIP: recommendedIP,
 		IPReason:      ipReason,
+		CAPublicKey:   resp.CaPublicKey,
 	}, nil
 }
 
 // Execute runs the full join pipeline: gRPC join -> certs -> config -> live activate.
-func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr string) (*JoinResult, error) {
+func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*JoinResult, error) {
+	pin, err := NormalizeCAPin(pin)
+	if err != nil {
+		return nil, err
+	}
 	if advertiseAddr == "" {
 		detected, err := DetectAdvertiseAddress(leaderAddr)
 		if err != nil {
@@ -156,8 +173,25 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr string) (*JoinResu
 
 	slog.Info("joining cluster", "component", "cluster", "leader", leaderAddr, "advertise", advertiseAddr)
 
-	// Step 1: gRPC Join RPC
-	client, err := DialNodeInsecure(leaderAddr)
+	// Step 1: learn the CA key over an unverified connection — there is
+	// nothing to verify with yet — and keep it only if it is the pinned one.
+	insecure, err := DialNodeInsecure(leaderAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to leader: %w", err)
+	}
+	pf, err := insecure.PreFlight(context.Background(), token)
+	insecure.Close()
+	if err != nil {
+		return nil, fmt.Errorf("pre-flight request failed: %w", err)
+	}
+	if !pf.Valid {
+		return nil, fmt.Errorf("%s", preFlightErrorMessage(pf.Error))
+	}
+	if err := checkPreFlightPin(pf, pin, leaderAddr); err != nil {
+		return nil, err
+	}
+	// Step 2: Join over a connection that verifies the leader against that key.
+	client, err := DialNodePinned(leaderAddr, pf.CaPublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to leader: %w", err)
 	}
@@ -175,6 +209,11 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr string) (*JoinResu
 	}
 	if !resp.Success {
 		return nil, fmt.Errorf("join rejected: %s", resp.Error)
+	}
+	if block, _ := pem.Decode(resp.CaCert); block == nil {
+		return nil, fmt.Errorf("join response carried no CA certificate")
+	} else if ca, perr := x509.ParseCertificate(block.Bytes); perr != nil || CAPin(ca.RawSubjectPublicKeyInfo) != pin {
+		return nil, fmt.Errorf("the CA in the join response is not the pinned one")
 	}
 
 	// Backup original config for rollback

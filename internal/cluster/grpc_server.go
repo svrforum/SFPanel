@@ -374,11 +374,16 @@ func (s *GRPCServer) PreFlight(ctx context.Context, req *pb.PreFlightRequest) (*
 	if err != nil {
 		return &pb.PreFlightResponse{Valid: false, Error: err.Error()}, nil
 	}
+	caKey, err := s.manager.CAPublicKey()
+	if err != nil {
+		return &pb.PreFlightResponse{Valid: false, Error: "cluster CA unavailable"}, nil
+	}
 	return &pb.PreFlightResponse{
 		Valid:       true,
 		ClusterName: clusterName,
 		NodeCount:   int32(nodeCount),
 		MaxNodes:    int32(maxNodes),
+		CaPublicKey: caKey,
 	}, nil
 }
 

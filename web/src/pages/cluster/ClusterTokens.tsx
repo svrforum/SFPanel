@@ -53,10 +53,11 @@ export default function ClusterTokens() {
   const [token, setToken] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
   const [grpcPort, setGrpcPort] = useState<number>(3629)
+  const [caPin, setCaPin] = useState('')
   const [advertise, setAdvertise] = useState<string>('<leader-ip>')
   const [asRoot, setAsRoot] = useState(false)
   const [activeTokens, setActiveTokens] = useState<ClusterTokenInfo[]>([])
-  const commands = joinCommands(advertise, grpcPort, token, asRoot)
+  const commands = joinCommands(advertise, grpcPort, token, caPin, asRoot)
 
   const loadTokens = () => {
     api.listClusterTokens()
@@ -73,6 +74,7 @@ export default function ClusterTokens() {
     try {
       const result = await api.createClusterToken(ttl)
       setToken(result.token)
+      setCaPin(result.ca_pin ?? '')
       setExpiresAt(result.expires_at)
       if (result.grpc_port) setGrpcPort(result.grpc_port)
       if (result.advertise_address) setAdvertise(result.advertise_address)

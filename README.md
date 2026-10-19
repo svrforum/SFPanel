@@ -286,7 +286,7 @@ sfpanel help                      # 도움말
 ```bash
 sfpanel cluster init [--name NAME] [--advertise IP]   # 클러스터 초기화
 sfpanel cluster token [--ttl DURATION]                 # 조인 토큰 생성 (실행할 join 명령을 그대로 출력)
-sfpanel cluster join ADDR:PORT TOKEN [--advertise IP]  # 클러스터 참여 (ADDR = 리더, PORT = 3629)
+sfpanel cluster join ADDR:PORT TOKEN --ca FINGERPRINT [--advertise IP]  # 클러스터 참여 (ADDR = 리더, PORT = 3629, FINGERPRINT = 토큰 화면의 CA 지문)
 sfpanel cluster status                                 # 클러스터 상태 확인
 sfpanel cluster list                                   # 노드 목록
 sfpanel cluster remove NODE_ID                         # 노드 제거
@@ -416,7 +416,7 @@ sudo sfpanel cluster init --name my-cluster --advertise <기존-노드-IP>
 sudo sfpanel cluster token      # 새 서버에 붙여 넣을 한 줄을 리더 주소·토큰까지 채워 출력합니다
 
 # 새 서버 — 설치부터 가입까지 한 줄로(셋업 위저드는 필요 없음)
-curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash && sudo sfpanel cluster join <리더-IP>:3629 <token>
+curl -fsSL https://raw.githubusercontent.com/svrforum/SFPanel/main/scripts/install.sh | sudo bash && sudo sfpanel cluster join <리더-IP>:3629 <token> --ca <CA 지문>
 
 # 확인 — 새 노드가 1분 안에 follower / online으로 보이면 끝
 sudo sfpanel cluster list

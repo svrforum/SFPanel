@@ -2474,10 +2474,10 @@ class ApiClient {
     })
   }
 
-  joinCluster(leaderAddress: string, token: string, advertiseAddress?: string) {
+  joinCluster(leaderAddress: string, token: string, caPin: string, advertiseAddress?: string) {
     return this.request<{ message: string; cluster_name: string; node_id: string; restart: boolean }>('/cluster/join', {
       method: 'POST',
-      body: JSON.stringify({ leader_address: leaderAddress, token, advertise_address: advertiseAddress }),
+      body: JSON.stringify({ leader_address: leaderAddress, token, ca_pin: caPin, advertise_address: advertiseAddress }),
     })
   }
 
