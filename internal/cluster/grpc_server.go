@@ -3,9 +3,7 @@ package cluster
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/x509"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -70,11 +68,10 @@ func requiresLongLocalTimeout(path string) bool {
 // GRPCServer serves the ClusterService.
 type GRPCServer struct {
 	pb.UnimplementedClusterServiceServer
-	manager     *Manager
-	server      *grpc.Server
-	listener    net.Listener
-	localPort   int
-	proxySecret string
+	manager   *Manager
+	server    *grpc.Server
+	listener  net.Listener
+	localPort int
 	// local describes how to reach this node's own panel port. It replaces the
 	// former hardcoded "http://127.0.0.1:%d" so the hop follows the panel when
 	// it moves to TLS — this is the choke point for EVERY gRPC-relayed
@@ -270,18 +267,10 @@ func NewGRPCServer(mgr *Manager, localPort int, local LocalPanel) (*GRPCServer, 
 
 	creds := credentials.NewTLS(tlsConfig)
 
-	// Derive proxy secret from CA cert (shared across all cluster nodes)
-	proxySecret := ""
-	if caCert, caErr := mgr.GetTLS().LoadCACert(); caErr == nil {
-		hash := sha256.Sum256(caCert)
-		proxySecret = hex.EncodeToString(hash[:])
-	}
-
 	s := &GRPCServer{
-		manager:     mgr,
-		localPort:   localPort,
-		proxySecret: proxySecret,
-		local:       local,
+		manager:   mgr,
+		localPort: localPort,
+		local:     local,
 	}
 	s.server = grpc.NewServer(
 		grpc.Creds(creds),
@@ -498,8 +487,8 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 	}
 
 	// Copy headers from the inbound gRPC request, but skip the auth
-	// credentials: Authorization and the internal-proxy secrets are set
-	// fresh below from THIS node's secrets, never trusted from the peer.
+	// credentials: the internal-proxy header is set fresh below from THIS
+	// node's secret, and neither it nor Authorization is trusted from the peer.
 	//
 	// X-SFPanel-Original-User / X-SFPanel-Original-Node are deliberately NOT
 	// skipped. They carry the identity the *forwarding* node already
@@ -528,14 +517,14 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 	}
 
 	// Use internal proxy authentication (bypasses JWT validation): v2-only
-	// (HMAC + nonce + timestamp). The loopback receiver is this same binary,
-	// which accepts v2; the v1 static-secret header is no longer sent.
-	if s.proxySecret != "" {
-		if v2 := auth.SignProxyRequestV2(req.Method, req.Path); v2 != "" {
-			httpReq.Header.Set("X-SFPanel-Internal-Proxy-V2", v2)
-		}
-	} else if req.AuthToken != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+req.AuthToken)
+	// (HMAC + nonce + timestamp), signed with the secret this node has
+	// installed. The loopback receiver is this same binary, which accepts v2;
+	// the v1 static-secret header is no longer sent. The sender's AuthToken is
+	// never used: it was the operator's access token, and a node with no
+	// secret installed must send the hop bare and be refused, not run it on
+	// that token.
+	if v2 := auth.SignProxyRequestV2(req.Method, req.Path); v2 != "" {
+		httpReq.Header.Set("X-SFPanel-Internal-Proxy-V2", v2)
 	}
 
 	// Execute locally (reuse connection pool). Long-running paths get the

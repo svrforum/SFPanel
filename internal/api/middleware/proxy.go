@@ -5,10 +5,12 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -147,16 +149,24 @@ func copyEndToEndHeaders(dst, src http.Header) {
 }
 
 // buildRelayURL composes the absolute URL for a remote node forwarding
-// request, dropping the local "node=" param so we don't loop.
+// request, with the query relayQuery leaves.
 func buildRelayURL(req *http.Request, targetNode *cluster.Node, mgr *cluster.Manager) string {
 	baseURL := mgr.PanelEndpointFor(targetNode).BaseURL
-	query := req.URL.Query()
-	query.Del("node")
 	url := baseURL + req.URL.Path
-	if encoded := query.Encode(); encoded != "" {
+	if encoded := relayQuery(req.URL.Query()); encoded != "" {
 		url += "?" + encoded
 	}
 	return url
+}
+
+// relayQuery is the query string a forwarded request carries: without the
+// routing "node=" param, so we don't loop, and without the ?token=/?ticket=
+// the browser authenticated to this node with (the thumbnail and download
+// URLs carry the access token) — the target is authenticated by the
+// internal-proxy header, and the operator's credentials are not its to hold.
+func relayQuery(q url.Values) string {
+	q.Del("node")
+	return cluster.StripAuthParams(q.Encode())
 }
 
 // newRemoteHTTPClient creates an HTTP client for remote node communication.
@@ -277,6 +287,13 @@ func executeHTTPRelay(
 	// target trusts more than a forwarded user JWT.
 	copyEndToEndHeaders(httpReq.Header, req.Header)
 	httpReq.Header.Del("Authorization")
+	// Nor the rest of the browser's session with this node: the refresh and
+	// CSRF cookies and the CSRF token are this node's credentials, and the
+	// relay target has no reason to receive them. Original-Node is the
+	// forwarding node's to state, never a client's.
+	httpReq.Header.Del("Cookie")
+	httpReq.Header.Del("X-CSRF-Token")
+	httpReq.Header.Del("X-SFPanel-Original-Node")
 	// Never forward client-supplied internal-proxy headers. Before the v1
 	// send was dropped, setAuthHeaders overwrote the v1 slot on every relay;
 	// now nothing does, so without this Del a JWT-authenticated client could
@@ -325,10 +342,8 @@ func executeHTTPRelay(
 func relaySSE(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
 	req := c.Request()
 	baseURL := mgr.PanelEndpointFor(targetNode).BaseURL
-	query := req.URL.Query()
-	query.Del("node")
 	queryStr := ""
-	if encoded := query.Encode(); encoded != "" {
+	if encoded := relayQuery(req.URL.Query()); encoded != "" {
 		queryStr = "?" + encoded
 	}
 
@@ -478,22 +493,19 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 
 			nodeID := c.QueryParam("node")
 
-			// No node param or self → local execution
+			// No node param or self → local execution. proxyTargetFor says
+			// the same; answering here first keeps the common case from
+			// copying the replicated node table on every request.
 			if nodeID == "" || nodeID == mgr.LocalNodeID() {
 				return next(c)
 			}
 
-			// Find target node
-			var targetNode *cluster.Node
-			for _, n := range mgr.GetNodes() {
-				if n.ID == nodeID || n.Name == nodeID {
-					targetNode = n
-					break
-				}
-			}
-
-			if targetNode == nil {
+			targetNode, local, err := proxyTargetFor(c.Request().URL.Path, nodeID, mgr.LocalNodeID(), mgr.GetNodes())
+			if err != nil {
 				return response.Fail(c, http.StatusBadRequest, response.ErrInvalidRequest, "Node not found: "+nodeID)
+			}
+			if local {
+				return next(c)
 			}
 
 			// Don't pre-refuse on heartbeat status. Even the leader's view goes
@@ -533,20 +545,39 @@ func ClusterProxyMiddleware(getMgr func() *cluster.Manager) echo.MiddlewareFunc 
 	}
 }
 
-// proxyToNodeGRPC carries the gRPC-unary proxy body so it can be invoked
-// outside the middleware (e.g. from ProxyToLeader). The middleware's
-// ClusterProxyMiddleware delegates here after deciding routing; FSM-write
-// handlers call ProxyToLeader which in turn calls here with the leader as
-// target. Header trust rules — strip Authorization / X-SFPanel-Original-User /
-// X-SFPanel-Original-Node / X-SFPanel-Internal-Proxy* from the inbound copy,
-// re-set them from this-node-authoritative sources — are uniform across
-// both call sites; see middleware/CLAUDE.md for the rationale.
+// errProxyNodeNotFound is proxyTargetFor's answer for a ?node= that names no
+// member; the middleware turns it into its 400.
+var errProxyNodeNotFound = errors.New("node not found")
+
+// proxyTargetFor decides where a request carrying ?node=nodeParam runs:
+// locally, or on target.
 //
-// Side effect: drains c.Request().Body into bodyBytes. Callers must NOT
-// expect the body to be re-readable after this returns. The current call
-// sites (ClusterProxyMiddleware, ProxyToLeader) all treat the proxy as
-// terminal — they return the relay response directly and never fall back
-// to a local handler that would need the body.
+// An exact node ID wins over a name. The node list comes out of a map, so a
+// single search over IDs and names together was answered by iteration order:
+// a node named after another node's ID could take that node's requests.
+func proxyTargetFor(path, nodeParam, localID string, nodes []*cluster.Node) (target *cluster.Node, local bool, err error) {
+	if nodeParam == "" || nodeParam == localID {
+		return nil, true, nil
+	}
+	// The session, refresh row and cookies belong to the node the browser
+	// talks to; /auth/logout forwarded elsewhere left the issuing node's
+	// refresh row alive.
+	if strings.HasPrefix(path, "/api/v1/auth/") {
+		return nil, true, nil
+	}
+	for _, n := range nodes {
+		if n.ID == nodeParam {
+			return n, false, nil
+		}
+	}
+	for _, n := range nodes {
+		if n.Name == nodeParam {
+			return n, false, nil
+		}
+	}
+	return nil, false, errProxyNodeNotFound
+}
+
 // longProxyPaths are the operations the target node deliberately allows five
 // minutes for.
 //
@@ -583,21 +614,25 @@ func proxyTimeoutFor(path string) time.Duration {
 	return 30 * time.Second
 }
 
-func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
+// buildProxyAPIRequest is the gRPC request that forwards c to another node.
+//
+// It carries the operator's identity and nothing they authenticate with. The
+// receiving gRPC server signs its own loopback hop, so the far side needs no
+// credential, and whatever went along was handed to the target: the access
+// token (Authorization, which also used to ride in AuthToken — accepted by
+// every manager for a day by default), the refresh and CSRF cookies, the CSRF
+// token, and ?token=/?ticket= (relayQuery). Original-User and Original-Node
+// are re-set from this node's own state, never copied from the request.
+func buildProxyAPIRequest(c echo.Context, localNodeID string, body []byte) *pb.APIRequest {
 	req := c.Request()
-	var bodyBytes []byte
-	if req.Body != nil {
-		bodyBytes, _ = io.ReadAll(req.Body)
-		req.Body.Close()
-	}
-
 	headers := make(map[string]string)
 	for k, v := range req.Header {
 		if len(v) == 0 {
 			continue
 		}
 		switch http.CanonicalHeaderKey(k) {
-		case "Authorization", "X-Sfpanel-Original-User", "X-Sfpanel-Original-Node",
+		case "Authorization", "Cookie", "X-Csrf-Token",
+			"X-Sfpanel-Original-User", "X-Sfpanel-Original-Node",
 			"X-Sfpanel-Internal-Proxy", "X-Sfpanel-Internal-Proxy-V2":
 			continue
 		}
@@ -610,11 +645,9 @@ func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Mana
 	// initiated the forward. The leader's audit / security-event writers
 	// stamp the row with this ID so a forensic reviewer can attribute the
 	// action to the node where the user actually authenticated, not the
-	// leader where it landed. mgr is non-nil at every call site (the
-	// middleware's getMgr nil-check and ProxyToLeader's mgr-nil check both
-	// gate this code), so dereferencing is safe.
-	if nid := mgr.LocalNodeID(); nid != "" {
-		headers["X-SFPanel-Original-Node"] = nid
+	// leader where it landed.
+	if localNodeID != "" {
+		headers["X-SFPanel-Original-Node"] = localNodeID
 	}
 	// X-Forwarded-For preserves the original client IP across the
 	// follower→leader hop. Without this, the leader's c.RealIP() returns
@@ -630,24 +663,42 @@ func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Mana
 		headers["X-Forwarded-For"] = c.RealIP()
 	}
 
-	authToken := ""
-	if auth := req.Header.Get("Authorization"); len(auth) > 7 {
-		authToken = auth[7:] // Strip "Bearer "
+	path := req.URL.Path
+	if encoded := relayQuery(req.URL.Query()); encoded != "" {
+		path += "?" + encoded
 	}
+	return &pb.APIRequest{
+		Method:  req.Method,
+		Path:    path,
+		Body:    body,
+		Headers: headers,
+	}
+}
 
-	apiReq := &pb.APIRequest{
-		Method:    req.Method,
-		Path:      req.URL.Path,
-		Body:      bodyBytes,
-		Headers:   headers,
-		AuthToken: authToken,
+// proxyToNodeGRPC carries the gRPC-unary proxy body so it can be invoked
+// outside the middleware (e.g. from ProxyToLeader). The middleware's
+// ClusterProxyMiddleware delegates here after deciding routing; FSM-write
+// handlers call ProxyToLeader which in turn calls here with the leader as
+// target. Both get their request from buildProxyAPIRequest, so the header
+// trust rules are uniform across the call sites; see middleware/CLAUDE.md
+// for the rationale.
+//
+// Side effect: drains c.Request().Body into bodyBytes. Callers must NOT
+// expect the body to be re-readable after this returns. The current call
+// sites (ClusterProxyMiddleware, ProxyToLeader) all treat the proxy as
+// terminal — they return the relay response directly and never fall back
+// to a local handler that would need the body.
+func proxyToNodeGRPC(c echo.Context, targetNode *cluster.Node, mgr *cluster.Manager) error {
+	req := c.Request()
+	var bodyBytes []byte
+	if req.Body != nil {
+		bodyBytes, _ = io.ReadAll(req.Body)
+		req.Body.Close()
 	}
-
-	query := req.URL.Query()
-	query.Del("node")
-	if encoded := query.Encode(); encoded != "" {
-		apiReq.Path = req.URL.Path + "?" + encoded
-	}
+	// mgr is non-nil at every call site (the middleware's getMgr nil-check
+	// and ProxyToLeader's mgr-nil check both gate this code), so
+	// dereferencing is safe.
+	apiReq := buildProxyAPIRequest(c, mgr.LocalNodeID(), bodyBytes)
 
 	proxyTimeout := proxyTimeoutFor(req.URL.Path)
 	ctx, cancel := context.WithTimeout(c.Request().Context(), proxyTimeout)

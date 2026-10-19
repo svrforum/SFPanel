@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/svrforum/SFPanel/internal/auth"
 	pb "github.com/svrforum/SFPanel/internal/cluster/proto"
 	"github.com/svrforum/SFPanel/internal/common/safe"
 	"github.com/svrforum/SFPanel/internal/config"
@@ -121,37 +120,18 @@ func (m *Manager) GetConnPool() *ConnPool {
 	return m.connPool
 }
 
-// ProxyToNode issues an authenticated gRPC ProxyRequest to another node's local
-// HTTP handler and returns the status + body. Auth uses the cluster-internal
-// proxy secret (replay-resistant v2 HMAC; the receiving gRPC server re-signs
-// for its loopback hop) and carries `username` as the
-// already-authenticated operator identity for audit attribution. For small
-// requests/responses only — the gRPC unary path caps the response near 4 MB;
-// large transfers must use the HTTP relay path instead.
+// ProxyToNode issues a gRPC ProxyRequest to another node's local HTTP handler
+// and returns the status + body. The call is authenticated by mTLS; the
+// receiving gRPC server signs its own loopback hop, and `username` rides along
+// as the already-authenticated operator identity for audit attribution. For
+// small requests/responses only — the gRPC unary path caps the response near
+// 4 MB; large transfers must use the HTTP relay path instead.
 func (m *Manager) ProxyToNode(ctx context.Context, nodeID, method, path string, body []byte, username string) (int, []byte, error) {
 	node := m.GetNode(nodeID)
 	if node == nil {
 		return 0, nil, fmt.Errorf("unknown node %q", nodeID)
 	}
-	headers := map[string]string{}
-	if m.ProxySecret() != "" {
-		if v2 := auth.SignProxyRequestV2(method, path); v2 != "" {
-			headers[auth.InternalProxyHeaderV2] = v2
-		}
-	}
-	if username != "" {
-		headers["X-SFPanel-Original-User"] = username
-	}
-	if len(body) > 0 {
-		// Echo's c.Bind() refuses a body with no Content-Type (415), which the
-		// receiving handler surfaces as a 400. Every caller before the panel-CA
-		// publish used GET with a nil body, so the omission stayed latent until
-		// the first JSON POST went through here. Set it at the transport rather
-		// than in each caller: the gRPC path carries only what this map puts on
-		// the request, and the next caller would hit the same wall.
-		headers["Content-Type"] = "application/json"
-	}
-	req := &pb.APIRequest{Method: method, Path: path, Body: body, Headers: headers}
+	req := &pb.APIRequest{Method: method, Path: path, Body: body, Headers: proxyToNodeHeaders(username, body)}
 
 	pool := m.GetConnPool()
 	client, err := pool.Get(node.GRPCAddress)
@@ -174,6 +154,27 @@ func (m *Manager) ProxyToNode(ctx context.Context, nodeID, method, path string, 
 		}
 	}
 	return int(resp.StatusCode), resp.Body, nil
+}
+
+// proxyToNodeHeaders is what ProxyToNode sends: the operator's name and the
+// body's type, and no internal-proxy header. The receiver drops one and signs
+// its own loopback hop, so a header signed here bought nothing and handed the
+// target a credential every manager accepts once — to an agent too.
+func proxyToNodeHeaders(username string, body []byte) map[string]string {
+	headers := map[string]string{}
+	if username != "" {
+		headers["X-SFPanel-Original-User"] = username
+	}
+	if len(body) > 0 {
+		// Echo's c.Bind() refuses a body with no Content-Type (415), which the
+		// receiving handler surfaces as a 400. Every caller before the panel-CA
+		// publish used GET with a nil body, so the omission stayed latent until
+		// the first JSON POST went through here. Set it at the transport rather
+		// than in each caller: the gRPC path carries only what this map puts on
+		// the request, and the next caller would hit the same wall.
+		headers["Content-Type"] = "application/json"
+	}
+	return headers
 }
 
 // Init bootstraps a new cluster (first node, becomes leader).

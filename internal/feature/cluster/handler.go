@@ -1128,8 +1128,6 @@ func (h *Handler) proxyToLeaderTimeout(c echo.Context, timeout time.Duration) (*
 	ctx, cancel := context.WithTimeout(c.Request().Context(), timeout)
 	defer cancel()
 
-	headers := make(map[string]string)
-
 	var bodyBytes []byte
 	if c.Request().Body != nil {
 		bodyBytes, _ = io.ReadAll(c.Request().Body)
@@ -1140,18 +1138,12 @@ func (h *Handler) proxyToLeaderTimeout(c echo.Context, timeout time.Duration) (*
 		proxyPath += "?" + rawQuery
 	}
 
-	// v2-only signature binds method + path so a captured header can't be
-	// re-targeted; the receiving gRPC server strips and re-signs these
-	// headers for its loopback hop anyway (grpc_server.go ProxyRequest).
-	if v2 := auth.SignProxyRequestV2(c.Request().Method, proxyPath); v2 != "" {
-		headers[auth.InternalProxyHeaderV2] = v2
-	}
-
+	// No internal-proxy header: the receiving gRPC server drops one and signs
+	// its own loopback hop (grpc_server.go ProxyRequest).
 	apiReq := &pb.APIRequest{
-		Method:  c.Request().Method,
-		Path:    proxyPath,
-		Headers: headers,
-		Body:    bodyBytes,
+		Method: c.Request().Method,
+		Path:   proxyPath,
+		Body:   bodyBytes,
 	}
 	resp, err := client.ProxyRequest(ctx, apiReq)
 	if err != nil {
@@ -1464,15 +1456,13 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
-		proxyHeaders := make(map[string]string)
-		if v2 := auth.SignProxyRequestV2("POST", orchestratedUpdatePath); v2 != "" {
-			proxyHeaders[auth.InternalProxyHeaderV2] = v2
-		}
-
+		// Unsigned: the target's gRPC server drops any internal-proxy header
+		// and signs its own loopback hop. One signed here bought nothing and
+		// handed the target a forced update every manager accepts once — and
+		// the follower list holds every online node, agents included.
 		resp, err := client.ProxyRequest(ctx, &pb.APIRequest{
-			Method:  "POST",
-			Path:    orchestratedUpdatePath,
-			Headers: proxyHeaders,
+			Method: "POST",
+			Path:   orchestratedUpdatePath,
 		})
 		if err != nil {
 			emit(map[string]interface{}{"node_id": ni.ID, "node_name": ni.Name, "step": "error", "message": "Proxy failed: " + err.Error()})
@@ -1492,8 +1482,8 @@ func (h *Handler) runClusterUpdate(mgr *cluster.Manager, mode string, emit func(
 				detail = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, detail)
 			}
 			// A 401/403 here is almost always the target running a version too old
-			// to validate the internal-proxy v2 auth (the update relay's HMAC): the
-			// new leader signs correctly, but the old node's validator rejects it,
+			// to authenticate the relayed update on its own loopback hop: the leader
+			// sends no credential (the target's gRPC server signs that hop itself),
 			// and there is no v1 fallback by design (that would be replayable). Make
 			// the chicken-and-egg actionable instead of an opaque auth error.
 			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {

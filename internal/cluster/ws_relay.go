@@ -225,7 +225,6 @@ var WSRelayUpgrader = websocket.Upgrader{
 	},
 }
 
-
 // WrapEchoWSHandler wraps an Echo WebSocket handler with cluster relay support.
 // If the request contains a ?node=X parameter targeting a remote node,
 // it relays the WebSocket connection to that node instead of running locally.
@@ -299,7 +298,7 @@ func WrapEchoWSHandler(getMgr func() *Manager, handler func(c echo.Context) erro
 		// across the cluster fabric for no reason — the remote trusts the
 		// internal-proxy header.
 		relayURL := *c.Request().URL
-		relayURL.RawQuery = stripAuthParams(relayURL.RawQuery)
+		relayURL.RawQuery = StripAuthParams(relayURL.RawQuery)
 		if err := RelayWebSocket(clientWS, node, mgr.PanelEndpointFor(node), &relayURL, mgr.ProxySecret(), username, tlsCfg); err != nil {
 			slog.Warn("WS relay to node failed", "component", "cluster", "node_id", nodeID, "error", err)
 		}
@@ -314,7 +313,7 @@ func WrapEchoWSHandler(getMgr func() *Manager, handler func(c echo.Context) erro
 // validated internal-proxy request, then the single-use ticket / loopback
 // ?token= JWT in the query string. Returns "" when nothing authenticates.
 // The ticket path consumes the ticket on this node, which is why the relayed
-// URL is stripped of auth params (stripAuthParams) — the remote trusts the
+// URL is stripped of auth params (StripAuthParams) — the remote trusts the
 // internal-proxy headers instead.
 func resolveRelayUsername(c echo.Context, jwtSecret string) string {
 	// Mirrors the type-assertion-safe lookup pattern in proxy.go:455-462.
@@ -327,19 +326,22 @@ func resolveRelayUsername(c echo.Context, jwtSecret string) string {
 	return auth.AuthenticateWSRequest(c.Request(), jwtSecret)
 }
 
-// stripAuthParams removes ticket/token query parameters from a raw query.
+// StripAuthParams removes ticket/token query parameters from a raw query.
 // Used by WrapEchoWSHandler when relaying — the local side has already
 // consumed the credential, so the remote authenticates via the internal
-// proxy headers instead. (?node= is stripped separately by stripNodeParam
-// inside RelayWebSocket.)
-func stripAuthParams(rawQuery string) string {
+// proxy headers instead — and by the middleware's HTTP and gRPC proxies,
+// whose requests carry the same credentials (the thumbnail URL holds the
+// access token). (?node= is stripped separately by stripNodeParam inside
+// RelayWebSocket.)
+//
+// A query that does not parse cleanly loses them too. ParseQuery still
+// returns every pair that parsed, which is all a receiving handler would see;
+// handing such a query back untouched forwarded ?token= along with it.
+func StripAuthParams(rawQuery string) string {
 	if rawQuery == "" {
 		return ""
 	}
-	values, err := url.ParseQuery(rawQuery)
-	if err != nil {
-		return rawQuery
-	}
+	values, _ := url.ParseQuery(rawQuery)
 	values.Del("ticket")
 	values.Del("token")
 	return values.Encode()
