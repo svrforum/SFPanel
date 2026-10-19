@@ -139,12 +139,12 @@ func (c *GRPCClient) ReportPanelCA(ctx context.Context, req *pb.ReportPanelCAReq
 	return c.client.ReportPanelCA(ctx, req)
 }
 
-// OpenHeartbeat opens a heartbeat stream, which lasts until ctx ends or the
-// stream fails. Its pongs must be read: unread, they fill the stream's
-// flow-control window and both ends wedge (see the drain goroutine in
-// StartLocalMetrics).
-func (c *GRPCClient) OpenHeartbeat(ctx context.Context) (pb.ClusterService_HeartbeatClient, error) {
-	return c.client.Heartbeat(ctx)
+// OpenAgentHeartbeat opens an agent's heartbeat stream to a manager, which
+// lasts until ctx ends or the stream fails. Its pongs must be read: unread,
+// they fill the stream's flow-control window and both ends wedge (see the
+// drain goroutine in StartLocalMetrics).
+func (c *GRPCClient) OpenAgentHeartbeat(ctx context.Context) (pb.ClusterService_AgentHeartbeatClient, error) {
+	return c.client.AgentHeartbeat(ctx)
 }
 
 // ProxyRequest forwards an API request to the remote node.

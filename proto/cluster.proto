@@ -6,6 +6,7 @@ service ClusterService {
     rpc PreFlight(PreFlightRequest) returns (PreFlightResponse);
     rpc Join(JoinRequest) returns (JoinResponse);
     rpc Leave(LeaveRequest) returns (LeaveResponse);
+    // A manager's heartbeat to the leader. Managers only.
     rpc Heartbeat(stream HeartbeatPing) returns (stream HeartbeatPong);
     rpc ProxyRequest(APIRequest) returns (APIResponse);
     rpc GetMetrics(MetricsRequest) returns (MetricsResponse);
@@ -17,6 +18,11 @@ service ClusterService {
     // An agent reports its panel's CA so managers can reach its panel over
     // HTTPS. The node is the caller's certificate CN, never a request field.
     rpc ReportPanelCA(ReportPanelCARequest) returns (ReportPanelCAResponse);
+    // An agent's heartbeat to the leader. A method of its own, so a manager
+    // from before agents never takes an agent's ping for a manager's: it
+    // answers this one Unimplemented, where its Heartbeat makes every node
+    // that pings it a Raft voter.
+    rpc AgentHeartbeat(stream HeartbeatPing) returns (stream HeartbeatPong);
 }
 
 message PreFlightRequest {
@@ -43,6 +49,9 @@ message JoinRequest {
     string api_address = 4;
     string grpc_address = 5;
     bytes  tls_cert = 6;
+    // What the joining node's code supports. A cluster with agents takes no
+    // manager whose code predates them (agents-v1).
+    repeated string capabilities = 7;
 }
 
 message JoinResponse {

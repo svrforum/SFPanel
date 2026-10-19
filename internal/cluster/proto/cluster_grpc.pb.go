@@ -19,15 +19,16 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ClusterService_PreFlight_FullMethodName     = "/sfpanel.cluster.ClusterService/PreFlight"
-	ClusterService_Join_FullMethodName          = "/sfpanel.cluster.ClusterService/Join"
-	ClusterService_Leave_FullMethodName         = "/sfpanel.cluster.ClusterService/Leave"
-	ClusterService_Heartbeat_FullMethodName     = "/sfpanel.cluster.ClusterService/Heartbeat"
-	ClusterService_ProxyRequest_FullMethodName  = "/sfpanel.cluster.ClusterService/ProxyRequest"
-	ClusterService_GetMetrics_FullMethodName    = "/sfpanel.cluster.ClusterService/GetMetrics"
-	ClusterService_Subscribe_FullMethodName     = "/sfpanel.cluster.ClusterService/Subscribe"
-	ClusterService_RegisterAgent_FullMethodName = "/sfpanel.cluster.ClusterService/RegisterAgent"
-	ClusterService_ReportPanelCA_FullMethodName = "/sfpanel.cluster.ClusterService/ReportPanelCA"
+	ClusterService_PreFlight_FullMethodName      = "/sfpanel.cluster.ClusterService/PreFlight"
+	ClusterService_Join_FullMethodName           = "/sfpanel.cluster.ClusterService/Join"
+	ClusterService_Leave_FullMethodName          = "/sfpanel.cluster.ClusterService/Leave"
+	ClusterService_Heartbeat_FullMethodName      = "/sfpanel.cluster.ClusterService/Heartbeat"
+	ClusterService_ProxyRequest_FullMethodName   = "/sfpanel.cluster.ClusterService/ProxyRequest"
+	ClusterService_GetMetrics_FullMethodName     = "/sfpanel.cluster.ClusterService/GetMetrics"
+	ClusterService_Subscribe_FullMethodName      = "/sfpanel.cluster.ClusterService/Subscribe"
+	ClusterService_RegisterAgent_FullMethodName  = "/sfpanel.cluster.ClusterService/RegisterAgent"
+	ClusterService_ReportPanelCA_FullMethodName  = "/sfpanel.cluster.ClusterService/ReportPanelCA"
+	ClusterService_AgentHeartbeat_FullMethodName = "/sfpanel.cluster.ClusterService/AgentHeartbeat"
 )
 
 // ClusterServiceClient is the client API for ClusterService service.
@@ -37,6 +38,7 @@ type ClusterServiceClient interface {
 	PreFlight(ctx context.Context, in *PreFlightRequest, opts ...grpc.CallOption) (*PreFlightResponse, error)
 	Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error)
 	Leave(ctx context.Context, in *LeaveRequest, opts ...grpc.CallOption) (*LeaveResponse, error)
+	// A manager's heartbeat to the leader. Managers only.
 	Heartbeat(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[HeartbeatPing, HeartbeatPong], error)
 	ProxyRequest(ctx context.Context, in *APIRequest, opts ...grpc.CallOption) (*APIResponse, error)
 	GetMetrics(ctx context.Context, in *MetricsRequest, opts ...grpc.CallOption) (*MetricsResponse, error)
@@ -48,6 +50,11 @@ type ClusterServiceClient interface {
 	// An agent reports its panel's CA so managers can reach its panel over
 	// HTTPS. The node is the caller's certificate CN, never a request field.
 	ReportPanelCA(ctx context.Context, in *ReportPanelCARequest, opts ...grpc.CallOption) (*ReportPanelCAResponse, error)
+	// An agent's heartbeat to the leader. A method of its own, so a manager
+	// from before agents never takes an agent's ping for a manager's: it
+	// answers this one Unimplemented, where its Heartbeat makes every node
+	// that pings it a Raft voter.
+	AgentHeartbeat(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[HeartbeatPing, HeartbeatPong], error)
 }
 
 type clusterServiceClient struct {
@@ -160,6 +167,19 @@ func (c *clusterServiceClient) ReportPanelCA(ctx context.Context, in *ReportPane
 	return out, nil
 }
 
+func (c *clusterServiceClient) AgentHeartbeat(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[HeartbeatPing, HeartbeatPong], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ClusterService_ServiceDesc.Streams[2], ClusterService_AgentHeartbeat_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[HeartbeatPing, HeartbeatPong]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ClusterService_AgentHeartbeatClient = grpc.BidiStreamingClient[HeartbeatPing, HeartbeatPong]
+
 // ClusterServiceServer is the server API for ClusterService service.
 // All implementations must embed UnimplementedClusterServiceServer
 // for forward compatibility.
@@ -167,6 +187,7 @@ type ClusterServiceServer interface {
 	PreFlight(context.Context, *PreFlightRequest) (*PreFlightResponse, error)
 	Join(context.Context, *JoinRequest) (*JoinResponse, error)
 	Leave(context.Context, *LeaveRequest) (*LeaveResponse, error)
+	// A manager's heartbeat to the leader. Managers only.
 	Heartbeat(grpc.BidiStreamingServer[HeartbeatPing, HeartbeatPong]) error
 	ProxyRequest(context.Context, *APIRequest) (*APIResponse, error)
 	GetMetrics(context.Context, *MetricsRequest) (*MetricsResponse, error)
@@ -178,6 +199,11 @@ type ClusterServiceServer interface {
 	// An agent reports its panel's CA so managers can reach its panel over
 	// HTTPS. The node is the caller's certificate CN, never a request field.
 	ReportPanelCA(context.Context, *ReportPanelCARequest) (*ReportPanelCAResponse, error)
+	// An agent's heartbeat to the leader. A method of its own, so a manager
+	// from before agents never takes an agent's ping for a manager's: it
+	// answers this one Unimplemented, where its Heartbeat makes every node
+	// that pings it a Raft voter.
+	AgentHeartbeat(grpc.BidiStreamingServer[HeartbeatPing, HeartbeatPong]) error
 	mustEmbedUnimplementedClusterServiceServer()
 }
 
@@ -214,6 +240,9 @@ func (UnimplementedClusterServiceServer) RegisterAgent(context.Context, *Registe
 }
 func (UnimplementedClusterServiceServer) ReportPanelCA(context.Context, *ReportPanelCARequest) (*ReportPanelCAResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ReportPanelCA not implemented")
+}
+func (UnimplementedClusterServiceServer) AgentHeartbeat(grpc.BidiStreamingServer[HeartbeatPing, HeartbeatPong]) error {
+	return status.Error(codes.Unimplemented, "method AgentHeartbeat not implemented")
 }
 func (UnimplementedClusterServiceServer) mustEmbedUnimplementedClusterServiceServer() {}
 func (UnimplementedClusterServiceServer) testEmbeddedByValue()                        {}
@@ -380,6 +409,13 @@ func _ClusterService_ReportPanelCA_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClusterService_AgentHeartbeat_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ClusterServiceServer).AgentHeartbeat(&grpc.GenericServerStream[HeartbeatPing, HeartbeatPong]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ClusterService_AgentHeartbeatServer = grpc.BidiStreamingServer[HeartbeatPing, HeartbeatPong]
+
 // ClusterService_ServiceDesc is the grpc.ServiceDesc for ClusterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -427,6 +463,12 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "Subscribe",
 			Handler:       _ClusterService_Subscribe_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "AgentHeartbeat",
+			Handler:       _ClusterService_AgentHeartbeat_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "proto/cluster.proto",

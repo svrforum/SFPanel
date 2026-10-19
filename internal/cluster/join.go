@@ -210,8 +210,9 @@ func (e *JoinEngine) Execute(leaderAddr, token, advertiseAddr, pin string) (*Joi
 		Token:       token,
 		NodeId:      nodeID,
 		NodeName:    hostname,
-		ApiAddress:  apiAddr,
-		GrpcAddress: grpcAddr,
+		ApiAddress:   apiAddr,
+		GrpcAddress:  grpcAddr,
+		Capabilities: []string{CapAgents},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("join request failed: %w", err)

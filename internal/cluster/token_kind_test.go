@@ -138,7 +138,7 @@ func TestJoinWithoutATokenWritesNothingToRaft(t *testing.T) {
 		{"an agent token", agentTok.Token, ErrTokenKind},
 	} {
 		before := mgr.raft.raft.LastIndex()
-		if _, _, _, _, err := mgr.HandleJoin("new-node", "n", "127.0.0.1:1", "127.0.0.1:2", c.token); !errors.Is(err, c.want) {
+		if _, _, _, _, err := mgr.HandleJoin("new-node", "n", "127.0.0.1:1", "127.0.0.1:2", c.token, nil); !errors.Is(err, c.want) {
 			t.Fatalf("%s: got %v, want %v", c.name, err, c.want)
 		}
 		if after := mgr.raft.raft.LastIndex(); after != before {
@@ -150,7 +150,7 @@ func TestJoinWithoutATokenWritesNothingToRaft(t *testing.T) {
 // A join refused for a duplicate ID or a full cluster used to burn the token.
 func TestJoinRefusalLeavesTheTokenUsable(t *testing.T) {
 	mgr, _, token, _ := realLeader(t)
-	_, _, _, _, err := mgr.HandleJoin(mgr.LocalNodeID(), "dup", "127.0.0.1:1", "127.0.0.1:2", token)
+	_, _, _, _, err := mgr.HandleJoin(mgr.LocalNodeID(), "dup", "127.0.0.1:1", "127.0.0.1:2", token, nil)
 	if !errors.Is(err, ErrNodeAlreadyExists) {
 		t.Fatalf("duplicate join: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestJoinRefusalLeavesTheTokenUsable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, err := mgr.HandleJoin("new-node", "n", "127.0.0.1:1", "127.0.0.1:2", agentTok.Token); !errors.Is(err, ErrTokenKind) {
+	if _, _, _, _, err := mgr.HandleJoin("new-node", "n", "127.0.0.1:1", "127.0.0.1:2", agentTok.Token, nil); !errors.Is(err, ErrTokenKind) {
 		t.Fatalf("manager join with an agent token: %v", err)
 	}
 	if _, err := mgr.tokens.Peek(agentTok.Token); err != nil {
@@ -172,7 +172,7 @@ func TestJoinRefusalLeavesTheTokenUsable(t *testing.T) {
 	for i := 1; i < MaxNodes; i++ {
 		addTestNode(t, fsm, Node{ID: fmt.Sprintf("manager-%d", i), Kind: KindManager})
 	}
-	if _, _, _, _, err := mgr.HandleJoin("new-node", "n", "127.0.0.1:1", "127.0.0.1:2", token); !errors.Is(err, ErrMaxNodesReached) {
+	if _, _, _, _, err := mgr.HandleJoin("new-node", "n", "127.0.0.1:1", "127.0.0.1:2", token, nil); !errors.Is(err, ErrMaxNodesReached) {
 		t.Fatalf("join into a full cluster: %v", err)
 	}
 	if _, err := mgr.tokens.Peek(token); err != nil {
@@ -211,7 +211,7 @@ func TestJoinThatCannotSignLeavesTheTokenUsable(t *testing.T) {
 	if err := mgr.raft.Apply(Command{Type: CmdDeleteConfig, Key: configKeyCAKey}, 5*time.Second); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, _, err := mgr.HandleJoin("new-node", "n", "127.0.0.1:1", "127.0.0.1:2", token); !errors.Is(err, ErrCAKeyUnavailable) {
+	if _, _, _, _, err := mgr.HandleJoin("new-node", "n", "127.0.0.1:1", "127.0.0.1:2", token, nil); !errors.Is(err, ErrCAKeyUnavailable) {
 		t.Fatalf("join with no CA key: %v", err)
 	}
 	if _, err := mgr.tokens.Peek(token); err != nil {
@@ -230,8 +230,9 @@ func TestCapacityIsPerKind(t *testing.T) {
 	if _, err := mgr.CreateJoinToken(time.Hour, KindManager); err != nil {
 		t.Fatalf("agents counted toward the manager cap: %v", err)
 	}
-	// The join counts managers only as well: refused as a duplicate, not as full.
-	if _, _, _, _, err := mgr.HandleJoin(mgr.LocalNodeID(), "dup", "127.0.0.1:1", "127.0.0.1:2", token); !errors.Is(err, ErrNodeAlreadyExists) {
+	// The join counts managers only as well: refused as a duplicate, not as
+	// full. With agents in the cluster, the joiner must say its code knows them.
+	if _, _, _, _, err := mgr.HandleJoin(mgr.LocalNodeID(), "dup", "127.0.0.1:1", "127.0.0.1:2", token, []string{CapAgents}); !errors.Is(err, ErrNodeAlreadyExists) {
 		t.Fatalf("agents counted toward the manager cap on join: %v", err)
 	}
 	// Pre-flight reports the count and the cap of the token's kind.

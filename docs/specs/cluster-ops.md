@@ -57,7 +57,8 @@ matches the rest of the trust material on the host (config, DB, key).
 A node certificate carries its role in the subject's OU: `sfpanel-manager`
 or `sfpanel-agent`. The Raft port refuses an agent's certificate, and of the
 cluster gRPC methods that need a certificate an agent may call only
-Heartbeat and ReportPanelCA, each for itself. A manager whose certificate
+AgentHeartbeat and ReportPanelCA, each for itself; a manager heartbeats on
+Heartbeat, which refuses an agent. A manager whose certificate
 predates roles reissues it with the manager role by itself, on its first
 leader-watch tick after the upgrade, keeping its node ID and addresses and
 signing with the CA key it holds through replicated state; `reissue-cert`
@@ -186,8 +187,19 @@ managers' internal proxy secret never reaches it.
 ### Joining
 
 - **Upgrade every manager first.** A manager from before agents takes an
-  agent for one of its own: it forwards the operator's session token to it
-  and signs with the managers' secret.
+  agent for one of its own: it forwards the operator's session token to it,
+  signs with the managers' secret, and makes it a Raft voter. The leader
+  therefore registers an agent only when every other manager is online and
+  reports, on its heartbeat, that its release knows agents; until then the
+  join says whom it waits for (`agents can register once every manager is
+  online … waiting for peer-2 (0.79.0)`).
+- **Once agents exist, never add or roll back a manager to a release from
+  before agents.** A join from such a release is refused (`this cluster has
+  agents, and this server's SFPanel predates them …`), but a binary swapped by
+  hand cannot be stopped. Agents never send such a manager a heartbeat — theirs
+  is a gRPC method it does not have, so it cannot make them voters — yet an
+  operator who reaches an agent through it hands the agent a session token
+  valid on every manager.
 - The leader refuses registrations until five minutes after it recorded the
   switch of the internal proxy secret to the replicated one (`the cluster is
   still switching its internal proxy secret …`): an agent receives the CA

@@ -175,18 +175,20 @@ type callerPolicy int
 const (
 	callerMember  callerPolicy = iota + 1 // any node in the FSM
 	callerManager                         // a manager node in the FSM
+	callerAgent                           // an agent node in the FSM, with an agent's certificate
 )
 
 // methodPolicy is an allow-list: a method missing here is refused, so an RPC
 // added later stays closed until someone decides who may call it.
 // PreFlight, Join and RegisterAgent never reach it (unauthenticatedMethods).
 var methodPolicy = map[string]callerPolicy{
-	"/sfpanel.cluster.ClusterService/Heartbeat":     callerMember,
-	"/sfpanel.cluster.ClusterService/Leave":         callerManager, // for itself only: see Leave
-	"/sfpanel.cluster.ClusterService/GetMetrics":    callerManager,
-	"/sfpanel.cluster.ClusterService/Subscribe":     callerManager,
-	"/sfpanel.cluster.ClusterService/ProxyRequest":  callerManager,
-	"/sfpanel.cluster.ClusterService/ReportPanelCA": callerMember, // for itself only: see ReportPanelCA
+	"/sfpanel.cluster.ClusterService/Heartbeat":      callerManager,
+	"/sfpanel.cluster.ClusterService/AgentHeartbeat": callerAgent,
+	"/sfpanel.cluster.ClusterService/Leave":          callerManager, // for itself only: see Leave
+	"/sfpanel.cluster.ClusterService/GetMetrics":     callerManager,
+	"/sfpanel.cluster.ClusterService/Subscribe":      callerManager,
+	"/sfpanel.cluster.ClusterService/ProxyRequest":   callerManager,
+	"/sfpanel.cluster.ClusterService/ReportPanelCA":  callerMember, // for itself only: see ReportPanelCA
 }
 
 // authorizeCaller checks the verified peer certificate against methodPolicy.
@@ -210,6 +212,9 @@ func (s *GRPCServer) authorizeCaller(ctx context.Context, method string) error {
 		return notMemberError(s.manager, cn)
 	}
 	if policy == callerManager && (!node.IsManager() || CertRole(leaf) == CertRoleAgent) {
+		return status.Errorf(codes.PermissionDenied, "%s may not call %s", cn, method)
+	}
+	if policy == callerAgent && (node.IsManager() || CertRole(leaf) != CertRoleAgent) {
 		return status.Errorf(codes.PermissionDenied, "%s may not call %s", cn, method)
 	}
 	return nil
@@ -320,7 +325,7 @@ func (s *GRPCServer) Stop() {
 // Join handles a node join request.
 func (s *GRPCServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinResponse, error) {
 	caCert, nodeCert, nodeKey, peers, err := s.manager.HandleJoin(
-		req.NodeId, req.NodeName, req.ApiAddress, req.GrpcAddress, req.Token,
+		req.NodeId, req.NodeName, req.ApiAddress, req.GrpcAddress, req.Token, req.Capabilities,
 	)
 	if err != nil {
 		return &pb.JoinResponse{Success: false, Error: err.Error()}, nil
@@ -427,8 +432,22 @@ func (s *GRPCServer) Leave(ctx context.Context, req *pb.LeaveRequest) (*pb.Leave
 	return &pb.LeaveResponse{Success: true}, nil
 }
 
-// Heartbeat implements bidirectional heartbeat streaming.
+// Heartbeat is a manager's heartbeat to the leader.
 func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
+	return s.serveHeartbeat(stream, true)
+}
+
+// AgentHeartbeat is an agent's. It is a method of its own so that a manager
+// from before agents never takes an agent's ping for a manager's: it answers
+// this one Unimplemented, where its Heartbeat makes every node that pings it a
+// Raft voter. An agent is never promoted, so this one does not try.
+func (s *GRPCServer) AgentHeartbeat(stream pb.ClusterService_AgentHeartbeatServer) error {
+	return s.serveHeartbeat(stream, false)
+}
+
+// serveHeartbeat runs a heartbeat stream; promote says the caller is a
+// manager, which its first ping may promote to voter.
+func (s *GRPCServer) serveHeartbeat(stream grpc.BidiStreamingServer[pb.HeartbeatPing, pb.HeartbeatPong], promote bool) error {
 	// Sourced from the package-level constant so it stays coupled to the
 	// follower send interval — an idle timeout equal to (or below) the send
 	// interval races the timer ahead of the next ping and kills the stream.
@@ -498,7 +517,9 @@ func (s *GRPCServer) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
 			// strongest in-cluster signal that the new node is fully up
 			// (gRPC connected, certs accepted, Raft caught up). Idempotent
 			// for already-voter nodes; a missing FSM entry just no-ops.
-			s.manager.PromoteOnHeartbeatIfPending(result.ping.NodeId)
+			if promote {
+				s.manager.PromoteOnHeartbeatIfPending(result.ping.NodeId)
+			}
 
 			if err := stream.Send(&pb.HeartbeatPong{
 				LeaderId:          s.manager.GetRaft().LeaderID(),

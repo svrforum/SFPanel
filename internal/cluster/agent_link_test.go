@@ -145,9 +145,9 @@ func TestNextTargets(t *testing.T) {
 	}
 }
 
-// fakeManager is a manager's gRPC listener whose heartbeat answers come from
-// pong: a pong to send, or an error that ends the stream. report answers
-// ReportPanelCA (nil: Unimplemented). self is its address.
+// fakeManager is a manager's gRPC listener whose answers to an agent's
+// heartbeat come from pong: a pong to send, or an error that ends the stream.
+// report answers ReportPanelCA (nil: Unimplemented). self is its address.
 type fakeManager struct {
 	pb.UnimplementedClusterServiceServer
 	self    string
@@ -157,7 +157,7 @@ type fakeManager struct {
 	reports atomic.Int32
 }
 
-func (f *fakeManager) Heartbeat(stream pb.ClusterService_HeartbeatServer) error {
+func (f *fakeManager) AgentHeartbeat(stream pb.ClusterService_AgentHeartbeatServer) error {
 	f.streams.Add(1)
 	for {
 		if _, err := stream.Recv(); err != nil {

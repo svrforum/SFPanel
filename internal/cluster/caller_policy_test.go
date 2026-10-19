@@ -37,6 +37,7 @@ func policyServer(t *testing.T) (*GRPCServer, *FSM) {
 const (
 	methodProxy      = "/sfpanel.cluster.ClusterService/ProxyRequest"
 	methodHeartbeat  = "/sfpanel.cluster.ClusterService/Heartbeat"
+	methodAgentBeat  = "/sfpanel.cluster.ClusterService/AgentHeartbeat"
 	methodLeave      = "/sfpanel.cluster.ClusterService/Leave"
 	methodGetMetrics = "/sfpanel.cluster.ClusterService/GetMetrics"
 	methodSubscribe  = "/sfpanel.cluster.ClusterService/Subscribe"
@@ -57,7 +58,13 @@ func TestAuthorizeCaller(t *testing.T) {
 		{"agent ID with a manager certificate may not proxy", methodProxy, "a1", CertRoleManager, codes.PermissionDenied, "may not call"},
 		{"agent ID with a certificate from before roles may not proxy", methodProxy, "a1", "", codes.PermissionDenied, "may not call"},
 		{"a stranger is refused", methodProxy, "x9", CertRoleManager, codes.PermissionDenied, "not a member"},
-		{"an agent may heartbeat", methodHeartbeat, "a1", CertRoleAgent, codes.OK, ""},
+		// A manager from before agents promotes whoever pings its Heartbeat,
+		// so an agent has a heartbeat of its own and may not use this one.
+		{"a manager heartbeats", methodHeartbeat, "m1", CertRoleManager, codes.OK, ""},
+		{"an agent may not use the managers' heartbeat", methodHeartbeat, "a1", CertRoleAgent, codes.PermissionDenied, "may not call"},
+		{"an agent heartbeats", methodAgentBeat, "a1", CertRoleAgent, codes.OK, ""},
+		{"a manager may not use an agent's heartbeat", methodAgentBeat, "m1", CertRoleManager, codes.PermissionDenied, "may not call"},
+		{"an agent ID with a manager certificate may not use an agent's heartbeat", methodAgentBeat, "a1", CertRoleManager, codes.PermissionDenied, "may not call"},
 		{"an agent may not read the cluster's metrics", methodGetMetrics, "a1", CertRoleAgent, codes.PermissionDenied, "may not call"},
 		{"an agent may not subscribe to cluster events", methodSubscribe, "a1", CertRoleAgent, codes.PermissionDenied, "may not call"},
 		{"an agent may not leave through Raft", methodLeave, "a1", CertRoleAgent, codes.PermissionDenied, "may not call"},

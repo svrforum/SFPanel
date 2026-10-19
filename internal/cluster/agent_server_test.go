@@ -111,12 +111,12 @@ func TestAgentServerAcceptsOnlyItsManagers(t *testing.T) {
 	// Streams too: without the stream interceptor this one answers
 	// Unimplemented, and a stream an agent did serve would be open to any
 	// cluster certificate.
-	hb, err := client.OpenHeartbeat(context.Background())
+	hb, err := client.OpenAgentHeartbeat(context.Background())
 	if err == nil {
 		_, err = hb.Recv()
 	}
 	if status.Code(err) != codes.PermissionDenied || !strings.Contains(err.Error(), "serves only ProxyRequest") {
-		t.Fatalf("Heartbeat on an agent: %v", err)
+		t.Fatalf("AgentHeartbeat on an agent: %v", err)
 	}
 }
 

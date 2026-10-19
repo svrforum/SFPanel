@@ -392,7 +392,7 @@ type removingLeader struct {
 	pb.UnimplementedClusterServiceServer
 }
 
-func (removingLeader) Heartbeat(pb.ClusterService_HeartbeatServer) error {
+func (removingLeader) AgentHeartbeat(pb.ClusterService_AgentHeartbeatServer) error {
 	return status.Errorf(codes.PermissionDenied, "agent-1 is not a member of this cluster: %s", cluster.NotMemberRemovedMarker)
 }
 

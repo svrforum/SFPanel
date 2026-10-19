@@ -251,16 +251,18 @@ func (m *Manager) replicatedSecretSeenAt(replicated string, now time.Time) time.
 	return m.proxySecretSeenAt
 }
 
-// heartbeatCapabilities is what this node reports on its heartbeat:
-// CapProxySecret once it accepts the replicated secret — what the leader
-// waits for before it rotates — not merely once it runs code that could.
+// heartbeatCapabilities is what this node reports on its heartbeat: CapAgents
+// always — it is a property of the code — and CapProxySecret once this node
+// accepts the replicated secret, what the leader waits for before it rotates,
+// not merely once it runs code that could.
 func (m *Manager) heartbeatCapabilities() []string {
+	caps := []string{CapAgents}
 	m.appliedSecretsMu.Lock()
 	defer m.appliedSecretsMu.Unlock()
-	if m.appliedReplicated == "" {
-		return nil
+	if m.appliedReplicated != "" {
+		caps = append(caps, CapProxySecret)
 	}
-	return []string{CapProxySecret}
+	return caps
 }
 
 // ProxyRotationSettled reports whether the CA-derived secret is dead on every

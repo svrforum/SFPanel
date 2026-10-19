@@ -224,7 +224,12 @@ const (
 	warnReport    = "could not report the panel CA to the leader"
 )
 
-var errNoManagers = errors.New("the agent's state names no manager with a gRPC address")
+var (
+	errNoManagers = errors.New("the agent's state names no manager with a gRPC address")
+	// errManagerPredatesAgents is a manager without the agents' heartbeat:
+	// its release is older than agents, and every manager must be upgraded.
+	errManagerPredatesAgents = errors.New("this manager runs an SFPanel release from before agents; upgrade it")
+)
 
 // linkRun is what one Run remembers from attempt to attempt.
 type linkRun struct {
@@ -274,6 +279,8 @@ func classify(ctx context.Context, err error) attemptEnd {
 		return attemptEnd{kind: endStopped}
 	case removedByLeader(err):
 		return attemptEnd{endRemoved, err}
+	case status.Code(err) == codes.Unimplemented:
+		return attemptEnd{endFailed, errManagerPredatesAgents}
 	default:
 		return attemptEnd{endFailed, err}
 	}
@@ -393,7 +400,7 @@ func (l *AgentLink) reportPanelCA(ctx context.Context, client *GRPCClient) error
 func (l *AgentLink) heartbeat(ctx context.Context, r *linkRun, client *GRPCClient, target string) attemptEnd {
 	sctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	stream, err := client.OpenHeartbeat(sctx)
+	stream, err := client.OpenAgentHeartbeat(sctx)
 	if err != nil {
 		return classify(ctx, err)
 	}

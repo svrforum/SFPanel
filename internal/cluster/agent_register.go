@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"slices"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +33,43 @@ type RegisterAgentResult struct {
 	NodeID, AgentKey, ClusterName string
 	NodeCert, CACert              []byte
 	Managers                      []*pb.NodeInfo
+}
+
+// CapAgents is the heartbeat capability of a manager whose code knows agents:
+// it signs what it sends an agent with that agent's key, forwards no
+// operator's credentials, and never makes an agent a Raft voter. A manager
+// from before agents does all three wrong, so agents register only once every
+// manager reports CapAgents (managersNotReadyForAgents), and a cluster with
+// agents takes no manager join without it (HandleJoin).
+const CapAgents = "agents-v1"
+
+// managersNotReadyForAgents names the managers an agent registration waits
+// for, each with why: every manager but this leader must be online and report
+// CapAgents on its heartbeat. One that has not been heard from may be down,
+// and come back running a release from before agents.
+func (m *Manager) managersNotReadyForAgents(state ClusterState) []string {
+	health := m.heartbeat.CheckHealth()
+	var waiting []string
+	for id, n := range state.Nodes {
+		if id == m.nodeID || !n.IsManager() {
+			continue
+		}
+		name := n.Name
+		if name == "" {
+			name = id
+		}
+		met := m.heartbeat.GetMetrics(id)
+		switch {
+		case met == nil:
+			waiting = append(waiting, name+" (not heard from)")
+		case health[id] != StatusOnline:
+			waiting = append(waiting, name+" (offline)")
+		case !slices.Contains(met.Capabilities, CapAgents):
+			waiting = append(waiting, fmt.Sprintf("%s (%s)", name, met.Version))
+		}
+	}
+	sort.Strings(waiting)
+	return waiting
 }
 
 var (
@@ -70,6 +110,9 @@ func (m *Manager) HandleRegisterAgent(in RegisterAgentInput) (*RegisterAgentResu
 	}
 
 	state := m.raft.GetFSM().GetState()
+	if waiting := m.managersNotReadyForAgents(state); len(waiting) > 0 {
+		return nil, fmt.Errorf("%w; waiting for %s", ErrManagersNotReadyForAgents, strings.Join(waiting, ", "))
+	}
 	if countKind(state, KindAgent) >= m.agentCap() {
 		return nil, ErrMaxAgentsReached
 	}

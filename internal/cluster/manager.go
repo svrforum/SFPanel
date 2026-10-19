@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -521,7 +522,7 @@ func (m *Manager) RevokeJoinToken(id string) error {
 }
 
 // HandleJoin processes a join request from a new node (leader-only).
-func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) (caCert, nodeCert, nodeKey []byte, peers []Node, err error) {
+func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string, caps []string) (caCert, nodeCert, nodeKey []byte, peers []Node, err error) {
 	if m.raft == nil || !m.raft.IsLeader() {
 		return nil, nil, nil, nil, ErrNotLeader
 	}
@@ -548,6 +549,12 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 	}
 
 	state := m.raft.GetFSM().GetState()
+	// A manager from before agents forwards operators' credentials to an
+	// agent and makes it a Raft voter: once agents exist, a joiner must say
+	// its code knows them. Without agents an older one is taken as before.
+	if hasAgentNodes(state) && !slices.Contains(caps, CapAgents) {
+		return nil, nil, nil, nil, ErrJoinerPredatesAgents
+	}
 	if countKind(state, KindManager) >= MaxNodes {
 		return nil, nil, nil, nil, ErrMaxNodesReached
 	}

@@ -55,7 +55,7 @@ func TestHeartbeatRefusesARemovedNodeOnItsNextPing(t *testing.T) {
 	defer cancel()
 	stream := &scriptedHeartbeatStream{ctx: ctxWithPeerCN(ctx, "agent-1"), in: make(chan *pb.HeartbeatPing, 1)}
 	done := make(chan error, 1)
-	go func() { done <- s.Heartbeat(stream) }()
+	go func() { done <- s.AgentHeartbeat(stream) }()
 
 	stream.in <- &pb.HeartbeatPing{NodeId: "agent-1", Timestamp: time.Now().Unix()}
 	for i := 0; i < 100 && stream.pongCount() == 0; i++ {
@@ -82,7 +82,7 @@ func TestHeartbeatRefusesARemovedNodeOnItsNextPing(t *testing.T) {
 	}
 	// Reconnecting does not get it back in: a new stream is refused at the
 	// door, with the same marker.
-	if err := s.authorizeCaller(ctxWithPeerCert("agent-1", CertRoleAgent), methodHeartbeat); status.Code(err) != codes.PermissionDenied || !strings.Contains(err.Error(), NotMemberRemovedMarker) {
+	if err := s.authorizeCaller(ctxWithPeerCert("agent-1", CertRoleAgent), methodAgentBeat); status.Code(err) != codes.PermissionDenied || !strings.Contains(err.Error(), NotMemberRemovedMarker) {
 		t.Fatalf("a removed node opening a new stream: %v", err)
 	}
 }

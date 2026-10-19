@@ -154,13 +154,16 @@ func (x *PreFlightResponse) GetCaPublicKey() []byte {
 }
 
 type JoinRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
-	NodeId        string                 `protobuf:"bytes,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	NodeName      string                 `protobuf:"bytes,3,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
-	ApiAddress    string                 `protobuf:"bytes,4,opt,name=api_address,json=apiAddress,proto3" json:"api_address,omitempty"`
-	GrpcAddress   string                 `protobuf:"bytes,5,opt,name=grpc_address,json=grpcAddress,proto3" json:"grpc_address,omitempty"`
-	TlsCert       []byte                 `protobuf:"bytes,6,opt,name=tls_cert,json=tlsCert,proto3" json:"tls_cert,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Token       string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	NodeId      string                 `protobuf:"bytes,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	NodeName    string                 `protobuf:"bytes,3,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	ApiAddress  string                 `protobuf:"bytes,4,opt,name=api_address,json=apiAddress,proto3" json:"api_address,omitempty"`
+	GrpcAddress string                 `protobuf:"bytes,5,opt,name=grpc_address,json=grpcAddress,proto3" json:"grpc_address,omitempty"`
+	TlsCert     []byte                 `protobuf:"bytes,6,opt,name=tls_cert,json=tlsCert,proto3" json:"tls_cert,omitempty"`
+	// What the joining node's code supports. A cluster with agents takes no
+	// manager whose code predates them (agents-v1).
+	Capabilities  []string `protobuf:"bytes,7,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -233,6 +236,13 @@ func (x *JoinRequest) GetGrpcAddress() string {
 func (x *JoinRequest) GetTlsCert() []byte {
 	if x != nil {
 		return x.TlsCert
+	}
+	return nil
+}
+
+func (x *JoinRequest) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
 	}
 	return nil
 }
@@ -1444,7 +1454,7 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\n" +
 	"node_count\x18\x04 \x01(\x05R\tnodeCount\x12\x1b\n" +
 	"\tmax_nodes\x18\x05 \x01(\x05R\bmaxNodes\x12\"\n" +
-	"\rca_public_key\x18\x06 \x01(\fR\vcaPublicKey\"\xb8\x01\n" +
+	"\rca_public_key\x18\x06 \x01(\fR\vcaPublicKey\"\xdc\x01\n" +
 	"\vJoinRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x12\x1b\n" +
@@ -1452,7 +1462,8 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\vapi_address\x18\x04 \x01(\tR\n" +
 	"apiAddress\x12!\n" +
 	"\fgrpc_address\x18\x05 \x01(\tR\vgrpcAddress\x12\x19\n" +
-	"\btls_cert\x18\x06 \x01(\fR\atlsCert\"\xa0\x03\n" +
+	"\btls_cert\x18\x06 \x01(\fR\atlsCert\x12\"\n" +
+	"\fcapabilities\x18\a \x03(\tR\fcapabilities\"\xa0\x03\n" +
 	"\fJoinResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12!\n" +
@@ -1562,7 +1573,7 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"\x15ReportPanelCAResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12.\n" +
-	"\x13leader_grpc_address\x18\x03 \x01(\tR\x11leaderGrpcAddress2\xef\x05\n" +
+	"\x13leader_grpc_address\x18\x03 \x01(\tR\x11leaderGrpcAddress2\xc5\x06\n" +
 	"\x0eClusterService\x12R\n" +
 	"\tPreFlight\x12!.sfpanel.cluster.PreFlightRequest\x1a\".sfpanel.cluster.PreFlightResponse\x12C\n" +
 	"\x04Join\x12\x1c.sfpanel.cluster.JoinRequest\x1a\x1d.sfpanel.cluster.JoinResponse\x12F\n" +
@@ -1573,7 +1584,8 @@ const file_proto_cluster_proto_rawDesc = "" +
 	"GetMetrics\x12\x1f.sfpanel.cluster.MetricsRequest\x1a .sfpanel.cluster.MetricsResponse\x12O\n" +
 	"\tSubscribe\x12!.sfpanel.cluster.SubscribeRequest\x1a\x1d.sfpanel.cluster.ClusterEvent0\x01\x12^\n" +
 	"\rRegisterAgent\x12%.sfpanel.cluster.RegisterAgentRequest\x1a&.sfpanel.cluster.RegisterAgentResponse\x12^\n" +
-	"\rReportPanelCA\x12%.sfpanel.cluster.ReportPanelCARequest\x1a&.sfpanel.cluster.ReportPanelCAResponseB4Z2github.com/svrforum/SFPanel/internal/cluster/protob\x06proto3"
+	"\rReportPanelCA\x12%.sfpanel.cluster.ReportPanelCARequest\x1a&.sfpanel.cluster.ReportPanelCAResponse\x12T\n" +
+	"\x0eAgentHeartbeat\x12\x1e.sfpanel.cluster.HeartbeatPing\x1a\x1e.sfpanel.cluster.HeartbeatPong(\x010\x01B4Z2github.com/svrforum/SFPanel/internal/cluster/protob\x06proto3"
 
 var (
 	file_proto_cluster_proto_rawDescOnce sync.Once
@@ -1626,17 +1638,19 @@ var file_proto_cluster_proto_depIdxs = []int32{
 	12, // 11: sfpanel.cluster.ClusterService.Subscribe:input_type -> sfpanel.cluster.SubscribeRequest
 	15, // 12: sfpanel.cluster.ClusterService.RegisterAgent:input_type -> sfpanel.cluster.RegisterAgentRequest
 	17, // 13: sfpanel.cluster.ClusterService.ReportPanelCA:input_type -> sfpanel.cluster.ReportPanelCARequest
-	1,  // 14: sfpanel.cluster.ClusterService.PreFlight:output_type -> sfpanel.cluster.PreFlightResponse
-	3,  // 15: sfpanel.cluster.ClusterService.Join:output_type -> sfpanel.cluster.JoinResponse
-	5,  // 16: sfpanel.cluster.ClusterService.Leave:output_type -> sfpanel.cluster.LeaveResponse
-	7,  // 17: sfpanel.cluster.ClusterService.Heartbeat:output_type -> sfpanel.cluster.HeartbeatPong
-	9,  // 18: sfpanel.cluster.ClusterService.ProxyRequest:output_type -> sfpanel.cluster.APIResponse
-	11, // 19: sfpanel.cluster.ClusterService.GetMetrics:output_type -> sfpanel.cluster.MetricsResponse
-	13, // 20: sfpanel.cluster.ClusterService.Subscribe:output_type -> sfpanel.cluster.ClusterEvent
-	16, // 21: sfpanel.cluster.ClusterService.RegisterAgent:output_type -> sfpanel.cluster.RegisterAgentResponse
-	18, // 22: sfpanel.cluster.ClusterService.ReportPanelCA:output_type -> sfpanel.cluster.ReportPanelCAResponse
-	14, // [14:23] is the sub-list for method output_type
-	5,  // [5:14] is the sub-list for method input_type
+	6,  // 14: sfpanel.cluster.ClusterService.AgentHeartbeat:input_type -> sfpanel.cluster.HeartbeatPing
+	1,  // 15: sfpanel.cluster.ClusterService.PreFlight:output_type -> sfpanel.cluster.PreFlightResponse
+	3,  // 16: sfpanel.cluster.ClusterService.Join:output_type -> sfpanel.cluster.JoinResponse
+	5,  // 17: sfpanel.cluster.ClusterService.Leave:output_type -> sfpanel.cluster.LeaveResponse
+	7,  // 18: sfpanel.cluster.ClusterService.Heartbeat:output_type -> sfpanel.cluster.HeartbeatPong
+	9,  // 19: sfpanel.cluster.ClusterService.ProxyRequest:output_type -> sfpanel.cluster.APIResponse
+	11, // 20: sfpanel.cluster.ClusterService.GetMetrics:output_type -> sfpanel.cluster.MetricsResponse
+	13, // 21: sfpanel.cluster.ClusterService.Subscribe:output_type -> sfpanel.cluster.ClusterEvent
+	16, // 22: sfpanel.cluster.ClusterService.RegisterAgent:output_type -> sfpanel.cluster.RegisterAgentResponse
+	18, // 23: sfpanel.cluster.ClusterService.ReportPanelCA:output_type -> sfpanel.cluster.ReportPanelCAResponse
+	7,  // 24: sfpanel.cluster.ClusterService.AgentHeartbeat:output_type -> sfpanel.cluster.HeartbeatPong
+	15, // [15:25] is the sub-list for method output_type
+	5,  // [5:15] is the sub-list for method input_type
 	5,  // [5:5] is the sub-list for extension type_name
 	5,  // [5:5] is the sub-list for extension extendee
 	0,  // [0:5] is the sub-list for field type_name
