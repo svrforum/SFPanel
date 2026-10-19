@@ -2,6 +2,8 @@ package config
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -122,6 +124,25 @@ func TestLoadObservabilityDefaults(t *testing.T) {
 				c.checkFn(t, cfg)
 			}
 		})
+	}
+}
+
+// CheckFile exists to predict Load, for a restore that installs config.yaml
+// and then exits for systemd. Load refuses an explicitly empty database.path,
+// so a CheckFile that filled the default in passed a file the restarted panel
+// would then refuse on every restart.
+func TestCheckFileRefusesAnEmptyDatabasePathAsLoadDoes(t *testing.T) {
+	t.Setenv("SFPANEL_DB_PATH", "")
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	body := "server:\n  port: 3628\ndatabase:\n  path: \"\"\nauth:\n  jwt_secret: 0123456789abcdef0123456789abcdef\n"
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "database.path") {
+		t.Fatalf("Load: got %v, want a database.path refusal", err)
+	}
+	if err := CheckFile(p); err == nil || !strings.Contains(err.Error(), "database.path") {
+		t.Fatalf("CheckFile: got %v, want the database.path refusal Load gives", err)
 	}
 }
 

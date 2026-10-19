@@ -306,16 +306,16 @@ func defaultConfig() *Config {
 	}
 }
 
-// applyDefaults fills the fields Load fills after unmarshalling.
+// applyDefaults fills the fields Load fills after unmarshalling. Not
+// database.path: the seed covers an omitted one, and Load leaves an explicit
+// empty one empty for Validate to refuse, so filling it here would pass a file
+// Load then refuses.
 func applyDefaults(cfg *Config) {
 	if cfg.Server.StacksPath == "" {
 		cfg.Server.StacksPath = "/opt/stacks"
 	}
 	if cfg.Server.TLS.Dir == "" {
 		cfg.Server.TLS.Dir = "/etc/sfpanel/tls"
-	}
-	if cfg.Database.Path == "" {
-		cfg.Database.Path = "./sfpanel.db"
 	}
 	if cfg.Docker.Observability.MetricsRetention == "" {
 		cfg.Docker.Observability.MetricsRetention = "24h"
