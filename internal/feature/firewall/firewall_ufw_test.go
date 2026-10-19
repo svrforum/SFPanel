@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -427,6 +428,35 @@ func TestOnlyAnInboundAllowKeepsAPortOpen(t *testing.T) {
 				if strings.HasPrefix(c, "ufw --force delete") {
 					t.Errorf("ran %q", c)
 				}
+			}
+		})
+	}
+}
+
+// With ufw off, the guard reads the staged rules from `ufw show added`, which
+// writes an allow with a source in full ("from X to any port N"); the guard
+// skipped every such line, so a rule set that opened SSH or a node's cluster
+// ports to the right addresses alone was refused as a lockout.
+func TestEnableUFWCountsAStagedAllowWithASource(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		ports  func() []int
+		staged string
+	}{
+		{"SSH from the admin network", nil, "ufw allow from 198.51.100.0/24 to any port 22 proto tcp\n"},
+		{"an agent's ports from its manager", func() []int { return []int{3629, 3628} },
+			"ufw allow 22/tcp\nufw allow from 198.51.100.10 to any port 3628,3629 proto tcp\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			platform.SetForTest(t, platform.Info{})
+			m := newUFWArgsCommander()
+			m.setExists("ufw", true)
+			m.set("ufw status numbered", "Status: inactive\n", nil)
+			m.set("ufw show added", "Added user rules (see 'ufw status' for running firewall):\n"+tc.staged, nil)
+			h := &Handler{Cmd: m, PanelPort: 3628, ClusterPorts: tc.ports}
+			rec := call(t, h.EnableUFW, http.MethodPost, "/firewall/enable", "")
+			if rec.Code != http.StatusOK || !slices.Contains(m.calls, "ufw --force enable") {
+				t.Errorf("got %d %s, ran %q; want the enable to run", rec.Code, rec.Body.String(), m.calls)
 			}
 		})
 	}

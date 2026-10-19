@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -153,5 +154,32 @@ func TestParseUFWAddedOutput_Empty(t *testing.T) {
 	rules := parseUFWAddedOutput("Added user rules (see 'ufw status' for running firewall):\n")
 	if len(rules) != 0 {
 		t.Errorf("expected 0 rules, got %d: %+v", len(rules), rules)
+	}
+}
+
+// TestParseUFWAddedOutput_SourceRestricted: an allow with a source is listed
+// in ufw's full form — what the rule form writes when it is given a source,
+// and how a cluster node's ports are best opened, to its managers alone. The
+// lines are ufw 0.36's own rendering of those rules. Its address-, interface-
+// and direction-bound forms stay out.
+func TestParseUFWAddedOutput_SourceRestricted(t *testing.T) {
+	sample := `Added user rules (see 'ufw status' for running firewall):
+ufw allow from 198.51.100.10 to any port 3628,3629 proto tcp
+ufw allow from 198.51.100.0/24 to any port 22 proto tcp comment 'admin'
+ufw allow from 198.51.100.0/24 to any app OpenSSH
+ufw allow from 198.51.100.0/24 port 5353 to any port 3630 proto udp
+ufw allow from 198.51.100.10 to 192.0.2.10 port 3629 proto tcp
+ufw allow to 192.0.2.10 port 3629 proto tcp
+ufw allow in on eth0 to any port 22 proto tcp
+ufw allow out 3629/tcp
+`
+	got := parseUFWAddedOutput(sample)
+	want := []UFWRule{
+		{Action: "ALLOW", To: "3628,3629", From: "198.51.100.10"},
+		{Action: "ALLOW", To: "22", From: "198.51.100.0/24"},
+		{Action: "ALLOW", To: "OpenSSH", From: "198.51.100.0/24"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v\nwant %+v", got, want)
 	}
 }

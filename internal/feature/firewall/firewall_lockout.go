@@ -221,10 +221,22 @@ func parseUFWAddedOutput(out string) []UFWRule {
 			continue
 		}
 		first := tokens[0]
-		// Skip clauses that don't lead with a port — `from <addr>`,
-		// `to <addr>`, `in on <iface>`, etc. ruleAllowsPort can't match
-		// these against a port number anyway.
-		if first == "from" || first == "to" || first == "in" || first == "out" || first == "on" {
+		// An allow with a source is written in full, `from <addr> to any
+		// port <spec> …` (or `app <name>`): what the rule form writes when
+		// it is given a source, and how a cluster node's ports are best
+		// opened, to its managers alone. Once ufw runs, `ufw status` lists
+		// it with <spec> or <name> as its To, which ruleAllowsPort counts,
+		// so it counts here too. One bound to a destination address, with
+		// no destination port or with a source port, is skipped.
+		if first == "from" {
+			if len(tokens) >= 6 && tokens[2] == "to" && tokens[3] == "any" && (tokens[4] == "port" || tokens[4] == "app") {
+				rules = append(rules, UFWRule{Action: "ALLOW", To: tokens[5], From: tokens[1]})
+			}
+			continue
+		}
+		// Skip the other clauses that don't lead with a port — `to <addr>`,
+		// `in on <iface>`, `out`, etc.
+		if first == "to" || first == "in" || first == "out" || first == "on" {
 			continue
 		}
 		// App-profile name (e.g. "OpenSSH") — pass through so
