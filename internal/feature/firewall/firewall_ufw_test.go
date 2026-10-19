@@ -389,3 +389,45 @@ func TestAddRuleRefusesADenyListWithSSH(t *testing.T) {
 		}
 	}
 }
+
+// An outgoing or routed allow for a port lets nothing in to it, and the
+// guard counted one as the access that remains: deleting the last inbound
+// SSH allow beside `ufw allow out 22/tcp`, or a node's last inbound allow for
+// a cluster port beside an outgoing one, went through.
+func TestOnlyAnInboundAllowKeepsAPortOpen(t *testing.T) {
+	const numbered = `Status: active
+
+     To                         Action      From
+     --                         ------      ----
+[ 1] 22/tcp                     ALLOW IN    Anywhere
+[ 2] 22/tcp                     ALLOW OUT   Anywhere                   (out)
+[ 3] 3629/tcp                   ALLOW IN    198.51.100.0/24
+[ 4] 3629/tcp                   ALLOW OUT   Anywhere                   (out)
+[ 5] 3629/tcp                   ALLOW FWD   Anywhere
+[ 6] 3630/tcp                   ALLOW IN    198.51.100.0/24
+`
+	for _, tc := range []struct {
+		name, number, port string // port: the cluster port the refusal names, "" for the SSH refusal
+	}{
+		{"the last inbound SSH allow", "1", ""},
+		{"the last inbound allow for gRPC", "3", "3629"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			platform.SetForTest(t, platform.Info{})
+			m := newUFWArgsCommander()
+			m.setExists("ufw", true)
+			m.set("ufw status numbered", numbered, nil)
+			h := &Handler{Cmd: m, PanelPort: 3628, ClusterPorts: func() []int { return []int{3629, 3630} }}
+			rec := call(t, h.DeleteRule, http.MethodDelete, "/firewall/rules/"+tc.number, "", "number", tc.number)
+			e := decode(t, rec)
+			if rec.Code != http.StatusConflict || e.Error.Code != "UFW_LOCKOUT" || e.Error.Details["cluster_ports"] != tc.port {
+				t.Errorf("got %d %s, want 409 UFW_LOCKOUT (cluster ports %q)", rec.Code, rec.Body.String(), tc.port)
+			}
+			for _, c := range m.calls {
+				if strings.HasPrefix(c, "ufw --force delete") {
+					t.Errorf("ran %q", c)
+				}
+			}
+		})
+	}
+}

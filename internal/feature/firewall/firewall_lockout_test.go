@@ -17,7 +17,7 @@ func TestRuleAllowsPort(t *testing.T) {
 		{"allow IN port", UFWRule{Action: "ALLOW IN", To: "22/tcp"}, 22, true},
 		{"deny 22", UFWRule{Action: "DENY", To: "22/tcp"}, 22, false},
 		{"allow different port", UFWRule{Action: "ALLOW", To: "80/tcp"}, 22, false},
-		{"allow service name openssh", UFWRule{Action: "ALLOW", To: "OpenSSH"}, 22, true},   // 'OpenSSH' app profile maps to 22
+		{"allow service name openssh", UFWRule{Action: "ALLOW", To: "OpenSSH"}, 22, true}, // 'OpenSSH' app profile maps to 22
 		{"empty to", UFWRule{Action: "ALLOW", To: ""}, 22, false},
 		{"port range covers", UFWRule{Action: "ALLOW", To: "20:25/tcp"}, 22, true},
 		{"port range outside", UFWRule{Action: "ALLOW", To: "100:200/tcp"}, 22, false},
@@ -25,6 +25,10 @@ func TestRuleAllowsPort(t *testing.T) {
 		{"port list with 22", UFWRule{Action: "ALLOW", To: "22,80/tcp"}, 22, true},
 		{"port list with a range covering 22", UFWRule{Action: "ALLOW", To: "80,20:25/tcp"}, 22, true},
 		{"port list without 22", UFWRule{Action: "ALLOW", To: "80,443/tcp"}, 22, false},
+		// `ufw allow out 22/tcp` lets this host reach other hosts' SSH, and a
+		// route rule lets traffic through to a guest; neither lets anyone in.
+		{"allow out 22", UFWRule{Action: "ALLOW OUT", To: "22/tcp", From: "Anywhere                   (out)"}, 22, false},
+		{"allow fwd 22", UFWRule{Action: "ALLOW FWD", To: "22/tcp"}, 22, false},
 	}
 	for _, c := range cases {
 		got := ruleAllowsPort(c.rule, c.port)

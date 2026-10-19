@@ -27,8 +27,14 @@ const PVEUIPort = 8006
 // We handle numbers and ranges directly, plus a small set of well-known app
 // profiles. Unknown app profiles fall through to "doesn't match" — operators
 // using app profiles can still pass force=true.
+//
+// Only an inbound allow counts: `ufw status numbered` lists an outgoing one
+// as "ALLOW OUT" and a route rule as "ALLOW FWD", and neither lets anyone in
+// to this host's port.
 func ruleAllowsPort(rule UFWRule, port int) bool {
-	if !strings.HasPrefix(strings.ToUpper(rule.Action), "ALLOW") {
+	switch strings.Join(strings.Fields(strings.ToUpper(rule.Action)), " ") {
+	case "ALLOW", "ALLOW IN":
+	default:
 		return false
 	}
 	to := strings.TrimSpace(rule.To)
