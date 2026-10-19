@@ -6,6 +6,26 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/), 
 
 ---
 
+## [0.79.0] – 2026-10-19
+
+### Security
+
+- **A joining server checks it has reached the right cluster before it sends the join token.** `sfpanel cluster join` now takes `--ca sha256:<hex>`, the fingerprint of the cluster CA's public key; `sfpanel cluster token` and the token page print it in the join command, and the web join form asks for it. The joining server asks the leader for its CA key without the token, compares it with the fingerprint, and sends the token only over a connection whose certificate that key signed. The join connection used to verify nothing, so anything on the path could stand in for the leader and take the token. A join without `--ca` is refused.
+- **The internal proxy secret becomes a random one held in the cluster's replicated state.** Nodes authenticated the requests they relay to each other with the SHA-256 of the cluster CA certificate, which anyone holding that certificate could compute. Once every member runs this version and accepts the new secret, the leader switches to it; the old one is accepted for two more minutes and refused after that. Each node records the secret it applied, so a restart does not bring the old one back while the node catches up.
+- **Cluster gRPC calls are checked against who makes them.** Relaying requests, leaving, reading cluster metrics and subscribing to events are for managers, and a node may remove only itself. Any certificate the cluster CA signed could call everything, including removing another node.
+- **Node certificates carry their role**, manager or agent, and the Raft port refuses an agent's. A manager whose certificate predates roles reissues it with the manager role by itself after the update, keeping its key. Nothing issues agent certificates yet; this is groundwork for agent nodes.
+
+### Fixed
+
+- **The update quorum guard counts every voter.** It took quorum as a majority of the voters online, so with five voters and two down it allowed an update that left two. On the leader it now counts every manager voter; a follower still sees only its own heartbeat. The coordinated cluster update is unaffected.
+- **Leadership is handed only to an online manager voter** before an update, a leave or a shutdown. Shutdown took the first online node it found, voter or not, and gave up after one failed transfer.
+
+### Upgrading
+
+- Update every node. Proxying between nodes keeps working while versions are mixed, and the secret switch waits until every member runs this version.
+- Join commands printed before this version have no `--ca` and are refused; create a new token. A server on this version cannot join a cluster whose leader is older; update the cluster first.
+- After the switch — a minute or two after the last node is updated — do not downgrade a single node: an older node signs with the old secret, which the others refuse once the two-minute grace ends. Downgrade the whole cluster or none of it.
+
 ## [0.78.22] – 2026-10-18
 
 ### Fixed
