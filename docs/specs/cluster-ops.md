@@ -47,12 +47,20 @@ corrupted or deleted, all pending invites become invalid.
 
 | Material | Lifetime | Rotation | Notes |
 |---|---|---|---|
-| Cluster CA | 10 years (`tls.go:49`) | Manual, coordinated restart | No in-place rotation — every node must trust the new CA simultaneously |
-| Node cert | 5 years (`tls.go:97`) | `sudo sfpanel cluster reissue-cert` | Hot-reload within ≤ 60 s; debounced re-stat at `tls.go:184` |
+| Cluster CA | 10 years (`InitCA`) | Manual, coordinated restart | No in-place rotation — every node must trust the new CA simultaneously |
+| Node cert | 5 years (`IssueNodeCert`) | `sudo sfpanel cluster reissue-cert` | Hot-reload within ≤ 60 s; debounced re-stat in `getNodeCert` |
 
 Both `node.crt` and `node.key` live in `{Cluster.CertDir}` and are written
 0600. The cert is technically public material in mTLS, but locking it down
 matches the rest of the trust material on the host (config, DB, key).
+
+A node certificate carries its role in the subject's OU: `sfpanel-manager`
+or `sfpanel-agent`. The Raft port refuses an agent's certificate, and of the
+cluster gRPC methods that need a certificate an agent may call only
+Heartbeat. A manager whose certificate predates roles reissues it with the
+manager role by itself, on its first leader-watch tick after the upgrade,
+keeping its node ID and addresses and signing with the CA key it holds
+through replicated state; `reissue-cert` issues with the manager role too.
 
 ### CA rotation playbook (no automation today)
 
@@ -70,11 +78,12 @@ cluster cannot self-recover.
    `internal/cluster/tls.go` (P-256 ECDSA, NotAfter = now + 10 y).
 4. **For each node:** stop sfpanel → replace `{CertDir}/ca.crt` (and key on
    the original CA holder) with the new CA → re-issue node certs against the
-   new CA → start sfpanel.
+   new CA, each with its role → start sfpanel. A join command carries the
+   CA's fingerprint, so every one printed before the rotation stops working.
 5. **Verify** with `sfpanel cluster status` after every voter is back. If any
    node is stuck, copy the new CA cert manually and restart that node.
 
-`cachedCAPool` is loaded once at startup (`tls.go:165-180`), so step 4
+`cachedCAPool` is loaded once at startup (`loadCAPool`), so step 4
 implicitly requires a restart — there is no hot-reload path for the CA.
 
 ---

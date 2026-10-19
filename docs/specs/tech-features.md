@@ -325,7 +325,7 @@
 - **설정 확장**: `config.yaml`에 `cluster` 섹션 (enabled, name, node_id, node_name, grpc_port, data_dir, cert_dir, advertise_address, raft_tls)
 - **REST 프록시 미들웨어**: `ClusterProxyMiddleware` — `?node=X` 쿼리 파라미터로 원격 노드에 요청 투명 전달. 일반 요청은 gRPC `ProxyRequest`(30초 타임아웃), 스트리밍(SSE/`-stream` 접미사 경로)은 HTTP 직접 릴레이(5분 타임아웃)
 - **WebSocket 릴레이** (`internal/cluster/ws_relay.go`): `WrapEchoWSHandler`로 터미널/로그/메트릭/Docker exec 등 모든 WS를 원격 노드로 양방향 포워딩. 메시지 타입(바이너리/텍스트) 보존, 한쪽 종료 시 전파
-- **내부 프록시 인증**: CA 인증서 SHA-256 해시 기반, `X-SFPanel-Internal-Proxy` 헤더 상수시간 비교 (JWT 비의존). `X-SFPanel-Original-User` 헤더로 원본 사용자 전파
+- **내부 프록시 인증**: `X-SFPanel-Internal-Proxy-V2` 헤더 — 타임스탬프·nonce·메서드·경로에 대한 HMAC-SHA256 (JWT 비의존, nonce 재사용 거부). 서명 비밀은 매니저가 Raft로 복제하는 무작위 비밀(`cluster_proxy_secret`). 리더는 그것을 심고 1분이 지난 뒤, 모든 멤버가 온라인이고 그 비밀을 받아들인다고 하트비트로 알려 오면 전환 시각을 기록. 그 전까지 쓰던 이전 방식(CA 인증서 SHA-256)은 전환 뒤 2분까지만 받음. 노드는 마지막으로 적용한 비밀을 데이터 디렉터리에 남겨 재시작 직후에도 이전 방식으로 돌아가지 않음. `X-SFPanel-Original-User` 헤더로 원본 사용자 전파
 - **동시성 보호**: `Manager.joiningMu`(Init/Join 중복 방지), `Config.configMu`(Cluster 필드 보호), `Handler.mu` RWMutex(Manager 포인터 동기화), `Handler.OnManagerActivated` 콜백(다른 핸들러가 Manager 활성화 시 갱신)
 - **클러스터 UI (좌측 트리)**: 클러스터 모드에서 표준 사이드바를 2단 트리로 대체 (`ClusterSidebar` = `TreePanel` + `ContextMenu`). TreePanel은 데이터센터(클러스터) 루트 + 노드 목록(상태 점/리더 왕관/local 태그, 로컬 우선 정렬)을, ContextMenu는 선택 범위에 따라 메뉴를 렌더 — **데이터센터 범위**: 개요/노드/토큰/설정, **노드 범위**: 해당 노드의 전체 모듈 메뉴. 선택·접힘 상태 localStorage 지속. 노드 선택 시 `api.setCurrentNode`로 `?node=` 전역 주입, 데이터센터 선택 시 해제. (기존 `NodeSelector`는 비클러스터 폴백 전용)
 - **데이터센터 개요** (`/cluster/overview`): 노드별 메트릭 집계 (평균 CPU/메모리/디스크, 총 컨테이너, online/total), 팔로워 stale 응답 시 경고 배너, 최근 이벤트, 리더 전용 롤링/동시 업데이트 버튼(SSE 진행률). 미초기화 시 `ClusterInitForm`(init/join) 렌더

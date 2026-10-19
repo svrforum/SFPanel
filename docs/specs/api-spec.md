@@ -96,7 +96,7 @@
 | SSE(`-stream` 접미사 또는 `/system/update`, `/appstore/.../install` 등) | HTTP 직접 릴레이 | 5분 |
 | WebSocket | `WrapEchoWSHandler` 양방향 프록시 | WS 생명주기 전체 |
 
-노드 간 내부 트래픽은 JWT 대신 `X-SFPanel-Internal-Proxy` 헤더(클러스터 CA 인증서 SHA-256 해시, 상수시간 비교)로 인증됩니다. 원본 사용자는 `X-SFPanel-Original-User` 헤더로 감사 로그에 전파됩니다.
+노드 간 내부 트래픽은 JWT 대신 `X-SFPanel-Internal-Proxy-V2` 헤더(타임스탬프·nonce·메서드·경로에 대한 HMAC-SHA256, nonce 재사용 거부)로 인증됩니다. 서명 비밀은 매니저들이 Raft로 복제하는 무작위 비밀이고, 모든 멤버가 그것을 받아들이게 되면 리더가 전환을 기록합니다. 그 전까지는 이전 방식인 클러스터 CA 인증서의 SHA-256으로 서명하며, 이 값은 전환 뒤 2분까지만 받습니다. 원본 사용자는 `X-SFPanel-Original-User` 헤더로 감사 로그에 전파됩니다.
 
 ### 감사 로그 제외
 

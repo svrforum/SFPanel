@@ -1100,10 +1100,11 @@ func (m *Manager) EnsureRoleCert() error {
 }
 
 // ensureCAKey guarantees this node has the CA private key on disk so it can sign
-// node certs as leader. If the key lives only in replicated FSM state (this node
-// joined the cluster rather than founding the CA), it is materialized to disk on
-// demand — so followers don't carry a loose ca.key file until they actually need
-// to sign. Returns ErrCAKeyUnavailable when the key exists neither on disk nor in
+// node certs: as leader, for joins, and on any manager once, to give its own
+// certificate the manager role (EnsureRoleCert). If the key lives only in
+// replicated FSM state (this node joined the cluster rather than founding the
+// CA), it is materialized to disk on demand — so followers don't carry a loose
+// ca.key file until they actually need to sign. Returns ErrCAKeyUnavailable when the key exists neither on disk nor in
 // the FSM, which is genuinely unrecoverable without operator action.
 func (m *Manager) ensureCAKey() error {
 	if m.tls.HasCAKey() {
@@ -1131,8 +1132,10 @@ func (m *Manager) ensureCAKey() error {
 	return nil
 }
 
-// ProxySecret returns the cluster-internal proxy authentication secret
-// derived from the CA certificate hash. Returns empty if TLS is not configured.
+// ProxySecret returns the CA-derived internal proxy secret, sha256(ca.crt):
+// what nodes sign with until the replicated secret takes over, accepted for
+// legacyProxyGrace after (ApplyProxySecrets). Returns empty if TLS is not
+// configured, which callers also use to ask whether this node is clustered.
 //
 // Cached after the first successful derivation. The proxy middleware hits
 // this on every cross-node request — the previous implementation read
