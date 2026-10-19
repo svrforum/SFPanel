@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -503,6 +504,34 @@ func (t *TLSManager) SaveCAKey(keyPEM []byte) error {
 // into the cluster FSM. Returns the raw PEM bytes as written by InitCA/SaveCAKey.
 func (t *TLSManager) LoadCAKey() ([]byte, error) {
 	return os.ReadFile(filepath.Join(t.certDir, "ca.key"))
+}
+
+var errEmptyAgentKey = errors.New("the agent key is empty")
+
+// SaveAgentKey writes an agent's own internal-proxy key — the one its
+// managers sign their requests to it with — to agent.key, 0600. Like
+// SaveCAKey it replaces the file through a temporary one of its own.
+func (t *TLSManager) SaveAgentKey(key string) error {
+	if strings.TrimSpace(key) == "" {
+		return errEmptyAgentKey
+	}
+	return replaceFile(filepath.Join(t.certDir, "agent.key"), []byte(key))
+}
+
+// LoadAgentKey reads the agent's internal-proxy key. An empty one is an
+// error, not a key: the agent would come up refusing every request its
+// managers send.
+func (t *TLSManager) LoadAgentKey() (string, error) {
+	path := filepath.Join(t.certDir, "agent.key")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read agent key: %w", err)
+	}
+	key := strings.TrimSpace(string(data))
+	if key == "" {
+		return "", fmt.Errorf("%s: %w", path, errEmptyAgentKey)
+	}
+	return key, nil
 }
 
 func (t *TLSManager) loadCA() (*x509.Certificate, *ecdsa.PrivateKey, error) {
