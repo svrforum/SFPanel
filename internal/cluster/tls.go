@@ -116,26 +116,77 @@ func CertRole(cert *x509.Certificate) string {
 // IssueNodeCert creates a TLS certificate signed by the cluster CA for a node
 // in the given role (CertRoleManager or CertRoleAgent).
 func (t *TLSManager) IssueNodeCert(nodeID string, addresses []string, role string) (certPEM, keyPEM []byte, err error) {
-	if role != CertRoleManager && role != CertRoleAgent {
-		return nil, nil, fmt.Errorf("unknown certificate role %q", role)
-	}
-	caCert, caKey, err := t.loadCA()
-	if err != nil {
-		return nil, nil, fmt.Errorf("load CA: %w", err)
-	}
-
 	nodeKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate node key: %w", err)
 	}
+	certPEM, err = t.signNodeCert(nodeID, addresses, role, &nodeKey.PublicKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	// This error used to be discarded: a nil keyDER produces a syntactically
+	// valid but empty PEM block that gets written to node.key and only fails
+	// much later, mid-handshake, as an unexplained TLS error.
+	keyDER, err := x509.MarshalECPrivateKey(nodeKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshal node key: %w", err)
+	}
+	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	// Both of these errors used to be discarded. A nil serial turns into an
-	// opaque x509 failure at signing time; a nil keyDER is worse — it produces
-	// a syntactically valid but empty PEM block that gets written to node.key
-	// and only fails much later, mid-handshake, as an unexplained TLS error.
+	return certPEM, keyPEM, nil
+}
+
+// ReissueNodeCert re-signs this node's certificate for role, keeping its key.
+// node.key is not touched and node.crt is replaced in one rename, so a crash,
+// or the one-minute reload in getNodeCert, sees the old certificate or the
+// new one — each matching the key on disk.
+func (t *TLSManager) ReissueNodeCert(nodeID string, addresses []string, role string) error {
+	keyPEM, err := os.ReadFile(filepath.Join(t.certDir, "node.key"))
+	if err != nil {
+		return fmt.Errorf("read node key: %w", err)
+	}
+	block, _ := pem.Decode(keyPEM)
+	if block == nil {
+		return errors.New("node key is not PEM")
+	}
+	key, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("parse node key: %w", err)
+	}
+	certPEM, err := t.signNodeCert(nodeID, addresses, role, &key.PublicKey)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(t.certDir, "node.crt.*.tmp") // 0600
+	if err != nil {
+		return fmt.Errorf("create temp node cert: %w", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }() // no-op once the rename consumes it
+	if _, err := tmp.Write(certPEM); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write node cert: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp node cert: %w", err)
+	}
+	return os.Rename(tmp.Name(), filepath.Join(t.certDir, "node.crt"))
+}
+
+// signNodeCert signs a node certificate for pub with the cluster CA.
+func (t *TLSManager) signNodeCert(nodeID string, addresses []string, role string, pub *ecdsa.PublicKey) ([]byte, error) {
+	if role != CertRoleManager && role != CertRoleAgent {
+		return nil, fmt.Errorf("unknown certificate role %q", role)
+	}
+	caCert, caKey, err := t.loadCA()
+	if err != nil {
+		return nil, fmt.Errorf("load CA: %w", err)
+	}
+
+	// This error used to be discarded: a nil serial turns into an opaque x509
+	// failure at signing time.
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		return nil, nil, fmt.Errorf("generate serial: %w", err)
+		return nil, fmt.Errorf("generate serial: %w", err)
 	}
 
 	template := &x509.Certificate{
@@ -162,19 +213,11 @@ func (t *TLSManager) IssueNodeCert(nodeID string, addresses []string, role strin
 		}
 	}
 
-	certDER, err := x509.CreateCertificate(rand.Reader, template, caCert, &nodeKey.PublicKey, caKey)
+	certDER, err := x509.CreateCertificate(rand.Reader, template, caCert, pub, caKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("create node cert: %w", err)
+		return nil, fmt.Errorf("create node cert: %w", err)
 	}
-
-	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-	keyDER, err := x509.MarshalECPrivateKey(nodeKey)
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshal node key: %w", err)
-	}
-	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-
-	return certPEM, keyPEM, nil
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}), nil
 }
 
 // SaveNodeCert writes cert/key files for this node.

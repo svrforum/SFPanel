@@ -1070,8 +1070,9 @@ func (m *Manager) CAPublicKey() ([]byte, error) {
 // agent by the certificate alone, so a manager certificate without the role
 // would be refused by agents. Signed with the cluster CA key, which every
 // manager holds (ensureCAKey materializes it from the replicated state),
-// keeping the node ID and the addresses the current certificate is valid for.
-// TLSManager picks the new file up within a minute (getNodeCert).
+// keeping the node ID, the addresses the current certificate is valid for,
+// and the key (ReissueNodeCert). TLSManager picks the new file up within a
+// minute (getNodeCert).
 func (m *Manager) EnsureRoleCert() error {
 	leaf, err := m.tls.NodeCertLeaf()
 	if err != nil {
@@ -1088,12 +1089,8 @@ func (m *Manager) EnsureRoleCert() error {
 		addrs = append(addrs, ip.String())
 	}
 	addrs = append(addrs, leaf.DNSNames...)
-	certPEM, keyPEM, err := m.tls.IssueNodeCert(m.nodeID, addrs, CertRoleManager)
-	if err != nil {
+	if err := m.tls.ReissueNodeCert(m.nodeID, addrs, CertRoleManager); err != nil {
 		return fmt.Errorf("reissue node cert with the manager role: %w", err)
-	}
-	if err := m.tls.SaveNodeCert(certPEM, keyPEM); err != nil {
-		return err
 	}
 	slog.Info("node certificate reissued with the manager role", "component", "cluster", "node_id", m.nodeID)
 	return nil

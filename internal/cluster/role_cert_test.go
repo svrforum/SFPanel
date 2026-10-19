@@ -1,14 +1,18 @@
 package cluster
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -69,5 +73,48 @@ func TestEnsureRoleCertGivesALegacyCertificateTheManagerRole(t *testing.T) {
 	again, _ := tlsMgr.NodeCertLeaf()
 	if again.SerialNumber.Cmp(leaf.SerialNumber) != 0 {
 		t.Fatal("EnsureRoleCert reissued a certificate that already had a role")
+	}
+}
+
+// The reissue re-signs the key the node already has and replaces node.crt in
+// one rename. A new key written beside the new certificate left a window — a
+// crash between the two writes, or the one-minute reload landing between
+// them — in which certificate and key did not match and every handshake
+// failed.
+func TestEnsureRoleCertKeepsTheKey(t *testing.T) {
+	certDir, tlsMgr := setupCertDir(t)
+	certPEM, keyPEM := issueLegacyCert(t, tlsMgr, "node-1", "203.0.113.5", "node-1.example")
+	if err := tlsMgr.SaveNodeCert(certPEM, keyPEM); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{tls: tlsMgr, nodeID: "node-1", raft: &RaftNode{fsm: NewFSM()}}
+	if err := m.EnsureRoleCert(); err != nil {
+		t.Fatal(err)
+	}
+	keyAfter, err := os.ReadFile(filepath.Join(certDir, "node.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(keyAfter, keyPEM) {
+		t.Fatal("EnsureRoleCert replaced node.key")
+	}
+	certAfter, err := os.ReadFile(filepath.Join(certDir, "node.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tls.X509KeyPair(certAfter, keyAfter); err != nil {
+		t.Fatalf("the reissued certificate does not match the key: %v", err)
+	}
+	if CertRole(parseLeaf(t, certAfter)) != CertRoleManager {
+		t.Fatal("the reissued certificate has no manager role")
+	}
+	entries, err := os.ReadDir(certDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".tmp" {
+			t.Fatalf("left %s behind", e.Name())
+		}
 	}
 }
