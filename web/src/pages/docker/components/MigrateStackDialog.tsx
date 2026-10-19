@@ -62,7 +62,10 @@ export function MigrateStackDialog({
     setRateLimit('')
     ;(async () => {
       try {
-        const [nodesRes, status] = await Promise.all([api.getClusterNodes(), api.getClusterStatus()])
+        // The cluster's answers, from this manager: only managers serve
+        // /cluster/*, and with an agent selected ?node= is refused. local_id
+        // is then this manager's, the source only when no node is selected.
+        const [nodesRes, status] = await Promise.all([api.getClusterNodes(true), api.getClusterStatus(true)])
         const sourceId = sourceNodeId ?? api.currentNode ?? status.local_id ?? ''
         setSourceName((nodesRes.nodes || []).find((n) => n.id === sourceId)?.name ?? '')
         const targets = (nodesRes.nodes || []).filter((n) => n.id !== sourceId && n.status === 'online')
