@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,6 +57,10 @@ type Manager struct {
 	// callers refresh on TLS error responses; nothing else mutates the CA.
 	proxySecretMu    sync.RWMutex
 	proxySecretCache string
+
+	// roleCertDone is set once EnsureRoleCert has succeeded; watchLeader
+	// stops trying after that.
+	roleCertDone atomic.Bool
 }
 
 // SetVersion sets the panel version for heartbeat reporting.
@@ -326,6 +331,13 @@ func (m *Manager) watchLeader() {
 				continue
 			}
 			isLeader := m.raft.IsLeader()
+			if !m.roleCertDone.Load() {
+				if err := m.EnsureRoleCert(); err != nil {
+					slog.Warn("could not give the node certificate its role yet", "component", "cluster", "error", err)
+				} else {
+					m.roleCertDone.Store(true)
+				}
+			}
 			// Rising edge → (re)seed the CA into the replicated FSM. This is the
 			// self-healing migration path for existing clusters: seeding requires
 			// leadership (a Raft Apply), and the one-shot boot poll in
@@ -1009,6 +1021,40 @@ func (m *Manager) SeedClusterCA() error {
 		return fmt.Errorf("replicate CA key: %w", err)
 	}
 	slog.Info("seeded cluster CA into replicated state", "component", "cluster")
+	return nil
+}
+
+// EnsureRoleCert reissues this manager's node certificate with the manager
+// role when the one on disk predates roles. An agent tells a manager from an
+// agent by the certificate alone, so a manager certificate without the role
+// would be refused by agents. Signed with the cluster CA key, which every
+// manager holds (ensureCAKey materializes it from the replicated state),
+// keeping the node ID and the addresses the current certificate is valid for.
+// TLSManager picks the new file up within a minute (getNodeCert).
+func (m *Manager) EnsureRoleCert() error {
+	leaf, err := m.tls.NodeCertLeaf()
+	if err != nil {
+		return err
+	}
+	if CertRole(leaf) != "" {
+		return nil
+	}
+	if err := m.ensureCAKey(); err != nil {
+		return err
+	}
+	var addrs []string
+	for _, ip := range leaf.IPAddresses {
+		addrs = append(addrs, ip.String())
+	}
+	addrs = append(addrs, leaf.DNSNames...)
+	certPEM, keyPEM, err := m.tls.IssueNodeCert(m.nodeID, addrs, CertRoleManager)
+	if err != nil {
+		return fmt.Errorf("reissue node cert with the manager role: %w", err)
+	}
+	if err := m.tls.SaveNodeCert(certPEM, keyPEM); err != nil {
+		return err
+	}
+	slog.Info("node certificate reissued with the manager role", "component", "cluster", "node_id", m.nodeID)
 	return nil
 }
 

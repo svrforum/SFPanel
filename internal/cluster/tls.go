@@ -207,6 +207,19 @@ func (t *TLSManager) LoadCACert() ([]byte, error) {
 	return os.ReadFile(filepath.Join(t.certDir, "ca.crt"))
 }
 
+// NodeCertLeaf parses the node certificate on disk.
+func (t *TLSManager) NodeCertLeaf() (*x509.Certificate, error) {
+	data, err := os.ReadFile(filepath.Join(t.certDir, "node.crt"))
+	if err != nil {
+		return nil, fmt.Errorf("read node cert: %w", err)
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return nil, errors.New("node cert is not PEM")
+	}
+	return x509.ParseCertificate(block.Bytes)
+}
+
 // loadCAPool returns the cluster CA pool, loaded once per process. CA
 // rotation intentionally requires a coordinated restart.
 func (t *TLSManager) loadCAPool() (*x509.CertPool, error) {
