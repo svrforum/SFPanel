@@ -216,3 +216,36 @@ func TestSignProxyRequestUsesTheSigningSecret(t *testing.T) {
 		t.Fatal("signed with a secret other than the signing one")
 	}
 }
+
+// A header made with an agent's key validates only where that key is
+// accepted. A manager's secret must not validate it, and the agent's key must
+// not validate one made with the manager's secret: either would let one side
+// replay the other's credential.
+func TestSignWithChosenKey(t *testing.T) {
+	t.Cleanup(func() { SetProxySecrets("", nil) })
+	path := "/api/v1/system/info"
+	agentHdr := SignProxyRequestV2With("agent-key", http.MethodGet, path)
+	if agentHdr == "" {
+		t.Fatal("no header")
+	}
+	req := func(h string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.Header.Set(InternalProxyHeaderV2, h)
+		return r
+	}
+	SetProxySecrets("agent-key", []string{"agent-key"})
+	if !IsInternalProxyRequest(req(agentHdr)) {
+		t.Fatal("the agent refused a header made with its own key")
+	}
+	SetProxySecrets("manager-secret", []string{"manager-secret"})
+	if IsInternalProxyRequest(req(SignProxyRequestV2With("agent-key", http.MethodGet, path))) {
+		t.Fatal("a manager accepted a header made with an agent's key")
+	}
+	SetProxySecrets("agent-key", []string{"agent-key"})
+	if IsInternalProxyRequest(req(SignProxyRequestV2With("manager-secret", http.MethodGet, path))) {
+		t.Fatal("an agent accepted a header made with the manager secret")
+	}
+	if SignProxyRequestV2With("", http.MethodGet, path) != "" {
+		t.Fatal("signed with an empty key")
+	}
+}

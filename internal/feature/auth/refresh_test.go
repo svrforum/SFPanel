@@ -165,10 +165,20 @@ func TestPruneRefreshTokens_DropsOldTombstones(t *testing.T) {
 func newRefreshHandler(t *testing.T) (*Handler, *sql.DB) {
 	t.Helper()
 	db := openTestDB(t)
+	useTestJWTKey(t)
 	return &Handler{
 		DB:     db,
 		Config: &config.Config{Auth: config.AuthConfig{JWTSecret: "test-secret-not-for-prod", TokenExpiry: "1h"}},
 	}, db
+}
+
+// useTestJWTKey installs the key Refresh signs with. The handler reads the
+// process-wide key (auth.JWTSecret), not Config.Auth.JWTSecret, and
+// GenerateToken refuses the empty key a test binary starts with.
+func useTestJWTKey(t *testing.T) {
+	t.Helper()
+	auth.SetJWTSecret("test-secret-not-for-prod")
+	t.Cleanup(func() { auth.SetJWTSecret("") })
 }
 
 // seedRefreshToken inserts a refresh token row for the given user and returns
@@ -212,6 +222,7 @@ func TestRefresh_ConcurrentSameToken_NoDeadlock(t *testing.T) {
 	}
 	raw, _ := seedRefreshToken(t, db, "alice")
 
+	useTestJWTKey(t)
 	h := &Handler{DB: db, Config: &config.Config{Auth: config.AuthConfig{JWTSecret: "test-secret-not-for-prod", TokenExpiry: "1h"}}}
 
 	const N = 8
@@ -420,8 +431,8 @@ func TestPersistAdminAccount_ClusterOnlyWithoutManagerFails(t *testing.T) {
 // trips OWASP family-revoke (token-reuse detection) and logs the user out
 // across every device.
 //
-// We inject the failure via the package-level generateAccessToken seam — the
-// jwt-v5 HMAC signer tolerates empty keys, so there is no input-layer trigger.
+// We inject the failure via the package-level generateAccessToken seam rather
+// than by emptying the process-wide key, the one input GenerateToken refuses.
 func TestRefresh_RotationRollsBackOnJWTFailure(t *testing.T) {
 	h, db := newRefreshHandler(t)
 	if _, err := db.Exec(`INSERT INTO admin (username, password) VALUES (?, ?)`, "alice", "x"); err != nil {

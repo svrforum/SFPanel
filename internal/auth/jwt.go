@@ -1,11 +1,16 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
+
+// ErrEmptyJWTKey refuses signing or verifying with an empty key, which
+// golang-jwt otherwise accepts.
+var ErrEmptyJWTKey = errors.New("the JWT signing key is empty")
 
 type Claims struct {
 	Username string `json:"username"`
@@ -13,6 +18,9 @@ type Claims struct {
 }
 
 func GenerateToken(username string, secret string, expiry time.Duration) (string, error) {
+	if secret == "" {
+		return "", ErrEmptyJWTKey
+	}
 	now := time.Now()
 	claims := Claims{
 		Username: username,
@@ -29,6 +37,9 @@ func GenerateToken(username string, secret string, expiry time.Duration) (string
 }
 
 func ParseToken(tokenString string, secret string) (*Claims, error) {
+	if secret == "" {
+		return nil, ErrEmptyJWTKey
+	}
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])

@@ -29,10 +29,10 @@ const refreshTokenBytes = 32
 
 // generateAccessToken is the seam Refresh uses to mint the access JWT. A
 // package var (instead of calling auth.GenerateToken directly) so tests can
-// inject a forced failure and exercise the rotation rollback path. The
-// jwt-v5 HMAC signer accepts any []byte key including empty, so there's no
-// realistic way to make GenerateToken fail at the input layer without a
-// seam like this.
+// inject a forced failure and exercise the rotation rollback path. The only
+// input GenerateToken refuses is an empty key (auth.ErrEmptyJWTKey), and that
+// key is process-wide (auth.SetJWTSecret), so the seam is the narrower way to
+// make signing alone fail.
 var generateAccessToken = auth.GenerateToken
 
 // issueRefreshToken creates a new opaque refresh token, persists its hash

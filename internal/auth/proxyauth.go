@@ -133,8 +133,15 @@ func IsInternalProxyRequest(r *http.Request) bool {
 // fresh outgoing request. method + path bind the MAC to the specific
 // endpoint so a captured header can't be re-targeted.
 func SignProxyRequestV2(method, path string) string {
-	secret := ClusterProxySecret()
-	if secret == "" {
+	return SignProxyRequestV2With(ClusterProxySecret(), method, path)
+}
+
+// SignProxyRequestV2With signs an outgoing internal request with an explicit
+// key. A manager sending to an agent signs with that agent's own key: a header
+// signed with the manager secret is accepted once by every manager within the
+// clock-skew window, so handing one to an agent would hand it a credential.
+func SignProxyRequestV2With(key, method, path string) string {
+	if key == "" {
 		return ""
 	}
 	nonceBytes := make([]byte, 16)
@@ -146,7 +153,7 @@ func SignProxyRequestV2(method, path string) string {
 	}
 	nonce := hex.EncodeToString(nonceBytes)
 	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	mac := hmac.New(sha256.New, []byte(secret))
+	mac := hmac.New(sha256.New, []byte(key))
 	mac.Write([]byte(ts + ":" + nonce + ":" + method + ":" + path))
 	return ts + ":" + nonce + ":" + hex.EncodeToString(mac.Sum(nil))
 }
