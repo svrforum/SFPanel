@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"strconv"
 
@@ -128,6 +129,46 @@ type ClusterConfig struct {
 	CertDir          string `yaml:"cert_dir"`
 	AdvertiseAddress string `yaml:"advertise_address"`
 	RaftTLS          bool   `yaml:"raft_tls"` // TLS encryption for Raft transport (set on init)
+	// Role is "" or "manager" (a Raft member) or "agent" (outside Raft: no
+	// FSM, no accounts, accepts no JWT, and its jwt_secret is its own, never
+	// the cluster's; serves only node-local features).
+	Role string `yaml:"role,omitempty"`
+	// Managers is, on an agent, the managers it registered with: the seed for
+	// where it sends heartbeats and whose requests it accepts. Heartbeat
+	// replies keep the live list in the agent's state file under data_dir,
+	// which takes over from this field once it exists.
+	Managers []ManagerRef `yaml:"managers,omitempty"`
+	// AgentAllowedSources adds addresses (IP or CIDR) an agent's panel accepts
+	// requests from, besides loopback and its managers' addresses. For
+	// managers that reach agents from a different address than they advertise.
+	AgentAllowedSources []string `yaml:"agent_allowed_sources,omitempty"`
+	// MaxAgents caps how many agents the leader registers (default 100).
+	MaxAgents int `yaml:"max_agents,omitempty"`
+}
+
+const (
+	ClusterRoleManager = "manager"
+	ClusterRoleAgent   = "agent"
+	DefaultMaxAgents   = 100
+)
+
+// ManagerRef names a manager an agent works with.
+type ManagerRef struct {
+	ID          string `yaml:"id"`
+	GRPCAddress string `yaml:"grpc_address"`
+}
+
+// IsAgent reports whether this node runs as an agent.
+func (c ClusterConfig) IsAgent() bool { return c.Role == ClusterRoleAgent }
+
+// MaxAgentsOrDefault is the agent cap the leader enforces. A method rather
+// than a default filled in Load, because Load and CheckFile keep separate
+// default blocks and a value set in only one would make them disagree.
+func (c ClusterConfig) MaxAgentsOrDefault() int {
+	if c.MaxAgents > 0 {
+		return c.MaxAgents
+	}
+	return DefaultMaxAgents
 }
 
 func (c *Config) Validate() error {
@@ -163,6 +204,42 @@ func (c *Config) Validate() error {
 	}
 	if r := c.Docker.Observability.EventsRetention; r != "" && !allowedEventsRetentions[r] {
 		return fmt.Errorf("docker.observability.events_retention must be one of 7d/30d/90d, got %q", r)
+	}
+	if err := c.Cluster.validateRole(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c ClusterConfig) validateRole() error {
+	switch c.Role {
+	case "", ClusterRoleManager, ClusterRoleAgent:
+	default:
+		return fmt.Errorf("cluster.role must be empty, %q or %q, got %q", ClusterRoleManager, ClusterRoleAgent, c.Role)
+	}
+	for _, s := range c.AgentAllowedSources {
+		if net.ParseIP(s) == nil {
+			if _, _, err := net.ParseCIDR(s); err != nil {
+				return fmt.Errorf("cluster.agent_allowed_sources: %q is neither an IP address nor a CIDR", s)
+			}
+		}
+	}
+	if !c.IsAgent() {
+		return nil
+	}
+	if c.NodeID == "" {
+		return fmt.Errorf("cluster.node_id is required for an agent")
+	}
+	if c.AdvertiseAddress == "" {
+		return fmt.Errorf("cluster.advertise_address is required for an agent")
+	}
+	if len(c.Managers) == 0 {
+		return fmt.Errorf("cluster.managers must name at least one manager for an agent")
+	}
+	for _, m := range c.Managers {
+		if m.ID == "" || m.GRPCAddress == "" {
+			return fmt.Errorf("cluster.managers: every entry needs id and grpc_address")
+		}
 	}
 	return nil
 }
