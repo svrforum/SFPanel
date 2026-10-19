@@ -6,8 +6,11 @@ set -euo pipefail
 #        sudo ./install.sh                # install / upgrade
 #        sudo ./install.sh uninstall      # remove binary + service
 #        FORCE_SYSTEMD=1 sudo ./install.sh   # rewrite systemd unit even if present
+#        curl -fsSL …/install.sh | sudo bash -s -- --agent <manager>:3629 <token> --ca <fingerprint> [--advertise <ip>]
+#                                         # install and join a cluster as an agent ('sfpanel cluster token --agent' on a manager prints this)
 
 REPO="svrforum/SFPanel"
+INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh"
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/sfpanel"
 DATA_DIR="/var/lib/sfpanel"
@@ -23,6 +26,12 @@ SFPANEL_REQUIRE_COSIGN="${SFPANEL_REQUIRE_COSIGN:-0}"
 # verify_service_started only auto-reverts on a failed upgrade THIS run (not on
 # a same-version reconcile that finds a stale .bak from an earlier upgrade).
 BINARY_BACKED_UP=0
+# Set by parse_agent_args from --agent ADDR TOKEN --ca FP [--advertise IP]:
+# a server given them joins a cluster as an agent before its service starts.
+AGENT_MANAGER=""
+AGENT_TOKEN=""
+AGENT_CA=""
+AGENT_ADVERTISE=""
 
 # Colors
 RED='\033[0;31m'
@@ -159,6 +168,38 @@ read_config_tls() {
       exit
     }
   ' "${CONFIG_DIR}/config.yaml" 2>/dev/null
+}
+
+# read_cluster_value prints one value of the top-level cluster: block, quotes
+# and a trailing comment stripped, or nothing. Only keys directly under
+# cluster: count, at whatever indent the file uses (the panel writes four
+# spaces, an operator may write two), so a nested key of the same name cannot
+# answer. Same POSIX-awk-only constraint as read_config_port.
+read_cluster_value() {
+  awk -v key="$1" -v sq="'" '
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    /^cluster:/                         { in_cluster=1; depth=-1; next }
+    /^[^[:space:]]/                     { in_cluster=0 }
+    in_cluster {
+      match($0, /^[[:space:]]*/)
+      if (depth < 0) depth = RLENGTH
+      if (RLENGTH == depth && $1 == key ":") {
+        v = $0
+        sub(/^[^:]*:[[:space:]]*/, "", v)
+        sub(/[[:space:]]+#.*$/, "", v)
+        sub(/[[:space:]]+$/, "", v)
+        gsub("^[\"" sq "]|[\"" sq "]$", "", v)
+        print v
+        exit
+      }
+    }
+  ' "${CONFIG_DIR}/config.yaml" 2>/dev/null || true
+}
+
+# config_is_agent reports a config whose cluster.role is agent. Such a server
+# boots as an agent whatever cluster.enabled says, as the panel decides.
+config_is_agent() {
+  [ "$(read_cluster_value role)" = "agent" ]
 }
 
 # --- Core functions ---
@@ -619,11 +660,19 @@ print_success() {
   if check_systemd && systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
     running=1
   fi
+  # Nobody signs in to an agent: its managers manage it, and its panel answers
+  # only them, so there is no URL to open and no admin to set up.
+  local agent=0
+  if [ -n "$AGENT_MANAGER" ] || config_is_agent; then
+    agent=1
+  fi
 
   echo ""
   echo -e "${CYAN}============================================${NC}"
   if [ "$running" -ne 1 ]; then
     echo -e "${CYAN}   SFPanel v${version} binary installed${NC}"
+  elif [ -n "$AGENT_MANAGER" ]; then
+    echo -e "${CYAN}   SFPanel v${version} joined a cluster as an agent!${NC}"
   elif [ "$mode" = "upgrade" ]; then
     echo -e "${CYAN}   SFPanel upgraded to v${version}!${NC}"
   else
@@ -632,12 +681,21 @@ print_success() {
   echo -e "${CYAN}============================================${NC}"
   echo ""
   echo -e "  Version:   ${GREEN}v${version}${NC}"
+  if [ -n "$AGENT_MANAGER" ]; then
+    echo -e "  Cluster:   ${GREEN}joined the cluster at ${AGENT_MANAGER} as an agent; manage it from a manager's panel${NC}"
+  elif [ "$agent" -eq 1 ]; then
+    echo -e "  Cluster:   ${GREEN}an agent of a cluster; manage it from a manager's panel${NC}"
+  fi
   if [ "$running" -eq 1 ]; then
-    echo -e "  Access:    ${GREEN}${scheme}://<server-ip>:${port}${NC}"
+    if [ "$agent" -ne 1 ]; then
+      echo -e "  Access:    ${GREEN}${scheme}://<server-ip>:${port}${NC}"
+    fi
   else
     echo -e "  ${YELLOW}Not running (no systemd detected). Launch it manually:${NC}"
     echo -e "    ${INSTALL_DIR}/sfpanel ${CONFIG_DIR}/config.yaml"
-    echo -e "  Then open: ${scheme}://<server-ip>:${port}"
+    if [ "$agent" -ne 1 ]; then
+      echo -e "  Then open: ${scheme}://<server-ip>:${port}"
+    fi
   fi
   echo -e "  Config:    ${CONFIG_DIR}/config.yaml"
   echo -e "  Data:      ${DATA_DIR}/"
@@ -652,7 +710,12 @@ print_success() {
     echo -e "  Logs:      ${LOG_DIR}/sfpanel.log"
   fi
   echo ""
-  if [ "$mode" = "install" ]; then
+  if [ "$agent" -eq 1 ]; then
+    # Its firewall was a matter for the join; a plain upgrade leaves it be.
+    if [ -n "$AGENT_MANAGER" ] || [ "$mode" = "install" ]; then
+      print_agent_firewall "$port"
+    fi
+  elif [ "$mode" = "install" ]; then
     local sudo pve=0
     sudo=$(sudo_prefix)
     if is_pve; then
@@ -715,6 +778,157 @@ print_success() {
   fi
 }
 
+# print_agent_firewall says what an agent's firewall has to let its managers
+# through to: the cluster gRPC port, where they send requests, and the panel
+# port, where they relay streams, files and terminals. The Raft port is the
+# managers' alone. The firewall it names is chosen as print_success chooses:
+# never ufw on Proxmox VE.
+print_agent_firewall() {
+  local port="$1" grpc_port sudo
+  sudo=$(sudo_prefix)
+  grpc_port=$(read_cluster_value grpc_port)
+  # A leading zero reads as octal below, where 0[89] would end the installer.
+  case "$grpc_port" in
+    ''|*[!0-9]*|0*) grpc_port=3629 ;;
+  esac
+  echo -e "  Its managers reach this server on TCP ${port} (panel) and ${grpc_port} (cluster gRPC);"
+  echo -e "  an agent needs no Raft port ($((grpc_port + 1)))."
+  if is_pve; then
+    if pve_firewall_enabled; then
+      echo -e "  ${YELLOW}⚠  The Proxmox VE firewall is on: the managers reach ${port} and ${grpc_port} only once a rule allows them.${NC}"
+      echo -e "  ${YELLOW}   Datacenter → Firewall → Add, or under [RULES] in /etc/pve/firewall/cluster.fw:${NC}"
+      echo -e "        IN ACCEPT -source <manager-ips> -p tcp -dport ${port},${grpc_port}"
+    else
+      echo -e "  ${YELLOW}⚠  The Proxmox VE firewall is off — ${port} and ${grpc_port} may be reachable from anywhere.${NC}"
+      echo -e "  ${YELLOW}   Restrict them to the managers with the Proxmox firewall (Datacenter → Firewall), not ufw.${NC}"
+    fi
+  elif command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi "Status: active"; then
+    echo -e "  ufw is active: allow each manager, e.g."
+    echo -e "        ${sudo}ufw allow from <manager-ip> to any port ${port},${grpc_port} proto tcp"
+  else
+    echo -e "  ${YELLOW}⚠  No active ufw firewall detected — ${port} and ${grpc_port} may be reachable from anywhere.${NC}"
+    echo -e "  ${YELLOW}   The agent answers its managers only; restrict both ports to them all the same.${NC}"
+  fi
+  echo ""
+  echo -e "  ${CYAN}Tips:${NC}"
+  echo -e "    Check the link:  ${sudo}sfpanel agent status"
+  echo -e "    Leave:           remove the node on a manager, then here  ${sudo}sfpanel agent reset --yes"
+  echo ""
+}
+
+# --- Joining as an agent ---
+
+# parse_agent_args reads the installer's arguments, which past uninstall can
+# only be an agent join's: --agent ADDR TOKEN, --ca FP and --advertise IP, in
+# any order. What it can tell is wrong it refuses before anything is
+# downloaded; 'sfpanel agent join' checks the rest — the fingerprint's form,
+# the advertise address — before the token is sent. An argument it does not
+# know is refused too: skipped, a misspelt --advertise would have the agent
+# registered at an address detected instead.
+parse_agent_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --agent)
+        # A join token is hex, so a value that starts with - is the next
+        # option: the address or the token was left out.
+        if [ "$#" -lt 3 ] || [ -z "$2" ] || [ -z "$3" ] || [ "${2#-}" != "$2" ] || [ "${3#-}" != "$3" ]; then
+          agent_args_error "--agent needs the manager's address and the join token: --agent <manager>:3629 <token>"
+        fi
+        AGENT_MANAGER="$2"
+        AGENT_TOKEN="$3"
+        shift 3
+        ;;
+      --ca|--advertise)
+        if [ "$#" -lt 2 ] || [ -z "$2" ] || [ "${2#-}" != "$2" ]; then
+          agent_args_error "$1 needs a value"
+        fi
+        if [ "$1" = "--ca" ]; then
+          AGENT_CA="$2"
+        else
+          AGENT_ADVERTISE="$2"
+        fi
+        shift 2
+        ;;
+      *)
+        agent_args_error "Unknown argument: $1"
+        ;;
+    esac
+  done
+  if [ -z "$AGENT_MANAGER" ]; then
+    agent_args_error "--agent <manager>:3629 <token> is missing"
+  fi
+  if [ -z "$AGENT_CA" ]; then
+    agent_args_error "--ca is missing: copy the whole command 'sfpanel cluster token --agent' prints on a manager, fingerprint included"
+  fi
+  local host="${AGENT_MANAGER%:*}" port="${AGENT_MANAGER##*:}"
+  case "$port" in
+    ''|*[!0-9]*) port=0 ;;
+  esac
+  if [ "$host" = "$AGENT_MANAGER" ] || [ -z "$host" ] || [ "${#port}" -gt 5 ] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    agent_args_error "The manager address ${AGENT_MANAGER} needs a port: the manager's cluster gRPC address, as 'sfpanel cluster token --agent' prints it"
+  fi
+}
+
+# agent_args_error stops the installer on arguments parse_agent_args cannot use.
+agent_args_error() {
+  log_error "$1"
+  log_error "Usage: curl -fsSL ${INSTALL_SCRIPT_URL} | $(sudo_prefix)bash -s -- --agent <manager>:3629 <token> --ca <fingerprint> [--advertise <ip>]"
+  log_error "       ('sfpanel cluster token --agent' on a manager prints this command, token and fingerprint filled in)"
+  exit 1
+}
+
+# check_can_join_as_agent refuses --agent on a server in a cluster already.
+# 'sfpanel agent join' refuses it as well, but only once download_binary has
+# stopped the service, which would leave a manager — a voter — or an agent
+# down.
+check_can_join_as_agent() {
+  local sudo
+  sudo=$(sudo_prefix)
+  if config_is_agent; then
+    log_error "This server is an agent already: '${sudo}sfpanel agent status' shows its link."
+    log_error "To upgrade it, run the installer without --agent. To join again, remove it on a manager, then run '${sudo}sfpanel agent reset --yes' here first."
+    exit 1
+  fi
+  if [ "$(read_cluster_value enabled)" = "true" ]; then
+    log_error "This server is a cluster manager: '${sudo}sfpanel cluster leave' takes it out of the cluster before it can join as an agent."
+    exit 1
+  fi
+}
+
+# run_agent_join joins this server as an agent with what parse_agent_args
+# read: no-restart while the service is stopped or not set up yet, so that its
+# first start is an agent's; restart for a panel that may be running, which
+# the join restarts as an agent. Piped from curl, the installer's stdin is the
+# script itself, so the join gets /dev/null.
+run_agent_join() {
+  local mode="$1" sudo
+  set -- agent join "$AGENT_MANAGER" "$AGENT_TOKEN" --ca "$AGENT_CA"
+  if [ -n "$AGENT_ADVERTISE" ]; then
+    set -- "$@" --advertise "$AGENT_ADVERTISE"
+  fi
+  set -- "$@" --config "${CONFIG_DIR}/config.yaml"
+  if [ "$mode" = "no-restart" ]; then
+    set -- "$@" --no-restart
+  fi
+  if ! "${INSTALL_DIR}/sfpanel" "$@" </dev/null; then
+    sudo=$(sudo_prefix)
+    log_error "Joining the cluster at ${AGENT_MANAGER} as an agent failed: the reason is above."
+    if [ "$mode" = "no-restart" ]; then
+      log_error "sfpanel was not started. Once the cause is fixed, run the same command again:"
+    else
+      log_error "Once the cause is fixed, run the same command again:"
+    fi
+    log_error "  curl -fsSL ${INSTALL_SCRIPT_URL} | ${sudo}bash -s -- --agent ${AGENT_MANAGER} <token> --ca ${AGENT_CA}${AGENT_ADVERTISE:+ --advertise ${AGENT_ADVERTISE}}"
+    log_error "A token the reason calls used, expired or not found needs a new one: '${sudo}sfpanel cluster token --agent' on a manager."
+    exit 1
+  fi
+  # The binary saved before an upgrade may predate agents: swapped back in
+  # under an agent's config it would serve a login page (and, with no admin
+  # yet, the setup screen) instead of an agent's routes, so a new binary that
+  # fails to start is left down.
+  BINARY_BACKED_UP=0
+}
+
 # --- Uninstall ---
 
 uninstall() {
@@ -726,7 +940,7 @@ uninstall() {
   # the Raft configuration. Otherwise the node vanishes while still counted as a
   # voter; on a 2-voter cluster the survivor loses quorum and needs peers.json
   # recovery. Best-effort (set -e safe).
-  if [ -x "${INSTALL_DIR}/sfpanel" ] \
+  if [ -x "${INSTALL_DIR}/sfpanel" ] && ! config_is_agent \
      && awk '/^cluster:/{f=1;next} /^[^[:space:]]/{f=0} f' "${CONFIG_DIR}/config.yaml" 2>/dev/null \
           | grep -qsE '^[[:space:]]*enabled:[[:space:]]*true'; then
     log_info "Cluster member detected — leaving the cluster first..."
@@ -738,6 +952,25 @@ uninstall() {
       log_warn "    $(sudo_prefix)sfpanel cluster remove <node-id>"
       log_warn "or follow docs/specs/cluster-partition-runbook.md (peers.json recovery)."
     fi
+  elif [ -x "${INSTALL_DIR}/sfpanel" ] && config_is_agent; then
+    # An agent is outside Raft and cannot take itself out of the cluster: its
+    # record stays until a manager removes it. The reset makes the config that
+    # stays without --purge a standalone panel's and removes the agent's key
+    # and certificates. The service is stopped first, because the reset
+    # restarts a running one — as a standalone panel, moments before it goes.
+    local node_id
+    node_id=$(read_cluster_value node_id)
+    log_info "Cluster agent detected — resetting it first..."
+    if check_systemd; then
+      systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    fi
+    if "${INSTALL_DIR}/sfpanel" agent reset --yes --config "${CONFIG_DIR}/config.yaml" >/dev/null; then
+      log_info "Reset the agent: its cluster key and certificates are removed."
+    else
+      log_warn "Could not reset the agent; ${CONFIG_DIR} keeps its cluster key and certificates."
+    fi
+    log_warn "The cluster keeps this agent's record until a manager removes it. Unless it was removed already, on a manager run:"
+    log_warn "    $(sudo_prefix)sfpanel cluster remove ${node_id:-<node-id>}"
   fi
 
   if check_systemd; then
@@ -772,6 +1005,9 @@ main() {
     if [ "${2:-}" = "--purge" ]; then uninstall purge; else uninstall; fi
     exit 0
   fi
+  if [ "$#" -gt 0 ]; then
+    parse_agent_args "$@"
+  fi
 
   echo -e "${CYAN}"
   echo "  ____  _____ ____                  _ "
@@ -785,6 +1021,9 @@ main() {
   check_root
   check_os
   check_commands
+  if [ -n "$AGENT_MANAGER" ]; then
+    check_can_join_as_agent
+  fi
 
   local arch version current_version mode
   arch=$(detect_arch)
@@ -798,16 +1037,27 @@ main() {
       # unit can be repaired by re-running the installer without a version bump.
       setup_dirs
       setup_logrotate
+      # The way back after a join that failed: the binary is in place, only
+      # the join is left. It goes before setup_systemd, which starts a service
+      # that is not running — as an agent then, never as an unowned standalone
+      # panel; one that is running the join restarts as an agent.
+      if [ -n "$AGENT_MANAGER" ]; then
+        run_agent_join restart
+      fi
       setup_systemd
+      if [ -n "$AGENT_MANAGER" ]; then
+        print_success "$version" install
+      fi
       exit 0
     fi
     log_info "Upgrading SFPanel: v${current_version} → v${version}"
     mode="upgrade"
     # A script upgrade stops THIS node's service for the whole download+restart
     # window. Fanning install.sh across all voters at once breaks heartbeat/quorum
-    # simultaneously — steer clustered operators to the safe paths.
+    # simultaneously — steer clustered operators to the safe paths. An agent
+    # does not vote, so stopping it takes no voter down.
     if awk '/^cluster:/{f=1;next} /^[^[:space:]]/{f=0} f' "${CONFIG_DIR}/config.yaml" 2>/dev/null \
-         | grep -qsE '^[[:space:]]*enabled:[[:space:]]*true'; then
+         | grep -qsE '^[[:space:]]*enabled:[[:space:]]*true' && ! config_is_agent; then
       log_warn "This node is part of a cluster. For zero-downtime upgrades use the panel's"
       log_warn "Cluster → Update (rolling), or run install.sh one node at a time (>=10s apart)."
     fi
@@ -819,6 +1069,12 @@ main() {
   download_binary "$version" "$arch"
   setup_dirs
   generate_config
+  # Joined before the service first starts, the first boot is an agent's: a
+  # standalone panel's setup screen, open to the LAN until someone claims it,
+  # never comes up. On an upgrade download_binary has stopped the service.
+  if [ -n "$AGENT_MANAGER" ]; then
+    run_agent_join no-restart
+  fi
   setup_logrotate
   setup_systemd
   print_success "$version" "$mode"
