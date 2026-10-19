@@ -705,7 +705,7 @@ print_success() {
     echo ""
     echo -e "    Join a cluster: on an existing node run  ${sudo}sfpanel cluster token"
     echo -e "                    and paste the command it prints here, e.g."
-    echo -e "                    ${sudo}sfpanel cluster join <leader-ip>:3629 <token>"
+    echo -e "                    ${sudo}sfpanel cluster join <leader-ip>:3629 <token> --ca <fingerprint>"
     if [ "$pve" -eq 1 ]; then
       echo -e "                    Nodes talk on TCP 3628-3630; allow them between nodes in the Proxmox firewall."
     else

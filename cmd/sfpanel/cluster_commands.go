@@ -303,7 +303,8 @@ func clusterInit(args []string) {
 	fmt.Println("\nNext steps:")
 	fmt.Printf("  1. Restart sfpanel: %ssystemctl restart sfpanel\n", sudoPrefix())
 	fmt.Printf("  2. Create a join token: %ssfpanel cluster token\n", sudoPrefix())
-	fmt.Printf("  3. On other nodes: sfpanel cluster join <this-ip>:%d <token>\n", cfg.Cluster.GRPCPort)
+	fmt.Printf("  3. On other nodes: sfpanel cluster join <this-ip>:%d <token> --ca <fingerprint>\n", cfg.Cluster.GRPCPort)
+	fmt.Println("     (step 2 prints this command, fingerprint included)")
 }
 
 func clusterJoin(args []string) {
@@ -811,7 +812,8 @@ func printClusterHelp() {
 	fmt.Println()
 	fmt.Println("  sfpanel cluster init [--name NAME]        Initialize a new cluster")
 	fmt.Println("  sfpanel cluster token [--ttl DURATION]    Create a join token")
-	fmt.Println("  sfpanel cluster join ADDR:PORT TOKEN      Join an existing cluster")
+	fmt.Println("  sfpanel cluster join ADDR:PORT TOKEN --ca FINGERPRINT")
+	fmt.Println("                                            Join an existing cluster ('cluster token' prints the command)")
 	fmt.Println("  sfpanel cluster status                    Show cluster status (live role + leader if server running)")
 	fmt.Println("  sfpanel cluster list                      List all cluster members with role + health")
 	fmt.Println("  sfpanel cluster leader-transfer NODE_ID   Hand off leadership to NODE_ID (for graceful drains)")
