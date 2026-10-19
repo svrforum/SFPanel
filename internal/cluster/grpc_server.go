@@ -35,21 +35,27 @@ const (
 	localHTTPLongTimeout = 5 * time.Minute
 )
 
-// localClient returns a cached client for the loopback hop. Clients are built
+// loopbackClients caches the clients for the loopback hop. Clients are built
 // once and reused so the connection pool survives across proxied requests —
 // building one per request would also mean re-reading and re-parsing the CA on
 // every cross-node call.
-func (s *GRPCServer) localClient(long bool) (*http.Client, error) {
-	s.localClientMu.Lock()
-	defer s.localClientMu.Unlock()
-	target := &s.localHTTP
+type loopbackClients struct {
+	mu          sync.Mutex
+	short, long *http.Client
+}
+
+// get returns the cached client, the five-minute one when long.
+func (lc *loopbackClients) get(local LocalPanel, long bool) (*http.Client, error) {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+	target := &lc.short
 	timeout := localHTTPTimeout
 	if long {
-		target = &s.localHTTPLong
+		target = &lc.long
 		timeout = localHTTPLongTimeout
 	}
 	if *target == nil {
-		c, err := s.local.HTTPClient(timeout)
+		c, err := local.HTTPClient(timeout)
 		if err != nil {
 			return nil, err
 		}
@@ -75,11 +81,8 @@ type GRPCServer struct {
 	// former hardcoded "http://127.0.0.1:%d" so the hop follows the panel when
 	// it moves to TLS — this is the choke point for EVERY gRPC-relayed
 	// cross-node request, so a missed scheme here breaks all ?node= proxying.
-	local LocalPanel
-
-	localClientMu sync.Mutex
-	localHTTP     *http.Client
-	localHTTPLong *http.Client
+	local   LocalPanel
+	clients loopbackClients
 }
 
 // LocalPanel is the subset of paneltls.Self this package needs. It is an
@@ -524,19 +527,27 @@ func proxyErrorBody(code, message string) []byte {
 
 // ProxyRequest forwards an API request to this node's local HTTP handler.
 func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.APIResponse, error) {
+	return forwardToLocalPanel(ctx, s.local, &s.clients, req), nil
+}
+
+// forwardToLocalPanel runs a proxied API request against this node's own
+// panel: the loopback hop behind ProxyRequest, on a manager and on an agent.
+// It never fails the call itself — an error is an APIResponse with a JSON
+// body (proxyErrorBody), which the sending node relays like any other answer.
+func forwardToLocalPanel(ctx context.Context, local LocalPanel, clients *loopbackClients, req *pb.APIRequest) *pb.APIResponse {
 	// Build local HTTP request
 	var body io.Reader
 	if len(req.Body) > 0 {
 		body = bytes.NewReader(req.Body)
 	}
 
-	localURL := s.local.URL(req.Path)
+	localURL := local.URL(req.Path)
 	httpReq, err := http.NewRequestWithContext(ctx, req.Method, localURL, body)
 	if err != nil {
 		return &pb.APIResponse{
 			StatusCode: 500,
 			Body:       proxyErrorBody("PROXY_ERROR", err.Error()),
-		}, nil
+		}
 	}
 
 	// Copy headers from the inbound gRPC request, but skip the auth
@@ -547,13 +558,17 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 	// skipped. They carry the identity the *forwarding* node already
 	// authenticated (proxy.go re-sets Original-User from its JWT-validated
 	// c.Get("username")), and the loopback handler consumes them for audit
-	// attribution. Trust here rests on two facts: this RPC is gated on a
-	// verified cluster-CA client cert (requireClientCertInterceptor), and
-	// every member already shares the JWT signing secret — a malicious
-	// member could forge any identity by minting a JWT directly, so
-	// stripping these headers would buy no security while collapsing every
-	// cross-node forwarded action to "admin" in the audit log. Do NOT add
-	// them to this skip list. (See cluster/CLAUDE.md "Header copy".)
+	// attribution. Trust here rests on two facts: on a manager this RPC is
+	// open only to managers (a verified cluster-CA client cert, then
+	// authorizeCaller's callerManager policy), and every manager already
+	// shares the JWT signing secret — a malicious manager could forge any
+	// identity by minting a JWT directly, so stripping these headers would
+	// buy no security while collapsing every cross-node forwarded action to
+	// "admin" in the audit log. Do NOT add them to this skip list. (See
+	// cluster/CLAUDE.md "Header copy".) On an agent, a request gets here only
+	// once its caller is verified as one of the agent's managers
+	// (AgentGRPCServer.authorize), each of which holds the agent's key and
+	// could sign any request to it under any name.
 	for k, v := range req.Headers {
 		switch http.CanonicalHeaderKey(k) {
 		case "Authorization", "X-Sfpanel-Internal-Proxy",
@@ -582,19 +597,19 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 
 	// Execute locally (reuse connection pool). Long-running paths get the
 	// 5-minute client so the loopback hop doesn't cap below the gRPC budget.
-	client, err := s.localClient(requiresLongLocalTimeout(req.Path))
+	client, err := clients.get(local, requiresLongLocalTimeout(req.Path))
 	if err != nil {
 		return &pb.APIResponse{
 			StatusCode: 500,
 			Body:       proxyErrorBody("PROXY_ERROR", "local client: "+err.Error()),
-		}, nil
+		}
 	}
 	httpResp, err := client.Do(httpReq)
 	if err != nil {
 		return &pb.APIResponse{
 			StatusCode: 502,
 			Body:       proxyErrorBody("PROXY_ERROR", err.Error()),
-		}, nil
+		}
 	}
 	defer httpResp.Body.Close()
 
@@ -603,7 +618,7 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 		return &pb.APIResponse{
 			StatusCode: 500,
 			Body:       proxyErrorBody("PROXY_ERROR", "failed to read response"),
-		}, nil
+		}
 	}
 
 	// The whole body ships in one unary APIResponse, which gRPC caps at its
@@ -616,7 +631,7 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 		return &pb.APIResponse{
 			StatusCode: 502,
 			Body:       proxyErrorBody("PROXY_RESPONSE_TOO_LARGE", "response too large for the cross-node unary proxy; route it through the streaming relay"),
-		}, nil
+		}
 	}
 
 	// Collect response headers
@@ -631,7 +646,7 @@ func (s *GRPCServer) ProxyRequest(ctx context.Context, req *pb.APIRequest) (*pb.
 		StatusCode: int32(httpResp.StatusCode),
 		Body:       respBody,
 		Headers:    respHeaders,
-	}, nil
+	}
 }
 
 // GetMetrics returns current node metrics.

@@ -99,6 +99,18 @@ func DialNodePinned(address string, caPublicKey []byte) (*GRPCClient, error) {
 	return &GRPCClient{conn: conn, client: pb.NewClusterServiceClient(conn)}, nil
 }
 
+// DialPinnedLeader connects to the leader over a connection verified against
+// the CA fingerprint pin, in any form NormalizeCAPin accepts (see
+// dialPinnedLeader). An agent joins with it: until the leader answers, the
+// pin is all the agent knows of the cluster.
+func DialPinnedLeader(leaderAddr, pin string) (*GRPCClient, error) {
+	pin, err := NormalizeCAPin(pin)
+	if err != nil {
+		return nil, err
+	}
+	return dialPinnedLeader(leaderAddr, pin)
+}
+
 // Join sends a join request to the leader.
 func (c *GRPCClient) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -111,6 +123,28 @@ func (c *GRPCClient) PreFlight(ctx context.Context, token string) (*pb.PreFlight
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return c.client.PreFlight(ctx, &pb.PreFlightRequest{Token: token})
+}
+
+// RegisterAgent sends an agent's registration to the leader.
+func (c *GRPCClient) RegisterAgent(ctx context.Context, req *pb.RegisterAgentRequest) (*pb.RegisterAgentResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return c.client.RegisterAgent(ctx, req)
+}
+
+// ReportPanelCA sends this node's panel CA to the leader.
+func (c *GRPCClient) ReportPanelCA(ctx context.Context, req *pb.ReportPanelCARequest) (*pb.ReportPanelCAResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return c.client.ReportPanelCA(ctx, req)
+}
+
+// OpenHeartbeat opens a heartbeat stream, which lasts until ctx ends or the
+// stream fails. Its pongs must be read: unread, they fill the stream's
+// flow-control window and both ends wedge (see the drain goroutine in
+// StartLocalMetrics).
+func (c *GRPCClient) OpenHeartbeat(ctx context.Context) (pb.ClusterService_HeartbeatClient, error) {
+	return c.client.Heartbeat(ctx)
 }
 
 // ProxyRequest forwards an API request to the remote node.
