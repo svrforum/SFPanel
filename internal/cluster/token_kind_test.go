@@ -121,6 +121,32 @@ func TestRestoreSurvivesCleanup(t *testing.T) {
 	}
 }
 
+// Join is open to callers without a certificate. Without a valid manager
+// token they must not get as far as the barrier, a Raft entry every voter
+// writes — the order RegisterAgent already keeps.
+func TestJoinWithoutATokenWritesNothingToRaft(t *testing.T) {
+	mgr, _, _, _ := realLeader(t)
+	agentTok, err := mgr.CreateJoinToken(time.Hour, KindAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, token string
+		want        error
+	}{
+		{"no such token", "not-a-token", ErrTokenNotFound},
+		{"an agent token", agentTok.Token, ErrTokenKind},
+	} {
+		before := mgr.raft.raft.LastIndex()
+		if _, _, _, _, err := mgr.HandleJoin("new-node", "n", "127.0.0.1:1", "127.0.0.1:2", c.token); !errors.Is(err, c.want) {
+			t.Fatalf("%s: got %v, want %v", c.name, err, c.want)
+		}
+		if after := mgr.raft.raft.LastIndex(); after != before {
+			t.Fatalf("%s: a join without a manager token wrote to the Raft log: index %d → %d", c.name, before, after)
+		}
+	}
+}
+
 // A join refused for a duplicate ID or a full cluster used to burn the token.
 func TestJoinRefusalLeavesTheTokenUsable(t *testing.T) {
 	mgr, _, token, _ := realLeader(t)

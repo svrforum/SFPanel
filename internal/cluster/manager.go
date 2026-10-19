@@ -526,23 +526,25 @@ func (m *Manager) HandleJoin(nodeID, nodeName, apiAddr, grpcAddr, token string) 
 		return nil, nil, nil, nil, ErrNotLeader
 	}
 
-	// Barrier: confirm we still have quorum before issuing certs and
-	// committing config changes. Without this, a stale-leader call to
-	// HandleJoin during a partition would issue a cert that the rejoining
-	// majority's leader has no record of.
-	if err := m.raft.Barrier(2 * time.Second); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("leader barrier failed: %w", err)
-	}
-
 	// Every refusal comes before the token is spent. Consuming it first meant
 	// a join refused for a full cluster or a taken ID burned the token, and
-	// the operator had to mint a new one to retry.
+	// the operator had to mint a new one to retry. The token is also checked
+	// before the barrier: Join is open to callers without a certificate, and
+	// a barrier is a Raft entry every voter writes.
 	jt, err := m.tokens.Peek(token)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 	if jt.EffectiveKind() != KindManager {
 		return nil, nil, nil, nil, ErrTokenKind
+	}
+
+	// Barrier: confirm we still have quorum before issuing certs and
+	// committing config changes. Without this, a stale-leader call to
+	// HandleJoin during a partition would issue a cert that the rejoining
+	// majority's leader has no record of.
+	if err := m.raft.Barrier(2 * time.Second); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("leader barrier failed: %w", err)
 	}
 
 	state := m.raft.GetFSM().GetState()
