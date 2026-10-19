@@ -31,6 +31,7 @@ import (
 	"github.com/svrforum/SFPanel/internal/config"
 	sfdb "github.com/svrforum/SFPanel/internal/db"
 	"github.com/svrforum/SFPanel/internal/release"
+	"gopkg.in/yaml.v3"
 )
 
 // updateMu serialises in-process update operations. Two simultaneous
@@ -183,6 +184,10 @@ type Handler struct {
 	// `for n in nodes; ssh $n sudo sfpanel update`-style fan-out can't
 	// inadvertently take every voter down at once.
 	ClusterMgr *cluster.Manager
+	// AgentMode is set on an agent (cluster.role: agent). A restore there
+	// keeps the agent's own cluster block and JWT key, whatever the archive
+	// carries (keepLiveClusterBlock).
+	AgentMode bool
 }
 
 type GitHubRelease struct {
@@ -205,7 +210,6 @@ type UpdateCheckResponse struct {
 	CompareError string `json:"compare_error,omitempty"`
 }
 
-// CheckUpdate queries GitHub releases API and returns version comparison.
 // validateStagedConfig checks a config.yaml from a restore archive the way
 // the loader would, before it is moved over the live one.
 //
@@ -217,6 +221,47 @@ func validateStagedConfig(path string) error {
 	return config.CheckFile(path)
 }
 
+// keepLiveClusterBlock is the config.yaml an agent restores: the archive's
+// (staged) settings, but the agent's own (live) cluster block and JWT key — an
+// archive from a manager or a standalone panel would otherwise turn this agent
+// back into one, or hand it a cluster JWT key. The archive is read over the
+// live config, not over an empty one, because the struct is written back
+// whole: a field the archive leaves out would come out as an explicit empty
+// value, database.path: "" (Load refuses it) or docker.socket: "" (no Docker).
+// Written from the struct, the result keeps no YAML merge key or alias that
+// could reach past the swap.
+func keepLiveClusterBlock(staged, live []byte) ([]byte, error) {
+	var cfg config.Config
+	if err := yaml.Unmarshal(live, &cfg); err != nil {
+		return nil, fmt.Errorf("this agent's config.yaml is not valid YAML: %w", err)
+	}
+	cluster, jwtSecret := cfg.Cluster, cfg.Auth.JWTSecret
+	if err := yaml.Unmarshal(staged, &cfg); err != nil {
+		return nil, fmt.Errorf("the archive's config.yaml is not valid YAML: %w", err)
+	}
+	cfg.Cluster, cfg.Auth.JWTSecret = cluster, jwtSecret
+	return yaml.Marshal(&cfg)
+}
+
+// keepLiveClusterBlockAt rewrites the staged config.yaml at stagedPath with
+// keepLiveClusterBlock against the live one at livePath.
+func keepLiveClusterBlockAt(stagedPath, livePath string) error {
+	live, err := os.ReadFile(livePath)
+	if err != nil {
+		return fmt.Errorf("this agent's config.yaml is unreadable: %w", err)
+	}
+	staged, err := os.ReadFile(stagedPath)
+	if err != nil {
+		return fmt.Errorf("the archive's config.yaml is unreadable: %w", err)
+	}
+	merged, err := keepLiveClusterBlock(staged, live)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(stagedPath, merged, 0o600)
+}
+
+// CheckUpdate queries GitHub releases API and returns version comparison.
 func (h *Handler) CheckUpdate(c echo.Context) error {
 	client := &http.Client{Timeout: 15 * time.Second}
 	req, reqErr := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, releaseAPIURL, nil)
@@ -1232,6 +1277,17 @@ func (h *Handler) restoreFrom(c echo.Context, src io.Reader) error {
 	}
 
 	if cfgEntry, ok := stagedByName["config.yaml"]; ok {
+		// An agent keeps its own cluster block and JWT key; merged before the
+		// check below, so what is checked is what gets installed.
+		if h.AgentMode {
+			if err := keepLiveClusterBlockAt(cfgEntry.path, h.ConfigPath); err != nil {
+				if bakData, bakErr := os.ReadFile(h.DBPath + ".bak"); bakErr == nil {
+					_ = os.WriteFile(h.DBPath, bakData, 0o600)
+				}
+				return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed,
+					"Refusing to restore: this agent's cluster settings cannot be kept — "+err.Error())
+			}
+		}
 		// Read it before trusting it. This file decides the port the panel
 		// listens on, the secret it signs tokens with and where its database
 		// lives, and it was moved into place with nothing but a Chmod — so an

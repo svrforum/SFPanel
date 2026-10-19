@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -70,11 +71,17 @@ func healthHandler(db *sql.DB, version string) echo.HandlerFunc {
 //
 // auditWriter is the shared *db.AsyncWriter used by the audit middleware and
 // auth security-events to serialise INSERTs onto one background drain.
-func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *featureAlert.Manager, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc, dockerConn *docker.Lazy) (*echo.Echo, func()) {
+//
+// An agent (cluster.role: agent) serves the node routes only, to requests one
+// of its managers signed with the agent's key, from loopback and the addresses
+// agentSources allows (nil: loopback alone). It has no login, accounts,
+// cluster management or SPA: operators reach it through a manager.
+func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *featureAlert.Manager, cfg *config.Config, webFS embed.FS, version string, clusterMgr *cluster.Manager, cfgPath string, liveActivate cluster.LiveActivateFunc, dockerConn *docker.Lazy, agentSources func(net.IP) bool) (*echo.Echo, func()) {
 	// Every signer and verifier reads the token key from auth.JWTSecret at the
 	// moment of use, so a cluster join can swap it without a restart. Seed it
 	// here, where all of them are wired.
 	auth.SetJWTSecret(cfg.Auth.JWTSecret)
+	agent := cfg.Cluster.IsAgent()
 
 	e := echo.New()
 	e.HideBanner = true
@@ -144,6 +151,11 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		MinLength: 1024,
 	}))
 	e.Use(mw.RequestLogger())
+	// After the logger, so a manager refused for its address shows up, and
+	// before CORS, which answers every OPTIONS itself.
+	if agent {
+		e.Use(mw.AgentSourceCheck(agentSources))
+	}
 	corsOrigins := []string{
 		"http://localhost:5173",
 		"tauri://localhost",
@@ -176,6 +188,7 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 		TLSManaged: cfg.Server.TLS.Managed(),
 		Cmd:        cmd,
 		ClusterMgr: clusterMgr,
+		AgentMode:  agent,
 	}
 
 	// Docker is connected whenever it is there: at boot if it already is, and
@@ -207,53 +220,74 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 
 	// Public routes
 	v1.GET("/health", healthHandler(database, version))
-	v1.POST("/auth/login", authHandler.Login)
-	v1.GET("/auth/setup-status", authHandler.GetSetupStatus)
-	v1.POST("/auth/setup", authHandler.SetupAdmin)
-	// Refresh is public (consumed by clients holding a refresh token, not
-	// an access JWT). The token itself is the credential; auth is the
-	// presence of a matching DB row.
-	v1.POST("/auth/refresh", authHandler.Refresh)
+	// An agent has no accounts to log in to: its managers authenticate the
+	// operator and sign each request with the agent's key.
+	if !agent {
+		v1.POST("/auth/login", authHandler.Login)
+		v1.GET("/auth/setup-status", authHandler.GetSetupStatus)
+		v1.POST("/auth/setup", authHandler.SetupAdmin)
+		// Refresh is public (consumed by clients holding a refresh token, not
+		// an access JWT). The token itself is the credential; auth is the
+		// presence of a matching DB row.
+		v1.POST("/auth/refresh", authHandler.Refresh)
+	}
 
 	// Cluster handler — created here so it can be referenced by the proxy
 	// middleware's getter below. Route registration happens further down.
-	clusterHandler := &featureCluster.Handler{
-		Manager:      clusterMgr,
-		Config:       cfg,
-		ConfigPath:   cfgPath,
-		DB:           database,
-		LiveActivate: liveActivate,
-		OnManagerActivated: func(m *cluster.Manager) {
-			authHandler.SetClusterMgr(m)
-			composeHandler.SetClusterMgr(m)
-		},
+	// An agent has none: it is outside Raft, and getMgr returns nil there,
+	// which also keeps every WebSocket below on this node.
+	getMgr := func() *cluster.Manager { return nil }
+	var clusterHandler *featureCluster.Handler
+	if !agent {
+		clusterHandler = &featureCluster.Handler{
+			Manager:      clusterMgr,
+			Config:       cfg,
+			ConfigPath:   cfgPath,
+			DB:           database,
+			LiveActivate: liveActivate,
+			OnManagerActivated: func(m *cluster.Manager) {
+				authHandler.SetClusterMgr(m)
+				composeHandler.SetClusterMgr(m)
+			},
+		}
+		// Boot path wires Manager via the struct literal above, bypassing
+		// setManager — so register the manager-dependent callbacks (disband
+		// self-clean) explicitly. Without this a node that booted into an existing
+		// cluster never honors a replicated CmdDisband. The FSM's replay-index
+		// guard makes this safe even though it runs after Raft replay has begun.
+		clusterHandler.ActivateBootManager()
+		getMgr = clusterHandler.GetManager
 	}
-	// Boot path wires Manager via the struct literal above, bypassing
-	// setManager — so register the manager-dependent callbacks (disband
-	// self-clean) explicitly. Without this a node that booted into an existing
-	// cluster never honors a replicated CmdDisband. The FSM's replay-index
-	// guard makes this safe even though it runs after Raft replay has begun.
-	clusterHandler.ActivateBootManager()
 
 	// Protected routes
 	authorized := v1.Group("")
-	authorized.Use(mw.JWTMiddleware(auth.JWTSecret))
-	authorized.Use(mw.CSRFProtect())
-	// Resolve the cluster manager dynamically so init-at-runtime becomes
-	// effective without a service restart. The clusterHandler keeps the
-	// authoritative live pointer; we route all middleware reads through it.
-	authorized.Use(mw.ClusterProxyMiddleware(func() *cluster.Manager {
-		return clusterHandler.GetManager()
-	}))
-	// Resolve the local node ID lazily so a node that joined a cluster mid-
-	// process (after the middleware chain was built) starts stamping
-	// audit rows correctly without a restart. Mirrors the same dynamic-
-	// resolution pattern as ClusterProxyMiddleware above.
-	localNodeIDFn := func() string {
-		if m := clusterHandler.GetManager(); m != nil {
-			return m.LocalNodeID()
+	var localNodeIDFn func() string
+	if agent {
+		// The signature is all there is. No JWT: an agent has no accounts and
+		// holds no cluster JWT key. No CSRF: no cookie authenticates anything
+		// here. No ClusterProxy: it forwards nowhere.
+		authorized.Use(mw.InternalProxyOnly())
+		// The ID the leader gave it at registration; no manager to ask.
+		localNodeIDFn = func() string { return cfg.Cluster.NodeID }
+	} else {
+		authorized.Use(mw.JWTMiddleware(auth.JWTSecret))
+		authorized.Use(mw.CSRFProtect())
+		// Resolve the cluster manager dynamically so init-at-runtime becomes
+		// effective without a service restart. The clusterHandler keeps the
+		// authoritative live pointer; we route all middleware reads through it.
+		authorized.Use(mw.ClusterProxyMiddleware(func() *cluster.Manager {
+			return clusterHandler.GetManager()
+		}))
+		// Resolve the local node ID lazily so a node that joined a cluster mid-
+		// process (after the middleware chain was built) starts stamping
+		// audit rows correctly without a restart. Mirrors the same dynamic-
+		// resolution pattern as ClusterProxyMiddleware above.
+		localNodeIDFn = func() string {
+			if m := clusterHandler.GetManager(); m != nil {
+				return m.LocalNodeID()
+			}
+			return ""
 		}
-		return ""
 	}
 	authorized.Use(mw.AuditMiddleware(auditWriter, localNodeIDFn))
 	// Settings
@@ -261,15 +295,17 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	authorized.GET("/settings", settingsHandler.GetSettings)
 	authorized.PUT("/settings", settingsHandler.UpdateSettings)
 
-	authorized.GET("/auth/2fa/status", authHandler.Get2FAStatus)
-	authorized.POST("/auth/2fa/setup", authHandler.Setup2FA)
-	authorized.POST("/auth/2fa/verify", authHandler.Verify2FA)
-	authorized.DELETE("/auth/2fa", authHandler.Disable2FA)
-	authorized.POST("/auth/2fa/recovery", authHandler.RegenerateRecoveryCodes)
-	authorized.GET("/auth/2fa/recovery/status", authHandler.GetRecoveryStatus)
-	authorized.POST("/auth/change-password", authHandler.ChangePassword)
-	authorized.POST("/auth/ws-ticket", authHandler.MintWSTicket)
-	authorized.POST("/auth/logout", authHandler.Logout)
+	if !agent {
+		authorized.GET("/auth/2fa/status", authHandler.Get2FAStatus)
+		authorized.POST("/auth/2fa/setup", authHandler.Setup2FA)
+		authorized.POST("/auth/2fa/verify", authHandler.Verify2FA)
+		authorized.DELETE("/auth/2fa", authHandler.Disable2FA)
+		authorized.POST("/auth/2fa/recovery", authHandler.RegenerateRecoveryCodes)
+		authorized.GET("/auth/2fa/recovery/status", authHandler.GetRecoveryStatus)
+		authorized.POST("/auth/change-password", authHandler.ChangePassword)
+		authorized.POST("/auth/ws-ticket", authHandler.MintWSTicket)
+		authorized.POST("/auth/logout", authHandler.Logout)
+	}
 	authorized.GET("/system/info", dashboardHandler.GetSystemInfo)
 	authorized.GET("/system/metrics-history", dashboardHandler.GetMetricsHistory)
 	authorized.GET("/system/overview", dashboardHandler.GetOverview)
@@ -316,26 +352,28 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 
 	// Cluster management (handler already created above so the proxy
 	// middleware can reference it for dynamic manager resolution)
-	clusterGroup := authorized.Group("/cluster")
-	clusterGroup.GET("/status", clusterHandler.GetStatus)
-	clusterGroup.GET("/overview", clusterHandler.GetOverview)
-	clusterGroup.GET("/nodes", clusterHandler.GetNodes)
-	clusterGroup.POST("/token", clusterHandler.CreateToken)
-	clusterGroup.GET("/tokens", clusterHandler.ListTokens)
-	clusterGroup.DELETE("/tokens/:id", clusterHandler.RevokeToken)
-	clusterGroup.DELETE("/nodes/:id", clusterHandler.RemoveNode)
-	clusterGroup.PATCH("/nodes/:id/labels", clusterHandler.UpdateNodeLabels)
-	clusterGroup.PUT("/name", clusterHandler.RenameCluster)
-	clusterGroup.PATCH("/nodes/:id/address", clusterHandler.UpdateNodeAddress)
-	clusterGroup.POST("/panel-ca", clusterHandler.PublishPanelCA)
-	clusterGroup.GET("/events", clusterHandler.GetEvents)
-	clusterGroup.POST("/leader-transfer", clusterHandler.TransferLeadership)
-	clusterGroup.POST("/init", clusterHandler.InitCluster)
-	clusterGroup.POST("/join", clusterHandler.JoinCluster)
-	clusterGroup.POST("/leave", clusterHandler.LeaveCluster)
-	clusterGroup.POST("/disband", clusterHandler.DisbandCluster)
-	clusterGroup.GET("/interfaces", clusterHandler.GetNetworkInterfaces)
-	clusterGroup.POST("/update", clusterHandler.ClusterUpdate)
+	if !agent {
+		clusterGroup := authorized.Group("/cluster")
+		clusterGroup.GET("/status", clusterHandler.GetStatus)
+		clusterGroup.GET("/overview", clusterHandler.GetOverview)
+		clusterGroup.GET("/nodes", clusterHandler.GetNodes)
+		clusterGroup.POST("/token", clusterHandler.CreateToken)
+		clusterGroup.GET("/tokens", clusterHandler.ListTokens)
+		clusterGroup.DELETE("/tokens/:id", clusterHandler.RevokeToken)
+		clusterGroup.DELETE("/nodes/:id", clusterHandler.RemoveNode)
+		clusterGroup.PATCH("/nodes/:id/labels", clusterHandler.UpdateNodeLabels)
+		clusterGroup.PUT("/name", clusterHandler.RenameCluster)
+		clusterGroup.PATCH("/nodes/:id/address", clusterHandler.UpdateNodeAddress)
+		clusterGroup.POST("/panel-ca", clusterHandler.PublishPanelCA)
+		clusterGroup.GET("/events", clusterHandler.GetEvents)
+		clusterGroup.POST("/leader-transfer", clusterHandler.TransferLeadership)
+		clusterGroup.POST("/init", clusterHandler.InitCluster)
+		clusterGroup.POST("/join", clusterHandler.JoinCluster)
+		clusterGroup.POST("/leave", clusterHandler.LeaveCluster)
+		clusterGroup.POST("/disband", clusterHandler.DisbandCluster)
+		clusterGroup.GET("/interfaces", clusterHandler.GetNetworkInterfaces)
+		clusterGroup.POST("/update", clusterHandler.ClusterUpdate)
+	}
 
 	// Terminal: list the caller's live PTY sessions so the UI can reattach to a
 	// preserved shell (scrollback included) instead of always opening a new one.
@@ -679,7 +717,9 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	// Docker Compose
 	compose := dk.Group("/compose")
 	compose.GET("", composeHandler.ListProjectsWithStatus)
-	compose.GET("/cluster-stacks", composeHandler.ClusterStacks) // cluster-wide aggregation (static before :project)
+	if !agent {
+		compose.GET("/cluster-stacks", composeHandler.ClusterStacks) // cluster-wide aggregation (static before :project)
+	}
 	compose.POST("", composeHandler.CreateProject)
 	compose.GET("/:project", composeHandler.GetProject)
 	compose.PUT("/:project", composeHandler.UpdateProject)
@@ -689,8 +729,12 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	compose.POST("/:project/healthcheck/:service/test", composeHandler.TestHealthcheck)
 	compose.POST("/import", composeHandler.ImportFromGit)
 	compose.POST("/migrate-import", composeHandler.MigrateImport)
-	compose.POST("/:project/migrate/preflight", composeHandler.MigratePreflight)
-	compose.POST("/:project/migrate", composeHandler.Migrate)
+	// An agent can receive a stack but not send one: the source side needs
+	// this node's cluster manager, which an agent does not run.
+	if !agent {
+		compose.POST("/:project/migrate/preflight", composeHandler.MigratePreflight)
+		compose.POST("/:project/migrate", composeHandler.Migrate)
+	}
 	compose.GET("/migrate/target-info", composeHandler.MigrateTargetInfo)
 	compose.DELETE("/:project", composeHandler.DeleteProject)
 	compose.POST("/:project/up", composeHandler.ProjectUp)
@@ -714,22 +758,27 @@ func NewRouter(database *sql.DB, auditWriter *sfdb.AsyncWriter, alertManager *fe
 	// Docker WebSocket routes (auth via query param token, cluster relay support).
 	// Use a dynamic getter so runtime cluster init takes effect without a
 	// process restart — see the same pattern on ClusterProxyMiddleware above.
-	e.GET("/ws/docker/containers/:id/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ContainerLogsWS(dockerConn.Client, auth.JWTSecret)))
-	e.GET("/ws/docker/containers/:id/exec", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ContainerExecWS(dockerConn.Client, auth.JWTSecret, auditWriter, localNodeIDFn)))
-	e.GET("/ws/docker/compose/:project/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.ComposeLogsWS(composeManager, auth.JWTSecret)))
+	e.GET("/ws/docker/containers/:id/logs", cluster.WrapEchoWSHandler(getMgr, featureWS.ContainerLogsWS(dockerConn.Client, auth.JWTSecret)))
+	e.GET("/ws/docker/containers/:id/exec", cluster.WrapEchoWSHandler(getMgr, featureWS.ContainerExecWS(dockerConn.Client, auth.JWTSecret, auditWriter, localNodeIDFn)))
+	e.GET("/ws/docker/compose/:project/logs", cluster.WrapEchoWSHandler(getMgr, featureWS.ComposeLogsWS(composeManager, auth.JWTSecret)))
 
 	// WebSocket routes (auth via query param token, cluster relay support)
-	e.GET("/ws/metrics", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureWS.MetricsWS(auth.JWTSecret)))
+	e.GET("/ws/metrics", cluster.WrapEchoWSHandler(getMgr, featureWS.MetricsWS(auth.JWTSecret)))
 	// Cluster overview push: one shared sampler per node fans the combined
 	// status+overview+events snapshot out to all dashboards, replacing the
 	// per-tab 15s HTTP triple-poll. Served from the local FSM (no leader RPC).
-	e.GET("/ws/cluster/overview", featureWS.ClusterOverviewWS(clusterHandler.GetManager, auth.JWTSecret))
-	e.GET("/ws/logs", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureLogs.LogStreamWS(auth.JWTSecret, database)))
-	e.GET("/ws/terminal", cluster.WrapEchoWSHandler(clusterHandler.GetManager, featureTerminal.TerminalWS(auth.JWTSecret, auditWriter, localNodeIDFn)))
-	e.GET("/ws/ai/attach", cluster.WrapEchoWSHandler(clusterHandler.GetManager, aiHandler.AttachWS(auth.JWTSecret, auditWriter, localNodeIDFn)))
+	if !agent {
+		e.GET("/ws/cluster/overview", featureWS.ClusterOverviewWS(clusterHandler.GetManager, auth.JWTSecret))
+	}
+	e.GET("/ws/logs", cluster.WrapEchoWSHandler(getMgr, featureLogs.LogStreamWS(auth.JWTSecret, database)))
+	e.GET("/ws/terminal", cluster.WrapEchoWSHandler(getMgr, featureTerminal.TerminalWS(auth.JWTSecret, auditWriter, localNodeIDFn)))
+	e.GET("/ws/ai/attach", cluster.WrapEchoWSHandler(getMgr, aiHandler.AttachWS(auth.JWTSecret, auditWriter, localNodeIDFn)))
 
-	// SPA static file serving — catch-all AFTER all API and WS routes
-	e.GET("/*", spaHandler(webFS))
+	// SPA static file serving — catch-all AFTER all API and WS routes. An
+	// agent serves no UI; its pages are a manager's, with ?node= set to it.
+	if !agent {
+		e.GET("/*", spaHandler(webFS))
+	}
 
 	return e, noopCleanup
 }
