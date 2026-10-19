@@ -48,38 +48,57 @@ const proxyClockSkew = 30 * time.Second
 const nonceCacheTTL = 2 * proxyClockSkew
 
 var (
-	clusterProxySecret   string
-	clusterProxySecretMu sync.RWMutex
+	// proxySignSecret signs outbound internal requests; proxyAcceptSecrets
+	// are every secret an inbound header may be signed with. Two while the
+	// cluster moves off the CA-derived secret (cluster.Manager.ApplyProxySecrets),
+	// one otherwise, none when not clustered.
+	proxySignSecret    string
+	proxyAcceptSecrets []string
+	proxySecretsMu     sync.RWMutex
 
 	nonceCache   = make(map[string]time.Time)
 	nonceCacheMu sync.Mutex
 )
 
-// SetClusterProxySecret configures the secret used to validate internal
-// proxy requests. Called at startup (and again when a node joins a cluster
-// mid-process).
-func SetClusterProxySecret(secret string) {
-	clusterProxySecretMu.Lock()
-	clusterProxySecret = secret
-	clusterProxySecretMu.Unlock()
+// SetProxySecrets installs the signing secret and the accepted ones.
+func SetProxySecrets(sign string, accept []string) {
+	proxySecretsMu.Lock()
+	proxySignSecret = sign
+	proxyAcceptSecrets = append([]string(nil), accept...)
+	proxySecretsMu.Unlock()
 }
 
-// ClusterProxySecret returns the current secret. Primarily useful for the
-// JWT middleware, which has its own mutex-snapshot pattern.
+// SetClusterProxySecret installs one secret for both directions; "" turns
+// internal proxy authentication off. Called at startup (and again when a
+// node joins a cluster mid-process).
+func SetClusterProxySecret(secret string) {
+	var accept []string
+	if secret != "" {
+		accept = []string{secret}
+	}
+	SetProxySecrets(secret, accept)
+}
+
+// ClusterProxySecret returns the signing secret, "" when not clustered.
+// Primarily useful for the JWT middleware, which has its own mutex-snapshot
+// pattern.
 func ClusterProxySecret() string {
-	clusterProxySecretMu.RLock()
-	defer clusterProxySecretMu.RUnlock()
-	return clusterProxySecret
+	proxySecretsMu.RLock()
+	defer proxySecretsMu.RUnlock()
+	return proxySignSecret
 }
 
 // IsInternalProxyRequest reports whether the request carries a valid internal
 // proxy header — the replay-resistant v2 HMAC only. The legacy v1
 // static-secret path was retired in two steps (send dropped in v0.56.0,
 // receive dropped in v0.57.0); peers older than v0.56.0 can no longer relay
-// to this node and must be upgraded locally first.
+// to this node and must be upgraded locally first. Any accepted secret may
+// have signed the header (SetProxySecrets).
 func IsInternalProxyRequest(r *http.Request) bool {
-	secret := ClusterProxySecret()
-	if secret == "" {
+	proxySecretsMu.RLock()
+	accept := proxyAcceptSecrets
+	proxySecretsMu.RUnlock()
+	if len(accept) == 0 {
 		return false
 	}
 
@@ -93,7 +112,14 @@ func IsInternalProxyRequest(r *http.Request) bool {
 	// middleware to 401 the request because the proxy bypass never
 	// activated.
 	if v2 := r.Header.Get(InternalProxyHeaderV2); v2 != "" {
-		return validateV2(secret, v2, r.Method, r.URL.RequestURI())
+		// validateV2 records the nonce only after the MAC matched, so trying
+		// a wrong secret first leaves the nonce free for the right one.
+		for _, secret := range accept {
+			if secret != "" && validateV2(secret, v2, r.Method, r.URL.RequestURI()) {
+				return true
+			}
+		}
+		return false
 	}
 
 	// The legacy v1 static-secret header is no longer accepted: senders went

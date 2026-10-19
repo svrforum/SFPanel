@@ -1,7 +1,12 @@
 package auth
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -165,5 +170,49 @@ func TestIsInternalProxyRequest_RepeatedCallsWithinRequest(t *testing.T) {
 	}
 	if !IsInternalProxyRequest(req) {
 		t.Errorf("second call returned false — same-request re-check by JWT+CSRF would fail (regression)")
+	}
+}
+
+func signWith(t *testing.T, secret, method, path string) string {
+	t.Helper()
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		t.Fatal(err)
+	}
+	nonce := hex.EncodeToString(nonceBytes)
+	ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(ts + ":" + nonce + ":" + method + ":" + path))
+	return ts + ":" + nonce + ":" + hex.EncodeToString(mac.Sum(nil))
+}
+
+// While the cluster moves off the CA-derived secret, a node accepts both
+// and signs with one.
+func TestInternalProxyAcceptsEverySecretItWasGiven(t *testing.T) {
+	SetProxySecrets("new", []string{"new", "old"})
+	t.Cleanup(func() { SetClusterProxySecret("") })
+	for _, secret := range []string{"new", "old"} {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/system/info", nil)
+		r.Header.Set(InternalProxyHeaderV2, signWith(t, secret, http.MethodGet, "/api/v1/system/info"))
+		if !IsInternalProxyRequest(r) {
+			t.Errorf("header signed with %q refused", secret)
+		}
+	}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/system/info", nil)
+	r.Header.Set(InternalProxyHeaderV2, signWith(t, "stranger", http.MethodGet, "/api/v1/system/info"))
+	if IsInternalProxyRequest(r) {
+		t.Error("header signed with an unknown secret accepted")
+	}
+}
+
+func TestSignProxyRequestUsesTheSigningSecret(t *testing.T) {
+	SetProxySecrets("new", []string{"new", "old"})
+	t.Cleanup(func() { SetClusterProxySecret("") })
+	header := SignProxyRequestV2(http.MethodGet, "/x")
+	SetProxySecrets("old", []string{"old"})
+	r := httptest.NewRequest(http.MethodGet, "/x", nil)
+	r.Header.Set(InternalProxyHeaderV2, header)
+	if IsInternalProxyRequest(r) {
+		t.Fatal("signed with a secret other than the signing one")
 	}
 }
