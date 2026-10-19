@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -198,29 +199,7 @@ func main() {
 		}
 
 		// Start metrics collection
-		mgr.StartLocalMetrics(func() (float64, float64, float64, int) {
-			m, mErr := monitor.GetCoreMetrics()
-			if mErr != nil {
-				return 0, 0, 0, 0
-			}
-			diskPercent := 0.0
-			if d, dErr := monitor.GetDiskPercent(); dErr == nil {
-				diskPercent = d
-			}
-			containers := 0
-			if metricsDocker := dockerConn.Client(); metricsDocker != nil {
-				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				if list, lErr := metricsDocker.ListContainers(ctx); lErr == nil {
-					for _, c := range list {
-						if c.State == "running" {
-							containers++
-						}
-					}
-				}
-				cancel()
-			}
-			return m.CPU, m.MemPercent, diskPercent, containers
-		})
+		mgr.StartLocalMetrics(localMetricsCollector(dockerConn))
 
 		// Start gRPC server
 		grpcServer, grpcErr := cluster.NewGRPCServer(mgr, activeCfg.Server.Port, selfPanel(activeCfg))
@@ -256,9 +235,9 @@ func main() {
 		// certificate is read fresh on each tick, so a re-issue (address
 		// change, renewal) propagates without a restart.
 		if activeCfg.Server.TLS.Enabled && activeCfg.Server.TLS.Managed() {
-			tlsDir := activeCfg.Server.TLS.Dir
+			readCA := panelCAReader(activeCfg)
 			mgr.StartPanelCAPublisher(bgCtx, func() (string, error) {
-				pem, err := paneltls.New(tlsDir).CACertPEM()
+				pem, err := readCA()
 				return string(pem), err
 			})
 		}
@@ -266,9 +245,24 @@ func main() {
 		return mgr, nil
 	})
 
-	// Start cluster manager if enabled
+	// Start the cluster side of this node's role: an agent's runtime, or the
+	// cluster manager when the cluster is enabled.
 	var clusterMgr *cluster.Manager
-	if cfg.Cluster.Enabled {
+	var agentRT *agentRuntime
+	switch {
+	case cfg.Cluster.IsAgent():
+		rt, err := startAgent(cfg, version, localMetricsCollector(dockerConn), panelCAReader(cfg))
+		if err != nil {
+			// Unlike a manager, never standalone: that panel opens a login
+			// and a setup screen on a server whose operators sign in on its
+			// managers.
+			slog.Error("agent start failed", "component", "agent", "error", err)
+			os.Exit(1)
+		}
+		defer rt.Stop()
+		agentRT = rt
+		slog.Info("agent mode active", "component", "agent", "node_id", cfg.Cluster.NodeID)
+	case cfg.Cluster.Enabled:
 		var err error
 		clusterMgr, err = liveActivate(cfg, cfgPath, nil)
 		if err != nil {
@@ -329,10 +323,13 @@ func main() {
 	// In single-node mode (clusterMgr==nil) every rule applies. nil is a
 	// valid NodeIdentity here because the interface is satisfied implicitly
 	// only when the underlying *cluster.Manager is non-nil; passing a typed
-	// nil would defeat the interface-nil check, so guard explicitly.
+	// nil would defeat the interface-nil check, so guard explicitly. An agent
+	// has no manager; its node ID is fixed in its config.
 	var alertIdentity featureAlert.NodeIdentity
 	if clusterMgr != nil {
 		alertIdentity = clusterMgr
+	} else if agentRT != nil {
+		alertIdentity = staticNodeIdentity(cfg.Cluster.NodeID)
 	}
 	alertManager := featureAlert.NewManagerWithIdentity(database, alertIdentity)
 	// safe.Go (not bare go) so a panic in rule evaluation — e.g. a malformed
@@ -374,15 +371,24 @@ func main() {
 	// Start background update checker (polls GitHub every hour).
 	// In cluster mode only the leader polls so an N-node cluster doesn't
 	// fan out N concurrent requests against api.github.com on every tick;
-	// standalone deployments (nil manager) check unconditionally.
+	// standalone deployments (nil manager) check unconditionally. An agent
+	// never polls: it is never the leader, and a hundred of them would be a
+	// hundred requests an hour.
 	var isLeaderFn func() bool
 	if clusterMgr != nil {
 		mgr := clusterMgr
 		isLeaderFn = func() bool { return mgr.IsLeader() }
+	} else if agentRT != nil {
+		isLeaderFn = func() bool { return false }
 	}
 	monitor.StartUpdateChecker(version, isLeaderFn)
 
-	e, routerCleanup := api.NewRouter(database, auditWriter, alertManager, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate, dockerConn, nil)
+	// An agent's panel answers loopback and the addresses AllowsSource names.
+	var agentSources func(net.IP) bool
+	if agentRT != nil {
+		agentSources = agentRT.AllowsSource
+	}
+	e, routerCleanup := api.NewRouter(database, auditWriter, alertManager, cfg, sfpanel.WebDistFS, version, clusterMgr, cfgPath, liveActivate, dockerConn, agentSources)
 	e.Logger.SetOutput(log.Writer())
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -397,21 +403,35 @@ func main() {
 	if certFile != "" {
 		scheme = "https"
 	}
-	slog.Info("server listening", "addr", addr, "scheme", scheme)
-
-	// Start server in goroutine
-	go func() {
-		var err error
-		if certFile != "" {
-			err = e.StartTLS(addr, certFile, keyFile)
-		} else {
-			err = e.Start(addr)
-		}
-		if err != nil && err != http.ErrServerClosed {
-			slog.Error("server failed", "error", err)
+	if agentRT != nil {
+		// Not Echo's Start: an agent serves e on two listeners of e.Server
+		// (servePanel), so Handler and ErrorLog are set here as Start would
+		// set them. shutdownServer closes both.
+		e.Server.Handler, e.Server.ErrorLog = e, e.StdLogger
+		if err := agentRT.servePanel(e.Server, cfg, certFile, keyFile); err != nil {
+			slog.Error("server failed", "component", "agent", "error", err)
 			os.Exit(1)
 		}
-	}()
+		// Only now: the link must not learn of a removal before the hook
+		// that closes the listeners is set.
+		agentRT.StartLink(bgCtx)
+	} else {
+		slog.Info("server listening", "addr", addr, "scheme", scheme)
+
+		// Start server in goroutine
+		go func() {
+			var err error
+			if certFile != "" {
+				err = e.StartTLS(addr, certFile, keyFile)
+			} else {
+				err = e.Start(addr)
+			}
+			if err != nil && err != http.ErrServerClosed {
+				slog.Error("server failed", "error", err)
+				os.Exit(1)
+			}
+		}()
+	}
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
@@ -883,6 +903,55 @@ func parseObservabilityRetention(s string) (time.Duration, error) {
 		return 90 * 24 * time.Hour, nil
 	}
 	return 24 * time.Hour, nil
+}
+
+// localMetricsCollector reads the figures a node's heartbeat carries: a
+// manager's to the leader (StartLocalMetrics), an agent's on its link.
+func localMetricsCollector(dockerConn *docker.Lazy) func() (cpu, mem, disk float64, containers int) {
+	return func() (float64, float64, float64, int) {
+		m, mErr := monitor.GetCoreMetrics()
+		if mErr != nil {
+			return 0, 0, 0, 0
+		}
+		diskPercent := 0.0
+		if d, dErr := monitor.GetDiskPercent(); dErr == nil {
+			diskPercent = d
+		}
+		containers := 0
+		if metricsDocker := dockerConn.Client(); metricsDocker != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			if list, lErr := metricsDocker.ListContainers(ctx); lErr == nil {
+				for _, c := range list {
+					if c.State == "running" {
+						containers++
+					}
+				}
+			}
+			cancel()
+		}
+		return m.CPU, m.MemPercent, diskPercent, containers
+	}
+}
+
+// panelCAReader reads the CA behind the panel's certificate — the managed CA,
+// or the operator's ca_file — afresh on each call: a manager's publisher polls
+// it, so a re-issue spreads without a restart, and an agent's link reports it
+// at boot. nil when there is none to read: plain HTTP, or an operator
+// certificate with no ca_file.
+func panelCAReader(cfg *config.Config) func() ([]byte, error) {
+	tlsCfg := cfg.Server.TLS
+	switch {
+	case !tlsCfg.Enabled:
+		return nil
+	case tlsCfg.Managed():
+		dir := tlsCfg.Dir
+		return func() ([]byte, error) { return paneltls.New(dir).CACertPEM() }
+	case tlsCfg.CAFile != "":
+		path := tlsCfg.CAFile
+		return func() ([]byte, error) { return os.ReadFile(path) }
+	default:
+		return nil
+	}
 }
 
 // shutdownServer stops e. Its Shutdown ends the event streams first (see
