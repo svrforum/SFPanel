@@ -80,8 +80,10 @@ func loadConfig(t *testing.T, data []byte) *config.Config {
 }
 
 // keepLiveClusterBlock is the archive's settings, with the agent's cluster
-// block and JWT key whatever the archive carries, in a file the agent boots
-// from.
+// block, JWT key, panel port and panel TLS whatever the archive carries, in a
+// file the agent boots from. The managers know the agent by its port and its
+// panel's CA: an archive's would leave every stream to it refused while its
+// gRPC side, and so its status, looked fine.
 func TestKeepLiveClusterBlock(t *testing.T) {
 	live := loadConfig(t, []byte(agentLiveConfig))
 	cases := map[string]struct {
@@ -91,8 +93,16 @@ func TestKeepLiveClusterBlock(t *testing.T) {
 		"a manager's archive": {
 			staged: managerArchiveConfig,
 			check: func(t *testing.T, got *config.Config) {
-				if got.Server.Port != 4000 || got.Log.Level != "debug" {
-					t.Errorf("port %d, log level %q: want the archive's 4000 and debug", got.Server.Port, got.Log.Level)
+				if got.Server.Port != 3628 || got.Log.Level != "debug" {
+					t.Errorf("port %d, log level %q: want the agent's 3628 and the archive's debug", got.Server.Port, got.Log.Level)
+				}
+			},
+		},
+		"an archive serving plain HTTP on another port": {
+			staged: "server:\n  port: 8080\n  tls:\n    enabled: false\n",
+			check: func(t *testing.T, got *config.Config) {
+				if got.Server.Port != 3628 || !got.Server.TLS.Enabled || got.Server.TLS.Dir != "/etc/sfpanel/tls" {
+					t.Errorf("port %d, tls %+v: want the agent's own", got.Server.Port, got.Server.TLS)
 				}
 			},
 		},
@@ -155,8 +165,21 @@ func TestKeepLiveClusterBlock(t *testing.T) {
 	}
 }
 
-// The restore itself: an agent restoring a manager's backup is still the same
-// agent afterwards, and still holds no cluster JWT key.
+// standaloneArchiveConfig is a standalone panel's config.yaml as a backup
+// carries it: its own key, plain HTTP on a port of its own.
+const standaloneArchiveConfig = `server:
+  port: 4000
+database:
+  path: /var/lib/sfpanel/sfpanel.db
+auth:
+  jwt_secret: standalone0standalone0standalone0standalone0standalone0standalone
+log:
+  level: debug
+`
+
+// The restore itself: an agent restoring a standalone panel's backup is still
+// the same agent afterwards, on the port and TLS its managers know, and holds
+// no key but its own.
 func TestAgentRestoreKeepsItsClusterBlock(t *testing.T) {
 	withRestartFlushDelay(t, time.Millisecond)
 	h, _ := restoreHandler(t)
@@ -166,7 +189,7 @@ func TestAgentRestoreKeepsItsClusterBlock(t *testing.T) {
 	}
 	archive := buildTarGz(t, []tarEntry{
 		{name: "sfpanel.db", typeflag: tar.TypeReg, body: validSQLiteDBBytes(t)},
-		{name: "config.yaml", typeflag: tar.TypeReg, body: []byte(managerArchiveConfig)},
+		{name: "config.yaml", typeflag: tar.TypeReg, body: []byte(standaloneArchiveConfig)},
 	})
 	if rec := runRestore(t, h, archive); rec.Code != http.StatusOK {
 		t.Fatalf("restore: %d %s", rec.Code, rec.Body)
@@ -179,7 +202,53 @@ func TestAgentRestoreKeepsItsClusterBlock(t *testing.T) {
 	if !reflect.DeepEqual(got.Cluster, live.Cluster) || got.Auth.JWTSecret != live.Auth.JWTSecret {
 		t.Fatalf("restored config is not this agent's:\n%s", data)
 	}
-	if got.Server.Port != 4000 {
-		t.Errorf("port %d, want the archive's 4000", got.Server.Port)
+	if got.Server.Port != 3628 || !got.Server.TLS.Enabled || got.Log.Level != "debug" {
+		t.Errorf("port %d, tls %v, log level %q: want the agent's 3628 and TLS, the archive's debug", got.Server.Port, got.Server.TLS.Enabled, got.Log.Level)
+	}
+}
+
+// A manager's backup holds the cluster's admin account and JWT key. An agent
+// must hold neither, so it refuses the archive before touching anything.
+func TestAgentRefusesAManagersBackup(t *testing.T) {
+	h, _ := restoreHandler(t)
+	h.AgentMode = true
+	if err := os.WriteFile(h.ConfigPath, []byte(agentLiveConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	archive := buildTarGz(t, []tarEntry{
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: validSQLiteDBBytes(t)},
+		{name: "config.yaml", typeflag: tar.TypeReg, body: []byte(managerArchiveConfig)},
+	})
+	rec := runRestore(t, h, archive)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "a cluster manager's") {
+		t.Fatalf("restore: %d %s", rec.Code, rec.Body)
+	}
+	assertUntouched(t, h, agentLiveConfig)
+}
+
+// An agent's config would boot a manager or a standalone panel as that agent,
+// which needs a key only that agent has: the panel would exit at every start.
+func TestManagerRefusesAnAgentsBackup(t *testing.T) {
+	h, _ := restoreHandler(t)
+	archive := buildTarGz(t, []tarEntry{
+		{name: "sfpanel.db", typeflag: tar.TypeReg, body: validSQLiteDBBytes(t)},
+		{name: "config.yaml", typeflag: tar.TypeReg, body: []byte(agentLiveConfig)},
+	})
+	rec := runRestore(t, h, archive)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "an agent's") {
+		t.Fatalf("restore: %d %s", rec.Code, rec.Body)
+	}
+	assertUntouched(t, h, "old: config\n")
+}
+
+// assertUntouched checks that a refused restore left the live files as
+// restoreHandler seeded them.
+func assertUntouched(t *testing.T, h *Handler, wantConfig string) {
+	t.Helper()
+	if db, _ := os.ReadFile(h.DBPath); string(db) != "old-db" {
+		t.Errorf("the database was replaced: %q", db)
+	}
+	if cfg, _ := os.ReadFile(h.ConfigPath); string(cfg) != wantConfig {
+		t.Errorf("the config was replaced:\n%s", cfg)
 	}
 }

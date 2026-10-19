@@ -295,6 +295,21 @@ run on an agent, and its certificate lasts five years like a manager's.
 An agent cannot take itself out of the cluster: a reset on its own leaves its
 record on the managers, and the command says how to remove it.
 
+### Backups and agents
+
+Restoring a backup on an agent (`POST /api/v1/system/restore?node=<agent-id>`)
+takes the archive's settings but keeps the agent's own cluster block, JWT
+key, panel port and panel TLS: the managers know it by that port and that
+panel's CA. Two archives are refused before anything is touched:
+
+- a cluster manager's backup on an agent — it holds the cluster's admin
+  account and JWT key, which an agent must not hold;
+- an agent's backup on a manager or a standalone panel — it would start that
+  server as the agent, which needs keys only the agent has.
+
+The upload itself reaches the agent before it is refused, so select the
+node with care: a manager's backup carries the cluster's JWT key.
+
 ### Why an agent's panel serves HTTPS
 
 Managers relay event streams, file transfers and WebSockets to the agent's

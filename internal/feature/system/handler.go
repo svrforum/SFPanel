@@ -185,8 +185,10 @@ type Handler struct {
 	// inadvertently take every voter down at once.
 	ClusterMgr *cluster.Manager
 	// AgentMode is set on an agent (cluster.role: agent). A restore there
-	// keeps the agent's own cluster block and JWT key, whatever the archive
-	// carries (keepLiveClusterBlock).
+	// keeps the agent's own cluster block, JWT key, panel port and TLS,
+	// whatever the archive carries (keepLiveClusterBlock), and refuses a
+	// manager's archive; elsewhere an agent's archive is refused
+	// (archiveRoleRefusal).
 	AgentMode bool
 }
 
@@ -222,25 +224,52 @@ func validateStagedConfig(path string) error {
 }
 
 // keepLiveClusterBlock is the config.yaml an agent restores: the archive's
-// (staged) settings, but the agent's own (live) cluster block and JWT key — an
-// archive from a manager or a standalone panel would otherwise turn this agent
-// back into one, or hand it a cluster JWT key. The archive is read over the
-// live config, not over an empty one, because the struct is written back
-// whole: a field the archive leaves out would come out as an explicit empty
-// value, database.path: "" (Load refuses it) or docker.socket: "" (no Docker).
-// Written from the struct, the result keeps no YAML merge key or alias that
-// could reach past the swap.
+// (staged) settings, but the agent's own (live) cluster block, JWT key, panel
+// port and panel TLS. An archive from a standalone panel would otherwise turn
+// this agent back into one, and its port or TLS would leave every stream the
+// managers relay to the agent refused — they know it by its port and its
+// panel's CA — while its gRPC side, and so its status, still looked fine. The
+// archive is read over the live config, not over an empty one, because the
+// struct is written back whole: a field the archive leaves out would come out
+// as an explicit empty value, database.path: "" (Load refuses it) or
+// docker.socket: "" (no Docker). Written from the struct, the result keeps no
+// YAML merge key or alias that could reach past the swap.
 func keepLiveClusterBlock(staged, live []byte) ([]byte, error) {
 	var cfg config.Config
 	if err := yaml.Unmarshal(live, &cfg); err != nil {
 		return nil, fmt.Errorf("this agent's config.yaml is not valid YAML: %w", err)
 	}
-	cluster, jwtSecret := cfg.Cluster, cfg.Auth.JWTSecret
+	cluster, jwtSecret, port, tls := cfg.Cluster, cfg.Auth.JWTSecret, cfg.Server.Port, cfg.Server.TLS
 	if err := yaml.Unmarshal(staged, &cfg); err != nil {
 		return nil, fmt.Errorf("the archive's config.yaml is not valid YAML: %w", err)
 	}
-	cfg.Cluster, cfg.Auth.JWTSecret = cluster, jwtSecret
+	cfg.Cluster, cfg.Auth.JWTSecret, cfg.Server.Port, cfg.Server.TLS = cluster, jwtSecret, port, tls
 	return yaml.Marshal(&cfg)
+}
+
+// archiveRoleRefusal says why this node must not restore an archive whose
+// config.yaml is staged at path, or "" when it may. A manager's archive holds
+// the cluster's admin account and JWT key, which an agent must not hold; an
+// agent's would boot a manager or standalone panel as that agent, which needs
+// a key only that agent has, so the panel would exit at every start. An
+// unreadable file is left to validateStagedConfig, which says what is wrong
+// with it.
+func archiveRoleRefusal(path string, agentMode bool) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var cfg config.Config
+	if yaml.Unmarshal(data, &cfg) != nil {
+		return ""
+	}
+	switch {
+	case agentMode && cfg.Cluster.Enabled && !cfg.Cluster.IsAgent():
+		return "Refusing to restore: this backup is a cluster manager's. It holds the cluster's admin account and JWT key, which an agent must not hold — restore it on a manager"
+	case !agentMode && cfg.Cluster.IsAgent():
+		return "Refusing to restore: this backup is an agent's. Its settings would start this server as that agent, which needs keys only that agent has — restore it on that agent"
+	}
+	return ""
 }
 
 // keepLiveClusterBlockAt rewrites the staged config.yaml at stagedPath with
@@ -1230,6 +1259,13 @@ func (h *Handler) restoreFrom(c echo.Context, src io.Reader) error {
 			"component", "system", "error", err)
 		return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed,
 			"Backup database failed integrity check (quick_check)")
+	}
+
+	// A backup of another role is refused before any live file is touched.
+	if cfgEntry, ok := stagedByName["config.yaml"]; ok {
+		if msg := archiveRoleRefusal(cfgEntry.path, h.AgentMode); msg != "" {
+			return response.Fail(c, http.StatusBadRequest, response.ErrRestoreFailed, msg)
+		}
 	}
 
 	// Create backups of current files (copy via ReadFile is fine — these are
