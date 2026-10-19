@@ -753,9 +753,9 @@ func (h *Handler) RunUpdate(c echo.Context) error {
 
 // clusterUpdateQuorumGuard returns a structured 409 when running this update
 // would knock the cluster below Raft quorum. In standalone mode (no manager)
-// it's a no-op. The check counts only currently-online voters (heartbeat
-// status == StatusOnline); peers already offline are not eligible for the
-// survivor count, which matches Raft's own view.
+// it's a no-op. Survivors are the currently-online voters (heartbeat status
+// == StatusOnline) less this one; the quorum they must still make is a
+// majority of every voter, online or not, as Raft counts it.
 //
 // ?force=true bypasses for the operator who genuinely wants to update a
 // stranded node without waiting for the cluster to heal.
@@ -772,12 +772,19 @@ func (h *Handler) clusterUpdateQuorumGuard(c echo.Context) error {
 	}
 	local := h.ClusterMgr.LocalNodeID()
 	health := hb.CheckHealth()
-	// Total voters = this node + every other online manager voter. A node
-	// whose heartbeat says "offline" or "suspect" is treated as already
-	// down, so taking another voter offline must still leave a quorum among
-	// the survivors that Raft can see.
+	// A node whose heartbeat says "offline" or "suspect" is treated as
+	// already down, so taking another voter offline must still leave a
+	// quorum among the survivors that Raft can see.
 	onlineVoters := countOnlineManagerVoters(local, health, h.ClusterMgr.GetNode)
-	refuse, survivors, quorum := computeUpdateQuorum(onlineVoters)
+	// Only the leader hears every member's heartbeat; a follower's map holds
+	// itself (members ping the leader, not each other) and so cannot tell
+	// which voters are down. Until it can, a follower judges by the voters it
+	// sees, as it always has.
+	totalVoters := onlineVoters
+	if h.ClusterMgr.IsLeader() {
+		totalVoters = countManagerVoters(local, h.ClusterMgr.GetNodes())
+	}
+	refuse, survivors, quorum := computeUpdateQuorum(onlineVoters, totalVoters)
 	if !refuse {
 		return nil
 	}
@@ -785,11 +792,32 @@ func (h *Handler) clusterUpdateQuorumGuard(c echo.Context) error {
 		"component", "system",
 		"local", local,
 		"online_voters", onlineVoters,
+		"voters", totalVoters,
 		"survivors_if_we_leave", survivors,
 		"quorum", quorum,
 		"remote_ip", c.RealIP())
 	return response.Fail(c, http.StatusConflict, response.ErrUpdateInProgress,
-		fmt.Sprintf("Refusing update: %d/%d voters would remain online (quorum=%d). Use /cluster/update for a coordinated rolling update, or pass ?force=true to override.", survivors, onlineVoters, quorum))
+		fmt.Sprintf("Refusing update: %d of %d voters would remain online (quorum=%d). Use /cluster/update for a coordinated rolling update, or pass ?force=true to override.", survivors, totalVoters, quorum))
+}
+
+// countManagerVoters counts the manager voters the FSM lists — the set Raft
+// takes its majority from — this node among them even before it is listed.
+func countManagerVoters(local string, nodes []*cluster.Node) int {
+	count, listed := 0, false
+	for _, n := range nodes {
+		if n.ID == local {
+			listed = true
+			count++
+			continue
+		}
+		if n.IsManager() && n.Role == cluster.RoleVoter {
+			count++
+		}
+	}
+	if !listed {
+		count++
+	}
+	return count
 }
 
 // countOnlineManagerVoters counts this node plus every other online manager
@@ -810,14 +838,16 @@ func countOnlineManagerVoters(local string, health map[string]cluster.NodeStatus
 
 // computeUpdateQuorum returns whether taking one more voter offline would
 // drop the cluster below Raft quorum, along with the survivor count and
-// quorum threshold for diagnostics. Pulled out as a pure helper so the
-// math gets unit coverage without instantiating a real cluster.Manager.
-func computeUpdateQuorum(onlineVoters int) (refuse bool, survivors, quorum int) {
-	if onlineVoters <= 1 {
+// quorum threshold for diagnostics. The quorum is a majority of every voter:
+// with five voters and two already down, quorum is three and one more update
+// leaves two. Pulled out as a pure helper so the math gets unit coverage
+// without instantiating a real cluster.Manager.
+func computeUpdateQuorum(onlineVoters, totalVoters int) (refuse bool, survivors, quorum int) {
+	if totalVoters <= 1 {
 		return false, 0, 0
 	}
-	survivors = onlineVoters - 1
-	quorum = onlineVoters/2 + 1
+	survivors = max(onlineVoters-1, 0)
+	quorum = totalVoters/2 + 1
 	return survivors < quorum, survivors, quorum
 }
 

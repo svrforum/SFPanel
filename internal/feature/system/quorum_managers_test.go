@@ -24,3 +24,22 @@ func TestCountOnlineManagerVoters(t *testing.T) {
 		t.Fatalf("online manager voters = %d, want 3", got)
 	}
 }
+
+// The quorum an update must keep is a majority of every manager voter,
+// online or not; agents and managers still joining are not among them.
+func TestCountManagerVoters(t *testing.T) {
+	nodes := []*cluster.Node{
+		{ID: "self", Role: cluster.RoleVoter, Kind: cluster.KindManager},
+		{ID: "m2", Role: cluster.RoleVoter, Kind: cluster.KindManager, Status: cluster.StatusOffline},
+		{ID: "m3", Role: cluster.RoleVoter}, // from before Kind existed
+		{ID: "a1", Kind: cluster.KindAgent},
+		{ID: "j1", Role: cluster.RoleNonVoter, Kind: cluster.KindManager},
+	}
+	if got := countManagerVoters("self", nodes); got != 3 {
+		t.Fatalf("manager voters = %d, want 3", got)
+	}
+	// This node counts even before the FSM lists it.
+	if got := countManagerVoters("self", nodes[1:]); got != 3 {
+		t.Fatalf("manager voters without self listed = %d, want 3", got)
+	}
+}
